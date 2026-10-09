@@ -102,7 +102,7 @@ public class AndroidNativePointerCaptureProvider extends AndroidPointerIconCaptu
         h.postDelayed(new Runnable() {
             @Override
             public void run() {
-                if (hasCaptureCompatibleInputDevice()) {
+                if (isCapturing && !isCursorVisible && targetView.hasWindowFocus() && hasCaptureCompatibleInputDevice()) {
                     targetView.requestPointerCapture();
                 }
             }

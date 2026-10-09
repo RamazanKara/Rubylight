@@ -225,6 +225,14 @@ public class PcView extends AppCompatActivity implements AdapterFragmentCallback
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
+        if (savedInstanceState != null && savedInstanceState.containsKey("exportComputerUuid")) {
+            exportComputer = new ComputerDetails();
+            exportComputer.uuid = savedInstanceState.getString("exportComputerUuid");
+            exportComputer.name = savedInstanceState.getString("exportComputerName");
+            String romsTree = savedInstanceState.getString("exportRomsTree");
+            exportRomsTree = romsTree != null ? Uri.parse(romsTree) : null;
+        }
+
         // Assume we're in the foreground when created to avoid a race
         // between binding to CMS and onResume()
         inForeground = true;
@@ -420,6 +428,16 @@ public class PcView extends AppCompatActivity implements AdapterFragmentCallback
             final String result = message;
             runOnUiThread(() -> Toast.makeText(PcView.this, result, Toast.LENGTH_LONG).show());
         }, "Frontend export").start();
+    }
+
+    @Override
+    protected void onSaveInstanceState(Bundle outState) {
+        super.onSaveInstanceState(outState);
+        if (exportComputer != null) {
+            outState.putString("exportComputerUuid", exportComputer.uuid);
+            outState.putString("exportComputerName", exportComputer.name);
+            outState.putString("exportRomsTree", exportRomsTree != null ? exportRomsTree.toString() : null);
+        }
     }
 
     @Override

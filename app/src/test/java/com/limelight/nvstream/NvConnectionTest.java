@@ -25,6 +25,14 @@ public class NvConnectionTest {
     }
 
     @Test
+    public void stoppedConnectionCannotSendInputIntoTheNextNativeSession() {
+        NvConnection connection = connection();
+        assertTrue(connection.canSendInput());
+        connection.stop();
+        assertFalse(connection.canSendInput());
+    }
+
+    @Test
     public void stoppingBeforeStartIsIdempotentAndDoesNotReleaseAnotherConnectionsPermit() throws Exception {
         java.util.concurrent.Semaphore semaphore = connectionSemaphore();
         assertTrue(semaphore.tryAcquire());

@@ -21,12 +21,12 @@ public class EvdevCaptureProvider extends InputCaptureProvider {
     private final EvdevListener listener;
     private final String libraryPath;
 
-    private boolean shutdown = false;
-    private InputStream evdevIn;
-    private OutputStream evdevOut;
-    private Process su;
-    private ServerSocket servSock;
-    private Socket evdevSock;
+    private volatile boolean shutdown = false;
+    private volatile InputStream evdevIn;
+    private volatile OutputStream evdevOut;
+    private volatile Process su;
+    private volatile ServerSocket servSock;
+    private volatile Socket evdevSock;
     private Activity activity;
     private boolean started = false;
 
@@ -44,6 +44,10 @@ public class EvdevCaptureProvider extends InputCaptureProvider {
             // Bind a local listening socket for evdevreader to connect to
             try {
                 servSock = new ServerSocket(0, 1);
+                if (shutdown) {
+                    servSock.close();
+                    return;
+                }
             } catch (IOException e) {
                 e.printStackTrace();
                 return;
@@ -57,6 +61,10 @@ public class EvdevCaptureProvider extends InputCaptureProvider {
                 // Launch evdev_reader directly via SU
                 try {
                     su = new ProcessBuilder("su", "-c", evdevReaderCmd).start();
+                    if (shutdown) {
+                        su.destroy();
+                        return;
+                    }
                 } catch (IOException e) {
                     reportDeviceNotRooted();
                     e.printStackTrace();
@@ -70,6 +78,10 @@ public class EvdevCaptureProvider extends InputCaptureProvider {
 
                 try {
                     su = builder.start();
+                    if (shutdown) {
+                        su.destroy();
+                        return;
+                    }
                 } catch (IOException e) {
                     reportDeviceNotRooted();
                     e.printStackTrace();
@@ -91,6 +103,10 @@ public class EvdevCaptureProvider extends InputCaptureProvider {
             LimeLog.info("Waiting for EvdevReader connection to port "+servSock.getLocalPort());
             try {
                 evdevSock = servSock.accept();
+                if (shutdown) {
+                    evdevSock.close();
+                    return;
+                }
                 evdevIn = evdevSock.getInputStream();
                 evdevOut = evdevSock.getOutputStream();
             } catch (IOException e) {

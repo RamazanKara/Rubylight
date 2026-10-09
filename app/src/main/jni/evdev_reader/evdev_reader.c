@@ -1,6 +1,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <stdatomic.h>
 
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -35,7 +36,7 @@ struct DeviceEntry {
 };
 
 static struct DeviceEntry *DeviceListHead;
-static int grabbing = 1;
+static atomic_int grabbing = 1;
 static pthread_mutex_t DeviceListLock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_mutex_t SocketSendLock = PTHREAD_MUTEX_INITIALIZER;
 static int sock;
@@ -245,6 +246,7 @@ static void startPollForDevice(char* deviceName) {
         close(fd);
         goto unlock;
     }
+    pthread_detach(currentEntry->thread);
 
     // Queue this onto the device list
     currentEntry->next = DeviceListHead;

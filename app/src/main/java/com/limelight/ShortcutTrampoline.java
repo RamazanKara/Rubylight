@@ -224,6 +224,7 @@ public class ShortcutTrampoline extends Activity {
                                         if (managerBinder != null) {
                                             managerBinder.stopPolling();
                                             unbindService(serviceConnection);
+                                            managerServiceBound = false;
                                             managerBinder = null;
                                         }
                                     }
@@ -296,7 +297,6 @@ public class ShortcutTrampoline extends Activity {
         super.onCreate(savedInstanceState);
 
         UiHelper.notifyNewRootView(this);
-        ComputerDatabaseManager dbManager = new ComputerDatabaseManager(this);
         ComputerDetails _computer = null;
 
         // ES-DE, Daijisho and other frontends hand us a game entry file instead of extras
@@ -324,7 +324,12 @@ public class ShortcutTrampoline extends Activity {
 
         if (uuidString == null || uuidString.isEmpty()) {
             // Use nameString to find the corresponding UUID
-            _computer = dbManager.getComputerByName(nameString);
+            ComputerDatabaseManager dbManager = new ComputerDatabaseManager(this);
+            try {
+                _computer = dbManager.getComputerByName(nameString);
+            } finally {
+                dbManager.close();
+            }
 
             if (_computer == null) {
                 Dialog.displayDialog(ShortcutTrampoline.this,

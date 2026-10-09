@@ -100,74 +100,72 @@ public class ComputerManagerService extends Service {
             return false;
         }
 
-        final int pollTriesBeforeOffline = details.state == ComputerDetails.State.UNKNOWN ?
-                INITIAL_POLL_TRIES : OFFLINE_POLL_TRIES;
-
-        activePolls.incrementAndGet();
-
-        // Poll the machine
         try {
-            if (!pollComputer(details)) {
-                if (!newPc && offlineCount < pollTriesBeforeOffline) {
-                    // Return without calling the listener
-                    releaseLocalDatabaseReference();
+            final int pollTriesBeforeOffline = details.state == ComputerDetails.State.UNKNOWN ?
+                    INITIAL_POLL_TRIES : OFFLINE_POLL_TRIES;
+
+            activePolls.incrementAndGet();
+
+            // Poll the machine
+            try {
+                if (!pollComputer(details)) {
+                    if (!newPc && offlineCount < pollTriesBeforeOffline) {
+                        // Return without calling the listener
+                        return false;
+                    }
+
+                    details.state = ComputerDetails.State.OFFLINE;
+                }
+            } finally {
+                activePolls.decrementAndGet();
+            }
+
+            // If it's online, update our persistent state
+            if (details.state == ComputerDetails.State.ONLINE) {
+                ComputerDetails existingComputer = dbManager.getComputerByUUID(details.uuid);
+
+                // Check if it's in the database because it could have been
+                // removed after this was issued
+                if (!newPc && existingComputer == null) {
+                    // It's gone
                     return false;
                 }
 
-                details.state = ComputerDetails.State.OFFLINE;
-            }
-        } catch (InterruptedException e) {
-            releaseLocalDatabaseReference();
-            throw e;
-        } finally {
-            activePolls.decrementAndGet();
-        }
-
-        // If it's online, update our persistent state
-        if (details.state == ComputerDetails.State.ONLINE) {
-            ComputerDetails existingComputer = dbManager.getComputerByUUID(details.uuid);
-
-            // Check if it's in the database because it could have been
-            // removed after this was issued
-            if (!newPc && existingComputer == null) {
-                // It's gone
-                releaseLocalDatabaseReference();
-                return false;
-            }
-
-            // If we already have an entry for this computer in the DB, we must
-            // combine the existing data with this new data (which may be partially available
-            // due to detecting the PC via mDNS) without the saved external address. If we
-            // write to the DB without doing this first, we can overwrite our existing data.
-            if (existingComputer != null) {
-                existingComputer.update(details);
-                dbManager.updateComputer(existingComputer);
-            }
-            else {
-                try {
-                    // If the active address is a site-local address (RFC 1918),
-                    // then use STUN to populate the external address field if
-                    // it's not set already.
-                    if (details.remoteAddress == null) {
-                        InetAddress addr = InetAddress.getByName(details.activeAddress.address);
-                        if (addr.isSiteLocalAddress()) {
-                            populateExternalAddress(details);
+                // If we already have an entry for this computer in the DB, we must
+                // combine the existing data with this new data (which may be partially available
+                // due to detecting the PC via mDNS) without the saved external address. If we
+                // write to the DB without doing this first, we can overwrite our existing data.
+                if (existingComputer != null) {
+                    existingComputer.update(details);
+                    dbManager.updateComputer(existingComputer);
+                }
+                else {
+                    try {
+                        // If the active address is a site-local address (RFC 1918),
+                        // then use STUN to populate the external address field if
+                        // it's not set already.
+                        if (details.remoteAddress == null) {
+                            InetAddress addr = InetAddress.getByName(details.activeAddress.address);
+                            if (addr.isSiteLocalAddress()) {
+                                populateExternalAddress(details);
+                            }
                         }
-                    }
-                } catch (UnknownHostException ignored) {}
+                    } catch (UnknownHostException ignored) {}
 
-                dbManager.updateComputer(details);
+                    dbManager.updateComputer(details);
+                }
             }
-        }
 
-        // Don't call the listener if this is a failed lookup of a new PC
-        ComputerManagerListener currentListener = listener;
-        if ((!newPc || details.state == ComputerDetails.State.ONLINE) && currentListener != null) {
-            currentListener.notifyComputerUpdated(details);
-        }
+            // Don't call the listener if this is a failed lookup of a new PC
+            ComputerManagerListener currentListener = listener;
+            if ((!newPc || details.state == ComputerDetails.State.ONLINE) && currentListener != null) {
+                currentListener.notifyComputerUpdated(details);
+            }
 
-        releaseLocalDatabaseReference();
-        return true;
+            return true;
+        } finally {
+            releaseLocalDatabaseReference();
+        }
     }
 
     private Thread createPollingThread(final PollingTuple tuple) {
@@ -523,28 +521,30 @@ public class ComputerManagerService extends Service {
             return;
         }
 
-        // Remove it from the database
-        dbManager.deleteComputer(computer);
+        try {
+            // Remove it from the database
+            dbManager.deleteComputer(computer);
 
-        synchronized (pollingTuples) {
-            // Remove the computer from the computer list
-            for (PollingTuple tuple : pollingTuples) {
-                if (tuple.computer.uuid.equals(computer.uuid)) {
-                    if (tuple.thread != null) {
-                        // Interrupt the thread on this entry
-                        tuple.thread.interrupt();
-                        tuple.thread = null;
+            synchronized (pollingTuples) {
+                // Remove the computer from the computer list
+                for (PollingTuple tuple : pollingTuples) {
+                    if (tuple.computer.uuid.equals(computer.uuid)) {
+                        if (tuple.thread != null) {
+                            // Interrupt the thread on this entry
+                            tuple.thread.interrupt();
+                            tuple.thread = null;
+                        }
+                        pollingTuples.remove(tuple);
+                        break;
                     }
-                    pollingTuples.remove(tuple);
-                    break;
                 }
             }
+        } finally {
+            releaseLocalDatabaseReference();
         }
-
-        releaseLocalDatabaseReference();
     }
 
-    private boolean getLocalDatabaseReference() {
+    private synchronized boolean getLocalDatabaseReference() {
         if (dbRefCount.get() == 0) {
             return false;
         }
@@ -553,7 +553,7 @@ public class ComputerManagerService extends Service {
         return true;
     }
 
-    private void releaseLocalDatabaseReference() {
+    private synchronized void releaseLocalDatabaseReference() {
         if (dbRefCount.decrementAndGet() == 0) {
             dbManager.close();
         }

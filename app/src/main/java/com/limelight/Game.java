@@ -1276,13 +1276,6 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             inputManager.unregisterInputDeviceListener(keyboardTranslator);
         }
 
-        if (lowLatencyWifiLock != null && lowLatencyWifiLock.isHeld()) {
-            lowLatencyWifiLock.release();
-        }
-        if (highPerfWifiLock != null && highPerfWifiLock.isHeld()) {
-            highPerfWifiLock.release();
-        }
-
         if (usbDriverServiceBound) {
             unbindService(usbDriverServiceConnection);
             usbDriverServiceBound = false;
@@ -1294,6 +1287,16 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         }
         LimeLog.info("Stream activity destroyed");
         super.onDestroy();
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        // singleTask can deliver a new shortcut launch to a stream still visible in PiP.
+        setInputGrabState(false);
+        stopConnection();
+        finish();
+        startActivity(new Intent(intent));
     }
 
     @Override
@@ -3108,6 +3111,13 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     }
 
     private void stopConnection() {
+        getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        if (lowLatencyWifiLock != null && lowLatencyWifiLock.isHeld()) {
+            lowLatencyWifiLock.release();
+        }
+        if (highPerfWifiLock != null && highPerfWifiLock.isHeld()) {
+            highPerfWifiLock.release();
+        }
         streamMenuAction = null;
         windowFocusActions.clear();
         getWindow().getDecorView().removeCallbacks(runWindowFocusActions);
@@ -3700,6 +3710,10 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
 
     @Override
     public void keyboardEvent(boolean buttonDown, short keyCode) {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            runOnUiThread(() -> keyboardEvent(buttonDown, keyCode));
+            return;
+        }
         short keyMap = keyboardTranslator.translate(keyCode, -1);
         if (keyMap != 0) {
             // handleSpecialKeys() takes the Android keycode

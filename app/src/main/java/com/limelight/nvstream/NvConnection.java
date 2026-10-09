@@ -666,7 +666,7 @@ public class NvConnection {
     }
 
     public boolean canSendInput() {
-        return !isMonkey && context.streamConfig.getApp().getRole() != NvApp.Role.REMOTE_MONITOR &&
+        return !stopRequested && !isMonkey && context.streamConfig.getApp().getRole() != NvApp.Role.REMOTE_MONITOR &&
                 hostDetails.hasPermission(ComputerDetails.PERMISSION_INPUT);
     }
 

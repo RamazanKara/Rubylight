@@ -167,7 +167,9 @@ int BridgeDrSubmitDecodeUnit(PDECODE_UNIT decodeUnit) {
     // Increase the size of our frame data buffer if our frame won't fit
     if ((*env)->GetArrayLength(env, DecodedFrameBuffer) < decodeUnit->fullLength) {
         (*env)->DeleteGlobalRef(env, DecodedFrameBuffer);
-        DecodedFrameBuffer = (*env)->NewGlobalRef(env, (*env)->NewByteArray(env, decodeUnit->fullLength));
+        jbyteArray frameBuffer = (*env)->NewByteArray(env, decodeUnit->fullLength);
+        DecodedFrameBuffer = (*env)->NewGlobalRef(env, frameBuffer);
+        (*env)->DeleteLocalRef(env, frameBuffer);
     }
 
     PLENTRY currentEntry;
@@ -366,6 +368,7 @@ void BridgeClSetHdrMode(bool enabled) {
     }
 
     (*env)->CallStaticVoidMethod(env, GlobalBridgeClass, BridgeClSetHdrModeMethod, enabled, hdrMetadataByteArray);
+    (*env)->DeleteLocalRef(env, hdrMetadataByteArray);
     if ((*env)->ExceptionCheck(env)) {
         // We will crash here
         (*JVM)->DetachCurrentThread(JVM);

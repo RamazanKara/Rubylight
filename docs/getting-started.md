@@ -8,12 +8,12 @@ Rubylight is a Windows x64 streaming host written in Rust, with a GPU path tuned
 
 ## Install or run portable
 
-Download the Windows package from [Rubylight Releases](https://github.com/RamazanKara/Rubylight/releases). For 2.0.1, choose:
+Download the Windows package from [Rubylight Releases](https://github.com/RamazanKara/Rubylight/releases). For 2.1.0, choose:
 
 | Package | How to start | Best fit |
 | --- | --- | --- |
-| `rubylight-setup-2.0.1.exe` | Run the installer, then open **Rubylight** from the Start menu. | Normal use, automatic service startup and virtual displays. |
-| `rubylight-2.0.1-windows-x64.zip` | Extract the whole ZIP and open **Start Rubylight.exe**. | Trying the host with a physical display. |
+| `rubylight-setup-2.1.0.exe` | Run the installer, then open **Rubylight** from the Start menu. | Normal use, automatic service startup and virtual displays. |
+| `rubylight-2.1.0-windows-x64.zip` | Extract the whole ZIP and open **Start Rubylight.exe**. | Trying the host with a physical display. |
 
 Releases up to 2.0.1 also list a `butterpollo-setup-<version>.exe`. It is the same file as `rubylight-setup-<version>.exe` under the name Rubylight had before; download either. Butterpollo and Rubylight are one product, so there is no separate Butterpollo download, and installing over a Butterpollo host keeps its settings, paired devices and apps.
 

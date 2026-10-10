@@ -151,8 +151,8 @@ jobs:
           mkdir out
           mv "build/butterpollo-setup-$VERSION.exe" "out/rubylight-setup-$VERSION.exe"
           # Hosts up to 2.0.1 only list a release that carries a butterpollo-named
-          # asset (maintenance.rs::compatible_release). 2.0.2 is the last release
-          # with this copy; 2.0.3 drops it, since 2.0.2 hosts accept the new names.
+          # asset (maintenance.rs::compatible_release). 2.1.0 is the last release
+          # with this copy; the next one drops it, since 2.1.0 hosts accept the new names.
           cp "out/rubylight-setup-$VERSION.exe" "out/butterpollo-setup-$VERSION.exe"
           mv build/butterpollo-rust-release.zip "out/rubylight-$VERSION-windows-x64.zip"
           (cd out && sha256sum * > SHA256SUMS)

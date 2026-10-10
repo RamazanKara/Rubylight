@@ -7,6 +7,13 @@
 //! and full-frame luminance, black level as mastering display minimum. A per-client
 //! HDR profile, or a peak brightness chosen for the device or app on the host,
 //! takes precedence: the user calibrated those for this client.
+//!
+//! The game renders for the host display's peak, not the client's. A client peak
+//! below that would describe pixels brighter than the metadata says they can be:
+//! the client then maps its peak 1:1 to its panel and clips everything above, so
+//! such a report keeps the display's metadata. Android's "desired" luminance is
+//! such a value on many phones (a Galaxy Z Fold 7 with a 2600-nit panel reports
+//! 400-450 nits, varying with the panel's state).
 use crate::{config::Config, hdr::Metadata, state::Client};
 use rubylight_protocol::control::DisplayCaps;
 
@@ -53,6 +60,8 @@ pub enum Applied {
     SdrStream,
     /// The client did not know its peak.
     UnknownPeak,
+    /// The client's peak is below the host display's, which the game renders for.
+    BelowDisplay,
     /// The host user chose this client's HDR luminance.
     HostOverride,
     /// Kept until the stream has checked for a host override.
@@ -65,6 +74,9 @@ impl Applied {
             Self::Metadata => "HDR metadata uses the client display",
             Self::SdrStream => "not applied: SDR stream",
             Self::UnknownPeak => "not applied: client peak unknown",
+            Self::BelowDisplay => {
+                "not applied: client peak below the host display's, which the game renders for"
+            }
             Self::HostOverride => "not applied: HDR profile or peak brightness set on the host",
             Self::Pending => "kept until the stream starts",
         }
@@ -95,6 +107,9 @@ pub struct HdrSource {
 
 impl HdrSource {
     /// How the client's luminance applies to a stream that is HDR or not.
+    /// Before the display's metadata is known a usable report reads as
+    /// [`Applied::Metadata`]; whether its peak is below the display's is decided
+    /// once the display's metadata arrives.
     pub fn applied(&self, hdr: bool) -> Option<Applied> {
         let caps = self.caps.as_ref()?;
         Some(if !hdr {
@@ -103,10 +118,17 @@ impl HdrSource {
             Applied::Pending
         } else if self.allowed == Some(false) {
             Applied::HostOverride
-        } else if caps.max_nits().is_none() {
-            Applied::UnknownPeak
+        } else if let Some(peak) = caps.max_nits() {
+            if self
+                .display
+                .is_some_and(|display| peak < u32::from(display.maximum_nits))
+            {
+                Applied::BelowDisplay
+            } else {
+                Applied::Metadata
+            }
         } else {
-            Applied::Metadata
+            Applied::UnknownPeak
         })
     }
 
@@ -252,13 +274,13 @@ mod tests {
         assert!(!again.changed);
         assert_eq!(again.metadata.unwrap().maximum_nits, 2600);
         let dimmer = DisplayCaps {
-            max_centinits: 80_000,
+            max_centinits: 120_000,
             max_average_centinits: 40_000,
             ..fold()
         };
         let update = source.on_payload(&dimmer.encode(), true).unwrap();
         assert!(update.changed);
-        assert_eq!(update.metadata.unwrap().maximum_nits, 800);
+        assert_eq!(update.metadata.unwrap().maximum_nits, 1200);
         // Short, unknown-version and implausible payloads change nothing.
         let mut wrong_version = fold().encode();
         wrong_version[0] = 9;
@@ -275,7 +297,64 @@ mod tests {
             assert_eq!(source.on_payload(payload, true), None);
         }
         assert_eq!(source.caps, Some(dimmer));
-        assert_eq!(source.effective(true).unwrap().maximum_nits, 800);
+        assert_eq!(source.effective(true).unwrap().maximum_nits, 1200);
+    }
+
+    #[test]
+    fn a_client_peak_below_the_display_keeps_the_display_metadata() {
+        // The game renders for the host display's 1000 nits. A Galaxy Z Fold 7 reports
+        // Android's desired luminance, 400 nits, for its 2600-nit panel: describing
+        // 400 nits would have the client clip everything the game draws above it.
+        let display = Metadata::display(1000., 0.01, 600.);
+        let android_desired = DisplayCaps {
+            hdr: true,
+            max_centinits: 40_000,
+            max_average_centinits: 40_000,
+            min_decimillinits: 5,
+        };
+        let mut source = HdrSource {
+            allowed: Some(true),
+            ..Default::default()
+        };
+        // Before the display's metadata is known there is nothing to compare with.
+        let early = source.on_payload(&android_desired.encode(), true).unwrap();
+        assert_eq!(early.applied, Applied::Metadata);
+        assert_eq!(early.metadata, None);
+        source.display = Some(display);
+        assert_eq!(source.applied(true), Some(Applied::BelowDisplay));
+        assert_eq!(source.effective(true), Some(display));
+        // A change to 450 nits is still below: the display's metadata again.
+        let update = source
+            .on_payload(
+                &DisplayCaps {
+                    max_centinits: 45_000,
+                    ..android_desired
+                }
+                .encode(),
+                true,
+            )
+            .unwrap();
+        assert!(update.changed);
+        assert_eq!(update.applied, Applied::BelowDisplay);
+        assert_eq!(update.metadata, Some(display));
+        // Equal to the display's peak, or above it, the client's values apply.
+        source.on_payload(
+            &DisplayCaps {
+                max_centinits: 100_000,
+                ..android_desired
+            }
+            .encode(),
+            true,
+        );
+        assert_eq!(source.applied(true), Some(Applied::Metadata));
+        assert_eq!(source.effective(true).unwrap().max_fall, 400);
+        source.on_payload(&fold().encode(), true);
+        assert_eq!(source.effective(true).unwrap().maximum_nits, 2600);
+        // An SDR stream, or a host override, still says so first.
+        source.on_payload(&android_desired.encode(), true);
+        assert_eq!(source.applied(false), Some(Applied::SdrStream));
+        source.allowed = Some(false);
+        assert_eq!(source.applied(true), Some(Applied::HostOverride));
     }
 
     #[test]

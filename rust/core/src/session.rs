@@ -259,7 +259,8 @@ mod tests {
             min_decimillinits: 5,
         }
         .encode();
-        let display = crate::hdr::Metadata::display(1000., 0.01, 600.);
+        // A 600-nit host display: the client's 800 nits are not below it.
+        let display = crate::hdr::Metadata::display(600., 0.01, 300.);
         let hdr = Negotiated {
             hdr: true,
             ..Default::default()
@@ -915,9 +916,24 @@ impl<P, A> Session<P, A> {
     /// display's, or with the client's display luminance when that applies.
     pub fn set_display_hdr_metadata(&self, display: crate::hdr::Metadata) -> crate::hdr::Metadata {
         let mut source = self.hdr_source.lock().unwrap();
+        let first = source.display.is_none();
         source.display = Some(display);
         let metadata = source.effective(self.config.hdr).unwrap_or(display);
         *self.hdr_metadata.write().unwrap() = Some(metadata);
+        // A report that came before the display's metadata is only now weighed
+        // against the display's peak; say what became of it.
+        if first && let Some(applied) = source.applied(self.config.hdr) {
+            let display_peak = display.maximum_nits;
+            tracing::info!(
+                client = %self.launch.client.name,
+                applied = applied.as_str(),
+                display_peak_nits = display_peak,
+                maximum_nits = metadata.maximum_nits,
+                max_cll = metadata.max_cll,
+                max_fall = metadata.max_fall,
+                "display caps"
+            );
+        }
         metadata
     }
     /// Whether the client's display luminance may replace the display's: not when

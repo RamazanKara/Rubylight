@@ -716,14 +716,12 @@ public class MediaCodecHelper {
     }
 
     public static boolean decoderSupportsRefFrameInvalidationAv1(MediaCodecInfo decoderInfo) {
-        // We'll use the same heuristics as HEVC for now
-        if (decoderSupportsAndroidRLowLatency(decoderInfo, "video/av01") ||
-                decoderSupportsKnownVendorLowLatencyOption(decoderInfo.getName())) {
-            LimeLog.info("Enabling AV1 RFI based on low latency option support");
-            return true;
-        }
-
-        return false;
+        // AV1 names its references explicitly (eight slots, no POC arithmetic and no
+        // reordering), so a frame predicted from an older slot is ordinary AV1 for every
+        // conforming decoder. The host answers with a 15-25 KB frame instead of a
+        // 100+ KB keyframe. Unlike H.264, there is no SPS patching to give up.
+        LimeLog.info("Enabling AV1 RFI for " + decoderInfo.getName());
+        return true;
     }
 
     public static boolean decoderIsWhitelistedForHevc(MediaCodecInfo decoderInfo) {

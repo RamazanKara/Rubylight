@@ -646,6 +646,8 @@ pub struct Session<P = (), A = ()> {
     pub invalidation: std::sync::Mutex<Option<(u64, u64)>>,
     pub recovery_wake: std::sync::Mutex<Option<Box<dyn Fn() + Send + Sync>>>,
     pub bitrate: AtomicU32,
+    /// Capture timing locked to the client's display, from its 0x5530 reports.
+    pub phase_sync: std::sync::Mutex<crate::phase_sync::PhaseSync>,
     pub stats: Stats,
     pub started: Instant,
     pub output: std::sync::RwLock<String>,
@@ -667,6 +669,7 @@ impl<P, A> Session<P, A> {
             invalidation: Default::default(),
             recovery_wake: Default::default(),
             bitrate: AtomicU32::new(bitrate),
+            phase_sync: Default::default(),
             stats: Stats::default(),
             started: Instant::now(),
             output: std::sync::RwLock::new(String::new()),

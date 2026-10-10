@@ -830,6 +830,49 @@ fn scheduler_overshoot_does_not_accumulate_or_allow_catch_up_submissions() {
     );
 }
 #[test]
+fn phase_locked_cadence_follows_the_client_period_and_falls_back_without_reports() {
+    use crate::phase_sync::PhaseSync;
+    use rubylight_protocol::phase_lock::{PhaseLock, Report};
+    // A fake clock: every instant is the start plus an exact offset.
+    let start = Instant::now();
+    let nominal = Duration::from_nanos(8_333_333); // the host's 120.00 Hz
+    let client_ns = 8_331_945u32; // a phone at 120.02 Hz
+    let at_margin = Report {
+        frames: 60,
+        period_ns: client_ns,
+        lead_ns: PhaseLock::DEFAULT_MARGIN_NS as i32,
+        spread_ns: 0,
+    }
+    .encode();
+    let mut sync = PhaseSync::default();
+    let mut cadence = Cadence::new(start, nominal, true);
+    let mut now = start;
+    for frame in 0..1200u32 {
+        // A report every 60 frames (about 500 ms) whose lead is already on target.
+        if frame % 60 == 0 {
+            assert!(sync.on_payload(now, &at_margin).is_some());
+        }
+        let due = cadence.deadline();
+        cadence.submitted_after(now, sync.next_interval(now, nominal));
+        if frame > 0 {
+            assert_eq!(cadence.deadline() - due, Duration::from_nanos(u64::from(client_ns)));
+        }
+        // Submitted a little after each slot; the overshoot must not accumulate.
+        now = cadence.deadline() + Duration::from_micros(300);
+    }
+    // Ten seconds at the client's rate: 1.67 ms of drift that the host's own period
+    // would have added to every frame's wait at the client.
+    let locked_span = cadence.deadline() - start;
+    assert_eq!(locked_span, Duration::from_nanos(u64::from(client_ns)) * 1200);
+    assert_eq!(nominal * 1200 - locked_span, Duration::from_nanos(1_388 * 1200));
+    // Reports stop: after the timeout the stream period applies again.
+    now = cadence.deadline() + PhaseSync::TIMEOUT;
+    cadence.submitted_after(now, sync.next_interval(now, nominal));
+    let due = cadence.deadline();
+    cadence.submitted_after(due, sync.next_interval(due, nominal));
+    assert_eq!(cadence.deadline() - due, nominal);
+}
+#[test]
 fn configured_wire_budget_deducts_fec_and_audio_after_warp_and_ceiling() {
     let mut stream = Negotiated {
         fps: 120,

@@ -4,7 +4,7 @@
 
 The Windows host, protocol implementation, native helpers, service and setup are written in Rust. The browser console is Svelte. The Rust executables do not link the previous C++ host; codec libraries, GPU SDKs and Windows drivers are external dependencies.
 
-The workspace version is **2.2.0**. This guide covers development and isolated validation. For what Rubylight does, see [Features](../docs/features.md); for measurements, [PERFORMANCE.md](PERFORMANCE.md).
+The workspace version is **2.2.1**. This guide covers development and isolated validation. For what Rubylight does, see [Features](../docs/features.md); for measurements, [PERFORMANCE.md](PERFORMANCE.md).
 
 ## Start streaming
 

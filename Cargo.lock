@@ -363,6 +363,7 @@ dependencies = [
  "rcgen",
  "regex",
  "rsa",
+ "rubylight-protocol",
  "serde",
  "serde_json",
  "sha2",
@@ -1982,6 +1983,11 @@ dependencies = [
  "subtle",
  "zeroize",
 ]
+
+[[package]]
+name = "rubylight-protocol"
+version = "0.1.0"
+source = "git+https://github.com/RamazanKara/rubylight-android?rev=2101288#210128800d097a207baaba932a84d59e72d2cbdd"
 
 [[package]]
 name = "rustc-hash"

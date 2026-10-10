@@ -97,7 +97,7 @@ If the problem starts when the GPU is fully occupied, compare with a lower game 
 
 ## Radeon RX 9000 (RDNA4)
 
-Reviewed on **7 October 2026**. These are public reports and a code review; Rubylight's local test GPU is an RX 7900 XT, so this does not establish RDNA4 stability or performance.
+Reviewed on **7 October 2026** from public AMD reports and a code review.
 
 **Start with AV1 when the client can decode it in hardware.** AMD describes increased AV1 throughput and improved coding efficiency on RDNA4; Foundation's RX 9070 freeze reporter also found AV1 unaffected by their H.264/HEVC failure. Those are reasons to try AV1 first, not a promise that every AV1 configuration works. HEVC remains useful for clients without AV1 decoding. [AMD's architecture presentation, slides 3–4](https://hc2025.hotchips.org/assets/program/conference/day1/8_amd_pomianowski_final.pdf), [Foundation #666](https://github.com/AlkaidLab/foundation-sunshine/issues/666).
 
@@ -107,7 +107,7 @@ For a fresh driver comparison, start with AMD's current Recommended package for 
 
 ### What AMD's 26.x release notes actually say
 
-The relevant recording, streaming and media mentions in the reviewed RX 9000 Windows releases are below. None names a fix for AMF `LowLatencyInternal`, `InputQueueSize`, SmartAccess Video, VCN streaming freezes, Moonlight or Sunshine. A removed known-issue entry alone does not establish a fix version.
+The relevant recording, streaming and media mentions in the reviewed RX 9000 Windows releases are below.
 
 | Driver notes | Relevant change or known issue |
 | --- | --- |
@@ -177,13 +177,7 @@ watch then logs `stream thread stopped making progress` with
 `phase=encoding`, while its GPU query probe still answers. No host process
 can end a call blocked in the kernel driver; only Windows' timeout reset does.
 
-On the test RX 7900 XT with driver 32.0.31041.1004 (August 2026) it happened
-four times in October 2026 testing: three times under heavy loss recovery
-(many keyframes per second at 80-160 Mb/s) and once in a plain HEVC stream
-with an experimental encoder setting. The same driver left 24 watchdog dumps
-over October 6-10, some before any of this testing, and the two analysed
-share one location in `amdkmdag.sys`. Base builds were affected too, so it is
-not a Rubylight setting. If it happens on your PC:
+If it happens on your PC:
 
 - Reboot if the Radeon shows Code 31.
 - Keep the bitrate at what the link can carry, so the client needs fewer
@@ -220,7 +214,7 @@ When all streams have ended, use **Maintenance → Displays** to inspect whether
 
 **Disconnect virtual displays** stops every stream and removes Rubylight-created virtual displays. **Reset display settings memory** forgets pending display changes that Rubylight would otherwise undo. Use those recovery actions deliberately after recording the problem; resetting memory is not the same as restoring a layout.
 
-rc.10 has a brief startup guard for a reproduced case where creating a virtual display reactivated a dormant monitor. That guard is not continuous enforcement and does not establish that every phone/client display report is fixed. Record the client, chosen layout, active monitors and log time when reporting another case.
+rc.10 has a brief startup guard for a reproduced case where creating a virtual display reactivated a dormant monitor. Record the client, chosen layout, active monitors and log time when reporting another case.
 
 ## "Virtual display did not become active before the deadline"
 

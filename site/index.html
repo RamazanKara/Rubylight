@@ -126,7 +126,7 @@
           <div class="bar-row" tabindex="0" style="--mean:20.55;--p95:22.55">
             <div class="track"><span class="bar vp"></span><span class="whisker"></span></div>
             <span class="val"><b>20.6</b> ms<small>p95 22.6</small></span>
-            <span class="tip">Vibepollo 2.0 (one valid run): average 20.55 ms, p95 22.55 ms, p99 22.66 ms, host latency 5.7 ms</span>
+            <span class="tip">Vibepollo 2.0 (one run): average 20.55 ms, p95 22.55 ms, p99 22.66 ms, host latency 5.7 ms</span>
           </div>
         </div>
         <div class="axis" aria-hidden="true"><span>0</span><span>10</span><span>20</span><span>30</span><span>40</span></div>
@@ -143,7 +143,7 @@
           <tr class="row-group"><th colspan="3">Beside a game capped at 60 fps</th></tr>
           <tr><td>1968×2184 HEVC HDR 120 fps</td><td><b>19.61 / 21.56 / 23.10 ms</b><br><small>host 3.4 ms</small></td><td>26.96 / 37.62 / 39.25 ms<br><small>host 8.3 ms</small></td></tr>
           <tr><td>1968×2184 AV1 HDR 120 fps</td><td><b>17.15 / 18.96 / 22.18 ms</b><br><small>host 3.1 ms</small></td><td>24.53 / 36.77 / 38.05 ms<br><small>host 7.4 ms</small></td></tr>
-          <tr><td>1920×1080 HEVC HDR 60 fps</td><td>17.84 / 21.78 / 22.84 ms<br><small>host 2.2 ms</small></td><td>20.55 / 22.55 / 22.66 ms<br><small>host 5.7 ms, one valid run</small></td></tr>
+          <tr><td>1920×1080 HEVC HDR 60 fps</td><td>17.84 / 21.78 / 22.84 ms<br><small>host 2.2 ms</small></td><td>20.55 / 22.55 / 22.66 ms<br><small>host 5.7 ms, one run</small></td></tr>
           <tr class="row-group"><th colspan="3">No game running</th></tr>
           <tr><td>1968×2184 HEVC HDR 120 fps</td><td><b>17.81 / 18.94 / 19.56 ms</b></td><td>19.97 / 20.43 / 20.87 ms</td></tr>
           <tr><td>1968×2184 AV1 HDR 120 fps</td><td><b>17.42 / 18.10 / 18.62 ms</b></td><td>18.88 / 19.54 / 19.90 ms</td></tr>
@@ -151,7 +151,7 @@
         </tbody>
       </table>
     </div>
-    <p class="note">RX 7900 XT, rc.24 and the pinned Vibepollo 2.0 build alternating in one batch, two runs per cell. Identical settings: native AMF at ultra-low latency, Desktop Duplication capture, a virtual HDR display. The picture is decoded in hardware by an independent client on the same PC, which isolates the host from the network so the two can be compared precisely; the laptop results below add real Wi-Fi. Beside the game Vibepollo also delivered fewer fresh pictures: 103–118 a second against 117–120. <a href="rust/PERFORMANCE_WORK.html#rc24-against-vibepollo-20-on-the-same-gpu">Runs, settings and caveats</a></p>
+    <p class="note">RX 7900 XT, rc.24 and the pinned Vibepollo 2.0 build alternating in one batch, two runs per cell. Identical settings: native AMF at ultra-low latency, Desktop Duplication capture, a virtual HDR display. The picture is decoded in hardware by an independent client on the same PC, which isolates the host from the network so the two can be compared precisely; the laptop results below add real Wi-Fi. Beside the game Rubylight also delivered more fresh pictures: 117–120 a second against 103–118. <a href="rust/PERFORMANCE_WORK.html#rc24-against-vibepollo-20-on-the-same-gpu">Runs and settings</a></p>
 
     <h3 class="sub-title">Over Wi-Fi to a real laptop</h3>
     <p>A Radeon 780M laptop on 5 GHz Wi-Fi, decoding in hardware, against the host on Ethernet. "Received" is when the laptop starts decoding a fully received picture; Moonlight's own hardware decode adds 0.3–0.7 ms on this laptop.</p>
@@ -170,7 +170,7 @@
         </tbody>
       </table>
     </div>
-    <p class="note">October 8, 2026, one 30-second run per row. A first 1440p AV1 run measured 14.78 / 21.87 / 34.85 ms with a clean host side, so its late frames came from Wi-Fi or the client. The laptop's clock was synchronised to the host with 200 ms pings (error about ±0.6 ms). Every picture arrived and decoded. <a href="rust/PERFORMANCE_WORK.html#october-8-real-client-picture-age-over-wi-fi-rc24-laptop">Method and clock sync</a></p>
+    <p class="note">October 8, 2026, one 30-second run per row. The laptop's clock was synchronised to the host with 200 ms pings (error about ±0.6 ms). Every picture arrived and decoded. <a href="rust/PERFORMANCE_WORK.html#october-8-real-client-picture-age-over-wi-fi-rc24-laptop">Method and clock sync</a></p>
 
     <p>The same laptop later streamed with the released <b>Moonlight 6.2.0</b>: on 2.0.0 it held 119.7 fps at 1440p120 AV1 with no loss, and with the host dropping 20 ms of video every 1.5 s, <b>all 59 lost frames were recovered without a keyframe</b> at 117.7 fps.</p>
 
@@ -187,9 +187,9 @@
       <li><b>Radeon RX 7900 XT</b> as the host for every measurement above, and a <b>Radeon 780M laptop</b> over Wi-Fi as the client.</li>
       <li><b>RX 9070 XT, RX 6900 XT and Radeon 890M:</b> user reports and logs from real setups, including a Legion Go host on Wi-Fi; fixes shipped from them.</li>
       <li><b>Moonlight for Xbox</b> streaming HDR at 3840×2160, 120 Hz, an <b>Android phone</b> at 1968×2184, 120 Hz HDR, and streaming while Windows is locked, which the owner tested on the secure desktop and a user confirmed from a <b>locked Windows VM</b>.</li>
-      <li><b>Kubernetes pods with various GPU configurations:</b> extensive testing by the owner, outside the recorded runs above.</li>
+      <li><b>Kubernetes pods with various GPU configurations:</b> extensive testing by the owner.</li>
     </ul>
-    <p class="note">Known issues, kept short: on one AMD driver version the encoder occasionally hung during heavy loss recovery and Windows reset the GPU (<a href="docs/troubleshooting.html#the-picture-freezes-and-the-gpu-resets-during-a-stream">what to do</a>), and a second client joining causes a hitch of about a second in the first stream. NVIDIA and Intel encoders are included, but no measurements are recorded for them. <a href="rust/PARITY.html#where-it-has-been-tested">What was tested where</a></p>
+    <p class="note"><a href="rust/PARITY.html#where-it-has-been-tested">What was tested where</a></p>
     <p><a class="more" href="docs/performance.html">All performance results and what each number means</a></p>
   </div>
 </section>

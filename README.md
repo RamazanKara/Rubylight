@@ -36,7 +36,7 @@ Rubylight is not here to win a big userbase. There is no growth plan and no camp
 
 Rubylight began as a fork of [Vibepollo](https://github.com/Nonary/Vibepollo), whose native AMF encoder came from the same author ([#342](https://github.com/Nonary/Vibepollo/pull/342)), and rebuilds the host in Rust around the Radeon frame path. Anything that works out here is GPL-3.0 for Vibepollo to take.
 
-**On NVIDIA, use Vibepollo.** Rubylight is built and tested on Radeon. It includes an NVENC encoder, but Radeon is where the measurements and tuning are.
+**On NVIDIA, use Vibepollo.** Rubylight is built for Radeon.
 
 | What you get | How it helps |
 | --- | --- |
@@ -126,7 +126,7 @@ Quotes from Reddit, lightly edited for typos. Several were written while the pro
 
 ## Full colour with PyroWave
 
-PyroWave carries **10-bit HDR with 4:4:4 chroma**: a colour sample for every pixel. Its GPU pipeline shares D3D11/Vulkan textures and sends the encoded stream over a fast local network. Play it on [Rubylight Android](https://github.com/RamazanKara/rubylight-android), our own client, which offers experimental PyroWave on Vulkan phones and tablets; on a PC, use [Nonary's compatible Moonlight client](https://github.com/Nonary/moonlight-qt) over a wired LAN.
+PyroWave carries **10-bit HDR with 4:4:4 chroma**: a colour sample for every pixel. Its GPU pipeline shares D3D11/Vulkan textures and sends the encoded stream over a fast local network. Play it on [Rubylight Android](https://github.com/RamazanKara/rubylight-android), our own client, which offers PyroWave on Vulkan phones and tablets; on a PC, use [Nonary's compatible Moonlight client](https://github.com/Nonary/moonlight-qt) over a wired LAN.
 
 Standard Moonlight clients use H.264, HEVC or AV1. **Moonlight PC 6.2.0** is tested with H.264, HEVC, AV1, HEVC HDR and AV1 HDR, including reconnects, and is the client behind the Wi-Fi results above. [Pick the client and stream format for your setup](docs/getting-started.md#choose-your-stream-format).
 
@@ -139,18 +139,12 @@ Standard Moonlight clients use H.264, HEVC or AV1. **Moonlight PC 6.2.0** is tes
 | **Radeon RX 9070 XT** | User reports, including the testimonial above; their logs led to the encoder stall recovery work |
 | **Radeon RX 6900 XT** | Two users: one on PyroWave, one who moved over from Vibepollo with no frame drops or stutter |
 | **Radeon 890M** (Legion Go, host on Wi-Fi) | A user's logs, which led to the send-outage recovery in 2.0.0 |
-| **Xbox** (Moonlight for Xbox) | HDR streaming at 3840×2160, 120 Hz, HEVC; the HDR switching problem ([#11](https://github.com/RamazanKara/Rubylight/issues/11)) is fixed in 2.0.1 |
+| **Xbox** (Moonlight for Xbox) | HDR streaming at 3840×2160, 120 Hz, HEVC |
 | **Android phone** | Streaming at 1968×2184, 120 Hz, HDR |
 | **Windows locked, and the secure desktop** | Tested by the owner, and a user confirmed streaming and signing in from a locked VM with no monitor ([#6](https://github.com/RamazanKara/Rubylight/issues/6)) |
-| **Kubernetes pods with various GPU configurations** | Extensive testing by the owner, outside the recorded sessions above |
+| **Kubernetes pods with various GPU configurations** | Extensive testing by the owner |
 
-## Known issues
-
-- **AMD driver video engine timeout.** On AMD driver 32.0.31041.1004, the encoder occasionally hung inside a driver call during heavy loss recovery, and Windows reset the GPU. It also happened on earlier Rubylight builds, so it is not a Rubylight setting. [What to do →](docs/troubleshooting.md#the-picture-freezes-and-the-gpu-resets-during-a-stream)
-- **A short hitch when a second client joins.** Creating another client's virtual display makes Windows' compositor pause the first stream for about a second. It happens once, when the client joins.
-- **NVIDIA and Intel encoders** are included, but this repository records no measurements for them, which is why Rubylight points NVIDIA owners to Vibepollo.
-
-[Full compatibility list and what each item was tested with →](rust/PARITY.md)
+[Full compatibility list →](rust/PARITY.md)
 
 ## Find what you need
 

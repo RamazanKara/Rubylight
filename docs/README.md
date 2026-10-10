@@ -19,8 +19,8 @@ Rubylight is a Windows game-streaming host written in Rust, built around Radeon 
 | --- | --- |
 | [Architecture](architecture.md) | What is written in Rust, where compute fits, frame ownership, native HDR and PyroWave. |
 | [Performance](performance.md) | Readable comparisons, the meaning of each measurement and links to recorded runs. |
-| [Compatibility](../rust/PARITY.md) | Implemented features, client support and the exact hardware validation scope. |
-| [Release notes](../rust/RELEASE_NOTES.md) | Changes in every Windows release, from the first release candidate to 2.0.0. |
+| [Compatibility](../rust/PARITY.md) | Implemented features, client support and where each feature was tested. |
+| [Release notes](../rust/RELEASE_NOTES.md) | Changes in every Windows release, from the first release candidate to the latest release. |
 
 ## Build and integrate
 

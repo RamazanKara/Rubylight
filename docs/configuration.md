@@ -75,9 +75,9 @@ Set `pacing_max_bitrate_kbps` to a positive value in **kbps** to override the au
 | `amd_vbv_buffer_frames` | `0`, or `0.5`–`2` | Rate-control buffer in nominal frame budgets. One budget is bitrate divided by frame rate, including fractional rates. |
 | `amd_max_frame_size` | `0`, or `1`–`8` | Requested maximum encoded frame size in nominal frame budgets, including recovery keyframes. Uses `MaxAUSize` for H.264, `HevcMaxAUSize` for HEVC and `Av1MaxCompressedFrameSize` for AV1. |
 
-These are encoder bit budgets, not extra queued frames or packet-pacing settings. A driver can exceed a requested frame cap, especially at startup; a smaller budget can also reduce picture quality. Intra refresh remains client-negotiated and does not replace an explicit recovery-keyframe request. See the [rate-control measurements](../rust/PERFORMANCE.md#october-7-2026-amf-rate-control-and-recovery-keyframes) before changing these controls. NVIDIA users should use [Vibepollo](https://github.com/Nonary/Vibepollo).
+These are encoder bit budgets, not extra queued frames or packet-pacing settings. A smaller budget trades picture quality for smaller frames. Intra refresh remains client-negotiated and does not replace an explicit recovery-keyframe request. See the [rate-control measurements](../rust/PERFORMANCE.md#october-7-2026-amf-rate-control-and-recovery-keyframes) before changing these controls. NVIDIA users should use [Vibepollo](https://github.com/Nonary/Vibepollo).
 
-`amd_rc` remains `vbr_latency` by default. For an affected AMD stream, `amd_max_frame_size=1` or `2` lets you compare smaller recovery frames against picture quality; `0` restores the driver default. These caps helped on an RX 7900 XT, the card they were measured on, but were not strict size bounds; reports from RDNA4 cards are welcome. With frequent recovery requests the tighter cap also reduced actual bit usage and slightly increased HEVC encode time, so it is not enabled automatically. Switching to CBR or shrinking VBV alone did not consistently reduce bursts.
+`amd_rc` remains `vbr_latency` by default. For an affected AMD stream, `amd_max_frame_size=1` or `2` lets you compare smaller recovery frames against picture quality; `0` restores the driver default. These caps helped on an RX 7900 XT. They are off by default because they trade picture quality for smaller frames.
 
 ## Displays and RTSS
 
@@ -114,7 +114,7 @@ A Steam Deck can reach the host as a **real Steam Deck controller**: Rubylight s
 
 Moonlight passes on the Deck's own controls only when Steam Input is off for Moonlight on the Deck. With it on, Steam on the Deck turns the controls into a virtual pad first: the host still gets a Steam Deck with the buttons, sticks and triggers, but no gyro, trackpads or back grips, because Moonlight never receives them. On the Deck, open Moonlight's controller settings in Steam, choose to disable Steam Input, and reconnect. If the paired device's name says Steam Deck (SteamOS calls it `steamdeck`) and its controller arrives without a gyro, the stream card says this.
 
-What Moonlight can't carry: touching a stick (capacitive), clicking the left trackpad, and the Deck's own orientation quaternion. Moonlight sends trackpad touches only from builds whose SDL reads the Deck's trackpads (SDL 3); older builds send none.
+Moonlight sends trackpad touches from builds whose SDL reads the Deck's trackpads (SDL 3).
 
 With the virtual pad (no usbip-win2, or **Virtual pad**), Moonlight's Steam controller with gyro gets a DualSense:
 

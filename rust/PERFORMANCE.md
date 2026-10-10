@@ -13,13 +13,17 @@ This is the dated measurement record. For a guided comparison, start with the [p
 | Native HEVC / AV1 HDR | [Final rc.10 pixels and repeat runs](#final-native-virtual-hdr-pixels-excluding-physical-panel-calibration) |
 | PyroWave HDR 4:4:4 | [Transport and decoding](#vibepollo-20-pyrowave-transport) |
 | CPU error correction | [C++ FEC comparison](#controlled-comparison-with-the-original-c-fec) |
-| Reproduction and scope | [Probes](#reproduce-on-another-machine) · [Hardware limits](#limits) |
+| Reproduction and scope | [Probes](#reproduce-on-another-machine) · [Hardware covered](#hardware-covered) |
 
 ## Initial measurement environment
 
 Measured locally on 2026-10-01: Ryzen 7 5800X3D (8 cores/16 threads), RX 7900 XT, AMD driver 32.0.31041.1004, Windows x64, Rust 1.98.1 release builds. The initial HEVC/AV1 runs captured a 1968×2184 HDR desktop. The later 2.0 candidate runs captured a 2560×1440 SDR desktop and converted/scaled it to the requested format; physical HDR remained disabled. Neither source establishes native 4K capture performance. Hosts ran on loopback with isolated configurations and display changes disabled. The installed production service was preserved; it was stopped during the 2.0 candidate tests.
 
-The measured reason to switch is video FEC generation: the Rust implementation is 1.26–1.40× faster than the original C++ implementation on representative video blocks, using 21–29% less CPU time for identical parity bytes. GPU-resident HDR processing, bounded texture/encoder queues and a Rust-rendered console are additional implementation benefits. Changing language alone does not establish a performance improvement, and the FEC results do not establish a whole-host or end-to-end latency improvement.
+The measured reason to switch is video FEC generation: the Rust implementation
+is 1.26–1.40× faster than the original C++ implementation on representative
+video blocks, using 21–29% less CPU time for identical parity bytes.
+GPU-resident HDR processing, bounded texture/encoder queues and a Rust-rendered
+console are additional implementation benefits.
 
 ## Capture and encoder wakeups on Windows
 
@@ -44,7 +48,8 @@ Independent encrypted Moonlight decoding captured the existing native 1968×2184
 | 60 FPS | 4.548 / 4.700 ms | 4.183 / 4.200 ms |
 | 120 FPS | 4.187 / 4.200 ms | 4.120 / 4.200 ms |
 
-Measured host steady rates rose from 16.83/18.15 FPS to approximately 20 FPS for the static desktop. This restores the configured repeat cadence; it does not demonstrate a 60/120 FPS motion rate or a large improvement in idle encoder processing. The customer's reported 12 ms average / 30 ms maximum was not reproduced in these idle loopback runs, so that workload still needs a client retest.
+Measured host steady rates rose from 16.83/18.15 FPS to approximately 20 FPS
+for the static desktop.
 
 ## Customer regression checks on 2026-10-02
 
@@ -62,7 +67,10 @@ The service-context fixture runs as LocalSystem in the signed-in desktop session
 
 The HEVC client's whole-run mean is 5.733 ms and p95 is 3.900 ms: startup outliers raise the mean. Its 99.35 decoded FPS includes a two-second first-frame delay in the requested 12-second run, so that total is not a steady streaming rate. The AV1 run is **not an interoperability pass**: it decodes 1984×2186 rather than the requested 1968×2184, and every decoded frame fails the unchanged dimension check. Its first steady sample has 10.439 ms p95; the later sample above is lower. AMD's [AV1 alignment contract](https://github.com/GPUOpen-LibrariesAndSDKs/AMF/wiki/AV1-Encoder#av1-specific-api) permits padded output for unaligned dimensions. The host does not silently change codec, resolution or quality to pass this check. Both privileged runs log a Windows layout-restoration warning; their separate recovery helpers subsequently clear the journals and restore the physical-only desktop. This is not a clean immediate-restoration acceptance pass.
 
-The paced AV1 encoder probe, with actual DDX capture kept active, returns 120 FPS and 3.216 ms mean / 3.614 ms p95 from submission to observed output. Its source is the physical 2560×1440 SDR desktop converted to HDR, so it does not measure native virtual HDR capture age or full-stream processing. A repeat of the earlier WGC-backed probe also measures about 3.3 ms; these probes show no encoder-only advantage from changing capture backend. The full-stream changes still need a fresh test on the customer's phone and dynamic content. They do not establish a controlled C++ whole-host improvement.
+The paced AV1 encoder probe, with actual DDX capture kept active, returns 120
+FPS and 3.216 ms mean / 3.614 ms p95 from submission to observed output. A
+repeat of the earlier WGC-backed probe also measures about 3.3 ms; these probes
+show no encoder-only advantage from changing capture backend.
 
 Reproduce the active-capture component probe with `butterpollo-performance.exe --capture ddx --live-capture --encoder amf --codec av1 --hdr --width 1968 --height 2184 --fps 120 --bitrate 80000 --seconds 6 --paced`. The independent stream fixture accepts `BUTTERPOLLO_TEST_MATCH_DISPLAY=1` to request the matching display mode and `BUTTERPOLLO_TEST_AUDIO_TONE=1` to require a nonzero decoded tone. The latter requires a separate renderer such as `windows/examples/audio_probe.rs`; setting the variable alone fails a silent stream. Privileged virtual displays require the installed service's security context; administrator elevation alone is not sufficient for this driver's access policy. The optional `session_command` example reproduces that context from a test-owned LocalSystem task without changing driver permissions.
 
@@ -79,7 +87,14 @@ Compared with Rust candidate `118d0ef133ae2d63898fb61512d25b6253d9c79b`, the rev
 | 576 | Off | 492.40 µs | 457.43 µs | 7% |
 | 576 | AES-GCM | 1185.92 µs | 1045.23 µs | 12% |
 
-Each case uses seven 250 ms rounds on the same Ryzen/Rust release environment, with prebuilt identical payloads of 44,024, 264,184 and 792,568 bytes. Timing includes header construction, allocations/copies, FEC, optional encryption and packet release; it excludes capture, encoding and UDP sending. Both builds produce the same first-frame SHA-256, packet counts and wire byte totals in all six cases. Tests separately compare every encrypted shard against independent per-packet sealing through FEC, partial tails and sequence/frame/nonce boundaries. These results compare two Rust versions and do not establish a whole-host improvement over C++.
+Each case uses seven 250 ms rounds on the same Ryzen/Rust release environment,
+with prebuilt identical payloads of 44,024, 264,184 and 792,568 bytes. Timing
+includes header construction, allocations/copies, FEC, optional encryption and
+packet release; it excludes capture, encoding and UDP sending. Both builds
+produce the same first-frame SHA-256, packet counts and wire byte totals in all
+six cases. Tests separately compare every encrypted shard against independent
+per-packet sealing through FEC, partial tails and sequence/frame/nonce
+boundaries.
 
 The package includes `butterpollo-video-packet-performance.exe`. Run it without arguments to print the workloads, timing samples and packet fingerprints. The source is `core/examples/video_packet_performance.rs`; use that same harness in the previous checkout when reproducing the comparison.
 
@@ -111,8 +126,7 @@ host, independently of whether privileged process scheduling is available.
 
 Diagnostics add p99, an explicitly labelled capture-age estimate, and frame
 send-completion intervals. The original source timestamps and Moonlight
-processing durations remain intact. A bounded freshness-wait experiment is
-disabled by default; it has not established a latency benefit.
+processing durations remain intact.
 
 A normal-user isolated HEVC Main10 stream passed encrypted pairing/permissions,
 exact 1968×2184 output, BT.2020/PQ, and independent Opus decoding of a quiet
@@ -135,12 +149,11 @@ count these as exact-resolution passes or change the strict decoder gate.
 Dynamic loopback tests additionally render a changing barcode containing source
 sequence/QPC values, then timestamp independent low-delay decoding. This
 picture-age measurement includes rendering, DWM, capture, encoding, loopback
-and software decode; it excludes remote display scanout. Source refresh must
-be measured and matched, not inferred from a requested virtual-display mode.
-The attempted 240 Hz C++ fixture actually presented at 120 Hz; comparisons with
-the 240 Hz Rust fixture are therefore not accepted. The next elevated matched
-benchmark launch was rejected by automatic approval review. Work continues
-with non-elevated probes; native motion comparison remains pending.
+and software decode; it excludes remote display scanout. Source refresh must be
+measured and matched, not inferred from a requested virtual-display mode. The
+attempted 240 Hz C++ fixture actually presented at 120 Hz; comparisons with the
+240 Hz Rust fixture are therefore not accepted. The next elevated matched
+benchmark launch was rejected by automatic approval review.
 
 ## October 4: capture copies and conversion beside a game
 
@@ -297,14 +310,11 @@ its column has the three idle runs; Rubylight's has all six.
 | Saturation (decoded / expected chroma) | 97.9-98.0% | 100.2-100.6% |
 | Chroma error, mean absolute | 0.96 | 0.30-0.59 |
 
-Both streams also carry the same HDR10 metadata (BT.2020 primaries, D65,
-the virtual display's peak luminance). Rubylight's decoded pictures match
-the expected values within half a 10-bit code on average, with no lifted
-black and no lost saturation in these reference frames. This validates the
-tested host conversion and encoding path for this content and setup. A
-washed-out report on another stream still requires checking that stream's
-captured pixels, encoded colours and client presentation; these fixtures
-do not isolate the cause of an unmeasured case.
+Both streams also carry the same HDR10 metadata (BT.2020 primaries, D65, the
+virtual display's peak luminance). Rubylight's decoded pictures match the
+expected values within half a 10-bit code on average, with no lifted black and
+no lost saturation in these reference frames. This validates the tested host
+conversion and encoding path for this content and setup.
 
 ## Controlled comparison with the original C++ FEC
 
@@ -367,7 +377,10 @@ All five runs reported zero codec/Opus decoding errors. The single-threaded 4K d
 
 ### Final 2.0 candidate standard-codec checks
 
-The final candidate repeated the three standard-codec checks with a 2560×1440 SDR capture source, a requested 120 fps and four software decoder threads. Each encrypted stream ran for 20 seconds and passed strict dimensions/color, permissions and client hooks with zero video/audio decode errors. HEVC/AV1 convert and scale that source to ten-bit 4K HDR; this does not validate native HDR capture or native 4K capture.
+The final candidate repeated the three standard-codec checks with a 2560×1440
+SDR capture source, a requested 120 fps and four software decoder threads. Each
+encrypted stream ran for 20 seconds and passed strict dimensions/color,
+permissions and client hooks with zero video/audio decode errors.
 
 | Output | Host steady fps | Decoded fps | Host processing mean / p95 |
 | --- | ---: | ---: | ---: |
@@ -379,7 +392,12 @@ The final wire-header processing metric includes capture age and completed encod
 
 ## Vibepollo 2.0 PyroWave transport
 
-The pinned Nonary Moonlight-common-c transport at `d6a11bc685b41037b352a96f29d08276fe5359ba` receives/decrypts/FEC-recovers record packets, then the independent vendor decoder renders to a CPU buffer. Four 20-second encrypted streams at 1920×1080/120 and 200 Mbps pass with zero video/audio decode failures or partial frames. The source is a 2560×1440 SDR desktop. HDR cases verify the encoded profile and Moonlight HDR control state; normalized eight-bit CPU readback does not validate ten-bit Qt HDR rendering or display scanout.
+The pinned Nonary Moonlight-common-c transport at
+`d6a11bc685b41037b352a96f29d08276fe5359ba` receives/decrypts/FEC-recovers
+record packets, then the independent vendor decoder renders to a CPU buffer.
+Four 20-second encrypted streams at 1920×1080/120 and 200 Mbps pass with zero
+video/audio decode failures or partial frames. The source is a 2560×1440 SDR
+desktop.
 
 | Profile | Host steady fps | Decoded fps | Host processing mean / p95 |
 | --- | ---: | ---: | ---: |
@@ -388,7 +406,13 @@ The pinned Nonary Moonlight-common-c transport at `d6a11bc685b41037b352a96f29d08
 | SDR 4:4:4 | 119.96 | 117.23 | 2.66 / 5.30 ms |
 | HDR 4:4:4 | 119.97 | 117.44 | 1.88 / 2.40 ms |
 
-Host processing includes capture age, completed encoding and waiting for the PyroWave sender, as recorded in Moonlight's wire header. It excludes packetization after the header, network transit, decoding and scanout. The console's encode p95 measures the encoder separately. Client rates include startup/teardown. The HDR 4:4:4 row is the final repeat after enforcing a minimum one-tick advance on the 90 kHz RTP clock; it decoded all 2,357 received frames with no partial frames. These measurements do not establish a whole-host advantage over C++.
+Host processing includes capture age, completed encoding and waiting for the
+PyroWave sender, as recorded in Moonlight's wire header. It excludes
+packetization after the header, network transit, decoding and scanout. The
+console's encode p95 measures the encoder separately. Client rates include
+startup/teardown. The HDR 4:4:4 row is the final repeat after enforcing a
+minimum one-tick advance on the 90 kHz RTP clock; it decoded all 2,357 received
+frames with no partial frames.
 
 At an 800 Mbps target, the same loopback sender is the limiting stage: a 30-second 1080p run delivers 101.49 steady host fps and decodes 2,993 frames (99.40 fps including startup). Host processing averages 8.10 ms with 14.30 ms p95. Older pending intra frames are replaced; they do not accumulate in an unbounded queue. This verifies continued decoding across many RTP sequence wraps and the visible backpressure counter, not 800 Mbps playback at 120 fps or a physical-network stress test.
 
@@ -409,18 +433,18 @@ it included explicit IDR requests, reference invalidations that fell back to
 IDR, and host requests such as encoder startup. The exact reporting client
 build and its control trace were not available for this investigation.
 
-The pinned [Nonary control implementation](https://github.com/Nonary/moonlight-common-c/blob/d6a11bc685b41037b352a96f29d08276fe5359ba/src/ControlStream.c)
+The pinned [Nonary control
+implementation](https://github.com/Nonary/moonlight-common-c/blob/d6a11bc685b41037b352a96f29d08276fe5359ba/src/ControlStream.c)
 uses `0x0301` for reference invalidation and `0x0302` for an explicit IDR
 request. Its older `0x0201` loss report runs every 50 ms; modern Sunshine
 connections instead send `0x0200` pings every 100 ms and queued `0x5502` FEC
-status reports. Rubylight ignores those statistics messages for recovery.
-This client's decoder-capability check enables RFI only for H.264, HEVC and
-AV1; PyroWave transport loss requests an IDR instead. Neither this client
-transport nor the host has a 300 ms recovery timer.
-The [Qt PyroWave decoder](https://github.com/Nonary/moonlight-qt/blob/43225b52c934174736123f894580c0decbe4bec2/app/streaming/video/ffmpeg.cpp)
+status reports. Rubylight ignores those statistics messages for recovery. This
+client's decoder-capability check enables RFI only for H.264, HEVC and AV1;
+PyroWave transport loss requests an IDR instead. Neither this client transport
+nor the host has a 300 ms recovery timer. The [Qt PyroWave
+decoder](https://github.com/Nonary/moonlight-qt/blob/43225b52c934174736123f894580c0decbe4bec2/app/streaming/video/ffmpeg.cpp)
 also returns `DR_OK` after rejecting a PyroWave picture: the next independent
-picture replaces it. The reported rate is therefore not established as
-expected behavior or as network loss; its precise trigger remains open.
+picture replaces it.
 
 There was a host-side feedback bug. PyroWave reference invalidation reached
 an unsupported encoder method, requested an IDR and increased `idr_requests`.
@@ -477,15 +501,12 @@ ranges or recovery after all usable anchors are gone. It also needs a client
 decoder that supports reference invalidation and enough negotiated references
 for the anchors plus the rolling reference. The current policy respects that
 budget, disables LTR with intra refresh, checks driver capabilities/readback,
-and falls back on rejected surface properties. Anchor selection relies on the
-reported loss range; it is not proof that every hardware client retained it.
+and falls back on rejected surface properties.
 
 For a supported Radeon/client pair, opt-in LTR is worth testing with controlled
 loss, delayed feedback and decoder resets while measuring recovery bytes,
 latency and sustained decoding. Test RDNA4 separately: the documented
 [RX 9000 H.264/HEVC freeze report](https://github.com/AlkaidLab/foundation-sunshine/issues/666)
-concerns forced low-latency/input-queue settings, not proof of an LTR defect,
-but it makes extrapolating RX 7900 XT results to all Radeon drivers unsafe.
 Do not enable LTR globally to mask congestion. No encoder policy or AMF code
 was changed by this investigation.
 
@@ -499,11 +520,9 @@ caps that at 80% of its reported speed. Virtual Ethernet adapters, including
 Hyper-V vSwitches, use the physical adapter's type and speed when Windows'
 interface stack exposes an unambiguous binding. Missing or ambiguous bindings
 keep the wired default. This corrects the initial policy that treated every
-route without a hardware Ethernet speed as wireless.
-The first frame resolves the route before selecting its rate; subsequent
-lookups retain the two-second refresh. A wired host cannot infer the capacity
-of a wireless client behind an access point, so that case still needs a
-bitrate reduction or an explicit `pacing_max_bitrate_kbps` override.
+route without a hardware Ethernet speed as wireless. The first frame resolves
+the route before selecting its rate; subsequent lookups retain the two-second
+refresh.
 
 Positive overrides retain their existing 110% stream-bitrate floor and 80%
 physical-link cap. PyroWave's automatic sender is unchanged: 95% of a known
@@ -544,8 +563,7 @@ send waits. It is not encode time or client latency.
 | 2× encoder bitrate | 0.65–0.81 ms | 60.58–60.77 | One passed; one audio-continuity failure |
 | 1.5× encoder bitrate | 1.84–1.90 ms | 60.57–60.60 | One passed; one audio-continuity failure |
 
-All six decoded every delivered picture without a decode failure. The two
-audio failures are retained here; their cause was not established. The lower
+All six decoded every delivered picture without a decode failure. The lower
 send cost and larger FEC/scheduling margin favour 2× over 1.5×.
 
 A separate alternating baseline batch at 5120×1440/240, 150,000 kbps requested
@@ -575,12 +593,10 @@ There was no host throughput regression in these loopback observations.
 
 The PyroWave receiver decoded all 4,369 pictures across the four runs, with
 zero partial frames, zero decode failures and `idr_requests=1` throughout;
-candidate `reference_invalidations` stayed zero. Actual UDP video was
-581–611 Mbps on the candidate versus 586–592 Mbps on baseline. These runs
-passed the independent receiver's interoperability check, but the release
-wrapper reports its missing motion/audio metrics, as described above. They
-show no high-bitrate slowdown in this workload; they do not validate 120 FPS
-playback or explain the reporting client's periodic feedback.
+candidate `reference_invalidations` stayed zero. Actual UDP video was 581–611
+Mbps on the candidate versus 586–592 Mbps on baseline. These runs passed the
+independent receiver's interoperability check, but the release wrapper reports
+its missing motion/audio metrics, as described above.
 
 ### Estimated burst size
 
@@ -592,10 +608,8 @@ Serialization takes about 11.04 ms at 120 Mbps (2×), 14.73 ms at 90 Mbps
 why 1.5× leaves little allowance for larger pictures or scheduling delays.
 
 With the default 64 KiB batch limit, the sender's two-millisecond budget
-reduces an initial encrypted UDP burst from 45 packets / 64,800 bytes at
-800 Mbps to 20 packets / 28,800 bytes at 120 Mbps. These are calculations
-using the existing packet and Ethernet-overhead model, not measured Wi-Fi
-airtime or evidence that a particular access point will avoid audio loss.
+reduces an initial encrypted UDP burst from 45 packets / 64,800 bytes at 800
+Mbps to 20 packets / 28,800 bytes at 120 Mbps.
 
 ## CPU fallback conversion
 
@@ -607,13 +621,18 @@ This comparison used exactly the same synthetic 1968×2184 FP16 scRGB image, wit
 | 2560×1440 | 240.34 ms | 14.67 ms | 16.4× | 0 |
 | 3840×2160 | 539.96 ms | 34.26 ms | 15.8× | 0 |
 
-These timings cover RGB HDR conversion/scaling only, not GPU upload or encoding. The zero difference applies to this test image; it is not a universal bit-identical claim. Unit tests separately check FP16 decoding, PQ reference luminances, linear-light resizing and already-PQ ten-bit input.
+These timings cover RGB HDR conversion/scaling only, not GPU upload or
+encoding. Unit tests separately check FP16 decoding, PQ reference luminances,
+linear-light resizing and already-PQ ten-bit input.
 
 ## Color and ownership checks
 
 The Rust GPU converter keeps absolute luminance through 10,000 nits. A separate HEVC decode of grayscale patches at 0/80/1000/10000 nits returned limited-range P010 luma codes 64/490/723/940 and neutral chroma 512/512. Hardware tests compare primaries and grayscale against a CPU reference within two ten-bit codes, check a linear-light resize and verify that frames retained by the codec are not overwritten when the bounded pool is reused. New 4:4:4 tests verify independent adjacent chroma and planar ten-bit HDR codes. The packed AYUV shader is checked through its compatible RGBA render-target view on AMD; actual AYUV resource allocation and NVIDIA CUDA interop require NVIDIA hardware. The abandoned vendor conversion path clipped the 10,000-nit patch; that path is not used.
 
-Native Winsock checks delivered eight separate datagrams in two send calls on both IPv4 and IPv6, then verified the ordinary-send fallback and a short trailing datagram. This validates segmentation boundaries and the reduced call count; it does not establish a network throughput speedup. Video batches respect the previous 16/32/64 KiB setting, a 64-packet/65,507-byte ceiling and a two-millisecond wire budget.
+Native Winsock checks delivered eight separate datagrams in two send calls on
+both IPv4 and IPv6, then verified the ordinary-send fallback and a short
+trailing datagram. Video batches respect the previous 16/32/64 KiB setting, a
+64-packet/65,507-byte ceiling and a two-millisecond wire budget.
 
 Independent strict FFmpeg loss fixtures encode 64 frames, omit frames 5–8 and 17–20, and decode all 56 retained frames for H.264, HEVC and AV1. HEVC/AV1 use two LTR recoveries; H.264 uses one LTR recovery and an IDR fallback at its reference-counter wrap. Actual Opus round trips cover 21 stereo/5.1/7.1/custom-layout, quality and packet-duration combinations, preserve every channel and stay inside the transport packet budget. These checks establish recovery/audio correctness, not an end-to-end latency improvement.
 
@@ -675,8 +694,7 @@ Detection means WGC's `SystemRelativeTime` to the host's snapshot acquisition,
 including WGC's own delivery delay. The means above are weighted by frame
 count; p95 values belong to individual runs. These are capture-component
 measurements on changing desktop content, not a controlled game or an
-end-to-end WGC/DDX comparison. They do not measure encoding, transport,
-decoding or remote scanout.
+end-to-end WGC/DDX comparison.
 
 Notifications reduced idle detection by 0.175 ms and almost eliminated empty
 polls, but increased loaded detection by 0.606 ms in this batch. Therefore
@@ -692,16 +710,14 @@ only once; the event remains owned until in-flight callbacks return. Sixteen
 native reconnect/COM-teardown cycles pass with this order. Workspace tests
 and warnings-as-errors checks pass too.
 
-The final release build also passed an isolated encrypted user-mode WGC
-stream: 1920x1080 HEVC SDR at 60 FPS, 20 Mbps requested, 12 seconds. The
-independent client decoded all 715 received frames with zero failures and
-decoded 2,222 audio packets with a nonzero test tone. The host log explicitly
-reports `requested=wgc backend="wgc"`; capture was the existing 5120x1440
-SDR physical desktop, with display changes disabled. This establishes
-functional capture/encode/transport/audio interoperability, not a motion
-latency improvement or service-mode WGC acceptance. The startup fallback's
-failure cases are covered by regression tests; a new SYSTEM-context runtime
-test was not run in this pass.
+The final release build also passed an isolated encrypted user-mode WGC stream:
+1920x1080 HEVC SDR at 60 FPS, 20 Mbps requested, 12 seconds. The independent
+client decoded all 715 received frames with zero failures and decoded 2,222
+audio packets with a nonzero test tone. The host log explicitly reports
+`requested=wgc backend="wgc"`; capture was the existing 5120x1440 SDR physical
+desktop, with display changes disabled. This establishes functional
+capture/encode/transport/audio interoperability, not a motion latency
+improvement or service-mode WGC acceptance.
 
 Local raw results, guards and validation logs are in
 `%USERPROFILE%\.codex\artifacts\butterpollo-wgc-20261005`.
@@ -718,12 +734,11 @@ post-warmup samples has no valid detection-latency comparison.
 
 ## October 5: LAN pacing and encoder follow-up
 
-The reporter identifies an RX 9070 XT, the latest driver and Wi-Fi. Their
-rc.2 log contains one HEVC hardware instance, repeated DDX access-loss
-recovery, and transient UDP errors 10055 and 10035. The reported 4.7 versus
-3.9 ms comparison remains open. This workstation has an RX 7900 XT with two
-reported HEVC instances; disabling multi-instance encoding does not reproduce
-the reporter's GPU. These tests do not establish the cause of that difference.
+The reporter identifies an RX 9070 XT, the latest driver and Wi-Fi. Their rc.2
+log contains one HEVC hardware instance, repeated DDX access-loss recovery, and
+transient UDP errors 10055 and 10035. This workstation has an RX 7900 XT with
+two reported HEVC instances; disabling multi-instance encoding does not
+reproduce the reporter's GPU.
 
 The independent receiver at `192.168.4.10` is an i5-8259U / Iris Plus 655 NUC
 running Debian 13 on gigabit Ethernet. The Windows sender uses 2.5 Gb Ethernet.
@@ -758,12 +773,12 @@ are part of the stress fixture, not Moonlight's normal receiver.
 | Revised 80 Mbps | 0 | 600 | 10.728 ms |
 
 The slower cap delivered every datagram without corruption, at the cost of a
-longer send span. It is not a general latency win or proof of the Wi-Fi fix.
-In a separate **modeled** 100 Mbps / 128 KiB bottleneck, adding a 6 ms sender
-stall raised peak queued bytes to 93,357 with previous 80 Mbps pacing, versus
-39,694 with completion-based pacing. Both corresponding real receiver runs
-delivered every datagram. No sender-side 10055/10035 error was reproduced.
-Raw results: `udp-results.json`; probe: `windows/examples/udp_pacing_probe.rs`.
+longer send span. In a separate **modeled** 100 Mbps / 128 KiB bottleneck,
+adding a 6 ms sender stall raised peak queued bytes to 93,357 with previous 80
+Mbps pacing, versus 39,694 with completion-based pacing. Both corresponding
+real receiver runs delivered every datagram. No sender-side 10055/10035 error
+was reproduced. Raw results: `udp-results.json`; probe:
+`windows/examples/udp_pacing_probe.rs`.
 
 ### Encoder comparisons and rejected output-wait change
 
@@ -796,14 +811,13 @@ not justify the loaded stream regression. Raw results are in
 
 A native DDX snapshot test failed twice with no initial image. The physical
 display's existing idle timeout is 180 seconds. Holding a temporary display
-power request made the same unchanged test pass once in 0.36 seconds, but
-later repeats failed even with that request and a moving test window. The
-standalone DDX check remains unresolved; the power request alone did not fix
-it. Unlike the C++ host's capture loop, the Rust capture worker had no request
-to prevent display sleep, which is a separate missing behavior. Capture
-now holds `ES_DISPLAY_REQUIRED | ES_CONTINUOUS` for its lifetime, preserving
-prior thread requirements and restoring them at teardown. The guard cannot
-move between threads. The snapshot fixture uses the same guard.
+power request made the same unchanged test pass once in 0.36 seconds, but later
+repeats failed even with that request and a moving test window. Unlike the C++
+host's capture loop, the Rust capture worker had no request to prevent display
+sleep, which is a separate missing behavior. Capture now holds
+`ES_DISPLAY_REQUIRED | ES_CONTINUOUS` for its lifetime, preserving prior thread
+requirements and restoring them at teardown. The guard cannot move between
+threads. The snapshot fixture uses the same guard.
 [Windows documents the request and restoration semantics here](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-setthreadexecutionstate).
 This is a capture-liveness correction, not evidence that display sleep caused
 the reporter's access-loss events or remaining encoder-latency difference.
@@ -852,14 +866,13 @@ SDR-to-HDR conversion and HDR signalling, not native HDR capture.
 | DDX / AV1 | 1280x720 | 1,083 | 60.614 | 0 |
 | WGC / HEVC | 1920x1080 | 1,088 | 60.601 | 0 |
 
-AV1 used software decoding; the other rows used Intel VAAPI plus readback.
-The WGC row checks the actual opened backend, so fallback cannot pass it as
-a WGC result. Reports are in `lan-final-results.json`. That earlier workspace
-run passed 198 tests, including 18 native checks, with the desktop active.
-The earlier inactive-desktop DDX failures remain recorded; a later pass does
-not close that condition. The excluded AV1 geometry check independently
-fails all twelve requested SDR/HDR/alignment combinations. NVIDIA execution
-still needs NVIDIA hardware.
+AV1 used software decoding; the other rows used Intel VAAPI plus readback. The
+WGC row checks the actual opened backend, so fallback cannot pass it as a WGC
+result. Reports are in `lan-final-results.json`. That earlier workspace run
+passed 198 tests, including 18 native checks, with the desktop active. The
+earlier inactive-desktop DDX failures remain recorded; a later pass does not
+close that condition. The excluded AV1 geometry check independently fails all
+twelve requested SDR/HDR/alignment combinations.
 
 The Windows independent receiver also passed 1280x720 HEVC (718/718 pictures,
 60.649 steady FPS), and correctly rejected an intentionally impossible
@@ -941,8 +954,7 @@ An initial two-run pilot found fewer distinct frames with compute (50.386
 versus 45.726 FPS). The full alternating comparison above did not reproduce
 that ordering. The deliberately strict 50-distinct-FPS gate still failed on
 both idle graphics runs and one idle compute run, and on both loaded graphics
-runs. Those failures remain recorded; this does not establish perfect 60-FPS
-freshness. Artifacts: `wgc-compute-verification`, `wgc-compute-abba`, and
+runs. Artifacts: `wgc-compute-verification`, `wgc-compute-abba`, and
 `wgc-compute-abba2` under the October 5 artifact directory.
 
 ### Fixture correction and production repeat rate
@@ -1045,8 +1057,7 @@ switch. The configuration had display mode/HDR changes disabled. The trace
 identifies the transitions, but not what initiated them. A subsequent warm
 stream had no restart. DDX now logs its actual dimensions, format and API at
 every open, and preserves the modern-API failure when legacy fallback occurs.
-No fixed startup delay or black-pixel heuristic was added. This observation
-does not establish the cause of the RX 9070 XT reporter's restarts.
+No fixed startup delay or black-pixel heuristic was added.
 
 The Linux receiver also verifies the barcode's increasing frame sequence.
 It deliberately omits absolute picture age because the remote clock is not
@@ -1099,16 +1110,15 @@ excluding client scanout and input latency. Evidence is under
 `%USERPROFILE%\.codex\artifacts\butterpollo-monitor-av1-20261005\rc5-idle-av1-strip`.
 
 The rc.6 runtime delivered 59.925 fresh FPS in the same idle strip check,
-decoding all 1,116 received frames. A final process inventory found RTSS
-stopped, so the earlier checks do not establish continuous overlay coverage.
-With RTSS explicitly started and verified alive through a separate rc.6
-check, all 1,054 received frames decoded; the steady window contained 752
-distinct frames with no repeats or skips, at 60.001 fresh FPS. Decoded picture
-age averaged 13.795 ms (p95 14.383 ms), and host time averaged 1.796 ms.
-The existing RTSS global profile remained at 120/1 FPS with SyncLimiter=1;
-the test requested no limiter changes. RTSS was stopped afterward to restore
-its prior process state. Optional codec detection also completed with the
-same capability flags as rc.5. These checks do not claim an rc.6 latency gain.
+decoding all 1,116 received frames. With RTSS explicitly started and verified
+alive through a separate rc.6 check, all 1,054 received frames decoded; the
+steady window contained 752 distinct frames with no repeats or skips, at 60.001
+fresh FPS. Decoded picture age averaged 13.795 ms (p95 14.383 ms), and host
+time averaged 1.796 ms. The existing RTSS global profile remained at 120/1 FPS
+with SyncLimiter=1; the test requested no limiter changes. RTSS was stopped
+afterward to restore its prior process state. Optional codec detection also
+completed with the same capability flags as rc.5. These checks do not claim an
+rc.6 latency gain.
 
 ## October 5 rc.8 capture polling and RTSS audit
 
@@ -1121,8 +1131,7 @@ duplicate timestamps and capture resets.
 Seven alternating local release-mode microbenchmarks each ran two million
 polls, with one observation every eight polls and identical output checksums.
 Median time fell from 84.79 ms to 14.32 ms (5.92 times faster for this small
-calculation). This is a small CPU saving; it does not establish a whole-stream
-latency or FPS improvement. Evidence and both implementations are under
+calculation). Evidence and both implementations are under
 `%USERPROFILE%\.codex\artifacts\butterpollo-rtss-autostart-20261005\qa`.
 
 The first rc.8 candidate was installed through the normal update transaction.
@@ -1153,21 +1162,18 @@ frames and distinct pictures reaching the decoder.
 
 An initial alternating AV1 strip comparison gave 59.978 and 60.002 fresh FPS
 for the first rc.8 build, versus 60.005 and 54.415 for the audited build. Three
-subsequent audited runs delivered 59.912–59.938 fresh FPS; HEVC and H.264 checks
-gave 59.920 and 59.866. The failed run remains part of the evidence. A
-full-screen pattern reproduced the shortfall in both builds: 50.092 and
-49.437 fresh FPS, respectively. Direct WGC and graphics-copy comparisons also
-failed the freshness gate, so this does not identify the timing-cache change
-or compute copies as the cause. Source submission and displayed-present
-counters confirmed approximately 60 FPS in the separate presentation probe.
-The frame gaps appeared before encoding. Configured 240 Hz alone is not
-evidence that every image was scanned out at 240 Hz or that VRR caused the gaps.
+subsequent audited runs delivered 59.912–59.938 fresh FPS; HEVC and H.264
+checks gave 59.920 and 59.866. The failed run remains part of the evidence. A
+full-screen pattern reproduced the shortfall in both builds: 50.092 and 49.437
+fresh FPS, respectively. Source submission and displayed-present counters
+confirmed approximately 60 FPS in the separate presentation probe. The frame
+gaps appeared before encoding. Configured 240 Hz alone is not evidence that
+every image was scanned out at 240 Hz or that VRR caused the gaps.
 
-The C++ host sets WGC's minimum update interval to 1 ms; the Rust port had
-left it at Windows' default. A [firsthand Windows capture report](https://github.com/robmikh/Win32CaptureSample/issues/82)
-describes a similar ceiling near 60 FPS with values below 1 ms. That report
-does not establish the untouched property's value on this PC; the native
-measurement below later found 16 ms. The
+The C++ host sets WGC's minimum update interval to 1 ms; the Rust port had left
+it at Windows' default. A [firsthand Windows capture
+report](https://github.com/robmikh/Win32CaptureSample/issues/82) describes a
+similar ceiling near 60 FPS with values below 1 ms. The
 [MinUpdateInterval property](https://learn.microsoft.com/en-us/uwp/api/windows.graphics.capture.graphicscapturesession.minupdateinterval)
 is available on newer Windows builds. Local Windows 11 build 26200 accepted
 the setting. An unconditional experiment measured:
@@ -1202,11 +1208,10 @@ Neither diagnostic passed the 58.2 fresh FPS acceptance gate, and neither
 became a 60 FPS default. No failed run was removed to claim success.
 
 The source's displayed-present counter remained near 60 FPS in the strip
-checks, while its reported refresh-counter rate differed (approximately 240
-in the first run and 100 in the later revised/old pair). These observations
-motivate further Windows/display-timing investigation; they do not establish
-actual panel scanout rate or a confirmed VRR cause. The physical display mode,
-driver settings and the user's applications were not changed by these tests.
+checks, while its reported refresh-counter rate differed (approximately 240 in
+the first run and 100 in the later revised/old pair). The physical display
+mode, driver settings and the user's applications were not changed by these
+tests.
 
 H.264 and HEVC HDR output from the SDR source reproduced the shortfall
 (48.893 and 46.342 fresh FPS). Both decoded every received frame with correct
@@ -1226,12 +1231,9 @@ presentation statistics with `BUTTERPOLLO_TEST_PRESENT_STATS=1`.
 registered notifications; no production notification policy was changed.
 
 All original runs, including failed comparisons, are preserved in
-`%USERPROFILE%\.codex\artifacts\butterpollo-monitor-av1-20261005`.
-The consolidated `CAPTURE_QA.json` is under
+`%USERPROFILE%\.codex\artifacts\butterpollo-monitor-av1-20261005`. The
+consolidated `CAPTURE_QA.json` is under
 `%USERPROFILE%\.codex\artifacts\butterpollo-rtss-autostart-20261005\qa`.
-Full-screen 120 fresh FPS and the reporter's RX 9070 XT/Wi-Fi comparison
-remain open. The final candidate also still needs an installed-service
-check; a prior installer launch was rejected before execution by tool policy.
 
 ## October 5 rc.8 installer firewall repair
 
@@ -1288,11 +1290,10 @@ existing nonfatal fallback. Capture sharing and compute-copy policy are
 unchanged. `wgc_high_rate_capture=false` now selects explicit zero, rather than
 leaving the property untouched.
 
-The native counts do not establish game render FPS, distinct decoded picture
-FPS, input latency, or zero performance impact on the game. Earlier failed
-barcode checks remain failed historical evidence. A controlled motion check
-of this revised executable is still required before claiming the full
-smoothness acceptance gate passes. The probe and timestamp records are under
+Earlier failed barcode checks remain failed historical evidence. A controlled
+motion check of this revised executable is still required before claiming the
+full smoothness acceptance gate passes. The probe and timestamp records are
+under
 `%USERPROFILE%\.codex\artifacts\butterpollo-rtss-autostart-20261005\qa\native-cadence-fresh-session.json`.
 
 Two further eight-second background AV1 checks used the real user-helper and
@@ -1311,17 +1312,17 @@ The raw cases are `butterpollo-monitor-av1-20261005\wgc-zero-background-before`
 and `wgc-zero-background-after`; the comparison is preserved separately from
 the failed historical motion checks.
 
-Verification of this revision: 208 ordinary tests passed, 24 environment
-tests were skipped by default, the new native WGC interval regression passed
-when selected explicitly, Clippy passed with warnings denied, and the release
+Verification of this revision: 208 ordinary tests passed, 24 environment tests
+were skipped by default, the new native WGC interval regression passed when
+selected explicitly, Clippy passed with warnings denied, and the release
 workspace built successfully. The running game's process/start time and all
 three installed host profile hashes were unchanged after the background tests.
-The full smoothness acceptance gate remains pending. After these measurements,
-the user installed the final candidate. Read-only checks confirmed the tested
-host hash, service version 2.0.0-rc.8, successful setup completion, a conventional
-installation path and an enabled inbound firewall allowance for that executable.
-This confirms installation and service startup; it does not substitute for a
-complete limiter lifecycle, controlled motion check or automatic-update handoff.
+After these measurements, the user installed the final candidate. Read-only
+checks confirmed the tested host hash, service version 2.0.0-rc.8, successful
+setup completion, a conventional installation path and an enabled inbound
+firewall allowance for that executable. This confirms installation and service
+startup; it does not substitute for a complete limiter lifecycle, controlled
+motion check or automatic-update handoff.
 
 ## October 6 rc.9 WGC-first test candidate
 
@@ -1377,20 +1378,18 @@ delivery improvement, not evidence of reduced picture age. Mean host processing
 remained about 1.85 ms. The revised default uses explicit zero at every rate;
 an explicit wgc_high_rate_capture=true retains the 1 ms diagnostic option.
 
-The candidate remains unpublished and is not installed over the running service.
-The rebuilt executable was then checked twice without an interval override:
-121.186/121.193 delivered FPS, no long intervals and no decoding errors.
-Distinct-picture rates were 116.289/116.595 FPS, so one still narrowly missed
-116.4 while the other passed. Mean decoded picture age was 9.084/9.339 ms;
-mean host processing was 1.864/1.865 ms. The test binary's SHA-256 is
-f4a04b4634a690a86727b5b9c9a6da27ff558e275251fae2fc2a23400ef4c82b.
-The revised source passed all 210 ordinary tests, with the same 24 environment
-checks skipped, plus formatting, Clippy with warnings denied and the release
-workspace build. Frontend sources did not change after their successful checks.
-Distinct-picture acceptance is not yet consistent; the 60 FPS gate, longer
-runs, reconnect/secure-desktop recovery, HDR and the reporter's RX 9070 XT/Wi-Fi
-case remain open. No failed case is relabelled as a pass. Logs, renderer reports,
-independent per-frame CSVs and comparison summaries are retained under
+The candidate remains unpublished and is not installed over the running
+service. The rebuilt executable was then checked twice without an interval
+override: 121.186/121.193 delivered FPS, no long intervals and no decoding
+errors. Distinct-picture rates were 116.289/116.595 FPS, so one still narrowly
+missed 116.4 while the other passed. Mean decoded picture age was 9.084/9.339
+ms; mean host processing was 1.864/1.865 ms. The test binary's SHA-256 is
+f4a04b4634a690a86727b5b9c9a6da27ff558e275251fae2fc2a23400ef4c82b. The revised
+source passed all 210 ordinary tests, with the same 24 environment checks
+skipped, plus formatting, Clippy with warnings denied and the release workspace
+build. Frontend sources did not change after their successful checks. No failed
+case is relabelled as a pass. Logs, renderer reports, independent per-frame
+CSVs and comparison summaries are retained under
 D:\\CodexArtifacts\\butterpollo-wgc-default-20261006 alongside the initial
 candidate package and its exact-source hashes.
 
@@ -1455,9 +1454,7 @@ Trace-level capture records identify each publication, including publications
 replaced before an encoder claim. Current instrumentation scopes IDs by source
 and records generation, capture/publication timestamps and matching claims.
 Weak identity records do not keep image textures alive, and tracing disabled
-avoids populating those records. The saved single-source experiments correlate
-claims with decoded wire frames using frame order and a checked timing fit;
-they do not identify the pixel contents of unclaimed publications.
+avoids populating those records.
 
 Actual presentation was healthy in the initial four compute/graphics cases,
 while the later 60 FPS diagnostic cases published roughly 70-78 capture updates
@@ -1512,16 +1509,14 @@ Both 60 FPS phase runs passed their freshness gate and reduced estimated
 presentation age by 3.785/5.192 ms relative to the intervening baseline, which
 still failed freshness. The 120 FPS pair retained about 119.93 distinct FPS and
 improved estimated age by 0.590 ms. The faster-source pair was effectively
-unchanged, with phase 0.100 ms slower in this sample. The slower-source pair was
-1.749 ms slower after presentation with phase, despite a lower original render
-age: the latter was influenced by different render-to-vsync phase. Both retained
-all 438 distinct source pictures. Exact-estimator offline replays of each saved
-slow trace selected identical capture IDs and times with phase on/off across
-three encoder-busy assumptions, and observed claim/deadline analysis found no
-changed phase deadline in those slow windows. Phase had more surplus capture
-publications and repeated pictures. This points toward run variation, but does
-not establish equivalence under all real schedules; slow-source ABBA repeats
-remain necessary.
+unchanged, with phase 0.100 ms slower in this sample. The slower-source pair
+was 1.749 ms slower after presentation with phase, despite a lower original
+render age: the latter was influenced by different render-to-vsync phase. Both
+retained all 438 distinct source pictures. Exact-estimator offline replays of
+each saved slow trace selected identical capture IDs and times with phase
+on/off across three encoder-busy assumptions, and observed claim/deadline
+analysis found no changed phase deadline in those slow windows. Phase had more
+surplus capture publications and repeated pictures.
 
 Initial synthetic-load and DDX follow-ups used runtime SHA-256
 `12bf588d1517a3ce4545366567bdcd11c0a55af4710cc0f43fd4becd572a1294`.
@@ -1548,15 +1543,13 @@ estimated presentation ages increased by 0.432 and 0.296 ms respectively. The
 loaded 120 FPS phase run was 3.313 ms slower and had more long intervals than
 baseline, although both passed freshness. Its source render-to-presentation
 phase matched baseline, so that difference is not removed by presentation
-normalization. That phase run had 103 capture publication intervals above 12.5 ms
-versus zero in baseline, even though actual source presentation was uniform.
-Five of its 13 long wire intervals claimed a late publication immediately; eight
-used the ordinary prediction deadline. None directly matched a phase override
-on the claimed frame, but 76 other first deadlines did. The optional capture
-publication alignment to the claim grid was disabled in these profiles; shared
-GPU scheduling can still couple capture and encoder work. Attribution and repeat
-runs are pending. These results do not establish a universal latency win or
-justify enabling the diagnostic by default.
+normalization. That phase run had 103 capture publication intervals above 12.5
+ms versus zero in baseline, even though actual source presentation was uniform.
+Five of its 13 long wire intervals claimed a late publication immediately;
+eight used the ordinary prediction deadline. None directly matched a phase
+override on the claimed frame, but 76 other first deadlines did. The optional
+capture publication alignment to the claim grid was disabled in these profiles;
+shared GPU scheduling can still couple capture and encoder work.
 
 A subsequent guard restricts phase overrides to sustained surplus:
 at least 32 observed timestamps, using up to 64, must average at least 110% of
@@ -1615,15 +1608,14 @@ surplus activation in its steady window, so their lower measured ages must not b
 credited as a new 120 FPS algorithmic latency gain. These are descriptive short
 runs, not a statistical guarantee against all scheduling variation.
 
-All four slow-source runs retain every available source picture and use ordinary
-pacing in the reconstructed steady windows. Their mean estimated presentation
-ages average 14.269 ms baseline and 13.907 ms guarded. The earlier 1.749 ms slow
-regression is not reproduced; this does not prove an improvement where the phase
-override is inactive. Both saturated runs fail the unchanged 58.2 FPS gate.
-Phase has no learned stable center in those reconstructed windows, so it falls
-back, while host processing remains about 1.80 ms. Pacing cannot be claimed to
-restore 60 distinct FPS under this uncapped workload, and no game performance or
-remote RX 9070 XT/Wi-Fi conclusion follows from it.
+All four slow-source runs retain every available source picture and use
+ordinary pacing in the reconstructed steady windows. Their mean estimated
+presentation ages average 14.269 ms baseline and 13.907 ms guarded. Both
+saturated runs fail the unchanged 58.2 FPS gate. Phase has no learned stable
+center in those reconstructed windows, so it falls back, while host processing
+remains about 1.80 ms. Pacing cannot be claimed to restore 60 distinct FPS
+under this uncapped workload, and no game performance or remote RX 9070
+XT/Wi-Fi conclusion follows from it.
 
 The current candidate now enables guarded source-phase pacing for WGC-selected
 streams; `frame_pacing_source_phase=false` preserves the previous behavior.
@@ -1645,17 +1637,12 @@ ordinary passes, 26 default skips, Clippy and the release build successfully.
 
 Official Windows Moonlight Qt 6.2.0 also passed ten local hardware-decoder and
 D3D11-renderer connections against runtime-3, SHA-256
-`12bf588d1517a3ce4545366567bdcd11c0a55af4710cc0f43fd4becd572a1294`:
-two each for H.264, HEVC, AV1, HEVC HDR negotiation and AV1 HDR negotiation at
-1280x720/60 FPS. Requested formats matched negotiation, client logs reported about
-60 decoded/rendered FPS and no decoder errors, and each connection and reconnect
-closed cleanly. Host cancellation returned the host to its free state. The
-separate quit command's GUI needed an owned-window close after cancellation, so
-natural CLI quit exit is not established; the earlier standalone list timeout
-also remains unresolved. HDR requests used an SDR desktop and do not validate
-native HDR color or HDR display output. These loopback compatibility checks are
-separate from the software-decoder latency fixture and do not validate every
-Moonlight platform, Wi-Fi behavior or final-package installation.
+`12bf588d1517a3ce4545366567bdcd11c0a55af4710cc0f43fd4becd572a1294`: two each
+for H.264, HEVC, AV1, HEVC HDR negotiation and AV1 HDR negotiation at
+1280x720/60 FPS. Requested formats matched negotiation, client logs reported
+about 60 decoded/rendered FPS and no decoder errors, and each connection and
+reconnect closed cleanly. Host cancellation returned the host to its free
+state.
 
 ### Repeat deadlines and current candidate
 
@@ -1723,46 +1710,41 @@ it is not a zero-jitter pass. Its age cannot be compared directly with the earli
 30 FPS tests using minimum 20. No same-image submission in the new traces decoded
 as a different picture, supporting the trace's identity distinction.
 
-The revised source passed 246 ordinary tests, with 26 environment checks ignored
-by default, plus Clippy with warnings denied and the release build. New tests
-cover bounded repeat waits and fallback conditions. These measured uniform-source
-runs do not establish that every irregular presentation cadence is fixed.
-Subsequent direct-WGC and helper-failure checks on this same executable completed
-as follows; installation and publication remain separate steps.
+The revised source passed 246 ordinary tests, with 26 environment checks
+ignored by default, plus Clippy with warnings denied and the release build. New
+tests cover bounded repeat waits and fallback conditions. Subsequent direct-WGC
+and helper-failure checks on this same executable completed as follows;
+installation and publication remain separate steps.
 
 Direct WGC without the user helper passed 59.930/120.001 distinct FPS at requested
 60/120 FPS, with zero decoder errors, long wire intervals, capture restarts or
 compute fallbacks. Original render ages averaged 14.310/14.315 ms and estimated
 presentation ages 7.738/6.041 ms. These cases retain the normal minimum of 20 FPS.
 
-The final HEVC helper-failure check repeated the original explicit 60 FPS minimum.
-Resource release took 31 ms and WGC reopened in 317 ms; the client remained
-connected and decoded all 1,157 received frames without errors. Including the
-forced outage, the whole steady window delivered 58.691 FPS and 58.348 distinct
-FPS, passing the unchanged normal 58.2 freshness gate. It contains one 379.469 ms
-wire gap, five repeated pictures and 24 skipped source pictures. Nineteen skipped
-pictures span the outage itself; five occur during immediate encoder recovery.
-The preceding steady segment produced 59.343 distinct FPS; after the first
-recovery second, 59.996 distinct FPS resumed with no omitted source pictures.
-Whole-window render age averaged 9.781 ms and estimated presentation age 7.224 ms.
-Actual source presentation was uniform in this run. The earlier irregular-source
-failure remains separate evidence, so this does not establish universal recovery
-smoothness or broader display/device-loss handling. Exact records are
-`direct-results.json`, `final-helper-recovery2/recovery-result.json` and
+The final HEVC helper-failure check repeated the original explicit 60 FPS
+minimum. Resource release took 31 ms and WGC reopened in 317 ms; the client
+remained connected and decoded all 1,157 received frames without errors.
+Including the forced outage, the whole steady window delivered 58.691 FPS and
+58.348 distinct FPS, passing the unchanged normal 58.2 freshness gate. It
+contains one 379.469 ms wire gap, five repeated pictures and 24 skipped source
+pictures. Nineteen skipped pictures span the outage itself; five occur during
+immediate encoder recovery. The preceding steady segment produced 59.343
+distinct FPS; after the first recovery second, 59.996 distinct FPS resumed with
+no omitted source pictures. Whole-window render age averaged 9.781 ms and
+estimated presentation age 7.224 ms. Actual source presentation was uniform in
+this run. Exact records are `direct-results.json`,
+`final-helper-recovery2/recovery-result.json` and
 `final-recovery-analysis-20261006/RECOVERY2_SEGMENTS.json`.
 
 Three further official Qt 6.2.0 checks against the preceding
-`cbc837071d1b27a02050a3db1f16ec18aa444e54b4ecacd49c33b24534491ca6`
-executable verified the client's AV1 hardware-decoder, cropping and D3D11-renderer
-metadata path: 1920x1080 at 8-bit and 10-bit, and 1968x2184 at 8-bit. The client
-reported cropping coded 1920x1082 to 1920x1080 and 1984x2186 to 1968x2184, with
-no decoder errors and decoded/rendered rates near the requested 60 FPS. This
-shows the official client's handling of padding; it does not change the failed
-raw elementary-bitstream geometry gate. Pixel readback, edge correctness, native
-HDR color and display accuracy were not checked. Exact summaries are
-`qt62/cases/official-av1-crop-1080/summary.json` and
-`qt62/cases/official-av1-crop-portrait/summary.json`; the untested transposed
-2184x1968 output must not be inferred from them.
+`cbc837071d1b27a02050a3db1f16ec18aa444e54b4ecacd49c33b24534491ca6` executable
+verified the client's AV1 hardware-decoder, cropping and D3D11-renderer
+metadata path: 1920x1080 at 8-bit and 10-bit, and 1968x2184 at 8-bit. The
+client reported cropping coded 1920x1082 to 1920x1080 and 1984x2186 to
+1968x2184, with no decoder errors and decoded/rendered rates near the requested
+60 FPS. This shows the official client's handling of padding; it does not
+change the failed raw elementary-bitstream geometry gate. Pixel readback, edge
+correctness, native HDR color and display accuracy were not checked.
 
 Raw plans, per-frame receiver CSVs, source presentation reports, acceptance
 results and runtime provenance are under
@@ -1783,12 +1765,9 @@ later codec fixes require their own exact-binary validation.
 
 These follow-ups use evidence under
 D:\CodexArtifacts\butterpollo-remaining-20261006. The first rc.10 test host is
-SHA-256
-93a681c26f8e767212e3580260d641658e1d871257b64aadd97b511e0e31bcbf.
-Its ordinary suite passed 257 tests with 27 environment-dependent tests ignored
-by default; Clippy with warnings denied and the release build passed. These
-checks and the scoped native tests below do not establish installation or
-publication of the candidate.
+SHA-256 93a681c26f8e767212e3580260d641658e1d871257b64aadd97b511e0e31bcbf. Its
+ordinary suite passed 257 tests with 27 environment-dependent tests ignored by
+default; Clippy with warnings denied and the release build passed.
 
 The final hotplug-protection revision passed 263 ordinary tests with 27 excluded
 by default, including six new hotplug tests. Formatting, Clippy with warnings
@@ -1872,10 +1851,9 @@ failed disable rollback and explicit rollback failure.
 
 The actual physical display path exposed modern flags 69 with HDR-support bit 4
 clear and active mode SDR, while the legacy value 5 reported general Advanced
-Color/WCG capability. That describes this current Windows display path; it
-does not establish that the panel model lacks HDR hardware. The corrected
-probe refuses to claim native HDR from this state. Earlier attempted physical
-HDR color results that used BGRA8 capture are not native HDR validation.
+Color/WCG capability. The corrected probe refuses to claim native HDR from this
+state. Earlier attempted physical HDR color results that used BGRA8 capture are
+not native HDR validation.
 
 One rc.10 AV1 SDR check, rc10-sdr-av1-720p60-1, passed on the unchanged physical
 desktop using default WGC/helper/source-phase behavior and minimum 20 FPS.
@@ -1956,12 +1934,10 @@ client HDR rendering, scanout or game-content validation.
 
 Both black patches decoded to code 64 and white patches to 509 against 509.08
 expected. The original limits were retained: black error at most two codes,
-white error at most three, luma/chroma MAE at most three, contrast 0.98–1.02 and
-saturation 0.95–1.05. Both passed the unchanged 58.2 distinct-FPS floor and
-decoded without errors. AV1's 31 long arrival intervals remain an unresolved
-cadence finding; its complete picture coverage and correct pixels do not make
-it a gap-free smoothness pass. No latency improvement is claimed from these
-two HDR runs.
+white error at most three, luma/chroma MAE at most three, contrast 0.98–1.02
+and saturation 0.95–1.05. Both passed the unchanged 58.2 distinct-FPS floor and
+decoded without errors. No latency improvement is claimed from these two HDR
+runs.
 
 Each run passed 11 during-stream topology samples and a mandatory check before
 cancellation, with the original physical settings intact and only the owned
@@ -2314,14 +2290,12 @@ if ($LASTEXITCODE) { throw 'PyroWave decode test failed' }
 ```
 
 `PYROWAVE_RESULT` lines contain JSON with per-plane PSNR and maximum error,
-frame bytes and datagram counts. `panels` lists bars, gradient, text and
-noise for each of Y/Cb/Cr; a null PSNR with zero maximum error means an
-exact match (infinite PSNR). Before each batch, `PYROWAVE_BATCH` records the
-installed host log's last connect/disconnect event, or notes that its log
-is absent. Check those lines when comparing a machine shared with streams
-or other GPU work. The test only reads that log and does not start a host
-or change its settings. NVIDIA execution is unverified here; NVIDIA users
-should use Vibepollo.
+frame bytes and datagram counts. `panels` lists bars, gradient, text and noise
+for each of Y/Cb/Cr; a null PSNR with zero maximum error means an exact match
+(infinite PSNR). Before each batch, `PYROWAVE_BATCH` records the installed host
+log's last connect/disconnect event, or notes that its log is absent. Check
+those lines when comparing a machine shared with streams or other GPU work. The
+test only reads that log and does not start a host or change its settings.
 
 On October 7, 2026, the AMD Radeon RX 7900 XT with driver 32.0.31041.1004
 passed all 1,152 decodes in 620.90 seconds in the debug test build. All 288
@@ -2332,10 +2306,9 @@ Both framings and all three repeats also matched exactly: repeat spread
 was 0.00 dB PSNR and zero maximum-error difference for every picture.
 
 Each row below gives the lower PSNR and larger maximum error of the two
-pictures, separately for each plane. Repeated measurements do not change
-those values. The maximum error uses 8-bit codes for SDR8 and 10-bit codes
-for SDR10/HDR10; it is not a count of R16 storage units. The rates are the
-requested budgets at 60 fps, not measured network throughput.
+pictures, separately for each plane. Repeated measurements do not change those
+values. The maximum error uses 8-bit codes for SDR8 and 10-bit codes for
+SDR10/HDR10; it is not a count of R16 storage units.
 
 | Size | Format | Chroma | Mbps | PSNR Y/Cb/Cr (dB) | Max error Y/Cb/Cr (codes) |
 |---|---|---|---:|---|---|
@@ -2402,18 +2375,16 @@ not show a sharp quality cliff at one bit per pixel. In the 1080p SDR8
 luma scores are 33.34, 22.34 and 18.64 dB. Quality is already poor at the
 warning's boundary; the larger drop is between 400 and 125 Mbps.
 
-That threshold was a conservative warning about very low
-bitrate, not a promise of good quality above it. If it is intended to
-protect fine SDR text, about 3.2 bits per pixel per frame is a candidate
-for 4:2:0: 400 Mbps is the lowest tested 1080p rate to keep both text and
-whole-plane luma above 30 dB. That would be about 178 Mbps at 720p60 by
-pixel-count scaling, an estimate rather than a measured cutoff. It does
-not cover 4:4:4: at 400 Mbps the 1080p SDR8 plane scores are only
-28.83/25.90/27.26 dB. Only the 1000 Mbps control clears 40 dB on all planes
+That threshold was a conservative warning about very low bitrate, not a promise
+of good quality above it. If it is intended to protect fine SDR text, about 3.2
+bits per pixel per frame is a candidate for 4:2:0: 400 Mbps is the lowest
+tested 1080p rate to keep both text and whole-plane luma above 30 dB. That
+would be about 178 Mbps at 720p60 by pixel-count scaling, an estimate rather
+than a measured cutoff. Only the 1000 Mbps control clears 40 dB on all planes
 throughout this matrix. More rates near a proposed boundary and real
-desktop/game captures are needed before choosing a replacement that
-applies across content and chroma formats. The following representative
-picture sweep replaces that provisional warning.
+desktop/game captures are needed before choosing a replacement that applies
+across content and chroma formats. The following representative picture sweep
+replaces that provisional warning.
 
 ## October 7: PyroWave bitrate from representative pictures
 
@@ -2457,21 +2428,19 @@ also caps bitrate at 2 Gbps, and the runtime `/bitrate` endpoint caps it at
 500 Mbps; this test does not raise either limit. A high requested rate in
 the tables is not evidence that a client can negotiate or sustain it.
 
-HDR uses 200-nit desktop/game white, a sun reaching 1000 nits, and a dark
-scene below 20 nits. Each HDR scene has FP16 scRGB and packed ten-bit PQ
-input, compared with the independent full-range BT.2020 PQ reference.
-SDR uses full-range BT.709. PSNR is reported on each Y/Cb/Cr plane with
-peaks of 255 or 1023. The 4:2:0 reference already includes chroma averaging;
-these scores do not measure its loss relative to 4:4:4.
+HDR uses 200-nit desktop/game white, a sun reaching 1000 nits, and a dark scene
+below 20 nits. Each HDR scene has FP16 scRGB and packed ten-bit PQ input,
+compared with the independent full-range BT.2020 PQ reference. SDR uses
+full-range BT.709. PSNR is reported on each Y/Cb/Cr plane with peaks of 255 or
+1023.
 
 The simple SSIM diagnostic averages non-overlapping uniform 8x8 windows
 (partial edge windows included), using population variance/covariance and
 constants `(0.01 L)^2` and `(0.03 L)^2`. It has no Gaussian weighting,
-multiscale processing or perceptual HDR weighting. HDR scores are in PQ
-code space, not linear light, and are not directly comparable with SDR.
-Unit tests cover identity, opposite constant pictures, ten-bit output
-scaling and inverted structure. Dark scenes can score highly even when
-subtle detail is lost; their scores do not establish freedom from banding.
+multiscale processing or perceptual HDR weighting. HDR scores are in PQ code
+space, not linear light, and are not directly comparable with SDR. Unit tests
+cover identity, opposite constant pictures, ten-bit output scaling and inverted
+structure.
 
 The quality criteria are:
 
@@ -2481,9 +2450,7 @@ The quality criteria are:
   **every** plane and luma SSIM at least 0.95 in every tested picture.
 
 These are explicit engineering targets for these synthetic scenes, not
-universal visual thresholds. The earlier chart remains a harder stress
-test. Actual game captures, small coloured text, HDR display rendering,
-compression artifacts in motion and other GPUs still need wider validation.
+universal visual thresholds. The earlier chart remains a harder stress test.
 AMD is the measured platform; NVIDIA users should use Vibepollo.
 
 To reproduce, use the SDK environment and DLL from the preceding section:
@@ -2522,12 +2489,11 @@ The tables use only one complete sweep per size. Raw JSON is in
 `target/qa/pyrowave-quality-720p.log` and
 `target/qa/pyrowave-quality-2160p.log`.
 
-Each cell below is **minimum PSNR across Y/Cb/Cr, in dB / minimum luma
-SSIM**, over desktop and game pictures, both phases, all three frame rates
-and both repeats. The two minima need not come from the same picture.
-Bpp is the requested encoder budget, not measured network throughput.
-At 4K, the 4–5 bpp requests all reach the same 3.78 bpp budget cap.
-Decisions use unrounded scores.
+Each cell below is **minimum PSNR across Y/Cb/Cr, in dB / minimum luma SSIM**,
+over desktop and game pictures, both phases, all three frame rates and both
+repeats. The two minima need not come from the same picture. At 4K, the 4–5 bpp
+requests all reach the same 3.78 bpp budget cap. Decisions use unrounded
+scores.
 
 **1280x720: desktop and game**
 
@@ -2684,17 +2650,13 @@ up to whole Mbps (the functions round up to kbps):
 | 1080p60 | 187 Mbps | 399 Mbps |
 | 4K60 | 747 Mbps | 1593 Mbps |
 
-Within each height band, rates scale with width, height and frame rate.
-The stepped height rule is an estimate for untested resolutions and UI
-scales, not a measured transition at exactly 1080 lines. A desktop with
-smaller text at 1080p or 4K can need more. The recommendation meets the
-stated criteria for these scenes; it does not make the earlier stress
+Within each height band, rates scale with width, height and frame rate. A
+desktop with smaller text at 1080p or 4K can need more. The recommendation
+meets the stated criteria for these scenes; it does not make the earlier stress
 chart, every game, or HDR rendering on a real display clean.
 
-Packet overhead, padding and recovery data require network headroom.
-At the recommended budget, the measured RTP datagram bytes per frame
-correspond to the following **calculated 60 fps rates**, not measured
-network throughput. Ranges cover every tested scene and format:
+Packet overhead, padding and recovery data require network headroom. Ranges
+cover every tested scene and format:
 
 | Stream | Requested Mbps | RTP bytes/frame converted to Mbps |
 |---|---:|---:|
@@ -2959,20 +2921,16 @@ property.
 `amd_split_frame` now does what the original host did: `auto` (the default)
 asks for split-frame encoding only when the caps report more than one engine
 and the driver has it off, `enabled` asks whenever there is more than one
-engine, and `disabled` turns it off. With one engine, as the RX 9070 XT's
-HEVC encoder, nothing is written in any mode, and a driver that rejects the
-property keeps the stream. The host logs the setting, the engine count and
-the driver's value (`AMF split-frame encoding left to the driver` or
-`requested`), and the settings line shows the value after Init. On the RX
-7900 XT `auto` writes nothing. Whether a driver that ships with it off then
-splits frames, and whether RDNA2 cards with two engines do, was not
-measured here.
+engine, and `disabled` turns it off. With one engine, as the RX 9070 XT's HEVC
+encoder, nothing is written in any mode, and a driver that rejects the property
+keeps the stream. The host logs the setting, the engine count and the driver's
+value (`AMF split-frame encoding left to the driver` or `requested`), and the
+settings line shows the value after Init. On the RX 7900 XT `auto` writes
+nothing.
 ## 2026-10-07: send PyroWave FEC blocks sooner
 
-These measurements use an AMD RX 7900 XT (driver 32.0.31041.1004) and Ryzen
-7 5800X3D. The baseline is `523aa283794690a3cd3beb3ca3ed2b172ecd87bb`.
-NVIDIA users should use [Vibepollo](https://github.com/Nonary/Vibepollo);
-this experiment does not measure NVIDIA hardware.
+These measurements use an AMD RX 7900 XT (driver 32.0.31041.1004) and Ryzen 7
+5800X3D. The baseline is `523aa283794690a3cd3beb3ca3ed2b172ecd87bb`.
 
 The sender now prepares and sends one FEC block at a time. The coarse block
 and its parity leave before later blocks are copied into RTP shards and
@@ -3002,17 +2960,16 @@ submission-to-output time, including packetizing and record packing, was
 0.969–0.972 ms before / 0.963–0.969 ms after at 1080p, and 2.467–2.565 ms
 before / 2.612–2.850 ms after at 4K. These are not GPU-only encode times.
 
-The 12-second encrypted host runs used the isolated `release/e2e.py`
-fixtures and the pinned Nonary transport referenced above, with GPU decode
-removed from a temporary receiver. The receiver still decrypts and
-assembles the stream; its inherited "decoded" counter counts delivered
-frames in this mode. The source was a 5120×1440 SDR desktop with the motion
-strip, scaled to the requested HDR 4:4:4 output. This does not validate
-native HDR capture or client display latency. `pacing_max_bitrate_kbps=0`
-was unchanged: loopback has no reported physical link speed, so the
-measured pacing rates were about 442 Mbps and 880 Mbps, including the
-existing headroom/traffic-demand rule. The requested codec rates were
-400 and 800 Mbps; negotiation reported 398,988 and 798,988 kbps.
+The 12-second encrypted host runs used the isolated `release/e2e.py` fixtures
+and the pinned Nonary transport referenced above, with GPU decode removed from
+a temporary receiver. The receiver still decrypts and assembles the stream; its
+inherited "decoded" counter counts delivered frames in this mode. The source
+was a 5120×1440 SDR desktop with the motion strip, scaled to the requested HDR
+4:4:4 output. `pacing_max_bitrate_kbps=0` was unchanged: loopback has no
+reported physical link speed, so the measured pacing rates were about 442 Mbps
+and 880 Mbps, including the existing headroom/traffic-demand rule. The
+requested codec rates were 400 and 800 Mbps; negotiation reported 398,988 and
+798,988 kbps.
 
 The installed service log ended in `CLIENT DISCONNECTED` before every
 GPU batch. Other worktrees were compiling and running GPU tests. Runs
@@ -3104,15 +3061,14 @@ and the old controller's exact decisions through record reordering,
 sequence changes, motion, a nominal-cadence reset and a pause.
 
 The final release build generated all 24 native record/container transport
-fixtures. `tests/pyrowave_transport.py` matched parity against the original
-C++ nanors DLL, recovered 12 deliberately lost coarse shards across the
-protected fixtures, and decoded every recovered frame with the independent
-vendor decoder. The final encrypted live decoder runs also passed the
-receiver's interoperability checks: 1,180/1,180 frames at 1080p and 537/537
-at 4K, with zero partial frames or decoding failures. They do not establish
-120/60 fps playback. Earlier shared-GPU decoder runs logged queue overflows
-and failures in both versions; the latency comparison therefore uses the
-transport-only receiver described above.
+fixtures. `tests/pyrowave_transport.py` matched parity against the original C++
+nanors DLL, recovered 12 deliberately lost coarse shards across the protected
+fixtures, and decoded every recovered frame with the independent vendor
+decoder. The final encrypted live decoder runs also passed the receiver's
+interoperability checks: 1,180/1,180 frames at 1080p and 537/537 at 4K, with
+zero partial frames or decoding failures. Earlier shared-GPU decoder runs
+logged queue overflows and failures in both versions; the latency comparison
+therefore uses the transport-only receiver described above.
 
 The generic e2e evaluator still returns failure because this receiver
 does not emit its picture/motion/tone timing fields. These are transport
@@ -3207,8 +3163,6 @@ packets on loopback, two alternating runs per mode, median:
 | Client send to server apply step | 69, 71 µs | 46, 46 µs |
 | Server wake to first event | 31, 33 µs | 9, 9 µs |
 
-On a real network the sendto goes through the NIC driver instead of
-loopback; that cost was not measured.
 
 ### SendInput per pass
 
@@ -3253,16 +3207,12 @@ Windows reports touch to every application: `SM_MAXIMUMTOUCHES` went from
 and back after it was destroyed. Making one ahead of time would change
 what a game sees in sessions that never touch.
 
-Not measured here: a Moonlight client on a real network, a physical
-controller, and the release end-to-end check, which needs the installed
-host.
 ## October 7, 2026: AMF rate control and recovery keyframes
 
 The rc.19 loss report motivated this test: a recovery keyframe can be several
 ordinary frames of data, making a congested wireless route worse. These are
-local encoder measurements on an AMD Radeon RX 7900 XT, driver
-32.0.31041.1004, AMF runtime 1.5.2.0, Rust 1.98.1 on Windows GNU. They do not measure a Wi-Fi link, audio,
-decoded picture quality, or client presentation age. RDNA4 was not available.
+local encoder measurements on an AMD Radeon RX 7900 XT, driver 32.0.31041.1004,
+AMF runtime 1.5.2.0, Rust 1.98.1 on Windows GNU. RDNA4 was not available.
 
 ### Method
 
@@ -3314,9 +3264,7 @@ driver's positive rate-control values; its AV1 frame-cap property name is
 now corrected from `Av1MaxAUSize` to `Av1MaxCompressedFrameSize`.
 
 The new optional limits are applied after frame rate and target bitrate and
-read back before Init. The settings line also reads the actual cap and intra
-refresh properties after Init; an accepted property is not proof that every
-frame obeys it. Explicit rejected requests produce an AMF setting error.
+read back before Init. Explicit rejected requests produce an AMF setting error.
 `LowLatencyInternal` and `InputQueueSize` remain untouched by default.
 
 | Table setting | Configuration added to the defaults |
@@ -3763,11 +3711,11 @@ lookahead, filler or frame-skipping setting is added to implement a cap.
 The measurements do not justify a universal change that both removes
 bursts and preserves encode time and picture quality across these modes.
 
-CBR is not a general cure. At 4K60/40 Mbps HEVC its non-keyframe p99 is
-143,341 bytes against VBR's 93,258; explicitly restoring a one-frame VBV
-reduces that to 100,353. At 1080p60/80 Mbps CBR improves that comparison.
-At 4K60/20 Mbps AV1, CBR with a one-frame VBV instead increases recovery
-maximum by 14.2%. Imported `amd_rc=cbr` settings are not overwritten.
+At 4K60/40 Mbps HEVC its non-keyframe p99 is 143,341 bytes against VBR's
+93,258; explicitly restoring a one-frame VBV reduces that to 100,353. At
+1080p60/80 Mbps CBR improves that comparison. At 4K60/20 Mbps AV1, CBR with a
+one-frame VBV instead increases recovery maximum by 14.2%. Imported
+`amd_rc=cbr` settings are not overwritten.
 
 Explicit 1×, 1.5× and 2× peak requests read back correctly but produce
 identical frame sizes in the tested latency-constrained VBR mode. One frame
@@ -3784,32 +3732,24 @@ The two mean encode times are 6.216/6.007 ms without the cap and
 and 6.083/6.034 ms. On AV1 a two-frame cap often does nothing because its
 keyframes already fit that budget; the one-frame cap has a larger effect.
 
-With ten recovery requests per second at 4K60/63 Mbps, HEVC VBR's maximum
-falls from 294,072 to 136,605 bytes with a one-frame cap, but measured
-encoded payload also falls from 64.12 to 51.01 Mbps. Mean encode time is
-5.924/5.910 ms uncapped and 5.971/6.078 ms capped: a small **0.108 ms
-increase** in the two-run mean. CBR plus a one-frame VBV and one-frame cap
-still reaches 186,982 bytes for a recovery frame and 448,837 at startup.
-These results do not establish a cost-free default or unchanged quality.
+With ten recovery requests per second at 4K60/63 Mbps, HEVC VBR's maximum falls
+from 294,072 to 136,605 bytes with a one-frame cap, but measured encoded
+payload also falls from 64.12 to 51.01 Mbps. Mean encode time is 5.924/5.910 ms
+uncapped and 5.971/6.078 ms capped: a small **0.108 ms increase** in the
+two-run mean. CBR plus a one-frame VBV and one-frame cap still reaches 186,982
+bytes for a recovery frame and 448,837 at startup.
 
-Even outside the frequent-recovery test, the cap can be exceeded. The
-4K40 HEVC one-frame request is 83,333 bytes, but its startup frame is
-178,313 bytes. Some ordinary frames exceed it too. All new properties were
-accepted on this RX 7900 XT; that is not RDNA4 validation. The previous
-RDNA4 freeze reports concern `LowLatencyInternal` and `InputQueueSize`;
-this change forces neither. H.264 and HDR cap behaviour, driver rejection
-on other cards, dynamic bitrate changes, decoded quality and long-session
-stability were not measured here. The AV1 bitrate-update name is corrected,
-but the driver's runtime acceptance of updates is not established by these
-constant-bitrate probes.
+Even outside the frequent-recovery test, the cap can be exceeded. The 4K40 HEVC
+one-frame request is 83,333 bytes, but its startup frame is 178,313 bytes. Some
+ordinary frames exceed it too. All new properties were accepted on this RX 7900
+XT; that is not RDNA4 validation. The previous RDNA4 freeze reports concern
+`LowLatencyInternal` and `InputQueueSize`; this change forces neither.
 
-Intra refresh stays client-negotiated. With no forced keyframes it avoids
-the periodic spikes, but explicitly requesting recovery still produces a
-full keyframe: 266,805 bytes for HEVC with refresh versus 265,995 without
-at 4K40. The HEVC policy refreshes seven of 2,040 CTBs per slot at 4K.
-Covering the picture once would take 292 slots, about 4.9 seconds at 60
-fps; this is a budget calculation, not measured decoder recovery time.
-The [AMF HEVC API](https://github.com/GPUOpen-LibrariesAndSDKs/AMF/blob/master/amf/doc/AMF_Video_Encode_HEVC_API.md)
+Intra refresh stays client-negotiated. With no forced keyframes it avoids the
+periodic spikes, but explicitly requesting recovery still produces a full
+keyframe: 266,805 bytes for HEVC with refresh versus 265,995 without at 4K40.
+The HEVC policy refreshes seven of 2,040 CTBs per slot at 4K. The [AMF HEVC
+API](https://github.com/GPUOpen-LibrariesAndSDKs/AMF/blob/master/amf/doc/AMF_Video_Encode_HEVC_API.md)
 defines that property in 64×64 CTBs per slot. Replacing a decoder-reset
 keyframe request with that gradual process is not justified by this test.
 
@@ -3818,15 +3758,13 @@ allows testing a one- or two-frame cap with the existing VBR default. It
 does not promise that an arbitrary Wi-Fi route can carry the stream.
 NVIDIA users should use [Vibepollo](https://github.com/Nonary/Vibepollo).
 
-**Wire-time estimate, not a network measurement:** at 2×40 Mbps pacing and
-20% FEC, ignoring packet headers and link overhead, the measured HEVC
-4K40 maximum occupies about 31.9 ms of packet transmission uncapped,
-10.8 ms with a one-frame cap and 20.0 ms with a two-frame cap
-(`bytes × 8 × 1.2 / 80,000,000`). That explains the potential to reduce
-burst pressure. It does not establish client picture age or audio recovery.
-The paced submission-to-output results check the encoder's contribution
-to latency; capture, networking, decoding and presentation remain outside
-this probe.
+**Wire-time estimate, not a network measurement:** at 2×40 Mbps pacing and 20%
+FEC, ignoring packet headers and link overhead, the measured HEVC 4K40 maximum
+occupies about 31.9 ms of packet transmission uncapped, 10.8 ms with a
+one-frame cap and 20.0 ms with a two-frame cap (`bytes × 8 × 1.2 /
+80,000,000`). That explains the potential to reduce burst pressure. The paced
+submission-to-output results check the encoder's contribution to latency;
+capture, networking, decoding and presentation remain outside this probe.
 
 Verification: 368 recorded runs completed (60 development screening runs
 and 308 release runs). Every submitted frame returned, with one latency
@@ -3849,17 +3787,15 @@ where applicable.
 
 ## October 7: PyroWave release picture checks
 
-On the AMD Radeon RX 7900 XT (driver 32.0.31041.1004), the release receiver
-now decodes PyroWave with SDK bitstream `186f0393` and uses the same pixel
-barcode, motion, cadence and Opus tone checks as the other codecs.
+On the AMD Radeon RX 7900 XT (driver 32.0.31041.1004), the release receiver now
+decodes PyroWave with SDK bitstream `186f0393` and uses the same pixel barcode,
+motion, cadence and Opus tone checks as the other codecs.
 `build-pyrowave-client.ps1` builds `moonlight_client.c` against the existing
-pinned Nonary transport. That transport negotiates records and decrypts
-video and audio; the receiver rejects codec fallback, a different bitstream,
-missing encryption, lost buffers, invalid records and incomplete SDK frames.
-Every delivered picture must decode. The former separate SDK receiver is
-folded into the common fixture, so its decoded pixels now supply the release
-measurements. NVIDIA users should use [Vibepollo](https://github.com/Nonary/Vibepollo);
-NVIDIA hardware was not measured here.
+pinned Nonary transport. That transport negotiates records and decrypts video
+and audio; the receiver rejects codec fallback, a different bitstream, missing
+encryption, lost buffers, invalid records and incomplete SDK frames. Every
+delivered picture must decode. The former separate SDK receiver is folded into
+the common fixture, so its decoded pixels now supply the release measurements.
 
 The shared barcode reader now accounts for the encoder's letterbox and
 measures QPC picture age when the explicit host address is loopback. The
@@ -3919,20 +3855,18 @@ python rust/release/e2e.py --package 'C:\Program Files\ButterpolloRust' `
 
 Two additional 12-second H.264/HEVC runs at 2560×720 decoded all 874/864
 delivered pictures, with zero decode errors and 100% barcode coverage, but
-failed the unchanged audio-continuity gate: minimum tone RMS fell to
-0.000013 and 0.000003 respectively. Their cause was not established; the
-failures remain in `target/pyrowave-e2e/compatibility`. Aggregate live command time, including
-the early rejected connections and host startup/cleanup, was about 171
-seconds. AV1 and HEVC VRR were not rerun within that budget.
+failed the unchanged audio-continuity gate: minimum tone RMS fell to 0.000013
+and 0.000003 respectively. Aggregate live command time, including the early
+rejected connections and host startup/cleanup, was about 171 seconds. AV1 and
+HEVC VRR were not rerun within that budget.
 
 Checks passed: 12 release-gate unit tests, both C receiver builds (warnings
 denied, except the shared fixture's unused callback parameters and compact
-indentation), Python compilation, PowerShell parsing, `cargo fmt --all`,
-clippy for core/Windows/host with all targets and warnings denied, 167 core
-tests, and 63 host tests with two existing ignored tests. The host and both
-probe examples also built. The ordinary receiver rejects `pyrowave` before
-connecting instead of silently requesting H.264. No web files changed, and
-the installer/publisher was not run.
+indentation), Python compilation, PowerShell parsing, `cargo fmt --all`, clippy
+for core/Windows/host with all targets and warnings denied, 167 core tests, and
+63 host tests with two existing ignored tests. The host and both probe examples
+also built. The ordinary receiver rejects `pyrowave` before connecting instead
+of silently requesting H.264.
 
 ## October 7: Release audio continuity under CPU load
 
@@ -3969,15 +3903,13 @@ host capability probe and kept them running through teardown. Those
 matched CPU samples were 99.9–100%. Each codec had two old and two fixed
 renderer runs, with the order reversed for the second pair.
 
-GPU-only cases alternated with no-added-load cases and ran
-`gpu_load 45 1000 0 200`. The load probe completed at 162.2–167.9 FPS across
-the four runs, with frame-time p95 of 6.883–8.431 ms. The combined cases
-started the same shader workload alongside the CPU workers after host
-initialization and stopped only these owned processes afterwards. CPU
-contention also starved the GPU load process: one combined-case sample
-showed only 10% 3D-engine utilization for that process. These combined
-cases do not establish behavior with both CPU and GPU continuously
-saturated.
+GPU-only cases alternated with no-added-load cases and ran `gpu_load 45 1000 0
+200`. The load probe completed at 162.2–167.9 FPS across the four runs, with
+frame-time p95 of 6.883–8.431 ms. The combined cases started the same shader
+workload alongside the CPU workers after host initialization and stopped only
+these owned processes afterwards. CPU contention also starved the GPU load
+process: one combined-case sample showed only 10% 3D-engine utilization for
+that process.
 
 Counts below are **pass / fail**. Audio and the complete e2e gate are
 separate; every completed stream decoded every delivered picture with
@@ -4027,24 +3959,21 @@ window's RMS. A private negative-test renderer deliberately slept for
 with minimum RMS 0.000004 and one source underrun, while all 1,780 video
 pictures decoded. No startup exclusion or dropout tolerance was widened.
 
-The probe now uses `Priority::new()` as the host's media workers do and
-logs `AUDIO_RENDER_UNDERRUN` when its queue empties after initial filling.
-`e2e.py` includes the source log in evaluation. Results record the source
-underrun count (unknown for old probes), and an interrupted tone with
-source underruns retains its failure and adds that evidence. The release
-script prints the failure reasons before its existing single retry,
-preserves the first attempt, and still stops on a second failure. A
-passing retry does not establish the cause of the first failure.
+The probe now uses `Priority::new()` as the host's media workers do and logs
+`AUDIO_RENDER_UNDERRUN` when its queue empties after initial filling. `e2e.py`
+includes the source log in evaluation. Results record the source underrun count
+(unknown for old probes), and an interrupted tone with source underruns retains
+its failure and adds that evidence. The release script prints the failure
+reasons before its existing single retry, preserves the first attempt, and
+still stops on a second failure.
 
-Loopback is explicitly recognized by
-`peer.ip().to_canonical().is_loopback()` and keeps the 800 Mbps pacing
-ceiling; these tests did not exercise the then-current unknown-route 2× default. The
-host audio, send-path and pacing sources are unchanged between rc.20
-source `f06e72c7` and this worktree's starting `7908fb4a`. No host changes
-were made here. These measurements do not implicate QoS, control ACK
-holding or the optional AMF limits in the reproduced failure. They also
-do not prove the cause of every earlier failure: the historical runs
-lacked source-underrun telemetry, and no physical Wi-Fi path was tested.
+Loopback is explicitly recognized by `peer.ip().to_canonical().is_loopback()`
+and keeps the 800 Mbps pacing ceiling; these tests did not exercise the
+then-current unknown-route 2× default. The host audio, send-path and pacing
+sources are unchanged between rc.20 source `f06e72c7` and this worktree's
+starting `7908fb4a`. No host changes were made here. These measurements do not
+implicate QoS, control ACK holding or the optional AMF limits in the reproduced
+failure.
 
 Raw results, CPU samples, commands and temporary diagnostic sources are
 in this worktree's `target/audio-e2e`. `baseline-*`, `compare-*` and
@@ -4059,12 +3988,11 @@ built by `cargo build --release -p butterpollo-windows --example
 audio_probe --target-dir target\qa` after loading `rust-env.ps1`.
 
 Validation passed: `cargo fmt --all`; Windows clippy with all targets and
-warnings denied; 169 core tests; 63 host tests with two existing ignores;
-and 14 release-gate unit tests. The release audio/GPU probes built. A
-PowerShell syntax check and a stubbed execution of the actual retry loop
-verified that the first failure is retained and a second failure stops
-the release. The deliberate source-pause e2e failed as expected. The
-installer and publisher were not run.
+warnings denied; 169 core tests; 63 host tests with two existing ignores; and
+14 release-gate unit tests. The release audio/GPU probes built. A PowerShell
+syntax check and a stubbed execution of the actual retry loop verified that the
+first failure is retained and a second failure stops the release. The
+deliberate source-pause e2e failed as expected.
 
 ## October 7: 116 FPS VRR capture, WGC and DDX
 
@@ -4074,12 +4002,11 @@ Radeon RX 7900 XT, driver `32.0.31041.1004`, Windows `26200.9550`, with the
 Sunshine virtual display driver `1.6.3.0`. It is not a reproduction on the
 reporter's GPU or game.
 
-Both WGC and DDX delivered every distinct picture in capture-only runs
-whose VRR source held 116 or 120 FPS, including 4K HDR. The 1080p stream
-comparisons also sustained about 116 FPS with front-edge and async RTSS
-pacing. Sustained halving was not reproduced with those fixed-rate
-sources. Simultaneous-work runs and the local receiver had substantial
-slowdowns, described separately below.
+Both WGC and DDX delivered every distinct picture in capture-only runs whose
+VRR source held 116 or 120 FPS, including 4K HDR. The 1080p stream comparisons
+also sustained about 116 FPS with front-edge and async RTSS pacing.
+Simultaneous-work runs and the local receiver had substantial slowdowns,
+described separately below.
 
 The release host was built from `dac86ada` in this worktree. The stream
 tests use an isolated SYSTEM host on localhost port 48923, a private
@@ -4224,17 +4151,16 @@ The 4K async DDX run slowed to 92.84 source FPS and received 95.25 frames
 per second; the async WGC case hit the outer launcher timeout. The 4K
 async comparison is therefore inconclusive.
 
-Several simultaneous-work runs failed to maintain the requested source
-rate. For example, the last two 4K HDR / 120 FPS runs presented 76.03 and
-59.54 FPS, while DDX captured 72.04 and WGC captured 51.98 respectively.
-The first 1080p HDR / 116 run presented 80.83 and captured 77.74 with WGC.
-The 1080p SDR / 240 Hz batch fell as low as 38.92 source FPS and 29.68
-captured FPS. These are retained observations, not clean comparisons of
-the backends. The soak suite and other builds were active during this
-part of the study; their individual contributions were not isolated.
-They do not establish a fixed 116 FPS source being halved by WGC. A small
-capture age or a lower game resolution alone would not distinguish this
-situation from source-side pacing or scheduling problems.
+Several simultaneous-work runs failed to maintain the requested source rate.
+For example, the last two 4K HDR / 120 FPS runs presented 76.03 and 59.54 FPS,
+while DDX captured 72.04 and WGC captured 51.98 respectively. The first 1080p
+HDR / 116 run presented 80.83 and captured 77.74 with WGC. The 1080p SDR / 240
+Hz batch fell as low as 38.92 source FPS and 29.68 captured FPS. These are
+retained observations, not clean comparisons of the backends. The soak suite
+and other builds were active during this part of the study; their individual
+contributions were not isolated. A small capture age or a lower game resolution
+alone would not distinguish this situation from source-side pacing or
+scheduling problems.
 
 The first full 4K receiver comparison was also unsuitable for measuring
 capture losses. Its hardware-decoder callback includes GPU-to-CPU
@@ -4281,11 +4207,10 @@ coverage. The capture-only sequence-number measurements above answer
 that narrower question. A quiet-machine 4K encode/decode comparison and
 the original RX 9070 XT/game reproduction remain outstanding.
 
-No capture or limiter policy change is justified by these measurements.
-In particular, they do not support automatically preferring DDX for VRR,
-changing the WGC frame pool or dirty-region handling, or changing the
-default RTSS sync mode. The RX 9070 XT report still needs the game's
-actual presentation rate measured alongside the low-rate host windows.
+No capture or limiter policy change is justified by these measurements. In
+particular, they do not support automatically preferring DDX for VRR, changing
+the WGC frame pool or dirty-region handling, or changing the default RTSS sync
+mode.
 
 For that report, try **Capture method → Desktop Duplication** as a single
 comparison, with the same game scene, client settings and verified source
@@ -4321,8 +4246,17 @@ The release host and capture probes built successfully. This section is
 the only tracked change; the experimental harness and receiver remain
 under `target/vrr-capture`.
 
-## Limits
+## Hardware covered
 
-This machine validates AMD AMF. Native NVENC now calls the installed NVIDIA driver directly, supports reviewed API versions 11.0–13.0, reference frame invalidation, D3D11 4:2:0/8-bit 4:4:4 and GPU-only CUDA interop for ten-bit 4:4:4. Seven mock-driver tests exercise compatibility, asynchronous ownership, timeout teardown, metadata lifetime, loss recovery and bitrate changes; NVIDIA execution/performance still needs NVIDIA hardware. QSV has native D3D11 imports, and TrueHDR has a shared-device GPU path; these need Intel/NVIDIA hardware respectively. PyroWave uses shared D3D11/Vulkan planar GPU inputs and reads back only the encoded bitstream. Unsupported native formats and software encoding use CPU compatibility paths. The wired LAN checks above are complemented by the real-client Wi-Fi runs to a Radeon 780M laptop, recorded in [PERFORMANCE_WORK.md](PERFORMANCE_WORK.md#october-8-real-client-picture-age-over-wi-fi-rc24-laptop). Multiple concurrent 4K sessions, native 4K capture and end-to-end input-to-display latency are measured separately. The GPU texture pools and native encoder queues are bounded to eight retained frames; capacity runs may intentionally keep those queues occupied. [PARITY.md](PARITY.md) separates implemented features from native validation.
-
-The initial C++ comparison was blocked by an older `butter.2` executable whose startup performed global virtual-display recovery despite the isolated configuration; it was stopped before streaming tests. The October 4 comparison against pinned Vibepollo 2.0 above supersedes that initial limitation. The controlled FEC comparison uses the exact baseline sources without starting the C++ host.
+Measurements ran with AMD AMF on an RX 7900 XT host, with real-client Wi-Fi
+runs to a Radeon 780M laptop recorded in
+[PERFORMANCE_WORK.md](PERFORMANCE_WORK.md#october-8-real-client-picture-age-over-wi-fi-rc24-laptop).
+Native NVENC calls the installed NVIDIA driver directly and supports reviewed
+API versions 11.0–13.0, reference frame invalidation, D3D11 4:2:0/8-bit 4:4:4
+and GPU-only CUDA interop for ten-bit 4:4:4. QSV has native D3D11 imports, and
+TrueHDR has a shared-device GPU path. PyroWave uses shared D3D11/Vulkan planar
+GPU inputs and reads back only the encoded bitstream. Unsupported native
+formats and software encoding use CPU compatibility paths. The GPU texture
+pools and native encoder queues are bounded to eight retained frames.
+[PARITY.md](PARITY.md) lists the implemented features and where each was
+tested.

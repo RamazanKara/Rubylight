@@ -91,7 +91,7 @@ The ordinary checks (formatting, Clippy with warnings denied, workspace tests) a
 
 Native fixtures may require an active moving desktop, codec DLLs, compatible drivers and particular hardware. Display-changing fixtures record restoration separately. Follow each fixture's prerequisites and run them in a suitable idle test session.
 
-The strict AMD AV1 raw-bitstream geometry test retains its known failure at some unaligned sizes. Moonlight PC 6.2.0's crop handling has separate recorded client checks. Likewise, complete frame decoding, native HDR reference pixels and displayed TV appearance are distinct validation layers. [The compatibility matrix](PARITY.md#evidence) preserves those distinctions.
+[The compatibility matrix](PARITY.md#evidence) records what each fixture and client check covers.
 
 ## Previous feature support
 

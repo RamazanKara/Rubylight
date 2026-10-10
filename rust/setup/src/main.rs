@@ -153,12 +153,20 @@ fn main() {
                 let folder = folder.clone();
                 let end_streams = args.end_streams;
                 match ui::progress(TITLE, "Updating Rubylight", true, move |progress| {
-                    update::run(&folder, true, end_streams, &progress)?;
+                    let mut notes = Vec::new();
+                    let folder = system::win32_path(&folder)?;
                     // As a reinstall does. In-app updates never set the
                     // drivers up, so hosts updated from the console since
                     // rc.22 had none.
-                    let mut notes = Vec::new();
-                    let folder = system::win32_path(&folder)?;
+                    update::run(&folder, true, end_streams, &progress, &mut || {
+                        install::install_drivers(
+                            &folder,
+                            !install::display_driver_declined(),
+                            true,
+                            &progress,
+                            &mut notes,
+                        );
+                    })?;
                     // Hosts updated from the console keep the names Windows
                     // shows from their first install; bring them up to date.
                     if let Err(error) = install::refresh_service_name() {
@@ -171,13 +179,6 @@ fn main() {
                         ));
                     }
                     install::refresh_entries(&folder, &mut notes);
-                    install::install_drivers(
-                        &folder,
-                        !install::display_driver_declined(),
-                        true,
-                        &progress,
-                        &mut notes,
-                    );
                     for note in notes {
                         log::line(format!("note: {note}"));
                     }

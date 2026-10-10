@@ -160,6 +160,8 @@ pub fn install(options: &Options, progress: &Progress) -> Result<Outcome> {
     let mut restart_needed = false;
 
     if updates_in_place(found.service_install.as_deref(), &install)? {
+        // Before anything changes; update::run checks again before stopping.
+        ensure_idle(probe(&profile), options.end_streams)?;
         // As a reinstall did before, the service starts automatically again;
         // a disabled service would otherwise fail the update's start check.
         system::install_service(
@@ -168,7 +170,22 @@ pub fn install(options: &Options, progress: &Progress) -> Result<Outcome> {
             SERVICE_DESCRIPTION,
             &install.join("butterpollo-service.exe"),
         )?;
-        crate::update::run(&install, options.start, options.end_streams, progress)?;
+        remember_driver_choice(&profile, options.display_driver);
+        crate::update::run(
+            &install,
+            options.start,
+            options.end_streams,
+            progress,
+            &mut || {
+                restart_needed |= install_drivers(
+                    &install,
+                    options.display_driver,
+                    options.gamepad_driver,
+                    progress,
+                    &mut notes,
+                );
+            },
+        )?;
         // A reinstall also repairs the profile's permissions and the firewall
         // rule, as it did before.
         if let Err(error) = secure_install(&install) {
@@ -183,14 +200,6 @@ pub fn install(options: &Options, progress: &Progress) -> Result<Outcome> {
                 profile.display()
             ));
         }
-        remember_driver_choice(&profile, options.display_driver);
-        restart_needed |= install_drivers(
-            &install,
-            options.display_driver,
-            options.gamepad_driver,
-            progress,
-            &mut notes,
-        );
         refresh_entries(&install, &mut notes);
         return Ok(Outcome {
             web_port: web_port(&profile),

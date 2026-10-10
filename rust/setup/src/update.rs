@@ -9,7 +9,16 @@ use std::{
     time::Duration,
 };
 
-pub fn run(folder: &Path, start: bool, end_streams: bool, progress: &Progress) -> Result<()> {
+/// `before_start` runs once the new files are in place, while the service
+/// is still stopped: the driver scripts stop a running service and start it
+/// again, which would drop a client that just reconnected.
+pub fn run(
+    folder: &Path,
+    start: bool,
+    end_streams: bool,
+    progress: &Progress,
+    before_start: &mut dyn FnMut(),
+) -> Result<()> {
     detect::scan().check_version()?;
     let profile = install::profile();
     let result = profile.join("update-result.json");
@@ -96,6 +105,7 @@ pub fn run(folder: &Path, start: bool, end_streams: bool, progress: &Progress) -
         || -> Result<()> {
             progress.set("Installing the update…");
             replace_package(&staged, &install, &entries)?;
+            before_start();
             progress.set("Checking that Rubylight starts…");
             if start {
                 system::start_service(detect::SERVICE)?;

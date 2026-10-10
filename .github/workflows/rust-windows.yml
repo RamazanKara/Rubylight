@@ -150,9 +150,10 @@ jobs:
           gh run download "$BUILD" -n butterpollo-rust-windows-x64 -D build
           mkdir out
           mv "build/butterpollo-setup-$VERSION.exe" "out/rubylight-setup-$VERSION.exe"
-          # No butterpollo-named copy since 2.0.2. Hosts up to 2.0.1 only list a
-          # release that carries one (maintenance.rs::compatible_release), so
-          # they download 2.0.2 once by hand; 2.0.2 and later find every release.
+          # Hosts up to 2.0.1 only list a release that carries a butterpollo-named
+          # asset (maintenance.rs::compatible_release). 2.0.2 is the last release
+          # with this copy; 2.0.3 drops it, since 2.0.2 hosts accept the new names.
+          cp "out/rubylight-setup-$VERSION.exe" "out/butterpollo-setup-$VERSION.exe"
           mv build/butterpollo-rust-release.zip "out/rubylight-$VERSION-windows-x64.zip"
           (cd out && sha256sum * > SHA256SUMS)
           flags=()

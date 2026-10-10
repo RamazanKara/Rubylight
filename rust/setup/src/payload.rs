@@ -146,7 +146,7 @@ pub fn verify(root: &Path) -> Result<Vec<Entry>> {
     for required in [
         "butterpollo.exe",
         "butterpollo-service.exe",
-        "Start Butterpollo.exe",
+        "Start Rubylight.exe",
         "assets/web/index.html",
     ] {
         if !entries
@@ -203,7 +203,7 @@ mod tests {
         let paths = [
             "butterpollo.exe",
             "butterpollo-service.exe",
-            "Start Butterpollo.exe",
+            "Start Rubylight.exe",
             "assets/web/index.html",
         ];
         let entries: Vec<_> = paths

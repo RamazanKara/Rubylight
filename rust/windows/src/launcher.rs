@@ -108,7 +108,7 @@ fn service_profile() -> Result<Option<PathBuf>> {
     {
         if service.query_status()?.current_state != ServiceState::Running {
             bail!(
-                "The Rubylight service is installed but stopped. Start Rubylight in Windows Services, then open Start Butterpollo.exe again."
+                "The Rubylight service is installed but stopped. Start Rubylight in Windows Services, then open Start Rubylight.exe again."
             );
         }
         return Ok(Some(butterpollo_core::paths::installed_profile()));
@@ -190,7 +190,7 @@ pub fn run() -> Result<()> {
         .join("butterpollo.exe");
     let assets = executable.parent().unwrap().join("assets/web");
     if !executable.is_file() || !assets.is_dir() {
-        bail!("Extract the whole Rubylight package before opening Start Butterpollo.exe.");
+        bail!("Extract the whole Rubylight package before opening Start Rubylight.exe.");
     }
     let mut child = Command::new(&executable)
         .arg("--config-dir")

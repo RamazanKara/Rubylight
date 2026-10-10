@@ -35,7 +35,7 @@ If the device pairs but cannot launch Desktop, open **Devices → Edit** and che
 
 The default base port is `47989`; the console uses `47990`. A changed **Base port** moves the console to the next port up. Check the active profile's `sunshine.conf` if the launcher reports another address.
 
-**Start Butterpollo.exe** reopens the correct console when that profile is already running. If it reports another streaming host on the port, close the conflicting Sunshine, Apollo, Vibepollo or second Rubylight instance. Restarting another copy on the same port does not solve the conflict.
+**Start Rubylight.exe** reopens the correct console when that profile is already running. If it reports another streaming host on the port, close the conflicting Sunshine, Apollo, Vibepollo or second Rubylight instance. Restarting another copy on the same port does not solve the conflict.
 
 For an installed host, check **Rubylight** in Windows Services. Its internal service name is `ApolloService`. If it is stopped, read `service.log` before starting it again. The [log locations below](#logs-and-a-useful-report) distinguish service and portable profiles.
 

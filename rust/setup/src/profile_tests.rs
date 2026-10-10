@@ -185,7 +185,7 @@ pub fn package(root: &Path, version: &str, extra: &str) -> Result<Vec<crate::pay
     for name in [
         "butterpollo.exe",
         "butterpollo-service.exe",
-        "Start Butterpollo.exe",
+        "Start Rubylight.exe",
         "assets/web/index.html",
         extra,
     ] {

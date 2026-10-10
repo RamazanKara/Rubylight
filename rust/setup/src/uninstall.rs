@@ -53,7 +53,7 @@ pub fn uninstall(options: &Options, progress: &Progress) -> Result<()> {
     line(format!("uninstalling from {}", install.display()));
     progress.set("Stopping Rubylight…");
     let _ = system::stop_service(SERVICE);
-    system::kill(&HOST_PROCESSES[..3]);
+    system::kill(&HOST_PROCESSES[..4]);
     if system::service_program(SERVICE).is_some_and(|p| p.starts_with(&install)) {
         system::delete_service(SERVICE)?;
     }

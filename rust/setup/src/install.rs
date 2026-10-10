@@ -30,9 +30,10 @@ pub struct Outcome {
     pub notes: Vec<String>,
 }
 /// Processes of Rubylight and of the hosts it replaces.
-pub const HOST_PROCESSES: [&str; 9] = [
+pub const HOST_PROCESSES: [&str; 10] = [
     "butterpollo.exe",
     "butterpollo-service.exe",
+    "Start Rubylight.exe",
     "Start Butterpollo.exe",
     "sunshine.exe",
     "sunshinesvc.exe",
@@ -68,7 +69,7 @@ pub fn refresh_entries(install: &Path, notes: &mut Vec<String>) {
     }
     match system::shortcut(
         &start_menu_link(),
-        &install.join("Start Butterpollo.exe"),
+        &install.join("Start Rubylight.exe"),
         "Open the Rubylight console",
     ) {
         Ok(()) => {
@@ -389,7 +390,7 @@ pub fn install(options: &Options, progress: &Progress) -> Result<Outcome> {
     progress.set("Adding Rubylight to Start and Apps…");
     match system::shortcut(
         &start_menu_link(),
-        &install.join("Start Butterpollo.exe"),
+        &install.join("Start Rubylight.exe"),
         "Open the Rubylight console",
     ) {
         Ok(()) => {

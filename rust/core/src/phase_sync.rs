@@ -38,17 +38,22 @@ impl PhaseSync {
         self.lock.locked()
     }
 
-    /// Interval from the frame captured now to the next one while locked: the client's
-    /// period with the phase correction. `None` without a lock, so a client that never
-    /// reports (stock Moonlight, older Rubylight) keeps the host's pacing untouched.
-    /// Call once per frame.
+    /// Interval from the frame captured now to the next one while locked: a whole number
+    /// of client refreshes with the phase correction. `None` without a lock, so a client
+    /// that never reports (stock Moonlight, older Rubylight) keeps the host's pacing
+    /// untouched, and `None` when the stream rate is not a whole number of client
+    /// refreshes (120 fps to a 60 Hz phone, 90 fps to 120 Hz), so the rate the user chose
+    /// stays. Call once per frame.
     pub fn interval(&mut self, now: Instant, nominal: Duration) -> Option<Duration> {
         self.expire(now);
-        if !self.lock.locked() {
+        let client_ns = self.lock.period_ns().filter(|&period| period > 0)?;
+        let nominal_ns = i64::try_from(nominal.as_nanos()).unwrap_or(i64::MAX);
+        // Client refreshes per stream frame: 2 for 60 fps on a 120 Hz phone.
+        let refreshes = nominal_ns.saturating_add(client_ns / 2) / client_ns;
+        if refreshes < 1 || (refreshes * client_ns - nominal_ns).abs() > nominal_ns / 50 {
             return None;
         }
-        let nominal_ns = i64::try_from(nominal.as_nanos()).unwrap_or(i64::MAX);
-        let interval = self.lock.next_interval_ns(nominal_ns);
+        let interval = self.lock.next_interval_ns(nominal_ns) + (refreshes - 1) * client_ns;
         // Never less than half or more than twice the nominal period.
         let interval = interval.clamp(nominal_ns / 2, nominal_ns.saturating_mul(2));
         Some(Duration::from_nanos(interval.max(1) as u64))
@@ -105,6 +110,26 @@ mod tests {
         assert!(sync.locked(later - Duration::from_millis(1)));
         assert!(!sync.locked(later));
         assert_eq!(sync.interval(later, nominal), None);
+    }
+
+    #[test]
+    fn keeps_the_stream_rate_the_user_chose() {
+        let now = Instant::now();
+        let lead = PhaseLock::DEFAULT_MARGIN_NS as i32;
+        // 60 fps to a 120 Hz phone: every second refresh, not 120 fps.
+        let mut sync = PhaseSync::default();
+        sync.on_payload(now, &report(8_334_000, lead));
+        assert_eq!(
+            sync.interval(now, Duration::from_nanos(16_666_667)),
+            Some(Duration::from_nanos(16_668_000))
+        );
+        // 120 fps to a 60 Hz phone, and 90 fps to a 120 Hz phone: no lock.
+        let mut sync = PhaseSync::default();
+        sync.on_payload(now, &report(16_666_667, lead));
+        assert_eq!(sync.interval(now, Duration::from_nanos(8_333_333)), None);
+        let mut sync = PhaseSync::default();
+        sync.on_payload(now, &report(8_333_333, lead));
+        assert_eq!(sync.interval(now, Duration::from_nanos(11_111_111)), None);
     }
 
     #[test]

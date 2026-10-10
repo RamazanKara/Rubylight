@@ -70,7 +70,10 @@ impl PhaseSync {
     }
 
     fn expire(&mut self, now: Instant) {
-        if self.last_report.is_some_and(|at| now.saturating_duration_since(at) >= Self::TIMEOUT) {
+        if self
+            .last_report
+            .is_some_and(|at| now.saturating_duration_since(at) >= Self::TIMEOUT)
+        {
             self.lock.reset();
             self.last_report = None;
             self.logged_at = None;
@@ -83,7 +86,14 @@ mod tests {
     use super::*;
 
     fn report(period_ns: u32, lead_ns: i32) -> Vec<u8> {
-        Report { frames: 60, period_ns, lead_ns, spread_ns: 200_000 }.encode().to_vec()
+        Report {
+            frames: 60,
+            period_ns,
+            lead_ns,
+            spread_ns: 200_000,
+        }
+        .encode()
+        .to_vec()
     }
 
     #[test]
@@ -104,7 +114,10 @@ mod tests {
         let lead = PhaseLock::DEFAULT_MARGIN_NS as i32;
         assert!(sync.on_payload(now, &report(8_334_000, lead)).is_some());
         assert!(sync.locked(now));
-        assert_eq!(sync.interval(now, nominal), Some(Duration::from_nanos(8_334_000)));
+        assert_eq!(
+            sync.interval(now, nominal),
+            Some(Duration::from_nanos(8_334_000))
+        );
         // Still locked just before the timeout, released at it.
         let later = now + PhaseSync::TIMEOUT;
         assert!(sync.locked(later - Duration::from_millis(1)));

@@ -411,6 +411,35 @@ mod tests {
         Ok(())
     }
     #[test]
+    fn an_apollo_sign_in_kept_in_the_paired_state_still_signs_in() -> Result<()> {
+        // Apollo, Vibepollo and Sunshine keep the console sign-in in
+        // sunshine_state.json unless credentials_file names another file,
+        // hashed as SHA-256(password + salt) in C++ util::hex order.
+        let temp = tempfile::tempdir()?;
+        let identity = crypto::Identity::generate()?;
+        let old = temp.path().join("Apollo/config");
+        std::fs::create_dir_all(old.join("credentials"))?;
+        std::fs::write(old.join("sunshine.conf"), "sunshine_name = Gaming PC\n")?;
+        let salt = "aB3!%&()=-xYz012";
+        state::write_json(
+            &old.join("sunshine_state.json"),
+            &json!({"username":"Ramazan","salt":salt,
+                "password":crypto::legacy_hash(format!("Apollo pässword{salt}").as_bytes()),
+                "root":{"uniqueid":"same-host","named_devices":[]}}),
+        )?;
+        std::fs::write(old.join("apps.json"), r#"{"env":{},"apps":[]}"#)?;
+        std::fs::write(old.join("credentials/cacert.pem"), &identity.certificate)?;
+        std::fs::write(old.join("credentials/cakey.pem"), &identity.private_pem)?;
+        let next = temp.path().join("next");
+        import(&old, &next)?;
+        let files = state::ProfileFiles::new(&Config::load(&next.join("sunshine.conf"))?, &next);
+        assert_eq!(files.credentials, next.join("sunshine_state.json"));
+        let credentials = state::Credentials::load(&files.credentials)?.unwrap();
+        assert!(credentials.verifies("ramazan", "Apollo pässword"));
+        assert!(!credentials.verifies("ramazan", "apollo pässword"));
+        Ok(())
+    }
+    #[test]
     fn importing_keeps_source_intact_unknown_fields_and_external_files_owned() {
         let temp = tempfile::tempdir().unwrap();
         let old = temp.path().join("old");

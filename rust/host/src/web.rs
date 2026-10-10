@@ -406,6 +406,9 @@ async fn guard(State(h): State<Shared>, mut request: Request, next: Next) -> Res
             | "/api/csrf-token"
             | "/api/configLocale"
     );
+    if path.starts_with("/api/") {
+        h.reload_credentials();
+    }
     let fresh_password = path == "/api/password" && h.credentials.read().unwrap().is_none();
     let api_token = token_authenticated(&h, request.headers(), path, method.as_str());
     if fresh_password
@@ -677,7 +680,17 @@ pub(crate) async fn api(
             }
             return result;
         }
-        return Json(json!({"authenticated":authenticated,"credentials_configured":configured,"login_required":configured&&!authenticated,"status":true})).into_response();
+        let mut status = json!({"authenticated":authenticated,"credentials_configured":configured,"login_required":configured&&!authenticated,"status":true});
+        // The sign-in page on this PC shows how to set a new sign-in: an
+        // administrator runs this program with --creds.
+        if configured
+            && !authenticated
+            && connection.peer.ip().to_canonical().is_loopback()
+            && let Ok(program) = std::env::current_exe()
+        {
+            status["creds_program"] = program.display().to_string().into();
+        }
+        return Json(status).into_response();
     }
     if path == "/api/auth/login" {
         if method != Method::POST {

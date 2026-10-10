@@ -107,6 +107,8 @@ export interface AuthStatus {
   authenticated: boolean;
   credentials_configured: boolean;
   login_required: boolean;
+  /** On this PC while signed out: the program that sets a new sign-in with --creds. */
+  creds_program?: string;
 }
 export interface IssuedSession {
   status: true;

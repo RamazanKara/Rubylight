@@ -202,7 +202,7 @@ async fn main() -> Result<()> {
         h.save_credentials(&credentials)
             .context("saving the credentials (an installed host needs an administrator)")?;
         println!(
-            "Saved the web console credentials in {}. Restart Rubylight if it is running.",
+            "Saved the web console sign-in in {}. Sign in with it now; a running Rubylight takes it up without a restart.",
             h.directory.display()
         );
         return Ok(());

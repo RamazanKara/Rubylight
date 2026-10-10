@@ -31,7 +31,7 @@ Run one streaming host on the default ports. If Sunshine, Apollo or Vibepollo is
 
 On the first portable launch, **Yes** in the import prompt copies an existing Vibepollo or Apollo profile. Select the folder containing `sunshine.conf`, or the installation folder containing `config\sunshine.conf`. **No** starts a fresh profile.
 
-Import brings across settings, paired devices, identity, the app library and covers. The original profile remains in place. The destination must be empty; Rubylight refuses to overwrite a populated profile. The prompt appears only when the portable profile has not already been created.
+Import brings across settings, paired devices, identity, the console sign-in, the app library and covers. The original profile remains in place. The destination must be empty; Rubylight refuses to overwrite a populated profile. The prompt appears only when the portable profile has not already been created.
 
 The default profiles are separate:
 
@@ -54,7 +54,15 @@ Opening the launcher again returns to the running profile's console. When launch
 
 ## Open the console
 
-The launcher opens **https://localhost:47990** on the host PC. A custom base port changes the console port too. The console uses a local self-signed certificate, so the browser may show a certificate warning; check that you are opening your own host's address. Create the local administrator account if prompted; initial account setup must happen on the host PC.
+The launcher opens **https://localhost:47990** on the host PC. A custom base port changes the console port too. The console uses a local self-signed certificate, so the browser may show a certificate warning; check that you are opening your own host's address. Create the local administrator account if prompted; initial account setup must happen on the host PC. After an import from Apollo, Vibepollo or Sunshine, sign in with that host's console username and password.
+
+To set a new sign-in, open PowerShell as administrator on the host PC and run the host program with `--creds` (the sign-in page on the host PC shows the full path):
+
+```powershell
+& "C:\Program Files\Rubylight\butterpollo.exe" --creds NAME PASSWORD
+```
+
+Use a password of at least 8 characters, then sign in with the new name and password. Signed-in browsers sign in again. An installation upgraded from Butterpollo keeps its original install folder.
 
 On **Overview**, check **Host readiness** for the video encoder, virtual display, audio and screen capture. An available encoder and an active physical display are enough for the first desktop stream. A virtual display showing **Off** is expected when you are streaming a physical monitor.
 

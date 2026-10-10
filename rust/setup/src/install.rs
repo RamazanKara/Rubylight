@@ -299,7 +299,7 @@ pub fn install(options: &Options, progress: &Progress) -> Result<Outcome> {
             );
         }
         notes.push(format!(
-            "Settings, paired devices and apps were imported from {}.",
+            "Settings, paired devices and apps were imported from {}. The console keeps that host's sign-in: use its username and password.",
             source.display()
         ));
     }

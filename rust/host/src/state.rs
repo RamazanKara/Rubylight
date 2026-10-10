@@ -14,6 +14,12 @@ use std::{
     time::{Duration, Instant},
 };
 pub type Shared = Arc<Host>;
+type FileStamp = (std::time::SystemTime, u64);
+/// When a file was last written and its size; None while it is missing.
+fn file_stamp(path: &std::path::Path) -> Option<FileStamp> {
+    let metadata = std::fs::metadata(path).ok()?;
+    Some((metadata.modified().ok()?, metadata.len()))
+}
 #[cfg(test)]
 pub(crate) mod test_support;
 pub type Launch = butterpollo_core::session::Launch<
@@ -142,6 +148,8 @@ pub struct Host {
     pub identity: Identity,
     pub paired: RwLock<PairedState>,
     pub credentials: RwLock<Option<Credentials>>,
+    /// The credentials file as the sign-in was last read or written.
+    credentials_stamp: Mutex<Option<FileStamp>>,
     pub app_document: RwLock<Value>,
     pub apps: RwLock<Vec<App>>,
     pub sessions: Mutex<Sessions>,
@@ -259,6 +267,7 @@ impl Host {
         paired.save(&paired_path)?;
         let identity = Identity::load(&certificate, &key)?;
         let credentials = Credentials::load(&credentials_path)?;
+        let credentials_stamp = file_stamp(&credentials_path);
         let app_document = load_library(
             &apps_path,
             // Vibepollo's default library.
@@ -316,6 +325,7 @@ impl Host {
             identity,
             paired: RwLock::new(paired),
             credentials: RwLock::new(credentials),
+            credentials_stamp: Mutex::new(credentials_stamp),
             app_document: RwLock::new(app_document),
             apps: RwLock::new(apps),
             sessions: Mutex::new(Sessions::default()),
@@ -681,7 +691,64 @@ impl Host {
         if self.credentials_path == self.paired_path {
             paired.document = document;
         }
+        *self.credentials_stamp.lock().unwrap() = file_stamp(&self.credentials_path);
         Ok(())
+    }
+    /// Take up a sign-in changed on disk, as `--creds` changes it while the
+    /// host runs, so the console accepts it at once. Apollo and Sunshine
+    /// profiles keep the sign-in in the paired-state file; updating that
+    /// copy too keeps the next save of the paired state from writing the
+    /// previous sign-in back. Signed-in browsers sign in again, as after a
+    /// password change in the console.
+    pub fn reload_credentials(&self) {
+        if *self.credentials_stamp.lock().unwrap() == file_stamp(&self.credentials_path) {
+            return;
+        }
+        // The password change's order: sessions, paired state, sign-in.
+        let mut sessions = self.web_sessions.lock().unwrap();
+        {
+            let mut paired = self.paired.write().unwrap();
+            let mut seen = self.credentials_stamp.lock().unwrap();
+            let current = file_stamp(&self.credentials_path);
+            if *seen == current {
+                return;
+            }
+            *seen = current;
+            let loaded = match Credentials::load(&self.credentials_path) {
+                Ok(loaded) => loaded,
+                Err(error) => {
+                    tracing::warn!(
+                        error = %format!("{error:#}"),
+                        "the console sign-in file is unreadable; the current sign-in stays"
+                    );
+                    return;
+                }
+            };
+            let mut credentials = self.credentials.write().unwrap();
+            if *credentials == loaded {
+                return;
+            }
+            if self.credentials_path == self.paired_path
+                && let Some(document) = paired.document.as_object_mut()
+            {
+                for key in ["username", "password", "salt"] {
+                    document.remove(key);
+                }
+                if let Some(Value::Object(values)) =
+                    loaded.as_ref().and_then(|c| serde_json::to_value(c).ok())
+                {
+                    document.extend(values);
+                }
+            }
+            *credentials = loaded;
+            tracing::info!(
+                "the console sign-in was changed outside the console; browsers sign in again"
+            );
+        }
+        if let Err(error) = self.save_web_sessions(&Default::default()) {
+            tracing::warn!(error = %format!("{error:#}"), "browser sessions could not be cleared");
+        }
+        sessions.clear();
     }
     pub fn save_web_sessions(&self, sessions: &HashMap<String, WebSession>) -> Result<()> {
         let mut aliases = self.aliases.lock().unwrap();
@@ -876,6 +943,67 @@ mod tests {
         assert!(!displays.contains_key("me"));
         assert!(Arc::ptr_eq(&displays["other"].0, &theirs));
         assert_eq!(take_retained(&mut displays, "me", sdr), Err(None));
+    }
+    #[test]
+    fn a_sign_in_set_while_the_host_runs_is_taken_up_and_not_written_back() {
+        use super::test_support::Fixture;
+        use butterpollo_core::state::{Credentials, load_json, write_json};
+        let f = Fixture::new();
+        let h = &f.host;
+        // As in Apollo and Sunshine profiles, the sign-in shares the
+        // paired-state file.
+        assert_eq!(h.credentials_path, h.paired_path);
+        let old = Credentials::new("apollo".into(), "old-password").unwrap();
+        h.save_credentials(&old).unwrap();
+        *h.credentials.write().unwrap() = Some(old);
+        h.new_web_session(
+            "apollo".into(),
+            false,
+            String::new(),
+            "127.0.0.1".into(),
+            None,
+        )
+        .unwrap();
+        // The console's own write is no change from outside.
+        h.reload_credentials();
+        assert_eq!(h.web_sessions.lock().unwrap().len(), 1);
+        // --creds writes the file while the host runs.
+        let set = |credentials: Option<&Credentials>| {
+            let mut document = load_json(&h.credentials_path, serde_json::json!({})).unwrap();
+            let document = document.as_object_mut().unwrap();
+            for key in ["username", "password", "salt"] {
+                document.remove(key);
+            }
+            if let Some(c) = credentials {
+                document.extend(
+                    serde_json::to_value(c)
+                        .unwrap()
+                        .as_object()
+                        .unwrap()
+                        .clone(),
+                );
+            }
+            write_json(&h.credentials_path, &document).unwrap();
+        };
+        let new = Credentials::new("Ramazan K".into(), "new-password").unwrap();
+        set(Some(&new));
+        h.reload_credentials();
+        let current = h.credentials.read().unwrap().clone().unwrap();
+        assert!(current.verifies("ramazan k", "new-password"));
+        assert!(!current.verifies("apollo", "old-password"));
+        assert!(h.web_sessions.lock().unwrap().is_empty());
+        // A later save of the paired state keeps the new sign-in.
+        let paired = h.paired.read().unwrap();
+        paired.save(&h.paired_path).unwrap();
+        drop(paired);
+        let saved = Credentials::load(&h.credentials_path).unwrap().unwrap();
+        assert!(saved.verifies("Ramazan K", "new-password"));
+        assert!(h.paired.read().unwrap().document["root"]["named_devices"].is_array());
+        // A sign-in removed from the file offers the first-run setup.
+        set(None);
+        h.reload_credentials();
+        assert!(h.credentials.read().unwrap().is_none());
+        assert!(h.paired.read().unwrap().document.get("username").is_none());
     }
     #[test]
     fn host_load_reuses_the_shared_virtual_display_guid_without_replacing_an_existing_one() {

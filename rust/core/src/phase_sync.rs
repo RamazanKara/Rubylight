@@ -59,6 +59,14 @@ impl PhaseSync {
         Some(Duration::from_nanos(interval.max(1) as u64))
     }
 
+    /// Lets the lock go at once, as when the stream's rate changes; the client's
+    /// next reports lock it again.
+    pub fn reset(&mut self) {
+        self.lock.reset();
+        self.last_report = None;
+        self.logged_at = None;
+    }
+
     /// True about once every ten seconds while locked, for logging the applied interval.
     pub fn log_due(&mut self, now: Instant) -> bool {
         self.expire(now);
@@ -143,6 +151,20 @@ mod tests {
         let mut sync = PhaseSync::default();
         sync.on_payload(now, &report(8_333_333, lead));
         assert_eq!(sync.interval(now, Duration::from_nanos(11_111_111)), None);
+    }
+
+    #[test]
+    fn a_reset_lets_go_until_the_next_report() {
+        let now = Instant::now();
+        let mut sync = PhaseSync::default();
+        let nominal = Duration::from_nanos(8_333_333);
+        sync.on_payload(now, &report(8_334_000, 0));
+        assert!(sync.locked(now));
+        sync.reset();
+        assert!(!sync.locked(now));
+        assert_eq!(sync.interval(now, nominal), None);
+        sync.on_payload(now, &report(8_334_000, 0));
+        assert!(sync.locked(now));
     }
 
     #[test]

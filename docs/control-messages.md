@@ -22,7 +22,7 @@ Each message travels on the control stream like Moonlight's client-to-host contr
 | --- | --- | --- | --- |
 | `0x5530` | Phase lock report | `phase_lock::Report` | Times captures to the client's display latch while reports arrive about every 500 ms; after 3 s without one the host returns to its own pacing. |
 | `0x5531` | Display luminance | `control::DisplayCaps` | Describes the client's screen in the HDR metadata ([below](#0x5531-display-luminance)). |
-| `0x5532` | Reconfigure | `control::Reconfigure` | A request to change resolution or frame rate without reconnecting; see the crate for its format. |
+| `0x5532` | Reconfigure | `control::Reconfigure` | Changes the stream's resolution or frame rate without reconnecting ([below](#0x5532-reconfigure)). |
 
 ## 0x5531 display luminance
 
@@ -46,6 +46,49 @@ What the host does with it:
 - The host sends this metadata in Moonlight's HDR mode message (`0x010e`) and writes it into the video bitstream's HDR10 metadata. The first `0x010e` of a stream goes out once the encoder has the display's values, with the client's luminance if it has arrived by then. A later change sends `0x010e` once more, and only if the resulting values differ; the encoder is given the new values with its next metadata refresh, about once a second.
 - The game itself renders for the host display. With a virtual display that display is created before the client connects, so its peak does not follow this message; select an HDR profile or peak brightness for the device on the host for that.
 - The host log records `display caps` with the reported values and what was applied.
+
+## 0x5532 reconfigure
+
+A client whose display changes during a stream, such as a foldable phone opening its inner screen or a window being resized, can ask for another size and rate. The stream continues on the same connection; there is no new RTSP exchange.
+
+### The message
+
+Send it on the encrypted control stream like any other control message (the keyframe request `0x0302`, for example), with type `0x5532` and this 12-byte payload, little-endian:
+
+| Bytes | Field | Value |
+| --- | --- | --- |
+| 0 | version | `1` |
+| 1 | reserved | `0` |
+| 2–3 | width | pixels, even, 256–8192 |
+| 4–5 | height | pixels, even, 256–8192 |
+| 6–7 | reserved | `0` |
+| 8–11 | frame rate | thousandths of a frame per second, 10 000–500 000 (120 fps is `120000`, 59.94 fps is `59940`) |
+
+A payload that is shorter, has another version or has a value outside these limits is ignored. `Reconfigure::encode` in rubylight-protocol (`rp_reconfigure_encode` in C) writes it.
+
+### What the host does
+
+- **It waits for the client to settle.** The latest request is applied once no other has come for 200 ms, so a window being dragged or a hinge moving causes one switch, not many. Repeating the same request does not extend the wait. The host switches at most once a second; a request that comes sooner waits for that.
+- **A request for the current size and rate changes nothing**, and withdraws a request still waiting.
+- **The switch happens between frames.** The encoder is recreated at the new size and rate, and its first frame is a keyframe whose sequence header (SPS/PPS for H.264 and HEVC, the sequence header OBU for AV1) carries the new size. Frames already encoded at the old size can still arrive before it. Frame numbers continue without a gap.
+- **Pacing follows the new rate.** A phase lock (`0x5530`) is released at a rate change and locks again from the client's next reports.
+- **The PC's display keeps its mode.** The picture is scaled to the new size on the GPU, keeping its aspect ratio, with black bars where the shapes differ. Absolute mouse, touch and pen positions follow the new size. The display's refresh rate and a game's frame limit stay as they were set when the stream started, so a frame rate above the display's refresh repeats pictures.
+- **Everything else stays as negotiated**: codec, HDR, chroma, bitrate and audio. To change the bitrate as well, use the client's usual bitrate request.
+
+The host does not reply. It keeps the old size when:
+
+- the stream uses PyroWave, whose sender and error correction are sized when the stream starts;
+- `stream_reconfigure` is off for the host, the device or the app;
+- the encoder cannot be created at the new size; it is then recreated at the old size, and the client receives a keyframe at the old size.
+
+The host logs each switch as `reconfigure` with the old and new mode and how long the switch took, and each refusal as `reconfigure refused` with the reason.
+
+### Client advice
+
+- Send the message once the new display size is known, and round odd sizes to even ones.
+- Keep decoding the old size until the keyframe at the new size arrives, then reconfigure the decoder from its sequence header. On Android, a decoder configured with the largest size the device can show (`KEY_MAX_WIDTH`, `KEY_MAX_HEIGHT`) and adaptive playback takes the new size without being recreated.
+- Read the size of the picture from the stream, not from the request: the host may have kept the old one.
+- Send it only to a host that supports it (Rubylight 2.2.0 and later). Other hosts ignore it, and the stream then keeps its size.
 
 ## Error correction reports
 

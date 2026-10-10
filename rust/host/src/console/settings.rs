@@ -88,6 +88,7 @@ pub const GLOBAL: &[Setting] = settings! {
         "limit_framerate", "Use the launch frame rate for encoding", Bool;
         "minimum_fps_target", "Minimum frame rate for an unchanged desktop", Number;
         "wgc_pacing_smoothing", "Smooth capture pacing", Bool;
+        "stream_reconfigure", "Follow client size and frame rate changes", Bool;
         "wgc_direct_encoder_input", "Pass GPU capture directly to the encoder", Bool;
         "gpu_compute_conversion", "Copy and convert captures on a compute queue", Bool;
         "compute_queue_realtime", "Run that compute queue at real-time GPU priority", Bool;

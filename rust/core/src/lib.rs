@@ -49,6 +49,7 @@ pub mod phase_sync;
 pub mod playnite;
 pub mod present_timing;
 pub mod pyrowave;
+pub mod reconfigure;
 pub mod remote;
 pub mod rtsp;
 pub mod rtx_policy;

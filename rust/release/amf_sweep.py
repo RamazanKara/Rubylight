@@ -147,7 +147,7 @@ def quality(work, binaries, profile, codec, candidate, changes, arm, request):
     config = directory / 'sunshine.conf'
     config.write_text('\n'.join(f'{k} = {v}' for k, v in settings_now.items() if k != 'QueryTimeout') + '\n')
     env = os.environ.copy()
-    env.update(RUST_LOG='butterpollo_windows::amf=info', PATH=str(binaries / variant) + ';' + env['PATH'])
+    env.update(RUST_LOG='butterpollo_windows::amf=debug', PATH=str(binaries / variant) + ';' + env['PATH'])
     try:
         reference = prepare_reference(work, profile, hdr)
         bits = directory / 'encoded.bin'

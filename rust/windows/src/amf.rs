@@ -461,7 +461,7 @@ impl Encoder {
                 butterpollo_core::encoder_policy::amf_ltr_requested(options, config.codec);
             let ltr_count = butterpollo_core::encoder_policy::amf_ltr_frames(options, config);
             if ltr_count < requested_ltr {
-                tracing::info!(
+                tracing::debug!(
                     requested_ltr,
                     client_max_reference_frames = config.references,
                     effective_ltr_frames = ltr_count,
@@ -625,14 +625,14 @@ impl Encoder {
         match butterpollo_core::encoder_policy::amf_split_frame(
             options, self.codec, instances, driver,
         ) {
-            None => tracing::info!(
+            None => tracing::debug!(
                 setting,
                 instances,
                 driver_value = ?driver,
                 "AMF split-frame encoding left to the driver"
             ),
             Some(property) => match self.apply(&property) {
-                Ok(()) => tracing::info!(
+                Ok(()) => tracing::debug!(
                     setting,
                     instances,
                     driver_value = ?driver,
@@ -766,7 +766,7 @@ impl Encoder {
             // SAFETY: `device` is a live IDXGIDevice obtained by `cast` from this
             // encoder's D3D11 device; the call only reads its priority.
             .and_then(|device| unsafe { device.GetGPUThreadPriority() });
-        tracing::info!(
+        tracing::debug!(
             settings = %settings.join(" "),
             client_max_reference_frames = self.config.references,
             input_memory = if self.compute.is_some() { "D3D12" } else { "D3D11/host" },
@@ -835,7 +835,7 @@ impl Encoder {
         // Not retried every second when the driver refuses it.
         self.hdr_metadata = Some(metadata);
         match self.write_hdr_metadata(&metadata) {
-            Ok(()) => tracing::info!(
+            Ok(()) => tracing::debug!(
                 maximum_nits = metadata.maximum_nits,
                 minimum = metadata.minimum,
                 max_cll = metadata.max_cll,
@@ -1037,7 +1037,7 @@ impl Encoder {
         match result {
             Ok(count) => {
                 self.references = butterpollo_core::ltr::References::new(count);
-                tracing::info!(count, "AMF long-term reference recovery enabled");
+                tracing::debug!(count, "AMF long-term reference recovery enabled");
             }
             Err(error) => {
                 let _ = self.property_raw(maximum, int(0));

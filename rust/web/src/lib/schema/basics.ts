@@ -134,7 +134,7 @@ const general: Setting[] = [
     key: 'min_log_level',
     label: 'Log level',
     description:
-      'How much detail the host writes to its log. Debug and Verbose help when reporting a problem but make the log grow quickly.',
+      'How much detail the host writes to its log. Information keeps it short. Debug adds encoder settings, display setup and timing lines every 5 seconds for a problem report; Verbose adds everything. Applies right away.',
     category: 'general',
     group: 'Logging',
     control: {
@@ -149,7 +149,6 @@ const general: Setting[] = [
       ],
     },
     default: 'info',
-    restart: true,
   },
   {
     key: 'log_path',

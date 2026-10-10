@@ -154,7 +154,7 @@ fn update_plugin(h: &Shared) -> bool {
     let installed = version(&target);
     let packaged = version(&source);
     let running = butterpollo_windows::playnite::running().is_some();
-    tracing::info!(folder = %target.display(), ?installed, ?packaged, present, running, "Playnite plugin check");
+    tracing::debug!(folder = %target.display(), ?installed, ?packaged, present, running, "Playnite plugin check");
     let Some(packaged) = packaged else {
         tracing::warn!(folder = %source.display(), "packaged Playnite plugin is unavailable");
         return present;
@@ -238,7 +238,7 @@ fn snapshot() -> Result<()> {
             bail!("the Playnite library did not arrive in time");
         }
     }
-    tracing::info!(
+    tracing::debug!(
         games = games.len(),
         elapsed_ms = opened.elapsed().as_millis(),
         "Playnite library snapshot received"
@@ -897,7 +897,7 @@ fn run(
         attempts += 1;
         match Pipe::connect(&hello) {
             Ok(pipe) => {
-                tracing::info!(
+                tracing::debug!(
                     id,
                     attempts,
                     elapsed_ms = opened.elapsed().as_millis(),
@@ -1040,7 +1040,7 @@ fn run(
             let focused = bring_forward(*menu, &install_dir, &exe);
             budget.checked(Instant::now(), focused);
             if budget.finished(Instant::now()) {
-                tracing::info!(id, menu = *menu, focused, "Playnite window focus finished");
+                tracing::debug!(id, menu = *menu, focused, "Playnite window focus finished");
                 focus = None;
             }
         }

@@ -747,7 +747,7 @@ impl Session {
         };
         self.check(status, "initialize encoder")?;
         self.initialized = true;
-        tracing::info!(
+        tracing::debug!(
             api_major = self.api.0,
             api_minor = self.api.1,
             asynchronous,

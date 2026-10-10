@@ -624,7 +624,7 @@ impl Tagged {
         let class = if voice { "voice" } else { "video" };
         let flow = match butterpollo_windows::net::QosFlow::new(socket, peer, voice) {
             Ok(Some(flow)) => {
-                tracing::info!(%peer, class, "stream traffic tagged for QoS");
+                tracing::debug!(%peer, class, "stream traffic tagged for QoS");
                 Some(flow)
             }
             Ok(None) => None,
@@ -1418,6 +1418,9 @@ impl Media {
                     // offset: a future stamp must not look like instant delivery.
                     let mut claim_ages: Vec<(u64, u64)> = Vec::with_capacity(1024);
                     let mut wgc_stamp_ages: Vec<f64> = Vec::with_capacity(1024);
+                    // The 5 s timing summary is a debug log: with debug off, skip
+                    // collecting its samples and computing its percentiles.
+                    let mut timings_logged = tracing::enabled!(tracing::Level::DEBUG);
                     // The first pacing decision for the newest fresh frame, kept
                     // for the per-claim trace.
                     let mut first_seen: Option<(usize, Instant, Option<Duration>, Option<Instant>)> = None;
@@ -1470,7 +1473,7 @@ impl Media {
                                 && butterpollo_core::network_pacing::paced(bps, s.bitrate.load(Ordering::Relaxed))
                             {
                                 let _ = video_sender.set(crate::video_send::Sender::new(m.video.clone(), s.clone(), c.clone(), h.clone(), start, prepared.capture() == "wgc")?);
-                                tracing::info!(pacing_bps = bps, bitrate_kbps = s.bitrate.load(Ordering::Relaxed), "video frames are sent on their own thread: pacing is near the stream bitrate");
+                                tracing::debug!(pacing_bps = bps, bitrate_kbps = s.bitrate.load(Ordering::Relaxed), "video frames are sent on their own thread: pacing is near the stream bitrate");
                             }
                         }
                         if let Some(sender) = video_sender.get() { return sender.submit(output, peer, call_latency); }
@@ -1528,7 +1531,7 @@ impl Media {
                                 let needed = u64::from(s.bitrate.load(Ordering::Relaxed)) * (100 + packetizer.fec_percent as u64) * 10;
                                 butterpollo_core::network_pacing::report_rate(&s.launch.warnings, bps, needed, c.integer("pacing_max_bitrate_kbps", 0));
                                 if reported_pacing != Some(bps) {
-                                    tracing::info!(pacing_bps=bps, link_bps=route.bps, configured_kbps=c.integer("pacing_max_bitrate_kbps", 0), "network pacing selected; defaults use twice encoder bitrate for confirmed wireless routes, or the wired fallback ceiling");
+                                    tracing::debug!(pacing_bps=bps, link_bps=route.bps, configured_kbps=c.integer("pacing_max_bitrate_kbps", 0), "network pacing selected; defaults use twice encoder bitrate for confirmed wireless routes, or the wired fallback ceiling");
                                     reported_pacing = Some(bps);
                                 }
                             }
@@ -1656,63 +1659,66 @@ impl Media {
                                 }
                                 if Instant::now() >= timing_due {
                                     timing_due = Instant::now() + Duration::from_secs(5);
-                                    let timing = s.stats.performance.lock().unwrap().snapshot(Instant::now());
-                                    let ms = |key: &str| timing[key].as_f64().unwrap_or(0.);
-                                    let split = |pick: fn(&(u64, u64)) -> u64| {
-                                        let mut values: Vec<u64> = claim_ages.iter().map(pick).collect();
-                                        values.sort_unstable();
-                                        let mean = values.iter().sum::<u64>() as f64 / values.len().max(1) as f64 / 1000.;
-                                        let p95 = values.get(values.len().saturating_sub(1) * 95 / 100).copied().unwrap_or(0) as f64 / 1000.;
-                                        (mean, p95)
-                                    };
-                                    let (detect_mean_ms, detect_p95_ms) = split(|age| age.0);
-                                    let (claim_wait_mean_ms, claim_wait_p95_ms) = split(|age| age.1);
+                                    if timings_logged {
+                                        let timing = s.stats.performance.lock().unwrap().snapshot(Instant::now());
+                                        let ms = |key: &str| timing[key].as_f64().unwrap_or(0.);
+                                        let split = |pick: fn(&(u64, u64)) -> u64| {
+                                            let mut values: Vec<u64> = claim_ages.iter().map(pick).collect();
+                                            values.sort_unstable();
+                                            let mean = values.iter().sum::<u64>() as f64 / values.len().max(1) as f64 / 1000.;
+                                            let p95 = values.get(values.len().saturating_sub(1) * 95 / 100).copied().unwrap_or(0) as f64 / 1000.;
+                                            (mean, p95)
+                                        };
+                                        let (detect_mean_ms, detect_p95_ms) = split(|age| age.0);
+                                        let (claim_wait_mean_ms, claim_wait_p95_ms) = split(|age| age.1);
+                                        wgc_stamp_ages.sort_by(f64::total_cmp);
+                                        let wgc_stamp_frames = wgc_stamp_ages.len();
+                                        let wgc_stamp_future_frames = wgc_stamp_ages.iter().filter(|age| **age < 0.).count();
+                                        let wgc_stamp_to_host_mean_ms = (wgc_stamp_frames > 0).then(|| wgc_stamp_ages.iter().sum::<f64>() / wgc_stamp_frames as f64);
+                                        let wgc_stamp_to_host_p95_ms = wgc_stamp_ages.get(wgc_stamp_frames.saturating_sub(1) * 95 / 100).copied();
+
+                                        tracing::debug!(
+                                            fps=ms("fps"),
+                                            host_mean_ms=ms("host_processing_mean_ms"),
+                                            host_p95_ms=ms("host_processing_p95_ms"),
+                                            host_p99_ms=ms("host_processing_p99_ms"),
+                                            host_max_ms=ms("host_processing_max_ms"),
+                                            encode_mean_ms=ms("encode_mean_ms"),
+                                            encode_p95_ms=ms("encode_p95_ms"),
+                                            encode_p99_ms=ms("encode_p99_ms"),
+                                            frame_age_mean_ms=ms("frame_age_mean_ms"),
+                                            frame_age_p95_ms=ms("frame_age_p95_ms"),
+                                            present_to_send_mean_ms=ms("present_to_send_mean_ms"),
+                                            present_to_send_p99_ms=ms("present_to_send_p99_ms"),
+                                            detect_mean_ms,
+                                            detect_p95_ms,
+                                            claim_wait_mean_ms,
+                                            claim_wait_p95_ms,
+                                            wgc_stamp_to_host_mean_ms,
+                                            wgc_stamp_to_host_p95_ms,
+                                            wgc_stamp_frames,
+                                            wgc_stamp_future_frames,
+
+                                            send_interval_p95_ms=timing["send_interval_p95_ms"].as_f64().unwrap_or(0.),
+                                            send_interval_p99_ms=timing["send_interval_p99_ms"].as_f64().unwrap_or(0.),
+                                            send_interval_max_ms=timing["send_interval_max_ms"].as_f64().unwrap_or(0.),
+                                            // Keep reference feedback distinct from IDR recovery.
+                                            idr_requests=s.stats.idr_requests.load(Ordering::Relaxed),
+                                            reference_invalidations=s.stats.reference_invalidations.load(Ordering::Relaxed),
+                                            send_loss_recoveries=s.stats.send_loss_recoveries.load(Ordering::Relaxed),
+                                            fec_reports=timing["fec_reports"].as_u64().unwrap_or(0),
+                                            fec_invalid_reports=timing["fec_invalid_reports"].as_u64().unwrap_or(0),
+                                            fec_duplicate_reports=timing["fec_duplicate_reports"].as_u64().unwrap_or(0),
+                                            fec_recovered_frames=timing["fec_recovered_frames"].as_u64().unwrap_or(0),
+                                            fec_unrecoverable_frames=timing["fec_unrecoverable_frames"].as_u64().unwrap_or(0),
+                                            fec_missing_packets=timing["fec_missing_packets"].as_u64().unwrap_or(0),
+                                            bitrate_kbps=s.bitrate.load(Ordering::Relaxed),
+                                            "stream timings"
+                                        );
+                                    }
                                     claim_ages.clear();
-                                    wgc_stamp_ages.sort_by(f64::total_cmp);
-                                    let wgc_stamp_frames = wgc_stamp_ages.len();
-                                    let wgc_stamp_future_frames = wgc_stamp_ages.iter().filter(|age| **age < 0.).count();
-                                    let wgc_stamp_to_host_mean_ms = (wgc_stamp_frames > 0).then(|| wgc_stamp_ages.iter().sum::<f64>() / wgc_stamp_frames as f64);
-                                    let wgc_stamp_to_host_p95_ms = wgc_stamp_ages.get(wgc_stamp_frames.saturating_sub(1) * 95 / 100).copied();
                                     wgc_stamp_ages.clear();
-
-                                    tracing::info!(
-                                        fps=ms("fps"),
-                                        host_mean_ms=ms("host_processing_mean_ms"),
-                                        host_p95_ms=ms("host_processing_p95_ms"),
-                                        host_p99_ms=ms("host_processing_p99_ms"),
-                                        host_max_ms=ms("host_processing_max_ms"),
-                                        encode_mean_ms=ms("encode_mean_ms"),
-                                        encode_p95_ms=ms("encode_p95_ms"),
-                                        encode_p99_ms=ms("encode_p99_ms"),
-                                        frame_age_mean_ms=ms("frame_age_mean_ms"),
-                                        frame_age_p95_ms=ms("frame_age_p95_ms"),
-                                        present_to_send_mean_ms=ms("present_to_send_mean_ms"),
-                                        present_to_send_p99_ms=ms("present_to_send_p99_ms"),
-                                        detect_mean_ms,
-                                        detect_p95_ms,
-                                        claim_wait_mean_ms,
-                                        claim_wait_p95_ms,
-                                        wgc_stamp_to_host_mean_ms,
-                                        wgc_stamp_to_host_p95_ms,
-                                        wgc_stamp_frames,
-                                        wgc_stamp_future_frames,
-
-                                        send_interval_p95_ms=timing["send_interval_p95_ms"].as_f64().unwrap_or(0.),
-                                        send_interval_p99_ms=timing["send_interval_p99_ms"].as_f64().unwrap_or(0.),
-                                        send_interval_max_ms=timing["send_interval_max_ms"].as_f64().unwrap_or(0.),
-                                        // Keep reference feedback distinct from IDR recovery.
-                                        idr_requests=s.stats.idr_requests.load(Ordering::Relaxed),
-                                        reference_invalidations=s.stats.reference_invalidations.load(Ordering::Relaxed),
-                                        send_loss_recoveries=s.stats.send_loss_recoveries.load(Ordering::Relaxed),
-                                        fec_reports=timing["fec_reports"].as_u64().unwrap_or(0),
-                                        fec_invalid_reports=timing["fec_invalid_reports"].as_u64().unwrap_or(0),
-                                        fec_duplicate_reports=timing["fec_duplicate_reports"].as_u64().unwrap_or(0),
-                                        fec_recovered_frames=timing["fec_recovered_frames"].as_u64().unwrap_or(0),
-                                        fec_unrecoverable_frames=timing["fec_unrecoverable_frames"].as_u64().unwrap_or(0),
-                                        fec_missing_packets=timing["fec_missing_packets"].as_u64().unwrap_or(0),
-                                        bitrate_kbps=s.bitrate.load(Ordering::Relaxed),
-                                        "stream timings"
-                                    );
+                                    timings_logged = tracing::enabled!(tracing::Level::DEBUG);
                                 }
                             }
                             latest.check()?;
@@ -1990,7 +1996,7 @@ impl Media {
                                     "claim"
                                 );
                             }
-                            if fresh && claim_ages.len() < 4096 {
+                            if timings_logged && fresh && claim_ages.len() < 4096 {
                                 let micros = |d: Duration| d.as_micros().min(u128::from(u64::MAX)) as u64;
                                 claim_ages.push((
                                     micros(image.acquired.saturating_duration_since(image.captured)),
@@ -2288,7 +2294,7 @@ impl Media {
                         }
                         match Loopback::new_sink(s.config.audio_channels as usize, &sink) {
                             Ok(value) => {
-                                tracing::info!(
+                                tracing::debug!(
                                     channels = s.config.audio_channels,
                                     event_driven = value.event_driven(),
                                     "WASAPI audio capture started"

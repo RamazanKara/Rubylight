@@ -581,7 +581,7 @@ impl VirtualDisplay {
         let requested = format_timing(self.mode);
         match mode_outcome(self.mode, actual.as_ref().ok().copied()) {
             // Applied tolerates rational rates: log what Windows shows.
-            ModeOutcome::Applied => tracing::info!(
+            ModeOutcome::Applied => tracing::debug!(
                 output = %self.name,
                 stage,
                 requested = %requested,
@@ -648,7 +648,7 @@ impl VirtualDisplay {
                     // takes the display's new desktop name itself.
                     self.generation = self.generation.wrapping_add(1);
                     self.refresh_name()?;
-                    tracing::info!(output=%self.name, "owned virtual display reactivated");
+                    tracing::debug!(output=%self.name, "owned virtual display reactivated");
                     return Ok(());
                 }
                 Heartbeat::Recreate => {}

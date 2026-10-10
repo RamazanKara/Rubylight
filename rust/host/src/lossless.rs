@@ -598,7 +598,7 @@ fn apply_game(
             break;
         }
         let sent = butterpollo_windows::lossless::press(&modifiers, key);
-        tracing::info!(attempt, focused, sent, "sent the Lossless Scaling hotkey");
+        tracing::debug!(attempt, focused, sent, "sent the Lossless Scaling hotkey");
         if focused && sent {
             break;
         }

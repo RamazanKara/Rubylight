@@ -128,7 +128,7 @@ pub async fn serve(
     acceptor: Option<TlsAcceptor>,
 ) -> Result<()> {
     let listener = crate::network::tcp(address)?;
-    tracing::info!(%address,tls=acceptor.is_some(),"HTTP listener ready");
+    tracing::debug!(%address,tls=acceptor.is_some(),"HTTP listener ready");
     loop {
         let (socket, peer) = crate::network::accept(&listener).await;
         if let Err(error) = socket.set_nodelay(true) {

@@ -98,7 +98,7 @@ impl Tracker {
         }
         if result != ERROR_SUCCESS {
             s.session = CONTROLTRACE_HANDLE::default();
-            tracing::info!(
+            tracing::debug!(
                 error = result.0,
                 "DXGI present tracking unavailable; keeping capture timestamps"
             );
@@ -119,7 +119,7 @@ impl Tracker {
             )
         };
         if result != ERROR_SUCCESS {
-            tracing::info!(
+            tracing::debug!(
                 error = result.0,
                 "DXGI present provider unavailable; keeping capture timestamps"
             );

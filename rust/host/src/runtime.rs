@@ -157,7 +157,7 @@ impl RestoreHotkey {
             let _ = pressed.send(());
         }) {
             Ok(hotkey) => {
-                tracing::info!(key, modifiers, "registered the display restore hotkey");
+                tracing::debug!(key, modifiers, "registered the display restore hotkey");
                 self.registered = Some(hotkey);
                 self.presses = Some(presses);
             }

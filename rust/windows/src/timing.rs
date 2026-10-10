@@ -352,7 +352,7 @@ fn wifi_streaming_mode() -> Option<usize> {
             close(handle, std::ptr::null());
             return None;
         }
-        tracing::info!("Wi-Fi adapter in media streaming mode while streaming");
+        tracing::debug!("Wi-Fi adapter in media streaming mode while streaming");
         Some(handle.0 as usize)
     }
 }

@@ -1,5 +1,6 @@
 mod console;
 mod display_session;
+mod logging;
 mod lossless;
 mod maintenance;
 mod mic;
@@ -239,17 +240,17 @@ async fn main() -> Result<()> {
     let log_level = h.config.read().unwrap().log_level();
     let (writer, _log_guard) = tracing_appender::non_blocking(appender);
     use tracing_subscriber::prelude::*;
+    // The service host has no console; formatting every event a second time
+    // for a stdout nobody reads is wasted work.
+    let terminal = std::io::IsTerminal::is_terminal(&std::io::stdout());
     tracing_subscriber::registry()
-        .with(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| log_level.into()),
-        )
+        .with(logging::layer(log_level))
         .with(
             tracing_subscriber::fmt::layer()
                 .with_writer(writer)
                 .with_ansi(false),
         )
-        .with(tracing_subscriber::fmt::layer())
+        .with(terminal.then(tracing_subscriber::fmt::layer))
         .init();
     if let Some((path, error)) = unusable_log {
         tracing::warn!(

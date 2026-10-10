@@ -67,7 +67,7 @@ Set `pacing_max_bitrate_kbps` to a positive value in **kbps** to override the au
 
 **Leave split-frame encoding on Automatic.** AMF can split one HEVC or AV1 frame across a Radeon's two encoder engines (`amd_split_frame`), and the driver decides whether it does. Automatic asks for it only when the GPU has two engines and the driver has it off, as the original host did; On asks for it whenever there are two engines, and Off turns it off. On an RX 7900 XT the driver already has it on, and on, off and unset encoded every frame in the same time, from 1080p to 7680×2160: one stream used one engine either way. H.264 has no such property, and GPUs with one engine, such as the RX 9070 XT, get nothing written. [Measurements →](../rust/PERFORMANCE.md#october-7-amf-split-frame-encoding)
 
-**AMF rate-control limits are optional.** In **Settings → Encoders → AMD AMF**, the advanced controls below use the client's requested bitrate and frame rate. All default to `0`, which leaves the corresponding property to the driver. Reconnect after saving. An unsupported explicit request is reported as an AMF setting error; the effective values appear in `AMF encoder settings`.
+**AMF rate-control limits are optional.** In **Settings → Encoders → AMD AMF**, the advanced controls below use the client's requested bitrate and frame rate. All default to `0`, which leaves the corresponding property to the driver. Reconnect after saving. An unsupported explicit request is reported as an AMF setting error; the effective values appear in the `AMF encoder settings` log line at the Debug log level.
 
 | Key | Values | Meaning |
 | --- | --- | --- |

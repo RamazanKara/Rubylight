@@ -371,7 +371,7 @@ impl Encoder {
             }
             check(result)?;
             let granted = (s.api.device_get_global_priority)(s.device);
-            tracing::info!(
+            tracing::debug!(
                 requested = wanted,
                 granted,
                 "PyroWave encode queue priority"

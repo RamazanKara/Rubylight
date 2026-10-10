@@ -32,6 +32,7 @@ pub(super) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
                 butterpollo_windows::vulkan::reconcile(next.boolean("vulkan_hdr_layer", true))
                     .err()
                     .map(|e| e.to_string());
+            crate::logging::apply(next.log_level());
             *config = next;
             drop(config);
             h.metadata.lock().unwrap().take();

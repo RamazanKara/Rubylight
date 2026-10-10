@@ -417,7 +417,7 @@ impl Session {
                 texture,
             });
         }
-        tracing::info!(
+        tracing::debug!(
             pid = process.pid,
             width,
             height,

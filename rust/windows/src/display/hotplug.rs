@@ -218,7 +218,7 @@ impl Protection {
         let topology = Topology::query_all()?;
         let names = identities(&topology.paths)?;
         let dormant = dormant_targets(&topology.paths, &names);
-        tracing::info!(
+        tracing::debug!(
             count = dormant.len(),
             targets = ?dormant.values().collect::<Vec<_>>(),
             "preserving inactive targets across owned virtual display creation"

@@ -161,12 +161,12 @@ impl GpuProbe {
                 Ok(query) => query,
                 Err(error) => {
                     let output = &display;
-                    tracing::info!(error = %format!("{error:#}"), display = %output, "GPU stall probe unavailable");
+                    tracing::debug!(error = %format!("{error:#}"), display = %output, "GPU stall probe unavailable");
                     return;
                 }
             };
             let output = &display;
-            tracing::info!(display = %output, stream_id = %stream, "GPU stall probe opened");
+            tracing::debug!(display = %output, stream_id = %stream, "GPU stall probe opened");
             loop {
                 thread::sleep(PROBE_EVERY);
                 let Some(probe) = weak.upgrade() else { return };
@@ -181,7 +181,7 @@ impl GpuProbe {
                         Ok(true) => break true,
                         Ok(false) => {}
                         Err(error) => {
-                            tracing::info!(error = %format!("{error:#}"), %stream, "GPU stall probe stopped");
+                            tracing::debug!(error = %format!("{error:#}"), %stream, "GPU stall probe stopped");
                             break false;
                         }
                     }

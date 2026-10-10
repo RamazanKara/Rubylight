@@ -195,7 +195,7 @@ impl Discovery {
                 service
             };
             daemon.register(service)?;
-            tracing::info!(%instance, "Moonlight discovery registered");
+            tracing::debug!(%instance, "Moonlight discovery registered");
             Ok(())
         })();
         if let Err(error) = result {

@@ -1221,11 +1221,13 @@ fn prepare_launch_display(
     stream.validate()?;
     if launch.role == Role::Stream {
         // Reuse only this client's own retained display; another
-        // client streaming the same app keeps its display.
+        // client streaming the same app keeps its display. One set up for
+        // another display choice (`hostDisplay`) is replaced.
+        let client_display = crate::display_session::client_display(launch);
         let retained = crate::state::take_retained(
             &mut h.app_display.lock().unwrap(),
             &launch.client.uuid,
-            |lease| lease.matches(&stream),
+            |lease| lease.matches(&stream) && lease.serves(client_display),
         );
         match retained {
             Ok(lease) => return lease.resume(&h.directory, &config, launch.warnings.clone()),

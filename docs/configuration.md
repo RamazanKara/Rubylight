@@ -136,6 +136,21 @@ For general configuration overrides, Rubylight applies **host settings → devic
 
 Display selection has dedicated rules: a device's explicit virtual-display mode takes priority over the app's mode, and its **display mode** (`WIDTHxHEIGHTxREFRESH`) overrides the host's resolution/refresh policy. This does not change the frame rate requested for the encoded stream.
 
+### Display choice from the client
+
+A client can choose, for one stream, what the PC's displays do. Rubylight Android sets it per PC under **This PC → Display on the PC**. The client sends `hostDisplay` with `/launch` or `/resume`:
+
+| `hostDisplay` | What the stream gets |
+| --- | --- |
+| `exclusive` | A virtual display, and the PC's other displays switch off for the stream. |
+| `extended_primary` | A virtual display beside the PC's displays, made the primary display so games open on it. |
+| `extended` | A virtual display beside the PC's displays; the primary display stays as it is. |
+| `extended_isolated`, `extended_primary_isolated` | The isolated layouts of **Settings → Display**. |
+| `physical` | No virtual display; the stream shows the physical display the host and app settings select. |
+| missing, `default` or anything else | The host decides from its settings, as for an older client. |
+
+The choice comes before the host, device and app settings for virtual display mode and layout, including a device's **Always use a virtual display**. Two cases still get a virtual display after `physical`: a PC with no active display, and an output that names the virtual display itself. A virtual display needs its driver; without it the stream shows the physical display with a warning, as for any other request. When another stream already holds the display layout, a second stream joins that layout. The layout from before the stream comes back when the stream ends, as with the host's own settings. A display kept for reconnection is reused only when the next launch asks for the same choice, or asks for nothing. Remote Monitor and Remote Input ignore the parameter. Older Rubylight hosts and other hosts ignore it, so Rubylight Android also sends `virtualDisplay=1` with the virtual choices, which those hosts honour where they support a virtual display.
+
 ## Save, reconnect and restart
 
 Select **Save changes** to write the configuration. Edits are not saved merely by changing a control or switching categories. Saved stream settings are read when a new stream starts; an existing stream generally keeps its current configuration.

@@ -120,7 +120,6 @@ impl Sender {
             let mut present_stamper =
                 track_presents.then(butterpollo_windows::present_timing::Stamper::default);
             let mut last_stamp = start;
-            let period = butterpollo_core::framegen::Rate(s.config.fps_millihz()).period();
             let mut batch = Batch::default();
             let trace_send = tracing::enabled!(target: "pacing", tracing::Level::TRACE);
             batch.waits = trace_send.then(Default::default);
@@ -138,6 +137,8 @@ impl Sender {
             };
             shared.run(|queued| {
                 let Frame { encoded: frame, peer, claimed, polled, latency: encode, skipped } = queued;
+                // The stream's rate, which the client can change mid-stream (0x5532).
+                let period = s.stream_mode().period();
                 packetizer.frame = packetizer.frame.wrapping_add(skipped);
                 let micros = |d: Duration| d.as_micros().min(u128::from(u64::MAX)) as u64;
                 let latency = micros(encode);

@@ -561,6 +561,7 @@ pub fn override_allowed(key: &str) -> bool {
         "dd_wa_dummy_plug_hdr10",
         "max_bitrate",
         "minimum_fps_target",
+        "stream_reconfigure",
         // Codec and capture
         "fec_percentage",
         "video_max_batch_size_kb",

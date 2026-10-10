@@ -1987,7 +1987,7 @@ dependencies = [
 [[package]]
 name = "rubylight-protocol"
 version = "0.1.0"
-source = "git+https://github.com/RamazanKara/rubylight-android?rev=2101288#210128800d097a207baaba932a84d59e72d2cbdd"
+source = "git+https://github.com/RamazanKara/rubylight-android?rev=dcf1257#dcf1257d5dc8a881f78b4fca10b46d46a7e6ae5b"
 
 [[package]]
 name = "rustc-hash"

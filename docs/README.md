@@ -29,6 +29,7 @@ Rubylight is a Windows game-streaming host written in Rust, built around Radeon 
 | [Build guide](building.md) | Windows toolchain, pinned dependencies, packaging and CI. |
 | [Developer guide](../rust/README.md) | Workspace layout, isolated profiles, validation tools and native integration work. |
 | [HTTP API](api.md) | Authentication, CSRF, permissions and the current Rust endpoints. |
+| [Control messages](control-messages.md) | Rubylight's own control-stream messages, such as changing the resolution mid-stream, for client developers. |
 | [Third-party components](../rust/THIRD_PARTY.md) | Codec SDKs, drivers and licensing. |
 | [Detailed performance record](../rust/PERFORMANCE.md) | Dated fixtures, raw results, rejected experiments and reproduction instructions. |
 

@@ -17,6 +17,7 @@
 )]
 pub mod adaptive_fec;
 pub mod audio;
+pub mod audio_defaults;
 pub mod auth;
 pub mod bitstream;
 pub mod browse;

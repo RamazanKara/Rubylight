@@ -276,11 +276,12 @@ fn rtx_parameters(config: &Config) -> [u32; 4] {
         peak.min(1000),
     ]
 }
-/// The interval to the frame after one captured at `at`: the client's refresh with
-/// its phase correction while it sends phase lock reports, `period` otherwise.
-fn phase_interval(s: &Session, at: Instant, period: Duration) -> Duration {
+/// The interval to the frame after one captured at `at` while the client sends phase
+/// lock reports: its refresh with the phase correction. `None` otherwise, and then the
+/// caller keeps its original pacing.
+fn phase_interval(s: &Session, at: Instant, period: Duration) -> Option<Duration> {
     let mut sync = s.phase_sync.lock().unwrap();
-    let interval = sync.next_interval(at, period);
+    let interval = sync.interval(at, period)?;
     if sync.log_due(at) {
         tracing::info!(
             client = %s.launch.client.name,
@@ -289,7 +290,7 @@ fn phase_interval(s: &Session, at: Instant, period: Duration) -> Duration {
             "phase lock applied"
         );
     }
-    interval
+    Some(interval)
 }
 fn rtx_enabled(config: &Config) -> bool {
     butterpollo_core::rtx_policy::enabled(config)
@@ -1381,6 +1382,8 @@ impl Media {
                         .with_prediction(!vrr && c.boolean("frame_pacing_predictive", true))
                         .with_source_phase(!vrr && c.boolean("frame_pacing_source_phase", prepared.capture() == "wgc"))
                         .with_spacing(if vrr { 0.5 } else { 0.75 });
+                    // The claim grid's period from before a phase lock, restored when it ends.
+                    let mut unlocked_grid_period: Option<Duration> = None;
                     let due = cadence.deadline();
                     let mut last_stamp = start;
                     let mut live_at = due;
@@ -2133,10 +2136,19 @@ impl Media {
                                     // wait from the client to the host, so the lock sets
                                     // the rate cap to the client's refresh instead. VRR
                                     // displays follow each frame and need no lock.
-                                    if !vrr {
-                                        let interval = phase_interval(&s, begin, period);
-                                        pacer.set_period(interval);
-                                        latest.grid.lock().unwrap().period = interval;
+                                    match (!vrr).then(|| phase_interval(&s, begin, period)).flatten() {
+                                        Some(interval) => {
+                                            let mut grid = latest.grid.lock().unwrap();
+                                            unlocked_grid_period.get_or_insert(grid.period);
+                                            grid.period = interval;
+                                            pacer.set_period(interval);
+                                        }
+                                        None => {
+                                            if let Some(original) = unlocked_grid_period.take() {
+                                                latest.grid.lock().unwrap().period = original;
+                                                pacer.set_period(period);
+                                            }
+                                        }
                                     }
                                     pacer.claimed(begin);
                                 }
@@ -2144,11 +2156,24 @@ impl Media {
                             } else {
                                 // Phase lock: the grid follows the client's refresh, at a
                                 // phase that gets frames there just before its latch.
-                                let interval = phase_interval(&s, begin, period);
-                                cadence.submitted_after(begin, interval);
-                                let mut grid = latest.grid.lock().unwrap();
-                                grid.anchor = cadence.deadline();
-                                grid.period = interval;
+                                // Without reports this is the original fixed-period path.
+                                match phase_interval(&s, begin, period) {
+                                    Some(interval) => {
+                                        cadence.submitted_after(begin, interval);
+                                        let mut grid = latest.grid.lock().unwrap();
+                                        unlocked_grid_period.get_or_insert(grid.period);
+                                        grid.anchor = cadence.deadline();
+                                        grid.period = interval;
+                                    }
+                                    None => {
+                                        cadence.submitted(begin);
+                                        let mut grid = latest.grid.lock().unwrap();
+                                        if let Some(original) = unlocked_grid_period.take() {
+                                            grid.period = original;
+                                        }
+                                        grid.anchor = cadence.deadline();
+                                    }
+                                }
                             }
                             last_image = Some(image);
                             // An allocation can later reuse this image's address;

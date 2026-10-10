@@ -5,8 +5,10 @@ use butterpollo_core::{session::Role, state::Credentials};
 use tower::ServiceExt;
 
 async fn request(f: &Fixture, method: &str, path: &str, data: Value) -> Response {
-    *f.host.credentials.write().unwrap() =
-        Some(Credentials::new("parity".into(), "parity-test").unwrap());
+    // On disk too: the host takes up the sign-in the file holds.
+    let credentials = Credentials::new("parity".into(), "parity-test").unwrap();
+    f.host.save_credentials(&credentials).unwrap();
+    *f.host.credentials.write().unwrap() = Some(credentials);
     router(f.host.clone())
         .layer(Extension(f.connection(true)))
         .oneshot(

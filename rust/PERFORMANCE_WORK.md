@@ -10,7 +10,7 @@ entry may have been measured in a later one. Results to a real laptop over
 Wi-Fi are in "October 8 real-client picture age over Wi-Fi"; the
 [performance overview](../docs/performance.md) carries the current numbers.
 
-## October 10 PyroWave SDK 1.0 and a high-priority encode queue: host A/B pending
+## October 10 PyroWave SDK 1.0 and a high-priority encode queue: shipped
 
 PyroWave moves from `186f0393` (API 0.6) to `502a3b52` (API 1.0,
 `libpyrowave-shared-1.dll`). The per-frame bitstream is the one upstream
@@ -27,9 +27,32 @@ New in 1.0 is a global priority for the Vulkan compute queue. The encode
 queue now asks for HIGH, or REALTIME when `compute_queue_realtime` is on,
 the same policy as the D3D12 copy and conversion queue, and falls back to
 the default when the driver refuses. The log line "PyroWave encode queue
-priority" records what was granted. Still to measure on the host:
-PyroWave encode time and picture age, MEDIUM against HIGH, idle and beside
-`gpu_load`.
+priority" records what was granted.
+
+Host A/B on the RX 7900 XT (driver 26.9.2), base `2f53043` (SDK 186f0393,
+MEDIUM) against `957ace5` (SDK 1.0, HIGH; the log shows `requested=512
+granted=512`), isolated test hosts and the loopback fixture client built
+against the old SDK, 20 s per run, three alternating repeats per cell,
+loaded runs beside `gpu_load 60 1000 60 200`:
+
+| Cell | Picture age mean / p95 / p99 (ms) | Encode mean / p95 (ms) | Unique fps |
+| --- | --- | --- | --- |
+| 1968x2184 HDR 4:4:4 120, idle, base | 18.7 / 27.8 / 33.8 | 1.16 / 1.54 | 119.9 |
+| same, new | 18.7 / 27.2 / 33.0 | 1.05 / 1.46 | 120.0 |
+| 1968x2184 HDR 4:4:4 120, loaded, base | 85.4 / 139.7 / 146.6 | 1.09 / 1.52 | 100.3 |
+| same, new | 87.6 / 142.2 / 145.4 | 1.01 / 1.30 | 112.7 |
+| 1080p120 SDR, idle, base | 14.8 / 15.9 / 17.9 | 0.66 / 0.81 | 120.0 |
+| same, new | 14.7 / 15.7 / 16.8 | 0.65 / 0.80 | 120.0 |
+| 1080p120 SDR, loaded, base | 20.2 / 26.6 / 32.2 | 0.72 / 0.90 | 115.8 |
+| same, new | 20.6 / 24.8 / 29.2 | 0.70 / 0.88 | 116.3 |
+
+Every run decoded every frame (0 decode errors, 0 replaced frames), so the
+old-SDK client reads the 1.0 host's stream. HIGH is no worse end to end:
+picture age is within run-to-run noise in every cell, and encoding is 0.1 ms
+faster at native size. The loaded native cells fail the e2e gap checks on
+both builds: the load also slows the loopback client, which decodes on the
+same GPU, so those cells compare the two builds but say little about a real
+client. No GPU watchdog dump during the runs.
 
 ## October 10 WGC helper textures read in place: on by default
 

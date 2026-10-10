@@ -855,7 +855,10 @@ fn phase_locked_cadence_follows_the_client_period_and_falls_back_without_reports
         let due = cadence.deadline();
         cadence.submitted_after(now, sync.interval(now, nominal).unwrap());
         if frame > 0 {
-            assert_eq!(cadence.deadline() - due, Duration::from_nanos(u64::from(client_ns)));
+            assert_eq!(
+                cadence.deadline() - due,
+                Duration::from_nanos(u64::from(client_ns))
+            );
         }
         // Submitted a little after each slot; the overshoot must not accumulate.
         now = cadence.deadline() + Duration::from_micros(300);
@@ -863,8 +866,14 @@ fn phase_locked_cadence_follows_the_client_period_and_falls_back_without_reports
     // Ten seconds at the client's rate: 1.67 ms of drift that the host's own period
     // would have added to every frame's wait at the client.
     let locked_span = cadence.deadline() - start;
-    assert_eq!(locked_span, Duration::from_nanos(u64::from(client_ns)) * 1200);
-    assert_eq!(nominal * 1200 - locked_span, Duration::from_nanos(1_388 * 1200));
+    assert_eq!(
+        locked_span,
+        Duration::from_nanos(u64::from(client_ns)) * 1200
+    );
+    assert_eq!(
+        nominal * 1200 - locked_span,
+        Duration::from_nanos(1_388 * 1200)
+    );
     // Reports stop: after the timeout the lock is gone and the fixed period applies again.
     now = cadence.deadline() + PhaseSync::TIMEOUT;
     assert_eq!(sync.interval(now, nominal), None);
@@ -928,7 +937,11 @@ fn without_reports_pacer_claims_match_an_untouched_pacer() {
         if let Some(interval) = sync.interval(now, period) {
             paced.set_period(interval);
         }
-        assert_eq!(paced.allowed_at(now), untouched.allowed_at(now), "frame {frame}");
+        assert_eq!(
+            paced.allowed_at(now),
+            untouched.allowed_at(now),
+            "frame {frame}"
+        );
         paced.claimed(now);
         untouched.claimed(now);
     }

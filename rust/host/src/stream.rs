@@ -2639,7 +2639,12 @@ impl Media {
                             // 0x5502 in the other direction is controller feedback.
                             0x5502 => s.record_fec_status(&payload),
                             butterpollo_core::phase_sync::REPORT_MESSAGE_TYPE => {
-                                match s.phase_sync.lock().unwrap().on_payload(Instant::now(), &payload) {
+                                match s
+                                    .phase_sync
+                                    .lock()
+                                    .unwrap()
+                                    .on_payload(Instant::now(), &payload)
+                                {
                                     Some(report) => tracing::debug!(
                                         lead_ns = report.lead_ns,
                                         spread_ns = report.spread_ns,
@@ -2647,7 +2652,10 @@ impl Media {
                                         frames = report.frames,
                                         "phase lock report"
                                     ),
-                                    None => tracing::debug!(len = payload.len(), "invalid phase lock report"),
+                                    None => tracing::debug!(
+                                        len = payload.len(),
+                                        "invalid phase lock report"
+                                    ),
                                 }
                             }
                             0x0109 => {

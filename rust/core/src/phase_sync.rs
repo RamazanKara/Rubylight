@@ -154,6 +154,41 @@ mod tests {
     }
 
     #[test]
+    fn a_lower_client_refresh_never_slows_the_stream() {
+        // An LTPO panel resting at 60, 48, 30 or 24 Hz reports that rate, not its top
+        // one. A 120 fps stream is no whole number of those refreshes: no lock, so the
+        // host keeps 120 fps instead of dropping to 60, 40 or 20.
+        let now = Instant::now();
+        let lead = PhaseLock::DEFAULT_MARGIN_NS as i32;
+        let nominal = Duration::from_nanos(8_333_333);
+        for hz in [60, 48, 40, 30, 24] {
+            let mut sync = PhaseSync::default();
+            assert!(
+                sync.on_payload(now, &report(1_000_000_000 / hz, lead))
+                    .is_some()
+            );
+            assert_eq!(sync.interval(now, nominal), None, "{hz} Hz");
+        }
+        // Whatever the phase correction asks for, a locked interval stays within half
+        // to twice the stream period: 60 to 240 fps for a 120 fps stream.
+        for (period, stream) in [
+            (8_334_000, 8_333_333u64),
+            (4_166_667, 8_333_333),
+            (8_334_000, 16_666_667),
+        ] {
+            for lead in [-(period as i32) / 2, 0, period as i32 / 2] {
+                let mut sync = PhaseSync::default();
+                sync.on_payload(now, &report(period, lead));
+                for _ in 0..200 {
+                    let interval = sync.interval(now, Duration::from_nanos(stream)).unwrap();
+                    assert!(interval.as_nanos() as u64 >= stream / 2);
+                    assert!(interval.as_nanos() as u64 <= stream * 2);
+                }
+            }
+        }
+    }
+
+    #[test]
     fn a_reset_lets_go_until_the_next_report() {
         let now = Instant::now();
         let mut sync = PhaseSync::default();

@@ -66,8 +66,6 @@ NVIDIA NVENC, Intel Quick Sync and software encoders are included for other hard
 | --- | --- |
 | **Moonlight PC 6.2.0** | H.264, HEVC, AV1, HEVC HDR and AV1 HDR, with reconnects |
 | **Moonlight for Xbox** | HDR at 3840×2160, 120 Hz, HEVC |
-| **Android phones** | 1968×2184, 120 Hz, HDR on a per-device virtual display |
 | **[Rubylight Android](https://github.com/RamazanKara/rubylight-android)** | PyroWave on Vulkan phones and tablets |
-| **[Nonary's Moonlight](https://github.com/Nonary/moonlight-qt)** | PyroWave and the 1000 Hz VRR mode on a PC |
 
-Radeon RX 7900 XT, RX 9070 XT, RX 6900 XT and Radeon 890M systems stream with Rubylight today, including a Legion Go as a host over Wi-Fi. See [Getting started](getting-started.md#choose-your-stream-format) to pick a client and format.
+See [Getting started](getting-started.md#choose-your-stream-format) to pick a client and format.

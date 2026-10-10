@@ -276,6 +276,21 @@ fn rtx_parameters(config: &Config) -> [u32; 4] {
         peak.min(1000),
     ]
 }
+/// The interval to the frame after one captured at `at`: the client's refresh with
+/// its phase correction while it sends phase lock reports, `period` otherwise.
+fn phase_interval(s: &Session, at: Instant, period: Duration) -> Duration {
+    let mut sync = s.phase_sync.lock().unwrap();
+    let interval = sync.next_interval(at, period);
+    if sync.log_due(at) {
+        tracing::info!(
+            client = %s.launch.client.name,
+            interval_ns = interval.as_nanos() as u64,
+            stream_period_ns = period.as_nanos() as u64,
+            "phase lock applied"
+        );
+    }
+    interval
+}
 fn rtx_enabled(config: &Config) -> bool {
     butterpollo_core::rtx_policy::enabled(config)
 }
@@ -2114,12 +2129,26 @@ impl Media {
                                 // client's recovery request does not, or a client
                                 // losing packets left every game frame late.
                                 if butterpollo_core::stream_policy::counts_toward_rate(fresh, recovering) {
+                                    // Phase lock: holding frames here would only move the
+                                    // wait from the client to the host, so the lock sets
+                                    // the rate cap to the client's refresh instead. VRR
+                                    // displays follow each frame and need no lock.
+                                    if !vrr {
+                                        let interval = phase_interval(&s, begin, period);
+                                        pacer.set_period(interval);
+                                        latest.grid.lock().unwrap().period = interval;
+                                    }
                                     pacer.claimed(begin);
                                 }
                                 latest.grid.lock().unwrap().anchor = pacer.allowed_at(begin);
                             } else {
-                                cadence.submitted(begin);
-                                latest.grid.lock().unwrap().anchor = cadence.deadline();
+                                // Phase lock: the grid follows the client's refresh, at a
+                                // phase that gets frames there just before its latch.
+                                let interval = phase_interval(&s, begin, period);
+                                cadence.submitted_after(begin, interval);
+                                let mut grid = latest.grid.lock().unwrap();
+                                grid.anchor = cadence.deadline();
+                                grid.period = interval;
                             }
                             last_image = Some(image);
                             // An allocation can later reuse this image's address;
@@ -2584,6 +2613,18 @@ impl Media {
                             // This dispatch receives only client-to-host packets;
                             // 0x5502 in the other direction is controller feedback.
                             0x5502 => s.record_fec_status(&payload),
+                            butterpollo_core::phase_sync::REPORT_MESSAGE_TYPE => {
+                                match s.phase_sync.lock().unwrap().on_payload(Instant::now(), &payload) {
+                                    Some(report) => tracing::debug!(
+                                        lead_ns = report.lead_ns,
+                                        spread_ns = report.spread_ns,
+                                        period_ns = report.period_ns,
+                                        frames = report.frames,
+                                        "phase lock report"
+                                    ),
+                                    None => tracing::debug!(len = payload.len(), "invalid phase lock report"),
+                                }
+                            }
                             0x0109 => {
                                 if encrypted {
                                     s.stop();

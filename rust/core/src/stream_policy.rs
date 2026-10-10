@@ -20,12 +20,17 @@ impl Cadence {
         self.due
     }
     pub fn submitted(&mut self, now: Instant) {
-        let anchored = self.due + self.period;
+        self.submitted_after(now, self.period);
+    }
+    /// Like [`Self::submitted`], with the next slot `interval` away instead of
+    /// one stream period: phase lock follows the client's display this way.
+    pub fn submitted_after(&mut self, now: Instant, interval: Duration) {
+        let anchored = self.due + interval;
         // After a static interval, start a new cadence without a catch-up burst.
         self.due = if self.smooth && anchored > now {
             anchored
         } else {
-            now + self.period
+            now + interval
         };
     }
 }
@@ -226,6 +231,12 @@ impl Pacer {
     /// should reach it as they are. The average stays capped at the stream
     /// rate; 3/4 of a period between claims distorted that cadence by up to
     /// 3 ms, half a period by about 1 ms.
+    /// Phase lock: claims follow the client's refresh period instead of the
+    /// stream's own. The source phase keeps its period; the two differ by a
+    /// few parts in ten thousand.
+    pub fn set_period(&mut self, period: Duration) {
+        self.period = period;
+    }
     pub fn with_spacing(mut self, periods: f64) -> Self {
         self.spacing = periods;
         self

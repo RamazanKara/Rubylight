@@ -38,14 +38,20 @@ impl PhaseSync {
         self.lock.locked()
     }
 
-    /// Interval from the frame captured now to the next one: the client's period with
-    /// the phase correction while locked, `nominal` otherwise. Call once per frame.
-    pub fn next_interval(&mut self, now: Instant, nominal: Duration) -> Duration {
+    /// Interval from the frame captured now to the next one while locked: the client's
+    /// period with the phase correction. `None` without a lock, so a client that never
+    /// reports (stock Moonlight, older Rubylight) keeps the host's pacing untouched.
+    /// Call once per frame.
+    pub fn interval(&mut self, now: Instant, nominal: Duration) -> Option<Duration> {
         self.expire(now);
+        if !self.lock.locked() {
+            return None;
+        }
         let nominal_ns = i64::try_from(nominal.as_nanos()).unwrap_or(i64::MAX);
         let interval = self.lock.next_interval_ns(nominal_ns);
         // Never less than half or more than twice the nominal period.
-        Duration::from_nanos(interval.clamp(nominal_ns / 2, nominal_ns.saturating_mul(2)).max(1) as u64)
+        let interval = interval.clamp(nominal_ns / 2, nominal_ns.saturating_mul(2));
+        Some(Duration::from_nanos(interval.max(1) as u64))
     }
 
     /// True about once every ten seconds while locked, for logging the applied interval.
@@ -81,7 +87,7 @@ mod tests {
         let mut sync = PhaseSync::default();
         let nominal = Duration::from_nanos(8_333_333);
         assert!(!sync.locked(now));
-        assert_eq!(sync.next_interval(now, nominal), nominal);
+        assert_eq!(sync.interval(now, nominal), None);
     }
 
     #[test]
@@ -93,10 +99,12 @@ mod tests {
         let lead = PhaseLock::DEFAULT_MARGIN_NS as i32;
         assert!(sync.on_payload(now, &report(8_334_000, lead)).is_some());
         assert!(sync.locked(now));
-        assert_eq!(sync.next_interval(now, nominal), Duration::from_nanos(8_334_000));
+        assert_eq!(sync.interval(now, nominal), Some(Duration::from_nanos(8_334_000)));
+        // Still locked just before the timeout, released at it.
         let later = now + PhaseSync::TIMEOUT;
+        assert!(sync.locked(later - Duration::from_millis(1)));
         assert!(!sync.locked(later));
-        assert_eq!(sync.next_interval(later, nominal), nominal);
+        assert_eq!(sync.interval(later, nominal), None);
     }
 
     #[test]
@@ -107,7 +115,12 @@ mod tests {
         let mut wrong_version = report(8_333_333, 0);
         wrong_version[0] = 99;
         assert!(sync.on_payload(now, &wrong_version).is_none());
+        // A 120 Hz report claiming a slack beyond one refresh is implausible.
+        let mut implausible = report(8_333_333, 0);
+        implausible[8..12].copy_from_slice(&20_000_000i32.to_le_bytes());
+        assert!(sync.on_payload(now, &implausible).is_none());
         assert!(!sync.locked(now));
+        assert_eq!(sync.interval(now, Duration::from_nanos(8_333_333)), None);
     }
 
     #[test]

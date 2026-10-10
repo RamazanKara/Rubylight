@@ -148,13 +148,13 @@ The native HDR tests include four reference-frame pixel dumps. Their per-channel
 
 PyroWave streams carry 10-bit 4:4:4, validated here with encrypted 1080p/120 transport and independent decoding.
 
-[Native HDR evidence](../rust/PERFORMANCE.md#final-native-virtual-hdr-pixels-excluding-physical-panel-calibration) · [PyroWave transport](../rust/PERFORMANCE.md#vibepollo-20-pyrowave-transport) · [Client and hardware matrix](../rust/PARITY.md#evidence)
+[Native HDR evidence](../rust/PERFORMANCE.md#final-native-virtual-hdr-pixels-excluding-physical-panel-calibration) · [PyroWave transport](../rust/PERFORMANCE.md#vibepollo-20-pyrowave-transport)
 
 ## CPU and correctness work
 
 Video error correction uses **21–29% less CPU time** than the original C++ implementation on the recorded video blocks, with byte-identical parity. [FEC sources and reproduction](../rust/PERFORMANCE.md#controlled-comparison-with-the-original-c-fec) keep this component result separate from stream latency.
 
-The rc.10 suite passed **263 tests**; formatting, Clippy and release builds passed in that validation. [Validation record](../rust/PARITY.md#evidence) · [Release notes](../rust/RELEASE_NOTES.md)
+Every push to main runs **589 Rust tests**, the release-script, web console and video-settings tests, formatting and Clippy with warnings denied. [Release notes](../rust/RELEASE_NOTES.md)
 
 ## Measure your setup
 

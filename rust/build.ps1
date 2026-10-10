@@ -190,7 +190,7 @@ try {
         Copy-Item -LiteralPath (Join-Path $repo 'rust\README.md') -Destination $distribution
         Copy-Item -LiteralPath (Join-Path $repo 'rust\RELEASE_NOTES.md') -Destination $distribution
         Copy-Item -LiteralPath (Join-Path $repo 'rust\PERFORMANCE.md') -Destination $distribution
-        Copy-Item -LiteralPath (Join-Path $repo 'rust\PARITY.md') -Destination $distribution
+        Copy-Item -LiteralPath (Join-Path $repo 'docs\features.md') -Destination $distribution
         New-Item -ItemType Directory -Path "$distribution\tools" -Force | Out-Null
         Copy-Item -LiteralPath (Join-Path $repo 'rust\tests\collect_environment.ps1') -Destination "$distribution\tools"
         Copy-Item -LiteralPath (Join-Path $repo 'rust\tests\ENVIRONMENT_REPORT.md') -Destination "$distribution\tools\README.md"

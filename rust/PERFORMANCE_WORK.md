@@ -2644,7 +2644,7 @@ error 31 still occurs, the warning now names the display and step.
 
 Goal from the customer: Butterpollo replaces Vibepollo 2.0 for its users,
 with the latency wins kept and Vibepollo's behaviour everywhere else.
-`rust/PARITY.md` is the current list. Done since `967fe6a87`:
+`docs/features.md` is the current list. Done since `967fe6a87`:
 
 - Setup (`rust/setup`): `butterpollo-setup-<version>.exe` upgrades a
   Vibepollo installation in place (drivers as SYSTEM, service, firewall,

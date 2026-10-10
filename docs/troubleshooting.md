@@ -277,4 +277,4 @@ Choose a new output filename if that file already exists. The collector records 
 
 For a display-specific report, `butterpollo.exe --diagnostics` prints the detected displays and virtual-driver status without starting a stream. In a portable/user context, its driver-access result may differ from the installed service.
 
-Open an [issue](https://github.com/RamazanKara/Rubylight/issues) with the exact symptom and time, host/client versions, GPU and driver, wired or Wi-Fi connection, resolution/FPS/codec/HDR settings, and the relevant log or support bundle. Include the environment report when the result seems hardware-specific. [Compatibility](../rust/PARITY.md) and [Performance](../rust/PERFORMANCE.md) show what has already been tested.
+Open an [issue](https://github.com/RamazanKara/Rubylight/issues) with the exact symptom and time, host/client versions, GPU and driver, wired or Wi-Fi connection, resolution/FPS/codec/HDR settings, and the relevant log or support bundle. Include the environment report when the result seems hardware-specific.

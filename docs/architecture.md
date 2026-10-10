@@ -42,7 +42,7 @@ Texture pools and native encoder queues are bounded. Texture ownership and per-f
 
 The service starts a hidden capture worker as the signed-in user, giving WGC access to the user's Windows capture broker. Three shared GPU textures transfer frames to the host; a local pipe carries bounded metadata and checks the participating process identities. The worker belongs to the capture session and closes with it.
 
-WGC startup failures select Desktop Duplication. The implementation also falls back for lock/UAC desktops and retries WGC on return to the normal desktop. While Windows is locked, the stream's display is set up, kept and restored from the lock screen's desktop; secure-desktop transitions have their own [hardware validation status](../rust/PARITY.md#feature-by-feature).
+WGC startup failures select Desktop Duplication. The implementation also falls back for lock/UAC desktops and retries WGC on return to the normal desktop. While Windows is locked, the stream's display is set up, kept and restored from the lock screen's desktop, so you can stream the sign-in screen and unlock the PC remotely.
 
 WGC requests an explicit zero minimum update interval where Windows supports it. Guarded source-phase pacing waits briefly for a predicted fresh update when capture history is stable and faster than the stream target. Irregular or slower sources use ordinary pacing. [Capture settings](configuration.md) expose the diagnostic overrides.
 
@@ -54,7 +54,7 @@ The native HDR path captures FP16 scRGB, resizes in linear light and converts to
 
 ## Encoding beyond Radeon
 
-The code also includes native NVIDIA NVENC, Intel Quick Sync imports and software compatibility paths. Native NVENC supports capability-gated reference recovery and GPU-only CUDA interop for ten-bit 4:4:4; Quick Sync imports D3D11 frames. The published measurements focus on AMD hardware. [Compatibility](../rust/PARITY.md) records implemented paths and which ones have native hardware evidence.
+The code also includes native NVIDIA NVENC, Intel Quick Sync imports and software compatibility paths. Native NVENC supports capability-gated reference recovery and GPU-only CUDA interop for ten-bit 4:4:4; Quick Sync imports D3D11 frames. Rubylight's tuning and measurements are for AMD hardware.
 
 ## Recovery and updates
 

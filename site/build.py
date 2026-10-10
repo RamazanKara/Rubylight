@@ -30,7 +30,6 @@ REPO = "https://github.com/RamazanKara/Rubylight"
 PAGES = sorted(
     [p.relative_to(ROOT).as_posix() for p in (ROOT / "docs").glob("*.md")]
     + [
-        "rust/PARITY.md",
         "rust/PERFORMANCE.md",
         "rust/PERFORMANCE_WORK.md",
         "rust/README.md",
@@ -46,7 +45,7 @@ LANDING_MEDIA = ["docs/media/demo.mp4"]
 NAV = [
     ("Docs", "docs/index.html"),
     ("Performance", "docs/performance.html"),
-    ("Compatibility", "rust/PARITY.html"),
+    ("Features", "docs/features.html"),
     ("Release notes", "rust/RELEASE_NOTES.html"),
 ]
 

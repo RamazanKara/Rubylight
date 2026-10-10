@@ -79,7 +79,7 @@ If pairing succeeds but launching is denied, check the device's enabled state an
 | AV1 | Both the host encoder and client decoder support AV1; its ten-bit profile also supports HDR. |
 | PyroWave | You want full-resolution chroma, including 10-bit HDR 4:4:4, on a fast local network. Use [Rubylight Android](https://github.com/RamazanKara/rubylight-android), our own client; on a PC, use [Nonary's compatible Moonlight client](https://github.com/Nonary/moonlight-qt) over a wired LAN. Start around 399 Mbps for 1080p60, with network headroom. |
 
-Standard Moonlight supports H.264, HEVC and AV1. The exact Moonlight PC 6.2.0 application has recorded codec, reconnect and AMD AV1 crop checks; the [compatibility matrix](../rust/PARITY.md) gives their scope. PyroWave uses a separate codec path and needs substantially more bandwidth; its client can calibrate the connection before streaming.
+Standard Moonlight supports H.264, HEVC and AV1. Moonlight PC 6.2.0 streams all three in SDR and HDR, reconnects cleanly, and crops AMD's AV1 padding back to the size you asked for. PyroWave uses a separate codec path and needs substantially more bandwidth; its client can calibrate the connection before streaming.
 
 PyroWave's recommended rates, from desktop and game test scenes on AMD, are **277 Mbps at 720p60, 399 Mbps at 1080p60 and 1593 Mbps at 4K60**. Quality depends on the picture. The stream card warns below those rates and uses a stronger warning below the severe-loss floors of **139, 187 and 747 Mbps** respectively. A rate above the floor alone is not a clean-picture target. Leave headroom for packet overhead and recovery data; 4K60 needs more than gigabit Ethernet. Use HEVC or AV1 when the client or network cannot carry the rate. [Measurements and limits](configuration.md#capture-and-video). NVIDIA users should use [Vibepollo](https://github.com/Nonary/Vibepollo).
 
@@ -97,4 +97,4 @@ Updates notify you first. **Maintenance → Updates** offers **Check now** and, 
 
 **Install when idle** and automatic updates wait for streams, pending connections, remote monitors and host apps to stop, then for one minute of idle time. A disconnected Desktop session can still have an app open: quit it from Moonlight or the console if an update stays queued. **Install now** downloads and installs right away, even while you stream: the stream ends and games started from Moonlight close while Rubylight restarts, and you connect again once it is back. Portable users download the new ZIP from the release page.
 
-For measured performance and hardware coverage, see [Performance](performance.md) and [Compatibility](../rust/PARITY.md).
+For everything Rubylight does and how fast it does it, see [Features](features.md) and [Performance](performance.md).

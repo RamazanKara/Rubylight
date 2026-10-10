@@ -160,7 +160,7 @@ Set `update_check_interval = 0` to disable scheduled checks; manual checks remai
 
 ## Further reference
 
-- [Feature coverage and hardware limits](../rust/PARITY.md)
+- [Features](features.md)
 - [Measured performance and testing conditions](../rust/PERFORMANCE.md)
 - [Console settings definitions](../rust/web/src/lib/settings-schema.ts), including [video](../rust/web/src/lib/schema/video.ts), [display](../rust/web/src/lib/schema/display.ts) and [general settings](../rust/web/src/lib/schema/basics.ts)
 - [Configuration parser and allowed overrides](../rust/core/src/config.rs)

@@ -45,7 +45,7 @@ For console changes, also run `npm ci` and `npm run check` in `rust/web`. Change
 - **Never test against the installed service.** Run a development host with `--config-dir` on its own profile and port, as the [Rust guide](../rust/README.md) shows.
 - **Keep the crates layered.** Decisions that do not need Windows go in `core`, where they can be tested on any OS; Windows calls go in `windows`; `host` wires them together and has no `unsafe`.
 - **Document unsafe code.** Each `unsafe` block says which invariant it relies on in a `// SAFETY:` comment.
-- **Update the docs with the behaviour.** User-visible changes update `docs/` and the current section of [RELEASE_NOTES.md](../rust/RELEASE_NOTES.md); feature coverage lives in [PARITY.md](../rust/PARITY.md). Versions change only through `rust/release/bump.py`.
+- **Update the docs with the behaviour.** User-visible changes update `docs/` and the current section of [RELEASE_NOTES.md](../rust/RELEASE_NOTES.md); new features also go in [docs/features.md](../docs/features.md). Versions change only through `rust/release/bump.py`.
 
 AI-assisted changes are welcome on the same terms: you understand every line, and the tests and measurements above back the claims.
 

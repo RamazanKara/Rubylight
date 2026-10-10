@@ -4,7 +4,7 @@
 
 The Windows host, protocol implementation, native helpers, service and setup are written in Rust. The browser console is Svelte. The Rust executables do not link the previous C++ host; codec libraries, GPU SDKs and Windows drivers are external dependencies.
 
-The workspace version is **2.1.0**. This guide covers development and isolated validation. For feature status and exact hardware evidence, use [PARITY.md](PARITY.md) and [PERFORMANCE.md](PERFORMANCE.md).
+The workspace version is **2.1.0**. This guide covers development and isolated validation. For what Rubylight does, see [Features](../docs/features.md); for measurements, [PERFORMANCE.md](PERFORMANCE.md).
 
 ## Start streaming
 
@@ -74,7 +74,7 @@ Useful implementation entry points:
 - [Host source](host/src): session scheduling, configuration, administration and media transport.
 - [Core source](core/src): protocol and durable-state primitives.
 
-PyroWave shares D3D11/Vulkan planar textures and returns only the encoded bitstream to the CPU. Native NVENC uses the installed driver, with D3D11 4:2:0/8-bit 4:4:4 and CUDA interop for ten-bit 4:4:4; `nvenc_legacy` selects the FFmpeg compatibility path. Quick Sync imports D3D11 frames. Hardware execution evidence is tracked per path in [PARITY.md](PARITY.md).
+PyroWave shares D3D11/Vulkan planar textures and returns only the encoded bitstream to the CPU. Native NVENC uses the installed driver, with D3D11 4:2:0/8-bit 4:4:4 and CUDA interop for ten-bit 4:4:4; `nvenc_legacy` selects the FFmpeg compatibility path. Quick Sync imports D3D11 frames.
 
 ## Validation
 
@@ -86,16 +86,37 @@ The ordinary checks (formatting, Clippy with warnings denied, workspace tests) a
 | Administration and browser | [web_api.py](tests/web_api.py), [console_browser.cjs](tests/console_browser.cjs), [session_restart.py](tests/session_restart.py), [otp_pairing.py](tests/otp_pairing.py). |
 | Independent standard-codec streams | [interop.py](tests/interop.py), [moonlight_client.c](tests/moonlight_client.c): real pairing, encrypted RTSP, transport/FEC, FFmpeg and Opus decode. |
 | Independent PyroWave streams | [build-pyrowave-client.ps1](tests/build-pyrowave-client.ps1), [moonlight_client.c](tests/moonlight_client.c), [pyrowave_transport.py](tests/pyrowave_transport.py). |
-| Native GPU, driver and display tests | Explicitly selected ignored tests; requirements and commands in [PARITY.md](PARITY.md#reproducible-verification). |
+| Native GPU, driver and display tests | Explicitly selected ignored tests; requirements and commands in [Running the native checks](#running-the-native-checks). |
 | Performance and pixel accuracy | Release probes and fixtures indexed in [PERFORMANCE.md](PERFORMANCE.md#reproduce-on-another-machine). |
 
 Native fixtures may require an active moving desktop, codec DLLs, compatible drivers and particular hardware. Display-changing fixtures record restoration separately. Follow each fixture's prerequisites and run them in a suitable idle test session.
 
-[The compatibility matrix](PARITY.md#evidence) records what each fixture and client check covers.
+### Running the native checks
 
-## Previous feature support
+```powershell
+cargo test --workspace --locked
+cargo clippy --workspace --all-targets --locked -- -D warnings
+cargo test -p butterpollo-windows --locked -- --ignored --skip native_nvenc_loss_recovery_and_444_hdr_decode --skip native_av1_geometry_and_hdr_are_preserved --skip primary_multitouch_and_secondary_isolation_match_native_hid_reports --skip two_announced_touchpads_share_one_native_surface_side_by_side --test-threads=1 --nocapture
+```
 
-The Rust host imports the Vibepollo/Apollo profile format and implements the Windows feature set recorded in [PARITY.md](PARITY.md). Application overrides take precedence over client overrides; display recovery restores host-owned changes that the user has not subsequently altered.
+The native command needs the packaged codec DLLs on `PATH`, an AMD D3D11/AMF adapter, working interactive WGC, a moving desktop and a local network route; it does not change display modes, audio defaults or the installed service. `motion_probe DISPLAY SECONDS REPORT.json current 128` can provide movement on an explicitly selected active output without changing its mode. Set `BUTTERPOLLO_TEST_OPUS_ROOT` to the packaged runtime directory, `BUTTERPOLLO_TEST_FFMPEG` to an independent FFmpeg decoder and `BUTTERPOLLO_TEST_RFI_REPORT` to a report file.
+
+The separately selected `primary_multitouch_and_secondary_isolation_match_native_hid_reports` and `two_announced_touchpads_share_one_native_surface_side_by_side` tests require the signed VHF driver and an idle input session. They create and remove owned neutral DS4/DualSense devices; they are excluded from the codec command above.
+
+On an NVIDIA host with a display attached to that adapter:
+
+```powershell
+$env:BUTTERPOLLO_TEST_NVENC = '1'
+$env:BUTTERPOLLO_TEST_NVENC_REPORT = 'C:\path\to\artifacts\nvenc.json'
+$env:BUTTERPOLLO_TEST_FFMPEG = 'C:\path\to\ffmpeg.exe'
+cargo test -p butterpollo-windows --locked native_nvenc_loss_recovery_and_444_hdr_decode -- --ignored --test-threads=1 --nocapture
+```
+
+`tests/web_api.py`, `tests/console_browser.cjs`, `tests/session_restart.py`, `tests/interop.py` and `tests/otp_pairing.py` run against isolated test-owned profiles and stop only their own processes.
+
+## Profiles and features
+
+The Rust host imports the Vibepollo/Apollo profile format and implements the Windows feature set listed in [Features](../docs/features.md). Application overrides take precedence over client overrides; display recovery restores host-owned changes that the user has not subsequently altered.
 
 The earlier C++ host, its CMake build and installer were removed after 2.0.0-rc.23; [that tag](https://github.com/RamazanKara/Rubylight/tree/2.0.0-rc.23) and its [archived references](https://github.com/RamazanKara/Rubylight/blob/2.0.0-rc.23/docs/legacy/README.md) keep them for migration research. The released Rust package is built through [build.ps1](build.ps1).
 

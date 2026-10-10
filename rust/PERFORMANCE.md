@@ -1,6 +1,6 @@
 # Rust performance evidence
 
-[Documentation](../docs/README.md) · [Performance overview](../docs/performance.md) · [Compatibility](PARITY.md)
+[Documentation](../docs/README.md) · [Performance overview](../docs/performance.md) · [Features](../docs/features.md)
 
 This is the dated measurement record. For a guided comparison, start with the [performance overview](../docs/performance.md). Each section below describes the source, version and fixture used at that time.
 
@@ -4258,5 +4258,4 @@ TrueHDR has a shared-device GPU path. PyroWave uses shared D3D11/Vulkan planar
 GPU inputs and reads back only the encoded bitstream. Unsupported native
 formats and software encoding use CPU compatibility paths. The GPU texture
 pools and native encoder queues are bounded to eight retained frames.
-[PARITY.md](PARITY.md) lists the implemented features and where each was
-tested.
+[Features](../docs/features.md) lists everything the host does.

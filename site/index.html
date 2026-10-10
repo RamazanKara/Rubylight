@@ -42,7 +42,7 @@
       <a class="button" href="{{download_url}}">Download {{download_label}}</a>
       <a class="button ghost" href="docs/getting-started.html">Get started</a>
     </div>
-    <p class="fine">Windows x64 · free and open source (GPL-3.0) · 2.0.1</p>
+    <p class="fine">Windows x64 · free and open source (GPL-3.0)</p>
 
     <div class="stats">
       <div class="stat">
@@ -182,14 +182,13 @@
       <li><b>Input under CPU load:</b> a mouse move behind a controller update took at worst 2.0 ms instead of 287 ms (October 7). <a href="docs/performance.html#input-under-load">Details</a></li>
       <li><b>H.264 picture quality:</b> adaptive quantization off by default raised VMAF by 1.0 and 9.4 points at 1440p120 and 20 Mbps, at the same encode time (rc.23). <a href="rust/PERFORMANCE_WORK.html#amf-settings-per-codec-quality-at-a-given-bitrate">Details</a></li>
     </ul>
-    <h3 class="sub-title">Tested on</h3>
+    <h3 class="sub-title">Works with</h3>
     <ul class="results">
-      <li><b>Radeon RX 7900 XT</b> as the host for every measurement above, and a <b>Radeon 780M laptop</b> over Wi-Fi as the client.</li>
-      <li><b>RX 9070 XT, RX 6900 XT and Radeon 890M:</b> user reports and logs from real setups, including a Legion Go host on Wi-Fi; fixes shipped from them.</li>
-      <li><b>Moonlight for Xbox</b> streaming HDR at 3840×2160, 120 Hz, an <b>Android phone</b> at 1968×2184, 120 Hz HDR, and streaming while Windows is locked, which the owner tested on the secure desktop and a user confirmed from a <b>locked Windows VM</b>.</li>
-      <li><b>Kubernetes pods with various GPU configurations:</b> extensive testing by the owner.</li>
+      <li><b>Moonlight PC 6.2.0</b> with H.264, HEVC and AV1 in SDR and HDR, <b>Moonlight for Xbox</b> in HDR at 3840×2160 and 120 Hz, and <b>Android phones</b> at 1968×2184, 120 Hz HDR.</li>
+      <li><b>Rubylight Android</b> and <b>Nonary's Moonlight</b> for PyroWave HDR 4:4:4, and Nonary's client for 1000 Hz VRR.</li>
+      <li><b>Radeon RX 7900 XT, RX 9070 XT, RX 6900 XT and Radeon 890M</b> hosts, including a Legion Go streaming over Wi-Fi.</li>
+      <li><b>Locked Windows</b>, so you can sign in from the couch, <b>headless VMs</b> with no monitor, and <b>Kubernetes pods with GPUs</b>.</li>
     </ul>
-    <p class="note"><a href="rust/PARITY.html#where-it-has-been-tested">What was tested where</a></p>
     <p><a class="more" href="docs/performance.html">All performance results and what each number means</a></p>
   </div>
 </section>
@@ -232,7 +231,7 @@
         <p>Streaming, protocol, native helpers, the Windows service and the installer are Rust, with a web console for pairing, the library and live encoder timings.</p>
       </article>
     </div>
-    <p><a class="more" href="rust/PARITY.html">Feature-by-feature compatibility with Vibepollo, Apollo and Sunshine</a></p>
+    <p><a class="more" href="docs/features.html">Every feature, from capture to the console</a></p>
   </div>
 </section>
 
@@ -280,7 +279,7 @@
     <p class="eyebrow">Why it exists</p>
     <h2>AMD rarely gets any love in this space</h2>
     <p>The protocol started as NVIDIA's GameStream, and the hosts that replaced it kept NVIDIA first. Upstream Sunshine has had a native NVENC encoder since 2023, while AMD still goes through FFmpeg's generic AMF wrapper. So Radeon owners have spent years hearing their cards are just worse at streaming. Most of the time the card was never the problem. Nobody had sat down with it.</p>
-    <p>Rubylight began as a fork of <a href="https://github.com/Nonary/Vibepollo">Vibepollo</a> and rebuilds the host in Rust around the Radeon frame path. Anything that works out here is GPL-3.0 for Vibepollo to take. <b>On NVIDIA, use Vibepollo.</b></p>
+    <p>Rubylight is a host rebuilt in Rust around the Radeon frame path, from capture to the encoder. <b>On NVIDIA, use Vibepollo.</b></p>
   </div>
 </section>
 
@@ -294,7 +293,7 @@
       <a href="docs/troubleshooting.html"><b>Troubleshooting</b><span>Pairing, black screens, HDR colour, smoothness</span></a>
       <a href="docs/architecture.html"><b>Architecture</b><span>The Radeon frame path, HDR and PyroWave</span></a>
       <a href="docs/performance.html"><b>Performance</b><span>Comparisons and what each number means</span></a>
-      <a href="rust/PARITY.html"><b>Compatibility</b><span>What matches Vibepollo, what differs, the evidence</span></a>
+      <a href="docs/features.html"><b>Features</b><span>Video, capture, displays, input, library and clients</span></a>
       <a href="rust/RELEASE_NOTES.html"><b>Release notes</b><span>Every release, honestly described</span></a>
       <a href="docs/building.html"><b>Build guide</b><span>Toolchain, dependencies, packaging and CI</span></a>
       <a href="docs/api.html"><b>HTTP API</b><span>Authentication, permissions and endpoints</span></a>
@@ -305,7 +304,7 @@
 
 <footer class="footer">
   <div class="footer-inner">
-    <p>Rubylight is GPL-3.0. Thanks to Nonary for Vibepollo, ClassicOldSong for Apollo, and LizardByte and the Sunshine contributors. The AMD encoder's low-latency defaults draw on qiin2333's work in AlkaidLab's Foundation Sunshine. PyroWave and Granite are by Themaister; the PyroWave Moonlight protocol and clients are joemossjr16's work.</p>
+    <p>Rubylight is GPL-3.0 and began as a fork of Vibepollo. Thanks to Nonary for Vibepollo, ClassicOldSong for Apollo, and LizardByte and the Sunshine contributors. The AMD encoder's low-latency defaults draw on qiin2333's work in AlkaidLab's Foundation Sunshine. PyroWave and Granite are by Themaister; the PyroWave Moonlight protocol and clients are joemossjr16's work.</p>
     <p>The name came from a tester's verdict: “smooth as butter.” · <a href="https://github.com/RamazanKara/Rubylight">GitHub</a> · <a href="https://github.com/RamazanKara/Rubylight/issues">Issues</a> · <a href="rust/THIRD_PARTY.html">Third-party components</a></p>
   </div>
 </footer>

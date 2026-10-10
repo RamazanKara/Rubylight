@@ -96,7 +96,7 @@ cargo +1.98.1-x86_64-pc-windows-gnu clippy --workspace --all-targets --locked --
 
 The TrueHDR crate is outside the main workspace; the build script checks and builds it separately for `x86_64-pc-windows-msvc`.
 
-Hardware and environment-dependent tests are selected separately. Their fixtures can exercise capture, controllers or displays; choose a fixture for the intended machine and preserve its restoration checks. [PERFORMANCE.md](../rust/PERFORMANCE.md) records measured workloads, and [PARITY.md](../rust/PARITY.md) distinguishes implementation from hardware validation. Ordinary test success alone is not a GPU compatibility result.
+Hardware and environment-dependent tests are selected separately. Their fixtures can exercise capture, controllers or displays; choose a fixture for the intended machine and preserve its restoration checks. [PERFORMANCE.md](../rust/PERFORMANCE.md) records measured workloads.
 
 ## Web console
 

@@ -4,6 +4,7 @@ use crate::state::{Launch, Shared};
 use anyhow::{Context, Result};
 use butterpollo_core::{
     config::Config,
+    display_policy::HostDisplay,
     framegen::{Policy, Rate},
     rtsp::Negotiated,
     session::{Preparation, Role, Warnings},
@@ -46,6 +47,22 @@ fn virtual_display_mode<'a>(
                 .filter(|s| !s.is_empty())
         })
         .unwrap_or(config.virtual_display_mode(windows_11))
+}
+
+/// What the client asked the PC's displays to do for this stream (the
+/// `hostDisplay` launch parameter), or None to follow the host, app and
+/// per-device settings. Only a stream chooses; a remote monitor keeps the
+/// remote monitor layout, and Remote Input has no display.
+pub fn client_display(launch: &Launch) -> Option<HostDisplay> {
+    if launch.role != Role::Stream {
+        return None;
+    }
+    let value = launch.options.get(HostDisplay::PARAMETER)?;
+    let choice = HostDisplay::parse(value);
+    if choice.is_none() && !value.trim().is_empty() && value.trim() != "default" {
+        tracing::info!(value = %value, "unknown hostDisplay launch value; the display settings decide");
+    }
+    choice
 }
 
 /// Resolution, refresh in millihertz and HDR a stream asked its display for.
@@ -194,6 +211,7 @@ pub struct Ready {
     _state: Arc<Mutex<Prepared>>,
     target: CaptureTarget,
     mode: (u32, u32, u32, bool, bool),
+    client_display: Option<HostDisplay>,
     framegen: Policy,
     mode_report: ModeReport,
     stop: Arc<AtomicBool>,
@@ -203,6 +221,7 @@ impl Ready {
     pub fn prepare((prepared, limiter): (Prepared, limiter::Lease)) -> Result<StreamPreparation> {
         let target = CaptureTarget::new(prepared.capture_target());
         let mode = prepared.mode;
+        let client_display = prepared.client_display;
         let framegen = prepared.framegen.clone();
         let mode_report = prepared.mode_report.clone();
         let state = Arc::new(Mutex::new(prepared));
@@ -234,6 +253,7 @@ impl Ready {
             _state: state,
             target,
             mode,
+            client_display,
             framegen,
             mode_report,
             stop,
@@ -259,6 +279,11 @@ impl Ready {
     }
     pub fn matches(&self, stream: &Negotiated) -> bool {
         self.mode == stream_mode(stream)
+    }
+    /// Whether this display was set up for what the next launch's client
+    /// asks of the PC's displays; see `HostDisplay::reusable`.
+    pub fn serves(&self, requested: Option<HostDisplay>) -> bool {
+        HostDisplay::reusable(self.client_display, requested)
     }
     pub fn output(&self) -> String {
         self.target.current().0
@@ -307,6 +332,7 @@ pub struct Prepared {
     _vulkan: Option<vulkan::Lease>,
     _golden: Option<GoldenLease>,
     mode: (u32, u32, u32, bool, bool),
+    client_display: Option<HostDisplay>,
     revision: u64,
     recovery: Recovery,
     layout_watch: butterpollo_core::display_policy::LayoutWatch,
@@ -478,8 +504,11 @@ impl Prepared {
             .options
             .get("virtualDisplay")
             .map(|value| value != "0");
+        let client_display = client_display(launch);
         let mut display_request = butterpollo_core::display_policy::VirtualDisplayRequest {
-            client_requested: client_virtual == Some(true),
+            client_requested: client_virtual == Some(true)
+                || matches!(client_display, Some(HostDisplay::Virtual(_))),
+            client_physical: client_display == Some(HostDisplay::Physical),
             client_forced: launch
                 .client
                 .extra
@@ -499,7 +528,7 @@ impl Prepared {
                 butterpollo_windows::capture::displays().is_ok_and(|displays| displays.is_empty());
             if display_request.headless {
                 tracing::info!(
-                    "no display is active; this stream uses a virtual display although the settings turn it off"
+                    "no display is active; this stream uses a virtual display although the settings or the client turn it off"
                 );
             }
         }
@@ -776,7 +805,15 @@ impl Prepared {
         // streams otherwise use a physical one, so it follows the virtual
         // display layout.
         let virtual_layout = virtual_mode || retained.is_some();
-        let selection = if virtual_layout {
+        // The client's choice for this stream comes before the device, app
+        // and host layouts.
+        let client_layout = match client_display {
+            Some(HostDisplay::Virtual(arrangement)) if virtual_mode => Some(arrangement),
+            _ => None,
+        };
+        let selection = if let Some(arrangement) = client_layout {
+            arrangement.name()
+        } else if virtual_layout {
             launch
                 .client
                 .extra
@@ -789,6 +826,7 @@ impl Prepared {
             config.get("dd_configuration_option", "verify_only")
         };
         let selection = if virtual_mode
+            && client_layout.is_none()
             && app
                 .as_ref()
                 .is_some_and(|a| crate::process::app_bool(a, "virtual-display-primary", false))
@@ -865,6 +903,7 @@ impl Prepared {
             client = %launch.client.name,
             role = ?launch.role,
             client_virtual_display = ?client_virtual,
+            client_display = ?client_display,
             virtual_display_mode = mode,
             output_override = ?output_override,
             virtual_display = virtual_mode,
@@ -913,6 +952,7 @@ impl Prepared {
                 _vulkan: vulkan,
                 _golden: golden,
                 mode: stream_mode(stream),
+                client_display,
                 revision,
                 recovery: Recovery::new(),
                 layout_watch: Default::default(),
@@ -1104,6 +1144,39 @@ mod tests {
         ] {
             assert_ne!(stream_mode(&made), stream_mode(&other));
         }
+    }
+    #[test]
+    fn only_a_stream_takes_the_clients_display_choice() {
+        use butterpollo_core::display_policy::Arrangement;
+        let f = crate::state::test_support::Fixture::new();
+        let client = f.client(u32::MAX);
+        let launch = |role: Role, value: Option<&str>| {
+            let mut launch = f.launch(client.clone(), role);
+            if let Some(value) = value {
+                launch
+                    .options
+                    .insert(HostDisplay::PARAMETER.into(), value.into());
+            }
+            client_display(&launch)
+        };
+        assert_eq!(launch(Role::Stream, None), None);
+        assert_eq!(
+            launch(Role::Stream, Some("physical")),
+            Some(HostDisplay::Physical)
+        );
+        assert_eq!(
+            launch(Role::Stream, Some("exclusive")),
+            Some(HostDisplay::Virtual(Arrangement::Exclusive))
+        );
+        assert_eq!(
+            launch(Role::Stream, Some("extended_primary")),
+            Some(HostDisplay::Virtual(Arrangement::Primary))
+        );
+        for unknown in ["", "default", "mirror"] {
+            assert_eq!(launch(Role::Stream, Some(unknown)), None, "{unknown}");
+        }
+        assert_eq!(launch(Role::RemoteMonitor, Some("physical")), None);
+        assert_eq!(launch(Role::InputOnly, Some("exclusive")), None);
     }
     #[test]
     fn virtual_display_mode_keeps_device_app_host_precedence_and_legacy_global_inheritance() {

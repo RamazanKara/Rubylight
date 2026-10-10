@@ -126,6 +126,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     private float pyroWaveQueueDelayTotal;
     private volatile float pyroWaveLossPercent = -1;
     private volatile float pyroWaveQueueDelayMs = -1;
+    private final QueueDelayTracker queueDelay = new QueueDelayTracker();
+    private volatile float queueDelayMs = -1;
     private volatile float decodeTimeMs = -1;
 
     private final FrameLatencyStats frameLatencyStats;
@@ -196,6 +198,11 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
     public float getDecodeTimeMs() {
         return decodeTimeMs;
+    }
+
+    // Network queueing delay above its recent minimum, ms; -1 when unknown.
+    public float getQueueDelayMs() {
+        return queueDelayMs;
     }
 
     static String formatPyroWaveStats(float recordLoss, float queueMs, float decodeMs, int gpuUs) {
@@ -1889,7 +1896,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     @Override
     public int submitDecodeUnit(byte[] decodeUnitData, int decodeUnitLength, int decodeUnitType,
                                 int frameNumber, int frameType, char frameHostProcessingLatency,
-                                long receiveTimeUs, long enqueueTimeUs, long receiveTimeNs) {
+                                long receiveTimeUs, long enqueueTimeUs, long receiveTimeNs,
+                                long presentationTimeUs) {
         if (stopping) {
             // Don't bother if we're stopping
             return MoonBridge.DR_OK;
@@ -1915,6 +1923,9 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             ppsBuffers.clear();
         }
 
+        if (frameNumber != lastFrameNumber) {
+            queueDelay.onFrame(receiveTimeUs, presentationTimeUs);
+        }
         lastFrameNumber = frameNumber;
 
         // Flip stats windows roughly every second
@@ -1926,6 +1937,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                 pyroWaveLossSamples = 0;
             }
             decodeTimeMs = frameLatencyStats.takeDecodeTimeMs();
+            queueDelayMs = queueDelay.takeWindowMs();
             VideoStats lastTwo = new VideoStats();
             lastTwo.add(lastWindowVideoStats);
             lastTwo.add(activeWindowVideoStats);

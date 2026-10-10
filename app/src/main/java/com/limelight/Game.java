@@ -201,7 +201,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                                 decoderRenderer.getPyroWaveLossPercent(), decoderRenderer.getPyroWaveQueueDelayMs(),
                                 decoderRenderer.getDecodeTimeMs(), jitterMs) :
                         adaptiveBitrate.sample(now, decoderRenderer.hasRecentVideoFrames(now),
-                                poorConnection, decoderRenderer.getNetworkFrameLossPercent(), decoderRenderer.getDecodeTimeMs(), jitterMs);
+                                poorConnection, decoderRenderer.getNetworkFrameLossPercent(), decoderRenderer.getDecodeTimeMs(), jitterMs,
+                                decoderRenderer.getQueueDelayMs());
                 if (target != 0) {
                     applyAdaptiveBitrate(target);
                 }

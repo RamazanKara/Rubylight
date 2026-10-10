@@ -43,11 +43,12 @@ public class AdaptiveBitrateControllerTest {
     public void sustainedLossReducesBitrateWithCooldownAndFloor() {
         AdaptiveBitrateController controller = new AdaptiveBitrateController(10000, 10000, 60, 0);
         assertEquals(0, controller.sample(1000, true, true, 0, 2));
-        assertEquals(0, controller.sample(4000, true, true, 0, 2));
-        assertEquals(8000, controller.sample(5000, true, true, 0, 2));
+        assertEquals(0, controller.sample(2000, true, true, 0, 2));
+        assertEquals(8000, controller.sample(3000, true, true, 0, 2));
         controller.applied(8000, 8000, 5000);
         assertEquals(0, controller.sample(6000, true, true, 0, 2));
-        assertEquals(6400, controller.sample(10000, true, true, 0, 2));
+        assertEquals(0, controller.sample(7000, true, true, 0, 2));
+        assertEquals(6400, controller.sample(8000, true, true, 0, 2));
         controller.applied(2000, 2000, 10000);
         assertEquals(0, controller.sample(15000, true, true, 0, 2));
         assertEquals(0, controller.sample(16000, true, true, 0, 2));
@@ -106,5 +107,37 @@ public class AdaptiveBitrateControllerTest {
         AdaptiveBitrateController controller = new AdaptiveBitrateController(1000, 1000, 60, 0);
         assertEquals(0, controller.sample(5000, true, true, 20, 2));
         assertEquals(0, controller.sample(6000, true, true, 20, 2));
+    }
+
+    @Test
+    public void risingQueueReducesBitrateBeforeAnyLoss() {
+        AdaptiveBitrateController controller = new AdaptiveBitrateController(20000, 20000, 60, 0);
+        assertEquals(0, controller.sample(3000, true, false, 0, 2, 0, 1));
+        assertEquals(0, controller.sample(4000, true, false, 0, 2, 0, 13));
+        assertEquals(16000, controller.sample(5000, true, false, 0, 2, 0, 17));
+    }
+
+    @Test
+    public void standingQueueOfTwoFramesIsCongestion() {
+        AdaptiveBitrateController controller = new AdaptiveBitrateController(20000, 20000, 120, 0);
+        assertEquals(0, controller.sample(3000, true, false, 0, 2, 0, 21));
+        assertEquals(16000, controller.sample(4000, true, false, 0, 2, 0, 21));
+    }
+
+    @Test
+    public void steadySmallQueueIsNotCongestionButBlocksRaising() {
+        AdaptiveBitrateController controller = new AdaptiveBitrateController(10000, 8000, 60, 0);
+        for (long now = 1000; now <= 40000; now += 1000) {
+            assertEquals(0, controller.sample(now, true, false, 0, 2, 0, 9));
+        }
+        assertEquals(0, controller.sample(41000, true, false, 0, 2, 0, 1));
+        assertEquals(8400, controller.sample(56000, true, false, 0, 2, 0, 1));
+    }
+
+    @Test
+    public void unknownQueueDelayKeepsTheOldBehavior() {
+        AdaptiveBitrateController controller = new AdaptiveBitrateController(10000, 8000, 60, 0);
+        assertEquals(0, controller.sample(1000, true, false, 0, 2, 0, -1));
+        assertEquals(8400, controller.sample(16000, true, false, 0, 2, 0, -1));
     }
 }

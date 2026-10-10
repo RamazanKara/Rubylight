@@ -8,6 +8,7 @@ public final class AdaptiveBitrateController {
     private long lastChangeMs;
     private long healthySinceMs = -1;
     private int poorSamples;
+    private float previousQueueMs = -1;
 
     public AdaptiveBitrateController(int ceilingKbps, int currentKbps, int fps, long nowMs) {
         this.ceilingKbps = Math.min(500000, ceilingKbps);
@@ -23,16 +24,28 @@ public final class AdaptiveBitrateController {
     }
 
     public int sample(long nowMs, boolean recentVideo, boolean poorConnection, float lossPercent, float decodeMs, float jitterMs) {
+        return sample(nowMs, recentVideo, poorConnection, lossPercent, decodeMs, jitterMs, -1);
+    }
+
+    // queueMs is the network queueing delay above its recent minimum (-1 if unknown). A queue
+    // building at the access point shows there before packets are dropped, so a rising queue
+    // lowers the bitrate (and with it the host's pacing rate) before losses pile up.
+    public int sample(long nowMs, boolean recentVideo, boolean poorConnection, float lossPercent, float decodeMs,
+                      float jitterMs, float queueMs) {
         if (!recentVideo && !poorConnection) {
             healthySinceMs = -1;
             poorSamples = 0;
+            previousQueueMs = -1;
             return 0;
         }
-        if (poorConnection || (recentVideo && (lossPercent >= 3 || decodeMs >= frameMs ||
+        boolean queueBuilding = recentVideo && queueMs >= 0 && (queueMs >= Math.max(20, frameMs * 2) ||
+                (previousQueueMs >= 0 && queueMs >= Math.max(8, frameMs * 0.75f) && queueMs - previousQueueMs >= 3));
+        previousQueueMs = recentVideo ? queueMs : -1;
+        if (poorConnection || queueBuilding || (recentVideo && (lossPercent >= 3 || decodeMs >= frameMs ||
                 jitterMs >= Math.max(5, frameMs * 0.75f)))) {
             healthySinceMs = -1;
             poorSamples++;
-            if (poorSamples >= 2 && nowMs - lastChangeMs >= 5000) {
+            if (poorSamples >= 2 && nowMs - lastChangeMs >= 3000) {
                 int target = Math.max(floorKbps, currentKbps * 80 / 100);
                 return target < currentKbps ? target : 0;
             }
@@ -40,7 +53,8 @@ public final class AdaptiveBitrateController {
             poorSamples = 0;
             if (!(lossPercent >= 0 && lossPercent < 0.5f) ||
                     !(decodeMs >= 0 && decodeMs < frameMs * 0.75f) ||
-                    !(jitterMs >= 0 && jitterMs < Math.max(2, frameMs * 0.25f))) {
+                    !(jitterMs >= 0 && jitterMs < Math.max(2, frameMs * 0.25f)) ||
+                    (queueMs >= 0 && queueMs >= Math.max(4, frameMs / 2))) {
                 healthySinceMs = -1;
             } else if (healthySinceMs == -1) {
                 healthySinceMs = nowMs;
@@ -62,10 +76,12 @@ public final class AdaptiveBitrateController {
         lastChangeMs = nowMs;
         healthySinceMs = -1;
         poorSamples = 0;
+        previousQueueMs = -1;
     }
 
     public void suspend() {
         healthySinceMs = -1;
         poorSamples = 0;
+        previousQueueMs = -1;
     }
 }

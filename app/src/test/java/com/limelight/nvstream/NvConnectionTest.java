@@ -113,7 +113,8 @@ public class NvConnectionTest {
                     @Override public void setHdrMode(boolean enabled, byte[] metadata) { }
                     @Override public void cleanup() { cleaned.countDown(); }
                     @Override public int submitDecodeUnit(byte[] data, int length, int type, int frame,
-                            int frameType, char hostLatency, long received, long enqueued, long receivedNs) {
+                            int frameType, char hostLatency, long received, long enqueued, long receivedNs,
+                            long presentationUs) {
                         throw new AssertionError("Cancelled connection received video");
                     }
                 };

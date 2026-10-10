@@ -189,6 +189,109 @@ mod tests {
         assert_eq!(info["reference_invalidations"], 0);
         assert!(!session.stopping());
     }
+    fn fec_report(frame: u32, received_data: u16, received_parity: u16) -> [u8; 21] {
+        // Ten data and two parity packets at 20 %, one block.
+        let mut report = [0; 21];
+        report[..4].copy_from_slice(&frame.to_be_bytes());
+        for (offset, word) in [(4, 11u16), (10, 10), (12, 2)] {
+            report[offset..offset + 2].copy_from_slice(&word.to_be_bytes());
+        }
+        report[14..16].copy_from_slice(&received_data.to_be_bytes());
+        report[16..18].copy_from_slice(&received_parity.to_be_bytes());
+        report[18] = 20;
+        report[20] = 1;
+        report
+    }
+    #[test]
+    fn adaptive_fec_follows_reports_and_stays_fixed_without_them_or_when_off() {
+        let start = Instant::now();
+        // A client that never reports: the configured percentage, for minutes.
+        let quiet = Session::new(launch("quiet", Role::Stream), Negotiated::default());
+        assert_eq!(quiet.configure_fec(true, 30), 30);
+        for second in 0..300 {
+            assert_eq!(quiet.tick_fec(start + Duration::from_secs(second)), None);
+        }
+        assert_eq!(quiet.fec_percent(), 30);
+        assert_eq!(quiet.info()["fec_percent"], 30);
+        // Off: reports are still counted, the percentage never moves.
+        let off = Session::new(launch("off", Role::Stream), Negotiated::default());
+        assert_eq!(off.configure_fec(false, 20), 20);
+        off.stats.video_frame.store(100, Ordering::Release);
+        off.record_fec_status(&fec_report(10, 10, 0));
+        off.record_fec_status(&fec_report(11, 7, 1));
+        for second in 0..120 {
+            assert_eq!(off.tick_fec(start + Duration::from_secs(second)), None);
+        }
+        assert_eq!(off.fec_percent(), 20);
+        assert_eq!(off.info()["performance"]["fec_unrecoverable_frames"], 1);
+        // On: a clean link decays, a rebuilt frame raises, a lost one restores.
+        let on = Session::new(launch("on", Role::Stream), Negotiated::default());
+        assert_eq!(on.configure_fec(true, 20), 20);
+        on.stats.video_frame.store(100, Ordering::Release);
+        on.record_fec_status(&fec_report(10, 10, 0));
+        let now = Instant::now();
+        assert_eq!(on.tick_fec(now), None);
+        let later = now + Duration::from_secs(60);
+        on.tick_fec(later);
+        assert!(on.fec_percent() < 20);
+        let decayed = on.fec_percent();
+        on.record_fec_status(&fec_report(20, 9, 1));
+        assert!(on.fec_percent() > decayed);
+        on.record_fec_status(&fec_report(21, 7, 1));
+        assert_eq!(on.fec_percent(), 20);
+        // PyroWave does not use it, and does not show it.
+        let pyrowave = Session::new(
+            launch("pyrowave-fec", Role::Stream),
+            Negotiated {
+                codec: 3,
+                ..Default::default()
+            },
+        );
+        assert!(pyrowave.info()["fec_percent"].is_null());
+    }
+    #[test]
+    fn client_display_luminance_reaches_hdr_metadata_once_known_and_allowed() {
+        use rubylight_protocol::control::DisplayCaps;
+        let caps = DisplayCaps {
+            hdr: true,
+            max_centinits: 80_000,
+            max_average_centinits: 40_000,
+            min_decimillinits: 5,
+        }
+        .encode();
+        let display = crate::hdr::Metadata::display(1000., 0.01, 600.);
+        let hdr = Negotiated {
+            hdr: true,
+            ..Default::default()
+        };
+        let s = Session::new(launch("hdr", Role::Stream), hdr.clone());
+        // Early report: kept, nothing to send before the encoder has metadata.
+        let update = s.record_display_caps(&caps).unwrap();
+        assert_eq!(update.metadata, None);
+        assert_eq!(update.applied, crate::display_caps::Applied::Pending);
+        assert!(s.hdr_metadata.read().unwrap().is_none());
+        // Not yet allowed: the display's values.
+        assert_eq!(s.set_display_hdr_metadata(display), display);
+        assert_eq!(
+            s.allow_display_caps(true).map(|(_, applied)| applied),
+            Some(crate::display_caps::Applied::Metadata)
+        );
+        assert_eq!(s.hdr_metadata.read().unwrap().unwrap().maximum_nits, 800);
+        assert_eq!(s.set_display_hdr_metadata(display).max_fall, 400);
+        // Malformed reports change nothing.
+        assert!(s.record_display_caps(&caps[..8]).is_none());
+        assert_eq!(s.hdr_metadata.read().unwrap().unwrap().maximum_nits, 800);
+        // A host override keeps the display's values.
+        let overridden = Session::new(launch("profile", Role::Stream), hdr);
+        assert_eq!(overridden.allow_display_caps(false), None);
+        overridden.record_display_caps(&caps);
+        assert_eq!(overridden.set_display_hdr_metadata(display), display);
+        // SDR streams keep the display's values.
+        let sdr = Session::new(launch("sdr", Role::Stream), Negotiated::default());
+        sdr.allow_display_caps(true);
+        sdr.record_display_caps(&caps);
+        assert_eq!(sdr.set_display_hdr_metadata(display), display);
+    }
     #[test]
     fn a_launch_still_being_prepared_does_not_expire() {
         let mut sessions = Sessions::default();
@@ -646,6 +749,10 @@ pub struct Session<P = (), A = ()> {
     pub invalidation: std::sync::Mutex<Option<(u64, u64)>>,
     pub recovery_wake: std::sync::Mutex<Option<Box<dyn Fn() + Send + Sync>>>,
     pub bitrate: AtomicU32,
+    /// FEC percentage for the next video frame; the video sender reads it per
+    /// frame, and `adaptive_fec` moves it from the client's 0x5502 reports.
+    pub fec_percent: AtomicU32,
+    pub adaptive_fec: std::sync::Mutex<crate::adaptive_fec::AdaptiveFec>,
     /// Capture timing locked to the client's display, from its 0x5530 reports.
     pub phase_sync: std::sync::Mutex<crate::phase_sync::PhaseSync>,
     pub stats: Stats,
@@ -654,6 +761,9 @@ pub struct Session<P = (), A = ()> {
     /// The display's HDR metadata, once the encoder has it. Clients are told
     /// the HDR state only then, so they hear it once with the real values.
     pub hdr_metadata: std::sync::RwLock<Option<crate::hdr::Metadata>>,
+    /// The display's HDR metadata and the client's display luminance (0x5531)
+    /// that `hdr_metadata` is made from.
+    pub hdr_source: std::sync::Mutex<crate::display_caps::HdrSource>,
 }
 impl<P, A> Session<P, A> {
     pub fn new(launch: Launch<P, A>, config: Negotiated) -> Arc<Self> {
@@ -669,11 +779,16 @@ impl<P, A> Session<P, A> {
             invalidation: Default::default(),
             recovery_wake: Default::default(),
             bitrate: AtomicU32::new(bitrate),
+            fec_percent: AtomicU32::new(
+                crate::adaptive_fec::AdaptiveFec::default().percent() as u32
+            ),
+            adaptive_fec: Default::default(),
             phase_sync: Default::default(),
             stats: Stats::default(),
             started: Instant::now(),
             output: std::sync::RwLock::new(String::new()),
             hdr_metadata: Default::default(),
+            hdr_source: Default::default(),
         })
     }
     pub fn stopping(&self) -> bool {
@@ -746,16 +861,90 @@ impl<P, A> Session<P, A> {
             .load(Ordering::Acquire)
             .checked_sub(1)
             .map(|v| v as u32);
-        self.stats
+        let block = self
+            .stats
             .performance
             .lock()
             .unwrap()
             .record_fec_status(payload, last_sent);
+        if let Some(block) = block {
+            let mut fec = self.adaptive_fec.lock().unwrap();
+            if fec.enabled() {
+                fec.on_block(Instant::now(), block);
+                self.fec_percent
+                    .store(fec.percent() as u32, Ordering::Release);
+            }
+        }
+    }
+    /// Starts the stream's FEC at the configured percentage (`fec_percentage`,
+    /// 0-100), which adaptive FEC never exceeds. Off, or with a client that never
+    /// reports, every frame uses the configured percentage. Returns it.
+    pub fn configure_fec(&self, adaptive: bool, configured: usize) -> usize {
+        let mut fec = self.adaptive_fec.lock().unwrap();
+        *fec = crate::adaptive_fec::AdaptiveFec::new(adaptive, configured);
+        let percent = fec.percent();
+        self.fec_percent.store(percent as u32, Ordering::Release);
+        percent
+    }
+    /// The FEC percentage for the next video frame.
+    pub fn fec_percent(&self) -> usize {
+        self.fec_percent.load(Ordering::Acquire) as usize
+    }
+    /// Lets adaptive FEC fall on a clean link; call regularly. Returns the
+    /// `(old, new)` percentage to log, at most once a second.
+    pub fn tick_fec(&self, now: Instant) -> Option<(usize, usize)> {
+        let mut fec = self.adaptive_fec.lock().unwrap();
+        if !fec.enabled() {
+            return None;
+        }
+        fec.tick(now);
+        self.fec_percent
+            .store(fec.percent() as u32, Ordering::Release);
+        fec.log_due(now)
+    }
+    /// Records the display's HDR metadata and returns the stream's: the
+    /// display's, or with the client's display luminance when that applies.
+    pub fn set_display_hdr_metadata(&self, display: crate::hdr::Metadata) -> crate::hdr::Metadata {
+        let mut source = self.hdr_source.lock().unwrap();
+        source.display = Some(display);
+        let metadata = source.effective(self.config.hdr).unwrap_or(display);
+        *self.hdr_metadata.write().unwrap() = Some(metadata);
+        metadata
+    }
+    /// Whether the client's display luminance may replace the display's: not when
+    /// the host user set this client's HDR profile or peak brightness. Until this is
+    /// called, it does not. Returns the luminance already reported, if any, and
+    /// what now happens with it.
+    pub fn allow_display_caps(
+        &self,
+        allowed: bool,
+    ) -> Option<(
+        rubylight_protocol::control::DisplayCaps,
+        crate::display_caps::Applied,
+    )> {
+        let mut source = self.hdr_source.lock().unwrap();
+        source.allowed = Some(allowed);
+        if let Some(metadata) = source.effective(self.config.hdr) {
+            *self.hdr_metadata.write().unwrap() = Some(metadata);
+        }
+        source.caps.zip(source.applied(self.config.hdr))
+    }
+    /// Takes the client's display luminance (0x5531). `None` for a malformed
+    /// payload, which changes nothing. The control stream sends the client the
+    /// new metadata when it differs; the encoder takes it with the display's
+    /// next refresh.
+    pub fn record_display_caps(&self, payload: &[u8]) -> Option<crate::display_caps::Update> {
+        let mut source = self.hdr_source.lock().unwrap();
+        let update = source.on_payload(payload, self.config.hdr)?;
+        if let Some(metadata) = update.metadata {
+            *self.hdr_metadata.write().unwrap() = Some(metadata);
+        }
+        Some(update)
     }
     pub fn info(&self) -> serde_json::Value {
         let mut warnings = self.launch.warnings.snapshot();
         warnings.extend(self.capture_warnings.read().unwrap().snapshot());
-        serde_json::json!({"warnings":warnings,"encoder":*self.encoder.read().unwrap(),"uuid":self.launch.client.uuid,"device_name":self.launch.client.name,"width":self.config.width,"height":self.config.height,"fps":self.config.fps,"video_format":self.config.codec,"hdr":self.config.hdr,"vrr":self.config.vrr_low_latency,"encoder_bitrate_kbps":self.bitrate.load(Ordering::Relaxed),"pyrowave_minimum_kbps":(self.config.codec == 3).then(|| crate::pyrowave::minimum_kbps(self.config.width, self.config.height, self.config.fps_millihz())),"pyrowave_recommended_kbps":(self.config.codec == 3).then(|| crate::pyrowave::recommended_kbps(self.config.width, self.config.height, self.config.fps_millihz())),"audio_channels":self.config.audio_channels,"state":if self.stopping(){"STOPPING"}else{"RUNNING"},"frames_sent":self.stats.frames.load(Ordering::Relaxed),"frames_replaced":self.stats.frames_replaced.load(Ordering::Relaxed),"packets_sent":self.stats.packets.load(Ordering::Relaxed),"bytes_sent":self.stats.bytes.load(Ordering::Relaxed),"idr_requests":self.stats.idr_requests.load(Ordering::Relaxed),"reference_invalidations":self.stats.reference_invalidations.load(Ordering::Relaxed),"send_loss_recoveries":self.stats.send_loss_recoveries.load(Ordering::Relaxed),"encode_latency_ms":self.stats.latency_us.load(Ordering::Relaxed) as f64/1000.,"performance":self.stats.performance.lock().unwrap().snapshot(Instant::now()),"uptime_seconds":self.started.elapsed().as_secs_f64(),"role":self.launch.role})
+        serde_json::json!({"warnings":warnings,"encoder":*self.encoder.read().unwrap(),"uuid":self.launch.client.uuid,"device_name":self.launch.client.name,"width":self.config.width,"height":self.config.height,"fps":self.config.fps,"video_format":self.config.codec,"hdr":self.config.hdr,"vrr":self.config.vrr_low_latency,"encoder_bitrate_kbps":self.bitrate.load(Ordering::Relaxed),"fec_percent":(self.config.codec != 3).then(|| self.fec_percent()),"pyrowave_minimum_kbps":(self.config.codec == 3).then(|| crate::pyrowave::minimum_kbps(self.config.width, self.config.height, self.config.fps_millihz())),"pyrowave_recommended_kbps":(self.config.codec == 3).then(|| crate::pyrowave::recommended_kbps(self.config.width, self.config.height, self.config.fps_millihz())),"audio_channels":self.config.audio_channels,"state":if self.stopping(){"STOPPING"}else{"RUNNING"},"frames_sent":self.stats.frames.load(Ordering::Relaxed),"frames_replaced":self.stats.frames_replaced.load(Ordering::Relaxed),"packets_sent":self.stats.packets.load(Ordering::Relaxed),"bytes_sent":self.stats.bytes.load(Ordering::Relaxed),"idr_requests":self.stats.idr_requests.load(Ordering::Relaxed),"reference_invalidations":self.stats.reference_invalidations.load(Ordering::Relaxed),"send_loss_recoveries":self.stats.send_loss_recoveries.load(Ordering::Relaxed),"encode_latency_ms":self.stats.latency_us.load(Ordering::Relaxed) as f64/1000.,"performance":self.stats.performance.lock().unwrap().snapshot(Instant::now()),"uptime_seconds":self.started.elapsed().as_secs_f64(),"role":self.launch.role})
     }
 }
 pub struct Sessions<P = (), A = ()> {

@@ -269,6 +269,16 @@ const video: Setting[] = [
     default: 20,
   },
   {
+    key: 'adaptive_fec',
+    label: 'Adapt error correction',
+    description:
+      'Uses less error correction while the device reports a clean link and returns to the percentage above as soon as it reports loss. Devices that send no error-correction reports always get the percentage above; PyroWave does not use it.',
+    category: 'video',
+    group: 'Bitrate and network',
+    control: { kind: 'toggle' },
+    default: true,
+  },
+  {
     key: 'pyrowave_critical_fec_percentage',
     label: 'PyroWave error correction',
     description:

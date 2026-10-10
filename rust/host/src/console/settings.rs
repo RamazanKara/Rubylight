@@ -93,6 +93,7 @@ pub const GLOBAL: &[Setting] = settings! {
         "compute_queue_realtime", "Run that compute queue at real-time GPU priority", Bool;
         "wgc_slot_aligned_publish", "Align capture publication to frame slots", Bool;
         "fec_percentage", "Forward error correction (%)", Number;
+        "adaptive_fec", "Adapt error correction to reported packet loss", Bool;
         "pyrowave", "Enable PyroWave for compatible devices", Bool;
         "pyrowave_critical_fec_percentage", "PyroWave protection for required image data (%)", Number;
         "packetsize", "Video packet size (0 uses the device request)", Number;

@@ -1190,8 +1190,8 @@ impl Media {
                 "PyroWave bitrate is below recommended: text and textures may lose detail. Quality depends on the picture; raise the bitrate in Moonlight with network headroom, or use HEVC or AV1"
             );
         }
-        let metadata = first.gpu.hdr_metadata();
-        *s.hdr_metadata.write().unwrap() = Some(metadata);
+        // The client's display luminance (0x5531) replaces the display's when it applies.
+        let metadata = s.set_display_hdr_metadata(first.gpu.hdr_metadata());
         if let Some(encoder) = encoder.as_mut() {
             encoder.set_hdr_metadata(metadata);
         }
@@ -1265,6 +1265,11 @@ impl Media {
                     let _priority = Priority::new();
                     let _streaming = butterpollo_windows::timing::StreamingScope::enter();
                     let mut c = effective_config(&h, &s.launch)?;
+                    // A per-client HDR profile or peak chosen on the host wins over
+                    // the luminance the client reports.
+                    if let Some((caps, applied)) = s.allow_display_caps(!butterpollo_core::display_caps::host_override(&c, &s.launch.client)) {
+                        tracing::info!(client = %s.launch.client.name, peak_nits = caps.max_nits().unwrap_or(0), applied = applied.as_str(), "display caps");
+                    }
                     if s.config.vrr_low_latency {
                         c.values.insert("wgc_slot_aligned_publish".into(), "false".into());
                     }
@@ -1350,6 +1355,10 @@ impl Media {
                     if requested_fec != requested_fec.clamp(0, 100) {
                         s.launch.warnings.set("network_fec_config", format!("FEC percentage {requested_fec} is outside 0-100; using {}%. Correct fec_percentage in Network settings.", requested_fec.clamp(0, 100)));
                     }
+                    // The configured percentage is adaptive FEC's ceiling; with
+                    // `adaptive_fec` off, or a client that sends no FEC status, it
+                    // is used for every frame as before.
+                    s.configure_fec(c.boolean("adaptive_fec", true) && s.config.codec != 3, requested_fec.clamp(0, 100) as usize);
                     let mut packetizer = VideoPacketizer {
                         sequence: 0,
                         iv_counter: 0,
@@ -1513,6 +1522,7 @@ impl Media {
                             if frame.bytes.is_empty() {
                                 continue;
                             }
+                            packetizer.fec_percent = s.fec_percent();
                             // A frame beyond Moonlight's packet limit (very high
                             // bitrates) costs that frame and a keyframe, not the
                             // session.
@@ -2024,8 +2034,7 @@ impl Media {
                                 }
                             }
                             if Instant::now() >= metadata_due {
-                                let metadata = image.gpu.hdr_metadata();
-                                *s.hdr_metadata.write().unwrap() = Some(metadata);
+                                let metadata = s.set_display_hdr_metadata(image.gpu.hdr_metadata());
                                 active.set_hdr_metadata(metadata);
                                 metadata_due = Instant::now() + Duration::from_secs(1);
                             }
@@ -2658,6 +2667,33 @@ impl Media {
                                     ),
                                 }
                             }
+                            butterpollo_core::display_caps::DISPLAY_CAPS_MESSAGE_TYPE => {
+                                match s.record_display_caps(&payload) {
+                                    Some(update) if update.changed => {
+                                        let metadata = update.metadata.filter(|_| {
+                                            update.applied
+                                                == butterpollo_core::display_caps::Applied::Metadata
+                                        });
+                                        tracing::info!(
+                                            client = %s.launch.client.name,
+                                            hdr = update.caps.hdr,
+                                            peak_nits = update.caps.max_nits().unwrap_or(0),
+                                            average_nits = update.caps.max_average_nits().unwrap_or(0),
+                                            black_decimillinits = update.caps.min_decimillinits,
+                                            applied = update.applied.as_str(),
+                                            maximum_nits = metadata.map(|m| m.maximum_nits),
+                                            minimum = metadata.map(|m| m.minimum),
+                                            max_cll = metadata.map(|m| m.max_cll),
+                                            max_fall = metadata.map(|m| m.max_fall),
+                                            "display caps"
+                                        );
+                                    }
+                                    Some(_) => tracing::debug!("display caps unchanged"),
+                                    None => {
+                                        tracing::debug!(len = payload.len(), "invalid display caps")
+                                    }
+                                }
+                            }
                             0x0109 => {
                                 if encrypted {
                                     s.stop();
@@ -2767,6 +2803,14 @@ impl Media {
                             .is_ok()
                     {
                         p.hdr_metadata = Some(metadata);
+                    }
+                    if poll_feedback && let Some((old, new)) = s.tick_fec(Instant::now()) {
+                        tracing::info!(
+                            client = %s.launch.client.name,
+                            old_percent = old,
+                            new_percent = new,
+                            "adaptive fec"
+                        );
                     }
                     // Made before input comes; after a failure, again when it
                     // does. Making it with the first input held that input up.

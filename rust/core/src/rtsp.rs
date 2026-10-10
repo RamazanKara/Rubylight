@@ -298,6 +298,9 @@ impl Negotiated {
         Ok(())
     }
 }
+/// The Rubylight control messages this host takes, by id: phase lock reports
+/// (0x5530), display luminance (0x5531) and reconfiguration (0x5532).
+pub const CONTROL_MESSAGES: &str = "a=x-rl-control:0x5530,0x5531,0x5532\r\n";
 /// The `DESCRIBE` answer. `mic` is set when the host takes a client's
 /// microphone: its encryption is then supported and requested, and the
 /// caller ends the answer with `mic::sdp`, whose `m=` line must come last.
@@ -321,6 +324,9 @@ pub fn describe(
     let mut s = format!(
         "a=x-ss-general.featureFlags:{feature_flags}\r\na=x-ss-general.encryptionSupported:{supported}\r\na=x-ss-general.encryptionRequested:{requested}\r\n"
     );
+    // Rubylight's own control messages (rubylight-protocol); a client sends them
+    // only to a host that lists them.
+    s.push_str(CONTROL_MESSAGES);
     if hevc {
         s.push_str("sprop-parameter-sets=AAAAAU\r\n");
     }
@@ -409,6 +415,32 @@ mod tests {
         assert!(
             describe(0, 7, 0, true, true, true, false)
                 .contains("a=x-ss-pyrowave.bitstream:186f0393\r\n")
+        );
+    }
+    #[test]
+    fn rubylight_control_messages_are_advertised_once_before_the_microphone() {
+        for mic in [false, true] {
+            let sdp = describe(0, 7, 1, true, true, true, mic);
+            assert_eq!(
+                sdp.lines()
+                    .filter(|line| line.starts_with("a=x-rl-control:"))
+                    .collect::<Vec<_>>(),
+                ["a=x-rl-control:0x5530,0x5531,0x5532"]
+            );
+            assert!(
+                !sdp.lines().any(|line| line.starts_with("m=")),
+                "the microphone's m= line is appended last"
+            );
+        }
+        assert_eq!(
+            [
+                crate::phase_sync::REPORT_MESSAGE_TYPE,
+                crate::display_caps::DISPLAY_CAPS_MESSAGE_TYPE,
+                rubylight_protocol::control::RECONFIGURE_MESSAGE_TYPE,
+            ]
+            .map(|id| format!("{id:#06x}"))
+            .join(","),
+            "0x5530,0x5531,0x5532"
         );
     }
     #[test]

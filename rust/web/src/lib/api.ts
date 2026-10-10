@@ -319,6 +319,8 @@ export interface StreamSession {
   hdr: boolean;
   vrr: boolean;
   encoder_bitrate_kbps: number;
+  /** Error correction (%) for the next video frame; adaptive FEC moves it. Null for PyroWave. */
+  fec_percent?: number | null;
   /** PyroWave streams: severe detail loss is likely below this bitrate. */
   pyrowave_minimum_kbps: number | null;
   /** A clean-picture target from synthetic scenes, not a quality guarantee. */

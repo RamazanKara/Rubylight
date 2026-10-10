@@ -563,6 +563,7 @@ pub fn override_allowed(key: &str) -> bool {
         "minimum_fps_target",
         // Codec and capture
         "fec_percentage",
+        "adaptive_fec",
         "video_max_batch_size_kb",
         "pyrowave_critical_fec_percentage",
         "qp",
@@ -806,6 +807,7 @@ mod tests {
             "nvenc_preset",
             "amd_quality",
             "frame_limiter_fps_limit",
+            "adaptive_fec",
         ] {
             assert!(super::override_allowed(key), "{key}");
         }

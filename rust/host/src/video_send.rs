@@ -158,6 +158,7 @@ impl Sender {
                 if frame.bytes.is_empty() {
                     return Ok(packetizer.frame);
                 }
+                packetizer.fec_percent = s.fec_percent();
                 // A frame beyond Moonlight's packet limit (very high
                 // bitrates) costs that frame and a keyframe, not the
                 // session.

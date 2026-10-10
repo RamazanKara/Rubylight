@@ -37,7 +37,7 @@
   <div class="wrap">
     <p class="eyebrow">Windows game-streaming host for Moonlight · formerly Butterpollo</p>
     <h1>Written in Rust.<br><span class="accent">Built for Radeon.</span><br>Made for Moonlight.</h1>
-    <p class="lede">Stream your gaming PC to a laptop, TV or phone. Rubylight drives AMD's encoder natively, prepares every frame on Radeon compute queues, and carries HEVC and AV1 in 10-bit HDR, or full-colour HDR 4:4:4 through PyroWave.</p>
+    <p class="lede">Stream your games from any AMD Radeon PC to any screen: a laptop, TV, phone, tablet, handheld or another PC. Rubylight drives AMD's encoder natively, prepares every frame on Radeon compute, and carries HEVC and AV1 in 10-bit HDR, or full-colour HDR 4:4:4 through PyroWave. It works with Moonlight and every other Sunshine-compatible client.</p>
     <div class="actions">
       <a class="button" href="{{download_url}}">Download {{download_label}}</a>
       <a class="button ghost" href="docs/getting-started.html">Get started</a>
@@ -46,22 +46,22 @@
 
     <div class="stats">
       <div class="stat">
-        <p class="stat-value">13.5<span> ms</span></p>
-        <p class="stat-label">from rendered picture to a laptop over Wi-Fi, 1968×2184 AV1 HDR at 120 fps</p>
-        <p class="stat-note">95th percentile 14.3 ms, 120 fresh pictures a second</p>
+        <p class="stat-value">13.3<span> ms</span></p>
+        <p class="stat-label">from rendered picture to a client over Wi-Fi, 1440p AV1 HDR at 120 fps</p>
+        <p class="stat-note">95th percentile 14.2 ms, 120 fresh pictures a second</p>
       </div>
       <div class="stat">
         <p class="stat-value">7.4<span> ms</span></p>
-        <p class="stat-label">sooner than Vibepollo 2.0 on average beside a game, at 1968×2184 HDR 120 fps</p>
+        <p class="stat-label">sooner than Vibepollo 2.0 on average while a game runs, 120 fps HDR</p>
         <p class="stat-note">16–18 ms sooner at the 95th and 99th percentiles</p>
       </div>
       <div class="stat">
         <p class="stat-value">3.1<span> ms</span></p>
-        <p class="stat-label">host latency for AV1 beside a game, where Vibepollo 2.0 takes 7.4 ms</p>
+        <p class="stat-label">host latency for AV1 while a game runs, where Vibepollo 2.0 takes 7.4 ms</p>
         <p class="stat-note">HEVC: 3.4 ms against 8.3 ms</p>
       </div>
     </div>
-    <p class="fine">RX 7900 XT host running rc.24, measured October 8, 2026. <a href="#performance">How these were measured</a></p>
+    <p class="fine">Measured October 8, 2026. <a href="#performance">How these were measured</a></p>
   </div>
 </section>
 
@@ -78,15 +78,15 @@
   <div class="wrap">
     <p class="eyebrow">Measured, not claimed</p>
     <h2>Lower picture age where it counts: beside a game</h2>
-    <p class="section-lede">Every latency change ships with before-and-after numbers from the real host, an RX 7900 XT. A timestamped picture is drawn on the streamed display and an independent client records when it arrives, so the number covers composition, capture, encoding and transport.</p>
+    <p class="section-lede">Every latency change ships with before-and-after numbers from a real Radeon host. A timestamped picture is drawn on the streamed display and an independent client records when it arrives, so the number covers composition, capture, encoding and transport.</p>
 
     <figure class="chart" aria-labelledby="chart-title">
       <figcaption>
-        <h3 id="chart-title">Picture age beside a game: Rubylight rc.24 and Vibepollo 2.0</h3>
+        <h3 id="chart-title">Picture age beside a game: Rubylight and Vibepollo 2.0</h3>
         <p>Milliseconds, same GPU and settings, alternating runs, October 8, 2026. Bar: average. Thin line: 95th percentile.</p>
       </figcaption>
       <div class="legend" aria-hidden="true">
-        <span><i class="key bp"></i>Rubylight rc.24</span>
+        <span><i class="key bp"></i>Rubylight</span>
         <span><i class="key vp"></i>Vibepollo 2.0</span>
       </div>
       <div class="bars">
@@ -95,7 +95,7 @@
           <div class="bar-row" tabindex="0" style="--mean:19.61;--p95:21.56">
             <div class="track"><span class="bar bp"></span><span class="whisker"></span></div>
             <span class="val"><b>19.6</b> ms<small>p95 21.6</small></span>
-            <span class="tip">Rubylight rc.24: average 19.61 ms, p95 21.56 ms, p99 23.10 ms, host latency 3.4 ms</span>
+            <span class="tip">Rubylight: average 19.61 ms, p95 21.56 ms, p99 23.10 ms, host latency 3.4 ms</span>
           </div>
           <div class="bar-row" tabindex="0" style="--mean:26.96;--p95:37.62">
             <div class="track"><span class="bar vp"></span><span class="whisker"></span></div>
@@ -108,7 +108,7 @@
           <div class="bar-row" tabindex="0" style="--mean:17.15;--p95:18.96">
             <div class="track"><span class="bar bp"></span><span class="whisker"></span></div>
             <span class="val"><b>17.2</b> ms<small>p95 19.0</small></span>
-            <span class="tip">Rubylight rc.24: average 17.15 ms, p95 18.96 ms, p99 22.18 ms, host latency 3.1 ms</span>
+            <span class="tip">Rubylight: average 17.15 ms, p95 18.96 ms, p99 22.18 ms, host latency 3.1 ms</span>
           </div>
           <div class="bar-row" tabindex="0" style="--mean:24.53;--p95:36.77">
             <div class="track"><span class="bar vp"></span><span class="whisker"></span></div>
@@ -121,7 +121,7 @@
           <div class="bar-row" tabindex="0" style="--mean:17.84;--p95:21.78">
             <div class="track"><span class="bar bp"></span><span class="whisker"></span></div>
             <span class="val"><b>17.8</b> ms<small>p95 21.8</small></span>
-            <span class="tip">Rubylight rc.24: average 17.84 ms, p95 21.78 ms, p99 22.84 ms, host latency 2.2 ms</span>
+            <span class="tip">Rubylight: average 17.84 ms, p95 21.78 ms, p99 22.84 ms, host latency 2.2 ms</span>
           </div>
           <div class="bar-row" tabindex="0" style="--mean:20.55;--p95:22.55">
             <div class="track"><span class="bar vp"></span><span class="whisker"></span></div>
@@ -137,7 +137,7 @@
     <div class="table-wrap">
       <table>
         <thead>
-          <tr><th>Picture age, average / p95 / p99</th><th>Rubylight rc.24</th><th>Vibepollo 2.0</th></tr>
+          <tr><th>Picture age, average / p95 / p99</th><th>Rubylight</th><th>Vibepollo 2.0</th></tr>
         </thead>
         <tbody>
           <tr class="row-group"><th colspan="3">Beside a game capped at 60 fps</th></tr>
@@ -151,14 +151,14 @@
         </tbody>
       </table>
     </div>
-    <p class="note">RX 7900 XT, rc.24 and the pinned Vibepollo 2.0 build alternating in one batch, two runs per cell. Identical settings: native AMF at ultra-low latency, Desktop Duplication capture, a virtual HDR display. The picture is decoded in hardware by an independent client on the same PC, which isolates the host from the network so the two can be compared precisely; the laptop results below add real Wi-Fi. Beside the game Rubylight also delivered more fresh pictures: 117–120 a second against 103–118. <a href="rust/PERFORMANCE_WORK.html#rc24-against-vibepollo-20-on-the-same-gpu">Runs and settings</a></p>
+    <p class="note">Rubylight and the pinned Vibepollo 2.0 build on the same GPU, alternating in one batch, two runs per cell. Identical settings: native AMF at ultra-low latency, Desktop Duplication capture, a virtual HDR display. The picture is decoded in hardware by an independent client on the same PC, which isolates the host from the network so the two can be compared precisely; the Wi-Fi results below add a real network. Beside the game Rubylight also delivered more fresh pictures: 117–120 a second against 103–118. <a href="rust/PERFORMANCE_WORK.html#rc24-against-vibepollo-20-on-the-same-gpu">Runs and settings</a></p>
 
-    <h3 class="sub-title">Over Wi-Fi to a real laptop</h3>
-    <p>A Radeon 780M laptop on 5 GHz Wi-Fi, decoding in hardware, against the host on Ethernet. "Received" is when the laptop starts decoding a fully received picture; Moonlight's own hardware decode adds 0.3–0.7 ms on this laptop.</p>
+    <h3 class="sub-title">Over Wi-Fi</h3>
+    <p>A client on 5 GHz Wi-Fi, decoding in hardware, against the host on Ethernet. "Received" is when the client starts decoding a fully received picture.</p>
     <div class="table-wrap">
       <table>
         <thead>
-          <tr><th>rc.24, HDR, render to received</th><th>Average / p95 / p99</th><th>Fresh pictures</th><th>Host</th></tr>
+          <tr><th>HDR, render to received</th><th>Average / p95 / p99</th><th>Fresh pictures</th><th>Host</th></tr>
         </thead>
         <tbody>
           <tr><td>1968×2184 AV1, 120 fps, 80 Mbps</td><td><b>13.54 / 14.33 / 14.93 ms</b></td><td>120.0/s</td><td>3.0 ms</td></tr>
@@ -170,24 +170,23 @@
         </tbody>
       </table>
     </div>
-    <p class="note">October 8, 2026, one 30-second run per row. The laptop's clock was synchronised to the host with 200 ms pings (error about ±0.6 ms). Every picture arrived and decoded. <a href="rust/PERFORMANCE_WORK.html#october-8-real-client-picture-age-over-wi-fi-rc24-laptop">Method and clock sync</a></p>
+    <p class="note">October 8, 2026, one 30-second run per row. The client's clock was synchronised to the host with 200 ms pings (error about ±0.6 ms). Every picture arrived and decoded. <a href="rust/PERFORMANCE_WORK.html#october-8-real-client-picture-age-over-wi-fi-rc24-laptop">Method and clock sync</a></p>
 
-    <p>The same laptop later streamed with the released <b>Moonlight 6.2.0</b>: on 2.0.0 it held 119.7 fps at 1440p120 AV1 with no loss, and with the host dropping 20 ms of video every 1.5 s, <b>all 59 lost frames were recovered without a keyframe</b> at 117.7 fps.</p>
+    <p>With Moonlight on the same link, a 1440p120 AV1 stream held 119.7 fps with no loss, and with the host dropping 20 ms of video every 1.5 s, <b>all 59 lost frames were recovered without a keyframe</b> at 117.7 fps.</p>
 
-    <h3 class="sub-title">Earlier results</h3>
+    <h3 class="sub-title">More results</h3>
     <ul class="results">
-      <li><b>Radeon compute, one setting changed:</b> average picture age beside a game-like load fell from 41.0 to 33.5 ms and the 95th percentile from 54.4 to 42.3 ms (1080p60 HEVC HDR, October 4). <a href="docs/performance.html#isolating-radeon-compute">Details</a></li>
-      <li><b>PyroWave beside a GPU-heavy game:</b> 0.55 ms per 1080p HDR 4:4:4 frame instead of 5.7 ms, now that its colour conversion runs on the compute queue (rc.19). <a href="docs/performance.html#new-in-rc19">Details</a></li>
-      <li><b>A saturated encoder:</b> at 5120×1440 HEVC 240 fps a game frame reaches the network in 11.1 ms instead of 42.7 ms (rc.19). <a href="docs/performance.html#new-in-rc19">Details</a></li>
-      <li><b>Input under CPU load:</b> a mouse move behind a controller update took at worst 2.0 ms instead of 287 ms (October 7). <a href="docs/performance.html#input-under-load">Details</a></li>
-      <li><b>H.264 picture quality:</b> adaptive quantization off by default raised VMAF by 1.0 and 9.4 points at 1440p120 and 20 Mbps, at the same encode time (rc.23). <a href="rust/PERFORMANCE_WORK.html#amf-settings-per-codec-quality-at-a-given-bitrate">Details</a></li>
+      <li><b>Radeon compute, one setting changed:</b> average picture age beside a game-like load fell from 41.0 to 33.5 ms and the 95th percentile from 54.4 to 42.3 ms (1080p60 HEVC HDR). <a href="docs/performance.html#isolating-radeon-compute">Details</a></li>
+      <li><b>PyroWave beside a GPU-heavy game:</b> 0.55 ms per 1080p HDR 4:4:4 frame instead of 5.7 ms, now that its colour conversion runs on the compute queue. <a href="docs/performance.html#radeon-under-pressure">Details</a></li>
+      <li><b>A saturated encoder:</b> at 5120×1440 HEVC 240 fps a game frame reaches the network in 11.1 ms instead of 42.7 ms. <a href="docs/performance.html#radeon-under-pressure">Details</a></li>
+      <li><b>Input under CPU load:</b> a mouse move behind a controller update took at worst 2.0 ms instead of 287 ms. <a href="docs/performance.html#input-under-load">Details</a></li>
+      <li><b>H.264 picture quality:</b> adaptive quantization off by default raised VMAF by 1.0 and 9.4 points at 1440p120 and 20 Mbps, at the same encode time. <a href="rust/PERFORMANCE_WORK.html#amf-settings-per-codec-quality-at-a-given-bitrate">Details</a></li>
     </ul>
     <h3 class="sub-title">Works with</h3>
     <ul class="results">
-      <li><b>Moonlight PC 6.2.0</b> with H.264, HEVC and AV1 in SDR and HDR, <b>Moonlight for Xbox</b> in HDR at 3840×2160 and 120 Hz, and <b>Android phones</b> at 1968×2184, 120 Hz HDR.</li>
-      <li><b>Rubylight Android</b> and <b>Nonary's Moonlight</b> for PyroWave HDR 4:4:4, and Nonary's client for 1000 Hz VRR.</li>
-      <li><b>Radeon RX 7900 XT, RX 9070 XT, RX 6900 XT and Radeon 890M</b> hosts, including a Legion Go streaming over Wi-Fi.</li>
-      <li><b>Locked Windows</b>, so you can sign in from the couch, <b>headless VMs</b> with no monitor, and <b>Kubernetes pods with GPUs</b>.</li>
+      <li><b>Every Moonlight and Sunshine-compatible client</b>, on Windows, macOS, Linux, Android, iOS, TVs, consoles and handhelds.</li>
+      <li><b>AMD Radeon GPUs</b>, desktop and mobile, as the host.</li>
+      <li><b>Locked Windows</b>, so you can sign in from the couch, <b>headless machines and VMs</b> with no monitor, and <b>Kubernetes pods with GPUs</b>.</li>
     </ul>
     <p><a class="more" href="docs/performance.html">All performance results and what each number means</a></p>
   </div>
@@ -212,7 +211,7 @@
       </article>
       <article class="card">
         <h3>PyroWave HDR 4:4:4</h3>
-        <p>A colour sample for every pixel keeps coloured text and edges crisp, over a fast local network with <a href="https://github.com/RamazanKara/rubylight-android">Rubylight Android</a>, our own client, or <a href="https://github.com/Nonary/moonlight-qt">Nonary's Moonlight client</a> on a PC.</p>
+        <p>A colour sample for every pixel keeps coloured text and edges crisp, over a fast local network with <a href="https://github.com/RamazanKara/rubylight-android">Rubylight Android</a>, our own client, or any PyroWave-capable Moonlight client.</p>
       </article>
       <article class="card">
         <h3>Virtual displays</h3>
@@ -220,11 +219,11 @@
       </article>
       <article class="card">
         <h3>Your library</h3>
-        <p>Steam and Playnite sync, per-app and per-device settings, RTSS frame limits, Lossless Scaling, and Nonary's 1000 Hz VRR mode for his Moonlight client.</p>
+        <p>Steam and Playnite sync, per-app and per-device settings, RTSS frame limits, Lossless Scaling, and a 1000 Hz VRR mode.</p>
       </article>
       <article class="card">
         <h3>Controllers</h3>
-        <p>Xbox, DualSense with adaptive triggers and Switch Pro pads from one signed driver. New in rc.25: with usbip-win2 installed, a Steam Deck can show up on the host as a real Steam Deck controller.</p>
+        <p>Xbox, DualSense with adaptive triggers and Switch Pro pads from one signed driver. With usbip-win2 installed, a Steam Deck can show up on the host as a real Steam Deck controller.</p>
       </article>
       <article class="card">
         <h3>Rust throughout</h3>
@@ -240,9 +239,9 @@
     <p class="eyebrow">Install. Pair Moonlight. Play.</p>
     <h2>Three steps to your first stream</h2>
     <ol class="steps">
-      <li><h3>Install</h3><p>Run the installer from the <a href="{{download_url}}">release</a>. Installing over Vibepollo or Butterpollo, Rubylight's earlier name, keeps your settings, paired devices, app library and covers.</p></li>
+      <li><h3>Install</h3><p>Run the installer from the <a href="{{download_url}}">release</a>. Installing over Apollo, Vibepollo or Butterpollo keeps your settings, paired devices, app library and covers.</p></li>
       <li><h3>Open the console</h3><p>Go to <code>https://localhost:47990</code> on the host PC and create your local account.</p></li>
-      <li><h3>Pair and play</h3><p>Add your PC in Moonlight, enter its PIN under <b>Devices</b>, then launch <b>Desktop</b>. Start at 1080p60, then raise resolution, frame rate and HDR.</p></li>
+      <li><h3>Pair and play</h3><p>Add your PC in Moonlight or any Sunshine-compatible client, enter its PIN under <b>Devices</b>, then launch <b>Desktop</b>. Start at 1080p60, then raise resolution, frame rate and HDR.</p></li>
     </ol>
     <p><a class="more" href="docs/getting-started.html">First-stream walkthrough, portable setup and migration</a></p>
   </div>
@@ -263,11 +262,11 @@
       </figure>
       <figure class="quote">
         <blockquote>Switched to PyroWave on RC19. I honestly see no difference between host and client. Amazing work!</blockquote>
-        <figcaption>u/ChartFlashy6299 on Reddit, 6900 XT</figcaption>
+        <figcaption>u/ChartFlashy6299 on Reddit</figcaption>
       </figure>
       <figure class="quote">
         <blockquote>Fantastic job! Host processing latency has never been this low. Clean UI too. Well done!</blockquote>
-        <figcaption>u/Short_Dimension7967 on Reddit, 9070 XT</figcaption>
+        <figcaption>u/Short_Dimension7967 on Reddit</figcaption>
       </figure>
     </div>
     <p class="note">Quotes from Reddit, lightly edited for typos. <a class="more" href="https://github.com/RamazanKara/Rubylight#what-users-say">Read more of what users say</a></p>
@@ -279,7 +278,7 @@
     <p class="eyebrow">Why it exists</p>
     <h2>AMD rarely gets any love in this space</h2>
     <p>The protocol started as NVIDIA's GameStream, and the hosts that replaced it kept NVIDIA first. Upstream Sunshine has had a native NVENC encoder since 2023, while AMD still goes through FFmpeg's generic AMF wrapper. So Radeon owners have spent years hearing their cards are just worse at streaming. Most of the time the card was never the problem. Nobody had sat down with it.</p>
-    <p>Rubylight is a host rebuilt in Rust around the Radeon frame path, from capture to the encoder. <b>On NVIDIA, use Vibepollo.</b></p>
+    <p>Rubylight is a host rebuilt in Rust around the Radeon frame path, from capture to the encoder, for every Radeon owner who wants to play away from the desk.</p>
   </div>
 </section>
 

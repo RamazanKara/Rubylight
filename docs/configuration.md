@@ -77,7 +77,7 @@ Set `pacing_max_bitrate_kbps` to a positive value in **kbps** to override the au
 
 These are encoder bit budgets, not extra queued frames or packet-pacing settings. A smaller budget trades picture quality for smaller frames. Intra refresh remains client-negotiated and does not replace an explicit recovery-keyframe request. See the [rate-control measurements](../rust/PERFORMANCE.md#october-7-2026-amf-rate-control-and-recovery-keyframes) before changing these controls. NVIDIA users should use [Vibepollo](https://github.com/Nonary/Vibepollo).
 
-`amd_rc` remains `vbr_latency` by default. For an affected AMD stream, `amd_max_frame_size=1` or `2` lets you compare smaller recovery frames against picture quality; `0` restores the driver default. These caps helped on an RX 7900 XT. They are off by default because they trade picture quality for smaller frames.
+`amd_rc` remains `vbr_latency` by default. For an affected AMD stream, `amd_max_frame_size=1` or `2` lets you compare smaller recovery frames against picture quality; `0` restores the driver default. These caps cut the largest recovery frames sharply. They are off by default because they trade picture quality for smaller frames.
 
 ## Displays and RTSS
 

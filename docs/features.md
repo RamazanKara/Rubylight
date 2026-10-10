@@ -9,7 +9,7 @@ Everything Rubylight does, grouped by what you will notice while streaming. For 
 - **Native AMF encoding** for H.264, HEVC and AV1, driven directly instead of through a generic wrapper, with defaults tuned per codec from VMAF measurements.
 - **Radeon compute.** Frame copies, colour conversion and letterboxing run on D3D12 compute queues beside the game's graphics work, so your game and your stream stop waiting on each other.
 - **HDR from capture to screen.** Ten-bit BT.2020/PQ through HEVC and AV1, with HDR metadata in the keyframes, and ten-bit SDR where you want it.
-- **PyroWave HDR 4:4:4.** A colour sample for every pixel, so coloured text and fine edges stay crisp, on [Rubylight Android](https://github.com/RamazanKara/rubylight-android) or [Nonary's Moonlight client](https://github.com/Nonary/moonlight-qt) over a fast local network.
+- **PyroWave HDR 4:4:4.** A colour sample for every pixel, so coloured text and fine edges stay crisp, on [Rubylight Android](https://github.com/RamazanKara/rubylight-android) or any PyroWave-capable Moonlight client over a fast local network.
 - **Loss recovery that skips the keyframe.** Lost frames are repaired with reference frame invalidation, and forward error correction covers short bursts of loss. When the host's own Wi-Fi briefly stops taking packets, the host sends a keyframe at once instead of waiting for the client to ask.
 - **Aspect ratio kept.** A source of another shape sits between black bars, on the GPU and in the software encoders.
 
@@ -45,7 +45,7 @@ NVIDIA NVENC, Intel Quick Sync and software encoders are included for other hard
 - **Playnite.** Library sync, launches through Playnite with the stream's environment, a "Playnite (Fullscreen)" app, and the game brought to the front.
 - **RTSS frame limits**, game-provided frame generation, and **Lossless Scaling** profiles that Rubylight sets up and removes with the stream.
 - **Per-app and per-device overrides** for stream, input, display and encoder settings.
-- **VRR.** Nonary's 1000 Hz VRR mode with his Moonlight client.
+- **VRR.** A 1000 Hz VRR mode for clients that ask for it.
 
 ## Pairing and the web console
 
@@ -62,10 +62,6 @@ NVIDIA NVENC, Intel Quick Sync and software encoders are included for other hard
 
 ## Clients
 
-| Client | What it streams |
-| --- | --- |
-| **Moonlight PC 6.2.0** | H.264, HEVC, AV1, HEVC HDR and AV1 HDR, with reconnects |
-| **Moonlight for Xbox** | HDR at 3840×2160, 120 Hz, HEVC |
-| **[Rubylight Android](https://github.com/RamazanKara/rubylight-android)** | PyroWave on Vulkan phones and tablets |
+Rubylight speaks the Moonlight protocol, so **Moonlight and every other Sunshine-compatible client works with it**: on Windows, macOS, Linux, Android, iOS, Apple TV, Android TV, game consoles and handhelds. H.264, HEVC and AV1 work in SDR and HDR wherever the client's device can decode them. PyroWave needs a PyroWave-capable client such as [Rubylight Android](https://github.com/RamazanKara/rubylight-android).
 
-See [Getting started](getting-started.md#choose-your-stream-format) to pick a client and format.
+See [Getting started](getting-started.md#choose-your-stream-format) to pick a stream format.

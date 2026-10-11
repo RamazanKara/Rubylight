@@ -1,0 +1,11 @@
+<resources>
+    <string name="keyboard_keys_show">Zusätzliche Tastaturtasten</string>
+    <string name="keyboard_keys_hide">Tasten ausblenden</string>
+    <string name="keyboard_task_manager">Task-Manager</string>
+    <string name="keyboard_switch_window">Fenster wechseln</string>
+    <string name="keyboard_close_window">Fenster schließen</string>
+    <string name="keyboard_arrow_left">Pfeil nach links</string>
+    <string name="keyboard_arrow_up">Pfeil nach oben</string>
+    <string name="keyboard_arrow_down">Pfeil nach unten</string>
+    <string name="keyboard_arrow_right">Pfeil nach rechts</string>
+</resources>

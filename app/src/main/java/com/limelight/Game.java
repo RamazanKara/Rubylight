@@ -40,6 +40,7 @@ import com.limelight.nvstream.jni.MoonBridge;
 import com.limelight.preferences.GlPreferences;
 import com.limelight.preferences.PreferenceConfiguration;
 import com.limelight.ui.GameGestures;
+import com.limelight.ui.KeyboardOverlay;
 import com.limelight.ui.StreamView;
 import com.limelight.utils.Dialog;
 import com.limelight.utils.ServerHelper;
@@ -151,6 +152,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
 
     private ControllerHandler controllerHandler;
     private KeyboardTranslator keyboardTranslator;
+    private KeyboardOverlay keyboardOverlay;
     private VirtualController virtualController;
 
     private PreferenceConfiguration prefConfig;
@@ -868,6 +870,9 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
 
                 if (virtualController != null) {
                     virtualController.hide();
+                }
+                if (keyboardOverlay != null) {
+                    hideKeyboardOverlay();
                 }
 
                 performanceOverlayScroll.setVisibility(View.GONE);
@@ -1784,6 +1789,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 R.string.stream_input_title : R.string.stream_menu));
         if (conn.canSendInput()) {
             addStreamAction(sheet, R.drawable.ic_keyboard, R.string.stream_keyboard, this::toggleKeyboard);
+            addStreamAction(sheet, R.drawable.ic_keyboard, keyboardOverlay != null && keyboardOverlay.getVisibility() == View.VISIBLE ?
+                    R.string.keyboard_keys_hide : R.string.keyboard_keys_show, this::toggleKeyboardOverlay);
             addStreamAction(sheet, R.drawable.ic_input_only, R.string.stream_input_menu, this::showInputMenu);
         }
         if (conn.getMicrophoneStatus().canMute()) {
@@ -2432,7 +2439,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
 
             // Enabling capture may hide the cursor again, so
             // we will need to show it again.
-            if (cursorVisible) {
+            if (cursorVisible || isKeyboardOverlayVisible()) {
                 inputCaptureProvider.showCursor();
             }
         }
@@ -2536,7 +2543,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                             setInputGrabState(true);
                         }
                         cursorVisible = !cursorVisible;
-                        if (cursorVisible) {
+                        if (cursorVisible || isKeyboardOverlayVisible()) {
                             inputCaptureProvider.showCursor();
                         } else {
                             inputCaptureProvider.hideCursor();
@@ -2835,6 +2842,66 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 inputManager.hideSoftInputFromWindow(streamView.getWindowToken(), 0);
             } else {
                 inputManager.showSoftInput(streamView, 0);
+            }
+        }
+    }
+
+    private void toggleKeyboardOverlay() {
+        if (!foreground || !connected || isFinishing() || streamMenu != null || !conn.canSendInput()) {
+            return;
+        }
+        if (isKeyboardOverlayVisible()) {
+            hideKeyboardOverlay();
+            return;
+        }
+        if (keyboardOverlay == null) {
+            keyboardOverlay = new KeyboardOverlay(this, this::sendKeyboardShortcut, this::toggleKeyboard,
+                    this::hideKeyboardOverlay);
+            ((FrameLayout) streamView.getParent()).addView(keyboardOverlay,
+                    new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT,
+                            FrameLayout.LayoutParams.WRAP_CONTENT, android.view.Gravity.TOP));
+        } else {
+            keyboardOverlay.resetModifiers();
+            keyboardOverlay.setVisibility(View.VISIBLE);
+            keyboardOverlay.bringToFront();
+        }
+        setInputGrabState(true);
+        streamView.requestFocus();
+    }
+
+    private boolean isKeyboardOverlayVisible() {
+        return keyboardOverlay != null && keyboardOverlay.getVisibility() == View.VISIBLE;
+    }
+
+    private void hideKeyboardOverlay() {
+        keyboardOverlay.resetModifiers();
+        keyboardOverlay.setVisibility(View.GONE);
+        if (grabbedInput && !cursorVisible) {
+            inputCaptureProvider.hideCursor();
+        }
+    }
+
+    private void sendKeyboardShortcut(int... keys) {
+        if (!foreground || !connected || !grabbedInput || streamMenu != null || !conn.canSendInput()) {
+            return;
+        }
+        byte modifiers = getModifierState();
+        boolean[] sent = new boolean[keys.length];
+        for (int i = 0; i < keys.length; i++) {
+            short key = keyboardTranslator.translate(keys[i], -1);
+            int mask = getModifierMask(keys[i]);
+            modifiers |= (byte) (mask | (mask >> 8));
+            if (!pressedKeys.containsKey(key)) {
+                sendKeyboardInput(key, KeyboardPacket.KEY_DOWN, modifiers, (byte) 0);
+                sent[i] = true;
+            }
+        }
+        for (int i = keys.length - 1; i >= 0; i--) {
+            if (sent[i]) {
+                int mask = getModifierMask(keys[i]);
+                modifiers &= ~(mask | (mask >> 8));
+                modifiers |= getModifierState();
+                sendKeyboardInput(keyboardTranslator.translate(keys[i], -1), KeyboardPacket.KEY_UP, modifiers, (byte) 0);
             }
         }
     }
@@ -4242,6 +4309,9 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 conn.sendKeyboardInput(key.getKey(), KeyboardPacket.KEY_UP, (byte) 0, key.getValue());
             }
             pressedKeys.clear();
+        }
+        if (keyboardOverlay != null) {
+            keyboardOverlay.resetModifiers();
         }
         modifierFlags = 0;
         specialKeyCode = KeyEvent.KEYCODE_UNKNOWN;

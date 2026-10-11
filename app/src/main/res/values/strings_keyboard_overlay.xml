@@ -1,0 +1,11 @@
+<resources>
+    <string name="keyboard_keys_show">Extra keyboard keys</string>
+    <string name="keyboard_keys_hide">Hide keys</string>
+    <string name="keyboard_task_manager">Task Manager</string>
+    <string name="keyboard_switch_window">Switch window</string>
+    <string name="keyboard_close_window">Close window</string>
+    <string name="keyboard_arrow_left">Left arrow</string>
+    <string name="keyboard_arrow_up">Up arrow</string>
+    <string name="keyboard_arrow_down">Down arrow</string>
+    <string name="keyboard_arrow_right">Right arrow</string>
+</resources>

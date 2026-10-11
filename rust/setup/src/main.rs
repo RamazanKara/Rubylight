@@ -3,10 +3,10 @@
 //! Vibepollo, Rubylight C++, Apollo or Sunshine in place (settings, paired
 //! devices, apps and drivers are kept), and removes Rubylight again.
 //!
-//! butterpollo-setup.exe [--quiet] [--install-dir <folder>] [--no-gamepad-driver]
+//! rubylight-setup.exe [--quiet] [--install-dir <folder>] [--no-gamepad-driver]
 //!                       [--no-display-driver] [--no-start] [--end-streams]
-//! butterpollo-setup.exe --uninstall [--quiet] [--factory-reset] [--remove-drivers]
-//! butterpollo-setup.exe --repair-drivers (the service runs this one)
+//! rubylight-setup.exe --uninstall [--quiet] [--factory-reset] [--remove-drivers]
+//! rubylight-setup.exe --repair-drivers (the service runs this one)
 #![warn(clippy::undocumented_unsafe_blocks)]
 
 mod detect;
@@ -84,8 +84,8 @@ fn arguments() -> Result<Arguments, String> {
     }
     Ok(parsed)
 }
-const USAGE: &str = "butterpollo-setup.exe [--quiet] [--install-dir <folder>] [--no-gamepad-driver] [--no-display-driver] [--no-start] [--end-streams]\n\
-butterpollo-setup.exe --uninstall [--quiet] [--factory-reset] [--remove-drivers]\n\n\
+const USAGE: &str = "rubylight-setup.exe [--quiet] [--install-dir <folder>] [--no-gamepad-driver] [--no-display-driver] [--no-start] [--end-streams]\n\
+rubylight-setup.exe --uninstall [--quiet] [--factory-reset] [--remove-drivers]\n\n\
 A quiet setup refuses to install while Rubylight is streaming; --end-streams ends the stream instead, and the client can reconnect once setup has finished.\n\n\
 Exit codes: 0 done, 3010 done but Windows must restart, 1223 cancelled, 1 failed.";
 

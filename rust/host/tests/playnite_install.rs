@@ -4,11 +4,14 @@ use std::{collections::BTreeMap, ffi::OsStr, path::Path, time::Duration};
 fn helper(args: &[&OsStr]) -> u32 {
     let program = Path::new(env!("CARGO_BIN_EXE_butterpollo"));
     let args: Vec<_> = args.iter().map(|&arg| arg.to_owned()).collect();
+    // CI has an administrator service session without a linked user token;
+    // this test exercises the worker's file operations in its temporary folder.
+    let elevated = butterpollo_windows::process::user_environment().is_err();
     Process::spawn(
         program,
         &args,
         program.parent(),
-        Target::User { elevated: false },
+        Target::User { elevated },
         &BTreeMap::new(),
         true,
     )

@@ -27,11 +27,11 @@ pub(super) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
             for key in ["status", "platform", "version"] {
                 object.remove(key);
             }
-            let mut config = h.config.write().unwrap();
+            let _save = h.config_save.lock().unwrap();
             let mut next = if h.port_override.is_some() {
                 butterpollo_core::config::Config::load(&h.config_path)?
             } else {
-                config.clone()
+                h.config.read().unwrap().clone()
             };
             next.update(&object)?;
             next.check_saved(object.keys())?;
@@ -44,8 +44,7 @@ pub(super) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
             if let Some(port) = h.port_override {
                 next.values.insert("port".into(), port.to_string());
             }
-            *config = next;
-            drop(config);
+            *h.config.write().unwrap() = next;
             h.metadata.lock().unwrap().take();
             json!({"status":true,"restart_required":true,"warning":warning})
         }

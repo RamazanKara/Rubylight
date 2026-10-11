@@ -486,11 +486,9 @@ def main():
             tap("android:id/button1")
             tap("Video codec")
             tap("Automatic (recommended)")
-            for _ in range(3):
-                adb("shell", "input", "keyevent", "4")
-                time.sleep(1)
-                if any(" FPS · 81 Mbps · Automatic" in n.get("text", "") for n in tree().iter("node")):
-                    break
+            find("Video resolution")
+            tap("Navigate up")
+            find("Presets")
             find_text(r"^(\d+×\d+|\d+p) · \d+ FPS · 81 Mbps · Automatic")
             find("Custom")
             tap("Stream")

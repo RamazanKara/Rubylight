@@ -538,7 +538,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     // Adaptive playback takes any size up to the configured maximum without a pause. A larger size
     // raises the maximum to cover both sizes, which restarts the decoder once and asks for an IDR;
     // either size can then arrive first. False when this decoder cannot take the size.
-    public boolean prepareForReconfigure(int width, int height, int fps) {
+    public boolean prepareForReconfigure(int width, int height) {
         synchronized (codecRecoveryMonitor) {
             MediaCodecInfo.VideoCapabilities caps = reconfigureCapabilities();
             if (caps == null) {
@@ -565,10 +565,6 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                 upscalingPolicy.fail(UpscalingPolicy.Reason.SIZE_CHANGED);
                 restart = true;
             }
-            if (fps > 0 && fps != refreshRate) {
-                refreshRate = fps;
-                configuredFormat.setInteger(MediaFormat.KEY_FRAME_RATE, fps);
-            }
             if (restart) {
                 // An expected "recovery", like an HDR change.
                 codecRecoveryAttempts = 0;
@@ -580,6 +576,24 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             expectedHeight = height;
             reconfigureRequested = true;
             return true;
+        }
+    }
+
+    public void setFrameRate(int fps) {
+        synchronized (codecRecoveryMonitor) {
+            if (stopping || fps == refreshRate) return;
+            refreshRate = fps;
+            configuredFormat.setInteger(MediaFormat.KEY_FRAME_RATE, fps);
+            Display display = activity.getWindowManager().getDefaultDisplay();
+            updateUpscalingFrameRate(Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ?
+                    display.getMode().getRefreshRate() : display.getRefreshRate());
+        }
+    }
+
+    private void updateUpscalingFrameRate(float panelHz) {
+        synchronized (codecRecoveryMonitor) {
+            GlesUpscaler current = upscaler;
+            if (current != null) current.setFrameRate(Math.max(1, Math.min(refreshRate, Math.round(panelHz))));
         }
     }
 
@@ -1706,6 +1720,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     private void updateDisplayTiming() {
         float physicalRefreshRate = Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ?
                 streamDisplay.getMode().getRefreshRate() : streamDisplay.getRefreshRate();
+        updateUpscalingFrameRate(physicalRefreshRate);
         synchronized (vsyncMonitor) {
             vsyncIntervalNs = (long) (1000000000.0 / physicalRefreshRate);
             vsyncPresentationDeadlineNs = streamDisplay.getPresentationDeadlineNanos();

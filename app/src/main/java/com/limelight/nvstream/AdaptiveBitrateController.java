@@ -4,7 +4,7 @@ public final class AdaptiveBitrateController {
     private int ceilingKbps;
     private int currentKbps;
     private int floorKbps;
-    private final float frameMs;
+    private float frameMs;
     private long lastChangeMs;
     private long healthySinceMs = -1;
     private int poorSamples;
@@ -92,6 +92,13 @@ public final class AdaptiveBitrateController {
     /** ThermalMonitor level: warm holds the rate, hot steps it down. */
     public void setThermalLevel(int level) {
         thermalLevel = level;
+    }
+
+    public void setFrameRate(int fps) {
+        frameMs = 1000.0f / fps;
+        suspend();
+        decodeBeforeReductionMs = -1;
+        decodeBitrateInsensitive = false;
     }
 
     public void applied(int requestedKbps, int appliedKbps, long nowMs) {

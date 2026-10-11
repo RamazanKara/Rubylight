@@ -25,15 +25,23 @@ public final class UpscalingPolicy {
 
     static final int WARMUP_FRAMES = 8;
     static final int SLOW_FRAME_LIMIT = 6;
-    private final long frameBudgetNs;
+    private volatile long frameBudgetNs;
     private int warmup = WARMUP_FRAMES;
     private int slowFrames;
     private volatile Reason reason = Reason.NONE;
     private volatile float addedMs = -1;
 
     public UpscalingPolicy(int fps) {
+        setFrameRate(fps);
+    }
+
+    void setFrameRate(int fps) {
         if (fps <= 0) throw new IllegalArgumentException("Invalid frame rate");
-        frameBudgetNs = 1000000000L / fps;
+        long budgetNs = 1000000000L / fps;
+        if (frameBudgetNs != budgetNs) {
+            frameBudgetNs = budgetNs;
+            slowFrames = 0;
+        }
     }
 
     public static Reason unavailableReason(Mode mode, int width, int height, int outputWidth,

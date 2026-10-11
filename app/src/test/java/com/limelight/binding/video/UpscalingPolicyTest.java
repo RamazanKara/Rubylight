@@ -87,6 +87,34 @@ public class UpscalingPolicyTest {
     }
 
     @Test
+    public void frameRateChangesRebudgetExistingUpscalingWithoutRevivingFallback() {
+        UpscalingPolicy policy = warmedPolicy(120);
+        for (int i = 1; i < UpscalingPolicy.SLOW_FRAME_LIMIT; i++) policy.recordFrame(10000000, 0);
+        policy.setFrameRate(60);
+        policy.recordFrame(15000000, 0);
+        policy.recordFrame(20000000, 0);
+        assertEquals(NONE, policy.getReason());
+        for (int i = 0; i < UpscalingPolicy.SLOW_FRAME_LIMIT; i++) policy.recordFrame(10000000, 0);
+        assertEquals(NONE, policy.getReason());
+        policy.setFrameRate(120);
+        for (int i = 0; i < UpscalingPolicy.SLOW_FRAME_LIMIT; i++) policy.recordFrame(10000000, 0);
+        assertEquals(SLOW, policy.getReason());
+        policy.setFrameRate(60);
+        assertEquals(SLOW, policy.getReason());
+    }
+
+    @Test
+    public void frameRateChangeAlsoUpdatesTheGpuStallDeadline() {
+        UpscalingPolicy policy = warmedPolicy(120);
+        policy.setFrameRate(60);
+        policy.checkStall(90000000);
+        assertEquals(NONE, policy.getReason());
+        policy.setFrameRate(120);
+        policy.checkStall(90000000);
+        assertEquals(SLOW, policy.getReason());
+    }
+
+    @Test
     public void coalescedFramesDoNotDisableAnUpscalerThatMeetsItsBudget() {
         UpscalingPolicy policy = warmedPolicy(60);
         for (int i = 0; i < 120; i++) policy.recordFrame(4000000, 3);

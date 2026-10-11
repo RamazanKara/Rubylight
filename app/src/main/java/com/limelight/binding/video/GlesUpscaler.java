@@ -85,6 +85,11 @@ final class GlesUpscaler implements AutoCloseable, SurfaceTexture.OnFrameAvailab
         return frames.release(System.nanoTime(), targetNs);
     }
 
+    void setFrameRate(int fps) {
+        // Keep hysteresis updates on the thread that records completed GPU work.
+        handler.post(() -> policy.setFrameRate(fps));
+    }
+
     void checkHealth() {
         long nowNs = System.nanoTime();
         long startNs = workStartNs;

@@ -6,6 +6,34 @@ import static org.junit.Assert.assertEquals;
 
 public class AdaptiveBitrateControllerTest {
     @Test
+    public void frameRateChangesUpdateDecodeBudgetWithoutResettingBitrate() {
+        AdaptiveBitrateController controller = new AdaptiveBitrateController(20000, 20000, 120, 0);
+        controller.applied(16000, 16000, 15000);
+        controller.setFrameRate(60);
+        assertEquals(0, controller.sample(16000, true, false, 0, 10));
+        assertEquals(0, controller.sample(30000, true, false, 0, 10));
+        assertEquals(16800, controller.sample(31000, true, false, 0, 10));
+        controller.setFrameRate(120);
+        assertEquals(0, controller.sample(32000, true, false, 0, 10));
+        assertEquals(12800, controller.sample(33000, true, false, 0, 10));
+    }
+
+    @Test
+    public void frameRateChangeRechecksDecoderSensitivityAndPreservesHostCap() {
+        AdaptiveBitrateController controller = new AdaptiveBitrateController(20000, 20000, 60, 0);
+        assertEquals(0, controller.sample(1000, true, false, 0, 20));
+        assertEquals(16000, controller.sample(15000, true, false, 0, 20));
+        controller.applied(16000, 15000, 15000);
+        assertEquals(0, controller.sample(30000, true, false, 0, 20));
+        controller.setFrameRate(120);
+        assertEquals(0, controller.sample(31000, true, false, 0, 20));
+        assertEquals(12000, controller.sample(32000, true, false, 0, 20));
+        controller.setFrameRate(60);
+        assertEquals(0, controller.sample(33000, true, false, 0, 2));
+        assertEquals(0, controller.sample(48000, true, false, 0, 2));
+    }
+
+    @Test
     public void modestWifiJitterAllowsRecoveryAt120Fps() {
         AdaptiveBitrateController controller = new AdaptiveBitrateController(10000, 8000, 120, 0);
         assertEquals(0, controller.sample(1000, true, false, 0, 2, 3));

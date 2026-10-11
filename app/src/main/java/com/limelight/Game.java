@@ -1420,7 +1420,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 " fps (was " + reconfigureRequester.width() + "x" + reconfigureRequester.height() + " at " +
                 reconfigureRequester.fpsMillihz() / 1000f + " fps)");
         int fps = Math.round(request[2] / 1000f);
-        if (!decoderRenderer.prepareForReconfigure(request[0], request[1], fps)) {
+        if (!decoderRenderer.prepareForReconfigure(request[0], request[1])) {
             LimeLog.warning("Reconfigure: the decoder cannot switch to " + request[0] + "x" + request[1] +
                     "; the stream stays as it is");
             return;
@@ -1433,7 +1433,10 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         reconfigureRequester.sent(request);
         if (fpsChanged) {
             streamPanelHz = panelMaxRefreshRate;
+            streamFps = fps;
             prefConfig.fps = fps;
+            decoderRenderer.setFrameRate(fps);
+            if (adaptiveBitrate != null) adaptiveBitrate.setFrameRate(fps);
             if (surfaceCreated && videoSurface != null && !prefConfig.useTextureView && !useArr) {
                 voteSurfaceFrameRate(videoSurface);
             }

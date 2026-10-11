@@ -62,7 +62,19 @@ def find(label, scroll=False):
         for node in root.iter("node"):
             text = node.get("text") or ""
             if label in (text, text.split("\n")[0], node.get("content-desc"), node.get("resource-id")):
-                return node
+                x1, y1, x2, y2 = bounds(node)
+                # UIAutomator can expose rows behind a system bar; tap only their visible part.
+                for bar in root.iter("node"):
+                    if bar.get("resource-id") in ("android:id/navigationBarBackground", "android:id/statusBarBackground"):
+                        bx1, by1, bx2, by2 = bounds(bar)
+                        if bx1 <= x1 and bx2 >= x2:
+                            if by1 <= y1 < by2:
+                                y1 = by2
+                            elif by1 < y2 <= by2:
+                                y2 = by1
+                if x1 < x2 and y1 < y2:
+                    node.set("bounds", f"[{x1},{y1}][{x2},{y2}]")
+                    return node
         if scroll:
             area = next((n for n in root.iter("node") if n.get("scrollable") == "true"), None)
             if area is not None:

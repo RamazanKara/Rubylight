@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       prerelease_tag:
-        description: Run the emulator smoke test and publish an arm64 debug APK as this pre-release tag
+        description: Run the emulator smoke test and publish an arm64 debug APK as this release tag (marked Latest)
         type: string
         default: ''
       release_notes:
@@ -82,7 +82,7 @@ jobs:
           BUTTERPOLLO_EMULATOR_GPU=swiftshader_indirect BUTTERPOLLO_BOOT_TIMEOUT=420 python3 scripts/emulator-smoke.py > smoke.out 2>&1 || status=$?
           cat smoke.out
           if [ "$status" != 0 ]; then
-            tail -n 12 smoke.out | sed 's/^/::error title=smoke::/'
+            tail -n 12 smoke.out | cut -c1-2000 | sed -e 's/%/%25/g' -e 's/^/::error title=smoke::/'
             grep -E 'ERROR|FATAL' app/build/emulator-smoke/emulator.log | tail -n 5
             exit 1
           fi
@@ -100,7 +100,7 @@ jobs:
         run: |
           zip -qj smoke-screenshots.zip docs/screenshots/*.png
           gh release create "$TAG" butterpollo-arm64-debug.apk smoke-screenshots.zip \
-            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease --title "$TAG (debug test build)" \
+            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --latest --title "$TAG" \
             --notes "${NOTES:-Debug-signed arm64 test build from $GITHUB_SHA. Uninstall builds signed by another CI run first.}"
       - uses: actions/upload-artifact@v7
         if: always() && inputs.prerelease_tag

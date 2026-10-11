@@ -38,7 +38,9 @@ pub use desktop::{
 };
 pub use gamepad_thread::{GamepadThread, PadReport};
 pub use gamepads::{Gamepads, open_interface};
-use keyboard_mouse::{EXPLICIT_EXTENDED_KEY, inject, is_modifier, mapped_keyboard_identity};
+use keyboard_mouse::{
+    EXPLICIT_EXTENDED_KEY, inject, is_modifier, keyboard_identity, mapped_keyboard_identity,
+};
 use touch_pen::{inject_pointer, refresh_due};
 
 static HELD: std::sync::Mutex<BTreeMap<(bool, u32), usize>> =
@@ -75,6 +77,7 @@ pub fn capabilities(config: &butterpollo_core::config::Config) -> u32 {
 }
 pub struct Injector {
     keys: BTreeSet<u32>,
+    key_sources: BTreeMap<u32, u32>,
     buttons: BTreeSet<u8>,
     touches: BTreeMap<u32, POINTER_TOUCH_INFO>,
     touch_device: Option<HSYNTHETICPOINTERDEVICE>,
@@ -132,6 +135,8 @@ struct Lookup {
 struct Press {
     keyboard: bool,
     id: u32,
+    /// Unmapped keyboard identity; unused for mouse presses.
+    source: u32,
     flags: u8,
     /// Whether it was counted in HELD, to count it out if Windows refuses it.
     counted: bool,
@@ -210,6 +215,7 @@ impl Injector {
         // stream's display exists: a controller's arrival is sent only once.
         let mut injector = Self {
             keys: BTreeSet::new(),
+            key_sources: BTreeMap::new(),
             buttons: BTreeSet::new(),
             touches: BTreeMap::new(),
             touch_device: None,
@@ -561,6 +567,7 @@ impl Injector {
                     return Ok(Some(Press {
                         keyboard: false,
                         id: u32::from(*button),
+                        source: 0,
                         flags: 0,
                         counted: !owned,
                         repeat: None,
@@ -599,16 +606,39 @@ impl Injector {
                 flags,
                 modifiers,
             } => {
-                let mut key = mapped_keyboard_identity(&self.policy, *key, *modifiers);
+                let mut source = keyboard_identity(*key, *modifiers);
                 // A client can set the extended-key bit on the press but not
                 // on the release: release the key that is held, or it stays
                 // down and keeps repeating.
                 if !*down
-                    && !self.keys.contains(&key)
-                    && self.keys.contains(&(key ^ EXPLICIT_EXTENDED_KEY))
+                    && !self.key_sources.contains_key(&source)
+                    && self
+                        .key_sources
+                        .contains_key(&(source ^ EXPLICIT_EXTENDED_KEY))
                 {
-                    key ^= EXPLICIT_EXTENDED_KEY;
+                    source ^= EXPLICIT_EXTENDED_KEY;
                 }
+                let key = if *down {
+                    if self.key_sources.contains_key(&source) {
+                        return Ok(None);
+                    }
+                    let key = mapped_keyboard_identity(&self.policy, *key, *modifiers);
+                    if self.keys.contains(&key) {
+                        self.key_sources.insert(source, key);
+                        return Ok(None);
+                    }
+                    key
+                } else {
+                    let Some(key) = self.key_sources.remove(&source) else {
+                        return Ok(None);
+                    };
+                    // Two client keys may map to one host key. It stays down
+                    // until the last source lets go, without restarting repeat.
+                    if self.key_sources.values().any(|mapped| *mapped == key) {
+                        return Ok(None);
+                    }
+                    key
+                };
                 let owned = self.keys.contains(&key);
                 let flags = if *down {
                     *flags
@@ -655,6 +685,7 @@ impl Injector {
                     return Ok(Some(Press {
                         keyboard: true,
                         id: key,
+                        source,
                         flags,
                         counted: !owned,
                         repeat: (!owned && !is_modifier(key)).then_some(modifiers),
@@ -749,6 +780,7 @@ impl Injector {
         let _ = self.cancel_touches();
         let _ = self.cancel_pen();
         self.keys.clear();
+        self.key_sources.clear();
         self.buttons.clear();
         self.key_flags.clear();
     }
@@ -891,6 +923,116 @@ mod tests {
     }
     // HELD is shared by every injector: each test below uses its own keys
     // and buttons.
+
+    #[test]
+    fn overlapping_keybindings_keep_the_destination_held_and_repeating() {
+        let mut injector = recording();
+        for source in [0x70, 0x71, 0x72] {
+            injector.policy.keybindings.insert(source, 0x46);
+        }
+        injector.apply(&key(0x70, true)).unwrap();
+        assert_eq!(calls(), [described(&[injector.key_scan(0x46, true, 0)])]);
+        let repeat = injector.repeat;
+        let second = Event::Keyboard {
+            key: 0x71,
+            modifiers: 0,
+            flags: 1,
+            down: true,
+        };
+        assert!(injector.apply_all(&[second.clone(), second]).is_empty());
+        // An unpressed source must not release another source's destination.
+        injector.apply(&key(0x72, false)).unwrap();
+        injector.apply(&key(0x70, false)).unwrap();
+        assert!(calls().is_empty());
+        assert_eq!(injector.key_sources, BTreeMap::from([(0x71, 0x46)]));
+        assert_eq!(injector.key_flags.get(&0x46), Some(&0));
+        assert_eq!(HELD.lock().unwrap().get(&(true, 0x46)), Some(&1));
+        assert_eq!(injector.repeat, repeat);
+        injector.repeat.as_mut().unwrap().3 = std::time::Instant::now();
+        injector.due().unwrap();
+        assert_eq!(calls(), [described(&[injector.key_scan(0x46, true, 0)])]);
+        injector.apply(&key(0x71, false)).unwrap();
+        assert_eq!(calls(), [described(&[injector.key_scan(0x46, false, 0)])]);
+        assert!(injector.keys.is_empty() && injector.key_sources.is_empty());
+        assert!(injector.repeat.is_none());
+        assert!(!HELD.lock().unwrap().contains_key(&(true, 0x46)));
+    }
+
+    #[test]
+    fn mapped_sources_share_one_owner_with_other_clients_and_disconnect_cleanup() {
+        let mut first = recording();
+        first
+            .policy
+            .keybindings
+            .extend([(0x73, 0x47), (0x74, 0x47)]);
+        let mut second = recording();
+        assert!(
+            first
+                .apply_all(&[key(0x73, true), key(0x74, true)])
+                .is_empty()
+        );
+        second.apply(&key(0x47, true)).unwrap();
+        assert_eq!(calls(), [described(&[first.key_scan(0x47, true, 0)])]);
+        assert_eq!(HELD.lock().unwrap().get(&(true, 0x47)), Some(&2));
+        first.release_all();
+        first.release_all();
+        assert!(calls().is_empty());
+        assert!(first.keys.is_empty() && first.key_sources.is_empty());
+        assert_eq!(HELD.lock().unwrap().get(&(true, 0x47)), Some(&1));
+        second.apply(&key(0x47, false)).unwrap();
+        assert_eq!(calls(), [described(&[second.key_scan(0x47, false, 0)])]);
+        assert!(!HELD.lock().unwrap().contains_key(&(true, 0x47)));
+    }
+
+    #[test]
+    fn mapped_key_sources_are_forgotten_when_windows_refuses_input() {
+        let mut injector = recording();
+        injector
+            .policy
+            .keybindings
+            .extend([(0x75, 0x48), (0x76, 0x48)]);
+        TAKES.set(0);
+        assert!(injector.apply(&key(0x75, true)).is_err());
+        assert!(injector.keys.is_empty() && injector.key_sources.is_empty());
+        assert!(!HELD.lock().unwrap().contains_key(&(true, 0x48)));
+        TAKES.set(usize::MAX);
+        assert!(
+            injector
+                .apply_all(&[key(0x75, true), key(0x76, true)])
+                .is_empty()
+        );
+        assert_eq!(injector.key_sources.len(), 2);
+        injector.apply(&key(0x75, false)).unwrap();
+        TAKES.set(0);
+        assert!(injector.apply(&key(0x76, false)).is_err());
+        assert!(injector.keys.is_empty() && injector.key_sources.is_empty());
+        assert!(injector.repeat.is_none());
+        assert!(!HELD.lock().unwrap().contains_key(&(true, 0x48)));
+        TAKES.set(usize::MAX);
+    }
+
+    #[test]
+    fn remapped_enter_keys_retain_their_sources_when_release_loses_extension() {
+        let mut injector = recording();
+        injector.policy.keybindings.insert(0x0d, 0x49);
+        injector.apply(&key(0x0d, true)).unwrap();
+        injector
+            .apply(&Event::Keyboard {
+                key: 0x0d,
+                modifiers: 0x10,
+                flags: 0,
+                down: true,
+            })
+            .unwrap();
+        assert_eq!(injector.key_sources.len(), 2);
+        assert_eq!(calls(), [described(&[injector.key_scan(0x49, true, 0)])]);
+        injector.apply(&key(0x0d, false)).unwrap();
+        assert!(calls().is_empty());
+        assert_eq!(injector.key_sources.len(), 1);
+        injector.apply(&key(0x0d, false)).unwrap();
+        assert_eq!(calls(), [described(&[injector.key_scan(0x49, false, 0)])]);
+        assert!(injector.keys.is_empty() && injector.key_sources.is_empty());
+    }
 
     #[test]
     fn a_pass_of_moves_keys_buttons_and_text_is_one_call_in_order() {

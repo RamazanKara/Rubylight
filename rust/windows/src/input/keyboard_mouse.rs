@@ -55,6 +55,7 @@ impl Injector {
             return;
         }
         self.keys.insert(press.id);
+        self.key_sources.insert(press.source, press.id);
         self.key_flags.insert(press.id, press.flags);
         if let Some(modifiers) = press.repeat
             && let Some(delay) = self.policy.repeat_delay
@@ -332,7 +333,7 @@ pub(super) fn mapped_keyboard_identity(
     // into an extended key merely because the source was.
     keyboard_identity(mapped, if mapped == key { modifiers } else { 0 })
 }
-fn keyboard_identity(key: u16, modifiers: u8) -> u32 {
+pub(super) fn keyboard_identity(key: u16, modifiers: u8) -> u32 {
     u32::from(key)
         | if modifiers & MODIFIER_EXTENDED != 0 && !legacy_extended_key(key) {
             EXPLICIT_EXTENDED_KEY

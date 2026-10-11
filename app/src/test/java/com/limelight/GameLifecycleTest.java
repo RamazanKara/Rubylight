@@ -131,15 +131,146 @@ public class GameLifecycleTest {
         assertFalse(ReflectionHelpers.getField(activity, "hostActionInProgress"));
     }
 
+    @Test
+    public void autoBitrateRequiresMetadataSupportButNotAnActiveStream() {
+        Game activity = Robolectric.buildActivity(Game.class).get();
+        RetryConnection connection = new RetryConnection();
+        com.limelight.nvstream.http.ComputerDetails details = connection.getHostDetails();
+        details.rustHostVersion = "2.2.4";
+        details.permission = com.limelight.nvstream.http.ComputerDetails.PERMISSION_VIEW;
+        ReflectionHelpers.setField(activity, "app", new com.limelight.nvstream.http.NvApp());
+        ReflectionHelpers.setField(activity, "conn", connection);
+        activity.getSharedPreferences("AdaptiveBitrate", Context.MODE_PRIVATE).edit().putBoolean("pc", true).commit();
+        assertFalse(ReflectionHelpers.callInstanceMethod(activity, "supportsAdaptiveBitrate"));
+        assertTrue(activity.getSharedPreferences("AdaptiveBitrate", Context.MODE_PRIVATE).getBoolean("pc", false));
+        details.encoderBitrateSupported = true;
+        assertEquals(0, details.encoderBitrateKbps);
+        assertEquals(0, details.initialEncoderBitrateKbps);
+        assertTrue(ReflectionHelpers.callInstanceMethod(activity, "supportsAdaptiveBitrate"));
+        details.permission = 0;
+        assertFalse(ReflectionHelpers.callInstanceMethod(activity, "supportsAdaptiveBitrate"));
+    }
+
+    @Test
+    public void enablingAutoBitrateReadsEncoderBudgetWithoutWritingOrRecoveringAboveIt() throws Exception {
+        for (int format : new int[] {com.limelight.nvstream.jni.MoonBridge.VIDEO_FORMAT_H264,
+                com.limelight.nvstream.jni.MoonBridge.VIDEO_FORMAT_PYROWAVE}) {
+            Game activity = Robolectric.buildActivity(Game.class).get();
+            activity.setIntent(new Intent().putExtra(Game.EXTRA_PC_UUID, "pc"));
+            PreferenceConfiguration prefs = new PreferenceConfiguration();
+            prefs.videoFormat = PreferenceConfiguration.FormatOption.AUTO;
+            prefs.bitrate = 50000;
+            prefs.fps = 60;
+            ReflectionHelpers.setStaticField(com.limelight.binding.video.MediaCodecHelper.class, "initialized", true);
+            com.limelight.binding.video.MediaCodecDecoderRenderer renderer =
+                    new com.limelight.binding.video.MediaCodecDecoderRenderer(activity, prefs, null, 0,
+                            false, false, "", null);
+            ReflectionHelpers.setField(renderer, "videoFormat", format);
+            RetryConnection connection = new RetryConnection();
+            connection.fail = false;
+            connection.details.encoderBitrateKbps = 38988;
+            connection.details.initialEncoderBitrateKbps = 38988;
+            ReflectionHelpers.setField(activity, "decoderRenderer", renderer);
+            ReflectionHelpers.setField(activity, "prefConfig", prefs);
+            ReflectionHelpers.setField(activity, "streamFps", 60);
+            ReflectionHelpers.setField(activity, "currentBitrate", 50000);
+            ReflectionHelpers.setField(activity, "conn", connection);
+            ReflectionHelpers.setField(activity, "connected", true);
+            try {
+                ReflectionHelpers.callInstanceMethod(activity, "setAdaptiveBitrateEnabled",
+                        ReflectionHelpers.ClassParameter.from(boolean.class, true));
+                awaitBitrateRequest(activity);
+                assertEquals(0, connection.writes);
+                assertEquals(38988, (int) ReflectionHelpers.getField(activity, "currentBitrate"));
+                com.limelight.nvstream.AdaptiveBitrateController controller = ReflectionHelpers.getField(activity, "adaptiveBitrate");
+                com.limelight.nvstream.PyroWaveBitrateController pyro = ReflectionHelpers.getField(activity, "pyroWaveBitrate");
+                for (long time : new long[] {30000, 60000, 90000}) {
+                    int target = controller != null ? controller.sample(time, true, false, 0, 2, 0, 0) :
+                            pyro.sample(time, true, false, 0, 0, 2, 0);
+                    assertEquals(0, target);
+                }
+                if (controller != null) controller.applied(30000, 30000, 90000);
+                else pyro.applied(30000, 30000, 90000);
+                int current = 30000;
+                for (long time = 120000; time <= 1800000; time += 30000) {
+                    int target = controller != null ? controller.sample(time, true, false, 0, 2, 0, 0) :
+                            pyro.sample(time, true, false, 0, 0, 2, 0);
+                    if (target != 0) {
+                        assertTrue(target <= 38988);
+                        current = target;
+                        if (controller != null) controller.applied(target, target, time);
+                        else pyro.applied(target, target, time);
+                    }
+                }
+                assertEquals(38988, current);
+            } finally {
+                ReflectionHelpers.callInstanceMethod(activity, "setAdaptiveBitrateEnabled",
+                        ReflectionHelpers.ClassParameter.from(boolean.class, false));
+            }
+        }
+    }
+
+    @Test
+    public void missingEncoderBudgetRetriesWithoutChangingTheHost() throws Exception {
+        Game activity = Robolectric.buildActivity(Game.class).get();
+        com.limelight.nvstream.AdaptiveBitrateController waiting =
+                new com.limelight.nvstream.AdaptiveBitrateController(0, 0, 60, 0);
+        RetryConnection connection = new RetryConnection();
+        connection.fail = false;
+        connection.details.encoderBitrateSupported = true;
+        ReflectionHelpers.setField(activity, "adaptiveBitrate", waiting);
+        ReflectionHelpers.setField(activity, "streamFps", 60);
+        ReflectionHelpers.setField(activity, "conn", connection);
+        ReflectionHelpers.setField(activity, "connected", true);
+        ReflectionHelpers.callInstanceMethod(activity, "applyAdaptiveBitrate",
+                ReflectionHelpers.ClassParameter.from(int.class, 0));
+        awaitBitrateRequest(activity);
+        assertSame(waiting, ReflectionHelpers.getField(activity, "adaptiveBitrate"));
+        assertTrue((long) ReflectionHelpers.getField(activity, "adaptiveBitrateRetryAt") > 0);
+        assertEquals(0, connection.writes);
+        connection.details.encoderBitrateKbps = 45000;
+        connection.details.initialEncoderBitrateKbps = 38988;
+        long retryAt = ReflectionHelpers.getField(activity, "adaptiveBitrateRetryAt");
+        android.os.Handler handler = ReflectionHelpers.getField(activity, "bitrateHandler");
+        Runnable update = ReflectionHelpers.getField(activity, "updateBitrate");
+        handler.postAtTime(update, retryAt);
+        try {
+            org.robolectric.Shadows.shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(
+                    retryAt - android.os.SystemClock.uptimeMillis() - 1));
+            assertSame(waiting, ReflectionHelpers.getField(activity, "adaptiveBitrate"));
+            assertEquals(1, connection.reads);
+            org.robolectric.Shadows.shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(1));
+            awaitBitrateRequest(activity);
+            assertEquals(45000, (int) ReflectionHelpers.getField(activity, "currentBitrate"));
+            assertEquals(0, (long) ReflectionHelpers.getField(activity, "adaptiveBitrateRetryAt"));
+            com.limelight.nvstream.AdaptiveBitrateController controller = ReflectionHelpers.getField(activity, "adaptiveBitrate");
+            assertNotSame(waiting, controller);
+            assertEquals(45000, (int) ReflectionHelpers.getField(controller, "ceilingKbps"));
+            assertEquals(2, connection.reads);
+            assertEquals(0, connection.writes);
+        } finally {
+            handler.removeCallbacks(update);
+        }
+    }
+
     private static class RetryConnection extends com.limelight.nvstream.NvConnection {
         boolean fail = true;
+        int writes;
+        int reads;
+        final com.limelight.nvstream.http.ComputerDetails details = new com.limelight.nvstream.http.ComputerDetails();
         RetryConnection() {
             super(null, new com.limelight.nvstream.http.ComputerDetails.AddressTuple("127.0.0.1", 47989),
                     47984, "test", new com.limelight.nvstream.StreamConfiguration.Builder().build(), null, null);
         }
         @Override public int setBitrate(int bitrate) throws java.io.IOException {
+            writes++;
             if (fail) throw new java.io.IOException("temporary failure");
             return bitrate;
+        }
+        @Override public com.limelight.nvstream.http.ComputerDetails refreshHostDetails() throws java.io.IOException {
+            reads++;
+            if (fail) throw new java.io.IOException("temporary failure");
+            return details;
         }
     }
 

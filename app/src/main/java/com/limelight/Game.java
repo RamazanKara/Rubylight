@@ -199,21 +199,25 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 return;
             }
             if (!hostActionInProgress && streamMenu == null && SystemClock.uptimeMillis() >= adaptiveBitrateRetryAt) {
-                long now = SystemClock.uptimeMillis();
-                long rttInfo = MoonBridge.getEstimatedRttInfo();
-                float jitterMs = rttInfo == -1 ? -1 : (float) (rttInfo & 0xffffffffL);
-                int thermalLevel = decoderRenderer.getThermalLevel();
-                if (adaptiveBitrate != null) adaptiveBitrate.setThermalLevel(thermalLevel);
-                if (pyroWaveBitrate != null) pyroWaveBitrate.setThermalLevel(thermalLevel);
-                int target = adaptiveBitrateRetryAt != 0 ? adaptiveBitrateRetryTarget : pyroWaveBitrate != null ?
-                        pyroWaveBitrate.sample(now, decoderRenderer.hasRecentVideoFrames(now), poorConnection,
-                                decoderRenderer.getPyroWaveLossPercent(), decoderRenderer.getPyroWaveQueueDelayMs(),
-                                decoderRenderer.getDecodeTimeMs(), jitterMs) :
-                        adaptiveBitrate.sample(now, decoderRenderer.hasRecentVideoFrames(now),
-                                poorConnection, decoderRenderer.getNetworkFrameLossPercent(), decoderRenderer.getDecodeTimeMs(), jitterMs,
-                                decoderRenderer.getQueueDelayMs());
-                if (target != 0) {
-                    applyAdaptiveBitrate(target);
+                if (adaptiveBitrateRetryAt != 0) {
+                    applyAdaptiveBitrate(adaptiveBitrateRetryTarget);
+                } else {
+                    long now = SystemClock.uptimeMillis();
+                    long rttInfo = MoonBridge.getEstimatedRttInfo();
+                    float jitterMs = rttInfo == -1 ? -1 : (float) (rttInfo & 0xffffffffL);
+                    int thermalLevel = decoderRenderer.getThermalLevel();
+                    if (adaptiveBitrate != null) adaptiveBitrate.setThermalLevel(thermalLevel);
+                    if (pyroWaveBitrate != null) pyroWaveBitrate.setThermalLevel(thermalLevel);
+                    int target = pyroWaveBitrate != null ?
+                            pyroWaveBitrate.sample(now, decoderRenderer.hasRecentVideoFrames(now), poorConnection,
+                                    decoderRenderer.getPyroWaveLossPercent(), decoderRenderer.getPyroWaveQueueDelayMs(),
+                                    decoderRenderer.getDecodeTimeMs(), jitterMs) :
+                            adaptiveBitrate.sample(now, decoderRenderer.hasRecentVideoFrames(now),
+                                    poorConnection, decoderRenderer.getNetworkFrameLossPercent(), decoderRenderer.getDecodeTimeMs(), jitterMs,
+                                    decoderRenderer.getQueueDelayMs());
+                    if (target != 0) {
+                        applyAdaptiveBitrate(target);
+                    }
                 }
             } else {
                 if (adaptiveBitrate != null) adaptiveBitrate.suspend();
@@ -2327,7 +2331,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
 
     private boolean supportsAdaptiveBitrate() {
         ComputerDetails details = conn.getHostDetails();
-        return app.getRole() != NvApp.Role.INPUT_ONLY && details.rustHostVersion != null &&
+        return app.getRole() != NvApp.Role.INPUT_ONLY && details.rustHostVersion != null && details.encoderBitrateSupported &&
                 details.hasPermission(ComputerDetails.PERMISSION_VIEW | ComputerDetails.PERMISSION_LAUNCH);
     }
 
@@ -2348,16 +2352,15 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         pyroWaveBitrate = null;
         adaptiveBitrateRetryAt = 0;
         if (enabled) {
-            int ceiling = Math.min(500000, Math.max(prefConfig.bitrate, currentBitrate));
-            int initial = Math.min(ceiling, currentBitrate);
             if ((decoderRenderer.getActiveVideoFormat() & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0) {
-                pyroWaveBitrate = new PyroWaveBitrateController(ceiling, initial, prefConfig.fps,
+                pyroWaveBitrate = new PyroWaveBitrateController(0, 0, streamFps,
                         SystemClock.uptimeMillis());
             } else {
-                adaptiveBitrate = new AdaptiveBitrateController(ceiling, initial, prefConfig.fps, SystemClock.uptimeMillis());
+                adaptiveBitrate = new AdaptiveBitrateController(0, 0, streamFps, SystemClock.uptimeMillis());
             }
-            // Obtain the host's applied cap before using it as the controller's starting point.
-            applyAdaptiveBitrate(initial);
+            // The preference includes FEC/audio, while runtime changes use encoder Kbps.
+            // Read the actual rates before sampling instead of changing the host to discover them.
+            applyAdaptiveBitrate(0);
             bitrateHandler.postDelayed(updateBitrate, 1000);
         }
     }
@@ -2368,14 +2371,25 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         hostActionInProgress = true;
         new Thread(() -> {
             try {
-                int applied = conn.setBitrate(target);
+                ComputerDetails details = target == 0 ? conn.refreshHostDetails() : null;
+                if (details != null && (details.encoderBitrateKbps <= 0 || details.initialEncoderBitrateKbps <= 0)) {
+                    throw new IOException("Host did not report the stream's encoder bitrate");
+                }
+                int applied = details == null ? conn.setBitrate(target) : details.encoderBitrateKbps;
                 runOnUiThread(() -> {
                     if (connected && !isFinishing()) {
-                        currentBitrate = applied;
                         if (adaptiveBitrate == controller && pyroWaveBitrate == pyroController) {
+                            currentBitrate = applied;
                             adaptiveBitrateRetryAt = 0;
-                            if (controller != null) controller.applied(target, applied, SystemClock.uptimeMillis());
-                            if (pyroController != null) pyroController.applied(target, applied, SystemClock.uptimeMillis());
+                            long now = SystemClock.uptimeMillis();
+                            if (details != null) {
+                                int ceiling = Math.max(details.initialEncoderBitrateKbps, applied);
+                                if (controller != null) adaptiveBitrate = new AdaptiveBitrateController(ceiling, applied, streamFps, now);
+                                if (pyroController != null) pyroWaveBitrate = new PyroWaveBitrateController(ceiling, applied, streamFps, now);
+                            } else {
+                                if (controller != null) controller.applied(target, applied, now);
+                                if (pyroController != null) pyroController.applied(target, applied, now);
+                            }
                         }
                     }
                 });

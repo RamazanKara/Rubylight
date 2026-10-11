@@ -111,6 +111,35 @@ public class NvHTTPParityTest {
     }
 
     @Test
+    public void encoderBitratesAreCopiedAndMissingOrInvalidRatesStayUnknown() throws Exception {
+        ComputerDetails details = capabilities("<root status_code=\"200\">" +
+                "<RustHostEncoderBitrateKbps>30000</RustHostEncoderBitrateKbps>" +
+                "<RustHostInitialEncoderBitrateKbps>38988</RustHostInitialEncoderBitrateKbps></root>");
+        ComputerDetails copy = new ComputerDetails(details);
+        assertTrue(copy.encoderBitrateSupported);
+        assertEquals(30000, copy.encoderBitrateKbps);
+        assertEquals(38988, copy.initialEncoderBitrateKbps);
+        for (String value : new String[] {"", "0", "-1", "2000001", "invalid"}) {
+            NvHTTP.readClientCapabilities(details, "<root status_code=\"200\">" +
+                    "<RustHostEncoderBitrateKbps>" + value + "</RustHostEncoderBitrateKbps>" +
+                    "<RustHostInitialEncoderBitrateKbps>" + value + "</RustHostInitialEncoderBitrateKbps></root>");
+            assertTrue(details.encoderBitrateSupported);
+            assertEquals(0, details.encoderBitrateKbps);
+            assertEquals(0, details.initialEncoderBitrateKbps);
+        }
+        NvHTTP.readClientCapabilities(copy, "<root status_code=\"200\" />");
+        assertFalse(copy.encoderBitrateSupported);
+        assertEquals(0, copy.encoderBitrateKbps);
+        assertEquals(0, copy.initialEncoderBitrateKbps);
+        details.update(copy);
+        assertFalse(details.encoderBitrateSupported);
+        for (String field : new String[] {"RustHostEncoderBitrateKbps", "RustHostInitialEncoderBitrateKbps"}) {
+            assertFalse(capabilities("<root status_code=\"200\"><" + field + ">0</" + field + "></root>")
+                    .encoderBitrateSupported);
+        }
+    }
+
+    @Test
     public void butterpolloAdvertisesUnsignedPermissionsAndFractionalLimiter() throws Exception {
         ComputerDetails details = http().getComputerDetails(fixture("butterpollo-serverinfo.xml"));
         assertEquals(0xFFFFFFFFL, details.permission);

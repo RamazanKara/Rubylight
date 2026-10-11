@@ -463,6 +463,7 @@ public class NvHTTP {
     static void readClientCapabilities(ComputerDetails details, String serverInfo) throws IOException, XmlPullParserException {
         details.permission = -1;
         details.rustHostVersion = getXmlString(serverInfo, "RustHostVersion", false);
+        details.encoderBitrateKbps = details.initialEncoderBitrateKbps = 0;
         details.frameLimiterSupported = "1".equals(getXmlString(serverInfo, "FrameLimiterSupported", false));
         details.frameLimiterEnabled = "1".equals(getXmlString(serverInfo, "FrameLimiterEnabled", false));
         details.virtualDisplayFrameLimiterEnabled = "1".equals(getXmlString(serverInfo, "VirtualDisplayFrameLimiterEnabled", false));
@@ -475,17 +476,26 @@ public class NvHTTP {
 
         XmlPullParser parser = XmlPullParserFactory.newInstance().newPullParser();
         parser.setInput(new StringReader(serverInfo));
+        boolean encoderBitratePresent = false;
+        boolean initialEncoderBitratePresent = false;
         details.serverCommands.clear();
         for (int event = parser.getEventType(); event != XmlPullParser.END_DOCUMENT; event = parser.next()) {
             if (event == XmlPullParser.START_TAG && parser.getDepth() == 2) {
                 if ("Permission".equals(parser.getName())) {
                     details.permission = readUnsignedValue(parser.nextText().trim(), 0xFFFFFFFFL);
+                } else if ("RustHostEncoderBitrateKbps".equals(parser.getName())) {
+                    encoderBitratePresent = true;
+                    details.encoderBitrateKbps = (int) readUnsignedValue(parser.nextText().trim(), 2000000);
+                } else if ("RustHostInitialEncoderBitrateKbps".equals(parser.getName())) {
+                    initialEncoderBitratePresent = true;
+                    details.initialEncoderBitrateKbps = (int) readUnsignedValue(parser.nextText().trim(), 2000000);
                 } else if ("ServerCommand".equals(parser.getName())) {
                     // Empty names still occupy a wire index.
                     details.serverCommands.add(parser.nextText());
                 }
             }
         }
+        details.encoderBitrateSupported = encoderBitratePresent && initialEncoderBitratePresent;
     }
 
     private static long readUnsignedValue(String value, long max) {

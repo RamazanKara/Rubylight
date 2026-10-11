@@ -92,6 +92,9 @@ public class ComputerDetails {
     public boolean nvidiaServer;
     public long permission = -1;
     public String rustHostVersion;
+    public boolean encoderBitrateSupported;
+    public int encoderBitrateKbps;
+    public int initialEncoderBitrateKbps;
     public ArrayList<String> serverCommands = new ArrayList<>();
     public boolean frameLimiterSupported;
     public boolean frameLimiterEnabled;
@@ -205,6 +208,9 @@ public class ComputerDetails {
         this.rawAppList = details.rawAppList;
         this.permission = details.permission;
         this.rustHostVersion = details.rustHostVersion;
+        this.encoderBitrateSupported = details.encoderBitrateSupported;
+        this.encoderBitrateKbps = details.encoderBitrateKbps;
+        this.initialEncoderBitrateKbps = details.initialEncoderBitrateKbps;
         this.serverCommands = new ArrayList<>(details.serverCommands);
         this.frameLimiterSupported = details.frameLimiterSupported;
         this.frameLimiterEnabled = details.frameLimiterEnabled;

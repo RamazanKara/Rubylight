@@ -30,10 +30,31 @@ public class HostStreamProfileTest {
         for (String suffix : new String[] {"true,FSR1,-1", "true,FSR1,101", "true,FSR1", "true,unknown,50"}) {
             assertThrows(IllegalArgumentException.class, () -> HostStreamProfile.deserialize(prefix + suffix));
         }
-        for (String value : new String[] {"v2;upscaling=FSR1", "v2;upscaling=FSR1:101", "v2;hdr=yes",
+        for (String value : new String[] {"v2;upscaling=FSR1:", "v2;upscaling=FSR1:101", "v2;sharpness=101", "v2;hdr=yes",
                 "v2;bitrate=499", "v2;res=1x1", "v2;res=native2", "v2;codec=UNKNOWN", "v2;nokey"}) {
             assertThrows(value, IllegalArgumentException.class, () -> HostStreamProfile.deserialize(value));
         }
+    }
+
+    @Test
+    public void sharpnessAndUpscalingModeOverrideIndependently() {
+        PreferenceConfiguration config = new PreferenceConfiguration();
+        config.upscalingMode = UpscalingPolicy.Mode.FSR1;
+        config.upscalingSharpness = 50;
+        HostStreamProfile sharpness = HostStreamProfile.deserialize("v2;sharpness=70");
+        assertFalse(sharpness.isEmpty());
+        sharpness.copy().applyTo(config);
+        assertEquals(UpscalingPolicy.Mode.FSR1, config.upscalingMode);
+        assertEquals(70, config.upscalingSharpness);
+        config.upscalingMode = UpscalingPolicy.Mode.SGSR1;
+        sharpness.applyTo(config);
+        assertEquals(UpscalingPolicy.Mode.SGSR1, config.upscalingMode);
+        HostStreamProfile.deserialize("v2;upscaling=FSR1").applyTo(config);
+        assertEquals(UpscalingPolicy.Mode.FSR1, config.upscalingMode);
+        assertEquals(70, config.upscalingSharpness);
+        HostStreamProfile.deserialize("v2;upscaling=SGSR1:30").applyTo(config);
+        assertEquals(UpscalingPolicy.Mode.SGSR1, config.upscalingMode);
+        assertEquals(30, config.upscalingSharpness);
     }
 
     @Test
@@ -127,6 +148,9 @@ public class HostStreamProfileTest {
         // A native profile saved with every other value copied: nothing of its own is left.
         assertEquals("", HostStreamProfile.migrateToOverrides(
                 "2184,1968,12000,150000,100,AUTO,false,false,false,false,false,OFF,50,native", global));
+        // Before the native marker existed, profiles stored the resolved screen size.
+        assertEquals("", HostStreamProfile.migrateToOverrides(
+                "2184,1968,12000,150000,100,AUTO,false,false,false,false,false,OFF,50", global));
         // PyroWave and its bitrate were chosen for the PC; the stale VRR copy follows the global switch.
         assertEquals("v2;bitrate=800000;codec=FORCE_PYROWAVE", HostStreamProfile.migrateToOverrides(
                 "2184,1968,12000,800000,100,FORCE_PYROWAVE,false,false,false,false,true,OFF,50,native", global));

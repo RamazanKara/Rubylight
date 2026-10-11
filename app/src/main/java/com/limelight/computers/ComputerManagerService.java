@@ -23,8 +23,11 @@ import com.limelight.nvstream.http.NvHTTP;
 import com.limelight.nvstream.http.PairingManager;
 import com.limelight.nvstream.mdns.MdnsComputer;
 import com.limelight.nvstream.mdns.MdnsDiscoveryListener;
+import com.limelight.preferences.HostDisplayChoice;
+import com.limelight.preferences.HostStreamProfile;
 import com.limelight.utils.CacheHelper;
 import com.limelight.utils.NetHelper;
+import com.limelight.utils.RedactedLog;
 import com.limelight.utils.ServerHelper;
 
 import android.app.Service;
@@ -180,7 +183,7 @@ public class ComputerManagerService extends Service {
                         synchronized (tuple.networkLock) {
                             // Check if this poll has modified the details
                             if (!runPoll(tuple.computer, false, offlineCount)) {
-                                LimeLog.warning(tuple.computer.name + " is offline (try " + offlineCount + ")");
+                                LimeLog.info("PC is offline (try " + offlineCount + ")");
                                 offlineCount++;
                             } else {
                                 tuple.lastSuccessfulPollMs = SystemClock.elapsedRealtime();
@@ -419,7 +422,7 @@ public class ComputerManagerService extends Service {
                 try {
                     // Kick off a blocking serverinfo poll on this machine
                     if (!addComputerBlocking(details)) {
-                        LimeLog.warning("Auto-discovered PC failed to respond: "+details);
+                        LimeLog.warning("Auto-discovered PC failed to respond");
                     }
                 } catch (InterruptedException e) {
                     e.printStackTrace();
@@ -512,6 +515,11 @@ public class ComputerManagerService extends Service {
         try {
             // Remove it from the database
             dbManager.deleteComputer(computer);
+            HostStreamProfile.reset(this, computer.uuid);
+            HostDisplayChoice.save(this, computer.uuid, HostDisplayChoice.HOST_DEFAULT);
+            for (String preferences : new String[] {"AdaptiveBitrate", "PyroWaveBitrate"}) {
+                getSharedPreferences(preferences, MODE_PRIVATE).edit().remove(computer.uuid).apply();
+            }
 
             synchronized (pollingTuples) {
                 // Remove the computer from the computer list
@@ -707,12 +715,14 @@ public class ComputerManagerService extends Service {
     }
 
     private boolean pollComputer(ComputerDetails details) throws InterruptedException {
+        RedactedLog.addComputerSecrets(details);
         // Poll all addresses in parallel to speed up the process
         LimeLog.info("Starting parallel poll for "+details.name+" ("+details.localAddress +", "+details.remoteAddress +", "+details.manualAddress+", "+details.ipv6Address+")");
         ComputerDetails polledDetails = parallelPollPc(details);
         LimeLog.info("Parallel poll for "+details.name+" returned address: "+details.activeAddress);
 
         if (polledDetails != null) {
+            RedactedLog.addComputerSecrets(polledDetails);
             details.update(polledDetails);
             return true;
         }

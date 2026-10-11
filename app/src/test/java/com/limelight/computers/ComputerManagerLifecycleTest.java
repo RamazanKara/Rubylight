@@ -29,6 +29,28 @@ public class ComputerManagerLifecycleTest {
     }
 
     @Test
+    public void deletingComputerRemovesOnlyItsSavedStreamSettings() {
+        ServiceController<Manager> controller = Robolectric.buildService(Manager.class).create();
+        ComputerManagerService service = controller.get();
+        ComputerDetails computer = new ComputerDetails();
+        computer.uuid = "removed-host";
+        String[] files = {"HostStreamProfiles", "HostDisplayChoices", "AdaptiveBitrate", "PyroWaveBitrate"};
+        try {
+            for (String file : files) {
+                service.getSharedPreferences(file, 0).edit()
+                        .putString(computer.uuid, "saved").putString("another-host", "retained").commit();
+            }
+            service.removeComputer(computer);
+            for (String file : files) {
+                assertFalse(service.getSharedPreferences(file, 0).contains(computer.uuid));
+                assertEquals("retained", service.getSharedPreferences(file, 0).getString("another-host", null));
+            }
+        } finally {
+            controller.destroy();
+        }
+    }
+
+    @Test
     public void failingPollListenerStillReleasesTheDatabaseReference() throws Exception {
         ServiceController<Manager> controller = Robolectric.buildService(Manager.class).create();
         ComputerManagerService service = controller.get();

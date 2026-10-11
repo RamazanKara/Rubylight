@@ -1,10 +1,14 @@
 package com.limelight.utils;
 
+import com.limelight.nvstream.http.ComputerDetails;
+
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.Set;
 
 public final class RedactedLog {
@@ -50,6 +54,17 @@ public final class RedactedLog {
         }
     }
 
+    public static void addComputerSecrets(ComputerDetails computer) {
+        addSecret(computer.name);
+        addSecret(computer.uuid);
+        addSecret(computer.macAddress);
+        for (ComputerDetails.AddressTuple address : new ComputerDetails.AddressTuple[] {
+                computer.localAddress, computer.remoteAddress, computer.manualAddress,
+                computer.ipv6Address, computer.activeAddress}) {
+            if (address != null) addSecret(address.address);
+        }
+    }
+
     public synchronized void add(String level, String message) {
         // Only fixed event text crosses the export boundary. Host replies can contain arbitrary secrets.
         boolean important = "WARNING".equals(level) || "SEVERE".equals(level);
@@ -76,17 +91,19 @@ public final class RedactedLog {
         }
         // Our own log text crosses the boundary with names, addresses, IDs, PINs and keys taken out.
         String text = message.replace('\n', ' ').replace('\r', ' ');
-        for (String secret : SECRETS) {
+        ArrayList<String> secrets = new ArrayList<>(SECRETS);
+        secrets.sort(Comparator.comparingInt(String::length).reversed());
+        for (String secret : secrets) {
             text = text.replace(secret, "[PC]");
+        }
+        String[] marks = {"[url]", "[email]", "[address]", "[address]", "[id]", "[hex]", "[data]", "[path]"};
+        for (int i = 0; i < SENSITIVE.length; i++) {
+            text = SENSITIVE[i].matcher(text).replaceAll(java.util.regex.Matcher.quoteReplacement(marks[i]));
         }
         text = PIN.matcher(text).replaceAll("$1$2[omitted]");
         if (text.toLowerCase(java.util.Locale.ROOT).contains("pair")) {
             // Pairing messages may carry the PIN as a bare number.
             text = SHORT_NUMBER.matcher(text).replaceAll("[omitted]");
-        }
-        String[] marks = {"[url]", "[email]", "[address]", "[address]", "[id]", "[hex]", "[data]", "[path]"};
-        for (int i = 0; i < SENSITIVE.length; i++) {
-            text = SENSITIVE[i].matcher(text).replaceAll(java.util.regex.Matcher.quoteReplacement(marks[i]));
         }
         return text.length() > MAX_MESSAGE_CHARS ? text.substring(0, MAX_MESSAGE_CHARS) + "…" : text;
     }

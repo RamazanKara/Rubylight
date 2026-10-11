@@ -347,7 +347,7 @@ public class AppView extends AppCompatActivity implements AdapterFragmentCallbac
             LimeLog.info("Loaded applist from cache");
         } catch (IOException | XmlPullParserException e) {
             if (lastRawApplist != null) {
-                LimeLog.warning("Saved applist corrupted: "+lastRawApplist);
+                LimeLog.warning("Saved applist corrupted");
                 e.printStackTrace();
             }
             LimeLog.info("Loading applist from the network");

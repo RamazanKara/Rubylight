@@ -93,7 +93,7 @@ public final class HostStreamProfile {
     public boolean isEmpty() {
         return nativeResolution == null && refreshRateX100 == null && bitrate == null && renderScale == null &&
                 codec == null && virtualDisplay == null && hdr == null && fullRange == null && yuv444 == null &&
-                vrr == null && upscalingMode == null;
+                vrr == null && upscalingMode == null && upscalingSharpness == null;
     }
 
     public boolean setsResolution() {
@@ -121,10 +121,8 @@ public final class HostStreamProfile {
         if (fullRange != null) config.fullRange = fullRange;
         if (yuv444 != null) config.enableYuv444 = yuv444;
         if (vrr != null) config.vrr = vrr;
-        if (upscalingMode != null) {
-            config.upscalingMode = upscalingMode;
-            config.upscalingSharpness = upscalingSharpness;
-        }
+        if (upscalingMode != null) config.upscalingMode = upscalingMode;
+        if (upscalingSharpness != null) config.upscalingSharpness = upscalingSharpness;
         if (config.enableHdr || config.videoFormat == PreferenceConfiguration.FormatOption.FORCE_PYROWAVE) {
             config.useTextureView = false;
         }
@@ -137,7 +135,7 @@ public final class HostStreamProfile {
     HostStreamProfile keepOnlyDifferencesFrom(PreferenceConfiguration global) {
         if (nativeResolution != null) {
             boolean sameSize = width != null && height != null && width == global.width && height == global.height;
-            if (nativeResolution ? global.resolutionFollowsScreen : !global.resolutionFollowsScreen && sameSize) {
+            if (nativeResolution ? global.resolutionFollowsScreen : sameSize) {
                 nativeResolution = null;
                 width = height = null;
             }
@@ -152,11 +150,8 @@ public final class HostStreamProfile {
         if (fullRange != null && fullRange == global.fullRange) fullRange = null;
         if (yuv444 != null && yuv444 == global.enableYuv444) yuv444 = null;
         if (vrr != null && vrr == global.vrr) vrr = null;
-        if (upscalingMode == global.upscalingMode && upscalingSharpness != null &&
-                upscalingSharpness == global.upscalingSharpness) {
-            upscalingMode = null;
-            upscalingSharpness = null;
-        }
+        if (upscalingMode == global.upscalingMode) upscalingMode = null;
+        if (upscalingSharpness != null && upscalingSharpness == global.upscalingSharpness) upscalingSharpness = null;
         return this;
     }
 
@@ -174,7 +169,8 @@ public final class HostStreamProfile {
         if (fullRange != null) out.append(";full_range=").append(fullRange);
         if (yuv444 != null) out.append(";yuv444=").append(yuv444);
         if (vrr != null) out.append(";vrr=").append(vrr);
-        if (upscalingMode != null) out.append(";upscaling=").append(upscalingMode.name()).append(':').append(upscalingSharpness);
+        if (upscalingMode != null) out.append(";upscaling=").append(upscalingMode.name());
+        if (upscalingSharpness != null) out.append(";sharpness=").append(upscalingSharpness);
         return out.toString();
     }
 
@@ -237,11 +233,15 @@ public final class HostStreamProfile {
                     break;
                 case "upscaling": {
                     String[] parts = field.split(":", -1);
-                    if (parts.length != 2) throw new IllegalArgumentException("Invalid upscaling");
+                    if (parts.length > 2) throw new IllegalArgumentException("Invalid upscaling");
                     profile.upscalingMode = UpscalingPolicy.Mode.valueOf(parts[0]);
-                    profile.upscalingSharpness = requireRange(Integer.parseInt(parts[1]), 0, 100);
+                    // Older v2 profiles stored both values in the same field.
+                    if (parts.length == 2) profile.upscalingSharpness = requireRange(Integer.parseInt(parts[1]), 0, 100);
                     break;
                 }
+                case "sharpness":
+                    profile.upscalingSharpness = requireRange(Integer.parseInt(field), 0, 100);
+                    break;
                 default:
                     // A value a newer build added; this build leaves it to the global settings.
                     break;
@@ -301,7 +301,7 @@ public final class HostStreamProfile {
                 .edit().putString(hostUuid, serialize()).apply();
     }
 
-    static void reset(Context context, String hostUuid) {
+    public static void reset(Context context, String hostUuid) {
         context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
                 .edit().remove(hostUuid).apply();
     }

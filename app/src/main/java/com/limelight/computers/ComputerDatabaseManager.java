@@ -12,6 +12,7 @@ import java.util.Locale;
 import com.limelight.LimeLog;
 import com.limelight.nvstream.http.ComputerDetails;
 import com.limelight.nvstream.http.NvHTTP;
+import com.limelight.utils.RedactedLog;
 
 import android.content.ContentValues;
 import android.content.Context;
@@ -109,6 +110,7 @@ public class ComputerDatabaseManager {
     }
 
     public boolean updateComputer(ComputerDetails details) {
+        RedactedLog.addComputerSecrets(details);
         ContentValues values = new ContentValues();
         values.put(COMPUTER_UUID_COLUMN_NAME, details.uuid);
         values.put(COMPUTER_NAME_COLUMN_NAME, details.name);
@@ -178,6 +180,7 @@ public class ComputerDatabaseManager {
         // This signifies we don't have dynamic state (like pair state)
         details.state = ComputerDetails.State.UNKNOWN;
 
+        RedactedLog.addComputerSecrets(details);
         return details;
     }
 

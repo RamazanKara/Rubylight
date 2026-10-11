@@ -70,8 +70,6 @@ final class CrashRecord {
                 return "NATIVE_CRASH";
             case ApplicationExitInfo.REASON_ANR:
                 return "ANR";
-            case ApplicationExitInfo.REASON_LOW_MEMORY:
-                return "LOW_MEMORY";
             default:
                 // Java crashes are already recorded by the handler, with their original identity.
                 return null;

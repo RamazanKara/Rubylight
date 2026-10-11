@@ -29,6 +29,10 @@ that PC only. It is not recorded or stored on your device, and it stops when you
 mute it in the stream menu or the stream ends. Pairing exchanges identity information with that PC. Host
 discovery also uses your local network.
 
+The locally generated client identifier is sent with every host HTTP request,
+including polling an unpaired host over unencrypted HTTP. Hosts can use this
+identifier to recognize this installation across requests.
+
 The current app also makes public network checks. It can contact
 `stun.moonlight-stream.org` to find an external network address and
 `android.conntest.moonlight-stream.org` to diagnose connection failures. Those
@@ -55,7 +59,7 @@ latency files, may be backed up or transferred by Android. Client certificates,
 private keys, the client identifier and preferences are excluded. Crash records
 and temporary report files are kept outside Android backup.
 
-Remove a saved PC in Rubylight to remove its saved-host entry. Revoke pairing
+Remove a saved PC in Rubylight to remove its saved-host entry and per-PC settings. Revoke pairing
 on the PC to remove that device's access there. Clear Rubylight's app storage
 or uninstall it to remove its local data. Separately delete any exported logs,
 shared reports or Android backups using the app or service holding them.

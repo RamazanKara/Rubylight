@@ -60,6 +60,7 @@ import com.limelight.nvstream.ConnectionContext;
 import com.limelight.nvstream.http.PairingManager.PairState;
 import com.limelight.nvstream.jni.MoonBridge;
 import com.limelight.preferences.HostDisplayChoice;
+import com.limelight.utils.RedactedLog;
 
 import okhttp3.ConnectionPool;
 import okhttp3.Call;
@@ -249,6 +250,7 @@ public class NvHTTP {
     }
     
     public NvHTTP(ComputerDetails.AddressTuple address, int httpsPort, String uniqueId, X509Certificate serverCert, LimelightCryptoProvider cryptoProvider) throws IOException {
+        RedactedLog.addSecret(address.address);
         this.uniqueId = uniqueId;
 
         this.serverCert = serverCert;
@@ -663,7 +665,7 @@ public class NvHTTP {
             return respString;
         } catch (IOException e) {
             if (verbose && !path.equals("serverinfo") && !path.equals("pair")) {
-                LimeLog.warning(getCompleteUrl(baseUrl, path, query)+" -> "+e.getMessage());
+                LimeLog.warning("Host request failed: " + path + " (" + e.getClass().getSimpleName() + ")");
                 e.printStackTrace();
             }
             

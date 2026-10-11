@@ -1,9 +1,39 @@
 package com.limelight.utils;
 
+import com.limelight.nvstream.http.ComputerDetails;
+
 import org.junit.Test;
 import static org.junit.Assert.*;
 
 public class RedactedLogTest {
+    @Test
+    public void pairingUuidIsRemovedBeforeItsNumericGroupsCanBeReplaced() {
+        assertEquals("Pairing failed for [id] with PIN [omitted]",
+                RedactedLog.redact("Pairing failed for 3fa85f64-5717-4562-b3fc-2c963f66afa6 with PIN 1234"));
+    }
+
+    @Test
+    public void allSavedComputerNamesAndAddressesAreRedactedBeforeStreaming() {
+        ComputerDetails computer = new ComputerDetails();
+        computer.name = "Private desktop";
+        computer.localAddress = new ComputerDetails.AddressTuple("private-pc.lan", 47989);
+        computer.remoteAddress = new ComputerDetails.AddressTuple("private-remote.example", 47989);
+        computer.manualAddress = new ComputerDetails.AddressTuple("private-manual.local", 47989);
+        computer.ipv6Address = new ComputerDetails.AddressTuple("fd01::5", 47989);
+        computer.activeAddress = new ComputerDetails.AddressTuple("private-active.lan", 47989);
+        RedactedLog.addSecret("private-pc");
+        RedactedLog.addComputerSecrets(computer);
+        assertEquals("[PC] is offline", RedactedLog.redact("Private desktop is offline"));
+        for (String address : new String[] {"private-pc.lan", "private-remote.example", "private-manual.local",
+                "fd01::5", "private-active.lan"}) {
+            assertEquals("Unable to resolve host [PC]", RedactedLog.redact("Unable to resolve host " + address));
+        }
+        RedactedLog log = new RedactedLog();
+        log.add("INFO", "Stream starting");
+        for (int i = 0; i < 500; i++) log.add("INFO", "PC is offline (try 1)");
+        assertEquals("INFO Stream starting", log.snapshot());
+    }
+
     @Test
     public void addressesPinsAndKnownNamesNeverEnterTheExport() {
         RedactedLog.addSecret("desktop.local");

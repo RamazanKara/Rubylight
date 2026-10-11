@@ -1,6 +1,5 @@
 """Regenerate the source-backed tables in docs/settings.md using only the standard library."""
 
-import math
 from pathlib import Path
 import re
 import xml.etree.ElementTree as ET
@@ -107,6 +106,17 @@ def generate():
     constants = dict(re.findall(r"static final String (\w+) = \"([^\"]+)\";", config))
     seekbar = (JAVA / "preferences/SeekBarPreference.java").read_text(encoding="utf-8")
     slider_defaults = dict(re.findall(r'getAttributeIntValue\(\w+, "(min|max|step|keyStep|divisor)", (\d+)\)', seekbar))
+    policy = (JAVA / "binding/video/DisplayFrameRatePolicy.java").read_text(encoding="utf-8")
+    bounds = re.search(r"Math.max\((\d+), Math.min\((\d+), Math.round\(panelMaxHz\)\)\)", policy)
+    if not bounds:
+        raise ValueError("Review the changed preset refresh-rate policy")
+    native_defaults = config.split("static boolean migrateToNativeDefaults(", 1)[1].split("return true;", 1)[0]
+    for write in ("DisplayFrameRatePolicy.streamFrameRate(panelMaxHz)",
+                  ".putString(RESOLUTION_PREF_STRING, nativeResolution)",
+                  ".putString(FPS_PREF_STRING, fps)",
+                  ".putInt(BITRATE_PREF_STRING, getDefaultBitrate(nativeResolution, fps))"):
+        if write not in native_defaults:
+            raise ValueError("Review the changed native installation defaults")
 
     def display_value(key, value):
         node = nodes[key]
@@ -149,18 +159,12 @@ def generate():
                     choices += "; presets " + ", ".join(display_value(key, item) for item in array(node.get(SEEKBAR + "presets")))
             elif "SwitchPreference" in node.tag or "CheckboxPreference" in node.tag:
                 choices = "On; Off"
-            if key == "seekbar_bitrate_kbps":
-                # Fail if the runtime formula changes instead of silently retaining a stale default.
-                formula = "(fps <= 60 ? fps : (Math.sqrt(fps / 60.f) * 60.f)) / 30.f"
-                if formula not in config or "Math.round(resolutionFactor * frameRateFactor) * 1000" not in config:
-                    raise ValueError("Review the changed runtime bitrate formula")
-                pixels = [int(w) * int(h) for w, h in re.findall(r"(\d+)\s*\*\s*(\d+)", re.search(r"int\[\] pixelVals = \{(.*?)\};", config, re.S)[1])]
-                factors = [int(n) for n in re.findall(r"\d+", re.search(r"int\[\] factorVals = \{(.*?)\};", config, re.S)[1])][:-1]
-                width, height = map(int, nodes["list_resolution"].get(ANDROID + "defaultValue").split("x"))
-                fps = int(nodes["list_fps"].get(ANDROID + "defaultValue"))
-                factor = factors[pixels.index(width * height)]
-                rate = (fps if fps <= 60 else math.sqrt(fps / 60) * 60) / 30
-                default = display_value(key, str(math.floor(factor * rate + 0.5) * 1000)) + " at the default resolution/FPS; recalculated when either changes"
+            if key == "list_resolution":
+                default = "This screen's native resolution; follows the screen used for each stream"
+            elif key == "list_fps":
+                default = f"Screen maximum (rounded, {bounds[1]}–{bounds[2]} FPS)"
+            elif key == "seekbar_bitrate_kbps":
+                default = "Calculated for the native resolution and screen maximum FPS; recalculated when either changes"
             elif key == "checkbox_small_icon_mode":
                 threshold = re.search(r"smallestScreenWidthDp < (\d+)", config)[1]
                 default = f"On below {threshold} dp smallest screen width; Off on TVs and larger screens"
@@ -187,10 +191,6 @@ def generate():
     block = source.split("LATENCY_SWITCHES = {", 1)[1].split("};", 1)[0]
     switches = re.findall(r'^\s+(?:"([a-z_]+)"|PreferenceConfiguration\.([A-Z_]+)),$', block, re.M)
     switch_titles = [resolve(nodes[literal or constants[constant]].get(ANDROID + "title")) for literal, constant in switches]
-    policy = (JAVA / "binding/video/DisplayFrameRatePolicy.java").read_text(encoding="utf-8")
-    bounds = re.search(r"Math.max\((\d+), Math.min\((\d+), Math.round\(panelMaxHz\)\)\)", policy)
-    if not bounds:
-        raise ValueError("Review the changed preset refresh-rate policy")
     lines += ["## Presets", "",
               "Both presets stream at this screen's own resolution and keep the selected codec, HDR and 4:4:4 choices. Saved PC profiles take priority. The selected chip says Custom when values do not match a preset.", "",
               "| Setting | " + " | ".join(names) + " |",

@@ -108,8 +108,8 @@ public class CrashRecordTest {
     public void exitReasonMappingExcludesExpectedExitsAndDuplicateJavaCrashes() {
         assertEquals("NATIVE_CRASH", CrashRecord.exitReason(ApplicationExitInfo.REASON_CRASH_NATIVE));
         assertEquals("ANR", CrashRecord.exitReason(ApplicationExitInfo.REASON_ANR));
-        assertEquals("LOW_MEMORY", CrashRecord.exitReason(ApplicationExitInfo.REASON_LOW_MEMORY));
         for (int reason : new int[] {ApplicationExitInfo.REASON_CRASH, ApplicationExitInfo.REASON_EXIT_SELF,
+                ApplicationExitInfo.REASON_LOW_MEMORY,
                 ApplicationExitInfo.REASON_USER_REQUESTED, ApplicationExitInfo.REASON_USER_STOPPED,
                 ApplicationExitInfo.REASON_SIGNALED, ApplicationExitInfo.REASON_PACKAGE_UPDATED,
                 ApplicationExitInfo.REASON_UNKNOWN, 999}) {

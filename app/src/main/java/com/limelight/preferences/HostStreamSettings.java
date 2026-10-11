@@ -248,7 +248,7 @@ public final class HostStreamSettings extends AppCompatActivity {
             findPreference("codec").setSummary(summary(own.codec != null,
                     getResources().getStringArray(R.array.host_profile_codecs)[config.videoFormat.ordinal()]));
             findPreference("upscaling").setSummary(summary(own.upscalingMode != null, upscalingText(config)));
-            findPreference("sharpness").setSummary(summary(own.upscalingMode != null,
+            findPreference("sharpness").setSummary(summary(own.upscalingSharpness != null,
                     getString(R.string.upscaling_sharpness_value, config.upscalingSharpness)));
             findPreference("sharpness").setEnabled(config.upscalingMode == UpscalingPolicy.Mode.FSR1 ||
                     config.upscalingMode == UpscalingPolicy.Mode.SGSR1);
@@ -304,13 +304,7 @@ public final class HostStreamSettings extends AppCompatActivity {
             UpscalingPolicy.Mode own = activity.overrides.upscalingMode;
             new MaterialAlertDialogBuilder(activity).setTitle(R.string.title_upscaling)
                     .setSingleChoiceItems(items, own == null ? 0 : own.ordinal() + 1, (dialog, which) -> {
-                        if (which == 0) {
-                            activity.overrides.upscalingMode = null;
-                            activity.overrides.upscalingSharpness = null;
-                        } else {
-                            activity.overrides.upscalingSharpness = activity.effective().upscalingSharpness;
-                            activity.overrides.upscalingMode = UpscalingPolicy.Mode.values()[which - 1];
-                        }
+                        activity.overrides.upscalingMode = which == 0 ? null : UpscalingPolicy.Mode.values()[which - 1];
                         updateSummaries();
                         dialog.dismiss();
                     }).setNeutralButton(R.string.help, (dialog, which) ->
@@ -373,7 +367,7 @@ public final class HostStreamSettings extends AppCompatActivity {
             TextView value = new TextView(activity);
             Slider slider = new Slider(activity);
             MaterialCheckBox allPcs = sameAsAll(form, getString(R.string.upscaling_sharpness_value,
-                    activity.global.upscalingSharpness), activity.overrides.upscalingMode == null, slider);
+                    activity.global.upscalingSharpness), activity.overrides.upscalingSharpness == null, slider);
             value.setText(getString(R.string.upscaling_sharpness_value, config.upscalingSharpness));
             value.setTextSize(24);
             form.addView(value);
@@ -388,13 +382,7 @@ public final class HostStreamSettings extends AppCompatActivity {
             form.addView(slider);
             new MaterialAlertDialogBuilder(activity).setTitle(R.string.title_upscaling_sharpness).setView(form)
                     .setPositiveButton(android.R.string.ok, (dialog, which) -> {
-                        if (allPcs.isChecked()) {
-                            activity.overrides.upscalingMode = null;
-                            activity.overrides.upscalingSharpness = null;
-                        } else {
-                            activity.overrides.upscalingMode = config.upscalingMode;
-                            activity.overrides.upscalingSharpness = Math.round(slider.getValue());
-                        }
+                        activity.overrides.upscalingSharpness = allPcs.isChecked() ? null : Math.round(slider.getValue());
                         updateSummaries();
                     }).setNegativeButton(android.R.string.cancel, null).show();
         }

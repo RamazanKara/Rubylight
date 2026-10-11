@@ -49,6 +49,32 @@ fn virtual_display_mode<'a>(
         .unwrap_or(config.virtual_display_mode(windows_11))
 }
 
+pub(crate) fn virtual_display_layout<'a>(
+    config: &'a Config,
+    client: &'a butterpollo_core::state::Client,
+    app: Option<&'a butterpollo_core::state::App>,
+    requested: Option<HostDisplay>,
+) -> &'a str {
+    if let Some(HostDisplay::Virtual(arrangement)) = requested {
+        return arrangement.name();
+    }
+    client
+        .extra
+        .get("virtual_display_layout")
+        .and_then(serde_json::Value::as_str)
+        .filter(|s| !s.is_empty() && *s != "global")
+        .or_else(|| {
+            app.and_then(|app| app.extra.get("virtual-display-layout"))
+                .and_then(serde_json::Value::as_str)
+                .filter(|s| !s.is_empty() && *s != "global")
+        })
+        .or_else(|| {
+            app.filter(|app| crate::process::app_bool(app, "virtual-display-primary", false))
+                .map(|_| "extended_primary")
+        })
+        .unwrap_or(config.get("virtual_display_layout", "exclusive"))
+}
+
 /// What the client asked the PC's displays to do for this stream (the
 /// `hostDisplay` launch parameter), or None to follow the host, app and
 /// per-device settings. Only a stream chooses; a remote monitor keeps the
@@ -217,6 +243,7 @@ pub struct Ready {
     target: CaptureTarget,
     mode: (u32, u32, u32, bool, bool),
     client_display: Option<HostDisplay>,
+    virtual_layout: Option<String>,
     framegen: Policy,
     mode_report: ModeReport,
     stop: Arc<AtomicBool>,
@@ -228,6 +255,7 @@ impl Ready {
         let target = CaptureTarget::new(prepared.capture_target());
         let mode = prepared.mode;
         let client_display = prepared.client_display;
+        let virtual_layout = prepared.virtual_layout.clone();
         let framegen = prepared.framegen.clone();
         let mode_report = prepared.mode_report.clone();
         let state = Arc::new(Mutex::new(prepared));
@@ -262,6 +290,7 @@ impl Ready {
             target,
             mode,
             client_display,
+            virtual_layout,
             framegen,
             mode_report,
             stop,
@@ -280,6 +309,19 @@ impl Ready {
         warnings: Arc<Warnings>,
     ) -> Result<StreamPreparation> {
         let limiter = limiter::Lease::acquire(directory, config, &self.framegen)?;
+        butterpollo_windows::input::on_input_desktop(|| -> Result<()> {
+            let prepared = self._state.lock().unwrap();
+            // A paused stream leaves local display changes alone. Resuming
+            // must restore its primary/exclusive layout before capture starts.
+            if let Some(arrangement) = &prepared._arrangement {
+                arrangement.reapply(&prepared.output, &prepared.remote_monitors())?;
+                if let Some(display) = &prepared.display {
+                    display.apply_virtual_mode("after resume layout");
+                }
+                self.mode_report.publish(applied_mode(&prepared.output));
+            }
+            Ok(())
+        })?;
         self.mode_report.attach(warnings);
         self.active.fetch_add(1, Ordering::AcqRel);
         Ok(StreamPreparation {
@@ -290,10 +332,13 @@ impl Ready {
     pub fn matches(&self, stream: &Negotiated) -> bool {
         self.mode == stream_mode(stream)
     }
-    /// Whether this display was set up for what the next launch's client
-    /// asks of the PC's displays; see `HostDisplay::reusable`.
-    pub fn serves(&self, requested: Option<HostDisplay>) -> bool {
+    /// A retained display must not hide settings changed while it was paused.
+    pub fn serves(&self, requested: Option<HostDisplay>, layout: &str) -> bool {
         HostDisplay::reusable(self.client_display, requested)
+            && self
+                .virtual_layout
+                .as_deref()
+                .is_none_or(|old| old == layout)
     }
     pub fn output(&self) -> String {
         self.target.current().0
@@ -343,6 +388,7 @@ pub struct Prepared {
     _golden: Option<GoldenLease>,
     mode: (u32, u32, u32, bool, bool),
     client_display: Option<HostDisplay>,
+    virtual_layout: Option<String>,
     revision: u64,
     recovery: Recovery,
     layout_watch: butterpollo_core::display_policy::LayoutWatch,
@@ -822,33 +868,15 @@ impl Prepared {
         let virtual_layout = virtual_mode || retained.is_some();
         // The client's choice for this stream comes before the device, app
         // and host layouts.
-        let client_layout = match client_display {
-            Some(HostDisplay::Virtual(arrangement)) if virtual_mode => Some(arrangement),
-            _ => None,
-        };
-        let selection = if let Some(arrangement) = client_layout {
-            arrangement.name()
-        } else if virtual_layout {
-            launch
-                .client
-                .extra
-                .get("virtual_display_layout")
-                .and_then(serde_json::Value::as_str)
-                .filter(|s| !s.is_empty() && *s != "global")
-                .or_else(|| option("virtual-display-layout"))
-                .unwrap_or(config.get("virtual_display_layout", "exclusive"))
+        let selection = if virtual_layout {
+            virtual_display_layout(
+                config,
+                &launch.client,
+                app.as_ref(),
+                client_display.filter(|_| virtual_mode),
+            )
         } else {
             config.get("dd_configuration_option", "verify_only")
-        };
-        let selection = if virtual_mode
-            && client_layout.is_none()
-            && app
-                .as_ref()
-                .is_some_and(|a| crate::process::app_bool(a, "virtual-display-primary", false))
-        {
-            "extended_primary"
-        } else {
-            selection
         };
         // An unknown layout falls back to the default: exclusive for a
         // virtual display, verify only (no arrangement) for a physical one.
@@ -968,6 +996,7 @@ impl Prepared {
                 _golden: golden,
                 mode: stream_mode(stream),
                 client_display,
+                virtual_layout: virtual_layout.then(|| selection.to_owned()),
                 revision,
                 recovery: Recovery::new(),
                 layout_watch: Default::default(),
@@ -1154,6 +1183,7 @@ mod tests {
             _golden: None,
             mode: stream_mode(&Negotiated::default()),
             client_display: None,
+            virtual_layout: Some("extended".into()),
             revision: 0,
             recovery: Recovery::new(),
             layout_watch: Default::default(),
@@ -1166,6 +1196,46 @@ mod tests {
         let limiter = limiter::Lease::acquire(&fixture.host.directory, &config, &policy).unwrap();
         let first = Ready::prepare((prepared, limiter)).unwrap();
         let display = first.display.clone();
+        let mut changed = Config::parse("virtual_display_layout=extended").unwrap();
+        let mut client = fixture.client(u32::MAX);
+        let mut app: butterpollo_core::state::App =
+            serde_json::from_value(serde_json::json!({"name":"Game"})).unwrap();
+        assert!(display.serves(
+            None,
+            virtual_display_layout(&changed, &client, Some(&app), None)
+        ));
+        for layout in ["exclusive", "extended_primary"] {
+            for source in ["host", "device", "app"] {
+                match source {
+                    "host" => {
+                        changed
+                            .values
+                            .insert("virtual_display_layout".into(), layout.into());
+                    }
+                    "device" => {
+                        client
+                            .extra
+                            .insert("virtual_display_layout".into(), layout.into());
+                    }
+                    _ => {
+                        app.extra
+                            .insert("virtual-display-layout".into(), layout.into());
+                    }
+                }
+                assert!(
+                    !display.serves(
+                        None,
+                        virtual_display_layout(&changed, &client, Some(&app), None)
+                    ),
+                    "{source}: {layout}"
+                );
+                changed
+                    .values
+                    .insert("virtual_display_layout".into(), "extended".into());
+                client.extra.remove("virtual_display_layout");
+                app.extra.remove("virtual-display-layout");
+            }
+        }
         assert_eq!(display.active.load(Ordering::Acquire), 1);
         let second = display
             .clone()
@@ -1188,6 +1258,74 @@ mod tests {
         drop(display);
     }
 
+    #[test]
+    fn explicit_virtual_layouts_take_precedence_over_the_legacy_primary_flag() {
+        use butterpollo_core::display_policy::Arrangement;
+        let config = Config::default();
+        let mut client: butterpollo_core::state::Client =
+            serde_json::from_value(serde_json::json!({"name":"Device","uuid":"device","cert":""}))
+                .unwrap();
+        let mut app: butterpollo_core::state::App = serde_json::from_value(
+            serde_json::json!({"name":"Game","virtual-display-primary":true}),
+        )
+        .unwrap();
+        assert_eq!(
+            virtual_display_layout(&config, &client, None, None),
+            "exclusive"
+        );
+        assert_eq!(
+            virtual_display_layout(&config, &client, Some(&app), None),
+            "extended_primary"
+        );
+        app.extra
+            .insert("virtual-display-layout".into(), "exclusive".into());
+        assert_eq!(
+            virtual_display_layout(&config, &client, Some(&app), None),
+            "exclusive"
+        );
+        client
+            .extra
+            .insert("virtual_display_layout".into(), "extended".into());
+        assert_eq!(
+            virtual_display_layout(&config, &client, Some(&app), None),
+            "extended"
+        );
+        client
+            .extra
+            .insert("virtual_display_layout".into(), "exclusive".into());
+        assert_eq!(
+            virtual_display_layout(&config, &client, Some(&app), None),
+            "exclusive"
+        );
+        assert_eq!(
+            virtual_display_layout(
+                &config,
+                &client,
+                Some(&app),
+                Some(HostDisplay::Virtual(Arrangement::Primary))
+            ),
+            "extended_primary"
+        );
+        for inherited in ["", "global"] {
+            client
+                .extra
+                .insert("virtual_display_layout".into(), inherited.into());
+            app.extra
+                .insert("virtual-display-layout".into(), inherited.into());
+            assert_eq!(
+                virtual_display_layout(&config, &client, Some(&app), None),
+                "extended_primary"
+            );
+            app.extra
+                .insert("virtual-display-primary".into(), false.into());
+            assert_eq!(
+                virtual_display_layout(&config, &client, Some(&app), None),
+                "exclusive"
+            );
+            app.extra
+                .insert("virtual-display-primary".into(), true.into());
+        }
+    }
     #[test]
     fn a_retained_display_matches_only_the_exact_mode_it_was_made_for() {
         let made = Negotiated {

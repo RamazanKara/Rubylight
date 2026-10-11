@@ -847,6 +847,85 @@ fn phase_learning_tracks_fractional_rate_drift_and_resets_on_jumps_and_recovery(
     }
 }
 #[test]
+fn learned_phase_survives_increased_surplus_without_repeating_game_frames() {
+    let period = 1000. / 60.;
+    for offset in 0..64 {
+        let mut publications = vec![(0., 0), (period / 2. + 0.1, 0)];
+        for frame in 0..600 {
+            let at = period * (frame + 1) as f64
+                + period * f64::from(offset) / 64.
+                + f64::from(frame * 7 % 11) * 0.12;
+            publications.push((at, frame + 1));
+            // Once the phase is learned, surplus captures rise from 30 to 60 Hz.
+            if frame >= 180 || frame % 2 == 0 {
+                publications.push((at + 2. + f64::from(frame * 5 % 7) * 0.1, frame + 1));
+            }
+        }
+        let captures: Vec<f64> = publications.iter().map(|&(at, _)| at).collect();
+        let claims = simulate_with(
+            period,
+            &captures,
+            |_| 0.,
+            |pacer| {
+                pacer
+                    .with_prediction(false)
+                    .with_source_phase(true)
+                    .with_spacing(0.5)
+            },
+        );
+        let steady: Vec<_> = claims.iter().filter(|(at, _)| *at >= 4000.).collect();
+        let mut frames: Vec<_> = steady
+            .iter()
+            .map(|&&(_, presented)| {
+                let index = publications
+                    .binary_search_by(|(at, _)| at.total_cmp(&presented))
+                    .unwrap();
+                publications[index].1
+            })
+            .collect();
+        frames.dedup();
+        let unique = frames.len() as f64 / steady.len() as f64;
+        assert!(
+            steady.len() >= 350,
+            "offset {offset}: {} claims",
+            steady.len()
+        );
+        assert!(unique >= 0.95, "offset {offset}: {unique} unique share");
+    }
+}
+#[test]
+fn phase_retention_counts_stream_cycles_instead_of_capture_bursts() {
+    let start = Instant::now();
+    let period = Duration::from_millis(16);
+    let mut phase = SourcePhase::new(period);
+    for frame in 0..64 {
+        phase.observe(start + period * frame);
+        if frame % 2 == 0 {
+            phase.observe(start + period * frame + period / 2);
+        }
+    }
+    assert!(phase.center.is_some());
+    let last = start + period * 63;
+    // Several off-phase captures within one stream period are not a phase jump.
+    for offset in 1..=8 {
+        phase.observe(last + Duration::from_millis(offset + 3));
+        assert!(phase.center.is_some());
+    }
+    for frame in 1..=3 {
+        phase.observe(last + period * frame + period / 2);
+    }
+    assert!(phase.center.is_none());
+
+    // Many in-phase samples in one cycle cannot support mostly empty cycles.
+    phase = SourcePhase::new(period);
+    for frame in 0..8 {
+        for burst in 0..8 {
+            phase.observe(start + period * (frame * 3) + Duration::from_micros(burst * 100));
+        }
+    }
+    assert!(!phase.covers_cycles(0));
+}
+#[test]
 fn phase_override_preserves_default_decisions_without_clear_capture_surplus() {
     let start = Instant::now();
     for prediction in [false, true] {

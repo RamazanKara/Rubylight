@@ -79,7 +79,7 @@ struct SourcePhase {
     count: usize,
     next: usize,
     center: Option<u64>,
-    misses: u8,
+    last_phase: Option<Instant>,
 }
 impl SourcePhase {
     fn new(period: Duration) -> Self {
@@ -92,7 +92,7 @@ impl SourcePhase {
             count: 0,
             next: 0,
             center: None,
-            misses: 0,
+            last_phase: None,
         }
     }
     fn offset(&self, at: Instant) -> u64 {
@@ -125,6 +125,36 @@ impl SourcePhase {
         span > 0
             && (self.count as u128 - 1) * u128::from(self.period_ns) * 10 >= u128::from(span) * 11
     }
+    fn covers_cycles(&self, center: u64) -> bool {
+        let oldest = if self.count == self.samples.len() {
+            self.next
+        } else {
+            0
+        };
+        let newest = (self.next + self.samples.len() - 1) % self.samples.len();
+        let period = u128::from(self.period_ns);
+        let cycle = |elapsed: u64| {
+            (u128::from(elapsed) + period - u128::from(center) + period / 2) / period
+        };
+        let first = cycle(self.elapsed_ns[oldest]);
+        let last = cycle(self.elapsed_ns[newest]);
+        let complete = last.saturating_sub(first + 1);
+        let mut matched = 0u128;
+        let mut previous = None;
+        for offset in 0..self.count {
+            let index = (oldest + offset) % self.samples.len();
+            let cycle = cycle(self.elapsed_ns[index]);
+            if cycle > first
+                && cycle < last
+                && previous != Some(cycle)
+                && self.distance(self.samples[index], center) <= self.radius_ns()
+            {
+                matched += 1;
+                previous = Some(cycle);
+            }
+        }
+        complete > 0 && matched * 100 >= complete * 65
+    }
     fn observe(&mut self, at: Instant) {
         if self.last == Some(at) {
             return;
@@ -138,15 +168,16 @@ impl SourcePhase {
         let mut phase = self.offset(at);
         if self
             .center
-            .is_some_and(|center| self.distance(phase, center) > self.radius_ns())
+            .is_some_and(|center| self.distance(phase, center) <= self.radius_ns())
         {
-            self.misses += 1;
-        } else {
-            self.misses = 0;
+            self.last_phase = Some(at);
         }
         // A phase jump or irregular source must not keep a stale prediction.
-        // Interspersed extra compositions do not reach three consecutive misses.
-        if self.misses >= 3 {
+        // Extra compositions can outnumber source updates without a phase jump.
+        if self
+            .last_phase
+            .is_some_and(|last| at.duration_since(last) >= Duration::from_nanos(self.period_ns) * 3)
+        {
             *self = Self::new(Duration::from_nanos(self.period_ns));
             self.origin = Some(at);
             phase = 0;
@@ -159,24 +190,31 @@ impl SourcePhase {
             .min(u128::from(u64::MAX)) as u64;
         self.next = (self.next + 1) % self.samples.len();
         self.count = (self.count + 1).min(self.samples.len());
-        self.center = None;
+        let previous = self.center.take();
+        self.last_phase = None;
         if self.count < 32 {
             return;
         }
-        let mut bins = [0usize; 64];
-        for &sample in &self.samples[..self.count] {
-            bins[(u128::from(sample) * 64 / u128::from(self.period_ns)) as usize] += 1;
-        }
-        let population = |bin: usize| {
-            (0..9)
-                .map(|offset| bins[(bin + offset + 60) % 64])
-                .sum::<usize>()
+        // Retain a learned source while it still updates in most stream cycles;
+        // counting all captures would let extra compositions dilute its support.
+        let center = if let Some(center) = previous.filter(|&center| self.covers_cycles(center)) {
+            center
+        } else {
+            let mut bins = [0usize; 64];
+            for &sample in &self.samples[..self.count] {
+                bins[(u128::from(sample) * 64 / u128::from(self.period_ns)) as usize] += 1;
+            }
+            let population = |bin: usize| {
+                (0..9)
+                    .map(|offset| bins[(bin + offset + 60) % 64])
+                    .sum::<usize>()
+            };
+            let peak = (0..64).max_by_key(|&bin| population(bin)).unwrap();
+            if population(peak) * 100 < self.count * 65 {
+                return;
+            }
+            ((peak as u128 * 2 + 1) * u128::from(self.period_ns) / 128) as u64
         };
-        let peak = (0..64).max_by_key(|&bin| population(bin)).unwrap();
-        if population(peak) * 100 < self.count * 65 {
-            return;
-        }
-        let center = ((peak as u128 * 2 + 1) * u128::from(self.period_ns) / 128) as u64;
         let half = i128::from(self.period_ns / 2);
         let period = i128::from(self.period_ns);
         let mut sum = 0i128;
@@ -189,7 +227,14 @@ impl SourcePhase {
             }
         }
         if count > 0 {
-            self.center = Some((i128::from(center) + sum / count).rem_euclid(period) as u64);
+            let center = (i128::from(center) + sum / count).rem_euclid(period) as u64;
+            self.center = Some(center);
+            self.last_phase = self.samples[..self.count]
+                .iter()
+                .zip(&self.elapsed_ns[..self.count])
+                .filter(|&(sample, _)| self.distance(*sample, center) <= self.radius_ns())
+                .map(|(_, &elapsed)| self.origin.unwrap() + Duration::from_nanos(elapsed))
+                .max();
         }
     }
 }

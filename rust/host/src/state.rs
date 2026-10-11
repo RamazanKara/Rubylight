@@ -145,6 +145,7 @@ pub struct Host {
     pub aliases_path: PathBuf,
     pub aliases: Mutex<Value>,
     pub config: RwLock<Config>,
+    pub port_override: Option<u16>,
     pub identity: Identity,
     pub paired: RwLock<PairedState>,
     pub credentials: RwLock<Option<Credentials>>,
@@ -322,6 +323,7 @@ impl Host {
             aliases_path,
             aliases: Mutex::new(aliases),
             config: RwLock::new(config),
+            port_override: port,
             identity,
             paired: RwLock::new(paired),
             credentials: RwLock::new(credentials),
@@ -987,6 +989,7 @@ mod tests {
         };
         let new = Credentials::new("Ramazan K".into(), "new-password").unwrap();
         set(Some(&new));
+        h.paired.write().unwrap().save(&h.paired_path).unwrap();
         h.reload_credentials();
         let current = h.credentials.read().unwrap().clone().unwrap();
         assert!(current.verifies("ramazan k", "new-password"));

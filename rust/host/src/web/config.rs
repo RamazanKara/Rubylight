@@ -8,7 +8,11 @@ use std::time::{Duration, Instant};
 pub(super) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyhow::Result<Value> {
     Ok(match (method, path) {
         ("GET", "/api/config") => {
-            let c = h.config.read().unwrap();
+            let c = if h.port_override.is_some() {
+                butterpollo_core::config::Config::load(&h.config_path)?
+            } else {
+                h.config.read().unwrap().clone()
+            };
             let mut v = c.json();
             v["status"] = json!(true);
             v["platform"] = json!("windows");
@@ -24,7 +28,11 @@ pub(super) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
                 object.remove(key);
             }
             let mut config = h.config.write().unwrap();
-            let mut next = config.clone();
+            let mut next = if h.port_override.is_some() {
+                butterpollo_core::config::Config::load(&h.config_path)?
+            } else {
+                config.clone()
+            };
             next.update(&object)?;
             next.check_saved(object.keys())?;
             state::atomic_write(&h.config_path, next.text().as_bytes())?;
@@ -33,6 +41,9 @@ pub(super) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
                     .err()
                     .map(|e| e.to_string());
             crate::logging::apply(next.log_level());
+            if let Some(port) = h.port_override {
+                next.values.insert("port".into(), port.to_string());
+            }
             *config = next;
             drop(config);
             h.metadata.lock().unwrap().take();
@@ -84,4 +95,40 @@ pub(super) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
         }
         _ => return Err(anyhow::anyhow!("unknown API endpoint")),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::state::{Host, test_support::Fixture};
+    use butterpollo_core::config::Config;
+
+    #[test]
+    fn saving_configuration_does_not_persist_the_command_line_port() {
+        let fixture = Fixture::new();
+        std::fs::write(&fixture.host.config_path, "port = 48000\n").unwrap();
+        let host = Host::load(
+            fixture.host.directory.clone(),
+            fixture.host.assets.clone(),
+            Some(48518),
+        )
+        .unwrap();
+        assert_eq!(host.config.read().unwrap().port().unwrap(), 48518);
+        let mut saved = handle(&host, "GET", "/api/config", &Value::Null).unwrap();
+        assert_eq!(saved["port"], 48000);
+        saved["sunshine_name"] = "Test host".into();
+        handle(&host, "POST", "/api/config", &saved).unwrap();
+        assert_eq!(
+            Config::load(&host.config_path).unwrap().port().unwrap(),
+            48000
+        );
+        assert_eq!(host.config.read().unwrap().port().unwrap(), 48518);
+        saved["port"] = "48100".into();
+        handle(&host, "POST", "/api/config", &saved).unwrap();
+        assert_eq!(
+            Config::load(&host.config_path).unwrap().port().unwrap(),
+            48100
+        );
+        assert_eq!(host.config.read().unwrap().port().unwrap(), 48518);
+    }
 }

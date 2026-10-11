@@ -105,6 +105,23 @@ pub fn import(source: &Path, destination: &Path) -> Result<()> {
     if !source.join("sunshine.conf").is_file() {
         bail!("select the folder containing sunshine.conf");
     }
+    for path in [
+        config.path("file_state", &source, "sunshine_state.json"),
+        config.path("file_apps", &source, "apps.json"),
+    ] {
+        match path.symlink_metadata() {
+            Ok(metadata) => {
+                if linked(&metadata) {
+                    bail!("profile file is a link: {}", path.display());
+                }
+                if metadata.len() > FILE_LIMIT {
+                    bail!("profile file is larger than 64 MiB: {}", path.display());
+                }
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.into()),
+        }
+    }
     // Validate familiar documents before committing an import; unknown fields stay.
     let paired =
         state::PairedState::load(&config.path("file_state", &source, "sunshine_state.json"))?;
@@ -312,6 +329,19 @@ fn check(directory: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn oversized_state_is_rejected_before_parsing() {
+        let temp = tempfile::tempdir().unwrap();
+        let old = temp.path().join("old");
+        std::fs::create_dir(&old).unwrap();
+        std::fs::write(old.join("sunshine.conf"), "").unwrap();
+        let file = std::fs::File::create(old.join("sunshine_state.json")).unwrap();
+        file.set_len(FILE_LIMIT + 1).unwrap();
+        let next = temp.path().join("next");
+        let error = import(&old, &next).unwrap_err().to_string();
+        assert!(error.contains("larger than 64 MiB"), "{error}");
+        assert!(!next.exists());
+    }
     #[test]
     fn realistic_profiles_keep_pairings_credentials_settings_and_unknown_fields() -> Result<()> {
         let temp = tempfile::tempdir()?;

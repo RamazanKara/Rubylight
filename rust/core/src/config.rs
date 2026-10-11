@@ -87,6 +87,7 @@ impl Config {
                 .trim_start_matches(|c: char| !(c.is_ascii_alphanumeric() || c == '_'));
             let mut value = value.trim().to_owned();
             if value.starts_with(['[', '{']) {
+                let continuation = lines.clone();
                 let mut depth = bracket_depth(&value);
                 while depth > 0 {
                     let Some((_, next)) = lines.next() else {
@@ -98,6 +99,7 @@ impl Config {
                     value.push_str(next.trim());
                 }
                 if depth != 0 {
+                    lines = continuation;
                     tracing::warn!(
                         line = number,
                         key,
@@ -1031,7 +1033,8 @@ mod tests {
         );
         // An unclosed list is dropped; the rest of the file still loads.
         let c = Config::parse("keybindings = [0x10,\nport = 48123\n").unwrap();
-        assert!(c.values.is_empty());
+        assert_eq!(c.port().unwrap(), 48123);
+        assert!(!c.values.contains_key("keybindings"));
         let c = Config::parse("port = 48123\nkeybindings = [0x10,\n").unwrap();
         assert_eq!(c.port().unwrap(), 48123);
         assert!(!c.values.contains_key("keybindings"));

@@ -156,6 +156,7 @@ pub struct PairedState {
     pub document: Value,
     pub clients: Vec<Client>,
     pub unique_id: String,
+    skipped_clients: Vec<Value>,
 }
 impl PairedState {
     pub fn load(path: &Path) -> Result<Self> {
@@ -183,10 +184,21 @@ impl PairedState {
                 s
             }
         };
+        let mut skipped = Vec::new();
         let mut clients: Vec<Client> = match root.get("named_devices") {
             None => vec![],
             Some(v) => {
-                serde_json::from_value(v.clone()).context("invalid paired client records")?
+                let records = v.as_array().context("invalid paired client records")?;
+                records.iter().filter_map(|record| {
+                    match serde_json::from_value(record.clone()) {
+                        Ok(client) => Some(client),
+                        Err(error) => {
+                            tracing::warn!(%error, "invalid paired device record; preserved but skipped");
+                            skipped.push(record.clone());
+                            None
+                        }
+                    }
+                }).collect()
             }
         };
         // Old Sunshine stored a list of certificates per anonymous device.
@@ -228,6 +240,7 @@ impl PairedState {
                         error = %format!("{error:#}"),
                         "paired device has an unreadable certificate; skipped"
                     );
+                    skipped.push(serde_json::to_value(&c)?);
                     continue;
                 }
             };
@@ -257,6 +270,7 @@ impl PairedState {
             document,
             clients,
             unique_id,
+            skipped_clients: skipped,
         })
     }
     pub fn client_by_certificate(&self, der: &[u8]) -> Option<&Client> {
@@ -273,8 +287,24 @@ impl PairedState {
     }
     pub fn save(&self, path: &Path) -> Result<()> {
         let mut d = self.document.clone();
+        // The credentials CLI can replace these while the host is running.
+        let latest = load_json(path, json!({}))?;
+        for key in ["username", "password", "salt"] {
+            if let Some(value) = latest.get(key) {
+                d[key] = value.clone();
+            } else {
+                d.as_object_mut().unwrap().remove(key);
+            }
+        }
         d["root"]["uniqueid"] = json!(self.unique_id);
-        d["root"]["named_devices"] = serde_json::to_value(&self.clients)?;
+        let mut devices = self.skipped_clients.clone();
+        devices.extend(
+            self.clients
+                .iter()
+                .map(serde_json::to_value)
+                .collect::<Result<Vec<_>, _>>()?,
+        );
+        d["root"]["named_devices"] = Value::Array(devices);
         write_json(path, &d)
     }
     /// Pair a device. A certificate that is already paired, as when Moonlight
@@ -303,9 +333,15 @@ impl PairedState {
     pub fn remove(&mut self, path: &Path, id: &str) -> Result<()> {
         let mut next = self.clone();
         next.clients.retain(|c| c.uuid != id);
+        next.skipped_clients
+            .retain(|record| record["uuid"].as_str() != Some(id));
         next.save(path)?;
         *self = next;
         Ok(())
+    }
+    pub fn clear(&mut self) {
+        self.clients.clear();
+        self.skipped_clients.clear();
     }
 }
 /// Where a profile keeps its files, as its sunshine.conf names them.
@@ -394,6 +430,8 @@ pub struct PrepCommand {
     pub undo: String,
     #[serde(default, deserialize_with = "compatible_bool")]
     pub elevated: bool,
+    #[serde(flatten)]
+    pub extra: BTreeMap<String, Value>,
 }
 impl App {
     pub fn id(&self) -> u32 {
@@ -420,6 +458,86 @@ impl App {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn paired_saves_keep_credentials_changed_or_removed_on_disk() {
+        let d = tempfile::tempdir().unwrap();
+        let p = d.path().join("state.json");
+        let old = Credentials::new("old".into(), "old-password").unwrap();
+        write_json(&p, &old).unwrap();
+        let mut s = PairedState::load(&p).unwrap();
+        let new = Credentials::new("new".into(), "new-password").unwrap();
+        write_json(&p, &new).unwrap();
+        s.document["root"]["last_seen"] = 123.into();
+        s.save(&p).unwrap();
+        assert!(
+            Credentials::load(&p)
+                .unwrap()
+                .unwrap()
+                .verifies("new", "new-password")
+        );
+        assert!(
+            !Credentials::load(&p)
+                .unwrap()
+                .unwrap()
+                .verifies("old", "old-password")
+        );
+        assert_eq!(
+            load_json(&p, Value::Null).unwrap()["root"]["last_seen"],
+            123
+        );
+        let mut document = load_json(&p, Value::Null).unwrap();
+        for key in ["username", "password", "salt"] {
+            document.as_object_mut().unwrap().remove(key);
+        }
+        write_json(&p, &document).unwrap();
+        s.save(&p).unwrap();
+        assert!(Credentials::load(&p).unwrap().is_none());
+    }
+    #[test]
+    fn malformed_devices_are_preserved_without_blocking_usable_pairings() {
+        let d = tempfile::tempdir().unwrap();
+        let p = d.path().join("state.json");
+        let identity = crypto::Identity::generate().unwrap();
+        let malformed = json!({"name":"Malformed","uuid":"broken","perm":[]});
+        let unreadable =
+            json!({"name":"Unreadable","uuid":"bad-cert","cert":"bad","perm":1,"enabled":true});
+        write_json(
+            &p,
+            &json!({"root":{"named_devices":[malformed, unreadable,
+                {"name":"Phone","uuid":"valid","cert":identity.certificate}
+            ]}}),
+        )
+        .unwrap();
+        let s = PairedState::load(&p).unwrap();
+        assert_eq!(s.clients.len(), 1);
+        assert_eq!(s.clients[0].uuid, "valid");
+        s.save(&p).unwrap();
+        let saved = load_json(&p, Value::Null).unwrap();
+        assert_eq!(saved["root"]["named_devices"][0], malformed);
+        assert_eq!(saved["root"]["named_devices"][1], unreadable);
+        let mut reloaded = PairedState::load(&p).unwrap();
+        reloaded.remove(&p, "valid").unwrap();
+        assert_eq!(
+            load_json(&p, Value::Null).unwrap()["root"]["named_devices"]
+                .as_array()
+                .unwrap()
+                .len(),
+            2
+        );
+        assert!(PairedState::load(&p).unwrap().clients.is_empty());
+        reloaded.clear();
+        reloaded.save(&p).unwrap();
+        assert_eq!(
+            load_json(&p, Value::Null).unwrap()["root"]["named_devices"],
+            json!([])
+        );
+    }
+    #[test]
+    fn preparation_commands_keep_unknown_fields() {
+        let original = json!({"do":"before","undo":"after","elevated":false,"future":{"value":42}});
+        let command: PrepCommand = serde_json::from_value(original.clone()).unwrap();
+        assert_eq!(serde_json::to_value(command).unwrap(), original);
+    }
     #[test]
     fn bad_existing_state_is_not_replaced() {
         let d = tempfile::tempdir().unwrap();

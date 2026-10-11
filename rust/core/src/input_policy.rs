@@ -171,17 +171,22 @@ impl Policy {
         if config.boolean("key_rightalt_to_key_win", false) {
             keybindings.entry(0xa5).or_insert(0x5b);
         }
-        let frequency = config
+        let repeat_period = config
             .get("key_repeat_frequency", "24.9")
             .parse::<f64>()
             .ok()
             .filter(|f| f.is_finite() && (0.0..=1000.0).contains(f))
+            .and_then(|frequency| {
+                Duration::try_from_secs_f64(1.0 / if frequency == 0.0 { 24.9 } else { frequency })
+                    .ok()
+            })
+            .filter(|period| std::time::Instant::now().checked_add(*period).is_some())
             .unwrap_or_else(|| {
                 crate::config::invalid(
                     "key_repeat_frequency",
                     config.get("key_repeat_frequency", ""),
                 );
-                24.9
+                Duration::from_secs_f64(1.0 / 24.9)
             });
         Ok(Self {
             keyboard: config.boolean("keyboard", true),
@@ -202,9 +207,7 @@ impl Policy {
                 ms if ms < 0 => Some(Duration::from_millis(500)),
                 ms => Some(Duration::from_millis(ms.min(60000) as u64)),
             },
-            repeat_period: Duration::from_secs_f64(
-                1.0 / if frequency == 0.0 { 24.9 } else { frequency },
-            ),
+            repeat_period,
             back_button_timeout: u64::try_from(config.integer("back_button_timeout", -1))
                 .ok()
                 .map(|ms| Duration::from_millis(ms.min(60000))),
@@ -510,6 +513,26 @@ mod tests {
             Policy::resolve(&Config::default()).unwrap().repeat_delay,
             Some(Duration::from_millis(500))
         );
+    }
+    #[test]
+    fn key_repeat_frequency_cannot_overflow_the_repeat_timer() {
+        let period = |value: &str| {
+            let config = Config::parse(&format!("key_repeat_frequency={value}\n")).unwrap();
+            Policy::resolve(&config).unwrap().repeat_period
+        };
+        let default = Duration::from_secs_f64(1.0 / 24.9);
+        for value in ["0", "1e-30", "5e-324", "NaN", "inf", "-1", "1001"] {
+            assert_eq!(period(value), default, "{value}");
+        }
+        for value in ["1e-19", "1e-15", "0.001"] {
+            assert!(
+                std::time::Instant::now()
+                    .checked_add(period(value))
+                    .is_some()
+            );
+        }
+        assert_eq!(period("0.5"), Duration::from_secs(2));
+        assert_eq!(period("1000"), Duration::from_millis(1));
     }
     #[test]
     fn held_back_emits_one_home_pulse_and_requires_release_before_rearming() {

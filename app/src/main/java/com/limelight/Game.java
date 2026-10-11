@@ -2501,8 +2501,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                     // Toggle cursor visibility
                     case KeyEvent.KEYCODE_C:
                         if (!grabbedInput) {
-                            inputCaptureProvider.enableCapture();
-                            grabbedInput = true;
+                            setInputGrabState(true);
                         }
                         cursorVisible = !cursorVisible;
                         if (cursorVisible) {

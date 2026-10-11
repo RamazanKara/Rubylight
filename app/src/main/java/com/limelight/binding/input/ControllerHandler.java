@@ -325,6 +325,10 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         }
         for (UsbDeviceContext context : usbDeviceContexts.values()) {
             releaseInput(context);
+            if (context.assignedControllerNumber && (context.device.getCapabilities() & MoonBridge.LI_CCAP_TOUCHPAD) != 0) {
+                conn.sendControllerTouchEvent((byte) context.controllerNumber, MoonBridge.LI_TOUCH_EVENT_CANCEL_ALL,
+                        0, 0, 0, 0);
+            }
         }
         releaseInput(defaultContext);
     }

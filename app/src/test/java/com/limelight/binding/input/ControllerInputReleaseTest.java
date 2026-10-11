@@ -4,11 +4,15 @@ import android.app.Activity;
 import android.app.Application;
 import android.view.KeyEvent;
 
+import com.limelight.Game;
+import com.limelight.binding.input.capture.InputCaptureProvider;
+import com.limelight.binding.input.driver.AbstractController;
 import com.limelight.nvstream.NvConnection;
 import com.limelight.nvstream.StreamConfiguration;
 import com.limelight.nvstream.http.ComputerDetails;
 import com.limelight.nvstream.input.ControllerPacket;
 import com.limelight.nvstream.input.MouseButtonPacket;
+import com.limelight.nvstream.jni.MoonBridge;
 import com.limelight.preferences.PreferenceConfiguration;
 
 import org.junit.Test;
@@ -40,6 +44,7 @@ public class ControllerInputReleaseTest {
             ControllerHandler.InputDeviceContext first = handler.new InputDeviceContext();
             ControllerHandler.InputDeviceContext second = handler.new InputDeviceContext();
             ControllerHandler.UsbDeviceContext directUsb = handler.new UsbDeviceContext();
+            directUsb.device = new UsbController();
             ControllerHandler.InputDeviceContext defaults = ReflectionHelpers.getField(handler, "defaultContext");
             devices.put(1, first);
             devices.put(2, second);
@@ -91,9 +96,15 @@ public class ControllerInputReleaseTest {
             ControllerHandler.UsbDeviceContext context = handler.new UsbDeviceContext();
             context.assignedControllerNumber = true;
             context.buttonMap = new ControllerButtonMap();
+            context.device = new UsbController();
             usb.put(3, context);
             try {
+                handler.reportControllerTouch(3, MoonBridge.LI_TOUCH_EVENT_DOWN, 1, 0.5f, 0.5f, 1);
                 handler.setInputEnabled(false);
+                assertEquals(List.of(MoonBridge.LI_TOUCH_EVENT_DOWN, MoonBridge.LI_TOUCH_EVENT_CANCEL_ALL),
+                        connection.touches);
+                handler.reportControllerTouch(3, MoonBridge.LI_TOUCH_EVENT_UP, 1, 0.5f, 0.5f, 0);
+                assertEquals(2, connection.touches.size());
                 connection.states.clear();
                 handler.reportControllerState(3, ControllerPacket.A_FLAG, 1, 1, 1, 1, 1, 1);
                 assertTrue(connection.states.isEmpty());
@@ -103,6 +114,8 @@ public class ControllerInputReleaseTest {
                 assertEquals(1, connection.states.size());
                 assertEquals(ControllerPacket.A_FLAG, connection.states.get(0)[0]);
                 assertTrue(context.leftStickX != 0);
+                handler.reportControllerTouch(3, MoonBridge.LI_TOUCH_EVENT_DOWN, 2, 0.5f, 0.5f, 1);
+                assertEquals(3, connection.touches.size());
             } finally {
                 usb.clear();
                 handler.destroy();
@@ -110,9 +123,67 @@ public class ControllerInputReleaseTest {
         }
     }
 
+    @Test
+    public void cursorShortcutRestoresUsbInputAfterRegrabbing() {
+        Game activity = Robolectric.buildActivity(FocusedGame.class).get();
+        RecordingConnection connection = new RecordingConnection();
+        ControllerHandler handler = new ControllerHandler(activity, connection, null, new PreferenceConfiguration());
+        Map<Integer, ControllerHandler.UsbDeviceContext> usb = ReflectionHelpers.getField(handler, "usbDeviceContexts");
+        ControllerHandler.UsbDeviceContext context = handler.new UsbDeviceContext();
+        context.assignedControllerNumber = true;
+        context.buttonMap = new ControllerButtonMap();
+        context.device = new UsbController();
+        usb.put(3, context);
+        InputCaptureProvider capture = new InputCaptureProvider() { };
+        ReflectionHelpers.setField(activity, "conn", connection);
+        ReflectionHelpers.setField(activity, "controllerHandler", handler);
+        ReflectionHelpers.setField(activity, "inputCaptureProvider", capture);
+        ReflectionHelpers.setField(activity, "grabbedInput", false);
+        try {
+            handler.setInputEnabled(false);
+            connection.states.clear();
+            int[] keys = {KeyEvent.KEYCODE_CTRL_LEFT, KeyEvent.KEYCODE_ALT_LEFT, KeyEvent.KEYCODE_SHIFT_LEFT,
+                    KeyEvent.KEYCODE_C};
+            for (int key : keys) {
+                ReflectionHelpers.callInstanceMethod(activity, "handleSpecialKeys",
+                        ReflectionHelpers.ClassParameter.from(int.class, key),
+                        ReflectionHelpers.ClassParameter.from(boolean.class, true));
+            }
+            for (int i = keys.length - 1; i >= 0; i--) {
+                ReflectionHelpers.callInstanceMethod(activity, "handleSpecialKeys",
+                        ReflectionHelpers.ClassParameter.from(int.class, keys[i]),
+                        ReflectionHelpers.ClassParameter.from(boolean.class, false));
+            }
+            assertTrue(capture.isCapturingEnabled());
+            handler.reportControllerState(3, ControllerPacket.A_FLAG, 1, 1, 1, 1, 1, 1);
+            assertEquals(1, connection.states.size());
+            assertEquals(ControllerPacket.A_FLAG, connection.states.get(0)[0]);
+        } finally {
+            usb.clear();
+            handler.destroy();
+        }
+    }
+
+    public static class FocusedGame extends Game {
+        @Override public boolean hasWindowFocus() { return true; }
+    }
+
+    private static class UsbController extends AbstractController {
+        UsbController() {
+            super(3, null, 0x054c, 0x0ce6);
+            capabilities = MoonBridge.LI_CCAP_TOUCHPAD;
+        }
+
+        @Override public boolean start() { return true; }
+        @Override public void stop() { }
+        @Override public void rumble(short low, short high) { }
+        @Override public void rumbleTriggers(short left, short right) { }
+    }
+
     private static class RecordingConnection extends NvConnection {
         final List<int[]> states = new ArrayList<>();
         final List<Byte> mouseUps = new ArrayList<>();
+        final List<Byte> touches = new ArrayList<>();
 
         RecordingConnection() {
             super(null, new ComputerDetails.AddressTuple("127.0.0.1", 47989), 47984, "test",
@@ -126,6 +197,12 @@ public class ControllerInputReleaseTest {
 
         @Override public void sendMouseButtonUp(byte button) {
             mouseUps.add(button);
+        }
+
+        @Override public int sendControllerTouchEvent(byte number, byte event, int pointer,
+                                                     float x, float y, float pressure) {
+            touches.add(event);
+            return 0;
         }
     }
 }

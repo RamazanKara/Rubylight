@@ -1,54 +1,64 @@
-# Rubylight
+<p align="center">
+  <img src="docs/media/banner.svg" width="900" alt="Rubylight — Written in Rust. Built for Radeon. Made for Moonlight.">
+</p>
 
-**Written in Rust. Built for Radeon. Made for Moonlight.**
+<p align="center">
+  Stream your PC games and desktop to a laptop, TV, phone or handheld.<br>
+  A free Windows host built around AMD Radeon, ready for Moonlight and Sunshine-compatible clients.
+</p>
 
-*Formerly Butterpollo.*
+<div align="center">
 
-**Stream your games from any AMD Radeon PC to any screen**: a laptop, TV, phone, tablet, handheld or another PC. Rubylight is a free Windows game-streaming host that drives AMD's encoder natively, prepares every frame on Radeon compute, and streams HEVC and AV1 in 10-bit HDR, or **full-colour HDR 4:4:4 through PyroWave**. It works with Moonlight and every other Sunshine-compatible client, so the app you already use connects as it is.
+**[Download 2.2.6](https://github.com/RamazanKara/Rubylight/releases/tag/v2.2.6)** · **[Get started](docs/getting-started.md)** · [Website](https://ramazankara.github.io/Rubylight/) · [Docs](docs/README.md) · [Android client](https://github.com/RamazanKara/rubylight-android)
 
-**[Download 2.2.6](https://github.com/RamazanKara/Rubylight/releases/tag/v2.2.6)** · **[Get started](docs/getting-started.md)** · [Website](https://ramazankara.github.io/Rubylight/) · [Documentation](docs/README.md) · [Release notes](rust/RELEASE_NOTES.md)
+<sub>Windows x64 · Free and open source · Formerly Butterpollo</sub>
 
-[![Meet Rubylight: a Windows Moonlight host built around Radeon, its frame pipeline, measured performance, a matched host comparison, PyroWave HDR and getting started](docs/media/demo.gif)](docs/media/demo.mp4)
+</div>
 
-<sub>Follow one frame from your game to Moonlight, see the Radeon measurements, then get started. 60 seconds · 1080p · 60 fps · original soundtrack. [Watch the film](docs/media/demo.mp4).</sub>
+<p align="center">
+  <a href="docs/media/demo.mp4"><img src="docs/media/demo.gif" width="800" alt="Meet Rubylight: follow a frame from your game to Moonlight, see measured Radeon performance, and get started."></a>
+</p>
 
-- **About 13 ms** from a rendered picture to a client over Wi-Fi, in AV1 HDR at 120 fps, with every one of the 120 pictures a second arriving.
-- **7.4 ms sooner than Vibepollo 2.0** on average while a game runs, on the same GPU with identical settings.
-- **3.1 ms host latency** for AV1 while a game runs, where Vibepollo 2.0 takes 7.4 ms.
-- **59 of 59 lost frames recovered without a keyframe** over Wi-Fi, so a dropped packet never turns into a stutter.
+<p align="center"><a href="docs/media/demo.mp4">Watch the full demo →</a> · 60 seconds · 1080p · 60 fps</p>
 
-[How these were measured →](#measured-not-claimed)
+## Features
+
+- **More room for your game.** Frame copies and colour conversion run on Radeon compute queues alongside your game's graphics work, with AMD's encoder driven natively.
+- **See every detail.** H.264, HEVC and AV1 streaming, with 10-bit HDR through HEVC and AV1 on supported hardware.
+- **Full colour with PyroWave.** 10-bit HDR 4:4:4 keeps fine coloured text and edges crisp. Use [Rubylight Android](https://github.com/RamazanKara/rubylight-android) or another PyroWave-capable client over a fast local network.
+- **A screen for each device.** Virtual displays match your client's resolution and refresh rate, with HDR and your monitor layout restored after the stream.
+- **Your library, ready to play.** Steam and Playnite sync, per-app settings, RTSS frame limits and Lossless Scaling integration.
+- **Your controls come with you.** Controllers, keyboard, mouse, touch and pen, plus surround audio and microphone passthrough with compatible clients.
+- **Everything in one console.** Pair devices, manage games and watch frame rate, bitrate and encoder timing from your browser. Stream from the lock screen or a headless PC, too.
+
+Rubylight works with Moonlight and other Sunshine-compatible clients across PCs, phones, tablets, TVs, consoles and handhelds. Available codecs, HDR and extra controls depend on your hardware and client. NVIDIA NVENC, Intel Quick Sync and software encoding are also included; Rubylight's tuning and measurements focus on Radeon.
+
+[All features →](docs/features.md) · [How the frame pipeline works →](docs/architecture.md) · [Choose your stream format →](docs/getting-started.md#choose-your-stream-format)
 
 ## Install. Pair. Play.
 
-1. Run **`rubylight-setup-2.2.6.exe`** from the [release](https://github.com/RamazanKara/Rubylight/releases/tag/v2.2.6).
-2. Open the Rubylight console at **`https://localhost:47990`** and create your local account.
-3. Add your PC in Moonlight or any Sunshine-compatible client, enter its pairing PIN in **Devices**, then launch **Desktop**.
+1. **Install on your PC.** Run **`rubylight-setup-2.2.6.exe`** from the [release](https://github.com/RamazanKara/Rubylight/releases/tag/v2.2.6).
+2. **Open your console.** Visit **`https://localhost:47990`** on the host PC and create your local account.
+3. **Pair and play.** Open Moonlight on a device on the same network, select your PC, enter its PIN in Rubylight's **Devices** page, then launch **Desktop**.
 
-Coming from Apollo or Vibepollo? The installer brings your settings, paired devices and app library with it, so your clients keep working. Updates notify you first, with automatic installation as an opt-in.
+Coming from Apollo or Vibepollo? Rubylight can import your settings, paired devices and app library. After an import, sign in with your existing console account. Updates notify you first; automatic installation is opt-in.
 
 [First-stream walkthrough, portable setup and migration →](docs/getting-started.md)
 
-## Why Rubylight
-
-AMD rarely gets any love in this space. Game streaming started as NVIDIA's GameStream, and the hosts that replaced it kept NVIDIA first. So Radeon owners have spent years hearing their cards are just worse at streaming. Most of the time the card was never the problem. Nobody had sat down with it.
-
-Rubylight is that host, rebuilt from the ground up in Rust around the Radeon frame path, for every Radeon owner who wants to play away from the desk.
-
-| What you get | How it helps |
-| --- | --- |
-| **Radeon compute** | Frame copies and colour conversion run on compute queues beside your game's graphics work, so the game and the stream stop waiting on each other. |
-| **Native AMD encoding** | AMD's encoder driven directly, tuned per codec for picture quality, with driver quirks handled for you. |
-| **HEVC and AV1 HDR** | Ten-bit HDR from capture to your screen. H.264 is there too. |
-| **PyroWave HDR 4:4:4** | A colour sample for every pixel, so fine coloured text and edges stay crisp. |
-| **Every Moonlight client** | Works with Moonlight and every other Sunshine-compatible client on Windows, macOS, Linux, Android, iOS, TVs, consoles and handhelds. |
-| **A modern web console** | Pair devices, manage your library and per-app settings, and see frame rate, bitrate and encoder timing together. |
-
-Also built in: a virtual display for each device at its own resolution and refresh rate, HDR display handling, RTSS frame limits, Steam and Playnite library sync, Lossless Scaling, 1000 Hz VRR, microphone passthrough, every common controller type including a real Steam Deck controller on the host, and streaming from the lock screen, headless machines, virtual machines and Kubernetes pods.
-
-[All features →](docs/features.md) · [How the frame pipeline works →](docs/architecture.md) · [Choose your settings →](docs/configuration.md)
-
 ## Measured, not claimed
+
+Radeon is the starting point for Rubylight's frame pipeline. Here is what that delivered in the recorded tests:
+
+| Result | Test conditions |
+| --- | --- |
+| **13.34 ms** average render-to-received | 1440p120 AV1 HDR, 50 Mbps; host on Ethernet, client on 5 GHz Wi-Fi. |
+| **3.1 ms** host latency beside a game | 1968×2184 AV1 HDR at 120 fps; Vibepollo 2.0 measured 7.4 ms on the same GPU and settings. |
+| **59 / 59** lost frames recovered without a keyframe | 1440p120 AV1 at 50 Mbps; a 90-second test dropping 20 ms of video every 1.5 seconds. |
+
+<sub>Recorded October 8, 2026. Render-to-received ends when the client starts decoding a fully received picture; it does not include decoding or display time. The Wi-Fi row is one 30-second run with about ±0.6 ms clock-sync error. Results describe these setups. [Methods and recorded runs](docs/performance.md).</sub>
+
+<details>
+<summary><strong>Explore the benchmarks: Wi-Fi, gaming load and Radeon compute</strong></summary>
 
 ### Over Wi-Fi
 
@@ -86,17 +96,23 @@ With the host dropping 20 ms of video every 1.5 s, **all 59 lost frames were rec
 
 [All benchmarks and HDR checks →](docs/performance.md)
 
+
+</details>
+
 ## What users say
+
+> From 10 ms encoding to 5 ms in 4K 60 fps, btw :) I tried it with PyroWave and it was close to native. Really impressive.
+>
+> **u/3stwie4** on Reddit
+
+<details>
+<summary><strong>More from the community</strong></summary>
 
 Quotes from Reddit, lightly edited for typos and length. Several were written while the project was still called Butterpollo.
 
 > WTF. Runs like Butterchicken (that's where it got the original name from)
 >
 > **u/Closef35** on Reddit
-
-> From 10 ms encoding to 5 ms in 4K 60 fps, btw :) I tried it with PyroWave and it was close to native. Really impressive.
->
-> **u/3stwie4** on Reddit
 
 > My encoding times are actually slashed in half, which is incredible. I thought PyroWave on Vibeshine was the best I was gonna get, but my max encode would still spike to 7-8 ms at 2K 100 fps. Still below the 10 ms cutoff, but I wanted more headroom for higher quality or if a game is more demanding. My max is now 3.5 ms with the occasional pip to 5 ms every few minutes. Image quality is top notch, and combined with Nonary's work on VRR Moonlight smoothing that out, my setup has finally been something I am not itchy to improve or tweak anymore.
 >
@@ -118,9 +134,8 @@ Quotes from Reddit, lightly edited for typos and length. Several were written wh
 >
 > **u/almosgeci** on Reddit
 
-## Full colour with PyroWave
 
-PyroWave carries **10-bit HDR with 4:4:4 chroma**: a colour sample for every pixel, over a fast local network. Play it on [Rubylight Android](https://github.com/RamazanKara/rubylight-android), our own client for Vulkan phones and tablets, or on any PyroWave-capable Moonlight client. Every Moonlight client streams H.264, HEVC and AV1. [Pick a stream format →](docs/getting-started.md#choose-your-stream-format)
+</details>
 
 ## Find what you need
 
@@ -132,7 +147,7 @@ PyroWave carries **10-bit HDR with 4:4:4 chroma**: a colour sample for every pix
 | See everything it does and how fast | [Features](docs/features.md) · [Performance](docs/performance.md) · [Architecture](docs/architecture.md) |
 | Build or integrate Rubylight | [Build guide](docs/building.md) · [Developer guide](rust/README.md) · [API reference](docs/api.md) |
 
-Share your setup, games and results in [Issues](https://github.com/RamazanKara/Rubylight/issues).
+[Release notes](rust/RELEASE_NOTES.md) · Share your setup, games and results in [Issues](https://github.com/RamazanKara/Rubylight/issues).
 
 ## Credits and license
 

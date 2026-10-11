@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="360" viewBox="0 0 1280 360" role="img" aria-labelledby="title desc">
+  <title id="title">Rubylight</title>
+  <desc id="desc">Written in Rust. Built for Radeon. Made for Moonlight. A free Windows game-streaming host.</desc>
+  <defs>
+    <linearGradient id="background" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#111116"/>
+      <stop offset="1" stop-color="#210e18"/>
+    </linearGradient>
+    <radialGradient id="glow">
+      <stop stop-color="#c41242" stop-opacity=".3"/>
+      <stop offset="1" stop-color="#c41242" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="1280" height="360" rx="20" fill="url(#background)"/>
+  <ellipse cx="1090" cy="160" rx="370" ry="300" fill="url(#glow)"/>
+  <g font-family="Segoe UI, Helvetica, Arial, sans-serif">
+    <rect x="64" y="54" width="42" height="42" rx="10" fill="#c41242"/>
+    <text x="85" y="85" text-anchor="middle" font-size="30" font-weight="800" fill="#fff">R</text>
+    <text x="122" y="82" font-size="17" font-weight="600" letter-spacing="2" fill="#c4bcc2">YOUR PC. EVERY SCREEN.</text>
+    <text x="60" y="200" font-size="92" font-weight="750" letter-spacing="-3" fill="#fff">Rubylight</text>
+    <text x="65" y="252" font-size="27" fill="#ece8ec">Written in Rust. <tspan fill="#ff477b" font-weight="700">Built for Radeon.</tspan> Made for Moonlight.</text>
+    <text x="65" y="309" font-size="16" letter-spacing="1.5" fill="#b5a8b0">WINDOWS HOST · FREE &amp; OPEN SOURCE</text>
+  </g>
+  <g fill="none" stroke="#ee3569" stroke-width="2">
+    <rect x="991" y="73" width="208" height="142" rx="14" opacity=".65"/>
+    <path d="M1095 215v29m-42 0h84" opacity=".65"/>
+    <rect x="1086" y="158" width="92" height="142" rx="14" fill="#210e18"/>
+    <path d="M1120 174h24m-20 110h16"/>
+  </g>
+</svg>

@@ -14,6 +14,7 @@ struct RouterState {
     deleted: Vec<u16>,
     /// Answer every table read with this UPnP error.
     list_fault: Option<u32>,
+    add_fault: Option<u32>,
 }
 fn text<'a>(body: &'a str, tag: &str) -> &'a str {
     body.split_once(&format!("<{tag}>"))
@@ -64,6 +65,9 @@ async fn soap(
             )
         }
         "AddPortMapping" => {
+            if let Some(code) = state.add_fault {
+                return fault(code);
+            }
             let lease = text(&body, "NewLeaseDuration").parse().unwrap();
             state.leases.push(lease);
             if lease != 0 {
@@ -86,10 +90,7 @@ async fn soap(
 }
 async fn serve(
     state: Arc<Mutex<RouterState>>,
-) -> (
-    Gateway<igd_next::aio::tokio::Tokio>,
-    tokio::task::JoinHandle<()>,
-) {
+) -> (Gateway<upnp::Bounded>, tokio::task::JoinHandle<()>) {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     let router = Router::new()
@@ -124,7 +125,7 @@ async fn serve(
         control_url: "/control".into(),
         control_schema_url: "/schema.xml".into(),
         control_schema: schema,
-        provider: igd_next::aio::tokio::Tokio,
+        provider: upnp::Bounded,
     };
     (gateway, server)
 }
@@ -217,5 +218,51 @@ async fn a_router_that_hides_its_table_still_gets_and_loses_the_mappings() {
     assert_eq!(state.lock().unwrap().rows.len(), 1);
     remove(&gateway, local, &applied, owner).await.unwrap();
     assert_eq!(state.lock().unwrap().deleted, [48126]);
+    server.abort();
+}
+
+#[tokio::test]
+async fn hidden_table_conflicts_remain_reported_until_the_mapping_succeeds() {
+    let state = Arc::new(Mutex::new(RouterState {
+        list_fault: Some(606),
+        add_fault: Some(718),
+        ..Default::default()
+    }));
+    let (gateway, server) = serve(state.clone()).await;
+    let wanted = [Mapping {
+        protocol: Protocol::TCP,
+        port: 48126,
+    }];
+    let mut reported = Vec::new();
+    for _ in 0..2 {
+        assert!(
+            apply(
+                &gateway,
+                "192.0.2.10".parse().unwrap(),
+                &wanted,
+                "fixture",
+                &mut reported
+            )
+            .await
+            .unwrap()
+            .is_empty()
+        );
+        assert_eq!(reported, wanted);
+        state.lock().unwrap().list_fault = None;
+    }
+    state.lock().unwrap().add_fault = None;
+    assert_eq!(
+        apply(
+            &gateway,
+            "192.0.2.10".parse().unwrap(),
+            &wanted,
+            "fixture",
+            &mut reported
+        )
+        .await
+        .unwrap(),
+        wanted
+    );
+    assert!(reported.is_empty());
     server.abort();
 }

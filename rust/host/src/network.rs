@@ -15,6 +15,7 @@ use std::{
 #[cfg(test)]
 mod fixtures;
 mod ipv6;
+mod upnp;
 
 /// Where a peer is, by address, as Vibepollo classifies it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -300,7 +301,7 @@ fn forwards_here(entry: &igd_next::PortMappingEntry, local: IpAddr) -> bool {
         && entry.internal_port == entry.external_port
 }
 /// `reported` holds the ports already warned about: the router is asked
-/// again every minute, and the same conflict warned each time.
+/// again every minute, but a continuing conflict is only warned once.
 async fn apply<P: Provider>(
     gateway: &Gateway<P>,
     local: IpAddr,
@@ -335,7 +336,6 @@ async fn apply<P: Provider>(
             }
             continue;
         }
-        reported.retain(|reported| reported != mapping);
         let result = tokio::time::timeout(
             Duration::from_secs(3),
             gateway.add_port(
@@ -367,8 +367,15 @@ async fn apply<P: Provider>(
         };
         match result {
             Ok(Ok(())) => {
+                reported.retain(|reported| reported != mapping);
                 if !applied.contains(mapping) {
                     applied.push(*mapping);
+                }
+            }
+            Ok(Err(igd_next::AddPortError::PortInUse)) => {
+                if !reported.contains(mapping) {
+                    reported.push(*mapping);
+                    tracing::warn!(port=mapping.port, protocol=?mapping.protocol, "UPnP port is already owned by another mapping; remove it on the router so clients outside your network reach this PC");
                 }
             }
             Ok(Err(error)) => tracing::warn!(%error,port=mapping.port,"UPnP mapping failed"),
@@ -429,7 +436,7 @@ pub fn port_forward(h: Shared, bind: IpAddr) -> Option<tokio::task::JoinHandle<(
                         },
                         ..Default::default()
                     };
-                    match igd_next::aio::tokio::search_gateway(options).await {
+                    match upnp::discover(options).await {
                         Ok(gateway) => {
                             let local = (|| -> Result<IpAddr> {
                                 let socket = UdpSocket::bind((IpAddr::from([0, 0, 0, 0]), 0))?;

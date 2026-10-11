@@ -344,6 +344,7 @@ dependencies = [
  "tracing-subscriber",
  "url",
  "uuid",
+ "xml-rs",
  "xmltree",
  "zip",
 ]

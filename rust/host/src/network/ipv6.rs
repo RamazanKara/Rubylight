@@ -32,10 +32,7 @@ fn descendant<'a>(
         .find_map(|child| descendant(child, predicate, depth + 1))
 }
 fn control_url(bytes: &[u8], location: &Url) -> Result<Url> {
-    if bytes.len() > 262144 {
-        bail!("UPnP descriptor exceeds its limit");
-    }
-    let root = Element::parse(bytes)?;
+    let root = super::upnp::xml(bytes)?;
     let service = descendant(
         &root,
         &|node| node.name == "service" && child(node, "serviceType").as_deref() == Some(SERVICE),
@@ -59,16 +56,6 @@ fn control_url(bytes: &[u8], location: &Url) -> Result<Url> {
         bail!("IPv6 control URL does not belong to the discovered IGD");
     }
     Ok(url)
-}
-async fn bytes(mut response: reqwest::Response) -> Result<Vec<u8>> {
-    let mut result = Vec::new();
-    while let Some(chunk) = response.chunk().await? {
-        if result.len() + chunk.len() > 262144 {
-            bail!("UPnP response exceeds its limit");
-        }
-        result.extend_from_slice(&chunk);
-    }
-    Ok(result)
 }
 async fn soap(
     client: &Client,
@@ -99,7 +86,7 @@ async fn soap(
         .send()
         .await?;
     let status = response.status();
-    let root = Element::parse(bytes(response).await?.as_slice())?;
+    let root = super::upnp::xml(&super::upnp::bytes(response).await?)?;
     if let Some(error) = descendant(&root, &|node| node.name == "UPnPError", 0) {
         bail!(
             "IPv6 UPnP {action} failed: {} {}",
@@ -128,7 +115,7 @@ impl Firewall {
             .send()
             .await?
             .error_for_status()?;
-        let url = control_url(&bytes(response).await?, &location)?;
+        let url = control_url(&super::upnp::bytes(response).await?, &location)?;
         let status = soap(&client, &url, "GetFirewallStatus", &[]).await?;
         if child(&status, "InboundPinholeAllowed").as_deref() != Some("1") {
             bail!("IGD does not permit IPv6 pinholes");

@@ -217,6 +217,7 @@
     <string name="title_video_format">Videocodec</string>
     <string name="summary_video_format">Wähle einen Codec, den PC und Gerät unterstützen.</string>
     <string name="pyrowave_ready">Auf diesem Gerät verfügbar</string>
+    <string name="pyrowave_checking">GPU-Unterstützung wird geprüft…</string>
     <string name="pyrowave_needs_android">Benötigt Android 10</string>
     <string name="pyrowave_needs_64_bit">Benötigt eine 64-Bit-App</string>
     <string name="pyrowave_decoder_unavailable">Decoder nicht verfügbar</string>

@@ -22,6 +22,9 @@ public final class PyroWaveDecoderRenderer {
     private int format;
     private DecoderPerformanceHints performanceHints;
     private Context maxClocksContext;
+    private Context driverContext;
+    private GpuDriverStore.Driver customDriver;
+    private String driverStatus = "";
     // Survives a crash, so the next stream can hand GPU power management back to the kernel.
     private static final String MAX_CLOCKS_ACTIVE = "pyrowave_max_clocks_active";
 
@@ -37,20 +40,29 @@ public final class PyroWaveDecoderRenderer {
         }
     }
 
-    static boolean isAvailable() {
-        return getReadiness(false) == 0;
+    static boolean isAvailable(Context context) {
+        return getReadiness(context, false) == 0;
     }
 
-    private static int getReadiness(boolean hdr) {
+    private static int getReadiness(Context context, boolean hdr) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return -1;
         if (!Process.is64Bit()) return -2;
-        return LIBRARY_LOADED ? nativeGetReadiness(hdr) : -3;
+        if (!LIBRARY_LOADED) return -3;
+        GpuDriverStore.Driver driver = GpuDriverStore.isSupported() ? GpuDriverStore.selected(context) : null;
+        if (driver != null && GpuDriverStore.beginUse(context, driver)) {
+            int result = nativeGetReadiness(hdr, context.getApplicationInfo().nativeLibraryDir,
+                    driver.directory.getAbsolutePath() + File.separator, driver.libraryName);
+            GpuDriverStore.endUse(context, driver, result != 0);
+            if (result == 0) return 0;
+            LimeLog.warning("Custom GPU driver cannot decode PyroWave; checking the system driver");
+        }
+        return nativeGetReadiness(hdr, null, null, null);
     }
 
-    public static int getReadinessSummary(boolean hdr) {
+    public static int getReadinessSummary(Context context, boolean hdr) {
         // Native reason codes are shared with the renderer's device checks.
-        switch (getReadiness(hdr)) {
-            case 0: return R.string.pyrowave_ready;
+        switch (getReadiness(context, hdr)) {
+            case 0: return GpuDriverStore.usedFallback(context) ? R.string.gpu_driver_system_fallback : R.string.pyrowave_ready;
             case -1: return R.string.pyrowave_needs_android;
             case -2: return R.string.pyrowave_needs_64_bit;
             case -3: return R.string.pyrowave_decoder_unavailable;
@@ -82,16 +94,31 @@ public final class PyroWaveDecoderRenderer {
                                Context context, boolean maxClocks) {
         cleanup();
         if (!LIBRARY_LOADED || surface == null || !surface.isValid()) return false;
-        try {
-            handle = nativeCreate(surface, width, height, fps, displayRefreshRate,
-                    (format & MoonBridge.VIDEO_FORMAT_MASK_YUV444) != 0,
-                    (format & MoonBridge.VIDEO_FORMAT_MASK_10BIT) != 0, fullRange, stretch,
-                    upscaleMode(upscaling), SgsrConstants.edgeSharpness(sharpness));
-        } catch (IllegalArgumentException e) {
-            // The surface may be released between isValid() and the native window lookup.
-            LimeLog.warning("PyroWave surface unavailable: " + e);
-            return false;
+        driverContext = context.getApplicationContext();
+        customDriver = GpuDriverStore.isSupported() ? GpuDriverStore.selected(context) : null;
+        boolean requestedCustom = customDriver != null;
+        for (int attempt = 0; attempt < (requestedCustom ? 2 : 1); attempt++) {
+            if (customDriver != null && !GpuDriverStore.beginUse(context, customDriver)) customDriver = null;
+            try {
+                handle = nativeCreate(surface, width, height, fps, displayRefreshRate,
+                        (format & MoonBridge.VIDEO_FORMAT_MASK_YUV444) != 0,
+                        (format & MoonBridge.VIDEO_FORMAT_MASK_10BIT) != 0, fullRange, stretch,
+                        upscaleMode(upscaling), SgsrConstants.edgeSharpness(sharpness),
+                        customDriver != null ? context.getApplicationInfo().nativeLibraryDir : null,
+                        customDriver != null ? customDriver.directory.getAbsolutePath() + File.separator : null,
+                        customDriver != null ? customDriver.libraryName : null);
+            } catch (IllegalArgumentException e) {
+                LimeLog.warning("PyroWave surface unavailable: " + e);
+            }
+            if (handle != 0) break;
+            if (customDriver != null) {
+                GpuDriverStore.endUse(context, customDriver, true);
+                customDriver = null;
+                LimeLog.warning("Custom GPU driver initialization failed; retrying the system driver");
+            }
         }
+        driverStatus = customDriver != null ? customDriver.name : context.getString(
+                requestedCustom || GpuDriverStore.usedFallback(context) ? R.string.gpu_driver_system_fallback : R.string.gpu_driver_system);
         this.format = handle != 0 ? format : 0;
         setMaxClocks(context, handle != 0 && maxClocks && hasAdrenoGpu());
         return handle != 0;
@@ -160,7 +187,7 @@ public final class PyroWaveDecoderRenderer {
     }
 
     synchronized String getDriver() {
-        return handle != 0 ? nativeGetDriver(handle) : "";
+        return handle != 0 ? nativeGetDriver(handle) + " · " + driverStatus : "";
     }
 
     synchronized UpscalingPolicy.Reason getUpscalingReason() {
@@ -196,6 +223,11 @@ public final class PyroWaveDecoderRenderer {
             performanceHints = null;
         }
         if (handle != 0) nativeDestroy(handle);
+        if (customDriver != null) {
+            GpuDriverStore.endUse(driverContext, customDriver, false);
+            customDriver = null;
+        }
+        driverContext = null;
         handle = 0;
         format = 0;
         restoreClocks();
@@ -210,10 +242,10 @@ public final class PyroWaveDecoderRenderer {
         PreferenceManager.getDefaultSharedPreferences(context).edit().putBoolean(MAX_CLOCKS_ACTIVE, false).apply();
     }
 
-    private static native int nativeGetReadiness(boolean hdr);
+    private static native int nativeGetReadiness(boolean hdr, String hooks, String directory, String name);
     private static native long nativeCreate(Surface surface, int width, int height, int fps, float displayRefreshRate,
                                            boolean chroma444, boolean tenBit, boolean fullRange, boolean stretch,
-                                           int upscale, float edgeSharpness);
+                                           int upscale, float edgeSharpness, String hooks, String directory, String name);
     private static native String nativeGetDriver(long handle);
     private static native int nativeGetUpscalingReason(long handle);
     private static native boolean nativeSetGpuMaxClocks(boolean enabled);

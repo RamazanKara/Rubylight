@@ -154,6 +154,7 @@
             <meta-data android:name="WindowManagerPreference:FreeformWindowOrientation" android:value="landscape" />
         </activity>
         <activity android:name=".LatencyBenchmarkActivity" android:exported="false" android:resizeableActivity="true" />
+        <activity android:name=".preferences.GpuDriverSettings" android:exported="false" android:resizeableActivity="true" />
         <activity
             android:name=".preferences.HostStreamSettings"
             android:resizeableActivity="true"

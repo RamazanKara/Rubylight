@@ -35,6 +35,9 @@ typedef VkQueueGlobalPriorityKHR VkQueueGlobalPriority;
 #endif
 
 #include <pyrowave/pyrowave.h>
+#if defined(__aarch64__)
+#include <adrenotools/driver.h>
+#endif
 
 #include <android/log.h>
 #include <android/native_window_jni.h>
@@ -56,6 +59,7 @@ typedef VkQueueGlobalPriorityKHR VkQueueGlobalPriority;
 #include <deque>
 #include <iterator>
 #include <memory>
+#include <map>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -213,8 +217,53 @@ namespace {
     X(CmdWriteTimestamp) \
     X(GetQueryPoolResults)
 
+    struct CustomDriverLibrary {
+        void *adrenotools = nullptr;
+        void *library = nullptr;
+        uint32_t loaded = 0;
+    };
+
+    CustomDriverLibrary *customDriverLibrary(const std::string &hooks, const std::string &directory,
+                                             const std::string &name) {
+#if defined(__aarch64__)
+        static std::mutex mutex;
+        // Hook namespaces retain their parameters. Keep each immutable driver's loader alive
+        // until process exit rather than unloading code another Vulkan instance may still use.
+        static std::map<std::string, std::unique_ptr<CustomDriverLibrary>> libraries;
+        std::lock_guard<std::mutex> lock(mutex);
+        auto &driver = libraries[directory];
+        if (!driver) {
+            driver = std::make_unique<CustomDriverLibrary>();
+            // The opt-in library's namespace resolver must never run for system-driver users.
+            driver->adrenotools = dlopen("libadrenotools.so", RTLD_NOW | RTLD_LOCAL);
+            auto openDriver = driver->adrenotools == nullptr ? nullptr :
+                reinterpret_cast<decltype(&adrenotools_open_libvulkan)>(dlsym(driver->adrenotools, "adrenotools_open_libvulkan"));
+            if (openDriver != nullptr) {
+                driver->library = openDriver(RTLD_NOW | RTLD_LOCAL, ADRENOTOOLS_DRIVER_CUSTOM,
+                        nullptr, hooks.c_str(), directory.c_str(), name.c_str(), nullptr, nullptr, &driver->loaded);
+            }
+        }
+        return driver.get();
+#else
+        (void) hooks;
+        (void) directory;
+        (void) name;
+        return nullptr;
+#endif
+    }
+
+    std::string jniString(JNIEnv *env, jstring value) {
+        if (value == nullptr) return {};
+        const char *characters = env->GetStringUTFChars(value, nullptr);
+        if (characters == nullptr) return {};
+        std::string result(characters);
+        env->ReleaseStringUTFChars(value, characters);
+        return result;
+    }
+
     struct VulkanLoader {
         void *library = nullptr;
+        CustomDriverLibrary *custom;
         PFN_vkGetInstanceProcAddr GetInstanceProcAddr = nullptr;
         PFN_vkSetHdrMetadataEXT SetHdrMetadataEXT = nullptr;
         PFN_vkGetPastPresentationTimingGOOGLE GetPastPresentationTimingGOOGLE = nullptr;
@@ -224,14 +273,16 @@ namespace {
         VK_DEVICE_FUNCTIONS(X)
 #undef X
 
+        explicit VulkanLoader(CustomDriverLibrary *custom = nullptr) : custom(custom) { }
+
         ~VulkanLoader() {
-            if (library != nullptr) {
+            if (library != nullptr && custom == nullptr) {
                 dlclose(library);
             }
         }
 
         bool loadGlobal() {
-            library = dlopen("libvulkan.so", RTLD_NOW | RTLD_LOCAL);
+            library = custom != nullptr ? custom->library : dlopen("libvulkan.so", RTLD_NOW | RTLD_LOCAL);
             if (library == nullptr) {
                 LOGI("No Vulkan loader on this device");
                 return false;
@@ -246,6 +297,10 @@ namespace {
             // vkEnumerateInstanceVersion is missing on Vulkan 1.0 loaders, which is fine: 1.0 is not enough.
             return CreateInstance != nullptr && EnumerateInstanceVersion != nullptr &&
                    EnumerateInstanceExtensionProperties != nullptr;
+        }
+
+        bool usingRequestedDriver() const {
+            return custom == nullptr || __atomic_load_n(&custom->loaded, __ATOMIC_ACQUIRE) != 0;
         }
 
         bool loadInstance(VkInstance instance) {
@@ -426,6 +481,7 @@ namespace {
     class Renderer {
     public:
         PyroWaveRecords records;
+        explicit Renderer(CustomDriverLibrary *custom = nullptr) : vk(custom) { }
         ~Renderer() {
             destroy();
         }
@@ -531,6 +587,10 @@ namespace {
             if (!check(vk.EnumeratePhysicalDevices(instance, &count, nullptr), "physical device count") || count == 0) return false;
             std::vector<VkPhysicalDevice> devices(count);
             if (!check(vk.EnumeratePhysicalDevices(instance, &count, devices.data()), "physical devices")) return false;
+            if (!vk.usingRequestedDriver()) {
+                LOGW("Custom Vulkan driver did not load; retry with the system driver");
+                return false;
+            }
             devices.resize(count);
 
             FeatureProbe chosenProbe;
@@ -1988,11 +2048,11 @@ namespace {
         }
     };
 
-    Readiness probeReadiness(bool tenBit) {
+    Readiness probeReadiness(bool tenBit, CustomDriverLibrary *custom) {
         if (!apiVersionSupported()) {
             return PROBE_FAILED;
         }
-        VulkanLoader vk;
+        VulkanLoader vk(custom);
         if (!vk.loadGlobal()) {
             return NEEDS_VULKAN_1_3;
         }
@@ -2070,36 +2130,46 @@ namespace {
             }
         }
         vk.DestroyInstance(instance, nullptr);
-        return readiness;
+        return vk.usingRequestedDriver() ? readiness : PROBE_FAILED;
     }
 }  // namespace
 
 extern "C" {
 
 JNIEXPORT jint JNICALL
-Java_com_limelight_binding_video_PyroWaveDecoderRenderer_nativeGetReadiness(JNIEnv *, jclass, jboolean tenBit) {
-    // The capability is a property of the driver, so probe once per process.
-    static std::once_flag once[2];
-    static Readiness readiness[2] = {PROBE_FAILED, PROBE_FAILED};
-    int index = tenBit ? 1 : 0;
-    std::call_once(once[index], [index] { readiness[index] = probeReadiness(index != 0); });
-    return readiness[index];
+Java_com_limelight_binding_video_PyroWaveDecoderRenderer_nativeGetReadiness(JNIEnv *env, jclass, jboolean tenBit,
+                                                                            jstring hooks, jstring directory, jstring name) {
+    CustomDriverLibrary *custom = directory == nullptr ? nullptr :
+        customDriverLibrary(jniString(env, hooks), jniString(env, directory), jniString(env, name));
+    if (directory != nullptr && custom == nullptr) return PROBE_FAILED;
+    // Selection changes use a different immutable package and receive their own capability probe.
+    static std::mutex mutex;
+    static std::map<std::pair<CustomDriverLibrary *, bool>, Readiness> results;
+    std::lock_guard<std::mutex> lock(mutex);
+    auto key = std::make_pair(custom, tenBit != 0);
+    auto found = results.find(key);
+    if (found == results.end()) found = results.emplace(key, probeReadiness(tenBit != 0, custom)).first;
+    return found->second;
 }
 
 JNIEXPORT jlong JNICALL
 Java_com_limelight_binding_video_PyroWaveDecoderRenderer_nativeCreate(JNIEnv *env, jclass, jobject surface,
                                                                       jint width, jint height, jint frameRate, jfloat displayRefreshRate,
                                                                       jboolean chroma444, jboolean tenBit, jboolean fullRange, jboolean stretch,
-                                                                      jint upscale, jfloat edgeSharpness) {
+                                                                      jint upscale, jfloat edgeSharpness,
+                                                                      jstring hooks, jstring directory, jstring name) {
     if (surface == nullptr || width < 64 || height < 64 || width > 16384 || height > 16384 || (!chroma444 && ((width & 1) || (height & 1)))) {
         LOGE("PyroWave needs a surface and positive dimensions, even for 4:2:0 (%dx%d)", width, height);
         return 0;
     }
+    CustomDriverLibrary *custom = directory == nullptr ? nullptr :
+        customDriverLibrary(jniString(env, hooks), jniString(env, directory), jniString(env, name));
+    if (directory != nullptr && custom == nullptr) return 0;
     ANativeWindow *window = ANativeWindow_fromSurface(env, surface);
     if (window == nullptr) {
         return 0;
     }
-    auto renderer = std::make_unique<Renderer>();
+    auto renderer = std::make_unique<Renderer>(custom);
     if (!renderer->create(window, width, height, frameRate, displayRefreshRate, chroma444, tenBit, fullRange, stretch,
                           upscale, edgeSharpness)) {
         return 0;  // The renderer releases the window.

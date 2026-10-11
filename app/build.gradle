@@ -154,6 +154,7 @@ android {
     }
 
     packaging {
+        jniLibs.useLegacyPackaging = true
         resources {
             // BouncyCastle includes duplicate LICENSE.md files
             excludes += '/META-INF/*.md'

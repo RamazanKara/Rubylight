@@ -18,6 +18,9 @@ LOCAL_SRC_FILES := pyrowave_renderer.cpp
 LOCAL_CPPFLAGS := -std=c++17 -Wall -Wextra -Wno-missing-field-initializers -fno-exceptions -fno-rtti
 LOCAL_SHARED_LIBRARIES := pyrowave-shared
 LOCAL_STATIC_LIBRARIES := rubylight-protocol
+ifeq ($(TARGET_ARCH_ABI),arm64-v8a)
+LOCAL_C_INCLUDES += $(LOCAL_PATH)/../adrenotools/include
+endif
 # Vulkan is loaded with dlopen at runtime; libvulkan is not linked.
 LOCAL_LDLIBS := -llog -landroid -ldl
 include $(BUILD_SHARED_LIBRARY)

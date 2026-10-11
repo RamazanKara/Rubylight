@@ -249,6 +249,7 @@
     <string name="title_video_format">Video codec</string>
     <string name="summary_video_format">Choose a codec supported by your PC and device.</string>
     <string name="pyrowave_ready">Ready on this phone</string>
+    <string name="pyrowave_checking">Checking GPU support…</string>
     <string name="pyrowave_needs_android">Not supported: needs Android 10</string>
     <string name="pyrowave_needs_64_bit">Not supported: needs a 64-bit app</string>
     <string name="pyrowave_decoder_unavailable">Not supported: decoder unavailable</string>

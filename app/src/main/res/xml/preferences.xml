@@ -54,6 +54,8 @@
             android:defaultValue="false" />
     </PreferenceCategory>
     <PreferenceCategory android:key="category_upscaling" android:title="@string/title_upscaling">
+        <Preference android:key="gpu_driver" android:title="@string/gpu_driver_title"
+            android:summary="@string/gpu_driver_summary" />
         <com.limelight.preferences.MaterialListPreference
             android:key="upscaling_mode"
             android:title="@string/title_upscaling"

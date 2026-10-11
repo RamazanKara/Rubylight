@@ -80,7 +80,7 @@ public class StreamSettings extends AppCompatActivity {
     }
     // Kept by a reset: the language is applied by the OS, the others are actions
     private static final List<String> RESET_EXCLUDED_KEYS = Arrays.asList(
-            PreferenceConfiguration.LANGUAGE_PREF_STRING, "export_latency_csv", "about_app");
+            PreferenceConfiguration.LANGUAGE_PREF_STRING, "export_latency_csv", "about_app", "gpu_driver");
 
     private PreferenceConfiguration previousPrefs;
     private int previousDisplayPixelCount;
@@ -523,6 +523,7 @@ public class StreamSettings extends AppCompatActivity {
         }
 
         private final Map<String, CharSequence> descriptions = new HashMap<>();
+        private int codecSummaryGeneration;
         private final SharedPreferences.OnSharedPreferenceChangeListener summaryUpdater =
                 (prefs, key) -> updateValueSummaries(getPreferenceScreen());
 
@@ -624,6 +625,11 @@ public class StreamSettings extends AppCompatActivity {
                 showMicPermissionDenied();
             }
             getPreferenceManager().getSharedPreferences().registerOnSharedPreferenceChangeListener(summaryUpdater);
+            ListPreference codec = (ListPreference) findPreference("video_format");
+            if (codec != null) {
+                updateCodecSummary(codec, codec.getValue(), getPreferenceManager().getSharedPreferences()
+                        .getBoolean("checkbox_enable_hdr", false));
+            }
             updateValueSummaries(getPreferenceScreen());
             // The fragment is replaced after the window got its insets, so ask for them again
             // to keep the last settings clear of the navigation bar.
@@ -790,12 +796,30 @@ public class StreamSettings extends AppCompatActivity {
         }
 
         private void updateCodecSummary(ListPreference codec, String value, boolean hdr) {
-            CharSequence help = getString("forcepyrowave".equals(value) ?
-                    PyroWaveDecoderRenderer.getReadinessSummary(hdr) : R.string.summary_video_format);
+            final int generation = ++codecSummaryGeneration;
+            if ("forcepyrowave".equals(value)) {
+                android.app.Activity activity = getActivity();
+                setCodecSummary(codec, getString(R.string.pyrowave_checking));
+                new Thread(() -> {
+                    int summary = PyroWaveDecoderRenderer.getReadinessSummary(activity.getApplicationContext(), hdr);
+                    activity.runOnUiThread(() -> {
+                        if (isAdded() && getActivity() == activity && !activity.isFinishing() &&
+                                generation == codecSummaryGeneration) {
+                            setCodecSummary(codec, getString(summary));
+                        }
+                    });
+                }, "GPU capability check").start();
+                return;
+            }
+            CharSequence help = getString(R.string.summary_video_format);
             String measured = DecoderBenchmark.summary(getActivity());
-            if (measured != null && !"forcepyrowave".equals(value)) {
+            if (measured != null) {
                 help = help + "\n\n" + getString(R.string.video_format_measured, measured);
             }
+            setCodecSummary(codec, help);
+        }
+
+        private void setCodecSummary(ListPreference codec, CharSequence help) {
             descriptions.put("video_format", help);
             codec.setDialogMessage(help);
         }
@@ -856,6 +880,10 @@ public class StreamSettings extends AppCompatActivity {
             });
             findPreference("latency_benchmark").setOnPreferenceClickListener(preference -> {
                 startActivity(new Intent(getActivity(), com.limelight.LatencyBenchmarkActivity.class));
+                return true;
+            });
+            findPreference("gpu_driver").setOnPreferenceClickListener(preference -> {
+                startActivity(new Intent(getActivity(), GpuDriverSettings.class));
                 return true;
             });
             findPreference("report_problem").setOnPreferenceClickListener(preference -> {

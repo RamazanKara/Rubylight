@@ -941,7 +941,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
     public boolean isPyroWaveSupported() {
         return prefs.videoFormat == PreferenceConfiguration.FormatOption.FORCE_PYROWAVE &&
-                !prefs.useTextureView && PyroWaveDecoderRenderer.isAvailable();
+                !prefs.useTextureView && PyroWaveDecoderRenderer.isAvailable(context);
     }
 
     public int getSupportedVideoFormats(boolean hdr) {

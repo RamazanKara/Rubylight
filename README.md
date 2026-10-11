@@ -29,17 +29,21 @@
 - **Sharpen your stream** with client-side FSR and Snapdragon GSR upscaling.
 - **Play your way** with USB and Bluetooth controllers, including DualSense.
 - **Stay in control** with touch, trackpad, mouse, keyboard and [on-screen keys and desktop shortcuts](docs/controls.md).
-- **Choose your PC display** with per-PC Exclusive, Extended and isolated display modes on compatible hosts. See the [host feature matrix](docs/PARITY-MATRIX.md).
+- **Choose your PC display** with per-PC exclusive, extended and separated display layouts on compatible hosts. Separated displays share the same Windows session. See the [host feature matrix](docs/PARITY-MATRIX.md).
 - **Choose a Snapdragon GPU driver** for PyroWave with a compatible driver ZIP and system-driver fallback. See [driver requirements](docs/video-and-latency.md).
 - **Know your stream** with Artemis-style Statistics and detailed Debug overlays for frame rates, video throughput, network loss and measured latency stages.
 - **Get playing sooner** with automatic PC discovery and Wake-on-LAN.
 
 ## Quick start
 
+Requires **Android 5.0 or newer**. PyroWave requires Android 10+, a 64-bit device and a compatible Vulkan 1.3 GPU; see [video requirements](docs/video-and-latency.md#codecs).
+
 1. **Set up your PC:** start the [Rubylight host](https://github.com/RamazanKara/Rubylight) and add your games.
-2. **Install on Android:** [download the APK](https://github.com/RamazanKara/rubylight-android/releases/latest) and open it.
+2. **Install on Android:** [download the APK](https://github.com/RamazanKara/rubylight-android/releases/latest), open it and allow installation from your browser or file manager when prompted.
 3. **Connect and pair:** select your PC on the same network and enter the PIN shown on your phone in the host's **Devices** page.
-4. **Start your stream:** allow permissions, open your library and tap a game.
+4. **Start your stream:** in the host's **Devices** page, enable your device and allow application listing, viewing, launching and the input types you use. Open your library on Android and tap a game. See [pairing and permissions](docs/pairing.md).
+
+Use [Rubylight Windows 2.2.5 or newer](https://github.com/RamazanKara/Rubylight/releases/latest) for the automatic-bitrate improvements in Android 0.4.3.
 
 ## Docs
 

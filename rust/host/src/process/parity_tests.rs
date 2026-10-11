@@ -169,13 +169,39 @@ fn preparation_undo_and_failed_preparation_keep_global_order_and_rollback() {
     let error = launch_with_environment(&f.host, &app, &HashMap::new(), Ok(BTreeMap::new()))
         .err()
         .unwrap();
-    assert_eq!(error.to_string(), "preparation command exited with 7");
+    assert_eq!(error.to_string(), "preparation command 3 exited with 7");
     assert_eq!(
         std::fs::read_to_string(&trace)
             .unwrap()
             .lines()
             .collect::<Vec<_>>(),
         ["global", "app", "undo-app", "undo-global"]
+    );
+}
+
+#[test]
+fn application_executable_paths_preserve_shell_environment_expansion() {
+    let elevated = butterpollo_windows::process::user_environment().is_err();
+    let system_root = std::env::var("SystemRoot").unwrap();
+    let app: App = serde_json::from_value(json!({
+        "name":"Shell expansion",
+        "cmd":format!("\"{system_root}\\%RUBYLIGHT_TEST_SYSTEM32%\\cmd.exe\" /d /c exit 0"),
+        "elevated":elevated
+    }))
+    .unwrap();
+    let running = RunningApp::with_environment(
+        &app,
+        BTreeMap::from([("RUBYLIGHT_TEST_SYSTEM32".into(), "System32".into())]),
+    )
+    .unwrap();
+    assert_eq!(
+        running
+            .child
+            .as_ref()
+            .unwrap()
+            .wait(Duration::from_secs(10))
+            .unwrap(),
+        0
     );
 }
 

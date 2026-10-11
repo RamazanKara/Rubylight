@@ -698,6 +698,7 @@ async fn malformed_rtsp_requests_receive_an_authenticated_error_response() -> Re
         assert!(response.contains(message), "{response}");
     }
     h.h.sessions.lock().unwrap().request_stop(Some(&launch.id));
+    drop(launch);
     h.finish().await
 }
 

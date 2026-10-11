@@ -404,6 +404,7 @@ impl RunningApp {
         if !app.cmd.is_empty() {
             let target = butterpollo_windows::process::command_target(&app.cmd);
             if target.to_ascii_lowercase().ends_with(".exe")
+                && !target.contains(['%', '!', '^'])
                 && Path::new(target).is_absolute()
                 && !Path::new(target).is_file()
             {

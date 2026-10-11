@@ -86,8 +86,17 @@ try:
             return root
         with concurrent.futures.ThreadPoolExecutor() as ex:
             future = ex.submit(step, {'phrase': 'getservercert', 'salt': salt.hex(), 'clientcert': cert_pem.hex(), 'devicename': device})
-            time.sleep(.4)
-            session.post(web + '/api/pin', json={'pin': pin, 'name': device, 'uniqueid': uid}, timeout=10).raise_for_status()
+            deadline = time.monotonic() + 10
+            while True:
+                pending = session.get(web + '/api/clients/pending', timeout=3)
+                pending.raise_for_status()
+                matches = [p for p in pending.json()['requests'] if p['name'] == device]
+                assert len(matches) <= 1, 'multiple pairing requests match the fixture'
+                if matches: break
+                if future.done(): future.result()
+                assert time.monotonic() < deadline, 'fixture pairing request did not arrive'
+                time.sleep(.1)
+            session.post(web + '/api/pin', json={'pin': pin, 'name': device, 'uniqueid': matches[0]['uniqueid']}, timeout=10).raise_for_status()
             root = future.result(timeout=20)
         challenge = os.urandom(16)
         root = step({'clientchallenge': ecb(challenge).hex()}); response = ecb(bytes.fromhex(root.findtext('challengeresponse')), False)

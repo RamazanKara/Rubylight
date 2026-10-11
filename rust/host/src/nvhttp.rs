@@ -443,6 +443,13 @@ async fn pair(
 fn another_device_pairing(existing: Option<(&str, bool)>, certificate: &str) -> bool {
     existing.is_some_and(|(theirs, active)| active && theirs != certificate)
 }
+fn pairing_id(id: &str, peer: std::net::IpAddr) -> String {
+    format!(
+        "{}_{}",
+        hex::encode(crypto::hash(id.as_bytes())),
+        hex::encode(crypto::hash(peer.to_canonical().to_string().as_bytes()))
+    )
+}
 async fn do_pair(h: Shared, args: &Args, peer: std::net::IpAddr) -> Result<Vec<(String, String)>> {
     let id = args.get("uniqueid").context("missing uniqueid")?.clone();
     if id.is_empty()
@@ -453,6 +460,9 @@ async fn do_pair(h: Shared, args: &Args, peer: std::net::IpAddr) -> Result<Vec<(
     {
         bail!("invalid uniqueid");
     }
+    // Moonlight shares wire IDs across devices; one LAN peer must not reserve
+    // that ID for every other device waiting to pair.
+    let id = pairing_id(&id, peer);
     if !h.config.read().unwrap().boolean("enable_pairing", true) {
         bail!("pairing is disabled");
     }
@@ -473,6 +483,7 @@ async fn do_pair(h: Shared, args: &Args, peer: std::net::IpAddr) -> Result<Vec<(
             .get("devicename")
             .cloned()
             .unwrap_or("Moonlight Client".into());
+        butterpollo_core::pairing::validate_device_name(&name)?;
         // Another device's request still waiting for its PIN, or in the
         // seconds of its handshake, is not replaced: the PIN typed for it
         // would reach this device instead.
@@ -488,13 +499,12 @@ async fn do_pair(h: Shared, args: &Args, peer: std::net::IpAddr) -> Result<Vec<(
                 p.created.elapsed() < Duration::from_secs(30),
             )
         });
-        if another_device_pairing(
-            waiting.as_ref().map(|(c, a)| (c.as_str(), *a)),
-            &certificate,
-        ) || another_device_pairing(
-            handshaking.as_ref().map(|(c, a)| (c.as_str(), *a)),
-            &certificate,
-        ) {
+        if waiting.as_ref().is_some_and(|(_, active)| *active)
+            || another_device_pairing(
+                handshaking.as_ref().map(|(c, a)| (c.as_str(), *a)),
+                &certificate,
+            )
+        {
             bail!("another device is pairing with this PC; finish or cancel that first");
         }
         // A new certificate request replaces this device's unfinished
@@ -502,10 +512,21 @@ async fn do_pair(h: Shared, args: &Args, peer: std::net::IpAddr) -> Result<Vec<(
         // a wrong PIN without telling the host, and its apps share one unique
         // ID, so the stale session refused every later attempt until restart.
         h.pairings.lock().unwrap().sessions.remove(&id);
+        if h.pairings
+            .lock()
+            .unwrap()
+            .sessions
+            .values()
+            .filter(|p| p.peer == Some(peer) && p.created.elapsed() < Duration::from_secs(300))
+            .count()
+            >= 2
+        {
+            bail!("pairing request limit reached for this address");
+        }
         if let Some(auth) = args.get("otpauth") {
             // One-time PIN pairing (Artemis). A wrong hash still gets an
             // ordinary answer, with a random PIN that fails the next step.
-            let otp = h
+            let mut otp = h
                 .otp
                 .lock()
                 .unwrap()
@@ -526,7 +547,10 @@ async fn do_pair(h: Shared, args: &Args, peer: std::net::IpAddr) -> Result<Vec<(
                 (otp.pin, name)
             } else {
                 tracing::warn!(client=%name, "One-time PIN pairing failed");
-                *h.otp.lock().unwrap() = Some(otp);
+                otp.attempts += 1;
+                if otp.attempts < 5 {
+                    *h.otp.lock().unwrap() = Some(otp);
+                }
                 (
                     format!(
                         "{:04}",
@@ -555,6 +579,10 @@ async fn do_pair(h: Shared, args: &Args, peer: std::net::IpAddr) -> Result<Vec<(
             pins.remove(&id);
             if pins.len() >= 32 {
                 bail!("pairing request limit reached");
+            }
+            let address_key = id.rsplit_once('_').unwrap().1;
+            if pins.keys().filter(|key| key.ends_with(address_key)).count() >= 2 {
+                bail!("pairing request limit reached for this address");
             }
             pins.insert(
                 id.clone(),
@@ -903,7 +931,7 @@ fn start(h: Shared, connection: Connection, args: Args, resume: bool) -> Respons
             .map(|(name, value)| format!("{name}={value}"))
             .collect::<Vec<_>>()
             .join("&");
-        tracing::info!(client = %launch.client.name, resume, %parameters, "Moonlight launch parameters");
+        tracing::info!(client = %launch.client.name, resume, ?parameters, "Moonlight launch parameters");
         let host = match connection.local.ip() {
             std::net::IpAddr::V4(ip) => ip.to_string(),
             std::net::IpAddr::V6(ip) => format!("[{ip}]"),

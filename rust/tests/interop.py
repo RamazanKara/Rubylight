@@ -29,8 +29,16 @@ def pair(args):
     r=requests.get(http+'/pair',params={'uniqueid':uid,**args},timeout=20);r.raise_for_status();root=ET.fromstring(r.text);assert root.attrib['status_code']=='200',r.text;assert root.findtext('paired')=='1',r.text;return root
 with concurrent.futures.ThreadPoolExecutor() as executor:
     future=executor.submit(pair,{'phrase':'getservercert','salt':salt.hex(),'clientcert':cert_pem.hex(),'devicename':uid})
-    time.sleep(.3)
-    r=session.post(web+'/api/pin',json={'pin':pin,'name':uid,'uniqueid':uid},timeout=10);r.raise_for_status()
+    deadline=time.monotonic()+10
+    while True:
+        pending=session.get(web+'/api/clients/pending',timeout=3);pending.raise_for_status()
+        matches=[p for p in pending.json()['requests'] if p['name']==uid]
+        assert len(matches)<=1, 'multiple pairing requests match the fixture'
+        if matches: break
+        if future.done(): future.result()
+        assert time.monotonic()<deadline, 'fixture pairing request did not arrive'
+        time.sleep(.1)
+    r=session.post(web+'/api/pin',json={'pin':pin,'name':uid,'uniqueid':matches[0]['uniqueid']},timeout=10);r.raise_for_status()
     root=future.result(timeout=20)
 server=x509.load_pem_x509_certificate(bytes.fromhex(root.findtext('plaincert')))
 challenge=os.urandom(16)

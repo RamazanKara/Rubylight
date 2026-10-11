@@ -26,12 +26,32 @@ fn before_sign_in_app_commands_are_deferred_and_the_requesting_device_keeps_owne
     assert_eq!(running.owner, "owner");
     assert_eq!(running.environment["APOLLO_CLIENT_UUID"], "owner");
     assert_eq!(running.environment["APOLLO_CLIENT_NAME"], "Phone");
+    assert!(!running.environment.contains_key("USERPROFILE"));
+    assert!(!running.environment.contains_key("TEMP"));
     let (deferred, options) = running.deferred.as_ref().unwrap();
     assert_eq!(
         serde_json::to_value(deferred).unwrap(),
         serde_json::to_value(&app).unwrap()
     );
     assert_eq!(options, &args);
+}
+
+#[test]
+fn launch_environment_refuses_client_shell_syntax() {
+    let f = Fixture::new();
+    let app: App = serde_json::from_value(json!({"name":"Game"})).unwrap();
+    for key in [
+        "gcmap",
+        "scaleFactor",
+        "surroundParams",
+        "surroundAudioInfo",
+    ] {
+        let args = HashMap::from([(key.into(), "Phone\" & whoami".into())]);
+        assert!(
+            launch_with_environment(&f.host, &app, &args, Ok(BTreeMap::new())).is_err(),
+            "{key}"
+        );
+    }
 }
 
 #[test]
@@ -89,19 +109,37 @@ fn app_environment_expands_apollo_variables_and_preserves_fractional_rates_and_s
 }
 
 #[test]
+fn previously_paired_names_keep_streaming_with_safe_command_values() {
+    let f = Fixture::new();
+    let app: App = serde_json::from_value(json!({"name":"Desktop"})).unwrap();
+    for (name, expected) in [
+        ("Phone (Living room)", "Phone _Living room_"),
+        ("John’s iPhone", "John_s iPhone"),
+        ("Phone\" & whoami", "Phone_ _ whoami"),
+    ] {
+        let args = HashMap::from([("clientName".into(), name.into())]);
+        let running = launch_with_environment(&f.host, &app, &args, Ok(BTreeMap::new())).unwrap();
+        assert_eq!(running.environment["SUNSHINE_CLIENT_NAME"], expected);
+        assert_eq!(running.environment["APOLLO_CLIENT_NAME"], expected);
+        assert_eq!(args["clientName"], name);
+    }
+}
+
+#[test]
 fn preparation_undo_and_failed_preparation_keep_global_order_and_rollback() {
+    let elevated = butterpollo_windows::process::user_environment().is_err();
     let f = Fixture::new();
     let trace = f.host.directory.join("commands.txt");
     let command = |name: &str| format!("echo {name}>>\"{}\"", trace.display());
     f.host.config.write().unwrap().values.insert(
         "global_prep_cmd".into(),
         json!([
-            {"do":command("global"),"undo":command("undo-global")}
+            {"do":command("global"),"undo":command("undo-global"),"elevated":elevated}
         ])
         .to_string(),
     );
     let mut app: App = serde_json::from_value(json!({"name":"Commands","prep-cmd":[
-        {"do":command("app"),"undo":command("undo-app")}
+        {"do":command("app"),"undo":command("undo-app"),"elevated":elevated}
     ]}))
     .unwrap();
     let running =
@@ -125,7 +163,8 @@ fn preparation_undo_and_failed_preparation_keep_global_order_and_rollback() {
     app.prep.push(PrepCommand {
         r#do: "exit /b 7".into(),
         undo: command("must-not-run"),
-        elevated: false,
+        elevated,
+        extra: Default::default(),
     });
     let error = launch_with_environment(&f.host, &app, &HashMap::new(), Ok(BTreeMap::new()))
         .err()
@@ -161,12 +200,14 @@ fn working_directory_inference_uses_only_absolute_programs_with_existing_parents
 
 #[test]
 fn detached_app_commands_run_with_the_supplied_environment() {
+    let elevated = butterpollo_windows::process::user_environment().is_err();
     let f = Fixture::new();
     let output = f.host.directory.join("detached.txt");
-    let app: App = serde_json::from_value(json!({"name":"Detached","detached":[
-        format!("echo $(APOLLO_APP_NAME)>\"{}\"", output.display())
-    ]}))
-    .unwrap();
+    let app: App =
+        serde_json::from_value(json!({"name":"Detached","elevated":elevated,"detached":[
+            format!("echo $(APOLLO_APP_NAME)>\"{}\"", output.display())
+        ]}))
+        .unwrap();
     let running =
         launch_with_environment(&f.host, &app, &HashMap::new(), Ok(BTreeMap::new())).unwrap();
     let deadline = std::time::Instant::now() + Duration::from_secs(5);

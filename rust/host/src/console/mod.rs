@@ -200,12 +200,9 @@ pub(crate) async fn get(
     Ok(value)
 }
 fn csrf(h: &Shared, headers: &HeaderMap) -> (String, bool) {
+    let sessions = h.web_sessions.lock().unwrap();
     if let Some(token) = web::access(headers)
-        && let Some(session) = h
-            .web_sessions
-            .lock()
-            .unwrap()
-            .get(&crate::web_sessions::hash(&token))
+        && let Some(session) = crate::web_sessions::find(&sessions, &token)
         && session.expires > Instant::now()
     {
         return (session.csrf.clone(), false);
@@ -371,6 +368,29 @@ pub(crate) async fn favicon() -> impl IntoResponse {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn imported_legacy_sessions_keep_their_csrf_token() {
+        let f = crate::state::test_support::Fixture::new();
+        let secret = "legacy-access";
+        let deadline = crate::web_sessions::now() + 3600;
+        let document = serde_json::json!({"root":{"session_tokens":[{
+            "hash":crypto::legacy_hash(secret.as_bytes()),"username":"test",
+            "refresh_token_hash":crate::web_sessions::hash("refresh"),
+            "expires_at":deadline,"refresh_expires_at":deadline
+        }]}});
+        let sessions = crate::web_sessions::load(&document, "test");
+        let expected = crate::web_sessions::find(&sessions, secret)
+            .unwrap()
+            .csrf
+            .clone();
+        *f.host.web_sessions.lock().unwrap() = sessions;
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            header::COOKIE,
+            format!("__Host-apollo_session={secret}").parse().unwrap(),
+        );
+        assert_eq!(csrf(&f.host, &headers), (expected, false));
+    }
     #[test]
     fn text_and_attribute_escaping() {
         assert_eq!(esc("<script>\"&'"), "&lt;script&gt;&quot;&amp;&#39;");

@@ -108,6 +108,7 @@ pub struct OneTimePin {
     pub passphrase: String,
     pub device_name: String,
     pub created: Instant,
+    pub attempts: u8,
 }
 pub struct PendingPin {
     pub name: String,

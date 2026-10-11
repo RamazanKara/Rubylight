@@ -129,8 +129,9 @@ pub fn restrict_to_administrators(folder: &Path) -> Result<()> {
     use windows::Win32::Security::Authorization::{
         ConvertStringSecurityDescriptorToSecurityDescriptorW, SE_FILE_OBJECT, SetNamedSecurityInfoW,
     };
-    let sddl = wide(std::ffi::OsStr::new("D:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)"))?;
-    let path = wide(folder.as_os_str())?;
+    let sddl = wide(std::ffi::OsStr::new(
+        "O:BAD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)",
+    ))?;
     let mut descriptor = PSECURITY_DESCRIPTOR::default();
     // SAFETY: `sddl` and `path` are NUL-terminated and outlive the calls, and `dacl` points into
     // `descriptor`, which is freed once after its last use.
@@ -145,23 +146,35 @@ pub fn restrict_to_administrators(folder: &Path) -> Result<()> {
             let mut present = BOOL(0);
             let mut defaulted = BOOL(0);
             let mut dacl: *mut ACL = std::ptr::null_mut();
+            let mut owner = PSID::default();
+            GetSecurityDescriptorOwner(descriptor, &mut owner, &mut defaulted)?;
             GetSecurityDescriptorDacl(descriptor, &mut present, &mut dacl, &mut defaulted)?;
-            // Inheritable entries reach the files already in the folder.
-            let status = SetNamedSecurityInfoW(
-                PCWSTR(path.as_ptr()),
-                SE_FILE_OBJECT,
-                DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
-                None,
-                None,
-                Some(dacl),
-                None,
-            );
-            if status != ERROR_SUCCESS {
-                bail!(
-                    "setting permissions on {} failed: {:?}",
-                    folder.display(),
-                    status
-                );
+            let mut pending = vec![folder.to_path_buf()];
+            while let Some(path) = pending.pop() {
+                use std::os::windows::fs::MetadataExt;
+                let metadata = std::fs::symlink_metadata(&path)?;
+                if metadata.file_attributes() & 0x400 != 0 {
+                    bail!("{} is a reparse point", path.display());
+                }
+                let name = wide(path.as_os_str())?;
+                SetNamedSecurityInfoW(
+                    PCWSTR(name.as_ptr()),
+                    SE_FILE_OBJECT,
+                    OWNER_SECURITY_INFORMATION
+                        | DACL_SECURITY_INFORMATION
+                        | PROTECTED_DACL_SECURITY_INFORMATION,
+                    Some(owner),
+                    None,
+                    Some(dacl),
+                    None,
+                )
+                .ok()
+                .with_context(|| format!("setting permissions on {}", path.display()))?;
+                if metadata.is_dir() {
+                    for entry in std::fs::read_dir(&path)? {
+                        pending.push(entry?.path());
+                    }
+                }
             }
             Ok(())
         })();
@@ -178,23 +191,41 @@ fn target_token(target: &Target) -> Result<Option<OwnedHandle>> {
         if matches!(target, Target::SystemSession(_)) {
             bail!("SYSTEM session creation requires the Windows service");
         }
-        if matches!(target, Target::User { elevated: true }) {
-            let token = token()?;
-            let mut info = TOKEN_ELEVATION::default();
-            let mut bytes = 0;
-            // SAFETY: `info` is a writable TOKEN_ELEVATION and the size passed is its size.
+        let token = token()?;
+        let mut info = TOKEN_ELEVATION::default();
+        let mut bytes = 0;
+        // SAFETY: `info` is a writable TOKEN_ELEVATION and the size passed is its size.
+        unsafe {
+            GetTokenInformation(
+                raw(&token),
+                TokenElevation,
+                Some((&mut info as *mut TOKEN_ELEVATION).cast()),
+                size_of::<TOKEN_ELEVATION>() as u32,
+                &mut bytes,
+            )?;
+        }
+        if matches!(target, Target::User { elevated: true }) && info.TokenIsElevated == 0 {
+            bail!("this elevated command requires the installed Windows service");
+        }
+        if matches!(target, Target::User { elevated: false }) && info.TokenIsElevated != 0 {
+            let mut linked = TOKEN_LINKED_TOKEN::default();
+            // SAFETY: `linked` is a writable TOKEN_LINKED_TOKEN; its handle is owned once.
             unsafe {
                 GetTokenInformation(
                     raw(&token),
-                    TokenElevation,
-                    Some((&mut info as *mut TOKEN_ELEVATION).cast()),
-                    size_of::<TOKEN_ELEVATION>() as u32,
+                    TokenLinkedToken,
+                    Some((&mut linked as *mut TOKEN_LINKED_TOKEN).cast()),
+                    size_of::<TOKEN_LINKED_TOKEN>() as u32,
                     &mut bytes,
+                )
+                .context(
+                    "cannot start a non-elevated application from this administrator session",
                 )?;
             }
-            if info.TokenIsElevated == 0 {
-                bail!("this elevated command requires the installed Windows service");
+            if linked.LinkedToken.is_invalid() {
+                bail!("no non-elevated user token is available");
             }
+            return Ok(Some(owned(linked.LinkedToken)));
         }
         return Ok(None);
     }
@@ -304,7 +335,7 @@ pub fn user_environment() -> Result<BTreeMap<String, String>> {
     // empty one, so reads stop at the terminators, and `native` frees it on drop.
     unsafe {
         let mut native = Environment(std::ptr::null_mut());
-        CreateEnvironmentBlock(&mut native.0, token.as_ref().map(raw), true)?;
+        CreateEnvironmentBlock(&mut native.0, token.as_ref().map(raw), token.is_none())?;
         let mut environment = BTreeMap::new();
         let mut offset = 0;
         while !native.0.is_null() && offset < 1024 * 1024 {
@@ -486,7 +517,7 @@ impl Process {
         // to CreateProcess are NUL-terminated locals, and each new handle is owned once.
         unsafe {
             let mut native = Environment(std::ptr::null_mut());
-            CreateEnvironmentBlock(&mut native.0, token.as_ref().map(raw), true)?;
+            CreateEnvironmentBlock(&mut native.0, token.as_ref().map(raw), token.is_none())?;
             let mut environment: BTreeMap<String, String> = BTreeMap::new();
             let mut offset = 0usize;
             while !native.0.is_null() && offset < 1024 * 1024 {
@@ -1210,20 +1241,57 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let output = directory.path().join("quoted output.log");
         let command = format!("(echo NATIVE_SHELL) 1>\"{}\" 2>&1", output.display());
-        let child =
-            super::Process::shell(&command, Some(directory.path()), false, &Default::default())
-                .unwrap();
+        let child = super::Process::shell(
+            &command,
+            Some(directory.path()),
+            target_token(&Target::User { elevated: true }).is_ok(),
+            &Default::default(),
+        )
+        .unwrap();
         assert_eq!(child.wait(std::time::Duration::from_secs(5)).unwrap(), 0);
         assert_eq!(
             std::fs::read_to_string(output).unwrap().trim(),
             "NATIVE_SHELL"
         );
     }
+    #[test]
+    fn portable_non_elevated_targets_never_reuse_an_elevated_token() -> Result<()> {
+        if is_system() {
+            return Ok(());
+        }
+        let selected = match target_token(&Target::User { elevated: false }) {
+            Ok(selected) => selected,
+            Err(_) => {
+                assert!(Process::shell("exit /b 0", None, false, &BTreeMap::new()).is_err());
+                return Ok(());
+            }
+        };
+        let current = token()?;
+        let mut info = TOKEN_ELEVATION::default();
+        let mut bytes = 0;
+        // SAFETY: the selected/current token and TOKEN_ELEVATION output live through the call.
+        unsafe {
+            GetTokenInformation(
+                raw(selected.as_ref().unwrap_or(&current)),
+                TokenElevation,
+                Some((&mut info as *mut TOKEN_ELEVATION).cast()),
+                size_of::<TOKEN_ELEVATION>() as u32,
+                &mut bytes,
+            )?;
+        }
+        assert_eq!(info.TokenIsElevated, 0);
+        Ok(())
+    }
     use super::*;
     #[test]
     fn dropping_the_job_terminates_the_shell_and_its_child() {
-        let process =
-            Process::shell("ping -n 30 127.0.0.1 >nul", None, false, &BTreeMap::new()).unwrap();
+        let process = Process::shell(
+            "ping -n 30 127.0.0.1 >nul",
+            None,
+            target_token(&Target::User { elevated: true }).is_ok(),
+            &BTreeMap::new(),
+        )
+        .unwrap();
         let mut ids = [0usize; 34];
         let deadline = std::time::Instant::now() + Duration::from_secs(5);
         let count = loop {

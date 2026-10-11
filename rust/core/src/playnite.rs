@@ -112,7 +112,7 @@ pub fn parse(line: &str) -> Message {
 }
 fn game(value: &Value) -> Option<Game> {
     let id = text(value, "id");
-    if id.is_empty() {
+    if uuid::Uuid::parse_str(&id).is_err() {
         return None;
     }
     let flag = |key: &str| value.get(key).map(|v| v.as_bool().unwrap_or(false));
@@ -776,6 +776,12 @@ mod tests {
     }
     #[test]
     fn messages_and_times_parse_like_vibepollo() {
+        let Message::Games(invalid) = parse(
+            r#"{"type":"games","payload":[{"id":"x\\..\\..\\Users\\Public\\loot"},{"id":"not-a-uuid"}]}"#,
+        ) else {
+            panic!()
+        };
+        assert!(invalid.is_empty());
         assert_eq!(parse_time("1970-01-02T00:00:00Z"), Some(86400));
         assert_eq!(parse_time("2026-08-29T17:49:56Z"), Some(1788025796));
         assert_eq!(
@@ -799,7 +805,7 @@ mod tests {
             parse(r#"{"type":"commandResult","requestId":"cover-2","success":true}"#),
             Message::CommandResult { success: true, .. }
         ));
-        let line = "\u{feff}{\"type\":\"games\",\"payload\":[{\"id\":\"A1\",\"name\":\"Nightfire\",\"categories\":[\"Shooter\"],\"playtimeMinutes\":\"42\",\"lastPlayed\":\"2026-08-29T17:49:56Z\",\"pluginId\":\"P\"},{\"id\":\"B2\",\"installed\":false},{\"name\":\"no id\"}]}";
+        let line = "\u{feff}{\"type\":\"games\",\"payload\":[{\"id\":\"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa\",\"name\":\"Nightfire\",\"categories\":[\"Shooter\"],\"playtimeMinutes\":\"42\",\"lastPlayed\":\"2026-08-29T17:49:56Z\",\"pluginId\":\"P\"},{\"id\":\"bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb\",\"installed\":false},{\"name\":\"no id\"}]}";
         let Message::Games(games) = parse(line) else {
             panic!()
         };

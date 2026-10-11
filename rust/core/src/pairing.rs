@@ -8,6 +8,26 @@ use std::{
 };
 use zeroize::Zeroize;
 
+pub fn validate_device_name(name: &str) -> Result<()> {
+    if name.trim().is_empty()
+        || name.chars().count() > 128
+        || !name.chars().all(device_name_character)
+    {
+        bail!(
+            "device name must contain 1–128 letters, numbers, spaces, hyphens, underscores, periods or apostrophes"
+        );
+    }
+    Ok(())
+}
+fn device_name_character(c: char) -> bool {
+    c.is_alphanumeric() || matches!(c, ' ' | '-' | '_' | '.' | '\'')
+}
+pub fn command_device_name(name: &str) -> String {
+    name.chars()
+        .map(|c| if device_name_character(c) { c } else { '_' })
+        .collect()
+}
+
 #[derive(Debug, Copy, Clone, PartialEq)]
 enum Phase {
     Cert,
@@ -43,6 +63,7 @@ impl Pairing {
         salt: &[u8],
         pin: &str,
     ) -> Result<Self> {
+        validate_device_name(&name)?;
         if unique_id.is_empty()
             || unique_id.len() > 256
             || !unique_id
@@ -145,6 +166,24 @@ impl Pairings {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn device_names_cannot_expand_into_shell_syntax() {
+        for name in ["Living room", "Çağrı's Phone", "日本語", "Phone-2.1_Pro"] {
+            assert!(validate_device_name(name).is_ok(), "{name}");
+        }
+        for name in [
+            "",
+            " ",
+            "Phone\" & whoami",
+            "%COMSPEC%",
+            "$(PATH)",
+            "Phone\nentry",
+            "Phone\u{fdd1}<form>",
+        ] {
+            assert!(validate_device_name(name).is_err(), "{name}");
+        }
+        assert!(validate_device_name(&"a".repeat(129)).is_err());
+    }
     #[test]
     fn pair_with_real_rsa_certificates_and_existing_wire_format() {
         let server = crypto::Identity::generate().unwrap();

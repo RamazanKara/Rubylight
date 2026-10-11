@@ -177,6 +177,41 @@ async fn otp_api_validates_passphrases_and_replaces_the_previous_pin() {
 }
 
 #[tokio::test]
+async fn client_names_and_lossless_paths_reject_command_and_network_inputs() {
+    let f = Fixture::new();
+    let client = f.client(0x071f1f00);
+    value(
+        request(
+            &f,
+            "POST",
+            "/api/clients/update",
+            json!({"uuid":client.uuid,"name":"Phone\" & whoami"}),
+        )
+        .await,
+        StatusCode::BAD_REQUEST,
+    )
+    .await;
+    assert_eq!(f.host.paired.read().unwrap().clients[0].name, client.name);
+    for path in [
+        "%5C%5Chost%5Cshare",
+        "%5C%5C%3F%5CUNC%5Chost%5Cshare",
+        "relative",
+    ] {
+        value(
+            request(
+                &f,
+                "GET",
+                &format!("/api/lossless_scaling/status?path={path}"),
+                json!({}),
+            )
+            .await,
+            StatusCode::BAD_REQUEST,
+        )
+        .await;
+    }
+}
+
+#[tokio::test]
 async fn log_tail_tracks_offsets_appends_rotation_and_a_configured_path() {
     let f = Fixture::new();
     f.host

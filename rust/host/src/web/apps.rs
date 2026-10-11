@@ -303,6 +303,14 @@ pub(super) async fn lossless_scaling(h: &Shared, uri: &axum::http::Uri) -> Respo
     let candidate = url::form_urlencoded::parse(uri.query().unwrap_or("").as_bytes())
         .find(|(key, _)| key == "path")
         .map(|(_, value)| value.into_owned());
+    if candidate.as_ref().is_some_and(|path| {
+        let path = std::path::Path::new(path.trim().trim_matches('"'));
+        !path.as_os_str().is_empty()
+            && (!path.has_root()
+                || !matches!(path.components().next(), Some(std::path::Component::Prefix(prefix)) if matches!(prefix.kind(), std::path::Prefix::Disk(_))))
+    }) {
+        return error(StatusCode::BAD_REQUEST, "path must be an absolute local drive path");
+    }
     let configured = h
         .config
         .read()

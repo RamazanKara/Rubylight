@@ -207,6 +207,7 @@ fn set_otp(f: &Fixture, age: Duration) {
         passphrase: "passphrase".into(),
         device_name: "Console name".into(),
         created: Instant::now() - age,
+        attempts: 0,
     });
 }
 
@@ -315,6 +316,74 @@ async fn otp_expiry_wrong_auth_and_pairing_disable_do_not_create_devices() {
         "pairing is disabled"
     );
     assert!(f.host.otp.lock().unwrap().is_some());
+}
+
+#[tokio::test]
+async fn one_time_pin_is_disabled_after_five_wrong_attempts() {
+    let f = Fixture::new();
+    set_otp(&f, Duration::ZERO);
+    let mut args = otp_request(&f);
+    args.insert("otpauth".into(), "wrong".into());
+    for _ in 0..5 {
+        assert!(
+            do_pair(f.host.clone(), &args, "127.0.0.1".parse().unwrap())
+                .await
+                .is_ok()
+        );
+    }
+    assert!(f.host.otp.lock().unwrap().is_none());
+    assert!(
+        do_pair(f.host.clone(), &args, "127.0.0.1".parse().unwrap())
+            .await
+            .is_err()
+    );
+    assert!(f.host.paired.read().unwrap().clients.is_empty());
+}
+
+#[tokio::test]
+async fn pairing_ids_are_scoped_to_the_peer_and_pending_requests_are_bounded() {
+    let f = Fixture::new();
+    let mut args = otp_request(&f);
+    args.remove("otpauth");
+    let peer = "192.0.2.1".parse().unwrap();
+    let other = "192.0.2.2".parse().unwrap();
+    let id = pairing_id(&args["uniqueid"], peer);
+    let (sender, _receiver) = tokio::sync::oneshot::channel();
+    f.host.pins.lock().unwrap().insert(
+        id,
+        PendingPin {
+            name: "Existing".into(),
+            certificate: "different certificate".into(),
+            created: Instant::now(),
+            sender,
+        },
+    );
+    assert!(do_pair(f.host.clone(), &args, peer).await.is_err());
+    let host = f.host.clone();
+    let request = args.clone();
+    let task = tokio::spawn(async move { do_pair(host, &request, other).await });
+    tokio::task::yield_now().await;
+    let key = pairing_id(&args["uniqueid"], other);
+    assert!(f.host.pins.lock().unwrap().contains_key(&key));
+    task.abort();
+    let (sender, _receiver) = tokio::sync::oneshot::channel();
+    f.host.pins.lock().unwrap().insert(
+        pairing_id("second", peer),
+        PendingPin {
+            name: "Second".into(),
+            certificate: "different certificate".into(),
+            created: Instant::now(),
+            sender,
+        },
+    );
+    args.insert("uniqueid".into(), "third".into());
+    assert!(
+        do_pair(f.host.clone(), &args, peer)
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("limit reached")
+    );
 }
 
 #[tokio::test]

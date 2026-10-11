@@ -74,6 +74,7 @@ impl ClientCommands {
             .lock()
             .unwrap()
             .as_ref()
+            .filter(|app| app.deferred.is_none())
             .map(|app| app.environment.clone());
         let mut environment = match environment {
             Some(environment) => environment,
@@ -88,7 +89,10 @@ impl ClientCommands {
                 }
             },
         };
-        environment.insert("SUNSHINE_CLIENT_NAME".into(), s.launch.client.name.clone());
+        environment.insert(
+            "SUNSHINE_CLIENT_NAME".into(),
+            butterpollo_core::pairing::command_device_name(&s.launch.client.name),
+        );
         environment.insert("SUNSHINE_CLIENT_UUID".into(), s.launch.client.uuid.clone());
         environment.insert("SUNSHINE_CLIENT_WIDTH".into(), s.config.width.to_string());
         environment.insert("SUNSHINE_CLIENT_HEIGHT".into(), s.config.height.to_string());
@@ -706,6 +710,21 @@ fn launch_with_environment(
     args: &HashMap<String, String>,
     environment: Result<BTreeMap<String, String>>,
 ) -> Result<RunningApp> {
+    let scale_factor = args
+        .get("scaleFactor")
+        .map(|v| v.parse::<u32>())
+        .transpose()?
+        .unwrap_or(100);
+    let gcmap = args
+        .get("gcmap")
+        .map(|v| v.parse::<u32>())
+        .transpose()?
+        .unwrap_or(0);
+    for key in ["surroundParams", "surroundAudioInfo"] {
+        if let Some(value) = args.get(key) {
+            value.parse::<u64>()?;
+        }
+    }
     let mut environment = match environment {
         Ok(environment) => environment,
         Err(error) => {
@@ -723,14 +742,17 @@ fn launch_with_environment(
             placeholder
                 .extra
                 .insert("exclude-global-state-cmd".into(), true.into());
-            let mut system: BTreeMap<String, String> = std::env::vars()
-                .map(|(key, value)| (key.to_uppercase(), value))
-                .collect();
+            let mut system = BTreeMap::new();
             // The launching client owns the session, as with a started app.
             for (arg, name) in [("clientUuid", "UUID"), ("clientName", "NAME")] {
                 if let Some(value) = args.get(arg) {
+                    let value = if arg == "clientName" {
+                        butterpollo_core::pairing::command_device_name(value)
+                    } else {
+                        value.clone()
+                    };
                     system.insert(format!("SUNSHINE_CLIENT_{name}"), value.clone());
-                    system.insert(format!("APOLLO_CLIENT_{name}"), value.clone());
+                    system.insert(format!("APOLLO_CLIENT_{name}"), value);
                 }
             }
             let mut running = RunningApp::with_environment(&placeholder, system)?;
@@ -782,9 +804,7 @@ fn launch_with_environment(
         mode.get(1)
             .and_then(|value| value.parse().ok())
             .unwrap_or(1080),
-        args.get("scaleFactor")
-            .and_then(|value| value.parse().ok())
-            .unwrap_or(100),
+        i64::from(scale_factor),
         app.extra
             .get("scale-factor")
             .and_then(serde_json::Value::as_i64)
@@ -808,10 +828,7 @@ fn launch_with_environment(
             }
             .into(),
         ),
-        (
-            "SUNSHINE_CLIENT_GCMAP",
-            args.get("gcmap").cloned().unwrap_or_else(|| "0".into()),
-        ),
+        ("SUNSHINE_CLIENT_GCMAP", gcmap.to_string()),
         (
             "SUNSHINE_CLIENT_HOST_AUDIO",
             if args.get("localAudioPlayMode").is_some_and(|v| v == "1") {
@@ -861,7 +878,12 @@ fn launch_with_environment(
             _ => None,
         };
         if let Some(name) = name {
-            environment.insert(format!("SUNSHINE_CLIENT_{name}"), value.clone());
+            let value = if key == "clientName" {
+                butterpollo_core::pairing::command_device_name(value)
+            } else {
+                value.clone()
+            };
+            environment.insert(format!("SUNSHINE_CLIENT_{name}"), value);
         }
     }
     for (key, value) in environment.clone() {
@@ -882,18 +904,19 @@ fn launch_with_environment(
         ),
         (
             "APOLLO_CLIENT_RENDER_WIDTH",
-            mode.first().unwrap_or(&"1920").to_string(),
+            mode.first()
+                .and_then(|v| v.parse::<u32>().ok())
+                .unwrap_or(1920)
+                .to_string(),
         ),
         (
             "APOLLO_CLIENT_RENDER_HEIGHT",
-            mode.get(1).unwrap_or(&"1080").to_string(),
+            mode.get(1)
+                .and_then(|v| v.parse::<u32>().ok())
+                .unwrap_or(1080)
+                .to_string(),
         ),
-        (
-            "APOLLO_CLIENT_SCALE_FACTOR",
-            args.get("scaleFactor")
-                .cloned()
-                .unwrap_or_else(|| "100".into()),
-        ),
+        ("APOLLO_CLIENT_SCALE_FACTOR", scale_factor.to_string()),
         ("APOLLO_APP_STATUS", "STARTING".to_owned()),
     ] {
         environment.insert(name.into(), value);
@@ -1114,6 +1137,7 @@ mod tests {
     }
     #[test]
     fn client_hooks_use_the_saved_environment_on_disconnect() {
+        let elevated = butterpollo_windows::process::user_environment().is_err();
         let path = std::env::temp_dir().join(format!(
             "butterpollo-client-hooks-{}.txt",
             uuid::Uuid::new_v4()
@@ -1122,11 +1146,11 @@ mod tests {
         let extra = BTreeMap::from([
             (
                 "do".into(),
-                serde_json::json!([{"cmd":"echo connected>\"$(MARKER)\""}]),
+                serde_json::json!([{"cmd":"echo connected>\"$(MARKER)\"","elevated":elevated}]),
             ),
             (
                 "undo".into(),
-                serde_json::json!([{"cmd":"echo disconnected>>\"$(MARKER)\""}]),
+                serde_json::json!([{"cmd":"echo disconnected>>\"$(MARKER)\"","elevated":elevated}]),
             ),
         ]);
         let wait = |needle: &str| {

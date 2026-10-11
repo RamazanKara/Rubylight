@@ -46,7 +46,7 @@ pub(super) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
             crate::remote_display::disconnect(h, None);
             let mut state = h.paired.write().unwrap();
             let mut next = state.clone();
-            next.clients.clear();
+            next.clear();
             next.save(&h.paired_path)?;
             *state = next;
             json!({"status":true})
@@ -66,6 +66,7 @@ pub(super) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
                 .ok_or_else(|| anyhow::anyhow!("client not found"))?;
             let previous_perm = c.perm;
             if let Some(n) = data.get("name").and_then(Value::as_str) {
+                butterpollo_core::pairing::validate_device_name(n)?;
                 c.name = n.into();
             }
             if let Some(n) = data.get("perm").and_then(Value::as_u64) {
@@ -112,6 +113,9 @@ pub(super) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
                 .collect::<Vec<_>>()})
         }
         ("POST", "/api/otp") => {
+            if !text("deviceName").is_empty() {
+                butterpollo_core::pairing::validate_device_name(text("deviceName"))?;
+            }
             let passphrase = text("passphrase");
             if passphrase.chars().count() < 4 {
                 anyhow::bail!("passphrase must have at least four characters");
@@ -125,6 +129,7 @@ pub(super) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
                 passphrase: passphrase.to_owned(),
                 device_name: text("deviceName").to_owned(),
                 created: Instant::now(),
+                attempts: 0,
             });
             let config = h.config.read().unwrap().clone();
             json!({
@@ -136,6 +141,9 @@ pub(super) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
             })
         }
         ("POST", "/api/pin") => {
+            if !text("name").is_empty() {
+                butterpollo_core::pairing::validate_device_name(text("name"))?;
+            }
             let pin = text("pin");
             if pin.len() != 4 || !pin.bytes().all(|c| c.is_ascii_digit()) {
                 anyhow::bail!("PIN must contain four digits");

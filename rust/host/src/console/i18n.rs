@@ -151,12 +151,22 @@ pub fn label(name: &str, english: &str) -> String {
     let path = dictionary("en").contains_key(&path).then_some(path);
     format!(
         "\u{fdd0}{}\u{fdd1}",
-        serde_json::to_string(&(path, english)).unwrap()
+        serde_json::to_string(&(path, english))
+            .unwrap()
+            .replace('\u{fdd0}', "\\ufdd0")
+            .replace('\u{fdd1}', "\\ufdd1")
+            .replace('\u{fdd2}', "\\ufdd2")
+            .replace('\u{fdd3}', "\\ufdd3")
     )
 }
 /// Protect configuration, names, commands and JSON from language substitution.
 pub fn data(value: &str) -> String {
-    format!("\u{fdd2}{}\u{fdd3}", esc(value))
+    let value = esc(value)
+        .replace('\u{fdd0}', "&#64976;")
+        .replace('\u{fdd1}', "&#64977;")
+        .replace('\u{fdd2}', "&#64978;")
+        .replace('\u{fdd3}', "&#64979;");
+    format!("\u{fdd2}{value}\u{fdd3}")
 }
 pub fn render(body: &str, raw_locale: &str) -> String {
     let selected = locale(raw_locale);
@@ -226,6 +236,15 @@ pub fn render(body: &str, raw_locale: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn dynamic_text_cannot_terminate_language_markers() {
+        let attack = "Phone\u{fdd0}\u{fdd1}\u{fdd2}\u{fdd3}<meta http-equiv=refresh>";
+        for protected in [label("", attack), data(attack)] {
+            let rendered = render(&format!("<h1>{protected}</h1>"), "en");
+            assert!(!rendered.contains("<meta"));
+            assert!(rendered.contains("&lt;meta"));
+        }
+    }
     #[test]
     fn inherited_locales_translate_controls_and_preserve_names_values_and_json() {
         let body = format!(

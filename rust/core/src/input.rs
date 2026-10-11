@@ -224,7 +224,9 @@ pub fn decode(b: &[u8]) -> Result<Input> {
             id: le32(b, 12),
             x: float(b, 16)?,
             y: float(b, 20)?,
-            pressure: float(b, 24)?,
+            // VoidLink can divide by zero when deriving finger pressure.
+            // Zero means unknown pressure; retain the valid touch transition.
+            pressure: float(b, 24).unwrap_or(0.),
             major: float(b, 28)?,
             minor: float(b, 32)?,
             rotation: le16(b, 10),
@@ -652,5 +654,50 @@ mod tests {
     fn actual_moonlight_mouse_packet() {
         let p = hex::decode("0000000807000000fffb0004").unwrap();
         assert_eq!(decode(&p).unwrap(), Input::Relative { x: -5, y: 4 });
+    }
+
+    fn native_touch_packet(event: u8, pressure: f32) -> Vec<u8> {
+        let mut packet = vec![0; 36];
+        packet[..4].copy_from_slice(&32u32.to_be_bytes());
+        packet[4..8].copy_from_slice(&0x55000002u32.to_le_bytes());
+        packet[8] = event;
+        packet[10..12].copy_from_slice(&u16::MAX.to_le_bytes());
+        packet[12..16].copy_from_slice(&7u32.to_le_bytes());
+        packet[16..20].copy_from_slice(&0.25f32.to_le_bytes());
+        packet[20..24].copy_from_slice(&0.75f32.to_le_bytes());
+        packet[24..28].copy_from_slice(&pressure.to_le_bytes());
+        packet
+    }
+
+    #[test]
+    fn native_touch_preserves_transitions_with_unknown_pressure() {
+        for event in [1, 3, 2] {
+            for pressure in [0., 0.5, 1., f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+                assert_eq!(
+                    decode(&native_touch_packet(event, pressure)).unwrap(),
+                    Input::Touch {
+                        event,
+                        id: 7,
+                        x: 0.25,
+                        y: 0.75,
+                        pressure: if pressure.is_finite() { pressure } else { 0. },
+                        major: 0.,
+                        minor: 0.,
+                        rotation: u16::MAX,
+                    }
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn native_touch_still_rejects_nonfinite_coordinates() {
+        for offset in [16, 20] {
+            for value in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+                let mut packet = native_touch_packet(1, f32::NAN);
+                packet[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
+                assert!(decode(&packet).is_err());
+            }
+        }
     }
 }

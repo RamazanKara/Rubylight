@@ -891,7 +891,7 @@ impl Encoder {
                 let name = format!("{codec}_{suffix}");
                 match Ffmpeg::new_gpu_options(config, &name, tuning, image) {
                     Ok(encoder) => {
-                        tracing::debug!(%name,"native D3D11 codec frame import enabled");
+                        tracing::info!(%name,"native D3D11 codec frame import enabled");
                         return Ok(fallback(Self::Ffmpeg(Box::new(encoder)), native_error));
                     }
                     Err(error) => {

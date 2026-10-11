@@ -479,7 +479,7 @@ impl Prepared {
                 .filter(|snapshot| {
                     let connected = snapshot.displays_connected();
                     if !connected {
-                        tracing::debug!("saved display baseline names displays that are not connected; restoring the layout from before the stream");
+                        tracing::info!("saved display baseline names displays that are not connected; restoring the layout from before the stream");
                     }
                     connected
                 })
@@ -899,7 +899,7 @@ impl Prepared {
             // Applying the layout can recall the display's saved mode.
             display.apply_virtual_mode("after layout");
         }
-        tracing::debug!(
+        tracing::info!(
             client = %launch.client.name,
             role = ?launch.role,
             client_virtual_display = ?client_virtual,

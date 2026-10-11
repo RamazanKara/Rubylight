@@ -640,7 +640,7 @@ impl Tagged {
         let class = if voice { "voice" } else { "video" };
         let flow = match butterpollo_windows::net::QosFlow::new(socket, peer, voice) {
             Ok(Some(flow)) => {
-                tracing::debug!(%peer, class, "stream traffic tagged for QoS");
+                tracing::info!(%peer, class, "stream traffic tagged for QoS");
                 Some(flow)
             }
             Ok(None) => None,
@@ -1439,9 +1439,11 @@ impl Media {
                     // offset: a future stamp must not look like instant delivery.
                     let mut claim_ages: Vec<(u64, u64)> = Vec::with_capacity(1024);
                     let mut wgc_stamp_ages: Vec<f64> = Vec::with_capacity(1024);
-                    // The 5 s timing summary is a debug log: with debug off, skip
-                    // collecting its samples and computing its percentiles.
-                    let mut timings_logged = tracing::enabled!(tracing::Level::DEBUG);
+                    // The 5 s timing summary is an information log, kept on by
+                    // default: a user's ordinary log must show where a stream
+                    // lost time. With logging below information, skip collecting
+                    // its samples and computing its percentiles.
+                    let mut timings_logged = tracing::enabled!(tracing::Level::INFO);
                     // The first pacing decision for the newest fresh frame, kept
                     // for the per-claim trace.
                     let mut first_seen: Option<(usize, Instant, Option<Duration>, Option<Instant>)> = None;
@@ -1498,7 +1500,7 @@ impl Media {
                                 && butterpollo_core::network_pacing::paced(bps, s.bitrate.load(Ordering::Relaxed))
                             {
                                 let _ = video_sender.set(crate::video_send::Sender::new(m.video.clone(), s.clone(), c.clone(), h.clone(), start, prepared.capture() == "wgc")?);
-                                tracing::debug!(pacing_bps = bps, bitrate_kbps = s.bitrate.load(Ordering::Relaxed), "video frames are sent on their own thread: pacing is near the stream bitrate");
+                                tracing::info!(pacing_bps = bps, bitrate_kbps = s.bitrate.load(Ordering::Relaxed), "video frames are sent on their own thread: pacing is near the stream bitrate");
                             }
                         }
                         if let Some(sender) = video_sender.get() { return sender.submit(output, peer, call_latency); }
@@ -1562,7 +1564,7 @@ impl Media {
                                 let needed = u64::from(s.bitrate.load(Ordering::Relaxed)) * (100 + packetizer.fec_percent as u64) * 10;
                                 butterpollo_core::network_pacing::report_rate(&s.launch.warnings, bps, needed, c.integer("pacing_max_bitrate_kbps", 0));
                                 if reported_pacing != Some(bps) {
-                                    tracing::debug!(pacing_bps=bps, link_bps=route.bps, configured_kbps=c.integer("pacing_max_bitrate_kbps", 0), "network pacing selected; defaults use twice encoder bitrate for confirmed wireless routes, or the wired fallback ceiling");
+                                    tracing::info!(pacing_bps=bps, link_bps=route.bps, configured_kbps=c.integer("pacing_max_bitrate_kbps", 0), "network pacing selected; defaults use twice encoder bitrate for confirmed wireless routes, or the wired fallback ceiling");
                                     reported_pacing = Some(bps);
                                 }
                             }
@@ -1723,7 +1725,7 @@ impl Media {
                                         let wgc_stamp_to_host_mean_ms = (wgc_stamp_frames > 0).then(|| wgc_stamp_ages.iter().sum::<f64>() / wgc_stamp_frames as f64);
                                         let wgc_stamp_to_host_p95_ms = wgc_stamp_ages.get(wgc_stamp_frames.saturating_sub(1) * 95 / 100).copied();
 
-                                        tracing::debug!(
+                                        tracing::info!(
                                             fps=ms("fps"),
                                             host_mean_ms=ms("host_processing_mean_ms"),
                                             host_p95_ms=ms("host_processing_p95_ms"),
@@ -1764,7 +1766,7 @@ impl Media {
                                     }
                                     claim_ages.clear();
                                     wgc_stamp_ages.clear();
-                                    timings_logged = tracing::enabled!(tracing::Level::DEBUG);
+                                    timings_logged = tracing::enabled!(tracing::Level::INFO);
                                 }
                             }
                             // The client's display changed and it asked for another size or
@@ -2444,7 +2446,7 @@ impl Media {
                         }
                         match Loopback::new_sink(s.config.audio_channels as usize, &sink) {
                             Ok(value) => {
-                                tracing::debug!(
+                                tracing::info!(
                                     channels = s.config.audio_channels,
                                     event_driven = value.event_driven(),
                                     "WASAPI audio capture started"

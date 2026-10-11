@@ -180,7 +180,7 @@ impl Compute {
             let device = device.context("no D3D12 device")?;
             let (queue, priority) = compute_queue(&device)?;
             let fence = device.CreateFence(0, D3D12_FENCE_FLAG_NONE)?;
-            tracing::debug!(priority, "compute queue ready for colour conversion");
+            tracing::info!(priority, "compute queue ready for colour conversion");
             Ok(Arc::new(Self {
                 device,
                 queue,

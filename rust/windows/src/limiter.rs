@@ -404,7 +404,7 @@ impl Lease {
                 Ok(()) => {
                     state.active = "rtss".into();
                     let version = rtss::version(&root);
-                    tracing::debug!(rate = ?policy.rate.rational(), sync_limiter = policy.sync_limiter, rtss_version = ?version, profile_sdk = rtss::profile_sdk(version), "RTSS frame limit applied and verified");
+                    tracing::info!(rate = ?policy.rate.rational(), sync_limiter = policy.sync_limiter, rtss_version = ?version, profile_sdk = rtss::profile_sdk(version), "RTSS frame limit applied and verified");
                 }
                 Err(error) => {
                     state.message = format!("{error:#}");

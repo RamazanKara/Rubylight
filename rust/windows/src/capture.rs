@@ -536,7 +536,7 @@ impl Duplication {
         };
         // SAFETY: `duplicate` is a live output duplication, and GetDesc returns an owned struct.
         let desc = unsafe { duplicate.GetDesc() };
-        tracing::debug!(api, output = %gpu.display.display_name,
+        tracing::info!(api, output = %gpu.display.display_name,
             width = desc.ModeDesc.Width, height = desc.ModeDesc.Height,
             x = gpu.display.x, y = gpu.display.y, rotation = desc.Rotation.0,
             format = desc.ModeDesc.Format.0, "Desktop Duplication opened");
@@ -1143,7 +1143,7 @@ impl Wgc {
                 Duration: if high_rate { 10_000 } else { 0 },
             };
             match session.SetMinUpdateInterval(interval) {
-                Ok(()) => tracing::debug!(
+                Ok(()) => tracing::info!(
                     interval_us = interval.Duration / 10,
                     "WGC minimum update interval configured"
                 ),

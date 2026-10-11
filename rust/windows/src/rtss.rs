@@ -162,7 +162,7 @@ fn start_with_elevation<T>(service: bool, mut spawn: impl FnMut(bool) -> Result<
             // RTSS can require elevation in its manifest or compatibility
             // settings. Use only the signed-in user's linked admin token;
             // RTSS must keep that user's session, profile and desktop.
-            tracing::debug!("RTSS requires elevation; retrying as the signed-in administrator");
+            tracing::info!("RTSS requires elevation; retrying as the signed-in administrator");
             spawn(true).context(
                 "RTSS could not start as the signed-in administrator. Start RTSS manually as administrator before streaming",
             )

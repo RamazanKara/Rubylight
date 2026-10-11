@@ -1,5 +1,5 @@
---- a/app/src/main/jni/moonlight-core/moonlight-common-c/src/InputStream.c
-+++ b/app/src/main/jni/moonlight-core/moonlight-common-c/src/InputStream.c
+--- a/src/InputStream.c
++++ b/src/InputStream.c
 @@ -119,6 +119,7 @@
      absCurrentPosX = absCurrentPosY = 0.5f;
  

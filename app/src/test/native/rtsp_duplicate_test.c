@@ -20,7 +20,7 @@ static void trackedFree(void* ptr) {
 
 #define malloc trackedMalloc
 #define free trackedFree
-#include "../../main/jni/moonlight-core/moonlight-common-c/src/RtspParser.c"
+#include "../../main/jni/moonlight-core/android_rtsp_parser.c"
 #undef malloc
 #undef free
 #undef NDEBUG

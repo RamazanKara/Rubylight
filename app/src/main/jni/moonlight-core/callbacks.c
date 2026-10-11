@@ -171,16 +171,17 @@ int BridgeDrSubmitDecodeUnit(PDECODE_UNIT decodeUnit) {
     if ((*env)->GetArrayLength(env, DecodedFrameBuffer) < decodeUnit->fullLength) {
         jbyteArray frameBuffer = (*env)->NewByteArray(env, decodeUnit->fullLength);
         if (frameBuffer == NULL) {
-            (*JVM)->DetachCurrentThread(JVM);
-            return DR_OK;
+            (*env)->ExceptionClear(env);
+            return DR_NEED_IDR;
+        }
+        jbyteArray globalFrameBuffer = (*env)->NewGlobalRef(env, frameBuffer);
+        (*env)->DeleteLocalRef(env, frameBuffer);
+        if (globalFrameBuffer == NULL) {
+            (*env)->ExceptionClear(env);
+            return DR_NEED_IDR;
         }
         (*env)->DeleteGlobalRef(env, DecodedFrameBuffer);
-        DecodedFrameBuffer = (*env)->NewGlobalRef(env, frameBuffer);
-        (*env)->DeleteLocalRef(env, frameBuffer);
-        if (DecodedFrameBuffer == NULL) {
-            (*JVM)->DetachCurrentThread(JVM);
-            return DR_OK;
-        }
+        DecodedFrameBuffer = globalFrameBuffer;
     }
 
     PLENTRY currentEntry;
@@ -379,7 +380,7 @@ void BridgeClSetHdrMode(bool enabled) {
     if (enabled && LiGetHdrMetadata(&hdrMetadata)) {
         hdrMetadataByteArray = (*env)->NewByteArray(env, sizeof(SS_HDR_METADATA));
         if (hdrMetadataByteArray == NULL) {
-            (*JVM)->DetachCurrentThread(JVM);
+            (*env)->ExceptionClear(env);
             return;
         }
         (*env)->SetByteArrayRegion(env, hdrMetadataByteArray, 0, sizeof(SS_HDR_METADATA), (jbyte*)&hdrMetadata);
@@ -433,13 +434,13 @@ void BridgeClSetAdaptiveTriggers(uint16_t controllerNumber, uint8_t eventFlags, 
     JNIEnv* env = GetThreadEnv();
     jbyteArray leftArray = (*env)->NewByteArray(env, DS_EFFECT_PAYLOAD_SIZE);
     if (leftArray == NULL) {
-        (*JVM)->DetachCurrentThread(JVM);
+        (*env)->ExceptionClear(env);
         return;
     }
     jbyteArray rightArray = (*env)->NewByteArray(env, DS_EFFECT_PAYLOAD_SIZE);
     if (rightArray == NULL) {
         (*env)->DeleteLocalRef(env, leftArray);
-        (*JVM)->DetachCurrentThread(JVM);
+        (*env)->ExceptionClear(env);
         return;
     }
 

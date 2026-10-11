@@ -1223,13 +1223,21 @@ namespace {
             VkCommandBufferAllocateInfo allocInfo = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
             allocInfo.commandPool = commandPool;
             allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-            allocInfo.commandBufferCount = 1 + SLOT_COUNT;
-            VkCommandBuffer buffers[1 + SLOT_COUNT];
+            allocInfo.commandBufferCount = 1;
+            if (!check(vk.AllocateCommandBuffers(device, &allocInfo, &decodeCommandBuffer), "vkAllocateCommandBuffers(decode)")) {
+                return false;
+            }
+            // Command pools must not be accessed concurrently by the decode and presenter threads.
+            if (!check(vk.CreateCommandPool(device, &poolInfo, nullptr, &drawCommandPool), "vkCreateCommandPool(draw)")) {
+                return false;
+            }
+            allocInfo.commandPool = drawCommandPool;
+            allocInfo.commandBufferCount = SLOT_COUNT;
+            VkCommandBuffer buffers[SLOT_COUNT];
             if (!check(vk.AllocateCommandBuffers(device, &allocInfo, buffers), "vkAllocateCommandBuffers")) {
                 return false;
             }
-            decodeCommandBuffer = buffers[0];
-            for (int i = 0; i < SLOT_COUNT; ++i) slots[i].drawCommandBuffer = buffers[1 + i];
+            for (int i = 0; i < SLOT_COUNT; ++i) slots[i].drawCommandBuffer = buffers[i];
             if (timestampsSupported) {
                 VkQueryPoolCreateInfo queryInfo = {VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO};
                 queryInfo.queryType = VK_QUERY_TYPE_TIMESTAMP;
@@ -1659,6 +1667,7 @@ namespace {
                 if (decodeFence != VK_NULL_HANDLE) vk.DestroyFence(device, decodeFence, nullptr);
                 if (queryPool != VK_NULL_HANDLE) vk.DestroyQueryPool(device, queryPool, nullptr);
                 if (commandPool != VK_NULL_HANDLE) vk.DestroyCommandPool(device, commandPool, nullptr);
+                if (drawCommandPool != VK_NULL_HANDLE) vk.DestroyCommandPool(device, drawCommandPool, nullptr);
                 if (pipeline != VK_NULL_HANDLE) vk.DestroyPipeline(device, pipeline, nullptr);
                 if (upscalePipeline != VK_NULL_HANDLE) vk.DestroyPipeline(device, upscalePipeline, nullptr);
                 if (upscaleLayout != VK_NULL_HANDLE) vk.DestroyPipelineLayout(device, upscaleLayout, nullptr);
@@ -1781,6 +1790,7 @@ namespace {
         bool highPriorityQueue = false;
 
         VkCommandPool commandPool = VK_NULL_HANDLE;
+        VkCommandPool drawCommandPool = VK_NULL_HANDLE;
         VkFence decodeFence = VK_NULL_HANDLE;
         VkFence acquireFence = VK_NULL_HANDLE;
 

@@ -143,27 +143,7 @@ public final class HostStreamSettings extends AppCompatActivity {
             activity = (HostStreamSettings) getActivity();
             PreferenceScreen screen = getPreferenceManager().createPreferenceScreen(activity);
             setPreferenceScreen(screen);
-            stream = new PreferenceCategory(activity);
-            stream.setTitle(R.string.settings_section_video);
-            stream.setLayoutResource(R.layout.settings_category);
-            screen.addPreference(stream);
-            row("resolution", R.string.title_resolution_list, this::showResolution);
-            row("refresh", R.string.title_fps_list, () -> showNumber("refresh", R.string.host_profile_refresh));
-            row("bitrate", R.string.title_seekbar_bitrate, () -> showNumber("bitrate", R.string.host_profile_bitrate));
-            row("codec", R.string.title_video_format, this::showCodec);
-            row("upscaling", R.string.title_upscaling, this::showUpscaling);
-            row("sharpness", R.string.title_upscaling_sharpness, this::showSharpness);
-            row("hdr", R.string.title_enable_hdr, () -> showSwitch("hdr", R.string.title_enable_hdr));
-            row("vrr", R.string.title_vrr, () -> showSwitch("vrr", R.string.title_vrr));
-            row("virtual", R.string.title_virtual_display, () -> showSwitch("virtual", R.string.title_virtual_display));
-            row("scale", R.string.title_virtual_display_scale, () -> showNumber("scale", R.string.host_profile_scale));
-            row("yuv444", R.string.title_yuv444, () -> showSwitch("yuv444", R.string.title_yuv444));
-            row("full_range", R.string.title_full_range, () -> showSwitch("full_range", R.string.title_full_range));
-            row("reset", R.string.host_profile_reset, () -> {
-                activity.overrides = new HostStreamProfile();
-                updateSummaries();
-            });
-            // Saved at once and sent on its own, so it applies whatever the values above are.
+            // Saved separately, so the display choice also applies when profile edits are discarded.
             PreferenceCategory displayCategory = new PreferenceCategory(activity);
             displayCategory.setTitle(R.string.host_display_menu);
             displayCategory.setLayoutResource(R.layout.settings_category);
@@ -178,6 +158,27 @@ public final class HostStreamSettings extends AppCompatActivity {
                 HostDisplaySettings.show(activity, activity.hostUuid,
                         activity.getIntent().getStringExtra("host_name"), this::updateSummaries);
                 return true;
+            });
+            stream = displayCategory;
+            row("virtual", R.string.title_virtual_display, () -> showSwitch("virtual", R.string.title_virtual_display));
+            row("scale", R.string.title_virtual_display_scale, () -> showNumber("scale", R.string.host_profile_scale));
+            stream = new PreferenceCategory(activity);
+            stream.setTitle(R.string.settings_section_video);
+            stream.setLayoutResource(R.layout.settings_category);
+            screen.addPreference(stream);
+            row("resolution", R.string.title_resolution_list, this::showResolution);
+            row("refresh", R.string.title_fps_list, () -> showNumber("refresh", R.string.host_profile_refresh));
+            row("bitrate", R.string.title_seekbar_bitrate, () -> showNumber("bitrate", R.string.host_profile_bitrate));
+            row("codec", R.string.title_video_format, this::showCodec);
+            row("upscaling", R.string.title_upscaling, this::showUpscaling);
+            row("sharpness", R.string.title_upscaling_sharpness, this::showSharpness);
+            row("hdr", R.string.title_enable_hdr, () -> showSwitch("hdr", R.string.title_enable_hdr));
+            row("vrr", R.string.title_vrr, () -> showSwitch("vrr", R.string.title_vrr));
+            row("yuv444", R.string.title_yuv444, () -> showSwitch("yuv444", R.string.title_yuv444));
+            row("full_range", R.string.title_full_range, () -> showSwitch("full_range", R.string.title_full_range));
+            row("reset", R.string.host_profile_reset, () -> {
+                activity.overrides = new HostStreamProfile();
+                updateSummaries();
             });
             Preference footer = new Preference(activity);
             footer.setLayoutResource(R.layout.settings_preference);
@@ -265,7 +266,8 @@ public final class HostStreamSettings extends AppCompatActivity {
         private void updateSummaries() {
             PreferenceConfiguration config = activity.effective();
             HostStreamProfile own = activity.overrides;
-            findPreference("resolution").setSummary(summary(own.nativeResolution != null, resolutionText(config)));
+            findPreference("resolution").setSummary(summary(own.nativeResolution != null, resolutionText(config)) +
+                    "\n" + getString(R.string.summary_resolution_list));
             findPreference("refresh").setSummary(summary(own.refreshRateX100 != null, refreshText(config)));
             findPreference("bitrate").setSummary(summary(own.bitrate != null,
                     HostStreamProfile.formatBitrateMbps(config.bitrate) + " Mbps"));
@@ -279,13 +281,20 @@ public final class HostStreamSettings extends AppCompatActivity {
             for (String key : new String[] {"hdr", "vrr", "virtual", "yuv444", "full_range"}) {
                 findPreference(key).setSummary(summary(switchOverride(key) != null, onOff(switchValue(config, key))));
             }
-            findPreference("scale").setSummary(summary(own.renderScale != null, config.virtualDisplayScale + "%"));
+            findPreference("scale").setSummary(summary(own.renderScale != null, config.virtualDisplayScale + "%") +
+                    "\n" + getString(R.string.summary_virtual_display_scale));
             findPreference("reset").setEnabled(!own.isEmpty());
             findPreference("reset").setSummary(own.isEmpty() ? getString(R.string.host_profile_status_global) :
                     getString(R.string.host_profile_status_custom));
             Preference display = findPreference("host_display");
+            HostDisplayChoice displayChoice = HostDisplayChoice.load(activity, activity.hostUuid);
+            findPreference("virtual").setEnabled(displayChoice == HostDisplayChoice.HOST_DEFAULT);
+            if (displayChoice != HostDisplayChoice.HOST_DEFAULT) {
+                findPreference("virtual").setSummary(getString(R.string.host_display_controls_virtual,
+                        getString(displayChoice.label)));
+            }
             if (display != null) {
-                display.setSummary(HostDisplayChoice.load(activity, activity.hostUuid).label);
+                display.setSummary(displayChoice.label);
             }
         }
 

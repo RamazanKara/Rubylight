@@ -114,8 +114,8 @@
     <string name="addpc_enter_ip">Gib die IP-Adresse oder den PC-Namen ein.</string>
     <string name="addpc_wrong_sitelocal">Nutze für Internet-Streaming die öffentliche IP deines Routers.</string>
     <string name="category_basic_settings">Grundeinstellungen</string>
-    <string name="title_resolution_list">Videoauflösung</string>
-    <string name="summary_resolution_list">Eine höhere Auflösung macht das Bild schärfer.</string>
+    <string name="title_resolution_list">Stream-Auflösung</string>
+    <string name="summary_resolution_list">Wähle zum Hochskalieren eine Auflösung unter der Displaygröße, etwa 720p auf einem 1080p-Display. Kleinere Werte entlasten Netzwerk und Decoder.</string>
     <string name="title_fps_list">Bildrate</string>
     <string name="summary_fps_list">Mehr Bilder pro Sekunde machen Bewegungen flüssiger.</string>
     <string name="title_seekbar_bitrate">Bitrate</string>
@@ -287,7 +287,7 @@
     <string name="title_vrr">Variable Bildrate (VRR)</string>
     <string name="summary_vrr">Passe das Display an die Bildrate des Spiels an. Schaltet das Frame-Timing mit einem Rubylight-PC ab.</string>
     <string name="title_virtual_display_scale">Host-Skalierung</string>
-    <string name="summary_virtual_display_scale">Bei 100 Prozent passt die PC-Auflösung zum Stream.</string>
+    <string name="summary_virtual_display_scale">Ändert die Renderauflösung des PCs, nicht die übertragene Videogröße. Senke die Stream-Auflösung, um weniger Pixel zu übertragen und auf diesem Gerät hochzuskalieren.</string>
     <string name="latency_values">%1$.2f / %2$.2f / %3$.2f (n=%4$d)</string>
     <string name="latency_unavailable">Noch keine Daten</string>
     <string name="title_export_latency_csv">Latenz als CSV exportieren</string>
@@ -394,7 +394,7 @@
     <string name="upscaling_bilinear">Bilinear</string>
     <string name="upscaling_fsr1">FSR 1.0</string>
     <string name="upscaling_sgsr1">SGSR 1 (Snapdragon Game Super Resolution)</string>
-    <string name="summary_upscaling">Skaliere SDR-Video mit Bilinear, FSR 1.0 oder SGSR 1 hoch; braucht mehr Akku.</string>
+    <string name="summary_upscaling">Rekonstruiert SDR-Video mit niedriger Auflösung in Displaygröße. Senke zuerst die Stream-Auflösung. PyroWave nutzt SGSR für FSR und SGSR. Braucht mehr Akku.</string>
     <string name="title_upscaling_sharpness">Schärfe der Hochskalierung</string>
     <string name="summary_upscaling_sharpness" formatted="false">FSR/SGSR-Schärfe: 0% aus, 100% maximal; gilt ab dem nächsten Stream, SGSR-Bildrekonstruktion bleibt aktiv.</string>
     <string name="upscaling_sharpness_value">%1$d%%</string>

@@ -72,7 +72,7 @@ public class StreamSettings extends AppCompatActivity {
     // Top-level screen keys and the preference categories each sub-screen shows
     static final Map<String, String[]> SECTIONS = new LinkedHashMap<>();
     static {
-        SECTIONS.put("video", new String[] {"category_basic_settings"});
+        SECTIONS.put("video", new String[] {"category_basic_settings", "category_upscaling", "category_host_display"});
         SECTIONS.put("input", new String[] {"category_gamepad_settings", "category_input_settings", "category_onscreen_controls"});
         SECTIONS.put("host", new String[] {"category_audio_settings"});
         SECTIONS.put("app", new String[] {"category_ui_settings"});
@@ -562,12 +562,19 @@ public class StreamSettings extends AppCompatActivity {
                 }
                 if (PreferenceConfiguration.UPSCALING_PREF_STRING.equals(pref.getKey()) &&
                         !"off".equals(((ListPreference) pref).getValue())) {
+                    value = value + "\n" + getString(R.string.summary_resolution_list);
                     SharedPreferences settings = getPreferenceManager().getSharedPreferences();
                     if (settings.getBoolean("checkbox_enable_hdr", false)) {
                         value = value + "\n" + getString(R.string.upscaling_hdr);
                     } else if ("forcepyrowave".equals(settings.getString("video_format", "auto"))) {
                         value = value + "\n" + getString(R.string.upscaling_pyrowave);
                     }
+                }
+                if (PreferenceConfiguration.RESOLUTION_PREF_STRING.equals(pref.getKey())) {
+                    value = value + "\n" + getString(R.string.summary_resolution_list);
+                }
+                if ("seekbar_virtual_display_scale".equals(pref.getKey())) {
+                    value = value + "\n" + getString(R.string.summary_virtual_display_scale);
                 }
                 if (value != null) {
                     pref.setSummary(pref instanceof ListPreference ? value.toString().replace("%", "%%") : value);

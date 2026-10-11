@@ -1,11 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="host_display_menu">Display on the PC</string>
+    <string name="host_display_menu">PC display mode</string>
+    <string name="host_display_location">For Exclusive or Extended mode, open your PC’s menu → Stream settings → PC display mode. Display mode is saved separately for each PC.</string>
+    <string name="host_display_controls_virtual">Controlled by PC display mode: %1$s</string>
     <string name="host_display_title">Display on %1$s</string>
     <string name="host_display_default">The PC’s own setting</string>
-    <string name="host_display_exclusive">Virtual display only (PC monitors off)</string>
-    <string name="host_display_extended_primary">Additional virtual display, as main display</string>
-    <string name="host_display_extended">Additional virtual display, PC display stays main</string>
+    <string name="host_display_exclusive">Exclusive — virtual display only (PC monitors off)</string>
+    <string name="host_display_extended_primary">Extended — virtual display becomes primary</string>
+    <string name="host_display_extended">Extended — PC display stays primary</string>
     <string name="host_display_physical">Physical display (no virtual display)</string>
     <string name="host_display_saved">Display choice saved. It applies from the next stream.</string>
     <string name="host_display_explanation">Choose what this PC’s displays do while you stream from it. The PC’s own setting follows Host virtual display and the PC’s display settings. Virtual display only switches the PC’s monitors off during the stream. An additional virtual display keeps them on; as main display, games open on the virtual display. Physical display streams the PC’s monitor without a virtual display. The PC puts its displays back when the stream ends.\n\nThe choice needs Rubylight on the PC. Other hosts treat the virtual display choices like Host virtual display and ignore the rest.</string>

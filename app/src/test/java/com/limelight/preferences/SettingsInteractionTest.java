@@ -22,6 +22,32 @@ import static org.junit.Assert.*;
         instrumentedPackages = "com.limelight.nvstream.jni")
 public class SettingsInteractionTest {
     @Test
+    public void explicitDisplayModeIsVisibleFirstAndControlsVirtualDisplay() {
+        Application app = RuntimeEnvironment.getApplication();
+        HostDisplayChoice.save(app, "exclusive-host", HostDisplayChoice.EXCLUSIVE);
+        Intent intent = new Intent(app, HostStreamSettings.class)
+                .putExtra("host_uuid", "exclusive-host").putExtra("host_name", "PC");
+        ActivityController<HostStreamSettings> controller = Robolectric.buildActivity(HostStreamSettings.class, intent).setup();
+        try {
+            HostStreamSettings.SettingsFragment fragment = (HostStreamSettings.SettingsFragment)
+                    controller.get().getFragmentManager().findFragmentById(R.id.host_profile_settings);
+            android.preference.PreferenceGroup first = (android.preference.PreferenceGroup)
+                    fragment.getPreferenceScreen().getPreference(0);
+            assertEquals("host_display", first.getPreference(0).getKey());
+            assertEquals(app.getString(R.string.host_display_exclusive),
+                    fragment.findPreference("host_display").getSummary());
+            assertFalse(fragment.findPreference("virtual").isEnabled());
+            assertTrue(fragment.findPreference("virtual").getSummary().toString()
+                    .contains(app.getString(R.string.host_display_exclusive)));
+            HostDisplayChoice.save(app, "exclusive-host", HostDisplayChoice.HOST_DEFAULT);
+            ReflectionHelpers.callInstanceMethod(fragment, "updateSummaries");
+            assertTrue(fragment.findPreference("virtual").isEnabled());
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    @Test
     public void backOffersToSaveOrDiscardAChangedHostProfile() {
         Intent intent = new Intent(RuntimeEnvironment.getApplication(), HostStreamSettings.class)
                 .putExtra("host_uuid", "profile-host").putExtra("host_name", "PC");

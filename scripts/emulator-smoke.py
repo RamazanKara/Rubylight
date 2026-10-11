@@ -128,7 +128,7 @@ PROFILE_RESET = "Same as all PCs for everything"
 
 def open_host_profile():
     host_menu("Stream settings")
-    find("Video resolution")
+    find("Stream resolution")
 
 
 def uncheck(predicate):
@@ -139,7 +139,7 @@ def uncheck(predicate):
 
 
 def profile_number(label, value):
-    rows = {"Width": "Video resolution", "Height": "Video resolution",
+    rows = {"Width": "Stream resolution", "Height": "Stream resolution",
             "Frame rate (FPS)": "Video frame rate", "Bitrate (Mbps)": "Video bitrate"}
     fields = [n for n in tree().iter("node") if n.get("class") == "android.widget.EditText"
               and n.get("content-desc") == label]
@@ -228,13 +228,13 @@ def capture_ui_set(width, font):
     adb("shell", "input", "keyevent", "4")
     open_host_profile()
     assert find(PROFILE_RESET, scroll=True).get("enabled") == "false", "A new PC should follow the settings for all PCs"
-    find("Video resolution", scroll="up")
+    find("Stream resolution", scroll="up")
     screenshot(prefix + "-per-pc")
     tap("Navigate up")
     tap(f"{PACKAGE}:id/settingsButton")
     find("Presets")
     screenshot(prefix + "-settings-root")
-    for title, name, setting in (("Stream", "stream", "Video resolution"),
+    for title, name, setting in (("Stream", "stream", "Stream resolution"),
                                  ("Controls", "controls", "Controller buttons"),
                                  ("Advanced", "advanced", "Frame pacing")):
         tap(title, scroll=True)
@@ -467,7 +467,7 @@ def main():
                   pref_value(root, "list_fps") != "30" and pref_value(root, "checkbox_reduce_refresh_rate") == "false",
                   "Native was not applied")
             tap("Stream")
-            find("Video resolution")
+            find("Stream resolution")
             screenshot("05-video-settings")
             tap("Video bitrate")
             tap("80")
@@ -488,7 +488,7 @@ def main():
             tap("android:id/button1")
             tap("Video codec")
             tap("Automatic (recommended)")
-            find("Video resolution")
+            find("Stream resolution")
             tap("Navigate up")
             find("Presets")
             find_text(r"^(\d+×\d+|\d+p) · \d+ FPS · 81 Mbps · Automatic")

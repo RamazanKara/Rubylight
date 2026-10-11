@@ -37,6 +37,23 @@
             android:entryValues="@array/video_format_values"
             android:summary="@string/summary_video_format"
             android:defaultValue="auto" />
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_enable_hdr"
+            android:title="@string/title_enable_hdr"
+            android:summary="@string/summary_enable_hdr"
+            android:defaultValue="false" />
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_vrr"
+            android:title="@string/title_vrr"
+            android:summary="@string/summary_vrr"
+            android:defaultValue="false" />
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_yuv444"
+            android:title="@string/title_yuv444"
+            android:summary="@string/summary_yuv444"
+            android:defaultValue="false" />
+    </PreferenceCategory>
+    <PreferenceCategory android:key="category_upscaling" android:title="@string/title_upscaling">
         <com.limelight.preferences.MaterialListPreference
             android:key="upscaling_mode"
             android:title="@string/title_upscaling"
@@ -54,15 +71,14 @@
             seekbar:step="1"
             android:text="%" />
         <com.limelight.preferences.MaterialSwitchPreference
-            android:key="checkbox_enable_hdr"
-            android:title="@string/title_enable_hdr"
-            android:summary="@string/summary_enable_hdr"
+            android:key="checkbox_stretch_video"
+            android:summary="@string/summary_stretch_video"
+            android:title="@string/title_checkbox_stretch_video"
             android:defaultValue="false" />
-        <com.limelight.preferences.MaterialSwitchPreference
-            android:key="checkbox_vrr"
-            android:title="@string/title_vrr"
-            android:summary="@string/summary_vrr"
-            android:defaultValue="false" />
+    </PreferenceCategory>
+    <PreferenceCategory android:key="category_host_display" android:title="@string/host_display_menu">
+        <Preference android:key="host_display_location" android:title="@string/host_display_menu"
+            android:summary="@string/host_display_location" android:selectable="false" />
         <com.limelight.preferences.MaterialSwitchPreference
             android:key="checkbox_virtual_display"
             android:title="@string/title_virtual_display"
@@ -78,16 +94,6 @@
             android:max="200"
             seekbar:step="5"
             android:text="%" />
-        <com.limelight.preferences.MaterialSwitchPreference
-            android:key="checkbox_yuv444"
-            android:title="@string/title_yuv444"
-            android:summary="@string/summary_yuv444"
-            android:defaultValue="false" />
-        <com.limelight.preferences.MaterialSwitchPreference
-            android:key="checkbox_stretch_video"
-            android:summary="@string/summary_stretch_video"
-            android:title="@string/title_checkbox_stretch_video"
-            android:defaultValue="false" />
     </PreferenceCategory>
     <PreferenceCategory android:key="category_gamepad_settings" android:title="@string/category_gamepad_settings">
         <com.limelight.preferences.SeekBarPreference

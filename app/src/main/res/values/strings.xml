@@ -139,8 +139,8 @@
 
     <!-- Preferences -->
     <string name="category_basic_settings">Basic Settings</string>
-    <string name="title_resolution_list">Video resolution</string>
-    <string name="summary_resolution_list">Higher resolution gives a sharper picture.</string>
+    <string name="title_resolution_list">Stream resolution</string>
+    <string name="summary_resolution_list">Choose a resolution below your screen’s size for upscaling, such as 720p on a 1080p screen. Lower values reduce network and decoding load.</string>
     <string name="title_fps_list">Video frame rate</string>
     <string name="summary_fps_list">Higher frame rates give smoother motion.</string>
     <string name="title_seekbar_bitrate">Video bitrate</string>
@@ -331,7 +331,7 @@
     <string name="title_vrr">Variable refresh (VRR)</string>
     <string name="summary_vrr">Match the screen to the game’s frame rate. Turns off frame timing with a Rubylight PC.</string>
     <string name="title_virtual_display_scale">Host render scale</string>
-    <string name="summary_virtual_display_scale">At 100 percent, PC and stream resolutions match.</string>
+    <string name="summary_virtual_display_scale">Changes the PC’s render resolution, not the transmitted video size. To send fewer pixels and upscale on this device, lower Stream resolution.</string>
     <string name="latency_values">%1$.2f / %2$.2f / %3$.2f (n=%4$d)</string>
     <string name="latency_unavailable">no data yet</string>
     <string name="title_export_latency_csv">Export latency CSV</string>
@@ -438,7 +438,7 @@
     <string name="upscaling_bilinear">Bilinear</string>
     <string name="upscaling_fsr1">FSR 1.0</string>
     <string name="upscaling_sgsr1">SGSR 1 (Snapdragon Game Super Resolution)</string>
-    <string name="summary_upscaling">Upscale SDR video with Bilinear, FSR 1.0 or SGSR 1; uses more battery.</string>
+    <string name="summary_upscaling">Reconstruct lower-resolution SDR video at your screen’s size. First lower Stream resolution. PyroWave uses SGSR for both FSR and SGSR selections. Uses more battery.</string>
     <string name="title_upscaling_sharpness">Upscaling sharpness</string>
     <string name="summary_upscaling_sharpness" formatted="false">FSR/SGSR sharpening: 0% off, 100% maximum; applies next stream, with SGSR reconstruction always active.</string>
     <string name="upscaling_sharpness_value">%1$d%%</string>

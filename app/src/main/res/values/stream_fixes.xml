@@ -1,0 +1,9 @@
+<resources>
+    <string name="stream_hdr_display_unsupported">This display does not support HDR10. Streaming in SDR.</string>
+    <string name="stream_hdr_android_unsupported">HDR requires Android 7.0 or later. Streaming in SDR.</string>
+    <string name="stream_hdr_decoder_unsupported">This decoder does not support HDR10. Streaming in SDR.</string>
+    <string name="stream_hevc_decoder_missing">No HEVC decoder is available. Using a supported codec.</string>
+    <string name="stream_av1_decoder_missing">No AV1 decoder is available. Using a supported codec.</string>
+    <string name="stream_mouse_mode_on">Controller mouse mode enabled</string>
+    <string name="stream_mouse_mode_off">Controller mouse mode disabled</string>
+</resources>

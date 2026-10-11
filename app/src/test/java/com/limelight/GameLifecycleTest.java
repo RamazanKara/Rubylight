@@ -29,6 +29,121 @@ import static org.junit.Assert.*;
 @Config(sdk = 29, application = Application.class)
 public class GameLifecycleTest {
     @Test
+    public void invalidBitrateStaysInTheDialogForCorrection() {
+        Game activity = Robolectric.buildActivity(Game.class).get();
+        activity.setTheme(com.limelight.R.style.AppTheme);
+        PreferenceConfiguration prefs = new PreferenceConfiguration();
+        prefs.bitrate = 10000;
+        ReflectionHelpers.setField(activity, "prefConfig", prefs);
+        ReflectionHelpers.callInstanceMethod(activity, "showBitrateDialog");
+        androidx.appcompat.app.AlertDialog dialog = ReflectionHelpers.getField(activity, "streamMenu");
+        try {
+            java.util.ArrayDeque<View> views = new java.util.ArrayDeque<>();
+            views.add(dialog.getWindow().getDecorView());
+            com.google.android.material.textfield.TextInputLayout field = null;
+            while (!views.isEmpty()) {
+                View view = views.remove();
+                if (view instanceof com.google.android.material.textfield.TextInputLayout) {
+                    field = (com.google.android.material.textfield.TextInputLayout) view;
+                    break;
+                }
+                if (view instanceof android.view.ViewGroup) {
+                    android.view.ViewGroup group = (android.view.ViewGroup) view;
+                    for (int i = 0; i < group.getChildCount(); i++) views.add(group.getChildAt(i));
+                }
+            }
+            assertNotNull(field);
+            field.getEditText().setText("0.1");
+            dialog.getButton(androidx.appcompat.app.AlertDialog.BUTTON_POSITIVE).performClick();
+            assertTrue(dialog.isShowing());
+            assertEquals(activity.getString(com.limelight.R.string.stream_bitrate_invalid), field.getError().toString());
+        } finally {
+            dialog.dismiss();
+        }
+    }
+
+    @Test
+    public void overlayTouchReachesTheStreamWithTranslatedCoordinates() {
+        TouchGame activity = Robolectric.buildActivity(TouchGame.class).get();
+        StreamView stream = new StreamView(activity);
+        stream.setX(100);
+        stream.setY(20);
+        View overlay = new View(activity);
+        overlay.setX(8);
+        overlay.setY(8);
+        ReflectionHelpers.setField(activity, "streamView", stream);
+        android.view.MotionEvent event = android.view.MotionEvent.obtain(0, 0,
+                android.view.MotionEvent.ACTION_DOWN, 200, 100, 0);
+        try {
+            assertTrue(ReflectionHelpers.callInstanceMethod(activity, "onOverlayTouch",
+                    ReflectionHelpers.ClassParameter.from(View.class, overlay),
+                    ReflectionHelpers.ClassParameter.from(android.view.MotionEvent.class, event)));
+            assertSame(stream, activity.touchView);
+            assertEquals(108, activity.touchX, 0);
+            assertEquals(88, activity.touchY, 0);
+            assertEquals(200, event.getX(), 0);
+        } finally {
+            event.recycle();
+        }
+    }
+
+    public static class TouchGame extends Game {
+        View touchView;
+        float touchX, touchY;
+        @Override public boolean onTouch(View view, android.view.MotionEvent event) {
+            touchView = view;
+            touchX = event.getX();
+            touchY = event.getY();
+            return true;
+        }
+    }
+
+    @Test
+    public void bitrateFailureRetainsTheEnabledControllerAndCanRetry() throws Exception {
+        Game activity = Robolectric.buildActivity(Game.class).get();
+        com.limelight.nvstream.AdaptiveBitrateController controller =
+                new com.limelight.nvstream.AdaptiveBitrateController(10000, 8000, 60, 0);
+        RetryConnection connection = new RetryConnection();
+        ReflectionHelpers.setField(activity, "adaptiveBitrate", controller);
+        ReflectionHelpers.setField(activity, "conn", connection);
+        ReflectionHelpers.setField(activity, "connected", true);
+        activity.getSharedPreferences("AdaptiveBitrate", Context.MODE_PRIVATE).edit().putBoolean("pc", true).commit();
+        ReflectionHelpers.callInstanceMethod(activity, "applyAdaptiveBitrate",
+                ReflectionHelpers.ClassParameter.from(int.class, 6400));
+        awaitBitrateRequest(activity);
+        assertSame(controller, ReflectionHelpers.getField(activity, "adaptiveBitrate"));
+        assertTrue(activity.getSharedPreferences("AdaptiveBitrate", Context.MODE_PRIVATE).getBoolean("pc", false));
+        assertTrue((long) ReflectionHelpers.getField(activity, "adaptiveBitrateRetryAt") > 0);
+        connection.fail = false;
+        ReflectionHelpers.callInstanceMethod(activity, "applyAdaptiveBitrate",
+                ReflectionHelpers.ClassParameter.from(int.class, 6400));
+        awaitBitrateRequest(activity);
+        assertEquals(6400, (int) ReflectionHelpers.getField(activity, "currentBitrate"));
+        assertEquals(0, (long) ReflectionHelpers.getField(activity, "adaptiveBitrateRetryAt"));
+    }
+
+    private static void awaitBitrateRequest(Game activity) throws InterruptedException {
+        long deadline = System.nanoTime() + 2_000_000_000L;
+        while ((boolean) ReflectionHelpers.getField(activity, "hostActionInProgress") && System.nanoTime() < deadline) {
+            org.robolectric.shadows.ShadowLooper.idleMainLooper();
+            Thread.sleep(5);
+        }
+        assertFalse(ReflectionHelpers.getField(activity, "hostActionInProgress"));
+    }
+
+    private static class RetryConnection extends com.limelight.nvstream.NvConnection {
+        boolean fail = true;
+        RetryConnection() {
+            super(null, new com.limelight.nvstream.http.ComputerDetails.AddressTuple("127.0.0.1", 47989),
+                    47984, "test", new com.limelight.nvstream.StreamConfiguration.Builder().build(), null, null);
+        }
+        @Override public int setBitrate(int bitrate) throws java.io.IOException {
+            if (fail) throw new java.io.IOException("temporary failure");
+            return bitrate;
+        }
+    }
+
+    @Test
     @Config(qualifiers = "sw600dp-w1000dp-h800dp")
     public void largeWindowsDoNotForceTheDisplayIntoLandscape() {
         Game activity = Robolectric.buildActivity(Game.class).get();

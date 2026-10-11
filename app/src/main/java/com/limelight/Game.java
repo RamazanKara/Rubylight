@@ -189,6 +189,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     private AdaptiveBitrateController adaptiveBitrate;
     private PyroWaveBitrateController pyroWaveBitrate;
     private boolean poorConnection;
+    private long adaptiveBitrateRetryAt;
+    private int adaptiveBitrateRetryTarget;
     private final Handler bitrateHandler = new Handler(Looper.getMainLooper());
     private final Runnable updateBitrate = new Runnable() {
         @Override
@@ -196,14 +198,14 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             if (!connected || !isAdaptiveBitrateEnabled()) {
                 return;
             }
-            if (!hostActionInProgress && streamMenu == null) {
+            if (!hostActionInProgress && streamMenu == null && SystemClock.uptimeMillis() >= adaptiveBitrateRetryAt) {
                 long now = SystemClock.uptimeMillis();
                 long rttInfo = MoonBridge.getEstimatedRttInfo();
                 float jitterMs = rttInfo == -1 ? -1 : (float) (rttInfo & 0xffffffffL);
                 int thermalLevel = decoderRenderer.getThermalLevel();
                 if (adaptiveBitrate != null) adaptiveBitrate.setThermalLevel(thermalLevel);
                 if (pyroWaveBitrate != null) pyroWaveBitrate.setThermalLevel(thermalLevel);
-                int target = pyroWaveBitrate != null ?
+                int target = adaptiveBitrateRetryAt != 0 ? adaptiveBitrateRetryTarget : pyroWaveBitrate != null ?
                         pyroWaveBitrate.sample(now, decoderRenderer.hasRecentVideoFrames(now), poorConnection,
                                 decoderRenderer.getPyroWaveLossPercent(), decoderRenderer.getPyroWaveQueueDelayMs(),
                                 decoderRenderer.getDecodeTimeMs(), jitterMs) :
@@ -309,7 +311,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         public void run() {
             if (useArr && surfaceCreated) {
                 setArrFrameRate(com.limelight.binding.video.DisplayFrameRatePolicy.cadenceVote(
-                        decoderRenderer.takeOutputFrameRate(), panelMaxRefreshRate, useArr));
+                        decoderRenderer.takeOutputFrameRate(), streamFps, panelMaxRefreshRate, useArr));
                 streamView.postDelayed(this, 1000);
             }
         }
@@ -510,12 +512,9 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
 
         performanceOverlayView = findViewById(R.id.performanceOverlay);
         performanceOverlayScroll = findViewById(R.id.performanceOverlayScroll);
+        performanceOverlayScroll.setOnTouchListener(this::onOverlayTouch);
         compactPerformanceOverlay = !"advanced".equals(PreferenceManager.getDefaultSharedPreferences(this)
                 .getString("performance_overlay_mode", "compact"));
-        performanceOverlayView.setOnLongClickListener(view -> {
-            togglePerformanceOverlayMode();
-            return true;
-        });
         updatePerformanceOverlay();
 
         inputCaptureProvider = InputCaptureManager.getInputCaptureProvider(this, this);
@@ -611,11 +610,11 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
 
                 if (!willStreamHdr) {
                     // Nope, no HDR for us :(
-                    Toast.makeText(this, "Display does not support HDR10", Toast.LENGTH_LONG).show();
+                    Toast.makeText(this, R.string.stream_hdr_display_unsupported, Toast.LENGTH_LONG).show();
                 }
             }
             else {
-                Toast.makeText(this, "HDR requires Android 7.0 or later", Toast.LENGTH_LONG).show();
+                Toast.makeText(this, R.string.stream_hdr_android_unsupported, Toast.LENGTH_LONG).show();
             }
         }
 
@@ -657,18 +656,18 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         if (willStreamHdr && !decoderRenderer.isHevcMain10Hdr10Supported() && !decoderRenderer.isAv1Main10Supported() &&
                 !decoderRenderer.isPyroWaveSupported()) {
             willStreamHdr = false;
-            Toast.makeText(this, "Decoder does not support HDR10 profile", Toast.LENGTH_LONG).show();
+            Toast.makeText(this, R.string.stream_hdr_decoder_unsupported, Toast.LENGTH_LONG).show();
         }
         streamHdr = willStreamHdr;
 
         // Display a message to the user if HEVC was forced on but we still didn't find a decoder
         if (mediaStream && prefConfig.videoFormat == PreferenceConfiguration.FormatOption.FORCE_HEVC && !decoderRenderer.isHevcSupported()) {
-            Toast.makeText(this, "No HEVC decoder found", Toast.LENGTH_LONG).show();
+            Toast.makeText(this, R.string.stream_hevc_decoder_missing, Toast.LENGTH_LONG).show();
         }
 
         // Display a message to the user if AV1 was forced on but we still didn't find a decoder
         if (mediaStream && prefConfig.videoFormat == PreferenceConfiguration.FormatOption.FORCE_AV1 && !decoderRenderer.isAv1Supported()) {
-            Toast.makeText(this, "No AV1 decoder found", Toast.LENGTH_LONG).show();
+            Toast.makeText(this, R.string.stream_av1_decoder_missing, Toast.LENGTH_LONG).show();
         }
 
         int supportedVideoFormats = mediaStream ? decoderRenderer.getSupportedVideoFormats(willStreamHdr) : MoonBridge.VIDEO_FORMAT_H264;
@@ -739,7 +738,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 .build();
 
         // Initialize the connection
-        conn = new NvConnection(getApplicationContext(),
+        conn = new NvConnection(getApplicationContext().createConfigurationContext(getResources().getConfiguration()),
                 new ComputerDetails.AddressTuple(host, port),
                 httpsPort, uniqueId, config,
                 PlatformBinding.getCryptoProvider(this), serverCert);
@@ -1767,7 +1766,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         dialog.show();
     }
 
-    private void showStreamMenu() {
+    public void showStreamMenu() {
         if (!foreground || !connected || streamMenu != null) {
             return;
         }
@@ -1841,9 +1840,15 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         addStreamAction(sheet, R.drawable.ic_remote_monitor, prefConfig.enablePerfOverlay ?
                 R.string.stream_overlay_hide : R.string.stream_overlay_show, this::togglePerformanceOverlay);
         addStreamAction(sheet, compactPerformanceOverlay ? R.drawable.ic_check : R.drawable.ic_remote_monitor,
-                R.string.overlay_compact, () -> { if (!compactPerformanceOverlay) togglePerformanceOverlayMode(); });
+                R.string.overlay_compact, () -> {
+                    if (!compactPerformanceOverlay) togglePerformanceOverlayMode();
+                    if (!prefConfig.enablePerfOverlay) togglePerformanceOverlay();
+                });
         addStreamAction(sheet, !compactPerformanceOverlay ? R.drawable.ic_check : R.drawable.ic_remote_monitor,
-                R.string.overlay_advanced, () -> { if (compactPerformanceOverlay) togglePerformanceOverlayMode(); });
+                R.string.overlay_advanced, () -> {
+                    if (compactPerformanceOverlay) togglePerformanceOverlayMode();
+                    if (!prefConfig.enablePerfOverlay) togglePerformanceOverlay();
+                });
         addStreamAction(sheet, R.drawable.ic_clipboard, R.string.overlay_copy, this::copyPerformanceStats);
         if (conn.canSendInput()) {
             addStreamAction(sheet, R.drawable.ic_network, R.string.latency_test, this::runLatencyTest);
@@ -2271,47 +2276,50 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         input.setText(BigDecimal.valueOf(currentBitrate == 0 ? prefConfig.bitrate : currentBitrate, 3)
                 .stripTrailingZeros().toPlainString());
         input.selectAll();
-        showStreamDialog(new MaterialAlertDialogBuilder(this).setTitle(R.string.stream_bitrate)
+        AlertDialog bitrateDialog = new MaterialAlertDialogBuilder(this).setTitle(R.string.stream_bitrate)
                 .setMessage(R.string.stream_bitrate_help).setView(field)
                 .setNegativeButton(android.R.string.cancel, null)
-                .setPositiveButton(android.R.string.ok, (dialog, which) -> {
-                    final int kbps;
-                    try {
-                        kbps = new BigDecimal(input.getText().toString().trim().replace(',', '.'))
-                                .movePointRight(3).intValueExact();
-                        if (kbps < 500 || kbps > 500000) {
-                            throw new NumberFormatException();
+                .setPositiveButton(android.R.string.ok, null).create();
+        showStreamDialog(bitrateDialog);
+        bitrateDialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(view -> {
+            final int kbps;
+            try {
+                kbps = new BigDecimal(input.getText().toString().trim().replace(',', '.'))
+                        .movePointRight(3).intValueExact();
+                if (kbps < 500 || kbps > 500000) {
+                    throw new NumberFormatException();
+                }
+            } catch (NumberFormatException | ArithmeticException e) {
+                field.setError(getString(R.string.stream_bitrate_invalid));
+                return;
+            }
+            if (hostActionInProgress) {
+                Toast.makeText(this, R.string.stream_bitrate_busy, Toast.LENGTH_SHORT).show();
+                return;
+            }
+            if (!foreground || !connected || hostActionInProgress) {
+                return;
+            }
+            setAdaptiveBitrateEnabled(false);
+            bitrateDialog.dismiss();
+            hostActionInProgress = true;
+            final int generation = foregroundGeneration;
+            new Thread(() -> {
+                try {
+                    int applied = conn.setBitrate(kbps);
+                    runOnUiThread(() -> {
+                        currentBitrate = applied;
+                        if (foreground && generation == foregroundGeneration && connected && !isFinishing()) {
+                            Toast.makeText(this, getString(R.string.stream_bitrate_applied, applied / 1000.0), Toast.LENGTH_LONG).show();
                         }
-                    } catch (NumberFormatException | ArithmeticException e) {
-                        Toast.makeText(this, R.string.stream_bitrate_invalid, Toast.LENGTH_LONG).show();
-                        return;
-                    }
-                    if (hostActionInProgress) {
-                        Toast.makeText(this, R.string.stream_bitrate_busy, Toast.LENGTH_SHORT).show();
-                        return;
-                    }
-                    if (!foreground || !connected || hostActionInProgress) {
-                        return;
-                    }
-                    setAdaptiveBitrateEnabled(false);
-                    hostActionInProgress = true;
-                    final int generation = foregroundGeneration;
-                    new Thread(() -> {
-                        try {
-                            int applied = conn.setBitrate(kbps);
-                            runOnUiThread(() -> {
-                                currentBitrate = applied;
-                                if (foreground && generation == foregroundGeneration && connected && !isFinishing()) {
-                                    Toast.makeText(this, getString(R.string.stream_bitrate_applied, applied / 1000.0), Toast.LENGTH_LONG).show();
-                                }
-                            });
-                        } catch (IOException | XmlPullParserException e) {
-                            showHostActionError(e, generation);
-                        } finally {
-                            runOnUiThread(() -> hostActionInProgress = false);
-                        }
-                    }, "Stream bitrate").start();
-                }).create());
+                    });
+                } catch (IOException | XmlPullParserException e) {
+                    showHostActionError(e, generation);
+                } finally {
+                    runOnUiThread(() -> hostActionInProgress = false);
+                }
+            }, "Stream bitrate").start();
+        });
     }
 
     private boolean supportsAdaptiveBitrate() {
@@ -2335,6 +2343,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         bitrateHandler.removeCallbacks(updateBitrate);
         adaptiveBitrate = null;
         pyroWaveBitrate = null;
+        adaptiveBitrateRetryAt = 0;
         if (enabled) {
             int ceiling = Math.min(500000, Math.max(prefConfig.bitrate, currentBitrate));
             int initial = Math.min(ceiling, currentBitrate);
@@ -2361,16 +2370,22 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                     if (connected && !isFinishing()) {
                         currentBitrate = applied;
                         if (adaptiveBitrate == controller && pyroWaveBitrate == pyroController) {
+                            adaptiveBitrateRetryAt = 0;
                             if (controller != null) controller.applied(target, applied, SystemClock.uptimeMillis());
                             if (pyroController != null) pyroController.applied(target, applied, SystemClock.uptimeMillis());
                         }
                     }
                 });
             } catch (IOException | XmlPullParserException e) {
+                LimeLog.warning("Automatic bitrate update failed: " + e);
                 runOnUiThread(() -> {
                     if (adaptiveBitrate == controller && pyroWaveBitrate == pyroController) {
-                        setAdaptiveBitrateEnabled(false);
-                        if (foreground && connected && !isFinishing()) {
+                        boolean firstFailure = adaptiveBitrateRetryAt == 0;
+                        adaptiveBitrateRetryTarget = target;
+                        adaptiveBitrateRetryAt = SystemClock.uptimeMillis() + 5000;
+                        if (controller != null) controller.suspend();
+                        if (pyroController != null) pyroController.suspend();
+                        if (firstFailure && foreground && connected && !isFinishing()) {
                             Toast.makeText(this, R.string.stream_auto_bitrate_failed, Toast.LENGTH_LONG).show();
                         }
                     }
@@ -3509,6 +3524,17 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     }
 
     @SuppressLint("ClickableViewAccessibility")
+    private boolean onOverlayTouch(View view, MotionEvent event) {
+        MotionEvent translated = MotionEvent.obtain(event);
+        translated.offsetLocation(view.getX() - streamView.getX(), view.getY() - streamView.getY());
+        try {
+            return onTouch(streamView, translated);
+        } finally {
+            translated.recycle();
+        }
+    }
+
+    @SuppressLint("ClickableViewAccessibility")
     @Override
     public boolean onTouch(View view, MotionEvent event) {
         if (event.getAction() == MotionEvent.ACTION_DOWN) {
@@ -3614,7 +3640,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                     }
 
                     String dialogText = connectionErrorMessage != null ? connectionErrorMessage :
-                            getResources().getString(R.string.conn_error_msg) + " " + stage +" (error "+errorCode+")";
+                            getString(errorCode == 0 ? R.string.startup_connection_failed :
+                                    R.string.startup_host_error, errorCode);
 
                     if (portFlags != 0) {
                         dialogText += "\n\n" + getResources().getString(R.string.check_ports_msg) + "\n" +
@@ -3855,7 +3882,9 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             @Override
             public void run() {
                 connectionErrorMessage = message;
-                Toast.makeText(Game.this, message, Toast.LENGTH_LONG).show();
+                if (connected) {
+                    Toast.makeText(Game.this, message, Toast.LENGTH_LONG).show();
+                }
             }
         });
     }

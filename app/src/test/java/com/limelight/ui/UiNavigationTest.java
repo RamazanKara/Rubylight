@@ -241,6 +241,39 @@ public class UiNavigationTest {
         }
     }
 
+    @Test
+    public void computerAccessibilityActionOpensTheSameMenuAsLongPress() {
+        ActivityController<Screen> controller = Robolectric.buildActivity(Screen.class).setup().visible();
+        try {
+            Screen screen = controller.get();
+            com.limelight.grid.PcGridAdapter adapter = new com.limelight.grid.PcGridAdapter(screen,
+                    new com.limelight.preferences.PreferenceConfiguration());
+            com.limelight.nvstream.http.ComputerDetails details = new com.limelight.nvstream.http.ComputerDetails();
+            details.name = "PC";
+            details.state = com.limelight.nvstream.http.ComputerDetails.State.OFFLINE;
+            adapter.addComputer(new com.limelight.PcView.ComputerObject(details));
+            GridView grid = new GridView(screen);
+            grid.setAdapter(adapter);
+            AtomicInteger menus = new AtomicInteger();
+            grid.setOnItemLongClickListener((parent, view, position, id) -> {
+                assertEquals(0, position);
+                menus.incrementAndGet();
+                return true;
+            });
+            screen.setContentView(grid);
+            layout(screen);
+            View card = grid.getChildAt(0);
+            android.view.accessibility.AccessibilityNodeInfo info = card.createAccessibilityNodeInfo();
+            assertTrue(info.getActionList().stream().anyMatch(action ->
+                    action.getId() == android.view.accessibility.AccessibilityNodeInfo.ACTION_LONG_CLICK &&
+                    screen.getString(R.string.pc_accessibility_actions).contentEquals(action.getLabel())));
+            assertTrue(card.performAccessibilityAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_LONG_CLICK, null));
+            assertEquals(1, menus.get());
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
     private static KeyEvent key(int action, int key, int modifiers) {
         return new KeyEvent(0, 0, action, key, 0, modifiers);
     }

@@ -2,6 +2,7 @@ package com.limelight.preferences;
 
 import android.app.Activity;
 import android.widget.Toast;
+import androidx.appcompat.app.AlertDialog;
 
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.limelight.R;
@@ -25,7 +26,7 @@ public final class HostDisplaySettings {
             labels[i] = activity.getString(choices[i].label);
         }
         HostDisplayChoice current = HostDisplayChoice.load(activity, hostUuid);
-        new MaterialAlertDialogBuilder(activity)
+        AlertDialog picker = new MaterialAlertDialogBuilder(activity)
                 .setTitle(activity.getString(R.string.host_display_title, hostName))
                 .setSingleChoiceItems(labels, current.ordinal(), (dialog, which) -> {
                     HostDisplayChoice.save(activity, hostUuid, choices[which]);
@@ -33,11 +34,12 @@ public final class HostDisplaySettings {
                     if (onChanged != null) onChanged.run();
                     dialog.dismiss();
                 })
-                .setNeutralButton(R.string.help, (dialog, which) ->
-                        new MaterialAlertDialogBuilder(activity).setTitle(R.string.host_display_menu)
-                                .setMessage(R.string.host_display_explanation)
-                                .setPositiveButton(android.R.string.ok, null).show())
+                .setNeutralButton(R.string.help, null)
                 .setNegativeButton(android.R.string.cancel, null)
                 .show();
+        picker.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(view ->
+                new MaterialAlertDialogBuilder(activity).setTitle(R.string.host_display_menu)
+                        .setMessage(R.string.host_display_explanation)
+                        .setPositiveButton(android.R.string.ok, null).show());
     }
 }

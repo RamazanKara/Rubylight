@@ -766,6 +766,9 @@ public class StreamSettings extends AppCompatActivity {
         }
 
         private void resetBitrateToDefault(SharedPreferences prefs, String res, String fps) {
+            if (prefs.contains(PreferenceConfiguration.BITRATE_PREF_STRING)) {
+                return;
+            }
             if (res == null) {
                 res = prefs.getString(PreferenceConfiguration.RESOLUTION_PREF_STRING, PreferenceConfiguration.DEFAULT_RESOLUTION);
             }

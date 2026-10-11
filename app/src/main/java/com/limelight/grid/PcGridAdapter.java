@@ -82,5 +82,17 @@ public class PcGridAdapter extends GenericGridAdapter<PcView.ComputerObject> {
         statusView.setText(status);
         parentView.setContentDescription(obj.details.name);
         ViewCompat.setStateDescription(parentView, context.getString(status));
+        ViewCompat.replaceAccessibilityAction(parentView,
+                androidx.core.view.accessibility.AccessibilityNodeInfoCompat.AccessibilityActionCompat.ACTION_LONG_CLICK,
+                context.getString(R.string.pc_accessibility_actions), (view, arguments) -> {
+                    if (view.getParent() instanceof android.widget.AdapterView) {
+                        android.widget.AdapterView<?> parent = (android.widget.AdapterView<?>) view.getParent();
+                        int position = parent.getPositionForView(view);
+                        android.widget.AdapterView.OnItemLongClickListener listener = parent.getOnItemLongClickListener();
+                        return position != android.widget.AdapterView.INVALID_POSITION && listener != null &&
+                                listener.onItemLongClick(parent, view, position, parent.getItemIdAtPosition(position));
+                    }
+                    return false;
+                });
     }
 }

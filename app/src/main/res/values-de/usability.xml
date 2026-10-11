@@ -1,0 +1,30 @@
+<resources>
+    <string name="startup_connection_failed">Keine Verbindung zum PC möglich. Prüfe, ob Rubylight läuft, beide Geräte sich erreichen und die Firewall am PC Streaming erlaubt. Versuche es dann erneut.</string>
+    <string name="startup_permission_denied">Der Host hat die Anfrage abgelehnt. Öffne am PC die Rubylight-Webkonsole → Geräte, aktiviere dieses Gerät und erlaube das Anzeigen oder Starten von Apps.</string>
+    <string name="startup_host_error">Der Host konnte den Stream nicht starten (Fehler %1$d). Prüfe seinen Status in der Webkonsole, aktualisiere die App-Liste und versuche es erneut.</string>
+    <string name="startup_invalid_host">Der PC hat eine ungültige Serverversion gemeldet. Aktualisiere den Host oder starte ihn neu und versuche es erneut.</string>
+    <string name="startup_virtual_display_unavailable">Am PC ist kein virtuelles Display verfügbar. Seine aktuelle Display-Konfiguration wird verwendet.</string>
+    <string name="startup_not_paired">Dieses Gerät ist nicht mehr gekoppelt. Kehre zur PC-Liste zurück und kopple es erneut.</string>
+    <string name="startup_app_missing">Diese App ist nicht mehr in der PC-Bibliothek. Aktualisiere die App-Liste und wähle eine andere App.</string>
+    <string name="startup_resume_missing">Diese Sitzung ist nicht mehr verfügbar. Aktualisiere die App-Liste und wähle eine Sitzung.</string>
+    <string name="startup_host_resolution_unsupported">Der PC unterstützt keine Auflösungen über 4K. Wähle in den Stream-Einstellungen 4K oder weniger.</string>
+    <string name="startup_device_resolution_unsupported">Auflösungen über 4K benötigen HEVC oder AV1 auf diesem Gerät. Wähle eine niedrigere Auflösung oder einen anderen Codec.</string>
+    <string name="startup_host_update_4k">Aktualisiere GeForce Experience am PC für 4K-Streaming. Dieser Stream verwendet 1080p.</string>
+    <string name="startup_hdr_unavailable">Auf beiden Geräten ist kein kompatibler HDR-Codec verfügbar. Dieser Stream verwendet SDR.</string>
+    <string name="startup_resume_failed">Die Sitzung konnte nicht fortgesetzt werden. Prüfe die App am PC und versuche es erneut.</string>
+    <string name="startup_session_owner">Die Sitzung gehört einem anderen Gerät. Beende sie dort oder am PC und versuche es erneut.</string>
+    <string name="startup_app_minimized">Die App ist minimiert. Stelle sie am PC wieder her oder beende und starte die Sitzung erneut.</string>
+    <string name="startup_quit_failed">Die vorherige Sitzung konnte nicht beendet werden. Beende sie am PC und versuche es erneut.</string>
+    <string name="startup_launch_failed">Die App konnte nicht gestartet werden. Prüfe, ob sie am PC startet, und versuche es erneut.</string>
+    <string name="applist_permission_required">Dieses Gerät darf keine Apps auflisten. Öffne am PC die Rubylight-Webkonsole → Geräte und erlaube die App-Auflistung für dieses Gerät. Die Bibliothek wird automatisch aktualisiert.</string>
+    <string name="applist_load_failed">Die Apps des PCs konnten nicht geladen werden. Prüfe den Host und die Berechtigung zur App-Auflistung für dieses Gerät in seiner Webkonsole. Ein neuer Versuch erfolgt automatisch.</string>
+    <string name="applist_empty">Keine Apps verfügbar. Füge Apps zur Host-Bibliothek hinzu und prüfe die Berechtigung zur App-Auflistung für dieses Gerät in der Host-Webkonsole.</string>
+    <string name="host_profile_unsaved_title">Stream-Einstellungen speichern?</string>
+    <string name="host_profile_unsaved_message">Die Änderungen an den Stream-Einstellungen dieses PCs sind noch nicht gespeichert. Die Auswahl unter „Display am PC“ wurde bereits separat gespeichert.</string>
+    <string name="host_profile_discard">Änderungen verwerfen</string>
+    <string name="preset_replace_settings">Dies ersetzt Auflösung, Bildrate, Bitrate, Frame-Pacing, Hochskalierung, VRR und Leistungseinstellungen durch diese Voreinstellung. Codec und HDR bleiben erhalten.</string>
+    <string name="pair_otp_incorrect_pin">PIN abgelehnt. Erstelle eine neue Einmal-PIN in der Host-Webkonsole und prüfe die Passphrase.</string>
+    <string name="pc_accessibility_actions">PC-Aktionen</string>
+    <string name="app_details">Name: %1$s\nHDR unterstützt: %2$s\nApp-ID: %3$d</string>
+    <string name="app_hdr_unknown">Unbekannt</string>
+</resources>

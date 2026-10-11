@@ -36,6 +36,7 @@ import javax.crypto.SecretKey;
 import org.xmlpull.v1.XmlPullParserException;
 
 import com.limelight.LimeLog;
+import com.limelight.R;
 import com.limelight.binding.audio.MicrophoneCapture;
 import com.limelight.binding.audio.MicrophoneStatus;
 import com.limelight.binding.input.InputBatcher;
@@ -402,7 +403,7 @@ public class NvConnection {
         
         context.serverAppVersion = h.getServerVersion(serverInfo);
         if (context.serverAppVersion == null) {
-            context.connListener.displayMessage("Server version malformed");
+            context.connListener.displayMessage(appContext.getString(R.string.startup_invalid_host));
             return false;
         }
 
@@ -419,14 +420,14 @@ public class NvConnection {
                 (context.serverSupportsVirtualDisplay ? "" : " (the PC reports no virtual display)"));
         if (context.hostDisplay.forRole(context.streamConfig.getApp().getRole())
                 .requestsVirtualDisplay(context.streamConfig.getVirtualDisplay()) && !context.serverSupportsVirtualDisplay) {
-            context.connListener.displayTransientMessage("Host virtual display unavailable. Using the host display configuration.");
+            context.connListener.displayTransientMessage(appContext.getString(R.string.startup_virtual_display_unavailable));
         }
 
         // May be missing for older servers
         context.serverGfeVersion = h.getGfeVersion(serverInfo);
                 
         if (h.getPairState(serverInfo) != PairingManager.PairState.PAIRED) {
-            context.connListener.displayMessage("Device not paired with computer");
+            context.connListener.displayMessage(appContext.getString(R.string.startup_not_paired));
             return false;
         }
 
@@ -454,7 +455,7 @@ public class NvConnection {
             LimeLog.info("Using deprecated app lookup method - Please specify an app ID in your StreamConfiguration instead");
             currentApp = h.getAppByName(context.streamConfig.getApp().getAppName());
             if (currentApp == null) {
-                context.connListener.displayMessage("The app " + context.streamConfig.getApp().getAppName() + " is not in GFE app list");
+                context.connListener.displayMessage(appContext.getString(R.string.startup_app_missing));
                 return false;
             }
             app.setAppId(currentApp.getAppId());
@@ -468,7 +469,8 @@ public class NvConnection {
             }
             // Resume changes meaning with host ownership; a stale shortcut cannot determine its role.
             if (currentApp == null) {
-                throw new HostHttpResponseException(409, "This Resume tile is no longer available. Refresh the app list and choose a session.");
+                context.connListener.displayMessage(appContext.getString(R.string.startup_resume_missing));
+                return false;
             }
             app.setMonitorResume(currentApp.getRole() == NvApp.Role.REMOTE_MONITOR);
         }
@@ -488,17 +490,17 @@ public class NvConnection {
             // Check for a supported stream resolution
             if ((context.streamConfig.getWidth() > 4096 || context.streamConfig.getHeight() > 4096) &&
                     (h.getServerCodecModeSupport(serverInfo) & 0x200) == 0 && context.isNvidiaServerSoftware) {
-                context.connListener.displayMessage("Your host PC does not support streaming at resolutions above 4K.");
+                context.connListener.displayMessage(appContext.getString(R.string.startup_host_resolution_unsupported));
                 return false;
             }
             else if ((context.streamConfig.getWidth() > 4096 || context.streamConfig.getHeight() > 4096) &&
                     (context.streamConfig.getSupportedVideoFormats() & ~MoonBridge.VIDEO_FORMAT_MASK_H264) == 0) {
-                context.connListener.displayMessage("Your streaming device must support HEVC or AV1 to stream at resolutions above 4K.");
+                context.connListener.displayMessage(appContext.getString(R.string.startup_device_resolution_unsupported));
                 return false;
             }
             else if (context.streamConfig.getHeight() >= 2160 && !h.supports4K(serverInfo)) {
                 // Client wants 4K but the server can't do it
-                context.connListener.displayTransientMessage("You must update GeForce Experience to stream in 4K. The stream will be 1080p.");
+                context.connListener.displayTransientMessage(appContext.getString(R.string.startup_host_update_4k));
             
                 // Lower resolution to 1080p
                 context.negotiatedWidth = 1920;
@@ -517,7 +519,7 @@ public class NvConnection {
             context.negotiatedVideoFormats = negotiateVideoFormats(preparedFormats, context.serverCodecModeSupport);
             context.negotiatedHdr = (context.negotiatedVideoFormats & MoonBridge.VIDEO_FORMAT_MASK_10BIT) != 0;
             if (!context.negotiatedHdr && (offeredFormats & MoonBridge.VIDEO_FORMAT_MASK_10BIT) != 0) {
-                context.connListener.displayTransientMessage("No common HDR codec with the host. The stream will be SDR.");
+                context.connListener.displayTransientMessage(appContext.getString(R.string.startup_hdr_unavailable));
             }
 
         }
@@ -540,7 +542,7 @@ public class NvConnection {
         
         // The host also exposes resume/control tiles as apps, so it must decide whether a launch needs launch permission.
         if (!details.hasPermission(ComputerDetails.PERMISSION_VIEW | ComputerDetails.PERMISSION_LAUNCH)) {
-            context.connListener.displayMessage("This device cannot view streams. Enable its view or launch permission in the host web console.");
+            context.connListener.displayMessage(appContext.getString(R.string.startup_permission_denied));
             return false;
         }
 
@@ -553,7 +555,7 @@ public class NvConnection {
             try {
                 if (app.matchesRunningApp(details.runningGameId, details.runningGameUuid)) {
                     if (!launchApp(h, context, "resume")) {
-                        context.connListener.displayMessage("Failed to resume existing session");
+                        context.connListener.displayMessage(appContext.getString(R.string.startup_resume_failed));
                         return false;
                     }
                 } else if (details.rustHostVersion != null) {
@@ -567,14 +569,11 @@ public class NvConnection {
                 if (e.getErrorCode() == 470) {
                     // This is the error you get when you try to resume a session that's not yours.
                     // Because this is fairly common, we'll display a more detailed message.
-                    context.connListener.displayMessage("This session wasn't started by this device," +
-                            " so it cannot be resumed. End streaming on the original " +
-                            "device or the PC itself and try again. (Error code: "+e.getErrorCode()+")");
+                    context.connListener.displayMessage(appContext.getString(R.string.startup_session_owner));
                     return false;
                 }
                 else if (e.getErrorCode() == 525) {
-                    context.connListener.displayMessage("The application is minimized. Resume it on the PC manually or " +
-                            "quit the session and start streaming again.");
+                    context.connListener.displayMessage(appContext.getString(R.string.startup_app_minimized));
                     return false;
                 } else {
                     throw e;
@@ -596,14 +595,12 @@ public class NvConnection {
         }
         try {
             if (!h.quitApp()) {
-                context.connListener.displayMessage("Failed to quit previous session! You must quit it manually");
+                context.connListener.displayMessage(appContext.getString(R.string.startup_quit_failed));
                 return false;
             } 
         } catch (HostHttpResponseException e) {
             if (e.getErrorCode() == 599) {
-                context.connListener.displayMessage("This session wasn't started by this device," +
-                        " so it cannot be quit. End streaming on the original " +
-                        "device or the PC itself. (Error code: "+e.getErrorCode()+")");
+                context.connListener.displayMessage(appContext.getString(R.string.startup_session_owner));
                 return false;
             }
             else {
@@ -619,7 +616,7 @@ public class NvConnection {
         // Launch the app since it's not running
         if (!launchApp(h, context, "launch")) {
             if (!context.launchActionCompleted) {
-                context.connListener.displayMessage("Failed to launch application");
+                context.connListener.displayMessage(appContext.getString(R.string.startup_launch_failed));
             }
             return false;
         }
@@ -747,13 +744,16 @@ public class NvConnection {
                 } catch (HostHttpResponseException e) {
                     if (!stopRequested) {
                         e.printStackTrace();
-                        context.connListener.displayMessage(e.getMessage());
+                        context.connListener.displayMessage(appContext.getString(
+                                e.getErrorCode() == 401 || e.getErrorCode() == 403 ?
+                                        R.string.startup_permission_denied : R.string.startup_host_error,
+                                e.getErrorCode()));
                         context.connListener.stageFailed(appName, 0, e.getErrorCode());
                     }
                 } catch (XmlPullParserException | IOException | RuntimeException e) {
                     if (!stopRequested) {
                         e.printStackTrace();
-                        context.connListener.displayMessage(e.getMessage());
+                        context.connListener.displayMessage(appContext.getString(R.string.startup_connection_failed));
                         context.connListener.stageFailed(appName, MoonBridge.ML_PORT_FLAG_TCP_47984 | MoonBridge.ML_PORT_FLAG_TCP_47989, 0);
                     }
                 } finally {

@@ -140,7 +140,7 @@ def uncheck(predicate):
 
 def profile_number(label, value):
     rows = {"Width": "Video resolution", "Height": "Video resolution",
-            "Refresh rate (Hz)": "Video frame rate", "Bitrate (Mbps)": "Video bitrate"}
+            "Frame rate (FPS)": "Video frame rate", "Bitrate (Mbps)": "Video bitrate"}
     fields = [n for n in tree().iter("node") if n.get("class") == "android.widget.EditText"
               and n.get("content-desc") == label]
     if not fields:
@@ -148,7 +148,7 @@ def profile_number(label, value):
         # Every value starts as "Same as all PCs"; a value of this PC's own needs that box off.
         uncheck(lambda text: text.startswith("Same as all PCs"))
         # The resolution may follow the phone's screen; a fixed size needs that choice off too.
-        uncheck(lambda text: text == "Native (follows this phone’s screen)")
+        uncheck(lambda text: text == "Native (follows this screen)")
         fields = [n for n in tree().iter("node") if n.get("class") == "android.widget.EditText"
                   and n.get("content-desc") == label]
     field = fields[0]
@@ -440,7 +440,7 @@ def main():
             find("Enter a whole number from 64 to 16384")
             profile_number("Width", "1920")
             profile_number("Height", "1080")
-            profile_number("Refresh rate (Hz)", "59.94")
+            profile_number("Frame rate (FPS)", "59.94")
             profile_number("Bitrate (Mbps)", "45.5")
             screenshot("09-host-profile")
             tap(f"{PACKAGE}:id/host_profile_save")
@@ -448,7 +448,7 @@ def main():
                 n.get("name") == "00000000-0000-4000-8000-000000000006" and
                 (n.text or "") == "v2;res=1920x1080;refresh=5994;bitrate=45500" for n in root), "Host profile was not saved")
             open_host_profile()
-            find("59.94 Hz", scroll="up")
+            find("59.94 FPS", scroll="up")
             find("Prefer YUV 4:4:4", scroll=True)
             screenshot("10-host-codec-profile")
             tap(PROFILE_RESET, scroll=True)
@@ -458,9 +458,11 @@ def main():
             find("Presets")
             screenshot("04-settings")
             tap("Battery saver")
+            tap("android:id/button1")
             prefs(f"{PACKAGE}_preferences", lambda root: any(
                 n.get("name") == "list_fps" and n.text == "30" for n in root), "Battery saver was not applied")
             tap("Native (recommended)")
+            tap("android:id/button1")
             prefs(f"{PACKAGE}_preferences", lambda root: pref_value(root, "list_resolution") == native and
                   pref_value(root, "list_fps") != "30" and pref_value(root, "checkbox_reduce_refresh_rate") == "false",
                   "Native was not applied")

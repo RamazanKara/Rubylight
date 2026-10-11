@@ -9,8 +9,8 @@
     <string name="host_profile_width">Breite</string>
     <string name="host_profile_height">Höhe</string>
     <string name="host_profile_match_screen">Wie dieses Display</string>
-    <string name="host_profile_native">Nativ (folgt dem Display dieses Telefons)</string>
-    <string name="host_profile_refresh">Bildrate (Hz)</string>
+    <string name="host_profile_native">Nativ (folgt diesem Display)</string>
+    <string name="host_profile_refresh">Bildrate (FPS)</string>
     <string name="host_profile_bitrate">Bitrate (Mbit/s)</string>
     <string name="host_profile_scale">Host-Skalierung (%)</string>
     <string name="host_profile_codec">Videocodec</string>
@@ -23,7 +23,7 @@
     <string name="host_profile_saved">Stream-Einstellungen für diesen PC gespeichert</string>
     <string name="host_profile_reset_done">Dieser PC nutzt jetzt die Einstellungen für alle PCs.</string>
     <string name="host_profile_invalid_number">Gib eine ganze Zahl von %1$d bis %2$d ein.</string>
-    <string name="host_profile_invalid_refresh">Gib 1–1000 Hz mit höchstens zwei Nachkommastellen ein.</string>
+    <string name="host_profile_invalid_refresh">Gib 1–1000 FPS mit höchstens zwei Nachkommastellen ein</string>
     <string name="host_profile_invalid_bitrate">Gib 0,5–2000 Mbit/s ein.</string>
     <string-array name="host_profile_codecs">
         <item>Automatisch</item>

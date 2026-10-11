@@ -3,7 +3,7 @@
     <string name="host_display_menu">Display on the PC</string>
     <string name="host_display_title">Display on %1$s</string>
     <string name="host_display_default">The PC’s own setting</string>
-    <string name="host_display_exclusive">Virtual display only (exclusive)</string>
+    <string name="host_display_exclusive">Virtual display only (PC monitors off)</string>
     <string name="host_display_extended_primary">Additional virtual display, as main display</string>
     <string name="host_display_extended">Additional virtual display, PC display stays main</string>
     <string name="host_display_physical">Physical display (no virtual display)</string>

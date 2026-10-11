@@ -55,6 +55,7 @@ public class AppView extends AppCompatActivity implements AdapterFragmentCallbac
     private ComputerManagerService.ApplistPoller poller;
     private SpinnerDialog blockingLoadSpinner;
     private String lastRawApplist;
+    private boolean lastAppListEmpty;
     private int lastRunningAppId;
     private boolean suspendGridUpdates;
     private volatile boolean inForeground;
@@ -177,6 +178,19 @@ public class AppView extends AppCompatActivity implements AdapterFragmentCallbac
 
         managerBinder.startPolling(new ComputerManagerListener() {
             @Override
+            public void notifyAppListUpdated(ComputerDetails details, boolean success) {
+                if (!details.uuid.equalsIgnoreCase(uuidString)) return;
+                if (success) {
+                    notifyComputerUpdated(details);
+                    runOnUiThread(() -> showAppListStatus(!details.hasPermission(ComputerDetails.PERMISSION_LIST) ?
+                            R.string.applist_permission_required : lastAppListEmpty ? R.string.applist_empty : 0));
+                } else {
+                    showAppListStatus(details.hasPermission(ComputerDetails.PERMISSION_LIST) ?
+                            R.string.applist_load_failed : R.string.applist_permission_required);
+                }
+            }
+
+            @Override
             public void notifyComputerUpdated(final ComputerDetails details) {
                 // Do nothing if updates are suspended
                 if (suspendGridUpdates || !inForeground || isFinishing() || isDestroyed()) {
@@ -228,6 +242,10 @@ public class AppView extends AppCompatActivity implements AdapterFragmentCallbac
 
                 String rawAppList = details.rawAppList;
 
+                if (!details.hasPermission(ComputerDetails.PERMISSION_LIST)) {
+                    showAppListStatus(R.string.applist_permission_required);
+                }
+
                 // App list is the same or empty
                 if (rawAppList == null || rawAppList.equals(lastRawApplist)) {
 
@@ -254,6 +272,7 @@ public class AppView extends AppCompatActivity implements AdapterFragmentCallbac
                     }
                 } catch (XmlPullParserException | IOException e) {
                     e.printStackTrace();
+                    showAppListStatus(R.string.applist_load_failed);
                 }
             }
         });
@@ -359,6 +378,19 @@ public class AppView extends AppCompatActivity implements AdapterFragmentCallbac
     private void loadAppsBlocking() {
         blockingLoadSpinner = SpinnerDialog.displayDialog(this, getResources().getString(R.string.applist_refresh_title),
                 getResources().getString(R.string.applist_refresh_msg), true);
+    }
+
+    private void showAppListStatus(int message) {
+        runOnUiThread(() -> {
+            if (!inForeground || isFinishing() || isDestroyed()) return;
+            if (blockingLoadSpinner != null) {
+                blockingLoadSpinner.dismiss();
+                blockingLoadSpinner = null;
+            }
+            TextView status = findViewById(R.id.app_list_status);
+            if (message != 0) status.setText(message);
+            status.setVisibility(message == 0 ? View.GONE : View.VISIBLE);
+        });
     }
 
     @Override
@@ -486,7 +518,10 @@ public class AppView extends AppCompatActivity implements AdapterFragmentCallbac
                 return true;
 
             case VIEW_DETAILS_ID:
-                Dialog.displayDialog(AppView.this, getResources().getString(R.string.title_details), app.app.toString(), false);
+                Dialog.displayDialog(AppView.this, getString(R.string.title_details),
+                        getString(R.string.app_details, app.app.getAppName(),
+                                getString(app.app.isHdrSupported() ? R.string.yes : R.string.app_hdr_unknown),
+                                app.app.getAppId()), false);
                 return true;
 
             case HIDE_APP_ID:
@@ -562,6 +597,9 @@ public class AppView extends AppCompatActivity implements AdapterFragmentCallbac
                 if (isFinishing() || isDestroyed()) {
                     return;
                 }
+                lastAppListEmpty = appList.isEmpty();
+                showAppListStatus(!computer.hasPermission(ComputerDetails.PERMISSION_LIST) ?
+                        R.string.applist_permission_required : appList.isEmpty() ? R.string.applist_empty : 0);
                 boolean updated = false;
 
                 // First handle app updates and additions

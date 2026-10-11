@@ -129,7 +129,7 @@ public class AddComputerManually extends AppCompatActivity {
         int portTestResult;
 
         SpinnerDialog dialog = SpinnerDialog.displayDialog(this, getResources().getString(R.string.title_add_pc),
-            getResources().getString(R.string.msg_add_pc), false);
+            getResources().getString(R.string.msg_add_pc), true);
 
         try {
             ComputerDetails details = new ComputerDetails();
@@ -183,6 +183,10 @@ public class AddComputerManually extends AppCompatActivity {
         }
 
         dialog.dismiss();
+
+        if (Thread.currentThread().isInterrupted() || isFinishing() || isDestroyed()) {
+            throw new InterruptedException();
+        }
 
         if (invalidInput) {
             Dialog.displayDialog(this, getResources().getString(R.string.conn_error_title), getResources().getString(R.string.addpc_unknown_host), false);

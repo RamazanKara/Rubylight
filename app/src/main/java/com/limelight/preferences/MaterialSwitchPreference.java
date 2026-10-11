@@ -32,6 +32,10 @@ public class MaterialSwitchPreference extends SwitchPreference {
 
     @Override
     protected void onBindView(View view) {
+        setSummaryOn(getContext().getString(R.string.stream_enabled) +
+                (explanation == null ? "" : "\n" + explanation));
+        setSummaryOff(getContext().getString(R.string.stream_disabled) +
+                (explanation == null ? "" : "\n" + explanation));
         super.onBindView(view);
         MaterialSwitch toggle = view.findViewById(R.id.preference_switch);
         toggle.setChecked(isChecked());

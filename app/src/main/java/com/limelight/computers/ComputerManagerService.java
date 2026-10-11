@@ -948,16 +948,22 @@ public class ComputerManagerService extends Service {
                                 // and ensure that the thread is still active
                                 ComputerManagerListener currentListener = listener;
                                 if (currentListener != null && thread != null) {
-                                    currentListener.notifyComputerUpdated(computer);
+                                    currentListener.notifyAppListUpdated(computer, true);
                                 }
                             }
                             else if (appList.isEmpty()) {
                                 LimeLog.warning("Null app list received from "+computer.uuid);
+                                ComputerManagerListener currentListener = listener;
+                                if (currentListener != null && thread == Thread.currentThread()) {
+                                    currentListener.notifyAppListUpdated(computer, false);
+                                }
                             }
-                        } catch (IOException e) {
+                        } catch (IOException | XmlPullParserException e) {
                             e.printStackTrace();
-                        } catch (XmlPullParserException e) {
-                            e.printStackTrace();
+                            ComputerManagerListener currentListener = listener;
+                            if (currentListener != null && thread == Thread.currentThread()) {
+                                currentListener.notifyAppListUpdated(computer, false);
+                            }
                         }
                     } while (waitPollingDelay());
                 }

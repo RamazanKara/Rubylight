@@ -35,6 +35,42 @@ import static org.junit.Assert.*;
         instrumentedPackages = "com.limelight.nvstream.jni")
 public class ControllerInputReleaseTest {
     @Test
+    public void androidControllerMenuComboWaitsForReleaseWithoutQuitting() {
+        MenuGame activity = Robolectric.buildActivity(MenuGame.class).get();
+        ControllerHandler handler = new ControllerHandler(activity, new RecordingConnection(), null, new PreferenceConfiguration());
+        ControllerHandler.InputDeviceContext context = ReflectionHelpers.getField(handler, "defaultContext");
+        context.assignedControllerNumber = true;
+        context.hasSelect = context.hasMode = true;
+        int[] keys = {KeyEvent.KEYCODE_BUTTON_L1, KeyEvent.KEYCODE_BUTTON_R1,
+                KeyEvent.KEYCODE_BUTTON_SELECT, KeyEvent.KEYCODE_BUTTON_START};
+        try {
+            for (int key : keys) {
+                assertTrue(handler.handleButtonDown(new KeyEvent(1000, 1000, KeyEvent.ACTION_DOWN,
+                        key, 0, 0, 0, 0)));
+            }
+            assertTrue(context.pendingExit);
+            for (int i = 0; i < keys.length; i++) {
+                assertEquals(0, activity.menuCount);
+                assertTrue(handler.handleButtonUp(new KeyEvent(1000, 1100, KeyEvent.ACTION_UP,
+                        keys[i], 0, 0, 0, 0)));
+            }
+            assertEquals(1, activity.menuCount);
+            assertFalse(context.pendingExit);
+            assertFalse(activity.isFinishing());
+            handler.handleButtonUp(new KeyEvent(1000, 1100, KeyEvent.ACTION_UP,
+                    KeyEvent.KEYCODE_BUTTON_START, 0, 0, 0, 0));
+            assertEquals(1, activity.menuCount);
+        } finally {
+            handler.destroy();
+        }
+    }
+
+    public static class MenuGame extends Game {
+        int menuCount;
+        @Override public void showStreamMenu() { menuCount++; }
+    }
+
+    @Test
     public void releasingInputClearsEveryContextAndDoesNotFuseStaleAxes() {
         try (ActivityController<Activity> activity = Robolectric.buildActivity(Activity.class).create()) {
             RecordingConnection connection = new RecordingConnection();

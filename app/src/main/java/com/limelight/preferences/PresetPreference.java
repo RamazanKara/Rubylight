@@ -18,7 +18,31 @@ public class PresetPreference extends Preference {
     public PresetPreference(Context context, AttributeSet attrs) {
         super(context, attrs);
         setLayoutResource(R.layout.settings_presets);
-        setSelectable(false);
+        setSelectable(true);
+    }
+
+    @Override
+    protected void onClick() {
+        String[] names = getContext().getResources().getStringArray(R.array.stream_preset_names);
+        UiHelper.showDialog(getContext(), new MaterialAlertDialogBuilder(getContext())
+                .setTitle(R.string.stream_presets)
+                .setItems(names, (dialog, which) -> confirmPreset(StreamPreset.values()[which]))
+                .setNegativeButton(android.R.string.cancel, null).create());
+    }
+
+    private void confirmPreset(StreamPreset preset) {
+        String nativeResolution = PreferenceConfiguration.nativeResolution(getContext());
+        if (nativeResolution == null) return;
+        float refresh = DisplayFrameRatePolicy.maxRefreshRate(((Activity) getContext()).getWindowManager().getDefaultDisplay());
+        UiHelper.showDialog(getContext(), new MaterialAlertDialogBuilder(getContext())
+                .setTitle(getContext().getResources().getStringArray(R.array.stream_preset_names)[preset.ordinal()])
+                .setMessage(R.string.preset_replace_settings)
+                .setPositiveButton(android.R.string.ok, (dialog, which) -> {
+                    preset.apply(getSharedPreferences(), nativeResolution, refresh);
+                    notifyChanged();
+                })
+                .setNegativeButton(android.R.string.cancel, (dialog, which) -> notifyChanged())
+                .setOnCancelListener(dialog -> notifyChanged()).create());
     }
 
     @Override
@@ -41,10 +65,7 @@ public class PresetPreference extends Preference {
                 chip.setChecked(true);
                 selected = names[preset.ordinal()];
             }
-            chip.setOnClickListener(v -> {
-                preset.apply(getSharedPreferences(), nativeResolution, refresh);
-                notifyChanged();
-            });
+            chip.setOnClickListener(v -> confirmPreset(preset));
         }
         ((TextView) view.findViewById(R.id.preset_value)).setText(selected);
         view.findViewById(R.id.preset_help).setOnClickListener(v ->

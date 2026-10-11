@@ -9,7 +9,7 @@
     <string name="settings_version">Version %1$s</string>
     <string name="settings_source">Quellcode und Lizenzen</string>
     <string name="settings_csv_summary">Speichere die letzten Latenzmesswerte.</string>
-    <string name="host_profile_footer">Gilt ab dem nächsten Stream.</string>
+    <string name="host_profile_footer">Speichere die Stream-Einstellungen vor dem Verlassen. Die Auswahl unter „Display am PC“ wird sofort gespeichert. Änderungen gelten ab dem nächsten Stream.</string>
     <string name="pc_sheet_pairing">Kopplung</string>
     <string name="pc_sheet_this_pc">Dieser PC</string>
     <string name="stream_input_menu">Eingabe</string>

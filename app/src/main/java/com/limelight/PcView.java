@@ -614,9 +614,19 @@ public class PcView extends AppCompatActivity implements AdapterFragmentCallback
                         if (generation != pairingGeneration || !inForeground || isFinishing() || isDestroyed()) {
                             return;
                         }
+                        android.text.SpannableStringBuilder pairingText = new android.text.SpannableStringBuilder();
+                        if (oneTimePin == null) {
+                            pairingText.append(getString(R.string.pair_pairing_msg)).append("\n\n");
+                            int pinStart = pairingText.length();
+                            pairingText.append(pin);
+                            pairingText.setSpan(new android.text.style.RelativeSizeSpan(2f), pinStart, pairingText.length(), 0);
+                            pairingText.setSpan(new android.text.style.StyleSpan(android.graphics.Typeface.BOLD), pinStart, pairingText.length(), 0);
+                            pairingText.append("\n\n").append(getString(R.string.pair_pairing_help));
+                        } else {
+                            pairingText.append(getString(R.string.pairing));
+                        }
                         pairingDialog = new MaterialAlertDialogBuilder(this).setTitle(R.string.pair_pairing_title)
-                                .setMessage(oneTimePin == null ? getString(R.string.pair_pairing_msg) + " " + pin
-                                        + "\n\n" + getString(R.string.pair_pairing_help) : getString(R.string.pairing))
+                                .setMessage(pairingText)
                                 .setNegativeButton(android.R.string.cancel, (dialog, which) -> {
                                     cancelPairing();
                                     startComputerUpdates();
@@ -638,7 +648,8 @@ public class PcView extends AppCompatActivity implements AdapterFragmentCallback
                             message = getString(R.string.pair_fail);
                         }
                     } else {
-                        message = getString(state == PairState.PIN_WRONG ? R.string.pair_incorrect_pin :
+                        message = getString(state == PairState.PIN_WRONG ?
+                                (oneTimePin == null ? R.string.pair_incorrect_pin : R.string.pair_otp_incorrect_pin) :
                                 state == PairState.ALREADY_IN_PROGRESS ? R.string.pair_already_in_progress :
                                         computer.runningGameId != 0 ? R.string.pair_pc_ingame : R.string.pair_fail);
                     }

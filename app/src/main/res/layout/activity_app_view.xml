@@ -12,6 +12,10 @@
             android:textAppearance="@style/ScreenTitle"
             android:accessibilityHeading="true" tools:targetApi="p" />
     </LinearLayout>
+    <TextView android:id="@+id/app_list_status"
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:padding="24dp" android:textAppearance="?attr/textAppearanceBodyLarge"
+        android:accessibilityLiveRegion="polite" android:visibility="gone" />
     <FrameLayout android:id="@+id/appFragmentContainer"
         android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" />
 </LinearLayout>

@@ -34,6 +34,7 @@ import android.view.Surface;
 import android.widget.Toast;
 
 import com.limelight.LimeLog;
+import com.limelight.Game;
 import com.limelight.R;
 import com.limelight.binding.input.driver.AbstractController;
 import com.limelight.binding.input.driver.UsbDriverListener;
@@ -2676,8 +2677,10 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         sendControllerInputPacket(context);
 
         if (context.pendingExit && context.inputMap == 0) {
-            // All buttons from the quit combo are lifted. Finish the activity now.
-            activityContext.finish();
+            context.pendingExit = false;
+            if (activityContext instanceof Game) {
+                ((Game) activityContext).showStreamMenu();
+            }
         }
 
         return true;
@@ -2858,10 +2861,9 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
             return false;
         }
 
-        // Start+Back+LB+RB is the quit combo
+        // Wait for the menu combo to lift so it cannot activate a menu item.
         if (context.inputMap == (ControllerPacket.BACK_FLAG | ControllerPacket.PLAY_FLAG |
                                  ControllerPacket.LB_FLAG | ControllerPacket.RB_FLAG)) {
-            // Wait for the combo to lift and then finish the activity
             context.pendingExit = true;
         }
 
@@ -3091,7 +3093,8 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
             mainThreadHandler.removeCallbacks(mouseEmulationRunnable);
             releaseMouseButtons();
             mouseEmulationActive = !mouseEmulationActive;
-            Toast.makeText(activityContext, "Mouse emulation is: " + (mouseEmulationActive ? "ON" : "OFF"), Toast.LENGTH_SHORT).show();
+            Toast.makeText(activityContext, mouseEmulationActive ? R.string.stream_mouse_mode_on :
+                    R.string.stream_mouse_mode_off, Toast.LENGTH_SHORT).show();
 
             if (mouseEmulationActive) {
                 mainThreadHandler.postDelayed(mouseEmulationRunnable, mouseEmulationReportPeriod);

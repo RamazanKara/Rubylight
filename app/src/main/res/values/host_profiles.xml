@@ -9,8 +9,8 @@
     <string name="host_profile_width">Width</string>
     <string name="host_profile_height">Height</string>
     <string name="host_profile_match_screen">Use this screen</string>
-    <string name="host_profile_native">Native (follows this phone’s screen)</string>
-    <string name="host_profile_refresh">Refresh rate (Hz)</string>
+    <string name="host_profile_native">Native (follows this screen)</string>
+    <string name="host_profile_refresh">Frame rate (FPS)</string>
     <string name="host_profile_bitrate">Bitrate (Mbps)</string>
     <string name="host_profile_scale">Host render scale (%)</string>
     <string name="host_profile_codec">Video codec</string>
@@ -23,7 +23,7 @@
     <string name="host_profile_saved">PC streaming settings saved</string>
     <string name="host_profile_reset_done">This PC now uses the settings for all PCs</string>
     <string name="host_profile_invalid_number">Enter a whole number from %1$d to %2$d</string>
-    <string name="host_profile_invalid_refresh">Enter 1–1000 Hz with at most two decimal places</string>
+    <string name="host_profile_invalid_refresh">Enter 1–1000 FPS with at most two decimal places</string>
     <string name="host_profile_invalid_bitrate">Enter 0.5–2000 Mbps</string>
     <string-array name="host_profile_codecs">
         <item>Automatic</item>

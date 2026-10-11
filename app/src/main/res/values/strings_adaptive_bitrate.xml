@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="stream_auto_bitrate_enable">Automatic bitrate on</string>
-    <string name="stream_auto_bitrate_disable">Automatic bitrate off</string>
+    <string name="stream_auto_bitrate_enable">Enable Automatic bitrate</string>
+    <string name="stream_auto_bitrate_disable">Disable Automatic bitrate</string>
     <string name="stream_auto_bitrate_help">Adjust bitrate to your connection.\nSaved for this PC; manual changes turn it off.</string>
     <string name="stream_pyrowave_bitrate_help">Auto-adjust PyroWave for this PC.\nManual bitrate turns this off.</string>
-    <string name="stream_auto_bitrate_failed">Automatic bitrate stopped.\nEnable it again in the stream menu.</string>
+    <string name="stream_auto_bitrate_failed">Temporary bitrate update failure. Retrying automatically.</string>
     <string name="stream_auto_bitrate_status">Automatic bitrate: %1$.1f Mbps</string>
     <string name="stream_bitrate_busy">Host busy. Try again in a moment.</string>
 </resources>

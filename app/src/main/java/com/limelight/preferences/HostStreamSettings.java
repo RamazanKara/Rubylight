@@ -21,6 +21,7 @@ import android.widget.TextView;
 
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.activity.OnBackPressedCallback;
 import com.google.android.material.appbar.MaterialToolbar;
 import com.google.android.material.checkbox.MaterialCheckBox;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
@@ -40,6 +41,7 @@ public final class HostStreamSettings extends AppCompatActivity {
     private PreferenceConfiguration global;
     private HostStreamProfile overrides;
     private String hostUuid;
+    private String savedProfile;
 
     public static void show(Activity activity, String hostUuid, String hostName) {
         activity.startActivity(new Intent(activity, HostStreamSettings.class)
@@ -59,6 +61,7 @@ public final class HostStreamSettings extends AppCompatActivity {
         PreferenceConfiguration.migratePcProfilesToOverrides(this);
         HostStreamProfile saved = HostStreamProfile.load(this, hostUuid);
         overrides = saved == null ? new HostStreamProfile() : saved;
+        savedProfile = overrides.serialize();
         if (state != null && state.getString("draft") != null) {
             try {
                 overrides = HostStreamProfile.deserialize(state.getString("draft"));
@@ -69,7 +72,13 @@ public final class HostStreamSettings extends AppCompatActivity {
         setContentView(R.layout.activity_host_stream_settings);
         MaterialToolbar toolbar = findViewById(R.id.host_profile_toolbar);
         toolbar.setSubtitle(getIntent().getStringExtra("host_name"));
-        toolbar.setNavigationOnClickListener(v -> finish());
+        toolbar.setNavigationOnClickListener(v -> leaveSettings());
+        getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
+            @Override
+            public void handleOnBackPressed() {
+                leaveSettings();
+            }
+        });
         toolbar.inflateMenu(R.menu.host_profile);
         toolbar.setOnMenuItemClickListener(item -> {
             new MaterialAlertDialogBuilder(this).setTitle(R.string.host_profile_menu)
@@ -86,6 +95,21 @@ public final class HostStreamSettings extends AppCompatActivity {
             getFragmentManager().beginTransaction().replace(R.id.host_profile_settings, new SettingsFragment()).commit();
         }
         UiHelper.notifyNewRootView(this);
+    }
+
+    private void leaveSettings() {
+        if (savedProfile.equals(overrides.serialize())) {
+            finish();
+            return;
+        }
+        new MaterialAlertDialogBuilder(this).setTitle(R.string.host_profile_unsaved_title)
+                .setMessage(R.string.host_profile_unsaved_message)
+                .setPositiveButton(R.string.host_profile_save, (dialog, which) -> {
+                    overrides.save(this, hostUuid);
+                    finish();
+                })
+                .setNegativeButton(R.string.host_profile_discard, (dialog, which) -> finish())
+                .setNeutralButton(android.R.string.cancel, null).show();
     }
 
     /** What the next stream from this PC uses: the global settings with this PC's values on top. */
@@ -192,7 +216,7 @@ public final class HostStreamSettings extends AppCompatActivity {
 
         private String refreshText(PreferenceConfiguration config) {
             return HostStreamProfile.formatRefreshRate(config.launchRefreshRateX100 == 0 ?
-                    config.fps * 100 : config.launchRefreshRateX100) + " Hz";
+                    config.fps * 100 : config.launchRefreshRateX100) + " " + getString(R.string.fps_suffix_fps);
         }
 
         private String upscalingText(PreferenceConfiguration config) {

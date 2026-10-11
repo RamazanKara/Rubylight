@@ -8,9 +8,10 @@ public final class DisplayFrameRatePolicy {
         return vrr && sdk >= 36 && arrSupported;
     }
 
-    public static float cadenceVote(float measuredFps, float panelMaxHz, boolean useArr) {
+    public static float cadenceVote(float measuredFps, float streamFps, float panelMaxHz, boolean useArr) {
+        // A still desktop reduces arrivals, but motion can resume at the negotiated rate immediately.
         return useArr && Float.isFinite(measuredFps) && measuredFps > 0 ?
-                Math.min(measuredFps, panelMaxHz) : panelMaxHz;
+                Math.min(Math.max(measuredFps, streamFps), panelMaxHz) : panelMaxHz;
     }
 
     public static float maxRefreshRate(Display display) {

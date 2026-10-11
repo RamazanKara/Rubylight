@@ -23,8 +23,8 @@
     <string name="pair_pc_ingame">Beende den Stream am Host und kopple erneut.</string>
     <string name="pair_pairing_title">Rubylight koppeln</string>
     <string name="pair_pairing_msg">Gib diese PIN am Host ein:</string>
-    <string name="pair_pairing_help">Gib die PIN unter Geräte in der Host-Webkonsole ein.</string>
-    <string name="pair_incorrect_pin">PIN abgelehnt.\nPrüfe die Passphrase und nutze eine neue PIN.</string>
+    <string name="pair_pairing_help">Öffne am PC die Rubylight-Webkonsole → Geräte und gib diese PIN ein.</string>
+    <string name="pair_incorrect_pin">PIN abgelehnt. Kopple erneut und gib die neue PIN dieses Geräts in der Host-Webkonsole ein.</string>
     <string name="pair_fail">Brich die alte Anfrage am Host ab und versuch es erneut.</string>
     <string name="pair_already_in_progress">Schließe die offene Anfrage am Host ab oder brich sie ab.</string>
     <string name="wol_pc_online">PC ist online</string>
@@ -158,7 +158,7 @@
     <string name="title_checkbox_usb_bind_all">USB-Treiber bevorzugen</string>
     <string name="summary_checkbox_usb_bind_all">Nutze Rubylights Xbox-USB-Treiber.</string>
     <string name="title_checkbox_mouse_emulation">Controller als Maus</string>
-    <string name="summary_checkbox_mouse_emulation">Halte Start gedrückt, um den Mausmodus zu wechseln.</string>
+    <string name="summary_checkbox_mouse_emulation">Halte Start gedrückt, um den Mausmodus zu wechseln. Drücke Start + Back + LB + RB zusammen, um das Stream-Menü zu öffnen.</string>
     <string name="title_checkbox_flip_face_buttons">Tasten tauschen</string>
     <string name="summary_checkbox_flip_face_buttons">Tausche A/B und X/Y am Controller und auf dem Display.</string>
     <string name="title_checkbox_gamepad_touchpad_as_mouse">Touchpad als Maus</string>
@@ -337,7 +337,7 @@
     <string name="stream_permission_allowed">Erlaubt</string>
     <string name="stream_permission_denied">Gesperrt</string>
     <string name="stream_permissions_help">Ändere Rechte unter Geräte in der Host-Webkonsole.</string>
-    <string name="stream_input_denied">Eingaben sind gesperrt.\nPrüfe die Rechte im Stream-Menü.</string>
+    <string name="stream_input_denied">Eingaben sind gesperrt. Öffne am PC die Rubylight-Webkonsole → Geräte und erlaube diesem Gerät Tastatur-, Maus- oder Controller-Eingaben.</string>
     <string name="stream_bitrate">Bitrate</string>
     <string name="stream_bitrate_help">Mbit/s für diese Sitzung festlegen.\nDie automatische Bitrate wird deaktiviert.</string>
     <string name="stream_bitrate_invalid">Gib eine Bitrate von 0,5 bis 500 Mbit/s ein.</string>

@@ -15,7 +15,9 @@
     clippy::print_stderr,
     clippy::undocumented_unsafe_blocks
 )]
+pub mod adaptive_fec;
 pub mod audio;
+pub mod audio_defaults;
 pub mod auth;
 pub mod bitstream;
 pub mod browse;
@@ -23,6 +25,7 @@ pub mod capture_policy;
 pub mod catalog;
 pub mod config;
 pub mod crypto;
+pub mod display_caps;
 pub mod display_policy;
 pub mod edid;
 pub mod encoder_policy;
@@ -43,9 +46,11 @@ pub mod packet;
 pub mod pairing;
 pub mod paths;
 pub mod performance;
+pub mod phase_sync;
 pub mod playnite;
 pub mod present_timing;
 pub mod pyrowave;
+pub mod reconfigure;
 pub mod remote;
 pub mod rtsp;
 pub mod rtx_policy;

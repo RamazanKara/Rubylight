@@ -14,6 +14,11 @@ pub struct VirtualDisplayRequest<'a> {
     pub configured: bool,
     pub output_override: Option<&'a str>,
     pub configured_output: &'a str,
+    /// The client asked to stream a physical display (`hostDisplay=physical`):
+    /// the host, app and per-device settings that would add a virtual display
+    /// are overridden for this stream. A headless host and an output that
+    /// names the virtual display still use one; there is nothing else to show.
+    pub client_physical: bool,
     /// No display is active (a headless host, or every monitor off): there
     /// is no physical display to stream, so a virtual one is used whatever
     /// the settings say, as in Vibepollo.
@@ -44,6 +49,9 @@ impl VirtualDisplayRequest<'_> {
         )
     }
     pub fn requested(&self) -> bool {
+        if self.client_physical {
+            return self.headless || self.output_virtual();
+        }
         self.client_requested
             || self.client_forced
             || self.headless
@@ -275,6 +283,16 @@ pub enum Arrangement {
     PrimaryIsolated,
 }
 impl Arrangement {
+    /// The `virtual_display_layout` value that selects this arrangement.
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Extended => "extended",
+            Self::Primary => "extended_primary",
+            Self::Exclusive => "exclusive",
+            Self::Isolated => "extended_isolated",
+            Self::PrimaryIsolated => "extended_primary_isolated",
+        }
+    }
     pub fn parse(value: &str) -> Result<Self> {
         Ok(
             match value.trim().to_ascii_lowercase().replace('-', "_").as_str() {
@@ -425,6 +443,42 @@ impl Arrangement {
         Ok(result)
     }
 }
+/// What a client asked the PC's displays to do for one stream: the
+/// `hostDisplay` launch and resume parameter. It overrides the host, app and
+/// per-device display settings for that stream only; without it (or with a
+/// value this host does not know, such as `default`) those settings decide,
+/// so older clients are unaffected.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HostDisplay {
+    /// Stream a physical display; no virtual display is added.
+    Physical,
+    /// Add a virtual display for the stream and lay the desktop out like this
+    /// (`exclusive` turns the other displays off for the stream).
+    Virtual(Arrangement),
+}
+impl HostDisplay {
+    pub const PARAMETER: &'static str = "hostDisplay";
+    /// `physical`, or any `virtual_display_layout` value; anything else is
+    /// None, leaving the host's settings in control.
+    pub fn parse(value: &str) -> Option<Self> {
+        if value.trim().eq_ignore_ascii_case("physical") {
+            return Some(Self::Physical);
+        }
+        Arrangement::parse(value).ok().map(Self::Virtual)
+    }
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Physical => "physical",
+            Self::Virtual(arrangement) => arrangement.name(),
+        }
+    }
+    /// Whether a display prepared for one launch can serve the next: a
+    /// launch that asks for nothing takes it as it is, and one that asks
+    /// gets a display set up for exactly that request.
+    pub fn reusable(prepared_for: Option<Self>, requested: Option<Self>) -> bool {
+        requested.is_none() || prepared_for == requested
+    }
+}
 /// Displays a stream's layout switched off that are on again. Windows puts
 /// back the layout it has saved for the connected displays when an
 /// exclusive-fullscreen game loses focus (the Win key, Alt+Tab, Ctrl+Alt+Del),
@@ -559,6 +613,113 @@ mod tests {
         assert!(headless.uses_virtual(false, || true));
         assert!(!headless.uses_virtual(false, || false));
         assert!(!headless.uses_virtual(true, || true));
+    }
+    #[test]
+    fn a_client_asking_for_the_physical_display_overrides_the_virtual_display_settings() {
+        use super::VirtualDisplayRequest;
+        for request in [
+            VirtualDisplayRequest {
+                configured: true,
+                ..Default::default()
+            },
+            VirtualDisplayRequest {
+                app_requested: true,
+                ..Default::default()
+            },
+            VirtualDisplayRequest {
+                client_forced: true,
+                ..Default::default()
+            },
+            VirtualDisplayRequest {
+                client_requested: true,
+                ..Default::default()
+            },
+        ] {
+            assert!(request.requested());
+            let physical = VirtualDisplayRequest {
+                client_physical: true,
+                ..request
+            };
+            assert!(!physical.requested());
+            assert!(
+                !physical.uses_virtual(false, || panic!("no virtual display, no driver check"))
+            );
+        }
+        // Nothing physical to show: a headless host, or an output that names
+        // the virtual display itself.
+        for request in [
+            VirtualDisplayRequest {
+                client_physical: true,
+                headless: true,
+                ..Default::default()
+            },
+            VirtualDisplayRequest {
+                client_physical: true,
+                output_override: Some("virtual_display"),
+                ..Default::default()
+            },
+            VirtualDisplayRequest {
+                client_physical: true,
+                configured_output: "sunshine:virtual_display",
+                ..Default::default()
+            },
+        ] {
+            assert!(request.uses_virtual(false, || true));
+        }
+    }
+    #[test]
+    fn host_display_choices_parse_and_unknown_values_leave_the_host_in_control() {
+        use super::{Arrangement, HostDisplay};
+        assert_eq!(HostDisplay::PARAMETER, "hostDisplay");
+        assert_eq!(HostDisplay::parse("physical"), Some(HostDisplay::Physical));
+        assert_eq!(
+            HostDisplay::parse(" Physical "),
+            Some(HostDisplay::Physical)
+        );
+        assert_eq!(
+            HostDisplay::parse("exclusive"),
+            Some(HostDisplay::Virtual(Arrangement::Exclusive))
+        );
+        assert_eq!(
+            HostDisplay::parse("extended"),
+            Some(HostDisplay::Virtual(Arrangement::Extended))
+        );
+        assert_eq!(
+            HostDisplay::parse("extended-primary"),
+            Some(HostDisplay::Virtual(Arrangement::Primary))
+        );
+        for unknown in ["", " ", "default", "host", "mirror", "virtual", "0", "1"] {
+            assert_eq!(HostDisplay::parse(unknown), None, "{unknown}");
+        }
+        for arrangement in [
+            Arrangement::Extended,
+            Arrangement::Primary,
+            Arrangement::Exclusive,
+            Arrangement::Isolated,
+            Arrangement::PrimaryIsolated,
+        ] {
+            let choice = HostDisplay::Virtual(arrangement);
+            assert_eq!(Arrangement::parse(arrangement.name()).unwrap(), arrangement);
+            assert_eq!(HostDisplay::parse(choice.name()), Some(choice));
+        }
+        assert_eq!(HostDisplay::Physical.name(), "physical");
+    }
+    #[test]
+    fn a_kept_display_serves_a_launch_only_when_it_was_set_up_for_the_same_choice() {
+        use super::{Arrangement, HostDisplay};
+        let exclusive = Some(HostDisplay::Virtual(Arrangement::Exclusive));
+        let extended = Some(HostDisplay::Virtual(Arrangement::Extended));
+        // A launch without a choice takes the display as it is.
+        for prepared in [None, exclusive, extended, Some(HostDisplay::Physical)] {
+            assert!(HostDisplay::reusable(prepared, None));
+        }
+        assert!(HostDisplay::reusable(exclusive, exclusive));
+        assert!(!HostDisplay::reusable(exclusive, extended));
+        assert!(!HostDisplay::reusable(None, exclusive));
+        assert!(!HostDisplay::reusable(
+            exclusive,
+            Some(HostDisplay::Physical)
+        ));
     }
     #[test]
     fn unapplied_display_modes_are_visible_and_recovery_clears_them() {

@@ -61,16 +61,20 @@ fn enumerator() -> Result<IMMDeviceEnumerator> {
     Ok(unsafe { CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL)? })
 }
 pub fn endpoints() -> Result<Vec<Endpoint>> {
+    endpoints_for(eRender)
+}
+/// Active endpoints of one direction; `default` is the console default.
+fn endpoints_for(flow: EDataFlow) -> Result<Vec<Endpoint>> {
     let _com = crate::capture::ComGuard::new()?;
     let enumerator = enumerator()?;
     // SAFETY: COM is initialised on this thread by `_com`, every interface used is live, and each
     // string from PropVariantToStringAlloc is freed once after it is copied.
     unsafe {
         let default = enumerator
-            .GetDefaultAudioEndpoint(eRender, eConsole)
+            .GetDefaultAudioEndpoint(flow, eConsole)
             .ok()
             .and_then(|d| device_id(&d).ok());
-        let list = enumerator.EnumAudioEndpoints(eRender, DEVICE_STATE_ACTIVE)?;
+        let list = enumerator.EnumAudioEndpoints(flow, DEVICE_STATE_ACTIVE)?;
         let mut endpoints = Vec::new();
         for index in 0..list.GetCount()? {
             let device = list.Item(index)?;
@@ -213,6 +217,36 @@ fn defaults_for(flow: EDataFlow) -> Result<[Option<String>; 3]> {
             .and_then(|d| device_id(&d).ok())
     }))
 }
+/// Playback and recording endpoints, to tell the host's own apart and to name
+/// devices in the log. Empty where they cannot be listed: a restore still runs.
+fn all_endpoints() -> Vec<Endpoint> {
+    let mut all = endpoints_for(eRender).unwrap_or_default();
+    all.extend(endpoints_for(eCapture).unwrap_or_default());
+    all
+}
+/// Steam Streaming Speakers and both sides of Steam Streaming Microphone: never
+/// a device to restore, for any role or direction.
+fn host_owned(all: &[Endpoint], id: &str) -> bool {
+    all.iter().any(|endpoint| {
+        endpoint.id.eq_ignore_ascii_case(id)
+            && butterpollo_core::audio_defaults::host_owned(&endpoint.name, &endpoint.adapter)
+    })
+}
+fn device_name(all: &[Endpoint], id: Option<&str>) -> String {
+    let Some(id) = id else {
+        return "none".into();
+    };
+    all.iter()
+        .find(|endpoint| endpoint.id.eq_ignore_ascii_case(id))
+        .map_or_else(|| id.to_string(), |endpoint| endpoint.name.clone())
+}
+fn device_names(all: &[Endpoint], defaults: &[Option<String>; 3]) -> String {
+    defaults
+        .iter()
+        .map(|id| device_name(all, id.as_deref()))
+        .collect::<Vec<_>>()
+        .join(" | ")
+}
 #[derive(Clone, Serialize, Deserialize)]
 struct FormatChange {
     id: String,
@@ -224,6 +258,17 @@ struct Journal {
     before: [Option<String>; 3],
     applied: String,
     format: Option<FormatChange>,
+    /// The recording defaults at stream start, put back for roles that a host
+    /// endpoint (Steam Streaming Microphone) took during the stream.
+    #[serde(default)]
+    capture_before: [Option<String>; 3],
+}
+impl Journal {
+    fn pending(&self) -> bool {
+        !self.applied.is_empty()
+            || self.format.is_some()
+            || self.capture_before.iter().any(Option::is_some)
+    }
 }
 struct Active {
     directory: PathBuf,
@@ -264,24 +309,75 @@ fn restore(directory: &Path) -> Result<()> {
     }
     let _com = crate::capture::ComGuard::new()?;
     let journal: Journal = serde_json::from_slice(&std::fs::read(&file)?)?;
-    if journal.applied.is_empty() && journal.format.is_none() {
+    if !journal.pending() {
         return Ok(());
     }
     let policy = Policy::new()?;
-    let current = defaults()?;
+    let all = all_endpoints();
+    // A role on the endpoint this host set, or on a Steam endpoint, goes back to
+    // the user's device. A Steam endpoint is never restored to. (`applied` is
+    // the user's own device when the stream plays on the host, so it only
+    // marks the roles to switch.)
+    let steam = |id: &str| host_owned(&all, id);
+    let switchable = |id: &str| id.eq_ignore_ascii_case(&journal.applied) || host_owned(&all, id);
     // Every role and the format are tried: one device that is unavailable
     // (Bluetooth off, a TV's audio not back yet) must not leave the others.
-    // On failure the journal stays; a retry only changes roles still on the
-    // endpoint this host set.
+    // On failure the journal stays; a retry only changes roles still on a
+    // host endpoint.
     let mut failed = None;
-    for (index, role) in ROLES.into_iter().enumerate() {
-        if current[index].as_deref() == Some(&journal.applied)
-            && let Some(before) = &journal.before[index]
-            && let Err(error) = policy.set_default(before, role)
+    let mut restored = 0;
+    for (flow, direction, saved) in [
+        (eRender, "playback", &journal.before),
+        (eCapture, "recording", &journal.capture_before),
+    ] {
+        let current = match defaults_for(flow) {
+            Ok(current) => current,
+            Err(error) => {
+                failed.get_or_insert(error);
+                continue;
+            }
+        };
+        let targets = butterpollo_core::audio_defaults::restore_targets(saved, steam);
+        for (index, target) in
+            butterpollo_core::audio_defaults::switches(&current, &targets, switchable)
         {
-            failed.get_or_insert(error.context("restoring the previous audio endpoint"));
+            let role = butterpollo_core::audio_defaults::ROLE_NAMES[index];
+            match policy.set_default(&target, ROLES[index]) {
+                Ok(()) => {
+                    restored += 1;
+                    tracing::info!(
+                        direction,
+                        role,
+                        device = %device_name(&all, Some(&target)),
+                        from = %device_name(&all, current[index].as_deref()),
+                        "audio default restored"
+                    );
+                }
+                Err(error) => {
+                    tracing::warn!(
+                        direction,
+                        role,
+                        device = %device_name(&all, Some(&target)),
+                        error = %format!("{error:#}"),
+                        "audio default could not be restored"
+                    );
+                    failed.get_or_insert(error.context("restoring the previous audio endpoint"));
+                }
+            }
         }
     }
+    let playback = defaults_for(eRender)
+        .map(|d| device_names(&all, &d))
+        .unwrap_or_default();
+    let recording = defaults_for(eCapture)
+        .map(|d| device_names(&all, &d))
+        .unwrap_or_default();
+    tracing::info!(
+        restored,
+        playback = %playback,
+        recording = %recording,
+        "audio defaults after the stream (console | multimedia | communications)"
+    );
     if let Some(format) = &journal.format {
         match policy.format(&format.id) {
             Ok(current) if current == format.applied => {
@@ -303,7 +399,7 @@ fn restore(directory: &Path) -> Result<()> {
 /// The journal of a restore that has not completed yet, if any.
 fn pending(directory: &Path) -> Option<Journal> {
     let journal: Journal = serde_json::from_slice(&std::fs::read(path(directory)).ok()?).ok()?;
-    (!journal.applied.is_empty() || journal.format.is_some()).then_some(journal)
+    journal.pending().then_some(journal)
 }
 /// The defaults to restore after this stream. When a restore is still
 /// pending (the speakers were off when the last stream ended), a role that
@@ -616,8 +712,22 @@ impl Route {
         }
         let mut available = endpoints()?;
         // Taken before any driver installation, which can move the defaults.
+        // The host's own endpoints are never saved as a device to restore.
         let pending = pending(directory);
-        let before = originals(defaults()?, pending.as_ref());
+        let all = all_endpoints();
+        let owned = |id: &str| host_owned(&all, id);
+        let before = butterpollo_core::audio_defaults::restore_targets(
+            &originals(defaults()?, pending.as_ref()),
+            owned,
+        );
+        let capture_before = butterpollo_core::audio_defaults::restore_targets(
+            &butterpollo_core::audio_defaults::with_pending(
+                defaults_for(eCapture)?,
+                pending.as_ref().map(|journal| &journal.capture_before),
+                owned,
+            ),
+            owned,
+        );
         if !host_audio && !capture_only && install_steam(config, &available) {
             // The new endpoint appears shortly after installation.
             let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
@@ -681,6 +791,7 @@ impl Route {
                 selected.id.clone()
             },
             format: None,
+            capture_before,
         };
         let managed_virtual = selected.virtual_sink || !config.get("virtual_sink", "").is_empty();
         if let Some(message) = virtual_sink_warning(host_audio, capture_only, managed_virtual) {
@@ -769,10 +880,16 @@ impl Route {
             return Ok(());
         }
         let mut journal: Journal = serde_json::from_slice(&std::fs::read(path(&self.directory))?)?;
-        for (index, id) in current.iter().enumerate() {
-            if id.as_deref() != Some(&self.sink) {
-                journal.before[index] = id.clone();
-            }
+        // A device the user picked is restored after the stream. One Windows
+        // made default on its own, such as Steam Streaming Microphone when its
+        // driver arrives, is the host's and is not.
+        let all = all_endpoints();
+        let owned = |id: &str| id.eq_ignore_ascii_case(&self.sink) || host_owned(&all, id);
+        if butterpollo_core::audio_defaults::adopt(&mut journal.before, &current, owned) {
+            tracing::info!(
+                devices = %device_names(&all, &journal.before),
+                "audio defaults to restore after the stream (console | multimedia | communications)"
+            );
         }
         save(&self.directory, &journal)?;
         let policy = Policy::new()?;
@@ -883,6 +1000,7 @@ mod tests {
             before: [some("speakers"), some("speakers"), some("speakers")],
             applied: "virtual".into(),
             format: None,
+            capture_before: Default::default(),
         };
         assert_eq!(
             originals(current.clone(), Some(&pending)),

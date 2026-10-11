@@ -250,6 +250,16 @@ const video: Setting[] = [
     default: true,
   },
   {
+    key: 'stream_reconfigure',
+    label: 'Follow client size and frame rate changes',
+    description:
+      'Lets a Rubylight client change the stream resolution and frame rate without reconnecting, for example when a foldable phone opens its inner screen. The encoder restarts at the new size with a keyframe; the host display keeps its mode and the picture is scaled to fit. Clients that never ask see no change.',
+    category: 'video',
+    group: 'Frame pacing',
+    control: { kind: 'toggle' },
+    default: true,
+  },
+  {
     key: 'max_bitrate',
     label: 'Maximum bitrate',
     description: "Caps the bitrate a device can request. 0 uses the device's bitrate.",
@@ -267,6 +277,16 @@ const video: Setting[] = [
     group: 'Bitrate and network',
     control: { kind: 'number', min: 0, max: 100, step: 1, unit: '%' },
     default: 20,
+  },
+  {
+    key: 'adaptive_fec',
+    label: 'Adapt error correction',
+    description:
+      'Uses less error correction while the device reports a clean link and returns to the percentage above as soon as it reports loss. Devices that send no error-correction reports always get the percentage above; PyroWave does not use it.',
+    category: 'video',
+    group: 'Bitrate and network',
+    control: { kind: 'toggle' },
+    default: true,
   },
   {
     key: 'pyrowave_critical_fec_percentage',

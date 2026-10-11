@@ -60,7 +60,13 @@ pub struct Performance {
     fec_frames: VecDeque<FecFrame>,
 }
 impl Performance {
-    pub fn record_fec_status(&mut self, payload: &[u8], last_sent: Option<u32>) {
+    /// Counts one block report and returns what it says, or `None` for an
+    /// invalid, unsent, stale or duplicate report.
+    pub fn record_fec_status(
+        &mut self,
+        payload: &[u8],
+        last_sent: Option<u32>,
+    ) -> Option<crate::adaptive_fec::Block> {
         self.fec_reports = self.fec_reports.saturating_add(1);
         let status = crate::fec_status::Status::parse(payload)
             .ok()
@@ -68,7 +74,7 @@ impl Performance {
             .filter(|(s, last)| last.wrapping_sub(s.frame) < 1024);
         let Some((status, last)) = status else {
             self.fec_invalid_reports = self.fec_invalid_reports.saturating_add(1);
-            return;
+            return None;
         };
         // One entry per recent wire frame bounds storage to 1024, even when
         // reports arrive out of order or the u32 frame counter wraps.
@@ -90,12 +96,12 @@ impl Performance {
         let frame = &mut self.fec_frames[index];
         if frame.block_count != status.blocks {
             self.fec_invalid_reports = self.fec_invalid_reports.saturating_add(1);
-            return;
+            return None;
         }
         let block = 1 << status.block;
         if frame.blocks & block != 0 {
             self.fec_duplicate_reports = self.fec_duplicate_reports.saturating_add(1);
-            return;
+            return None;
         }
         frame.blocks |= block;
         self.fec_missing_packets = self
@@ -119,6 +125,16 @@ impl Performance {
             frame.recovered = true;
             self.fec_recovered_frames = self.fec_recovered_frames.saturating_add(1);
         }
+        Some(if unrecoverable {
+            crate::adaptive_fec::Block::Unrecoverable
+        } else if status.received_data < status.data {
+            crate::adaptive_fec::Block::Recovered {
+                lost: status.data - status.received_data,
+                data: status.data,
+            }
+        } else {
+            crate::adaptive_fec::Block::Clean
+        })
     }
     pub fn record(&mut self, now: Instant, latency: u64, bytes: u64) {
         self.record_timing(
@@ -275,12 +291,23 @@ mod tests {
     fn fec_reports_count_frames_once_and_failed_blocks_override_recovery() {
         let mut p = Performance::default();
         let now = Instant::now();
+        use crate::adaptive_fec::Block;
         let recovered = fec(7, 0, 9, 1, 1);
-        p.record_fec_status(&recovered, Some(9));
-        p.record_fec_status(&recovered, Some(9));
+        assert_eq!(
+            p.record_fec_status(&recovered, Some(9)),
+            Some(Block::Recovered { lost: 1, data: 10 })
+        );
+        // A duplicate is counted, but not passed on twice.
+        assert_eq!(p.record_fec_status(&recovered, Some(9)), None);
         assert_eq!(p.snapshot(now)["fec_recovered_frames"], 1);
-        p.record_fec_status(&fec(7, 1, 7, 1, 2), Some(9));
-        p.record_fec_status(&fec(8, 0, 10, 0, 0), Some(9));
+        assert_eq!(
+            p.record_fec_status(&fec(7, 1, 7, 1, 2), Some(9)),
+            Some(Block::Unrecoverable)
+        );
+        assert_eq!(
+            p.record_fec_status(&fec(8, 0, 10, 0, 0), Some(9)),
+            Some(Block::Clean)
+        );
         p.record_fec_status(&fec(9, 1, 8, 2, 2), Some(9));
         p.record_fec_status(&fec(9, 0, 9, 1, 1), Some(9));
         let snapshot = p.snapshot(now);
@@ -308,11 +335,11 @@ mod tests {
             (fec(1, 0, 9, 1, 1), None),
             (fec(1, 0, 9, 1, 1), Some(1025)),
         ] {
-            p.record_fec_status(&payload, last);
+            assert_eq!(p.record_fec_status(&payload, last), None);
         }
         let mut inconsistent = fec(0, 0, 9, 1, 1);
         inconsistent[20] = 1;
-        p.record_fec_status(&inconsistent, Some(0));
+        assert_eq!(p.record_fec_status(&inconsistent, Some(0)), None);
         assert_eq!(p.fec_invalid_reports, 5);
         assert_eq!(p.fec_recovered_frames, 2);
         assert_eq!(p.fec_missing_packets, 2);

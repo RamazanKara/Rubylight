@@ -276,6 +276,22 @@ fn rtx_parameters(config: &Config) -> [u32; 4] {
         peak.min(1000),
     ]
 }
+/// The interval to the frame after one captured at `at` while the client sends phase
+/// lock reports: its refresh with the phase correction. `None` otherwise, and then the
+/// caller keeps its original pacing.
+fn phase_interval(s: &Session, at: Instant, period: Duration) -> Option<Duration> {
+    let mut sync = s.phase_sync.lock().unwrap();
+    let interval = sync.interval(at, period)?;
+    if sync.log_due(at) {
+        tracing::info!(
+            client = %s.launch.client.name,
+            interval_ns = interval.as_nanos() as u64,
+            stream_period_ns = period.as_nanos() as u64,
+            "phase lock applied"
+        );
+    }
+    Some(interval)
+}
 fn rtx_enabled(config: &Config) -> bool {
     butterpollo_core::rtx_policy::enabled(config)
 }
@@ -1174,8 +1190,8 @@ impl Media {
                 "PyroWave bitrate is below recommended: text and textures may lose detail. Quality depends on the picture; raise the bitrate in Moonlight with network headroom, or use HEVC or AV1"
             );
         }
-        let metadata = first.gpu.hdr_metadata();
-        *s.hdr_metadata.write().unwrap() = Some(metadata);
+        // The client's display luminance (0x5531) replaces the display's when it applies.
+        let metadata = s.set_display_hdr_metadata(first.gpu.hdr_metadata());
         if let Some(encoder) = encoder.as_mut() {
             encoder.set_hdr_metadata(metadata);
         }
@@ -1249,6 +1265,11 @@ impl Media {
                     let _priority = Priority::new();
                     let _streaming = butterpollo_windows::timing::StreamingScope::enter();
                     let mut c = effective_config(&h, &s.launch)?;
+                    // A per-client HDR profile or peak chosen on the host wins over
+                    // the luminance the client reports.
+                    if let Some((caps, applied)) = s.allow_display_caps(!butterpollo_core::display_caps::host_override(&c, &s.launch.client)) {
+                        tracing::info!(client = %s.launch.client.name, peak_nits = caps.max_nits().unwrap_or(0), applied = applied.as_str(), "display caps");
+                    }
                     if s.config.vrr_low_latency {
                         c.values.insert("wgc_slot_aligned_publish".into(), "false".into());
                     }
@@ -1334,6 +1355,10 @@ impl Media {
                     if requested_fec != requested_fec.clamp(0, 100) {
                         s.launch.warnings.set("network_fec_config", format!("FEC percentage {requested_fec} is outside 0-100; using {}%. Correct fec_percentage in Network settings.", requested_fec.clamp(0, 100)));
                     }
+                    // The configured percentage is adaptive FEC's ceiling; with
+                    // `adaptive_fec` off, or a client that sends no FEC status, it
+                    // is used for every frame as before.
+                    s.configure_fec(c.boolean("adaptive_fec", true) && s.config.codec != 3, requested_fec.clamp(0, 100) as usize);
                     let mut packetizer = VideoPacketizer {
                         sequence: 0,
                         iv_counter: 0,
@@ -1351,8 +1376,16 @@ impl Media {
                     let start = Instant::now();
                     let mut present_stamper = (s.config.codec != 3 && prepared.capture() == "wgc").then(butterpollo_windows::present_timing::Stamper::default);
                     pyrowave_sender = if s.config.codec == 3 { Some(crate::pyrowave_send::Sender::new(m.video.clone(),s.clone(),c.clone(),h.clone(),start,prepared.capture() == "wgc")?) } else { None };
-                    let period = butterpollo_core::framegen::Rate(s.config.fps_millihz()).period();
-                    let mut cadence = butterpollo_core::stream_policy::Cadence::new(Instant::now(), period, c.boolean("wgc_pacing_smoothing", true));
+                    // The stream's size and rate. A client whose display changes can ask
+                    // for others mid-stream (0x5532); the encoder is rebuilt from this copy.
+                    let mut stream = s.config.clone();
+                    let mut rates = butterpollo_core::reconfigure::Rates::new(&stream, c.get("minimum_fps_target", "20"));
+                    // The rate pacing follows, and the period the send path reads.
+                    let mut paced_rate = stream.fps_millihz();
+                    let stream_period = std::cell::Cell::new(rates.period);
+                    // A mode change being applied: the mode before it, and since when.
+                    let mut switching: Option<(butterpollo_core::reconfigure::Mode, Instant)> = None;
+                    let mut cadence = butterpollo_core::stream_policy::Cadence::new(Instant::now(), rates.period, c.boolean("wgc_pacing_smoothing", true));
                     // VRR claims each frame as it arrives, but no faster than the
                     // stream rate. The encoder budgets every frame from that rate,
                     // and the VRR virtual display runs at 1000 Hz: uncapped, a game
@@ -1362,10 +1395,15 @@ impl Media {
                     let vrr = s.config.vrr_low_latency;
                     let arrival_pacing = vrr
                         || butterpollo_core::stream_policy::Pacing::from_config(&c) == butterpollo_core::stream_policy::Pacing::Arrival;
-                    let mut pacer = butterpollo_core::stream_policy::Pacer::new(Instant::now(), period)
-                        .with_prediction(!vrr && c.boolean("frame_pacing_predictive", true))
-                        .with_source_phase(!vrr && c.boolean("frame_pacing_source_phase", prepared.capture() == "wgc"))
-                        .with_spacing(if vrr { 0.5 } else { 0.75 });
+                    let new_pacer = |period: Duration| {
+                        butterpollo_core::stream_policy::Pacer::new(Instant::now(), period)
+                            .with_prediction(!vrr && c.boolean("frame_pacing_predictive", true))
+                            .with_source_phase(!vrr && c.boolean("frame_pacing_source_phase", prepared.capture() == "wgc"))
+                            .with_spacing(if vrr { 0.5 } else { 0.75 })
+                    };
+                    let mut pacer = new_pacer(rates.period);
+                    // The claim grid's period from before a phase lock, restored when it ends.
+                    let mut unlocked_grid_period: Option<Duration> = None;
                     let due = cadence.deadline();
                     let mut last_stamp = start;
                     let mut live_at = due;
@@ -1395,23 +1433,6 @@ impl Media {
                     // A keyframe a while after an AMF reference-invalidation recovery.
                     let mut confirm_keyframe: Option<Instant> = None;
                     let mut timing_due = Instant::now() + Duration::from_secs(5);
-                    // As in Vibepollo, an unset minimum is 20 for every codec,
-                    // PyroWave too: its old default of the full stream rate
-                    // repeated a still picture every period, and under VRR a
-                    // game frame a little late followed a repeat.
-                    let minimum_fps = c
-                        .get("minimum_fps_target", "20")
-                        .parse::<f64>()
-                        .unwrap_or(20.);
-                    let minimum_fps = if minimum_fps > 0. {
-                        minimum_fps.clamp(1., f64::from(s.config.fps_millihz()) / 1000.)
-                    } else if s.config.codec == 3 {
-                        f64::from(s.config.fps_millihz()) / 1000.
-                    } else {
-                        (f64::from(s.config.fps_millihz()) / 5000.).max(10.)
-                    };
-                    let static_period = Duration::from_secs_f64(1. / minimum_fps);
-                    let limit_static_rate = minimum_fps < f64::from(s.config.fps_millihz()) / 1000.;
                     let mut last_image: Option<Arc<GpuImage>> = None;
                     let mut encoded_at = Instant::now();
                     // Keep the legacy age split beside WGC's signed raw stamp
@@ -1505,6 +1526,7 @@ impl Media {
                             if frame.bytes.is_empty() {
                                 continue;
                             }
+                            packetizer.fec_percent = s.fec_percent();
                             // A frame beyond Moonlight's packet limit (very high
                             // bitrates) costs that frame and a keyframe, not the
                             // session.
@@ -1597,7 +1619,7 @@ impl Media {
                                 // frame the keyframe the client will wait for.
                                 if lost.sent(count, (batch.dropped - refused) as usize) {
                                     abandoned = remaining.len();
-                                    if send_loss.lost(Instant::now(), period, lost.reached_socket()) {
+                                    if send_loss.lost(Instant::now(), stream_period.get(), lost.reached_socket()) {
                                         s.request_send_loss_recovery();
                                     }
                                     break;
@@ -1620,7 +1642,7 @@ impl Media {
                                     writable_waits=after.count-before.count, writable_wait_us=micros(after.elapsed-before.elapsed),
                                     dropped=batch.dropped-dropped, stream_id=%s.launch.id, "send");
                             }
-                            s.stats.performance.lock().unwrap().record_timing(sent,butterpollo_core::performance::Timing{period,encode:latency,host:processing,age,sent:micros(sent.saturating_duration_since(claimed))},frame_bytes);
+                            s.stats.performance.lock().unwrap().record_timing(sent,butterpollo_core::performance::Timing{period:stream_period.get(),encode:latency,host:processing,age,sent:micros(sent.saturating_duration_since(claimed))},frame_bytes);
                             let record_time = sent.elapsed();
                             // The interface lookup takes a moment: refresh the
                             // link speed after the frame is out, for the next one.
@@ -1668,7 +1690,7 @@ impl Media {
                                         &prepared.capture(),
                                         s.config.hdr,
                                         runtime,
-                                        butterpollo_core::framegen::Rate(s.config.fps_millihz()),
+                                        butterpollo_core::framegen::Rate(stream.fps_millihz()),
                                         &s.launch.id,
                                         prepared.clone(),
                                     )?;
@@ -1745,6 +1767,44 @@ impl Media {
                                     timings_logged = tracing::enabled!(tracing::Level::DEBUG);
                                 }
                             }
+                            // The client's display changed and it asked for another size or
+                            // rate (0x5532). Its latest request is applied here, between
+                            // frames: the encoder is rebuilt at the new size and starts it
+                            // with a keyframe. The display keeps its mode; the colour
+                            // conversion scales its picture to the new size.
+                            let requested = s.reconfigure.lock().unwrap().take_due(Instant::now());
+                            if let Some(to) = requested {
+                                let from = butterpollo_core::reconfigure::Mode::of(&stream);
+                                match butterpollo_core::reconfigure::refusal(&stream, runtime_config.boolean("stream_reconfigure", true)) {
+                                    Some(reason) => {
+                                        s.reconfigure.lock().unwrap().refused(from);
+                                        tracing::info!(client = %s.launch.client.name, from = %from, to = %to, reason, "reconfigure refused");
+                                    }
+                                    None => {
+                                        tracing::info!(client = %s.launch.client.name, from = %from, to = %to, "reconfigure requested");
+                                        to.apply_to(&mut stream);
+                                        switching.get_or_insert((from, Instant::now()));
+                                        rebuild_encoder = true;
+                                    }
+                                }
+                            }
+                            // Pacing follows the stream's rate: a new rate starts a new
+                            // cadence, and a phase lock locks again at it.
+                            if stream.fps_millihz() != paced_rate {
+                                paced_rate = stream.fps_millihz();
+                                rates = butterpollo_core::reconfigure::Rates::new(&stream, c.get("minimum_fps_target", "20"));
+                                stream_period.set(rates.period);
+                                cadence = butterpollo_core::stream_policy::Cadence::new(Instant::now(), rates.period, c.boolean("wgc_pacing_smoothing", true));
+                                pacer = new_pacer(rates.period);
+                                unlocked_grid_period = None;
+                                {
+                                    let mut grid = latest.grid.lock().unwrap();
+                                    grid.period = rates.period;
+                                    grid.anchor = Instant::now();
+                                }
+                                s.phase_sync.lock().unwrap().reset();
+                            }
+                            let period = stream_period.get();
                             latest.check()?;
                             let peer = m
                                 .peers
@@ -1841,9 +1901,9 @@ impl Media {
                                 continue;
                             }
                             let repeat_due = if arrival_pacing {
-                                pacer.repeat_deadline(encoded_at + static_period, image.captured, latest.source_interval())
+                                pacer.repeat_deadline(encoded_at + rates.static_period, image.captured, latest.source_interval())
                             } else {
-                                encoded_at + static_period
+                                encoded_at + rates.static_period
                             };
                             // A recovery request on a moving picture rides the
                             // next new frame; only a still one is encoded again
@@ -1857,7 +1917,7 @@ impl Media {
                                 Instant::now()
                             };
                             if !rebuild_encoder
-                                && (s.config.vrr_low_latency || limit_static_rate || arrival_pacing)
+                                && (s.config.vrr_low_latency || rates.limit_static_rate || arrival_pacing)
                                 && last_image
                                     .as_ref()
                                     .is_some_and(|previous| Arc::ptr_eq(previous, &image))
@@ -1953,7 +2013,7 @@ impl Media {
                                 }
                                 progress.mark(crate::stall_watch::Phase::EncoderCreate);
                                 match Encoder::new_gpu_reported(
-                                    &s.config,
+                                    &stream,
                                     pinned_backend.unwrap_or(c.get("encoder", "auto")),
                                     &image,
                                     &tuning,
@@ -1967,6 +2027,15 @@ impl Media {
                                         if let Some(loss) = DeviceLost::d3d11(&image.gpu.device).or_else(|| DeviceLost::from_error(&error)) {
                                             recovery.device_loss = Some(loss);
                                             recovery.failing.get_or_insert_with(Instant::now);
+                                            continue;
+                                        }
+                                        // The encoder cannot make the size or rate the client
+                                        // asked for: the stream goes back to the mode it had.
+                                        if let Some((from, _)) = switching.take() {
+                                            let to = butterpollo_core::reconfigure::Mode::of(&stream);
+                                            from.apply_to(&mut stream);
+                                            s.reconfigure.lock().unwrap().refused(from);
+                                            tracing::info!(client = %s.launch.client.name, from = %from, to = %to, error = %format!("{error:#}"), "reconfigure refused: the encoder cannot make this mode; keeping the previous one");
                                             continue;
                                         }
                                         let since = *recovery.failing.get_or_insert_with(Instant::now);
@@ -2036,8 +2105,7 @@ impl Media {
                                 }
                             }
                             if Instant::now() >= metadata_due {
-                                let metadata = image.gpu.hdr_metadata();
-                                *s.hdr_metadata.write().unwrap() = Some(metadata);
+                                let metadata = s.set_display_hdr_metadata(image.gpu.hdr_metadata());
                                 active.set_hdr_metadata(metadata);
                                 metadata_due = Instant::now() + Duration::from_secs(1);
                             }
@@ -2118,6 +2186,17 @@ impl Media {
                                         recovery.failing.get_or_insert_with(Instant::now);
                                         continue;
                                     }
+                                    // The first frame at a size the client asked for failed:
+                                    // go back to the mode the stream had, as when the encoder
+                                    // cannot be created at it.
+                                    if let Some((from, _)) = switching.take() {
+                                        let to = butterpollo_core::reconfigure::Mode::of(&stream);
+                                        from.apply_to(&mut stream);
+                                        s.reconfigure.lock().unwrap().refused(from);
+                                        tracing::info!(client = %s.launch.client.name, from = %from, to = %to, error = %format!("{error:#}"), "reconfigure refused: the encoder failed at this mode; keeping the previous one");
+                                        rebuild_encoder = true;
+                                        continue;
+                                    }
                                     // A stalled or reset GPU costs these frames and a
                                     // keyframe; the rebuild requests it. Only failures
                                     // that keep coming end the session.
@@ -2131,6 +2210,17 @@ impl Media {
                                     continue;
                                 }
                             };
+                            if rebuilt && let Some((from, started)) = switching.take() {
+                                tracing::info!(
+                                    client = %s.launch.client.name,
+                                    from = %from,
+                                    to = %butterpollo_core::reconfigure::Mode::of(&stream),
+                                    switch_ms = started.elapsed().as_millis() as u64,
+                                    source_width = image.width,
+                                    source_height = image.height,
+                                    "reconfigure"
+                                );
+                            }
                             let call_latency = begin.elapsed();
                             // Repeat deadlines start at submission, so encoder work
                             // does not extend the interval between static frames.
@@ -2144,12 +2234,48 @@ impl Media {
                                 // client's recovery request does not, or a client
                                 // losing packets left every game frame late.
                                 if butterpollo_core::stream_policy::counts_toward_rate(fresh, recovering) {
+                                    // Phase lock: holding frames here would only move the
+                                    // wait from the client to the host, so the lock sets
+                                    // the rate cap to the client's refresh instead. VRR
+                                    // displays follow each frame and need no lock.
+                                    match (!vrr).then(|| phase_interval(&s, begin, period)).flatten() {
+                                        Some(interval) => {
+                                            let mut grid = latest.grid.lock().unwrap();
+                                            unlocked_grid_period.get_or_insert(grid.period);
+                                            grid.period = interval;
+                                            pacer.set_period(interval);
+                                        }
+                                        None => {
+                                            if let Some(original) = unlocked_grid_period.take() {
+                                                latest.grid.lock().unwrap().period = original;
+                                                pacer.set_period(period);
+                                            }
+                                        }
+                                    }
                                     pacer.claimed(begin);
                                 }
                                 latest.grid.lock().unwrap().anchor = pacer.allowed_at(begin);
                             } else {
-                                cadence.submitted(begin);
-                                latest.grid.lock().unwrap().anchor = cadence.deadline();
+                                // Phase lock: the grid follows the client's refresh, at a
+                                // phase that gets frames there just before its latch.
+                                // Without reports this is the original fixed-period path.
+                                match phase_interval(&s, begin, period) {
+                                    Some(interval) => {
+                                        cadence.submitted_after(begin, interval);
+                                        let mut grid = latest.grid.lock().unwrap();
+                                        unlocked_grid_period.get_or_insert(grid.period);
+                                        grid.anchor = cadence.deadline();
+                                        grid.period = interval;
+                                    }
+                                    None => {
+                                        cadence.submitted(begin);
+                                        let mut grid = latest.grid.lock().unwrap();
+                                        if let Some(original) = unlocked_grid_period.take() {
+                                            grid.period = original;
+                                        }
+                                        grid.anchor = cadence.deadline();
+                                    }
+                                }
                             }
                             last_image = Some(image);
                             // An allocation can later reuse this image's address;
@@ -2614,6 +2740,66 @@ impl Media {
                             // This dispatch receives only client-to-host packets;
                             // 0x5502 in the other direction is controller feedback.
                             0x5502 => s.record_fec_status(&payload),
+                            butterpollo_core::phase_sync::REPORT_MESSAGE_TYPE => {
+                                match s
+                                    .phase_sync
+                                    .lock()
+                                    .unwrap()
+                                    .on_payload(Instant::now(), &payload)
+                                {
+                                    Some(report) => tracing::debug!(
+                                        lead_ns = report.lead_ns,
+                                        spread_ns = report.spread_ns,
+                                        period_ns = report.period_ns,
+                                        frames = report.frames,
+                                        "phase lock report"
+                                    ),
+                                    None => tracing::debug!(
+                                        len = payload.len(),
+                                        "invalid phase lock report"
+                                    ),
+                                }
+                            }
+                            butterpollo_core::display_caps::DISPLAY_CAPS_MESSAGE_TYPE => {
+                                match s.record_display_caps(&payload) {
+                                    Some(update) if update.changed => {
+                                        let metadata = update.metadata.filter(|_| {
+                                            update.applied
+                                                == butterpollo_core::display_caps::Applied::Metadata
+                                        });
+                                        tracing::info!(
+                                            client = %s.launch.client.name,
+                                            hdr = update.caps.hdr,
+                                            peak_nits = update.caps.max_nits().unwrap_or(0),
+                                            average_nits = update.caps.max_average_nits().unwrap_or(0),
+                                            black_decimillinits = update.caps.min_decimillinits,
+                                            applied = update.applied.as_str(),
+                                            maximum_nits = metadata.map(|m| m.maximum_nits),
+                                            minimum = metadata.map(|m| m.minimum),
+                                            max_cll = metadata.map(|m| m.max_cll),
+                                            max_fall = metadata.map(|m| m.max_fall),
+                                            "display caps"
+                                        );
+                                    }
+                                    Some(_) => tracing::debug!("display caps unchanged"),
+                                    None => {
+                                        tracing::debug!(len = payload.len(), "invalid display caps")
+                                    }
+                                }
+                            }
+                            // The session loop applies it once the client stops sending.
+                            butterpollo_core::reconfigure::RECONFIGURE_MESSAGE_TYPE => {
+                                let outcome = s
+                                    .reconfigure
+                                    .lock()
+                                    .unwrap()
+                                    .on_payload(Instant::now(), &payload);
+                                tracing::debug!(
+                                    ?outcome,
+                                    len = payload.len(),
+                                    "reconfigure request"
+                                );
+                            }
                             0x0109 => {
                                 if encrypted {
                                     s.stop();
@@ -2724,6 +2910,14 @@ impl Media {
                     {
                         p.hdr_metadata = Some(metadata);
                     }
+                    if poll_feedback && let Some((old, new)) = s.tick_fec(Instant::now()) {
+                        tracing::info!(
+                            client = %s.launch.client.name,
+                            old_percent = old,
+                            new_percent = new,
+                            "adaptive fec"
+                        );
+                    }
                     // Made before input comes; after a failure, again when it
                     // does. Making it with the first input held that input up.
                     if p.injector.is_none() && (!p.inputs.is_empty() || !p.injector_tried) {
@@ -2759,6 +2953,9 @@ impl Media {
                         // The stream's display can be created or renamed after
                         // input began; absolute input follows it.
                         i.set_output(&s.output.read().unwrap());
+                        // So does the stream's size, which the client can change (0x5532).
+                        let mode = s.stream_mode();
+                        i.set_stream_size(mode.width, mode.height);
                     }
                     let inputs = std::mem::take(&mut p.inputs);
                     if let Some(i) = &mut p.injector {

@@ -27,7 +27,9 @@ NVIDIA NVENC, Intel Quick Sync and software encoders are included for other hard
 - **A virtual display per device**, shared or off, with exclusive, extended, primary and isolated layouts, HDR, and a permanent count.
 - **Your layout back.** The golden layout is restored after a stream or a crash, with a hotkey for the times you want it sooner.
 - **Per-device modes.** A device's display mode sets the resolution and refresh of its display, and the stream keeps the client's frame rate.
+- **The client chooses the display.** A Rubylight client can ask, per PC, for the virtual display alone, a virtual display beside your monitors, or no virtual display at all, without changing the host settings ([configuration](configuration.md#display-choice-from-the-client)).
 - **Two clients at once**, each on its own virtual display.
+- **Resolution changes mid-stream.** A Rubylight client can switch the stream's size and frame rate without reconnecting, as a foldable does when it opens ([control messages](control-messages.md)).
 
 ## Input, audio and microphone
 

@@ -830,6 +830,123 @@ fn scheduler_overshoot_does_not_accumulate_or_allow_catch_up_submissions() {
     );
 }
 #[test]
+fn phase_locked_cadence_follows_the_client_period_and_falls_back_without_reports() {
+    use crate::phase_sync::PhaseSync;
+    use rubylight_protocol::phase_lock::{PhaseLock, Report};
+    // A fake clock: every instant is the start plus an exact offset.
+    let start = Instant::now();
+    let nominal = Duration::from_nanos(8_333_333); // the host's 120.00 Hz
+    let client_ns = 8_331_945u32; // a phone at 120.02 Hz
+    let at_margin = Report {
+        frames: 60,
+        period_ns: client_ns,
+        lead_ns: PhaseLock::DEFAULT_MARGIN_NS as i32,
+        spread_ns: 0,
+    }
+    .encode();
+    let mut sync = PhaseSync::default();
+    let mut cadence = Cadence::new(start, nominal, true);
+    let mut now = start;
+    for frame in 0..1200u32 {
+        // A report every 60 frames (about 500 ms) whose lead is already on target.
+        if frame % 60 == 0 {
+            assert!(sync.on_payload(now, &at_margin).is_some());
+        }
+        let due = cadence.deadline();
+        cadence.submitted_after(now, sync.interval(now, nominal).unwrap());
+        if frame > 0 {
+            assert_eq!(
+                cadence.deadline() - due,
+                Duration::from_nanos(u64::from(client_ns))
+            );
+        }
+        // Submitted a little after each slot; the overshoot must not accumulate.
+        now = cadence.deadline() + Duration::from_micros(300);
+    }
+    // Ten seconds at the client's rate: 1.67 ms of drift that the host's own period
+    // would have added to every frame's wait at the client.
+    let locked_span = cadence.deadline() - start;
+    assert_eq!(
+        locked_span,
+        Duration::from_nanos(u64::from(client_ns)) * 1200
+    );
+    assert_eq!(
+        nominal * 1200 - locked_span,
+        Duration::from_nanos(1_388 * 1200)
+    );
+    // Reports stop: after the timeout the lock is gone and the fixed period applies again.
+    now = cadence.deadline() + PhaseSync::TIMEOUT;
+    assert_eq!(sync.interval(now, nominal), None);
+    cadence.submitted(now);
+    for _ in 0..100 {
+        let due = cadence.deadline();
+        assert_eq!(sync.interval(due, nominal), None);
+        cadence.submitted(due + Duration::from_micros(300));
+        assert_eq!(cadence.deadline() - due, nominal);
+    }
+}
+#[test]
+fn without_reports_cadence_deadlines_match_the_fixed_period_exactly() {
+    use crate::phase_sync::PhaseSync;
+    // The cadence before phase lock, kept here as the reference.
+    fn previous(due: Instant, period: Duration, smooth: bool, now: Instant) -> Instant {
+        let anchored = due + period;
+        if smooth && anchored > now {
+            anchored
+        } else {
+            now + period
+        }
+    }
+    let start = Instant::now();
+    for smooth in [true, false] {
+        for period in [
+            Duration::from_nanos(8_333_333),
+            Duration::from_nanos(16_666_667),
+            Duration::from_millis(4),
+        ] {
+            let mut sync = PhaseSync::default();
+            let mut cadence = Cadence::new(start, period, smooth);
+            let mut reference = start;
+            for frame in 0..1000u32 {
+                // Uneven submissions: on time, late, and after a static pause.
+                let late = Duration::from_micros(u64::from(frame % 7) * 400);
+                let now = if frame % 97 == 0 {
+                    cadence.deadline() + period * 5
+                } else {
+                    cadence.deadline() + late
+                };
+                // What the host does without a lock: no interval, the original call.
+                assert_eq!(sync.interval(now, period), None);
+                cadence.submitted(now);
+                reference = previous(reference, period, smooth, now);
+                assert_eq!(cadence.deadline(), reference, "frame {frame}");
+            }
+        }
+    }
+}
+#[test]
+fn without_reports_pacer_claims_match_an_untouched_pacer() {
+    use crate::phase_sync::PhaseSync;
+    let start = Instant::now();
+    let period = Duration::from_nanos(8_333_333);
+    let mut sync = PhaseSync::default();
+    let mut paced = Pacer::new(start, period);
+    let mut untouched = Pacer::new(start, period);
+    for frame in 0..1000u32 {
+        let now = start + period * frame + Duration::from_micros(u64::from(frame % 5) * 700);
+        if let Some(interval) = sync.interval(now, period) {
+            paced.set_period(interval);
+        }
+        assert_eq!(
+            paced.allowed_at(now),
+            untouched.allowed_at(now),
+            "frame {frame}"
+        );
+        paced.claimed(now);
+        untouched.claimed(now);
+    }
+}
+#[test]
 fn configured_wire_budget_deducts_fec_and_audio_after_warp_and_ceiling() {
     let mut stream = Negotiated {
         fps: 120,

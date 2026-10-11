@@ -55,6 +55,8 @@ These values are rounded up to whole Mbps. Below 1080p the floor/recommendation 
 
 Set the bitrate in Moonlight and leave network headroom for packet overhead and recovery data. The 4K60 recommendation needs more than gigabit Ethernet. Client and host limits still apply: stream setup allows up to 2 Gbps, while the client's runtime `/bitrate` endpoint caps changes at 500 Mbps. If the client or network cannot carry the recommended rate, use HEVC or AV1. Enabling PyroWave does not force ordinary Moonlight clients to use it. NVIDIA users should use [Vibepollo](https://github.com/Nonary/Vibepollo).
 
+**A Rubylight client can change the stream's resolution and frame rate without reconnecting**, for example when a foldable phone opens its inner screen. The encoder restarts at the new size with a keyframe and pacing follows the new rate; the PC's display keeps its mode and the picture is scaled to fit. `stream_reconfigure` (default `true`) turns this off for the host, a device or an app; clients that never ask are unaffected. [Control messages](control-messages.md) describes the request.
+
 **VRR is client-negotiated.** A VRR request can use a 1000 Hz virtual display when automatic virtual refresh is enabled. That is the host's virtual display rate, not a claim that your TV or monitor refreshes at 1000 Hz. Client and display support still matter.
 
 **Packet pacing limits video bursts.** With `pacing_max_bitrate_kbps = 0`, H.264, HEVC and AV1 use twice the negotiated encoder bitrate when Windows identifies the host's route as Wi-Fi or mobile broadband, bounded to 1–800 Mbps. Ethernet, loopback, VPN, Tailscale and unknown routes retain the rc.19 default of 800 Mbps. A known physical Ethernet link caps that at 80% of its reported speed. For virtual Ethernet adapters such as Hyper-V vSwitches, the host tries to resolve the physical adapter through Windows' interface stack. Missing or ambiguous bindings keep the wired default. The host cannot detect a wireless client behind a wired access point from its own Ethernet route.
@@ -133,6 +135,21 @@ Edit an app in **Library** or a paired device in **Devices** to set its display,
 For general configuration overrides, Rubylight applies **host settings → device overrides → app overrides**. Only supported stream, input, display and encoder keys are accepted; host-wide network, identity and path settings cannot be overridden per stream.
 
 Display selection has dedicated rules: a device's explicit virtual-display mode takes priority over the app's mode, and its **display mode** (`WIDTHxHEIGHTxREFRESH`) overrides the host's resolution/refresh policy. This does not change the frame rate requested for the encoded stream.
+
+### Display choice from the client
+
+A client can choose, for one stream, what the PC's displays do. Rubylight Android sets it per PC under **This PC → Display on the PC**. The client sends `hostDisplay` with `/launch` or `/resume`:
+
+| `hostDisplay` | What the stream gets |
+| --- | --- |
+| `exclusive` | A virtual display, and the PC's other displays switch off for the stream. |
+| `extended_primary` | A virtual display beside the PC's displays, made the primary display so games open on it. |
+| `extended` | A virtual display beside the PC's displays; the primary display stays as it is. |
+| `extended_isolated`, `extended_primary_isolated` | The isolated layouts of **Settings → Display**. |
+| `physical` | No virtual display; the stream shows the physical display the host and app settings select. |
+| missing, `default` or anything else | The host decides from its settings, as for an older client. |
+
+The choice comes before the host, device and app settings for virtual display mode and layout, including a device's **Always use a virtual display**. Two cases still get a virtual display after `physical`: a PC with no active display, and an output that names the virtual display itself. A virtual display needs its driver; without it the stream shows the physical display with a warning, as for any other request. When another stream already holds the display layout, a second stream joins that layout. The layout from before the stream comes back when the stream ends, as with the host's own settings. A display kept for reconnection is reused only when the next launch asks for the same choice, or asks for nothing. Remote Monitor and Remote Input ignore the parameter. Older Rubylight hosts and other hosts ignore it, so Rubylight Android also sends `virtualDisplay=1` with the virtual choices, which those hosts honour where they support a virtual display.
 
 ## Save, reconnect and restart
 

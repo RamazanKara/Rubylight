@@ -561,8 +561,10 @@ pub fn override_allowed(key: &str) -> bool {
         "dd_wa_dummy_plug_hdr10",
         "max_bitrate",
         "minimum_fps_target",
+        "stream_reconfigure",
         // Codec and capture
         "fec_percentage",
+        "adaptive_fec",
         "video_max_batch_size_kb",
         "pyrowave_critical_fec_percentage",
         "qp",
@@ -806,6 +808,7 @@ mod tests {
             "nvenc_preset",
             "amd_quality",
             "frame_limiter_fps_limit",
+            "adaptive_fec",
         ] {
             assert!(super::override_allowed(key), "{key}");
         }

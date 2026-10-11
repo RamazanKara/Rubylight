@@ -55,13 +55,14 @@ NVIDIA NVENC, Intel Quick Sync and software encoders are included for other hard
 - **A rebuilt console** for overview, library, devices, settings, logs, maintenance and API tokens, with frame rate, bitrate and encoder timing together, and a stream card that explains what the host did and why.
 - **A tray icon** with notifications for pairing requests, new versions and apps launching, pausing and stopping.
 - **Logs and support.** Rotating logs, a live tail in the console, crash dumps and a support bundle.
+- **Hardware readings for client overlays.** Opt-in CPU usage and available AMD GPU readings, collected on request during a paired client's video stream. Compatible clients draw their own overlay; see the [hardware-metrics protocol](hardware-metrics.md).
 
 ## Install and update
 
 - **One installer** that sets up the service, drivers, firewall rule and shortcuts, and upgrades in place. It imports an existing Vibepollo or Apollo profile and keeps your settings, paired devices, apps and covers.
 - **Updates notify you first.** Automatic installation is opt-in; the host downloads the exact installer from the official release, verifies its size and SHA-256 digest, waits for an idle minute and upgrades through the service. A failed copy or start restores the previous files.
 - **A service that restarts the host** after a crash.
-- **Separate instances** with independent profile folders and base ports. Copied portable packages can use an adjacent `config` folder in unreleased builds; published packages support explicit `--config-dir` paths. See [multiple instances](configuration.md#multiple-instances).
+- **Separate instances** with independent profile folders and base ports. Copied portable packages can use an adjacent `config` folder from 2.2.6; older packages support explicit `--config-dir` paths. See [multiple instances](configuration.md#multiple-instances).
 
 ## Clients
 

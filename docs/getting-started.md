@@ -8,12 +8,12 @@ Rubylight is a Windows x64 streaming host written in Rust, with a GPU path tuned
 
 ## Install or run portable
 
-Download the Windows package from [Rubylight Releases](https://github.com/RamazanKara/Rubylight/releases). For 2.2.5, choose:
+Download the Windows package from [Rubylight Releases](https://github.com/RamazanKara/Rubylight/releases). For 2.2.6, choose:
 
 | Package | How to start | Best fit |
 | --- | --- | --- |
-| `rubylight-setup-2.2.5.exe` | Run the installer, then open **Rubylight** from the Start menu. | Normal use, automatic service startup and virtual displays. |
-| `rubylight-2.2.5-windows-x64.zip` | Extract the whole ZIP and open **Start Rubylight.exe**. | Trying the host with a physical display. |
+| `rubylight-setup-2.2.6.exe` | Run the installer, then open **Rubylight** from the Start menu. | Normal use, automatic service startup and virtual displays. |
+| `rubylight-2.2.6-windows-x64.zip` | Extract the whole ZIP and open **Start Rubylight.exe**. | Trying the host with a physical display. |
 
 Releases up to 2.0.1 also list a `butterpollo-setup-<version>.exe`. It is the same file as `rubylight-setup-<version>.exe` under the name Rubylight had before; download either. Butterpollo and Rubylight are one product, so there is no separate Butterpollo download, and installing over a Butterpollo host keeps its settings, paired devices and apps.
 
@@ -38,7 +38,7 @@ The default profiles are separate:
 | How it runs | Profile folder |
 | --- | --- |
 | Installed Windows service | `%PROGRAMDATA%\Butterpollo\config` |
-| Portable launcher | Existing `config` folder beside the executable (unreleased); otherwise `%LOCALAPPDATA%\ButterpolloRust\config` |
+| Portable launcher | Existing `config` folder beside the executable (2.2.6 or later); otherwise `%LOCALAPPDATA%\ButterpolloRust\config` |
 
 Opening the launcher again returns to the running profile's console. When launched from the installed package, it uses that package's Windows service profile. An explicit `--config-dir` selects another profile; see [multiple instances](configuration.md#multiple-instances) for examples and release availability.
 

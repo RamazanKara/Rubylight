@@ -162,7 +162,7 @@ For file-based configuration, the file is still named `sunshine.conf` for compat
 | Installation | Default profile folder |
 | --- | --- |
 | Windows service | `%ProgramData%\Butterpollo\config` |
-| Portable host | Existing `config` folder beside the executable (unreleased); otherwise `%LocalAppData%\ButterpolloRust\config` |
+| Portable host | Existing `config` folder beside the executable (2.2.6 or later); otherwise `%LocalAppData%\ButterpolloRust\config` |
 | Explicit profile | Folder passed to `butterpollo.exe --config-dir <folder>` |
 
 The format is `key = value`, one setting per line. Stop the host before editing files directly, then start it again to load them. Prefer the console for ordinary changes; old or unknown keys can be preserved without being implemented by the Rust host.
@@ -178,7 +178,7 @@ Give each instance its own profile folder and base port. An explicit `--config-d
 
 The consoles are at **https://localhost:48124** and **https://localhost:48324**. These base ports also keep the instances' streaming ports separate from each other and from the default installed host. To make the port choice persist when using **Start Rubylight.exe**, save `port = 48123` or `port = 48323` in the corresponding profile's `sunshine.conf`. The launcher accepts `--config-dir`; `--port` is a host option.
 
-For copied portable packages, create a separate `config` folder beside each copy of `butterpollo.exe` and set a different `port` in each folder's `sunshine.conf` before launching. Automatic selection of this adjacent folder is [unreleased](../rust/RELEASE_NOTES.md#unreleased); published 2.2.5 packages need an explicit `--config-dir`. Without an adjacent folder or explicit path, copies running as the same account share the per-user default, including SYSTEM's systemprofile location. Start with fresh profiles for independent identities and pair each instance separately; copying a populated profile also copies its identity and paired devices.
+For copied portable packages, create a separate `config` folder beside each copy of `butterpollo.exe` and set a different `port` in each folder's `sunshine.conf` before launching. Automatic selection of this adjacent folder requires [2.2.6 or later](../rust/RELEASE_NOTES.md#new-in-226); older packages need an explicit `--config-dir`. Without an adjacent folder or explicit path, copies running as the same account share the per-user default, including SYSTEM's systemprofile location. Start with fresh profiles for independent identities and pair each instance separately; copying a populated profile also copies its identity and paired devices.
 
 For multiseat use, launch each process in its intended Windows session through your multiseat software, using that session's SYSTEM token if required by your setup. The installer continues to manage one Windows service. Separate-profile startup has been smoke-tested with two simultaneous hosts; simultaneous streaming from different Windows users still needs validation.
 

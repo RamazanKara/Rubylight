@@ -190,6 +190,7 @@ impl Drop for Interop {
 struct ComputePlanes {
     converter: crate::compute::Converter,
     target: crate::compute::Planes,
+    textures: [Arc<ID3D11Texture2D>; 3],
 }
 impl ComputePlanes {
     fn new(
@@ -222,6 +223,7 @@ impl ComputePlanes {
         };
         Ok(Self {
             converter,
+            textures: textures.clone(),
             target: crate::compute::Planes {
                 planes,
                 format: if config.ten_bit() {
@@ -266,6 +268,13 @@ impl ComputePlanes {
             image.ready.as_ref(),
             &self.target,
         )
+    }
+}
+impl Drop for ComputePlanes {
+    fn drop(&mut self) {
+        for texture in &self.textures {
+            self.converter.compute().forget(texture);
+        }
     }
 }
 fn interval(config: &Negotiated, critical_fec: bool) -> pyrowave::Interval {

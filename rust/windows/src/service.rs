@@ -127,13 +127,18 @@ fn repair_display_driver(install: &std::path::Path, stop: Arc<AtomicBool>) {
 fn supervise() -> Result<()> {
     let stop = Arc::new(AtomicBool::new(false));
     let event_stop = stop.clone();
+    let wake = Arc::new(crate::timing::Signal::new()?);
+    let event_wake = wake.clone();
     let reporter = service_control_handler::register(NAME, move |control| match control {
         ServiceControl::Stop | ServiceControl::Shutdown => {
             event_stop.store(true, Ordering::Release);
+            let _ = event_wake.set();
             ServiceControlHandlerResult::NoError
         }
-        // The supervisor checks the active console session every 100 ms.
-        ServiceControl::SessionChange(_) => ServiceControlHandlerResult::NoError,
+        ServiceControl::SessionChange(_) => {
+            let _ = event_wake.set();
+            ServiceControlHandlerResult::NoError
+        }
         ServiceControl::Interrogate => ServiceControlHandlerResult::NoError,
         _ => ServiceControlHandlerResult::NotImplemented,
     })?;
@@ -186,7 +191,11 @@ fn supervise() -> Result<()> {
     let mut session = u32::MAX;
     let mut restart = RestartPolicy::default();
     let mut retry_at = Instant::now();
-    while !stop.load(Ordering::Acquire) {
+    loop {
+        wake.reset()?;
+        if stop.load(Ordering::Acquire) {
+            break;
+        }
         // SAFETY: WTSGetActiveConsoleSessionId takes no arguments and has no preconditions.
         let current =
             unsafe { windows::Win32::System::RemoteDesktop::WTSGetActiveConsoleSessionId() };
@@ -241,7 +250,25 @@ fn supervise() -> Result<()> {
                 }
             }
         }
-        std::thread::sleep(Duration::from_millis(100));
+        let mut handles = vec![wake.raw()];
+        let timeout = if let Some(process) = &child {
+            handles.push(process.handle());
+            u32::MAX
+        } else if session == u32::MAX {
+            1000
+        } else {
+            retry_at
+                .saturating_duration_since(Instant::now())
+                .as_millis()
+                .min(u128::from(u32::MAX - 1)) as u32
+        };
+        // SAFETY: The event and optional child own these handles throughout the wait.
+        if unsafe {
+            windows::Win32::System::Threading::WaitForMultipleObjects(&handles, false, timeout)
+        } == windows::Win32::Foundation::WAIT_FAILED
+        {
+            return Err(windows::core::Error::from_thread().into());
+        }
     }
     reporter.set_service_status(status(ServiceState::StopPending, 1))?;
     if let Some(process) = child.take() {

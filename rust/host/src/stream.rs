@@ -818,7 +818,17 @@ impl Media {
                 .name(if is_audio { "audio-ping" } else { "video-ping" }.into())
                 .spawn(move || {
                     let mut b = [0; 2048];
+                    let raw_socket = std::os::windows::io::AsRawSocket::as_raw_socket(&*socket);
                     while !h.stop.load(Ordering::Acquire) {
+                        match butterpollo_windows::net::wait_readable(raw_socket, 250) {
+                            Ok(true) => {}
+                            Ok(false) => continue,
+                            Err(e) => {
+                                tracing::warn!(error=%e,"media ping wait failed");
+                                thread::sleep(Duration::from_millis(250));
+                                continue;
+                            }
+                        }
                         match socket.recv_from(&mut b) {
                             Ok((n, peer)) => {
                                 let sessions = h.sessions.lock().unwrap();
@@ -847,9 +857,7 @@ impl Media {
                                     }
                                 }
                             }
-                            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                                thread::sleep(Duration::from_millis(1))
-                            }
+                            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {}
                             Err(e) => {
                                 tracing::warn!(error=%e,"media ping receive failed");
                                 thread::sleep(Duration::from_millis(10));
@@ -1263,6 +1271,7 @@ impl Media {
                     com = Some(ComGuard::new()?);
                     let _priority = Priority::new();
                     let _streaming = butterpollo_windows::timing::StreamingScope::enter();
+                    let mut config_version = h.config_version.load(Ordering::Acquire);
                     let mut c = effective_config(&h, &s.launch)?;
                     // A per-client HDR profile or peak chosen on the host wins over
                     // the luminance the client reports.
@@ -1423,7 +1432,11 @@ impl Media {
                     };
                     // Separate encoder failures in this session, each counted once.
                     let (mut failures, mut counted_failure) = (0u32, None);
+                    let mut base_config = c.clone();
                     let mut runtime_config = c.clone();
+                    let mut calibration_due = s.launch.client.extra.get("hdr_profile")
+                        .and_then(serde_json::Value::as_str).filter(|profile| !profile.is_empty())
+                        .map(|_| Instant::now() + Duration::from_secs(30));
                     let mut profiles = None;
                     let mut foreground = None;
                     // The fullscreen game on this display, for quitting a game
@@ -1451,6 +1464,7 @@ impl Media {
                     let mut first_seen: Option<(usize, Instant, Option<Duration>, Option<Instant>)> = None;
                     let mut video_qos = Tagged::default();
                     let mut batch = butterpollo_windows::net::Batch::default();
+                    let mut packets = Vec::new();
                     let trace_send = tracing::enabled!(target: "pacing", tracing::Level::TRACE);
                     batch.waits = trace_send.then(Default::default);
                     let mut network_pacer = butterpollo_core::network_pacing::Pacer::new(Instant::now());
@@ -1508,7 +1522,7 @@ impl Media {
                         if let Some(sender) = video_sender.get() { return sender.submit(output, peer, call_latency); }
                         let polled = Instant::now();
                         let micros = |d: Duration| d.as_micros().min(u128::from(u64::MAX)) as u64;
-                        for frame in output {
+                        'frames: for frame in output {
                             let frame_started = Instant::now();
                             let encode = frame.latency.unwrap_or(call_latency);
                             let latency = micros(encode);
@@ -1531,31 +1545,10 @@ impl Media {
                                 continue;
                             }
                             packetizer.fec_percent = s.fec_percent();
-                            // A frame beyond Moonlight's packet limit (very high
-                            // bitrates) costs that frame and a keyframe, not the
-                            // session.
-                            let packetize_started = Instant::now();
-                            let packets = match packetizer.encode_recovery(&frame.bytes,frame.idr,frame.after_invalidation,timestamp,processing) {
-                                Ok(packets) => packets,
-                                Err(error) => {
-                                    s.launch.warnings.event("network_frame", format!("Encoded video frame dropped ({error:#}); requesting a recovery frame. Lower bitrate or resolution to stay within Moonlight's packet limit."), butterpollo_core::session::EVENT_PERIOD);
-                                    s.request_idr();
-                                    next_wire_frame.set(u64::from(packetizer.frame));
-                                    continue;
-                                }
-                            };
-                            let packetize_time = packetize_started.elapsed();
-                            // A keyframe, as at the start of every stream, may be too
-                            // large for FEC; only ordinary frames make this worth showing.
-                            if !frame.idr
-                                && packetizer.fec_limited(frame.bytes.len())
-                                && fec_reported.is_none_or(|at: Instant| at.elapsed() >= Duration::from_secs(1))
-                            {
-                                fec_reported = Some(Instant::now());
-                                s.launch.warnings.event("network_fec", "FEC was reduced or omitted for large video frames because they exceed Moonlight's four-block limit. Packet loss in those frames is harder to recover; lower bitrate or resolution to keep full FEC protection.", butterpollo_core::session::EVENT_PERIOD);
-                            }
-                            next_wire_frame.set(u64::from(packetizer.frame));
-                            let frame_bytes = packets.iter().map(|p|p.len() as u64).sum();
+                            let wire_frame = packetizer.frame;
+                            let block_layout = packetizer.block_layout(frame.bytes.len());
+                            let fec_limited = packetizer.fec_limited(frame.bytes.len());
+                            let packet_bytes = packetizer.packet_size + 16 + if packetizer.key.is_some() { 32 } else { 0 };
                             let route = *link.get_or_insert_with(|| butterpollo_windows::net::routed_link(peer));
                             let bps = butterpollo_core::network_pacing::rate_bps(
                                 c.integer("pacing_max_bitrate_kbps", 0),
@@ -1571,6 +1564,30 @@ impl Media {
                                     reported_pacing = Some(bps);
                                 }
                             }
+                            // A frame beyond Moonlight's packet limit (very high
+                            // bitrates) costs that frame and a keyframe, not the
+                            // session.
+                            let packetize_started = Instant::now();
+                            let prepared_blocks = packetizer.conventional_blocks(&frame.bytes,frame.idr,frame.after_invalidation,timestamp,processing);
+                            if let Err(error) = &prepared_blocks {
+                                s.launch.warnings.event("network_frame", format!("Encoded video frame dropped ({error:#}); requesting a recovery frame. Lower bitrate or resolution to stay within Moonlight's packet limit."), butterpollo_core::session::EVENT_PERIOD);
+                                s.request_idr();
+                                drop(prepared_blocks);
+                                next_wire_frame.set(u64::from(packetizer.frame));
+                                continue;
+                            }
+                            let (packet_count, mut next_block) = prepared_blocks?;
+                            let mut packetize_time = packetize_started.elapsed();
+                            // A keyframe, as at the start of every stream, may be too
+                            // large for FEC; only ordinary frames make this worth showing.
+                            if !frame.idr
+                                && fec_limited
+                                && fec_reported.is_none_or(|at: Instant| at.elapsed() >= Duration::from_secs(1))
+                            {
+                                fec_reported = Some(Instant::now());
+                                s.launch.warnings.event("network_fec", "FEC was reduced or omitted for large video frames because they exceed Moonlight's four-block limit. Packet loss in those frames is harder to recover; lower bitrate or resolution to keep full FEC protection.", butterpollo_core::session::EVENT_PERIOD);
+                            }
+                            let frame_bytes = (packet_count * packet_bytes) as u64;
                             let dropped = batch.dropped;
                             let waits_before = batch.waits;
                             let mut pacing_wait = Duration::ZERO;
@@ -1578,58 +1595,77 @@ impl Media {
                             let mut batches = 0;
                             let mut first_send = None;
                             let mut last_send = None;
-                            let mut remaining = packets.as_slice();
-                            let mut lost = butterpollo_core::stream_policy::SendLoss::new(packetizer.block_layout(frame.bytes.len()));
+                            let mut lost = butterpollo_core::stream_policy::SendLoss::new(block_layout);
                             let mut abandoned = 0;
-                            s.stats.video_frame.store(u64::from(packetizer.frame.wrapping_sub(1)) + 1, Ordering::Release);
-                            while !remaining.is_empty() {
-                                if s.stopping() || h.stop.load(Ordering::Acquire) {
-                                    return Ok(());
-                                }
-                                let now = Instant::now();
-                                if network_pacer.due() > now {
-                                    timer.until_precise(network_pacer.due());
-                                    pacing_wait += now.elapsed();
-                                }
-                                let budget = (bps / 4000)
-                                    .clamp(remaining[0].len() as u64, batch_kb * 1024)
-                                    as usize;
-                                let count =
-                                    butterpollo_windows::net::Batch::count(remaining, budget);
-                                let send_started = Instant::now();
-                                let refused = batch.dropped;
-                                let bytes = match send_outage.filter(|outage| outage.active(start, Instant::now())) {
-                                    // Lost after the socket: counted as sent, only the client sees it.
-                                    Some(outage) if outage.in_air() => remaining[..count].iter().map(Vec::len).sum(),
-                                    Some(_) => {
-                                        batch.refuse(count);
-                                        0
+                            let mut sent_packets = 0;
+                            'blocks: loop {
+                                let block_started = Instant::now();
+                                let block_count = match next_block(&mut packets) {
+                                    Ok(count) => count,
+                                    Err(error) => {
+                                        s.launch.warnings.event("network_frame", format!("Encoded video frame dropped ({error:#}); requesting a recovery frame. Lower bitrate or resolution to stay within Moonlight's packet limit."), butterpollo_core::session::EVENT_PERIOD);
+                                        s.request_idr();
+                                        drop(next_block);
+                                        next_wire_frame.set(u64::from(packetizer.frame));
+                                        continue 'frames;
                                     }
-                                    None => batch.send(&m.video, &remaining[..count], peer)?,
                                 };
-                                let finished = Instant::now();
-                                send_time += finished.duration_since(send_started);
-                                if trace_send {
-                                    first_send.get_or_insert(send_started);
-                                    last_send = Some(finished);
-                                    batches += 1;
-                                }
-                                remaining = &remaining[count..];
-                                network_pacer.sent(Instant::now(), bytes, if bytes > 0 { count } else { 0 }, peer.ip().to_canonical().is_ipv6(), bps);
-                                s.stats.packets.fetch_add(count as u64, Ordering::Relaxed);
-                                s.stats.bytes.fetch_add(bytes as u64, Ordering::Relaxed);
-                                // The socket refused more of this frame than FEC
-                                // repairs: the client cannot decode it. Stop
-                                // spending the link on it, and make the next
-                                // frame the keyframe the client will wait for.
-                                if lost.sent(count, (batch.dropped - refused) as usize) {
-                                    abandoned = remaining.len();
-                                    if send_loss.lost(Instant::now(), stream_period.get(), lost.reached_socket()) {
-                                        s.request_send_loss_recovery();
+                                packetize_time += block_started.elapsed();
+                                if block_count == 0 { break; }
+                                next_wire_frame.set(u64::from(wire_frame.wrapping_add(1)));
+                                s.stats.video_frame.store(u64::from(wire_frame) + 1, Ordering::Release);
+                                let mut remaining = &packets[..block_count];
+                                while !remaining.is_empty() {
+                                    if s.stopping() || h.stop.load(Ordering::Acquire) {
+                                        return Ok(());
                                     }
-                                    break;
+                                    let now = Instant::now();
+                                    if network_pacer.due() > now {
+                                        timer.until_precise(network_pacer.due());
+                                        pacing_wait += now.elapsed();
+                                    }
+                                    let budget = (bps / 4000)
+                                        .clamp(remaining[0].len() as u64, batch_kb * 1024)
+                                        as usize;
+                                    let count =
+                                        butterpollo_windows::net::Batch::count(remaining, budget);
+                                    let send_started = Instant::now();
+                                    let refused = batch.dropped;
+                                    let bytes = match send_outage.filter(|outage| outage.active(start, Instant::now())) {
+                                        // Lost after the socket: counted as sent, only the client sees it.
+                                        Some(outage) if outage.in_air() => remaining[..count].iter().map(Vec::len).sum(),
+                                        Some(_) => {
+                                            batch.refuse(count);
+                                            0
+                                        }
+                                        None => batch.send(&m.video, &remaining[..count], peer)?,
+                                    };
+                                    let finished = Instant::now();
+                                    send_time += finished.duration_since(send_started);
+                                    if trace_send {
+                                        first_send.get_or_insert(send_started);
+                                        last_send = Some(finished);
+                                        batches += 1;
+                                    }
+                                    remaining = &remaining[count..];
+                                    sent_packets += count;
+                                    network_pacer.sent(Instant::now(), bytes, if bytes > 0 { count } else { 0 }, peer.ip().to_canonical().is_ipv6(), bps);
+                                    s.stats.packets.fetch_add(count as u64, Ordering::Relaxed);
+                                    s.stats.bytes.fetch_add(bytes as u64, Ordering::Relaxed);
+                                    // The socket refused more of this frame than FEC
+                                    // repairs: the client cannot decode it. Stop
+                                    // spending the link on it, and make the next
+                                    // frame the keyframe the client will wait for.
+                                    if lost.sent(count, (batch.dropped - refused) as usize) {
+                                        abandoned = packet_count - sent_packets;
+                                        if send_loss.lost(Instant::now(), stream_period.get(), lost.reached_socket()) {
+                                            s.request_send_loss_recovery();
+                                        }
+                                        break 'blocks;
+                                    }
                                 }
                             }
+                            drop(next_block);
                             if lost.unrecoverable() {
                                 tracing::debug!(frame = packetizer.frame.wrapping_sub(1), idr = frame.idr, abandoned, "video frame lost on send; the rest of it was not sent");
                             } else {
@@ -1641,7 +1677,7 @@ impl Media {
                             s.stats.frames.fetch_add(1, Ordering::Relaxed);
                             let sent = Instant::now();
                             if let (Some(first), Some(last), Some(before), Some(after)) = (first_send, last_send, waits_before, batch.waits) {
-                                tracing::trace!(target: "pacing", frame=packetizer.frame.wrapping_sub(1), packets=packets.len(), batches,
+                                tracing::trace!(target: "pacing", frame=packetizer.frame.wrapping_sub(1), packets=packet_count, batches,
                                     pacing_wait_us=micros(pacing_wait), send_us=micros(send_time),
                                     first_send_us=micros(first.saturating_duration_since(start)), last_send_us=micros(last.saturating_duration_since(start)),
                                     writable_waits=after.count-before.count, writable_wait_us=micros(after.elapsed-before.elapsed),
@@ -1665,7 +1701,7 @@ impl Media {
                                     frame_ms = ms(took), socket_ms = ms(send_time), pacing_ms = ms(pacing_wait),
                                     timestamp_ms = ms(stamp_time), packetize_ms = ms(packetize_time),
                                     timings_ms = ms(record_time), link_ms = ms(link_time),
-                                    packets = packets.len(), bytes = frame_bytes, pacing_bps = bps, idr = frame.idr,
+                                    packets = packet_count, bytes = frame_bytes, pacing_bps = bps, idr = frame.idr,
                                     "a video frame held the stream thread while it was sent; socket_ms is time in Windows' send calls (network driver and adapter), the other parts are the host's own work"
                                 );
                             }
@@ -1682,9 +1718,17 @@ impl Media {
                             }
                             if Instant::now() >= live_at {
                                 live_at = Instant::now() + Duration::from_millis(250);
-                                runtime_config = effective_config(&h, &s.launch)?;
-                                if s.config.vrr_low_latency {
-                                    runtime_config.values.insert("wgc_slot_aligned_publish".into(), "false".into());
+                                let version = h.config_version.load(Ordering::Acquire);
+                                if version != config_version || calibration_due.is_some_and(|due| Instant::now() >= due) {
+                                    base_config = effective_config(&h, &s.launch)?;
+                                    if s.config.vrr_low_latency {
+                                        base_config.values.insert("wgc_slot_aligned_publish".into(), "false".into());
+                                    }
+                                    config_version = version;
+                                    runtime_config = base_config.clone();
+                                    if let Some(due) = &mut calibration_due {
+                                        *due = Instant::now() + Duration::from_secs(30);
+                                    }
                                 }
                                 *s.output.write().unwrap() = prepared.output();
                                 let runtime = &runtime_config;
@@ -1980,7 +2024,7 @@ impl Media {
                                 };
                                 let visible = if active { foreground.get_or_insert_with(butterpollo_windows::foreground::Tracker::default).poll(&owned, &image.gpu.display) } else { None };
                                 let profiles = profiles.get_or_insert_with(butterpollo_windows::rtx_profiles::Profiles::new);
-                                runtime_config = butterpollo_core::rtx_policy::resolve(&runtime_config, visible.is_some(), profiles.poll(visible.as_deref()));
+                                runtime_config = butterpollo_core::rtx_policy::resolve(&base_config, visible.is_some(), profiles.poll(visible.as_deref()));
                                 if let Some(filter) = truehdr.as_mut() { filter.set_parameters(rtx_parameters(&runtime_config)); }
                             }
                             if s.launch.role == Role::Stream && Instant::now() >= quit_scan_due {
@@ -2575,7 +2619,7 @@ impl Media {
             },
         )?;
         let _com = ComGuard::new()?;
-        let _priority = Priority::input();
+        let mut priority = None;
         let (commands, pending_commands) =
             std::sync::mpsc::sync_channel::<(Arc<Session>, String, bool)>(32);
         thread::Builder::new()
@@ -3070,11 +3114,27 @@ impl Media {
                 }
             }
             host.flush();
-            // Wake as soon as input arrives; otherwise within a millisecond for
-            // feedback and cleanup. A fixed sleep made every event wait for it.
-            if butterpollo_windows::net::wait_readable(raw_socket, 1).is_err() {
+            if peers.is_empty() {
+                priority = None;
+            } else if priority.is_none() {
+                priority = Some(Priority::input());
+            }
+            let now = Instant::now();
+            let due = if peers.is_empty() {
+                now + Duration::from_millis(250)
+            } else {
+                peers
+                    .values()
+                    .filter_map(|p| p.injector.as_ref()?.next_due())
+                    .fold(feedback_at, Instant::min)
+            };
+            let timeout = due
+                .saturating_duration_since(now)
+                .as_micros()
+                .div_ceil(1000) as i32;
+            if butterpollo_windows::net::wait_readable(raw_socket, timeout).is_err() {
                 // A polling error must not spin the loop.
-                input_timer.until(Instant::now() + Duration::from_millis(1));
+                input_timer.until(now + Duration::from_millis(timeout.max(1) as u64));
             }
         }
         for (peer, p) in peers {

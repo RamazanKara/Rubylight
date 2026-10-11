@@ -213,6 +213,7 @@ pub struct StreamingScope(());
 struct Streams {
     count: usize,
     priority: u32,
+    power: Option<PROCESS_POWER_THROTTLING_STATE>,
     /// The WLAN client handle that holds media streaming mode; closing it ends it.
     wlan: Option<usize>,
     /// Mouse Keys as they were before the first stream turned them on.
@@ -221,6 +222,7 @@ struct Streams {
 static STREAMS: std::sync::Mutex<Streams> = std::sync::Mutex::new(Streams {
     count: 0,
     priority: 0,
+    power: None,
     wlan: None,
     mouse_keys: None,
 });
@@ -409,6 +411,20 @@ impl StreamingScope {
             // other calls take only plain values.
             unsafe {
                 let process = GetCurrentProcess();
+                let mut power = PROCESS_POWER_THROTTLING_STATE {
+                    Version: PROCESS_POWER_THROTTLING_CURRENT_VERSION,
+                    ..Default::default()
+                };
+                if GetProcessInformation(
+                    process,
+                    ProcessPowerThrottling,
+                    (&mut power as *mut PROCESS_POWER_THROTTLING_STATE).cast(),
+                    size_of::<PROCESS_POWER_THROTTLING_STATE>() as u32,
+                )
+                .is_ok()
+                {
+                    streams.power = Some(power);
+                }
                 disable_power_throttling();
                 let _ = windows::Win32::Media::timeBeginPeriod(1);
                 streams.priority = GetPriorityClass(process);
@@ -432,6 +448,24 @@ impl Drop for StreamingScope {
                 let process = GetCurrentProcess();
                 if streams.priority != 0 {
                     let _ = SetPriorityClass(process, PROCESS_CREATION_FLAGS(streams.priority));
+                }
+                let power = streams
+                    .power
+                    .take()
+                    .unwrap_or(PROCESS_POWER_THROTTLING_STATE {
+                        Version: PROCESS_POWER_THROTTLING_CURRENT_VERSION,
+                        ..Default::default()
+                    });
+                if let Err(error) = SetProcessInformation(
+                    process,
+                    ProcessPowerThrottling,
+                    (&power as *const PROCESS_POWER_THROTTLING_STATE).cast(),
+                    size_of::<PROCESS_POWER_THROTTLING_STATE>() as u32,
+                ) {
+                    tracing::debug!(%error, "restoring process power throttling failed");
+                }
+                if let Err(error) = crate::gpu_priority::restore() {
+                    tracing::debug!(%error, "restoring GPU process scheduling failed");
                 }
                 let _ = windows::Win32::Media::timeEndPeriod(1);
                 let _ = windows::Win32::Graphics::Dwm::DwmEnableMMCSS(false);
@@ -489,17 +523,68 @@ mod tests {
         Ok(())
     }
     #[test]
-    #[ignore = "briefly puts connected Wi-Fi adapters in media streaming mode"]
-    fn native_streaming_scope_is_restored_after_the_last_stream() {
+    #[ignore = "requires a GPU and briefly changes process scheduling and Wi-Fi streaming mode"]
+    fn native_streaming_scope_is_restored_after_the_last_stream() -> Result<()> {
+        let power = || -> Result<(u32, u32)> {
+            let mut state = PROCESS_POWER_THROTTLING_STATE {
+                Version: PROCESS_POWER_THROTTLING_CURRENT_VERSION,
+                ..Default::default()
+            };
+            // SAFETY: The process pseudo handle and initialized output with its exact size are valid.
+            unsafe {
+                GetProcessInformation(
+                    GetCurrentProcess(),
+                    ProcessPowerThrottling,
+                    (&mut state as *mut PROCESS_POWER_THROTTLING_STATE).cast(),
+                    size_of::<PROCESS_POWER_THROTTLING_STATE>() as u32,
+                )?;
+            }
+            Ok((state.ControlMask, state.StateMask))
+        };
+        let directory = std::env::var_os("SystemRoot").unwrap();
+        // SAFETY: The absolute system library and the documented export signature are used;
+        // the library outlives the symbol and every call.
+        let library = unsafe {
+            libloading::Library::new(
+                std::path::PathBuf::from(directory).join("System32/gdi32.dll"),
+            )?
+        };
+        // SAFETY: The optional export has the documented D3DKMT query signature.
+        let get = unsafe {
+            library
+                .get::<unsafe extern "system" fn(*mut core::ffi::c_void, *mut i32) -> i32>(
+                    b"D3DKMTGetProcessSchedulingPriorityClass\0",
+                )
+                .ok()
+        };
+        let gpu_priority = || {
+            let get = get.as_ref()?;
+            let mut priority = 0;
+            // SAFETY: The symbol has the documented signature; priority remains live for the call.
+            (unsafe { get(GetCurrentProcess().0, &mut priority) } >= 0).then_some(priority)
+        };
+        let original_power = power()?;
+        let original_gpu = gpu_priority();
         let first = StreamingScope::enter();
+        let gpu = crate::capture::Device::new("")?;
+        let _ = crate::gpu_priority::configure(&gpu, &Default::default());
+        let active_power = power()?;
+        let active_gpu = gpu_priority();
         let second = StreamingScope::enter();
         assert_eq!(STREAMS.lock().unwrap().count, 2);
         drop(second);
+        assert_eq!(power()?, active_power);
+        assert_eq!(gpu_priority(), active_gpu);
         drop(first);
+        assert_eq!(power()?, original_power);
+        if original_gpu.is_some() {
+            assert_eq!(gpu_priority(), original_gpu);
+        }
         let streams = STREAMS.lock().unwrap();
         assert_eq!(streams.count, 0);
         assert!(streams.wlan.is_none());
         assert!(streams.mouse_keys.is_none());
+        Ok(())
     }
     #[test]
     fn capture_before_wait_is_retained_and_each_consumer_has_its_own_wake() -> Result<()> {

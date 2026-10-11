@@ -71,7 +71,7 @@ mod probe {
                 let desc = unsafe { duplication.GetDesc() };
                 println!(
                     "{}",
-                    json!({"event":"opened_raw", "display":gpu.display,
+                    json!({"event":"opened_raw", "display":gpu.display.as_ref(),
                     "format":desc.ModeDesc.Format.0, "width":desc.ModeDesc.Width,
                     "height":desc.ModeDesc.Height, "system_memory":desc.DesktopImageInSystemMemory.as_bool()})
                 );

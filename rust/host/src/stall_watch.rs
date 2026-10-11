@@ -6,7 +6,7 @@
 use butterpollo_core::stall_watch::{Event, Watch};
 use std::{
     sync::{
-        Arc, Mutex, OnceLock, Weak,
+        Arc, Condvar, Mutex, OnceLock, Weak,
         atomic::{AtomicU8, AtomicU64, Ordering},
     },
     thread,
@@ -70,7 +70,11 @@ impl Progress {
     }
 }
 
-type Watched = Mutex<Vec<(Weak<Progress>, Watch)>>;
+#[derive(Default)]
+struct Watched {
+    streams: Mutex<Vec<(Weak<Progress>, Watch)>>,
+    wake: Condvar,
+}
 
 /// Watched until the returned handle is dropped.
 pub fn register(thread: &'static str, stream: &str, gpu: Option<Arc<GpuProbe>>) -> Arc<Progress> {
@@ -94,18 +98,24 @@ pub fn register(thread: &'static str, stream: &str, gpu: Option<Arc<GpuProbe>>) 
         watched
     });
     watched
+        .streams
         .lock()
         .unwrap()
         .push((Arc::downgrade(&progress), Watch::default()));
+    watched.wake.notify_one();
     progress
 }
 
 fn watch(watched: &Watched) {
     loop {
         thread::sleep(TICK);
-        let mut watched = watched.lock().unwrap();
-        watched.retain(|(progress, _)| progress.strong_count() > 0);
-        for (progress, watch) in watched.iter_mut() {
+        let mut streams = watched.streams.lock().unwrap();
+        streams.retain(|(progress, _)| progress.strong_count() > 0);
+        while streams.is_empty() {
+            streams = watched.wake.wait(streams).unwrap();
+            streams.retain(|(progress, _)| progress.strong_count() > 0);
+        }
+        for (progress, watch) in streams.iter_mut() {
             let Some(progress) = progress.upgrade() else {
                 continue;
             };

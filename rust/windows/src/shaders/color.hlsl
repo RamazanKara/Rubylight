@@ -194,6 +194,20 @@ float2 pyro_chroma(float2 p) {
 }
 float4 pyro_u(float4 p : SV_Position) : SV_Target { return float4(pyro_chroma(p.xy).x,0,0,1); }
 float4 pyro_v(float4 p : SV_Position) : SV_Target { return float4(pyro_chroma(p.xy).y,0,0,1); }
+struct Pyro444 {
+    float y : SV_Target0;
+    float u : SV_Target1;
+    float v : SV_Target2;
+};
+Pyro444 pyro_444(float4 p : SV_Position) {
+    float3 rgb = nonlinear(p.xy - 0.5);
+    float2 uv = pyroChroma(rgb);
+    Pyro444 result;
+    result.y = pyroLuma(rgb);
+    result.u = uv.x;
+    result.v = uv.y;
+    return result;
+}
 // PyroWave's three planes on the compute queue, in one pass over 2x2 blocks,
 // beside a game that fills the graphics queue.
 RWTexture2D<float> pyroY : register(u2);

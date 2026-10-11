@@ -10,6 +10,61 @@ entry may have been measured in a later one. Results to a real laptop over
 Wi-Fi are in "October 8 real-client picture age over Wi-Fi"; the
 [performance overview](../docs/performance.md) carries the current numbers.
 
+## October 12 resource use (issue 23)
+
+[Issue #23](https://github.com/RamazanKara/Rubylight/issues/23) separates
+estimated resource savings from measurements. Release 2.2.7 implements the
+following changes without changing the network pacer's waits or capture slot
+count:
+
+| Area | Change |
+| --- | --- |
+| Ping and control workers | Nonblocking media sockets wait for readability with a 250 ms idle bound. Control waits up to 250 ms without peers; connected peers use the next 8 ms feedback deadline or an earlier delayed mouse-release/key-repeat deadline. Input arrival wakes the socket immediately. Control MMCSS registration ends when its last peer leaves. |
+| Background work | Empty stall monitoring and inactive telemetry block. Idle housekeeping avoids spawning work or cloning settings. Service supervision waits on stop/session events and child exit, with timed restart and no-session retries. Display leases retain fast recovery checks and use 250 ms idle checks, with immediate teardown wake. |
+| Helpers and logging | Helpers dispatch before Tokio starts. The display watcher receives a completion event when the journal becomes empty; a subsequent display change starts a new watcher. Both log channels use 8192 lossy slots instead of the default 128,000. |
+| Video transport | `ring`, already present in the lockfile, seals video packets. Other nonce formats keep their existing crypto path. Conventional streams build and send one FEC block at a time, reuse shard allocations, and stop building unsent blocks after loss or cancellation. |
+| GPU resources | Cursor uploads retain their resources to a fence instead of blocking the CPU. AMF compute captures are retained through conversion rather than through encoder output. Capture and PyroWave owners forget imported texture references. Copy reuse waits for that texture's readers rather than unrelated conversions. `Device` shares its display metadata through `Arc`. |
+| GPU and power policy | The last streaming scope restores the previous process power-throttling and GPU scheduling settings. Nested streams retain the streaming policy until the final scope ends. |
+| Graphics conversion | Equal-sized PyroWave 4:4:4 planes use one MRT draw. Their SDR/HDR, scaling, letterboxing and cursor results are compared to the previous three-draw path by the native pixel fixture. |
+| Queries and settings | Known AMD-only/explicit-AMF startup probes skip unsupported standard-codec 4:4:4 modes. `/serverinfo` caches only native hardware/route facts for ten seconds; authorization and session fields stay live. mDNS checks addresses every thirty seconds. Effective settings rebuild after config/app/live-HDR changes, with a thirty-second refresh for selected ICC calibration. Cached releases retain consumed fields, and the update panel stops polling while hidden. |
+
+The ping constants imply about eight empty-socket timeout wakeups per second
+across both threads instead of about two thousand. That is a code-derived
+estimate, not a Windows context-switch or idle-power measurement. The smaller
+log queues similarly reduce reserved queue storage; no RSS reduction is claimed
+from the constants alone.
+
+The Windows `video_packet_performance` probe compares encrypted and unencrypted
+32-, 192- and 576-shard frames, including a reusable-buffer variant. The
+pre-change and new encrypted packets have identical counts, lengths and first
+frame SHA-256 values. Initial collected-frame medians were 41/353/1071 us before
+and 17/223/670 us after; concurrent builds introduce noise, so these are CPU
+microbenchmarks, not an end-to-end streaming claim. The reusable variant must be
+compared per workload; its largest-frame run did not uniformly beat collected
+packetization under that load.
+
+Regression coverage includes legacy media PING, reconnects, delayed input
+deadlines, independent AES-GCM parity, lazy FEC blocks and nonce exhaustion,
+cache privacy/expiry, AMD probe selection, release metadata, display-watcher
+completion, GPU capture ownership and graphics pixel parity. On the RX 7900 XT,
+all eight native graphics tests passed, including exact MRT/three-pass pixel
+parity with SDR/HDR, scaling, letterboxing and cursors. Capture-fence ownership
+and both power/scheduling restoration tests also passed. Workspace Clippy with
+warnings denied and the web check/build passed. The local core suite passed 339
+tests and the host suite passed 204; two Windows tests require pipe/firewall
+access denied by the local sandbox. The Playnite helper integration passed with
+a shorter temporary directory (the generated workspace path exceeded Win32's
+legacy path limit). These checks do not establish the issue's WPR/VRAM,
+saturated-stream or ten-minute network pass criteria.
+
+Remaining experiments from the issue: timer-only or burstier pacing, reducing
+the four WGC helper slots to three, persistent codec-probe results keyed by full
+driver/AMF identity, and process/GPU resource readings in the timings/API. These
+need their own measurements or complete invalidation/measurement support.
+NV12/P010 and 4:2:0 graphics fallback targets have unequal sizes and cannot use
+the same MRT change; their existing conversion remains. No resource-saving
+estimate is presented as a measured latency, picture-quality or recovery gain.
+
 ## October 10 PyroWave SDK 1.0 and a high-priority encode queue: shipped
 
 PyroWave moves from `186f0393` (API 0.6) to `502a3b52` (API 1.0,

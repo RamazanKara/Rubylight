@@ -56,7 +56,7 @@ fn main() -> anyhow::Result<()> {
         "{}",
         serde_json::json!({
             "scope":"AcquireNextFrame timeout on a separate read-only device; excludes GPU copies, shared-device contention, encoding and delivery",
-            "display":gpu.display,
+            "display":gpu.display.as_ref(),
             "cases":cases,
         })
     );

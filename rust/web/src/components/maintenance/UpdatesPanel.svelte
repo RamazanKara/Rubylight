@@ -27,6 +27,7 @@
 
   async function load() {
     clearTimeout(timer);
+    if (!alive || document.hidden) return;
     try {
       const previous = updates?.phase;
       updates = await api.updates.state();
@@ -37,7 +38,7 @@
       if (updates?.phase === 'installing') reconnecting = true;
       else loadError = reason(error);
     } finally {
-      if (alive) {
+      if (alive && !document.hidden) {
         const active = updates?.checking || queued || updates?.last_install?.phase === 'installing';
         timer = setTimeout(load, active ? 2000 : 30000);
       }
@@ -55,7 +56,15 @@
     catch (error) { failed('Update request failed', error); }
     finally { acting = false; }
   }
-  onMount(load);
+  onMount(() => {
+    const visibility = () => {
+      clearTimeout(timer);
+      if (!document.hidden) void load();
+    };
+    document.addEventListener('visibilitychange', visibility);
+    void load();
+    return () => document.removeEventListener('visibilitychange', visibility);
+  });
 </script>
 
 <Panel title="Updates">

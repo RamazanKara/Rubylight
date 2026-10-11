@@ -23,6 +23,7 @@ pub fn compile(out: &Path) {
         ("pyro_y", "ps_5_0"),
         ("pyro_u", "ps_5_0"),
         ("pyro_v", "ps_5_0"),
+        ("pyro_444", "ps_5_0"),
         ("yuv420_cs", "cs_5_0"),
         ("pyro_cs", "cs_5_0"),
     ] {

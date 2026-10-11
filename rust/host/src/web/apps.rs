@@ -62,6 +62,8 @@ pub(super) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
             state::write_json(&h.apps_path, &doc)?;
             *apps = next;
             *h.app_document.write().unwrap() = doc;
+            h.config_version
+                .fetch_add(1, std::sync::atomic::Ordering::Release);
             json!({"status":true,"uuid":uuid})
         }
         ("POST", "/api/apps/delete") => {
@@ -430,5 +432,7 @@ fn delete_app(h: &Shared, id: &str) -> anyhow::Result<()> {
     state::write_json(&h.apps_path, &doc)?;
     *apps = next;
     *h.app_document.write().unwrap() = doc;
+    h.config_version
+        .fetch_add(1, std::sync::atomic::Ordering::Release);
     Ok(())
 }

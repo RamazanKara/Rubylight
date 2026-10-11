@@ -1109,6 +1109,9 @@ impl Encoder {
         Ok(plan)
     }
     pub fn poll(&mut self) -> Result<Vec<Encoded>> {
+        if let Some(input) = &mut self.compute {
+            input.converter.release_completed();
+        }
         // A submission the driver never answers would otherwise keep every
         // later query waiting for its timeout.
         while self
@@ -1454,7 +1457,7 @@ impl Encoder {
                     &texture,
                     crate::compute::format(image.pixel),
                     pointer.as_ref(),
-                    image.ready.as_ref(),
+                    image,
                 )
             })?;
             timed("conversion fence wait", || {
@@ -1526,14 +1529,14 @@ impl Encoder {
                 }
                 std::thread::yield_now();
             }
-            // Native COM references alone cannot prevent our Arc pool from
-            // reusing an in-flight capture texture. Retain the Arc until output.
+            // Compute keeps the capture until conversion completes; graphics
+            // still retains it until the encoder returns its output.
             self.in_flight.push_back(Submission {
                 pts: self.index,
                 started,
                 presentation: image.captured,
                 after_invalidation: plan.after_invalidation,
-                _capture: Some(image.clone()),
+                _capture: self.compute.is_none().then(|| image.clone()),
                 _converted: converted,
             });
             self.references.accepted(self.index as u64 + 1, &plan);

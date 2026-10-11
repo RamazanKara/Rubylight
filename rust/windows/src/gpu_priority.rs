@@ -30,6 +30,28 @@ fn priority(vendor: u32, hags: bool, realtime_hags: bool) -> i32 {
         5
     }
 }
+static PREVIOUS: std::sync::Mutex<Option<i32>> = std::sync::Mutex::new(None);
+
+pub(crate) fn restore() -> Result<()> {
+    let mut previous = PREVIOUS.lock().unwrap();
+    let Some(priority) = *previous else {
+        return Ok(());
+    };
+    let directory = std::env::var_os("SystemRoot").context("Windows directory missing")?;
+    // SAFETY: The export has the documented D3DKMT signature and the library outlives the call.
+    unsafe {
+        let library = Library::new(std::path::PathBuf::from(directory).join("System32/gdi32.dll"))?;
+        let set = library.get::<unsafe extern "system" fn(*mut std::ffi::c_void, i32) -> i32>(
+            b"D3DKMTSetProcessSchedulingPriorityClass\0",
+        )?;
+        let code = set(GetCurrentProcess().0, priority);
+        if code < 0 {
+            bail!("restoring GPU process scheduling priority was denied ({code:#x})");
+        }
+    }
+    *previous = None;
+    Ok(())
+}
 pub fn configure(
     gpu: &crate::capture::Device,
     config: &butterpollo_core::config::Config,
@@ -59,6 +81,16 @@ pub fn configure(
         let set = library.get::<unsafe extern "system" fn(*mut std::ffi::c_void, i32) -> i32>(
             b"D3DKMTSetProcessSchedulingPriorityClass\0",
         )?;
+        let mut previous = PREVIOUS.lock().unwrap();
+        let mut original = 2;
+        if previous.is_none()
+            && let Ok(get) =
+                library.get::<unsafe extern "system" fn(*mut std::ffi::c_void, *mut i32) -> i32>(
+                    b"D3DKMTGetProcessSchedulingPriorityClass\0",
+                )
+        {
+            let _ = get(GetCurrentProcess().0, &mut original);
+        }
         let mut adapter = Open {
             luid: desc.AdapterLuid,
             adapter: 0,
@@ -95,6 +127,7 @@ pub fn configure(
         if code < 0 {
             bail!("GPU process scheduling priority was denied ({code:#x})");
         }
+        previous.get_or_insert(original);
         tracing::debug!(hags, priority, "GPU process scheduling configured");
         Ok(())
     }

@@ -170,10 +170,14 @@ impl Injector {
             flag,
         )
     }
-    /// What is due to the millisecond: the delayed left release after
-    /// absolute input and key repeat. The control loop calls this on every
-    /// pass; on its 8 ms refresh tick a release landed 10-18 ms after the
-    /// client's, not 10.
+    pub fn next_due(&self) -> Option<std::time::Instant> {
+        self.left_release
+            .into_iter()
+            .chain(self.repeat.map(|(_, _, _, due)| due))
+            .min()
+    }
+    /// Delayed releases and key repeat have their own deadlines; waiting for
+    /// the 8 ms feedback tick would make a 10 ms release take up to 18 ms.
     pub fn due(&mut self) -> Result<()> {
         let now = std::time::Instant::now();
         let mut first = None;

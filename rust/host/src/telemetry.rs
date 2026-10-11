@@ -94,7 +94,14 @@ fn run(host: Weak<Host>, requests: mpsc::Receiver<Request>) {
     let mut cached: Option<(Instant, Value)> = None;
     let mut requester = String::new();
     loop {
-        let request = match requests.recv_timeout(Duration::from_millis(250)) {
+        let received = if collector.is_some() {
+            requests.recv_timeout(Duration::from_millis(250))
+        } else {
+            requests
+                .recv()
+                .map_err(|_| mpsc::RecvTimeoutError::Disconnected)
+        };
+        let request = match received {
             Ok(request) => Some(request),
             Err(mpsc::RecvTimeoutError::Timeout) => None,
             Err(mpsc::RecvTimeoutError::Disconnected) => return,

@@ -388,6 +388,7 @@ impl Converter {
 pub(crate) struct PlanarConverter {
     base: Converter,
     shaders: [ID3D11PixelShader; 3],
+    combined: Option<ID3D11PixelShader>,
     pub textures: [Arc<ID3D11Texture2D>; 3],
     views: [ID3D11RenderTargetView; 3],
     divisor: u32,
@@ -408,6 +409,14 @@ impl PlanarConverter {
             let mut textures = Vec::new();
             let mut views = Vec::new();
             let mut shaders = Vec::new();
+            let mut combined = None;
+            if config.yuv444 {
+                gpu.device.CreatePixelShader(
+                    &compile(b"pyro_444\0", b"ps_5_0\0")?,
+                    None,
+                    Some(&mut combined),
+                )?;
+            }
             for (plane, entry) in [b"pyro_y\0", b"pyro_u\0", b"pyro_v\0"].iter().enumerate() {
                 let mut shader = None;
                 gpu.device.CreatePixelShader(
@@ -456,6 +465,7 @@ impl PlanarConverter {
             Ok(Self {
                 base,
                 shaders: shaders.try_into().ok().unwrap(),
+                combined,
                 textures: textures.try_into().ok().unwrap(),
                 views: views.try_into().ok().unwrap(),
                 divisor,
@@ -489,18 +499,34 @@ impl PlanarConverter {
             context.PSSetConstantBuffers(0, Some(&[Some(self.base.constants.clone())]));
             context.RSSetState(None);
             context.OMSetBlendState(None, None, u32::MAX);
-            for plane in 0..3 {
-                let divisor = if plane == 0 { 1 } else { self.divisor };
+            if let Some(shader) = &self.combined {
                 context.RSSetViewports(Some(&[D3D11_VIEWPORT {
-                    Width: (self.base.width / divisor) as f32,
-                    Height: (self.base.height / divisor) as f32,
+                    Width: self.base.width as f32,
+                    Height: self.base.height as f32,
                     MinDepth: 0.,
                     MaxDepth: 1.,
                     ..Default::default()
                 }]));
-                context.OMSetRenderTargets(Some(&[Some(self.views[plane].clone())]), None);
-                context.PSSetShader(&self.shaders[plane], None);
+                context.OMSetRenderTargets(
+                    Some(&self.views.each_ref().map(|view| Some(view.clone()))),
+                    None,
+                );
+                context.PSSetShader(shader, None);
                 context.Draw(3, 0);
+            } else {
+                for plane in 0..3 {
+                    let divisor = if plane == 0 { 1 } else { self.divisor };
+                    context.RSSetViewports(Some(&[D3D11_VIEWPORT {
+                        Width: (self.base.width / divisor) as f32,
+                        Height: (self.base.height / divisor) as f32,
+                        MinDepth: 0.,
+                        MaxDepth: 1.,
+                        ..Default::default()
+                    }]));
+                    context.OMSetRenderTargets(Some(&[Some(self.views[plane].clone())]), None);
+                    context.PSSetShader(&self.shaders[plane], None);
+                    context.Draw(3, 0);
+                }
             }
             context.PSSetShaderResources(0, Some(&[None, None]));
             context.OMSetRenderTargets(None, None);

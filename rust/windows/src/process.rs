@@ -369,6 +369,9 @@ pub fn user_environment() -> Result<BTreeMap<String, String>> {
     }
 }
 impl Process {
+    pub(crate) fn handle(&self) -> HANDLE {
+        raw(&self.handle)
+    }
     /// Import an unnamed resource from this owned child. The child never gets
     /// a handle to the service process or its credentials.
     pub(crate) fn duplicate_resource(&self, handle: usize) -> Result<OwnedHandle> {

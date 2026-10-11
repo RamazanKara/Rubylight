@@ -274,6 +274,11 @@ impl Ready {
                     butterpollo_windows::input::keep_on_input_desktop();
                     let mut prepared = worker_state.lock().unwrap();
                     let result = prepared.feed(worker_active.load(Ordering::Acquire) != 0);
+                    let tick = if result.is_err() || prepared.recovery.pending {
+                        Duration::from_millis(100)
+                    } else {
+                        Duration::from_millis(250)
+                    };
                     let current = prepared.capture_target();
                     drop(prepared);
                     // Publish a recreated target even when a later restoration
@@ -282,7 +287,7 @@ impl Ready {
                     if let Err(error) = result {
                         tracing::warn!(%error, "game display heartbeat failed");
                     }
-                    std::thread::sleep(Duration::from_millis(100));
+                    std::thread::park_timeout(tick);
                 }
             })?;
         let display = Arc::new(Self {
@@ -370,6 +375,7 @@ impl Drop for Ready {
     fn drop(&mut self) {
         self.stop.store(true, Ordering::Release);
         if let Some(worker) = self.worker.take() {
+            worker.thread().unpark();
             let _ = worker.join();
         }
     }

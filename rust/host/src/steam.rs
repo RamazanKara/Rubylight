@@ -82,6 +82,8 @@ pub fn update_apps(h: &Shared, change: impl FnOnce(&mut Vec<Value>) -> bool) -> 
     butterpollo_core::state::write_json(&h.apps_path, &document)?;
     *apps = next;
     *h.app_document.write().unwrap() = document;
+    h.config_version
+        .fetch_add(1, std::sync::atomic::Ordering::Release);
     Ok(true)
 }
 /// The game's cover as a PNG in the profile's covers folder. A missing or

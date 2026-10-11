@@ -12,8 +12,11 @@
 
 use anyhow::{Context, Result, bail};
 use std::{
-    collections::HashMap,
-    sync::{Arc, Mutex},
+    collections::{HashMap, HashSet},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicU64, Ordering},
+    },
 };
 use windows::{
     Win32::{
@@ -234,10 +237,6 @@ impl Compute {
         *next += 1;
         Ok(*next)
     }
-    /// The fence value after all work submitted so far.
-    pub fn submitted(&self) -> u64 {
-        *self.next.lock().unwrap()
-    }
     /// Run a closed command list; returns the fence value that follows it.
     pub(crate) fn execute(&self, list: &ID3D12GraphicsCommandList) -> Result<u64> {
         // SAFETY: Callers pass a closed compute command list recorded on `self.device`, the queue's
@@ -326,6 +325,10 @@ impl Compute {
         Ok(())
     }
     pub(crate) fn forget(&self, texture: &ID3D11Texture2D) {
+        self.opened
+            .lock()
+            .unwrap()
+            .remove(&(texture.as_raw() as usize));
         self.foreign
             .lock()
             .unwrap()
@@ -355,6 +358,7 @@ pub struct Ready {
     pub(crate) value: u64,
     /// The D3D12 device whose queues can wait for the fence.
     device: usize,
+    readers: Option<Arc<AtomicU64>>,
 }
 // Fences are free-threaded.
 // SAFETY: `fence` is a free-threaded ID3D12Fence, and `device` is an address compared, never
@@ -417,6 +421,7 @@ impl Returns {
             fence: self.acquired.0.clone(),
             value: self.value,
             device: self.compute.device.as_raw() as usize,
+            readers: None,
         })
     }
     /// Release `mutex` with `key` once all compute work submitted so far,
@@ -485,6 +490,8 @@ pub struct Handoff {
     /// Foreign textures belong to this capture, not the adapter-wide cache.
     /// Releasing a helper must release its imported resources immediately.
     imported: HashMap<usize, (ID3D11Texture2D, ID3D12Resource)>,
+    opened: HashSet<usize>,
+    readers: HashMap<usize, (ID3D11Texture2D, Arc<AtomicU64>)>,
 }
 // The context is only used by the capture that owns this, under the D3D11
 // device's multithread protection; D3D12 objects are free-threaded.
@@ -492,6 +499,12 @@ pub struct Handoff {
 // command allocators and lists are used only through `&mut self` on one thread at a time.
 unsafe impl Send for Handoff {}
 impl Handoff {
+    pub(crate) fn forget(&mut self, texture: &ID3D11Texture2D) {
+        let key = texture.as_raw() as usize;
+        self.readers.remove(&key);
+        self.opened.remove(&key);
+        self.compute.forget(texture);
+    }
     pub(crate) fn device_removed(&self) -> Option<crate::device_loss::DeviceLost> {
         crate::device_loss::DeviceLost::d3d12(&self.compute.device)
     }
@@ -519,10 +532,11 @@ impl Handoff {
         );
         Ok(())
     }
-    fn open(&self, texture: &ID3D11Texture2D) -> Result<ID3D12Resource> {
+    fn open(&mut self, texture: &ID3D11Texture2D) -> Result<ID3D12Resource> {
         if let Some((_, resource)) = self.imported.get(&(texture.as_raw() as usize)) {
             Ok(resource.clone())
         } else {
+            self.opened.insert(texture.as_raw() as usize);
             self.compute.open(texture)
         }
     }
@@ -539,6 +553,8 @@ impl Handoff {
             signalled: 0,
             lists: Vec::new(),
             imported: HashMap::new(),
+            opened: HashSet::new(),
+            readers: HashMap::new(),
         })
     }
     /// Copy the frame the capture's D3D11 device holds into `destination`,
@@ -549,6 +565,12 @@ impl Handoff {
         destination: &ID3D11Texture2D,
         source: &ID3D11Texture2D,
     ) -> Result<Ready> {
+        let readers = self
+            .readers
+            .entry(destination.as_raw() as usize)
+            .or_insert_with(|| (destination.clone(), Arc::new(AtomicU64::new(0))))
+            .1
+            .clone();
         let destination = self.open(destination)?;
         let source = self.open(source)?;
         let list = self.list()?;
@@ -579,7 +601,7 @@ impl Handoff {
             self.queue.Wait(&self.acquired.0, value)?;
             // A conversion may still read the pool texture being reused.
             self.queue
-                .Wait(&self.compute.fence, self.compute.submitted())?;
+                .Wait(&self.compute.fence, readers.load(Ordering::Acquire))?;
             self.queue
                 .ExecuteCommandLists(&[Some(commands.cast::<ID3D12CommandList>()?)]);
             self.queue.Signal(&self.copied.0, value)?;
@@ -593,6 +615,7 @@ impl Handoff {
             fence: self.copied.0.clone(),
             value,
             device: self.compute.device.as_raw() as usize,
+            readers: Some(readers),
         })
     }
     /// A command list the copy queue has finished with.
@@ -633,8 +656,17 @@ impl Drop for Handoff {
             fence: self.copied.0.clone(),
             value: self.signalled,
             device: 0,
+            readers: None,
         }
         .wait();
+        for (texture, _) in self.readers.values() {
+            self.compute.forget(texture);
+        }
+        self.compute
+            .opened
+            .lock()
+            .unwrap()
+            .retain(|key, _| !self.opened.contains(key));
     }
 }
 
@@ -780,6 +812,14 @@ struct Slot {
     /// The source and cursor the slot's last conversion reads, kept until it
     /// has run: the adapter-wide cache may release its own references.
     inputs: [Option<ID3D12Resource>; 2],
+    capture: Option<crate::capture::GpuImage>,
+}
+struct PointerUpload {
+    fence: u64,
+    _allocator: ID3D12CommandAllocator,
+    _list: ID3D12GraphicsCommandList,
+    _upload: ID3D12Resource,
+    _texture: ID3D12Resource,
 }
 /// RGB to NV12 or P010 on the compute queue, with the same shader as the
 /// D3D11 converter (scaling, letterboxing, HDR and the colour matrix).
@@ -804,6 +844,7 @@ pub struct Converter {
     /// The pointer shape uploaded to this device, with the pixels it came
     /// from. Holding them keeps a new shape from reusing their address.
     pointer: Option<(Arc<[u8]>, ID3D12Resource)>,
+    uploads: Vec<PointerUpload>,
 }
 // SAFETY: `mapped` points into the upload buffer `constants` this converter owns, the D3D12 objects
 // are free-threaded, and the command allocators and lists are used only through `&mut self`.
@@ -862,6 +903,7 @@ impl Converter {
                     list,
                     fence: 0,
                     inputs: [None, None],
+                    capture: None,
                 });
             }
             Ok(Self {
@@ -881,19 +923,21 @@ impl Converter {
                 ten_bit,
                 targets: vec![],
                 pointer: None,
+                uploads: Vec::new(),
             })
         }
     }
     /// The pointer shape as a texture on this device, uploaded when it
-    /// changes (rarely; this waits for the copy).
+    /// changes. The conversion follows the upload on the same queue.
     pub(crate) fn pointer(&mut self, cursor: &crate::cursor::Cursor) -> Result<ID3D12Resource> {
+        self.release_completed();
         if let Some((cached, texture)) = &self.pointer
             && Arc::ptr_eq(cached, &cursor.pixels)
         {
             return Ok(texture.clone());
         }
         // SAFETY: `cursor.pixels` holds `width * height` RGBA pixels and `upload` `pitch * height`
-        // bytes, so each row copy stays in both; the copy is waited for before `upload` drops.
+        // bytes, so each row copy stays in both; `uploads` retains the copy's objects to its fence.
         unsafe {
             let device = &self.compute.device;
             let desc = D3D12_RESOURCE_DESC {
@@ -981,13 +1025,29 @@ impl Converter {
             drop(std::mem::ManuallyDrop::into_inner(source.pResource));
             list.Close()?;
             let done = self.compute.execute(&list)?;
-            self.compute.wait(done)?;
+            self.uploads.push(PointerUpload {
+                fence: done,
+                _allocator: allocator,
+                _list: list,
+                _upload: upload,
+                _texture: texture.clone(),
+            });
             self.pointer = Some((cursor.pixels.clone(), texture.clone()));
             Ok(texture)
         }
     }
     pub fn compute(&self) -> &Arc<Compute> {
         &self.compute
+    }
+    pub(crate) fn release_completed(&mut self) {
+        self.uploads
+            .retain(|upload| !self.compute.completed(upload.fence));
+        for slot in &mut self.slots {
+            if self.compute.completed(slot.fence) {
+                slot.capture = None;
+                slot.inputs = [None, None];
+            }
+        }
     }
     pub(crate) fn log_stall(&self) {
         // SAFETY: These live devices and fences are only queried, never waited on.
@@ -1078,13 +1138,15 @@ impl Converter {
         source: &ID3D12Resource,
         format: DXGI_FORMAT,
         pointer: Option<&ID3D12Resource>,
-        ready: Option<&Ready>,
+        image: &crate::capture::GpuImage,
     ) -> Result<Converted> {
+        let ready = image.ready.as_ref();
         let index = self.target()?;
         let target = self.targets[index].texture.clone();
         let slot = self.slot;
         self.slot = (self.slot + 1) % SLOTS;
         self.compute.wait(self.slots[slot].fence)?;
+        self.slots[slot].capture = None;
         // SAFETY: The slot's last conversion has finished (waited above), the 80 bytes of `values`
         // fit its 256-byte slot, and every view and barrier names a live resource on this device.
         unsafe {
@@ -1202,8 +1264,15 @@ impl Converter {
         // The slot's previous conversion has finished (waited above), so its
         // inputs can go; this one's stay until the slot comes round again.
         self.slots[slot].inputs = [Some(source.clone()), pointer.cloned()];
+        self.slots[slot].capture = Some(image.clone());
         let fence = self.compute.execute(&self.slots[slot].list)?;
         self.slots[slot].fence = fence;
+        if let Some(readers) = ready
+            .filter(|ready| ready.device == self.compute.device.as_raw() as usize)
+            .and_then(|ready| ready.readers.as_ref())
+        {
+            readers.fetch_max(fence, Ordering::Release);
+        }
         // The encoder's signal for this texture, after the conversion.
         let target = &mut self.targets[index];
         target.value = target.last() + 1;
@@ -1243,6 +1312,7 @@ impl Converter {
         let slot = self.slot;
         self.slot = (self.slot + 1) % SLOTS;
         self.compute.wait(self.slots[slot].fence)?;
+        self.slots[slot].capture = None;
         // SAFETY: As in `convert`, the slot is idle and `values` fits its slot; `target`'s planes
         // and fence are on `compute.device`, and `ready` is waited on the GPU only if it is too.
         unsafe {
@@ -1340,6 +1410,12 @@ impl Converter {
         }
         self.slots[slot].inputs = [Some(source.clone()), pointer.cloned()];
         self.slots[slot].fence = self.compute.execute(&self.slots[slot].list)?;
+        if let Some(readers) = ready
+            .filter(|ready| ready.device == self.compute.device.as_raw() as usize)
+            .and_then(|ready| ready.readers.as_ref())
+        {
+            readers.fetch_max(self.slots[slot].fence, Ordering::Release);
+        }
         // SAFETY: `target.fence` is opened on this queue's device and outlives the call.
         unsafe { self.compute.queue.Signal(&target.fence, target.done)? };
         Ok(())
@@ -1358,7 +1434,13 @@ pub struct Planes {
 impl Drop for Converter {
     fn drop(&mut self) {
         // The queue may still read the constants and write the targets.
-        let last = self.slots.iter().map(|s| s.fence).max().unwrap_or(0);
+        let last = self
+            .slots
+            .iter()
+            .map(|s| s.fence)
+            .chain(self.uploads.iter().map(|upload| upload.fence))
+            .max()
+            .unwrap_or(0);
         let _ = self.compute.wait(last);
         // SAFETY: `constants` was mapped once in `new`, and nothing writes through `mapped` after
         // this.
@@ -1416,6 +1498,60 @@ fn buffer_desc(size: u64) -> D3D12_RESOURCE_DESC {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[ignore = "requires native D3D11/D3D12 shared capture textures"]
+    fn capture_ownership_ends_at_conversion_and_handoff_forgets_its_textures() -> Result<()> {
+        use crate::capture::{Device, GpuImage, Image, Pixel};
+        let gpu = Device::new("")?;
+        let compute = Compute::for_device(&gpu.device)?;
+        let pixels = Image {
+            width: 4,
+            height: 4,
+            stride: 16,
+            bytes: vec![128; 64],
+            captured: std::time::Instant::now(),
+            pixel: Pixel::Bgra8,
+        };
+        let source = GpuImage::upload(&gpu, &pixels)?;
+        let mut image = GpuImage::upload(&gpu, &pixels)?;
+        let mut handoff = Handoff::new(compute.clone(), &gpu)?;
+        image.ready = Some(handoff.copy(&image.texture, &source.texture)?);
+        let mut converter = Converter::new(compute.clone(), 4, 4, false)?;
+        converter.values = crate::gpu_color::constants(
+            &butterpollo_core::rtsp::Negotiated {
+                width: 4,
+                height: 4,
+                ..Default::default()
+            },
+            (4, 4, Pixel::Bgra8),
+            [100., 1.],
+            None,
+        );
+        let input = compute.open(&image.texture)?;
+        let before = Arc::strong_count(&image.texture);
+        let converted = converter.convert(&input, format(Pixel::Bgra8), None, &image)?;
+        assert_eq!(Arc::strong_count(&image.texture), before + 1);
+        assert_eq!(
+            image
+                .ready
+                .as_ref()
+                .unwrap()
+                .readers
+                .as_ref()
+                .unwrap()
+                .load(Ordering::Acquire),
+            converter.slots[0].fence
+        );
+        converted.wait()?;
+        converter.release_completed();
+        assert_eq!(Arc::strong_count(&image.texture), before);
+        drop(handoff);
+        let opened = compute.opened.lock().unwrap();
+        assert!(!opened.contains_key(&(image.texture.as_raw() as usize)));
+        assert!(!opened.contains_key(&(source.texture.as_raw() as usize)));
+        Ok(())
+    }
 
     #[test]
     fn removed_device_fence_never_counts_as_completed_work() {

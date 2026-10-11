@@ -282,7 +282,7 @@ pub struct Device {
     /// The monitor the device was opened for; absent on a host without one,
     /// where the device can still encode.
     pub output: Option<IDXGIOutput1>,
-    pub display: Display,
+    pub display: std::sync::Arc<Display>,
 }
 impl Device {
     /// The monitor this device captures.
@@ -454,7 +454,7 @@ impl Device {
                 device: device.unwrap(),
                 context,
                 output,
-                display,
+                display: std::sync::Arc::new(display),
             })
         }
     }
@@ -789,7 +789,13 @@ impl GpuPool {
             self.textures.retain(|texture| {
                 let mut old = D3D11_TEXTURE2D_DESC::default();
                 texture.GetDesc(&mut old);
-                old.Width == desc.Width && old.Height == desc.Height && old.Format == desc.Format
+                let keep = old.Width == desc.Width
+                    && old.Height == desc.Height
+                    && old.Format == desc.Format;
+                if !keep && let Some(handoff) = &mut self.compute {
+                    handoff.forget(texture);
+                }
+                keep
             });
             let free = self
                 .textures

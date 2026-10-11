@@ -878,6 +878,22 @@ mod tests {
         injector
     }
     #[test]
+    fn control_wait_tracks_release_and_repeat_deadlines() {
+        let mut injector = recording();
+        assert_eq!(injector.next_due(), None);
+        injector.apply(&key(0x51, true)).unwrap();
+        let repeat = injector.repeat.unwrap().3;
+        assert_eq!(injector.next_due(), Some(repeat));
+        let release = Instant::now() + Duration::from_millis(10);
+        injector.left_release = Some(release);
+        assert_eq!(injector.next_due(), Some(release.min(repeat)));
+        injector.apply(&key(0x51, false)).unwrap();
+        assert_eq!(injector.next_due(), Some(release));
+        injector.release_all();
+        assert_eq!(injector.next_due(), None);
+        calls();
+    }
+    #[test]
     fn rumble_feedback_obeys_forward_rumble_and_client_haptics() {
         let mut injector = recording();
         for forward in [false, true] {

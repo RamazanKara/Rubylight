@@ -214,7 +214,38 @@ impl VideoPacketizer {
         latency_us: u64,
         fec: PyrowaveFec,
     ) -> Result<(usize, bool, impl Iterator<Item = Result<PacketBlock>> + 'a)> {
-        self.frame_blocks(payload, true, false, timestamp, latency_us, Some(fec))
+        let (count, limited, mut next) =
+            self.frame_blocks(payload, true, false, timestamp, latency_us, Some(fec))?;
+        let blocks = std::iter::from_fn(move || {
+            let mut packets = Vec::new();
+            match next(&mut packets) {
+                Ok(0) => None,
+                Ok(_) => Some(Ok(packets)),
+                Err(error) => Some(Err(error)),
+            }
+        });
+        Ok((count, limited, blocks))
+    }
+    /// Build the next conventional FEC block in reusable shard buffers. The
+    /// returned count selects its packets; zero means the frame is finished.
+    /// Later blocks are never built if the sender abandons this frame.
+    pub fn conventional_blocks<'a>(
+        &'a mut self,
+        payload: &'a [u8],
+        idr: bool,
+        after_invalidation: bool,
+        timestamp: u32,
+        latency_us: u64,
+    ) -> Result<(usize, impl FnMut(&mut PacketBlock) -> Result<usize> + 'a)> {
+        let (count, _, next) = self.frame_blocks(
+            payload,
+            idr,
+            after_invalidation,
+            timestamp,
+            latency_us,
+            None,
+        )?;
+        Ok((count, next))
     }
     fn encode_frame(
         &mut self,
@@ -225,7 +256,7 @@ impl VideoPacketizer {
         latency_us: u64,
         pyrowave: Option<PyrowaveFec>,
     ) -> Result<Vec<Vec<u8>>> {
-        let (count, _, blocks) = self.frame_blocks(
+        let (count, _, mut next) = self.frame_blocks(
             payload,
             idr,
             after_invalidation,
@@ -234,8 +265,12 @@ impl VideoPacketizer {
             pyrowave,
         )?;
         let mut packets = Vec::with_capacity(count);
-        for block in blocks {
-            packets.extend(block?);
+        loop {
+            let mut block = Vec::new();
+            if next(&mut block)? == 0 {
+                break;
+            }
+            packets.extend(block);
         }
         Ok(packets)
     }
@@ -247,7 +282,11 @@ impl VideoPacketizer {
         timestamp: u32,
         latency_us: u64,
         pyrowave: Option<PyrowaveFec>,
-    ) -> Result<(usize, bool, impl Iterator<Item = Result<PacketBlock>> + 'a)> {
+    ) -> Result<(
+        usize,
+        bool,
+        impl FnMut(&mut PacketBlock) -> Result<usize> + 'a,
+    )> {
         if !(256..=1400).contains(&self.packet_size) || self.fec_percent > 100 {
             bail!("invalid packetizer parameters");
         }
@@ -345,7 +384,11 @@ impl VideoPacketizer {
             .sum();
         let mut first_shard = 0;
         let frame = self.frame;
-        let blocks = plan.into_iter().enumerate().map(move |(block, planned)| {
+        let mut plan = plan.into_iter().enumerate();
+        let next = move |shards: &mut PacketBlock| {
+            let Some((block, planned)) = plan.next() else {
+                return Ok(0);
+            };
             if first_shard >= total_shards {
                 bail!("invalid FEC block split");
             }
@@ -358,7 +401,14 @@ impl VideoPacketizer {
             if count + fec > 255 && percentage > 0 {
                 bail!("FEC parity count exceeds protocol limit");
             }
-            let mut shards = vec![vec![0; envelope + block_size]; count + fec];
+            if shards.len() < count + fec {
+                shards.resize_with(count + fec, Vec::new);
+            }
+            let shards = &mut shards[..count + fec];
+            for shard in shards.iter_mut() {
+                shard.resize(envelope + block_size, 0);
+                shard.fill(0);
+            }
             for (i, shard) in shards.iter_mut().take(count).enumerate() {
                 let s = &mut shard[envelope..];
                 // Place the short header and source payload directly into their
@@ -386,9 +436,9 @@ impl VideoPacketizer {
             }
             if fec > 0 {
                 if envelope == 0 {
-                    cauchy_encode(&mut shards, count, fec)?;
+                    cauchy_encode(shards, count, fec)?;
                 } else {
-                    cauchy_encode_offset::<32>(&mut shards, count, fec)?;
+                    cauchy_encode_offset::<32>(shards, count, fec)?;
                 }
             }
             for (i, shard) in shards.iter_mut().enumerate() {
@@ -423,9 +473,9 @@ impl VideoPacketizer {
             if block == 0 {
                 self.frame = self.frame.wrapping_add(1);
             }
-            Ok(shards)
-        });
-        Ok((packet_count, fec_limited, blocks))
+            Ok(count + fec)
+        };
+        Ok((packet_count, fec_limited, next))
     }
 }
 pub fn control_header(b: &[u8]) -> Result<(u16, &[u8])> {

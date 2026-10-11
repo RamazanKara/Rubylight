@@ -23,6 +23,36 @@ fn compatible_release(release: &Value, config: &butterpollo_core::config::Config
         })
 }
 
+fn release_metadata(mut release: Value) -> Value {
+    if let Some(fields) = release.as_object_mut() {
+        fields.retain(|key, _| {
+            matches!(
+                key.as_str(),
+                "tag_name"
+                    | "name"
+                    | "html_url"
+                    | "prerelease"
+                    | "published_at"
+                    | "body"
+                    | "assets"
+            )
+        });
+    }
+    if let Some(assets) = release["assets"].as_array_mut() {
+        for asset in assets {
+            if let Some(fields) = asset.as_object_mut() {
+                fields.retain(|key, _| {
+                    matches!(
+                        key.as_str(),
+                        "name" | "browser_download_url" | "size" | "digest"
+                    )
+                });
+            }
+        }
+    }
+    release
+}
+
 /// Look for a newer release. `tell` (the tray's "Check for updates")
 /// also reports the result in a notification, even an update already
 /// announced.
@@ -51,6 +81,7 @@ pub fn trigger_update(h: &Shared, tell: bool) {
                 releases
                     .into_iter()
                     .filter(|r| compatible_release(r, &h.config.read().unwrap()))
+                    .map(release_metadata)
                     .collect::<Vec<_>>(),
             )
         }
@@ -405,6 +436,38 @@ pub fn integration_status(h: &Shared) -> Value {
 mod tests {
     use super::*;
     use butterpollo_core::config::Config;
+
+    #[test]
+    fn release_metadata_keeps_notes_and_verified_installer_fields() {
+        let release = json!({
+            "tag_name":"2.2.6", "name":"Release", "html_url":"https://github.com/RamazanKara/Rubylight/releases/tag/2.2.6",
+            "prerelease":false, "draft":false, "published_at":"2026-10-11T00:00:00Z", "body":"Release notes",
+            "author":{"login":"unused"}, "url":"unused", "assets":[{
+                "name":"rubylight-setup-2.2.6.exe",
+                "browser_download_url":"https://github.com/RamazanKara/Rubylight/releases/download/2.2.6/rubylight-setup-2.2.6.exe",
+                "size":32, "digest":format!("sha256:{}", "ab".repeat(32)), "uploader":{"login":"unused"}, "download_count":42
+            }]
+        });
+        let metadata = release_metadata(release.clone());
+        let installer = crate::updater::installer(&metadata).unwrap();
+        assert_eq!(installer.version, "2.2.6");
+        assert_eq!(installer.size, 32);
+        for key in [
+            "tag_name",
+            "name",
+            "html_url",
+            "prerelease",
+            "published_at",
+            "body",
+        ] {
+            assert_eq!(metadata[key], release[key]);
+        }
+        assert!(metadata.get("author").is_none());
+        assert!(metadata.get("url").is_none());
+        assert!(metadata.get("draft").is_none());
+        assert!(metadata["assets"][0].get("uploader").is_none());
+        assert!(metadata["assets"][0].get("download_count").is_none());
+    }
 
     #[test]
     fn release_notifications_require_a_rust_package_and_prereleases_require_opt_in() {

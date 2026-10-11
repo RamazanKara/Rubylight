@@ -99,8 +99,7 @@ struct Args {
     #[arg(long, hide = true, value_name = "TARGET")]
     playnite_uninstall: Option<PathBuf>,
 }
-#[tokio::main]
-async fn main() -> Result<()> {
+fn main() -> Result<()> {
     butterpollo_windows::capture::enable_dpi_awareness();
     let args = Args::parse();
     if args.crash_reporter {
@@ -209,6 +208,13 @@ async fn main() -> Result<()> {
         );
         return Ok(());
     }
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?
+        .block_on(run(args, assets))
+}
+
+async fn run(args: Args, assets: PathBuf) -> Result<()> {
     let supervised = args.service_stop_source.is_some();
     let stop_signal =
         butterpollo_windows::process::StopSignal::new(args.service_stop_source.as_deref())?;
@@ -239,7 +245,10 @@ async fn main() -> Result<()> {
         Err(error) => return Err(error),
     };
     let log_level = h.config.read().unwrap().log_level();
-    let (writer, _log_guard) = tracing_appender::non_blocking(appender);
+    let (writer, _log_guard) = tracing_appender::non_blocking::NonBlockingBuilder::default()
+        .buffered_lines_limit(8192)
+        .lossy(true)
+        .finish(appender);
     use tracing_subscriber::prelude::*;
     // The service host has no console; formatting every event a second time
     // for a stdout nobody reads is wasted work.

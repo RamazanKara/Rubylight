@@ -662,6 +662,29 @@ impl Drop for Client {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn legacy_media_pings_wake_idle_sockets() -> Result<()> {
+    let h = Harness::new(10_000, 1).await?;
+    let launch = h.launch(0, false).await?;
+    let (session, client) = h.play(&launch).await?;
+    client.video_down.store(true, Ordering::Release);
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let socket = UdpSocket::bind("127.0.0.1:0")?;
+    for port in [h.ports.video, h.ports.audio] {
+        socket.send_to(b"PING", address(port))?;
+    }
+    let peer = socket.local_addr()?;
+    until("legacy audio and video pings registered", WAIT, || {
+        let peers = h.media.as_ref().unwrap().peers.lock().unwrap();
+        [false, true]
+            .into_iter()
+            .all(|audio| peers.get(&(launch.id.clone(), audio)) == Some(&peer))
+    })
+    .await;
+    h.end(&session, client).await?;
+    h.finish().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn malformed_rtsp_requests_receive_an_authenticated_error_response() -> Result<()> {
     let h = Harness::new(10_000, 1).await?;
     let launch = h.launch(0, false).await?;

@@ -146,6 +146,7 @@ pub struct Host {
     pub aliases_path: PathBuf,
     pub aliases: Mutex<Value>,
     pub config: RwLock<Config>,
+    pub config_version: std::sync::atomic::AtomicU64,
     pub config_save: Mutex<()>,
     pub port_override: Option<u16>,
     pub identity: Identity,
@@ -177,6 +178,7 @@ pub struct Host {
     pub monitors: Mutex<BTreeMap<String, Arc<butterpollo_windows::display::Retained>>>,
     pub updates: Mutex<Value>,
     pub metadata: Mutex<Option<(Instant, Value)>>,
+    pub serverinfo_cache: Mutex<crate::nvhttp::ServerInfoCache>,
     /// The encoder family the capability probe selected for H.264.
     pub probed_encoder: Mutex<&'static str>,
     pub assets: PathBuf,
@@ -187,7 +189,10 @@ impl Host {
         // undo commands: never under the lock every serverinfo request takes.
         let app = self.current_app.lock().unwrap().take();
         drop(app);
-        self.live_rtx.lock().unwrap().take();
+        if self.live_rtx.lock().unwrap().take().is_some() {
+            self.config_version
+                .fetch_add(1, std::sync::atomic::Ordering::Release);
+        }
         let audio = self.app_audio.lock().unwrap().take();
         let displays = std::mem::take(&mut *self.app_display.lock().unwrap());
         drop((audio, displays));
@@ -205,6 +210,9 @@ impl Host {
             }
         };
         drop(audio);
+        if self.app_display.lock().unwrap().is_empty() {
+            return;
+        }
         let config = self.config.read().unwrap().clone();
         let delay = if config.boolean("dd_config_revert_on_disconnect", false) {
             Duration::from_millis(config.integer("dd_config_revert_delay", 3000).max(0) as u64)
@@ -338,6 +346,7 @@ impl Host {
             aliases_path,
             aliases: Mutex::new(aliases),
             config: RwLock::new(config),
+            config_version: std::sync::atomic::AtomicU64::new(0),
             config_save: Mutex::new(()),
             port_override: port,
             identity,
@@ -370,6 +379,7 @@ impl Host {
             ),
             assets,
             metadata: Mutex::new(None),
+            serverinfo_cache: Mutex::new(Default::default()),
             probed_encoder: Mutex::new(""),
         }))
     }
@@ -408,6 +418,10 @@ impl Host {
         let next = Some((uuid.to_owned(), values));
         let changed = *live != next;
         *live = next;
+        if changed {
+            self.config_version
+                .fetch_add(1, std::sync::atomic::Ordering::Release);
+        }
         Ok(changed)
     }
     pub fn request_codec_probe(&self) {
@@ -496,6 +510,17 @@ impl Host {
         };
         let mut flags = 0u32;
         let software = config.get("encoder", "auto") == "software";
+        let preference =
+            butterpollo_core::encoder_policy::canonical_name(config.get("encoder", "auto"));
+        let vendors = if matches!(preference, "" | "auto") {
+            butterpollo_windows::capture::gpus()
+                .ok()
+                .map(|gpus| gpus.into_iter().map(|gpu| gpu.vendor).collect::<Vec<_>>())
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+        let amf_only = amf_only_probe(preference, &vendors);
         // Bits follow moonlight-common-c's SCM_* values; each 4:4:4 mode
         // is probed only after its 4:2:0 mode works.
         for (codec, hdr, yuv444, bit) in [
@@ -521,7 +546,7 @@ impl Host {
                 (2, false) => 0x10000,
                 _ => 0x20000,
             };
-            if yuv444 && flags & base == 0 {
+            if yuv444 && (flags & base == 0 || amf_only) {
                 continue;
             }
             if self.stop.load(std::sync::atomic::Ordering::Acquire) {
@@ -864,6 +889,14 @@ impl Host {
         Ok((access, refresh, csrf, refresh_deadline.saturating_sub(wall)))
     }
 }
+fn amf_only_probe(preference: &str, vendors: &[u32]) -> bool {
+    // Automatic selection can fall back to a second GPU. Only rule out 4:4:4
+    // when every hardware adapter is AMD; an unknown inventory still probes.
+    preference == "amf"
+        || (matches!(preference, "" | "auto")
+            && !vendors.is_empty()
+            && vendors.iter().all(|vendor| *vendor == 0x1002))
+}
 /// The app library. One that cannot be read as a library starts the host
 /// with no apps, as in Vibepollo, rather than keeping the host and its web
 /// console down; the file is copied beside it so a later save cannot lose it.
@@ -901,6 +934,19 @@ fn load_library(path: &std::path::Path, default: Value) -> Result<Value> {
 }
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn amd_probe_skip_preserves_mixed_gpu_and_unknown_inventory_probes() {
+        use super::amf_only_probe;
+        assert!(amf_only_probe("amf", &[]));
+        assert!(amf_only_probe("auto", &[0x1002]));
+        assert!(amf_only_probe("", &[0x1002, 0x1002]));
+        for vendors in [&[][..], &[0x1002, 0x10de], &[0x1002, 0x8086], &[0]] {
+            assert!(!amf_only_probe("auto", vendors));
+        }
+        assert!(!amf_only_probe("software", &[0x1002]));
+        assert!(!amf_only_probe("nvenc", &[0x1002]));
+    }
+
     #[test]
     fn a_rejoin_in_the_same_mode_reuses_the_clients_own_display_untouched() {
         use super::take_retained;

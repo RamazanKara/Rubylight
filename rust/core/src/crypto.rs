@@ -84,17 +84,23 @@ pub fn gcm_seal(key: &[u8; 16], nonce: &[u8], data: &[u8]) -> Result<([u8; 16], 
     Ok((tag.into(), b))
 }
 /// Video packets share a key but always have independent 96-bit nonces.
-pub(crate) struct PacketSealer(Aes128Gcm);
+pub(crate) struct PacketSealer(ring::aead::LessSafeKey);
 impl PacketSealer {
     #[inline]
     pub(crate) fn new(key: &[u8; 16]) -> Self {
-        Self(Aes128Gcm::new_from_slice(key).unwrap())
+        Self(ring::aead::LessSafeKey::new(
+            ring::aead::UnboundKey::new(&ring::aead::AES_128_GCM, key).unwrap(),
+        ))
     }
     #[inline]
     pub(crate) fn seal(&self, nonce: &[u8; 12], bytes: &mut [u8]) -> Result<[u8; 16]> {
         self.0
-            .encrypt_in_place_detached(Nonce::from_slice(nonce), &[], bytes)
-            .map(Into::into)
+            .seal_in_place_separate_tag(
+                ring::aead::Nonce::assume_unique_for_key(*nonce),
+                ring::aead::Aad::empty(),
+                bytes,
+            )
+            .map(|tag| tag.as_ref().try_into().unwrap())
             .map_err(|_| anyhow::anyhow!("AES-GCM encryption failed"))
     }
 }
@@ -239,6 +245,25 @@ mod tests {
         let (tag, b) = gcm_seal(&[0; 16], &[0; 12], &[0; 16]).unwrap();
         assert_eq!(hex::encode(b), "0388dace60b6a392f328c2b971b2fe78");
         assert_eq!(hex::encode(tag), "ab6e47d42cec13bdf53a67b21257bddf");
+    }
+    #[test]
+    fn packet_sealer_matches_rustcrypto_for_video_payloads() {
+        let key = std::array::from_fn(|i| (i * 17) as u8);
+        let sealer = PacketSealer::new(&key);
+        for length in [0, 1, 15, 16, 17, 272, 1408, 1416] {
+            let plain: Vec<u8> = (0..length).map(|i| (i * 29) as u8).collect();
+            for counter in [0u64, 1, u32::MAX as u64, u64::MAX - 1] {
+                let mut nonce = [0; 12];
+                nonce[..8].copy_from_slice(&counter.to_le_bytes());
+                nonce[11] = b'V';
+                let (expected_tag, expected) = gcm_seal(&key, &nonce, &plain).unwrap();
+                let mut encrypted = plain.clone();
+                let tag = sealer.seal(&nonce, &mut encrypted).unwrap();
+                assert_eq!(tag, expected_tag);
+                assert_eq!(encrypted, expected);
+                assert_eq!(gcm_open(&key, &nonce, &tag, &encrypted).unwrap(), plain);
+            }
+        }
     }
     #[test]
     fn reject_forged_tag_before_parsing() {

@@ -45,7 +45,7 @@ fn main() -> anyhow::Result<()> {
         "{}",
         serde_json::json!({
             "scope":"read-only display maintenance; excludes capture, encoding, network and decoding",
-            "display":device.display,"monitors":distribution(monitors),"hdr_metadata":distribution(metadata)
+            "display":device.display.as_ref(),"monitors":distribution(monitors),"hdr_metadata":distribution(metadata)
         })
     );
     Ok(())

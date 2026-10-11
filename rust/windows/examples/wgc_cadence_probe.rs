@@ -144,7 +144,7 @@ fn main() -> anyhow::Result<()> {
         report,
         serde_json::to_vec_pretty(&serde_json::json!({
             "scope":"Native WGC timestamps only; no pixel copy, encoder, network, saved pictures, input or display changes. Does not establish distinct-picture FPS.",
-            "display":gpu.display,"results":results,
+            "display":gpu.display.as_ref(),"results":results,
         }))?,
     )?;
     Ok(())

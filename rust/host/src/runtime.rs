@@ -204,7 +204,11 @@ pub async fn maintain(
         if !expired.is_empty() {
             tokio::task::spawn_blocking(move || drop(expired));
         }
-        if housekeeping.as_ref().is_none_or(|task| task.is_finished()) {
+        if housekeeping.as_ref().is_none_or(|task| task.is_finished())
+            && (h.current_app.lock().unwrap().is_some()
+                || h.app_audio.lock().unwrap().is_some()
+                || !h.app_display.lock().unwrap().is_empty())
+        {
             let h = h.clone();
             housekeeping = Some(tokio::task::spawn_blocking(move || {
                 let Ok(_transition) = h.launch_transition.try_lock() else {

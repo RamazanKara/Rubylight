@@ -161,6 +161,7 @@ impl Discovery {
         }
         let daemon = ServiceDaemon::new()?;
         let result = (|| -> Result<()> {
+            daemon.set_ip_check_interval(30)?;
             daemon.disable_interface(IfKind::LoopbackV4)?;
             daemon.disable_interface(IfKind::LoopbackV6)?;
             if bind.is_ipv4() {

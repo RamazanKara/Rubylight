@@ -31,9 +31,12 @@ fn main() -> anyhow::Result<()> {
     }
     let directory = butterpollo_core::paths::installed_profile().join("logs");
     std::fs::create_dir_all(&directory)?;
-    let (writer, _guard) = tracing_appender::non_blocking(
-        butterpollo_core::logfile::RotatingFile::open_default(&directory.join("service.log"))?,
-    );
+    let (writer, _guard) = tracing_appender::non_blocking::NonBlockingBuilder::default()
+        .buffered_lines_limit(8192)
+        .lossy(true)
+        .finish(butterpollo_core::logfile::RotatingFile::open_default(
+            &directory.join("service.log"),
+        )?);
     tracing_subscriber::fmt()
         .with_writer(writer)
         .with_ansi(false)

@@ -376,7 +376,7 @@ fn compute_conversion_matches_the_graphics_converter() -> Result<()> {
                     &source,
                     crate::compute::format(image.pixel),
                     shape.as_ref(),
-                    None,
+                    image,
                 )?;
                 converted.wait()?;
                 let actual = readback_compute(&compute, &converted.texture)?;
@@ -498,6 +498,17 @@ fn compute_planes_match_the_pyrowave_graphics_planes() -> Result<()> {
                         .iter()
                         .map(|plane| plane_bytes(&gpu, plane))
                         .collect::<Result<Vec<_>>>()?;
+                    if yuv444 {
+                        graphics.combined = None;
+                        graphics.convert(&image, [100., 1.])?;
+                        for (texture, expected) in graphics.textures.iter().zip(&expected) {
+                            assert_eq!(
+                                &plane_bytes(&gpu, texture)?,
+                                expected,
+                                "MRT and separate graphics passes differ"
+                            );
+                        }
+                    }
                     // Fresh planes filled with a sentinel, so nothing left
                     // from the graphics pass can match.
                     let outputs = PlanarConverter::new(&gpu, &config, source)?;

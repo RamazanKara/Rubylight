@@ -25,30 +25,50 @@ fn main() -> Result<()> {
             .map(|i| ((i * 73 + (i >> 3)) & 255) as u8)
             .collect();
         for encrypted in [false, true] {
-            let packets = packetizer(encrypted).encode(&payload, true, 9000, 500)?;
-            let packet_count = packets.len();
-            let wire_bytes: usize = packets.iter().map(Vec::len).sum();
-            let fingerprint = hex::encode(crypto::hash(&packets.concat()));
-            let mut samples = Vec::new();
-            for _ in 0..7 {
-                let mut wire = packetizer(encrypted);
-                let started = Instant::now();
-                let mut count = 0;
-                loop {
-                    for _ in 0..8 {
-                        black_box(wire.encode(black_box(&payload), true, 9000, 500)?);
-                        count += 1;
+            for reusable in [false, true] {
+                let packets = packetizer(encrypted).encode(&payload, true, 9000, 500)?;
+                let packet_count = packets.len();
+                let wire_bytes: usize = packets.iter().map(Vec::len).sum();
+                let fingerprint = hex::encode(crypto::hash(&packets.concat()));
+                let mut samples = Vec::new();
+                for _ in 0..7 {
+                    let mut wire = packetizer(encrypted);
+                    let mut buffers = Vec::new();
+                    let started = Instant::now();
+                    let mut count = 0;
+                    loop {
+                        for _ in 0..8 {
+                            if reusable {
+                                let (_, mut next) = wire.conventional_blocks(
+                                    black_box(&payload),
+                                    true,
+                                    false,
+                                    9000,
+                                    500,
+                                )?;
+                                loop {
+                                    let packets = next(&mut buffers)?;
+                                    if packets == 0 {
+                                        break;
+                                    }
+                                    black_box(&buffers[..packets]);
+                                }
+                            } else {
+                                black_box(wire.encode(black_box(&payload), true, 9000, 500)?);
+                            }
+                            count += 1;
+                        }
+                        if started.elapsed() >= Duration::from_millis(250) {
+                            break;
+                        }
                     }
-                    if started.elapsed() >= Duration::from_millis(250) {
-                        break;
-                    }
+                    samples.push(started.elapsed().as_secs_f64() * 1_000_000. / f64::from(count));
                 }
-                samples.push(started.elapsed().as_secs_f64() * 1_000_000. / f64::from(count));
+                samples.sort_by(f64::total_cmp);
+                let case = serde_json::json!({"data_shards":shards,"payload_bytes":bytes,"encrypted":encrypted,"reusable":reusable,"fec_percent":20,"packets":packet_count,"wire_bytes":wire_bytes,"first_frame_sha256":fingerprint,"median_us":samples[3],"samples_us":samples});
+                eprintln!("{case}");
+                cases.push(case);
             }
-            samples.sort_by(f64::total_cmp);
-            let case = serde_json::json!({"data_shards":shards,"payload_bytes":bytes,"encrypted":encrypted,"fec_percent":20,"packets":packet_count,"wire_bytes":wire_bytes,"first_frame_sha256":fingerprint,"median_us":samples[3],"samples_us":samples});
-            eprintln!("{case}");
-            cases.push(case);
         }
     }
     println!(

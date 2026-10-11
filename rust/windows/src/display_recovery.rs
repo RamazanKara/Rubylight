@@ -3,6 +3,7 @@ use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::BTreeMap,
+    os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle},
     path::{Path, PathBuf},
     process::{Child, Command},
     sync::{Mutex, OnceLock},
@@ -61,7 +62,34 @@ struct Journal {
     entries: BTreeMap<String, Entry>,
 }
 static PATH: OnceLock<PathBuf> = OnceLock::new();
-static WATCH: Mutex<Option<Child>> = Mutex::new(None);
+static WATCH: Mutex<Option<(Child, OwnedHandle)>> = Mutex::new(None);
+
+fn watch_done(pid: u32) -> Result<OwnedHandle> {
+    let name: Vec<u16> = format!("Local\\Butterpollo.DisplayWatch.{pid}\0")
+        .encode_utf16()
+        .collect();
+    // SAFETY: The name is NUL-terminated, and the returned handle is owned exactly once.
+    unsafe {
+        let event = CreateEventW(None, true, false, windows::core::PCWSTR(name.as_ptr()))?;
+        Ok(OwnedHandle::from_raw_handle(event.0))
+    }
+}
+
+fn finish_watch() -> Result<()> {
+    if let Some((mut process, event)) = WATCH.lock().unwrap().take() {
+        // SAFETY: The owned event remains live until the watcher exits.
+        unsafe { SetEvent(HANDLE(event.as_raw_handle()))? };
+        process.wait()?;
+    }
+    Ok(())
+}
+fn write_journal(path: &Path, journal: &Journal) -> Result<()> {
+    butterpollo_core::state::write_json(path, journal)?;
+    if journal.entries.is_empty() && PATH.get().is_some_and(|current| current == path) {
+        finish_watch()?;
+    }
+    Ok(())
+}
 struct JournalLock(HANDLE);
 impl Drop for JournalLock {
     fn drop(&mut self) {
@@ -147,11 +175,14 @@ pub fn initialize(directory: &Path) -> Result<Option<anyhow::Error>> {
 fn watch(path: &Path) -> Result<()> {
     use std::os::windows::process::CommandExt;
     let mut child = WATCH.lock().unwrap();
-    if let Some(process) = child.as_mut()
+    if let Some((process, _)) = child.as_mut()
         && process.try_wait()?.is_none()
     {
         return Ok(());
     }
+    let done = watch_done(std::process::id())?;
+    // SAFETY: This new watcher owns the event until it exits; the previous child is already done.
+    unsafe { ResetEvent(HANDLE(done.as_raw_handle()))? };
     let spawn = |flags: u32| -> Result<std::process::Child> {
         Ok(Command::new(std::env::current_exe()?)
             .arg("--display-watch")
@@ -169,7 +200,10 @@ fn watch(path: &Path) -> Result<()> {
         tracing::debug!(%error, "display recovery helper cannot leave the host's job");
         spawn(CREATE_NO_WINDOW.0)
     });
-    *child = Some(started.context("cannot start the display recovery helper")?);
+    *child = Some((
+        started.context("cannot start the display recovery helper")?,
+        done,
+    ));
     Ok(())
 }
 fn change(id: &str, output: &str, update: impl FnOnce(&mut Entry)) -> Result<()> {
@@ -187,7 +221,7 @@ fn change(id: &str, output: &str, update: impl FnOnce(&mut Entry)) -> Result<()>
     entry.output = output.into();
     update(entry);
     journal.entries.retain(|_, entry| entry.pending());
-    butterpollo_core::state::write_json(path, &journal)?;
+    write_journal(path, &journal)?;
     if journal.entries.is_empty() {
         return Ok(());
     }
@@ -303,7 +337,7 @@ pub(crate) fn release_in(path: &Path, id: &str) -> Result<()> {
         entry.hdr = None;
     }
     journal.entries.retain(|_, e| e.pending());
-    butterpollo_core::state::write_json(path, &journal)
+    write_journal(path, &journal)
 }
 pub fn position(
     id: &str,
@@ -323,7 +357,7 @@ pub fn release_position(id: &str) -> Result<()> {
         entry.position = None;
     }
     journal.entries.retain(|_, e| e.pending());
-    butterpollo_core::state::write_json(path, &journal)
+    write_journal(path, &journal)
 }
 pub fn profile(
     id: &str,
@@ -347,7 +381,7 @@ pub fn release_profile(id: &str) -> Result<()> {
         entry.profile = None;
     }
     journal.entries.retain(|_, e| e.pending());
-    butterpollo_core::state::write_json(path, &journal)
+    write_journal(path, &journal)
 }
 /// Undo what an interrupted host changed. Every step is attempted even when
 /// an earlier one fails, and the failures are reported together. A display
@@ -499,7 +533,7 @@ fn recover(path: &Path) -> Result<()> {
     }
     // Keep a valid document so interrupted reads never see partial JSON. The
     // kept entries have no owner until the next host records a change.
-    butterpollo_core::state::write_json(path, &kept)?;
+    write_journal(path, &kept)?;
     if !failures.is_empty() {
         bail!("display recovery incomplete: {}", failures.join("; "));
     }
@@ -515,6 +549,7 @@ pub fn wait_and_recover(pid: u32, directory: &Path) -> Result<()> {
     if owner.pid != pid {
         return Ok(());
     }
+    let done = watch_done(pid)?;
     // SAFETY: The successfully opened process handle has synchronization rights and
     // remains owned until the wait finishes; every exit path closes it exactly once.
     unsafe {
@@ -529,11 +564,18 @@ pub fn wait_and_recover(pid: u32, directory: &Path) -> Result<()> {
                     let _ = CloseHandle(process);
                 }
                 let result = if identity? == Some(owner.started) {
-                    WaitForSingleObject(process, u32::MAX)
+                    WaitForMultipleObjects(
+                        &[process, HANDLE(done.as_raw_handle())],
+                        false,
+                        u32::MAX,
+                    )
                 } else {
                     WAIT_OBJECT_0
                 };
                 let _ = CloseHandle(process);
+                if result == WAIT_EVENT(WAIT_OBJECT_0.0 + 1) {
+                    return Ok(());
+                }
                 if result != WAIT_OBJECT_0 {
                     bail!("display watcher wait failed");
                 }
@@ -556,6 +598,36 @@ pub fn wait_and_recover(pid: u32, directory: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn completed_journal_wakes_watcher_while_host_is_alive() -> Result<()> {
+        let directory = tempfile::tempdir()?;
+        let pid = std::process::id();
+        let journal = Journal {
+            pid,
+            started: identity(pid)?.unwrap(),
+            ..Default::default()
+        };
+        butterpollo_core::state::write_json(
+            &directory.path().join("display-recovery.json"),
+            &journal,
+        )?;
+        let done = watch_done(pid)?;
+        // SAFETY: `done` owns the event while the watcher opens and waits for it.
+        unsafe { ResetEvent(HANDLE(done.as_raw_handle()))? };
+        let path = directory.path().to_owned();
+        let (sent, received) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = sent.send(wait_and_recover(pid, &path));
+        });
+        // SAFETY: `done` still owns this handle. A signal before the wait must be retained.
+        unsafe { SetEvent(HANDLE(done.as_raw_handle()))? };
+        received.recv_timeout(std::time::Duration::from_secs(2))??;
+        let after: Journal = serde_json::from_slice(&std::fs::read(
+            directory.path().join("display-recovery.json"),
+        )?)?;
+        assert_eq!(after.pid, pid);
+        Ok(())
+    }
     #[test]
     fn a_kept_entry_gives_its_originals_until_released() -> Result<()> {
         let directory = tempfile::tempdir()?;

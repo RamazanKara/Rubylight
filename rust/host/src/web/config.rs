@@ -45,6 +45,8 @@ pub(super) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
                 next.values.insert("port".into(), port.to_string());
             }
             *h.config.write().unwrap() = next;
+            h.config_version
+                .fetch_add(1, std::sync::atomic::Ordering::Release);
             h.metadata.lock().unwrap().take();
             json!({"status":true,"restart_required":true,"warning":warning})
         }

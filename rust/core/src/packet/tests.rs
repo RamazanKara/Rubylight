@@ -21,6 +21,155 @@ fn large_conventional_frames_report_the_wire_fec_cutoff() {
 use super::*;
 
 #[test]
+fn conventional_blocks_reuse_shards_and_match_collected_packets() {
+    for key in [None, Some([42; 16])] {
+        let make = || VideoPacketizer {
+            sequence: 0xFFFFFF,
+            iv_counter: 0xFFFFFFFE,
+            frame: u32::MAX,
+            packet_size: 1392,
+            fec_percent: 20,
+            min_fec: 2,
+            key,
+        };
+        let mut expected = make();
+        let mut actual = make();
+        let mut buffers = Vec::new();
+        let mut pointers = Vec::new();
+        for size in [792_568, 10, 264_184, 792_568] {
+            let payload: Vec<u8> = (0..size).map(|i| (i * 29) as u8).collect();
+            let expected_packets = expected
+                .encode_recovery(&payload, false, true, 9000, 500)
+                .unwrap();
+            let (count, mut next) = actual
+                .conventional_blocks(&payload, false, true, 9000, 500)
+                .unwrap();
+            assert_eq!(count, expected_packets.len());
+            let mut offset = 0;
+            loop {
+                let count = next(&mut buffers).unwrap();
+                if count == 0 {
+                    break;
+                }
+                for (buffer, pointer) in buffers.iter().zip(&pointers) {
+                    assert_eq!(buffer.as_ptr(), *pointer);
+                }
+                pointers = buffers.iter().map(Vec::as_ptr).collect();
+                assert_eq!(&buffers[..count], &expected_packets[offset..offset + count]);
+                offset += count;
+            }
+            assert_eq!(offset, expected_packets.len());
+            drop(next);
+            assert_eq!(actual.frame, expected.frame);
+            assert_eq!(actual.sequence, expected.sequence);
+            assert_eq!(actual.iv_counter, expected.iv_counter);
+        }
+    }
+}
+
+#[test]
+fn abandoning_conventional_blocks_keeps_frame_and_nonce_progress() {
+    let payload = vec![7; 792_568];
+    let mut p = VideoPacketizer {
+        sequence: 0,
+        iv_counter: 0,
+        frame: 1,
+        packet_size: 1392,
+        fec_percent: 20,
+        min_fec: 2,
+        key: Some([42; 16]),
+    };
+    let mut buffers = Vec::new();
+    let (_, next) = p
+        .conventional_blocks(&payload, false, false, 9000, 543)
+        .unwrap();
+    drop(next);
+    assert_eq!((p.sequence, p.iv_counter, p.frame), (0, 0, 1));
+    let (total, mut next) = p
+        .conventional_blocks(&payload, false, false, 9000, 543)
+        .unwrap();
+    let first = next(&mut buffers).unwrap();
+    assert!(first < total);
+    drop(next);
+    assert_eq!(p.sequence, first as u32);
+    assert_eq!(p.iv_counter, first as u64);
+    assert_eq!(p.frame, 2);
+    assert_eq!(&buffers[0][12..16], &1u32.to_le_bytes());
+    let (count, mut next) = p
+        .conventional_blocks(&payload, true, false, 9750, 543)
+        .unwrap();
+    assert_eq!(count, total);
+    assert_eq!(next(&mut buffers).unwrap(), first);
+    assert_eq!(&buffers[0][..8], &(first as u64).to_le_bytes());
+    assert_eq!(&buffers[0][12..16], &2u32.to_le_bytes());
+}
+
+#[test]
+fn conventional_blocks_match_pre_pipeline_fingerprints() {
+    let cases = [
+        (
+            32,
+            false,
+            "bc399e222e5a4ae7e26c450a17255b398230f83b22887ecb1a154fe184a32b76",
+        ),
+        (
+            32,
+            true,
+            "8ba8584ce4c91aaf819f46ddecca4ca225afbcc57df358cce0d083f05fc1eef2",
+        ),
+        (
+            192,
+            false,
+            "ef623c7f9e369b6f484c8b25674b640051689bddf0d143c179a0f22e778425a2",
+        ),
+        (
+            192,
+            true,
+            "fd2014942f4fe1b55b4656ece29610ace6e30c4c5ef9342be2c3e04a7be27da5",
+        ),
+        (
+            576,
+            false,
+            "6651ed521955b8d3e198bea9bad990362efa386d686968acada77b0d56e8a8ad",
+        ),
+        (
+            576,
+            true,
+            "f42a64f087e69d821b868d5dbbc5310f43b320d1cb6f139d1583af19fc2b187e",
+        ),
+    ];
+    for (shards, encrypted, fingerprint) in cases {
+        let payload: Vec<u8> = (0..shards * 1376 - 8)
+            .map(|i| ((i * 73 + (i >> 3)) & 255) as u8)
+            .collect();
+        let mut p = VideoPacketizer {
+            sequence: 65000,
+            iv_counter: 65534,
+            frame: 7,
+            packet_size: 1392,
+            fec_percent: 20,
+            min_fec: 2,
+            key: encrypted.then(|| std::array::from_fn(|i| i as u8)),
+        };
+        let (_, mut next) = p
+            .conventional_blocks(&payload, true, false, 9000, 500)
+            .unwrap();
+        let mut buffers = Vec::new();
+        let mut wire = Vec::new();
+        loop {
+            let count = next(&mut buffers).unwrap();
+            if count == 0 {
+                break;
+            }
+            for packet in &buffers[..count] {
+                wire.extend_from_slice(packet);
+            }
+        }
+        assert_eq!(hex::encode(crypto::hash(&wire)), fingerprint);
+    }
+}
+
+#[test]
 fn abandoning_pyrowave_blocks_keeps_frame_and_nonce_progress() {
     let payload = vec![7; 400_000];
     let mut p = VideoPacketizer {

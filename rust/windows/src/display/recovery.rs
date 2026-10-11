@@ -959,12 +959,13 @@ impl Retained {
                     // Windows refuses display configuration from the normal
                     // desktop while it is locked.
                     crate::input::keep_on_input_desktop();
-                    let result = worker_guard
-                        .lock()
-                        .unwrap()
-                        .as_mut()
-                        .map(Guard::feed)
-                        .transpose();
+                    let (result, restoring) = {
+                        let mut guard = worker_guard.lock().unwrap();
+                        let result = guard.as_mut().map(Guard::feed).transpose();
+                        let restoring = guard.as_ref().is_some_and(|guard| guard.restore_pending);
+                        (result, restoring)
+                    };
+                    let retry_feed = restoring || result.is_err();
                     match result {
                         Ok(Some(true)) => {
                             pending = true;
@@ -992,7 +993,11 @@ impl Retained {
                             }
                         }
                     }
-                    std::thread::sleep(Duration::from_millis(25));
+                    std::thread::park_timeout(Duration::from_millis(if pending || retry_feed {
+                        25
+                    } else {
+                        250
+                    }));
                 }
             })?;
         Ok(Self {
@@ -1008,6 +1013,7 @@ impl Drop for Retained {
     fn drop(&mut self) {
         self.stop.store(true, std::sync::atomic::Ordering::Release);
         if let Some(worker) = self.worker.take() {
+            worker.thread().unpark();
             let deadline = Instant::now() + Duration::from_secs(5);
             while !worker.is_finished() && Instant::now() < deadline {
                 std::thread::sleep(Duration::from_millis(10));

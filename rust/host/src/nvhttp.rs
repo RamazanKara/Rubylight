@@ -32,6 +32,20 @@ use std::{
     time::{Duration, Instant},
 };
 type Args = HashMap<String, String>;
+type ServerInfoRoute = Option<(std::net::IpAddr, std::net::SocketAddr)>;
+type ServerInfoFacts = (String, u64, bool);
+
+#[derive(Default)]
+pub struct ServerInfoCache {
+    entries: HashMap<ServerInfoRoute, (Instant, ServerInfoFacts)>,
+}
+impl ServerInfoCache {
+    fn get(&mut self, route: ServerInfoRoute, now: Instant) -> Option<ServerInfoFacts> {
+        self.entries
+            .retain(|_, (at, _)| now.duration_since(*at) < Duration::from_secs(10));
+        self.entries.get(&route).map(|(_, facts)| facts.clone())
+    }
+}
 #[cfg(test)]
 mod parity_tests;
 #[derive(Debug)]
@@ -246,26 +260,52 @@ async fn serverinfo(
     let config = h.config.read().unwrap().clone();
     let client = authenticated(&h, &connection, 0).ok();
     let paired = client.is_some();
-    let pyrowave_link = if paired {
-        butterpollo_windows::net::routed_link_bps(connection.peer) / 1_000_000
-    } else {
-        0
-    };
-    let address = connection.local.ip();
-    // Only paired clients learn the MAC address (for wake-on-LAN).
-    let mac = if paired {
-        tokio::task::spawn_blocking(move || butterpollo_windows::net::local_mac(address))
+    // The peer port does not affect the routed interface. Keep its IPv6 scope.
+    let mut peer = connection.peer;
+    peer.set_port(0);
+    let route = paired.then_some((connection.local.ip(), peer));
+    let cached = h
+        .serverinfo_cache
+        .lock()
+        .unwrap()
+        .get(route, Instant::now());
+    let (mac, pyrowave_link, driver_ready) = match cached {
+        Some(facts) => facts,
+        None => {
+            let h = h.clone();
+            tokio::task::spawn_blocking(move || {
+                if let Some(facts) = h
+                    .serverinfo_cache
+                    .lock()
+                    .unwrap()
+                    .get(route, Instant::now())
+                {
+                    return facts;
+                }
+                // Unpaired requests never query or cache a private MAC or route.
+                let (mac, link) = route.map_or_else(
+                    || ("00:00:00:00:00:00".into(), 0),
+                    |(local, peer)| {
+                        (
+                            butterpollo_windows::net::local_mac(local)
+                                .unwrap_or_else(|_| "00:00:00:00:00:00".into()),
+                            butterpollo_windows::net::routed_link_bps(peer) / 1_000_000,
+                        )
+                    },
+                );
+                let facts = (mac, link, virtual_display_available());
+                h.serverinfo_cache
+                    .lock()
+                    .unwrap()
+                    .entries
+                    .insert(route, (Instant::now(), facts.clone()));
+                facts
+            })
             .await
-            .ok()
-            .and_then(Result::ok)
-    } else {
-        None
-    }
-    .unwrap_or_else(|| "00:00:00:00:00:00".into());
+            .unwrap_or_else(|_| ("00:00:00:00:00:00".into(), 0, false))
+        }
+    };
     let windows_11 = butterpollo_windows::display::windows_11();
-    let driver_ready = tokio::task::spawn_blocking(virtual_display_available)
-        .await
-        .unwrap_or(false);
     serverinfo_response(
         &h,
         &connection,

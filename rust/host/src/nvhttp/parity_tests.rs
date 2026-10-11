@@ -7,6 +7,27 @@ use axum::{
 use std::sync::atomic::Ordering;
 use tower::ServiceExt;
 
+#[test]
+fn serverinfo_hardware_cache_is_route_scoped_private_and_expires() {
+    let now = Instant::now();
+    let route = Some((
+        "192.168.1.2".parse().unwrap(),
+        "192.168.1.3:0".parse().unwrap(),
+    ));
+    let other = Some((
+        "192.168.1.2".parse().unwrap(),
+        "192.168.1.4:0".parse().unwrap(),
+    ));
+    let facts = ("AA:BB:CC:DD:EE:FF".to_owned(), 1000, true);
+    let mut cache = ServerInfoCache::default();
+    cache.entries.insert(route, (now, facts.clone()));
+    assert_eq!(cache.get(route, now + Duration::from_secs(9)), Some(facts));
+    assert_eq!(cache.get(other, now + Duration::from_secs(9)), None);
+    assert_eq!(cache.get(None, now + Duration::from_secs(9)), None);
+    assert_eq!(cache.get(route, now + Duration::from_secs(10)), None);
+    assert!(cache.entries.is_empty());
+}
+
 async fn document(response: Response) -> xmltree::Element {
     assert_eq!(response.status(), StatusCode::OK);
     assert!(

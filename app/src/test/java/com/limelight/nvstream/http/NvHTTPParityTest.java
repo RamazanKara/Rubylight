@@ -615,7 +615,8 @@ public class NvHTTPParityTest {
     @Test
     public void displayChoiceIsSentWithItsVirtualDisplayRequest() throws Exception {
         for (HostDisplayChoice choice : new HostDisplayChoice[] {HostDisplayChoice.EXCLUSIVE,
-                HostDisplayChoice.EXTENDED_PRIMARY, HostDisplayChoice.EXTENDED}) {
+                HostDisplayChoice.EXTENDED_PRIMARY, HostDisplayChoice.EXTENDED,
+                HostDisplayChoice.EXTENDED_ISOLATED, HostDisplayChoice.EXTENDED_PRIMARY_ISOLATED}) {
             ConnectionContext context = context("butterpollo-serverinfo.xml");
             // The choice asks for a virtual display even with the setting off, so hosts that
             // don't know hostDisplay still give one.

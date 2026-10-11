@@ -88,6 +88,33 @@ public class PcViewLifecycleTest {
     }
 
     @Test
+    public void hostAdministrationExplainsLoginThenOpensTheCurrentHostsConsole() {
+        ActivityController<Library> controller = pairingScreen(new CountDownLatch(0), 47989);
+        try {
+            ComputerDetails computer = new ComputerDetails();
+            computer.state = ComputerDetails.State.ONLINE;
+            computer.rustHostVersion = "2.2.5";
+            computer.activeAddress = new ComputerDetails.AddressTuple("2001:db8::1", 50000);
+            computer.httpsPort = 49995;
+            ReflectionHelpers.callInstanceMethod(controller.get(), "showHostAdministration",
+                    ReflectionHelpers.ClassParameter.from(ComputerDetails.class, computer));
+            AlertDialog dialog = (AlertDialog) ShadowDialog.getLatestDialog();
+            TextView message = dialog.findViewById(android.R.id.message);
+            assertEquals(controller.get().getString(R.string.host_administration_help,
+                    "https://[2001:db8::1]:50001/"), message.getText().toString());
+            assertTrue(message.isTextSelectable());
+            assertNull(Shadows.shadowOf(controller.get()).getNextStartedActivity());
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+            Shadows.shadowOf(Looper.getMainLooper()).idle();
+            Intent browser = Shadows.shadowOf(controller.get()).getNextStartedActivity();
+            assertEquals(Intent.ACTION_VIEW, browser.getAction());
+            assertEquals("https://[2001:db8::1]:50001/", browser.getDataString());
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    @Test
     public void tappingUnpairedPcShowsPinBeforePollingStopsAndCanBeCancelled() throws Exception {
         ActivityController<Library> controller = pairingScreen(new CountDownLatch(1), 47989);
         Thread worker = null;

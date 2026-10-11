@@ -14,6 +14,8 @@ public class HostDisplayChoiceTest {
         assertEquals("exclusive", HostDisplayChoice.EXCLUSIVE.wireValue);
         assertEquals("extended_primary", HostDisplayChoice.EXTENDED_PRIMARY.wireValue);
         assertEquals("extended", HostDisplayChoice.EXTENDED.wireValue);
+        assertEquals("extended_isolated", HostDisplayChoice.EXTENDED_ISOLATED.wireValue);
+        assertEquals("extended_primary_isolated", HostDisplayChoice.EXTENDED_PRIMARY_ISOLATED.wireValue);
         assertEquals("physical", HostDisplayChoice.PHYSICAL.wireValue);
     }
 
@@ -24,6 +26,8 @@ public class HostDisplayChoiceTest {
             assertTrue(HostDisplayChoice.EXCLUSIVE.requestsVirtualDisplay(setting));
             assertTrue(HostDisplayChoice.EXTENDED_PRIMARY.requestsVirtualDisplay(setting));
             assertTrue(HostDisplayChoice.EXTENDED.requestsVirtualDisplay(setting));
+            assertTrue(HostDisplayChoice.EXTENDED_ISOLATED.requestsVirtualDisplay(setting));
+            assertTrue(HostDisplayChoice.EXTENDED_PRIMARY_ISOLATED.requestsVirtualDisplay(setting));
             assertFalse(HostDisplayChoice.PHYSICAL.requestsVirtualDisplay(setting));
         }
     }

@@ -22,6 +22,8 @@ import java.io.IOException;
 import java.net.UnknownHostException;
 import java.security.cert.CertificateEncodingException;
 
+import okhttp3.HttpUrl;
+
 public class ServerHelper {
     public static final String CONNECTION_TEST_SERVER = "android.conntest.moonlight-stream.org";
 
@@ -30,6 +32,24 @@ public class ServerHelper {
             throw new IOException("No active address for "+computer.name);
         }
         return computer.activeAddress;
+    }
+
+    public static HttpUrl getHostSettingsUrl(ComputerDetails computer) {
+        if (computer.state != ComputerDetails.State.ONLINE || computer.rustHostVersion == null ||
+                computer.activeAddress == null || computer.httpsPort < 0 || computer.httpsPort > 65529) {
+            return null;
+        }
+        // Rubylight's console is six ports above NvHTTP HTTPS (HTTP base + 1).
+        int port = computer.httpsPort == 0 ? computer.activeAddress.port + 1 : computer.httpsPort + 6;
+        if (port <= 0 || port > 65535) {
+            return null;
+        }
+        try {
+            return new HttpUrl.Builder().scheme("https").host(computer.activeAddress.address)
+                    .port(port).build();
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
     }
 
     public static Intent createPcShortcutIntent(Activity parent, ComputerDetails computer) {

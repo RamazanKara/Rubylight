@@ -8,7 +8,13 @@
     <string name="host_display_exclusive">Exclusive — virtual display only (PC monitors off)</string>
     <string name="host_display_extended_primary">Extended — virtual display becomes primary</string>
     <string name="host_display_extended">Extended — PC display stays primary</string>
+    <string name="host_display_extended_isolated">Extended and separated — PC stays primary</string>
+    <string name="host_display_extended_primary_isolated">Extended and separated — virtual display primary</string>
     <string name="host_display_physical">Physical display (no virtual display)</string>
     <string name="host_display_saved">Display choice saved. It applies from the next stream.</string>
-    <string name="host_display_explanation">Choose what this PC’s displays do while you stream from it. The PC’s own setting follows Host virtual display and the PC’s display settings. Virtual display only switches the PC’s monitors off during the stream. An additional virtual display keeps them on; as main display, games open on the virtual display. Physical display streams the PC’s monitor without a virtual display. The PC puts its displays back when the stream ends.\n\nThe choice needs Rubylight on the PC. Other hosts treat the virtual display choices like Host virtual display and ignore the rest.</string>
+    <string name="host_display_explanation">Choose what this PC’s displays do while you stream from it. The PC’s own setting follows Host virtual display and the PC’s display settings. Virtual display only switches the PC’s monitors off during the stream. An additional virtual display keeps them on; as main display, games open on the virtual display. Separated modes place the streamed display far from the other monitors in the desktop layout. They share the same Windows session. Physical display streams the PC’s monitor without a virtual display. The PC puts its displays back when the stream ends.\n\nThe choice needs Rubylight on the PC. Other hosts treat the virtual display choices like Host virtual display and ignore the rest.</string>
+    <string name="host_administration_menu">Open host administration</string>
+    <string name="host_administration_help">Manage host applications, paired devices, permissions and display settings in the Rubylight web console. Sign in with the console’s own account; pairing does not sign you in. Remote access requires a reachable console port.\n\n%1$s</string>
+    <string name="host_administration_open">Open in browser</string>
+    <string name="host_administration_no_browser">No browser could open the host console. Copy its address and open it on another device.</string>
 </resources>

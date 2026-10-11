@@ -143,6 +143,7 @@ public class PcView extends AppCompatActivity implements AdapterFragmentCallback
     private final static int OTP_PAIR_ID = 13;
     private final static int FRONTEND_EXPORT_ID = 15;
     private final static int HOST_DISPLAY_ID = 16;
+    private final static int HOST_ADMINISTRATION_ID = 17;
 
     private final static int PICK_ROMS_REQUEST = 1;
     private final static int PICK_ESDE_REQUEST = 2;
@@ -492,6 +493,9 @@ public class PcView extends AppCompatActivity implements AdapterFragmentCallback
         if (!computer.details.nvidiaServer) {
             addPcAction(sheet, computer, HOST_DISPLAY_ID, R.drawable.ic_computer, R.string.host_display_menu);
         }
+        if (ServerHelper.getHostSettingsUrl(computer.details) != null) {
+            addPcAction(sheet, computer, HOST_ADMINISTRATION_ID, R.drawable.ic_settings, R.string.host_administration_menu);
+        }
         addPcAction(sheet, computer, BANDWIDTH_PROBE_ID, R.drawable.ic_network, R.string.connection_test_title);
         addPcAction(sheet, computer, WOL_ID, R.drawable.ic_power, R.string.pcview_menu_send_wol);
         if (online && paired) {
@@ -516,6 +520,25 @@ public class PcView extends AppCompatActivity implements AdapterFragmentCallback
             sheet.dismiss();
             onComputerAction(computer, action);
         });
+    }
+
+    private void showHostAdministration(ComputerDetails computer) {
+        okhttp3.HttpUrl url = ServerHelper.getHostSettingsUrl(computer);
+        if (url == null) {
+            return;
+        }
+        AlertDialog dialog = new MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.host_administration_menu)
+                .setMessage(getString(R.string.host_administration_help, url.toString()))
+                .setNegativeButton(android.R.string.cancel, null)
+                .setPositiveButton(R.string.host_administration_open, (prompt, which) -> {
+                    try {
+                        startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url.toString())));
+                    } catch (ActivityNotFoundException | SecurityException e) {
+                        Toast.makeText(this, R.string.host_administration_no_browser, Toast.LENGTH_LONG).show();
+                    }
+                }).show();
+        ((TextView) dialog.findViewById(android.R.id.message)).setTextIsSelectable(true);
     }
 
     private void doPair(final ComputerDetails computer) {
@@ -864,6 +887,10 @@ public class PcView extends AppCompatActivity implements AdapterFragmentCallback
 
             case HOST_DISPLAY_ID:
                 HostDisplaySettings.show(this, computer.details.uuid, computer.details.name);
+                return true;
+
+            case HOST_ADMINISTRATION_ID:
+                showHostAdministration(computer.details);
                 return true;
 
             case BANDWIDTH_PROBE_ID:

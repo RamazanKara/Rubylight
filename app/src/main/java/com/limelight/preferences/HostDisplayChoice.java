@@ -20,6 +20,10 @@ public enum HostDisplayChoice {
     EXTENDED_PRIMARY("extended_primary", R.string.host_display_extended_primary),
     /** A virtual display beside the PC's displays; the PC keeps its primary display. */
     EXTENDED("extended", R.string.host_display_extended),
+    /** Keep the PC primary and place the virtual display away from its other displays. */
+    EXTENDED_ISOLATED("extended_isolated", R.string.host_display_extended_isolated),
+    /** Make the virtual display primary and place the PC's other displays away from it. */
+    EXTENDED_PRIMARY_ISOLATED("extended_primary_isolated", R.string.host_display_extended_primary_isolated),
     /** No virtual display: stream the PC's physical display. */
     PHYSICAL("physical", R.string.host_display_physical);
 

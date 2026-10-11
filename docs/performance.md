@@ -2,19 +2,70 @@
 
 [Docs](README.md) · [How compute works](architecture.md) · [Troubleshooting](troubleshooting.md) · [Full measurement record](../rust/PERFORMANCE.md)
 
-Rubylight's performance work targets fresh pictures and lower picture age. This guide collects the main results; each table links to the fixture, exact runs and scope behind it. Two kinds of measurement appear: **end-to-end runs to a client over Wi-Fi**, and **same-PC runs**, where an independent decoder on the host PC isolates the host from the network so two builds or two hosts can be compared precisely.
+Rubylight's performance work targets fresh pictures and lower picture age, especially when the GPU is busy. Start with the [matched comparison under GPU load](#next-to-vibepollo-20), then use the component tests to see where the time goes. Every result links to its fixture and recorded runs; these are dated measurements, not a benchmark of each new release.
+
+**On this page:** [Metrics](#what-the-numbers-mean) · [Host comparison](#next-to-vibepollo-20) · [Wi-Fi](#on-a-real-client-over-wi-fi) · [Radeon compute](#isolating-radeon-compute) · [GPU pressure](#radeon-under-pressure) · [Measure your setup](#measure-your-setup)
 
 ## What the numbers mean
 
 | Metric | What it measures |
 | --- | --- |
-| **Render-to-decode delay / picture age** | Time from a timestamped rendered picture to independent decoding, including desktop composition, capture, encoding and transport. The Wi-Fi runs include real network transit; the same-PC runs use loopback, which isolates the host from the network. |
-| **95th percentile (p95)** | The slower end of the sample: 95% of observations are at or below this delay. |
+| **Render-to-decode delay / picture age** | Time from a timestamped rendered picture through independent decoding and readback. The matched host comparisons use loopback on the same PC, so they include composition, capture, encoding and client decoding, but exclude remote network transit and display time. |
+| **Render-to-received** | Time from a timestamped rendered picture until the client's decode thread starts on a fully received frame. The Wi-Fi tests include real network transit, receive queueing and clock-sync error, but exclude decoding. Do not compare their absolute values with render-to-decode measurements. |
+| **95th / 99th percentile (p95 / p99)** | The slower end of the sample: 95% / 99% of observations are at or below this delay. The matched host-comparison table averages the per-run metrics rather than pooling samples. |
 | **Fresh pictures per second** | Distinct pictures received, counted from changing picture IDs. Repeated frames do not increase this count. |
 | **Encoder time** | The encoder's submission-to-completion interval. It covers one part of the frame journey. |
 | **`host_mean_ms`, `host_p95_ms`, `host_p99_ms`, `host_max_ms`** | Claim to the pre-packetization sample, matching Moonlight's host latency. The session API calls these `host_processing_*`. Capture age and final-packet sending are separate. |
 
-Each table below names its metric, capture path, source and client.
+None of these timings measures button press to visible response on a client display. Compare hosts within the same fixture, and read picture age alongside fresh-picture throughput.
+
+## Next to Vibepollo 2.0
+
+**Under game-like GPU load, p95 picture age was 43% lower in HEVC and 48% lower in AV1.** Average picture age fell by 7.4 ms for both codecs. This is the matched comparison highlighted in the [README](../README.md).
+
+![Rubylight and Vibepollo average and p95 picture age under matched GPU load; exact values appear in the following table.](media/gaming-latency.svg)
+
+### Test setup
+
+| Kept the same | Recorded setup |
+| --- | --- |
+| Hardware | AMD Radeon RX 7900 XT; host and independent hardware-decoding client on the same PC. |
+| Stream | 1968×2184, 120 fps HDR, 80 Mbps requested; native AMF at ultra-low latency. The 1440p idle check requested 50 Mbps. |
+| Capture and displays | Desktop Duplication on both hosts; Extended layout, 120 Hz virtual HDR display, physical monitor at 2560×1440/120 Hz. |
+| GPU load | Synthetic `gpu_load 45 1000 60 200`, capped at 60 fps to leave room for the client's decoder. This is a repeatable game-like load, not a benchmark of a retail game. |
+| Builds and repeats | Rubylight 2.0.0-rc.24 and the pinned Vibepollo 2.0 baseline; two alternating runs per host and codec, October 8, 2026. |
+| Measurement | Rendered timestamp through independent decoding/readback over loopback. Each cell averages the corresponding per-run metrics. |
+
+### Results
+
+Picture age, average / p95 / p99. Host processing is shown separately and is not the basis for the percentage improvement: the implementations' host counters do not cover exactly the same work. The comparison isolates the hosts from a remote network, but includes the local client's decoding. Rubylight's current default capture is WGC; these tests deliberately use DDX for both hosts.
+
+| | Rubylight | Vibepollo 2.0 |
+| --- | ---: | ---: |
+| **Under GPU load**, 1968×2184 AV1 HDR 120 fps | **17.15 / 18.96 / 22.18 ms**, host 3.1 ms | 24.53 / 36.77 / 38.05 ms, host 7.4 ms |
+| **Under GPU load**, 1968×2184 HEVC HDR 120 fps | **19.61 / 21.56 / 23.10 ms**, host 3.4 ms | 26.96 / 37.62 / 39.25 ms, host 8.3 ms |
+| No GPU load, 1968×2184 AV1 HDR 120 fps | **17.42 / 18.10 / 18.62 ms** | 18.88 / 19.54 / 19.90 ms |
+| No GPU load, 1968×2184 HEVC HDR 120 fps | **17.81 / 18.94 / 19.56 ms** | 19.97 / 20.43 / 20.87 ms |
+| No GPU load, 2560×1440 HEVC HDR 120 fps | 17.09 / 17.99 / 18.46 ms | 17.19 / 17.68 / 17.93 ms |
+
+At 1968×2184, average picture age was 1.5–2.2 ms lower without the load and **7.4 ms lower for both codecs under load**. The p95 reduction was 16.06 ms (43%) for HEVC and 17.81 ms (48%) for AV1. Rubylight delivered 117–120 fresh pictures a second; Vibepollo delivered 103–118 in HEVC and 106–111 in AV1. At 1440p without the load, the two were effectively equal; at 1080p60 they were close. [All rows, including 1080p60 →](../rust/PERFORMANCE_WORK.md#rc24-against-vibepollo-20-on-the-same-gpu)
+
+**Scope and limitations.** Two runs per cell on one Radeon establish this comparison, not a guarantee for every GPU, game or client. The capped load avoids starving the loopback client's hardware decoder. At this AV1 size, AMD produces a padded 1984×2186 coded frame; the source record documents the size-check limitation. Network transit, client display refresh and input-to-display response require separate measurements.
+
+### Earlier stress comparison
+
+An earlier whole-host comparison on October 4 showed the same pattern at a heavier load. It used **Vibepollo 2.0** and an early Rubylight build with the same settings: native AMF at ultra-low latency, DDX and realtime GPU priority on both. 1080p60 HEVC HDR, 20 Mbps requested, controlled GPU load; arithmetic means of three alternating runs per host on October 4, 2026.
+
+| Under controlled GPU load | Vibepollo 2.0 | Rubylight |
+| --- | ---: | ---: |
+| Average render-to-decode delay | 96.4 ms | **42.4 ms** |
+| Mean per-run 95th-percentile delay | 137.0 ms | **56.5 ms** |
+| Fresh pictures per second | 23.9 | **51.4** |
+| Game frame rate beside the host | 176.7–177.4 fps | 173.8–174.9 fps |
+
+The idle comparison measured 16.0 ms versus 13.8 ms. Most of the loaded gap is not the compute path: with compute off, Rubylight still delivered about 57 fresh pictures a second beside the same load in an earlier batch, and the [same-build comparison](#isolating-radeon-compute) puts the compute gain at 7.5 ms. Vibepollo handed its native AMF encoder about 24 frames a second, and the encoder logged that its output had not caught up. That encoder came from Rubylight's author ([Vibepollo #342](https://github.com/Nonary/Vibepollo/pull/342)).
+
+[Baseline revision, workload and recorded runs →](../rust/PERFORMANCE.md#against-vibepollo-20)
 
 ## On a real client over Wi-Fi
 
@@ -39,33 +90,6 @@ With Moonlight on the same Wi-Fi link:
 
 [Method, clock sync and every run →](../rust/PERFORMANCE_WORK.md#october-8-real-client-picture-age-over-wi-fi-rc24-laptop)
 
-## Next to Vibepollo 2.0
-
-**On the same GPU, with identical settings,** Rubylight and the pinned Vibepollo 2.0 build alternated in one batch on October 8 (two runs per cell): native AMF at ultra-low latency, Desktop Duplication capture, a virtual HDR display, hardware decoding in the client. Picture age, average / p95 / p99:
-
-| | Rubylight | Vibepollo 2.0 |
-| --- | ---: | ---: |
-| **Beside a game**, 1968×2184 AV1 HDR 120 fps | **17.15 / 18.96 / 22.18 ms**, host 3.1 ms | 24.53 / 36.77 / 38.05 ms, host 7.4 ms |
-| **Beside a game**, 1968×2184 HEVC HDR 120 fps | **19.61 / 21.56 / 23.10 ms**, host 3.4 ms | 26.96 / 37.62 / 39.25 ms, host 8.3 ms |
-| No game, 1968×2184 AV1 HDR 120 fps | **17.42 / 18.10 / 18.62 ms** | 18.88 / 19.54 / 19.90 ms |
-| No game, 1968×2184 HEVC HDR 120 fps | **17.81 / 18.94 / 19.56 ms** | 19.97 / 20.43 / 20.87 ms |
-| No game, 2560×1440 HEVC HDR 120 fps | 17.09 / 17.99 / 18.46 ms | 17.19 / 17.68 / 17.93 ms |
-
-At 1968×2184 Rubylight delivers the picture 1.5–2.2 ms sooner with no game running and 7.4–7.8 ms sooner beside one, with about 16–18 ms less at the 95th and 99th percentiles. Beside the game Vibepollo also delivered fewer fresh pictures (103–118 a second against 117–120). At 1440p the two are equal with no game, and at 1080p60 they are close. [All rows, including 1080p60 →](../rust/PERFORMANCE_WORK.md#rc24-against-vibepollo-20-on-the-same-gpu)
-
-An earlier whole-host comparison on October 4 showed the same pattern at a heavier load. It used **Vibepollo 2.0** and an early Rubylight build with the same settings: native AMF at ultra-low latency, DDX and realtime GPU priority on both. 1080p60 HEVC HDR, 20 Mbps requested, controlled GPU load; arithmetic means of three alternating runs per host on October 4, 2026.
-
-| Under controlled GPU load | Vibepollo 2.0 | Rubylight |
-| --- | ---: | ---: |
-| Average render-to-decode delay | 96.4 ms | **42.4 ms** |
-| Mean per-run 95th-percentile delay | 137.0 ms | **56.5 ms** |
-| Fresh pictures per second | 23.9 | **51.4** |
-| Game frame rate beside the host | 176.7–177.4 fps | 173.8–174.9 fps |
-
-The idle comparison measured 16.0 ms versus 13.8 ms. Most of the loaded gap is not the compute path: with compute off, Rubylight still delivered about 57 fresh pictures a second beside the same load in an earlier batch, and the [same-build comparison](#isolating-radeon-compute) puts the compute gain at 7.5 ms. Vibepollo handed its native AMF encoder about 24 frames a second, and the encoder logged that its output had not caught up. That encoder came from Rubylight's author ([Vibepollo #342](https://github.com/Nonary/Vibepollo/pull/342)).
-
-[Baseline revision, workload and recorded runs →](../rust/PERFORMANCE.md#against-vibepollo-20)
-
 ## Isolating Radeon compute
 
 This separate test changes one setting in the **same Rubylight build**: compute off versus compute on. DDX, 1080p60 HEVC HDR, controlled GPU load; arithmetic means of two runs per path on October 4, 2026.
@@ -81,16 +105,18 @@ This isolates the benefit of moving frame preparation onto compute. The whole-ho
 
 ## Radeon under pressure
 
-Two changes target Radeon cards under pressure, measured against the code before them. Idle delay on the fixture above stayed at 14.9 ms.
+Two separate October 7 tests on the RX 7900 XT target frame preparation and encoder queueing under pressure. Each compares the change with the code before it; the timings cover different boundaries and should not be added together.
 
 | | Before | After |
 | --- | ---: | ---: |
-| **PyroWave beside a GPU-heavy game**, per 1080p120 HDR 4:4:4 frame | 5.7 ms | **0.55 ms** |
-| PyroWave beside the game, paced at 120 fps | 4.62 ms | **0.71 ms** |
-| **Encoder saturated** (5120×1440 HEVC at 240 fps), game frame to packet | 42.7 ms | **11.1 ms** |
+| **PyroWave repeat-frame processing under synthetic GPU load**, 1080p HDR 4:4:4 | 5.7 ms | **0.55 ms** |
+| Same PyroWave processing probe, paced at 120 fps | 4.62 ms | **0.71 ms** |
+| **Encoder saturated** (5120×1440 HEVC, 240 fps requested), present to send | 42.7 ms | **11.1 ms** |
 | Encoder saturated, 99th percentile | 45.9 ms | **13.3 ms** |
 
-PyroWave's colour conversion now runs on the Radeon compute queue instead of waiting behind the game on the graphics queue; idle it takes 0.47 ms either way, and the planes are byte-identical. When the encoder cannot keep up, the host now claims a new picture only while fewer than two wait in the encoder, so the frames it sends are fresh; the encoder delivered 220 fps either way.
+The PyroWave probe measures repeat-frame processing through colour conversion and encoding; it excludes capture, transport, decoding and display. Moving conversion onto Radeon compute removed waiting behind the synthetic load's graphics work. Idle repeat-frame processing stayed at 0.47 ms, and the output planes were byte-identical. This is not a 0.55 ms end-to-end stream result.
+
+The encoder-queue test compared rc.18 with rc.19 at 150 Mbps, with two alternating runs each. Limiting pictures in flight to two reduced stale frames waiting for the saturated encoder; throughput stayed at 220 fps in both builds.
 
 [PyroWave runs →](../rust/PERFORMANCE.md#october-7-pyrowave-conversion-on-the-compute-queue) · [Encoder queue runs →](../rust/PERFORMANCE.md#october-7-two-frames-in-the-encoder)
 
@@ -139,7 +165,7 @@ PyroWave streams carry 10-bit 4:4:4, validated here with encrypted 1080p/120 tra
 
 Video error correction uses **21–29% less CPU time** than the original C++ implementation on the recorded video blocks, with byte-identical parity. [FEC sources and reproduction](../rust/PERFORMANCE.md#controlled-comparison-with-the-original-c-fec) keep this component result separate from stream latency.
 
-Every push to main runs **589 Rust tests**, the release-script, web console and video-settings tests, formatting and Clippy with warnings denied. [Release notes](../rust/RELEASE_NOTES.md)
+The [Windows workflow](../.github/workflows/rust-windows.yml) runs the Rust and release-script tests, web-console checks, formatting and Clippy for relevant code changes. Documentation-only changes run the [Pages build](../.github/workflows/pages.yml). These checks validate software and documentation; they do not replace hardware measurements. [Build and validation guide](building.md#development-checks).
 
 ## Measure your setup
 

@@ -2,7 +2,9 @@
 
 [Docs](README.md) · [Configuration](configuration.md) · [Performance](performance.md) · [Developer guide](../rust/README.md)
 
-Rubylight prepares frames beside the game's graphics work, passes GPU textures directly to native encoders and keeps ownership explicit until each consumer finishes. On Radeon, D3D12 compute is the key change in the standard video path.
+Rubylight turns a Windows display into a Moonlight stream. Its Radeon path keeps captured pixels on the GPU, prepares them on D3D12 compute queues and passes them to AMD's native encoder. The host limits outstanding work so a busy encoder or network does not become a growing queue of old pictures.
+
+This guide follows a frame from capture to delivery, then covers the process boundaries, colour paths and recovery that keep the stream running. [Performance](performance.md) separates measured host processing from the complete render-to-client journey.
 
 ## Written in Rust
 
@@ -21,12 +23,21 @@ The earlier C++ host was removed after 2.0.0-rc.23; [that tag](https://github.co
 
 ## The Radeon frame path
 
-1. **Capture.** Automatic capture prefers Windows Graphics Capture (WGC), with Desktop Duplication available as an explicit choice and fallback.
-2. **Copy and convert.** Shared GPU textures move through D3D12 compute queues for copies and RGB-to-YUV conversion on supported AMD GPUs.
-3. **Encode.** Native AMD AMF consumes D3D12 surfaces and produces H.264, HEVC or AV1 bitstreams. The host claims a new picture only while fewer than two wait in the encoder, so an encoder that cannot keep up costs frames per second, not picture age.
-4. **Deliver.** The host encrypts and packetizes the stream for Moonlight. Bounded queues keep retained work controlled.
+For standard H.264, HEVC and AV1 streams on supported AMD GPUs:
 
-![Scheduling schematic comparing the reviewed Sunshine-derived D3D11 path with Rubylight's D3D12 compute path](media/compute-comparison.png)
+| Stage | What happens | Source |
+| --- | --- | --- |
+| **Capture** | Windows Graphics Capture (WGC) supplies a display texture. Automatic selection prefers WGC; Desktop Duplication (DDX) is an explicit choice and fallback. | [Capture backends](../rust/windows/src/capture.rs) |
+| **Take ownership** | A GPU copy moves the captured image into a texture the host owns. The capture frame stays alive until the copy finishes. Consumers share the latest published frame. | [Frame publication](../rust/host/src/stream/capture.rs), [compute handoff](../rust/windows/src/compute.rs) |
+| **Prepare** | D3D12 compute converts RGB into the encoder's YUV format, including resizing and HDR conversion where required. | [Colour conversion](../rust/windows/src/compute.rs) |
+| **Encode** | Native AMD AMF consumes the D3D12 surface and produces an H.264, HEVC or AV1 bitstream. | [AMF GPU integration](../rust/windows/src/amf/gpu.rs) |
+| **Deliver** | The host packetizes encoded bytes, adds forward error correction and applies negotiated encryption, then sends them to Moonlight. | [Video sender](../rust/host/src/video_send.rs), [packet formats](../rust/core/src/packet.rs) |
+
+The raw picture stays in GPU textures through preparation and encoding; compressed output returns to the CPU for transport. Moonlight receives, decodes and presents it on the client. Those client stages and network transit are separate from [host-processing time](performance.md#what-the-numbers-mean).
+
+Before claiming another picture, the [stream loop](../rust/host/src/stream.rs) checks both the encoder and the conventional video sender. Two outstanding frames stop another claim; keyframes reserve additional sending capacity. Once work drains, the host takes the newest available picture. This bounds picture age under pressure without promising a frame rate that the hardware or link cannot sustain.
+
+![Scheduling schematic comparing the reviewed Sunshine-derived D3D11 path with Rubylight's D3D12 compute path](media/compute-comparison.svg)
 
 The reviewed Sunshine-derived D3D11 path and Rubylight both use GPU textures and native AMF. Rubylight changes where frame preparation runs: compute work can overlap graphics work instead of joining the same graphics queue. The diagram illustrates scheduling; [measured timings](performance.md) come from separate fixtures. The reviewed baseline is Vibepollo 2.0.
 
@@ -34,7 +45,7 @@ Compute and graphics still share GPU resources. Copy/conversion efficiency helps
 
 ## Synchronization and ownership
 
-A captured texture can arrive before its producer has finished writing it. Rubylight waits for producer readiness on the GPU, copies it into an owned texture and holds the captured frame until that copy is safe. Each converted output texture has its own fence, so AMF's completion signal cannot release a different frame early.
+A captured texture can arrive before its producer has finished writing it. Rubylight waits for producer readiness on the GPU, copies it into an owned texture and holds the captured frame until that copy is safe. Owning the copy lets capture move on while the encoder still uses the previous picture. Each converted output texture has its own fence, so AMF's completion signal cannot release a different frame early.
 
 Texture pools and native encoder queues are bounded. Texture ownership and per-frame HDR metadata survive until native codec references release them. Capture textures that cannot be shared use the D3D11 fallback. The [compute implementation](../rust/windows/src/compute.rs) and [synchronization measurements](../rust/PERFORMANCE.md#october-4-capture-copies-and-conversion-beside-a-game) contain the details.
 
@@ -50,15 +61,25 @@ WGC requests an explicit zero minimum update interval where Windows supports it.
 
 The native HDR path captures FP16 scRGB, resizes in linear light and converts to ten-bit BT.2020/PQ. Shader math preserves absolute ST.2084 luminance. Windows HDR detection distinguishes an active HDR output from wide-gamut SDR colour management. [Independent decoding and reference-pixel checks](performance.md#hdr-and-pyrowave-validation) verify the tested pixel path.
 
-**PyroWave provides full 10-bit HDR 4:4:4** through its own shared D3D11/Vulkan path. A compute pass on the D3D12 compute queue that also prepares AMF's frames writes its planar textures, a shared fence orders that pass with the Vulkan import, and the encoded bitstream returns to the CPU. Full-resolution chroma gives each pixel its own colour samples. Use [Rubylight Android](https://github.com/RamazanKara/rubylight-android), our own client, or on a PC [Nonary's compatible Moonlight client](https://github.com/Nonary/moonlight-qt), over a fast local network; [client selection](getting-started.md#choose-your-stream-format) explains the options.
+**PyroWave provides full 10-bit HDR 4:4:4** through a separate encoder and shared D3D11/Vulkan path. D3D12 compute prepares its three planar textures; a shared fence orders conversion and Vulkan access, and the encoded bitstream returns to the CPU. If compute conversion is unavailable, PyroWave uses graphics-queue conversion. The [PyroWave integration](../rust/windows/src/pyrowave.rs) owns this handoff independently of AMF.
+
+Full-resolution chroma gives each pixel its own colour samples. Use [Rubylight Android](https://github.com/RamazanKara/rubylight-android), our own client, or on a PC [Nonary's compatible Moonlight client](https://github.com/Nonary/moonlight-qt), over a fast local network; [client selection](getting-started.md#choose-your-stream-format) explains the options.
 
 ## Encoding beyond Radeon
 
 The code also includes native NVIDIA NVENC, Intel Quick Sync imports and software compatibility paths. Native NVENC supports capability-gated reference recovery and GPU-only CUDA interop for ten-bit 4:4:4; Quick Sync imports D3D11 frames. Rubylight's tuning and measurements are for AMD hardware.
 
+## Session, audio and input
+
+Pairing, app discovery and launch requests enter through the [Moonlight HTTP endpoints](../rust/host/src/nvhttp.rs). An authorized launch lets the [RTSP server](../rust/host/src/rtsp_server.rs) negotiate stream settings; the [stream host](../rust/host/src/stream.rs) then manages display preparation, capture, encoding and media workers. The browser console has a separate [administration API](api.md).
+
+Audio uses [WASAPI loopback capture and Opus encoding](../rust/windows/src/audio.rs) on its own worker. Client input follows the control path back to Windows. [Virtual controllers have a separate worker](../rust/windows/src/input/gamepad_thread.rs), so a blocking controller-driver call does not hold up keyboard, mouse or touch input. [Control messages](control-messages.md) and [microphone transport](microphone.md) describe Rubylight's client extensions.
+
 ## Recovery and updates
 
 An encoder that returns no frame is recreated with the same encoder settings after 250 ms, then 500 ms, 1 s and 2 s; the session ends after 20 s without output. After a second encoder failure in one session, colour conversion moves to the graphics queue for the rest of it. A session that hears nothing from its client for the ping timeout (10 s by default) ends as a disconnect does.
+
+A GPU device loss triggers a broader rebuild: capture consumers first release their encoders, images and filters, then capture and encoding restart together. This has a separate [30-second recovery deadline](../rust/host/src/stream/device_recovery.rs); repeated failures do not extend it. If the GPU stays unavailable, the stream ends while the host console remains available.
 
 Display recovery journals host-owned changes and preserves later user changes. Virtual-display startup uses a short guard for unexpectedly reactivated displays, ending after startup or an observed competing layout change.
 

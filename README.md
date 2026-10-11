@@ -47,55 +47,36 @@ Coming from Apollo or Vibepollo? Rubylight can import your settings, paired devi
 
 ## Measured, not claimed
 
-Radeon is the starting point for Rubylight's frame pipeline. Here is what that delivered in the recorded tests:
+**43–48% lower p95 picture age under game-like GPU load.** In matched 120 fps HDR tests against Vibepollo 2.0, Rubylight reduced average picture age by **7.4 ms** in both HEVC and AV1. The slower frames improved too: HEVC p95 fell from **37.62 to 21.56 ms**, and AV1 from **36.77 to 18.96 ms**.
 
-| Result | Test conditions |
-| --- | --- |
-| **13.34 ms** average render-to-received | 1440p120 AV1 HDR, 50 Mbps; host on Ethernet, client on 5 GHz Wi-Fi. |
-| **3.1 ms** host latency beside a game | 1968×2184 AV1 HDR at 120 fps; Vibepollo 2.0 measured 7.4 ms on the same GPU and settings. |
-| **59 / 59** lost frames recovered without a keyframe | 1440p120 AV1 at 50 Mbps; a 90-second test dropping 20 ms of video every 1.5 seconds. |
+[![Average and p95 picture age for HEVC and AV1 under matched GPU load. Rubylight is lower in all four comparisons; exact values and conditions follow.](docs/media/gaming-latency.svg)](docs/performance.md#next-to-vibepollo-20)
 
-<sub>Recorded October 8, 2026. Render-to-received ends when the client starts decoding a fully received picture; it does not include decoding or display time. The Wi-Fi row is one 30-second run with about ±0.6 ms clock-sync error. Results describe these setups. [Methods and recorded runs](docs/performance.md).</sub>
+<sub>RX 7900 XT · 1968×2184 HDR at 120 fps, 80 Mbps · native AMD encoding · identical Desktop Duplication settings · synthetic game load capped at 60 fps · two alternating runs per host and codec, October 8, 2026. Picture age includes hardware decoding on the same PC, without remote network or display time. These are recorded Rubylight rc.24 and Vibepollo 2.0 results. [Method and limitations](docs/performance.md#next-to-vibepollo-20).</sub>
 
 <details>
-<summary><strong>Explore the benchmarks: Wi-Fi, gaming load and Radeon compute</strong></summary>
-
-### Over Wi-Fi
-
-**A rendered picture reaches the client over 5 GHz Wi-Fi in about 13 ms**, at 120 fps in HDR, with every picture arriving.
-
-| HDR, host on Ethernet, client on Wi-Fi | Render to received, average / p95 / p99 | Fresh pictures per second | Host time |
-| --- | --- | ---: | ---: |
-| 2560×1440 AV1, 120 fps, 50 Mbps | **13.34 / 14.15 / 16.12 ms** | 120.0 | 2.8 ms |
-| 2560×1440 HEVC, 120 fps, 50 Mbps | 13.67 / 14.69 / 19.87 ms | 120.0 | 3.1 ms |
-| 1968×2184 AV1, 120 fps, 80 Mbps | 13.54 / 14.33 / 14.93 ms | 120.0 | 3.0 ms |
-| 1968×2184 HEVC, 120 fps, 80 Mbps | 14.13 / 14.97 / 15.90 ms | 120.0 | 3.7 ms |
-| 1920×1080 AV1, 60 fps, 20 Mbps | 12.91 / 15.05 / 17.89 ms | 60.6 | 2.2 ms |
-| 1920×1080 HEVC, 60 fps, 20 Mbps | 12.99 / 14.15 / 16.62 ms | 60.5 | 2.4 ms |
-
-<sub>October 8, 2026 · client decoding in hardware · host and client clocks synchronised with 200 ms pings (error about ±0.6 ms) · one 30-second run per row · every picture decoded. "Received" is when the client starts decoding a fully received picture. [Method and clock sync](rust/PERFORMANCE_WORK.md#october-8-real-client-picture-age-over-wi-fi-rc24-laptop).</sub>
-
-With the host dropping 20 ms of video every 1.5 s, **all 59 lost frames were recovered without a keyframe** at 117.7 fps and 2.7 ms host processing; without loss the stream held 119.7 fps at 1440p120 AV1. [AV1 recovery →](rust/RELEASE_NOTES.md#new-in-200)
+<summary><strong>See the exact comparison and other measured improvements</strong></summary>
 
 ### While a game runs
 
-**Next to Vibepollo 2.0** on the same GPU with identical settings, a 120 fps HDR stream arrived **7.4 ms sooner on average** while a game ran (AV1: 17.2 against 24.5 ms; HEVC: 19.6 against 27.0 ms) and 1.5–2.2 ms sooner with no game running. Host latency stayed at 3.1–3.4 ms against 7.4–8.3 ms. [Runs and settings →](rust/PERFORMANCE_WORK.md#rc24-against-vibepollo-20-on-the-same-gpu)
+The fixture draws a timestamped picture while a separate GPU workload simulates a game. Each cell is the mean of two runs' corresponding metrics; p95 and p99 describe the slower frames.
 
-**Radeon compute alone cut average picture delay beside a game from 41.0 to 33.5 ms**, with the game holding 174 fps either way.
-
-| 1080p60 HEVC HDR beside a game-like load | Compute off | Compute on |
+| Picture age under GPU load | Rubylight rc.24 | Vibepollo 2.0 |
 | --- | ---: | ---: |
-| Average render-to-decode delay | 41.0 ms | **33.5 ms** |
-| 95th-percentile delay, averaged across runs | 54.4 ms | **42.3 ms** |
-| Fresh pictures per second | 56.7 | **58.1** |
-| Host time, present to send | 16.2 ms | **11.2 ms** |
+| HEVC average / p95 / p99 | **19.61 / 21.56 / 23.10 ms** | 26.96 / 37.62 / 39.25 ms |
+| AV1 average / p95 / p99 | **17.15 / 18.96 / 22.18 ms** | 24.53 / 36.77 / 38.05 ms |
 
-<sub>Same Rubylight build, one setting changed · 120 Hz virtual display · 20 Mbps requested · two runs per path · October 4, 2026. Render-to-decode measures picture age at an independent decoder, so it isolates the host from the network. [Method and recorded runs](rust/PERFORMANCE.md#1080p-at-60-fps).</sub>
+Rubylight delivered **117–120 fresh pictures per second**; Vibepollo delivered 103–118 in HEVC and 106–111 in AV1. These gains belong to this GPU and workload. With no game load at 1440p, the two hosts were effectively equal. [Recorded runs and settings →](rust/PERFORMANCE_WORK.md#rc24-against-vibepollo-20-on-the-same-gpu)
 
-**PyroWave beside a GPU-heavy game** encodes a 1080p HDR 4:4:4 frame in 0.55 ms instead of 5.7 ms, because its colour conversion runs on Radeon compute. When the encoder is pushed to its limit (5120×1440 HEVC at 240 fps), a game frame still reaches the network in 11.1 ms instead of 42.7 ms. [Details →](docs/performance.md#radeon-under-pressure)
+### Radeon compute and encoder queues
 
-[All benchmarks and HDR checks →](docs/performance.md)
+Two separate tests show where frame preparation and queueing matter:
 
+- **PyroWave processing under load:** moving colour conversion to compute reduced repeat-frame processing through conversion and encoding from **5.7 to 0.55 ms** at 1080p HDR 4:4:4. This component probe excludes capture, transport, decoding and display.
+- **An encoder at its limit:** at 5120×1440 HEVC with 240 fps requested, a smaller queue cut average present-to-send time from **42.7 to 11.1 ms**, while throughput stayed at 220 fps.
+
+<sub>RX 7900 XT, October 7, 2026. Separate before/after fixtures; their timings cover different parts of the frame journey. [Methods and scope](docs/performance.md#radeon-under-pressure).</sub>
+
+[All benchmarks, Wi-Fi tests and HDR checks →](docs/performance.md)
 
 </details>
 

@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="830" viewBox="0 0 1280 830" role="img" aria-labelledby="title description">
+  <title id="title">Rubylight prepares frames on Radeon compute queues</title>
+  <desc id="description">Illustrative comparison with the reviewed Vibepollo 2.0 D3D11 path. In the baseline, GPU copies and RGB-to-YUV conversion follow game work on the graphics queue. Rubylight can run frame preparation on compute queues alongside graphics, then pass the surface to AMF. Both paths use GPU textures and native AMF. Ownership follows producer readiness, copy completion, per-texture readiness and AMF release. Bar lengths are not measured timings.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 Z" fill="#a4afc1"/>
+    </marker>
+  </defs>
+  <rect width="1280" height="830" rx="20" fill="#10131d"/>
+  <g font-family="Segoe UI, Arial, sans-serif">
+    <text x="48" y="56" font-size="18" font-weight="700" letter-spacing="2" fill="#fb7185">RUBYLIGHT / RADEON FRAME PATH</text>
+    <text x="48" y="111" font-size="38" font-weight="700" fill="#f6f7fb">Prepare the frame beside the game.</text>
+    <text x="48" y="148" font-size="20" fill="#b5bdce">The same game work and hardware encode; a different place for copies and colour conversion.</text>
+
+    <rect x="32" y="181" width="1216" height="201" rx="14" fill="#181d29"/>
+    <text x="52" y="216" font-size="20" font-weight="700" fill="#d6dbe5">REVIEWED D3D11 PATH · VIBEPOLLO 2.0</text>
+    <text x="52" y="279" font-size="18" fill="#b5bdce">Graphics queue</text>
+    <text x="52" y="342" font-size="18" fill="#b5bdce">AMF / hardware</text>
+    <rect x="248" y="244" width="380" height="54" rx="9" fill="#475166"/>
+    <text x="438" y="277" text-anchor="middle" font-size="20" font-weight="600" fill="#f6f7fb">Game graphics work</text>
+    <path d="M 631 271 H 642" stroke="#a4afc1" stroke-width="2" marker-end="url(#arrow)"/>
+    <rect x="648" y="244" width="150" height="54" rx="9" fill="#2a3141" stroke="#747f94"/>
+    <text x="723" y="277" text-anchor="middle" font-size="19" font-weight="600" fill="#f6f7fb">GPU copy</text>
+    <path d="M 801 271 H 812" stroke="#a4afc1" stroke-width="2" marker-end="url(#arrow)"/>
+    <rect x="818" y="244" width="170" height="54" rx="9" fill="#2a3141" stroke="#747f94"/>
+    <text x="903" y="277" text-anchor="middle" font-size="19" font-weight="600" fill="#f6f7fb">RGB → YUV</text>
+    <path d="M 991 271 H 998 V 334 H 1004" fill="none" stroke="#a4afc1" stroke-width="2" marker-end="url(#arrow)"/>
+    <rect x="1008" y="307" width="180" height="54" rx="9" fill="#263c48" stroke="#74bdcc"/>
+    <text x="1098" y="340" text-anchor="middle" font-size="20" font-weight="600" fill="#ddf7fb">Encode</text>
+    <text x="248" y="342" font-size="18" fill="#b5bdce">Frame preparation waits behind graphics work.</text>
+
+    <rect x="32" y="402" width="1216" height="252" rx="14" fill="#211820" stroke="#6f3447"/>
+    <text x="52" y="437" font-size="20" font-weight="700" fill="#fb7185">RUBYLIGHT · D3D12 COMPUTE</text>
+    <text x="52" y="500" font-size="18" fill="#b5bdce">Graphics queue</text>
+    <text x="52" y="563" font-size="18" fill="#fca3b3">Compute queues</text>
+    <text x="52" y="626" font-size="18" fill="#b5bdce">AMF / hardware</text>
+    <rect x="248" y="465" width="380" height="54" rx="9" fill="#475166"/>
+    <text x="438" y="498" text-anchor="middle" font-size="20" font-weight="600" fill="#f6f7fb">Game graphics work</text>
+    <rect x="248" y="528" width="150" height="54" rx="9" fill="#be3555"/>
+    <text x="323" y="561" text-anchor="middle" font-size="19" font-weight="600" fill="#ffffff">GPU copy</text>
+    <path d="M 401 555 H 412" stroke="#a4afc1" stroke-width="2" marker-end="url(#arrow)"/>
+    <rect x="418" y="528" width="170" height="54" rx="9" fill="#be3555"/>
+    <text x="503" y="561" text-anchor="middle" font-size="19" font-weight="600" fill="#ffffff">RGB → YUV</text>
+    <path d="M 591 555 H 598 V 618 H 604" fill="none" stroke="#a4afc1" stroke-width="2" marker-end="url(#arrow)"/>
+    <rect x="608" y="591" width="180" height="54" rx="9" fill="#263c48" stroke="#74bdcc"/>
+    <text x="698" y="624" text-anchor="middle" font-size="20" font-weight="600" fill="#ddf7fb">Encode</text>
+    <text x="826" y="555" font-size="18" fill="#e0b3c0">Preparation can overlap graphics.</text>
+    <text x="826" y="622" font-size="18" fill="#b5bdce">Surface held until AMF releases it.</text>
+
+    <text x="48" y="694" font-size="16" font-weight="700" letter-spacing="1" fill="#f6f7fb">OWNERSHIP AT EVERY HANDOFF</text>
+    <g font-size="18" fill="#c6cfdd">
+      <text x="48" y="730">Producer ready</text>
+      <text x="258" y="730">Copy complete</text>
+      <text x="476" y="730">Per-texture ready</text>
+      <text x="732" y="730">AMF releases surface ownership</text>
+    </g>
+    <g stroke="#a4afc1" stroke-width="2" marker-end="url(#arrow)">
+      <path d="M 204 724 H 237"/>
+      <path d="M 416 724 H 454"/>
+      <path d="M 663 724 H 708"/>
+    </g>
+    <path d="M 48 756 H 1232" stroke="#353b4b"/>
+    <text x="48" y="787" font-size="17" fill="#a8b1c4">Scheduling schematic, not measured timings. Compute and graphics still share the same GPU resources.</text>
+  </g>
+</svg>

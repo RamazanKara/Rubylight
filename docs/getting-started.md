@@ -4,7 +4,20 @@
 
 Rubylight is a Windows x64 streaming host written in Rust, with a GPU path tuned and measured on AMD Radeon. Moonlight runs on the device you play from. Start with one client and a 1080p60 SDR stream, then add HDR, higher frame rates or a virtual display.
 
-**On this page:** [Install](#install-or-run-portable) · [Import a profile](#bring-an-existing-profile) · [Upgrading](#upgrading) · [Open the console](#open-the-console) · [Pair Moonlight](#pair-moonlight-and-start-desktop) · [Stream formats](#choose-your-stream-format) · [Displays and updates](#virtual-displays-and-updates)
+**On this page:** [Before you start](#before-you-start) · [Install](#install-or-run-portable) · [Open the console](#open-the-console) · [Pair Moonlight](#pair-moonlight-and-start-desktop) · [Stream formats](#choose-your-stream-format) · [Displays and updates](#virtual-displays-and-updates) · [Import a profile](#bring-an-existing-profile) · [Upgrading](#upgrading)
+
+## Before you start
+
+| What you need | Check |
+| --- | --- |
+| **Host PC** | Windows x64. Rubylight's tuning and measurements focus on AMD Radeon; the available stream formats depend on the GPU's encoder. |
+| **Client device** | Moonlight or a Sunshine-compatible client. Install Rubylight on the gaming PC and the client on the device you play from. |
+| **Local network** | Put both devices on the same network for the first pairing and stream. Close another streaming host if it is already using the default ports. |
+| **Display to capture** | Use an active physical monitor, or the virtual display supplied with the installed service. Portable mode needs the drivers installed separately for virtual displays and emulated controllers. |
+
+**First stream:** [Install](#install-or-run-portable) → [open the console](#open-the-console) → [pair Moonlight](#pair-moonlight-and-start-desktop) → launch **Desktop** at **1080p60, HDR off**. Once picture, sound and input work, choose your final codec and display settings.
+
+Already using Rubylight? Go straight to [Upgrading](#upgrading). Moving a portable Apollo or Vibepollo profile? Read [Bring an existing profile](#bring-an-existing-profile) before the first launch.
 
 ## Install or run portable
 
@@ -26,6 +39,65 @@ The installer sets up the host, the Windows service, the virtual display driver 
 Portable mode does not install a service. Virtual displays and emulated controllers need their Windows drivers; use the installed service for the bundled virtual-display driver's service access. Keep the extracted libraries and `assets` folder beside the executables.
 
 Run one streaming host on the default ports. If Sunshine, Apollo or Vibepollo is already serving those ports, close that host before starting the portable copy, or use [separate profiles and ports](configuration.md#multiple-instances).
+
+## Open the console
+
+The launcher opens **https://localhost:47990** on the host PC. A custom base port changes the console port too. The console uses a local self-signed certificate, so the browser may show a certificate warning; check that you are opening your own host's address. Create the local administrator account if prompted; initial account setup must happen on the host PC. After an import from Apollo, Vibepollo or Sunshine, sign in with that host's console username and password.
+
+To set a new sign-in, open PowerShell as administrator on the host PC and run the host program with `--creds` (the sign-in page on the host PC shows the full path):
+
+```powershell
+& "C:\Program Files\Rubylight\butterpollo.exe" --creds NAME PASSWORD
+```
+
+Use a password of at least 8 characters, then sign in with the new name and password. Signed-in browsers sign in again. An installation upgraded from Butterpollo keeps its original install folder.
+
+On **Overview**, check **Host readiness** for the video encoder, virtual display, audio and screen capture. An available encoder and an active physical display are enough for the first desktop stream. A virtual display showing **Off** is expected when you are streaming a physical monitor.
+
+A fresh Windows 11 configuration selects a virtual display for each device; Windows 10 defaults to a physical monitor. For a portable first run with a monitor, select **Settings → Display → Virtual display: Off, stream a monitor**. If you use the installed virtual display, the default **Exclusive** layout turns the other monitors off during the stream; choose **Extended** to keep them active.
+
+For a fresh configuration, leave **Settings → Video → Capture method** on **Automatic**. This prefers Windows Graphics Capture (WGC), with Desktop Duplication as its startup fallback. **Copy and convert on a compute queue** is enabled by default on the supported AMD path. Imported explicit capture choices remain in effect.
+
+## Pair Moonlight and start Desktop
+
+1. Open Moonlight on a device on the same local network. Select the host, or add the PC by its local IP address if discovery does not find it.
+2. Moonlight displays a four-digit PIN. In Rubylight's **Devices** page, enter that PIN for the pending device and select **Pair**.
+3. Wait for pairing to finish on the client. The device then appears under **Paired devices**.
+4. Set Moonlight to **1920×1080 at 60 FPS**, with HDR off for this first check. Use H.264, or HEVC if the client supports hardware decoding.
+5. Launch **Desktop**. Check moving windows, sound and input before increasing resolution, frame rate or bitrate.
+
+**You are ready to tune the stream when** the desktop moves smoothly, audio plays and your input reaches the PC. Increase resolution and frame rate in the client, then enable HDR if both the client and captured display support it. The Overview stream card shows what was actually negotiated.
+
+If the host is missing, start with [discovery and pairing](troubleshooting.md#moonlight-cannot-find-or-pair-with-the-pc). If Desktop opens to a black picture, check [capture and displays](troubleshooting.md#black-picture-no-display-or-wgc-fails).
+
+If pairing succeeds but launching is denied, check the device's enabled state and **List apps**, **View streams** and **Launch apps** permissions in **Devices → Edit**.
+
+## Choose your stream format
+
+| Choice | Use it when |
+| --- | --- |
+| H.264 | Establishing an SDR baseline or using a client without newer hardware decoders. |
+| HEVC | The client supports HEVC; its ten-bit profile supports HDR. |
+| AV1 | Both the host encoder and client decoder support AV1; its ten-bit profile also supports HDR. |
+| PyroWave | You want full-resolution chroma, including 10-bit HDR 4:4:4, on a fast local network. Use [Rubylight Android](https://github.com/RamazanKara/rubylight-android), our own client, or any PyroWave-capable Moonlight client; on a PC, a wired LAN. Start around 399 Mbps for 1080p60, with network headroom. |
+
+H.264, HEVC and AV1 use the standard Moonlight streaming path; the formats available to you depend on the host encoder, client software and decoder. PyroWave uses a separate codec path and needs substantially more bandwidth; its client can calibrate the connection before streaming.
+
+PyroWave's recommended rates, from desktop and game test scenes on AMD, are **277 Mbps at 720p60, 399 Mbps at 1080p60 and 1593 Mbps at 4K60**. Quality depends on the picture. The stream card warns below those rates and uses a stronger warning below the severe-loss floors of **139, 187 and 747 Mbps** respectively. A rate above the floor alone is not a clean-picture target. Leave headroom for packet overhead and recovery data; 4K60 needs more than gigabit Ethernet. Use HEVC or AV1 when the client or network cannot carry the rate. [Measurements and limits](configuration.md#capture-and-video). NVIDIA users should use [Vibepollo](https://github.com/Nonary/Vibepollo).
+
+Moonlight's **YUV 4:4:4** option needs an encoder that produces 4:4:4. AMD Radeon GPUs encode H.264, HEVC and AV1 in 4:2:0 only, so with an AMD host Moonlight streams 4:2:0; Moonlight warns that the host doesn't support YUV 4:4:4. On AMD, PyroWave is the way to get full-resolution chroma, in SDR and in 10-bit HDR. Native NVENC streams 4:4:4 on NVIDIA GPUs that support it.
+
+For HDR, enable HDR in the client and confirm that the **streamed display** supports and enables HDR in Windows. In **Settings → HDR**, **Display HDR: Match the stream** and **HDR request: Follow the device** are the normal starting choices. A forced display HDR setting does not change an SDR stream into an HDR stream. Enable the game's own HDR mode when available.
+
+The Overview stream card shows the negotiated codec and an **HDR** badge. Check the picture on the actual client display as well. The published native HDR tests verify captured and decoded pixels; they do not calibrate a TV or establish every client's HDR rendering. See [HDR troubleshooting](troubleshooting.md#hdr-looks-washed-out-too-bright-or-different-between-clients).
+
+## Virtual displays and updates
+
+In **Settings → Display**, select **Virtual display: One for each device** or **One shared by all devices** when you want a host-created screen. Choose **Extended** to add it beside the physical monitors; other layouts can make it primary or disable other displays. Per-app and per-device overrides can change the effective choice. The [configuration guide](configuration.md) explains those policies.
+
+Updates notify you first. **Maintenance → Updates** offers **Check now** and, for the installed service, **Install when idle** and **Install now**; the tray menu also has **Check for updates**. **Settings → General → Install updates automatically** is off by default. Enable **Include pre-releases** to receive release candidates.
+
+**Install when idle** and automatic updates wait for streams, pending connections, remote monitors and host apps to stop, then for one minute of idle time. A disconnected Desktop session can still have an app open: quit it from Moonlight or the console if an update stays queued. **Install now** downloads and installs right away, even while you stream: the stream ends and games started from Moonlight close while Rubylight restarts, and you connect again once it is back. Portable users download the new ZIP from the release page.
 
 ## Bring an existing profile
 
@@ -51,58 +123,5 @@ Opening the launcher again returns to the running profile's console. When launch
 - **From Butterpollo.** Rubylight was called Butterpollo until rc.29. Upgrading renames what Windows shows (Start menu, Apps, the service's display name and the firewall rule) and keeps everything else where it was: the install folder, the `ApolloService` service, the profile folders above and the file names, such as `butterpollo.exe`. The launcher in the package is now **Start Rubylight.exe**; an update replaces the old **Start Butterpollo.exe** and the Start menu entry follows it. New installs go to `C:\Program Files\Rubylight`.
 - If setup cannot identify one source profile, or Rubylight already has settings alongside another host's profile, resolve that choice before removing either host. Imports preserve recognized files and unknown fields; old logs and oversized or linked optional files can be skipped, so keep the original backup.
 - Check that the console opens, existing clients connect, apps and covers appear, and display/controller settings still work. Restart Playnite if its connector was updated. If an update fails, keep the profile's `updates` folder and `update-result.json` for recovery. Installer downgrades are refused. Normal uninstall keeps the profile and drivers; **factory reset** and **remove drivers** explicitly delete them.
-
-## Open the console
-
-The launcher opens **https://localhost:47990** on the host PC. A custom base port changes the console port too. The console uses a local self-signed certificate, so the browser may show a certificate warning; check that you are opening your own host's address. Create the local administrator account if prompted; initial account setup must happen on the host PC. After an import from Apollo, Vibepollo or Sunshine, sign in with that host's console username and password.
-
-To set a new sign-in, open PowerShell as administrator on the host PC and run the host program with `--creds` (the sign-in page on the host PC shows the full path):
-
-```powershell
-& "C:\Program Files\Rubylight\butterpollo.exe" --creds NAME PASSWORD
-```
-
-Use a password of at least 8 characters, then sign in with the new name and password. Signed-in browsers sign in again. An installation upgraded from Butterpollo keeps its original install folder.
-
-On **Overview**, check **Host readiness** for the video encoder, virtual display, audio and screen capture. An available encoder and an active physical display are enough for the first desktop stream. A virtual display showing **Off** is expected when you are streaming a physical monitor.
-
-For a fresh configuration, leave **Settings → Video → Capture method** on **Automatic**. This prefers Windows Graphics Capture (WGC), with Desktop Duplication as its startup fallback. **Copy and convert on a compute queue** is enabled by default on the supported AMD path. Imported explicit capture choices remain in effect.
-
-## Pair Moonlight and start Desktop
-
-1. Open Moonlight on a device on the same local network. Select the host, or add the PC by its local IP address if discovery does not find it.
-2. Moonlight displays a four-digit PIN. In Rubylight's **Devices** page, enter that PIN for the pending device and select **Pair**.
-3. Wait for pairing to finish on the client. The device then appears under **Paired devices**.
-4. Set Moonlight to **1920×1080 at 60 FPS**, with HDR off for this first check. Use H.264, or HEVC if the client supports hardware decoding.
-5. Launch **Desktop**. Check moving windows, sound and input before increasing resolution, frame rate or bitrate.
-
-If pairing succeeds but launching is denied, check the device's enabled state and **List apps**, **View streams** and **Launch apps** permissions in **Devices → Edit**.
-
-## Choose your stream format
-
-| Choice | Use it when |
-| --- | --- |
-| H.264 | Establishing an SDR baseline or using a client without newer hardware decoders. |
-| HEVC | The client supports HEVC; its ten-bit profile supports HDR. |
-| AV1 | Both the host encoder and client decoder support AV1; its ten-bit profile also supports HDR. |
-| PyroWave | You want full-resolution chroma, including 10-bit HDR 4:4:4, on a fast local network. Use [Rubylight Android](https://github.com/RamazanKara/rubylight-android), our own client, or any PyroWave-capable Moonlight client; on a PC, a wired LAN. Start around 399 Mbps for 1080p60, with network headroom. |
-
-Every Moonlight and Sunshine-compatible client supports H.264, HEVC and AV1, in SDR and HDR where its device can decode them. PyroWave uses a separate codec path and needs substantially more bandwidth; its client can calibrate the connection before streaming.
-
-PyroWave's recommended rates, from desktop and game test scenes on AMD, are **277 Mbps at 720p60, 399 Mbps at 1080p60 and 1593 Mbps at 4K60**. Quality depends on the picture. The stream card warns below those rates and uses a stronger warning below the severe-loss floors of **139, 187 and 747 Mbps** respectively. A rate above the floor alone is not a clean-picture target. Leave headroom for packet overhead and recovery data; 4K60 needs more than gigabit Ethernet. Use HEVC or AV1 when the client or network cannot carry the rate. [Measurements and limits](configuration.md#capture-and-video). NVIDIA users should use [Vibepollo](https://github.com/Nonary/Vibepollo).
-
-Moonlight's **YUV 4:4:4** option needs an encoder that produces 4:4:4. AMD Radeon GPUs encode H.264, HEVC and AV1 in 4:2:0 only, so with an AMD host Moonlight streams 4:2:0; Moonlight warns that the host doesn't support YUV 4:4:4. On AMD, PyroWave is the way to get full-resolution chroma, in SDR and in 10-bit HDR. Native NVENC streams 4:4:4 on NVIDIA GPUs that support it.
-
-For HDR, enable HDR in the client and confirm that the **streamed display** supports and enables HDR in Windows. In **Settings → HDR**, **Display HDR: Match the stream** and **HDR request: Follow the device** are the normal starting choices. A forced display HDR setting does not change an SDR stream into an HDR stream. Enable the game's own HDR mode when available.
-
-The Overview stream card shows the negotiated codec and an **HDR** badge. Check the picture on the actual client display as well. The published native HDR tests verify captured and decoded pixels; they do not calibrate a TV or establish every client's HDR rendering. See [HDR troubleshooting](troubleshooting.md#hdr-looks-washed-out-too-bright-or-different-between-clients).
-
-## Virtual displays and updates
-
-In **Settings → Display**, select **Virtual display: One for each device** or **One shared by all devices** when you want a host-created screen. Choose **Extended** to add it beside the physical monitors; other layouts can make it primary or disable other displays. Per-app and per-device overrides can change the effective choice. The [configuration guide](configuration.md) explains those policies.
-
-Updates notify you first. **Maintenance → Updates** offers **Check now** and, for the installed service, **Install when idle** and **Install now**; the tray menu also has **Check for updates**. **Settings → General → Install updates automatically** is off by default. Enable **Include pre-releases** to receive release candidates.
-
-**Install when idle** and automatic updates wait for streams, pending connections, remote monitors and host apps to stop, then for one minute of idle time. A disconnected Desktop session can still have an app open: quit it from Moonlight or the console if an update stays queued. **Install now** downloads and installs right away, even while you stream: the stream ends and games started from Moonlight close while Rubylight restarts, and you connect again once it is back. Portable users download the new ZIP from the release page.
 
 For everything Rubylight does and how fast it does it, see [Features](features.md) and [Performance](performance.md).

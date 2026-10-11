@@ -78,8 +78,14 @@ jobs:
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" emulator platform-tools "$image" > /dev/null
           echo no | "$ANDROID_HOME/cmdline-tools/latest/bin/avdmanager" create avd -n sunset -k "$image" -d pixel_6
           pip install --quiet pillow
-          BUTTERPOLLO_EMULATOR_GPU=swiftshader_indirect BUTTERPOLLO_BOOT_TIMEOUT=420 python3 scripts/emulator-smoke.py ||
-            { grep -E 'ERROR|FATAL' app/build/emulator-smoke/emulator.log | tail -n 5; exit 1; }
+          status=0
+          BUTTERPOLLO_EMULATOR_GPU=swiftshader_indirect BUTTERPOLLO_BOOT_TIMEOUT=420 python3 scripts/emulator-smoke.py > smoke.out 2>&1 || status=$?
+          cat smoke.out
+          if [ "$status" != 0 ]; then
+            tail -n 12 smoke.out | sed 's/^/::error title=smoke::/'
+            grep -E 'ERROR|FATAL' app/build/emulator-smoke/emulator.log | tail -n 5
+            exit 1
+          fi
       - name: Build arm64 test APK
         if: inputs.prerelease_tag
         run: |

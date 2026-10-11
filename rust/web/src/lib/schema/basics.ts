@@ -106,7 +106,7 @@ const general: Setting[] = [
     key: 'update_check_interval',
     label: 'Update check interval',
     description:
-      'How often the host looks for a new Rubylight release. 0 turns off automatic checks; you can still check from Maintenance.',
+      'How often the host looks for a new Rubylight release, at least 3600 seconds (one hour). 0 turns off automatic checks; you can still check from Maintenance.',
     category: 'general',
     group: 'Updates',
     control: { kind: 'number', min: 0, step: 1, unit: 's' },
@@ -134,7 +134,7 @@ const general: Setting[] = [
     key: 'min_log_level',
     label: 'Log level',
     description:
-      'How much detail the host writes to its log. Information keeps it short. Debug adds encoder settings, display setup and timing lines every 5 seconds for a problem report; Verbose adds everything. Applies right away.',
+      'How much detail the host writes to its log. Information includes encoder settings, display setup and timing lines every 5 seconds. Debug adds GPU scheduling, discovery and probe details for a problem report; Verbose adds everything. Applies right away.',
     category: 'general',
     group: 'Logging',
     control: {

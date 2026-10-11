@@ -134,6 +134,8 @@
 
   const rangeError = $derived.by(() => {
     if (control.kind !== 'number' || typeof value !== 'number') return '';
+    if (setting.key === 'packetsize' && value > 0 && value < 256) return 'Enter 0 or a number from 256 to 1400.';
+    if (setting.key === 'update_check_interval' && value > 0 && value < 3600) return 'Enter 0 or at least 3600 seconds.';
     const { min, max } = control;
     if ((min !== undefined && value < min) || (max !== undefined && value > max)) {
       if (min !== undefined && max !== undefined) return `Enter a number from ${min} to ${max}.`;

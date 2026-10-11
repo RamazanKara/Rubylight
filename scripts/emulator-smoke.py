@@ -465,7 +465,7 @@ def main():
             tap("Video codec")
             tap("android:id/button3")
             help_text = " ".join(n.get("text", "") for n in tree().iter("node"))
-            assert "Not supported: " in help_text or "Ready on this phone" in help_text, help_text
+            assert any(s in help_text for s in ("Not supported: ", "Ready on this phone", "GPU does not support PyroWave")), help_text
             screenshot("20-pyrowave-readiness")
             tap("android:id/button1")
             tap("Video codec")

@@ -280,11 +280,11 @@ public class PreferenceConfiguration {
         }
     }
 
-    private static int getWidthFromResolutionString(String resString) {
+    static int getWidthFromResolutionString(String resString) {
         return Integer.parseInt(resString.split("x")[0]);
     }
 
-    private static int getHeightFromResolutionString(String resString) {
+    static int getHeightFromResolutionString(String resString) {
         return Integer.parseInt(resString.split("x")[1]);
     }
 

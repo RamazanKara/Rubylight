@@ -872,37 +872,170 @@ pub fn firewall_remove(rule: &str) {
         Duration::from_secs(60),
     );
 }
-/// Limit a folder to SYSTEM and Administrators (and, if `users_read`, read
-/// access for users), replacing inherited permissions, as Vibepollo does
-/// for its credentials.
-pub fn restrict(folder: &Path, users_read: bool) -> Result<()> {
-    let path = folder.display().to_string();
-    let mut args = vec![
-        path.as_str(),
-        "/inheritance:r",
-        "/grant:r",
-        "*S-1-5-18:(OI)(CI)(F)",
-        "/grant:r",
-        "*S-1-5-32-544:(OI)(CI)(F)",
-    ];
-    if users_read {
-        args.extend(["/grant:r", "*S-1-5-32-545:(OI)(CI)(RX)"]);
+pub fn trusted_folder(folder: &Path) -> Result<()> {
+    if !folder.exists() {
+        return Ok(());
     }
-    args.push("/Q");
-    let (code, _) = run(&system32("icacls.exe"), &args, Duration::from_secs(120))?;
-    if code != 0 {
-        bail!("setting permissions on {path} failed ({code})");
+    no_reparse_points(folder)?;
+    trusted_owner(folder)
+}
+pub fn trusted_ancestors(folder: &Path) -> Result<()> {
+    use std::os::windows::fs::MetadataExt;
+    for ancestor in folder.ancestors().filter(|p| !p.as_os_str().is_empty()) {
+        let metadata = match std::fs::symlink_metadata(ancestor) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(error.into()),
+        };
+        ensure!(
+            metadata.file_attributes() & 0x400 == 0,
+            "{} is a reparse point",
+            ancestor.display()
+        );
+        trusted_owner(ancestor)?;
+    }
+    trusted_folder(folder)
+}
+fn trusted_owner(folder: &Path) -> Result<()> {
+    use windows::Win32::{
+        Foundation::{HLOCAL, LocalFree},
+        Security::{Authorization::*, *},
+    };
+    let mut owner = PSID::default();
+    let mut descriptor = PSECURITY_DESCRIPTOR::default();
+    // SAFETY: the owner SID points into descriptor until it is freed once below.
+    unsafe {
+        GetNamedSecurityInfoW(
+            &HSTRING::from(folder.as_os_str()),
+            SE_FILE_OBJECT,
+            OWNER_SECURITY_INFORMATION,
+            Some(&mut owner),
+            None,
+            None,
+            None,
+            &mut descriptor,
+        )
+        .ok()?;
+        let mut text = PWSTR::null();
+        let installer = ConvertSidToStringSidW(owner, &mut text).is_ok()
+            && text.to_string().is_ok_and(|sid| {
+                sid == "S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464"
+            });
+        if !text.is_null() {
+            let _ = LocalFree(Some(HLOCAL(text.0.cast())));
+        }
+        let trusted = IsWellKnownSid(owner, WinBuiltinAdministratorsSid).as_bool()
+            || IsWellKnownSid(owner, WinLocalSystemSid).as_bool()
+            || installer;
+        let _ = LocalFree(Some(HLOCAL(descriptor.0)));
+        ensure!(
+            trusted,
+            "{} must be owned by Administrators, SYSTEM or TrustedInstaller; choose a new installation folder",
+            folder.display()
+        );
     }
     Ok(())
 }
+fn no_reparse_points(folder: &Path) -> Result<()> {
+    use std::os::windows::fs::MetadataExt;
+    let mut pending = vec![folder.to_path_buf()];
+    while let Some(path) = pending.pop() {
+        let metadata = std::fs::symlink_metadata(&path)?;
+        ensure!(
+            metadata.file_attributes() & 0x400 == 0,
+            "{} is a reparse point",
+            path.display()
+        );
+        if metadata.is_dir() {
+            for entry in std::fs::read_dir(&path)? {
+                pending.push(entry?.path());
+            }
+        }
+    }
+    Ok(())
+}
+/// Limit a folder to SYSTEM and Administrators (and, if `users_read`, read
+/// access for users), replacing the owner and the entire permission list.
+pub fn restrict(folder: &Path, users_read: bool) -> Result<()> {
+    no_reparse_points(folder)?;
+    use windows::Win32::{
+        Foundation::{HLOCAL, LocalFree},
+        Security::{Authorization::*, *},
+    };
+    let sddl = if users_read {
+        "O:BAD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;0x1200a9;;;BU)"
+    } else {
+        "O:BAD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)"
+    };
+    let mut descriptor = PSECURITY_DESCRIPTOR::default();
+    // SAFETY: descriptor owns the SID and ACL until LocalFree after the last call.
+    unsafe {
+        ConvertStringSecurityDescriptorToSecurityDescriptorW(
+            &HSTRING::from(sddl),
+            1,
+            &mut descriptor,
+            None,
+        )?;
+        let result = (|| -> Result<()> {
+            let mut owner = PSID::default();
+            let mut defaulted = windows::core::BOOL(0);
+            let mut present = windows::core::BOOL(0);
+            let mut dacl = std::ptr::null_mut();
+            GetSecurityDescriptorOwner(descriptor, &mut owner, &mut defaulted)?;
+            GetSecurityDescriptorDacl(descriptor, &mut present, &mut dacl, &mut defaulted)?;
+            SetNamedSecurityInfoW(
+                &HSTRING::from(folder.as_os_str()),
+                SE_FILE_OBJECT,
+                OWNER_SECURITY_INFORMATION
+                    | DACL_SECURITY_INFORMATION
+                    | PROTECTED_DACL_SECURITY_INFORMATION,
+                Some(owner),
+                None,
+                Some(dacl),
+                None,
+            )
+            .ok()?;
+            Ok(())
+        })();
+        let _ = LocalFree(Some(HLOCAL(descriptor.0)));
+        result.with_context(|| format!("setting permissions on {}", folder.display()))
+    }
+}
 /// Reset a folder's contents to inherit the folder's permissions.
 pub fn inherit_contents(folder: &Path) -> Result<()> {
+    no_reparse_points(folder)?;
+    if std::fs::read_dir(folder)?.next().is_none() {
+        return Ok(());
+    }
     let pattern = folder.join("*").display().to_string();
-    run(
+    let (code, _) = run(
         &system32("icacls.exe"),
-        &[&pattern, "/reset", "/T", "/C", "/Q"],
+        &[&pattern, "/reset", "/T", "/C", "/L", "/Q"],
         Duration::from_secs(300),
     )?;
+    ensure!(
+        code == 0,
+        "resetting permissions on {} failed ({code})",
+        folder.display()
+    );
+    let (code, _) = run(
+        &system32("icacls.exe"),
+        &[
+            &pattern,
+            "/setowner",
+            "*S-1-5-32-544",
+            "/T",
+            "/C",
+            "/L",
+            "/Q",
+        ],
+        Duration::from_secs(300),
+    )?;
+    ensure!(
+        code == 0,
+        "setting ownership on {} failed ({code})",
+        folder.display()
+    );
     Ok(())
 }
 pub fn shortcut(link: &Path, target: &Path, description: &str) -> Result<()> {
@@ -974,6 +1107,66 @@ pub fn program_files() -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn locked_folders_replace_user_ownership_and_explicit_child_grants() -> Result<()> {
+        if !elevated() {
+            return Ok(());
+        }
+        let root = tempfile::tempdir()?;
+        let folder = root.path().join("locked");
+        std::fs::create_dir(&folder)?;
+        let child = folder.join("host.exe");
+        std::fs::write(&child, b"fixture")?;
+        let (_, identity) = run(
+            &system32("whoami.exe"),
+            &["/user", "/fo", "csv", "/nh"],
+            Duration::from_secs(10),
+        )?;
+        let sid = identity
+            .trim()
+            .split(',')
+            .nth(1)
+            .context("whoami omitted SID")?
+            .trim_matches('"');
+        for path in [&folder, &child] {
+            let (code, output) = run(
+                &system32("icacls.exe"),
+                &[
+                    &path.display().to_string(),
+                    "/grant:r",
+                    "*S-1-1-0:(F)",
+                    "/Q",
+                ],
+                Duration::from_secs(10),
+            )?;
+            assert_eq!(code, 0, "{output}");
+            let (code, output) = run(
+                &system32("icacls.exe"),
+                &[
+                    &path.display().to_string(),
+                    "/setowner",
+                    &format!("*{sid}"),
+                    "/Q",
+                ],
+                Duration::from_secs(10),
+            )?;
+            assert_eq!(code, 0, "{output}");
+        }
+        assert!(trusted_folder(&folder).is_err());
+        restrict(&folder, false)?;
+        inherit_contents(&folder)?;
+        trusted_folder(&folder)?;
+        trusted_folder(&child)?;
+        for path in [&folder, &child] {
+            let (_, output) = run(
+                &system32("icacls.exe"),
+                &[&path.display().to_string(), "/findsid", "*S-1-1-0", "/Q"],
+                Duration::from_secs(10),
+            )?;
+            assert!(!output.contains(&path.display().to_string()), "{output}");
+        }
+        Ok(())
+    }
     #[test]
     fn cmd_lines_keep_quoted_paths_with_spaces() -> Result<()> {
         // The shape of an NSIS QuietUninstallString under Program Files, and

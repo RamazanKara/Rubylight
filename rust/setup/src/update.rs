@@ -21,6 +21,8 @@ pub fn run(
 ) -> Result<()> {
     detect::scan().check_version()?;
     let profile = install::profile();
+    system::trusted_ancestors(folder)?;
+    system::trusted_ancestors(profile.parent().context("profile has no parent")?)?;
     let result = profile.join("update-result.json");
     let install = std::fs::canonicalize(folder)?;
     let service =

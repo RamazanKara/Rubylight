@@ -156,6 +156,8 @@ pub fn install(options: &Options, progress: &Progress) -> Result<Outcome> {
     line(format!("found: {found:#?}"));
     let install = system::win32_path(&detect::install_dir(&found, options.install_dir.clone()))?;
     let profile = profile();
+    system::trusted_ancestors(&install)?;
+    system::trusted_ancestors(profile.parent().context("profile has no parent")?)?;
     let mut notes = Vec::new();
     let mut restart_needed = false;
 
@@ -213,7 +215,12 @@ pub fn install(options: &Options, progress: &Progress) -> Result<Outcome> {
     let previous = migration_source(&found, &profile, &install)?;
     progress.set("Unpacking Rubylight…");
     let staging = system::program_data().join("Butterpollo").join("setup");
-    let _ = std::fs::remove_dir_all(&staging);
+    let staging_root = staging.parent().context("staging folder has no parent")?;
+    std::fs::create_dir_all(staging_root)?;
+    system::restrict(staging_root, true)?;
+    if staging.exists() {
+        std::fs::remove_dir_all(&staging).context("removing the previous setup staging folder")?;
+    }
     std::fs::create_dir_all(&staging)?;
     // The staged host runs elevated below (settings import) and loads DLLs
     // from its own folder: lock the folder down before anything lands in it.
@@ -946,28 +953,8 @@ pub(crate) fn register(install: &Path, entries: &[payload::Entry]) -> Result<()>
 /// only administrators change it; a folder elsewhere (D:\Rubylight) would
 /// let any user replace its programs, so it gets the same rights.
 pub(crate) fn secure_install(install: &Path) -> Result<()> {
-    if under_program_files(install) {
-        return Ok(());
-    }
-    system::restrict(install, true)
-}
-/// Whether `install` is inside Program Files, whose permissions already
-/// keep users from changing the programs.
-fn under_program_files(install: &Path) -> bool {
-    let folder = system::win32_path(&canonical_prefix(install))
-        .map(|path| path.to_string_lossy().to_lowercase())
-        .unwrap_or_default();
-    [
-        std::env::var_os("ProgramFiles"),
-        std::env::var_os("ProgramW6432"),
-    ]
-    .into_iter()
-    .flatten()
-    .filter_map(|root| system::win32_path(&canonical_prefix(Path::new(&root))).ok())
-    .any(|root| {
-        let root = root.to_string_lossy().trim_end_matches('\\').to_lowercase();
-        folder.starts_with(&format!("{root}\\"))
-    })
+    system::restrict(install, true)?;
+    system::inherit_contents(install)
 }
 /// Whether the host at `profile`'s address reports a stream, a queued
 /// launch or a running app.

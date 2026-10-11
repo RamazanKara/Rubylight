@@ -65,7 +65,11 @@ pub(super) fn handle(
             json!({"status":true,"profiles":profiles})
         }
         ("GET", "/api/display-devices") => {
-            serde_json::to_value(butterpollo_windows::display::monitors()?)?
+            let monitors = butterpollo_windows::input::on_input_desktop(
+                butterpollo_windows::display::monitors,
+            )
+            .map_err(|error| anyhow::anyhow!("Windows display enumeration failed ({error:#}). If Windows is at the sign-in screen or an RDP session was disconnected, sign in to and unlock the console session, then retry"))?;
+            serde_json::to_value(monitors)?
         }
         ("GET", "/api/framegen/edid-refresh") => {
             let query: std::collections::HashMap<_, _> =

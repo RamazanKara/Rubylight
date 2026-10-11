@@ -694,19 +694,25 @@ fn fallback_warning(native: &str, error: &str, active: &str) -> String {
         native_name(native)
     )
 }
-fn refused(native: Option<(&str, anyhow::Error)>, others: &[String]) -> anyhow::Error {
+fn refused(
+    native: Option<(&str, anyhow::Error)>,
+    others: &[String],
+    adapter: &str,
+) -> anyhow::Error {
     let others = if others.is_empty() {
         "no other hardware encoder applies".to_owned()
     } else {
         format!("other hardware encoders failed: {}", others.join("; "))
     };
-    let remedy = "Automatic never encodes in software. Check the GPU driver and the selected codec, or explicitly select Software at a lower resolution and frame rate";
+    let remedy = "Automatic never encodes in software. If Windows is at the sign-in screen or an RDP session was disconnected, sign in to and unlock the console session, then retry. Otherwise check the GPU driver and selected codec, or explicitly select Software at a lower resolution and frame rate";
     match native {
         Some((backend, error)) => error.context(format!(
-            "{} failed and {others}. {remedy}",
+            "{} failed on {adapter} and {others}. {remedy}",
             native_name(backend)
         )),
-        None => anyhow::anyhow!("unable to initialize encoder: {others}. {remedy}"),
+        None => anyhow::anyhow!(
+            "unable to initialize encoder on {adapter}: no native AMD or NVIDIA encoder applies to this adapter; {others}. {remedy}"
+        ),
     }
 }
 
@@ -907,7 +913,7 @@ impl Encoder {
                 Ok(encoder) => (encoder, native_error),
                 Err(mut others) => {
                     others.splice(0..0, import_errors);
-                    return Err(refused(native_error, &others));
+                    return Err(refused(native_error, &others, &image.gpu.display.adapter));
                 }
             }
         } else {
@@ -1065,7 +1071,8 @@ impl Encoder {
             )));
         }
         if matches!(preference, "" | "auto") {
-            let device = device().context("Automatic encoder selection could not open the configured GPU; check the adapter setting")?;
+            let device = device().context("Automatic encoder selection could not open the configured GPU. If Windows is at the sign-in screen or an RDP session was disconnected, sign in to and unlock the console session, then retry. Otherwise check the adapter setting")?;
+            let adapter = device.display.adapter.clone();
             let native_error = match native_for(&device) {
                 Some("nvenc") => {
                     match crate::nvenc::Encoder::new_device_options(config, device, tuning) {
@@ -1088,7 +1095,7 @@ impl Encoder {
                     }
                     Ok(encoder)
                 }
-                Err(others) => Err(refused(native_error, &others)),
+                Err(others) => Err(refused(native_error, &others, &adapter)),
             };
         }
         if preference == "amf" {
@@ -1223,14 +1230,36 @@ mod tests {
         let error = refused(
             Some(("amf", anyhow::anyhow!("driver rejected mode"))),
             &["h264_qsv: not found".into()],
+            "AMD Radeon RX 9070 XT",
         );
         let message = format!("{error:#}");
-        assert!(message.contains("AMF failed and other hardware encoders failed: h264_qsv"));
+        assert!(message.contains("AMF failed on AMD Radeon RX 9070 XT"));
+        assert!(message.contains("other hardware encoders failed: h264_qsv"));
         assert!(message.contains("never encodes in software"));
         assert!(message.contains("driver rejected mode"));
         let warning = fallback_warning("amf", "driver rejected mode", "qsv");
         assert!(warning.starts_with("AMF could not start (driver rejected mode)"));
         assert!(warning.contains("encoding with qsv instead"));
+    }
+    #[test]
+    fn automatic_failure_names_the_remote_adapter_and_console_recovery() {
+        let error = refused(
+            None,
+            &[
+                "h264_nvenc: unavailable".into(),
+                "h264_qsv: unavailable".into(),
+            ],
+            "Microsoft Remote Display Adapter",
+        );
+        let message = format!("{error:#}");
+        assert!(
+            message.starts_with("unable to initialize encoder on Microsoft Remote Display Adapter")
+        );
+        assert!(message.contains("no native AMD or NVIDIA encoder applies to this adapter"));
+        assert!(message.contains("sign-in screen"));
+        assert!(message.contains("RDP session was disconnected"));
+        assert!(message.contains("unlock the console session"));
+        assert!(!message.contains("AMF failed"));
     }
     #[test]
     fn automatic_picks_the_native_encoder_by_vendor() {

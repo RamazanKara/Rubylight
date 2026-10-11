@@ -568,36 +568,54 @@ impl Topology {
         Self::query_with_flags(QDC_ALL_PATHS)
     }
     fn query_with_flags(flags: QUERY_DISPLAY_CONFIG_FLAGS) -> Result<Self> {
-        // SAFETY: The initialized path and mode buffers match the queried capacities and remain valid through QueryDisplayConfig.
-        unsafe {
-            for _ in 0..8 {
-                let (mut np, mut nm) = (0, 0);
-                GetDisplayConfigBufferSizes(flags, &mut np, &mut nm).ok()?;
-                // QDC_ALL_PATHS includes every source/target combination, not
-                // just attached monitors. VDDs can legitimately exceed 256.
-                if np > 16384 || nm > 32768 {
-                    bail!("display configuration exceeds the limit: {np} paths, {nm} modes");
-                }
-                let mut paths = vec![DISPLAYCONFIG_PATH_INFO::default(); np as usize];
-                let mut modes = vec![DISPLAYCONFIG_MODE_INFO::default(); nm as usize];
-                let result = QueryDisplayConfig(
-                    flags,
-                    &mut np,
-                    paths.as_mut_ptr(),
-                    &mut nm,
-                    modes.as_mut_ptr(),
-                    None,
-                );
-                if result == ERROR_INSUFFICIENT_BUFFER {
-                    continue;
-                }
-                result.ok()?;
-                paths.truncate(np as usize);
-                modes.truncate(nm as usize);
-                return Ok(Self { paths, modes });
+        Self::query_with(
+            // SAFETY: Both counts are live writable references for this call.
+            |np, nm| unsafe { GetDisplayConfigBufferSizes(flags, np, nm) },
+            // SAFETY: The initialized buffers match the supplied counts and
+            // remain live through this synchronous call.
+            |np, paths, nm, modes| unsafe {
+                QueryDisplayConfig(flags, np, paths.as_mut_ptr(), nm, modes.as_mut_ptr(), None)
+            },
+        )
+    }
+    fn query_with(
+        mut sizes: impl FnMut(&mut u32, &mut u32) -> WIN32_ERROR,
+        mut query: impl FnMut(
+            &mut u32,
+            &mut [DISPLAYCONFIG_PATH_INFO],
+            &mut u32,
+            &mut [DISPLAYCONFIG_MODE_INFO],
+        ) -> WIN32_ERROR,
+    ) -> Result<Self> {
+        for _ in 0..8 {
+            let (mut np, mut nm) = (0, 0);
+            sizes(&mut np, &mut nm).ok()?;
+            // QDC_ALL_PATHS includes every source/target combination, not
+            // just attached monitors. VDDs can legitimately exceed 256.
+            if np > 16384 || nm > 32768 {
+                bail!("display configuration exceeds the limit: {np} paths, {nm} modes");
             }
-            bail!("display topology is changing")
+            // A headless console has no paths before its virtual display is
+            // created. QueryDisplayConfig requires real array buffers.
+            if np == 0 {
+                return Ok(Self {
+                    paths: Vec::new(),
+                    modes: Vec::new(),
+                });
+            }
+            nm = nm.max(1);
+            let mut paths = vec![DISPLAYCONFIG_PATH_INFO::default(); np as usize];
+            let mut modes = vec![DISPLAYCONFIG_MODE_INFO::default(); nm as usize];
+            let result = query(&mut np, &mut paths, &mut nm, &mut modes);
+            if result == ERROR_INSUFFICIENT_BUFFER {
+                continue;
+            }
+            result.ok()?;
+            paths.truncate(np as usize);
+            modes.truncate(nm as usize);
+            return Ok(Self { paths, modes });
         }
+        bail!("display topology is changing")
     }
     pub fn restore(&self) -> Result<()> {
         // SAFETY: The owned path and mode slices remain valid for this synchronous display configuration call.
@@ -979,6 +997,90 @@ pub fn edid_refresh(hint: &str, targets: &[u32]) -> Result<serde_json::Value> {
 mod tests {
     use super::super::monitor;
     use super::*;
+    #[test]
+    fn a_headless_console_has_an_empty_topology_without_querying_empty_buffers() {
+        let topology = Topology::query_with(
+            |paths, modes| {
+                *paths = 0;
+                *modes = 0;
+                ERROR_SUCCESS
+            },
+            |_, _, _, _| panic!("headless topology must not query empty arrays"),
+        )
+        .unwrap();
+        assert!(topology.paths.is_empty());
+        assert!(topology.modes.is_empty());
+        assert!(topology.monitors().is_empty());
+    }
+    #[test]
+    fn an_inaccessible_desktop_is_not_reported_as_a_headless_topology() {
+        for fail_sizes in [true, false] {
+            let error = Topology::query_with(
+                |paths, modes| {
+                    *paths = 1;
+                    *modes = 2;
+                    if fail_sizes {
+                        ERROR_ACCESS_DENIED
+                    } else {
+                        ERROR_SUCCESS
+                    }
+                },
+                |_, _, _, _| ERROR_ACCESS_DENIED,
+            )
+            .err()
+            .expect("desktop access error");
+            assert_eq!(
+                error.downcast_ref::<windows::core::Error>().unwrap().code(),
+                windows::core::HRESULT::from_win32(ERROR_ACCESS_DENIED.0)
+            );
+        }
+    }
+    #[test]
+    fn topology_retries_when_a_display_arrives_and_keeps_returned_counts() {
+        let mut calls = 0;
+        let topology = Topology::query_with(
+            |paths, modes| {
+                *paths = 2;
+                *modes = 4;
+                ERROR_SUCCESS
+            },
+            |np, paths, nm, modes| {
+                calls += 1;
+                assert_eq!((*np, *nm), (2, 4));
+                assert_eq!((paths.len(), modes.len()), (2, 4));
+                if calls == 1 {
+                    return ERROR_INSUFFICIENT_BUFFER;
+                }
+                paths[0].targetInfo.id = 7;
+                *np = 1;
+                *nm = 2;
+                ERROR_SUCCESS
+            },
+        )
+        .unwrap();
+        assert_eq!(calls, 2);
+        assert_eq!((topology.paths.len(), topology.modes.len()), (1, 2));
+        assert_eq!(topology.paths[0].targetInfo.id, 7);
+    }
+    #[test]
+    fn an_inactive_display_can_have_no_modes_but_needs_a_real_buffer() {
+        let topology = Topology::query_with(
+            |paths, modes| {
+                *paths = 1;
+                *modes = 0;
+                ERROR_SUCCESS
+            },
+            |_, _, nm, modes| {
+                assert_eq!(*nm, 1);
+                assert!(!modes.is_empty());
+                *nm = 0;
+                ERROR_SUCCESS
+            },
+        )
+        .unwrap();
+        assert_eq!(topology.paths.len(), 1);
+        assert!(topology.modes.is_empty());
+    }
     #[test]
     #[ignore = "requires an interactive Windows desktop with connected displays"]
     fn heartbeat_check_finds_the_monitors_that_monitors_lists() -> Result<()> {

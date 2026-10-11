@@ -430,7 +430,9 @@ impl Host {
                 // Probe the driver's ability independently of the stream's
                 // opt-in: the default asks for long-term references in AV1.
                 config.values.remove("amd_ltr_frames");
-                let result = h.probe_codecs_once(&config, retrying);
+                let result = butterpollo_windows::input::on_input_desktop(|| {
+                    h.probe_codecs_once(&config, retrying)
+                });
                 retrying = true;
                 let Some((flags, error, retry_pyrowave)) =
                     result.unwrap_or_else(|error| Some((0, Some(format!("{error:#}")), false)))
@@ -617,7 +619,9 @@ impl Host {
             if now >= session_check
                 && retry.due(now, self.codec_probe_requested.load(Ordering::Acquire))
             {
-                if self.probe_session_ready() {
+                // Standard encoders also serve the sign-in screen. Only the
+                // optional user-session helper must wait for a signed-in user.
+                if self.sessions.lock().unwrap().idle() {
                     return true;
                 }
                 session_check = now + CODEC_RETRY_MIN;
@@ -1039,6 +1043,27 @@ mod tests {
         );
     }
     use super::*;
+    #[test]
+    #[ignore = "requires SYSTEM in a console session with nobody signed in"]
+    fn standard_codec_retries_do_not_wait_for_windows_sign_in() {
+        assert!(butterpollo_windows::process::is_system());
+        assert!(!butterpollo_windows::process::user_signed_in());
+        let f = test_support::Fixture::new();
+        let now = Instant::now() - CODEC_RETRY_MIN;
+        let mut retry = CodecRetry::new(now);
+        retry.completed(0, Some("GPU not ready at startup"), &f.host.warnings, now);
+        let host = f.host.clone();
+        let (send, receive) = std::sync::mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            send.send(host.wait_for_codec_retry(&retry)).unwrap();
+        });
+        let result = receive.recv_timeout(Duration::from_secs(2));
+        f.host
+            .stop
+            .store(true, std::sync::atomic::Ordering::Release);
+        worker.join().unwrap();
+        assert!(result.unwrap());
+    }
     #[test]
     fn codecs_keep_retrying_with_capped_backoff_until_the_probe_recovers() {
         let mut now = Instant::now();

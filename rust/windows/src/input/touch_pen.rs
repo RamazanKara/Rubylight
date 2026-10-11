@@ -16,7 +16,28 @@ pub(super) fn refresh_due(last: &mut std::time::Instant, now: std::time::Instant
     }
     due
 }
+fn pointer_rect(rect: RECT, origin: POINT) -> RECT {
+    RECT {
+        left: rect.left - origin.x,
+        top: rect.top - origin.y,
+        right: rect.right - origin.x,
+        bottom: rect.bottom - origin.y,
+    }
+}
 impl Injector {
+    fn pointer_display(&mut self) -> Option<RECT> {
+        let rect = self.display()?;
+        // Synthetic pointers and their contact areas are relative to the
+        // virtual screen's top-left, while display rectangles use the primary.
+        // SAFETY: These metrics take no pointers and return the virtual screen origin.
+        let origin = unsafe {
+            POINT {
+                x: GetSystemMetrics(SM_XVIRTUALSCREEN),
+                y: GetSystemMetrics(SM_YVIRTUALSCREEN),
+            }
+        };
+        Some(pointer_rect(rect, origin))
+    }
     fn location(&self, rect: RECT, x: f32, y: f32) -> POINT {
         let (x, y) = self.on_display(x, y);
         POINT {
@@ -84,7 +105,7 @@ impl Injector {
     ) -> Result<()> {
         // No contact exists before the display does: the rectangle is never
         // forgotten once known.
-        let Some(rect) = self.display() else {
+        let Some(rect) = self.pointer_display() else {
             return Ok(());
         };
         // SAFETY: The synthetic device is retained by this injector, and the initialized touch frames remain live for injection.
@@ -204,7 +225,7 @@ impl Injector {
         tilt: u8,
     ) -> Result<()> {
         // The pen cannot be active before the display exists.
-        let Some(rect) = self.display() else {
+        let Some(rect) = self.pointer_display() else {
             return Ok(());
         };
         let location = self.location(rect, x, y);
@@ -363,6 +384,110 @@ fn pen_after(mut pen: POINTER_PEN_INFO, event: u8, failed: bool) -> POINTER_PEN_
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn native_pointer_rectangles_use_the_virtual_screen_origin() {
+        let primary = RECT {
+            left: 0,
+            top: 0,
+            right: 1920,
+            bottom: 1080,
+        };
+        assert_eq!(pointer_rect(primary, POINT::default()), primary);
+        let origin = POINT { x: -1920, y: -1080 };
+        assert_eq!(
+            pointer_rect(primary, origin),
+            RECT {
+                left: 1920,
+                top: 1080,
+                right: 3840,
+                bottom: 2160
+            }
+        );
+        assert_eq!(
+            pointer_rect(
+                RECT {
+                    left: -1920,
+                    top: 0,
+                    right: 0,
+                    bottom: 1080
+                },
+                origin
+            ),
+            RECT {
+                left: 0,
+                top: 1080,
+                right: 1920,
+                bottom: 2160
+            }
+        );
+        assert_eq!(
+            pointer_rect(
+                RECT {
+                    left: 0,
+                    top: -1080,
+                    right: 1920,
+                    bottom: 0
+                },
+                origin
+            ),
+            RECT {
+                left: 1920,
+                top: 0,
+                right: 3840,
+                bottom: 1080
+            }
+        );
+    }
+    #[test]
+    fn native_pointer_locations_keep_letterboxing_and_display_edges() {
+        let mut injector = Injector::new(r"\\.\DISPLAY99", "vhf").unwrap();
+        let display = RECT {
+            left: 0,
+            top: 0,
+            right: 1920,
+            bottom: 1080,
+        };
+        injector.rect = Some(display);
+        injector.set_stream_size(1920, 1440);
+        for origin in [POINT::default(), POINT { x: -1920, y: -1080 }] {
+            let rect = pointer_rect(display, origin);
+            assert_eq!(
+                injector.location(rect, 0., 0.125),
+                POINT {
+                    x: rect.left,
+                    y: rect.top
+                }
+            );
+            assert_eq!(
+                injector.location(rect, 1., 0.875),
+                POINT {
+                    x: rect.right - 1,
+                    y: rect.bottom - 1
+                }
+            );
+            assert_eq!(
+                injector.location(rect, 0.5, 0.5),
+                POINT {
+                    x: 959 - origin.x,
+                    y: 539 - origin.y
+                }
+            );
+            assert_eq!(
+                injector.location(rect, 0., 0.),
+                POINT {
+                    x: rect.left,
+                    y: rect.top
+                }
+            );
+            assert_eq!(
+                injector.location(rect, 1., 1.),
+                POINT {
+                    x: rect.right - 1,
+                    y: rect.bottom - 1
+                }
+            );
+        }
+    }
     #[test]
     fn a_held_touch_is_repeated_while_pen_events_keep_coming() {
         use std::time::{Duration, Instant};

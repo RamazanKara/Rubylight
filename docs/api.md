@@ -6,6 +6,8 @@ Rubylight's Windows Rust host serves its administration API at `https://localhos
 
 This guide covers the current Rust implementation: routing, authentication and token scopes in [web.rs](../rust/host/src/web.rs), and the handlers for each area in [web/](../rust/host/src/web). Moonlight pairing, app discovery and streaming use separate protocol endpoints in [nvhttp.rs](../rust/host/src/nvhttp.rs). The [historical C++ API guide](https://github.com/RamazanKara/Rubylight/blob/2.0.0-rc.23/docs/legacy/api-cpp.md) is kept at the 2.0.0-rc.23 tag as a migration reference.
 
+For client overlay telemetry, see [Hardware metrics](hardware-metrics.md). Its `/api/hardware-metrics` endpoint uses the streaming HTTPS port and the paired client's TLS certificate; the administration authentication methods below do not apply to it.
+
 ## Authentication
 
 Create the administrator account through the local console first. Initial account creation is restricted to requests from the host PC. Access to the web interface also follows `origin_web_ui_allowed`: `pc`, `lan` (the default), or `wan`.

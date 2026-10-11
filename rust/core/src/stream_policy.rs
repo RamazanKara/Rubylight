@@ -405,8 +405,14 @@ impl Pacer {
             let detection = self.period / 2 + Duration::from_micros(500);
             let slack = self.period / 4 + Duration::from_micros(500);
             if next + detection > allowed && next <= allowed + slack {
-                // Only anticipate a phase close to the already allowed slot.
-                return Pace::WaitUntil((next + detection).max(allowed));
+                // A new picture can precede the learned phase. Waiting for
+                // another composition must not stretch delivery to 1.5 periods.
+                let deadline = self.last_claim.map_or(next + detection, |last| {
+                    (next + detection).min(last + self.period + self.period / 4)
+                });
+                if deadline > allowed {
+                    return Pace::WaitUntil(deadline);
+                }
             }
         }
         if now >= allowed {

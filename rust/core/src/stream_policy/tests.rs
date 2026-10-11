@@ -666,10 +666,7 @@ fn learned_phase_anticipates_the_main_update_instead_of_an_extra_composition() {
     let Pace::WaitUntil(deadline) = pacer.decide(extra, extra, Some(period)) else {
         panic!("an extra composition must not consume this source frame's credit");
     };
-    assert_eq!(
-        deadline,
-        last + period + period / 2 + Duration::from_micros(500)
-    );
+    assert_eq!(deadline, last + period + period / 4);
     assert!(deadline - pacer.allowed_at(extra) < period);
     let fresh = last + period;
     pacer.observe_source(fresh);
@@ -687,8 +684,7 @@ fn learned_phase_anticipates_the_main_update_instead_of_an_extra_composition() {
     let Pace::WaitUntil(deadline) = pacer.decide(extra, extra, None) else {
         panic!("a funded extra composition must still wait for the imminent update");
     };
-    assert!(deadline > fresh + period + period / 2 - Duration::from_millis(1));
-    assert!(deadline <= fresh + period + period / 2 + Duration::from_millis(1));
+    assert_eq!(deadline, fresh + period + period / 4);
     // Surplus compositions distort the interval median, and an already funded
     // slot must still give the imminent source update a chance to arrive.
     for interval in [None, Some(period / 2), Some(period * 2)] {
@@ -727,12 +723,11 @@ fn stale_in_phase_compositions_wait_for_late_updates_with_a_fixed_fallback() {
         let Pace::WaitUntil(deadline) = pacer.decide(now, extra, None) else {
             panic!("an old in-phase composition must not bypass the next update");
         };
-        let late = last + period + period / 2;
-        assert!(deadline >= late);
-        assert!(deadline <= late + Duration::from_micros(1500));
+        let late = last + period + period / 8;
+        assert_eq!(deadline, last + period + period / 4);
         for step in 0..10 {
             assert_eq!(
-                pacer.decide(now + Duration::from_millis(step), extra, None),
+                pacer.decide(now + (deadline - now) * step / 10, extra, None),
                 Pace::WaitUntil(deadline)
             );
         }
@@ -757,6 +752,46 @@ fn stale_in_phase_compositions_wait_for_late_updates_with_a_fixed_fallback() {
         pacer.observe_source(resumed);
         assert_eq!(pacer.decide(resumed, resumed, None), Pace::Claim);
         assert_eq!(pacer.source_phase.as_ref().unwrap().count, 1);
+    }
+}
+#[test]
+fn an_early_new_picture_cannot_wait_past_the_phase_delivery_budget() {
+    let start = Instant::now();
+    for fps in [60., 120.] {
+        let period = Duration::from_secs_f64(1. / fps);
+        let mut pacer = Pacer::new(start, period)
+            .with_prediction(false)
+            .with_source_phase(true)
+            .with_spacing(0.5);
+        for frame in 0..64 {
+            pacer.observe_source(start + period * frame);
+            if frame % 2 == 0 {
+                pacer.observe_source(start + period * frame + period / 2);
+            }
+        }
+        let last = start + period * 63;
+        pacer.claimed(last - period / 2);
+        pacer.claimed(last);
+        // The compositor can deliver a new game picture before the phase
+        // learned from earlier captures, then supply no replacement at it.
+        let picture = last + period.mul_f64(0.8);
+        pacer.observe_source(picture);
+        let seen = picture + Duration::from_micros(150);
+        let deadline = last + period + period / 4;
+        assert!(pacer.source_phase.as_ref().unwrap().has_surplus());
+        for step in 0..10 {
+            let now = seen + (deadline - seen) * step / 10;
+            assert_eq!(
+                pacer.decide(now, picture, Some(period / 2)),
+                Pace::WaitUntil(deadline),
+                "{fps} fps, poll {step}"
+            );
+        }
+        assert_eq!(
+            pacer.decide(deadline, picture, Some(period / 2)),
+            Pace::Claim
+        );
+        assert!(deadline - last < period.mul_f64(1.5));
     }
 }
 #[test]

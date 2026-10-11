@@ -9,7 +9,7 @@ Rubylight, called Butterpollo until rc.29, is written in Rust: host, native help
 ## New in 2.2.4
 
 - Correct WGC picture selection for VRR streams when Windows publishes extra compositions between source updates. Source-phase tracking now operates independently of generic prediction, tolerates capture jitter, and waits for the expected update before an old composition consumes its frame slot. Additional compositions no longer dilute a learned phase or count as separate missed source updates.
-- Keep the wait anchored to the captured frame, with a bounded fallback if the source stops. Slow and irregular sources retain ordinary arrival pacing.
+- Bound the wait from the previous frame delivery so an early new picture is not held for another composition. Slow and irregular sources retain ordinary arrival pacing.
 
 ## New in 2.2.3
 

@@ -111,7 +111,11 @@ impl Injector {
         }
         // Normalized Moonlight VKs always use the fixed US table. Non-normalized
         // keys follow the host's layout only when the administrator asks for it.
-        let scan = if flags & 1 == 0 {
+        let scan = if key == 0x2c && (flags & 1 == 0 || always_send_scancodes) {
+            // Print Screen is E0 37. The retained table's SysRq scan 54
+            // stops working when a newer client marks it extended.
+            0x37
+        } else if flags & 1 == 0 {
             crate::keylayout::SCANCODES[(key & 255) as usize] as u16
         } else if always_send_scancodes && !matches!(key, 0x5b | 0x5c | 0x13) {
             // SAFETY: MapVirtualKeyW takes a virtual-key value and a valid mapping constant, with no borrowed pointers.
@@ -311,12 +315,11 @@ pub(super) fn inject(inputs: &[INPUT]) -> usize {
 const MODIFIER_EXTENDED: u8 = 0x10;
 pub(super) const EXPLICIT_EXTENDED_KEY: u32 = 1 << 16;
 fn legacy_extended_key(key: u16) -> bool {
-    // Navigation, Insert/Delete, right Ctrl/Alt, Windows, Apps and keypad
-    // divide, as in Sunshine. Print Screen (0x2c) is not: E0 54 maps to
-    // nothing, so it never took a screenshot.
+    // Older clients do not mark these VKs extended. Without E0, media
+    // scans become letter keys and browser scans become function keys.
     matches!(
         key,
-        0x21..=0x28 | 0x2d | 0x2e | 0xa3 | 0xa5 | 0x5b | 0x5c | 0x5d | 0x6f
+        0x21..=0x28 | 0x2c..=0x2e | 0xa3 | 0xa5..=0xb7 | 0x5b | 0x5c | 0x5d | 0x6f
     )
 }
 pub(super) fn mapped_keyboard_identity(
@@ -390,6 +393,74 @@ mod tests {
                 .Anonymous
                 .ki
         }
+    }
+    #[test]
+    fn voidlink_media_commands_and_older_browser_keys_use_extended_scans() {
+        for (key, scan) in [
+            (0xad, 0x20),
+            (0xae, 0x2e),
+            (0xaf, 0x30),
+            (0xb0, 0x19),
+            (0xb1, 0x10),
+            (0xb2, 0x24),
+            (0xb3, 0x22),
+            (0xa6, 0x6a),
+            (0xa7, 0x69),
+        ] {
+            for modifiers in [0, MODIFIER_EXTENDED] {
+                for down in [true, false] {
+                    let input = keyboard(keyboard_identity(key, modifiers), down, 0);
+                    assert_eq!(input.wVk, VIRTUAL_KEY(0));
+                    assert_eq!(input.wScan, scan);
+                    assert_eq!(
+                        input.dwFlags,
+                        KEYEVENTF_SCANCODE
+                            | KEYEVENTF_EXTENDEDKEY
+                            | if down {
+                                KEYBD_EVENT_FLAGS(0)
+                            } else {
+                                KEYEVENTF_KEYUP
+                            }
+                    );
+                }
+            }
+        }
+    }
+    #[test]
+    fn print_screen_uses_e0_37_with_or_without_moonlights_extended_modifier() {
+        for modifiers in [0, MODIFIER_EXTENDED] {
+            for flags in [0, 1] {
+                for down in [true, false] {
+                    // SAFETY: keyboard_input initializes the keyboard union field.
+                    let input = unsafe {
+                        Injector::keyboard_input(
+                            keyboard_identity(0x2c, modifiers),
+                            down,
+                            flags,
+                            true,
+                        )
+                        .Anonymous
+                        .ki
+                    };
+                    assert_eq!(input.wScan, 0x37);
+                    assert_eq!(input.wVk, VIRTUAL_KEY(0));
+                    assert_eq!(
+                        input.dwFlags,
+                        KEYEVENTF_SCANCODE
+                            | KEYEVENTF_EXTENDEDKEY
+                            | if down {
+                                KEYBD_EVENT_FLAGS(0)
+                            } else {
+                                KEYEVENTF_KEYUP
+                            }
+                    );
+                }
+            }
+        }
+        assert_eq!(
+            keyboard_identity(0x2c, 0),
+            keyboard_identity(0x2c, MODIFIER_EXTENDED)
+        );
     }
     #[test]
     fn moonlight_keypad_enter_retains_its_identity_for_press_repeat_and_release() {
@@ -603,8 +674,8 @@ mod tests {
     #[test]
     fn new_extended_modifier_preserves_legacy_navigation_and_right_modifier_identity() {
         for key in [
-            0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28, 0x2d, 0x2e, 0xa3, 0xa5, 0x5b, 0x5c,
-            0x5d, 0x6f,
+            0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28, 0x2c, 0x2d, 0x2e, 0xa3, 0xa5, 0x5b,
+            0x5c, 0x5d, 0x6f,
         ] {
             let legacy = keyboard_identity(key, 0);
             assert_eq!(legacy, keyboard_identity(key, MODIFIER_EXTENDED));
@@ -615,7 +686,7 @@ mod tests {
                 );
             }
         }
-        for key in [0x0d, 0x2c, 0x41, 0xa0, 0xa1, 0xa2, 0xa4] {
+        for key in [0x0d, 0x41, 0xa0, 0xa1, 0xa2, 0xa4] {
             assert_eq!(
                 keyboard(keyboard_identity(key, 0), true, 0).dwFlags & KEYEVENTF_EXTENDEDKEY,
                 KEYBD_EVENT_FLAGS(0)

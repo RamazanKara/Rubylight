@@ -42,6 +42,8 @@ Choose **Settings → Controls → Touch mode**, or **stream menu → Input mode
 
 **Trackpad speed** changes relative touch movement from 25–400%, with 100% as the default. Native pen input is forwarded when supported and permitted by the host.
 
+Direct mouse, native touch and pen positions follow the streamed image, including when cutouts, fold panes or window padding shift it. Touch permission and a working host touch interface are still required for Multi-touch.
+
 ## Mouse and keyboard
 
 USB and Bluetooth mice and keyboards use Android's input support. Android 8+ provides native pointer capture. **Mouse speed** scales relative movement from 25–400% (default 100%).
@@ -49,6 +51,26 @@ USB and Bluetooth mice and keyboards use Android's input support. Android 8+ pro
 Leave **Desktop mouse mode** off for games that need relative mouse look; enable it for desktop pointer behavior. Enable **Mouse back/forward buttons** only when needed; some devices report right-click through the same Android key path.
 
 Open the stream menu and select **Keyboard** for Android's on-screen keyboard. Hardware key events and text input are sent to the host; Android may reserve system keys. Check the host keyboard layout if punctuation or language-specific keys differ.
+
+Select **stream menu → Extra keyboard keys** for a toolbar with Esc, Tab, Enter, Backspace, Delete, Home/End, Page Up/Down, arrows and F1–F12. Scroll each row horizontally to reach more keys. Ctrl, Alt, Shift and Win apply to the next key pressed in this toolbar, then reset. **Hide keys** closes the toolbar; **Keyboard** opens Android's text keyboard.
+
+The toolbar also provides **Task Manager** (Ctrl+Shift+Esc), **Switch window** (Alt+Tab) and **Close window** (Alt+F4). To stop an unresponsive app, open Task Manager and use its **End task** action on the host. These controls require the host's keyboard permission.
+
+## PC display mode and administration
+
+Open your PC's menu → **Stream settings → PC display mode**, or choose **PC display mode** directly from its menu. The choice is saved per PC and applies from the next stream.
+
+| Choice | What happens on the PC |
+| --- | --- |
+| The PC's own setting | Follow Host virtual display and the host's display settings. |
+| Exclusive | Use a virtual display and switch the PC's other monitors off during the stream. |
+| Extended | Keep the other monitors on; choose whether the PC display or virtual display is primary. |
+| Extended and separated | Keep the other monitors on, but place the streamed display far away in the desktop layout. Choose which display is primary. Both displays share the same Windows session. |
+| Physical display | Stream the PC's monitor without adding a virtual display. |
+
+Rubylight restores the display layout when the stream ends. These choices apply to normal streaming; Remote Monitor and Input-only retain their host-controlled behavior. Other hosts may accept the virtual-display request without supporting the selected layout.
+
+For an online Rubylight PC, **Open host administration** opens its web console in your browser. Manage applications, paired devices, permissions and host display settings there. The console uses its own login; pairing does not sign you in. Remote access needs a reachable console port, which is separate from the streaming ports. The dialog's address can be selected and copied if no browser is available.
 
 ## On-screen controls
 
@@ -79,6 +101,6 @@ In Settings, Right opens the selected switch's help (Left in RTL). TV settings p
 | Start+Select when the controller has no Guide button | Send Guide; without Select, use Start+RB. |
 | Select+LB when device-motion fallback emulates a touchpad-capable controller | Send a touchpad click. |
 | Three-finger tap in Trackpad/Direct mouse mode | Toggle the on-screen keyboard. |
-| Hold the performance overlay | Switch Compact/Advanced mode. |
+| Stream menu → Overlay | Show or hide the overlay and choose Statistics or Debug. |
 
 Rubylight can also pin app shortcuts to the Android launcher. For external game libraries and intent-based shortcuts, see [frontends](FRONTENDS.md).

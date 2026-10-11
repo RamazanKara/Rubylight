@@ -48,7 +48,7 @@ ADVICE = {
     "seekbar_osc_opacity": "Lower to see more of the game beneath the controls.",
     "reset_osc": "Confirm to restore virtual button sizes and positions. This layout is kept separately from a global settings reset.",
     "checkbox_enable_perf_overlay": "Enable while diagnosing frame rate, network loss or delay. Can also be toggled during a stream.",
-    "performance_overlay_mode": "Use Statistics for an Artemis-style summary or Debug for detailed measured stages. Hold the overlay to switch; Copy stats includes Debug details.",
+    "performance_overlay_mode": "Use Statistics for an Artemis-style summary or Debug for detailed measured stages. Switch in the stream menu under Overlay; Copy stats includes Debug details.",
     "gpu_driver": "Import and select a compatible Snapdragon Vulkan driver for PyroWave. The system driver remains the default; changes apply to the next stream.",
     "list_audio_config": "Choose 5.1 or 7.1 for a matching audio output and host configuration; use stereo for headphones or two speakers.",
     "checkbox_host_audio": "Enable to hear audio on the PC as well as Android.",

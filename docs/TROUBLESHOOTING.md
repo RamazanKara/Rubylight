@@ -2,7 +2,7 @@
 
 [Documentation](index.md)
 
-Use the symptom below, then make one change and retry. For performance issues, open **stream menu → Overlay → Advanced** and **Copy stats** before changing settings.
+Use the symptom below, then make one change and retry. For performance issues, open **stream menu → Overlay → Debug** and **Copy stats** before changing settings.
 
 ## Add and pair a host
 
@@ -32,8 +32,12 @@ The client uses the host's advertised ports and custom-port offsets. Check the a
 | Healthy decode but low shown FPS | Presentation, pacing, callback availability or display policy. | Compare Lowest latency/VRR and a rate the screen supports. Check power-saving modes. |
 | High Host processing | PC capture/encoder/game workload. | Reduce the host workload and compare host logs; Android decoder settings cannot remove host processing time. |
 | HDR is washed out or absent | HDR capability, metadata or range mismatch. | Verify HDR on the host display and Android screen; return full-range override to Off and inspect the negotiated codec/HDR mode. |
-| Upscaler reports direct output | HDR/10-bit/PyroWave, no size increase, unsupported GPU path or a runtime fallback. | Read the fallback reason. Compare a lower-resolution SDR stream; reconnect after an overload fallback. |
+| Upscaler reports direct output | Upscaling is off, HDR/10-bit is active, there is no size increase, or the GPU path is unavailable. | Read the reason in Debug. Lower **Stream resolution**, for example 720p on a 1080p output, then choose FSR/SGSR and SDR. PyroWave supports SGSR for both selections. Reconnect after a MediaCodec overload/resize fallback. |
 | PyroWave unavailable | Unsupported Android ABI/Vulkan features, host codec version or surface format. | Read the codec readiness message; use Automatic/HEVC/AV1 on unsupported devices. Test link throughput before raising PyroWave bitrate. |
+| Custom GPU driver cannot be selected | Device/app does not meet the custom-driver requirements. | Custom drivers require Android 10+, arm64 and an Adreno GPU. Other devices use the system driver. This option affects PyroWave's Vulkan path, not MediaCodec. |
+| Driver ZIP is rejected | Invalid metadata, paths, ABI or package size. | Use a compatible Adreno package with root-level `meta.json` and arm64 libraries; see [package requirements](video-and-latency.md#snapdragon-gpu-drivers). A ZIP containing a parent folder is rejected. |
+| Custom driver falls back or the app exits | Driver loading, Vulkan checks or initialization failed, or the driver was active when the process exited. | Select **Settings → Stream → Snapdragon GPU driver → System GPU driver**, then start a new stream. After an interrupted custom-driver session, the next launch resets that selection automatically. Debug shows the driver actually used. |
+| Statistics shows **—** or no AMD GPU measurements | The renderer/host has not provided that metric, or it is not implemented. | Wait for samples and inspect Debug. Display callbacks and host timings may be unavailable; a missing value is not zero. AMD host GPU telemetry is not implemented. |
 | Heat, battery drain or degraded performance over time | Sustained high decode/GPU/display workload. | Try Battery saver, lower FPS/resolution or turn upscaling off. Compare a sustained run, not only the first minute. |
 | No sound or wrong channels | Output routing, surround mismatch or host audio configuration. | Try Stereo, confirm Android volume/output and the host audio device, then reconnect. |
 | Audio delay or glitches | Effects, output route or buffer recovery. | Disable Allow system audio effects, compare another output route and Stereo, and record whether glitches follow a route change. |
@@ -64,7 +68,7 @@ On a paired supporting host, the optional 32 MiB HTTPS download reports throughp
 
 1. Reproduce the problem and note the app version, device/Android version, host version and time.
 2. Open **Settings → App → Report a problem**, select **Share** and choose a receiving app in Android's share sheet.
-3. Attach Advanced **Copy stats** and **Settings → Advanced → Export latency CSV** when relevant.
+3. Attach **Overlay → Copy stats** and **Settings → Advanced → Export latency CSV** when relevant. Copy stats includes all Debug details.
 4. For pairing/host issues, long-press the PC, use **This PC → View details → Copy debug info**, and add the relevant host log.
 5. Describe what you did, what you expected and what occurred in a [Rubylight Android issue](https://github.com/RamazanKara/rubylight-android/issues).
 

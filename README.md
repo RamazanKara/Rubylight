@@ -28,8 +28,10 @@
 - **Keep motion fluid** with high refresh rates and VRR frame pacing.
 - **Sharpen your stream** with client-side FSR and Snapdragon GSR upscaling.
 - **Play your way** with USB and Bluetooth controllers, including DualSense.
-- **Stay in control** with touch, trackpad, mouse, keyboard and on-screen controls.
-- **Know your stream** with a performance overlay for FPS, latency and frame loss.
+- **Stay in control** with touch, trackpad, mouse, keyboard and [on-screen keys and desktop shortcuts](docs/controls.md).
+- **Choose your PC display** with per-PC Exclusive, Extended and isolated display modes on compatible hosts. See the [host feature matrix](docs/PARITY-MATRIX.md).
+- **Choose a Snapdragon GPU driver** for PyroWave with a compatible driver ZIP and system-driver fallback. See [driver requirements](docs/video-and-latency.md).
+- **Know your stream** with Artemis-style Statistics and detailed Debug overlays for frame rates, video throughput, network loss and measured latency stages.
 - **Get playing sooner** with automatic PC discovery and Wake-on-LAN.
 
 ## Quick start

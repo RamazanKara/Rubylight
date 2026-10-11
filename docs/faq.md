@@ -24,7 +24,7 @@ Yes, when your Android device can reach the host's streaming services. Establish
 
 ## Where do I set device permissions?
 
-In **Devices** in the Rubylight host web console. Listing apps, viewing, launching, each input type, clipboard directions and commands have separate permissions. See [pairing](pairing.md#per-device-permissions).
+In **Devices** in the Rubylight host web console. On an online Rubylight PC, choose **Open host administration** from its menu and sign in with the console's account. Listing apps, viewing, launching, each input type, clipboard directions and commands have separate permissions. See [pairing](pairing.md#per-device-permissions).
 
 ## Does Disconnect close my game?
 
@@ -40,7 +40,7 @@ Begin with Automatic codec and upscaling Off. Compare measured decode time and i
 
 ## Is the overlay latency the delay I feel?
 
-The Compact value is network round-trip time plus completed decode time. It excludes other stages, including physical input sampling and display scanout. Advanced stats separate the available stages; physical end-to-end latency needs an external measurement.
+Statistics shows network round-trip time, available host processing, decode time and display wait separately. Debug adds detailed stage timings. These values do not measure physical input sampling through display scanout; physical end-to-end latency needs an external measurement. Choose the view through **stream menu → Overlay**.
 
 ## Can I use my launcher?
 

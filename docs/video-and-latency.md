@@ -2,7 +2,7 @@
 
 [Documentation](index.md) · [Settings reference](settings.md)
 
-Start with the default 720p/60 stream, watch the overlay, then change one setting at a time. Resolution affects detail and decode work; frame rate affects motion and work per second; bitrate affects compression quality and network load.
+Use 720p/60 as a troubleshooting baseline, watch the overlay, then change one setting at a time. Resolution affects detail and decode work; frame rate affects motion and work per second; bitrate affects compression quality and network load.
 
 ## Codecs
 
@@ -22,7 +22,7 @@ Long-press a PC and use **This PC → Test your connection** before increasing b
 
 HDR10 needs an HDR10 display, Android 7+ and a compatible HEVC Main10 or AV1 10-bit decoder, plus HDR configured on the streamed host display. PyroWave has its own HDR-capability checks. Enable **HDR** in Stream settings or the PC profile.
 
-Rubylight handles BT.2020/PQ and static mastering metadata. Advanced stats show the negotiated format, so you can confirm HDR is active.
+Rubylight handles BT.2020/PQ and static mastering metadata. Debug stats show the negotiated format, so you can confirm HDR is active.
 
 **Prefer YUV 4:4:4** can improve colored text. It applies when the host and decoder both support it, with 4:2:0 used otherwise. HDR takes priority over a conflicting chroma preference. **Force full-range video** is an explicit override: mismatched range can crush blacks or clip highlights.
 
@@ -36,30 +36,42 @@ Per-PC profiles accept rates to 0.01 Hz, such as 59.94 or 119.88. The overlay re
 
 ## Upscaling
 
-Choose **Stream → Upscaling** or override it in a PC profile.
+Choose **Settings → Stream → Client-side upscaling** or override it in a PC profile. First lower **Stream resolution**, for example to 720p on a 1080p screen. A PC profile also accepts a custom stream resolution. This reduces transmitted pixels and decode work; upscaling reconstructs that smaller video at the Android output size. **Host render scale** changes the PC's render resolution, not the transmitted video size.
 
 | Mode | Processing |
 | --- | --- |
-| Off (default) | Android's direct compositor scaling. |
-| Bilinear | GLES bilinear scaling. |
+| Off (default) | Direct output without FSR/SGSR reconstruction. |
+| Bilinear | Bilinear scaling through GLES for MediaCodec or Vulkan for PyroWave. |
 | FSR 1.0 | AMD EASU reconstruction followed by RCAS sharpening. |
 | SGSR 1 | Qualcomm's single-pass spatial reconstruction. |
 
-GPU upscaling is for lower-resolution MediaCodec SDR video on GLES 3.0 with the required external-image support. Native/larger input, HDR and 10-bit use direct output. PyroWave SDR streams use SGSR 1 inside the Vulkan renderer for both FSR and SGSR, reading the decoded planes directly in one pass. Under GPU overload or after a resize, Rubylight switches to direct output for the rest of the session to keep the stream smooth.
+MediaCodec GPU upscaling requires lower-resolution SDR video, GLES 3.0 and the required external-image support. Native/larger input, HDR and 10-bit use direct output. Under GPU overload or after a resize, this path switches to direct output for the rest of the session; reconnect to retry.
+
+PyroWave SDR streams use SGSR 1 inside the Vulkan renderer for both FSR and SGSR, reading the decoded planes directly in one pass. The output follows the actual Android surface size independently of the decoded stream size. It preserves the video's aspect ratio unless **Stretch to fill screen** is enabled. Upscaling needs an output viewport larger than the source; HDR/10-bit and a failed SGSR pipeline keep direct output. **Overlay → Debug** shows the active path or the reason it is inactive.
 
 Sharpening ranges from 0–100%, default 50%. At 0%, FSR bypasses extra sharpening; SGSR still performs spatial reconstruction. The setting applies next stream. Compare text, edges, motion, battery use and added time, not just a still image.
 
+## Snapdragon GPU drivers
+
+**Settings → Stream → Snapdragon GPU driver** selects the Vulkan driver used by PyroWave. **System GPU driver** is the default. Custom drivers require Android 10+, an arm64 app and an Adreno GPU; they do not replace Android's system driver or the MediaCodec drivers used by H.264, HEVC and AV1. The selected driver must still pass PyroWave's Vulkan checks.
+
+Use **Import driver ZIP** to import and select a trusted Adreno package, or choose an already imported driver. Import and selection refresh the capability check; the next stream uses the selection. **Remove a driver** deletes its private app copy and returns to the system selection if that driver was selected. Stop a stream before removing its active driver. Imported drivers are excluded from app backups.
+
+Packages need a root-level `meta.json` with schema version 1, a compatible `minApi`, name, author, package/driver versions, Mesa or Qualcomm vendor, and the named arm64 `.so` library. The importer rejects folders, unsafe or duplicate paths, non-arm64 libraries and oversized packages. Limits are 128 MiB compressed, 256 MiB expanded, 64 files, 16 KiB metadata and eight installed drivers. Package validation does not establish compatibility with a particular GPU.
+
+If loading, capability checks or initialization fail, Rubylight tries the system driver and reports the fallback. A failed custom selection remains available to retry or remove. If the app exits while a custom driver is active, the next launch returns that selection to the system driver. Loaded driver libraries and capability results remain in the process until it exits; switching drivers affects a new stream without unloading libraries from an active one. To retry a failed load of the same installed package, fully close and reopen the app, then select it again. **Overlay → Debug** includes the driver used by that stream. Performance and stability need testing on the actual phone; custom drivers are optional, not a guaranteed speed improvement.
+
 ## Performance overlay
 
-Use **stream menu → Overlay** or **Ctrl+Alt+Shift+S**. Compact is the default mode; hold the overlay to switch to Advanced. **Copy stats** copies all Advanced measurements regardless of visible mode. Both modes hide in picture in picture.
+Use **stream menu → Overlay → Statistics** or **Debug**. The saved default is under **Settings → Overlay & audio → Performance overlay mode**; **Ctrl+Alt+Shift+S** toggles visibility. **Copy stats** copies the full Debug text regardless of visible mode. Both modes hide in picture in picture.
 
-Compact displays shown FPS, network RTT plus completed decode time in milliseconds, and network frame loss. Its latency value is network RTT plus decode time; use **Measure input latency** for end-to-end timing.
+Statistics is the default. It shows stream resolution/codec/color, displayed and received FPS, received video payload Mbps, network frame loss, network RTT and variation, host processing, decode time and display wait. These are separate measurements: adding network RTT and decode time does not measure end-to-end latency. Payload Mbps excludes audio, protocol overhead and retransmissions, so it is not the configured bitrate or total link traffic.
 
-The health dot is green below 30 ms and 1% loss, amber at either threshold or when measurements are incomplete, and red at 60 ms or 5% loss.
+Unavailable measurements display **—**, not zero. Some devices or rendering paths cannot report display callbacks, and host processing requires host-provided data. **Measure input latency** runs a separate input-to-rendered-frame probe; neither overlay mode infers that measurement from the displayed stages. AMD GPU utilization, clocks, temperature and power telemetry through the Rubylight host is not implemented.
 
-Compact includes PyroWave measurements. Advanced groups details into Video, Network, Decode and Host and scrolls on smaller screens. Legacy Expanded preferences reset to Compact once because Android also saved that value for untouched defaults; newly selected Advanced preferences persist.
+Debug groups diagnostics into Video, Network and Decode and scrolls on smaller screens. It adds timing percentiles, decoder settings, GPU driver and upscaling details where available. Existing Advanced selections become Debug; other old modes become Statistics.
 
-| Advanced metric | Meaning and interpretation |
+| Debug metric | Meaning and interpretation |
 | --- | --- |
 | Resolution, codec, HDR/chroma, decoder | Actual negotiated stream and selected decoder; compare with requested settings. |
 | Received / released / shown FPS | Frames received, outputs released and presentation callbacks observed. Low shown FPS with healthy receive/decode rates points toward presentation. |
@@ -73,7 +85,7 @@ Compact includes PyroWave measurements. Advanced groups details into Video, Netw
 | avg / p95 / p99 | Mean and percentile timings over valid samples. MediaCodec stage statistics retain up to 600 frames; each stage has its own valid sample count. |
 | Host processing | Host-reported processing avg/p95/p99. Compare host load separately from Android decode work. |
 | Low-latency support / accepted settings | Advertised decoder capabilities and echoed input-format keys. Compare decode time to see their effect. |
-| Upscaling mode / added time / fallback | Selected GPU path, its added-time estimate and a reason for direct output. |
+| Upscaling mode / added time / fallback | Active GPU path or reason for direct output. MediaCodec reports an added-time estimate including texture handoff, GPU completion and swap wait; PyroWave reports the path without a separate upscaling-time estimate. |
 | PyroWave queue / completed decode / GPU decode | Queued work, completed frame decode and the last GPU decode measurement, each reported separately. |
 | PyroWave missing records | Lost portions of record-framed data. Received records update the picture right away while lost regions keep their previous detail. |
 | PyroWave waits / replaced frames | PyroWave decodes into three plane sets on the stream thread while a separate present thread waits for the display, so decoding never queues behind presentation. "Free planes" is the decoder's wait for a plane set, "screen image" the present thread's wait for a swapchain image, and "replaced" the share of decoded frames a newer one superseded before display. |
@@ -85,6 +97,6 @@ Enable **Automatic bitrate** in the stream's **Bitrate** menu on a supporting ho
 
 Use **Settings → Advanced → Export latency CSV** to save the latest local frame timings. `queue_wait_ms`, `input_to_output_ms` and `output_to_render_ms` correspond to the stages above; The appended FPS sample separates received/released/shown FPS and estimated presentation drops.
 
-**Stream menu → Overlay → Measure input latency** measures input to screen during a stream: on a still host desktop with a visible pointer, it nudges the mouse 15 times and times each nudge until Android reports the host's answering frame on screen. It reports typical, best and slowest-10% values. Use a host desktop that stays still between nudges.
+**Stream menu → Overlay → Measure input latency** runs a software response probe during a stream: on a still host desktop with a visible pointer, it nudges the mouse 15 times and times each nudge until a subsequent frame receives a rendered callback. It reports typical, best and slowest-10% values. Keep the host desktop still between nudges so unrelated updates do not affect the result. This interval ends at the callback; it does not measure physical input-device delay or the screen's actual light output.
 
-**Settings → App → Latency benchmark** runs a 10-second hostless test of frame callbacks, timer wakeups and input dispatch age. Use it to compare devices and settings without a host; **Measure input latency** covers the full stream.
+**Settings → App → Latency benchmark** runs a 10-second hostless test of frame callbacks, timer wakeups and input dispatch age. Use it to compare devices and settings without a host; **Measure input latency** exercises the stream's software response path.

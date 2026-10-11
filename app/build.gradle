@@ -28,7 +28,7 @@ android {
         targetSdk 36
 
         versionName "0.4.0"
-        versionCode = 316
+        versionCode = 317
 
         externalNativeBuild {
             ndkBuild {
@@ -127,17 +127,15 @@ android {
                 storePassword releaseSigning.storePassword
                 keyAlias releaseSigning.keyAlias
                 keyPassword releaseSigning.keyPassword
-            } else {
-                initWith signingConfigs.debug
-                logger.warn('WARNING: Release signing is not configured. Release APKs and bundles use the DEBUG KEY for testing only; configure keystore.properties or BP_KEYSTORE* before publishing.')
             }
         }
     }
 
     buildTypes {
         debug {
-            resValue "string", "app_label", "Rubylight"
-            resValue "string", "app_label_root", "Rubylight (Root)"
+            applicationIdSuffix ".debug"
+            resValue "string", "app_label", "Rubylight (Debug)"
+            resValue "string", "app_label_root", "Rubylight (Root Debug)"
         }
         release {
             resValue "string", "app_label", "Rubylight"
@@ -160,6 +158,55 @@ android {
             // BouncyCastle includes duplicate LICENSE.md files
             excludes += '/META-INF/*.md'
         }
+    }
+}
+
+def verifyReleaseSigning = tasks.register('verifyReleaseSigning') {
+    doLast {
+        if (!hasReleaseSigning) {
+            throw new GradleException('Release signing is required: configure keystore.properties or BP_KEYSTORE/BP_KEYSTORE_PASSWORD/BP_KEY_ALIAS/BP_KEY_PASSWORD.')
+        }
+        def keyStore = java.security.KeyStore.getInstance(rootProject.file(releaseSigning.storeFile), releaseSigning.storePassword.toCharArray())
+        def certificate = keyStore.getCertificate(releaseSigning.keyAlias)
+        if (certificate == null || certificate.subjectX500Principal.name.contains('CN=Android Debug')) {
+            throw new GradleException('Release signing requires a dedicated release key, not the Android debug key.')
+        }
+    }
+}
+
+def prepareNativePatches = tasks.register('prepareNativePatches') {
+    doLast {
+        def core = file('src/main/jni/moonlight-core')
+        ['bughunt-stream.patch', 'bughunt-input.patch'].each { name ->
+            def patch = new File(core, "patches/$name").absolutePath
+            def runGit = { List<String> arguments ->
+                def result = providers.exec {
+                    workingDir new File(core, 'moonlight-common-c')
+                    commandLine(['git', 'apply'] + arguments + [patch])
+                    ignoreExitValue = true
+                }
+                [result.result.get().exitValue, result.standardError.asText.get()]
+            }
+            if (runGit(['--reverse', '--check'])[0] != 0) {
+                def check = runGit(['--check'])
+                if (check[0] != 0) {
+                    throw new GradleException("Native patch $name does not apply: ${check[1]}")
+                }
+                def applied = runGit([])
+                if (applied[0] != 0) {
+                    throw new GradleException("Native patch $name failed: ${applied[1]}")
+                }
+            }
+        }
+    }
+}
+
+tasks.configureEach { task ->
+    if (task.name ==~ /pre.*ReleaseBuild/) {
+        task.dependsOn verifyReleaseSigning
+    }
+    if (task.name == 'preBuild' || task.name.startsWith('configureNdkBuild') || task.name.startsWith('buildNdkBuild')) {
+        task.dependsOn prepareNativePatches
     }
 }
 

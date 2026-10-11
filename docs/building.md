@@ -6,7 +6,7 @@
 
 Get published APKs from [Rubylight releases](https://github.com/RamazanKara/rubylight-android/releases), or build one yourself as described below. Open the APK on Android 5.0 or newer and allow installation from the app opening it; no root is needed. With USB debugging enabled, `adb install -r app-nonRoot-debug.apk` also installs it.
 
-Updates require the same signing key. Debug APKs built on different machines use different keys; changing keys requires uninstalling the old app, which removes settings and pairing identity. The normal package ID remains `com.butterpollo.client`.
+Updates require the same signing key. Debug APKs built on different machines use different keys; changing keys requires uninstalling the old app, which removes settings and pairing identity. The normal package ID remains `com.butterpollo.client`; debug builds use `com.butterpollo.client.debug` and a `(Debug)` label.
 
 ## Toolchain and source
 
@@ -45,16 +45,13 @@ bash gradlew --no-daemon --max-workers=2 :app:assembleNonRootDebug :app:lintNonR
 
 The JVM suite includes Robolectric tests. Reports go to `app/build/reports/tests/testNonRootDebugUnitTest/index.html` and `app/build/reports/lint-results-nonRootDebug.html`. A failed lint/test task is a failed check even when assembly succeeds.
 
-The existing CI also runs standalone native parser/negotiation tests on Linux:
+CI rebuilds the Rust protocol libraries from source and runs all native regression tests on Linux, including ASan/UBSan and the production Rust parser:
 
 ```sh
-g++ -std=c++17 -O2 app/src/test/native/pyrowave_frame_test.cpp -o /tmp/pyrowave-frame-test
-/tmp/pyrowave-frame-test
-gcc -std=c11 -O2 app/src/test/native/control_negotiation_test.c -o /tmp/control-negotiation-test
-/tmp/control-negotiation-test
+bash scripts/test-native.sh
 ```
 
-These commands match [the Android workflow](../.github/workflows/android.yml). The optional [emulator smoke script](../scripts/emulator-smoke.py) requires an already configured Android SDK, Python and its expected AVD.
+This requires a C/C++ compiler, OpenSSL development headers and Rust. Gradle and the native runner apply the checked-in native fixes before compiling and fail if the patches do not apply. [The Android workflow](../.github/workflows/android.yml) also builds both release flavors and runs both flavors' unit tests. The optional [emulator smoke script](../scripts/emulator-smoke.py) requires an already configured Android SDK, Python and its expected AVD.
 
 ### UI smoke captures
 
@@ -90,7 +87,7 @@ The signing hook in [app/build.gradle](../app/build.gradle) reads these four val
 
 Each nonempty environment variable overrides its matching property. Supply all four values using the existing release key. Relative keystore paths resolve from the repository root; use forward slashes in Windows property paths. The properties file and `*.jks`/`*.keystore` files are ignored by Git.
 
-With no signing values, **release APKs and bundles use the debug key**, and Gradle prints a warning. Use these for local installation and R8 testing, and sign distributed builds with your release key. A partial signing configuration fails the build. Updates must use the installed app's signing identity.
+Release builds require a dedicated signing key. Missing or partial signing configuration and the standard Android debug key fail the build, including when using the artifact helpers. CI uses a disposable validation key for minified build tests; it never publishes those release APKs. Updates must use the installed app's signing identity.
 
 Create a signing key once and retain it for future updates. JDK 17 supplies `keytool`; it prompts for the keystore password:
 
@@ -123,7 +120,7 @@ Or use the existing artifact helper after the checks pass:
 
 The Linux helper is `bash scripts/build-release.sh`. Both helpers build an arm64 APK and a bundle with the default ABIs, then print SHA-256 hashes and byte sizes. They do not publish. Preserve `app/build/outputs/mapping/nonRootRelease/mapping.txt` and native debug symbols for the matching release.
 
-Releases are built and published from a local machine with `gh release create`. Test prereleases carry a debug-signed arm64 APK; store uploads use the release key.
+Releases are built and published from a local machine with `gh release create` using the retained release key. Test prereleases carry a debug-signed arm64 APK with the separate debug package ID and are never marked Latest.
 
 ## Documentation checks
 

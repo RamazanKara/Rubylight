@@ -1,6 +1,6 @@
 $ErrorActionPreference = 'Stop'
 $root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
-$package = 'com.butterpollo.client'
+$package = 'com.butterpollo.client.debug'
 $component = "$package/com.limelight.demo.DemoLauncherActivity"
 $remote = '/sdcard/rubylight-demo'
 $work = Join-Path $root 'out/demo/capture'

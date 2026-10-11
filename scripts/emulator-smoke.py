@@ -299,7 +299,7 @@ class HostFixture(http.server.BaseHTTPRequestHandler):
 
 
 def main():
-    global DEBUGGABLE, SHOTS, LOGS
+    global DEBUGGABLE, SHOTS, LOGS, PACKAGE
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--apk", type=Path,
                         default=ROOT / "app/build/outputs/apk/nonRoot/debug/app-nonRoot-debug.apk",
@@ -307,6 +307,9 @@ def main():
     apk = parser.parse_args().apk.resolve()
     if not apk.is_file():
         raise FileNotFoundError(f"Build the selected APK before running the smoke test: {apk}")
+    aapt = max((SDK / 'build-tools').glob('*/' + ('aapt.exe' if os.name == 'nt' else 'aapt')))
+    badging = subprocess.check_output([str(aapt), 'dump', 'badging', str(apk)], text=True)
+    PACKAGE = re.search(r"package: name='([^']+)'", badging).group(1)
     deadline = time.monotonic() + 30 * 60
     while "emulator-" in subprocess.check_output([str(ADB), "devices"], text=True, timeout=30):
         if time.monotonic() >= deadline:

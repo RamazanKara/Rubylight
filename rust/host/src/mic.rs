@@ -42,6 +42,8 @@ const RETRY: Duration = Duration::from_secs(5);
 const WARNING: &str = "microphone";
 
 pub fn spawn(h: Shared, socket: UdpSocket) -> Result<Arc<Counters>> {
+    // The shared UDP factory is nonblocking, which bypasses the receive timeout.
+    socket.set_nonblocking(false)?;
     socket.set_read_timeout(Some(Duration::from_millis(250)))?;
     let counters = Arc::new(Counters::default());
     let receiver_counters = counters.clone();
@@ -359,4 +361,31 @@ fn endpoint(config: &Config) -> Result<String> {
     bail!(
         "Steam Streaming Microphone is not installed. It comes with Steam: install Steam on this PC and keep \"Install Steam streaming audio drivers\" on, then reconnect."
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::state::test_support::Fixture;
+
+    #[test]
+    fn idle_microphone_socket_waits_for_the_receive_timeout() -> Result<()> {
+        let f = Fixture::new();
+        // Inspect the worker's shared socket without competing for its packets.
+        f.host.stop.store(true, Ordering::Release);
+        let socket = crate::network::udp("127.0.0.1:0".parse()?)?;
+        let receiver = socket.try_clone()?;
+        // Clones share blocking mode, but keep their own receive timeout on Windows.
+        receiver.set_read_timeout(Some(Duration::from_millis(250)))?;
+        spawn(f.host.clone(), socket)?;
+
+        let started = Instant::now();
+        let error = receiver.recv_from(&mut [0; 1]).unwrap_err();
+        assert!(matches!(
+            error.kind(),
+            std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+        ));
+        assert!(started.elapsed() >= Duration::from_millis(100));
+        Ok(())
+    }
 }

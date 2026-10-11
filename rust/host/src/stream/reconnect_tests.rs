@@ -477,12 +477,11 @@ impl Harness {
         }
         let weak = Arc::downgrade(self.media.as_ref().unwrap());
         self.media.take();
+        // The microphone's blocking receive can outlive Media until its timeout.
         until("media workers and sockets stopped", WAIT, || {
-            weak.upgrade().is_none()
+            weak.upgrade().is_none() && reserve(self.ports).is_ok()
         })
         .await;
-        let sockets = reserve(self.ports)?;
-        drop(sockets);
         eprintln!(
             "reconnect matrix case completed in {:.3}s",
             self.started.elapsed().as_secs_f64()

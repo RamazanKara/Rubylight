@@ -6,7 +6,7 @@
 
 **Stream your games from any AMD Radeon PC to any screen**: a laptop, TV, phone, tablet, handheld or another PC. Rubylight is a free Windows game-streaming host that drives AMD's encoder natively, prepares every frame on Radeon compute, and streams HEVC and AV1 in 10-bit HDR, or **full-colour HDR 4:4:4 through PyroWave**. It works with Moonlight and every other Sunshine-compatible client, so the app you already use connects as it is.
 
-**[Download 2.2.4](https://github.com/RamazanKara/Rubylight/releases/tag/v2.2.4)** · **[Get started](docs/getting-started.md)** · [Website](https://ramazankara.github.io/Rubylight/) · [Documentation](docs/README.md) · [Release notes](rust/RELEASE_NOTES.md)
+**[Download 2.2.5](https://github.com/RamazanKara/Rubylight/releases/tag/v2.2.5)** · **[Get started](docs/getting-started.md)** · [Website](https://ramazankara.github.io/Rubylight/) · [Documentation](docs/README.md) · [Release notes](rust/RELEASE_NOTES.md)
 
 [![Meet Rubylight: a Windows Moonlight host built around Radeon, its frame pipeline, measured performance, a matched host comparison, PyroWave HDR and getting started](docs/media/demo.gif)](docs/media/demo.mp4)
 
@@ -21,7 +21,7 @@
 
 ## Install. Pair. Play.
 
-1. Run **`rubylight-setup-2.2.4.exe`** from the [release](https://github.com/RamazanKara/Rubylight/releases/tag/v2.2.4).
+1. Run **`rubylight-setup-2.2.5.exe`** from the [release](https://github.com/RamazanKara/Rubylight/releases/tag/v2.2.5).
 2. Open the Rubylight console at **`https://localhost:47990`** and create your local account.
 3. Add your PC in Moonlight or any Sunshine-compatible client, enter its pairing PIN in **Devices**, then launch **Desktop**.
 

@@ -1,10 +1,19 @@
-# Rubylight 2.2.4 for Windows
+# Rubylight 2.2.5 for Windows
 
 [Documentation](../docs/README.md) · [Install and migrate](../docs/getting-started.md) · [Configuration](../docs/configuration.md) · [Features](../docs/features.md)
 
-**Release history:** [2.2.4](#new-in-224) · [2.2.3](#new-in-223) · [2.2.2](#new-in-222) · [2.2.1](#new-in-221) · [2.2.0](#new-in-220) · [2.1.0](#new-in-210) · [2.0.1](#new-in-201) · [2.0.0](#new-in-200) · [rc.30](#new-in-rc30) · [rc.29](#new-in-rc29) · [rc.28](#new-in-rc28) · [rc.27](#new-in-rc27) · [rc.26](#new-in-rc26) · [rc.25](#new-in-rc25) · [rc.24](#new-in-rc24) · [rc.23](#new-in-rc23) · [rc.22](#new-in-rc22) · [rc.21](#new-in-rc21) · [rc.20](#new-in-rc20) · [rc.19](#new-in-rc19) · [rc.18](#new-in-rc18) · [rc.17](#new-in-rc17) · [rc.16](#new-in-rc16) · [rc.15](#new-in-rc15) · [rc.14](#new-in-rc14) · [rc.13](#new-in-rc13) · [rc.12](#new-in-rc12) · [rc.11](#new-in-rc11) · [rc.10](#new-in-rc10) · [rc.9](#new-in-rc9) · [rc.8](#new-in-rc8) · [rc.7](#new-in-rc7) · [rc.6](#new-in-rc6) · [rc.5](#new-in-rc5) · [rc.4](#new-in-rc4) · [rc.3](#new-in-rc3) · [rc.2](#new-in-rc2)
+**Release history:** [2.2.5](#new-in-225) · [2.2.4](#new-in-224) · [2.2.3](#new-in-223) · [2.2.2](#new-in-222) · [2.2.1](#new-in-221) · [2.2.0](#new-in-220) · [2.1.0](#new-in-210) · [2.0.1](#new-in-201) · [2.0.0](#new-in-200) · [rc.30](#new-in-rc30) · [rc.29](#new-in-rc29) · [rc.28](#new-in-rc28) · [rc.27](#new-in-rc27) · [rc.26](#new-in-rc26) · [rc.25](#new-in-rc25) · [rc.24](#new-in-rc24) · [rc.23](#new-in-rc23) · [rc.22](#new-in-rc22) · [rc.21](#new-in-rc21) · [rc.20](#new-in-rc20) · [rc.19](#new-in-rc19) · [rc.18](#new-in-rc18) · [rc.17](#new-in-rc17) · [rc.16](#new-in-rc16) · [rc.15](#new-in-rc15) · [rc.14](#new-in-rc14) · [rc.13](#new-in-rc13) · [rc.12](#new-in-rc12) · [rc.11](#new-in-rc11) · [rc.10](#new-in-rc10) · [rc.9](#new-in-rc9) · [rc.8](#new-in-rc8) · [rc.7](#new-in-rc7) · [rc.6](#new-in-rc6) · [rc.5](#new-in-rc5) · [rc.4](#new-in-rc4) · [rc.3](#new-in-rc3) · [rc.2](#new-in-rc2)
 
-Rubylight, called Butterpollo until rc.29, is written in Rust: host, native helpers, service and setup, with a Svelte web console. The 2.2.4 installer is named `rubylight-setup-2.2.4.exe` and upgrades an existing Vibepollo or Butterpollo installation in place, keeping settings, paired devices, the app library and covers. Codec SDKs and Windows drivers remain external components; the setup installs the drivers.
+Rubylight, called Butterpollo until rc.29, is written in Rust: host, native helpers, service and setup, with a Svelte web console. The 2.2.5 installer is named `rubylight-setup-2.2.5.exe` and upgrades an existing Vibepollo or Butterpollo installation in place, keeping settings, paired devices, the app library and covers. Codec SDKs and Windows drivers remain external components; the setup installs the drivers.
+
+## New in 2.2.5
+
+- Changing the virtual display layout in host, device or app settings now takes effect when reconnecting to a paused stream. Explicit layouts take precedence over the legacy app primary-display flag, and resuming reapplies the selected layout before capture starts. This addresses reproducible reconnect and selection failures related to [issue #19](https://github.com/RamazanKara/Rubylight/issues/19).
+- Startup codec probing follows the active Windows desktop and keeps retrying before sign-in. Headless display enumeration handles an empty topology, and encoder/display errors identify the selected adapter and possible console or RDP session problems ([issue #18](https://github.com/RamazanKara/Rubylight/issues/18)).
+- The WGC capture helper retains the latest unsent update while its shared slots are busy, so the final update still arrives if the desktop becomes static.
+- Paired clients can read the applied and initial encoder bitrate budgets. [Rubylight Android 0.4.3](https://github.com/RamazanKara/rubylight-android/releases/tag/v0.4.3) uses these values to initialize automatic bitrate without an immediate bitrate increase.
+
+Regression tests cover the corrected paths. Headless reboot/RDP recovery and the display-layout behavior still need confirmation on the reporting users' machines. Live latency and smoothness were not benchmarked for this release.
 
 ## New in 2.2.4
 

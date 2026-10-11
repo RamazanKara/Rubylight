@@ -1391,14 +1391,16 @@ impl Media {
                     // and the VRR virtual display runs at 1000 Hz: uncapped, a game
                     // or desktop faster than the stream starved every frame of
                     // bits (a blurry picture, fringed text) and flooded the link.
-                    // The predictive waits stay off; they hold frames for a cadence.
+                    // Generic predictive waits stay off. A stable surplus of WGC
+                    // compositions can still be aligned with the game's updates.
                     let vrr = s.config.vrr_low_latency;
                     let arrival_pacing = vrr
                         || butterpollo_core::stream_policy::Pacing::from_config(&c) == butterpollo_core::stream_policy::Pacing::Arrival;
                     let new_pacer = |period: Duration| {
+                        let predictive = !vrr && c.boolean("frame_pacing_predictive", true);
                         butterpollo_core::stream_policy::Pacer::new(Instant::now(), period)
-                            .with_prediction(!vrr && c.boolean("frame_pacing_predictive", true))
-                            .with_source_phase(!vrr && c.boolean("frame_pacing_source_phase", prepared.capture() == "wgc"))
+                            .with_prediction(predictive)
+                            .with_source_phase((vrr || predictive) && c.boolean("frame_pacing_source_phase", prepared.capture() == "wgc"))
                             .with_spacing(if vrr { 0.5 } else { 0.75 })
                     };
                     let mut pacer = new_pacer(rates.period);

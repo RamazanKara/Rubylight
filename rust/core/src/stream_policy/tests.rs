@@ -119,6 +119,7 @@ fn simulate_with(
         interval = (intervals.len() >= 4)
             .then(|| Duration::from_secs_f64(intervals[intervals.len() / 2] / 1000.));
         newest = Some(presented);
+        pacer.observe_source(at(presented));
         evaluate(detected, &mut newest, &mut deadline, &mut pacer, interval);
     }
     claims
@@ -648,7 +649,9 @@ fn repeat_grace_protects_slow_sources_only_when_their_next_frame_is_due() {
 fn learned_phase_anticipates_the_main_update_instead_of_an_extra_composition() {
     let start = Instant::now();
     let period = Duration::from_millis(16);
-    let mut pacer = Pacer::new(start, period).with_source_phase(true);
+    let mut pacer = Pacer::new(start, period)
+        .with_prediction(false)
+        .with_source_phase(true);
     for frame in 0..40 {
         pacer.observe_source(start + period * frame);
         if frame % 4 == 0 {
@@ -663,8 +666,11 @@ fn learned_phase_anticipates_the_main_update_instead_of_an_extra_composition() {
     let Pace::WaitUntil(deadline) = pacer.decide(extra, extra, Some(period)) else {
         panic!("an extra composition must not consume this source frame's credit");
     };
-    assert_eq!(deadline, last + period + Duration::from_micros(500));
-    assert!(deadline - pacer.allowed_at(extra) < period / 2);
+    assert_eq!(
+        deadline,
+        last + period + period / 2 + Duration::from_micros(500)
+    );
+    assert!(deadline - pacer.allowed_at(extra) < period);
     let fresh = last + period;
     pacer.observe_source(fresh);
     assert_eq!(pacer.decide(fresh, fresh, Some(period)), Pace::Claim);
@@ -674,6 +680,143 @@ fn learned_phase_anticipates_the_main_update_instead_of_an_extra_composition() {
         pacer.observe_source(fresh);
     }
     assert_eq!(pacer.source_phase.as_ref().unwrap().count, count);
+
+    pacer.claimed(fresh);
+    let extra = fresh + period - Duration::from_millis(2);
+    pacer.observe_source(extra);
+    let Pace::WaitUntil(deadline) = pacer.decide(extra, extra, None) else {
+        panic!("a funded extra composition must still wait for the imminent update");
+    };
+    assert!(deadline > fresh + period + period / 2 - Duration::from_millis(1));
+    assert!(deadline <= fresh + period + period / 2 + Duration::from_millis(1));
+    // Surplus compositions distort the interval median, and an already funded
+    // slot must still give the imminent source update a chance to arrive.
+    for interval in [None, Some(period / 2), Some(period * 2)] {
+        assert_eq!(pacer.allowed_at(extra), extra);
+        assert_eq!(
+            pacer.decide(extra, extra, interval),
+            Pace::WaitUntil(deadline)
+        );
+        assert_eq!(pacer.decide(deadline, extra, interval), Pace::Claim);
+    }
+}
+#[test]
+fn stale_in_phase_compositions_wait_for_late_updates_with_a_fixed_fallback() {
+    let start = Instant::now();
+    let period = Duration::from_millis(16);
+    for arrives in [false, true] {
+        let mut pacer = Pacer::new(start, period)
+            .with_prediction(false)
+            .with_source_phase(true)
+            .with_spacing(0.5);
+        for frame in 0..40 {
+            pacer.observe_source(start + period * frame);
+            if frame % 2 == 0 {
+                pacer.observe_source(start + period * frame + Duration::from_micros(1500));
+            }
+        }
+        let last = start + period * 39;
+        pacer.claimed(last - period / 2);
+        pacer.claimed(last);
+        let extra = last + Duration::from_micros(1500);
+        pacer.observe_source(extra);
+        let phase = pacer.source_phase.as_ref().unwrap();
+        assert!(phase.distance(phase.offset(extra), phase.center.unwrap()) <= phase.radius_ns());
+        let now = last + Duration::from_millis(14);
+        assert_eq!(pacer.allowed_at(now), now);
+        let Pace::WaitUntil(deadline) = pacer.decide(now, extra, None) else {
+            panic!("an old in-phase composition must not bypass the next update");
+        };
+        let late = last + period + period / 2;
+        assert!(deadline >= late);
+        assert!(deadline <= late + Duration::from_micros(1500));
+        for step in 0..10 {
+            assert_eq!(
+                pacer.decide(now + Duration::from_millis(step), extra, None),
+                Pace::WaitUntil(deadline)
+            );
+        }
+        if arrives {
+            pacer.observe_source(late);
+            assert_eq!(pacer.decide(late, late, None), Pace::Claim);
+            pacer.claimed(late);
+        } else {
+            assert_eq!(pacer.decide(deadline, extra, None), Pace::Claim);
+            pacer.claimed(deadline);
+        }
+        // Stopping the extra compositions or the animation must not delay
+        // newly arriving frames behind the previously learned phase.
+        for frame in 1..=64 {
+            let at = late + period * (frame * 2);
+            pacer.observe_source(at);
+            assert_eq!(pacer.decide(at, at, None), Pace::Claim);
+            pacer.claimed(at);
+        }
+        assert!(!pacer.source_phase.as_ref().unwrap().has_surplus());
+        let resumed = late + period * 256;
+        pacer.observe_source(resumed);
+        assert_eq!(pacer.decide(resumed, resumed, None), Pace::Claim);
+        assert_eq!(pacer.source_phase.as_ref().unwrap().count, 1);
+    }
+}
+#[test]
+fn vrr_source_phase_escapes_startup_alias_with_jittered_extra_compositions() {
+    let period = 1000. / 60.;
+    let mut lowest_without_phase = 1f64;
+    for offset in 0..64 {
+        // The startup burst spends credit before the regular source begins.
+        // Every second game frame also produces a visually identical capture.
+        let mut publications = vec![(0., 0), (period / 2. + 0.1, 0)];
+        for frame in 0..600 {
+            let at = period * (frame + 1) as f64
+                + period * f64::from(offset) / 64.
+                + f64::from(frame * 7 % 11) * 0.12;
+            publications.push((at, frame + 1));
+            if frame % 2 == 0 {
+                publications.push((at + 2. + f64::from(frame * 5 % 7) * 0.1, frame + 1));
+            }
+        }
+        let captures: Vec<f64> = publications.iter().map(|&(at, _)| at).collect();
+        for phase in [false, true] {
+            let claims = simulate_with(
+                period,
+                &captures,
+                |_| 0.,
+                |pacer| {
+                    pacer
+                        .with_prediction(false)
+                        .with_source_phase(phase)
+                        .with_spacing(0.5)
+                },
+            );
+            let steady: Vec<_> = claims.iter().filter(|(at, _)| *at >= 3000.).collect();
+            let mut frames: Vec<_> = steady
+                .iter()
+                .map(|&&(_, presented)| {
+                    let index = publications
+                        .binary_search_by(|(at, _)| at.total_cmp(&presented))
+                        .unwrap();
+                    publications[index].1
+                })
+                .collect();
+            frames.dedup();
+            let unique = frames.len() as f64 / steady.len() as f64;
+            if phase {
+                assert!(
+                    steady.len() >= 410,
+                    "offset {offset}: {} claims",
+                    steady.len()
+                );
+                assert!(unique >= 0.9, "offset {offset}: {unique} unique share");
+            } else {
+                lowest_without_phase = lowest_without_phase.min(unique);
+            }
+        }
+    }
+    assert!(
+        lowest_without_phase < 0.8,
+        "startup alias was not exercised"
+    );
 }
 #[test]
 fn phase_learning_tracks_fractional_rate_drift_and_resets_on_jumps_and_recovery() {
@@ -706,36 +849,40 @@ fn phase_learning_tracks_fractional_rate_drift_and_resets_on_jumps_and_recovery(
 #[test]
 fn phase_override_preserves_default_decisions_without_clear_capture_surplus() {
     let start = Instant::now();
-    for (stream_hz, observed_hz) in [
-        (60., 60.),
-        (60., 59.94),
-        (59.94, 60.),
-        (120., 119.998),
-        (120., 121.),
-        (60., 49.),
-        (60., 30.),
-    ] {
-        let period = Duration::from_secs_f64(1. / stream_hz);
-        let source_interval = Duration::from_secs_f64(1. / observed_hz);
-        let mut normal = Pacer::new(start, period);
-        let mut learned = Pacer::new(start, period).with_source_phase(true);
-        for frame in 0..256 {
-            let presented = start + source_interval * frame;
-            learned.observe_source(presented);
-            assert!(!learned.source_phase.as_ref().unwrap().has_surplus());
-            normal.claimed(presented);
-            learned.claimed(presented);
-            // Exercise waiting as well as immediate claims. With a stable
-            // learned phase these off-phase candidates used to change the
-            // next deadline despite there being no surplus to correct.
-            for fraction in [0.125, 0.25, 0.5, 0.75, 1.] {
-                let at = presented + period.mul_f64(fraction);
-                for interval in [None, Some(period), Some(source_interval)] {
-                    assert_eq!(
-                        learned.decide(at, at, interval),
-                        normal.decide(at, at, interval),
-                        "stream {stream_hz}, captures {observed_hz}, frame {frame}"
-                    );
+    for prediction in [false, true] {
+        for (stream_hz, observed_hz) in [
+            (60., 60.),
+            (60., 59.94),
+            (59.94, 60.),
+            (120., 119.998),
+            (120., 121.),
+            (60., 49.),
+            (60., 30.),
+        ] {
+            let period = Duration::from_secs_f64(1. / stream_hz);
+            let source_interval = Duration::from_secs_f64(1. / observed_hz);
+            let mut normal = Pacer::new(start, period).with_prediction(prediction);
+            let mut learned = Pacer::new(start, period)
+                .with_prediction(prediction)
+                .with_source_phase(true);
+            for frame in 0..256 {
+                let presented = start + source_interval * frame;
+                learned.observe_source(presented);
+                assert!(!learned.source_phase.as_ref().unwrap().has_surplus());
+                normal.claimed(presented);
+                learned.claimed(presented);
+                // Exercise waiting as well as immediate claims. With a stable
+                // learned phase these off-phase candidates used to change the
+                // next deadline despite there being no surplus to correct.
+                for fraction in [0.125, 0.25, 0.5, 0.75, 1.] {
+                    let at = presented + period.mul_f64(fraction);
+                    for interval in [None, Some(period), Some(source_interval)] {
+                        assert_eq!(
+                            learned.decide(at, at, interval),
+                            normal.decide(at, at, interval),
+                            "stream {stream_hz}, captures {observed_hz}, frame {frame}"
+                        );
+                    }
                 }
             }
         }
@@ -785,28 +932,39 @@ fn phase_prediction_falls_back_for_irregular_faster_and_slower_sources() {
         phase.observe(start + period * frame + period.mul_f64(f64::from(frame * 17 % 64) / 64.));
     }
     assert!(phase.center.is_none());
-    let mut normal = Pacer::new(start, period);
-    let mut learned = Pacer::new(start, period).with_source_phase(true);
-    for frame in 0..40 {
-        learned.observe_source(start + period * frame);
-        if frame % 4 == 0 {
-            learned.observe_source(start + period * frame + period / 2);
+    for prediction in [false, true] {
+        for interval in [period / 2, period, period * 2] {
+            let mut normal = Pacer::new(start, period).with_prediction(prediction);
+            let mut learned = Pacer::new(start, period)
+                .with_prediction(prediction)
+                .with_source_phase(true);
+            for frame in 0..128 {
+                let at = start + interval * frame;
+                learned.observe_source(at);
+                assert_eq!(
+                    learned.decide(at, at, Some(interval)),
+                    normal.decide(at, at, Some(interval))
+                );
+                normal.claimed(at);
+                learned.claimed(at);
+            }
+        }
+        let mut normal = Pacer::new(start, period).with_prediction(prediction);
+        let mut learned = Pacer::new(start, period)
+            .with_prediction(prediction)
+            .with_source_phase(true);
+        for frame in 0..128u32 {
+            let at = start + period * frame / 2 + period * (frame * 17 % 64) / 128;
+            learned.observe_source(at);
+            assert!(learned.source_phase.as_ref().unwrap().center.is_none());
+            assert_eq!(learned.decide(at, at, None), normal.decide(at, at, None));
+            normal.claimed(at);
+            learned.claimed(at);
         }
     }
-    assert!(learned.source_phase.as_ref().unwrap().has_surplus());
-    let last = start + period * 39;
-    normal.claimed(last);
-    learned.claimed(last);
-    let at = last + period / 2;
-    for interval in [None, Some(period / 2), Some(period * 2)] {
-        assert_eq!(
-            learned.decide(at, at, interval),
-            normal.decide(at, at, interval)
-        );
-    }
-    learned.observe_source(last + period * 10);
-    assert_eq!(learned.source_phase.as_ref().unwrap().count, 1);
-    assert!(learned.source_phase.as_ref().unwrap().center.is_none());
+    phase.observe(start + period * 200);
+    assert_eq!(phase.count, 1);
+    assert!(phase.center.is_none());
 }
 #[test]
 fn pacing_defaults_to_arrival_and_keeps_the_grid_option() {

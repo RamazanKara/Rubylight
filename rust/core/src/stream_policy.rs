@@ -105,7 +105,7 @@ impl SourcePhase {
         delta.min(self.period_ns - delta)
     }
     fn radius_ns(&self) -> u64 {
-        (self.period_ns / 8).min(750_000)
+        (self.period_ns / 128) * 9
     }
     fn has_surplus(&self) -> bool {
         if self.count < 32 {
@@ -168,8 +168,8 @@ impl SourcePhase {
             bins[(u128::from(sample) * 64 / u128::from(self.period_ns)) as usize] += 1;
         }
         let population = |bin: usize| {
-            (0..5)
-                .map(|offset| bins[(bin + offset + 62) % 64])
+            (0..9)
+                .map(|offset| bins[(bin + offset + 60) % 64])
                 .sum::<usize>()
         };
         let peak = (0..64).max_by_key(|&bin| population(bin)).unwrap();
@@ -183,7 +183,7 @@ impl SourcePhase {
         let mut count = 0i128;
         for &sample in &self.samples[..self.count] {
             let delta = (i128::from(sample) - i128::from(center) + half).rem_euclid(period) - half;
-            if delta.abs() * 128 <= period * 5 {
+            if delta.abs() * 128 <= period * 9 {
                 sum += delta;
                 count += 1;
             }
@@ -340,33 +340,32 @@ impl Pacer {
     ) -> Pace {
         self.faster = source_interval.is_some_and(|i| i < self.period.mul_f64(0.95));
         let allowed = self.allowed_at(now);
-        if now >= allowed {
-            return Pace::Claim;
-        }
-        if self.prediction
-            && let Some(phase) = &self.source_phase
+        if let Some(phase) = &self.source_phase
             && let Some(center) = phase.center
             && phase.has_surplus()
-            && source_interval.is_some_and(|interval| {
-                interval >= self.period.mul_f64(0.875) && interval <= self.period.mul_f64(1.125)
-            })
         {
             let offset = phase.offset(presented);
-            if phase.distance(offset, center) <= phase.radius_ns() {
-                // An update from the dominant source phase is already here.
-                // Do not skip it while predicting another full period ahead.
-                return Pace::WaitUntil(allowed);
-            }
-            let advance = (u128::from(center) + u128::from(phase.period_ns) - u128::from(offset))
+            let mut advance = (u128::from(center) + u128::from(phase.period_ns)
+                - u128::from(offset))
                 % u128::from(phase.period_ns);
+            // A capture near the learned phase belongs to that update, even
+            // when jitter puts it just before the center. Its next update is
+            // one cycle later; an old extra composition must not skip this wait.
+            if advance <= u128::from(phase.radius_ns()) {
+                advance += u128::from(phase.period_ns);
+            }
             let next = presented + Duration::from_nanos(advance as u64);
-            let detection = (self.period / 16).min(Duration::from_micros(500));
+            // A compositor update can arrive half a stream period late.
+            // Keep the fallback anchored to this capture, not the polling time.
+            let detection = self.period / 2 + Duration::from_micros(500);
             let slack = self.period / 4 + Duration::from_micros(500);
             if next + detection > allowed && next <= allowed + slack {
-                // Never add a whole source period: the same bounded
-                // anticipation window used by ordinary pacing still applies.
+                // Only anticipate a phase close to the already allowed slot.
                 return Pace::WaitUntil((next + detection).max(allowed));
             }
+        }
+        if now >= allowed {
+            return Pace::Claim;
         }
         // A long pause is a static desktop, not the source cadence.
         if self.prediction

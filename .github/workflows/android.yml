@@ -11,6 +11,10 @@ on:
         description: Run the emulator smoke test and publish an arm64 debug APK as this pre-release tag
         type: string
         default: ''
+      release_notes:
+        description: Release notes for the pre-release (Markdown)
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -86,11 +90,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ inputs.prerelease_tag }}
+          NOTES: ${{ inputs.release_notes }}
         run: |
           zip -qj smoke-screenshots.zip docs/screenshots/*.png
           gh release create "$TAG" butterpollo-arm64-debug.apk smoke-screenshots.zip \
             --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease --title "$TAG (debug test build)" \
-            --notes "Debug-signed arm64 test build from $GITHUB_SHA. Uninstall builds signed by another CI run first."
+            --notes "${NOTES:-Debug-signed arm64 test build from $GITHUB_SHA. Uninstall builds signed by another CI run first.}"
       - uses: actions/upload-artifact@v7
         if: always() && inputs.prerelease_tag
         with:

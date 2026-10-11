@@ -98,7 +98,11 @@ pub fn is_system() -> bool {
 /// current user.
 pub fn user_sid() -> Option<String> {
     use windows::Win32::Security::Authorization::ConvertSidToStringSidW;
-    let user_token = target_token(&Target::User { elevated: false }).ok()?;
+    let user_token = if is_system() {
+        target_token(&Target::User { elevated: false }).ok()?
+    } else {
+        None
+    };
     let own = token().ok()?;
     let token = user_token.as_ref().unwrap_or(&own);
     // SAFETY: `buffer` holds a TOKEN_USER once the call succeeds, and the string from
@@ -1281,6 +1285,12 @@ mod tests {
         }
         assert_eq!(info.TokenIsElevated, 0);
         Ok(())
+    }
+    #[test]
+    fn portable_user_identity_does_not_require_a_non_elevated_token() {
+        if !is_system() {
+            assert!(user_sid().is_some_and(|sid| !sid.is_empty()));
+        }
     }
     use super::*;
     #[test]

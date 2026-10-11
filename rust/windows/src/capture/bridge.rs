@@ -641,6 +641,12 @@ impl Drop for NativeFrame {
         let _ = self.0.Close();
     }
 }
+fn frame_for_slot<T>(pending: &mut Option<T>, newest: Option<T>, available: bool) -> Option<T> {
+    if let Some(frame) = newest {
+        *pending = Some(frame);
+    }
+    if available { pending.take() } else { None }
+}
 fn next_native(capture: &mut Wgc) -> Result<Option<NativeFrame>> {
     capture.check_color_space()?;
     capture
@@ -823,6 +829,7 @@ fn worker(pipe: &Pipe) -> Result<()> {
     }
 
     let mut slots = Slots::default();
+    let mut pending = None;
     loop {
         for _ in 0..=SLOTS {
             match pipe.receive::<Request>()? {
@@ -838,7 +845,7 @@ fn worker(pipe: &Pipe) -> Result<()> {
         } else {
             next_native(&mut capture)?
         };
-        if let Some(frame) = frame {
+        if frame.is_some() || pending.is_some() {
             let mut chosen = None;
             for (slot, texture) in textures.iter().enumerate() {
                 if !slots.busy[slot] && acquire(&texture.mutex, 0)? {
@@ -846,7 +853,8 @@ fn worker(pipe: &Pipe) -> Result<()> {
                     break;
                 }
             }
-            if let Some(slot) = chosen {
+            if let Some(frame) = frame_for_slot(&mut pending, frame, chosen.is_some()) {
+                let slot = chosen.unwrap();
                 let texture = &textures[slot];
                 let result = (|| -> Result<()> {
                     let source = native_texture(&frame)?;
@@ -899,8 +907,9 @@ fn worker(pipe: &Pipe) -> Result<()> {
                     let _ = windows::Win32::System::Threading::SetEvent(raw(&wake));
                 }
             }
-            // A slow host drops updates. It never owns all of WGC's native
-            // frame-pool entries or grows a queue of stale pictures.
+            // Keep only the newest unsent update so a desktop that becomes
+            // static still reaches the host when a slot returns. One retained
+            // native frame leaves the other pool entry available for updates.
         }
         timer.until(Instant::now() + Duration::from_micros(500));
     }
@@ -1008,6 +1017,47 @@ mod tests {
         assert!(slots.publish(0, next - 1).is_err());
         slots.publish(0, next).unwrap();
         assert!(slots.busy.iter().all(|busy| *busy));
+    }
+    #[test]
+    fn pending_capture_preserves_final_update_until_a_slot_returns() {
+        let mut slots = Slots::default();
+        for slot in 0..SLOTS {
+            slots.publish(slot, slot as u64 + 1).unwrap();
+        }
+        let mut pending = None;
+        assert!(
+            frame_for_slot(&mut pending, Some(5), slots.busy.iter().any(|busy| !busy)).is_none()
+        );
+        for _ in 0..10 {
+            assert!(
+                frame_for_slot(&mut pending, None, slots.busy.iter().any(|busy| !busy)).is_none()
+            );
+        }
+        slots.release(0).unwrap();
+        assert_eq!(
+            frame_for_slot(&mut pending, None, slots.busy.iter().any(|busy| !busy)),
+            Some(5)
+        );
+        assert!(pending.is_none());
+        assert!(frame_for_slot(&mut pending, None, true).is_none());
+    }
+    #[test]
+    fn pending_capture_replaces_old_updates_without_growing_a_queue() {
+        let mut pending = None;
+        let mut previous = std::sync::Weak::new();
+        for update in 1..=10 {
+            let frame = Arc::new(update);
+            let current = Arc::downgrade(&frame);
+            assert!(frame_for_slot(&mut pending, Some(frame), false).is_none());
+            assert!(previous.upgrade().is_none());
+            assert_eq!(current.strong_count(), 1);
+            previous = current;
+        }
+        let frame = frame_for_slot(&mut pending, None, true).unwrap();
+        assert_eq!(*frame, 10);
+        assert!(pending.is_none());
+        drop(frame);
+        assert!(previous.upgrade().is_none());
     }
     #[test]
     fn helper_receives_only_capture_settings_and_no_host_secrets_or_commands() {

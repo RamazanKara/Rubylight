@@ -5,7 +5,7 @@
 <p align="center">Stream your PC games and desktop to Android, with ultra-low latency and the controls you love.</p>
 
 <p align="center">
-  <img src="docs/assets/demo.gif?v=2836f32" width="360" alt="Rubylight demo: open your game library, tap a game to start your stream, keep the performance overlay in view, and keep the stream floating in picture-in-picture.">
+  <img src="https://raw.githubusercontent.com/RamazanKara/rubylight-android/2836f32aced578cd9d0a0ad1bcae8373e8e32ebb/docs/assets/demo.gif" width="360" alt="Rubylight demo: open your game library, tap a game to start your stream, keep the performance overlay in view, and keep the stream floating in picture-in-picture.">
 </p>
 
 <p align="center"><a href="https://ramazankara.github.io/rubylight-android/#demo">Watch the full demo →</a></p>
@@ -17,7 +17,7 @@
 <p align="center">
   <img src="docs/assets/shots/pc-list.png" width="160" alt="Computers list showing online, offline and unpaired PCs">
   <img src="docs/assets/shots/library.png" width="160" alt="Game library with cover art and a running game">
-  <img src="docs/assets/shots/stream.png?v=2836f32" width="160" alt="Close-up of the stream with the compact one-line performance overlay">
+  <img src="https://raw.githubusercontent.com/RamazanKara/rubylight-android/2836f32aced578cd9d0a0ad1bcae8373e8e32ebb/docs/assets/shots/stream.png" width="160" alt="Close-up of the stream with the compact one-line performance overlay">
   <img src="docs/assets/shots/pip.png" width="160" alt="The stream floating over the home screen in a picture-in-picture window">
 </p>
 

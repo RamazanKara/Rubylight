@@ -82,6 +82,8 @@ async fn serverinfo_extras_preserve_permissions_codecs_commands_and_limiter_unit
             ("VirtualDisplayHDRCapable", "true"),
             ("state", "SUNSHINE_SERVER_FREE"),
             ("currentgame", "0"),
+            ("RustHostEncoderBitrateKbps", "0"),
+            ("RustHostInitialEncoderBitrateKbps", "0"),
             ("RustHostSessionCount", "0"),
             ("RustHostPendingSessionCount", "0"),
             ("LocalIP", "127.0.0.1"),
@@ -121,6 +123,8 @@ async fn serverinfo_extras_preserve_permissions_codecs_commands_and_limiter_unit
     assert_eq!(field(&root, "PairStatus"), "0");
     assert_eq!(field(&root, "RustHostProfile"), "");
     assert_eq!(field(&root, "RustHostSessionCount"), "");
+    assert_eq!(field(&root, "RustHostEncoderBitrateKbps"), "0");
+    assert_eq!(field(&root, "RustHostInitialEncoderBitrateKbps"), "0");
     assert_eq!(field(&root, "PyroWaveBandwidthProbeBytes"), "0");
     assert!(root.get_child("ServerCommand").is_none());
     let mut restricted = client;
@@ -549,6 +553,116 @@ async fn virtual_display_advertisement_matches_configuration_and_codecs() {
         .await;
         assert_eq!(field(&root, "VirtualDisplayCapable"), capable);
         assert_eq!(field(&root, "VirtualDisplayHDRCapable"), hdr);
+    }
+}
+
+#[tokio::test]
+async fn serverinfo_encoder_bitrate_tracks_only_own_video_sessions() {
+    let f = Fixture::new();
+    let client = f.client(1 << 25);
+    let config = butterpollo_core::config::Config::parse("fec_percentage=20").unwrap();
+    let mut negotiated = butterpollo_core::rtsp::Negotiated {
+        configured_bitrate_kbps: 50_000,
+        audio_channels: 2,
+        audio_quality: true,
+        ..Default::default()
+    };
+    butterpollo_core::stream_policy::apply(&mut negotiated, 60_000, &config);
+    assert_eq!(negotiated.bitrate_kbps, 38_988);
+    let mine = crate::state::Session::new(f.launch(client.clone(), Role::Stream), negotiated);
+    f.host
+        .sessions
+        .lock()
+        .unwrap()
+        .active
+        .insert(mine.launch.id.clone(), mine.clone());
+    f.session(client.clone(), Role::InputOnly);
+    let stopping = f.session(client.clone(), Role::Stream);
+    stopping.stop();
+    let mut other = client.clone();
+    other.uuid = "other".into();
+    let theirs = f.session(other, Role::Stream);
+    let mut connection = f.connection(true);
+    connection.peer = "192.0.2.1:12345".parse().unwrap();
+    let info = || {
+        serverinfo_response(
+            &f.host,
+            &connection,
+            &config,
+            Some(&client),
+            true,
+            String::new(),
+            0,
+            false,
+        )
+    };
+    for current in [38_988, 24_000] {
+        if current == 24_000 {
+            let applied = document(request(&f, true, "GET", "/bitrate?bitrate=24000").await).await;
+            assert_eq!(field(&applied, "bitrate"), "24000");
+        }
+        let root = document(info()).await;
+        assert_eq!(
+            field(&root, "RustHostEncoderBitrateKbps"),
+            current.to_string()
+        );
+        assert_eq!(field(&root, "RustHostInitialEncoderBitrateKbps"), "38988");
+        assert_eq!(mine.bitrate.load(Ordering::Acquire), current);
+        assert_eq!(theirs.bitrate.load(Ordering::Acquire), 20_000);
+    }
+    let second = crate::state::Session::new(
+        f.launch(client.clone(), Role::RemoteMonitor),
+        butterpollo_core::rtsp::Negotiated {
+            bitrate_kbps: 18_000,
+            ..Default::default()
+        },
+    );
+    second.bitrate.store(30_000, Ordering::Release);
+    f.host
+        .sessions
+        .lock()
+        .unwrap()
+        .active
+        .insert(second.launch.id.clone(), second.clone());
+    let root = document(info()).await;
+    assert_eq!(field(&root, "RustHostEncoderBitrateKbps"), "24000");
+    assert_eq!(field(&root, "RustHostInitialEncoderBitrateKbps"), "18000");
+    mine.stop();
+    second.stop();
+    let root = document(info()).await;
+    assert_eq!(field(&root, "RustHostEncoderBitrateKbps"), "0");
+    assert_eq!(field(&root, "RustHostInitialEncoderBitrateKbps"), "0");
+}
+
+#[tokio::test]
+async fn serverinfo_encoder_bitrate_requires_authenticated_view_or_launch_permission() {
+    let f = Fixture::new();
+    let client = f.client(0);
+    f.session(client, Role::Stream);
+    let config = f.host.config.read().unwrap().clone();
+    for (tls, permission, expected) in [
+        (true, 0, "0"),
+        (true, 1 << 24, "0"),
+        (true, 1 << 25, "20000"),
+        (true, 1 << 26, "20000"),
+        (false, VIEW, "0"),
+    ] {
+        f.host.paired.write().unwrap().clients[0].perm = permission;
+        let connection = f.connection(tls);
+        let client = authenticated(&f.host, &connection, 0).ok();
+        let root = document(serverinfo_response(
+            &f.host,
+            &connection,
+            &config,
+            client.as_ref(),
+            true,
+            String::new(),
+            0,
+            false,
+        ))
+        .await;
+        assert_eq!(field(&root, "RustHostEncoderBitrateKbps"), expected);
+        assert_eq!(field(&root, "RustHostInitialEncoderBitrateKbps"), expected);
     }
 }
 

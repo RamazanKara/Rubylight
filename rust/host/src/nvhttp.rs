@@ -314,6 +314,32 @@ fn serverinfo_response(
     } else {
         (String::new(), String::new())
     };
+    // Runtime changes affect every stream of this client; the minima keep a
+    // controller's initialization from raising one stream to another's rate.
+    let (encoder_bitrate, initial_encoder_bitrate) = client
+        .filter(|client| client.perm & VIEW != 0)
+        .and_then(|client| {
+            h.sessions
+                .lock()
+                .unwrap()
+                .active
+                .values()
+                .filter(|session| {
+                    session.launch.client.uuid == client.uuid
+                        && session.launch.role != Role::InputOnly
+                        && !session.stopping()
+                })
+                .map(|session| {
+                    (
+                        session.bitrate.load(std::sync::atomic::Ordering::Acquire),
+                        session.config.bitrate_kbps,
+                    )
+                })
+                .reduce(|(current, initial), (next_current, next_initial)| {
+                    (current.min(next_current), initial.min(next_initial))
+                })
+        })
+        .unwrap_or((0, 0));
     let current = game
         .as_ref()
         .filter(|game| {
@@ -368,6 +394,11 @@ fn serverinfo_response(
             (h.codecs.load(std::sync::atomic::Ordering::Acquire) & !0x40000000).to_string(),
         ),
         ("RustHostVersion", env!("CARGO_PKG_VERSION").into()),
+        ("RustHostEncoderBitrateKbps", encoder_bitrate.to_string()),
+        (
+            "RustHostInitialEncoderBitrateKbps",
+            initial_encoder_bitrate.to_string(),
+        ),
         ("RustHostSessionCount", session_count),
         ("RustHostPendingSessionCount", pending_count),
         (

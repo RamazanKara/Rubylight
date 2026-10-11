@@ -25,7 +25,7 @@ The installer sets up the host, the Windows service, the virtual display driver 
 
 Portable mode does not install a service. Virtual displays and emulated controllers need their Windows drivers; use the installed service for the bundled virtual-display driver's service access. Keep the extracted libraries and `assets` folder beside the executables.
 
-Run one streaming host on the default ports. If Sunshine, Apollo or Vibepollo is already serving those ports, close that host before starting the portable copy.
+Run one streaming host on the default ports. If Sunshine, Apollo or Vibepollo is already serving those ports, close that host before starting the portable copy, or use [separate profiles and ports](configuration.md#multiple-instances).
 
 ## Bring an existing profile
 
@@ -38,16 +38,16 @@ The default profiles are separate:
 | How it runs | Profile folder |
 | --- | --- |
 | Installed Windows service | `%PROGRAMDATA%\Butterpollo\config` |
-| Portable launcher | `%LOCALAPPDATA%\ButterpolloRust\config` |
+| Portable launcher | Existing `config` folder beside the executable (unreleased); otherwise `%LOCALAPPDATA%\ButterpolloRust\config` |
 
-Opening the launcher again returns to the running profile's console. When launched from the installed package, it uses that package's Windows service profile.
+Opening the launcher again returns to the running profile's console. When launched from the installed package, it uses that package's Windows service profile. An explicit `--config-dir` selects another profile; see [multiple instances](configuration.md#multiple-instances) for examples and release availability.
 
 ## Upgrading
 
 - Installing ends streams and closes host-launched apps. The setup window warns first when Rubylight reports a stream; a quiet setup refuses unless given `--end-streams`. Vibepollo, Apollo and Sunshine cannot report this, so setup stops them without checking.
 - Back up the whole profile folder from the table above (or the previous host's `config` folder). Include `sunshine.conf`, `apps.json`, covers, both identity files in `credentials`, `sunshine_state.json`, `sunshine_credentials.json` if present, and `vibeshine_state.json`. Also back up files named by custom paths in the configuration. Keep this backup private: it contains credentials and device certificates.
 - Run the new installer, or use **Maintenance → Updates → Install when idle** or **Install now**. Settings, unknown configuration keys, paired devices, credentials, apps, device/display settings and saved session data stay in the profile. Active streams do not survive a restart. The service and web console use the new package; installed drivers remain available. Legacy AMD encoder names such as `amdvce_experimental` still select AMF. A saved Xbox 360 or DualShock 4 (ViGEmBus) controller type from an earlier version loads as the VHF Xbox One or DualShock 4 pad; an installed ViGEmBus is no longer used.
-- For a portable update, close the portable host and extract the complete new ZIP into a separate folder. The launcher reuses `%LOCALAPPDATA%\ButterpolloRust\config`; keep the old ZIP and your profile backup until the new version works. Portable mode does not install a service or drivers. Avoid opening an older ZIP against a newer profile.
+- For a portable update, close the portable host and extract the complete new ZIP into a separate folder. The launcher reuses `%LOCALAPPDATA%\ButterpolloRust\config` by default. If you use an adjacent `config` folder, copy that whole folder beside the new executable; if you use `--config-dir`, keep passing the same path. Keep the old ZIP and your profile backup until the new version works. Portable mode does not install a service or drivers. Avoid opening an older ZIP against a newer profile.
 - **From Butterpollo.** Rubylight was called Butterpollo until rc.29. Upgrading renames what Windows shows (Start menu, Apps, the service's display name and the firewall rule) and keeps everything else where it was: the install folder, the `ApolloService` service, the profile folders above and the file names, such as `butterpollo.exe`. The launcher in the package is now **Start Rubylight.exe**; an update replaces the old **Start Butterpollo.exe** and the Start menu entry follows it. New installs go to `C:\Program Files\Rubylight`.
 - If setup cannot identify one source profile, or Rubylight already has settings alongside another host's profile, resolve that choice before removing either host. Imports preserve recognized files and unknown fields; old logs and oversized or linked optional files can be skipped, so keep the original backup.
 - Check that the console opens, existing clients connect, apps and covers appear, and display/controller settings still work. Restart Playnite if its connector was updated. If an update fails, keep the profile's `updates` folder and `update-result.json` for recovery. Installer downgrades are refused. Normal uninstall keeps the profile and drivers; **factory reset** and **remove drivers** explicitly delete them.

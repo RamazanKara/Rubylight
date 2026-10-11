@@ -39,7 +39,7 @@ This isolated base port uses web 48124, HTTPS 48118 and RTSP 48144. Standard Moo
 
 | Mode | Default profile | Service |
 | --- | --- | --- |
-| Portable / direct host | `%LOCALAPPDATA%\ButterpolloRust\config` | Optional |
+| Portable / direct host | Existing `config` folder beside the executable (unreleased); otherwise `%LOCALAPPDATA%\ButterpolloRust\config` | Optional |
 | Installed package | `%PROGRAMDATA%\Butterpollo\config` | `ApolloService` for migration compatibility |
 
 Without arguments, the host listens on all IPv4 interfaces with the console at `https://localhost:47990`. `address_family=both` enables dual-stack listeners; `bind_address` or `--bind` selects an interface. Running or building the host does not install a service. [service.ps1](service.ps1) manages a portable service installation and refuses to alter one belonging to another executable.
@@ -52,7 +52,7 @@ Import into an empty destination without starting a host:
 
 Import copies identity, settings, state, app IDs, permissions, certificates and covers into owned paths. Unknown fields survive. Game paths and preparation commands keep their existing meaning. Missing configured identity files, links/junctions or excessive profile sizes abort the import before the new profile is committed. The launcher refuses to overwrite a nonempty profile. State writes are atomic.
 
-Keep development profiles and ports distinct from the installed service. Tests under `rust/tests` use isolated profiles and stop their own processes.
+Keep development profiles and ports distinct from the installed service. See [multiple instances](../docs/configuration.md#multiple-instances) for profile precedence, copied packages and multiseat launch requirements. Tests under `rust/tests` use isolated profiles and stop their own processes.
 
 ## Implementation
 

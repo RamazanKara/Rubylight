@@ -34,7 +34,7 @@ If the device pairs but cannot launch Desktop, open **Devices → Edit** and che
 
 The default base port is `47989`; the console uses `47990`. A changed **Base port** moves the console to the next port up. Check the active profile's `sunshine.conf` if the launcher reports another address.
 
-**Start Rubylight.exe** reopens the correct console when that profile is already running. If it reports another streaming host on the port, close the conflicting Sunshine, Apollo, Vibepollo or second Rubylight instance. Restarting another copy on the same port does not solve the conflict.
+**Start Rubylight.exe** reopens the correct console when that profile is already running. If it reports another streaming host on the port, close the conflicting Sunshine, Apollo, Vibepollo or second Rubylight instance, or assign [separate profiles and ports](configuration.md#multiple-instances). Restarting another copy on the same port does not solve the conflict.
 
 For an installed host, check **Rubylight** in Windows Services. Its internal service name is `ApolloService`. If it is stopped, read `service.log` before starting it again. The [log locations below](#logs-and-a-useful-report) distinguish service and portable profiles.
 
@@ -191,6 +191,14 @@ The host only follows what Moonlight announces when a controller connects. With 
 
 See [Steam Deck](configuration.md#steam-deck).
 
+## Setup rejects the profile folder's owner
+
+An upgrade from 2.2.1 can fail with `C:\ProgramData\Butterpollo must be owned by Administrators, SYSTEM or TrustedInstaller`. Older installers set the folder's access permissions but could leave an individual user as its owner. Changing access permissions alone does not change ownership.
+
+The [unreleased fix for issue #20](../rust/RELEASE_NOTES.md#unreleased) repairs that legacy ownership and the profile permissions during a verified in-place service upgrade, keeping settings and paired devices. Credentials remain restricted to SYSTEM and Administrators. The published 2.2.5 installer does not contain this fix; use an installer that includes it when available and upgrade in the existing installation folder.
+
+Setup still rejects reparse points (including links and junctions) and untrusted parent folders. The repair does not apply to a fresh install or to a damaged installation whose missing or unreadable package manifest forces a full reinstall. If setup still refuses the path, keep the profile backup and include the setup log from [the locations below](#logs-and-a-useful-report) in your report.
+
 ## An update stays queued
 
 In **Maintenance → Updates**, read the current phase and any error. Installation needs the installed Windows service and one minute without streams, pending connections, remote monitors or host apps. Quit a retained Desktop/game session as well as disconnecting its video. A new connection defers the update.
@@ -205,7 +213,7 @@ Use **Logs → Download log** for the host log or **Download support bundle** fo
 | --- | --- |
 | Installed host log | `%PROGRAMDATA%\Butterpollo\config\logs\butterpollo.log` |
 | Installed service log | `%PROGRAMDATA%\Butterpollo\config\logs\service.log` |
-| Portable host log | `%LOCALAPPDATA%\ButterpolloRust\config\logs\butterpollo.log` |
+| Portable host log | Adjacent `config\logs\butterpollo.log` (unreleased); otherwise `%LOCALAPPDATA%\ButterpolloRust\config\logs\butterpollo.log` |
 | Setup log | `%TEMP%\butterpollo-setup-<timestamp>.log` |
 
 A custom `--config-dir` changes the profile location; `log_path` can override the host log path. The support-bundle download is named `butterpollo-support.zip`.

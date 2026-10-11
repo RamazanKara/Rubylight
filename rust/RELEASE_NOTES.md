@@ -6,6 +6,15 @@
 
 Rubylight, called Butterpollo until rc.29, is written in Rust: host, native helpers, service and setup, with a Svelte web console. The 2.2.5 installer is named `rubylight-setup-2.2.5.exe` and upgrades an existing Vibepollo or Butterpollo installation in place, keeping settings, paired devices, the app library and covers. Codec SDKs and Windows drivers remain external components; the setup installs the drivers.
 
+## Unreleased
+
+These changes are on `main` after 2.2.5 and are not in the published 2.2.5 installer or ZIP.
+
+- **Upgrade older profiles without an ownership error ([#20](https://github.com/RamazanKara/Rubylight/issues/20)).** Verified in-place service upgrades repair legacy user ownership and profile permissions while preserving settings. Parent-folder ownership and reparse-point checks remain in place. See [installer troubleshooting](../docs/troubleshooting.md#setup-rejects-the-profile-folders-owner) for the scope of this repair.
+- **Separate profiles for copied portable packages ([#17](https://github.com/RamazanKara/Rubylight/issues/17)).** An existing `config` folder beside the executable takes precedence over the per-user default; explicit `--config-dir` paths and the installed service's profile keep their precedence. Each instance needs its own base port. See [multiple instances](../docs/configuration.md#multiple-instances).
+
+Formatting, workspace tests, Clippy and a two-host startup smoke test passed. The smoke test confirmed separate profiles, identities, certificates and ports, with clean shutdowns. Elevated ownership repair and simultaneous multiseat streaming remain unverified.
+
 ## New in 2.2.5
 
 - Changing the virtual display layout in host, device or app settings now takes effect when reconnecting to a paused stream. Explicit layouts take precedence over the legacy app primary-display flag, and resuming reapplies the selected layout before capture starts. This addresses reproducible reconnect and selection failures related to [issue #19](https://github.com/RamazanKara/Rubylight/issues/19).

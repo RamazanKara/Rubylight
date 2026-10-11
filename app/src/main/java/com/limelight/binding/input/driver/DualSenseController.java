@@ -18,6 +18,7 @@ public class DualSenseController extends AbstractController {
     private DualSenseReport.Input input = new DualSenseReport.Input();
     private DualSenseReport.Input previous = new DualSenseReport.Input();
     private DualSenseReport.Output output;
+    private final Object outputLock = new Object();
     private UsbInterface hidInterface;
     private UsbEndpoint inEndpoint, outEndpoint;
     private Thread inputThread;
@@ -156,12 +157,12 @@ public class DualSenseController extends AbstractController {
                     if (accelIntervalNs != 0 && now - lastAccelNs >= accelIntervalNs) {
                         listener.reportControllerMotion(getControllerId(), MoonBridge.LI_MOTION_TYPE_ACCEL,
                                 input.accel[0], input.accel[1], input.accel[2]);
-                        lastAccelNs = now;
+                        lastAccelNs = advanceMotionTimestamp(lastAccelNs, now, accelIntervalNs);
                     }
                     if (gyroIntervalNs != 0 && now - lastGyroNs >= gyroIntervalNs) {
                         listener.reportControllerMotion(getControllerId(), MoonBridge.LI_MOTION_TYPE_GYRO,
                                 input.gyro[0], input.gyro[1], input.gyro[2]);
-                        lastGyroNs = now;
+                        lastGyroNs = advanceMotionTimestamp(lastGyroNs, now, gyroIntervalNs);
                     }
                     DualSenseReport.Input temp = previous;
                     previous = input;
@@ -173,6 +174,10 @@ public class DualSenseController extends AbstractController {
         } finally {
             stop();
         }
+    }
+
+    static long advanceMotionTimestamp(long previous, long now, long interval) {
+        return previous == 0 ? now : now - (now - previous) % interval;
     }
 
     private boolean writeOutput(byte[] report) {
@@ -188,29 +193,33 @@ public class DualSenseController extends AbstractController {
     }
 
     @Override
-    public synchronized void stop() {
-        if (stopped) {
-            return;
-        }
-        stopped = true;
-        if (inputThread != null) {
-            inputThread.interrupt();
-        }
-        if (hidInterface != null) {
-            writeOutput(output.reset());
-            if (!connection.releaseInterface(hidInterface)) {
-                LimeLog.warning("Failed to release DualSense HID interface");
+    public void stop() {
+        synchronized (outputLock) {
+            if (stopped) {
+                return;
             }
-            hidInterface = null;
+            stopped = true;
+            if (inputThread != null) {
+                inputThread.interrupt();
+            }
+            if (hidInterface != null) {
+                writeOutput(output.reset());
+                if (!connection.releaseInterface(hidInterface)) {
+                    LimeLog.warning("Failed to release DualSense HID interface");
+                }
+                hidInterface = null;
+            }
+            connection.close();
         }
-        connection.close();
         notifyDeviceRemoved();
     }
 
     @Override
-    public synchronized void rumble(short lowFreqMotor, short highFreqMotor) {
-        if (!stopped) {
-            writeOutput(output.rumble(lowFreqMotor, highFreqMotor));
+    public void rumble(short lowFreqMotor, short highFreqMotor) {
+        synchronized (outputLock) {
+            if (!stopped) {
+                writeOutput(output.rumble(lowFreqMotor, highFreqMotor));
+            }
         }
     }
 
@@ -220,23 +229,29 @@ public class DualSenseController extends AbstractController {
     }
 
     @Override
-    public synchronized void setAdaptiveTriggers(byte eventFlags, byte typeLeft, byte typeRight, byte[] left, byte[] right) {
-        if (!stopped) {
-            writeOutput(output.adaptiveTriggers(eventFlags, typeLeft, typeRight, left, right));
+    public void setAdaptiveTriggers(byte eventFlags, byte typeLeft, byte typeRight, byte[] left, byte[] right) {
+        synchronized (outputLock) {
+            if (!stopped) {
+                writeOutput(output.adaptiveTriggers(eventFlags, typeLeft, typeRight, left, right));
+            }
         }
     }
 
     @Override
-    public synchronized void setLed(byte r, byte g, byte b) {
-        if (!stopped) {
-            writeOutput(output.led(r, g, b));
+    public void setLed(byte r, byte g, byte b) {
+        synchronized (outputLock) {
+            if (!stopped) {
+                writeOutput(output.led(r, g, b));
+            }
         }
     }
 
     @Override
-    public synchronized void setPlayerNumber(int playerNumber) {
-        if (!stopped) {
-            writeOutput(output.player(playerNumber));
+    public void setPlayerNumber(int playerNumber) {
+        synchronized (outputLock) {
+            if (!stopped) {
+                writeOutput(output.player(playerNumber));
+            }
         }
     }
 

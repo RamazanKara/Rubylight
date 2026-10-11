@@ -473,6 +473,7 @@ public class NvHTTP {
                 getXmlString(serverInfo, "PyroWaveHostLinkMbps", false), Integer.MAX_VALUE);
         details.pyroWaveBandwidthProbeBytes = (int) readUnsignedValue(
                 getXmlString(serverInfo, "PyroWaveBandwidthProbeBytes", false), PYROWAVE_BANDWIDTH_PROBE_BYTES);
+        details.hardwareMetricsVersion = getHardwareMetricsVersion(serverInfo);
 
         XmlPullParser parser = XmlPullParserFactory.newInstance().newPullParser();
         parser.setInput(new StringReader(serverInfo));
@@ -504,6 +505,34 @@ public class NvHTTP {
             return parsed >= 0 && parsed <= max ? parsed : 0;
         } catch (NumberFormatException e) {
             return 0;
+        }
+    }
+
+    public static int getHardwareMetricsVersion(String serverInfo) throws IOException, XmlPullParserException {
+        return "1".equals(getXmlString(serverInfo, "HardwareMetricsVersion", false)) ? 1 : 0;
+    }
+
+    public HardwareMetrics getHardwareMetrics() throws IOException {
+        // Polling must never discover a port over unauthenticated HTTP or use an unpinned host.
+        if (serverCert == null || httpsPort <= 0) {
+            throw new IOException("Hardware metrics require a paired host and known HTTPS port");
+        }
+        OkHttpClient client = httpClientShortConnectTimeout.newBuilder()
+                .callTimeout(2, TimeUnit.SECONDS)
+                .followRedirects(false)
+                .followSslRedirects(false)
+                .addInterceptor(chain -> chain.proceed(chain.request().newBuilder()
+                        .header("Accept", "application/json").build()))
+                .build();
+        try (ResponseBody response = openHttpConnection(client, getHttpsUrl(true), "api/hardware-metrics")) {
+            MediaType type = response.contentType();
+            if (type == null || !"application".equals(type.type()) || !"json".equals(type.subtype())) {
+                throw new IOException("Invalid hardware metrics content type");
+            }
+            if (response.source().request(HardwareMetrics.MAX_RESPONSE_BYTES + 1L)) {
+                throw new IOException("Hardware metrics response too large");
+            }
+            return HardwareMetrics.parse(response.string());
         }
     }
     

@@ -13,6 +13,7 @@ import android.net.NetworkInfo;
 import android.net.RouteInfo;
 import android.os.Build;
 
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
@@ -29,6 +30,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
 
 import javax.crypto.KeyGenerator;
 import javax.crypto.SecretKey;
@@ -43,6 +45,7 @@ import com.limelight.binding.input.InputBatcher;
 import com.limelight.nvstream.av.audio.AudioRenderer;
 import com.limelight.nvstream.av.video.VideoDecoderRenderer;
 import com.limelight.nvstream.http.ComputerDetails;
+import com.limelight.nvstream.http.HardwareMetrics;
 import com.limelight.nvstream.http.HostHttpResponseException;
 import com.limelight.nvstream.http.LimelightCryptoProvider;
 import com.limelight.nvstream.http.LaunchConfirmation;
@@ -71,6 +74,9 @@ public class NvConnection {
     private long lastServerCommandTime;
     private volatile ScheduledExecutorService inputPoller;
     private ScheduledFuture<?> inputPoll;
+    private ScheduledExecutorService hardwareMetricsPoller;
+    private NvHTTP hardwareMetricsHttp;
+    private boolean hardwareMetricsUnavailable;
     private long inputIntervalNs = InputBatcher.intervalNs(60);
     // Microphone: whether the setting was on and RECORD_AUDIO granted when this connection
     // started, the capture thread while one runs, and the user's mute choice.
@@ -198,6 +204,7 @@ public class NvConnection {
                 return;
             }
             stopRequested = true;
+            stopHardwareMetricsPolling();
             if (inputPoller != null) {
                 inputPoller.shutdownNow();
                 inputPoller = null;
@@ -782,6 +789,71 @@ public class NvConnection {
     
     public ComputerDetails getHostDetails() {
         return hostDetails;
+    }
+
+    public synchronized boolean startHardwareMetricsPolling(Consumer<HardwareMetrics> listener) {
+        if (stopRequested || hardwareMetricsUnavailable || !hostDetails.supportsHardwareMetrics() ||
+                context.streamConfig.getApp().getRole() == NvApp.Role.INPUT_ONLY) return false;
+        if (hardwareMetricsPoller != null) return true;
+        ScheduledExecutorService poller = Executors.newSingleThreadScheduledExecutor(r -> new Thread(r, "Host metrics"));
+        hardwareMetricsPoller = poller;
+        poller.execute(() -> pollHardwareMetrics(poller, listener));
+        return true;
+    }
+
+    private void pollHardwareMetrics(ScheduledExecutorService poller, Consumer<HardwareMetrics> listener) {
+        HardwareMetrics metrics = null;
+        long delayMs = 10000;
+        boolean unavailable = false;
+        try {
+            NvHTTP request;
+            synchronized (this) {
+                if (hardwareMetricsPoller != poller) return;
+                request = hardwareMetricsHttp;
+            }
+            if (request == null) {
+                request = new NvHTTP(context.serverAddress, hostDetails.httpsPort, uniqueId, context.serverCert, cryptoProvider);
+                synchronized (this) {
+                    if (hardwareMetricsPoller != poller) {
+                        request.cancelPendingRequests();
+                        return;
+                    }
+                    hardwareMetricsHttp = request;
+                }
+            }
+            metrics = request.getHardwareMetrics();
+            delayMs = Math.max(2000, metrics.intervalMs);
+        } catch (FileNotFoundException | HardwareMetrics.UnsupportedVersionException e) {
+            unavailable = true;
+        } catch (HostHttpResponseException e) {
+            unavailable = e.getErrorCode() == 403 || e.getErrorCode() == 404 || e.getErrorCode() == 409;
+        } catch (IOException e) {
+            // A failed optional sample must not interrupt the stream or preserve old values.
+        }
+        synchronized (this) {
+            if (hardwareMetricsPoller != poller) return;
+            if (unavailable) {
+                hardwareMetricsUnavailable = true;
+                stopHardwareMetricsPolling();
+            }
+        }
+        listener.accept(metrics);
+        synchronized (this) {
+            if (hardwareMetricsPoller == poller) {
+                poller.schedule(() -> pollHardwareMetrics(poller, listener), delayMs, TimeUnit.MILLISECONDS);
+            }
+        }
+    }
+
+    public synchronized void stopHardwareMetricsPolling() {
+        if (hardwareMetricsHttp != null) {
+            hardwareMetricsHttp.cancelPendingRequests();
+            hardwareMetricsHttp = null;
+        }
+        if (hardwareMetricsPoller != null) {
+            hardwareMetricsPoller.shutdownNow();
+            hardwareMetricsPoller = null;
+        }
     }
 
     public boolean canSendInput() {

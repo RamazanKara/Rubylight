@@ -30,7 +30,7 @@ How the Android client works with each Rubylight host feature.
 | Touch, pen, mouse and keyboard | Trackpad, direct and multi-touch, native pen, pointer capture and keyboard input. Direct positions account for shifted stream layouts. Extra keyboard keys include Esc, F1–F12, modifiers and Task Manager/window shortcuts. |
 | Clipboard / server commands | Foreground text transfer in both directions and the host's configured commands. |
 | Performance overlay / CSV | Statistics and scrollable Debug views with stage timings, available host processing and CSV export. Choose the mode in the stream menu's Overlay section. |
-| AMD GPU / extended host telemetry | Not implemented in this Android client. Stream-provided host processing time remains available when the host supplies it. |
+| Host CPU / AMD GPU telemetry | Optional host CPU usage and AMD ADLX GPU readings in Statistics and Debug, over paired HTTPS during this device's video stream. Requires the host's hardware-metrics opt-in and advertised protocol support. See [host hardware metrics](video-and-latency.md#host-hardware-metrics). |
 | Connection test / local benchmark | Connection and throughput test, plus a hostless timing benchmark. |
 | Problem reports | Redacted local events, decoder details and the last crash record, shared when you choose. |
 | PiP / shortcuts / frontends | Picture-in-picture, pinned app shortcuts and launcher entries for ES-DE, Daijisho and Pegasus. |

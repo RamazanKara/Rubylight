@@ -620,6 +620,7 @@ def main():
                     text = node.get("text", "")
                     assert "Displayed: 119.9 FPS" in text and "Video payload: 14.2 Mbps" in text, node.attrib
                     assert "Host processing: 2.10 ms" in text and "Display wait: 1.20 ms" in text, node.attrib
+                    assert "Host CPU: 41.6%" in text and "Host GPU 11520: 42.0%" in text, node.attrib
                     width, height = screenshot("overlay-statistics" + suffix)
                     assert (width < height) == (rotation == 0), "Overlay did not rotate"
                     x1, y1, x2, y2 = bounds(node)
@@ -633,6 +634,8 @@ def main():
                         assert section in text, node.attrib
                     assert "Low latency mode: " in text, node.attrib
                     assert "Queue wait: " in text, node.attrib
+                    assert "Host hardware (all GPUs)" in text and "GPU 11520 · AMD Radeon (preview)" in text, node.attrib
+                    assert "GPU power: 28.0 W · Board power: 40.0 W" in text, node.attrib
                     screenshot("overlay-debug" + suffix)
                     x1, y1, x2, y2 = bounds(node)
                     x, y = str(x1 + 20), str(y1 + 20)

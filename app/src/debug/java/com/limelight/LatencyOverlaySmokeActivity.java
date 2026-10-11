@@ -8,11 +8,30 @@ import android.widget.TextView;
 
 import com.limelight.binding.video.MediaCodecDecoderRenderer;
 import com.limelight.binding.video.PerformanceOverlay;
+import com.limelight.nvstream.http.HardwareMetrics;
 import com.limelight.ui.StreamView;
+
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.Map;
 
 /** Debug-only rendering check using the stream layout and production overlay formatters. */
 public class LatencyOverlaySmokeActivity extends Activity {
     private boolean debug;
+    private final HardwareMetrics hardwareMetrics = previewHardwareMetrics();
+
+    private static HardwareMetrics previewHardwareMetrics() {
+        Map<String, Double> gpu = new HashMap<>();
+        gpu.put("gpu_usage_percent", 42.0);
+        gpu.put("gpu_temperature_c", 47.0);
+        gpu.put("gpu_power_w", 28.0);
+        gpu.put("gpu_board_power_w", 40.0);
+        gpu.put("gpu_fan_rpm", 0.0);
+        gpu.put("gpu_vram_used_mb", 2679.0);
+        return new HardwareMetrics(1791712800000L, 1000,
+                Collections.singletonMap("cpu_usage_percent", 41.6),
+                Collections.singletonList(new HardwareMetrics.Gpu(11520, "AMD Radeon (preview)", gpu)));
+    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -50,8 +69,9 @@ public class LatencyOverlaySmokeActivity extends Activity {
         TextView overlay = findViewById(R.id.performanceOverlay);
         overlay.setTextSize(debug ? 11 : 12);
         if (!debug) {
-            overlay.setText(PerformanceOverlay.statisticsText(this, "1280×720 · AV1 · HDR",
-                    119.94f, 120, 14.2f, 0.14f, 8, 1, 2.1f, 4.6f, 1.2f));
+            overlay.setText(PerformanceOverlay.withHardwareMetrics(this,
+                    PerformanceOverlay.statisticsText(this, "1280×720 · AV1 · HDR",
+                            119.94f, 120, 14.2f, 0.14f, 8, 1, 2.1f, 4.6f, 1.2f), hardwareMetrics, false));
             return;
         }
         String video = getString(R.string.perf_overlay_streamdetails, "1280x720", 120f) + '\n' +
@@ -73,6 +93,7 @@ public class LatencyOverlaySmokeActivity extends Activity {
                         {600, 0.4, 0.8, 1.2}, {600, 4.6, 5.8, 6.4}, {600, 1.2, 1.8, 2.5},
                         {600, 6.4, 8.4, 10.1}, {600, 2.1, 2.8, 3.2}
                 });
-        overlay.setText(PerformanceOverlay.debugText(this, video, network, decode));
+        overlay.setText(PerformanceOverlay.withHardwareMetrics(this,
+                PerformanceOverlay.debugText(this, video, network, decode), hardwareMetrics, true));
     }
 }

@@ -102,6 +102,13 @@ public class ComputerDetails {
     public long frameLimiterFpsLimitMilliHz;
     public long pyroWaveHostLinkMbps;
     public int pyroWaveBandwidthProbeBytes;
+    public int hardwareMetricsVersion;
+
+    public boolean supportsHardwareMetrics() {
+        return hardwareMetricsVersion == 1 && rustHostVersion != null &&
+                pairState == PairingManager.PairState.PAIRED &&
+                hasPermission(PERMISSION_VIEW | PERMISSION_LAUNCH);
+    }
 
     public boolean supportsPyroWaveBandwidthProbe() {
         return rustHostVersion != null && pairState == PairingManager.PairState.PAIRED &&
@@ -218,6 +225,7 @@ public class ComputerDetails {
         this.frameLimiterFpsLimitMilliHz = details.frameLimiterFpsLimitMilliHz;
         this.pyroWaveHostLinkMbps = details.pyroWaveHostLinkMbps;
         this.pyroWaveBandwidthProbeBytes = details.pyroWaveBandwidthProbeBytes;
+        this.hardwareMetricsVersion = details.hardwareMetricsVersion;
     }
 
     private static void appendIfKnown(StringBuilder str, String label, Object value) {

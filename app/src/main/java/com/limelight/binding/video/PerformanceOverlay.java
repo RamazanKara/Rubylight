@@ -9,8 +9,10 @@ import android.text.style.ForegroundColorSpan;
 import android.text.style.StyleSpan;
 
 import com.limelight.R;
+import com.limelight.nvstream.http.HardwareMetrics;
 
 import java.util.Locale;
+import java.util.Map;
 
 public final class PerformanceOverlay {
     public static String normalizeMode(String value) {
@@ -58,6 +60,62 @@ public final class PerformanceOverlay {
         appendSection(text, context.getString(R.string.overlay_network), network);
         appendSection(text, context.getString(R.string.overlay_decode), decode);
         return text;
+    }
+
+    @SuppressWarnings("deprecation")
+    public static CharSequence withHardwareMetrics(Context context, CharSequence base,
+                                                    HardwareMetrics metrics, boolean debug) {
+        if (metrics == null) return base;
+        Locale locale = context.getResources().getConfiguration().locale;
+        StringBuilder hardware = new StringBuilder(context.getString(R.string.hardware_cpu,
+                hardwareValue(locale, metrics.cpu, "cpu_usage_percent", "%.1f")));
+        if (debug) {
+            hardware.append('\n').append(context.getString(R.string.hardware_sample,
+                    metrics.sampledAtUnixMs, metrics.intervalMs));
+        }
+        for (HardwareMetrics.Gpu gpu : metrics.gpus) {
+            Map<String, Double> values = gpu.metrics;
+            if (!debug) {
+                hardware.append('\n').append(context.getString(R.string.hardware_gpu_summary, gpu.id,
+                        hardwareValue(locale, values, "gpu_usage_percent", "%.1f"),
+                        hardwareValue(locale, values, "gpu_temperature_c", "%.1f"),
+                        hardwareValue(locale, values, "gpu_power_w", "%.1f")));
+                continue;
+            }
+            hardware.append("\n\n").append(context.getString(R.string.hardware_gpu_name, gpu.id,
+                    gpu.name.isEmpty() ? context.getString(R.string.hardware_gpu_unnamed) : gpu.name));
+            hardware.append('\n').append(context.getString(R.string.hardware_gpu_clocks,
+                    hardwareValue(locale, values, "gpu_usage_percent", "%.1f"),
+                    hardwareValue(locale, values, "gpu_clock_mhz", "%.0f"),
+                    hardwareValue(locale, values, "gpu_memory_clock_mhz", "%.0f")));
+            hardware.append('\n').append(context.getString(R.string.hardware_gpu_temperatures,
+                    hardwareValue(locale, values, "gpu_temperature_c", "%.1f"),
+                    hardwareValue(locale, values, "gpu_hotspot_temperature_c", "%.1f"),
+                    hardwareValue(locale, values, "gpu_memory_temperature_c", "%.1f")));
+            hardware.append('\n').append(context.getString(R.string.hardware_gpu_fan_voltage,
+                    hardwareValue(locale, values, "gpu_voltage_mv", "%.0f"),
+                    hardwareValue(locale, values, "gpu_fan_rpm", "%.0f"),
+                    hardwareValue(locale, values, "gpu_fan_percent", "%.1f")));
+            hardware.append('\n').append(context.getString(R.string.hardware_gpu_power,
+                    hardwareValue(locale, values, "gpu_power_w", "%.1f"),
+                    hardwareValue(locale, values, "gpu_board_power_w", "%.1f")));
+            hardware.append('\n').append(context.getString(R.string.hardware_gpu_memory,
+                    hardwareValue(locale, values, "gpu_vram_used_mb", "%.0f"),
+                    hardwareValue(locale, values, "gpu_vram_usage_percent", "%.1f")));
+        }
+        SpannableStringBuilder text = new SpannableStringBuilder(base);
+        if (debug) {
+            appendSection(text, context.getString(R.string.hardware_title), hardware.toString());
+        } else {
+            if (text.length() != 0) text.append('\n');
+            text.append(hardware);
+        }
+        return text;
+    }
+
+    private static String hardwareValue(Locale locale, Map<String, Double> values, String key, String format) {
+        Double value = values.get(key);
+        return value == null ? "—" : String.format(locale, format, value);
     }
 
     private static void appendSection(SpannableStringBuilder text, String title, String body) {

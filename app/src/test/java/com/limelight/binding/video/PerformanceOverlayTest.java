@@ -4,6 +4,8 @@ import android.app.Application;
 import android.content.Context;
 import android.content.res.Configuration;
 
+import com.limelight.nvstream.http.HardwareMetrics;
+
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.robolectric.RobolectricTestRunner;
@@ -128,5 +130,51 @@ public class PerformanceOverlayTest {
         assertTrue(text.startsWith("Video\n1280×720"));
         assertTrue(text.contains("\n\nNetwork\nNetwork RTT: — ms"));
         assertTrue(text.endsWith("\n\nDecode\n" + detail));
+    }
+
+    @Test
+    public void hardwareStatisticsIdentifyEachHostGpuAndPreserveMissingValues() throws Exception {
+        HardwareMetrics metrics = HardwareMetrics.parse("{\"version\":1,\"sampled_at_unix_ms\":1000,\"interval_ms\":1000," +
+                "\"cpu\":{\"cpu_usage_percent\":41.6},\"gpus\":[" +
+                "{\"id\":11520,\"name\":\"AMD Radeon\",\"metrics\":{\"gpu_usage_percent\":50,\"gpu_temperature_c\":47,\"gpu_power_w\":28}}," +
+                "{\"id\":7,\"name\":\"\",\"metrics\":{\"gpu_usage_percent\":0}}]}");
+        String text = PerformanceOverlay.withHardwareMetrics(context(Locale.US), "Stream stats", metrics, false).toString();
+        assertEquals("Stream stats\nHost CPU: 41.6%\nHost GPU 11520: 50.0% · 47.0 °C · 28.0 W\n" +
+                "Host GPU 7: 0.0% · — °C · — W", text);
+        assertFalse(text.contains("Encoder GPU"));
+    }
+
+    @Test
+    public void hardwareDebugSeparatesGpuAndBoardPowerAndIncludesEveryReading() throws Exception {
+        HardwareMetrics metrics = HardwareMetrics.parse("{\"version\":1,\"sampled_at_unix_ms\":1791712800000,\"interval_ms\":2000," +
+                "\"cpu\":{},\"gpus\":[{\"id\":4,\"name\":\"AMD Radeon\",\"metrics\":{" +
+                "\"gpu_usage_percent\":20,\"gpu_clock_mhz\":1200,\"gpu_memory_clock_mhz\":900," +
+                "\"gpu_temperature_c\":47,\"gpu_hotspot_temperature_c\":51,\"gpu_memory_temperature_c\":50," +
+                "\"gpu_voltage_mv\":950,\"gpu_fan_rpm\":0,\"gpu_fan_percent\":0," +
+                "\"gpu_power_w\":28,\"gpu_board_power_w\":40,\"gpu_vram_used_mb\":2679,\"gpu_vram_usage_percent\":13.09}}]}");
+        String text = PerformanceOverlay.withHardwareMetrics(context(Locale.US), "Decode\np95/p99", metrics, true).toString();
+        assertTrue(text.startsWith("Decode\np95/p99\n\nHost hardware (all GPUs)\nHost CPU: —%"));
+        assertTrue(text.contains("Host sample: 1791712800000 ms since Unix epoch · Interval: 2000 ms"));
+        assertTrue(text.contains("GPU 4 · AMD Radeon"));
+        assertTrue(text.contains("Usage: 20.0% · GPU clock: 1200 MHz · Memory clock: 900 MHz"));
+        assertTrue(text.contains("GPU: 47.0 °C · Hotspot: 51.0 °C · Memory: 50.0 °C"));
+        assertTrue(text.contains("Voltage: 950 mV · Fan: 0 RPM (0.0%)"));
+        assertTrue(text.contains("GPU power: 28.0 W · Board power: 40.0 W"));
+        assertTrue(text.contains("VRAM: 2679 MB (13.1%)"));
+    }
+
+    @Test
+    public void hardwareMeasurementsLocalizeAndDoNotCarryMissingSamplesForward() throws Exception {
+        HardwareMetrics metrics = HardwareMetrics.parse("{\"version\":1,\"sampled_at_unix_ms\":1000,\"interval_ms\":1000," +
+                "\"cpu\":{\"cpu_usage_percent\":41.6},\"gpus\":[{\"id\":7,\"name\":\"\",\"metrics\":{}}]}");
+        String text = PerformanceOverlay.withHardwareMetrics(context(Locale.GERMANY), "Stream", metrics, true).toString();
+        assertTrue(text.contains("Host-CPU: 41,6%"));
+        assertTrue(text.contains("GPU 7 · Unbenannte GPU"));
+        assertTrue(text.contains("Lüfter: — U/min (—%)"));
+        HardwareMetrics empty = HardwareMetrics.parse("{\"version\":1,\"sampled_at_unix_ms\":2000,\"interval_ms\":1000,\"cpu\":{},\"gpus\":[]}");
+        assertEquals("Stream\nHost CPU: —%", PerformanceOverlay.withHardwareMetrics(context(Locale.US), "Stream", empty, false).toString());
+        CharSequence base = PerformanceOverlay.statisticsText(context(Locale.US), "AV1", 60, 60, 20, 0, 8, 1, 2, 4, 1);
+        assertSame(base, PerformanceOverlay.withHardwareMetrics(context(Locale.US), base, null, false));
+        assertSame(base, PerformanceOverlay.withHardwareMetrics(context(Locale.US), base, null, true));
     }
 }

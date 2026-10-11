@@ -29,6 +29,16 @@ that PC only. It is not recorded or stored on your device, and it stops when you
 mute it in the stream menu or the stream ends. Pairing exchanges identity information with that PC. Host
 discovery also uses your local network.
 
+If you enable **Send hardware metrics to client** on a supporting host,
+Rubylight can request host CPU usage and available AMD GPU readings, including
+GPU names, utilization, clocks, temperatures, power, fans and VRAM use. This
+uses the paired streaming HTTPS connection during this device's active video
+stream while its foreground performance overlay is visible. Polling stops
+when the overlay is hidden, the app is paused or in picture in picture, or the
+stream ends. These readings are held in memory for the overlay and are not
+sent to an analytics service. **Copy stats** includes available hardware
+readings and GPU names in the text you choose to copy or share.
+
 The locally generated client identifier is sent with every host HTTP request,
 including polling an unpaired host over unencrypted HTTP. Hosts can use this
 identifier to recognize this installation across requests.

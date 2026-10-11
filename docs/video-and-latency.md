@@ -67,7 +67,7 @@ Use **stream menu → Overlay → Statistics** or **Debug**. The saved default i
 
 Statistics is the default. It shows stream resolution/codec/color, displayed and received FPS, received video payload Mbps, network frame loss, network RTT and variation, host processing, decode time and display wait. These are separate measurements: adding network RTT and decode time does not measure end-to-end latency. Payload Mbps excludes audio, protocol overhead and retransmissions, so it is not the configured bitrate or total link traffic.
 
-Unavailable measurements display **—**, not zero. Some devices or rendering paths cannot report display callbacks, and host processing requires host-provided data. **Measure input latency** runs a separate input-to-rendered-frame probe; neither overlay mode infers that measurement from the displayed stages. AMD GPU utilization, clocks, temperature and power telemetry through the Rubylight host is not implemented.
+Unavailable measurements display **—**, not zero. Some devices or rendering paths cannot report display callbacks, and host processing requires host-provided data. **Measure input latency** runs a separate input-to-rendered-frame probe; neither overlay mode infers that measurement from the displayed stages. Optional [host hardware metrics](#host-hardware-metrics) appear separately from these timings.
 
 Debug groups diagnostics into Video, Network and Decode and scrolls on smaller screens. It adds timing percentiles, decoder settings, GPU driver and upscaling details where available. Existing Advanced selections become Debug; other old modes become Statistics.
 
@@ -90,6 +90,16 @@ Debug groups diagnostics into Video, Network and Decode and scrolls on smaller s
 | PyroWave missing records | Lost portions of record-framed data. Received records update the picture right away while lost regions keep their previous detail. |
 | PyroWave waits / replaced frames | PyroWave decodes into three plane sets on the stream thread while a separate present thread waits for the display, so decoding never queues behind presentation. "Free planes" is the decoder's wait for a plane set, "screen image" the present thread's wait for a swapchain image, and "replaced" the share of decoded frames a newer one superseded before display. |
 | Bitrate / automatic bitrate status | Requested or host-applied bitrate and adaptation state, subject to host caps. |
+
+## Host hardware metrics
+
+On a supporting Rubylight host, open **Settings → General → Hardware metrics** and enable **Send hardware metrics to client**. It is off by default. Start or reconnect a video stream and show **Overlay → Statistics** or **Debug**. The client checks the host's advertised protocol support; the host version number alone does not establish compatibility. Normal streams and Remote Monitor qualify, but input-only sessions do not. Pairing and **View streams** or **Launch applications** permission are required, and the active video stream must belong to this device.
+
+Statistics adds host CPU usage and each reported GPU's usage, temperature and GPU power. Debug adds a **Host hardware** section with GPU names/IDs, available clocks, hotspot/memory temperatures, voltage, fans, GPU/board power, VRAM readings and sample details. GPU readings need an AMD driver with ADLX support; Windows CPU usage can be available without an AMD GPU. CPU temperature and CPU clocks are not provided. These are host-wide readings, not per-game measurements; a listed GPU is not necessarily the capture or encoding GPU.
+
+The host's **Hardware metrics selection** controls which readings it sends; an empty selection requests all supported readings. Each reading is optional, and missing values appear as **—** rather than zero. A present zero, such as a stopped fan, is valid. The first CPU sample can be unavailable. Each new sample replaces the previous readings, including any GPUs that are now absent. Failed or stale samples remove the extra hardware section; a valid empty sample shows CPU usage as unavailable. Stream-provided **Host processing** time remains independent of this feature.
+
+Requests use the paired streaming HTTPS connection, independently of video decoding. Android polls at most once every two seconds, or less often when the host's sampling interval is longer. Polling stops when the overlay is hidden, the app is paused or in picture in picture, or the stream ends. Temporary failures clear the values and retry with backoff; denied access, an unavailable endpoint or an unsupported schema stop telemetry for that session. After enabling the host setting or restoring permissions, reconnect to rediscover support. **Copy stats** includes available hardware readings and GPU names. See the host's [hardware metrics protocol](https://github.com/RamazanKara/rubylight/blob/main/docs/hardware-metrics.md) for field definitions and units.
 
 ## Automatic bitrate and diagnostics
 

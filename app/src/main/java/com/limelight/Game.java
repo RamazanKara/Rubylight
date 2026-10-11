@@ -30,6 +30,7 @@ import com.limelight.nvstream.PyroWaveBitrateController;
 import com.limelight.nvstream.NvConnectionListener;
 import com.limelight.nvstream.StreamConfiguration;
 import com.limelight.nvstream.http.ComputerDetails;
+import com.limelight.nvstream.http.HardwareMetrics;
 import com.limelight.nvstream.http.LaunchConfirmation;
 import com.limelight.nvstream.http.NvApp;
 import com.limelight.nvstream.http.NvHTTP;
@@ -345,6 +346,15 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     private CharSequence debugPerformanceText = "";
     private CharSequence statisticsPerformanceText = "";
     private boolean debugPerformanceOverlay;
+    private HardwareMetrics hardwareMetrics;
+    private boolean hardwareMetricsPolling;
+    private int hardwareMetricsGeneration;
+    private long hardwareMetricsSampleTimestamp = Long.MIN_VALUE;
+    private long hardwareMetricsFreshUntil;
+    private final Runnable expireHardwareMetrics = () -> {
+        hardwareMetrics = null;
+        updatePerformanceOverlay();
+    };
 
     private MediaCodecDecoderRenderer decoderRenderer;
     private boolean reportedCrash;
@@ -908,6 +918,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 UiHelper.notifyStreamExitingPiP(this);
             }
         }
+        updateHardwareMetricsPolling();
     }
 
     @TargetApi(Build.VERSION_CODES.O)
@@ -1625,11 +1636,13 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             setInputGrabState(true);
         }
         restoreInputOnResume = false;
+        updateHardwareMetricsPolling();
     }
 
     @Override
     protected void onPause() {
         foreground = false;
+        stopHardwareMetricsPolling();
         foregroundGeneration++;
         streamMenuAction = null;
         windowFocusActions.clear();
@@ -2028,6 +2041,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         performanceOverlayScroll.setVisibility(prefConfig.enablePerfOverlay && !isHidingOverlays ? View.VISIBLE : View.GONE);
         PreferenceManager.getDefaultSharedPreferences(this).edit()
                 .putBoolean("checkbox_enable_perf_overlay", prefConfig.enablePerfOverlay).apply();
+        updateHardwareMetricsPolling();
     }
 
     private void togglePerformanceOverlayMode() {
@@ -2040,12 +2054,56 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
 
     private void updatePerformanceOverlay() {
         performanceOverlayView.setTextSize(debugPerformanceOverlay ? 11 : 12);
-        CharSequence text = debugPerformanceOverlay ? debugPerformanceText : statisticsPerformanceText;
+        CharSequence text = hardwarePerformanceText(debugPerformanceOverlay);
         performanceOverlayView.setText(text.length() == 0 ? getString(R.string.stats_waiting) : text);
     }
 
+    private CharSequence hardwarePerformanceText(boolean debug) {
+        HardwareMetrics fresh = SystemClock.uptimeMillis() < hardwareMetricsFreshUntil ? hardwareMetrics : null;
+        return PerformanceOverlay.withHardwareMetrics(this, debug ? debugPerformanceText : statisticsPerformanceText, fresh, debug);
+    }
+
+    private void updateHardwareMetricsPolling() {
+        if (!foreground || !connected || conn == null || isFinishing() || isDestroyed() || isHidingOverlays ||
+                performanceOverlayScroll == null || performanceOverlayScroll.getVisibility() != View.VISIBLE) {
+            stopHardwareMetricsPolling();
+            return;
+        }
+        if (hardwareMetricsPolling) return;
+        int generation = ++hardwareMetricsGeneration;
+        hardwareMetricsPolling = conn.startHardwareMetricsPolling(metrics -> bitrateHandler.post(() ->
+                receiveHardwareMetrics(generation, metrics)));
+    }
+
+    private void receiveHardwareMetrics(int generation, HardwareMetrics metrics) {
+        if (!hardwareMetricsPolling || generation != hardwareMetricsGeneration) return;
+        long now = SystemClock.uptimeMillis();
+        if (metrics != null) {
+            if (metrics.sampledAtUnixMs != hardwareMetricsSampleTimestamp) {
+                hardwareMetricsSampleTimestamp = metrics.sampledAtUnixMs;
+                hardwareMetricsFreshUntil = now + Math.max(5000, metrics.intervalMs * 2L);
+            }
+            if (now >= hardwareMetricsFreshUntil) metrics = null;
+        }
+        hardwareMetrics = metrics;
+        bitrateHandler.removeCallbacks(expireHardwareMetrics);
+        if (metrics != null) bitrateHandler.postAtTime(expireHardwareMetrics, hardwareMetricsFreshUntil);
+        updatePerformanceOverlay();
+    }
+
+    private void stopHardwareMetricsPolling() {
+        hardwareMetricsGeneration++;
+        if (hardwareMetricsPolling && conn != null) conn.stopHardwareMetricsPolling();
+        hardwareMetricsPolling = false;
+        bitrateHandler.removeCallbacks(expireHardwareMetrics);
+        if (hardwareMetrics != null) {
+            hardwareMetrics = null;
+            updatePerformanceOverlay();
+        }
+    }
+
     private void copyPerformanceStats() {
-        CharSequence text = debugPerformanceText;
+        CharSequence text = hardwarePerformanceText(true);
         if (text.length() == 0) {
             Toast.makeText(this, R.string.overlay_empty, Toast.LENGTH_LONG).show();
             return;
@@ -3639,6 +3697,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     }
 
     private void stopConnection() {
+        stopHardwareMetricsPolling();
         getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         if (lowLatencyWifiLock != null && lowLatencyWifiLock.isHeld()) {
             lowLatencyWifiLock.release();
@@ -3888,6 +3947,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 }
 
                 connected = true;
+                updateHardwareMetricsPolling();
                 LimeLog.info("Stream connected");
                 connecting = false;
                 if (app.getRole() != NvApp.Role.INPUT_ONLY && !app.isControlAction()) {

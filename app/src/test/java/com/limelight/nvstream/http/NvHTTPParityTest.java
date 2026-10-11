@@ -111,6 +111,33 @@ public class NvHTTPParityTest {
     }
 
     @Test
+    public void hardwareMetricsRequireSupportedDiscoveryAndPairedViewingPermission() throws Exception {
+        ComputerDetails details = capabilities("<root status_code=\"200\"><RustHostVersion>2.2.5</RustHostVersion>" +
+                "<HardwareMetricsVersion>1</HardwareMetricsVersion><Permission>" +
+                ComputerDetails.PERMISSION_VIEW + "</Permission></root>");
+        assertFalse(details.supportsHardwareMetrics());
+        details.pairState = PairingManager.PairState.PAIRED;
+        assertTrue(details.supportsHardwareMetrics());
+        ComputerDetails copy = new ComputerDetails(details);
+        assertTrue(copy.supportsHardwareMetrics());
+        copy.permission = ComputerDetails.PERMISSION_INPUT;
+        assertFalse(copy.supportsHardwareMetrics());
+        copy.permission = ComputerDetails.PERMISSION_LAUNCH;
+        assertTrue(copy.supportsHardwareMetrics());
+        copy.rustHostVersion = null;
+        assertFalse(copy.supportsHardwareMetrics());
+        for (String version : new String[] {"0", "2", "-1", "invalid", ""}) {
+            assertEquals(0, NvHTTP.getHardwareMetricsVersion("<root status_code=\"200\"><HardwareMetricsVersion>" +
+                    version + "</HardwareMetricsVersion></root>"));
+        }
+        NvHTTP.readClientCapabilities(details, "<root status_code=\"200\" />");
+        assertEquals(0, details.hardwareMetricsVersion);
+        copy.update(details);
+        assertEquals(0, copy.hardwareMetricsVersion);
+        assertFalse(copy.supportsHardwareMetrics());
+    }
+
+    @Test
     public void encoderBitratesAreCopiedAndMissingOrInvalidRatesStayUnknown() throws Exception {
         ComputerDetails details = capabilities("<root status_code=\"200\">" +
                 "<RustHostEncoderBitrateKbps>30000</RustHostEncoderBitrateKbps>" +

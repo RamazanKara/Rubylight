@@ -40,6 +40,125 @@ async fn request(f: &Fixture, https: bool, method: &str, path: &str) -> Response
 }
 
 #[tokio::test]
+async fn hardware_metrics_are_opt_in_authenticated_and_scoped_to_active_video() {
+    let f = Fixture::new();
+    let path = "/api/hardware-metrics";
+    assert_eq!(
+        request(&f, false, "GET", path).await.status(),
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        request(&f, true, "GET", path).await.status(),
+        StatusCode::FORBIDDEN
+    );
+    let mut client = f.client(0);
+    f.host
+        .config
+        .write()
+        .unwrap()
+        .values
+        .insert("hardware_metrics".into(), "true".into());
+    assert_eq!(
+        request(&f, true, "GET", path).await.status(),
+        StatusCode::FORBIDDEN
+    );
+    client.perm = VIEW;
+    f.host.paired.write().unwrap().clients[0].perm = VIEW;
+    assert_eq!(
+        request(&f, true, "GET", path).await.status(),
+        StatusCode::CONFLICT
+    );
+    let input = f.session(client.clone(), Role::InputOnly);
+    let mut other = client.clone();
+    other.uuid = "other".into();
+    let theirs = f.session(other, Role::Stream);
+    assert_eq!(
+        request(&f, true, "GET", path).await.status(),
+        StatusCode::CONFLICT
+    );
+    assert!(f.host.hardware_metrics.lock().unwrap().is_none());
+    let mine = f.session(client, Role::Stream);
+    {
+        let mut config = f.host.config.write().unwrap();
+        config.values.insert(
+            "hardware_metrics_selection".into(),
+            "[cpu_usage_percent]".into(),
+        );
+        config
+            .values
+            .insert("hardware_metrics_interval".into(), "10000".into());
+    }
+    let first = request(&f, true, "GET", path).await;
+    assert_eq!(first.status(), StatusCode::OK);
+    assert_eq!(first.headers()[header::CACHE_CONTROL], "no-store");
+    let first: serde_json::Value =
+        serde_json::from_slice(&to_bytes(first.into_body(), 65536).await.unwrap()).unwrap();
+    assert_eq!(first["version"], 1);
+    assert_eq!(first["interval_ms"], 10000);
+    assert!(first["sampled_at_unix_ms"].as_u64().unwrap() > 0);
+    assert_eq!(first["gpus"], json!([]));
+    tokio::time::sleep(Duration::from_millis(15)).await;
+    let second = request(&f, true, "GET", path).await;
+    let second: serde_json::Value =
+        serde_json::from_slice(&to_bytes(second.into_body(), 65536).await.unwrap()).unwrap();
+    assert_eq!(
+        first, second,
+        "polling faster than the configured cadence reuses the sample"
+    );
+    mine.stop();
+    assert_eq!(
+        request(&f, true, "GET", path).await.status(),
+        StatusCode::CONFLICT
+    );
+    f.host
+        .config
+        .write()
+        .unwrap()
+        .values
+        .insert("hardware_metrics".into(), "false".into());
+    assert_eq!(
+        request(&f, true, "GET", path).await.status(),
+        StatusCode::FORBIDDEN
+    );
+    input.stop();
+    theirs.stop();
+    f.host.stop.store(true, Ordering::Release);
+}
+
+#[tokio::test]
+async fn hardware_metrics_capability_requires_opt_in_and_viewer_permission() {
+    let f = Fixture::new();
+    f.client(VIEW);
+    for (enabled, tls, permission, expected) in [
+        (false, true, VIEW, "0"),
+        (true, false, VIEW, "0"),
+        (true, true, 0, "0"),
+        (true, true, 1 << 25, "1"),
+        (true, true, 1 << 26, "1"),
+    ] {
+        let config =
+            butterpollo_core::config::Config::parse(&format!("hardware_metrics={enabled}"))
+                .unwrap();
+        f.host.paired.write().unwrap().clients[0].perm = permission;
+        let connection = f.connection(tls);
+        let client = authenticated(&f.host, &connection, 0).ok();
+        let root = document(serverinfo_response(
+            &f.host,
+            &connection,
+            &config,
+            client.as_ref(),
+            true,
+            String::new(),
+            0,
+            false,
+        ))
+        .await;
+        assert_eq!(field(&root, "HardwareMetricsVersion"), expected);
+    }
+    assert!(f.host.hardware_metrics.lock().unwrap().is_none());
+}
+
+#[tokio::test]
 async fn xml_preserves_protocol_status_and_escapes_values_and_errors() {
     let text = "<Game & \"screen\"> '日本語'";
     let root = document(xml(403, &[("AppTitle", text.into())], Some(text.into()))).await;

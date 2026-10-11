@@ -12,6 +12,7 @@ after(() => server.close());
 const { schema } = await server.ssrLoadModule('/src/lib/settings-schema.ts');
 const { default: SettingControl } = await server.ssrLoadModule('/src/components/settings/SettingControl.svelte');
 const { render } = await server.ssrLoadModule('svelte/server');
+const { describeDefault } = await server.ssrLoadModule('/src/components/settings/values.ts');
 
 for (const [key, valid, invalid] of [
   ['packetsize', [0, 256, 1400], [-1, 1, 255, 1401]],
@@ -25,3 +26,22 @@ for (const [key, valid, invalid] of [
     }
   });
 }
+
+test('hardware metrics are opt-in with a bounded interval and an optional selection', () => {
+  const settings = Object.fromEntries(schema.settings.map((setting) => [setting.key, setting]));
+  assert.equal(settings.hardware_metrics.default, false);
+  const interval = settings.hardware_metrics_interval;
+  assert.equal(interval.default, 1000);
+  assert.equal(interval.visibleWhen({}), false);
+  assert.equal(interval.visibleWhen({ hardware_metrics: true }), true);
+  for (const value of [499, 500, 1000, 10000, 10001]) {
+    const html = render(SettingControl, { props: { setting: interval, id: interval.key, value, onchange: () => {} } }).body;
+    assert.equal(html.includes('aria-invalid="true"'), value < 500 || value > 10000, String(value));
+  }
+  const selection = settings.hardware_metrics_selection;
+  assert.deepEqual(selection.default, []);
+  assert.equal(describeDefault(selection).text, 'All supported readings');
+  assert.equal(selection.control.kind, 'list');
+  assert.equal(selection.visibleWhen({ hardware_metrics: false }), false);
+  assert.equal(selection.visibleWhen({ hardware_metrics: 'enabled' }), true);
+});

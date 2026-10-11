@@ -205,6 +205,7 @@ pub fn router(h: Shared, https: bool) -> Router {
             .route("/appasset", get(appasset))
             .route("/bitrate", get(bitrate))
             .route("/api/abr/capabilities", get(abr))
+            .route("/api/hardware-metrics", get(hardware_metrics))
             .route("/pyrowave-bandwidth-probe", get(pyrowave_bandwidth))
             .route(
                 "/actions/clipboard",
@@ -215,6 +216,27 @@ pub fn router(h: Shared, https: bool) -> Router {
     };
     r.layer(axum::extract::DefaultBodyLimit::max(1024 * 1024))
         .with_state(h)
+}
+async fn hardware_metrics(
+    State(h): State<Shared>,
+    Extension(connection): Extension<Connection>,
+) -> Response {
+    let result = match authenticated_viewer(&h, &connection) {
+        Ok(client) => {
+            let result = crate::telemetry::sample(&h, client.uuid).await;
+            if authenticated_viewer(&h, &connection).is_err() {
+                Err((StatusCode::FORBIDDEN, "An authenticated viewer is required"))
+            } else {
+                result
+            }
+        }
+        Err(_) => Err((StatusCode::FORBIDDEN, "An authenticated viewer is required")),
+    };
+    let response = match result {
+        Ok(value) => (StatusCode::OK, axum::Json(value)),
+        Err((status, error)) => (status, axum::Json(json!({"error": error}))),
+    };
+    ([(header::CACHE_CONTROL, "no-store")], response).into_response()
 }
 async fn serverinfo(
     State(h): State<Shared>,
@@ -360,6 +382,11 @@ fn serverinfo_response(
         .map(|game| game.app.uuid.clone())
         .unwrap_or_default();
     let mut fields = vec![
+        (
+            "HardwareMetricsVersion",
+            u8::from(permission & VIEW != 0 && config.boolean("hardware_metrics", false))
+                .to_string(),
+        ),
         ("hostname", crate::network::host_name(config)),
         ("appversion", "7.1.431.-1".into()),
         ("GfeVersion", "3.23.0.74".into()),

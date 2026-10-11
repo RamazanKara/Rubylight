@@ -98,6 +98,44 @@ test('settings drafts survive category changes and canceled navigation', async t
   assert.equal(await page.getByLabel('Host name', { exact: true }).inputValue(), 'Fixture host');
 });
 
+test('hardware metrics stay off until enabled and save the interval and selection', async t => {
+  const { page } = await fixture(t);
+  const consoleErrors = [];
+  page.on('console', message => { if (['error', 'warning'].includes(message.type())) consoleErrors.push(message.text()); });
+  await page.goto(base + '/settings/general');
+  assert.equal(await page.title(), 'Rubylight');
+  const enabled = page.getByRole('switch', { name: /^Send hardware metrics to client/ });
+  await enabled.waitFor();
+  assert.equal(await enabled.isChecked(), false);
+  assert.equal(await page.getByLabel('Hardware metrics interval', { exact: true }).count(), 0);
+  await page.getByText('Send hardware metrics to client', { exact: true }).click();
+  const interval = page.getByLabel('Hardware metrics interval', { exact: true });
+  assert.equal(await interval.inputValue(), '1000');
+  await interval.fill('499');
+  assert.equal(await interval.getAttribute('aria-invalid'), 'true');
+  await page.getByText('Enter a number from 500 to 10000.', { exact: true }).waitFor();
+  await interval.fill('750');
+  const selection = page.getByRole('group', { name: 'Hardware metrics selection', exact: true });
+  await selection.getByRole('button', { name: 'Add', exact: true }).click();
+  await page.getByLabel('Hardware metrics selection, item 1', { exact: true }).fill('cpu_usage_percent');
+  assert.equal(await page.locator('vite-error-overlay').count(), 0);
+  if (process.env.BUTTERPOLLO_TEST_ARTIFACTS) {
+    await enabled.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: path.join(process.env.BUTTERPOLLO_TEST_ARTIFACTS, 'hardware-metrics-desktop.png') });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await selection.scrollIntoViewIfNeeded();
+    assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+    await page.screenshot({ path: path.join(process.env.BUTTERPOLLO_TEST_ARTIFACTS, 'hardware-metrics-mobile.png') });
+  }
+  const saved = page.waitForRequest(request => new URL(request.url()).pathname === '/api/config' && request.method() !== 'GET');
+  await page.getByRole('button', { name: 'Save changes', exact: true }).click();
+  const body = (await saved).postDataJSON();
+  assert.equal(body.hardware_metrics, true);
+  assert.equal(body.hardware_metrics_interval, 750);
+  assert.deepEqual(body.hardware_metrics_selection, ['cpu_usage_percent']);
+  assert.deepEqual(consoleErrors, []);
+});
+
 test('pairing a device leaves the app draft open and explains PIN verification', async t => {
   const { page, writes } = await fixture(t, { pending: [{ uniqueid: 'new-device', name: 'New device', age_seconds: 0 }] });
   await page.goto(base + '/logs');

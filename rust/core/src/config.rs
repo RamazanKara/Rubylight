@@ -15,6 +15,22 @@ pub const RETIRED_VALUES: &[(&str, &str, &str)] = &[
     ("gamepad", "x360", "vhf_xbox_one"),
     ("gamepad", "ds4", "vhf_ds4"),
 ];
+pub const HARDWARE_METRICS: &[&str] = &[
+    "cpu_usage_percent",
+    "gpu_usage_percent",
+    "gpu_clock_mhz",
+    "gpu_memory_clock_mhz",
+    "gpu_temperature_c",
+    "gpu_hotspot_temperature_c",
+    "gpu_memory_temperature_c",
+    "gpu_voltage_mv",
+    "gpu_fan_rpm",
+    "gpu_fan_percent",
+    "gpu_power_w",
+    "gpu_board_power_w",
+    "gpu_vram_used_mb",
+    "gpu_vram_usage_percent",
+];
 /// The current value for a retired `value` of `key`, if it is one.
 pub fn replacement(key: &str, value: &str) -> Option<&'static str> {
     RETIRED_VALUES
@@ -216,6 +232,10 @@ impl Config {
             .filter(|item| !item.is_empty())
             .collect()
     }
+    pub fn hardware_metrics_interval(&self) -> u64 {
+        self.integer("hardware_metrics_interval", 1000)
+            .clamp(500, 10000) as u64
+    }
     /// `virtual_display_mode`; unset, it is per client on Windows 11 and
     /// disabled on Windows 10, as in Vibepollo.
     pub fn virtual_display_mode(&self, windows_11: bool) -> &str {
@@ -321,6 +341,19 @@ impl Config {
         }
         if changed("frame_limiter_fps_limit") {
             crate::framegen::Rate::parse(next.get("frame_limiter_fps_limit", "0"))?;
+        }
+        if changed("hardware_metrics_interval")
+            && next.values.contains_key("hardware_metrics_interval")
+            && !(500..=10000).contains(&next.integer("hardware_metrics_interval", 0))
+        {
+            bail!("hardware metrics interval must be between 500 and 10000 milliseconds");
+        }
+        if changed("hardware_metrics_selection") {
+            for metric in next.list("hardware_metrics_selection") {
+                if !HARDWARE_METRICS.contains(&metric.as_str()) {
+                    bail!("unknown hardware metric: {metric}");
+                }
+            }
         }
         *self = next;
         Ok(())
@@ -779,6 +812,74 @@ impl Ports {
 }
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn hardware_metrics_defaults_and_file_interval_bounds() {
+        let defaults = super::Config::default();
+        assert!(!defaults.boolean("hardware_metrics", false));
+        assert_eq!(defaults.hardware_metrics_interval(), 1000);
+        assert!(defaults.list("hardware_metrics_selection").is_empty());
+        for (value, expected) in [
+            ("invalid", 1000),
+            ("0", 500),
+            ("750", 750),
+            ("20000", 10000),
+        ] {
+            let config =
+                super::Config::parse(&format!("hardware_metrics_interval={value}\n")).unwrap();
+            assert_eq!(config.hardware_metrics_interval(), expected);
+        }
+    }
+    #[test]
+    fn hardware_metrics_saves_validate_interval_and_selection() {
+        let mut config = super::Config::default();
+        for value in ["500", "1000", "10000"] {
+            change(&mut config, "hardware_metrics_interval", value).unwrap();
+        }
+        for value in ["499", "10001", "invalid", "1.5"] {
+            assert!(change(&mut config, "hardware_metrics_interval", value).is_err());
+        }
+        for value in [
+            serde_json::Value::Null,
+            serde_json::Value::String(String::new()),
+        ] {
+            change(&mut config, "hardware_metrics_interval", "750").unwrap();
+            let mut object = serde_json::Map::new();
+            object.insert("hardware_metrics_interval".into(), value);
+            config.update(&object).unwrap();
+            assert!(!config.values.contains_key("hardware_metrics_interval"));
+            assert_eq!(config.hardware_metrics_interval(), 1000);
+        }
+        change(
+            &mut config,
+            "hardware_metrics_selection",
+            "[cpu_usage_percent, gpu_temperature_c]",
+        )
+        .unwrap();
+        assert_eq!(
+            config.list("hardware_metrics_selection"),
+            ["cpu_usage_percent", "gpu_temperature_c"]
+        );
+        assert!(
+            change(
+                &mut config,
+                "hardware_metrics_selection",
+                "[cpu_usage_percent, cpu_temperature_c]"
+            )
+            .is_err()
+        );
+        assert_eq!(
+            config.list("hardware_metrics_selection"),
+            ["cpu_usage_percent", "gpu_temperature_c"]
+        );
+        change(&mut config, "hardware_metrics_selection", "[]").unwrap();
+        assert!(config.list("hardware_metrics_selection").is_empty());
+        let mut config = super::Config::parse(
+            "hardware_metrics_interval=0\nhardware_metrics_selection=[unknown]\n",
+        )
+        .unwrap();
+        change(&mut config, "sunshine_name", "Gaming PC").unwrap();
+        assert_eq!(config.list("hardware_metrics_selection"), ["unknown"]);
+    }
     #[test]
     fn a_saved_ltr_zero_from_before_2_0_0_gives_way_to_the_new_default_once() {
         let mut config = super::Config::parse("amd_ltr_frames = 0\nport = 47989\n").unwrap();

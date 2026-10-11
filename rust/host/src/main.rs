@@ -18,6 +18,7 @@ mod stall_watch;
 mod state;
 mod steam;
 mod stream;
+mod telemetry;
 mod tls;
 mod updater;
 mod video_send;

@@ -190,7 +190,7 @@ export function describeDefault(setting: Setting): DefaultText {
     case 'audio':
       return literal(toText(value), 'System default');
     case 'list':
-      return literal(toList(value).join(', '), 'None');
+      return literal(toList(value).join(', '), setting.key === 'hardware_metrics_selection' ? 'All supported readings' : 'None');
     case 'commands':
       return word(count(toCommands(value).length));
     case 'server-commands':

@@ -167,6 +167,11 @@ pub const GLOBAL: &[Setting] = settings! {
         "back_grip_r5", "Back grip R5 (lower right) presses", Choice(GRIPS);
         "enable_input_only_mode", "Allow input-only connections", Bool;
     ]
+    "Hardware metrics" => [
+        "hardware_metrics", "Send hardware metrics to client", Bool;
+        "hardware_metrics_interval", "Hardware metrics interval (500–10000 milliseconds; default 1000)", Number;
+        "hardware_metrics_selection", "Hardware metrics selection (JSON list; empty sends all supported metrics)", Json;
+    ]
     "Remote monitors" => [
         "remote_monitor_mute_audio", "Mute remote monitor audio", Bool;
         "remote_monitor_disconnect_on_stream_end", "Remove remote monitor when its stream ends", Bool;
@@ -437,6 +442,27 @@ pub fn apply(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn hardware_metrics_settings_keep_their_typed_values() {
+        let mut fields = Fields::new();
+        fields.insert("cfg_hardware_metrics".into(), "true".into());
+        fields.insert("cfg_hardware_metrics_interval".into(), "750".into());
+        fields.insert(
+            "cfg_hardware_metrics_selection".into(),
+            r#"["cpu_usage_percent", "gpu_temperature_c"]"#.into(),
+        );
+        let mut values = serde_json::Map::new();
+        apply("cfg_", GLOBAL, &fields, &mut values).unwrap();
+        assert_eq!(values["hardware_metrics"], "true");
+        assert_eq!(values["hardware_metrics_interval"], "750");
+        assert_eq!(
+            values["hardware_metrics_selection"],
+            serde_json::json!(["cpu_usage_percent", "gpu_temperature_c"])
+        );
+        let html = render("cfg_", GLOBAL, &Value::Object(values));
+        assert!(html.contains("Send hardware metrics to client"));
+        assert!(html.contains("name=\"cfg_hardware_metrics_selection\""));
+    }
     #[test]
     fn choice_labels_preserve_the_saved_values() {
         let html = i18n::render(&render("cfg_", GLOBAL, &serde_json::json!({})), "en");

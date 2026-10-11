@@ -9,6 +9,7 @@ use super::*;
 const NAMESPACE: [u8; 16] = [
     0x84, 0x42, 0x86, 0xa2, 0xfe, 0x77, 0x36, 0x43, 0xa8, 0x28, 0, 0xfe, 0xec, 0x89, 0xeb, 0xac,
 ];
+const LEASE_TIMEOUT_MS: u32 = 10_000;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum DriverProtocol {
     Legacy35,
@@ -190,7 +191,7 @@ fn temporary_request(
     let mut request = NAMESPACE.to_vec();
     request.extend_from_slice(&lease.to_le_bytes());
     request.extend_from_slice(&id.to_le_bytes());
-    for value in [mode.0, mode.1, 600, 340, mode.2, 10000] {
+    for value in [mode.0, mode.1, 600, 340, mode.2, LEASE_TIMEOUT_MS] {
         request.extend_from_slice(&value.to_le_bytes());
     }
     request.extend_from_slice(&display_label(&options.label));
@@ -339,6 +340,44 @@ fn renewed_lease(result: Result<()>) -> Result<bool> {
         Err(error) => Err(error),
     }
 }
+fn retry_busy<T>(mut attempt: impl FnMut() -> Result<T>, timeout: Duration) -> Result<T> {
+    let deadline = Instant::now() + timeout;
+    loop {
+        match attempt() {
+            Err(error)
+                if error
+                    .downcast_ref::<windows::core::Error>()
+                    .is_some_and(|e| e.code() == ERROR_BUSY.to_hresult())
+                    && Instant::now() < deadline =>
+            {
+                tracing::debug!(%error, "virtual display driver busy; retrying");
+                std::thread::sleep(
+                    Duration::from_millis(100)
+                        .min(deadline.saturating_duration_since(Instant::now())),
+                );
+            }
+            result => return result,
+        }
+    }
+}
+fn wait_for_monitor(
+    mut query: impl FnMut() -> Result<Option<Monitor>>,
+    timeout: Duration,
+) -> Result<Monitor> {
+    let deadline = Instant::now() + timeout;
+    loop {
+        if let Some(monitor) = query()? {
+            return Ok(monitor);
+        }
+        anyhow::ensure!(
+            Instant::now() < deadline,
+            "owned virtual display unavailable after startup protection"
+        );
+        std::thread::sleep(
+            Duration::from_millis(50).min(deadline.saturating_duration_since(Instant::now())),
+        );
+    }
+}
 /// What a lease heartbeat does about the owned display.
 #[derive(Debug, PartialEq)]
 enum Heartbeat {
@@ -409,8 +448,16 @@ impl VirtualDisplay {
             driver.protocol,
             &capability,
         );
-        let startup_protection = hotplug::Protection::capture()?;
-        let result = driver.ioctl(driver.protocol.create_function(), 3, &request, 56)?;
+        // A previous host's lease can survive a session handover until its
+        // removal completes or its heartbeat expires. Keep the same identity.
+        let (result, startup_protection) = retry_busy(
+            || {
+                let protection = hotplug::Protection::capture()?;
+                let result = driver.ioctl(driver.protocol.create_function(), 3, &request, 56)?;
+                Ok((result, protection))
+            },
+            Duration::from_millis(u64::from(LEASE_TIMEOUT_MS)),
+        )?;
         let mut display = Self {
             driver,
             name: String::new(),
@@ -519,12 +566,16 @@ impl VirtualDisplay {
             .context("owned virtual display unavailable during startup protection")
     }
     fn refresh_name(&mut self) -> Result<()> {
-        self.name = monitors()?
-            .into_iter()
-            .find(|m| self.owns_monitor(m))
-            .context("owned virtual display unavailable after startup protection")?
-            .display_name;
+        self.name = self.current_monitor()?.display_name;
         Ok(())
+    }
+    pub(super) fn current_monitor(&self) -> Result<Monitor> {
+        // Windows can briefly omit an owned target while the console session
+        // or hotplug layout changes. Never substitute a different monitor.
+        wait_for_monitor(
+            || Ok(monitors()?.into_iter().find(|m| self.owns_monitor(m))),
+            Duration::from_secs(1),
+        )
     }
     fn check_hotplug(&mut self, stage: &str) -> Result<()> {
         if let Some(protection) = &self.startup_protection {
@@ -608,7 +659,7 @@ impl VirtualDisplay {
     fn renew(&mut self) -> Result<()> {
         let mut request = NAMESPACE.to_vec();
         request.extend_from_slice(&self.lease.to_le_bytes());
-        request.extend_from_slice(&10000u32.to_le_bytes());
+        request.extend_from_slice(&LEASE_TIMEOUT_MS.to_le_bytes());
         request.extend_from_slice(&0u32.to_le_bytes());
         self.driver.ioctl(0x903, 3, &request, 0)?;
         Ok(())
@@ -684,12 +735,20 @@ impl Drop for VirtualDisplay {
         let mut request = NAMESPACE.to_vec();
         request.extend_from_slice(&self.lease.to_le_bytes());
         request.extend_from_slice(&self.id.to_le_bytes());
-        if let Err(e) = self.driver.ioctl(0x902, 3, &request, 0) {
+        if let Err(e) = retry_busy(
+            || self.driver.ioctl(0x902, 3, &request, 0),
+            Duration::from_secs(1),
+        ) {
             tracing::warn!(error=%e,"virtual display removal failed; lease expiration will recover it");
         }
         request.truncate(24);
         request.extend_from_slice(&0u64.to_le_bytes());
-        let _ = self.driver.ioctl(0x904, 3, &request, 0);
+        if let Err(e) = retry_busy(
+            || self.driver.ioctl(0x904, 3, &request, 0),
+            Duration::from_secs(1),
+        ) {
+            tracing::warn!(error=%e,"virtual display lease release failed; lease expiration will recover it");
+        }
     }
 }
 
@@ -697,6 +756,92 @@ impl Drop for VirtualDisplay {
 mod tests {
     use super::super::modes::timing_matches;
     use super::*;
+    #[test]
+    fn a_busy_driver_request_recovers_within_the_same_call() {
+        let mut attempts = 0;
+        let result = retry_busy(
+            || {
+                attempts += 1;
+                if attempts < 3 {
+                    Err(windows::core::Error::from_hresult(ERROR_BUSY.to_hresult()).into())
+                } else {
+                    Ok(vec![17, 23])
+                }
+            },
+            Duration::from_secs(1),
+        )
+        .unwrap();
+        assert_eq!(result, [17, 23]);
+        assert_eq!(attempts, 3);
+    }
+    #[test]
+    fn driver_retries_stop_at_the_deadline_and_preserve_other_errors() {
+        for code in [
+            ERROR_BUSY,
+            ERROR_ACCESS_DENIED,
+            ERROR_NOT_FOUND,
+            ERROR_GEN_FAILURE,
+        ] {
+            let mut attempts = 0;
+            let timeout = if code == ERROR_BUSY {
+                Duration::ZERO
+            } else {
+                Duration::from_secs(1)
+            };
+            let error = retry_busy::<()>(
+                || {
+                    attempts += 1;
+                    Err(windows::core::Error::from_hresult(code.to_hresult()).into())
+                },
+                timeout,
+            )
+            .unwrap_err();
+            assert_eq!(attempts, 1);
+            assert_eq!(
+                error.downcast_ref::<windows::core::Error>().unwrap().code(),
+                code.to_hresult()
+            );
+        }
+    }
+    #[test]
+    fn an_owned_monitor_can_reappear_during_session_handover() {
+        let mut attempts = 0;
+        let found = wait_for_monitor(
+            || {
+                attempts += 1;
+                Ok((attempts == 3).then(|| super::super::monitor("owned", 4, false)))
+            },
+            Duration::from_secs(1),
+        )
+        .unwrap();
+        assert_eq!(found.device_id, "owned");
+        assert_eq!(attempts, 3);
+    }
+    #[test]
+    fn an_absent_owned_monitor_or_failed_query_does_not_wait_forever() {
+        let mut attempts = 0;
+        assert!(
+            wait_for_monitor(
+                || {
+                    attempts += 1;
+                    Ok(None)
+                },
+                Duration::ZERO,
+            )
+            .is_err()
+        );
+        assert_eq!(attempts, 1);
+        let error = wait_for_monitor(
+            || Err(windows::core::Error::from_hresult(ERROR_ACCESS_DENIED.to_hresult()).into()),
+            Duration::from_secs(1),
+        )
+        .err()
+        .unwrap();
+        assert_eq!(
+            error.downcast_ref::<windows::core::Error>().unwrap().code(),
+            ERROR_ACCESS_DENIED.to_hresult()
+        );
+    }
     #[test]
     fn permanent_display_count_accepts_the_legacy_key_and_prefers_the_current_key() {
         use butterpollo_core::config::Config;

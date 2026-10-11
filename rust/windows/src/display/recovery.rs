@@ -603,24 +603,26 @@ impl Guard {
         } else {
             None
         };
-        let choices = monitors()?;
         let chosen = if let Some(v) = &virtual_display {
-            let display = v.lock().unwrap();
-            choices.iter().find(|d| display.owns_monitor(d))
+            v.lock().unwrap().current_monitor()?
         } else {
-            choices.iter().find(|d| d.matches(output)).or_else(|| {
-                if output.is_empty() {
-                    choices
-                        .iter()
-                        .find(|d| d.primary)
-                        .or_else(|| choices.first())
-                } else {
-                    None
-                }
-            })
-        }
-        .context("display unavailable")?
-        .clone();
+            let choices = monitors()?;
+            choices
+                .iter()
+                .find(|d| d.matches(output))
+                .or_else(|| {
+                    if output.is_empty() {
+                        choices
+                            .iter()
+                            .find(|d| d.primary)
+                            .or_else(|| choices.first())
+                    } else {
+                        None
+                    }
+                })
+                .context("display unavailable")?
+                .clone()
+        };
         let mut guard = Self {
             output: chosen.display_name.clone(),
             generation: virtual_display

@@ -1301,9 +1301,34 @@ mod tests {
         assert_eq!(std::fs::read(&settings)?, b"unchanged");
         assert!(!outside.join("config").exists());
         assert!(!outside.join("Butterpollo").exists());
-        // A normal temporary folder has a user-owned profile ancestor.
-        let untrusted = tempfile::tempdir()?;
-        assert!(prepare_profile(&untrusted.path().join("Butterpollo/config"), true).is_err());
+        let untrusted = temp.path().join("untrusted");
+        std::fs::create_dir(&untrusted)?;
+        let (_, identity) = system::run(
+            &system::system32("whoami.exe"),
+            &["/user", "/fo", "csv", "/nh"],
+            Duration::from_secs(10),
+        )?;
+        let sid = identity
+            .trim()
+            .split(',')
+            .nth(1)
+            .context("whoami omitted SID")?
+            .trim_matches('"');
+        // Elevated CI may create temporary folders owned by Administrators.
+        let (code, output) = system::run(
+            &system::system32("icacls.exe"),
+            &[
+                &untrusted.display().to_string(),
+                "/setowner",
+                &format!("*{sid}"),
+                "/Q",
+            ],
+            Duration::from_secs(10),
+        )?;
+        assert_eq!(code, 0, "{output}");
+        let error = prepare_profile(&untrusted.join("Butterpollo/config"), true).unwrap_err();
+        assert!(error.to_string().contains("must be owned by"), "{error:#}");
+        assert!(!untrusted.join("Butterpollo").exists());
         Ok(())
     }
     #[test]

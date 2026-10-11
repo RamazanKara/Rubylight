@@ -13,6 +13,7 @@ pub struct References {
     next: usize,
     pending: Option<(usize, u64)>,
     submitted: u64,
+    last_idr: u64,
     recovered: u64,
     recovered_from: u64,
 }
@@ -70,6 +71,7 @@ impl References {
             self.recovered_from = if plan.after_invalidation {
                 self.pending.unwrap().1
             } else {
+                self.last_idr = frame;
                 1
             };
             for (slot, value) in self.slots.iter_mut().enumerate() {
@@ -91,7 +93,7 @@ impl References {
         }
         // Feedback can still be in flight when an IDR or LTR repair is sent.
         // A range that includes that repair must recover again.
-        if first >= self.recovered_from && last < self.recovered {
+        if last < self.last_idr || (first >= self.recovered_from && last < self.recovered) {
             return true;
         }
         let reference = self
@@ -145,6 +147,26 @@ mod tests {
         assert!(!references.invalidation_pending());
         assert!(!references.plan(22, false).after_invalidation);
         assert!(!references.invalidate(10, 12));
+        assert!(references.invalidate(17, 21));
+        assert!(references.invalidation_pending());
+        assert!(references.plan(22, false).after_invalidation);
+    }
+    #[test]
+    fn ltr_repair_preserves_previous_idr_coverage() {
+        let mut references = References::new(4);
+        for frame in 1..=20 {
+            let plan = references.plan(frame, frame == 1 || frame == 10);
+            references.accepted(frame, &plan);
+        }
+        assert!(references.invalidate(17, 18));
+        references.accepted(21, &references.plan(21, false));
+        assert!(references.invalidate(7, 8));
+        assert!(references.invalidate(7, 9));
+        assert!(references.invalidate(17, 20));
+        assert!(!references.invalidation_pending());
+        assert!(!references.invalidate(7, 10));
+        assert!(!references.invalidate(10, 12));
+        assert!(!references.invalidate(16, 16));
         assert!(references.invalidate(17, 21));
         assert!(references.invalidation_pending());
         assert!(references.plan(22, false).after_invalidation);

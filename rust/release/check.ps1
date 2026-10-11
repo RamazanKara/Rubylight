@@ -23,7 +23,7 @@ adds REAL-CLIENT.json.
 .EXAMPLE
 pwsh rust/release/check.ps1                  # the newest release
 .EXAMPLE
-pwsh rust/release/check.ps1 2.0.0-rc.23 -NoInstall -NoUpload
+pwsh rust/release/check.ps1 v2.2.2 -NoInstall -NoUpload
 #>
 param(
     # Defaults to the newest published release.
@@ -55,6 +55,8 @@ $python = if ($env:BUTTERPOLLO_TEST_PYTHON) { $env:BUTTERPOLLO_TEST_PYTHON } els
 $tools = $PSScriptRoot
 $checkout = (Resolve-Path "$PSScriptRoot\..\..").Path
 if (-not $Version) { $Version = gh release list -R $repo --exclude-drafts --limit 1 --json tagName --jq '.[0].tagName' }
+$tag = $Version
+$Version = $Version -replace '^v', ''
 # The layout elevated-task.ps1 expects: <Work>\<version>\release\...
 $run = Join-Path $Work $Version
 $out = "$run\release"
@@ -69,7 +71,7 @@ Step "download $Version"
 Remove-Item -Recurse -Force $out -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force $out, $qa | Out-Null
 # Releases before rc.30 carry only the Butterpollo names.
-gh release download $Version -R $repo -D $out -p 'rubylight-setup-*.exe' -p 'rubylight-*-windows-x64.zip' -p 'butterpollo-setup-*.exe' -p 'butterpollo-rust-*-windows-x64.zip' -p SHA256SUMS
+gh release download $tag -R $repo -D $out -p 'rubylight-setup-*.exe' -p 'rubylight-*-windows-x64.zip' -p 'butterpollo-setup-*.exe' -p 'butterpollo-rust-*-windows-x64.zip' -p SHA256SUMS
 if (-not (Test-Path $installer)) {
     $installer = "$out\butterpollo-setup-$Version.exe"
     $zip = "$out\butterpollo-rust-$Version-windows-x64.zip"
@@ -180,15 +182,15 @@ if ($NoUpload) {
     Step "done, not uploaded: $run\VALIDATION.json"
     return
 }
-gh release upload $Version -R $repo --clobber "$run\VALIDATION.json"
+gh release upload $tag -R $repo --clobber "$run\VALIDATION.json"
 # gh writes UTF-8; read in the console's code page, every non-ASCII
 # character in the release text came back garbled (rc.23).
 [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
-$body = gh release view $Version -R $repo --json body --jq .body
+$body = gh release view $tag -R $repo --json body --jq .body
 if ($body -notmatch 'VALIDATION\.json') {
     $body = ($body -join "`n").TrimEnd() +
-        " · [Host validation](https://github.com/$repo/releases/download/$Version/VALIDATION.json)`n"
+        " · [Host validation](https://github.com/$repo/releases/download/$tag/VALIDATION.json)`n"
     [IO.File]::WriteAllText("$run\body.md", $body, [Text.UTF8Encoding]::new($false))
-    gh release edit $Version -R $repo --notes-file "$run\body.md"
+    gh release edit $tag -R $repo --notes-file "$run\body.md"
 }
-Step "checked https://github.com/$repo/releases/tag/$Version"
+Step "checked https://github.com/$repo/releases/tag/$tag"

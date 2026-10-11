@@ -5,7 +5,7 @@ on:
     branches: [main]
     # A release tag publishes the GitHub release (tag and publish below).
     # GitHub ignores paths for tag pushes, so a tag always runs.
-    tags: ['2.*']
+    tags: ['v2.*']
     # Changes to docs and Markdown alone don't run CI; a release of such a
     # commit builds it in the windows job.
     paths: ['rust/**', '!rust/**/*.md', 'Cargo.*', 'rust-toolchain.toml', '.cargo/**', 'clippy.toml', 'third-party/**', '.github/workflows/rust-windows.yml']
@@ -38,27 +38,36 @@ jobs:
     outputs:
       run: ${{ steps.built.outputs.run }}
       version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
       - id: version
         run: |
           if [ "$GITHUB_REF_TYPE" = tag ]; then
-            version=$GITHUB_REF_NAME
+            tag=$GITHUB_REF_NAME
+            version=${tag#v}
           else
             version=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -n 1)
-            if [ -n "$(git ls-remote --tags origin "refs/tags/$version")" ]; then
+            tag=v$version
+            if [ -n "$(git ls-remote --tags origin "refs/tags/$version" "refs/tags/$tag")" ]; then
               echo "::error::$version is already tagged; bump the version first"
               exit 1
             fi
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
-          python3 rust/release/notes.py "$version" --out "$RUNNER_TEMP/body.md"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          python3 rust/release/notes.py "$tag" --out "$RUNNER_TEMP/body.md"
       - id: built
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           run=$(gh run list -R "$GITHUB_REPOSITORY" --workflow rust-windows.yml --branch main --commit "$GITHUB_SHA" \
-            --status success --limit 1 --json databaseId --jq '.[0].databaseId // empty')
+            --event push --status success --limit 1 --json databaseId --jq '.[0].databaseId // empty')
+          if [ -n "$run" ]; then
+            artifact=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run/artifacts" \
+              --jq '.artifacts[] | select(.name == "butterpollo-rust-windows-x64" and .expired == false) | .id') || artifact=
+            if [ -z "$artifact" ]; then run=; fi
+          fi
           echo "run=$run" >> "$GITHUB_OUTPUT"
           if [ -n "$run" ]; then echo "::notice::reusing the build of $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$run"; fi
   windows:
@@ -137,29 +146,26 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       VERSION: ${{ needs.tag.outputs.version }}
+      TAG: ${{ needs.tag.outputs.tag }}
       BUILD: ${{ needs.tag.outputs.run || github.run_id }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
       - name: Publish the release
         run: |
-          if gh release view "$VERSION" > /dev/null 2>&1; then
+          if gh release view "$TAG" > /dev/null 2>&1 || gh release view "$VERSION" > /dev/null 2>&1; then
             echo "::notice::$VERSION is already published"
             exit 0
           fi
-          python3 rust/release/notes.py "$VERSION" --out body.md --run "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$BUILD"
+          python3 rust/release/notes.py "$TAG" --out body.md --run "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$BUILD"
           gh run download "$BUILD" -n butterpollo-rust-windows-x64 -D build
           mkdir out
           mv "build/butterpollo-setup-$VERSION.exe" "out/rubylight-setup-$VERSION.exe"
-          # Hosts up to 2.0.1 only list a release that carries a butterpollo-named
-          # asset (maintenance.rs::compatible_release). 2.1.0 is the last release
-          # with this copy; the next one drops it, since 2.1.0 hosts accept the new names.
-          cp "out/rubylight-setup-$VERSION.exe" "out/butterpollo-setup-$VERSION.exe"
           mv build/butterpollo-rust-release.zip "out/rubylight-$VERSION-windows-x64.zip"
           (cd out && sha256sum * > SHA256SUMS)
           flags=()
-          if [[ $VERSION == *-* ]]; then flags+=(--prerelease); fi
-          gh release create "$VERSION" --target "$GITHUB_SHA" --title "Rubylight $VERSION" --notes-file body.md "${flags[@]}" out/*
-          echo "::notice::published $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/tag/$VERSION"
+          if [[ $VERSION == *-* ]]; then flags+=(--prerelease); else flags+=(--latest); fi
+          gh release create "$TAG" --target "$GITHUB_SHA" --title "Rubylight $VERSION" --notes-file body.md "${flags[@]}" out/*
+          echo "::notice::published $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/tag/$TAG"
   # Corrects a published release's text after the fact, keeping its assets
   # and its link to the run that built it.
   notes:
@@ -175,7 +181,9 @@ jobs:
       - name: Rewrite the release text
         run: |
           version=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -n 1)
-          run=$(gh release view "$version" --json body --jq .body | grep -o 'https://github.com/[^)]*/actions/runs/[0-9]*' | head -n 1 || true)
-          python3 rust/release/notes.py "$version" --out body.md --run "$run"
-          gh release edit "$version" --notes-file body.md
-          echo "::notice::rewrote the text of $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/tag/$version"
+          tag=v$version
+          if ! gh release view "$tag" > /dev/null 2>&1; then tag=$version; fi
+          run=$(gh release view "$tag" --json body --jq .body | grep -o 'https://github.com/[^)]*/actions/runs/[0-9]*' | head -n 1 || true)
+          python3 rust/release/notes.py "$tag" --out body.md --run "$run"
+          gh release edit "$tag" --notes-file body.md
+          echo "::notice::rewrote the text of $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/tag/$tag"

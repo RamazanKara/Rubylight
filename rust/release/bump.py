@@ -17,7 +17,7 @@ parser.add_argument('version')
 parser.add_argument('--notes', type=pathlib.Path)
 args = parser.parse_args()
 root = pathlib.Path(__file__).resolve().parents[2]
-new = args.version
+new = args.version.removeprefix('v')
 assert re.fullmatch(r'\d+\.\d+\.\d+(-rc\.\d+)?', new), new
 
 
@@ -48,20 +48,25 @@ lock.write_text(text, encoding='utf-8', newline='')
 short = re.compile(r'(?<![\w.])%s(?![\w])' % re.escape(label(old)))
 # Only the short labels that name the release to download: a sentence about
 # what an older release measured or changed keeps its version.
-current = re.compile(r'(?<=Download ){0}(?![\w])|(?<=For ){0}(?=,)'.format(re.escape(label(old))))
+current = re.compile(r'(?<=Download )(?:\d+\.\d+\.\d+|rc\.\d+)(?![\w])|(?<=For )(?:\d+\.\d+\.\d+|rc\.\d+)(?=,)')
 for name in ('README.md', 'docs/README.md', 'docs/getting-started.md', 'rust/README.md'):
     path = root / name
     text = path.read_text(encoding='utf-8')
-    for link in (f'Download {label(old)}', 'release'):
-        text = text.replace(f'[{link}](https://github.com/RamazanKara/Rubylight/releases/tag/{old})',
-                            f'[{link}](https://github.com/RamazanKara/Rubylight/releases/tag/{new})')
+    text = re.sub(r'(\[(?:Download [^]]+|release)\]\(https://github.com/RamazanKara/Rubylight/releases/tag/)[^)]+\)',
+                  lambda m: f'{m[1]}v{new})', text)
     # Releases since rc.30 are named Rubylight; earlier ones Butterpollo.
     for setup in ('butterpollo-setup', 'rubylight-setup'):
-        text = text.replace(f'{setup}-{old}.exe', f'rubylight-setup-{new}.exe')
+        text = re.sub(rf'{setup}-\d+\.\d+\.\d+(?:-rc\.\d+)?\.exe', f'rubylight-setup-{new}.exe', text)
     for package in ('butterpollo-rust', 'rubylight'):
-        text = text.replace(f'{package}-{old}-windows-x64.zip', f'rubylight-{new}-windows-x64.zip')
+        text = re.sub(rf'{package}-\d+\.\d+\.\d+(?:-rc\.\d+)?-windows-x64\.zip', f'rubylight-{new}-windows-x64.zip', text)
     text = text.replace(f'The workspace version is **{old}**', f'The workspace version is **{new}**')
     path.write_text(current.sub(label(new), text), encoding='utf-8', newline='')
+
+for name in ('package.json', 'package-lock.json'):
+    path = root / 'rust/web' / name
+    text = re.sub(r'("version": )"[^"]+"', lambda m: f'{m[1]}"{new}"',
+                  path.read_text(encoding='utf-8'), count=2 if name == 'package-lock.json' else 1)
+    path.write_text(text, encoding='utf-8', newline='')
 
 notes = root / 'rust/RELEASE_NOTES.md'
 lines = notes.read_text(encoding='utf-8').split('\n')

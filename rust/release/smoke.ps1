@@ -25,7 +25,7 @@ and the GitHub CLI is signed in here, and exits 1 when a run fails. If the
 laptop is offline, the release simply has no REAL-CLIENT.json.
 
 .EXAMPLE
-pwsh rust/release/smoke.ps1 -Version 2.0.0-rc.23
+pwsh rust/release/smoke.ps1 -Version v2.2.2
 #>
 param(
     [string] $Version = '',
@@ -42,6 +42,8 @@ param(
     [string] $Out = (Join-Path $PWD "smoke-$(if ($Version) { $Version } else { 'host' }).json")
 )
 $ErrorActionPreference = 'Stop'
+$tag = $Version
+$Version = $Version -replace '^v', ''
 
 function Wait-Idle {
     $deadline = (Get-Date).AddSeconds(60)
@@ -126,7 +128,7 @@ $result | ConvertTo-Json -Depth 5 | Set-Content $Out -Encoding utf8
 if ($Version -and (Get-Command gh -ErrorAction SilentlyContinue)) {
     $upload = Join-Path ([IO.Path]::GetTempPath()) 'REAL-CLIENT.json'
     Copy-Item $Out $upload -Force
-    try { gh release upload $Version -R RamazanKara/Rubylight --clobber $upload } catch { Write-Warning "not uploaded: $_" }
+    try { gh release upload $tag -R RamazanKara/Rubylight --clobber $upload } catch { Write-Warning "not uploaded: $_" }
 }
 Write-Host "smoke test $(if ($result.passed) { 'passed' } else { 'FAILED' }): $Out"
 if (-not $result.passed) { exit 1 }

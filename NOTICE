@@ -4,7 +4,7 @@ rights reserved.
 
 NVIDIA RTX Video SDK
 
-Vibeshine Windows builds may include NVIDIA RTX Video SDK components for the optional
+Rubylight Windows builds may include NVIDIA RTX Video SDK components for the optional
 RTX HDR / TrueHDR feature:
 
 - nvngx_truehdr.dll

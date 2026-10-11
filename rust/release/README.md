@@ -3,12 +3,12 @@
 A release is a pushed tag:
 
 ```sh
-python rust/release/bump.py 2.0.0-rc.N   # versions, READMEs, docs, a "## New in rc.N" section
-# fill in "## New in rc.N" in rust/RELEASE_NOTES.md, commit and push to main
-git tag 2.0.0-rc.N && git push origin 2.0.0-rc.N
+python rust/release/bump.py 2.2.2   # versions, download links, a "## New in 2.2.2" section
+# fill in "## New in 2.2.2" in rust/RELEASE_NOTES.md, commit and push to main
+git tag v2.2.2 && git push origin v2.2.2
 ```
 
-Without git, the same release is one click: **Actions → Rubylight Windows → Run workflow** on `main` with **Publish** ticked. It releases the version in `Cargo.toml` at main's head and creates its tag.
+Without git, the same release is one click: **Actions → Rubylight Windows → Run workflow** on `main` with **Publish** ticked. It releases the version in `Cargo.toml` at main's head and creates its `v<version>` tag. An existing tag with or without `v` prevents publishing that version again. Package filenames keep the bare version.
 
 The tag's run (or the published run) of [`rust-windows.yml`](../../.github/workflows/rust-windows.yml) does the rest:
 
@@ -26,7 +26,7 @@ The only part GitHub's runners cannot do needs the Radeon release workstation, w
 
 ```powershell
 pwsh rust/release/check.ps1                # the newest release
-pwsh rust/release/check.ps1 2.0.0-rc.N -NoInstall -NoUpload
+pwsh rust/release/check.ps1 v2.2.2 -NoInstall -NoUpload
 ```
 
 It downloads the release and checks it against `SHA256SUMS`, streams H.264, HEVC, HEVC VRR, AV1, HEVC with keyframe requests (16, one every 0.5 s, while the picture moves at the stream rate; the host's per-claim trace must show no unchanged picture encoded again) and PyroWave (SDR and HDR 4:4:4 at 1080p60) for 12 seconds each through the packaged host on an isolated profile with the independent moonlight-common-c client, runs the pairing and launch protocol checks (`e2e.py`, `protocol.py`), runs the display self-test as SYSTEM and installs over the running host (`elevated.ps1`), then records the results with `validation.py`, uploads them as `VALIDATION.json` and links them from the release text. The stream checks start a second host on ports 48518-48544 and do not touch displays, HDR or audio. The receivers and probes are kept in `C:\src\butterpollo-release\fixtures` and only rebuild what changed.
@@ -43,7 +43,7 @@ Machine settings live outside the repository in `C:\src\butterpollo-release\sett
 After the install, from the measurement laptop (Moonlight-qt paired as client "lap", whose Extended layout streams a virtual display, with `motion_probe` drawing on it from the host):
 
 ```powershell
-pwsh rust/release/smoke.ps1 -Version 2.0.0-rc.N
+pwsh rust/release/smoke.ps1 -Version v2.2.2
 ```
 
 It streams the Desktop app for 30 seconds per codec at 1968x2184, HDR, 120 fps, 80 Mbps with AV1 and HEVC, closes Moonlight and reads its "Global video stats". A run passes with at least 115 fps received and a host processing average under 5 ms. The result goes to the release as `REAL-CLIENT.json` when the GitHub CLI is signed in on the laptop. If the laptop is offline the release has no `REAL-CLIENT.json`: the smoke test was skipped.

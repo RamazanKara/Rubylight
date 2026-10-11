@@ -100,6 +100,6 @@ Useful response and request details:
 - `/api/logs/tail` accepts `offset` and `max`, then returns `text`, the next `offset`, `size` and a `reset` flag for log rotation.
 - `/api/updates/install` queues the update for an idle installed service. `/api/updates/install_now` installs without waiting and ends a running stream; `now` is `true` in `/api/updates` while such an update is queued. Read `/api/updates` for progress and the result.
 
-Authentication failures return HTTP `401`; denied origins or network reach return `403`; invalid requests commonly return `400` with `{"status":false,"error":"..."}`. Login rate limiting returns `429`. Check the HTTP status and response body together.
+Authentication failures return HTTP `401`; denied origins or network reach return `403`; invalid requests commonly return `400` with `{"status":false,"error":"..."}`. Login rate limiting returns `429` for the sign-in endpoint and `401` for HTTP Basic authentication. Check the HTTP status and response body together.
 
 For exact request fields beyond this overview, follow [the API router](../rust/host/src/web.rs) and [its area handlers](../rust/host/src/web), [token scope validation](../rust/core/src/auth.rs) and [administration checks](../rust/tests/web_api.py).

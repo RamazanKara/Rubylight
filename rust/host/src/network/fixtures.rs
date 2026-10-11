@@ -156,7 +156,12 @@ async fn permanent_only_router_reclaims_old_own_ports_and_preserves_other_owners
             port: 48126,
         },
     ];
-    let applied = apply(&gateway, local, &wanted, owner).await.unwrap();
+    let mut reported = Vec::new();
+    let applied = apply(&gateway, local, &wanted, owner, &mut reported)
+        .await
+        .unwrap();
+    // The other application's 48124 already forwards to this PC: no warning.
+    assert!(reported.is_empty());
     assert_eq!(state.lock().unwrap().leases, [120, 0]);
     assert_eq!(
         applied,
@@ -169,7 +174,9 @@ async fn permanent_only_router_reclaims_old_own_ports_and_preserves_other_owners
         ]
     );
     // Simulate a restarted host adopting its previous permanent mappings.
-    let adopted = apply(&gateway, local, &[], owner).await.unwrap();
+    let adopted = apply(&gateway, local, &[], owner, &mut reported)
+        .await
+        .unwrap();
     assert_eq!(adopted, applied);
     // A third party replaced a mapping after it was created. Teardown must
     // inspect current ownership, not trust the host's previous success.
@@ -203,7 +210,9 @@ async fn a_router_that_hides_its_table_still_gets_and_loses_the_mappings() {
         protocol: Protocol::TCP,
         port: 48126,
     }];
-    let applied = apply(&gateway, local, &wanted, owner).await.unwrap();
+    let applied = apply(&gateway, local, &wanted, owner, &mut Vec::new())
+        .await
+        .unwrap();
     assert_eq!(applied, wanted);
     assert_eq!(state.lock().unwrap().rows.len(), 1);
     remove(&gateway, local, &applied, owner).await.unwrap();

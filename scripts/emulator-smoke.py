@@ -110,9 +110,19 @@ def host_menu(item=None):
         tap(item, scroll=True)
 
 
+PROFILE_RESET = "Same as all PCs for everything"
+
+
 def open_host_profile():
     host_menu("Stream settings")
-    find("Use global settings")
+    find("Video resolution")
+
+
+def uncheck(predicate):
+    node = next((n for n in tree().iter("node") if n.get("checked") == "true" and predicate(n.get("text") or "")), None)
+    if node is not None:
+        x1, y1, x2, y2 = bounds(node)
+        adb("shell", "input", "tap", str((x1+x2)//2), str((y1+y2)//2))
 
 
 def profile_number(label, value):
@@ -122,12 +132,10 @@ def profile_number(label, value):
               and n.get("content-desc") == label]
     if not fields:
         tap(rows[label], scroll=True)
-        # A new profile follows the phone's screen; a fixed size needs that choice off first.
-        native = next((n for n in tree().iter("node")
-                       if n.get("text") == "Native (follows this phone’s screen)" and n.get("checked") == "true"), None)
-        if native is not None:
-            x1, y1, x2, y2 = bounds(native)
-            adb("shell", "input", "tap", str((x1+x2)//2), str((y1+y2)//2))
+        # Every value starts as "Same as all PCs"; a value of this PC's own needs that box off.
+        uncheck(lambda text: text.startswith("Same as all PCs"))
+        # The resolution may follow the phone's screen; a fixed size needs that choice off too.
+        uncheck(lambda text: text == "Native (follows this phone’s screen)")
         fields = [n for n in tree().iter("node") if n.get("class") == "android.widget.EditText"
                   and n.get("content-desc") == label]
     field = fields[0]
@@ -206,10 +214,8 @@ def capture_ui_set(width, font):
     screenshot(prefix + "-pc-sheet")
     adb("shell", "input", "keyevent", "4")
     open_host_profile()
-    find("Use global settings")
-    assert find("Video resolution").get("enabled") == "false"
-    tap("Use global settings")
-    assert find("Video resolution").get("enabled") == "true"
+    assert find(PROFILE_RESET, scroll=True).get("enabled") == "false", "A new PC should follow the settings for all PCs"
+    find("Video resolution", scroll="up")
     screenshot(prefix + "-per-pc")
     tap("Navigate up")
     tap(f"{PACKAGE}:id/settingsButton")
@@ -414,9 +420,6 @@ def main():
             screenshot("15-host-details")
             tap("android:id/button1")
             open_host_profile()
-            find("Use global settings")
-            assert find("Video resolution").get("enabled") == "false", "Global fields should be disabled"
-            tap("Use global settings")
             profile_number("Width", "0")
             find("Enter a whole number from 64 to 16384")
             profile_number("Width", "1920")
@@ -427,13 +430,12 @@ def main():
             tap(f"{PACKAGE}:id/host_profile_save")
             prefs("HostStreamProfiles", lambda root: any(
                 n.get("name") == "00000000-0000-4000-8000-000000000006" and
-                (n.text or "").startswith("1920,1080,5994,45500,") for n in root), "Host profile was not saved")
+                (n.text or "") == "v2;res=1920x1080;refresh=5994;bitrate=45500" for n in root), "Host profile was not saved")
             open_host_profile()
-            find("Use global settings")
-            find("59.94 Hz")
+            find("59.94 Hz", scroll="up")
             find("Prefer YUV 4:4:4", scroll=True)
             screenshot("10-host-codec-profile")
-            tap("Use global settings", scroll="up")
+            tap(PROFILE_RESET, scroll=True)
             tap(f"{PACKAGE}:id/host_profile_save")
             prefs("HostStreamProfiles", lambda root: not list(root), "Host profile reset did not clear overrides")
             tap(f"{PACKAGE}:id/settingsButton")

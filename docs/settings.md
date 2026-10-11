@@ -30,6 +30,7 @@ These tables include every preference, including actions. On/Off choices have no
 
 | Setting / preference key | Default | Choices and units | When to change or use |
 | --- | --- | --- | --- |
+| Snapdragon GPU driver<br>`gpu_driver` | No stored default | Action | Import and select a compatible Snapdragon Vulkan driver for PyroWave. The system driver remains the default; changes apply to the next stream. |
 | Client-side upscaling<br>`upscaling_mode` | Off | Off; Bilinear; FSR 1.0; SGSR 1 (Snapdragon Game Super Resolution) | Choose a stream resolution below the screen size for SDR upscaling. PyroWave uses SGSR for both FSR and SGSR selections. HDR and 10-bit streams use direct output. |
 | Upscaling sharpness<br>`upscaling_sharpness` | 50% | 0%–100%; step 1% | Reduce for halos or ringing; raise for soft edges. Applies on the next stream. At 0%, FSR skips extra sharpening; SGSR still reconstructs edges. |
 | Stretch to fill screen<br>`checkbox_stretch_video` | Off | On; Off | Enable to fill a screen with a different aspect ratio; shapes will stretch. |
@@ -84,7 +85,7 @@ These tables include every preference, including actions. On/Off choices have no
 | Setting / preference key | Default | Choices and units | When to change or use |
 | --- | --- | --- | --- |
 | Show performance overlay<br>`checkbox_enable_perf_overlay` | Off | On; Off | Enable while diagnosing frame rate, network loss or delay. Can also be toggled during a stream. |
-| Performance overlay mode<br>`performance_overlay_mode` | Compact | Compact; Advanced | Use Compact for a corner summary or Advanced for the measured stages. Hold the overlay to switch; Copy stats includes Advanced details. |
+| Performance overlay mode<br>`performance_overlay_mode` | Statistics | Statistics; Debug | Use Statistics for an Artemis-style summary or Debug for detailed measured stages. Hold the overlay to switch; Copy stats includes Debug details. |
 | Surround sound<br>`list_audio_config` | Stereo | Stereo; 5.1 Surround Sound; 7.1 Surround Sound | Choose 5.1 or 7.1 for a matching audio output and host configuration; use stereo for headphones or two speakers. |
 | Play audio on the host PC<br>`checkbox_host_audio` | Off | On; Off | Enable to hear audio on the PC as well as Android. |
 | Send microphone to the PC<br>`checkbox_enable_mic` | Off | On; Off | Enable to talk in games and chat apps on the PC. Asks for microphone access; if it is not allowed, the setting stays off. The PC hears it as its streaming microphone. Mute it from the stream menu; the overlay shows whether it is sending. |

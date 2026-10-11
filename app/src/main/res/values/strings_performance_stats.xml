@@ -1,0 +1,8 @@
+<resources>
+    <string name="stats_waiting">Waiting for stream statistics…</string>
+    <string name="stats_frame_rates">Displayed: %1$s FPS · Received: %2$s FPS</string>
+    <string name="stats_throughput">Video payload: %1$s Mbps · Loss: %2$s%%</string>
+    <string name="stats_network">Network RTT: %1$s ms (±%2$s ms)</string>
+    <string name="stats_host">Host processing: %1$s ms</string>
+    <string name="stats_client">Decode: %1$s ms · Display wait: %2$s ms</string>
+</resources>

@@ -40,7 +40,7 @@
         android:layout_height="wrap_content"
         android:layout_margin="8dp"
         android:layout_gravity="top|start"
-        android:background="#B3000000"
+        android:background="#80000000"
         android:focusable="false"
         android:descendantFocusability="blocksDescendants"
         android:preferKeepClear="true"
@@ -51,11 +51,14 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:gravity="start"
+            android:fontFamily="monospace"
             android:textSize="12sp"
             android:textColor="@android:color/white"
-            android:padding="6dp"
-            android:maxLines="1"
-            android:ellipsize="end" />
+            android:shadowColor="#FF000000"
+            android:shadowRadius="2"
+            android:lineSpacingExtra="1dp"
+            android:maxWidth="440dp"
+            android:padding="8dp" />
     </ScrollView>
 
     <TextView

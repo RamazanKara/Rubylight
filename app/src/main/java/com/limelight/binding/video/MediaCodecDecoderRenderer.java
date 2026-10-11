@@ -13,6 +13,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 
 import org.jcodec.codecs.h264.H264Utils;
 import org.jcodec.codecs.h264.io.model.SeqParameterSet;
@@ -129,6 +130,10 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     private volatile VideoStatsFps overlayFps;
     private volatile long lastVideoFrameTimeMs;
     private volatile float networkFrameLossPercent;
+    private final AtomicLong receivedVideoBytes = new AtomicLong();
+    private long bitrateWindowStartNs;
+    private long bitrateWindowStartBytes;
+    private volatile float receivedVideoMbps = -1;
 
     private final PyroWaveDecoderRenderer pyroWaveRenderer = new PyroWaveDecoderRenderer();
     private int pyroWaveFailures;
@@ -153,12 +158,20 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     private Handler latencyHandler;
     private BufferedWriter latencyCsv;
     private volatile String latencyOverlay = "";
+    private volatile double[][] latencySummary = new double[5][4];
     private volatile String decoderDiagnostics = "";
     public static final String LATENCY_CSV_NAME = "butterpollo-latency.csv";
     private static final long MAX_LATENCY_CSV_BYTES = 8 * 1024 * 1024;
     private final Runnable updateLatencyStats = new Runnable() {
         @Override
         public void run() {
+            long nowNs = System.nanoTime();
+            long bytes = receivedVideoBytes.get();
+            if (bitrateWindowStartNs != 0) {
+                receivedVideoMbps = PerformanceOverlay.videoMbps(bytes - bitrateWindowStartBytes, nowNs - bitrateWindowStartNs);
+            }
+            bitrateWindowStartNs = nowNs;
+            bitrateWindowStartBytes = bytes;
             thermalLevel = thermalMonitor.level();
             // Forced max clocks on a hot phone only bring on harder throttling.
             if (thermalLevel == ThermalMonitor.HOT && pyroWaveRenderer.hasMaxClocks()) {
@@ -169,7 +182,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             frameLatencyStats.expire(System.nanoTime());
             flushLatencyCsv();
             if (prefs.enablePerfOverlay) {
-                StringBuilder text = new StringBuilder(formatLatencyOverlay(context, frameLatencyStats.summarize()));
+                latencySummary = frameLatencyStats.summarize();
+                StringBuilder text = new StringBuilder(formatLatencyOverlay(context, latencySummary));
                 if (latencyCsv == null) {
                     text.append('\n').append(context.getString(R.string.latency_csv_failed));
                 } else if (frameLatencyStats.getCsvRowsLost() != 0) {
@@ -2236,8 +2250,16 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             long presentDrops = frameLatencyStats.getPresentDrops();
             boolean mediaCodec = (videoFormat & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) == 0;
             long rttInfo = MoonBridge.getEstimatedRttInfo();
+            float networkMs = rttInfo == -1 ? -1 : (int) (rttInfo >> 32);
+            float varianceMs = rttInfo == -1 ? -1 : (int) rttInfo;
+            String codec = (videoFormat & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0 ? "PyroWave" :
+                    (videoFormat & MoonBridge.VIDEO_FORMAT_MASK_AV1) != 0 ? "AV1" :
+                    (videoFormat & MoonBridge.VIDEO_FORMAT_MASK_H265) != 0 ? "HEVC" : "H.264";
+            String color = Boolean.TRUE.equals(currentHdrMode) ? "HDR" :
+                    currentHdrMode == null && (videoFormat & MoonBridge.VIDEO_FORMAT_MASK_10BIT) != 0 ? "10-bit" : "SDR";
+            String stream = streamWidth + "×" + streamHeight + " · " + codec + " · " + color;
             StringBuilder video = new StringBuilder();
-            video.append(context.getString(R.string.perf_overlay_streamdetails, streamWidth + "x" + streamHeight, fps.totalFps)).append('\n');
+            video.append(stream).append('\n');
             video.append(context.getString(R.string.perf_overlay_resolution_source, context.getString(
                     prefs.resolutionFollowsScreen ?
                             (prefs.fromPcProfile ? R.string.resolution_source_native_profile : R.string.resolution_source_native) :
@@ -2248,7 +2270,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                         context.getString(prefs.hostDisplay.label))).append('\n');
             }
             video.append(context.getString(R.string.perf_overlay_incomingfps,
-                    mediaCodec ? frameRates[0] : fps.receivedFps)).append('\n');
+                    frameRates[0])).append('\n');
             video.append(context.getString(R.string.perf_overlay_releasedfps, frameRates[1])).append('\n');
             video.append(context.getString(R.string.perf_overlay_shownfps, shownFps)).append('\n');
             video.append(context.getString(R.string.perf_overlay_presentdrops, presentDrops)).append('\n');
@@ -2256,8 +2278,13 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             if ((videoFormat & MoonBridge.VIDEO_FORMAT_MASK_10BIT) != 0) {
                 video.append(" 10-bit");
             }
-            String network = context.getString(R.string.perf_overlay_netdrops, fps.lossPercent) + '\n' +
-                    context.getString(R.string.perf_overlay_netlatency, (int)(rttInfo >> 32), (int)rttInfo);
+            Locale locale = context.getResources().getConfiguration().locale;
+            String network = context.getString(R.string.stats_throughput,
+                    PerformanceOverlay.measurement(locale, receivedVideoMbps, "%.1f"),
+                    PerformanceOverlay.measurement(locale, fps.lossPercent, "%.2f")) + '\n' +
+                    context.getString(R.string.stats_network,
+                            PerformanceOverlay.measurement(locale, networkMs, "%.0f"),
+                            PerformanceOverlay.measurement(locale, varianceMs, "%.0f"));
             StringBuilder decode = new StringBuilder(decoderDiagnostics);
             // The timing block below already lists decode time; show it here only without that block.
             if (latencyOverlay.isEmpty()) {
@@ -2280,9 +2307,12 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             decode.append('\n').append(upscalingStats());
             decode.append('\n').append(thermalStats());
             decode.append('\n').append(latencyOverlay);
+            double[][] timings = latencySummary;
             perfListener.onPerfUpdate(video.toString(), network, decode.toString(),
-                    PerformanceOverlay.compactText(context, frameRates[2], (int)(rttInfo >> 32),
-                            decodeTimeMs, fps.lossPercent));
+                    PerformanceOverlay.statisticsText(context, stream, frameRates[2],
+                            frameRates[0], receivedVideoMbps, fps.lossPercent,
+                            networkMs, varianceMs, PerformanceOverlay.average(timings, 4), decodeTimeMs,
+                            frameRates[2] < 0 ? -1 : PerformanceOverlay.average(timings, 2)));
         }
     }
 
@@ -2350,6 +2380,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             activeWindowVideoStats.clear();
             activeWindowVideoStats.measurementStartTimestamp = SystemClock.uptimeMillis();
         }
+
+        receivedVideoBytes.addAndGet(decodeUnitLength);
 
         if ((videoFormat & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0) {
             long inputNs = System.nanoTime();

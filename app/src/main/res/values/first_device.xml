@@ -24,13 +24,12 @@
     <string name="summary_frame_pacing">Balance response time and smoothness when VRR is off.</string>
     <string name="summary_language">Choose the language used by the app.</string>
     <string name="overlay_mode">Performance overlay mode</string>
-    <string name="overlay_mode_help">Choose a compact or detailed view.\nHold the overlay to switch.</string>
-    <string name="overlay_compact">Compact</string>
-    <string name="overlay_advanced">Advanced</string>
+    <string name="overlay_mode_help">Statistics shows live stream measurements. Debug adds timing percentiles and decoder diagnostics; scroll to see all details.</string>
+    <string name="overlay_statistics">Statistics</string>
+    <string name="overlay_debug">Debug</string>
     <string name="overlay_copy">Copy stats</string>
     <string name="overlay_copied">Stats copied</string>
     <string name="overlay_empty">Enable the overlay and wait for video.</string>
-    <string name="overlay_compact_loss">%1$.1f%% loss</string>
     <string name="overlay_video">Video</string>
     <string name="overlay_network">Network</string>
     <string name="overlay_decode">Decode</string>
@@ -50,8 +49,8 @@
     <string name="perf_overlay_thermal_normal">normal</string>
     <string name="perf_overlay_thermal_warm">warm, holding bitrate</string>
     <string name="perf_overlay_thermal_hot">hot, easing load</string>
-    <string-array name="overlay_mode_names"><item>@string/overlay_compact</item><item>@string/overlay_advanced</item></string-array>
-    <string-array name="overlay_mode_values" translatable="false"><item>compact</item><item>advanced</item></string-array>
+    <string-array name="overlay_mode_names"><item>@string/overlay_statistics</item><item>@string/overlay_debug</item></string-array>
+    <string-array name="overlay_mode_values" translatable="false"><item>statistics</item><item>debug</item></string-array>
     <string name="connection_test_title">Connection test</string>
     <string name="connection_test_intro">Test speed and delay to your PC.\nUses up to 32 MiB, including mobile data.</string>
     <string name="connection_test_running">Testing… Tap Cancel to stop.</string>

@@ -22,6 +22,18 @@ import static org.junit.Assert.*;
         instrumentedPackages = "com.limelight.nvstream.jni")
 public class SettingsInteractionTest {
     @Test
+    public void oldOverlayChoicesMigrateToStatisticsOrDebug() {
+        Application app = RuntimeEnvironment.getApplication();
+        SharedPreferences prefs = android.preference.PreferenceManager.getDefaultSharedPreferences(app);
+        for (String old : new String[] {"compact", "expanded", "advanced", "statistics", "debug"}) {
+            prefs.edit().putString("performance_overlay_mode", old).commit();
+            PreferenceConfiguration.readPreferences(app);
+            assertEquals("advanced".equals(old) || "debug".equals(old) ? "debug" : "statistics",
+                    prefs.getString("performance_overlay_mode", null));
+        }
+    }
+
+    @Test
     public void explicitDisplayModeIsVisibleFirstAndControlsVirtualDisplay() {
         Application app = RuntimeEnvironment.getApplication();
         HostDisplayChoice.save(app, "exclusive-host", HostDisplayChoice.EXCLUSIVE);

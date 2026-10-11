@@ -10,6 +10,7 @@ import android.view.Display;
 
 import com.limelight.nvstream.jni.MoonBridge;
 import com.limelight.binding.video.DisplayFrameRatePolicy;
+import com.limelight.binding.video.PerformanceOverlay;
 import com.limelight.binding.video.UpscalingPolicy;
 
 public class PreferenceConfiguration {
@@ -646,9 +647,10 @@ public class PreferenceConfiguration {
         String savedResolution = null;
 
         // Migrate legacy preferences to the new locations
-        // The old ListPreference persisted "expanded" even when the user never changed its default.
-        if ("expanded".equals(prefs.getString("performance_overlay_mode", "compact"))) {
-            prefs.edit().putString("performance_overlay_mode", "compact").apply();
+        String overlayMode = prefs.getString("performance_overlay_mode", "statistics");
+        String normalizedOverlayMode = PerformanceOverlay.normalizeMode(overlayMode);
+        if (!normalizedOverlayMode.equals(overlayMode)) {
+            prefs.edit().putString("performance_overlay_mode", normalizedOverlayMode).apply();
         }
         if (prefs.contains(LEGACY_ENABLE_51_SURROUND_PREF_STRING)) {
             if (prefs.getBoolean(LEGACY_ENABLE_51_SURROUND_PREF_STRING, false)) {

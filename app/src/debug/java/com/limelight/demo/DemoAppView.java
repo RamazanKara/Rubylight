@@ -26,7 +26,7 @@ public final class DemoAppView extends AppView {
         // After a rotation the retained fragment can call this before the adapter exists; the real one is set later.
         if (list.getAdapter() != null) list.setAdapter(new TidyCards(list.getAdapter()));
         list.setOnItemClickListener((parent, view, position, id) -> startActivity(
-                new Intent(this, DemoGameActivity.class).putExtra("state", "compact")));
+                new Intent(this, DemoGameActivity.class).putExtra("state", "statistics")));
         list.setOnItemLongClickListener((parent, view, position, id) -> {
             list.performItemClick(view, position, id);
             return true;

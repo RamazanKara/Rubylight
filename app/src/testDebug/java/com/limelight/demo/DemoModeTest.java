@@ -146,6 +146,7 @@ public class DemoModeTest {
         var first = Robolectric.buildActivity(DemoGameActivity.class, intent).create();
         TextView overlay = first.get().findViewById(R.id.performanceOverlay);
         assertTrue(overlay.getText().toString().contains("AV1"));
+        assertTrue(overlay.getText().toString().contains("p95"));
         assertEquals(Integer.MAX_VALUE, overlay.getMaxLines());
         Bundle saved = new Bundle();
         first.saveInstanceState(saved).destroy();
@@ -153,8 +154,12 @@ public class DemoModeTest {
         try {
             overlay = restored.get().findViewById(R.id.performanceOverlay);
             assertEquals(Integer.MAX_VALUE, overlay.getMaxLines());
+            assertTrue(overlay.getText().toString().contains("p95"));
             overlay.performLongClick();
-            assertEquals(1, overlay.getMaxLines());
+            assertEquals(Integer.MAX_VALUE, overlay.getMaxLines());
+            assertEquals(6, overlay.getText().toString().split("\n").length);
+            assertTrue(overlay.getText().toString().contains("119.9 FPS"));
+            assertFalse(overlay.getText().toString().contains("p95"));
         } finally { restored.destroy(); }
     }
 }

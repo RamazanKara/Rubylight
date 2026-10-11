@@ -278,7 +278,7 @@ def capture_ui_set(width, font):
     if DEBUGGABLE:
         adb("shell", "am", "start", "-W", "-n", f"{PACKAGE}/com.limelight.LatencyOverlaySmokeActivity")
         find(f"{PACKAGE}:id/performanceOverlay")
-        screenshot(prefix + "-overlay-compact")
+        screenshot(prefix + "-overlay-statistics")
         adb("shell", "input", "keyevent", "4")
 
 
@@ -617,12 +617,14 @@ def main():
                     adb("shell", "wm", "user-rotation", "lock", str(rotation))
                     time.sleep(1)
                     node = find(f"{PACKAGE}:id/performanceOverlay")
-                    assert node.get("text") == "● 119.9 FPS · 13 ms · 0.1% loss", node.attrib
-                    width, height = screenshot("overlay-compact" + suffix)
+                    text = node.get("text", "")
+                    assert "Displayed: 119.9 FPS" in text and "Video payload: 14.2 Mbps" in text, node.attrib
+                    assert "Host processing: 2.10 ms" in text and "Display wait: 1.20 ms" in text, node.attrib
+                    width, height = screenshot("overlay-statistics" + suffix)
                     assert (width < height) == (rotation == 0), "Overlay did not rotate"
                     x1, y1, x2, y2 = bounds(node)
                     assert 0 <= x1 < x2 <= width and 0 <= y1 < y2 <= height, node.attrib
-                    assert y2 - y1 < 80, "Compact overlay is not one small line"
+                    assert 80 < y2 - y1 < height, "Statistics should be a readable multiline panel"
                     x, y = str((x1 + x2) // 2), str((y1 + y2) // 2)
                     adb("shell", "input", "swipe", x, y, x, y, "1000")
                     node = find(f"{PACKAGE}:id/performanceOverlay")
@@ -631,7 +633,7 @@ def main():
                         assert section in text, node.attrib
                     assert "Low latency mode: " in text, node.attrib
                     assert "Queue wait: " in text, node.attrib
-                    screenshot("overlay-advanced" + suffix)
+                    screenshot("overlay-debug" + suffix)
                     x1, y1, x2, y2 = bounds(node)
                     x, y = str(x1 + 20), str(y1 + 20)
                     adb("shell", "input", "swipe", x, y, x, y, "1000")

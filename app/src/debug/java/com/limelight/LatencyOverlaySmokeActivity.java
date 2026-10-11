@@ -12,7 +12,7 @@ import com.limelight.ui.StreamView;
 
 /** Debug-only rendering check using the stream layout and production overlay formatters. */
 public class LatencyOverlaySmokeActivity extends Activity {
-    private boolean compact = true;
+    private boolean debug;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -20,16 +20,19 @@ public class LatencyOverlaySmokeActivity extends Activity {
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
         getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_FULLSCREEN |
                 View.SYSTEM_UI_FLAG_HIDE_NAVIGATION | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY);
+        getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN);
         setContentView(R.layout.activity_game);
         StreamView stream = findViewById(R.id.surfaceView);
+        // This rendering fixture has no text input.
+        stream.setFocusable(false);
         stream.initializeSurface(false);
-        if (savedInstanceState != null) compact = savedInstanceState.getBoolean("compact", true);
+        if (savedInstanceState != null) debug = savedInstanceState.getBoolean("debug", false);
         TextView message = findViewById(R.id.inputOnlyStatus);
         message.setText(R.string.smoke_overlay_message);
         message.setVisibility(View.VISIBLE);
         findViewById(R.id.performanceOverlayScroll).setVisibility(View.VISIBLE);
         findViewById(R.id.performanceOverlay).setOnLongClickListener(view -> {
-            compact = !compact;
+            debug = !debug;
             findViewById(R.id.performanceOverlayScroll).scrollTo(0, 0);
             updateOverlay();
             return true;
@@ -39,16 +42,16 @@ public class LatencyOverlaySmokeActivity extends Activity {
 
     @Override
     protected void onSaveInstanceState(Bundle outState) {
-        outState.putBoolean("compact", compact);
+        outState.putBoolean("debug", debug);
         super.onSaveInstanceState(outState);
     }
 
     private void updateOverlay() {
         TextView overlay = findViewById(R.id.performanceOverlay);
-        overlay.setMaxLines(compact ? 1 : Integer.MAX_VALUE);
-        overlay.setEllipsize(compact ? android.text.TextUtils.TruncateAt.END : null);
-        if (compact) {
-            overlay.setText(PerformanceOverlay.compactText(this, 119.94f, 8, 4.6f, 0.14f));
+        overlay.setTextSize(debug ? 11 : 12);
+        if (!debug) {
+            overlay.setText(PerformanceOverlay.statisticsText(this, "1280×720 · AV1 · HDR",
+                    119.94f, 120, 14.2f, 0.14f, 8, 1, 2.1f, 4.6f, 1.2f));
             return;
         }
         String video = getString(R.string.perf_overlay_streamdetails, "1280x720", 120f) + '\n' +
@@ -70,6 +73,6 @@ public class LatencyOverlaySmokeActivity extends Activity {
                         {600, 0.4, 0.8, 1.2}, {600, 4.6, 5.8, 6.4}, {600, 1.2, 1.8, 2.5},
                         {600, 6.4, 8.4, 10.1}, {600, 2.1, 2.8, 3.2}
                 });
-        overlay.setText(PerformanceOverlay.advancedText(this, video, network, decode));
+        overlay.setText(PerformanceOverlay.debugText(this, video, network, decode));
     }
 }

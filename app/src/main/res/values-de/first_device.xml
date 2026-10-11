@@ -24,13 +24,12 @@
     <string name="summary_frame_pacing">Wäge ohne VRR zwischen Latenz und flüssigem Bild ab.</string>
     <string name="summary_language">Wähle die Sprache der App.</string>
     <string name="overlay_mode">Leistungsanzeige</string>
-    <string name="overlay_mode_help">Kompakt oder ausführlich anzeigen.\nZum Wechseln die Anzeige halten.</string>
-    <string name="overlay_compact">Kompakt</string>
-    <string name="overlay_advanced">Ausführlich</string>
+    <string name="overlay_mode_help">Statistik zeigt aktuelle Stream-Messwerte. Debug ergänzt Zeitperzentile und Decoder-Diagnosen; für alle Details scrollen.</string>
+    <string name="overlay_statistics">Statistik</string>
+    <string name="overlay_debug">Debug</string>
     <string name="overlay_copy">Werte kopieren</string>
     <string name="overlay_copied">Werte kopiert</string>
     <string name="overlay_empty">Aktiviere die Leistungsanzeige und warte auf Video.</string>
-    <string name="overlay_compact_loss">%1$.1f%% Verlust</string>
     <string name="overlay_video">Video</string>
     <string name="overlay_network">Netzwerk</string>
     <string name="overlay_decode">Decoder</string>
@@ -51,8 +50,8 @@
     <string name="perf_overlay_thermal_warm">warm, Bitrate wird gehalten</string>
     <string name="perf_overlay_thermal_hot">heiß, Last wird reduziert</string>
     <string-array name="overlay_mode_names">
-        <item>@string/overlay_compact</item>
-        <item>@string/overlay_advanced</item>
+        <item>@string/overlay_statistics</item>
+        <item>@string/overlay_debug</item>
     </string-array>
     <string name="connection_test_title">Verbindungstest</string>
     <string name="connection_test_intro">Teste Tempo und Latenz zum PC.\nVerbraucht bis zu 32 MiB, auch im Mobilfunk.</string>

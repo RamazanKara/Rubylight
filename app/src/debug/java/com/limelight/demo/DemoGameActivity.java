@@ -14,7 +14,6 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
-import android.text.TextUtils;
 import android.util.Rational;
 import android.util.TypedValue;
 import android.view.Gravity;
@@ -40,7 +39,7 @@ public final class DemoGameActivity extends Activity implements SurfaceHolder.Ca
     private TextView overlay, label;
     private VirtualController controls;
     private MediaPlayer player;
-    private boolean compact, showControls, prepared, started, fallback;
+    private boolean debug, showControls, prepared, started, fallback;
     private int position;
     private long tick;
     private ActionSheet menu;
@@ -63,7 +62,7 @@ public final class DemoGameActivity extends Activity implements SurfaceHolder.Ca
         // The sample has no text input; keep the soft keyboard (and its navigation-bar buttons) off the stream.
         getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN);
         setContentView(R.layout.activity_game);
-        compact = state == null ? !"advanced".equals(getIntent().getStringExtra("state")) : state.getBoolean("compact");
+        debug = state == null ? "debug".equals(PerformanceOverlay.normalizeMode(getIntent().getStringExtra("state"))) : state.getBoolean("debug");
         showControls = state == null ? "touch".equals(getIntent().getStringExtra("state")) : state.getBoolean("controls");
         position = state == null ? 0 : state.getInt("position");
         stream = findViewById(R.id.surfaceView);
@@ -74,7 +73,7 @@ public final class DemoGameActivity extends Activity implements SurfaceHolder.Ca
         findViewById(R.id.performanceOverlayScroll).setVisibility(View.VISIBLE);
         placeOverlay();
         overlay.setOnLongClickListener(view -> {
-            setCompact(!compact);
+            setDebug(!debug);
             return true;
         });
         findViewById(R.id.backgroundTouchView).setOnClickListener(view -> showMenu());
@@ -94,42 +93,32 @@ public final class DemoGameActivity extends Activity implements SurfaceHolder.Ca
         DemoMetrics.update(this, this, 0);
     }
 
-    private void setCompact(boolean value) {
-        compact = value;
+    private void setDebug(boolean value) {
+        debug = value;
         placeOverlay();
         findViewById(R.id.performanceOverlayScroll).scrollTo(0, 0);
         DemoMetrics.update(this, this, tick);
     }
 
-    /**
-     * The sample's own HUD (title panel top left, speed panel top right, shield bottom left) fills the corners of the
-     * landscape picture, so the overlay sits where the picture has no text: top centre for the one-line compact pill, and
-     * the vertical middle of the left edge for the full advanced list. In portrait the picture is a strip, and the
-     * corner over the black bar above it is free.
-     */
     private void placeOverlay() {
         View scroll = findViewById(R.id.performanceOverlayScroll);
-        boolean landscape = getResources().getConfiguration().orientation == Configuration.ORIENTATION_LANDSCAPE;
         FrameLayout.LayoutParams params = (FrameLayout.LayoutParams) scroll.getLayoutParams();
-        params.gravity = !landscape ? Gravity.TOP | Gravity.START
-                : compact ? Gravity.TOP | Gravity.CENTER_HORIZONTAL : Gravity.CENTER_VERTICAL | Gravity.START;
+        params.gravity = Gravity.TOP | Gravity.START;
         scroll.setLayoutParams(params);
-        overlay.setTextSize(TypedValue.COMPLEX_UNIT_SP, !landscape ? 12 : compact ? 14 : 10);
+        overlay.setTextSize(TypedValue.COMPLEX_UNIT_SP, debug ? 11 : 12);
     }
 
-    @Override public void onPerfUpdate(String video, String network, String decode, CharSequence compactText) {
-        overlay.setMaxLines(compact ? 1 : Integer.MAX_VALUE);
-        overlay.setEllipsize(compact ? TextUtils.TruncateAt.END : null);
-        overlay.setText(compact ? compactText : PerformanceOverlay.advancedText(this, video, network, decode));
+    @Override public void onPerfUpdate(String video, String network, String decode, CharSequence statisticsText) {
+        overlay.setText(debug ? PerformanceOverlay.debugText(this, video, network, decode) : statisticsText);
     }
 
     private void showMenu() {
         if (menu != null) return;
         menu = new ActionSheet(this, getString(R.string.stream_overlay_menu));
-        menu.addAction(R.drawable.ic_remote_monitor, getString(R.string.overlay_compact))
-                .setOnClickListener(view -> { setCompact(true); menu.dismiss(); });
-        menu.addAction(R.drawable.ic_remote_monitor, getString(R.string.overlay_advanced))
-                .setOnClickListener(view -> { setCompact(false); menu.dismiss(); });
+        menu.addAction(R.drawable.ic_remote_monitor, getString(R.string.overlay_statistics))
+                .setOnClickListener(view -> { setDebug(false); menu.dismiss(); });
+        menu.addAction(R.drawable.ic_remote_monitor, getString(R.string.overlay_debug))
+                .setOnClickListener(view -> { setDebug(true); menu.dismiss(); });
         menu.addAction(R.drawable.ic_settings, getString(showControls ? R.string.stream_controls_hide : R.string.stream_controls_show))
                 .setOnClickListener(view -> {
                     showControls = !showControls;
@@ -236,7 +225,7 @@ public final class DemoGameActivity extends Activity implements SurfaceHolder.Ca
     }
 
     @Override protected void onSaveInstanceState(Bundle state) {
-        state.putBoolean("compact", compact);
+        state.putBoolean("debug", debug);
         state.putBoolean("controls", showControls);
         state.putInt("position", prepared ? player.getCurrentPosition() : position);
         super.onSaveInstanceState(state);

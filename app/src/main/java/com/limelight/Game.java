@@ -342,9 +342,9 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     private int requestedNotificationOverlayVisibility = View.GONE;
     private TextView performanceOverlayView;
     private View performanceOverlayScroll;
-    private String expandedPerformanceText = "";
-    private CharSequence compactPerformanceText = "";
-    private boolean compactPerformanceOverlay;
+    private CharSequence debugPerformanceText = "";
+    private CharSequence statisticsPerformanceText = "";
+    private boolean debugPerformanceOverlay;
 
     private MediaCodecDecoderRenderer decoderRenderer;
     private boolean reportedCrash;
@@ -518,9 +518,9 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
 
         performanceOverlayView = findViewById(R.id.performanceOverlay);
         performanceOverlayScroll = findViewById(R.id.performanceOverlayScroll);
-        performanceOverlayScroll.setOnTouchListener(this::onOverlayTouch);
-        compactPerformanceOverlay = !"advanced".equals(PreferenceManager.getDefaultSharedPreferences(this)
-                .getString("performance_overlay_mode", "compact"));
+        performanceOverlayScroll.setOnTouchListener((view, event) -> !debugPerformanceOverlay && onOverlayTouch(view, event));
+        debugPerformanceOverlay = "debug".equals(PerformanceOverlay.normalizeMode(PreferenceManager.getDefaultSharedPreferences(this)
+                .getString("performance_overlay_mode", "statistics")));
         updatePerformanceOverlay();
 
         inputCaptureProvider = InputCaptureManager.getInputCaptureProvider(this, this);
@@ -1853,14 +1853,14 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         ActionSheet sheet = new ActionSheet(this, getString(R.string.stream_overlay_menu));
         addStreamAction(sheet, R.drawable.ic_remote_monitor, prefConfig.enablePerfOverlay ?
                 R.string.stream_overlay_hide : R.string.stream_overlay_show, this::togglePerformanceOverlay);
-        addStreamAction(sheet, compactPerformanceOverlay ? R.drawable.ic_check : R.drawable.ic_remote_monitor,
-                R.string.overlay_compact, () -> {
-                    if (!compactPerformanceOverlay) togglePerformanceOverlayMode();
+        addStreamAction(sheet, !debugPerformanceOverlay ? R.drawable.ic_check : R.drawable.ic_remote_monitor,
+                R.string.overlay_statistics, () -> {
+                    if (debugPerformanceOverlay) togglePerformanceOverlayMode();
                     if (!prefConfig.enablePerfOverlay) togglePerformanceOverlay();
                 });
-        addStreamAction(sheet, !compactPerformanceOverlay ? R.drawable.ic_check : R.drawable.ic_remote_monitor,
-                R.string.overlay_advanced, () -> {
-                    if (compactPerformanceOverlay) togglePerformanceOverlayMode();
+        addStreamAction(sheet, debugPerformanceOverlay ? R.drawable.ic_check : R.drawable.ic_remote_monitor,
+                R.string.overlay_debug, () -> {
+                    if (!debugPerformanceOverlay) togglePerformanceOverlayMode();
                     if (!prefConfig.enablePerfOverlay) togglePerformanceOverlay();
                 });
         addStreamAction(sheet, R.drawable.ic_clipboard, R.string.overlay_copy, this::copyPerformanceStats);
@@ -2031,27 +2031,28 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     }
 
     private void togglePerformanceOverlayMode() {
-        compactPerformanceOverlay = !compactPerformanceOverlay;
+        debugPerformanceOverlay = !debugPerformanceOverlay;
         PreferenceManager.getDefaultSharedPreferences(this).edit()
-                .putString("performance_overlay_mode", compactPerformanceOverlay ? "compact" : "advanced").apply();
+                .putString("performance_overlay_mode", debugPerformanceOverlay ? "debug" : "statistics").apply();
         performanceOverlayScroll.scrollTo(0, 0);
         updatePerformanceOverlay();
     }
 
     private void updatePerformanceOverlay() {
-        performanceOverlayView.setMaxLines(compactPerformanceOverlay ? 1 : Integer.MAX_VALUE);
-        performanceOverlayView.setEllipsize(compactPerformanceOverlay ? android.text.TextUtils.TruncateAt.END : null);
-        performanceOverlayView.setText(compactPerformanceOverlay ? compactPerformanceText : expandedPerformanceText);
+        performanceOverlayView.setTextSize(debugPerformanceOverlay ? 11 : 12);
+        CharSequence text = debugPerformanceOverlay ? debugPerformanceText : statisticsPerformanceText;
+        performanceOverlayView.setText(text.length() == 0 ? getString(R.string.stats_waiting) : text);
     }
 
     private void copyPerformanceStats() {
-        if (expandedPerformanceText.isEmpty()) {
+        CharSequence text = debugPerformanceText;
+        if (text.length() == 0) {
             Toast.makeText(this, R.string.overlay_empty, Toast.LENGTH_LONG).show();
             return;
         }
         ClipboardManager clipboard = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
         clipboard.setPrimaryClip(ClipData.newPlainText(getString(R.string.overlay_copy),
-                expandedPerformanceText.replace("\n", " | ")));
+                text));
         Toast.makeText(this, R.string.overlay_copied, Toast.LENGTH_SHORT).show();
     }
 
@@ -4348,7 +4349,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     }
 
     @Override
-    public void onPerfUpdate(final String video, final String network, final String decode, final CharSequence compactText) {
+    public void onPerfUpdate(final String video, final String network, final String decode, final CharSequence statisticsText) {
         runOnUiThread(new Runnable() {
             @Override
             public void run() {
@@ -4367,8 +4368,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 if (micStatus.label != 0) {
                     networkText += "\n" + getString(micStatus.label);
                 }
-                expandedPerformanceText = PerformanceOverlay.advancedText(Game.this, video + displayLine, networkText, decode);
-                compactPerformanceText = compactText;
+                debugPerformanceText = PerformanceOverlay.debugText(Game.this, video + displayLine, networkText, decode);
+                statisticsPerformanceText = statisticsText;
                 updatePerformanceOverlay();
             }
         });

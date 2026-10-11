@@ -245,7 +245,7 @@
             android:defaultValue="false"/>
         <com.limelight.preferences.MaterialListPreference android:key="performance_overlay_mode" android:title="@string/overlay_mode"
             android:summary="@string/overlay_mode_help" android:entries="@array/overlay_mode_names"
-            android:entryValues="@array/overlay_mode_values" android:defaultValue="compact" />
+            android:entryValues="@array/overlay_mode_values" android:defaultValue="statistics" />
         <com.limelight.preferences.MaterialListPreference
             android:key="list_audio_config"
             android:title="@string/title_audio_config_list"

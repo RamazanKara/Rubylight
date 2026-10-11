@@ -557,7 +557,7 @@ def main():
             tap("Reset all settings", scroll=True)
             tap("android:id/button1")
             tap("Navigate up")
-            find_text(r"^\d+×\d+ · \d+ FPS · \d+ Mbps · Automatic$")
+            find_text(r"^(\d+×\d+|\d+p) · \d+ FPS · \d+ Mbps · Automatic")
             prefs(f"{PACKAGE}_preferences", lambda root: pref_value(root, "list_resolution") == native and
                   pref_value(root, "checkbox_network_priority") == "true",
                   "Reset did not return to native resolution with latency settings on")

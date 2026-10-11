@@ -873,15 +873,27 @@ pub fn firewall_remove(rule: &str) {
     );
 }
 pub fn trusted_folder(folder: &Path) -> Result<()> {
-    if !folder.exists() {
-        return Ok(());
+    if let Err(error) = std::fs::symlink_metadata(folder) {
+        return if error.kind() == std::io::ErrorKind::NotFound {
+            Ok(())
+        } else {
+            Err(error.into())
+        };
     }
     no_reparse_points(folder)?;
     trusted_owner(folder)
 }
 pub fn trusted_ancestors(folder: &Path) -> Result<()> {
+    trusted_parents(folder)?;
+    trusted_folder(folder)
+}
+pub fn trusted_parents(folder: &Path) -> Result<()> {
     use std::os::windows::fs::MetadataExt;
-    for ancestor in folder.ancestors().filter(|p| !p.as_os_str().is_empty()) {
+    for ancestor in folder
+        .ancestors()
+        .skip(1)
+        .filter(|p| !p.as_os_str().is_empty())
+    {
         let metadata = match std::fs::symlink_metadata(ancestor) {
             Ok(metadata) => metadata,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
@@ -894,7 +906,7 @@ pub fn trusted_ancestors(folder: &Path) -> Result<()> {
         );
         trusted_owner(ancestor)?;
     }
-    trusted_folder(folder)
+    Ok(())
 }
 fn trusted_owner(folder: &Path) -> Result<()> {
     use windows::Win32::{

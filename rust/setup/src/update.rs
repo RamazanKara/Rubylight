@@ -22,12 +22,12 @@ pub fn run(
     detect::scan().check_version()?;
     let profile = install::profile();
     system::trusted_ancestors(folder)?;
-    system::trusted_ancestors(profile.parent().context("profile has no parent")?)?;
     let result = profile.join("update-result.json");
     let install = std::fs::canonicalize(folder)?;
     let service =
         system::service_program(detect::SERVICE).context("Rubylight service is not installed")?;
     check_service_folder(&service, &install)?;
+    install::prepare_profile(&profile, true)?;
     // A reinstall may find the profile folder deleted; the lock lives in it.
     std::fs::create_dir_all(&profile)?;
     // A non-shared handle rejects another updater until this transaction ends.

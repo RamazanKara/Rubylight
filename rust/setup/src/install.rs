@@ -157,12 +157,13 @@ pub fn install(options: &Options, progress: &Progress) -> Result<Outcome> {
     let install = system::win32_path(&detect::install_dir(&found, options.install_dir.clone()))?;
     let profile = profile();
     system::trusted_ancestors(&install)?;
-    system::trusted_ancestors(profile.parent().context("profile has no parent")?)?;
+    let updating = updates_in_place(found.service_install.as_deref(), &install)?;
+    prepare_profile(&profile, updating)?;
     let mut notes = Vec::new();
     let mut restart_needed = false;
 
-    if updates_in_place(found.service_install.as_deref(), &install)? {
-        // Before anything changes; update::run checks again before stopping.
+    if updating {
+        // Before changing the service; update::run checks again before stopping.
         ensure_idle(probe(&profile), options.end_streams)?;
         // As a reinstall did before, the service starts automatically again;
         // a disabled service would otherwise fail the update's start check.
@@ -615,10 +616,24 @@ fn import_error(output: &str) -> Option<String> {
 /// it (the launcher reads the port); credentials are not readable by users.
 fn secure_profile(profile: &Path) -> Result<()> {
     let root = profile.parent().context("profile has no parent")?;
-    std::fs::create_dir_all(profile.join("credentials"))?;
+    std::fs::create_dir_all(root)?;
     system::restrict(root, true)?;
+    std::fs::create_dir_all(profile.join("credentials"))?;
     system::inherit_contents(root)?;
     system::restrict(&profile.join("credentials"), false)
+}
+pub(crate) fn prepare_profile(profile: &Path, updating: bool) -> Result<()> {
+    let root = profile.parent().context("profile has no parent")?;
+    system::trusted_parents(root)?;
+    match system::trusted_folder(root) {
+        Err(_) if updating => {
+            // Earlier installers restricted the profile's ACL but left its user
+            // owner. Repair it only after identifying the installed service.
+            secure_profile(profile)?;
+            system::trusted_folder(root)
+        }
+        result => result,
+    }
 }
 
 /// Copy the package, replacing files still loaded by other programs (the
@@ -1192,6 +1207,103 @@ mod tests {
         assert!(ensure_idle(address, false).is_err());
         ensure_idle(address, true)?;
         server.join().unwrap()?;
+        Ok(())
+    }
+    #[test]
+    fn upgrades_repair_legacy_profile_ownership_and_preserve_settings() -> Result<()> {
+        if !system::elevated() {
+            return Ok(());
+        }
+        let temp = tempfile::tempdir_in(system::program_data())?;
+        system::restrict(temp.path(), true)?;
+        let root = temp.path().join("Butterpollo");
+        let profile = root.join("config");
+        std::fs::create_dir_all(profile.join("credentials"))?;
+        let settings = profile.join("sunshine.conf");
+        std::fs::write(&settings, b"port=48123\n")?;
+        let (_, identity) = system::run(
+            &system::system32("whoami.exe"),
+            &["/user", "/fo", "csv", "/nh"],
+            Duration::from_secs(10),
+        )?;
+        let sid = identity
+            .trim()
+            .split(',')
+            .nth(1)
+            .context("whoami omitted SID")?
+            .trim_matches('"');
+        for path in [&root, &settings] {
+            let (code, output) = system::run(
+                &system::system32("icacls.exe"),
+                &[
+                    &path.display().to_string(),
+                    "/setowner",
+                    &format!("*{sid}"),
+                    "/Q",
+                ],
+                Duration::from_secs(10),
+            )?;
+            assert_eq!(code, 0, "{output}");
+            let (code, output) = system::run(
+                &system::system32("icacls.exe"),
+                &[
+                    &path.display().to_string(),
+                    "/grant:r",
+                    "*S-1-1-0:(F)",
+                    "/Q",
+                ],
+                Duration::from_secs(10),
+            )?;
+            assert_eq!(code, 0, "{output}");
+        }
+        assert!(prepare_profile(&profile, false).is_err());
+        prepare_profile(&profile, true)?;
+        system::trusted_ancestors(&root)?;
+        system::trusted_folder(&settings)?;
+        assert_eq!(std::fs::read(&settings)?, b"port=48123\n");
+        let credentials = profile.join("credentials");
+        for (path, sid) in [
+            (&root, "*S-1-1-0"),
+            (&settings, "*S-1-1-0"),
+            (&credentials, "*S-1-5-32-545"),
+        ] {
+            let (_, output) = system::run(
+                &system::system32("icacls.exe"),
+                &[&path.display().to_string(), "/findsid", sid, "/Q"],
+                Duration::from_secs(10),
+            )?;
+            assert!(!output.contains(&path.display().to_string()), "{output}");
+        }
+        Ok(())
+    }
+    #[test]
+    fn legacy_profile_repair_rejects_reparse_points_and_untrusted_parents() -> Result<()> {
+        if !system::elevated() {
+            return Ok(());
+        }
+        let temp = tempfile::tempdir_in(system::program_data())?;
+        system::restrict(temp.path(), true)?;
+        let outside = temp.path().join("outside");
+        std::fs::create_dir(&outside)?;
+        let settings = outside.join("sunshine.conf");
+        std::fs::write(&settings, b"unchanged")?;
+        let linked = temp.path().join("linked");
+        std::os::windows::fs::symlink_dir(&outside, &linked)?;
+        for profile in [linked.join("config"), linked.join("Butterpollo/config")] {
+            let error = prepare_profile(&profile, true).unwrap_err();
+            assert!(error.to_string().contains("reparse point"), "{error:#}");
+        }
+        let profile = temp.path().join("Butterpollo/config");
+        std::fs::create_dir_all(&profile)?;
+        std::os::windows::fs::symlink_dir(&outside, profile.join("credentials"))?;
+        let error = prepare_profile(&profile, true).unwrap_err();
+        assert!(error.to_string().contains("reparse point"), "{error:#}");
+        assert_eq!(std::fs::read(&settings)?, b"unchanged");
+        assert!(!outside.join("config").exists());
+        assert!(!outside.join("Butterpollo").exists());
+        // A normal temporary folder has a user-owned profile ancestor.
+        let untrusted = tempfile::tempdir()?;
+        assert!(prepare_profile(&untrusted.path().join("Butterpollo/config"), true).is_err());
         Ok(())
     }
     #[test]

@@ -32,23 +32,20 @@ RULE = (36, 40, 52)
 CARD = (19, 22, 30)
 STARTS = (0, 7, 17, 27, 36, 45, 53)
 ENDS = STARTS[1:] + (60,)
-CHAPTERS = ('MEET RUBYLIGHT', 'THE COMPUTE PATH', 'BESIDE A GAME', 'RADEON COMPUTE',
+CHAPTERS = ('MEET RUBYLIGHT', 'THE COMPUTE PATH', 'GPU LOAD TEST', 'ENCODER PRESSURE',
             'PYROWAVE', 'GET STARTED', 'RUBYLIGHT')
 WIPE = .7
 
-# rust/PERFORMANCE_WORK.md, "October 8 real-client picture age over Wi-Fi":
-# rc.24, 1968x2184 AV1 HDR 120 fps, render to received on the laptop.
-WIFI = {'mean': 13.5, 'p95': 14.3, 'fresh': 120}
-# docs/performance.md:57-62; host counter and game rate in
-# rust/PERFORMANCE.md:205-221. The host counter is not app-Present latency.
-COMPUTE = {'mean': (41.0, 33.5), 'p95': (54.4, 42.3), 'host': (16.2, 11.2), 'game_fps': 174}
 # rust/PERFORMANCE_WORK.md, "rc.24 against Vibepollo 2.0 on the same GPU":
-# (Vibepollo 2.0, rc.24) beside the 60 fps-capped game, 1968x2184 HDR 120 fps,
-# rounded half up to one decimal as on the site.
-HOSTS = {'hevc_mean': (27.0, 19.6), 'hevc_p95': (37.6, 21.6),
-         'av1_mean': (24.5, 17.2), 'av1_p95': (36.8, 19.0), 'host': (7.4, 3.1)}
-# Repeat-frame capacity, not stream latency: rust/PERFORMANCE.md:2138-2152.
-PYROWAVE = (.54, .57)
+# (Vibepollo 2.0, rc.24), synthetic load capped at 60 fps, 1968x2184 HDR120.
+HOSTS = {'hevc_mean': (26.96, 19.61), 'hevc_p95': (37.62, 21.56),
+         'av1_mean': (24.53, 17.15), 'av1_p95': (36.77, 18.96)}
+P95_GAIN = tuple(round((before-after)/before*100)
+                for before, after in (HOSTS['hevc_p95'], HOSTS['av1_p95']))
+# rust/PERFORMANCE.md, "October 7: two frames in the encoder": rc.18, rc.19.
+QUEUE = {'mean': (42.7, 11.1), 'p99': (45.9, 13.3), 'fps': 220}
+# Conversion + encoding, not stream latency: "PyroWave conversion on the compute queue".
+PYROWAVE = (5.7, .55)
 
 def clamp(x):
     return min(1., max(0., x))
@@ -255,18 +252,17 @@ def hook(t):
     if p:
         y = 660+30*(1-p)
         rect(im, (104, y, 1110, y+230), mix(BG, CARD, p), mix(BG, RULE, p), 2, radius=22)
-        txt(im, 144, y+30, 'PICTURE AGE · GAMING PC TO LAPTOP OVER WI-FI', 22, MUTED, 'mono', opacity=p)
-        txt(im, 138, y+62, f"{WIFI['mean']:.1f}", 120, RUBY, 'bold', opacity=p)
-        mx = 144+width_of(f"{WIFI['mean']:.1f}", 120, 'bold')+10
-        txt(im, mx, y+128, 'ms', 48, RUBY, 'semibold', opacity=p)
-        txt(im, 590, y+88, '1968×2184 AV1 HDR, 120 fps', 32, INK, 'semibold', opacity=p)
-        txt(im, 590, y+140, f"p95 {WIFI['p95']:.1f} ms · {WIFI['fresh']} new pictures a second", 26, MUTED, opacity=p)
+        txt(im, 144, y+30, '120 FPS HDR · HEVC + AV1 · MATCHED GPU LOAD', 22, MUTED, 'mono', opacity=p)
+        txt(im, 138, y+76, f'{P95_GAIN[0]}–{P95_GAIN[1]}%', 108, RUBY, 'bold', opacity=p)
+        txt(im, 590, y+88, 'lower p95 picture age', 36, INK, 'semibold', opacity=p)
+        txt(im, 590, y+145, 'vs Vibepollo 2.0 under GPU load', 26, MUTED, opacity=p)
     q = ease((t-1.6)/.7)
     if q:
         token(im, 1490, 470+40*(1-q), 230, q)
         txt(im, 1490, 630, 'FOLLOW THE FRAME', 22, MUTED, 'mono', 'center', ease((t-2)/.5))
-    foot(im, 'RX 7900 XT host on Ethernet · rc.24 · 80 Mbps · Radeon 780M laptop on 5 GHz Wi-Fi · idle desktop',
-         'October 8, 2026 · rendered picture to fully received, before decode (Moonlight adds 0.3–0.7 ms) · rust/PERFORMANCE_WORK.md')
+    foot(im, 'RX 7900 XT · rc.24 vs Vibepollo 2.0 · 1968×2184 HDR120 · 80 Mbps · synthetic load capped at 60 fps',
+         'October 8, 2026 · two alternating runs/codec/host · render through local hardware decode, excluding remote network and display',
+         'HEVC p95 37.62 → 21.56 ms · AV1 p95 36.77 → 18.96 ms · source: rust/PERFORMANCE_WORK.md')
     return im
 
 
@@ -300,7 +296,7 @@ def schedule(t):
     title(im, 'Prepare the frame alongside the game.', t,
           'GPU copies and colour conversion move to D3D12 compute.')
     cursor = queue_cursor(t)
-    txt(im, 104, 356, 'OTHER SUNSHINE HOSTS · D3D11', 27, INK, 'bold')
+    txt(im, 104, 356, 'REVIEWED D3D11 PATH · VIBEPOLLO 2.0', 27, INK, 'bold')
     txt(im, 1816, 359, 'Reviewed path: Vibepollo 2.0', 26, MUTED, align='right')
     txt(im, 104, 434, 'Graphics', 26, MUTED)
     txt(im, 104, 522, 'Native AMF', 26, MUTED)
@@ -346,11 +342,11 @@ def schedule(t):
     return im
 
 
-# 3 · Radeon compute, measured -------------------------------------------------
+# 4 · Encoder queue, measured --------------------------------------------------
 
 def bars(im, x, y, width, heading_text, values, t, delay=0., unit='ms', top=60.):
     txt(im, x, y, heading_text, 34, INK, 'bold')
-    for i, (value, caption) in enumerate(zip(values, ('Compute off', 'Compute on'))):
+    for i, (value, caption) in enumerate(zip(values, ('Before · rc.18', 'After · rc.19'))):
         yy = y+82+i*150
         color = RUBY if i else (126, 133, 150)
         p = ease((t-delay-i*.8)/1.1)
@@ -361,52 +357,52 @@ def bars(im, x, y, width, heading_text, values, t, delay=0., unit='ms', top=60.)
             rect(im, (x, yy+58, x+max(14, width*value/top*p), yy+100), color, radius=10)
 
 
-def compute(t):
+def queue_pressure(t):
     im = base(t+STARTS[3])
-    title(im, 'Radeon compute: 7.5 ms sooner.', t,
-          'Same Rubylight build, one setting changed, beside a game-like GPU load.')
-    bars(im, 104, 360, 760, 'Average picture age', COMPUTE['mean'], t, .5)
-    bars(im, 1056, 360, 760, 'Mean per-run 95th percentile', COMPUTE['p95'], t, 1.6)
+    title(im, 'Less queueing. Fresher frames.', t,
+          '5120×1440 HEVC · 240 fps requested · the encoder delivers 220 fps in both builds.')
+    bars(im, 104, 360, 760, 'Average capture-to-send', QUEUE['mean'], t, .5)
+    bars(im, 1056, 360, 760, '99th percentile', QUEUE['p99'], t, 1.6)
     p = ease((t-3.4)/.7)
     if p:
         line(im, (104, 712, 1816, 712), mix(BG, RULE, p), 2)
-        before, after = COMPUTE['host']
-        txt(im, 104, 744, 'Host time · present-to-send counter', 30, MUTED, opacity=p)
-        txt(im, 104, 790, f'{before:.1f} → {after:.1f} ms', 64, INK, 'bold', opacity=p)
-        txt(im, 1056, 744, 'The game beside it', 30, MUTED, opacity=p)
-        txt(im, 1056, 790, f"{COMPUTE['game_fps']} fps either way", 64, INK, 'bold', opacity=p)
-    foot(im, 'RX 7900 XT · DDX · 1080p60 HEVC HDR · 20 Mbps · 120 Hz virtual display · game-like load',
-         'October 4, 2026 · arithmetic means of two runs/path · local render-to-decode · rust/PERFORMANCE.md',
-         'Host counter starts at the capture stamp, not application Present · display scanout is excluded')
+        before, after = QUEUE['mean']
+        gain = round((before-after)/before*100)
+        txt(im, 104, 744, 'Limit pictures waiting in the encoder', 30, MUTED, opacity=p)
+        txt(im, 104, 790, '8 → 2 frames in flight', 64, INK, 'bold', opacity=p)
+        txt(im, 1056, 744, 'Average capture-to-send time', 30, MUTED, opacity=p)
+        txt(im, 1056, 790, f'{gain}% lower', 64, RUBY, 'bold', opacity=p)
+    foot(im, 'RX 7900 XT · 5120×1440 HEVC · 240 fps requested · 150 Mbps · rc.18 vs rc.19 · October 7, 2026',
+         'Recorded present-to-send counter: capture timestamp to final packet · excludes network, decoding and display',
+         'Two alternating runs/build · source: rust/PERFORMANCE.md, “two frames in the encoder”')
     return im
 
 
 def comparison(t):
     im = base(t+STARTS[2])
-    title(im, 'Faster than Vibepollo, beside a game.', t,
-          'Same RX 7900 XT, same settings, at 1968×2184 HDR and 120 fps.')
-    txt(im, 104, 346, 'PICTURE AGE · 60 FPS GAME RUNNING', 22, MUTED, 'mono')
+    title(im, f'{P95_GAIN[0]}–{P95_GAIN[1]}% lower p95 picture age.', t,
+          'Matched HEVC and AV1 streams under the same synthetic GPU load.')
+    txt(im, 104, 346, 'PICTURE AGE · 120 FPS HDR', 22, MUTED, 'mono')
     txt(im, 1170, 338, 'Vibepollo 2.0', 38, INK, 'bold', 'center')
-    txt(im, 1630, 338, 'Rubylight', 38, RUBY, 'bold', 'center')
-    rows = (('AV1 · average', 'av1_mean'),
-            ('AV1 · 95th percentile', 'av1_p95'),
-            ('HEVC · average', 'hevc_mean'),
+    txt(im, 1630, 338, 'Rubylight rc.24', 38, RUBY, 'bold', 'center')
+    rows = (('HEVC · average', 'hevc_mean'),
             ('HEVC · 95th percentile', 'hevc_p95'),
-            ('Host latency in Moonlight · AV1', 'host'))
+            ('AV1 · average', 'av1_mean'),
+            ('AV1 · 95th percentile', 'av1_p95'))
     for i, (label, key) in enumerate(rows):
-        y = 414+i*82
+        y = 414+i*98
         p = ease((t-.5-i*.4)/.6)
         txt(im, 104, y+10, label, 32, INK, opacity=p)
         for x, value, color in zip((1170, 1630), HOSTS[key], (INK, RUBY)):
-            txt(im, x, y, f'{value:.1f} ms', 50, color, 'bold', 'center', p)
+            txt(im, x, y, f'{value:.2f} ms', 50, color, 'bold', 'center', p)
         line(im, (104, y+66, 1816, y+66), RULE)
-    reveal(im, 104, 844, '7.4 ms sooner on average, 16–18 ms sooner at the 95th percentile.', 34, t,
+    reveal(im, 104, 824, '7.4 ms lower average picture age in both codecs.', 42, t,
            at=2.7, color=RUBY, weight='semibold')
-    reveal(im, 104, 894, "Both use native AMF; that encoder came from Rubylight's author.", 28, t,
+    reveal(im, 104, 884, 'Fresh pictures/s: Rubylight 117–120 · Vibepollo 103–118 HEVC, 106–111 AV1.', 28, t,
            at=2.9, color=MUTED, weight='regular', rise=12)
-    foot(im, 'RX 7900 XT · rc.24 · Desktop Duplication · 80 Mbps · virtual HDR display · October 8, 2026',
-         'Same settings: native AMF, ultra-low latency · two alternating runs per cell · 60 fps-capped game beside the stream',
-         'Hardware decode by an independent client on the host, excluding network and scanout · rust/PERFORMANCE_WORK.md')
+    foot(im, 'RX 7900 XT · 1968×2184 HDR120 · Desktop Duplication · native AMF, ultra-low latency · 80 Mbps',
+         'October 8, 2026 · means of two alternating runs/codec/host · synthetic load capped at 60 fps',
+         'Render through local hardware decode · excludes remote network and display · rust/PERFORMANCE_WORK.md')
     return im
 
 
@@ -445,16 +441,16 @@ def pyrowave(t):
     p = ease((t-1.2)/.7)
     if p:
         rect(im, (980, 390, 1816, 690), CARD, RULE, 2, radius=24)
-        txt(im, 1020, 420, '1080p FRAME · ENCODE CAPACITY', 24, MUTED, 'mono', opacity=p)
-        txt(im, 1010, 452, '≈0.5 ms', 120, RUBY, 'bold', opacity=p)
-        txt(im, 1020, 598, 'Even beside a GPU-heavy game.', 34, INK, 'semibold', opacity=p)
-        txt(im, 1020, 644, 'Repeat-frame throughput; one part of the picture journey.', 24, MUTED, opacity=p)
+        txt(im, 1020, 420, '1080p · REPEAT-FRAME PROCESSING', 24, MUTED, 'mono', opacity=p)
+        txt(im, 1010, 472, f'{PYROWAVE[0]:.1f} → {PYROWAVE[1]:.2f} ms', 96, RUBY, 'bold', opacity=p)
+        txt(im, 1020, 598, 'Move colour conversion to compute.', 34, INK, 'semibold', opacity=p)
+        txt(im, 1020, 644, 'Conversion + encoding under synthetic GPU load.', 24, MUTED, opacity=p)
     reveal(im, 104, 786, 'Same pixels, four colour samples: crisp coloured text and edges.', 34, t,
            at=2.3, color=RUBY, weight='semibold', rise=12)
     reveal(im, 104, 870, 'Play it on Rubylight Android, our own client, over a fast local network.', 32, t,
            at=2.7, color=INK, weight='semibold', rise=12)
-    foot(im, f'RX 7900 XT · PyroWave 1080p · 10-bit HDR 4:4:4 · 400 Mbps · game-like load · October 7, 2026 · {PYROWAVE[0]:.2f}–{PYROWAVE[1]:.2f} ms/frame',
-         'Encode capacity includes conversion, not capture, transport or decode · chroma diagram is schematic · rust/PERFORMANCE.md')
+    foot(im, 'RX 7900 XT · PyroWave 1080p · 10-bit HDR 4:4:4 · 400 Mbps · synthetic GPU load · October 7, 2026',
+         'Processing probe excludes capture, transport, decoding and display · chroma diagram is schematic · rust/PERFORMANCE.md')
     return im
 
 
@@ -502,7 +498,7 @@ def ending(t):
     return im
 
 
-SCENES = (hook, schedule, comparison, compute, pyrowave, get_started, ending)
+SCENES = (hook, schedule, comparison, queue_pressure, pyrowave, get_started, ending)
 
 def scene_at(t):
     index = next((i for i, end in enumerate(ENDS) if t < end), len(ENDS)-1)

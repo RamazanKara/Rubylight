@@ -710,9 +710,19 @@ impl Injector {
     pub fn feedback_allowed(&self, kind: u16) -> bool {
         !matches!(kind, 0x010b | 0x5500 | 0x5503) || (self.policy.forward_rumble && self.haptics)
     }
-}
-impl Drop for Injector {
-    fn drop(&mut self) {
+    /// The driver worker keeps ownership of its slots until unplug completes.
+    /// Disconnecting a peer must not wait for that driver on the control thread.
+    pub fn detach_gamepads(&mut self) {
+        drop(self.gamepads.stop());
+    }
+    pub fn release_all(&mut self) {
+        self.gamepads.release_all();
+        self.release_pointers();
+    }
+    fn release_pointers(&mut self) {
+        self.flush();
+        self.repeat = None;
+        self.scroll = [0; 2];
         if self.left_release.take().is_some() {
             let _ = self.held(false, 1, false, true, Self::button(1, false));
         }
@@ -738,6 +748,14 @@ impl Drop for Injector {
         // as a client's cancel would. Best effort.
         let _ = self.cancel_touches();
         let _ = self.cancel_pen();
+        self.keys.clear();
+        self.buttons.clear();
+        self.key_flags.clear();
+    }
+}
+impl Drop for Injector {
+    fn drop(&mut self) {
+        self.release_pointers();
         // SAFETY: These synthetic device handles are owned by the injector and taken so each is destroyed exactly once.
         unsafe {
             if let Some(device) = self.touch_device.take() {
@@ -942,6 +960,42 @@ mod tests {
         );
         assert!(injector.keys.is_empty() && injector.buttons.is_empty());
         assert!(injector.repeat.is_none());
+    }
+
+    #[test]
+    fn control_silence_releases_keys_and_allows_them_to_be_pressed_again() {
+        let mut injector = recording();
+        assert!(
+            injector
+                .apply_all(&[key(0x57, true), click(5, true)])
+                .is_empty()
+        );
+        calls();
+        injector.release_all();
+        assert!(injector.keys.is_empty() && injector.buttons.is_empty());
+        assert!(injector.repeat.is_none());
+        assert_eq!(
+            calls(),
+            [
+                described(&[injector.key_scan(0x57, false, 0)]),
+                described(&[Injector::button(5, false)]),
+            ]
+        );
+        injector.release_all();
+        injector.due().unwrap();
+        assert!(calls().is_empty());
+        assert!(
+            injector
+                .apply_all(&[key(0x57, true), click(5, true)])
+                .is_empty()
+        );
+        assert_eq!(
+            calls(),
+            [described(&[
+                injector.key_scan(0x57, true, 0),
+                Injector::button(5, true),
+            ])]
+        );
     }
 
     #[test]

@@ -361,6 +361,60 @@ impl Gamepads {
         }
         Ok(())
     }
+    pub(super) fn release_all(&mut self) -> Result<()> {
+        let ids: BTreeSet<_> = self
+            .active
+            .keys()
+            .chain(self.decks.keys())
+            .copied()
+            .collect();
+        let active = ids.iter().fold(0, |mask, id| mask | (1 << id));
+        let mut failure = None;
+        for id in ids {
+            for event in [
+                Event::Controller {
+                    id,
+                    active,
+                    buttons: 0,
+                    left_trigger: 0,
+                    right_trigger: 0,
+                    sticks: [0; 4],
+                },
+                Event::ControllerTouch {
+                    id: id as u8,
+                    event: 7,
+                    touchpad: 0,
+                    pointer: 0,
+                    x: 0.,
+                    y: 0.,
+                    pressure: 0.,
+                },
+                Event::ControllerTouch {
+                    id: id as u8,
+                    event: 7,
+                    touchpad: 1,
+                    pointer: 0,
+                    x: 0.,
+                    y: 0.,
+                    pressure: 0.,
+                },
+            ] {
+                if matches!(event, Event::ControllerTouch { touchpad: 1, .. })
+                    && !self.decks.contains_key(&id)
+                    && !self
+                        .arrivals
+                        .get(&id)
+                        .is_some_and(|(_, caps)| caps & CCAP_DUAL_TOUCHPAD != 0)
+                {
+                    continue;
+                }
+                if let Err(error) = self.apply(&event) {
+                    failure.get_or_insert(error);
+                }
+            }
+        }
+        failure.map_or(Ok(()), Err)
+    }
     /// New feedback (rumble, lights, trigger effects) for each controller.
     /// A controller with nothing pending or a failed poll does not hide the
     /// others' feedback, and a repeated report is not sent again.

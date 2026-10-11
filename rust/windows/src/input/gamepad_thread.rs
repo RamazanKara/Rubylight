@@ -42,6 +42,7 @@ pub(super) trait Pads {
     fn motion_supported(&self, id: u16) -> bool;
     /// Whether any pad is plugged in, and so feedback needs polling.
     fn plugged(&self) -> bool;
+    fn release_all(&mut self) -> Result<()>;
 }
 impl Pads for Gamepads {
     fn apply(&mut self, event: &Event) -> Result<()> {
@@ -59,6 +60,9 @@ impl Pads for Gamepads {
     fn plugged(&self) -> bool {
         !self.active.is_empty() || !self.decks.is_empty()
     }
+    fn release_all(&mut self) -> Result<()> {
+        Gamepads::release_all(self)
+    }
 }
 
 struct Shared {
@@ -70,6 +74,7 @@ struct Shared {
 #[derive(Default)]
 struct Queue {
     events: VecDeque<Event>,
+    release: bool,
     /// Whether events were dropped since the thread last took the queue.
     full: bool,
 }
@@ -145,14 +150,24 @@ impl GamepadThread {
     pub fn reports(&self) -> impl Iterator<Item = PadReport> + '_ {
         self.reports.try_iter()
     }
-}
-impl Drop for GamepadThread {
-    fn drop(&mut self) {
+    pub(super) fn release_all(&self) {
+        let mut queue = self.shared.queue.lock().unwrap();
+        queue.events.clear();
+        queue.release = true;
+        drop(queue);
+        self.shared.wake.notify_one();
+    }
+    pub(super) fn stop(&mut self) -> Option<JoinHandle<()>> {
         self.shared.stop.store(true, Ordering::Release);
         // Taking the lock orders the flag before a wait that checked it.
         drop(self.shared.queue.lock());
         self.shared.wake.notify_one();
-        if let Some(thread) = self.thread.take() {
+        self.thread.take()
+    }
+}
+impl Drop for GamepadThread {
+    fn drop(&mut self) {
+        if let Some(thread) = self.stop() {
             let _ = thread.join();
         }
     }
@@ -200,16 +215,19 @@ fn run<P: Pads>(
     let mut polling = false;
     let stopping = || shared.stop.load(Ordering::Acquire);
     loop {
-        let events = {
+        let (release, events) = {
             let mut queue = shared.queue.lock().unwrap();
             loop {
                 if stopping() {
                     // Dropping the pads unplugs them.
                     return;
                 }
-                if !queue.events.is_empty() {
+                if queue.release || !queue.events.is_empty() {
                     queue.full = false;
-                    break std::mem::take(&mut queue.events);
+                    break (
+                        std::mem::take(&mut queue.release),
+                        std::mem::take(&mut queue.events),
+                    );
                 }
                 if !polling && !pads.as_ref().is_some_and(P::plugged) {
                     queue = shared.wake.wait(queue).unwrap();
@@ -217,14 +235,23 @@ fn run<P: Pads>(
                 }
                 let now = Instant::now();
                 if now >= poll_at {
-                    break VecDeque::new();
+                    break (false, VecDeque::new());
                 }
                 queue = shared.wake.wait_timeout(queue, poll_at - now).unwrap().0;
             }
         };
+        if release
+            && let Some(pads) = &mut pads
+            && let Err(error) = pads.release_all()
+        {
+            shared.warnings.event("input_gamepad_injection", format!("Controller release failed ({error:#}); held controls may remain active. Check the virtual gamepad driver."), butterpollo_core::session::EVENT_PERIOD);
+        }
         for event in events {
             if stopping() {
                 return;
+            }
+            if shared.queue.lock().unwrap().release {
+                break;
             }
             if pads.is_none() {
                 let now = Instant::now();
@@ -354,6 +381,11 @@ mod tests {
         }
         fn plugged(&self) -> bool {
             self.plugged
+        }
+        fn release_all(&mut self) -> Result<()> {
+            self.gate.pass();
+            self.log.lock().unwrap().push("released".into());
+            Ok(())
         }
     }
     impl Drop for Fake {
@@ -508,6 +540,47 @@ mod tests {
         gate.open();
         assert_eq!(entered, 1);
         assert_eq!(INJECTED.load(Ordering::Relaxed), 19 * 3);
+    }
+
+    #[test]
+    fn disconnect_does_not_wait_for_the_gamepad_driver() {
+        let (pads, gate, log) = fake();
+        let mut injector = super::super::Injector::new(r"\\.\DISPLAY99", "vhf").unwrap();
+        injector.gamepads = pads;
+        injector.gamepads.send(state(0, 1, 1, 42));
+        gate.wait_entered(1);
+        injector.detach_gamepads();
+        drop(injector);
+        assert!(log.lock().unwrap().is_empty());
+        gate.open();
+        gate.wait_until(|| {
+            log.lock()
+                .unwrap()
+                .last()
+                .is_some_and(|entry| entry == "unplugged")
+        });
+    }
+
+    #[test]
+    fn silence_releases_the_pads_before_input_resumes() {
+        let (pads, gate, log) = fake();
+        pads.send(state(0, 1, 1, 42));
+        gate.wait_entered(1);
+        pads.send(state(0, 1, 2, 43));
+        pads.release_all();
+        pads.send(state(0, 1, 4, 44));
+        gate.open();
+        gate.wait_until(|| log.lock().unwrap().len() == 3);
+        drop(pads);
+        assert_eq!(
+            *log.lock().unwrap(),
+            [
+                format!("{:?}", state(0, 1, 1, 42)),
+                "released".into(),
+                format!("{:?}", state(0, 1, 4, 44)),
+                "unplugged".into(),
+            ]
+        );
     }
 
     #[test]

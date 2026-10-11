@@ -555,12 +555,16 @@ public class NvHTTP {
     }
 
     HttpUrl getCompleteUrl(HttpUrl baseUrl, String path, String query) {
-        return baseUrl.newBuilder()
+        HttpUrl.Builder builder = baseUrl.newBuilder()
                 .addPathSegments(path)
                 .query(query)
                 .addQueryParameter("uniqueid", uniqueId)
-                .addQueryParameter("uuid", UUID.randomUUID().toString())
-                .build();
+                .addQueryParameter("uuid", UUID.randomUUID().toString());
+        if (path.equals("pair")) {
+            // Pre-encoding the model turns spaces into literal plus signs on the host.
+            builder.addQueryParameter("devicename", Build.MODEL);
+        }
+        return builder.build();
     }
 
     private ResponseBody openHttpConnection(OkHttpClient client, HttpUrl baseUrl, String path) throws IOException {
@@ -958,12 +962,12 @@ public class NvHTTP {
 
     String executePairingCommand(String additionalArguments, boolean enableReadTimeout) throws HostHttpResponseException, IOException {
         return openHttpConnectionToString(enableReadTimeout ? httpClientLongConnectTimeout : httpClientLongConnectNoReadTimeout,
-                baseUrlHttp, "pair", "devicename=" + java.net.URLEncoder.encode(android.os.Build.MODEL, "UTF-8") + "&updateState=1&" + additionalArguments);
+                baseUrlHttp, "pair", "updateState=1&" + additionalArguments);
     }
 
     String executePairingChallenge() throws HostHttpResponseException, IOException {
         return openHttpConnectionToString(httpClientLongConnectTimeout, getHttpsUrl(true),
-                "pair", "devicename=" + java.net.URLEncoder.encode(android.os.Build.MODEL, "UTF-8") + "&updateState=1&phrase=pairchallenge");
+                "pair", "updateState=1&phrase=pairchallenge");
     }
 
     public void unpair() throws IOException {

@@ -2881,15 +2881,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     }
 
     private float[] getStreamViewRelativeNormalizedXY(View view, MotionEvent event, int pointerIndex) {
-        float normalizedX = event.getX(pointerIndex);
-        float normalizedY = event.getY(pointerIndex);
-
-        // For the containing background view, we must subtract the origin
-        // of the StreamView to get video-relative coordinates.
-        if (view != streamView) {
-            normalizedX -= streamView.getX();
-            normalizedY -= streamView.getY();
-        }
+        float normalizedX = event.getX(pointerIndex) + getStreamViewOffsetX(view);
+        float normalizedY = event.getY(pointerIndex) + getStreamViewOffsetY(view);
 
         normalizedX = Math.max(normalizedX, 0.0f);
         normalizedY = Math.max(normalizedY, 0.0f);
@@ -2901,6 +2894,15 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         normalizedY /= streamView.getHeight();
 
         return new float[] { normalizedX, normalizedY };
+    }
+
+    private float getStreamViewOffsetX(View view) {
+        // Sibling views share the pane padding, including fold and display-cutout insets.
+        return (view != null ? view.getX() : 0) - streamView.getX();
+    }
+
+    private float getStreamViewOffsetY(View view) {
+        return (view != null ? view.getY() : 0) - streamView.getY();
     }
 
     private static float normalizeValueInRange(float value, InputDevice.MotionRange range) {
@@ -3289,15 +3291,15 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                     if (event.getActionMasked() == MotionEvent.ACTION_DOWN) {
                         if (event.getToolType(0) == MotionEvent.TOOL_TYPE_STYLUS) {
                             lastAbsTouchDownTime = event.getEventTime();
-                            lastAbsTouchDownX = event.getX(0) - (view == streamView ? 0 : streamView.getX());
-                            lastAbsTouchDownY = event.getY(0) - (view == streamView ? 0 : streamView.getY());
+                            lastAbsTouchDownX = event.getX(0) + getStreamViewOffsetX(view);
+                            lastAbsTouchDownY = event.getY(0) + getStreamViewOffsetY(view);
 
                             // Stylus is left click
                             conn.sendMouseButtonDown(MouseButtonPacket.BUTTON_LEFT);
                         } else if (event.getToolType(0) == MotionEvent.TOOL_TYPE_ERASER) {
                             lastAbsTouchDownTime = event.getEventTime();
-                            lastAbsTouchDownX = event.getX(0) - (view == streamView ? 0 : streamView.getX());
-                            lastAbsTouchDownY = event.getY(0) - (view == streamView ? 0 : streamView.getY());
+                            lastAbsTouchDownX = event.getX(0) + getStreamViewOffsetX(view);
+                            lastAbsTouchDownY = event.getY(0) + getStreamViewOffsetY(view);
 
                             // Eraser is right click
                             conn.sendMouseButtonDown(MouseButtonPacket.BUTTON_RIGHT);
@@ -3306,15 +3308,15 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                     else if (event.getActionMasked() == MotionEvent.ACTION_UP || event.getActionMasked() == MotionEvent.ACTION_CANCEL) {
                         if (event.getToolType(0) == MotionEvent.TOOL_TYPE_STYLUS) {
                             lastAbsTouchUpTime = event.getEventTime();
-                            lastAbsTouchUpX = event.getX(0) - (view == streamView ? 0 : streamView.getX());
-                            lastAbsTouchUpY = event.getY(0) - (view == streamView ? 0 : streamView.getY());
+                            lastAbsTouchUpX = event.getX(0) + getStreamViewOffsetX(view);
+                            lastAbsTouchUpY = event.getY(0) + getStreamViewOffsetY(view);
 
                             // Stylus is left click
                             conn.sendMouseButtonUp(MouseButtonPacket.BUTTON_LEFT);
                         } else if (event.getToolType(0) == MotionEvent.TOOL_TYPE_ERASER) {
                             lastAbsTouchUpTime = event.getEventTime();
-                            lastAbsTouchUpX = event.getX(0) - (view == streamView ? 0 : streamView.getX());
-                            lastAbsTouchUpY = event.getY(0) - (view == streamView ? 0 : streamView.getY());
+                            lastAbsTouchUpX = event.getX(0) + getStreamViewOffsetX(view);
+                            lastAbsTouchUpY = event.getY(0) + getStreamViewOffsetY(view);
 
                             // Eraser is right click
                             conn.sendMouseButtonUp(MouseButtonPacket.BUTTON_RIGHT);
@@ -3357,8 +3359,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 // are relative to the StreamView like our StreamView touch events are.
                 float xOffset, yOffset;
                 if (view != streamView && !prefConfig.touchscreenTrackpad) {
-                    xOffset = -streamView.getX();
-                    yOffset = -streamView.getY();
+                    xOffset = getStreamViewOffsetX(view);
+                    yOffset = getStreamViewOffsetY(view);
                 }
                 else {
                     xOffset = 0.f;
@@ -3483,20 +3485,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     }
 
     private void updateMousePosition(View touchedView, MotionEvent event) {
-        // X and Y are already relative to the provided view object
-        float eventX, eventY;
-
-        // For our StreamView itself, we can use the coordinates unmodified.
-        if (touchedView == streamView) {
-            eventX = event.getX(0);
-            eventY = event.getY(0);
-        }
-        else {
-            // For the containing background view, we must subtract the origin
-            // of the StreamView to get video-relative coordinates.
-            eventX = event.getX(0) - streamView.getX();
-            eventY = event.getY(0) - streamView.getY();
-        }
+        float eventX = event.getX(0) + getStreamViewOffsetX(touchedView);
+        float eventY = event.getY(0) + getStreamViewOffsetY(touchedView);
 
         if (event.getPointerCount() == 1 && event.getActionIndex() == 0 &&
                 (event.getToolType(0) == MotionEvent.TOOL_TYPE_ERASER ||
@@ -3543,7 +3533,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     @SuppressLint("ClickableViewAccessibility")
     private boolean onOverlayTouch(View view, MotionEvent event) {
         MotionEvent translated = MotionEvent.obtain(event);
-        translated.offsetLocation(view.getX() - streamView.getX(), view.getY() - streamView.getY());
+        translated.offsetLocation(getStreamViewOffsetX(view), getStreamViewOffsetY(view));
         try {
             return onTouch(streamView, translated);
         } finally {

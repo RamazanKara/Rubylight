@@ -29,10 +29,23 @@ pub fn layer(level: &str) -> reload::Layer<EnvFilter, Registry> {
 
 /// Applies a newly saved log level to the running host.
 pub fn apply(level: &str) {
-    if let Some(handle) = FILTER.get()
-        && let Err(error) = handle.reload(EnvFilter::new(directives(level)))
-    {
-        tracing::warn!(%error, "the new log level could not be applied; it applies after a restart");
+    if let Some(handle) = FILTER.get() {
+        let filter = EnvFilter::new(directives(level));
+        let max = filter
+            .max_level_hint()
+            .unwrap_or(tracing::level_filters::LevelFilter::TRACE);
+        if let Err(error) = handle.reload(filter) {
+            tracing::warn!(%error, "the new log level could not be applied; it applies after a restart");
+        } else {
+            log::set_max_level(match max {
+                tracing::level_filters::LevelFilter::OFF => log::LevelFilter::Off,
+                tracing::level_filters::LevelFilter::ERROR => log::LevelFilter::Error,
+                tracing::level_filters::LevelFilter::WARN => log::LevelFilter::Warn,
+                tracing::level_filters::LevelFilter::INFO => log::LevelFilter::Info,
+                tracing::level_filters::LevelFilter::DEBUG => log::LevelFilter::Debug,
+                _ => log::LevelFilter::Trace,
+            });
+        }
     }
 }
 

@@ -6,8 +6,16 @@ import android.content.ServiceConnection;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Looper;
+import android.widget.GridView;
+import android.widget.TextView;
 
+import androidx.appcompat.app.AlertDialog;
+
+import com.limelight.computers.ComputerManagerListener;
+import com.limelight.computers.ComputerManagerService;
 import com.limelight.nvstream.http.ComputerDetails;
+import com.limelight.nvstream.http.PairingManager;
 import com.limelight.nvstream.jni.MoonBridge;
 import com.limelight.preferences.GlPreferences;
 
@@ -15,11 +23,19 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.robolectric.Robolectric;
 import org.robolectric.RuntimeEnvironment;
+import org.robolectric.Shadows;
 import org.robolectric.android.controller.ActivityController;
 import org.robolectric.annotation.Config;
 import org.robolectric.annotation.Implementation;
 import org.robolectric.annotation.Implements;
 import org.robolectric.util.ReflectionHelpers;
+import org.robolectric.shadows.ShadowDialog;
+
+import java.net.InetAddress;
+import java.net.ServerSocket;
+import java.net.Socket;
+import java.nio.charset.StandardCharsets;
+import java.util.concurrent.CountDownLatch;
 
 import static org.junit.Assert.*;
 
@@ -35,6 +51,123 @@ public class PcViewLifecycleTest {
     public static class Library extends PcView {
         @Override public boolean bindService(Intent intent, ServiceConnection connection, int flags) {
             return false;
+        }
+    }
+
+    private ActivityController<Library> pairingScreen(CountDownLatch pollingStopped, int port) {
+        Application application = RuntimeEnvironment.getApplication();
+        GlPreferences gl = GlPreferences.readPreferences(application);
+        gl.savedFingerprint = Build.FINGERPRINT;
+        gl.glRenderer = "Test renderer";
+        gl.writePreferences();
+        application.getSharedPreferences("FirstRun", 0).edit().putBoolean("pairing_guide_shown", true).commit();
+        ActivityController<Library> controller = Robolectric.buildActivity(Library.class).setup().visible();
+        ComputerManagerService manager = new ComputerManagerService();
+        ReflectionHelpers.setField(controller.get(), "managerBinder", manager.new ComputerManagerBinder() {
+            @Override public void startPolling(ComputerManagerListener listener) { }
+            @Override public void stopPolling() { }
+            @Override public String getUniqueId() { return "client"; }
+            @Override public void waitForPollingStopped() {
+                try {
+                    pollingStopped.await();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+        });
+        ReflectionHelpers.callInstanceMethod(controller.get(), "startComputerUpdates");
+        ComputerDetails computer = new ComputerDetails();
+        computer.uuid = "host-uuid";
+        computer.name = "PC";
+        computer.state = ComputerDetails.State.ONLINE;
+        computer.pairState = PairingManager.PairState.NOT_PAIRED;
+        computer.activeAddress = new ComputerDetails.AddressTuple("127.0.0.1", port);
+        ReflectionHelpers.callInstanceMethod(controller.get(), "updateComputer",
+                ReflectionHelpers.ClassParameter.from(ComputerDetails.class, computer));
+        return controller;
+    }
+
+    @Test
+    public void tappingUnpairedPcShowsPinBeforePollingStopsAndCanBeCancelled() throws Exception {
+        ActivityController<Library> controller = pairingScreen(new CountDownLatch(1), 47989);
+        Thread worker = null;
+        try {
+            Library screen = controller.get();
+            GridView grid = screen.findViewById(R.id.fragmentView);
+            grid.performItemClick(null, 0, 0);
+            worker = ReflectionHelpers.getField(screen, "pairingThread");
+            AlertDialog dialog = ReflectionHelpers.getField(screen, "pairingDialog");
+            assertNotNull(dialog);
+            assertTrue(dialog.isShowing());
+            TextView message = dialog.findViewById(android.R.id.message);
+            assertTrue(message.getText().toString().matches("(?s).*\\n\\n[0-9]{4}\\n\\n.*"));
+            assertFalse(ReflectionHelpers.<Boolean>getField(screen, "runningPolling"));
+
+            dialog.getButton(AlertDialog.BUTTON_NEGATIVE).performClick();
+            Shadows.shadowOf(Looper.getMainLooper()).idle();
+            worker.join(5000);
+            assertFalse(worker.isAlive());
+            assertFalse(dialog.isShowing());
+            assertNull(ReflectionHelpers.getField(screen, "pairingDialog"));
+            assertNull(ReflectionHelpers.getField(screen, "pairingRequest"));
+            assertTrue(ReflectionHelpers.<Boolean>getField(screen, "runningPolling"));
+        } finally {
+            controller.pause().stop().destroy();
+            if (worker != null) worker.join(5000);
+        }
+    }
+
+    @Test
+    public void pairingShowsPinDuringHostCheckAndSupportsRetryAfterFailure() throws Exception {
+        try (ServerSocket host = new ServerSocket(0, 1, InetAddress.getByName("127.0.0.1"))) {
+            host.setSoTimeout(5000);
+            ActivityController<Library> controller = pairingScreen(new CountDownLatch(0), host.getLocalPort());
+            Thread worker = null;
+            try {
+                Library screen = controller.get();
+                GridView grid = screen.findViewById(R.id.fragmentView);
+                grid.performItemClick(null, 0, 0);
+                worker = ReflectionHelpers.getField(screen, "pairingThread");
+                AlertDialog pinDialog;
+                try (Socket connection = host.accept()) {
+                    Shadows.shadowOf(Looper.getMainLooper()).idle();
+                    pinDialog = ReflectionHelpers.getField(screen, "pairingDialog");
+                    assertNotNull(pinDialog);
+                    assertTrue(pinDialog.isShowing());
+                    connection.getOutputStream().write(("HTTP/1.1 503 Service Unavailable\r\n" +
+                            "Content-Length: 0\r\nConnection: close\r\n\r\n").getBytes(StandardCharsets.US_ASCII));
+                    worker.join(5000);
+                    assertFalse(worker.isAlive());
+                }
+                Shadows.shadowOf(Looper.getMainLooper()).idle();
+                assertFalse(pinDialog.isShowing());
+                AlertDialog failure = (AlertDialog) ShadowDialog.getLatestDialog();
+                assertTrue(failure.isShowing());
+                assertEquals(screen.getString(R.string.pair_connection_fix),
+                        ((TextView) failure.findViewById(android.R.id.message)).getText().toString());
+                assertTrue(ReflectionHelpers.<Boolean>getField(screen, "runningPolling"));
+
+                failure.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+                Shadows.shadowOf(Looper.getMainLooper()).idle();
+                worker = ReflectionHelpers.getField(screen, "pairingThread");
+                try (Socket connection = host.accept()) {
+                    AlertDialog retry = ReflectionHelpers.getField(screen, "pairingDialog");
+                    assertNotNull(retry);
+                    assertTrue(retry.isShowing());
+                    controller.pause();
+                    worker.join(5000);
+                    Shadows.shadowOf(Looper.getMainLooper()).idle();
+                    assertFalse(worker.isAlive());
+                    assertFalse(retry.isShowing());
+                    assertNull(ReflectionHelpers.getField(screen, "pairingDialog"));
+                    assertNull(ReflectionHelpers.getField(screen, "pairingRequest"));
+                    controller.stop().destroy();
+                    controller = null;
+                }
+            } finally {
+                if (controller != null) controller.pause().stop().destroy();
+                if (worker != null) worker.join(5000);
+            }
         }
     }
 

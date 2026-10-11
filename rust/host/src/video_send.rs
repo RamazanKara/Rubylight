@@ -171,6 +171,7 @@ impl Sender {
                         return Ok(packetizer.frame);
                     }
                 };
+                s.stats.video_frame.store(u64::from(packetizer.frame.wrapping_sub(1)) + 1, Ordering::Release);
                 // A keyframe, as at the start of every stream, may be too
                 // large for FEC; only ordinary frames make this worth showing.
                 if !frame.idr

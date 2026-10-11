@@ -1317,10 +1317,10 @@ impl Media {
                     stream_preparation.report_limiter(&s.launch.warnings, &c);
                     let prepared = stream_preparation.display.clone();
                     if s.launch.role == Role::Stream {
-                        h.app_display
-                            .lock()
-                            .unwrap()
-                            .insert(s.launch.client.uuid.clone(), (prepared.clone(), None));
+                        let mut displays = h.app_display.lock().unwrap();
+                        if !s.stopping() {
+                            displays.insert(s.launch.client.uuid.clone(), (prepared.clone(), None));
+                        }
                     }
                     let output = prepared.output();
                     *s.output.write().unwrap() = output.clone();
@@ -1538,6 +1538,7 @@ impl Media {
                                 Err(error) => {
                                     s.launch.warnings.event("network_frame", format!("Encoded video frame dropped ({error:#}); requesting a recovery frame. Lower bitrate or resolution to stay within Moonlight's packet limit."), butterpollo_core::session::EVENT_PERIOD);
                                     s.request_idr();
+                                    next_wire_frame.set(u64::from(packetizer.frame));
                                     continue;
                                 }
                             };

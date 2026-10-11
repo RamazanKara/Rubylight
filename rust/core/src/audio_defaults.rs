@@ -4,10 +4,9 @@
 //! configured `virtual_sink`) the default playback device for every role and
 //! restores the user's devices afterwards. Installing Steam Streaming
 //! Microphone during a stream adds endpoints that Windows can make a default
-//! on arrival, for any role and either direction. Those endpoints belong to
-//! the host: they are never recorded as the user's choice and never restored
-//! to. A role whose saved device is one of them gets the user's device from
-//! another role instead.
+//! on arrival, for any role and either direction. Playback roles on a host
+//! endpoint use the user's device from another role instead. Recording roles
+//! already on a host endpoint at stream start keep that choice.
 //!
 //! Defaults are kept per role, in Windows' order: console, multimedia,
 //! communications.
@@ -41,6 +40,12 @@ pub fn restore_targets(saved: &Defaults, owned: impl Fn(&str) -> bool) -> Defaul
         Some(id) if owned(id) => fallback.clone(),
         other => other.clone(),
     })
+}
+
+/// A recording role already on a host endpoint is the user's choice, so the
+/// stream must leave it alone when it ends.
+pub fn recording_targets(saved: Defaults, owned: impl Fn(&str) -> bool) -> Defaults {
+    saved.map(|id| id.filter(|id| !owned(id)))
 }
 
 /// The defaults to save at stream start: the current ones, except that a
@@ -211,6 +216,18 @@ mod tests {
         );
         // Not saved (a journal from 2.2.0): nothing to put back.
         assert!(switches(&current, &ids(["", "", ""]), owned).is_empty());
+    }
+
+    #[test]
+    fn recording_roles_already_on_steam_are_left_alone() {
+        let saved = ids([MIC, MIC, USB_MIC]);
+        let targets = recording_targets(saved.clone(), owned);
+        assert_eq!(targets, ids(["", "", USB_MIC]));
+        assert!(switches(&saved, &targets, owned).is_empty());
+        assert_eq!(
+            switches(&ids([MIC, MIC, MIC]), &targets, owned),
+            [(2, USB_MIC.to_string())]
+        );
     }
 
     #[test]

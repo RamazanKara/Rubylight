@@ -725,11 +725,11 @@ fn pipeline(
 ) -> Result<ID3D12PipelineState> {
     let code = shader(entry)?;
     // SAFETY: `code` is the build's cs_5_0 bytecode with its exact length, and `root` is a live
-    // root signature on `device`.
+    // root signature on `device`, borrowed without adding a reference to the descriptor.
     unsafe {
         Ok(
             device.CreateComputePipelineState(&D3D12_COMPUTE_PIPELINE_STATE_DESC {
-                pRootSignature: std::mem::ManuallyDrop::new(Some(root.clone())),
+                pRootSignature: std::mem::transmute_copy(root),
                 CS: D3D12_SHADER_BYTECODE {
                     pShaderBytecode: code.as_ptr().cast(),
                     BytecodeLength: code.len(),

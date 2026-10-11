@@ -387,7 +387,7 @@ async fn main() -> Result<()> {
     h.stop.store(true, Ordering::Release);
     h.sessions.lock().unwrap().request_stop(None);
     let deadline = Instant::now() + Duration::from_secs(10);
-    while !h.sessions.lock().unwrap().active.is_empty() && Instant::now() < deadline {
+    while !h.sessions.lock().unwrap().idle() && Instant::now() < deadline {
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
     tasks.abort_all();

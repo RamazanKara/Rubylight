@@ -177,6 +177,7 @@ pub async fn maintain(
     let mut steam_at = Instant::now() + Duration::from_secs(5);
     let mut hotkey = RestoreHotkey::default();
     let mut tray = butterpollo_core::tray::Tracker::default();
+    let mut housekeeping: Option<tokio::task::JoinHandle<()>> = None;
     while !h.stop.load(Ordering::Acquire) {
         if stop_signal.requested() {
             tracing::info!("service requested host shutdown");
@@ -184,8 +185,19 @@ pub async fn maintain(
             break;
         }
         let expired = h.sessions.lock().unwrap().expire();
-        drop(expired);
-        h.reap_paused_display();
+        if !expired.is_empty() {
+            tokio::task::spawn_blocking(move || drop(expired));
+        }
+        if housekeeping.as_ref().is_none_or(|task| task.is_finished()) {
+            let h = h.clone();
+            housekeeping = Some(tokio::task::spawn_blocking(move || {
+                h.reap_paused_display();
+                if application_finished(&h) {
+                    h.sessions.lock().unwrap().stop_role(Role::Stream, None);
+                    h.stop_app();
+                }
+            }));
+        }
         hotkey.poll(&h);
         if Instant::now() >= steam_at {
             steam_at = Instant::now() + Duration::from_secs(30);
@@ -208,7 +220,7 @@ pub async fn maintain(
             }
             update_at = Instant::now()
                 + Duration::from_secs(if interval > 0 && !streaming {
-                    interval as u64
+                    interval.max(3600) as u64
                 } else {
                     60
                 });
@@ -217,10 +229,6 @@ pub async fn maintain(
         start_deferred(&h);
         if actions.is_some() {
             show_app(&h, &mut tray);
-        }
-        if application_finished(&h) {
-            h.sessions.lock().unwrap().stop_role(Role::Stream, None);
-            h.stop_app();
         }
         if let Some(actions) = &actions {
             while let Ok(action) = actions.try_recv() {

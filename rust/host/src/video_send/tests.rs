@@ -309,6 +309,39 @@ fn packetizer(key: Option<[u8; 16]>) -> VideoPacketizer {
 }
 
 #[test]
+fn the_sender_thread_accepts_client_reports_for_adaptive_fec() {
+    let fixture = crate::state::test_support::Fixture::new();
+    let session = fixture.session(fixture.client(0), butterpollo_core::session::Role::Stream);
+    session.configure_fec(true, 20);
+    let socket = Arc::new(UdpSocket::bind("127.0.0.1:0").unwrap());
+    let receiver = UdpSocket::bind("127.0.0.1:0").unwrap();
+    let sender = Sender::new(
+        socket,
+        session.clone(),
+        fixture.host.config.read().unwrap().clone(),
+        fixture.host.clone(),
+        Instant::now(),
+        false,
+    )
+    .unwrap();
+    sender
+        .submit(
+            vec![frame(2)],
+            receiver.local_addr().unwrap(),
+            Duration::ZERO,
+        )
+        .unwrap();
+    assert_eq!(sender.next_wire_frame().unwrap(), 2);
+    assert_eq!(session.stats.video_frame.load(Ordering::Acquire), 2);
+    session.record_fec_status(&[
+        0, 0, 0, 1, 0, 11, 0, 0, 0, 0, 0, 10, 0, 2, 0, 10, 0, 0, 20, 0, 1,
+    ]);
+    assert_eq!(session.info()["performance"]["fec_invalid_reports"], 0);
+    session.tick_fec(Instant::now() + Duration::from_secs(60));
+    assert!(session.fec_percent() < 20);
+}
+
+#[test]
 fn reconnect_keeps_packet_order_fec_recovery_and_iv_ownership_identical_to_inline() {
     for key in [None, Some([17; 16]), Some([29; 16])] {
         let (sent, packets) = mpsc::channel();

@@ -406,15 +406,16 @@ fn pending(directory: &Path) -> Option<Journal> {
 /// is still on the endpoint this host set keeps the original from then: the
 /// current default would be the virtual sink, and the user's speakers would
 /// be lost for good.
-fn originals(current: [Option<String>; 3], pending: Option<&Journal>) -> [Option<String>; 3] {
+fn originals(
+    current: [Option<String>; 3],
+    pending: Option<&Journal>,
+    owned: impl Fn(&str) -> bool,
+) -> [Option<String>; 3] {
     let Some(pending) = pending.filter(|journal| !journal.applied.is_empty()) else {
         return current;
     };
-    std::array::from_fn(|index| match &pending.before[index] {
-        Some(original) if current[index].as_deref() == Some(pending.applied.as_str()) => {
-            Some(original.clone())
-        }
-        _ => current[index].clone(),
+    butterpollo_core::audio_defaults::with_pending(current, Some(&pending.before), |id| {
+        id.eq_ignore_ascii_case(&pending.applied) || owned(id)
     })
 }
 pub fn recover(directory: &Path) -> Result<()> {
@@ -484,12 +485,16 @@ pub fn steam_microphone(endpoints: &[Endpoint]) -> Option<&Endpoint> {
     })
 }
 /// The default playback and recording devices before a driver install.
-pub struct SavedDefaults([[Option<String>; 3]; 2]);
+pub struct SavedDefaults {
+    defaults: [[Option<String>; 3]; 2],
+    // A stream must not restore its defaults before driver arrival is undone.
+    _active: std::sync::MutexGuard<'static, Option<Active>>,
+}
 impl SavedDefaults {
     /// Puts back defaults Windows moved to a device that arrived since.
     pub fn restore(&self) -> Result<()> {
         let policy = Policy::new()?;
-        for (flow, saved) in [eRender, eCapture].into_iter().zip(&self.0) {
+        for (flow, saved) in [eRender, eCapture].into_iter().zip(&self.defaults) {
             for ((role, now), before) in ROLES.into_iter().zip(defaults_for(flow)?).zip(saved) {
                 if let Some(before) = before
                     && now.as_ref() != Some(before)
@@ -518,7 +523,11 @@ pub fn install_steam_microphone(config: &Config) -> Result<Option<SavedDefaults>
     if !inf.is_file() {
         return Ok(None);
     }
-    let saved = SavedDefaults([defaults_for(eRender)?, defaults_for(eCapture)?]);
+    let active = ACTIVE.lock().unwrap();
+    let saved = SavedDefaults {
+        defaults: [defaults_for(eRender)?, defaults_for(eCapture)?],
+        _active: active,
+    };
     let file = to_wide(&inf.to_string_lossy());
     // SAFETY: `file` is NUL-terminated and outlives the call.
     unsafe {
@@ -712,16 +721,16 @@ impl Route {
         }
         let mut available = endpoints()?;
         // Taken before any driver installation, which can move the defaults.
-        // The host's own endpoints are never saved as a device to restore.
+        // Recording roles already on a host endpoint keep the user's choice.
         let pending = pending(directory);
         let all = all_endpoints();
         let owned = |id: &str| host_owned(&all, id);
         let before = butterpollo_core::audio_defaults::restore_targets(
-            &originals(defaults()?, pending.as_ref()),
+            &originals(defaults()?, pending.as_ref(), owned),
             owned,
         );
-        let capture_before = butterpollo_core::audio_defaults::restore_targets(
-            &butterpollo_core::audio_defaults::with_pending(
+        let capture_before = butterpollo_core::audio_defaults::recording_targets(
+            butterpollo_core::audio_defaults::with_pending(
                 defaults_for(eCapture)?,
                 pending.as_ref().map(|journal| &journal.capture_before),
                 owned,
@@ -992,7 +1001,7 @@ mod tests {
         let some = |id: &str| Some(id.to_owned());
         let current = [some("virtual"), some("virtual"), some("headset")];
         // Nothing pending: the current defaults are the originals.
-        assert_eq!(originals(current.clone(), None), current);
+        assert_eq!(originals(current.clone(), None, |_| false), current);
         // The last restore failed while the speakers were off: roles still on
         // the virtual sink keep the speakers; a role the user changed since
         // keeps the user's choice.
@@ -1003,7 +1012,22 @@ mod tests {
             capture_before: Default::default(),
         };
         assert_eq!(
-            originals(current.clone(), Some(&pending)),
+            originals(current.clone(), Some(&pending), |_| false),
+            [some("speakers"), some("speakers"), some("headset")]
+        );
+        assert_eq!(
+            originals(
+                [
+                    some("virtual"),
+                    some("virtual"),
+                    some("microphone-speakers")
+                ],
+                Some(&Journal {
+                    before: [some("speakers"), some("speakers"), some("headset")],
+                    ..pending.clone()
+                }),
+                |id| id == "microphone-speakers",
+            ),
             [some("speakers"), some("speakers"), some("headset")]
         );
         // A capture-only journal sets no defaults.
@@ -1011,7 +1035,10 @@ mod tests {
             applied: String::new(),
             ..pending
         };
-        assert_eq!(originals(current.clone(), Some(&capture_only)), current);
+        assert_eq!(
+            originals(current.clone(), Some(&capture_only), |_| false),
+            current
+        );
     }
     #[test]
     fn the_steam_microphone_is_found_by_its_adapter_not_the_speakers() {

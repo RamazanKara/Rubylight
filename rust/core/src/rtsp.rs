@@ -275,6 +275,7 @@ impl Negotiated {
             bail!("invalid stream dimensions");
         }
         if !(1..=4000).contains(&self.fps)
+            || (self.rate_millihz != 0 && self.rate_millihz < 1000)
             || self.rate_millihz > 4_000_000
             || !(1..=2_000_000).contains(&self.bitrate_kbps)
             || self.configured_bitrate_kbps > i32::MAX as u32
@@ -357,6 +358,38 @@ pub fn codec_warning(preference: &str, codec: u8, pyrowave_available: bool) -> O
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stream_rate_cannot_be_below_one_frame_per_second() {
+        for rate_millihz in [1, 500, 999] {
+            assert!(
+                Negotiated {
+                    fps: 1,
+                    rate_millihz,
+                    ..Default::default()
+                }
+                .validate()
+                .is_err()
+            );
+        }
+        for rate_millihz in [0, 1000, 59_940, 4_000_000] {
+            assert!(
+                Negotiated {
+                    fps: 1,
+                    rate_millihz,
+                    ..Default::default()
+                }
+                .validate()
+                .is_ok()
+            );
+        }
+        assert!(
+            Negotiated::from_sdp(
+                b"a=x-nv-video[0].maxFPS:1\r\na=x-nv-video[0].clientRefreshRateX100:50\r\n"
+            )
+            .is_err()
+        );
+    }
     #[test]
     fn pyrowave_downgrades_report_the_negotiated_codec_without_rewriting_it() {
         assert!(

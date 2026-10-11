@@ -151,6 +151,9 @@ impl Reconfiguration {
     /// The session did not switch and stays at `mode`.
     pub fn refused(&mut self, mode: Mode) {
         self.current = mode;
+        if self.pending.is_some_and(|pending| pending.mode == mode) {
+            self.pending = None;
+        }
     }
 }
 
@@ -173,7 +176,7 @@ impl Rates {
         let fps = f64::from(stream.fps_millihz()) / 1000.;
         let minimum = minimum_fps_target.parse::<f64>().unwrap_or(20.);
         let minimum = if minimum > 0. {
-            minimum.clamp(1., fps)
+            minimum.clamp(1., fps.max(1.))
         } else if stream.codec == 3 {
             fps
         } else {
@@ -319,6 +322,36 @@ mod tests {
             state.on_request(now + Duration::from_secs(1), mode(7680, 4320, 60)),
             Outcome::Queued(mode(7680, 4320, 60))
         );
+    }
+
+    #[test]
+    fn a_refused_switch_withdraws_a_request_for_the_restored_mode() {
+        let now = Instant::now();
+        let original = mode(1920, 1080, 60);
+        let mut state = Reconfiguration::new(original);
+        state.on_request(now, mode(7680, 4320, 60));
+        state.take_due(now + Reconfiguration::SETTLE).unwrap();
+        state.on_request(now + Reconfiguration::SETTLE, original);
+        state.refused(original);
+        assert_eq!(state.take_due(now + Duration::from_secs(2)), None);
+
+        let latest = mode(2560, 1440, 60);
+        state.on_request(now + Duration::from_secs(3), latest);
+        state.refused(original);
+        assert_eq!(state.take_due(now + Duration::from_secs(4)), Some(latest));
+    }
+
+    #[test]
+    fn fractional_rates_below_one_do_not_panic_before_validation() {
+        let stream = Negotiated {
+            fps: 1,
+            rate_millihz: 500,
+            ..Default::default()
+        };
+        assert!(stream.validate().is_err());
+        let rates = Rates::new(&stream, "20");
+        assert_eq!(rates.period, Duration::from_secs(2));
+        assert_eq!(rates.static_period, Duration::from_secs(1));
     }
 
     #[test]

@@ -464,7 +464,11 @@ impl HostDisplay {
         if value.trim().eq_ignore_ascii_case("physical") {
             return Some(Self::Physical);
         }
-        Arrangement::parse(value).ok().map(Self::Virtual)
+        let value = value.trim().to_ascii_lowercase().replace('-', "_");
+        Arrangement::parse(&value)
+            .ok()
+            .filter(|arrangement| value == arrangement.name())
+            .map(Self::Virtual)
     }
     pub const fn name(self) -> &'static str {
         match self {
@@ -688,7 +692,20 @@ mod tests {
             HostDisplay::parse("extended-primary"),
             Some(HostDisplay::Virtual(Arrangement::Primary))
         );
-        for unknown in ["", " ", "default", "host", "mirror", "virtual", "0", "1"] {
+        for unknown in [
+            "",
+            " ",
+            "default",
+            "host",
+            "mirror",
+            "virtual",
+            "0",
+            "1",
+            "ensure_active",
+            "ensure_primary",
+            "ensure_only_display",
+            "ensure-only-display",
+        ] {
             assert_eq!(HostDisplay::parse(unknown), None, "{unknown}");
         }
         for arrangement in [

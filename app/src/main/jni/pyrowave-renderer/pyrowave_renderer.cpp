@@ -1839,24 +1839,26 @@ namespace {
         void pollRenderedFrames() {
             if (!displayTimingSupported || swapchain == VK_NULL_HANDLE || pendingPresents.empty()) return;
             uint32_t count = 0;
-            if (vk.GetPastPresentationTimingGOOGLE(device, swapchain, &count, nullptr) != VK_SUCCESS || count == 0) return;
-            std::vector<VkPastPresentationTimingGOOGLE> timings(count);
-            auto result = vk.GetPastPresentationTimingGOOGLE(device, swapchain, &count, timings.data());
-            if (result != VK_SUCCESS && result != VK_INCOMPLETE) return;
-            for (uint32_t i = 0; i < count; ++i) {
-                const auto &timing = timings[i];
-                auto frame = std::find_if(pendingPresents.begin(), pendingPresents.end(),
-                    [&timing](const auto &entry) { return entry.id == timing.presentID; });
-                if (frame == pendingPresents.end()) continue;
-                // actualPresentTime uses CLOCK_MONOTONIC on Android, like System.nanoTime().
-                if (timing.actualPresentTime != 0) {
-                    std::lock_guard<std::mutex> lock(eventsMutex);
-                    renderedFrames.push_back(frame->ptsUs);
-                    renderedFrames.push_back(jlong(timing.actualPresentTime));
+            if (vk.GetPastPresentationTimingGOOGLE(device, swapchain, &count, nullptr) == VK_SUCCESS && count != 0) {
+                std::vector<VkPastPresentationTimingGOOGLE> timings(count);
+                auto result = vk.GetPastPresentationTimingGOOGLE(device, swapchain, &count, timings.data());
+                if (result == VK_SUCCESS || result == VK_INCOMPLETE) {
+                    for (uint32_t i = 0; i < count; ++i) {
+                        const auto &timing = timings[i];
+                        auto frame = std::find_if(pendingPresents.begin(), pendingPresents.end(),
+                            [&timing](const auto &entry) { return entry.id == timing.presentID; });
+                        if (frame == pendingPresents.end()) continue;
+                        // actualPresentTime uses CLOCK_MONOTONIC on Android, like System.nanoTime().
+                        if (timing.actualPresentTime != 0) {
+                            std::lock_guard<std::mutex> lock(eventsMutex);
+                            renderedFrames.push_back(frame->ptsUs);
+                            renderedFrames.push_back(jlong(timing.actualPresentTime));
+                        }
+                        pendingPresents.erase(frame);
+                    }
                 }
-                pendingPresents.erase(frame);
             }
-            // A frame the compositor skipped never gets a time; stop waiting for it.
+            // Skipped frames may never get a time, even when no further timings arrive.
             const uint64_t now = nowUs();
             while (!pendingPresents.empty() && now - pendingPresents.front().queuedUs > 500'000) {
                 pendingPresents.pop_front();

@@ -27,8 +27,8 @@ android {
         minSdk 21
         targetSdk 36
 
-        versionName "0.4.0"
-        versionCode = 317
+        versionName "0.4.1"
+        versionCode = 318
 
         externalNativeBuild {
             ndkBuild {

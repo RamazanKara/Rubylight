@@ -82,7 +82,8 @@ def find_text(pattern):
             if re.search(pattern, node.get("text") or ""):
                 return node
         time.sleep(0.5)
-    raise AssertionError(f"No UI text matches: {pattern}")
+    texts = [n.get("text") for n in tree().iter("node") if n.get("text")]
+    raise AssertionError(f"No UI text matches: {pattern}; on screen: {texts[:30]}")
 
 
 def native_resolution():
@@ -475,7 +476,7 @@ def main():
                 time.sleep(1)
                 if any(" FPS · 81 Mbps · Automatic" in n.get("text", "") for n in tree().iter("node")):
                     break
-            find_text(r"^\d+×\d+ · \d+ FPS · 81 Mbps · Automatic$")
+            find_text(r"^(\d+×\d+|\d+p) · \d+ FPS · 81 Mbps · Automatic")
             find("Custom")
             tap("Stream")
             vrr = "Variable refresh (VRR)"

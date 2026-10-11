@@ -410,7 +410,13 @@ public class NvConnection {
         hostDetails = details;
         context.isNvidiaServerSoftware = details.nvidiaServer;
         NvHTTP.readDisplayCapabilities(context, serverInfo);
-        context.hostDisplay = HostDisplayChoice.load(appContext, details.uuid);
+        // The choice saved for the PC this stream was started from (its stored ID); the ID in this
+        // serverinfo reply is only the fallback.
+        context.hostDisplay = context.streamConfig.getHostDisplay() != null ?
+                context.streamConfig.getHostDisplay() : HostDisplayChoice.load(appContext, details.uuid);
+        LimeLog.info("Display on the PC: " + context.hostDisplay.forRole(context.streamConfig.getApp().getRole()).name() +
+                ", host virtual display " + (context.streamConfig.getVirtualDisplay() ? "on" : "off") +
+                (context.serverSupportsVirtualDisplay ? "" : " (the PC reports no virtual display)"));
         if (context.hostDisplay.forRole(context.streamConfig.getApp().getRole())
                 .requestsVirtualDisplay(context.streamConfig.getVirtualDisplay()) && !context.serverSupportsVirtualDisplay) {
             context.connListener.displayTransientMessage("Host virtual display unavailable. Using the host display configuration.");

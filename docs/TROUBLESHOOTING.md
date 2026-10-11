@@ -48,7 +48,7 @@ See [video and latency](video-and-latency.md#performance-overlay) for metric def
 | Mouse look behaves like a desktop cursor | Desktop mouse mode or capture state. | Turn Desktop mouse mode off and use Ctrl+Alt+Shift+Z to recapture input. |
 | Controller stick drifts | Deadzone too small for that pad/game. | Increase Analog stick deadzone slightly and compare. |
 | Touch behaves like a mouse | Trackpad/Direct mouse selected, or native touch unavailable. | Select Multi-touch and grant Touch input on the host. A host without native touch falls back to Direct mouse. |
-| Preset or global change seems ignored | A saved PC profile overrides global stream settings. | Long-press the PC, open **This PC → Stream settings**, enable **Use global settings**, and save. |
+| Preset or global change seems ignored | This PC has its own value for that setting. | Long-press the PC, open **This PC → Stream settings**, set the value to **Same as all PCs**, and save. |
 | Reset did not remove a controller mapping or layout | Global reset intentionally preserves them. | Reset the controller in Controller buttons or use Reset controls layout. |
 | APK update is rejected | Different signing key or incompatible build. | Use an update signed by the installed app's key. Uninstalling permits a different key but removes local app data and pairing identity. |
 | PC will not wake | Missing MAC, NIC/firmware policy, Wi-Fi or routing limitation. | Pair once while awake; enable Wake-on-LAN; test Ethernet and sleep on the same subnet. |

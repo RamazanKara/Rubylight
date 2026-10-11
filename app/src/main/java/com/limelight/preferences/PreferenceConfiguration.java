@@ -200,6 +200,9 @@ public class PreferenceConfiguration {
     public int virtualDisplayScale;
     // Where the launch values came from, for the stream log.
     public boolean resolutionFollowsScreen, fromPcProfile;
+    // What this PC's displays do during the stream, and the PC's own stream values (for the log).
+    public HostDisplayChoice hostDisplay;
+    public String pcSettings;
     public UpscalingPolicy.Mode upscalingMode = UpscalingPolicy.Mode.OFF;
     public int upscalingSharpness = 50;
 
@@ -502,28 +505,47 @@ public class PreferenceConfiguration {
                 Build.FINGERPRINT.contains("PPR1.180610.011/4079208_2235.1395");
     }
 
+    private static final String PC_PROFILES_OVERRIDES_PREF_STRING = "pc_profiles_overrides";
+
     public static PreferenceConfiguration readPreferences(Context context, String hostUuid) {
         PreferenceConfiguration config = readPreferences(context);
+        migratePcProfilesToOverrides(context);
+        config.hostDisplay = hostUuid == null ? null : HostDisplayChoice.load(context, hostUuid);
         HostStreamProfile profile = HostStreamProfile.load(context, hostUuid);
         if (profile != null) {
+            boolean followedScreen = config.resolutionFollowsScreen;
             profile.applyTo(config);
-            config.fromPcProfile = true;
-            if (profile.nativeResolution) {
+            config.fromPcProfile = profile.setsResolution();
+            if (config.resolutionFollowsScreen && !followedScreen) {
                 String nativeResolution = nativeResolution(context);
                 if (nativeResolution != null) {
                     config.width = getWidthFromResolutionString(nativeResolution);
                     config.height = getHeightFromResolutionString(nativeResolution);
                 }
             }
+            config.pcSettings = profile.serialize();
+            SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
             config.framePacing = config.vrr ? FRAME_PACING_MIN_LATENCY : getFramePacingValue(context);
-            config.reduceRefreshRate = !config.vrr && PreferenceManager.getDefaultSharedPreferences(context)
-                    .getBoolean(REDUCE_REFRESH_RATE_PREF_STRING, DEFAULT_REDUCE_REFRESH_RATE);
+            config.reduceRefreshRate = !config.vrr && prefs.getBoolean(REDUCE_REFRESH_RATE_PREF_STRING, DEFAULT_REDUCE_REFRESH_RATE);
             config.enableHdr &= !isShieldAtvFirmwareWithBrokenHdr();
-            config.useTextureView = PreferenceManager.getDefaultSharedPreferences(context)
-                    .getBoolean(TEXTURE_VIEW_PREF_STRING, false) && !config.enableHdr &&
+            config.useTextureView = prefs.getBoolean(TEXTURE_VIEW_PREF_STRING, false) && !config.enableHdr &&
                     config.videoFormat != FormatOption.FORCE_PYROWAVE;
         }
         return config;
+    }
+
+    // PC profiles saved before test.11 copied every global setting, so later changes to the global
+    // settings never reached those PCs. Once, keep only the values that differ from the global ones.
+    static void migratePcProfilesToOverrides(Context context) {
+        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
+        if (prefs.getBoolean(PC_PROFILES_OVERRIDES_PREF_STRING, false)) {
+            return;
+        }
+        int changed = HostStreamProfile.migrateAllToOverrides(context, readPreferences(context));
+        if (changed > 0) {
+            com.limelight.LimeLog.info("PC stream profiles now keep only their own values: " + changed);
+        }
+        prefs.edit().putBoolean(PC_PROFILES_OVERRIDES_PREF_STRING, true).apply();
     }
 
     // Largest mode of the built-in screen, landscape first; null when the screen can't be read.

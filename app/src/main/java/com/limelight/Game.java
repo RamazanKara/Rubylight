@@ -440,6 +440,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         LimeLog.info("Stream request: " + prefConfig.width + "x" + prefConfig.height + " at " + prefConfig.fps +
                 " fps (resolution " + prefConfig.resolutionSource() +
                 (prefConfig.vrr ? ", VRR at the panel's " + panelMaxRefreshRate + " Hz" : "") + ")");
+        LimeLog.info("PC's own stream values: " + (prefConfig.pcSettings == null ? "none" : prefConfig.pcSettings));
         // Fixed presets keep their size; anything else is the phone's own resolution and follows it.
         nativeResolutionStream = prefConfig.resolutionFollowsScreen ||
                 PreferenceConfiguration.isNativeResolution(prefConfig.width, prefConfig.height);
@@ -730,6 +731,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 .setClientRefreshRateX100(Math.round(desiredRefreshRate * 100))
                 .setVirtualDisplay(prefConfig.virtualDisplay, prefConfig.virtualDisplayScale)
                 .setVrr(prefConfig.vrr)
+                .setHostDisplay(prefConfig.hostDisplay)
                 .setAudioConfiguration(prefConfig.audioConfiguration)
                 .setColorSpace(decoderRenderer.getPreferredColorSpace())
                 .setColorRange(decoderRenderer.getPreferredColorRange())

@@ -2253,6 +2253,10 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                                 (prefs.fromPcProfile ? R.string.resolution_source_native_profile : R.string.resolution_source_native) :
                                 (prefs.fromPcProfile ? R.string.resolution_source_fixed_profile : R.string.resolution_source_fixed))))
                         .append('\n');
+                if (prefs.hostDisplay != null) {
+                    video.append(context.getString(R.string.perf_overlay_host_display,
+                            context.getString(prefs.hostDisplay.label))).append('\n');
+                }
                 video.append(context.getString(R.string.perf_overlay_incomingfps,
                         mediaCodec ? frameRates[0] : fps.receivedFps)).append('\n');
                 video.append(context.getString(R.string.perf_overlay_releasedfps, frameRates[1])).append('\n');

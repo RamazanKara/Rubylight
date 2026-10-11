@@ -76,6 +76,7 @@
     <string name="poor_connection_msg">Schlechte Verbindung zum PC</string>
     <string name="perf_overlay_streamdetails">Video: %1$s %2$.2f FPS</string>
     <string name="perf_overlay_resolution_source">Auflösung: %1$s</string>
+    <string name="perf_overlay_host_display">Display am PC: %1$s</string>
     <string name="resolution_source_native">nativ</string>
     <string name="resolution_source_native_profile">nativ, PC-Profil</string>
     <string name="resolution_source_fixed">fest in den Einstellungen</string>
@@ -282,7 +283,7 @@
     <string name="summary_yuv444">Stelle farbigen Text schärfer dar, falls unterstützt.</string>
     <string name="yuv444_fallback">YUV 4:4:4 nicht verfügbar; nutze 4:2:0.</string>
     <string name="title_virtual_display">Virtuelles Host-Display</string>
-    <string name="summary_virtual_display">Passe Auflösung und Bildrate am PC an den Stream an.</string>
+    <string name="summary_virtual_display">Fordert am PC ein Display passend zum Stream an. Aus: Die Display-Einstellungen des PCs entscheiden.</string>
     <string name="title_vrr">Variable Bildrate (VRR)</string>
     <string name="summary_vrr">Passe das Display an die Bildrate des Spiels an. Schaltet das Frame-Timing mit einem Rubylight-PC ab.</string>
     <string name="title_virtual_display_scale">Host-Skalierung</string>

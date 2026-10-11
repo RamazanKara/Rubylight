@@ -139,33 +139,32 @@ Native also turns these back on: Android low-latency mode, Chipset low-latency m
 
 ## Per-PC stream profiles
 
-Long-press a PC and choose **This PC → Stream settings**. **Use global settings** is on until a profile is saved. Turn it off, edit the draft and choose **Save**. To remove the override, turn it on and save again. Leaving without saving discards the draft.
+Long-press a PC and choose **This PC → Stream settings**. Every value starts as **Same as all PCs**, which follows the main stream settings, including later changes. Pick a value to give this PC its own; pick **Same as all PCs** again to follow the main settings. **Same as all PCs for everything** clears every value of this PC. Choose **Save** to keep the changes; leaving without saving discards them.
 
 These controls are created in [HostStreamSettings.java](../app/src/main/java/com/limelight/preferences/HostStreamSettings.java), with validation in [HostStreamProfile.java](../app/src/main/java/com/limelight/preferences/HostStreamProfile.java).
 
-| Setting | Initial value and units | When to change |
+| Setting | Values | When to change |
 | --- | --- | --- |
-| Use global settings | On; no PC override | Turn off when this PC needs a different stream setup. |
-| Video resolution | Current effective size; width and height each 64–16384 pixels | Match a host display or choose a lower decode workload. **Use this screen** fills in the device's landscape dimensions. |
-| Video frame rate | Current effective refresh; 1–1000 Hz, up to two decimal places | Request fractional rates such as 59.94 or 119.88 Hz. **Use this screen** fills in maximum display refresh; VRR also uses the panel maximum. |
-| Video bitrate | Current effective bitrate; 0.5–2000 Mbps, up to three decimal places | Set this PC's bandwidth budget. Startup can exceed the global slider's 500 Mbps ceiling; runtime changes remain capped at 500 Mbps. |
-| Video codec | Current effective codec; Automatic, Prefer AV1, Prefer HEVC, H.264, PyroWave | Compare codecs on this PC and device. |
-| Upscaling / sharpening | Current effective mode and 0–100% sharpness | Choose a scaler for this PC's lower-resolution SDR stream. |
-| HDR / Variable refresh (VRR) | Current effective On/Off values | Enable for a compatible host and screen. |
-| Host virtual display | Current effective On/Off value | Request a separate host display matching this stream. |
-| Host render scale | Current effective scale; 50–200% | Change host render pixels relative to stream pixels. Used with the virtual-display request. |
-| Prefer YUV 4:4:4 / Force full-range video | Current effective On/Off values | Request supported chroma/range behavior for this PC. |
-| Save | Action | Store the complete draft or remove the profile when using global settings. Takes effect next stream. |
+| Video resolution | Same as all PCs, Native (follows this phone's screen), or width and height of 64–16384 pixels | Match a host display or choose a lower decode workload. **Use this screen** fills in the device's landscape dimensions. |
+| Video frame rate | Same as all PCs, or 1–1000 Hz with up to two decimal places | Request fractional rates such as 59.94 or 119.88 Hz. **Use this screen** fills in maximum display refresh; VRR uses the panel maximum. |
+| Video bitrate | Same as all PCs, or 0.5–2000 Mbps with up to three decimal places | Set this PC's bandwidth budget. Startup can exceed the global slider's 500 Mbps ceiling; runtime changes remain capped at 500 Mbps. |
+| Video codec | Same as all PCs, Automatic, Prefer AV1, Prefer HEVC, H.264, PyroWave | Compare codecs on this PC and device. |
+| Upscaling / sharpening | Same as all PCs, or a mode with 0–100% sharpness | Choose a scaler for this PC's lower-resolution SDR stream. |
+| HDR / Variable refresh (VRR) | Same as all PCs, On, Off | Enable for a compatible host and screen. |
+| Host virtual display | Same as all PCs, On, Off | On asks the PC for a display matching this stream. Off leaves it to the PC's display settings. |
+| Host render scale | Same as all PCs, or 50–200% | Change host render pixels relative to stream pixels. Used with the virtual-display request. |
+| Prefer YUV 4:4:4 / Force full-range video | Same as all PCs, On, Off | Request supported chroma/range behavior for this PC. |
+| Save | Action | Stores this PC's own values. Takes effect next stream. |
 
-A new profile starts from the current effective settings, not a second set of factory defaults. Host device/app policy may override a request. Older profiles without VRR or upscaling fields inherit those fields globally.
+Profiles saved by builds up to test.10 copied every main setting. They now keep only the values that differ from the main settings, and VRR follows the main setting. Host device/app policy may override a request. The performance overlay and the log show the PC's own values and the display choice for each stream.
 
 ## Display on the PC
 
-Long-press a PC and choose **This PC → Display on the PC** to choose what the PC's displays do while this device streams from it. The choice is saved for that PC at once and applies from the next stream; it is separate from the stream profile and from **Use global settings**. It is created in [HostDisplaySettings.java](../app/src/main/java/com/limelight/preferences/HostDisplaySettings.java) and stored by [HostDisplayChoice.java](../app/src/main/java/com/limelight/preferences/HostDisplayChoice.java).
+Long-press a PC and choose **This PC → Display on the PC** to choose what the PC's displays do while this device streams from it. The choice is saved for that PC at once and applies from the next stream; it is separate from the stream profile. It is created in [HostDisplaySettings.java](../app/src/main/java/com/limelight/preferences/HostDisplaySettings.java) and stored by [HostDisplayChoice.java](../app/src/main/java/com/limelight/preferences/HostDisplayChoice.java).
 
 | Choice | Sent to the PC | What the PC does |
 | --- | --- | --- |
-| Host default (initial) | Nothing | Follows the PC's display settings; **Host virtual display** still applies. |
+| The PC's own setting (initial) | Nothing, or `virtualDisplay=1` when **Host virtual display** is on | Follows **Host virtual display** and the PC's display settings. |
 | Virtual display only (exclusive) | `hostDisplay=exclusive`, `virtualDisplay=1` | Adds a virtual display and switches the PC's monitors off during the stream. |
 | Additional virtual display, as main display | `hostDisplay=extended_primary`, `virtualDisplay=1` | Adds a virtual display beside the monitors and makes it the main display, so games open on it. |
 | Additional virtual display, PC display stays main | `hostDisplay=extended`, `virtualDisplay=1` | Adds a virtual display beside the monitors; the PC keeps its main display. |

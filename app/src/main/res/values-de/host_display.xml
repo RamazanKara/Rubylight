@@ -2,11 +2,11 @@
 <resources>
     <string name="host_display_menu">Display am PC</string>
     <string name="host_display_title">Display an %1$s</string>
-    <string name="host_display_default">Host-Standard</string>
+    <string name="host_display_default">Einstellung des PCs</string>
     <string name="host_display_exclusive">Nur virtuelles Display (exklusiv)</string>
     <string name="host_display_extended_primary">Zusätzliches virtuelles Display als Hauptdisplay</string>
     <string name="host_display_extended">Zusätzliches virtuelles Display, PC-Display bleibt Hauptdisplay</string>
     <string name="host_display_physical">Physisches Display (kein virtuelles Display)</string>
     <string name="host_display_saved">Display-Auswahl gespeichert. Sie gilt ab dem nächsten Stream.</string>
-    <string name="host_display_explanation">Wähle, was die Displays dieses PCs während deines Streams tun. Host-Standard folgt den Einstellungen des PCs. Nur virtuelles Display schaltet die Monitore des PCs während des Streams aus. Ein zusätzliches virtuelles Display lässt sie an; als Hauptdisplay öffnen Spiele auf dem virtuellen Display. Physisches Display streamt den Monitor des PCs ohne virtuelles Display. Nach dem Stream stellt der PC seine Displays wieder her.\n\nDie Auswahl braucht Rubylight auf dem PC. Andere Hosts behandeln die Auswahl eines virtuellen Displays wie „Virtuelles Host-Display“ und ignorieren den Rest.</string>
+    <string name="host_display_explanation">Wähle, was die Displays dieses PCs während deines Streams tun. „Einstellung des PCs“ folgt „Virtuelles Host-Display“ und den Display-Einstellungen des PCs. Nur virtuelles Display schaltet die Monitore des PCs während des Streams aus. Ein zusätzliches virtuelles Display lässt sie an; als Hauptdisplay öffnen Spiele auf dem virtuellen Display. Physisches Display streamt den Monitor des PCs ohne virtuelles Display. Nach dem Stream stellt der PC seine Displays wieder her.\n\nDie Auswahl braucht Rubylight auf dem PC. Andere Hosts behandeln die Auswahl eines virtuellen Displays wie „Virtuelles Host-Display“ und ignorieren den Rest.</string>
 </resources>

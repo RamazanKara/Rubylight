@@ -12,6 +12,7 @@ import android.util.DisplayMetrics;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.CompoundButton;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ListView;
@@ -21,6 +22,7 @@ import android.widget.TextView;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import com.google.android.material.appbar.MaterialToolbar;
+import com.google.android.material.checkbox.MaterialCheckBox;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.google.android.material.textfield.TextInputEditText;
 import com.google.android.material.textfield.TextInputLayout;
@@ -29,9 +31,14 @@ import com.limelight.binding.video.UpscalingPolicy;
 import com.google.android.material.slider.Slider;
 import com.limelight.utils.UiHelper;
 
+/**
+ * One PC's stream settings. Each value is either this PC's own or "Same as all PCs", which
+ * follows the main Stream settings, so a global change reaches every PC that doesn't set it.
+ */
 public final class HostStreamSettings extends AppCompatActivity {
-    private PreferenceConfiguration draft;
-    private boolean useGlobal;
+    // The settings for all PCs, and this PC's own values on top of them.
+    private PreferenceConfiguration global;
+    private HostStreamProfile overrides;
     private String hostUuid;
 
     public static void show(Activity activity, String hostUuid, String hostName) {
@@ -48,15 +55,16 @@ public final class HostStreamSettings extends AppCompatActivity {
             finish();
             return;
         }
-        draft = PreferenceConfiguration.readPreferences(this, hostUuid);
-        useGlobal = HostStreamProfile.load(this, hostUuid) == null;
-        if (useGlobal) {
-            // A new profile streams at the phone's own screen size until a fixed size is chosen.
-            draft.resolutionFollowsScreen = true;
-        }
-        if (state != null) {
-            HostStreamProfile.deserialize(state.getString("draft")).applyTo(draft);
-            useGlobal = state.getBoolean("global");
+        global = PreferenceConfiguration.readPreferences(this);
+        PreferenceConfiguration.migratePcProfilesToOverrides(this);
+        HostStreamProfile saved = HostStreamProfile.load(this, hostUuid);
+        overrides = saved == null ? new HostStreamProfile() : saved;
+        if (state != null && state.getString("draft") != null) {
+            try {
+                overrides = HostStreamProfile.deserialize(state.getString("draft"));
+            } catch (IllegalArgumentException ignored) {
+                // Keep the saved values.
+            }
         }
         setContentView(R.layout.activity_host_stream_settings);
         MaterialToolbar toolbar = findViewById(R.id.host_profile_toolbar);
@@ -69,12 +77,8 @@ public final class HostStreamSettings extends AppCompatActivity {
             return true;
         });
         findViewById(R.id.host_profile_save).setOnClickListener(v -> {
-            if (useGlobal) {
-                HostStreamProfile.reset(this, hostUuid);
-            } else {
-                profile().save(this, hostUuid);
-            }
-            Toast.makeText(this, useGlobal ? R.string.host_profile_reset_done : R.string.host_profile_saved,
+            overrides.save(this, hostUuid);
+            Toast.makeText(this, overrides.isEmpty() ? R.string.host_profile_reset_done : R.string.host_profile_saved,
                     Toast.LENGTH_SHORT).show();
             finish();
         });
@@ -84,19 +88,25 @@ public final class HostStreamSettings extends AppCompatActivity {
         UiHelper.notifyNewRootView(this);
     }
 
-    private HostStreamProfile profile() {
-        return new HostStreamProfile(draft.width, draft.height,
-                draft.launchRefreshRateX100 == 0 ? draft.fps * 100 : draft.launchRefreshRateX100,
-                draft.bitrate, draft.virtualDisplayScale, draft.videoFormat, draft.virtualDisplay,
-                draft.enableHdr, draft.fullRange, draft.enableYuv444, draft.vrr,
-                draft.upscalingMode, draft.upscalingSharpness, draft.resolutionFollowsScreen);
+    /** What the next stream from this PC uses: the global settings with this PC's values on top. */
+    private PreferenceConfiguration effective() {
+        PreferenceConfiguration config = PreferenceConfiguration.readPreferences(this);
+        boolean followedScreen = config.resolutionFollowsScreen;
+        overrides.applyTo(config);
+        if (config.resolutionFollowsScreen && !followedScreen) {
+            String nativeResolution = PreferenceConfiguration.nativeResolution(this);
+            if (nativeResolution != null) {
+                config.width = PreferenceConfiguration.getWidthFromResolutionString(nativeResolution);
+                config.height = PreferenceConfiguration.getHeightFromResolutionString(nativeResolution);
+            }
+        }
+        return config;
     }
 
     @Override
     protected void onSaveInstanceState(Bundle state) {
         super.onSaveInstanceState(state);
-        state.putString("draft", profile().serialize());
-        state.putBoolean("global", useGlobal);
+        state.putString("draft", overrides.serialize());
     }
 
     public static class SettingsFragment extends PreferenceFragment {
@@ -109,83 +119,27 @@ public final class HostStreamSettings extends AppCompatActivity {
             activity = (HostStreamSettings) getActivity();
             PreferenceScreen screen = getPreferenceManager().createPreferenceScreen(activity);
             setPreferenceScreen(screen);
-            MaterialSwitchPreference global = new MaterialSwitchPreference(activity, null);
-            global.setTitle(R.string.host_profile_reset);
-            global.setLayoutResource(R.layout.settings_preference);
-            global.setPersistent(false);
-            global.setChecked(activity.useGlobal);
-            screen.addPreference(global);
             stream = new PreferenceCategory(activity);
             stream.setTitle(R.string.settings_section_video);
             stream.setLayoutResource(R.layout.settings_category);
             screen.addPreference(stream);
-            row("resolution", R.string.title_resolution_list).setOnPreferenceClickListener(pref -> {
-                showResolution();
-                return true;
-            });
-            row("refresh", R.string.title_fps_list).setOnPreferenceClickListener(pref -> {
-                showNumber("refresh", R.string.host_profile_refresh);
-                return true;
-            });
-            row("bitrate", R.string.title_seekbar_bitrate).setOnPreferenceClickListener(pref -> {
-                showNumber("bitrate", R.string.host_profile_bitrate);
-                return true;
-            });
-            row("codec", R.string.title_video_format).setOnPreferenceClickListener(pref -> {
-                new MaterialAlertDialogBuilder(activity).setTitle(R.string.title_video_format)
-                        .setSingleChoiceItems(R.array.host_profile_codecs, activity.draft.videoFormat.ordinal(), (dialog, which) -> {
-                            activity.draft.videoFormat = PreferenceConfiguration.FormatOption.values()[which];
-                            updateSummaries();
-                            dialog.dismiss();
-                        }).setNegativeButton(android.R.string.cancel, null).show();
-                return true;
-            });
-            row("upscaling", R.string.title_upscaling).setOnPreferenceClickListener(pref -> {
-                new MaterialAlertDialogBuilder(activity).setTitle(R.string.title_upscaling)
-                        .setSingleChoiceItems(R.array.upscaling_names, activity.draft.upscalingMode.ordinal(), (dialog, which) -> {
-                            activity.draft.upscalingMode = UpscalingPolicy.Mode.values()[which];
-                            updateSummaries();
-                            dialog.dismiss();
-                        }).setNeutralButton(R.string.help, (dialog, which) ->
-                                new MaterialAlertDialogBuilder(activity).setTitle(R.string.title_upscaling)
-                                        .setMessage(R.string.summary_upscaling).setPositiveButton(android.R.string.ok, null).show())
-                        .setNegativeButton(android.R.string.cancel, null).show();
-                return true;
-            });
-            row("sharpness", R.string.title_upscaling_sharpness).setOnPreferenceClickListener(pref -> {
-                showSharpness();
-                return true;
-            });
-            toggle("hdr", R.string.title_enable_hdr, R.string.summary_enable_hdr, activity.draft.enableHdr)
-                    .setOnPreferenceChangeListener((pref, value) -> {
-                        activity.draft.enableHdr = (Boolean) value;
-                        updateSummaries();
-                        return true;
-                    });
-            toggle("vrr", R.string.title_vrr, R.string.summary_vrr, activity.draft.vrr)
-                    .setOnPreferenceChangeListener((pref, value) -> { activity.draft.vrr = (Boolean) value; return true; });
-            toggle("virtual", R.string.title_virtual_display, R.string.summary_virtual_display, activity.draft.virtualDisplay)
-                    .setOnPreferenceChangeListener((pref, value) -> {
-                        activity.draft.virtualDisplay = (Boolean) value;
-                        updateSummaries();
-                        return true;
-                    });
-            row("scale", R.string.title_virtual_display_scale).setOnPreferenceClickListener(pref -> {
-                showNumber("scale", R.string.host_profile_scale);
-                return true;
-            });
-            toggle("yuv444", R.string.title_yuv444, R.string.summary_yuv444, activity.draft.enableYuv444)
-                    .setOnPreferenceChangeListener((pref, value) -> { activity.draft.enableYuv444 = (Boolean) value; return true; });
-            toggle("full_range", R.string.title_full_range, R.string.summary_full_range, activity.draft.fullRange)
-                    .setOnPreferenceChangeListener((pref, value) -> { activity.draft.fullRange = (Boolean) value; return true; });
-            global.setOnPreferenceChangeListener((pref, value) -> {
-                activity.useGlobal = (Boolean) value;
-                stream.setEnabled(!activity.useGlobal);
+            row("resolution", R.string.title_resolution_list, this::showResolution);
+            row("refresh", R.string.title_fps_list, () -> showNumber("refresh", R.string.host_profile_refresh));
+            row("bitrate", R.string.title_seekbar_bitrate, () -> showNumber("bitrate", R.string.host_profile_bitrate));
+            row("codec", R.string.title_video_format, this::showCodec);
+            row("upscaling", R.string.title_upscaling, this::showUpscaling);
+            row("sharpness", R.string.title_upscaling_sharpness, this::showSharpness);
+            row("hdr", R.string.title_enable_hdr, () -> showSwitch("hdr", R.string.title_enable_hdr));
+            row("vrr", R.string.title_vrr, () -> showSwitch("vrr", R.string.title_vrr));
+            row("virtual", R.string.title_virtual_display, () -> showSwitch("virtual", R.string.title_virtual_display));
+            row("scale", R.string.title_virtual_display_scale, () -> showNumber("scale", R.string.host_profile_scale));
+            row("yuv444", R.string.title_yuv444, () -> showSwitch("yuv444", R.string.title_yuv444));
+            row("full_range", R.string.title_full_range, () -> showSwitch("full_range", R.string.title_full_range));
+            row("reset", R.string.host_profile_reset, () -> {
+                activity.overrides = new HostStreamProfile();
                 updateSummaries();
-                return true;
             });
-            stream.setEnabled(!activity.useGlobal);
-            // Saved at once and sent on its own, so it applies with global settings too.
+            // Saved at once and sent on its own, so it applies whatever the values above are.
             PreferenceCategory displayCategory = new PreferenceCategory(activity);
             displayCategory.setTitle(R.string.host_display_menu);
             displayCategory.setLayoutResource(R.layout.settings_category);
@@ -209,58 +163,160 @@ public final class HostStreamSettings extends AppCompatActivity {
             updateSummaries();
         }
 
-        private Preference row(String key, int title) {
+        private void row(String key, int title, Runnable onClick) {
             Preference preference = new Preference(activity);
             preference.setKey(key);
             preference.setTitle(title);
             preference.setLayoutResource(R.layout.settings_preference);
             preference.setPersistent(false);
+            preference.setOnPreferenceClickListener(pref -> {
+                onClick.run();
+                return true;
+            });
             stream.addPreference(preference);
-            return preference;
         }
 
-        private MaterialSwitchPreference toggle(String key, int title, int help, boolean checked) {
-            MaterialSwitchPreference preference = new MaterialSwitchPreference(activity, null);
-            preference.setKey(key);
-            preference.setTitle(title);
-            preference.setExplanation(getString(help));
-            preference.setLayoutResource(R.layout.settings_preference);
-            preference.setPersistent(false);
-            preference.setChecked(checked);
-            stream.addPreference(preference);
-            return preference;
+        private String onOff(boolean value) {
+            return getString(value ? R.string.host_profile_on : R.string.host_profile_off);
+        }
+
+        /** The value, marked when it comes from the settings for all PCs. */
+        private String summary(boolean own, String value) {
+            return own ? value : getString(R.string.host_profile_follows, value);
+        }
+
+        private String resolutionText(PreferenceConfiguration config) {
+            return config.resolutionFollowsScreen ? getString(R.string.host_profile_native) :
+                    config.width + " × " + config.height;
+        }
+
+        private String refreshText(PreferenceConfiguration config) {
+            return HostStreamProfile.formatRefreshRate(config.launchRefreshRateX100 == 0 ?
+                    config.fps * 100 : config.launchRefreshRateX100) + " Hz";
+        }
+
+        private String upscalingText(PreferenceConfiguration config) {
+            String upscaling = getResources().getStringArray(R.array.upscaling_names)[config.upscalingMode.ordinal()];
+            if (config.upscalingMode != UpscalingPolicy.Mode.OFF) {
+                if (config.enableHdr) upscaling += "\n" + getString(R.string.upscaling_hdr);
+                else if (config.videoFormat == PreferenceConfiguration.FormatOption.FORCE_PYROWAVE) {
+                    upscaling += "\n" + getString(R.string.upscaling_pyrowave);
+                }
+            }
+            return upscaling;
+        }
+
+        private boolean switchValue(PreferenceConfiguration config, String key) {
+            switch (key) {
+                case "hdr": return config.enableHdr;
+                case "vrr": return config.vrr;
+                case "virtual": return config.virtualDisplay;
+                case "yuv444": return config.enableYuv444;
+                default: return config.fullRange;
+            }
+        }
+
+        private Boolean switchOverride(String key) {
+            HostStreamProfile own = activity.overrides;
+            switch (key) {
+                case "hdr": return own.hdr;
+                case "vrr": return own.vrr;
+                case "virtual": return own.virtualDisplay;
+                case "yuv444": return own.yuv444;
+                default: return own.fullRange;
+            }
+        }
+
+        private void setSwitchOverride(String key, Boolean value) {
+            HostStreamProfile own = activity.overrides;
+            switch (key) {
+                case "hdr": own.hdr = value; break;
+                case "vrr": own.vrr = value; break;
+                case "virtual": own.virtualDisplay = value; break;
+                case "yuv444": own.yuv444 = value; break;
+                default: own.fullRange = value; break;
+            }
         }
 
         private void updateSummaries() {
-            PreferenceConfiguration draft = activity.useGlobal ? PreferenceConfiguration.readPreferences(activity) : activity.draft;
-            findPreference("resolution").setSummary(draft.resolutionFollowsScreen ?
-                    getString(R.string.host_profile_native) : draft.width + " × " + draft.height);
+            PreferenceConfiguration config = activity.effective();
+            HostStreamProfile own = activity.overrides;
+            findPreference("resolution").setSummary(summary(own.nativeResolution != null, resolutionText(config)));
+            findPreference("refresh").setSummary(summary(own.refreshRateX100 != null, refreshText(config)));
+            findPreference("bitrate").setSummary(summary(own.bitrate != null,
+                    HostStreamProfile.formatBitrateMbps(config.bitrate) + " Mbps"));
+            findPreference("codec").setSummary(summary(own.codec != null,
+                    getResources().getStringArray(R.array.host_profile_codecs)[config.videoFormat.ordinal()]));
+            findPreference("upscaling").setSummary(summary(own.upscalingMode != null, upscalingText(config)));
+            findPreference("sharpness").setSummary(summary(own.upscalingMode != null,
+                    getString(R.string.upscaling_sharpness_value, config.upscalingSharpness)));
+            findPreference("sharpness").setEnabled(config.upscalingMode == UpscalingPolicy.Mode.FSR1 ||
+                    config.upscalingMode == UpscalingPolicy.Mode.SGSR1);
+            for (String key : new String[] {"hdr", "vrr", "virtual", "yuv444", "full_range"}) {
+                findPreference(key).setSummary(summary(switchOverride(key) != null, onOff(switchValue(config, key))));
+            }
+            findPreference("scale").setSummary(summary(own.renderScale != null, config.virtualDisplayScale + "%"));
+            findPreference("reset").setEnabled(!own.isEmpty());
+            findPreference("reset").setSummary(own.isEmpty() ? getString(R.string.host_profile_status_global) :
+                    getString(R.string.host_profile_status_custom));
             Preference display = findPreference("host_display");
             if (display != null) {
                 display.setSummary(HostDisplayChoice.load(activity, activity.hostUuid).label);
             }
-            findPreference("refresh").setSummary(HostStreamProfile.formatRefreshRate(
-                    draft.launchRefreshRateX100 == 0 ? draft.fps * 100 : draft.launchRefreshRateX100) + " Hz");
-            findPreference("bitrate").setSummary(HostStreamProfile.formatBitrateMbps(draft.bitrate) + " Mbps");
-            findPreference("codec").setSummary(getResources().getStringArray(R.array.host_profile_codecs)[draft.videoFormat.ordinal()]);
-            String upscaling = getResources().getStringArray(R.array.upscaling_names)[draft.upscalingMode.ordinal()];
-            if (draft.upscalingMode != UpscalingPolicy.Mode.OFF) {
-                if (draft.enableHdr) upscaling += "\n" + getString(R.string.upscaling_hdr);
-                else if (draft.videoFormat == PreferenceConfiguration.FormatOption.FORCE_PYROWAVE) {
-                    upscaling += "\n" + getString(R.string.upscaling_pyrowave);
-                }
-            }
-            findPreference("upscaling").setSummary(upscaling);
-            findPreference("sharpness").setSummary(getString(R.string.upscaling_sharpness_value, draft.upscalingSharpness));
-            findPreference("sharpness").setEnabled(draft.upscalingMode == UpscalingPolicy.Mode.FSR1 ||
-                    draft.upscalingMode == UpscalingPolicy.Mode.SGSR1);
-            findPreference("scale").setSummary(draft.virtualDisplayScale + "%");
-            findPreference("scale").setEnabled(draft.virtualDisplay);
-            ((MaterialSwitchPreference) findPreference("hdr")).setChecked(draft.enableHdr);
-            ((MaterialSwitchPreference) findPreference("vrr")).setChecked(draft.vrr);
-            ((MaterialSwitchPreference) findPreference("virtual")).setChecked(draft.virtualDisplay);
-            ((MaterialSwitchPreference) findPreference("yuv444")).setChecked(draft.enableYuv444);
-            ((MaterialSwitchPreference) findPreference("full_range")).setChecked(draft.fullRange);
+        }
+
+        private void showSwitch(String key, int title) {
+            boolean allPcs = switchValue(activity.global, key);
+            Boolean own = switchOverride(key);
+            CharSequence[] items = {
+                    getString(R.string.host_profile_same_as_all_value, onOff(allPcs)),
+                    getString(R.string.host_profile_on),
+                    getString(R.string.host_profile_off)};
+            int checked = own == null ? 0 : own ? 1 : 2;
+            new MaterialAlertDialogBuilder(activity).setTitle(title)
+                    .setSingleChoiceItems(items, checked, (dialog, which) -> {
+                        setSwitchOverride(key, which == 0 ? null : which == 1);
+                        updateSummaries();
+                        dialog.dismiss();
+                    }).setNegativeButton(android.R.string.cancel, null).show();
+        }
+
+        private void showCodec() {
+            String[] codecs = getResources().getStringArray(R.array.host_profile_codecs);
+            CharSequence[] items = new CharSequence[codecs.length + 1];
+            items[0] = getString(R.string.host_profile_same_as_all_value, codecs[activity.global.videoFormat.ordinal()]);
+            System.arraycopy(codecs, 0, items, 1, codecs.length);
+            PreferenceConfiguration.FormatOption own = activity.overrides.codec;
+            new MaterialAlertDialogBuilder(activity).setTitle(R.string.title_video_format)
+                    .setSingleChoiceItems(items, own == null ? 0 : own.ordinal() + 1, (dialog, which) -> {
+                        activity.overrides.codec = which == 0 ? null :
+                                PreferenceConfiguration.FormatOption.values()[which - 1];
+                        updateSummaries();
+                        dialog.dismiss();
+                    }).setNegativeButton(android.R.string.cancel, null).show();
+        }
+
+        private void showUpscaling() {
+            String[] modes = getResources().getStringArray(R.array.upscaling_names);
+            CharSequence[] items = new CharSequence[modes.length + 1];
+            items[0] = getString(R.string.host_profile_same_as_all_value, modes[activity.global.upscalingMode.ordinal()]);
+            System.arraycopy(modes, 0, items, 1, modes.length);
+            UpscalingPolicy.Mode own = activity.overrides.upscalingMode;
+            new MaterialAlertDialogBuilder(activity).setTitle(R.string.title_upscaling)
+                    .setSingleChoiceItems(items, own == null ? 0 : own.ordinal() + 1, (dialog, which) -> {
+                        if (which == 0) {
+                            activity.overrides.upscalingMode = null;
+                            activity.overrides.upscalingSharpness = null;
+                        } else {
+                            activity.overrides.upscalingSharpness = activity.effective().upscalingSharpness;
+                            activity.overrides.upscalingMode = UpscalingPolicy.Mode.values()[which - 1];
+                        }
+                        updateSummaries();
+                        dialog.dismiss();
+                    }).setNeutralButton(R.string.help, (dialog, which) ->
+                            new MaterialAlertDialogBuilder(activity).setTitle(R.string.title_upscaling)
+                                    .setMessage(R.string.summary_upscaling).setPositiveButton(android.R.string.ok, null).show())
+                    .setNegativeButton(android.R.string.cancel, null).show();
         }
 
         private LinearLayout form() {
@@ -269,6 +325,23 @@ public final class HostStreamSettings extends AppCompatActivity {
             int padding = Math.round(24 * getResources().getDisplayMetrics().density);
             form.setPadding(padding, padding / 3, padding, 0);
             return form;
+        }
+
+        /** The "Same as all PCs" box on top of a value dialog; checked, it disables {@code fields}. */
+        private MaterialCheckBox sameAsAll(LinearLayout form, String allPcsValue, boolean checked, View... fields) {
+            MaterialCheckBox box = new MaterialCheckBox(activity);
+            box.setText(getString(R.string.host_profile_same_as_all_value, allPcsValue));
+            box.setChecked(checked);
+            form.addView(box);
+            CompoundButton.OnCheckedChangeListener listener = (button, isChecked) -> {
+                for (View field : fields) field.setEnabled(!isChecked);
+            };
+            box.setOnCheckedChangeListener(listener);
+            return box;
+        }
+
+        private static void enable(boolean enabled, View... views) {
+            for (View view : views) view.setEnabled(enabled);
         }
 
         private EditText field(LinearLayout form, int title, String value, boolean decimal) {
@@ -295,67 +368,84 @@ public final class HostStreamSettings extends AppCompatActivity {
         }
 
         private void showSharpness() {
+            PreferenceConfiguration config = activity.effective();
             LinearLayout form = form();
             TextView value = new TextView(activity);
-            value.setText(getString(R.string.upscaling_sharpness_value, activity.draft.upscalingSharpness));
+            Slider slider = new Slider(activity);
+            MaterialCheckBox allPcs = sameAsAll(form, getString(R.string.upscaling_sharpness_value,
+                    activity.global.upscalingSharpness), activity.overrides.upscalingMode == null, slider);
+            value.setText(getString(R.string.upscaling_sharpness_value, config.upscalingSharpness));
             value.setTextSize(24);
             form.addView(value);
-            Slider slider = new Slider(activity);
             slider.setContentDescription(getString(R.string.title_upscaling_sharpness));
             slider.setValueFrom(0);
             slider.setValueTo(100);
             slider.setStepSize(1);
-            slider.setValue(activity.draft.upscalingSharpness);
+            slider.setValue(config.upscalingSharpness);
+            slider.setEnabled(!allPcs.isChecked());
             slider.addOnChangeListener((view, strength, fromUser) ->
                     value.setText(getString(R.string.upscaling_sharpness_value, Math.round(strength))));
             form.addView(slider);
             new MaterialAlertDialogBuilder(activity).setTitle(R.string.title_upscaling_sharpness).setView(form)
                     .setPositiveButton(android.R.string.ok, (dialog, which) -> {
-                        activity.draft.upscalingSharpness = Math.round(slider.getValue());
+                        if (allPcs.isChecked()) {
+                            activity.overrides.upscalingMode = null;
+                            activity.overrides.upscalingSharpness = null;
+                        } else {
+                            activity.overrides.upscalingMode = config.upscalingMode;
+                            activity.overrides.upscalingSharpness = Math.round(slider.getValue());
+                        }
                         updateSummaries();
                     }).setNegativeButton(android.R.string.cancel, null).show();
         }
 
         private void showResolution() {
+            PreferenceConfiguration config = activity.effective();
+            HostStreamProfile own = activity.overrides;
             LinearLayout form = form();
-            com.google.android.material.checkbox.MaterialCheckBox nativeChoice =
-                    new com.google.android.material.checkbox.MaterialCheckBox(activity);
+            MaterialCheckBox nativeChoice = new MaterialCheckBox(activity);
             nativeChoice.setText(R.string.host_profile_native);
-            nativeChoice.setChecked(activity.draft.resolutionFollowsScreen);
+            nativeChoice.setChecked(config.resolutionFollowsScreen);
+            EditText[] size = new EditText[2];
+            MaterialCheckBox allPcs = sameAsAll(form, resolutionText(activity.global), own.nativeResolution == null,
+                    nativeChoice);
             form.addView(nativeChoice);
-            EditText width = field(form, R.string.host_profile_width, Integer.toString(activity.draft.width), false);
-            EditText height = field(form, R.string.host_profile_height, Integer.toString(activity.draft.height), false);
-            width.setEnabled(!nativeChoice.isChecked());
-            height.setEnabled(!nativeChoice.isChecked());
-            nativeChoice.setOnCheckedChangeListener((button, checked) -> {
-                width.setEnabled(!checked);
-                height.setEnabled(!checked);
-            });
+            size[0] = field(form, R.string.host_profile_width, Integer.toString(config.width), false);
+            size[1] = field(form, R.string.host_profile_height, Integer.toString(config.height), false);
+            Runnable refresh = () -> {
+                nativeChoice.setEnabled(!allPcs.isChecked());
+                enable(!allPcs.isChecked() && !nativeChoice.isChecked(), size);
+            };
+            allPcs.setOnCheckedChangeListener((button, checked) -> refresh.run());
+            nativeChoice.setOnCheckedChangeListener((button, checked) -> refresh.run());
+            refresh.run();
             AlertDialog dialog = new MaterialAlertDialogBuilder(activity).setTitle(R.string.title_resolution_list)
                     .setView(form).setPositiveButton(android.R.string.ok, null)
                     .setNegativeButton(android.R.string.cancel, null)
                     .setNeutralButton(R.string.host_profile_match_screen, null).create();
             dialog.setOnShowListener(ignored -> {
                 dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(v -> {
+                    allPcs.setChecked(false);
                     nativeChoice.setChecked(false);
                     DisplayMetrics metrics = new DisplayMetrics();
                     activity.getWindowManager().getDefaultDisplay().getRealMetrics(metrics);
-                    width.setText(Integer.toString(Math.max(metrics.widthPixels, metrics.heightPixels)));
-                    height.setText(Integer.toString(Math.min(metrics.widthPixels, metrics.heightPixels)));
+                    size[0].setText(Integer.toString(Math.max(metrics.widthPixels, metrics.heightPixels)));
+                    size[1].setText(Integer.toString(Math.min(metrics.widthPixels, metrics.heightPixels)));
                 });
                 dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
-                    if (nativeChoice.isChecked()) {
-                        activity.draft.resolutionFollowsScreen = true;
+                    if (allPcs.isChecked() || nativeChoice.isChecked()) {
+                        own.nativeResolution = allPcs.isChecked() ? null : Boolean.TRUE;
+                        own.width = own.height = null;
                         updateSummaries();
                         dialog.dismiss();
                         return;
                     }
-                    Integer w = readNumber(width, 64, 16384);
-                    Integer h = readNumber(height, 64, 16384);
+                    Integer w = readNumber(size[0], 64, 16384);
+                    Integer h = readNumber(size[1], 64, 16384);
                     if (w != null && h != null) {
-                        activity.draft.width = w;
-                        activity.draft.height = h;
-                        activity.draft.resolutionFollowsScreen = false;
+                        own.nativeResolution = false;
+                        own.width = w;
+                        own.height = h;
                         updateSummaries();
                         dialog.dismiss();
                     }
@@ -365,36 +455,63 @@ public final class HostStreamSettings extends AppCompatActivity {
         }
 
         private void showNumber(String key, int title) {
+            PreferenceConfiguration config = activity.effective();
+            PreferenceConfiguration global = activity.global;
+            HostStreamProfile own = activity.overrides;
             LinearLayout form = form();
-            String value = findPreference(key).getSummary().toString().split(" ")[0].replace("%", "");
-            EditText field = field(form, title, value, !key.equals("scale"));
+            String value, allPcsValue;
+            boolean followsAll;
+            if (key.equals("refresh")) {
+                value = HostStreamProfile.formatRefreshRate(config.launchRefreshRateX100 == 0 ?
+                        config.fps * 100 : config.launchRefreshRateX100);
+                allPcsValue = refreshText(global);
+                followsAll = own.refreshRateX100 == null;
+            } else if (key.equals("bitrate")) {
+                value = HostStreamProfile.formatBitrateMbps(config.bitrate);
+                allPcsValue = HostStreamProfile.formatBitrateMbps(global.bitrate) + " Mbps";
+                followsAll = own.bitrate == null;
+            } else {
+                value = Integer.toString(config.virtualDisplayScale);
+                allPcsValue = global.virtualDisplayScale + "%";
+                followsAll = own.renderScale == null;
+            }
+            EditText[] field = new EditText[1];
+            MaterialCheckBox allPcs = sameAsAll(form, allPcsValue, followsAll);
+            field[0] = field(form, title, value, !key.equals("scale"));
+            allPcs.setOnCheckedChangeListener((button, checked) -> field[0].setEnabled(!checked));
+            field[0].setEnabled(!followsAll);
             MaterialAlertDialogBuilder builder = new MaterialAlertDialogBuilder(activity).setTitle(title).setView(form)
                     .setPositiveButton(android.R.string.ok, null).setNegativeButton(android.R.string.cancel, null);
             if (key.equals("refresh")) builder.setNeutralButton(R.string.host_profile_match_screen, null);
             AlertDialog dialog = builder.create();
             dialog.setOnShowListener(ignored -> {
                 if (key.equals("refresh")) {
-                    dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(v -> field.setText(
-                            HostStreamProfile.formatRefreshRate(Math.round(100 *
-                                    com.limelight.binding.video.DisplayFrameRatePolicy.maxRefreshRate(
-                                            activity.getWindowManager().getDefaultDisplay())))));
+                    dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(v -> {
+                        allPcs.setChecked(false);
+                        field[0].setText(HostStreamProfile.formatRefreshRate(Math.round(100 *
+                                com.limelight.binding.video.DisplayFrameRatePolicy.maxRefreshRate(
+                                        activity.getWindowManager().getDefaultDisplay()))));
+                    });
                 }
                 dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
-                    showError(field, null);
+                    showError(field[0], null);
+                    boolean clear = allPcs.isChecked();
                     try {
                         if (key.equals("refresh")) {
-                            activity.draft.launchRefreshRateX100 = HostStreamProfile.parseRefreshRate(field.getText().toString());
+                            own.refreshRateX100 = clear ? null : HostStreamProfile.parseRefreshRate(field[0].getText().toString());
                         } else if (key.equals("bitrate")) {
-                            activity.draft.bitrate = HostStreamProfile.parseBitrateMbps(field.getText().toString());
+                            own.bitrate = clear ? null : HostStreamProfile.parseBitrateMbps(field[0].getText().toString());
+                        } else if (clear) {
+                            own.renderScale = null;
                         } else {
-                            Integer scale = readNumber(field, 50, 200);
+                            Integer scale = readNumber(field[0], 50, 200);
                             if (scale == null) return;
-                            activity.draft.virtualDisplayScale = scale;
+                            own.renderScale = scale;
                         }
                         updateSummaries();
                         dialog.dismiss();
                     } catch (IllegalArgumentException e) {
-                        showError(field, getString(key.equals("refresh") ? R.string.host_profile_invalid_refresh : R.string.host_profile_invalid_bitrate));
+                        showError(field[0], getString(key.equals("refresh") ? R.string.host_profile_invalid_refresh : R.string.host_profile_invalid_bitrate));
                     }
                 });
             });

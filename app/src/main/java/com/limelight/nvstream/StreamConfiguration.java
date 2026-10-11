@@ -2,6 +2,7 @@ package com.limelight.nvstream;
 
 import com.limelight.nvstream.http.NvApp;
 import com.limelight.nvstream.jni.MoonBridge;
+import com.limelight.preferences.HostDisplayChoice;
 
 public class StreamConfiguration {
     public static final int INVALID_APP_ID = 0;
@@ -19,6 +20,8 @@ public class StreamConfiguration {
     private boolean virtualDisplay;
     private int virtualDisplayScale = 100;
     private boolean vrr;
+    // The PC's display choice as saved for the PC the stream was started from; null: look it up.
+    private HostDisplayChoice hostDisplay;
     private int bitrate;
     private boolean sops;
     private boolean enableAdaptiveResolution;
@@ -125,6 +128,11 @@ public class StreamConfiguration {
 
         public StreamConfiguration.Builder setVrr(boolean enabled) {
             config.vrr = enabled;
+            return this;
+        }
+
+        public StreamConfiguration.Builder setHostDisplay(HostDisplayChoice choice) {
+            config.hostDisplay = choice;
             return this;
         }
 
@@ -248,6 +256,10 @@ public class StreamConfiguration {
 
     public boolean getVrr() {
         return vrr;
+    }
+
+    public HostDisplayChoice getHostDisplay() {
+        return hostDisplay;
     }
 
     public int getColorRange() {

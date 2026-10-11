@@ -32,7 +32,7 @@ Disconnect ends the local stream and leaves the host app running. Select it agai
 
 ## Why did changing a preset do nothing?
 
-A saved PC profile can override the preset's global video values. Enable Use global settings in that PC's Stream settings and save, then start a new stream. [Settings](settings.md) lists every preset write and reset scope.
+A PC's own values override the preset for that PC. In that PC's Stream settings, set them to Same as all PCs and save, then start a new stream. [Settings](settings.md) lists every preset write and reset scope.
 
 ## Which codec or upscaler should I choose?
 

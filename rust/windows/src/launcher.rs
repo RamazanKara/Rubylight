@@ -117,12 +117,14 @@ fn service_profile() -> Result<Option<PathBuf>> {
 }
 pub fn run() -> Result<()> {
     let mut args = std::env::args_os().skip(1);
-    let mut directory = butterpollo_core::paths::portable_profile()?;
+    let mut directory = None;
     let mut import = None;
     let mut interactive = true;
     while let Some(arg) = args.next() {
         if arg == "--config-dir" {
-            directory = PathBuf::from(args.next().context("config directory required")?);
+            directory = Some(PathBuf::from(
+                args.next().context("config directory required")?,
+            ));
             interactive = false;
         } else if arg == "--import-config" {
             import = Some(PathBuf::from(
@@ -134,9 +136,13 @@ pub fn run() -> Result<()> {
         }
     }
     if interactive && let Some(service) = service_profile()? {
-        directory = service;
+        directory = Some(service);
         interactive = false;
     }
+    let directory = match directory {
+        Some(directory) => directory,
+        None => butterpollo_core::paths::portable_profile()?,
+    };
     let has_profile = directory.is_dir() && std::fs::read_dir(&directory)?.next().is_some();
     if !has_profile && import.is_none() && interactive {
         // SAFETY: both strings are static NUL-terminated literals and the call is modal.

@@ -34,11 +34,15 @@
   };
 
   function encoder(meta: Metadata): Check {
-    const base = { title: 'Video encoder', href: '/settings/video', settings: 'Video settings' };
+    const base = { title: 'Video encoder', href: '/settings/encoders', settings: 'Encoder settings' };
     const status = meta.encoder_status;
     const warning = meta.warnings?.find((warning) => warning.code === 'video_encoder');
     if (warning) {
-      return { ...base, tone: 'danger', state: 'Retrying', text: warning.message };
+      return {
+        ...base, tone: 'danger', state: 'Retrying',
+        text: 'The video encoder could not start. Check the selected encoder and graphics adapter in Encoder settings. If they are correct, update or reinstall the graphics driver. Rubylight keeps retrying.',
+        detail: warning.message,
+      };
     }
     if (status.state === 'checking') {
       return { ...base, tone: 'neutral', state: 'Checking', text: 'Testing which codecs the graphics card can encode.' };
@@ -54,7 +58,7 @@
         ...base,
         tone: 'danger',
         state: 'Unavailable',
-        text: 'No video encoder available. Retrying.',
+        text: 'No video encoder available. Check the selected encoder and graphics adapter in Encoder settings, then check the graphics driver. Rubylight keeps retrying.',
       };
     }
     if (!status.h264) {

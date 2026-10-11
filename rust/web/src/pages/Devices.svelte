@@ -11,6 +11,7 @@
   import { api, type Client } from '../lib/api';
   import { confirm, failed, notify } from '../lib/feedback.svelte';
   import { poll } from '../lib/format';
+  import { guardNavigation } from '../lib/router.svelte';
 
   let clients = $state<Client[] | null>(null);
   let loadError = $state('');
@@ -35,6 +36,21 @@
   }
 
   onMount(() => poll(load, 5000));
+
+  $effect(() => {
+    if (!editorDirty) return;
+    const warn = (event: BeforeUnloadEvent) => event.preventDefault();
+    window.addEventListener('beforeunload', warn);
+    const unguard = guardNavigation(() => confirm({
+      title: 'Discard changes?',
+      message: 'The changes you made to this device are not saved.',
+      confirm: 'Discard',
+    }));
+    return () => {
+      window.removeEventListener('beforeunload', warn);
+      unguard();
+    };
+  });
 
   function closeEditor() {
     editing = null;

@@ -3,7 +3,8 @@
   import Panel from '../Panel.svelte';
   import OtpPairing from './OtpPairing.svelte';
   import PendingRequest from './PendingRequest.svelte';
-  import { refreshPending, session } from '../../lib/session.svelte';
+  import { link } from '../../lib/router.svelte';
+  import { refreshMetadata, refreshPending, session } from '../../lib/session.svelte';
 
   const others = $derived.by(() => {
     const metadata = session.metadata;
@@ -13,11 +14,15 @@
 
   // The shell refreshes requests every 3 s; do not wait for its next turn.
   onMount(() => {
+    refreshMetadata().catch(() => {});
     refreshPending().catch(() => {});
   });
 </script>
 
 <Panel title="Pair a device">
+  {#if session.metadata?.enable_pairing === false}
+    <p class="notice">Pairing is disabled. Turn on Allow pairing in <a href="/settings/general" use:link>General settings</a> to pair a new device. Devices already paired keep working.</p>
+  {:else}
   <div class="layout">
     <div class="moonlight">
       <ol class="steps">
@@ -67,6 +72,7 @@
       <OtpPairing />
     </div>
   </div>
+  {/if}
 </Panel>
 
 <style>

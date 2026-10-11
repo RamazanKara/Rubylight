@@ -6,7 +6,7 @@
   import Panel from '../Panel.svelte';
   import LoadState from './LoadState.svelte';
   import { api, type UpdatesState } from '../../lib/api';
-  import { failed } from '../../lib/feedback.svelte';
+  import { confirm, failed } from '../../lib/feedback.svelte';
   import { ago } from '../../lib/format';
   import { session } from '../../lib/session.svelte';
   import { localTime, reason } from './util';
@@ -44,6 +44,12 @@
     }
   }
   async function act(action: 'check' | 'install' | 'installNow' | 'cancel') {
+    if (action === 'installNow' && !(await confirm({
+      title: 'Install now and end streams?',
+      message: 'Active streams will disconnect and games started from Moonlight will close. Save your game progress before continuing. Rubylight will restart after installation.',
+      confirm: 'Install now',
+      danger: true,
+    }))) return;
     acting = true;
     try { await api.updates[action](); await load(); }
     catch (error) { failed('Update request failed', error); }
@@ -69,7 +75,7 @@
           {:else}<span class="muted">{updates.checked_at ? 'No releases found for your update settings' : 'Not checked yet'}</span>{/if}
         </dd>
         <dt>Last checked</dt><dd>{updates.checked_at ? ago(updates.checked_at) : 'Never'}</dd>
-        <dt>Automatic installation</dt><dd>{updates.auto_update ? 'On — installs when idle' : 'Off — notify me first'}</dd>
+        <dt>Automatic installation</dt><dd>{!updates.install_supported ? 'Unavailable — requires the Windows service' : updates.update_check_interval <= 0 ? 'Off — automatic update checks are disabled' : updates.auto_update ? 'On — installs when idle' : 'Off — notify me first'}</dd>
       </dl>
       <p class="muted"><strong>Install when idle</strong> waits for streams, pending connections and host apps to stop, then installs after one minute of idle time. <strong>Install now</strong> installs right away, even from inside a stream: the stream ends and games started from Moonlight close, and you can connect again once Rubylight has restarted. Settings and paired devices stay in place.</p>
       <a href="/settings/general">Change update settings</a>

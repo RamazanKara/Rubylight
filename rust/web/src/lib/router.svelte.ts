@@ -5,6 +5,10 @@ export const route = $state({ path: location.pathname, search: location.search }
 /** Asked before leaving the page in the app (e.g. unsaved changes). */
 type Guard = (to: string) => boolean | Promise<boolean>;
 let guard: Guard | null = null;
+let index = typeof history === 'undefined' ? 0 : (history.state?.rubylightIndex ?? 0);
+if (typeof history !== 'undefined') history.replaceState({ ...history.state, rubylightIndex: index }, '');
+let restoring = false;
+let deciding = false;
 
 /** Install a guard; returns a function that removes it. */
 export function guardNavigation(check: Guard): () => void {
@@ -18,11 +22,33 @@ function sync() {
   route.path = location.pathname;
   route.search = location.search;
 }
-window.addEventListener('popstate', sync);
+window.addEventListener('popstate', async (event) => {
+  const next = (event as PopStateEvent).state?.rubylightIndex ?? 0;
+  if (restoring) {
+    restoring = false;
+    return;
+  }
+  if (guard) {
+    if (deciding) return;
+    deciding = true;
+    const leave = await guard(location.pathname + location.search);
+    deciding = false;
+    if (!leave) {
+      const current = history.state?.rubylightIndex ?? 0;
+      if (index !== current) {
+        restoring = true;
+        history.go(index - current);
+      }
+      return;
+    }
+  }
+  index = history.state?.rubylightIndex ?? next;
+  sync();
+});
 
 function go(to: string, replace: boolean) {
-  if (replace) history.replaceState(null, '', to);
-  else history.pushState(null, '', to);
+  if (replace) history.replaceState({ ...history.state, rubylightIndex: index }, '', to);
+  else history.pushState({ rubylightIndex: ++index }, '', to);
   sync();
   window.scrollTo(0, 0);
 }
@@ -33,11 +59,11 @@ export function navigate(to: string, options: { replace?: boolean; force?: boole
     go(to, options.replace ?? false);
     return;
   }
+  if (deciding) return;
+  deciding = true;
   void Promise.resolve(guard(to)).then((leave) => {
-    if (leave) {
-      guard = null;
-      go(to, options.replace ?? false);
-    }
+    deciding = false;
+    if (leave) go(to, options.replace ?? false);
   });
 }
 

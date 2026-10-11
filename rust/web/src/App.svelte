@@ -1,13 +1,14 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import Icon, { type IconName } from './components/Icon.svelte';
+  import Button from './components/Button.svelte';
   import ConfirmHost from './components/ConfirmHost.svelte';
   import Toaster from './components/Toaster.svelte';
   import PairingBanner from './components/PairingBanner.svelte';
   import { api, setSignedOutHandler } from './lib/api';
   import { failed } from './lib/feedback.svelte';
   import { poll } from './lib/format';
-  import { link, match, navigate, route } from './lib/router.svelte';
+  import { link, match, route } from './lib/router.svelte';
   import { checkSession, refreshPending, session, signedOut } from './lib/session.svelte';
   import { applyTheme, storedTheme, type Theme } from './lib/theme';
   import Overview from './pages/Overview.svelte';
@@ -68,7 +69,7 @@
     applyTheme(theme);
     setSignedOutHandler(signedOut);
     void checkSession();
-    return poll(refreshPending, 3000);
+    return poll(() => session.state === 'unavailable' ? checkSession() : refreshPending(), 3000);
   });
   $effect(() => {
     // Close the mobile menu after navigating.
@@ -79,6 +80,13 @@
 
 {#if session.state === 'checking'}
   <div class="loading" aria-busy="true"></div>
+{:else if session.state === 'unavailable'}
+  <div class="connection-error">
+    <h1>Cannot connect to Rubylight</h1>
+    <p role="alert">{session.error}</p>
+    <p>The console retries automatically. Check that Rubylight is running on the host.</p>
+    <Button onclick={checkSession}>Retry now</Button>
+  </div>
 {:else if bare}
   <Page />
 {:else}
@@ -122,7 +130,7 @@
     </aside>
     <main>
       {#if session.pending.length && route.path !== '/devices'}
-        <PairingBanner requests={session.pending} onpaired={() => navigate('/devices')} />
+        <PairingBanner requests={session.pending} />
       {/if}
       <Page />
     </main>
@@ -135,6 +143,13 @@
 <style>
   .loading {
     min-height: 100vh;
+  }
+  .connection-error {
+    display: grid;
+    gap: var(--space-4);
+    max-width: 600px;
+    margin: 15vh auto;
+    padding: var(--space-5);
   }
   .shell {
     display: grid;

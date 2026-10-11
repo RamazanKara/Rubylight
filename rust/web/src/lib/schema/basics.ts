@@ -63,8 +63,8 @@ const general: Setting[] = [
   },
   {
     key: 'locale',
-    label: 'Language',
-    description: "Language of the host's built-in web pages, also reported to tools that ask for it.",
+    label: 'Fallback console language',
+    description: 'Language used by the fallback console and reported to connected tools. This console is currently available in English only.',
     category: 'general',
     group: 'Host',
     control: { kind: 'select', options: locales },
@@ -106,7 +106,7 @@ const general: Setting[] = [
     key: 'update_check_interval',
     label: 'Update check interval',
     description:
-      'How often the host looks for a new Rubylight release, at least 3600 seconds (one hour). 0 turns off automatic checks; you can still check from Maintenance.',
+      'How often the host looks for a new Rubylight release, at least 3600 seconds (one hour). 0 turns off automatic checks and automatic installation; you can still check and install from Maintenance.',
     category: 'general',
     group: 'Updates',
     control: { kind: 'number', min: 0, step: 1, unit: 's' },
@@ -115,7 +115,7 @@ const general: Setting[] = [
   {
     key: 'auto_update',
     label: 'Install updates automatically',
-    description: 'Download verified releases and install after one minute without streams, pending connections or running host apps. Requires the Windows service. Off by default.',
+    description: 'Download verified releases and install after one minute without streams, pending connections or running host apps. Requires the Windows service and an update check interval above 0. Off by default.',
     category: 'general',
     group: 'Updates',
     control: { kind: 'toggle' },

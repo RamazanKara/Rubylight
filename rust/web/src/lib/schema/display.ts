@@ -248,7 +248,7 @@ export const settings: Setting[] = [
     category: 'display',
     group: 'After a stream',
     control: { kind: 'toggle' },
-    default: true,
+    default: false,
   },
   {
     key: 'dd_snapshot_exclude_devices',

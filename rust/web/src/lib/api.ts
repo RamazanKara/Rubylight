@@ -172,6 +172,7 @@ export interface Metadata {
   pc_address: string;
   pc_addresses: string[];
   paired_devices: number;
+  enable_pairing: boolean;
   warnings: { code: string; message: string }[];
   encoder_status: { state: 'checking' | 'failed' | 'ready'; h264: boolean; hevc: boolean; av1: boolean; pyrowave: boolean };
   capture_status: {
@@ -408,6 +409,7 @@ export interface UpdatesState {
   latest_version?: string | null;
   install_supported: boolean;
   auto_update: boolean;
+  update_check_interval: number;
   phase?: 'idle' | 'waiting' | 'downloading' | 'ready' | 'installing' | 'failed';
   queued_version?: string | null;
   /** Install now: does not wait for an idle host and ends a running stream. */

@@ -26,6 +26,8 @@ test('host readiness shows the probe error even while a retry is running', () =>
   for (const state of ['failed', 'checking']) {
     const result = html({ encoder_status: { ...metadata.encoder_status, state } });
     assert.match(result, /No video encoder available: AMF error 1\. Retrying\./);
+    assert.match(result, /Check the selected encoder and graphics adapter/);
+    assert.match(result, /href="\/settings\/encoders"/);
     assert.doesNotMatch(result, /restart the host|Testing which codecs/);
   }
 });

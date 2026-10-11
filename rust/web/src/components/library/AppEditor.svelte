@@ -18,7 +18,7 @@
   import LosslessSettings from './LosslessSettings.svelte';
   import { api, type App, type SessionStatus } from '../../lib/api';
   import { confirm, failed, notify } from '../../lib/feedback.svelte';
-  import { link, navigate } from '../../lib/router.svelte';
+  import { guardNavigation, link, navigate } from '../../lib/router.svelte';
   import { commandFor, coverKey } from '../../lib/paths';
   import { closeApp, confirmClose, coverPath, launchApp, runningName } from './app';
   import { AppDraft, type FlagKey } from './draft.svelte';
@@ -63,42 +63,21 @@
     });
   });
 
-  // Unsaved edits: warn before the tab closes and before any link leaves the editor.
+  // Keep drafts until the user agrees to leave, including browser history and programmatic navigation.
   $effect(() => {
     if (!draft.changed) return;
     const beforeUnload = (event: BeforeUnloadEvent) => event.preventDefault();
-    const click = (event: MouseEvent) => {
-      if (event.defaultPrevented || event.button !== 0) return;
-      if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-      const anchor = event.target instanceof Element ? event.target.closest('a[href]') : null;
-      if (!(anchor instanceof HTMLAnchorElement) || anchor.target || anchor.hasAttribute('download')) return;
-      const url = new URL(anchor.href, location.href);
-      if (url.origin !== location.origin || url.pathname.startsWith('/api/')) return;
-      const to = url.pathname + url.search;
-      if (to === location.pathname + location.search) return;
-      // Runs before the router's own link handler, which skips prevented clicks.
-      event.preventDefault();
-      void leave(to);
-    };
-    window.addEventListener('beforeunload', beforeUnload);
-    document.addEventListener('click', click, true);
-    return () => {
-      window.removeEventListener('beforeunload', beforeUnload);
-      document.removeEventListener('click', click, true);
-    };
-  });
-
-  async function leave(to: string) {
-    const ok = await confirm({
+    const unguard = guardNavigation(() => confirm({
       title: 'Discard changes?',
       message: `The changes you made to ${savedName || 'this app'} are not saved.`,
       confirm: 'Discard',
-    });
-    if (ok) {
-      draft.reset(draft.saved);
-      navigate(to);
-    }
-  }
+    }));
+    window.addEventListener('beforeunload', beforeUnload);
+    return () => {
+      window.removeEventListener('beforeunload', beforeUnload);
+      unguard();
+    };
+  });
 
   async function save(event: SubmitEvent) {
     event.preventDefault();

@@ -139,6 +139,12 @@ pub fn status(h: &Shared) -> Value {
     let mut state = h.updates.lock().unwrap().clone();
     state["install_supported"] = json!(supported(h));
     state["auto_update"] = json!(h.config.read().unwrap().boolean("auto_update", false));
+    state["update_check_interval"] = json!(
+        h.config
+            .read()
+            .unwrap()
+            .integer("update_check_interval", 86400)
+    );
     state["last_install"] =
         butterpollo_core::state::load_json(&h.directory.join("update-result.json"), json!(null))
             .unwrap_or(Value::Null);
@@ -661,6 +667,13 @@ mod tests {
             );
         }
         assert!(!status(h)["install_supported"].as_bool().unwrap());
+        assert_eq!(status(h)["update_check_interval"], 86400);
+        h.config
+            .write()
+            .unwrap()
+            .values
+            .insert("update_check_interval".into(), "0".into());
+        assert_eq!(status(h)["update_check_interval"], 0);
         assert!(queue(h, false, false).is_err());
     }
     #[tokio::test]

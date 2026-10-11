@@ -3,8 +3,8 @@ import { api, type Metadata, type PendingPairing } from './api';
 import { navigate, route } from './router.svelte';
 
 export const session = $state({
-  /** checking → signed-out | needs-setup | signed-in */
-  state: 'checking' as 'checking' | 'signed-out' | 'needs-setup' | 'signed-in',
+  state: 'checking' as 'checking' | 'unavailable' | 'signed-out' | 'needs-setup' | 'signed-in',
+  error: '',
   metadata: null as Metadata | null,
   pending: [] as PendingPairing[],
 });
@@ -14,6 +14,7 @@ const PUBLIC = ['/login', '/setup'];
 export async function checkSession() {
   try {
     const status = await api.auth.status();
+    session.error = '';
     if (!status.credentials_configured) {
       session.state = 'needs-setup';
       if (route.path !== '/setup') navigate('/setup', { replace: true });
@@ -26,18 +27,20 @@ export async function checkSession() {
     await api.auth.resume();
     session.state = 'signed-in';
     if (PUBLIC.includes(route.path)) navigate('/', { replace: true });
-    void refreshMetadata();
-  } catch {
-    session.state = 'signed-out';
+    refreshMetadata().catch(() => {});
+  } catch (error) {
+    session.error = error instanceof Error ? error.message : String(error);
+    session.state = 'unavailable';
   }
 }
 
 export function signedOut() {
   session.state = 'signed-out';
   session.metadata = null;
+  session.pending = [];
   if (route.path !== '/login') {
     const back = route.path === '/' ? '' : `?next=${encodeURIComponent(route.path + route.search)}`;
-    navigate(`/login${back}`, { replace: true });
+    navigate(`/login${back}`, { replace: true, force: true });
   }
 }
 

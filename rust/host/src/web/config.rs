@@ -87,7 +87,7 @@ pub(super) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
                     .first()
                     .cloned()
                     .unwrap_or_else(|| address(std::env::var("COMPUTERNAME").unwrap_or_default()));
-                let value = json!({"status":true,"platform":"windows","version":env!("CARGO_PKG_VERSION"),"branch":"codex/butterpollo-rust","host_name":crate::network::host_name(&config),"pc_address":pc_address,"pc_addresses":addresses,"paired_devices":shared.paired.read().unwrap().clients.len(),"warnings":shared.warnings.snapshot(),"encoder_status":{"state":if probing {"checking"} else if codecs == 0 {"failed"} else {"ready"},"h264":codecs&1!=0,"hevc":codecs&0x100!=0,"av1":codecs&0x10000!=0,"pyrowave":codecs&0x800000!=0},"capture_status":{"configured_backend":config.get("capture","auto"),"virtual_display_configured":config.virtual_display_mode(butterpollo_windows::display::windows_11())!="disabled","displays":displays.as_ref().ok(),"error":displays.as_ref().err().map(|e|e.to_string())},"virtual_display":virtual_display,"audio_sinks":audio.as_ref().ok(),"audio_error":audio.as_ref().err().map(|e|e.to_string()),"audio_enabled":config.boolean("stream_audio",true),"features":{"rust_host":true,"hdr":true,"truehdr_runtime":butterpollo_windows::truehdr::available(),"pyrowave":codecs&0x800000!=0,"virtual_display":capable},"credentials_exists":shared.credentials.read().unwrap().is_some()});
+                let value = json!({"status":true,"platform":"windows","version":env!("CARGO_PKG_VERSION"),"branch":"codex/butterpollo-rust","host_name":crate::network::host_name(&config),"pc_address":pc_address,"pc_addresses":addresses,"paired_devices":shared.paired.read().unwrap().clients.len(),"enable_pairing":config.boolean("enable_pairing",true),"warnings":shared.warnings.snapshot(),"encoder_status":{"state":if probing {"checking"} else if codecs == 0 {"failed"} else {"ready"},"h264":codecs&1!=0,"hevc":codecs&0x100!=0,"av1":codecs&0x10000!=0,"pyrowave":codecs&0x800000!=0},"capture_status":{"configured_backend":config.get("capture","auto"),"virtual_display_configured":config.virtual_display_mode(butterpollo_windows::display::windows_11())!="disabled","displays":displays.as_ref().ok(),"error":displays.as_ref().err().map(|e|e.to_string())},"virtual_display":virtual_display,"audio_sinks":audio.as_ref().ok(),"audio_error":audio.as_ref().err().map(|e|e.to_string()),"audio_enabled":config.boolean("stream_audio",true),"features":{"rust_host":true,"hdr":true,"truehdr_runtime":butterpollo_windows::truehdr::available(),"pyrowave":codecs&0x800000!=0,"virtual_display":capable},"credentials_exists":shared.credentials.read().unwrap().is_some()});
                 *cached = Some((Instant::now(), value.clone()));
                 Ok(value)
             })()?
@@ -101,6 +101,36 @@ mod tests {
     use super::*;
     use crate::state::{Host, test_support::Fixture};
     use butterpollo_core::config::Config;
+
+    #[test]
+    fn concurrent_configuration_patches_preserve_both_updates() {
+        let fixture = Fixture::new();
+        let barrier = std::sync::Barrier::new(2);
+        let patches = [
+            json!({"sunshine_name": "Concurrent host"}),
+            json!({"locale": "de"}),
+        ];
+        std::thread::scope(|scope| {
+            let workers: Vec<_> = patches
+                .iter()
+                .map(|patch| {
+                    let barrier = &barrier;
+                    let host = &fixture.host;
+                    scope.spawn(move || {
+                        barrier.wait();
+                        handle(host, "PATCH", "/api/config", patch).unwrap();
+                    })
+                })
+                .collect();
+            for worker in workers {
+                worker.join().unwrap();
+            }
+        });
+        let saved = Config::load(&fixture.host.config_path).unwrap();
+        assert_eq!(saved.get("sunshine_name", ""), "Concurrent host");
+        assert_eq!(saved.get("locale", ""), "de");
+        assert_eq!(fixture.host.config.read().unwrap().values, saved.values);
+    }
 
     #[test]
     fn saving_configuration_does_not_persist_the_command_line_port() {

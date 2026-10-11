@@ -5,7 +5,7 @@
   import Button from './Button.svelte';
   import Icon from './Icon.svelte';
 
-  let { requests, onpaired }: { requests: PendingPairing[]; onpaired?: () => void } = $props();
+  let { requests }: { requests: PendingPairing[] } = $props();
 
   const first = $derived(requests[0]);
   let pin = $state('');
@@ -17,10 +17,9 @@
     busy = true;
     try {
       await api.clients.pin(pin, first.uniqueid, first.name);
-      notify(`PIN sent to ${first.name}. Finish pairing on the device.`, 'ok');
+      notify(`PIN sent to ${first.name}. Check the device for the result. If it rejects the PIN, start pairing again on the device and enter its new PIN.`, 'info', 8000);
       pin = '';
       await refreshPending();
-      onpaired?.();
     } catch (error) {
       failed('Pairing failed', error);
     } finally {

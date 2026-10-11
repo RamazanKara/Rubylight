@@ -23,7 +23,7 @@
     busy = true;
     try {
       await api.clients.pin(pin, request.uniqueid, request.name);
-      notify(`PIN sent to ${request.name}. It shows up under paired devices once it finishes pairing.`, 'ok');
+      notify(`PIN sent to ${request.name}. Check the device for the result. If it rejects the PIN, start pairing again on the device and enter its new PIN.`, 'info', 8000);
       pin = '';
       refreshPending().catch(() => {});
     } catch (error) {

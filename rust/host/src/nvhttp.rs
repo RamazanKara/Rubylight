@@ -896,6 +896,14 @@ fn start(h: Shared, connection: Connection, args: Args, resume: bool) -> Respons
             resume,
             "Moonlight session launched"
         );
+        // Everything the client asked for, without the stream's AES key.
+        let parameters = args
+            .iter()
+            .filter(|(name, _)| !matches!(name.as_str(), "rikey" | "rikeyid"))
+            .map(|(name, value)| format!("{name}={value}"))
+            .collect::<Vec<_>>()
+            .join("&");
+        tracing::info!(client = %launch.client.name, resume, %parameters, "Moonlight launch parameters");
         let host = match connection.local.ip() {
             std::net::IpAddr::V4(ip) => ip.to_string(),
             std::net::IpAddr::V6(ip) => format!("[{ip}]"),

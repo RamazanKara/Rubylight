@@ -27,7 +27,6 @@ impl Fixture {
         // Supply capabilities without starting the GPU probe or host runtime.
         host.codecs.store(0x1 | 0x100 | 0x200, Ordering::Release);
         host.probing_codecs.store(false, Ordering::Release);
-        host.video_codecs_ready.send_replace(true);
         Self { host }
     }
     pub fn client(&self, perm: u32) -> Client {

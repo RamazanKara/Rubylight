@@ -166,7 +166,6 @@ pub struct Host {
     pub probing_codecs: std::sync::atomic::AtomicBool,
     codec_probe_requested: std::sync::atomic::AtomicBool,
     pub warnings: Warnings,
-    video_codecs_ready: tokio::sync::watch::Sender<bool>,
     pub current_app: Mutex<Option<crate::process::RunningApp>>,
     pub live_rtx: Mutex<Option<(String, serde_json::Map<String, Value>)>>,
     pub launch_transition: Mutex<()>,
@@ -188,10 +187,23 @@ impl Host {
         let app = self.current_app.lock().unwrap().take();
         drop(app);
         self.live_rtx.lock().unwrap().take();
-        self.app_audio.lock().unwrap().take();
-        self.app_display.lock().unwrap().clear();
+        let audio = self.app_audio.lock().unwrap().take();
+        let displays = std::mem::take(&mut *self.app_display.lock().unwrap());
+        drop((audio, displays));
     }
     pub fn reap_paused_display(&self) {
+        let audio = {
+            let mut audio = self.app_audio.lock().unwrap();
+            if audio
+                .as_ref()
+                .is_some_and(|route| Arc::strong_count(route) == 1)
+            {
+                audio.take()
+            } else {
+                None
+            }
+        };
+        drop(audio);
         let config = self.config.read().unwrap().clone();
         let delay = if config.boolean("dd_config_revert_on_disconnect", false) {
             Duration::from_millis(config.integer("dd_config_revert_delay", 3000).max(0) as u64)
@@ -344,7 +356,6 @@ impl Host {
             probing_codecs: std::sync::atomic::AtomicBool::new(true),
             codec_probe_requested: std::sync::atomic::AtomicBool::new(false),
             warnings: Warnings::default(),
-            video_codecs_ready: tokio::sync::watch::channel(false).0,
             current_app: Mutex::new(None),
             live_rtx: Default::default(),
             launch_transition: Mutex::new(()),
@@ -397,15 +408,6 @@ impl Host {
         *live = next;
         Ok(changed)
     }
-    pub async fn wait_for_video_codecs(&self) {
-        #[cfg(test)]
-        if self.reconnect_fixture.is_some() {
-            return;
-        }
-        let mut ready = self.video_codecs_ready.subscribe();
-        // A stuck vendor probe must not hold /serverinfo or /applist open forever.
-        let _ = tokio::time::timeout(Duration::from_secs(10), ready.wait_for(|ready| *ready)).await;
-    }
     pub fn request_codec_probe(&self) {
         if self.codecs.load(std::sync::atomic::Ordering::Acquire) & STANDARD_CODECS == 0 {
             self.codec_probe_requested
@@ -444,7 +446,6 @@ impl Host {
                     continue;
                 };
                 h.codecs.store(flags, Ordering::Release);
-                h.video_codecs_ready.send_replace(true);
                 h.probing_codecs.store(false, Ordering::Release);
                 if h.stop.load(Ordering::Acquire) {
                     return;
@@ -584,7 +585,6 @@ impl Host {
         // probe. A driver/overlay failure in that child cannot kill them.
         self.codecs
             .store(flags | pyrowave, std::sync::atomic::Ordering::Release);
-        self.video_codecs_ready.send_replace(true);
         let mut retry_pyrowave = false;
         if busy() {
             return Ok(None);

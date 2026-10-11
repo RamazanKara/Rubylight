@@ -1,4 +1,4 @@
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
 #[cfg(test)]
 mod parity_tests;
 use butterpollo_core::state::{App, PrepCommand};
@@ -339,17 +339,23 @@ impl RunningApp {
                 })?;
             running.state_events = Some(sender);
         }
-        for prep in &app.prep {
+        for (index, prep) in app.prep.iter().enumerate() {
             if !prep.r#do.is_empty() {
                 let child = Process::shell(
                     &prep.r#do,
                     directory(&running.working),
                     prep.elevated,
                     &running.environment,
-                )?;
-                let code = child.wait(Duration::from_secs(120))?;
+                )
+                .with_context(|| format!("preparation command {} could not start", index + 1))?;
+                let code = child.wait(Duration::from_secs(120)).with_context(|| {
+                    format!(
+                        "preparation command {} did not finish within 120 seconds",
+                        index + 1
+                    )
+                })?;
                 if code != 0 {
-                    bail!("preparation command exited with {code}");
+                    bail!("preparation command {} exited with {code}", index + 1);
                 }
             }
             running.undo.push(prep.clone());
@@ -396,6 +402,13 @@ impl RunningApp {
             }
         }
         if !app.cmd.is_empty() {
+            let target = butterpollo_windows::process::command_target(&app.cmd);
+            if target.to_ascii_lowercase().ends_with(".exe")
+                && Path::new(target).is_absolute()
+                && !Path::new(target).is_file()
+            {
+                bail!("application executable not found: {target}");
+            }
             let command = if let Some(output) = app
                 .extra
                 .get("output")
@@ -496,9 +509,11 @@ impl RunningApp {
                     return Ok(true);
                 }
                 Tracked::Unknown => {
-                    tracing::info!(app = %self.name, "no game process appeared in the Steam install folder; the stream stays until it is ended");
-                    self.steam = None;
-                    self.detached = true;
+                    if !self.detached {
+                        tracing::info!(app = %self.name, "waiting for the Steam game to appear; tracking continues while the stream stays open");
+                        self.detached = true;
+                    }
+                    return Ok(false);
                 }
             }
         }
@@ -520,7 +535,12 @@ impl RunningApp {
                 }
                 Ok(false)
             }
-            ExitAction::Finished => Ok(true),
+            ExitAction::Finished => {
+                if code == Some(9009) {
+                    butterpollo_windows::tray::launch_error(&self.name, 9009);
+                }
+                Ok(true)
+            }
         }
     }
     /// A fullscreen window on the stream's display belongs to process `pid`.
@@ -592,7 +612,7 @@ fn exit_action(
     let Some(code) = code.filter(|_| !waiting) else {
         return ExitAction::Running;
     };
-    if auto_detach && elapsed < Duration::from_secs(5) {
+    if auto_detach && code != 9009 && elapsed < Duration::from_secs(5) {
         ExitAction::Detached((code != 0).then_some(code))
     } else {
         ExitAction::Finished
@@ -1053,6 +1073,42 @@ mod tests {
         assert_eq!(exit_action(true, early, None, false), ExitAction::Running);
         assert_eq!(exit_action(true, early, Some(1), true), ExitAction::Running);
         assert_eq!(exit_action(true, early, Some(0), true), ExitAction::Running);
+        assert_eq!(
+            exit_action(true, early, Some(9009), false),
+            ExitAction::Finished
+        );
+    }
+
+    #[test]
+    fn a_missing_executable_fails_instead_of_detaching_a_desktop_stream() {
+        let mut app = App::desktop();
+        app.cmd = format!(
+            "\"{}\"",
+            std::env::temp_dir()
+                .join(format!("missing-{}.exe", uuid::Uuid::new_v4()))
+                .display()
+        );
+        let result = RunningApp::with_environment(&app, BTreeMap::new());
+        assert!(
+            result
+                .err()
+                .unwrap()
+                .to_string()
+                .contains("application executable not found")
+        );
+    }
+
+    #[test]
+    fn a_slow_steam_launch_keeps_its_process_tracker() {
+        let mut app = RunningApp::with_environment(&App::desktop(), BTreeMap::new()).unwrap();
+        app.steam = Some(butterpollo_core::steam::Tracker::new(
+            &[],
+            "C:\\not-a-game",
+            Duration::ZERO,
+        ));
+        app.steam_check = std::time::Instant::now() - Duration::from_secs(2);
+        assert!(!app.exited().unwrap());
+        assert!(app.steam.is_some());
     }
     #[test]
     fn quitting_closes_a_store_launched_game_but_not_the_store_or_older_programs() {

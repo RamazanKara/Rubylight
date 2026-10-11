@@ -130,185 +130,199 @@ async fn connection(
         .await??;
         let req = rtsp::Request::parse(&raw)?;
         h.request_codec_probe();
-        let ports = h.config.read().unwrap().ports()?;
         let mut headers = vec![];
         let mut body = Vec::new();
         let mut code = 200;
         let mut reason = "OK";
-        match req.method.as_str() {
-            "OPTIONS" => headers.push((
-                "Public",
-                "OPTIONS, DESCRIBE, SETUP, ANNOUNCE, PLAY, TEARDOWN".to_owned(),
-            )),
-            "DESCRIBE" => {
-                let flags = h.codecs.load(std::sync::atomic::Ordering::Acquire);
-                let config = crate::stream::effective_config(&h, &launch)?;
-                let encryption_mode = crate::network::encryption_mode(&config, peer.ip());
-                let input_capabilities = butterpollo_windows::input::capabilities(&config);
-                if config.boolean("mouse", true)
-                    && config.boolean("native_pen_touch", true)
-                    && input_capabilities & 1 == 0
-                {
-                    launch.warnings.set("input_touch_pen", "Native touch and pen unavailable: Windows does not expose synthetic pointer input. The client may emulate a mouse instead; update Windows or disable native touch/pen in Input settings.");
+        let result = (|| -> Result<()> {
+            let ports = h.config.read().unwrap().ports()?;
+            match req.method.as_str() {
+                "OPTIONS" => headers.push((
+                    "Public",
+                    "OPTIONS, DESCRIBE, SETUP, ANNOUNCE, PLAY, TEARDOWN".to_owned(),
+                )),
+                "DESCRIBE" => {
+                    let flags = h.codecs.load(std::sync::atomic::Ordering::Acquire);
+                    let config = crate::stream::effective_config(&h, &launch)?;
+                    let encryption_mode = crate::network::encryption_mode(&config, peer.ip());
+                    let input_capabilities = butterpollo_windows::input::capabilities(&config);
+                    if config.boolean("mouse", true)
+                        && config.boolean("native_pen_touch", true)
+                        && input_capabilities & 1 == 0
+                    {
+                        launch.warnings.set("input_touch_pen", "Native touch and pen unavailable: Windows does not expose synthetic pointer input. The client may emulate a mouse instead; update Windows or disable native touch/pen in Input settings.");
+                    }
+                    // Video encryption is offered unless turned off for this
+                    // network, and audio and video are required where mandatory.
+                    let mic = takes_mic(&config, &media);
+                    body = rtsp::describe(
+                        input_capabilities,
+                        if encryption_mode == 0 { 5 } else { 7 },
+                        if encryption_mode == 2 { 7 } else { 1 },
+                        flags & 0x100 != 0,
+                        flags & 0x10000 != 0,
+                        flags & 0x800000 != 0,
+                        mic,
+                    )
+                    .into_bytes();
+                    // NVENC recovers lost references whenever the driver can, as
+                    // in Vibepollo; AMF unless long-term references are turned off.
+                    let backend = *h.probed_encoder.lock().unwrap();
+                    if flags & 0x40000000 != 0
+                        && (backend == "nvenc"
+                            || (backend == "amf"
+                                && butterpollo_core::encoder_policy::amf_offers_invalidation(
+                                    &config,
+                                )))
+                    {
+                        body.extend_from_slice(b"a=x-nv-video[0].refPicInvalidation:1\r\n");
+                    }
+                    if let Some(custom) = launch.options.get("surroundParams")
+                        && butterpollo_core::audio::OpusLayout::valid_custom(custom)
+                    {
+                        let at = body
+                            .windows(9)
+                            .position(|b| b == b"a=fmtp:97")
+                            .unwrap_or(body.len());
+                        body.splice(at..at, format!("a=fmtp:97 surround-params={custom}\r\na=fmtp:97 surround-params={custom}\r\n").bytes());
+                    }
+                    // Last: the lines after an m= line describe its stream.
+                    if mic {
+                        body.extend_from_slice(butterpollo_core::mic::sdp(ports.mic).as_bytes());
+                    }
+                    headers.push(("Content-Type", "application/sdp".into()));
                 }
-                // Video encryption is offered unless turned off for this
-                // network, and audio and video are required where mandatory.
-                let mic = takes_mic(&config, &media);
-                body = rtsp::describe(
-                    input_capabilities,
-                    if encryption_mode == 0 { 5 } else { 7 },
-                    if encryption_mode == 2 { 7 } else { 1 },
-                    flags & 0x100 != 0,
-                    flags & 0x10000 != 0,
-                    flags & 0x800000 != 0,
-                    mic,
-                )
-                .into_bytes();
-                // NVENC recovers lost references whenever the driver can, as
-                // in Vibepollo; AMF unless long-term references are turned off.
-                let backend = *h.probed_encoder.lock().unwrap();
-                if flags & 0x40000000 != 0
-                    && (backend == "nvenc"
-                        || (backend == "amf"
-                            && butterpollo_core::encoder_policy::amf_offers_invalidation(&config)))
-                {
-                    body.extend_from_slice(b"a=x-nv-video[0].refPicInvalidation:1\r\n");
+                "SETUP" => {
+                    let port = if req.target.contains("=audio") {
+                        ports.audio
+                    } else if req.target.contains("=video") {
+                        ports.video
+                    } else if req.target.contains("=control") {
+                        ports.control
+                    } else if req.target.contains("=mic")
+                        && takes_mic(&crate::stream::effective_config(&h, &launch)?, &media)
+                    {
+                        mics.lock().unwrap().insert(launch.id.clone());
+                        ports.mic
+                    } else {
+                        bail!("unknown stream setup target")
+                    };
+                    headers.push(("Session", "DEADBEEFCAFE;timeout = 90".into()));
+                    headers.push(("Transport", format!("server_port={port}")));
+                    if port == ports.control {
+                        headers.push(("X-SS-Connect-Data", launch.connect_data.to_string()));
+                    } else {
+                        headers.push(("X-SS-Ping-Payload", launch.ping.clone()));
+                    }
                 }
-                if let Some(custom) = launch.options.get("surroundParams")
-                    && butterpollo_core::audio::OpusLayout::valid_custom(custom)
-                {
-                    let at = body
-                        .windows(9)
-                        .position(|b| b == b"a=fmtp:97")
-                        .unwrap_or(body.len());
-                    body.splice(at..at, format!("a=fmtp:97 surround-params={custom}\r\na=fmtp:97 surround-params={custom}\r\n").bytes());
+                "ANNOUNCE" => {
+                    let mut negotiated = Negotiated::from_sdp(&req.body)?;
+                    if negotiated.audio_channels == 2
+                        && let Some(host) = req.headers.get("host")
+                    {
+                        negotiated.audio_quality = !host.contains("0.0.0.0");
+                    }
+                    let config = crate::stream::effective_config(&h, &launch)?;
+                    let required_encryption =
+                        crate::network::encryption_mode(&config, peer.ip()) == 2;
+                    // The FEC and audio share of the client's bitrate is expected;
+                    // only a host cap is worth a warning.
+                    let uncapped = butterpollo_core::stream_policy::uncapped_bitrate_kbps(
+                        &negotiated,
+                        launch.requested_rate,
+                        &config,
+                    );
+                    butterpollo_core::stream_policy::apply(
+                        &mut negotiated,
+                        launch.requested_rate,
+                        &config,
+                    );
+                    butterpollo_core::stream_policy::report_bitrate(
+                        &launch.warnings,
+                        uncapped,
+                        negotiated.bitrate_kbps,
+                        &format!(
+                            "Maximum bitrate (max_bitrate) is {} Kbps",
+                            config.integer("max_bitrate", 0)
+                        ),
+                    );
+                    butterpollo_core::stream_policy::apply_color(&mut negotiated, &config);
+                    negotiated.validate()?;
+                    negotiated.mic = mics.lock().unwrap().remove(&launch.id);
+                    if negotiated.mic
+                        && negotiated.encryption & butterpollo_core::mic::ENCRYPTION == 0
+                    {
+                        // As in Apollo: a microphone is never taken in the clear.
+                        negotiated.mic = false;
+                        launch.warnings.set("microphone", "Microphone off: the client sent it unencrypted. Update the client to one that encrypts its microphone.");
+                    }
+                    negotiated.vrr_low_latency |= launch.vrr_requested;
+                    let flags = h.codecs.load(std::sync::atomic::Ordering::Acquire);
+                    if let Some(message) = rtsp::codec_warning(
+                        config.get("encoder", "auto"),
+                        negotiated.codec,
+                        flags & 0x0780_0000 != 0,
+                    ) {
+                        launch.warnings.set("pyrowave_negotiation", message);
+                    } else {
+                        launch.warnings.clear("pyrowave_negotiation");
+                    }
+                    if negotiated.codec == 3 && !negotiated.pyrowave_records {
+                        launch.warnings.set("pyrowave_fec", "PyroWave adaptive FEC was not negotiated by the client; recovery protection is reduced. Use a compatible Nonary Moonlight client, or HEVC/AV1 on a lossy network.");
+                    }
+                    let bit = match (negotiated.codec, negotiated.ten_bit()) {
+                        (0, false) => 1,
+                        (1, false) => 0x100,
+                        (1, true) => 0x200,
+                        (2, false) => 0x10000,
+                        (2, true) => 0x20000,
+                        (3, false) if negotiated.yuv444 => 0x1000000,
+                        (3, true) if negotiated.yuv444 => 0x4000000,
+                        (3, true) => 0x2000000,
+                        (3, false) => 0x800000,
+                        _ => 0,
+                    };
+                    if required_encryption && negotiated.encryption & 6 != 6 {
+                        code = 403;
+                        reason = "Required audio and video encryption was not negotiated";
+                    } else if (negotiated.ten_bit() && negotiated.codec == 0) || flags & bit == 0 {
+                        code = 406;
+                        reason = "Requested codec is unavailable";
+                    } else {
+                        configs
+                            .lock()
+                            .unwrap()
+                            .insert(launch.id.clone(), negotiated);
+                    }
                 }
-                // Last: the lines after an m= line describe its stream.
-                if mic {
-                    body.extend_from_slice(butterpollo_core::mic::sdp(ports.mic).as_bytes());
-                }
-                headers.push(("Content-Type", "application/sdp".into()));
-            }
-            "SETUP" => {
-                let port = if req.target.contains("=audio") {
-                    ports.audio
-                } else if req.target.contains("=video") {
-                    ports.video
-                } else if req.target.contains("=control") {
-                    ports.control
-                } else if req.target.contains("=mic")
-                    && takes_mic(&crate::stream::effective_config(&h, &launch)?, &media)
-                {
-                    mics.lock().unwrap().insert(launch.id.clone());
-                    ports.mic
-                } else {
-                    bail!("unknown stream setup target")
-                };
-                headers.push(("Session", "DEADBEEFCAFE;timeout = 90".into()));
-                headers.push(("Transport", format!("server_port={port}")));
-                if port == ports.control {
-                    headers.push(("X-SS-Connect-Data", launch.connect_data.to_string()));
-                } else {
-                    headers.push(("X-SS-Ping-Payload", launch.ping.clone()));
-                }
-            }
-            "ANNOUNCE" => {
-                let mut negotiated = Negotiated::from_sdp(&req.body)?;
-                if negotiated.audio_channels == 2
-                    && let Some(host) = req.headers.get("host")
-                {
-                    negotiated.audio_quality = !host.contains("0.0.0.0");
-                }
-                let config = crate::stream::effective_config(&h, &launch)?;
-                let required_encryption = crate::network::encryption_mode(&config, peer.ip()) == 2;
-                // The FEC and audio share of the client's bitrate is expected;
-                // only a host cap is worth a warning.
-                let uncapped = butterpollo_core::stream_policy::uncapped_bitrate_kbps(
-                    &negotiated,
-                    launch.requested_rate,
-                    &config,
-                );
-                butterpollo_core::stream_policy::apply(
-                    &mut negotiated,
-                    launch.requested_rate,
-                    &config,
-                );
-                butterpollo_core::stream_policy::report_bitrate(
-                    &launch.warnings,
-                    uncapped,
-                    negotiated.bitrate_kbps,
-                    &format!(
-                        "Maximum bitrate (max_bitrate) is {} Kbps",
-                        config.integer("max_bitrate", 0)
-                    ),
-                );
-                butterpollo_core::stream_policy::apply_color(&mut negotiated, &config);
-                negotiated.validate()?;
-                negotiated.mic = mics.lock().unwrap().remove(&launch.id);
-                if negotiated.mic && negotiated.encryption & butterpollo_core::mic::ENCRYPTION == 0
-                {
-                    // As in Apollo: a microphone is never taken in the clear.
-                    negotiated.mic = false;
-                    launch.warnings.set("microphone", "Microphone off: the client sent it unencrypted. Update the client to one that encrypts its microphone.");
-                }
-                negotiated.vrr_low_latency |= launch.vrr_requested;
-                let flags = h.codecs.load(std::sync::atomic::Ordering::Acquire);
-                if let Some(message) = rtsp::codec_warning(
-                    config.get("encoder", "auto"),
-                    negotiated.codec,
-                    flags & 0x0780_0000 != 0,
-                ) {
-                    launch.warnings.set("pyrowave_negotiation", message);
-                } else {
-                    launch.warnings.clear("pyrowave_negotiation");
-                }
-                if negotiated.codec == 3 && !negotiated.pyrowave_records {
-                    launch.warnings.set("pyrowave_fec", "PyroWave adaptive FEC was not negotiated by the client; recovery protection is reduced. Use a compatible Nonary Moonlight client, or HEVC/AV1 on a lossy network.");
-                }
-                let bit = match (negotiated.codec, negotiated.ten_bit()) {
-                    (0, false) => 1,
-                    (1, false) => 0x100,
-                    (1, true) => 0x200,
-                    (2, false) => 0x10000,
-                    (2, true) => 0x20000,
-                    (3, false) if negotiated.yuv444 => 0x1000000,
-                    (3, true) if negotiated.yuv444 => 0x4000000,
-                    (3, true) => 0x2000000,
-                    (3, false) => 0x800000,
-                    _ => 0,
-                };
-                if required_encryption && negotiated.encryption & 6 != 6 {
-                    code = 403;
-                    reason = "Required audio and video encryption was not negotiated";
-                } else if (negotiated.ten_bit() && negotiated.codec == 0) || flags & bit == 0 {
-                    code = 406;
-                    reason = "Requested codec is unavailable";
-                } else {
-                    configs
+                // A client that plays each stream on its own plays the
+                // microphone after the session has started.
+                "PLAY" if req.target.contains("streamid=mic") => {}
+                "PLAY" => {
+                    let config = configs
                         .lock()
                         .unwrap()
-                        .insert(launch.id.clone(), negotiated);
+                        .remove(&launch.id)
+                        .context("ANNOUNCE required before PLAY")?;
+                    let session = h.sessions.lock().unwrap().start(launch.clone(), config)?;
+                    media.start(h.clone(), session);
+                }
+                "TEARDOWN" => {
+                    h.sessions.lock().unwrap().request_stop(Some(&launch.id));
+                }
+                _ => {
+                    code = 405;
+                    reason = "Method Not Allowed";
                 }
             }
-            // A client that plays each stream on its own plays the
-            // microphone after the session has started.
-            "PLAY" if req.target.contains("streamid=mic") => {}
-            "PLAY" => {
-                let config = configs
-                    .lock()
-                    .unwrap()
-                    .remove(&launch.id)
-                    .context("ANNOUNCE required before PLAY")?;
-                let session = h.sessions.lock().unwrap().start(launch.clone(), config)?;
-                media.start(h.clone(), session);
-            }
-            "TEARDOWN" => {
-                h.sessions.lock().unwrap().request_stop(Some(&launch.id));
-            }
-            _ => {
-                code = 405;
-                reason = "Method Not Allowed";
-            }
+            Ok(())
+        })();
+        if let Err(error) = result {
+            tracing::warn!(client = %launch.client.name, method = %req.method, error = %format!("{error:#}"), "RTSP request rejected");
+            code = 400;
+            reason = "Bad Request";
+            headers.clear();
+            body = format!("{error:#}").into_bytes();
         }
         if code != 200 {
             tracing::warn!(

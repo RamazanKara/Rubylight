@@ -38,27 +38,37 @@ fn crc(s: &str) -> String {
         .unsigned_abs()
         .to_string()
 }
-/// A PNG file of at most 16 MiB.
-fn png(path: &Path) -> bool {
+/// Artwork accepted by Moonlight, bounded before it is read for hashing.
+fn image(path: &Path) -> Option<&'static str> {
     use std::io::Read;
     let Ok(mut file) = std::fs::File::open(path) else {
-        return false;
+        return None;
     };
     let mut header = [0; 8];
-    file.metadata()
+    if !(file
+        .metadata()
         .is_ok_and(|m| m.is_file() && m.len() <= 16 * 1024 * 1024)
-        && file.read_exact(&mut header).is_ok()
-        && &header == b"\x89PNG\r\n\x1a\n"
+        && file.read_exact(&mut header).is_ok())
+    {
+        return None;
+    }
+    if &header == b"\x89PNG\r\n\x1a\n" {
+        Some("png")
+    } else if header.starts_with(b"\xff\xd8\xff") {
+        Some("jpeg")
+    } else {
+        None
+    }
 }
 /// The icon a Playnite sync saved for `app` (`playnite-icon-path`), served
-/// as `/api/apps/{uuid}/icon`. Only a PNG, like the covers.
+/// as `/api/apps/{uuid}/icon`. Only a PNG.
 pub fn icon(app: &App) -> Option<PathBuf> {
     let path = app
         .extra
         .get("playnite-icon-path")
         .and_then(Value::as_str)?
         .trim();
-    (!path.is_empty() && png(Path::new(path))).then(|| PathBuf::from(path))
+    (!path.is_empty() && image(Path::new(path)) == Some("png")).then(|| PathBuf::from(path))
 }
 pub fn artwork(app: &App, assets: &Path) -> PathBuf {
     let image = app
@@ -67,10 +77,13 @@ pub fn artwork(app: &App, assets: &Path) -> PathBuf {
         .and_then(Value::as_str)
         .unwrap_or("");
     let fallback = assets.join("box.png");
-    if !image.to_ascii_lowercase().ends_with(".png") {
+    if ![".png", ".jpg", ".jpeg"]
+        .iter()
+        .any(|extension| image.to_ascii_lowercase().ends_with(extension))
+    {
         return fallback;
     }
-    let valid = png;
+    let valid = |path: &Path| self::image(path).is_some();
     let candidate = assets.join(image);
     if valid(&candidate) {
         candidate
@@ -301,5 +314,26 @@ mod tests {
             );
             assert_eq!(icon(&app), expected);
         }
+    }
+
+    #[test]
+    fn jpeg_covers_are_served_and_change_the_client_art_version() {
+        let d = tempfile::tempdir().unwrap();
+        let path = d.path().join("cover.jpg");
+        std::fs::write(&path, b"\xff\xd8\xfffirst-cover").unwrap();
+        let mut app = App::desktop();
+        app.extra.insert("uuid".into(), json!("jpeg-game"));
+        app.extra.insert("image-path".into(), json!("cover.jpg"));
+        assert_eq!(artwork(&app, d.path()), path);
+        let mut apps = vec![app];
+        let mut aliases = json!({});
+        assign(&mut apps, &mut aliases, d.path()).unwrap();
+        let previous = apps[0].id();
+        std::fs::write(&path, b"\xff\xd8\xffsecond-cover").unwrap();
+        assign(&mut apps, &mut aliases, d.path()).unwrap();
+        assert_ne!(apps[0].id(), previous);
+        assert!(apps[0].aliases.contains(&previous));
+        std::fs::write(&path, b"not an image").unwrap();
+        assert_eq!(artwork(&apps[0], d.path()), d.path().join("box.png"));
     }
 }

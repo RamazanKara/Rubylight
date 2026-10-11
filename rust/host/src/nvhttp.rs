@@ -160,7 +160,13 @@ fn authenticated(h: &Shared, connection: &Connection, permission: u32) -> Result
         .client_by_certificate(der)
         .context("client is not paired or is disabled")?;
     if !c.allows(permission) {
-        bail!("client permission denied");
+        let permission = match permission {
+            0x0100_0000 => "List applications",
+            0x0200_0000 => "View streams",
+            0x0400_0000 => "Launch applications",
+            _ => "the requested operation",
+        };
+        bail!("client permission denied: enable {permission} for this device in the host console");
     }
     Ok(c.clone())
 }
@@ -170,7 +176,9 @@ const VIEW: u32 = (1 << 25) | (1 << 26);
 fn authenticated_viewer(h: &Shared, connection: &Connection) -> Result<Client> {
     let client = authenticated(h, connection, 0)?;
     if client.perm & VIEW == 0 {
-        bail!("client permission denied");
+        bail!(
+            "client permission denied: enable View streams or Launch applications for this device in the host console"
+        );
     }
     Ok(client)
 }
@@ -213,7 +221,6 @@ async fn serverinfo(
     Extension(connection): Extension<Connection>,
 ) -> Response {
     h.request_codec_probe();
-    h.wait_for_video_codecs().await;
     let config = h.config.read().unwrap().clone();
     let client = authenticated(&h, &connection, 0).ok();
     let paired = client.is_some();
@@ -393,9 +400,19 @@ fn serverinfo_response(
         ),
         ("FrameLimiterFpsLimitMilliHz", limit.to_string()),
         // Artemis offers virtual-display launches only when capable.
-        ("VirtualDisplayCapable", "true".into()),
+        (
+            "VirtualDisplayCapable",
+            (config.virtual_display_mode(windows_11) != "disabled").to_string(),
+        ),
         ("VirtualDisplayDriverReady", driver_ready.to_string()),
-        ("VirtualDisplayHDRCapable", "true".into()),
+        (
+            "VirtualDisplayHDRCapable",
+            (config.virtual_display_mode(windows_11) != "disabled"
+                && h.codecs.load(std::sync::atomic::Ordering::Acquire)
+                    & (0x200 | 0x20000 | 0x2000000 | 0x4000000)
+                    != 0)
+                .to_string(),
+        ),
     ];
     fields.extend(commands.into_iter().map(|name| ("ServerCommand", name)));
     xml(200, &fields, None)
@@ -719,7 +736,7 @@ async fn applist(
         // As in Vibepollo: one entry that tells the user what to change.
         return ([(header::CONTENT_TYPE, "application/xml")], "<?xml version=\"1.0\"?><root status_code=\"200\"><App><IsHdrSupported>0</IsHdrSupported><AppTitle>Permission denied - enable &quot;List applications&quot; for this device in the host's Web UI</AppTitle><UUID></UUID><IDX>0</IDX><ID>114514</ID></App></root>").into_response();
     }
-    h.wait_for_video_codecs().await;
+    h.request_codec_probe();
     let configured = h
         .apps
         .read()
@@ -845,6 +862,11 @@ fn start(h: Shared, connection: Connection, args: Args, resume: bool) -> Respons
         let key_id = stream_key_id(args.get("rikeyid").context("missing stream key ID")?)?;
         let (role, app, app_id) =
             resolve_launch_app(&h, &args, &client, requested, control, owner, resume)?;
+        if role != Role::InputOnly
+            && h.codecs.load(std::sync::atomic::Ordering::Acquire) & 0x0783_0301 == 0
+        {
+            return Err(LaunchFailure(503, "No video encoder is ready. Check the host console and graphics driver, then retry.").into());
+        }
         let launch = build_launch_session(&connection, &args, client, app_id, role, key, key_id);
         let rtsp_port = h.config.read().unwrap().ports()?.rtsp;
         if !launch.rtsp_encrypted
@@ -1203,8 +1225,9 @@ fn replace_launch_app(
         // Stopping the app waits for it to exit, never under the lock
         // that every serverinfo and app list request takes.
         drop(previous);
-        h.app_audio.lock().unwrap().take();
-        h.app_display.lock().unwrap().clear();
+        let audio = h.app_audio.lock().unwrap().take();
+        let displays = std::mem::take(&mut *h.app_display.lock().unwrap());
+        drop((audio, displays));
         if !wait_for_teardown(&h.sessions, &stopped, Duration::from_secs(10)) {
             return Err(LaunchFailure(503, "Another stream operation is still running").into());
         }
@@ -1393,7 +1416,7 @@ fn launch_response(
                     .downcast_ref::<LaunchFailure>()
                     .map_or(503, |failure| failure.0),
                 &[(reply, "0".into())],
-                Some(error.to_string()),
+                Some(format!("{error:#}")),
             )
         }
     }

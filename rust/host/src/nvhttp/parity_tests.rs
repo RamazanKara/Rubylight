@@ -470,6 +470,89 @@ async fn launch_and_resume_reject_permissions_and_report_protocol_failures() {
 }
 
 #[tokio::test]
+async fn an_unavailable_encoder_does_not_queue_a_launch_or_start_an_app() {
+    let f = Fixture::new();
+    f.client(1 << 26);
+    f.host.codecs.store(0, Ordering::Release);
+    let app_id = f.host.apps.read().unwrap()[0].id();
+    let root = document(
+        request(
+            &f,
+            true,
+            "GET",
+            &format!("/launch?appid={app_id}&rikey=00000000000000000000000000000000&rikeyid=1"),
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(root.attributes["status_code"], "503");
+    assert!(root.attributes["status_message"].contains("No video encoder is ready"));
+    assert!(f.host.sessions.lock().unwrap().pending.is_empty());
+    assert!(f.host.current_app.lock().unwrap().is_none());
+    assert!(f.host.app_display.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn discovery_does_not_wait_for_a_stuck_encoder_probe() {
+    let f = Fixture::new();
+    f.client(1 << 24);
+    f.host.codecs.store(0, Ordering::Release);
+    f.host.probing_codecs.store(true, Ordering::Release);
+    let response = tokio::time::timeout(
+        Duration::from_millis(500),
+        request(&f, true, "GET", "/applist"),
+    )
+    .await
+    .unwrap();
+    let root = document(response).await;
+    assert_eq!(root.attributes["status_code"], "200");
+    assert_eq!(field(root.get_child("App").unwrap(), "IsHdrSupported"), "0");
+}
+
+#[tokio::test]
+async fn launch_failures_preserve_the_actionable_cause() {
+    let error = anyhow::anyhow!("executable was not found").context("application could not start");
+    let root = document(launch_response(Err(error), 1, "gamesession", false, false)).await;
+    assert_eq!(
+        root.attributes["status_message"],
+        "application could not start: executable was not found"
+    );
+}
+
+#[tokio::test]
+async fn virtual_display_advertisement_matches_configuration_and_codecs() {
+    let f = Fixture::new();
+    for (config, windows_11, codecs, capable, hdr) in [
+        ("", false, 0x200, "false", "false"),
+        (
+            "virtual_display_mode=disabled",
+            true,
+            0x200,
+            "false",
+            "false",
+        ),
+        ("virtual_display_mode=shared", true, 1, "true", "false"),
+        ("virtual_display_mode=shared", true, 0x200, "true", "true"),
+    ] {
+        let config = butterpollo_core::config::Config::parse(config).unwrap();
+        f.host.codecs.store(codecs, Ordering::Release);
+        let root = document(serverinfo_response(
+            &f.host,
+            &f.connection(true),
+            &config,
+            None,
+            windows_11,
+            String::new(),
+            0,
+            true,
+        ))
+        .await;
+        assert_eq!(field(&root, "VirtualDisplayCapable"), capable);
+        assert_eq!(field(&root, "VirtualDisplayHDRCapable"), hdr);
+    }
+}
+
+#[tokio::test]
 async fn bitrate_caps_and_alias_update_only_the_authenticated_devices_sessions() {
     let f = Fixture::new();
     let client = f.client(1 << 25);

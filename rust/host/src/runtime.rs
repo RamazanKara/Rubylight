@@ -41,6 +41,16 @@ fn start_deferred(h: &Shared) {
     };
     let h = h.clone();
     tokio::task::spawn_blocking(move || {
+        let _transition = h.launch_transition.lock().unwrap();
+        if !h
+            .current_app
+            .lock()
+            .unwrap()
+            .as_ref()
+            .is_some_and(|app| app.generation == generation)
+        {
+            return;
+        }
         tracing::info!(app = %app.name, "user signed in; starting the deferred application");
         match crate::process::launch(&h, &app, &args) {
             Ok(mut started) => {
@@ -69,12 +79,19 @@ fn user_action(h: &Shared, action: Action, web_port: u16) {
                 tracing::warn!(%error, "could not open the administration console");
             }
         }
-        Action::StopSessions => h.sessions.lock().unwrap().request_stop(None),
+        Action::StopSessions => {
+            let h = h.clone();
+            tokio::task::spawn_blocking(move || {
+                let _transition = h.launch_transition.lock().unwrap();
+                release_displays(&h);
+            });
+        }
         Action::QuitApp => {
             tracing::info!("quitting the running app from the tray");
             let h = h.clone();
             // Stopping the app waits for it to exit.
             tokio::task::spawn_blocking(move || {
+                let _transition = h.launch_transition.lock().unwrap();
                 h.sessions.lock().unwrap().stop_role(Role::Stream, None);
                 h.stop_app();
             });
@@ -87,8 +104,8 @@ fn user_action(h: &Shared, action: Action, web_port: u16) {
         Action::Quit => h.stop.store(true, Ordering::Release),
     }
 }
-/// Show the running app in the tray, with Vibepollo's notifications when
-/// it starts, pauses, resumes and stops.
+/// Keep routine app status in the tray instead of covering the captured
+/// desktop with launch, pause and resume notifications.
 fn show_app(h: &Shared, tray: &mut butterpollo_core::tray::Tracker) {
     let app = h
         .current_app
@@ -100,20 +117,19 @@ fn show_app(h: &Shared, tray: &mut butterpollo_core::tray::Tracker) {
         app,
         streaming: streaming(h),
     };
-    let Some(notice) = tray.update(current) else {
+    let Some(_) = tray.update(current) else {
         return;
     };
     butterpollo_windows::tray::show_app(tray.icon(), tray.app(), tray.summary().as_deref());
-    if let Some((title, text)) = notice {
-        butterpollo_windows::tray::notify(title, &text);
-    }
 }
 /// End every stream and remote monitor and release the displays they held,
 /// which removes the virtual displays and restores the layout.
 pub fn release_displays(h: &Shared) {
     h.sessions.lock().unwrap().request_stop(None);
     crate::remote_display::disconnect(h, None);
-    h.app_display.lock().unwrap().clear();
+    let audio = h.app_audio.lock().unwrap().take();
+    let displays = std::mem::take(&mut *h.app_display.lock().unwrap());
+    drop((audio, displays));
 }
 /// The registered restore hotkey, following the setting.
 #[derive(Default)]
@@ -191,6 +207,9 @@ pub async fn maintain(
         if housekeeping.as_ref().is_none_or(|task| task.is_finished()) {
             let h = h.clone();
             housekeeping = Some(tokio::task::spawn_blocking(move || {
+                let Ok(_transition) = h.launch_transition.try_lock() else {
+                    return;
+                };
                 h.reap_paused_display();
                 if application_finished(&h) {
                     h.sessions.lock().unwrap().stop_role(Role::Stream, None);

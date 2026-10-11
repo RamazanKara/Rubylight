@@ -15,7 +15,7 @@ use butterpollo_windows::{
 };
 use std::sync::{
     Arc, Mutex,
-    atomic::{AtomicBool, Ordering},
+    atomic::{AtomicBool, AtomicUsize, Ordering},
 };
 use std::time::Duration;
 
@@ -202,6 +202,11 @@ impl StreamPreparation {
         }
     }
 }
+impl Drop for StreamPreparation {
+    fn drop(&mut self) {
+        self.display.active.fetch_sub(1, Ordering::AcqRel);
+    }
+}
 
 /// A game may keep its display across transport disconnects. The heartbeat
 /// owns the resources, not the Ready Arc, so final teardown cannot form a cycle.
@@ -215,6 +220,7 @@ pub struct Ready {
     framegen: Policy,
     mode_report: ModeReport,
     stop: Arc<AtomicBool>,
+    active: Arc<AtomicUsize>,
     worker: Option<std::thread::JoinHandle<()>>,
 }
 impl Ready {
@@ -229,6 +235,8 @@ impl Ready {
         let worker_state = state.clone();
         let worker_target = target.clone();
         let worker_stop = stop.clone();
+        let active = Arc::new(AtomicUsize::new(1));
+        let worker_active = active.clone();
         let worker = std::thread::Builder::new()
             .name("game-display-lease".into())
             .spawn(move || {
@@ -237,7 +245,7 @@ impl Ready {
                     // desktop while it is locked (issue #6).
                     butterpollo_windows::input::keep_on_input_desktop();
                     let mut prepared = worker_state.lock().unwrap();
-                    let result = prepared.feed();
+                    let result = prepared.feed(worker_active.load(Ordering::Acquire) != 0);
                     let current = prepared.capture_target();
                     drop(prepared);
                     // Publish a recreated target even when a later restoration
@@ -257,6 +265,7 @@ impl Ready {
             framegen,
             mode_report,
             stop,
+            active,
             worker: Some(worker),
         });
         Ok(StreamPreparation {
@@ -272,6 +281,7 @@ impl Ready {
     ) -> Result<StreamPreparation> {
         let limiter = limiter::Lease::acquire(directory, config, &self.framegen)?;
         self.mode_report.attach(warnings);
+        self.active.fetch_add(1, Ordering::AcqRel);
         Ok(StreamPreparation {
             display: self,
             _limiter: limiter,
@@ -349,7 +359,7 @@ impl Prepared {
             |display| display.capture_target(),
         )
     }
-    fn feed(&mut self) -> Result<()> {
+    fn feed(&mut self, active: bool) -> Result<()> {
         // A heartbeat step that keeps failing, such as restoring a recovered
         // display's HDR, must not hold back the layout recovery below.
         let fed = self.display.as_mut().map_or(Ok(false), Guard::feed);
@@ -367,6 +377,11 @@ impl Prepared {
                 self.revision = generation;
                 self.recovery.start(std::time::Instant::now());
             }
+        }
+        // A paused game keeps its virtual display, but no longer overrides
+        // display changes the user makes locally while no transport owns it.
+        if !active {
+            return fed.map(|_| ());
         }
         if self.recovery.due(std::time::Instant::now()) {
             // A remote monitor's scale is set by its lease.
@@ -470,7 +485,7 @@ impl Prepared {
             .unwrap_or(config.get("output_name", ""))
             .trim();
         let golden = if launch.role == Role::Stream
-            && config.boolean("dd_always_restore_from_golden", true)
+            && config.boolean("dd_always_restore_from_golden", false)
         {
             crate::maintenance::baseline(h)?
                 // A saved layout naming displays that are gone (an old
@@ -1056,6 +1071,7 @@ impl GoldenLease {
     ) -> Result<Self> {
         let excluded = crate::maintenance::display_exclusions(config)?;
         BASELINE.lock().unwrap().acquire(|| {
+            tracing::info!("saved display baseline selected for restoration after streaming");
             butterpollo_windows::display_recovery::baseline(Some((
                 snapshot.clone(),
                 excluded.clone(),
@@ -1095,6 +1111,7 @@ impl Drop for GoldenLease {
                 // Displays still in use stay as they are: a stream without
                 // this lease, a paused game display or a launch being prepared.
                 excluded.extend(butterpollo_windows::display::leased_displays());
+                tracing::info!("restoring the saved display baseline");
                 if let Err(error) = snapshot.restore_excluding(&excluded) {
                     tracing::warn!(%error,"saved display baseline restoration remains pending");
                 } else {
@@ -1109,6 +1126,67 @@ mod tests {
     use super::*;
     use std::cell::Cell;
     use std::sync::mpsc;
+
+    #[test]
+    fn a_retained_display_stops_enforcing_layout_after_the_last_preparation_drops() {
+        let fixture = crate::state::test_support::Fixture::new();
+        let config = Config::default();
+        let policy = Policy::resolve(
+            &config,
+            Rate(60_000),
+            false,
+            "none",
+            false,
+            false,
+            false,
+            false,
+        )
+        .unwrap();
+        let prepared = Prepared {
+            display: None,
+            output: String::new(),
+            framegen: policy.clone(),
+            _arrangement: None,
+            _activation: None,
+            _profile: None,
+            _retained: None,
+            _vulkan: None,
+            _golden: None,
+            mode: stream_mode(&Negotiated::default()),
+            client_display: None,
+            revision: 0,
+            recovery: Recovery::new(),
+            layout_watch: Default::default(),
+            mode_report: ModeReport::new(Arc::new(Warnings::default()), (None, None, None), 60_000),
+            recovery_scale: 0,
+            recovery_dimensions: (640, 480),
+            recovery_profile: None,
+            host: Arc::downgrade(&fixture.host),
+        };
+        let limiter = limiter::Lease::acquire(&fixture.host.directory, &config, &policy).unwrap();
+        let first = Ready::prepare((prepared, limiter)).unwrap();
+        let display = first.display.clone();
+        assert_eq!(display.active.load(Ordering::Acquire), 1);
+        let second = display
+            .clone()
+            .resume(
+                &fixture.host.directory,
+                &config,
+                Arc::new(Warnings::default()),
+            )
+            .unwrap();
+        assert_eq!(display.active.load(Ordering::Acquire), 2);
+        drop(first);
+        assert_eq!(display.active.load(Ordering::Acquire), 1);
+        drop(second);
+        assert_eq!(display.active.load(Ordering::Acquire), 0);
+        let mut paused = display._state.lock().unwrap();
+        paused.recovery.start(std::time::Instant::now());
+        paused.feed(false).unwrap();
+        assert!(paused.recovery.pending);
+        drop(paused);
+        drop(display);
+    }
 
     #[test]
     fn a_retained_display_matches_only_the_exact_mode_it_was_made_for() {

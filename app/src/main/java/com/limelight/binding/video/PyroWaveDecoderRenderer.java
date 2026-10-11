@@ -73,18 +73,19 @@ public final class PyroWaveDecoderRenderer {
 
     // SGSR serves both GPU upscaling choices: it is a single pass, cheaper than FSR's two.
     static int upscaleMode(UpscalingPolicy.Mode mode) {
-        return mode == UpscalingPolicy.Mode.FSR1 || mode == UpscalingPolicy.Mode.SGSR1 ? 1 : 0;
+        return mode == UpscalingPolicy.Mode.FSR1 || mode == UpscalingPolicy.Mode.SGSR1 ? 1 :
+                mode == UpscalingPolicy.Mode.BILINEAR ? 2 : 0;
     }
 
     synchronized boolean setup(Surface surface, int format, int width, int height, int fps, float displayRefreshRate,
-                               boolean fullRange, UpscalingPolicy.Mode upscaling, int sharpness,
+                               boolean fullRange, boolean stretch, UpscalingPolicy.Mode upscaling, int sharpness,
                                Context context, boolean maxClocks) {
         cleanup();
         if (!LIBRARY_LOADED || surface == null || !surface.isValid()) return false;
         try {
             handle = nativeCreate(surface, width, height, fps, displayRefreshRate,
                     (format & MoonBridge.VIDEO_FORMAT_MASK_YUV444) != 0,
-                    (format & MoonBridge.VIDEO_FORMAT_MASK_10BIT) != 0, fullRange,
+                    (format & MoonBridge.VIDEO_FORMAT_MASK_10BIT) != 0, fullRange, stretch,
                     upscaleMode(upscaling), SgsrConstants.edgeSharpness(sharpness));
         } catch (IllegalArgumentException e) {
             // The surface may be released between isValid() and the native window lookup.
@@ -162,8 +163,15 @@ public final class PyroWaveDecoderRenderer {
         return handle != 0 ? nativeGetDriver(handle) : "";
     }
 
-    synchronized boolean isUpscaling() {
-        return handle != 0 && nativeIsUpscaling(handle);
+    synchronized UpscalingPolicy.Reason getUpscalingReason() {
+        if (handle == 0) return UpscalingPolicy.Reason.DISABLED;
+        switch (nativeGetUpscalingReason(handle)) {
+            case 0: return UpscalingPolicy.Reason.NONE;
+            case 1: return UpscalingPolicy.Reason.DISABLED;
+            case 2: return UpscalingPolicy.Reason.HDR;
+            case 3: return UpscalingPolicy.Reason.NO_UPSCALE;
+            default: return UpscalingPolicy.Reason.GPU_ERROR;
+        }
     }
 
     synchronized boolean hasMaxClocks() {
@@ -204,10 +212,10 @@ public final class PyroWaveDecoderRenderer {
 
     private static native int nativeGetReadiness(boolean hdr);
     private static native long nativeCreate(Surface surface, int width, int height, int fps, float displayRefreshRate,
-                                           boolean chroma444, boolean tenBit, boolean fullRange,
+                                           boolean chroma444, boolean tenBit, boolean fullRange, boolean stretch,
                                            int upscale, float edgeSharpness);
     private static native String nativeGetDriver(long handle);
-    private static native boolean nativeIsUpscaling(long handle);
+    private static native int nativeGetUpscalingReason(long handle);
     private static native boolean nativeSetGpuMaxClocks(boolean enabled);
     private static native long nativeSubmitFrame(long handle, byte[] data, int length, long ptsUs);
     private static native boolean nativePollRenderedFrames(long handle, FrameLatencyStats stats);

@@ -703,8 +703,14 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
     private String upscalingStats() {
         if ((videoFormat & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0) {
-            return context.getString(R.string.perf_overlay_upscaling_pyrowave, pyroWaveRenderer.isUpscaling() ?
-                    "SGSR (Vulkan)" : context.getString(R.string.upscaling_direct));
+            UpscalingPolicy.Reason reason = pyroWaveRenderer.getUpscalingReason();
+            String mode = reason == UpscalingPolicy.Reason.NONE ?
+                    (prefs.upscalingMode == UpscalingPolicy.Mode.BILINEAR ?
+                            context.getString(R.string.upscaling_bilinear) : "SGSR (Vulkan)") :
+                    context.getString(R.string.upscaling_direct);
+            String text = context.getString(R.string.perf_overlay_upscaling_pyrowave, mode);
+            String explanation = upscalingReason(reason);
+            return explanation.isEmpty() ? text : text + '\n' + explanation;
         }
         boolean active = upscaler != null;
         String mode = active ? context.getResources().getStringArray(R.array.upscaling_names)[prefs.upscalingMode.ordinal()] :
@@ -961,7 +967,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                 MoonBridge.VIDEO_FORMAT_PYROWAVE_444, MoonBridge.VIDEO_FORMAT_PYROWAVE };
         for (int choice : choices) {
             if ((formats & choice) != 0 && !stopping &&
-                    pyroWaveRenderer.setup(renderTarget, choice, width, height, fps, displayRefreshRate, prefs.fullRange,
+                    pyroWaveRenderer.setup(renderTarget, choice, width, height, fps, displayRefreshRate, prefs.fullRange, prefs.stretchVideo,
                             prefs.upscalingMode, prefs.upscalingSharpness, context, prefs.gpuMaxClocks) && !stopping) {
                 LimeLog.info("PyroWave surface initialized before negotiation: " + Integer.toHexString(choice));
                 return (formats & ~MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) | choice;

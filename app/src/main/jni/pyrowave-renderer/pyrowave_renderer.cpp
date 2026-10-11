@@ -63,6 +63,7 @@ typedef VkQueueGlobalPriorityKHR VkQueueGlobalPriority;
 
 #include "shaders_spv.h"
 #include "frame.h"
+#include "presentation.h"
 #include "rubylight_protocol.h"
 
 #define LOG_TAG "PyroWave"
@@ -92,10 +93,6 @@ namespace {
 
     constexpr uint64_t ACQUIRE_TIMEOUT_NS = 250'000'000;
     constexpr uint64_t FENCE_TIMEOUT_NS = 2'000'000'000;
-
-    // Upscaling passes for streams smaller than the surface.
-    constexpr int UPSCALE_OFF = 0;
-    constexpr int UPSCALE_SGSR = 1;
 
     // VK_KHR_global_priority and its EXT predecessor share one create-info layout.
     const char *const GLOBAL_PRIORITY_EXTENSIONS[] = {"VK_KHR_global_priority", "VK_EXT_global_priority"};
@@ -434,10 +431,10 @@ namespace {
         }
 
         bool create(ANativeWindow *nativeWindow, int streamWidth, int streamHeight, int frameRate, float displayRefreshRate,
-                    bool fullChroma, bool tenBitOutput, bool fullRangeOutput, int upscale, float sharpness) {
+                    bool fullChroma, bool tenBitOutput, bool fullRangeOutput, bool stretchOutput, int upscale, float sharpness) {
             window = nativeWindow;
-            // SGSR works on display-referred SDR; PQ-encoded HDR keeps the direct path.
-            upscaleMode = tenBitOutput || upscale != UPSCALE_SGSR ? UPSCALE_OFF : UPSCALE_SGSR;
+            upscaleMode = upscale;
+            stretch = stretchOutput;
             edgeSharpness = sharpness;
             chroma444 = fullChroma;
             tenBit = hdr = tenBitOutput;
@@ -892,11 +889,11 @@ namespace {
             info.minImageCount = imageCount;
             info.imageFormat = swapchainFormat;
             info.imageColorSpace = swapchainColorSpace;
-            info.imageExtent = caps.currentExtent;
-            if (info.imageExtent.width == UINT32_MAX) {
-                info.imageExtent.width = std::clamp(width, caps.minImageExtent.width, caps.maxImageExtent.width);
-                info.imageExtent.height = std::clamp(height, caps.minImageExtent.height, caps.maxImageExtent.height);
-            }
+            // A variable surface extent must follow the output window, not the decoded stream.
+            info.imageExtent.width = pyroSurfaceDimension(caps.currentExtent.width, ANativeWindow_getWidth(window),
+                                                          caps.minImageExtent.width, caps.maxImageExtent.width);
+            info.imageExtent.height = pyroSurfaceDimension(caps.currentExtent.height, ANativeWindow_getHeight(window),
+                                                           caps.minImageExtent.height, caps.maxImageExtent.height);
             info.imageArrayLayers = 1;
             info.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
             info.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
@@ -1008,8 +1005,10 @@ namespace {
             if (vk.GetPhysicalDeviceSurfaceCapabilitiesKHR(physicalDevice, surface, &caps) != VK_SUCCESS) {
                 return false;
             }
-            return caps.currentExtent.width != swapchainExtent.width ||
-                   caps.currentExtent.height != swapchainExtent.height;
+            return pyroSurfaceDimension(caps.currentExtent.width, ANativeWindow_getWidth(window),
+                                         caps.minImageExtent.width, caps.maxImageExtent.width) != swapchainExtent.width ||
+                   pyroSurfaceDimension(caps.currentExtent.height, ANativeWindow_getHeight(window),
+                                         caps.minImageExtent.height, caps.maxImageExtent.height) != swapchainExtent.height;
         }
 
         bool recreateSwapchain() {
@@ -1198,9 +1197,9 @@ namespace {
 
         // Upscaling is optional: any failure leaves the direct CSC path in place.
         bool createUpscaler() {
-            if (upscaleMode != UPSCALE_OFF && !createUpscalerResources()) {
+            // SGSR works on display-referred SDR; ten-bit output keeps the direct path.
+            if (upscaleMode == UPSCALE_SGSR && !tenBit && !createUpscalerResources()) {
                 LOGW("SGSR setup failed; presenting directly");
-                upscaleMode = UPSCALE_OFF;
             }
             return true;
         }
@@ -1524,20 +1523,19 @@ namespace {
             rpBegin.renderArea = {{0, 0}, swapchainExtent};
             rpBegin.clearValueCount = 1;
             rpBegin.pClearValues = &clear;
-            // Fit the stream into the surface, preserving its aspect ratio.
-            const float scale = std::min(float(swapchainExtent.width) / float(width),
-                                         float(swapchainExtent.height) / float(height));
+            const auto output = pyroViewport(width, height, swapchainExtent.width, swapchainExtent.height, stretch);
             const int32_t color[] = {tenBit, hdr, fullRange};
-            // Upscale only when the stream is shown larger than it is and the frame is SDR.
-            const bool upscale = upscalePipeline != VK_NULL_HANDLE && !hdr && scale > 1.01f;
-            upscaling = upscale;
+            const auto reason = pyroUpscalingReason(upscaleMode, tenBit || hdr, width, height, output,
+                                                    upscalePipeline != VK_NULL_HANDLE);
+            upscalingReason = reason;
+            const bool upscale = reason == UPSCALING_ACTIVE && upscaleMode == UPSCALE_SGSR;
             vk.CmdBeginRenderPass(cmd, &rpBegin, VK_SUBPASS_CONTENTS_INLINE);
 
             VkViewport viewport = {};
-            viewport.width = float(width) * scale;
-            viewport.height = float(height) * scale;
-            viewport.x = (float(swapchainExtent.width) - viewport.width) / 2.0f;
-            viewport.y = (float(swapchainExtent.height) - viewport.height) / 2.0f;
+            viewport.width = output.width;
+            viewport.height = output.height;
+            viewport.x = output.x;
+            viewport.y = output.y;
             viewport.maxDepth = 1.0f;
             VkRect2D scissor = {{0, 0}, swapchainExtent};
             vk.CmdSetViewport(cmd, 0, 1, &viewport);
@@ -1790,6 +1788,7 @@ namespace {
             int32_t fullRange;
         };
         int upscaleMode = UPSCALE_OFF;
+        bool stretch = false;
         float edgeSharpness = 1.5f;
         VkPipelineLayout upscaleLayout = VK_NULL_HANDLE;
         VkPipeline upscalePipeline = VK_NULL_HANDLE;
@@ -1817,8 +1816,7 @@ namespace {
     public:
         const char *getPresentModeName() const { return presentModeName(presentMode); }
         std::string driverDescription;
-        // Whether the most recent frame went through SGSR.
-        std::atomic<bool> upscaling{false};
+        std::atomic<PyroWaveUpscalingReason> upscalingReason{UPSCALING_DISABLED};
 
         // GPU decode time of the most recently completed frame, or 0 when unknown.
         uint32_t lastGpuDecodeUs = 0;
@@ -2091,7 +2089,7 @@ Java_com_limelight_binding_video_PyroWaveDecoderRenderer_nativeGetReadiness(JNIE
 JNIEXPORT jlong JNICALL
 Java_com_limelight_binding_video_PyroWaveDecoderRenderer_nativeCreate(JNIEnv *env, jclass, jobject surface,
                                                                       jint width, jint height, jint frameRate, jfloat displayRefreshRate,
-                                                                      jboolean chroma444, jboolean tenBit, jboolean fullRange,
+                                                                      jboolean chroma444, jboolean tenBit, jboolean fullRange, jboolean stretch,
                                                                       jint upscale, jfloat edgeSharpness) {
     if (surface == nullptr || width < 64 || height < 64 || width > 16384 || height > 16384 || (!chroma444 && ((width & 1) || (height & 1)))) {
         LOGE("PyroWave needs a surface and positive dimensions, even for 4:2:0 (%dx%d)", width, height);
@@ -2102,7 +2100,7 @@ Java_com_limelight_binding_video_PyroWaveDecoderRenderer_nativeCreate(JNIEnv *en
         return 0;
     }
     auto renderer = std::make_unique<Renderer>();
-    if (!renderer->create(window, width, height, frameRate, displayRefreshRate, chroma444, tenBit, fullRange,
+    if (!renderer->create(window, width, height, frameRate, displayRefreshRate, chroma444, tenBit, fullRange, stretch,
                           upscale, edgeSharpness)) {
         return 0;  // The renderer releases the window.
     }
@@ -2192,10 +2190,10 @@ Java_com_limelight_binding_video_PyroWaveDecoderRenderer_nativeGetDriver(JNIEnv 
     return env->NewStringUTF(renderer != nullptr ? renderer->driverDescription.c_str() : "");
 }
 
-JNIEXPORT jboolean JNICALL
-Java_com_limelight_binding_video_PyroWaveDecoderRenderer_nativeIsUpscaling(JNIEnv *, jclass, jlong handle) {
+JNIEXPORT jint JNICALL
+Java_com_limelight_binding_video_PyroWaveDecoderRenderer_nativeGetUpscalingReason(JNIEnv *, jclass, jlong handle) {
     auto *renderer = reinterpret_cast<Renderer *>(handle);
-    return renderer != nullptr && renderer->upscaling;
+    return renderer != nullptr ? renderer->upscalingReason.load() : UPSCALING_DISABLED;
 }
 
 JNIEXPORT jboolean JNICALL

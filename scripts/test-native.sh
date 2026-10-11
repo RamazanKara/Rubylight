@@ -47,4 +47,6 @@ cargo build --locked --manifest-path protocol/Cargo.toml -p rubylight-protocol-f
 c++ -std=c++17 -O2 "${sanitize[@]}" "$tests/pyrowave_frame_test.cpp" \
     protocol/target/release/librubylight_protocol.a -o "$out/pyrowave_frame"
 "$out/pyrowave_frame"
+c++ -std=c++17 -O2 "${sanitize[@]}" "$tests/pyrowave_presentation_test.cpp" -o "$out/pyrowave_presentation"
+"$out/pyrowave_presentation"
 bash protocol/tests/differential.sh

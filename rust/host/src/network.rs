@@ -292,11 +292,21 @@ fn owned(entry: &igd_next::PortMappingEntry, local: IpAddr, description: &str) -
         && entry.port_mapping_description == description
         && entry.internal_port == entry.external_port
 }
+/// Whether another mapping already forwards this port to the same port on
+/// this PC, as one left by another streaming host does: clients reach the
+/// host through it, so it is not a conflict.
+fn forwards_here(entry: &igd_next::PortMappingEntry, local: IpAddr) -> bool {
+    entry.internal_client.parse::<IpAddr>().ok() == Some(local)
+        && entry.internal_port == entry.external_port
+}
+/// `reported` holds the ports already warned about: the router is asked
+/// again every minute, and the same conflict warned each time.
 async fn apply<P: Provider>(
     gateway: &Gateway<P>,
     local: IpAddr,
     wanted: &[Mapping],
     description: &str,
+    reported: &mut Vec<Mapping>,
 ) -> Result<Vec<Mapping>> {
     let (entries, _) = entries(gateway).await;
     // The stable host description lets a restarted host reclaim its own
@@ -310,14 +320,22 @@ async fn apply<P: Provider>(
         })
         .collect();
     for mapping in wanted {
-        if entries.iter().any(|entry| {
+        if let Some(entry) = entries.iter().find(|entry| {
             entry.protocol == mapping.protocol
                 && entry.external_port == mapping.port
                 && !owned(entry, local, description)
         }) {
-            tracing::warn!(port=mapping.port, protocol=?mapping.protocol, "UPnP port is already owned by another mapping");
+            if forwards_here(entry, local) {
+                tracing::debug!(port=mapping.port, protocol=?mapping.protocol, owner=%entry.port_mapping_description, "UPnP port already forwards to this PC under another mapping");
+            } else if reported.contains(mapping) {
+                tracing::debug!(port=mapping.port, protocol=?mapping.protocol, "UPnP port is still owned by another mapping");
+            } else {
+                reported.push(*mapping);
+                tracing::warn!(port=mapping.port, protocol=?mapping.protocol, client=%entry.internal_client, owner=%entry.port_mapping_description, "UPnP port is already owned by another mapping; remove it on the router so clients outside your network reach this PC");
+            }
             continue;
         }
+        reported.retain(|reported| reported != mapping);
         let result = tokio::time::timeout(
             Duration::from_secs(3),
             gateway.add_port(
@@ -397,6 +415,7 @@ pub fn port_forward(h: Shared, bind: IpAddr) -> Option<tokio::task::JoinHandle<(
         let mut next_search = Instant::now();
         let mut current = None;
         let mut firewall = None;
+        let mut reported = Vec::new();
         while !h.stop.load(Ordering::Acquire) {
             if Instant::now() >= next_search {
                 next_search = Instant::now() + Duration::from_secs(60);
@@ -429,7 +448,7 @@ pub fn port_forward(h: Shared, bind: IpAddr) -> Option<tokio::task::JoinHandle<(
                     }
                 }
                 if let Some((gateway, local, applied)) = current.as_mut() {
-                    match apply(gateway, *local, &wanted, &description).await {
+                    match apply(gateway, *local, &wanted, &description, &mut reported).await {
                         Ok(mappings) => *applied = mappings,
                         Err(error) => tracing::warn!(%error, "UPnP mapping could not be renewed"),
                     }
@@ -515,6 +534,28 @@ mod tests {
         );
         let no_mic = Config::parse("stream_mic=false\n").unwrap();
         assert_eq!(mappings(&no_mic, Ports::from_base(48123)).len(), 6);
+    }
+    #[test]
+    fn a_mapping_left_by_another_host_on_this_pc_is_not_a_conflict() {
+        let local: IpAddr = "192.168.0.20".parse().unwrap();
+        let entry = |client: &str, internal_port| igd_next::PortMappingEntry {
+            remote_host: String::new(),
+            external_port: 47989,
+            protocol: Protocol::TCP,
+            internal_port,
+            internal_client: client.into(),
+            enabled: true,
+            port_mapping_description: "Sunshine".into(),
+            lease_duration: 0,
+        };
+        assert!(forwards_here(&entry("192.168.0.20", 47989), local));
+        assert!(!forwards_here(&entry("192.168.0.30", 47989), local));
+        assert!(!forwards_here(&entry("192.168.0.20", 47990), local));
+        assert!(!owned(
+            &entry("192.168.0.20", 47989),
+            local,
+            "Butterpollo Rust id"
+        ));
     }
     #[tokio::test]
     #[ignore = "listens on every interface; Windows Firewall asks again for every new test binary"]

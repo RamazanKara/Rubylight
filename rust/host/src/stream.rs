@@ -1433,6 +1433,10 @@ impl Media {
                     let mut link_due = Instant::now();
                     let mut reported_pacing = None;
                     let mut fec_reported = None;
+                    // A frame that holds the stream thread this long is logged
+                    // with where the time went, at most every five seconds.
+                    const SLOW_SEND: Duration = Duration::from_millis(100);
+                    let mut slow_send_reported: Option<Instant> = None;
                     let send_outage = butterpollo_core::stream_policy::SendOutage::from_env();
                     // On a link paced near the stream bitrate, sending a frame
                     // takes a good part of a period; a sender thread lets the
@@ -1480,6 +1484,7 @@ impl Media {
                         let polled = Instant::now();
                         let micros = |d: Duration| d.as_micros().min(u128::from(u64::MAX)) as u64;
                         for frame in output {
+                            let frame_started = Instant::now();
                             let encode = frame.latency.unwrap_or(call_latency);
                             let latency = micros(encode);
                             s.stats.latency_us.store(latency, Ordering::Relaxed);
@@ -1490,7 +1495,9 @@ impl Media {
                             let captured = frame.presentation.unwrap_or(claimed);
                             let age = micros(claimed.saturating_duration_since(captured));
                             let processing = micros(Instant::now().saturating_duration_since(claimed));
+                            let stamp_started = Instant::now();
                             let stamp = present_stamper.as_mut().map_or(captured, |stamper| stamper.stamp(captured, &prepared.output())).max(last_stamp + Duration::from_nanos(11_112));
+                            let stamp_time = stamp_started.elapsed();
                             last_stamp = stamp;
                             // Wrap like the previous host; a saturating cast
                             // froze the clock after 13.25 hours.
@@ -1501,6 +1508,7 @@ impl Media {
                             // A frame beyond Moonlight's packet limit (very high
                             // bitrates) costs that frame and a keyframe, not the
                             // session.
+                            let packetize_started = Instant::now();
                             let packets = match packetizer.encode_recovery(&frame.bytes,frame.idr,frame.after_invalidation,timestamp,processing) {
                                 Ok(packets) => packets,
                                 Err(error) => {
@@ -1509,6 +1517,7 @@ impl Media {
                                     continue;
                                 }
                             };
+                            let packetize_time = packetize_started.elapsed();
                             // A keyframe, as at the start of every stream, may be too
                             // large for FEC; only ordinary frames make this worth showing.
                             if !frame.idr
@@ -1553,14 +1562,14 @@ impl Media {
                                 let now = Instant::now();
                                 if network_pacer.due() > now {
                                     timer.until_precise(network_pacer.due());
-                                    if trace_send { pacing_wait += now.elapsed(); }
+                                    pacing_wait += now.elapsed();
                                 }
                                 let budget = (bps / 4000)
                                     .clamp(remaining[0].len() as u64, batch_kb * 1024)
                                     as usize;
                                 let count =
                                     butterpollo_windows::net::Batch::count(remaining, budget);
-                                let send_started = trace_send.then(Instant::now);
+                                let send_started = Instant::now();
                                 let refused = batch.dropped;
                                 let bytes = match send_outage.filter(|outage| outage.active(start, Instant::now())) {
                                     // Lost after the socket: counted as sent, only the client sees it.
@@ -1571,11 +1580,11 @@ impl Media {
                                     }
                                     None => batch.send(&m.video, &remaining[..count], peer)?,
                                 };
-                                if let Some(send_started) = send_started {
-                                    let finished = Instant::now();
+                                let finished = Instant::now();
+                                send_time += finished.duration_since(send_started);
+                                if trace_send {
                                     first_send.get_or_insert(send_started);
                                     last_send = Some(finished);
-                                    send_time += finished.duration_since(send_started);
                                     batches += 1;
                                 }
                                 remaining = &remaining[count..];
@@ -1612,11 +1621,26 @@ impl Media {
                                     dropped=batch.dropped-dropped, stream_id=%s.launch.id, "send");
                             }
                             s.stats.performance.lock().unwrap().record_timing(sent,butterpollo_core::performance::Timing{period,encode:latency,host:processing,age,sent:micros(sent.saturating_duration_since(claimed))},frame_bytes);
+                            let record_time = sent.elapsed();
                             // The interface lookup takes a moment: refresh the
                             // link speed after the frame is out, for the next one.
+                            let link_started = Instant::now();
                             if Instant::now() >= link_due {
                                 link = Some(butterpollo_windows::net::routed_link(peer));
                                 link_due = Instant::now() + Duration::from_secs(2);
+                            }
+                            let link_time = link_started.elapsed();
+                            let took = frame_started.elapsed();
+                            if took >= SLOW_SEND && slow_send_reported.is_none_or(|at| at.elapsed() >= Duration::from_secs(5)) {
+                                slow_send_reported = Some(Instant::now());
+                                let ms = |d: Duration| (d.as_secs_f64() * 10_000.).round() / 10.;
+                                tracing::warn!(
+                                    frame_ms = ms(took), socket_ms = ms(send_time), pacing_ms = ms(pacing_wait),
+                                    timestamp_ms = ms(stamp_time), packetize_ms = ms(packetize_time),
+                                    timings_ms = ms(record_time), link_ms = ms(link_time),
+                                    packets = packets.len(), bytes = frame_bytes, pacing_bps = bps, idr = frame.idr,
+                                    "a video frame held the stream thread while it was sent; socket_ms is time in Windows' send calls (network driver and adapter), the other parts are the host's own work"
+                                );
                             }
                         }
                         Ok(())

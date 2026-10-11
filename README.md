@@ -80,6 +80,8 @@ Two separate tests show where frame preparation and queueing matter:
 
 </details>
 
+**Light at idle.** An October 12, 2026 Windows Task Manager snapshot on the author's PC showed about **16.6 MB of memory** for the host and service combined (13.8 MB + 2.8 MB), with **0% CPU reported** for both.
+
 ## What users say
 
 > From 10 ms encoding to 5 ms in 4K 60 fps, btw :) I tried it with PyroWave and it was close to native. Really impressive.

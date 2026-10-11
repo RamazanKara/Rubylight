@@ -29,7 +29,7 @@ int __wrap_pthread_setname_np(pthread_t thread, const char* name) {
     int result = __real_pthread_setname_np(thread, name);
     // The core names each worker from inside that worker before it starts receiving/sending.
     if (pthread_equal(thread, pthread_self()) && atomic_load(&AndroidNetworkPriority) &&
-            (!strcmp(name, "VideoRecv") || !strcmp(name, "AudioRecv") ||
+            (!strcmp(name, "VideoRecv") || !strcmp(name, "AudioRecv") || !strcmp(name, "AudioDec") ||
              !strcmp(name, "ControlRecv") || !strcmp(name, "InputSend"))) {
         int savedErrno = errno;
         if (setpriority(PRIO_PROCESS, 0, -4) < 0) {

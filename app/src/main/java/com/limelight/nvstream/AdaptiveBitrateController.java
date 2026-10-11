@@ -76,7 +76,7 @@ public final class AdaptiveBitrateController {
             poorSamples = 0;
             if (thermalLevel > 0 || !(lossPercent >= 0 && lossPercent < 0.5f) ||
                     !(decodeMs >= 0 && (decodeBitrateInsensitive || decodeMs < frameMs * 0.75f)) ||
-                    !(jitterMs >= 0 && jitterMs < Math.max(2, frameMs * 0.25f)) ||
+                    !(jitterMs >= 0 && jitterMs < Math.max(5, frameMs * 0.25f)) ||
                     (queueMs >= 0 && queueMs >= Math.max(4, frameMs / 2))) {
                 healthySinceMs = -1;
             } else if (healthySinceMs == -1) {

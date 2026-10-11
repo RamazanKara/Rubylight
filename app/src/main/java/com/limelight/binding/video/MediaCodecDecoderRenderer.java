@@ -29,6 +29,7 @@ import com.limelight.utils.ProblemReport;
 import android.annotation.TargetApi;
 import android.app.Activity;
 import android.content.Context;
+import android.hardware.display.DisplayManager;
 import android.media.MediaCodec;
 import android.media.MediaCodecInfo;
 import android.media.MediaFormat;
@@ -125,6 +126,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     private VideoStats activeWindowVideoStats;
     private VideoStats lastWindowVideoStats;
     private VideoStats globalVideoStats;
+    private volatile VideoStatsFps overlayFps;
     private volatile long lastVideoFrameTimeMs;
     private volatile float networkFrameLossPercent;
 
@@ -153,19 +155,29 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     private volatile String latencyOverlay = "";
     private volatile String decoderDiagnostics = "";
     public static final String LATENCY_CSV_NAME = "butterpollo-latency.csv";
+    private static final long MAX_LATENCY_CSV_BYTES = 8 * 1024 * 1024;
     private final Runnable updateLatencyStats = new Runnable() {
         @Override
         public void run() {
+            thermalLevel = thermalMonitor.level();
+            // Forced max clocks on a hot phone only bring on harder throttling.
+            if (thermalLevel == ThermalMonitor.HOT && pyroWaveRenderer.hasMaxClocks()) {
+                pyroWaveRenderer.restoreClocks();
+                updateDecoderDiagnostics();
+            }
             pyroWaveRenderer.pollRenderedFrames(frameLatencyStats);
             frameLatencyStats.expire(System.nanoTime());
             flushLatencyCsv();
-            StringBuilder text = new StringBuilder(formatLatencyOverlay(context, frameLatencyStats.summarize()));
-            if (latencyCsv == null) {
-                text.append('\n').append(context.getString(R.string.latency_csv_failed));
-            } else if (frameLatencyStats.getCsvRowsLost() != 0) {
-                text.append('\n').append(context.getString(R.string.latency_csv_lost, frameLatencyStats.getCsvRowsLost()));
+            if (prefs.enablePerfOverlay) {
+                StringBuilder text = new StringBuilder(formatLatencyOverlay(context, frameLatencyStats.summarize()));
+                if (latencyCsv == null) {
+                    text.append('\n').append(context.getString(R.string.latency_csv_failed));
+                } else if (frameLatencyStats.getCsvRowsLost() != 0) {
+                    text.append('\n').append(context.getString(R.string.latency_csv_lost, frameLatencyStats.getCsvRowsLost()));
+                }
+                latencyOverlay = text.toString();
+                updatePerformanceOverlay();
             }
-            latencyOverlay = text.toString();
             latencyHandler.postDelayed(this, 1000);
         }
     };
@@ -262,10 +274,18 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     private Handler choreographerHandler;
     private final Object vsyncMonitor = new Object();
     private long vsyncTimeNs;
-    // The panel's top refresh period, which phase-lock reports carry; 0 until the first vsync.
-    private long phaseIntervalNs;
     private long vsyncIntervalNs;
     private long vsyncPresentationDeadlineNs;
+    private long appVsyncOffsetNs;
+    private DisplayManager displayManager;
+    private Display streamDisplay;
+    private final DisplayManager.DisplayListener displayListener = new DisplayManager.DisplayListener() {
+        @Override public void onDisplayAdded(int displayId) { }
+        @Override public void onDisplayRemoved(int displayId) { }
+        @Override public void onDisplayChanged(int displayId) {
+            if (streamDisplay.getDisplayId() == displayId) updateDisplayTiming();
+        }
+    };
     private final boolean useArr;
 
     private int numSpsIn;
@@ -1247,6 +1267,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         adaptivePlayback = MediaCodecHelper.decoderSupportsAdaptivePlayback(selectedDecoderInfo, mimeType);
         fusedIdrFrame = MediaCodecHelper.decoderSupportsFusedIdrFrame(selectedDecoderInfo, mimeType);
 
+        boolean retryWithoutUpscaling = false;
         for (int tryNumber = 0;; tryNumber++) {
             LimeLog.info("Decoder configuration try: "+tryNumber);
 
@@ -1261,15 +1282,19 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                 outputBufferQueueLimit = DecoderQueuePolicy.outputLimit(selectedDecoderInfo.getName(),
                         prefs.codecLowLatency && MediaCodecHelper.decoderSupportsAndroidRLowLatency(selectedDecoderInfo, mimeType),
                         prefs.dropLateFrames, tryNumber != 0 || codecRecoveryAttempts != 0);
+                if (retryWithoutUpscaling) {
+                    upscalingPolicy.fail(UpscalingPolicy.Reason.GPU_ERROR);
+                    notifyUpscalingFallback();
+                }
                 // Success!
                 break;
             }
 
             if (!newFormat) {
                 if (upscaler != null) {
-                    LimeLog.warning("Decoder rejected every format with the upscaling surface");
-                    upscalingPolicy.fail(UpscalingPolicy.Reason.GPU_ERROR);
+                    LimeLog.warning("Retrying decoder formats without the upscaling surface");
                     closeUpscaler();
+                    retryWithoutUpscaling = true;
                     tryNumber = -1;
                     continue;
                 }
@@ -1334,9 +1359,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                 @Override
                 public void run() {
                     try {
-                        latencyCsv = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(
-                                new File(context.getFilesDir(), LATENCY_CSV_NAME + ".tmp")), StandardCharsets.UTF_8));
-                        latencyCsv.write(FrameLatencyStats.CSV_HEADER);
+                        openLatencyCsv();
                     } catch (IOException e) {
                         LimeLog.warning("Unable to open latency CSV: " + e);
                         closeLatencyCsv();
@@ -1349,9 +1372,21 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         return result;
     }
 
+    private void openLatencyCsv() throws IOException {
+        latencyCsv = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(
+                new File(context.getFilesDir(), LATENCY_CSV_NAME + ".tmp")), StandardCharsets.UTF_8));
+        latencyCsv.write(FrameLatencyStats.CSV_HEADER);
+    }
+
     private void flushLatencyCsv() {
         if (latencyCsv != null) {
             try {
+                // Keep the most recent segment without growing the capture for the entire session.
+                if (frameLatencyStats.hasCompletedFrames() &&
+                        new File(context.getFilesDir(), LATENCY_CSV_NAME + ".tmp").length() >= MAX_LATENCY_CSV_BYTES) {
+                    closeLatencyCsv();
+                    openLatencyCsv();
+                }
                 frameLatencyStats.writeCsv(latencyCsv);
                 latencyCsv.flush();
             } catch (IOException e) {
@@ -1658,20 +1693,25 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     }
 
     private void reportPhaseSlack(long readyNs) {
-        // Adaptive refresh has no fixed latch to aim at.
-        if (useArr) return;
+        // Adaptive refresh has no fixed latch; an upscaled frame is not display-ready yet.
+        if (useArr || upscaler != null) return;
         long slackNs, intervalNs;
         synchronized (vsyncMonitor) {
-            intervalNs = phaseIntervalNs != 0 ? phaseIntervalNs : vsyncIntervalNs;
+            intervalNs = vsyncIntervalNs;
             slackNs = latchSlackNs(readyNs, vsyncTimeNs, intervalNs, vsyncPresentationDeadlineNs);
         }
         if (slackNs >= 0) MoonBridge.reportFrameSlack(slackNs, intervalNs);
     }
 
-    private long nextVsyncTimeNs() {
-        if (useArr) return System.nanoTime();
+    private void updateDisplayTiming() {
+        float physicalRefreshRate = Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ?
+                streamDisplay.getMode().getRefreshRate() : streamDisplay.getRefreshRate();
         synchronized (vsyncMonitor) {
-            return nextVsyncTimeNs(System.nanoTime(), vsyncTimeNs, vsyncIntervalNs, vsyncPresentationDeadlineNs);
+            vsyncIntervalNs = (long) (1000000000.0 / physicalRefreshRate);
+            vsyncPresentationDeadlineNs = streamDisplay.getPresentationDeadlineNanos();
+            appVsyncOffsetNs = streamDisplay.getAppVsyncOffsetNanos();
+            // Wait for a sample from the new mode before reporting its phase.
+            vsyncTimeNs = 0;
         }
     }
 
@@ -1682,18 +1722,9 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             return;
         }
 
-        Display display = activity.getWindowManager().getDefaultDisplay();
         synchronized (vsyncMonitor) {
-            vsyncTimeNs = frameTimeNanos - display.getAppVsyncOffsetNanos();
-            float physicalRefreshRate = Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ?
-                    display.getMode().getRefreshRate() : display.getRefreshRate();
-            vsyncIntervalNs = (long) (1000000000.0 / physicalRefreshRate);
-            vsyncPresentationDeadlineNs = display.getPresentationDeadlineNanos();
-            if (phaseIntervalNs == 0) {
-                // Phase lock aims at the panel's top rate, which the stream votes for, not the
-                // rate an LTPO panel rests at between frames.
-                phaseIntervalNs = (long) (1000000000.0 / DisplayFrameRatePolicy.maxRefreshRate(display));
-            }
+            frameTimeNanos -= appVsyncOffsetNs;
+            vsyncTimeNs = frameTimeNanos;
         }
         if (prefs.framePacing != PreferenceConfiguration.FRAME_PACING_BALANCED ||
                 (videoFormat & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0) {
@@ -1701,7 +1732,6 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             Choreographer.getInstance().postFrameCallback(this);
             return;
         }
-        frameTimeNanos -= activity.getWindowManager().getDefaultDisplay().getAppVsyncOffsetNanos();
 
         // Don't render unless a new frame is due. This prevents microstutter when streaming
         // at a frame rate that doesn't match the display (such as 60 FPS on 120 Hz).
@@ -1715,7 +1745,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                 try {
                     frameLatencyStats.onOutputReleased(nextOutputBuffer, System.nanoTime(), true,
                             upscaler == null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M);
-                    releaseOutputFrame(nextOutputBuffer, nextVsyncTimeNs());
+                    releaseOutputFrame(nextOutputBuffer, System.nanoTime());
 
                     nextFrameTimeNanos = FramePacingPolicy.nextFrameTimeNs(nextFrameTimeNanos, frameTimeNanos, refreshRate);
                     activeWindowVideoStats.totalFramesRendered++;
@@ -1746,11 +1776,16 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         choreographerHandlerThread = new HandlerThread("Video - Choreographer", Process.THREAD_PRIORITY_DISPLAY);
         choreographerHandlerThread.start();
 
+        streamDisplay = activity.getWindowManager().getDefaultDisplay();
+        displayManager = (DisplayManager) context.getSystemService(Context.DISPLAY_SERVICE);
+
         // Start the frame callbacks
         choreographerHandler = new Handler(choreographerHandlerThread.getLooper());
         choreographerHandler.post(new Runnable() {
             @Override
             public void run() {
+                displayManager.registerDisplayListener(displayListener, choreographerHandler);
+                updateDisplayTiming();
                 Choreographer.getInstance().postFrameCallback(MediaCodecDecoderRenderer.this);
             }
         });
@@ -1977,6 +2012,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             choreographerHandler.post(new Runnable() {
                 @Override
                 public void run() {
+                    displayManager.unregisterDisplayListener(displayListener);
                     // Don't allow any further messages to be queued
                     choreographerHandlerThread.quit();
 
@@ -2171,6 +2207,64 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         }
     }
 
+    private void updatePerformanceOverlay() {
+        VideoStatsFps fps = overlayFps;
+        if (perfListener != null && fps != null) {
+            float[] frameRates = frameLatencyStats.getFrameRates(System.nanoTime());
+            String shownFps = metric(frameRates[2], " FPS");
+            long presentDrops = frameLatencyStats.getPresentDrops();
+            boolean mediaCodec = (videoFormat & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) == 0;
+            long rttInfo = MoonBridge.getEstimatedRttInfo();
+            StringBuilder video = new StringBuilder();
+            video.append(context.getString(R.string.perf_overlay_streamdetails, streamWidth + "x" + streamHeight, fps.totalFps)).append('\n');
+            video.append(context.getString(R.string.perf_overlay_resolution_source, context.getString(
+                    prefs.resolutionFollowsScreen ?
+                            (prefs.fromPcProfile ? R.string.resolution_source_native_profile : R.string.resolution_source_native) :
+                            (prefs.fromPcProfile ? R.string.resolution_source_fixed_profile : R.string.resolution_source_fixed))))
+                    .append('\n');
+            if (prefs.hostDisplay != null) {
+                video.append(context.getString(R.string.perf_overlay_host_display,
+                        context.getString(prefs.hostDisplay.label))).append('\n');
+            }
+            video.append(context.getString(R.string.perf_overlay_incomingfps,
+                    mediaCodec ? frameRates[0] : fps.receivedFps)).append('\n');
+            video.append(context.getString(R.string.perf_overlay_releasedfps, frameRates[1])).append('\n');
+            video.append(context.getString(R.string.perf_overlay_shownfps, shownFps)).append('\n');
+            video.append(context.getString(R.string.perf_overlay_presentdrops, presentDrops)).append('\n');
+            video.append((videoFormat & MoonBridge.VIDEO_FORMAT_MASK_YUV444) != 0 ? "YUV 4:4:4" : "YUV 4:2:0");
+            if ((videoFormat & MoonBridge.VIDEO_FORMAT_MASK_10BIT) != 0) {
+                video.append(" 10-bit");
+            }
+            String network = context.getString(R.string.perf_overlay_netdrops, fps.lossPercent) + '\n' +
+                    context.getString(R.string.perf_overlay_netlatency, (int)(rttInfo >> 32), (int)rttInfo);
+            StringBuilder decode = new StringBuilder(decoderDiagnostics);
+            // The timing block below already lists decode time; show it here only without that block.
+            if (latencyOverlay.isEmpty()) {
+                decode.append('\n').append(decodeTimeMs >= 0 ? context.getString(R.string.perf_overlay_dectime, decodeTimeMs) :
+                        context.getString(R.string.latency_input_output) + ": " + context.getString(R.string.latency_unavailable));
+            }
+            if (!mediaCodec) {
+                int gpuUs = pyroWaveRenderer.getLastGpuDecodeUs();
+                float[] waits = pyroWaveRenderer.getWaits();
+                decode.append('\n').append(formatPyroWaveStats(pyroWaveLossPercent, pyroWaveQueueDelayMs, gpuUs))
+                        .append("\nWaits per frame: free planes ").append(metric(waits[0], " ms"))
+                        .append(" | screen image ").append(metric(waits[1], " ms"))
+                        .append("\nReplaced by a newer frame: before decode ").append(metric(pyroWaveSkippedPercent, "%"))
+                        .append(" | before display ").append(metric(waits[2], "%"));
+            }
+            int leadUs = MoonBridge.getPhaseLockLeadUs();
+            if (leadUs != Integer.MIN_VALUE) {
+                decode.append("\nReady before screen refresh: ").append(metric(leadUs / 1000f, " ms"));
+            }
+            decode.append('\n').append(upscalingStats());
+            decode.append('\n').append(thermalStats());
+            decode.append('\n').append(latencyOverlay);
+            perfListener.onPerfUpdate(video.toString(), network, decode.toString(),
+                    PerformanceOverlay.compactText(context, frameRates[2], (int)(rttInfo >> 32),
+                            decodeTimeMs, fps.lossPercent));
+        }
+    }
+
     @SuppressWarnings("deprecation")
     @Override
     public int submitDecodeUnit(byte[] decodeUnitData, int decodeUnitLength, int decodeUnitType,
@@ -2203,17 +2297,15 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         }
 
         if (frameNumber != lastFrameNumber) {
-            queueDelay.onFrame(receiveTimeUs, presentationTimeUs);
+            queueDelay.onFrame(receiveTimeUs, presentationTimeUs, frameHostProcessingLatency * 100L);
         }
         lastFrameNumber = frameNumber;
 
         // Flip stats windows roughly every second
         if (SystemClock.uptimeMillis() >= activeWindowVideoStats.measurementStartTimestamp + 1000) {
-            if (pyroWaveLossSamples != 0) {
-                pyroWaveLossPercent = pyroWaveLossTotal / pyroWaveLossSamples;
-                pyroWaveLossTotal = 0;
-                pyroWaveLossSamples = 0;
-            }
+            pyroWaveLossPercent = pyroWaveLossSamples == 0 ? -1 : pyroWaveLossTotal / pyroWaveLossSamples;
+            pyroWaveLossTotal = 0;
+            pyroWaveLossSamples = 0;
             if (pyroWaveQueueSamples != 0) {
                 pyroWaveQueueDelayMs = pyroWaveQueueDelayTotal / pyroWaveQueueSamples;
                 pyroWaveQueueDelayTotal = 0;
@@ -2224,73 +2316,13 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                 pyroWaveSkippedFrames = pyroWaveDecodedFrames = 0;
             }
             decodeTimeMs = frameLatencyStats.takeDecodeTimeMs();
-            thermalLevel = thermalMonitor.level();
-            // Forced max clocks on a phone that is already hot only bring on harder throttling.
-            if (thermalLevel == ThermalMonitor.HOT && pyroWaveRenderer.hasMaxClocks()) {
-                pyroWaveRenderer.restoreClocks();
-                updateDecoderDiagnostics();
-            }
             queueDelayMs = queueDelay.takeWindowMs();
             VideoStats lastTwo = new VideoStats();
             lastTwo.add(lastWindowVideoStats);
             lastTwo.add(activeWindowVideoStats);
-            networkFrameLossPercent = lastTwo.totalFrames == 0 ? 0 :
-                    (float) lastTwo.framesLost / lastTwo.totalFrames * 100;
-            if (perfListener != null) {
-                VideoStatsFps fps = lastTwo.getFps();
-                float[] frameRates = frameLatencyStats.getFrameRates(System.nanoTime());
-                String shownFps = metric(frameRates[2], " FPS");
-                long presentDrops = frameLatencyStats.getPresentDrops();
-                boolean mediaCodec = (videoFormat & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) == 0;
-                long rttInfo = MoonBridge.getEstimatedRttInfo();
-                StringBuilder video = new StringBuilder();
-                video.append(context.getString(R.string.perf_overlay_streamdetails, streamWidth + "x" + streamHeight, fps.totalFps)).append('\n');
-                video.append(context.getString(R.string.perf_overlay_resolution_source, context.getString(
-                        prefs.resolutionFollowsScreen ?
-                                (prefs.fromPcProfile ? R.string.resolution_source_native_profile : R.string.resolution_source_native) :
-                                (prefs.fromPcProfile ? R.string.resolution_source_fixed_profile : R.string.resolution_source_fixed))))
-                        .append('\n');
-                if (prefs.hostDisplay != null) {
-                    video.append(context.getString(R.string.perf_overlay_host_display,
-                            context.getString(prefs.hostDisplay.label))).append('\n');
-                }
-                video.append(context.getString(R.string.perf_overlay_incomingfps,
-                        mediaCodec ? frameRates[0] : fps.receivedFps)).append('\n');
-                video.append(context.getString(R.string.perf_overlay_releasedfps, frameRates[1])).append('\n');
-                video.append(context.getString(R.string.perf_overlay_shownfps, shownFps)).append('\n');
-                video.append(context.getString(R.string.perf_overlay_presentdrops, presentDrops)).append('\n');
-                video.append((videoFormat & MoonBridge.VIDEO_FORMAT_MASK_YUV444) != 0 ? "YUV 4:4:4" : "YUV 4:2:0");
-                if ((videoFormat & MoonBridge.VIDEO_FORMAT_MASK_10BIT) != 0) {
-                    video.append(" 10-bit");
-                }
-                String network = context.getString(R.string.perf_overlay_netdrops, networkFrameLossPercent) + '\n' +
-                        context.getString(R.string.perf_overlay_netlatency, (int)(rttInfo >> 32), (int)rttInfo);
-                StringBuilder decode = new StringBuilder(decoderDiagnostics);
-                // The timing block below already lists decode time; show it here only without that block.
-                if (latencyOverlay.isEmpty()) {
-                    decode.append('\n').append(decodeTimeMs >= 0 ? context.getString(R.string.perf_overlay_dectime, decodeTimeMs) :
-                            context.getString(R.string.latency_input_output) + ": " + context.getString(R.string.latency_unavailable));
-                }
-                if (!mediaCodec) {
-                    int gpuUs = pyroWaveRenderer.getLastGpuDecodeUs();
-                    float[] waits = pyroWaveRenderer.getWaits();
-                    decode.append('\n').append(formatPyroWaveStats(pyroWaveLossPercent, pyroWaveQueueDelayMs, gpuUs))
-                            .append("\nWaits per frame: free planes ").append(metric(waits[0], " ms"))
-                            .append(" | screen image ").append(metric(waits[1], " ms"))
-                            .append("\nReplaced by a newer frame: before decode ").append(metric(pyroWaveSkippedPercent, "%"))
-                            .append(" | before display ").append(metric(waits[2], "%"));
-                }
-                int leadUs = MoonBridge.getPhaseLockLeadUs();
-                if (leadUs != Integer.MIN_VALUE) {
-                    decode.append("\nReady before screen refresh: ").append(metric(leadUs / 1000f, " ms"));
-                }
-                decode.append('\n').append(upscalingStats());
-                decode.append('\n').append(thermalStats());
-                decode.append('\n').append(latencyOverlay);
-                perfListener.onPerfUpdate(video.toString(), network, decode.toString(),
-                        PerformanceOverlay.compactText(context, frameRates[2], (int)(rttInfo >> 32),
-                                decodeTimeMs, lastTwo.totalFrames == 0 ? -1 : networkFrameLossPercent));
-            }
+            networkFrameLossPercent = activeWindowVideoStats.totalFrames == 0 ? 0 :
+                    (float) activeWindowVideoStats.framesLost / activeWindowVideoStats.totalFrames * 100;
+            overlayFps = lastTwo.getFps();
 
             globalVideoStats.add(activeWindowVideoStats);
             lastWindowVideoStats.copy(activeWindowVideoStats);
@@ -2320,14 +2352,18 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             pyroWaveDecodedFrames++;
             long outputNs = pyroWaveRenderer.submitFrame(decodeUnitData, decodeUnitLength, ptsUs, frameLatencyStats,
                     context, prefs.phonePerformanceHints, refreshRate);
-            pyroWaveLossTotal += pyroWaveRenderer.getLastRecordLossPercent();
-            pyroWaveLossSamples++;
+            float recordLoss = pyroWaveRenderer.getLastRecordLossPercent();
+            if (recordLoss >= 0) {
+                pyroWaveLossTotal += recordLoss;
+                pyroWaveLossSamples++;
+            }
             activeWindowVideoStats.totalFrames++;
             activeWindowVideoStats.totalFramesReceived++;
             frameLatencyStats.onFrameReceived(receiveTimeNs);
             if (outputNs > 0) {
                 pyroWaveFailures = 0;
-                reportPhaseSlack(outputNs);
+                // Decode completion precedes the asynchronous color conversion and presentation.
+                // It cannot be used as a display-ready sample for host phase learning.
             } else {
                 frameLatencyStats.discard(ptsUs, outputNs < 0 ? "decode_failed" : "invalid_frame");
                 if (outputNs < 0 || ++pyroWaveFailures == 60) {

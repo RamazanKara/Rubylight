@@ -141,10 +141,22 @@ fn lost_header_packet_uses_the_negotiated_geometry() {
     let pushed = decode(&mut records, &data).unwrap();
     assert_eq!(le32(&pushed[0], 0), HEADER_BIT | (3 << 28) | (WIDTH - 1) | ((HEIGHT - 1) << 14));
     assert_eq!(le32(&pushed[0], 4) >> 26 & 1, 1, "4:4:4 from the negotiated format");
-    assert_eq!(records.loss_percent, 100.0);
+    assert_eq!(records.loss_percent, -1.0);
 
     // Without negotiated geometry the first frame can't be rebuilt.
     assert!(decode(&mut Records::default(), &data).is_none());
+}
+
+#[test]
+fn lost_header_does_not_report_cached_record_count_as_current_loss() {
+    let mut records = Records::with_geometry(WIDTH, HEIGHT, false);
+    let first = [record(1, 0, 8, 1), record(1, 1, 8, 2)].concat();
+    assert!(decode(&mut records, &container(&packets(header(1, 2), &first, 32), &[])).is_some());
+
+    let second = [record(2, 0, 8, 3), record(2, 1, 8, 4), record(2, 2, 8, 5)].concat();
+    let pushed = decode(&mut records, &container(&packets(header(2, 3), &second, 32), &[0])).unwrap();
+    assert_eq!(count_of(&pushed[0]), 3);
+    assert_eq!(records.loss_percent, -1.0);
 }
 
 #[test]

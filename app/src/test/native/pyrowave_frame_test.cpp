@@ -71,7 +71,7 @@ static void testRecords() {
     for (const auto& block : decoded) assert(((block[3] >> 4) & 7) == 0);
 
     assert(decode(recordEnvelope(recordPackets(1, 30), 0)));
-    assert(decoded.size() == 4 && state.lossPercent == 100);
+    assert(decoded.size() == 4 && state.lossPercent == -1);
     assert(decoded[1][4] == 30 && decoded[3][4] == 30);
 
     assert(decode(recordEnvelope(recordPackets(2, 40), 3)));

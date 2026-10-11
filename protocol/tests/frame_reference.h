@@ -147,7 +147,7 @@ public:
         const uint32_t count = pyroReadLe32(header.data() + 4) & 0xffffff;
         if (hasHeader && (received.size() > count || (!partial && received.size() != count))) return false;
         if (received.empty() && count) return false;
-        const float loss = !hasHeader ? 100 : (count ? 100.0f * (count - received.size()) / count : 0);
+        const float loss = !hasHeader ? -1 : (count ? 100.0f * (count - received.size()) / count : 0);
 
         const bool sameFormat = havePrevious &&
                 (pyroReadLe32(previousHeader.data()) & ~0x70000000u) ==

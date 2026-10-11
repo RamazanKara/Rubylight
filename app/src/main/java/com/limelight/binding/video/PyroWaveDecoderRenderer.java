@@ -4,6 +4,7 @@ import android.annotation.SuppressLint;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.os.Build;
+import android.os.Debug;
 import android.os.Process;
 import android.preference.PreferenceManager;
 import android.view.Surface;
@@ -118,13 +119,13 @@ public final class PyroWaveDecoderRenderer {
         if (performanceHints == null) {
             performanceHints = new DecoderPerformanceHints(context, enablePerformanceHints, frameRate);
         }
-        long workStartNs = System.nanoTime();
+        long workStartNs = Debug.threadCpuTimeNanos();
         long outputNs = 0;
         try {
             outputNs = nativeSubmitFrame(handle, data, length, ptsUs);
         } finally {
-            // The decode fence excludes the subsequent wait for a swapchain image/presentation.
-            performanceHints.reportWorkDuration((outputNs > 0 ? outputNs : System.nanoTime()) - workStartNs, frameRate);
+            // CPU hints must exclude the native waits for free planes and GPU completion.
+            performanceHints.reportWorkDuration(Debug.threadCpuTimeNanos() - workStartNs, frameRate);
         }
         if (outputNs > 0) {
             stats.onDecoderOutput(outputIndex(ptsUs), ptsUs, outputNs);
@@ -193,13 +194,12 @@ public final class PyroWaveDecoderRenderer {
     }
 
     /** Hands GPU clocks back to the driver if this stream forced them to maximum. */
-    @SuppressLint("ApplySharedPref")
     synchronized void restoreClocks() {
         if (maxClocksContext == null) return;
         Context context = maxClocksContext;
         nativeSetGpuMaxClocks(false);
         maxClocksContext = null;
-        PreferenceManager.getDefaultSharedPreferences(context).edit().putBoolean(MAX_CLOCKS_ACTIVE, false).commit();
+        PreferenceManager.getDefaultSharedPreferences(context).edit().putBoolean(MAX_CLOCKS_ACTIVE, false).apply();
     }
 
     private static native int nativeGetReadiness(boolean hdr);

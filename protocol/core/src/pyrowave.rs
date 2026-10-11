@@ -111,7 +111,8 @@ pub struct Records {
     have_previous: bool,
     previous_header: [u8; 8],
     previous: BTreeMap<u32, Vec<u8>>,
-    /// Share of this frame's records that were lost, 0-100; 100 after a rejected frame.
+    /// Share of this frame's records that were lost, 0-100; -1 without the record count,
+    /// or 100 after a rejected frame.
     pub loss_percent: f32,
 }
 
@@ -220,7 +221,8 @@ impl Records {
             return false;
         }
         let loss = if !has_header {
-            100.0
+            // The header carries this frame's record count, which may differ from the last.
+            -1.0
         } else if count != 0 {
             100.0 * (count - received.len()) as f32 / count as f32
         } else {

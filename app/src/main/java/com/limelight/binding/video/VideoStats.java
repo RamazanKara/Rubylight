@@ -68,6 +68,7 @@ class VideoStats {
         float elapsed = (SystemClock.uptimeMillis() - this.measurementStartTimestamp) / (float) 1000;
 
         VideoStatsFps fps = new VideoStatsFps();
+        fps.lossPercent = totalFrames == 0 ? -1 : (float) framesLost / totalFrames * 100;
         if (elapsed > 0) {
             fps.totalFps = this.totalFrames / elapsed;
             fps.receivedFps = this.totalFramesReceived / elapsed;
@@ -79,6 +80,7 @@ class VideoStats {
 
 class VideoStatsFps {
 
+    float lossPercent;
     float totalFps;
     float receivedFps;
     float renderedFps;

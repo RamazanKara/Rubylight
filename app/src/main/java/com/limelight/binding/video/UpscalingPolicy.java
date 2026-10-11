@@ -26,9 +26,8 @@ public final class UpscalingPolicy {
     static final int WARMUP_FRAMES = 8;
     static final int SLOW_FRAME_LIMIT = 6;
     private final long frameBudgetNs;
-    private final int[] drops = new int[60];
     private int warmup = WARMUP_FRAMES;
-    private int slowFrames, dropPosition, windowDrops;
+    private int slowFrames;
     private volatile Reason reason = Reason.NONE;
     private volatile float addedMs = -1;
 
@@ -73,12 +72,9 @@ public final class UpscalingPolicy {
         // A good frame must be comfortably below budget to erase a slow sample.
         if (addedNs > frameBudgetNs) slowFrames++;
         else if (addedNs < frameBudgetNs * 3 / 4) slowFrames = Math.max(0, slowFrames - 1);
-        windowDrops -= drops[dropPosition];
-        drops[dropPosition] = dropped;
-        windowDrops += dropped;
-        dropPosition = (dropPosition + 1) % drops.length;
-        if (windowDrops >= 3) fail(Reason.DROPPED);
-        else if (slowFrames >= SLOW_FRAME_LIMIT) fail(Reason.SLOW);
+        // Coalesced texture frames can come from decoder bursts or a faster stream than the
+        // panel. Only sustained measured cost, not routine replacement, warrants fallback.
+        if (slowFrames >= SLOW_FRAME_LIMIT) fail(Reason.SLOW);
     }
 
     void checkStall(long elapsedNs) {

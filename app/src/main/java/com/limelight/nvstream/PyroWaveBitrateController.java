@@ -55,7 +55,7 @@ public final class PyroWaveBitrateController {
             congestedSamples = 0;
             if (thermalLevel > 0 || !(lossPercent >= 0 && lossPercent < 0.1f) || !(queueMs >= 0 && queueMs < Math.max(4, frameMs / 2)) ||
                     !(decodeMs >= 0 && decodeMs < frameMs * 0.75f) ||
-                    !(jitterMs >= 0 && jitterMs < Math.max(2, frameMs * 0.25f))) {
+                    !(jitterMs >= 0 && jitterMs < Math.max(5, frameMs * 0.25f))) {
                 healthySinceMs = -1;
             } else if (healthySinceMs == -1) {
                 healthySinceMs = nowMs;

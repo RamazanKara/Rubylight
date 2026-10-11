@@ -4,6 +4,12 @@ import org.junit.Test;
 import static org.junit.Assert.*;
 
 public class CongestionFeedbackTest {
+    @Test public void modestWifiJitterAllowsPyroWaveRecoveryAt120Fps() {
+        PyroWaveBitrateController pyro = new PyroWaveBitrateController(100000, 50000, 120, 0);
+        assertEquals(0, pyro.sample(1000, true, false, 0, 0, 2, 3));
+        assertEquals(51000, pyro.sample(21000, true, false, 0, 0, 2, 3));
+    }
+
     @Test public void sustainedJitterReducesBothCodecsWithoutLoss() {
         AdaptiveBitrateController ordinary = new AdaptiveBitrateController(20000, 20000, 120, 0);
         PyroWaveBitrateController pyro = new PyroWaveBitrateController(100000, 100000, 120, 0);
@@ -14,7 +20,7 @@ public class CongestionFeedbackTest {
     }
 
     @Test public void missingOrBorderlineJitterBlocksRecovery() {
-        for (float jitter : new float[] {-1, Float.NaN, 3}) {
+        for (float jitter : new float[] {-1, Float.NaN, 5}) {
             AdaptiveBitrateController ordinary = new AdaptiveBitrateController(20000, 10000, 120, 0);
             PyroWaveBitrateController pyro = new PyroWaveBitrateController(100000, 50000, 120, 0);
             assertEquals(0, ordinary.sample(1000, true, false, 0, 2, 0));

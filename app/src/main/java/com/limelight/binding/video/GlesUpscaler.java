@@ -45,6 +45,7 @@ final class GlesUpscaler implements AutoCloseable, SurfaceTexture.OnFrameAvailab
     private long fence;
     private volatile long workStartNs;
     private int pendingDrops;
+    private boolean frameAvailable;
     private volatile boolean closed;
 
     GlesUpscaler(Context context, Surface output, UpscalingPolicy.Mode mode, int width, int height,
@@ -245,17 +246,23 @@ final class GlesUpscaler implements AutoCloseable, SurfaceTexture.OnFrameAvailab
     @Override
     public void onFrameAvailable(SurfaceTexture surfaceTexture) {
         if (closed || policy.getReason() != UpscalingPolicy.Reason.NONE) return;
+        frameAvailable = true;
         try {
             handler.removeCallbacks(pollCompletion);
             pollCompletion();
-            if (policy.getReason() != UpscalingPolicy.Reason.NONE) return;
+            if (fence != 0 || !frameAvailable || policy.getReason() != UpscalingPolicy.Reason.NONE) return;
+            drawFrame();
+        } catch (RuntimeException e) {
+            LimeLog.warning("Upscaling frame failed: " + e);
+            policy.fail(UpscalingPolicy.Reason.GPU_ERROR);
+        }
+    }
+
+    private void drawFrame() {
+        try {
+            frameAvailable = false;
             texture.updateTexImage();
             if (!frames.consume(texture.getTimestamp(), frame)) return;
-            if (fence != 0) {
-                // Never build another GPU queue when the preceding frame is still in flight.
-                policy.recordFrame(System.nanoTime() - workStartNs, (int) frame[2] + 1);
-                return;
-            }
             workStartNs = frame[0];
             pendingDrops = (int) frame[2];
             querySurfaceSize();
@@ -303,6 +310,8 @@ final class GlesUpscaler implements AutoCloseable, SurfaceTexture.OnFrameAvailab
             // Includes handoff, GPU work, swap blocking and up to one polling interval.
             // This is a conservative frame-time estimate, not a scanout timestamp.
             policy.recordFrame(elapsed, pendingDrops);
+            // Latch the newest waiting texture only after the previous draw has completed.
+            if (frameAvailable && policy.getReason() == UpscalingPolicy.Reason.NONE) drawFrame();
         } else if (status == GLES30.GL_WAIT_FAILED) {
             policy.fail(UpscalingPolicy.Reason.GPU_ERROR);
         } else {

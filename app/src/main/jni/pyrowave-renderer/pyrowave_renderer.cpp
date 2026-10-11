@@ -455,7 +455,6 @@ namespace {
 
         int submit(const uint8_t *data, size_t length, int64_t ptsUs) {
             completedDecodeNs = 0;
-            lastGpuDecodeUs = 0;
             if (failed) return SUBMIT_ERROR;
             pyrowave_decoder_clear(decoder);
             if (!pushFrame(data, length)) {
@@ -922,6 +921,14 @@ namespace {
             destroySwapchainResources();
             if (swapchain != VK_NULL_HANDLE) {
                 pollRenderedFrames();
+                {
+                    std::lock_guard<std::mutex> lock(eventsMutex);
+                    // Destroying the swapchain loses its pending timings, not necessarily its frames.
+                    for (const auto &frame : pendingPresents) {
+                        renderedFrames.push_back(frame.ptsUs);
+                        renderedFrames.push_back(0);
+                    }
+                }
                 pendingPresents.clear();
                 vk.DestroySwapchainKHR(device, swapchain, nullptr);
             }
@@ -1825,7 +1832,7 @@ namespace {
         bool displayTimingSupported = false;
         // Filled by the present thread, drained by nativePollRenderedFrames.
         std::mutex eventsMutex;
-        std::vector<jlong> renderedFrames;   // (ptsUs, presentNs) pairs
+        std::vector<jlong> renderedFrames;   // (ptsUs, presentNs) pairs; 0 when the surface lost timing
         std::vector<jlong> releasedFrames;   // (ptsUs, releaseNs, shown) triples
 
         // Present thread only: it owns the swapchain.
@@ -2134,8 +2141,9 @@ Java_com_limelight_binding_video_PyroWaveDecoderRenderer_nativePollRenderedFrame
     jclass statsClass = env->GetObjectClass(stats);
     jmethodID onReleased = env->GetMethodID(statsClass, "onOutputReleased", "(IJZZ)V");
     jmethodID onRendered = env->GetMethodID(statsClass, "onFrameRendered", "(JJ)V");
+    jmethodID discard = env->GetMethodID(statsClass, "discard", "(JLjava/lang/String;)V");
     env->DeleteLocalRef(statsClass);
-    if (onReleased == nullptr || onRendered == nullptr) return JNI_FALSE;
+    if (onReleased == nullptr || onRendered == nullptr || discard == nullptr) return JNI_FALSE;
     for (size_t i = 0; i + 3 <= released.size(); i += 3) {
         // The output index Java registered for this frame: its presentation time, truncated.
         env->CallVoidMethod(stats, onReleased, jint(released[i]), released[i + 1],
@@ -2143,7 +2151,14 @@ Java_com_limelight_binding_video_PyroWaveDecoderRenderer_nativePollRenderedFrame
         if (env->ExceptionCheck()) return JNI_FALSE;
     }
     for (size_t i = 0; i + 2 <= rendered.size(); i += 2) {
-        env->CallVoidMethod(stats, onRendered, rendered[i], rendered[i + 1]);
+        if (rendered[i + 1] == 0) {
+            jstring reason = env->NewStringUTF("surface_changed");
+            if (reason == nullptr) return JNI_FALSE;
+            env->CallVoidMethod(stats, discard, rendered[i], reason);
+            env->DeleteLocalRef(reason);
+        } else {
+            env->CallVoidMethod(stats, onRendered, rendered[i], rendered[i + 1]);
+        }
         if (env->ExceptionCheck()) return JNI_FALSE;
     }
     return timing;

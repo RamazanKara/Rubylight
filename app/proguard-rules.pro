@@ -10,6 +10,7 @@
 -keepclassmembers class com.limelight.binding.video.FrameLatencyStats {
     void onOutputReleased(int, long, boolean, boolean);
     void onFrameRendered(long, long);
+    void discard(long, java.lang.String);
 }
 
 # The default Android rules retain native method names and descriptor classes.

@@ -6,6 +6,28 @@ import static org.junit.Assert.assertEquals;
 
 public class QueueDelayTrackerTest {
     @Test
+    public void hostProcessingTimeIsNotNetworkCongestion() {
+        QueueDelayTracker tracker = new QueueDelayTracker();
+        tracker.onFrame(11_000, 1_000, 10_000);
+        tracker.takeWindowMs();
+        tracker.onFrame(120_000, 100_000, 20_000);
+        assertEquals(0, tracker.takeWindowMs(), 0.001);
+        tracker.onFrame(223_000, 200_000, 20_000);
+        assertEquals(3, tracker.takeWindowMs(), 0.001);
+    }
+
+    @Test
+    public void wrappedHostTimestampStartsANewBaseline() {
+        QueueDelayTracker tracker = new QueueDelayTracker();
+        tracker.onFrame(47_721_800_000L, 47_721_700_000L);
+        tracker.takeWindowMs();
+        tracker.onFrame(47_721_900_000L, 100_000L);
+        assertEquals(0, tracker.takeWindowMs(), 0.001);
+        tracker.onFrame(47_721_903_000L, 101_000L);
+        assertEquals(2, tracker.takeWindowMs(), 0.001);
+    }
+
+    @Test
     public void delayIsMeasuredAboveTheClockOffset() {
         QueueDelayTracker tracker = new QueueDelayTracker();
         assertEquals(-1, tracker.takeWindowMs(), 0);

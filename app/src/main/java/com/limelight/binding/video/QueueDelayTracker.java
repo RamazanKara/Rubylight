@@ -15,13 +15,22 @@ public final class QueueDelayTracker {
     private long currentMinUs = Long.MAX_VALUE;
     private long excessTotalUs;
     private int samples;
+    private long lastPresentationTimeUs;
 
     /** One frame: client arrival of its first packet and the host's presentation time, both in microseconds. */
     public void onFrame(long receiveTimeUs, long presentationTimeUs) {
+        onFrame(receiveTimeUs, presentationTimeUs, 0);
+    }
+
+    public void onFrame(long receiveTimeUs, long presentationTimeUs, long hostProcessingTimeUs) {
         if (receiveTimeUs <= 0 || presentationTimeUs <= 0) {
             return;
         }
-        long delayUs = receiveTimeUs - presentationTimeUs;
+        if (presentationTimeUs < lastPresentationTimeUs) {
+            reset();
+        }
+        lastPresentationTimeUs = presentationTimeUs;
+        long delayUs = receiveTimeUs - presentationTimeUs - hostProcessingTimeUs;
         currentMinUs = Math.min(currentMinUs, delayUs);
         long baseUs = currentMinUs;
         for (int i = 0; i < windows; i++) {
@@ -50,5 +59,6 @@ public final class QueueDelayTracker {
         windows = next = samples = 0;
         currentMinUs = Long.MAX_VALUE;
         excessTotalUs = 0;
+        lastPresentationTimeUs = 0;
     }
 }

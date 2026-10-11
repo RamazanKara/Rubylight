@@ -316,6 +316,10 @@ class FrameLatencyStats {
         return csvRowsLost;
     }
 
+    synchronized boolean hasCompletedFrames() {
+        return !completed.isEmpty();
+    }
+
     void writeCsv(Writer writer) throws IOException {
         List<Frame> frames;
         long lost;
@@ -330,6 +334,8 @@ class FrameLatencyStats {
             rates = getFrameRates(sampleNs);
         }
         // Disk I/O and formatting must never hold the lock used by the decoder threads.
+        String frameRates = String.format(Locale.ROOT, "%.2f,%.2f,", rates[0], rates[1]) +
+                (rates[2] < 0 ? "" : String.format(Locale.ROOT, "%.2f", rates[2]));
         for (Frame frame : frames) {
             String decodeToPresent = "rendered".equals(frame.status) ? duration(frame.outputNs, frame.renderNs) : "";
             String receiveToPresent = "rendered".equals(frame.status) ? duration(frame.receiveNs, frame.renderNs) : "";
@@ -338,13 +344,12 @@ class FrameLatencyStats {
                     timestamp(frame.releaseNs) + "," + frame.status + "," +
                     duration(frame.receiveNs, frame.inputNs) + "," + duration(frame.inputNs, frame.outputNs) + "," +
                     decodeToPresent + "," + receiveToPresent + "," + lost + "," +
-                    (frame.hostProcessingNs == 0 ? "" : String.format(Locale.ROOT, "%.6f", frame.hostProcessingNs / 1000000.0)) + "," +
+                    (frame.hostProcessingNs == 0 ? "" : milliseconds(frame.hostProcessingNs)) + "," +
                     decodeToPresent + "," + receiveToPresent + "," +
                     (vrr ? duration(frame.outputNs, frame.releaseNs) : "") + "," +
                     duration(frame.previousOutputNs, frame.outputNs) + "," +
                     duration(frame.previousReleaseNs, frame.releaseNs) + "," + sampleNs + "," +
-                    String.format(Locale.ROOT, "%.2f,%.2f,", rates[0], rates[1]) +
-                    (rates[2] < 0 ? "" : String.format(Locale.ROOT, "%.2f", rates[2])) + "," + dropped + "," +
+                    frameRates + "," + dropped + "," +
                     timestamp(frame.enqueueNs) + "," + duration(frame.enqueueNs, frame.inputNs) + "\n");
         }
     }
@@ -355,6 +360,10 @@ class FrameLatencyStats {
 
     private static String duration(long startNs, long endNs) {
         return startNs == 0 || endNs == 0 || endNs < startNs ? "" :
-                String.format(Locale.ROOT, "%.6f", (endNs - startNs) / 1000000.0);
+                milliseconds(endNs - startNs);
+    }
+
+    private static String milliseconds(long durationNs) {
+        return durationNs / 1000000 + "." + Long.toString(1000000 + durationNs % 1000000).substring(1);
     }
 }

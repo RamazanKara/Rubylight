@@ -87,16 +87,12 @@ public class UpscalingPolicyTest {
     }
 
     @Test
-    public void repeatedLocalDropsTriggerButSparseOldDropsExpire() {
+    public void coalescedFramesDoNotDisableAnUpscalerThatMeetsItsBudget() {
         UpscalingPolicy policy = warmedPolicy(60);
-        policy.recordFrame(4000000, 2);
-        for (int i = 0; i < 60; i++) policy.recordFrame(4000000, 0);
-        policy.recordFrame(4000000, 2);
+        for (int i = 0; i < 120; i++) policy.recordFrame(4000000, 3);
         assertEquals(NONE, policy.getReason());
-        policy.recordFrame(4000000, 1);
-        assertEquals(DROPPED, policy.getReason());
         policy.fail(SLOW);
-        assertEquals(DROPPED, policy.getReason());
+        assertEquals(SLOW, policy.getReason());
     }
 
     @Test

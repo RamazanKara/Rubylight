@@ -6,6 +6,13 @@ import static org.junit.Assert.assertEquals;
 
 public class AdaptiveBitrateControllerTest {
     @Test
+    public void modestWifiJitterAllowsRecoveryAt120Fps() {
+        AdaptiveBitrateController controller = new AdaptiveBitrateController(10000, 8000, 120, 0);
+        assertEquals(0, controller.sample(1000, true, false, 0, 2, 3));
+        assertEquals(8400, controller.sample(16000, true, false, 0, 2, 3));
+    }
+
+    @Test
     public void timeSpentInMenusDoesNotCountAsHealthyRecovery() {
         AdaptiveBitrateController controller = new AdaptiveBitrateController(10000, 8000, 60, 0);
         assertEquals(0, controller.sample(1000, true, false, 0, 2));

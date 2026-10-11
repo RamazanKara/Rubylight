@@ -14,6 +14,41 @@ import static org.junit.Assert.*;
 
 public class FrameLatencyStatsTest {
     @Test
+    public void surfaceRecreationDoesNotCountCancelledPresentationsAsDrops() throws Exception {
+        FrameLatencyStats stats = new FrameLatencyStats();
+        stats.onDecoderInput(1, 123, 1000000, 1500000, 2000000, (char) 0);
+        stats.onDecoderOutput(0, 123, 3000000);
+        stats.onOutputReleased(0, 4000000, true, true);
+        stats.discard(123, "surface_changed");
+        stats.expire(10000000000L);
+        assertEquals(0, stats.getPresentDrops());
+        StringWriter csv = new StringWriter();
+        stats.writeCsv(csv);
+        assertTrue(csv.toString().contains(",surface_changed,"));
+    }
+
+    @Test
+    public void csvDurationsKeepNanosecondPrecisionWithoutLocaleFormatting() throws Exception {
+        java.util.Locale previous = java.util.Locale.getDefault();
+        try {
+            java.util.Locale.setDefault(java.util.Locale.GERMANY);
+            FrameLatencyStats stats = new FrameLatencyStats();
+            stats.onDecoderInput(1, 123, 1000000, 1000001, 1000011, (char) 1);
+            stats.onDecoderOutput(0, 123, 1234567890);
+            stats.onOutputReleased(0, 1234567891, false, false);
+            StringWriter csv = new StringWriter();
+            stats.writeCsv(csv);
+            String[] fields = csv.toString().trim().split(",", -1);
+            assertEquals("0.000011", fields[8]);
+            assertEquals("1233.567879", fields[9]);
+            assertEquals("0.100000", fields[13]);
+            assertEquals("0.000010", fields[25]);
+        } finally {
+            java.util.Locale.setDefault(previous);
+        }
+    }
+
+    @Test
     public void supportedThousandFpsStreamKeepsFramesUntilTheCallbackTimeout() {
         FrameLatencyStats stats = new FrameLatencyStats(true);
         for (int i = 1; i <= 8000; i++) {

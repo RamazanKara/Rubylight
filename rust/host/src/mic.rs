@@ -318,7 +318,7 @@ fn render(
     opened: &AtomicBool,
 ) -> Result<()> {
     let _com = ComGuard::new()?;
-    let _priority = Priority::new();
+    let _priority = Priority::input();
     let mut render = Render::open(&endpoint(config)?)?;
     opened.store(true, Ordering::Release);
     while !stop.load(Ordering::Acquire) {

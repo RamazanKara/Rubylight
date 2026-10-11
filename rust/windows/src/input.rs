@@ -450,6 +450,13 @@ impl Injector {
             // including those pressed earlier in the pass.
             Keyboard { .. } if self.press_pending(true) => self.flush(),
             MouseButton { .. } if self.press_pending(false) => self.flush(),
+            // Finish the absolute-mode click before relative input can press again.
+            Relative { .. } if self.left_release.take().is_some() => {
+                self.flush();
+                if let Err(error) = self.held(false, 1, false, true, Self::button(1, false)) {
+                    self.pending.errors.push(error);
+                }
+            }
             // Touch and pen go through another call: keep them in order.
             Touch { .. } | Pen { .. } => self.flush(),
             _ => {}
@@ -920,6 +927,126 @@ mod tests {
     }
     fn click(button: u8, down: bool) -> Event {
         Event::MouseButton { button, down }
+    }
+    #[test]
+    fn relative_mouse_releases_a_deferred_absolute_click_before_moving() {
+        for batched in [false, true] {
+            let mut injector = recording();
+            injector.lookup = None;
+            injector.rect = Some(RECT {
+                left: 0,
+                top: 0,
+                right: 1920,
+                bottom: 1080,
+            });
+            let absolute = Event::Absolute {
+                x: 50,
+                y: 50,
+                width: 100,
+                height: 100,
+            };
+            let relative = Event::Relative { x: 3, y: 2 };
+            injector.apply(&absolute).unwrap();
+            let absolute_input = calls().into_iter().flatten().collect::<Vec<_>>();
+            let events = [
+                absolute.clone(),
+                click(1, true),
+                click(1, false),
+                absolute.clone(),
+                relative.clone(),
+                click(1, true),
+                absolute,
+                click(1, false),
+            ];
+            if batched {
+                assert!(injector.apply_all(&events).is_empty());
+            } else {
+                for event in &events {
+                    injector.apply(event).unwrap();
+                }
+            }
+            // A second absolute release must not overwrite ownership retained by the first.
+            *injector.left_release.as_mut().unwrap() = std::time::Instant::now();
+            injector.due().unwrap();
+            let first = calls().into_iter().flatten().collect::<Vec<_>>();
+            injector.release_pointers();
+            let cleanup = calls();
+            let retained = HELD.lock().unwrap().get(&(false, 1)).copied();
+            injector.apply(&relative).unwrap();
+            calls();
+            injector.apply(&click(1, true)).unwrap();
+            injector.apply(&click(1, false)).unwrap();
+            let subsequent = calls().into_iter().flatten().collect::<Vec<_>>();
+            let mut expected = absolute_input.clone();
+            expected.extend(described(&[Injector::button(1, true)]));
+            expected.extend(absolute_input.clone());
+            expected.extend(described(&[
+                Injector::button(1, false),
+                Injector::mouse(3, 2, 0, MOUSEEVENTF_MOVE),
+                Injector::button(1, true),
+            ]));
+            expected.extend(absolute_input);
+            expected.extend(described(&[Injector::button(1, false)]));
+            assert_eq!(
+                first, expected,
+                "batched={batched}; cleanup={cleanup:?}; retained={retained:?}; subsequent={subsequent:?}"
+            );
+            assert!(cleanup.is_empty());
+            assert_eq!(retained, None);
+            assert_eq!(
+                subsequent,
+                described(&[Injector::button(1, true), Injector::button(1, false)])
+            );
+            assert!(!HELD.lock().unwrap().contains_key(&(false, 1)));
+        }
+
+        let relative = Event::Relative { x: 3, y: 2 };
+        let movement = Injector::mouse(3, 2, 0, MOUSEEVENTF_MOVE);
+        let mut first = recording();
+        let mut second = recording();
+        first.absolute = true;
+        first.apply(&click(1, true)).unwrap();
+        first.apply(&click(1, false)).unwrap();
+        assert!(first.left_release.is_some());
+        second.apply(&click(1, true)).unwrap();
+        calls();
+        first.apply(&relative).unwrap();
+        assert!(first.left_release.is_none());
+        assert_eq!(calls(), [described(&[movement])]);
+        assert_eq!(HELD.lock().unwrap().get(&(false, 1)), Some(&1));
+        first.release_pointers();
+        assert!(calls().is_empty());
+        second.apply(&click(1, false)).unwrap();
+        assert_eq!(calls(), [described(&[Injector::button(1, false)])]);
+        assert!(!HELD.lock().unwrap().contains_key(&(false, 1)));
+
+        first.absolute = true;
+        first.apply(&click(1, true)).unwrap();
+        first.apply(&click(1, false)).unwrap();
+        calls();
+        TAKES.set(0);
+        let errors = first.apply_all(std::slice::from_ref(&relative));
+        TAKES.set(usize::MAX);
+        assert_eq!(errors.len(), 2);
+        assert_eq!(
+            calls(),
+            [
+                described(&[Injector::button(1, false)]),
+                described(&[movement]),
+            ]
+        );
+        assert!(!first.absolute && first.left_release.is_none());
+        assert!(!HELD.lock().unwrap().contains_key(&(false, 1)));
+        first.apply(&click(1, true)).unwrap();
+        first.apply(&click(1, false)).unwrap();
+        assert_eq!(
+            calls(),
+            [
+                described(&[Injector::button(1, true)]),
+                described(&[Injector::button(1, false)]),
+            ]
+        );
+        assert!(!HELD.lock().unwrap().contains_key(&(false, 1)));
     }
     // HELD is shared by every injector: each test below uses its own keys
     // and buttons.

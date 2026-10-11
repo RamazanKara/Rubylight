@@ -25,6 +25,7 @@ struct Frame {
 struct State {
     pending: Option<Frame>,
     sending: bool,
+    sending_keyframe: bool,
     next_wire_frame: u32,
     skipped: u32,
     error: Option<String>,
@@ -51,6 +52,12 @@ impl State {
         }
         Ok(usize::from(self.sending) + usize::from(self.pending.is_some()))
     }
+    fn claim_backlog(&self) -> Result<usize> {
+        Ok(self.backlog()?
+            + usize::from(
+                self.sending_keyframe || self.pending.as_ref().is_some_and(|f| f.encoded.idr),
+            ))
+    }
 }
 struct Slot {
     state: Mutex<State>,
@@ -71,6 +78,7 @@ impl Slot {
                 }
                 state.sending = true;
                 let mut frame = state.pending.take().unwrap();
+                state.sending_keyframe = frame.encoded.idr;
                 frame.skipped = std::mem::take(&mut state.skipped);
                 self.changed.notify_all();
                 frame
@@ -79,6 +87,7 @@ impl Slot {
             let mut state = self.state.lock().unwrap();
             state.next_wire_frame = next_wire_frame;
             state.sending = false;
+            state.sending_keyframe = false;
             self.changed.notify_all();
         }
     }
@@ -190,7 +199,7 @@ impl Sender {
                     route.wireless,
                 );
                 if Instant::now() >= link_due {
-                    let needed = u64::from(s.bitrate.load(Ordering::Relaxed)) * (100 + packetizer.fec_percent as u64) * 10;
+                    let needed = butterpollo_core::network_pacing::video_wire_rate_bps(&packetizer, s.bitrate.load(Ordering::Relaxed), period, peer.is_ipv6());
                     butterpollo_core::network_pacing::report_rate(&s.launch.warnings, bps, needed, c.integer("pacing_max_bitrate_kbps", 0));
                     if reported_pacing != Some(bps) {
                         tracing::info!(pacing_bps=bps, link_bps=route.bps, configured_kbps=c.integer("pacing_max_bitrate_kbps", 0), "network pacing selected; defaults use twice encoder bitrate for confirmed wireless routes, or the wired fallback ceiling");
@@ -291,6 +300,7 @@ impl Sender {
             state: Mutex::new(State {
                 pending: None,
                 sending: false,
+                sending_keyframe: false,
                 next_wire_frame: 1,
                 skipped: 0,
                 error: None,
@@ -311,6 +321,7 @@ impl Sender {
                 shared.stop.store(true, Ordering::Release);
                 state.pending = None;
                 state.sending = false;
+                state.sending_keyframe = false;
                 shared.changed.notify_all();
             })?;
         Ok(Self {
@@ -355,6 +366,22 @@ impl Sender {
     }
     pub fn backlog(&self) -> Result<usize> {
         self.slot.state.lock().unwrap().backlog()
+    }
+    pub fn claim_backlog(&self) -> Result<usize> {
+        self.slot.state.lock().unwrap().claim_backlog()
+    }
+    pub fn wait_for_capacity(&self, limit: usize, timeout: Duration) -> Result<()> {
+        let state = self.slot.state.lock().unwrap();
+        let (state, _) = self
+            .slot
+            .changed
+            .wait_timeout_while(state, timeout, |state| {
+                state.claim_backlog().is_ok_and(|backlog| backlog >= limit)
+                    && !self.slot.stop.load(Ordering::Acquire)
+            })
+            .unwrap();
+        state.backlog()?;
+        Ok(())
     }
     /// For a keyframe request: drops the frame waiting to be sent, which the
     /// client would discard, so the keyframe is claimed without waiting for

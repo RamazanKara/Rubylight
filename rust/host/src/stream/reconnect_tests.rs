@@ -23,6 +23,7 @@ const WAIT: Duration = Duration::from_secs(5);
 pub(crate) struct Fixture {
     displays: Arc<AtomicUsize>,
     inputs: Arc<AtomicUsize>,
+    pub(super) input_releases: AtomicUsize,
     hold_teardown: AtomicBool,
     in_teardown: AtomicBool,
     reset: Mutex<Option<String>>,
@@ -380,7 +381,7 @@ impl Harness {
             &response[8..24],
             &response[24..],
         )?)?;
-        assert!(response.starts_with("RTSP/1.0 200"), "{response}");
+        anyhow::ensure!(response.starts_with("RTSP/1.0 200"), "{response}");
         Ok(response)
     }
     async fn play(&self, launch: &Launch) -> Result<(Arc<Session>, Client)> {
@@ -662,6 +663,45 @@ impl Drop for Client {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn malformed_rtsp_requests_receive_an_authenticated_error_response() -> Result<()> {
+    let h = Harness::new(10_000, 1).await?;
+    let launch = h.launch(0, false).await?;
+    for (sequence, method, target, body, message) in [
+        (
+            1,
+            "PLAY",
+            "streamid=video",
+            "",
+            "ANNOUNCE required before PLAY",
+        ),
+        (
+            2,
+            "SETUP",
+            "streamid=unknown",
+            "",
+            "unknown stream setup target",
+        ),
+        (
+            3,
+            "ANNOUNCE",
+            "streamid=video",
+            "a=x-nv-video[0].clientViewportWd:1\r\n",
+            "",
+        ),
+    ] {
+        let response = h
+            .rtsp_at(&launch, sequence, method, target, body)
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(response.starts_with("RTSP/1.0 400"), "{response}");
+        assert!(response.contains(message), "{response}");
+    }
+    h.h.sessions.lock().unwrap().request_stop(Some(&launch.id));
+    h.finish().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn vanishes_then_resumes_within_ping_timeout() -> Result<()> {
     let h = Harness::new(10_000, 1).await?;
     let launch = h.launch(0, false).await?;
@@ -711,6 +751,7 @@ async fn network_drop(seconds: u64, timeout_ms: u32, survives: bool) -> Result<(
         h.empty().await?;
     }
     tokio::time::sleep(Duration::from_secs(seconds).saturating_sub(lost_at.elapsed())).await;
+    assert!(h.fixture.input_releases.load(Ordering::Acquire) > 0);
     if survives {
         assert!(
             !session.stopping(),

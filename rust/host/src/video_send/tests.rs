@@ -31,6 +31,59 @@ fn blocked_sender() -> (Sender, Receiver<Frame>, Channel<()>) {
 }
 
 #[test]
+fn a_keyframe_waiting_for_the_sender_also_blocks_the_next_claim() {
+    let now = Instant::now();
+    let state = State {
+        pending: Some(Frame {
+            encoded: frame(1),
+            peer: peer(),
+            claimed: now,
+            polled: now,
+            latency: Duration::ZERO,
+            skipped: 0,
+        }),
+        sending: false,
+        sending_keyframe: false,
+        next_wire_frame: 1,
+        skipped: 0,
+        error: None,
+    };
+    assert_eq!(state.backlog().unwrap(), 1);
+    assert_eq!(state.claim_backlog().unwrap(), 2);
+}
+
+#[test]
+fn capacity_wait_wakes_after_the_sender_releases_a_frame() {
+    let (sender, frames, release) = blocked_sender();
+    sender
+        .submit(vec![frame(1)], peer(), Duration::ZERO)
+        .unwrap();
+    frames.recv_timeout(WAIT).unwrap();
+    assert_eq!(sender.backlog().unwrap(), 1);
+    assert_eq!(sender.claim_backlog().unwrap(), 2);
+    thread::scope(|scope| {
+        let (entered, waiting) = mpsc::channel();
+        let (finished, done) = mpsc::channel();
+        let sender = &sender;
+        scope.spawn(move || {
+            entered.send(()).unwrap();
+            sender.wait_for_capacity(2, WAIT).unwrap();
+            finished.send(()).unwrap();
+        });
+        waiting.recv_timeout(WAIT).unwrap();
+        assert!(done.recv_timeout(Duration::from_millis(20)).is_err());
+        release.send(()).unwrap();
+        done.recv_timeout(WAIT).unwrap();
+        sender
+            .submit(vec![frame(2)], peer(), Duration::ZERO)
+            .unwrap();
+        frames.recv_timeout(WAIT).unwrap();
+        assert_eq!(sender.claim_backlog().unwrap(), 1);
+        release.send(()).unwrap();
+    });
+}
+
+#[test]
 fn ordered_output_waits_for_the_single_pending_slot_without_replacing_frames() {
     let (sender, frames, release) = blocked_sender();
     sender

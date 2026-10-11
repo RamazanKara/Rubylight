@@ -11,8 +11,10 @@ pub struct Plan {
 pub struct References {
     slots: Vec<Option<u64>>,
     next: usize,
-    pending: Option<usize>,
+    pending: Option<(usize, u64)>,
     submitted: u64,
+    recovered: u64,
+    recovered_from: u64,
 }
 impl References {
     pub fn new(count: usize) -> Self {
@@ -23,6 +25,9 @@ impl References {
     }
     pub fn enabled(&self) -> bool {
         !self.slots.is_empty()
+    }
+    pub fn invalidation_pending(&self) -> bool {
+        self.pending.is_some()
     }
     pub fn disable(&mut self) {
         *self = Self::default();
@@ -41,7 +46,7 @@ impl References {
         if idr {
             plan.mark = Some(0);
             plan.next = usize::from(self.slots.len() > 1);
-        } else if let Some(reference) = self.pending {
+        } else if let Some((reference, _)) = self.pending {
             plan.reference = Some(reference);
             plan.after_invalidation = true;
             plan.reset = true;
@@ -61,6 +66,12 @@ impl References {
     /// applied back pressure before accepting the same frame.
     pub fn accepted(&mut self, frame: u64, plan: &Plan) {
         if plan.reset {
+            self.recovered = frame;
+            self.recovered_from = if plan.after_invalidation {
+                self.pending.unwrap().1
+            } else {
+                1
+            };
             for (slot, value) in self.slots.iter_mut().enumerate() {
                 if Some(slot) != plan.reference {
                     *value = None;
@@ -77,6 +88,11 @@ impl References {
     pub fn invalidate(&mut self, first: u64, last: u64) -> bool {
         if first == 0 || first > last || first > self.submitted {
             return false;
+        }
+        // Feedback can still be in flight when an IDR or LTR repair is sent.
+        // A range that includes that repair must recover again.
+        if first >= self.recovered_from && last < self.recovered {
+            return true;
         }
         let reference = self
             .slots
@@ -96,7 +112,7 @@ impl References {
                 *frame = None;
             }
         }
-        self.pending = Some(reference);
+        self.pending = Some((reference, first));
         true
     }
 }
@@ -104,6 +120,35 @@ impl References {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn feedback_for_frames_before_an_idr_does_not_request_another_idr() {
+        let mut references = References::new(0);
+        for frame in 1..=12 {
+            let plan = references.plan(frame, frame == 1 || frame == 10);
+            references.accepted(frame, &plan);
+        }
+        assert!(references.invalidate(7, 8));
+        assert!(references.invalidate(7, 9));
+        assert!(!references.invalidate(7, 10));
+        assert!(!references.invalidate(10, 12));
+    }
+    #[test]
+    fn ltr_feedback_is_deduplicated_only_when_the_repair_covers_its_range() {
+        let mut references = References::new(4);
+        for frame in 1..=20 {
+            let plan = references.plan(frame, frame == 1);
+            references.accepted(frame, &plan);
+        }
+        assert!(references.invalidate(17, 18));
+        references.accepted(21, &references.plan(21, false));
+        assert!(references.invalidate(17, 20));
+        assert!(!references.invalidation_pending());
+        assert!(!references.plan(22, false).after_invalidation);
+        assert!(!references.invalidate(10, 12));
+        assert!(references.invalidate(17, 21));
+        assert!(references.invalidation_pending());
+        assert!(references.plan(22, false).after_invalidation);
+    }
     #[test]
     fn delayed_loss_feedback_preserves_baseline_and_invalidates_newer_anchors() {
         let mut references = References::new(4);

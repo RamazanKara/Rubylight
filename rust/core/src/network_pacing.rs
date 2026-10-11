@@ -73,6 +73,22 @@ pub fn overhead(ipv6: bool) -> usize {
     if ipv6 { 86 } else { 66 }
 }
 
+pub fn video_wire_rate_bps(
+    packetizer: &crate::packet::VideoPacketizer,
+    stream_kbps: u32,
+    period: Duration,
+    ipv6: bool,
+) -> u64 {
+    let payload = (f64::from(stream_kbps) * 125. * period.as_secs_f64()).ceil() as usize;
+    let packets: usize = packetizer
+        .block_layout(payload)
+        .iter()
+        .map(|(data, fec)| data + fec)
+        .sum();
+    let datagram = packetizer.packet_size + 16 + if packetizer.key.is_some() { 32 } else { 0 };
+    (packets as f64 * (datagram + overhead(ipv6)) as f64 * 8. / period.as_secs_f64()).ceil() as u64
+}
+
 /// Time spent in the send call or waking late that still counts toward the
 /// batch's interval. It covers a typical 64 KB send (about 0.2 ms) plus timer
 /// lateness; a longer stall or idle gap earns no more than this.
@@ -110,6 +126,35 @@ impl Pacer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn conventional_wire_budget_includes_framing_encryption_and_fec_rounding() {
+        for ipv6 in [false, true] {
+            for key in [None, Some([0; 16])] {
+                let mut packetizer = crate::packet::VideoPacketizer {
+                    sequence: 0,
+                    iv_counter: 0,
+                    frame: 1,
+                    packet_size: 1392,
+                    fec_percent: 20,
+                    min_fec: 2,
+                    key,
+                };
+                let period = Duration::from_secs_f64(1. / 60.);
+                let payload = (63_000. * 125. * period.as_secs_f64()).ceil() as usize;
+                let needed = video_wire_rate_bps(&packetizer, 63_000, period, ipv6);
+                let packets = packetizer.encode(&vec![0; payload], false, 0, 0).unwrap();
+                let wire: usize = packets.iter().map(|p| p.len() + overhead(ipv6)).sum();
+                assert_eq!(
+                    needed,
+                    (wire as f64 * 8. / period.as_secs_f64()).ceil() as u64
+                );
+                assert!(needed > 78_000_000);
+                let warnings = crate::session::Warnings::default();
+                report_rate(&warnings, 78_000_000, needed, 78_000);
+                assert_eq!(warnings.snapshot()[0].code, "network_pacing");
+            }
+        }
+    }
     #[test]
     fn only_a_pacing_shortfall_warns_and_a_faster_link_clears_it() {
         let warnings = crate::session::Warnings::default();

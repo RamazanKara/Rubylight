@@ -960,7 +960,6 @@ impl Media {
                             timer.until(Instant::now() + Duration::from_millis(2));
                         }
                         let release_ms = recovery_started.elapsed().as_millis();
-                        thread::sleep(RECOVERY_RETRY);
                         let mut missing_since = None;
                         loop {
                             worker.check()?;
@@ -1308,7 +1307,8 @@ impl Media {
                         Some(p) if p.prepared().display.matches(&s.config) => p.into_prepared(),
                         previous => {
                             drop(previous);
-                            h.app_display.lock().unwrap().remove(&s.launch.client.uuid);
+                            let previous = h.app_display.lock().unwrap().remove(&s.launch.client.uuid);
+                            drop(previous);
                             crate::display_session::prepare_stream(
                                 &h, &s.launch, &s.config, &c,
                             )?
@@ -1353,7 +1353,7 @@ impl Media {
                     audio = Some(m.spawn_audio(&h, &s)?);
                     let requested_fec = c.integer("fec_percentage", 20);
                     if requested_fec != requested_fec.clamp(0, 100) {
-                        s.launch.warnings.set("network_fec_config", format!("FEC percentage {requested_fec} is outside 0-100; using {}%. Correct fec_percentage in Network settings.", requested_fec.clamp(0, 100)));
+                        s.launch.warnings.set("network_fec_config", format!("FEC percentage {requested_fec} is outside 0-100; using {}%. Correct fec_percentage in Video settings.", requested_fec.clamp(0, 100)));
                     }
                     // The configured percentage is adaptive FEC's ceiling; with
                     // `adaptive_fec` off, or a client that sends no FEC status, it
@@ -1562,7 +1562,7 @@ impl Media {
                                 route.wireless,
                             );
                             if Instant::now() >= link_due {
-                                let needed = u64::from(s.bitrate.load(Ordering::Relaxed)) * (100 + packetizer.fec_percent as u64) * 10;
+                                let needed = butterpollo_core::network_pacing::video_wire_rate_bps(&packetizer, s.bitrate.load(Ordering::Relaxed), stream_period.get(), peer.is_ipv6());
                                 butterpollo_core::network_pacing::report_rate(&s.launch.warnings, bps, needed, c.integer("pacing_max_bitrate_kbps", 0));
                                 if reported_pacing != Some(bps) {
                                     tracing::info!(pacing_bps=bps, link_bps=route.bps, configured_kbps=c.integer("pacing_max_bitrate_kbps", 0), "network pacing selected; defaults use twice encoder bitrate for confirmed wireless routes, or the wired fallback ceiling");
@@ -1939,8 +1939,12 @@ impl Media {
                             // request: the client would discard it, and the
                             // keyframe would wait for it.
                             let sending = match video_sender.get() {
-                                Some(sender) if s.idr.load(Ordering::Acquire) => sender.skip_pending()?,
-                                Some(sender) => sender.backlog()?,
+                                Some(sender) => {
+                                    if s.idr.load(Ordering::Acquire) { sender.skip_pending()?; }
+                                    // Claim after a keyframe finishes sending, so the next
+                                    // picture does not age behind a multi-period burst.
+                                    sender.claim_backlog()?
+                                },
                                 None => 0,
                             };
                             let encoding = encoder.as_ref().map_or(0, |e| recovery.backlog(e));
@@ -1951,7 +1955,7 @@ impl Media {
                                     if encoder.as_ref().is_some_and(|e| recovery.pending(e)) {
                                         send_frames(recovery.collect(&mut encoder, &s.launch.warnings, Instant::now)?, peer, Duration::ZERO, latest)?;
                                     } else {
-                                        timer.until(Instant::now() + OUTPUT_POLL);
+                                        video_sender.get().unwrap().wait_for_capacity(ENCODER_BACKLOG, period)?;
                                     }
                                     continue;
                                 }
@@ -2116,7 +2120,7 @@ impl Media {
                             if let Some((first, last)) = invalidation {
                                 if !active.invalidate_ref_frames(first, last) {
                                     s.request_idr();
-                                } else if active.backend() == "amf" {
+                                } else if active.needs_recovery_confirmation() {
                                     // A decoder that cannot follow the long-term
                                     // reference stays frozen, and Moonlight does not
                                     // ask again: a keyframe a second later bounds that.
@@ -2327,7 +2331,7 @@ impl Media {
     }
     fn audio(&self, h: Shared, s: Arc<Session>) -> Result<()> {
         let _com = ComGuard::new()?;
-        let _priority = Priority::new();
+        let _priority = Priority::input();
         let config = effective_config(&h, &s.launch)?;
         let muted = !config.boolean("stream_audio", true)
             || (s.launch.role == Role::RemoteMonitor
@@ -2570,6 +2574,25 @@ impl Media {
         )?;
         let _com = ComGuard::new()?;
         let _priority = Priority::input();
+        let (commands, pending_commands) =
+            std::sync::mpsc::sync_channel::<(Arc<Session>, String, bool)>(32);
+        thread::Builder::new()
+            .name("server commands".into())
+            .spawn(move || {
+                for (session, value, elevated) in pending_commands {
+                    if session.stopping() {
+                        continue;
+                    }
+                    if let Err(error) = butterpollo_windows::process::Process::shell_detached(
+                        &value,
+                        None,
+                        elevated,
+                        &Default::default(),
+                    ) {
+                        tracing::warn!(%error, "configured server command failed");
+                    }
+                }
+            })?;
         let mut peers: HashMap<PeerID, ControlPeer> = HashMap::new();
         // Active sessions without a control peer, since when.
         let mut unattended: HashMap<String, Instant> = HashMap::new();
@@ -2638,6 +2661,7 @@ impl Media {
                                     hdr_metadata: None,
                                     legacy: butterpollo_core::packet::LegacyInput::new(l.key_id),
                                     seen: Instant::now(),
+                                    input_released: false,
                                     session: None,
                                     inputs: vec![],
                                     denied: 0,
@@ -2707,6 +2731,7 @@ impl Media {
                             }
                         };
                         p.seen = Instant::now();
+                        p.input_released = false;
                         match kind {
                             0x3000 => {
                                 if let Some((value, elevated)) = server_command(
@@ -2714,13 +2739,7 @@ impl Media {
                                     &s.launch.client,
                                     &payload,
                                     &mut p.command_at,
-                                ) && let Err(e) =
-                                    butterpollo_windows::process::Process::shell_detached(
-                                        &value,
-                                        None,
-                                        elevated,
-                                        &Default::default(),
-                                    )
+                                ) && let Err(e) = commands.try_send((s.clone(), value, elevated))
                                 {
                                     tracing::warn!(error=%e, "configured server command failed");
                                 }
@@ -2897,6 +2916,16 @@ impl Media {
                         remove.push(*peer_id);
                         continue;
                     }
+                    if !p.input_released && p.seen.elapsed() >= Duration::from_secs(1) {
+                        #[cfg(test)]
+                        if let Some(fixture) = &h.reconnect_fixture {
+                            fixture.input_releases.fetch_add(1, Ordering::Release);
+                        }
+                        if let Some(injector) = &mut p.injector {
+                            injector.release_all();
+                        }
+                        p.input_released = true;
+                    }
                     // Sent once the encoder has the display's metadata, as
                     // Sunshine does, and again only if it changes. Moonlight
                     // for Xbox sets the TV's HDMI mode on every message, so an
@@ -3009,7 +3038,7 @@ impl Media {
                 }
             }
             host.socket_mut().release()?;
-            // Unplugging gamepads can wait; finish this pass's input and sends first.
+            // Release held input now; gamepad workers unplug their pads asynchronously.
             drop(disconnected);
             for peer in remove {
                 peers.remove(&peer);
@@ -3065,11 +3094,19 @@ struct ControlPeer {
     hdr_metadata: Option<[u8; 27]>,
     legacy: butterpollo_core::packet::LegacyInput,
     seen: Instant,
+    input_released: bool,
     session: Option<Arc<Session>>,
     inputs: Vec<input::Input>,
     /// Input permissions this device lacked and was warned about.
     denied: u32,
     command_at: Option<Instant>,
+}
+impl Drop for ControlPeer {
+    fn drop(&mut self) {
+        if let Some(injector) = &mut self.injector {
+            injector.detach_gamepads();
+        }
+    }
 }
 impl ControlPeer {
     fn encrypt(&mut self, s: &Session, kind: u16, payload: &[u8]) -> Result<Vec<u8>> {

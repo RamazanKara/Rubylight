@@ -607,7 +607,7 @@ fn repeat_grace_handles_fractional_rates_without_delaying_slow_sources() {
     }
 }
 #[test]
-fn repeat_grace_respects_disabled_prediction_and_source_phase() {
+fn repeat_grace_protects_ddx_and_vrr_without_predicting_fresh_claims() {
     let start = Instant::now();
     let period = Duration::from_millis(16);
     let due = start + period;
@@ -618,7 +618,30 @@ fn repeat_grace_respects_disabled_prediction_and_source_phase() {
             .with_source_phase(true)
             .with_prediction(false),
     ] {
-        assert_eq!(pacer.repeat_deadline(due, start, Some(period)), due);
+        assert_eq!(
+            pacer.repeat_deadline(due, start, Some(period)),
+            due + period / 4
+        );
+    }
+}
+#[test]
+fn repeat_grace_protects_slow_sources_only_when_their_next_frame_is_due() {
+    let start = Instant::now();
+    let period = Duration::from_millis(8);
+    let pacer = Pacer::new(start, period);
+    for multiple in [2, 3, 5, 12] {
+        let interval = period * multiple;
+        for repeat in 1..multiple {
+            let due = start + period * repeat;
+            assert_eq!(pacer.repeat_deadline(due, start, Some(interval)), due);
+        }
+        let due = start + interval;
+        assert_eq!(
+            pacer.repeat_deadline(due, start, Some(interval)),
+            due + period / 4
+        );
+        let late = due + period;
+        assert_eq!(pacer.repeat_deadline(late, start, Some(interval)), late);
     }
 }
 #[test]

@@ -941,11 +941,17 @@ impl Encoder {
     pub fn supports_invalidation(&self) -> bool {
         self.references.enabled()
     }
+    pub fn invalidation_pending(&self) -> bool {
+        self.references.invalidation_pending()
+    }
     pub fn invalidate_ref_frames(&mut self, first: u64, last: u64) -> bool {
         // VCN AVC uses a four-bit frame_num with POC type 2. A decoder cannot
         // reliably infer a missing counter wrap. Use a recovery IDR for that
         // window, and keep LTR recovery for losses within the same epoch.
-        if self.codec == 0 && first.saturating_sub(2) / 16 != self.index as u64 / 16 {
+        if self.codec == 0
+            && self.references.enabled()
+            && first.saturating_sub(2) / 16 != self.index as u64 / 16
+        {
             return false;
         }
         self.references.invalidate(first, last)

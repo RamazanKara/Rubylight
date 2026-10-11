@@ -1011,6 +1011,9 @@ impl Encoder {
             _ => false,
         }
     }
+    pub fn needs_recovery_confirmation(&self) -> bool {
+        matches!(self, Self::Amf(encoder) if encoder.invalidation_pending())
+    }
     pub fn poll(&mut self) -> Result<Vec<Encoded>> {
         match self {
             Self::Amf(e) => e.poll(),

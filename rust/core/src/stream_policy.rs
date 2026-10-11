@@ -307,19 +307,17 @@ impl Pacer {
     /// image before a minimum-rate repeat consumes its pacing credit. `due`
     /// must be the original repeat deadline, not the current polling time or a
     /// previously deferred deadline; the result is fixed for the same inputs.
-    /// A stale prediction, a slower source, or disabled WGC pacing adds no wait.
+    /// A stale prediction adds no wait. This only delays repeats, so it also
+    /// protects fresh frames with Desktop Duplication and VRR arrival pacing.
     pub fn repeat_deadline(
         &self,
         due: Instant,
         presented: Instant,
         source_interval: Option<Duration>,
     ) -> Instant {
-        if !self.prediction || self.source_phase.is_none() {
-            return due;
-        }
-        let Some(interval) = source_interval.filter(|interval| {
-            *interval >= self.period.mul_f64(0.875) && *interval <= self.period.mul_f64(1.125)
-        }) else {
+        let Some(interval) =
+            source_interval.filter(|interval| *interval >= self.period.mul_f64(0.875))
+        else {
             return due;
         };
         let next = presented + interval;

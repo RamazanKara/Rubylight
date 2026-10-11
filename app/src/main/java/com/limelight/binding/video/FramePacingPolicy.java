@@ -8,6 +8,10 @@ final class FramePacingPolicy {
                 mode != PreferenceConfiguration.FRAME_PACING_CAP_FPS;
     }
 
+    static boolean isFrameDue(long dueNs, long vsyncNs, long vsyncIntervalNs) {
+        return vsyncNs + vsyncIntervalNs / 2 >= dueNs;
+    }
+
     static long nextFrameTimeNs(long dueNs, long vsyncNs, int fps) {
         long intervalNs = 1_000_000_000L / fps;
         if (dueNs == 0) return vsyncNs + intervalNs;

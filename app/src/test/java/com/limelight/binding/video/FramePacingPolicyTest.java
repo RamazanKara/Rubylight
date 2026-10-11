@@ -17,7 +17,7 @@ public class FramePacingPolicyTest {
         int frames = 0;
         for (int tick = 0; tick < 900; tick++) {
             long vsync = 1_000_000_000L + Math.round(tick * 1_000_000_000.0 / 90);
-            if (vsync >= due) {
+            if (FramePacingPolicy.isFrameDue(due, vsync, 1_000_000_000L / 90)) {
                 frames++;
                 due = FramePacingPolicy.nextFrameTimeNs(due, vsync, 60);
             }
@@ -35,7 +35,34 @@ public class FramePacingPolicyTest {
         int frames = 0;
         for (int tick = 0; tick < 1199; tick++) {
             long vsync = 1_000_000_000L + Math.round(tick * 1_000_000_000.0 / 119.88);
-            if (vsync >= due) {
+            if (FramePacingPolicy.isFrameDue(due, vsync, Math.round(1_000_000_000.0 / 119.88))) {
+                frames++;
+                due = FramePacingPolicy.nextFrameTimeNs(due, vsync, 60);
+            }
+        }
+        assertEquals(600, frames);
+    }
+
+    @Test public void matchingPanelAndStreamRatesTolerateVsyncTimestampNoise() {
+        for (int fps : new int[] {60, 120}) {
+            long due = 0;
+            long interval = 1_000_000_000L / fps;
+            for (int tick = 0; tick < fps * 10; tick++) {
+                long vsync = 1_000_000_000L + tick * interval + (tick % 2 == 0 ? 5000 : -5000);
+                assertTrue("Skipped tick " + tick + " at " + fps + " FPS",
+                        FramePacingPolicy.isFrameDue(due, vsync, interval));
+                due = FramePacingPolicy.nextFrameTimeNs(due, vsync, fps);
+            }
+        }
+    }
+
+    @Test public void sixtyFpsOnOneTwentyHzStillRendersEveryOtherVsync() {
+        long due = 0;
+        int frames = 0;
+        for (int tick = 0; tick < 1200; tick++) {
+            long vsync = 1_000_000_000L + Math.round(tick * 1_000_000_000.0 / 120) +
+                    (tick % 2 == 0 ? 5000 : -5000);
+            if (FramePacingPolicy.isFrameDue(due, vsync, 1_000_000_000L / 120)) {
                 frames++;
                 due = FramePacingPolicy.nextFrameTimeNs(due, vsync, 60);
             }

@@ -15,10 +15,63 @@ public class AdaptiveBitrateControllerTest {
     }
 
     @Test
-    public void sustainedDecoderOverloadReducesRateWithoutNetworkLoss() {
+    public void fixedDecoderLatencyStopsReducingBitrateAndAllowsRecovery() {
         AdaptiveBitrateController controller = new AdaptiveBitrateController(20000, 20000, 120, 0);
         assertEquals(0, controller.sample(5000, true, false, 0, 9));
-        assertEquals(16000, controller.sample(6000, true, false, 0, 9));
+        assertEquals(0, controller.sample(6000, true, false, 0, 9));
+        assertEquals(16000, controller.sample(15000, true, false, 0, 9));
+        controller.applied(16000, 16000, 15000);
+        assertEquals(0, controller.sample(16000, true, false, 0, 9));
+        assertEquals(0, controller.sample(30000, true, false, 0, 9));
+        assertEquals(16800, controller.sample(45000, true, false, 0, 9));
+        controller.applied(16800, 16800, 45000);
+        assertEquals(0, controller.sample(46000, true, false, 0, 9));
+        assertEquals(17640, controller.sample(61000, true, false, 0, 9));
+    }
+
+    @Test
+    public void decoderPressureOnlyContinuesCuttingWhenLatencyImprovesAndStopsAtHalf() {
+        AdaptiveBitrateController controller = new AdaptiveBitrateController(20000, 20000, 120, 0);
+        assertEquals(0, controller.sample(1000, true, false, 0, 20));
+        assertEquals(16000, controller.sample(15000, true, false, 0, 20));
+        controller.applied(16000, 16000, 15000);
+        assertEquals(0, controller.sample(16000, true, false, 0, 18));
+        assertEquals(12800, controller.sample(30000, true, false, 0, 18));
+        controller.applied(12800, 12800, 30000);
+        assertEquals(0, controller.sample(31000, true, false, 0, 16));
+        assertEquals(10240, controller.sample(45000, true, false, 0, 16));
+        controller.applied(10240, 10240, 45000);
+        assertEquals(0, controller.sample(46000, true, false, 0, 14));
+        assertEquals(10000, controller.sample(60000, true, false, 0, 14));
+        controller.applied(10000, 10000, 60000);
+        assertEquals(0, controller.sample(61000, true, false, 0, 12));
+        assertEquals(0, controller.sample(75000, true, false, 0, 12));
+        assertEquals(8000, controller.sample(76000, true, true, 4, 12));
+    }
+
+    @Test
+    public void fixedDecoderLatencyDoesNotHideNetworkCongestion() {
+        AdaptiveBitrateController controller = new AdaptiveBitrateController(20000, 20000, 120, 0);
+        assertEquals(0, controller.sample(1000, true, false, 0, 9));
+        assertEquals(16000, controller.sample(15000, true, false, 0, 9));
+        controller.applied(16000, 16000, 15000);
+        assertEquals(0, controller.sample(30000, true, false, 0, 9));
+        assertEquals(0, controller.sample(31000, true, true, 4, 9));
+        assertEquals(12800, controller.sample(32000, true, true, 4, 9));
+    }
+
+    @Test
+    public void fixedDecoderLatencyAllowsRecoveryAfterCongestionCutsBelowHalf() {
+        AdaptiveBitrateController controller = new AdaptiveBitrateController(10000, 10000, 120, 0);
+        int bitrate = 10000;
+        for (long now = 3000; now <= 15000; now += 3000) {
+            assertEquals(0, controller.sample(now - 1000, true, true, 5, 10));
+            bitrate = bitrate * 80 / 100;
+            assertEquals(bitrate, controller.sample(now, true, true, 5, 10));
+            controller.applied(bitrate, bitrate, now);
+        }
+        assertEquals(0, controller.sample(30000, true, false, 0, 10));
+        assertEquals(bitrate + 250, controller.sample(45000, true, false, 0, 10));
     }
 
     @Test

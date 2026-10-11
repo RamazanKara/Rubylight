@@ -1047,6 +1047,9 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 virtualController.releaseInput();
             }
         }
+        if (controllerHandler != null) {
+            controllerHandler.setInputEnabled(hasFocus && grabbedInput);
+        }
 
         // We can't guarantee the state of modifiers keys which may have
         // lifted while focus was not on us. Clear the modifier state.
@@ -2415,6 +2418,9 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         setMetaKeyCaptureState(grab);
 
         grabbedInput = grab;
+        if (controllerHandler != null) {
+            controllerHandler.setInputEnabled(grab && hasWindowFocus());
+        }
     }
 
     private final Runnable toggleGrab = new Runnable() {

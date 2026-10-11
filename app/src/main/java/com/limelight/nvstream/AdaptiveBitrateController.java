@@ -10,6 +10,9 @@ public final class AdaptiveBitrateController {
     private int poorSamples;
     private int thermalLevel;
     private float previousQueueMs = -1;
+    private float decodeBeforeReductionMs = -1;
+    private int decodeBeforeReductionKbps;
+    private boolean decodeBitrateInsensitive;
 
     public AdaptiveBitrateController(int ceilingKbps, int currentKbps, int fps, long nowMs) {
         this.ceilingKbps = Math.min(500000, ceilingKbps);
@@ -42,21 +45,37 @@ public final class AdaptiveBitrateController {
         boolean queueBuilding = recentVideo && queueMs >= 0 && (queueMs >= Math.max(20, frameMs * 2) ||
                 (previousQueueMs >= 0 && queueMs >= Math.max(8, frameMs * 0.75f) && queueMs - previousQueueMs >= 3));
         previousQueueMs = recentVideo ? queueMs : -1;
-        boolean poor = poorConnection || queueBuilding || (recentVideo && (lossPercent >= 3 || decodeMs >= frameMs ||
+        boolean poor = poorConnection || queueBuilding || (recentVideo && (lossPercent >= 3 ||
                 jitterMs >= Math.max(5, frameMs * 0.75f)));
-        if (poor || (recentVideo && thermalLevel >= 2)) {
+        if (recentVideo && decodeMs >= 0 && decodeMs < frameMs * 0.75f) {
+            decodeBitrateInsensitive = false;
+            decodeBeforeReductionMs = -1;
+        }
+        boolean slowDecoder = recentVideo && decodeMs >= frameMs && !decodeBitrateInsensitive;
+        if (slowDecoder && !poor && thermalLevel < 2 && decodeBeforeReductionMs >= 0 &&
+                currentKbps < decodeBeforeReductionKbps && nowMs - lastChangeMs >= 15000 &&
+                decodeMs >= decodeBeforeReductionMs * 0.95f) {
+            // Fixed decoder buffering does not improve with bitrate. Stop cutting and allow recovery.
+            decodeBitrateInsensitive = true;
+            slowDecoder = false;
+        }
+        if (poor || (recentVideo && thermalLevel >= 2) || slowDecoder) {
             healthySinceMs = -1;
             poorSamples++;
-            // Heat builds and fades slowly, so heat alone steps down less often and not as far.
+            // Heat and decoder pressure step down less often and not as far as network congestion.
             int floor = poor ? floorKbps : Math.max(floorKbps, ceilingKbps / 2);
             if (poorSamples >= 2 && nowMs - lastChangeMs >= (poor ? 3000 : 15000)) {
                 int target = Math.max(floor, currentKbps * 80 / 100);
+                if (target < currentKbps && thermalLevel < 2 && slowDecoder) {
+                    decodeBeforeReductionMs = decodeMs;
+                    decodeBeforeReductionKbps = currentKbps;
+                }
                 return target < currentKbps ? target : 0;
             }
         } else {
             poorSamples = 0;
             if (thermalLevel > 0 || !(lossPercent >= 0 && lossPercent < 0.5f) ||
-                    !(decodeMs >= 0 && decodeMs < frameMs * 0.75f) ||
+                    !(decodeMs >= 0 && (decodeBitrateInsensitive || decodeMs < frameMs * 0.75f)) ||
                     !(jitterMs >= 0 && jitterMs < Math.max(2, frameMs * 0.25f)) ||
                     (queueMs >= 0 && queueMs >= Math.max(4, frameMs / 2))) {
                 healthySinceMs = -1;

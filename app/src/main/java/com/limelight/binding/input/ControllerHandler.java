@@ -128,6 +128,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
     private boolean hasGameController;
     private volatile boolean stopped = false;
     private volatile boolean sensorsEnabled = true;
+    private boolean inputEnabled = true;
 
     private final PreferenceConfiguration prefConfig;
     private short currentControllers, initialControllers;
@@ -306,6 +307,45 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         backgroundThreadHandler.removeCallbacksAndMessages(null);
         sceManager.stop();
         backgroundHandlerThread.quit();
+    }
+
+    public void setInputEnabled(boolean enabled) {
+        inputEnabled = enabled;
+        if (!enabled) {
+            releaseInput();
+        }
+    }
+
+    public void releaseInput() {
+        if (stopped) {
+            return;
+        }
+        for (InputDeviceContext context : inputDeviceContexts.values()) {
+            releaseInput(context);
+        }
+        for (UsbDeviceContext context : usbDeviceContexts.values()) {
+            releaseInput(context);
+        }
+        releaseInput(defaultContext);
+    }
+
+    private void releaseInput(GenericControllerContext context) {
+        context.inputMap = 0;
+        context.leftTrigger = context.rightTrigger = 0;
+        context.leftStickX = context.leftStickY = 0;
+        context.rightStickX = context.rightStickY = 0;
+        context.releaseMouseButtons();
+        if (context instanceof InputDeviceContext) {
+            InputDeviceContext inputContext = (InputDeviceContext) context;
+            inputContext.pressedButtons.clear();
+            inputContext.emulatingButtonFlags = 0;
+            inputContext.pendingExit = false;
+        }
+        if (context.assignedControllerNumber) {
+            // Bypass fusion while the other contexts sharing this number are being cleared.
+            conn.sendControllerInput(context.controllerNumber, getActiveControllerMask(),
+                    0, (byte) 0, (byte) 0, (short) 0, (short) 0, (short) 0, (short) 0);
+        }
     }
 
     public void disableSensors() {
@@ -2904,7 +2944,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
                                       float rightStickX, float rightStickY,
                                       float leftTrigger, float rightTrigger) {
         UsbDeviceContext context = usbDeviceContexts.get(controllerId);
-        if (stopped || context == null) {
+        if (stopped || !inputEnabled || context == null) {
             return;
         }
 
@@ -2940,7 +2980,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
     @Override
     public void reportControllerTouch(int controllerId, byte eventType, int pointerId, float x, float y, float pressure) {
         UsbDeviceContext context = usbDeviceContexts.get(controllerId);
-        if (!stopped && context != null && context.assignedControllerNumber) {
+        if (!stopped && inputEnabled && context != null && context.assignedControllerNumber) {
             conn.sendControllerTouchEvent((byte)context.controllerNumber, eventType, pointerId, x, y, pressure);
         }
     }

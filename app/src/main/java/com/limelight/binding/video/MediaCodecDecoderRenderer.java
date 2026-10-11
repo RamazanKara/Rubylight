@@ -1063,19 +1063,9 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             if (Boolean.TRUE.equals(currentHdrMode)) upscalingPolicy.fail(UpscalingPolicy.Reason.HDR);
             if (upscalingPolicy.getReason() != UpscalingPolicy.Reason.NONE) closeUpscaler();
         }
-        try {
-            videoDecoder.configure(format, upscaler == null ? renderTarget : upscaler.getInputSurface(), null, 0);
-            videoDecoder.setVideoScalingMode(MediaCodec.VIDEO_SCALING_MODE_SCALE_TO_FIT);
-            videoDecoder.start();
-        } catch (IllegalArgumentException | IllegalStateException e) {
-            if (upscaler == null) throw e;
-            LimeLog.warning("Decoder rejected upscaling surface: " + e);
-            upscalingPolicy.fail(UpscalingPolicy.Reason.GPU_ERROR);
-            videoDecoder.reset();
-            closeUpscaler();
-            configureAndStartDecoder(format);
-            return;
-        }
+        videoDecoder.configure(format, upscaler == null ? renderTarget : upscaler.getInputSurface(), null, 0);
+        videoDecoder.setVideoScalingMode(MediaCodec.VIDEO_SCALING_MODE_SCALE_TO_FIT);
+        videoDecoder.start();
 
         configuredFormat = format;
 
@@ -1267,7 +1257,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                     prefs.codecLowLatency, prefs.vendorLowLatency, prefs.codecPerformance);
 
             // Throw the underlying codec exception on the last attempt if the caller requested it
-            if (tryConfigureDecoder(selectedDecoderInfo, mediaFormat, !newFormat && throwOnCodecError)) {
+            if (tryConfigureDecoder(selectedDecoderInfo, mediaFormat, !newFormat && upscaler == null && throwOnCodecError)) {
                 outputBufferQueueLimit = DecoderQueuePolicy.outputLimit(selectedDecoderInfo.getName(),
                         prefs.codecLowLatency && MediaCodecHelper.decoderSupportsAndroidRLowLatency(selectedDecoderInfo, mimeType),
                         prefs.dropLateFrames, tryNumber != 0 || codecRecoveryAttempts != 0);
@@ -1276,6 +1266,13 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             }
 
             if (!newFormat) {
+                if (upscaler != null) {
+                    LimeLog.warning("Decoder rejected every format with the upscaling surface");
+                    upscalingPolicy.fail(UpscalingPolicy.Reason.GPU_ERROR);
+                    closeUpscaler();
+                    tryNumber = -1;
+                    continue;
+                }
                 // We couldn't even configure a decoder without any low latency options
                 return -5;
             }
@@ -1708,7 +1705,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
         // Don't render unless a new frame is due. This prevents microstutter when streaming
         // at a frame rate that doesn't match the display (such as 60 FPS on 120 Hz).
-        if (frameTimeNanos >= nextFrameTimeNanos) {
+        if (FramePacingPolicy.isFrameDue(nextFrameTimeNanos, frameTimeNanos, vsyncIntervalNs)) {
             // Render up to one frame when in frame pacing mode.
             //
             // The queue holds at most two buffers to avoid starving the decoder. Keeping

@@ -1,6 +1,93 @@
 use super::*;
 
 #[test]
+fn basic_render_driver_is_not_hardware_even_without_the_software_flag() {
+    for flags in [0, DXGI_ADAPTER_FLAG_SOFTWARE.0 as u32] {
+        let basic = DXGI_ADAPTER_DESC1 {
+            VendorId: 0x1414,
+            DeviceId: 0x8c,
+            Flags: flags,
+            ..Default::default()
+        };
+        assert!(!hardware_adapter(&basic));
+        let radeon = DXGI_ADAPTER_DESC1 {
+            VendorId: 0x1002,
+            ..Default::default()
+        };
+        let adapters = [basic, radeon];
+        assert_eq!(adapters.iter().position(hardware_adapter), Some(1));
+        assert!(!adapters[..1].iter().any(hardware_adapter));
+    }
+}
+
+#[test]
+fn hardware_adapter_selection_keeps_other_devices_and_rejects_software() {
+    for (vendor, device) in [
+        (0x1002, 0x7550),
+        (0x10de, 0x2684),
+        (0x8086, 0x56a0),
+        (0x1414, 0x1234),
+    ] {
+        let mut desc = DXGI_ADAPTER_DESC1 {
+            VendorId: vendor,
+            DeviceId: device,
+            ..Default::default()
+        };
+        assert!(hardware_adapter(&desc));
+        desc.Flags = DXGI_ADAPTER_FLAG_SOFTWARE.0 as u32;
+        assert!(!hardware_adapter(&desc));
+    }
+}
+
+#[test]
+#[ignore = "requires an AMD GPU with AMF H.264, HEVC and AV1 encoding"]
+fn headless_hardware_device_encodes_without_a_display_output() -> Result<()> {
+    let _com = ComGuard::new()?;
+    let gpu = Device::without_display("", "")?;
+    assert!(gpu.output.is_none());
+    assert!(gpu.display.display_name.is_empty());
+    let image = Image {
+        width: 640,
+        height: 480,
+        stride: 2560,
+        bytes: vec![128; 640 * 480 * 4],
+        captured: Instant::now(),
+        pixel: Pixel::Bgra8,
+    };
+    for codec in 0..=2 {
+        let config = butterpollo_core::rtsp::Negotiated {
+            width: image.width,
+            height: image.height,
+            fps: 30,
+            bitrate_kbps: 2000,
+            codec,
+            ..Default::default()
+        };
+        let mut encoder = crate::amf::Encoder::new_device(&config, gpu.clone())?;
+        let mut encoded = false;
+        for frame in 0..8 {
+            if !encoder
+                .encode(&image, frame == 0, config.bitrate_kbps)?
+                .is_empty()
+            {
+                encoded = true;
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert!(
+            encoded,
+            "codec {codec} produced no packet without an output"
+        );
+        eprintln!(
+            "{}: codec {codec} encoded without an output",
+            gpu.display.adapter
+        );
+    }
+    Ok(())
+}
+
+#[test]
 fn a_missing_selected_capture_display_is_an_error_not_the_desktop() {
     let display = |name: &str, primary| Display {
         device_id: format!("id-{name}"),

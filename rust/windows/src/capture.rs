@@ -130,6 +130,12 @@ pub struct Gpu {
     pub luid: (u32, i32),
     pub pnp_id: Option<String>,
 }
+fn hardware_adapter(desc: &DXGI_ADAPTER_DESC1) -> bool {
+    // Windows can expose Basic Render Driver as the primary adapter without
+    // DXGI_ADAPTER_FLAG_SOFTWARE when the display driver is unavailable.
+    desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE.0 as u32 == 0
+        && (desc.VendorId, desc.DeviceId) != (0x1414, 0x8c)
+}
 fn adapter_pnp_id(luid: windows::Win32::Foundation::LUID) -> Option<String> {
     use windows::Win32::Devices::Display::*;
     let mut info = DISPLAYCONFIG_ADAPTER_NAME::default();
@@ -161,7 +167,7 @@ pub fn gpus() -> Result<Vec<Gpu>> {
                 break;
             };
             let info = adapter.GetDesc1()?;
-            if info.Flags & DXGI_ADAPTER_FLAG_SOFTWARE.0 as u32 == 0 {
+            if hardware_adapter(&info) {
                 result.push(Gpu {
                     name: from_wide(&info.Description),
                     vendor: info.VendorId,
@@ -325,6 +331,19 @@ impl Device {
                 select_display(&choices, "")?
             }
         };
+        if let Some(display) = display {
+            // SAFETY: The factory and adapter are live COM objects, and GetDesc1
+            // returns an owned descriptor.
+            let desc = unsafe {
+                let factory: IDXGIFactory1 = CreateDXGIFactory1()?;
+                factory.EnumAdapters1(display.adapter_index)?.GetDesc1()?
+            };
+            // A software desktop must not hide a hardware encoder from the
+            // probe that runs before the stream creates its virtual display.
+            if !hardware_adapter(&desc) {
+                return Self::without_display(adapter_name, pnp_id);
+            }
+        }
         Self::with_display(display.cloned(), adapter_name, pnp_id)
     }
     /// Capture's device: the named display and never another one, so that a
@@ -357,7 +376,7 @@ impl Device {
                         break;
                     };
                     let desc = candidate.GetDesc1()?;
-                    if desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE.0 as u32 != 0 {
+                    if !hardware_adapter(&desc) {
                         continue;
                     }
                     let matched = if !pnp_id.is_empty() {
@@ -398,7 +417,7 @@ impl Device {
                 };
                 let desc = adapter.GetDesc1()?;
                 let description = from_wide(&desc.Description);
-                if desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE.0 as u32 != 0
+                if !hardware_adapter(&desc)
                     || (!pnp_id.is_empty()
                         && !adapter_pnp_id(desc.AdapterLuid)
                             .is_some_and(|id| id.eq_ignore_ascii_case(pnp_id)))

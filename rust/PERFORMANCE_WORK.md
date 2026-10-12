@@ -5020,3 +5020,140 @@ with adjacent metadata/acknowledgements and
 stock statistics and a sanitized log; unsanitized client logs stayed
 on the laptop. The summary verifies the upload, sanitized-log, source
 ledger and archived-host-log hashes and preserves the fixture hashes.
+
+### AV1 host-processing p95 diagnosis (October 12)
+
+The morning DDX AV1 HDR result was **5.249 ms host mean**, with **8.4 ms
+p95 in both repeats**, versus **3.109 ms mean / 3.2 and 3.4 ms p95** in
+the retained October 8 rc.24 runs. At 120 FPS, 8.4 ms spans approximately
+one 8.33 ms frame interval. The following investigation separates the
+reported timer, release version, load phase and GPU dependencies.
+
+**Timer boundary.** Native AMF starts the timer before capacity checking
+and GPU conversion submission, then stops it when `QueryOutput` returns
+the matching PTS. Unfinished capture-copy and conversion fences are inside
+that interval. The sender reconstructs a claim timestamp from this duration;
+it does not retain an independently sampled claim-to-packetization timer.
+Output-buffer copying occurs after the AMF sample and before that
+reconstruction. The inline sender then adds the small interval to its
+pre-packetization sample; the separate paced sender also includes residence
+in its sending queue and waiting for sender capacity. Only the frame-header
+value rounds to 0.1 ms. These loopback runs used inline sending. In these runs,
+runs, the reported host duration matched the AMF stage duration within the
+wire rounding. Therefore the observed increase cannot be called slower
+hardware compression from the host counter alone.
+
+**Released-binary control.** Run the original rc.24 and 2.2.9 packages in
+A/B/B/A order on the same current desktop: RX 7900 XT, physical
+5120×1440 SDR at 240 Hz, native 1968×2184 HDR source at 120 Hz, AV1 HDR
+120 FPS requesting 80 Mbps, identical AMF settings and four requested
+decoder threads. The established load is `gpu_load 45 1000 60 200`.
+Each receiver runs for 35 seconds with five seconds excluded as warmup.
+
+| Execution order | Host mean / p95 (ms) | Render-to-decoded picture age mean (ms) |
+| --- | ---: | ---: |
+| rc.24 A1 | 3.444 / 7.1 | 12.362 |
+| 2.2.9 B1 | 3.198 / 4.1 | 10.477 |
+| 2.2.9 B2 | 3.019 / 3.3 | 9.123 |
+| rc.24 A2 | 3.043 / 3.3 | 11.198 |
+
+The old release also develops the slow tail. These controls do not reproduce
+a persistent 2.2.9 increase from 3.11 to 5.25 ms. The historical desktop and
+run phase changed, so the earlier difference is not an isolated code-regression
+measurement. Reducing the current receiver's requested decoder threads to one
+gave **3.117 / 3.4 ms host mean / p95**; both thread settings reported
+`active_thread_type=0` and `delay=0`.
+
+**Load phase.** Temporary tracing builds preserve each release's algorithms
+and add per-frame stage observations. A current DDX trace reproduced
+**4.909 / 8.0 ms host mean / p95**: all 1,318 receiver samples at or above
+6 ms belonged to even source IDs. The morning slow phase primarily affected
+odd IDs. Changing only the load cadence from 60 to 59 FPS moved the
+host-duration periodic component to 59 Hz and made slow-frame parity switch
+on a one-second beat. The two 59 FPS runs measured **3.347 / 6.5 ms** and
+**3.405 / 6.3 ms**. This ties the slow tail to the relative timing of the
+GPU workload and capture, rather than fixed odd/even image complexity.
+
+**Where the time goes.** Receiver-aligned stages in the slow 60 FPS trace
+averaged **7.507 ms**, versus **3.388 ms** for frames below 6 ms. Every one
+of its 1,317 stage samples at or above 6 ms had an unfinished capture-copy
+fence at submission. CPU conversion submission averaged **0.047 ms**,
+AMF submission **0.120 ms**, and the p95 of each slow frame's longest
+post-submission polling gap was **0.587 ms**. The old traced release's
+slow frames showed the same pending-copy pattern. The one-sample difference
+between the stage and receiver counts above comes from applying the 6 ms
+threshold before versus after 0.1 ms wire rounding.
+
+A second tracing build also sampled the producer/acquired fence and the
+destination texture's prior-reader fence. Across three DDX runs, **all 149
+slow steady frames** had an unfinished producer fence at submission and an
+already completed prior-reader fence. There were **zero slow frames with
+a pending prior-reader fence**, and each previous capture copy was complete
+at submission. Per-run means of the first observations of
+producer completion were **4.831 / 5.068 / 5.238 ms** after encoder entry;
+copy completion was first observed at **4.995 / 5.263 / 5.542 ms**, and
+encoded output at **7.182 / 7.381 / 7.828 ms**. These are CPU-observed
+completion bounds, not exact GPU execution timestamps. They locate the
+dominant added wait at the D3D11 producer/acquisition dependency, before
+the compute copy, conversion and AMF compression. They do not separate
+DWM copy execution from scheduling delay before its completion signal.
+
+The independent GPU ETW trace corroborates this ordering. For slow PTS 2583
+(capture-copy fence 2590), the host's Compute0 queue waited **3.541 ms**
+for a producer signal from its graphics queue. The copy packet was released
+after that wait and completed in **0.284 ms**. The multi-millisecond stall
+therefore precedes execution of the compute copy itself. All **13 slow
+frames** in the selected 120-frame trace window joined to this producer
+dependency: wait mean **3.073 ms** (range **2.465–3.541 ms**), followed by
+copy DMA release-to-completion mean **0.152 ms**. The other 107 frames'
+copy interval averaged **0.160 ms**. These packet intervals are not the
+whole AMF frame duration.
+
+The producer wait preserves correctness: Desktop Duplication can return
+before DWM has finished the image. The retained [October 4 synchronization
+probe](PERFORMANCE.md#october-4-capture-copies-and-conversion-beside-a-game)
+found **316/325 mismatches under load without that wait**, versus **0/267
+with it**. Removing the fence or starting the reported timer after it would
+not be a demonstrated latency fix. Faster output polling and different AQ
+settings do not target the multi-millisecond dependency identified here.
+
+**Existing capture alternative.** Repeat DDX/WGC/WGC/DDX with the 59 FPS
+load so that relative phase walks through the full cycle. Both use the
+same dependency-tracing binary and stream settings. Values below average
+the two runs' statistics; they are not pooled percentiles.
+
+| Capture | Host mean / p95 (ms) | Picture age mean / p95 (ms) | Fresh pictures/s |
+| --- | ---: | ---: | ---: |
+| DDX | 3.126 / 3.7 | 10.597 / 15.116 | 118.924 |
+| WGC | 3.038 / 3.4 | 11.345 / 15.580 | 119.936 |
+
+WGC had no host samples at or above 6 ms in either repeat, but its picture
+age mean was **0.747 ms higher**. The first DDX run delivered 117.840 fresh
+FPS with 64 source discontinuities; the second delivered 120.009 with none.
+This establishes a capture/cadence tradeoff, not a general end-to-end latency
+improvement. A future DDX optimization must reduce the producer dependency
+while retaining synchronized pixels, picture freshness and throughput. Moving
+the producer signal earlier to overlap command-list preparation is a small
+source-level candidate, not a measured multi-millisecond solution. No
+production algorithm or default was changed by this diagnosis.
+
+**Evidence and validation.** All **17** diagnostic cases completed their
+ordinary stream checks and restored the physical display. All **70,535**
+nonzero source-ID/QPC pairs matched their original render ledgers exactly;
+**136 unreadable rows** remain in the original denominators. The one GPU/CPU
+WPR case had zero lost trace events/buffers, but delivered 117.49 fresh FPS
+with additional source discontinuities; its performance is kept separate.
+Diagnostic builds and their logging are not replacement released-package
+headline measurements. The original morning and competitor tables remain
+unchanged.
+
+Local evidence is under `work\host-mean-trace`: the twelve-case
+`run-20261012T150121Z`, five-case `dependencies-20261012T152710Z`,
+`receiver-analysis.json`, `phase-analysis.json`, `stage-cause-summary.json`,
+`receiver-analysis-dependencies-20261012T152710Z.json` and the second batch's
+`analysis\stage-cause-summary.json`. Each batch retains source ledgers,
+receiver CSVs, stage logs, source/binary hashes and display snapshots. The
+matched GPU queue records are in `etw\gpu-window-analysis.json`. The
+release sources are rc.24 `ec84f48abbea67e0e3c3f8fc0c7c71e090831580` and
+2.2.9 `d0bfcb5e764095250b8f0e22fd5a0cb3656d5ea6`. Temporary source changes,
+builds, raw evidence and credentials remain outside the repository.

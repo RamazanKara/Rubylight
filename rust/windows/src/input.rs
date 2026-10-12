@@ -745,6 +745,11 @@ impl Injector {
     pub fn gamepad_reports(&self) -> impl Iterator<Item = PadReport> + '_ {
         self.gamepads.reports()
     }
+    /// Wake the control socket wait when the driver posts feedback. The socket
+    /// must be connected and nonblocking before accepting controller input.
+    pub fn set_feedback_waker(&self, waker: std::sync::Arc<std::net::UdpSocket>) {
+        self.gamepads.set_feedback_waker(waker);
+    }
     pub fn feedback_allowed(&self, kind: u16) -> bool {
         !matches!(kind, 0x010b | 0x5500 | 0x5503) || (self.policy.forward_rumble && self.haptics)
     }

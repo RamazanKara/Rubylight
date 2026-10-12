@@ -25,6 +25,13 @@ fn timed<T>(call: &'static str, run: impl FnOnce() -> T) -> T {
     let started = Instant::now();
     let result = run();
     let elapsed = started.elapsed();
+    if matches!(call, "AMF Init" | "AMF Terminate" | "AMF context Terminate") {
+        tracing::debug!(
+            call,
+            elapsed_us = elapsed.as_micros() as u64,
+            "encoder lifecycle call"
+        );
+    }
     if elapsed >= SLOW_CALL {
         tracing::warn!(
             call,
@@ -471,16 +478,18 @@ impl Encoder {
             }
             e.configure_ltr(ltr_count);
             e.request_split_frame(options);
-            check(((*(*e.component).pVtbl).Init.unwrap())(
-                e.component,
-                if config.ten_bit() {
-                    AMF_SURFACE_FORMAT_AMF_SURFACE_P010
-                } else {
-                    AMF_SURFACE_FORMAT_AMF_SURFACE_NV12
-                },
-                config.width as i32,
-                config.height as i32,
-            ))
+            check(timed("AMF Init", || {
+                ((*(*e.component).pVtbl).Init.unwrap())(
+                    e.component,
+                    if config.ten_bit() {
+                        AMF_SURFACE_FORMAT_AMF_SURFACE_P010
+                    } else {
+                        AMF_SURFACE_FORMAT_AMF_SURFACE_NV12
+                    },
+                    config.width as i32,
+                    config.height as i32,
+                )
+            }))
             .context("AMF encoder Init")?;
             e.log_effective();
             Ok(e)
@@ -1555,13 +1564,17 @@ impl Drop for Encoder {
         // boxed surface observer remain alive through termination and each final Release.
         unsafe {
             if !self.component.is_null() {
-                ((*(*self.component).pVtbl).Terminate.unwrap())(self.component);
+                timed("AMF Terminate", || {
+                    ((*(*self.component).pVtbl).Terminate.unwrap())(self.component)
+                });
                 ((*(*self.component).pVtbl).Release.unwrap())(self.component);
             }
             // After the encoder has let go of its D3D12 inputs.
             self.compute.take();
             if !self.context.is_null() {
-                ((*(*self.context).pVtbl).Terminate.unwrap())(self.context);
+                timed("AMF context Terminate", || {
+                    ((*(*self.context).pVtbl).Terminate.unwrap())(self.context)
+                });
                 ((*(*self.context).pVtbl).Release.unwrap())(self.context);
             }
         }

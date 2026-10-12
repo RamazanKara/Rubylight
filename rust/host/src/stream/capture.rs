@@ -258,7 +258,9 @@ impl<T> Latest<T> {
             );
         }
         state.captured = Some(captured);
-        state.image = Some(image);
+        let previous = state.image.replace(image);
+        drop(state);
+        drop(previous);
         self.notify()
     }
     /// Match a claimed frame even if capture already published its replacement.
@@ -492,6 +494,40 @@ mod tests {
         assert!(new_id > old_id);
         assert_eq!(trace.live.len(), 1);
         assert_eq!(trace.id(&replacement), Some(new_id));
+    }
+    #[test]
+    fn replacing_the_latest_frame_releases_resources_without_holding_the_state_lock() -> Result<()>
+    {
+        struct Image {
+            latest: Weak<Latest<Image>>,
+            released: Arc<AtomicBool>,
+        }
+        impl Drop for Image {
+            fn drop(&mut self) {
+                if let Some(latest) = self.latest.upgrade() {
+                    assert!(latest.state.try_lock().is_ok());
+                    self.released.store(true, Ordering::Release);
+                }
+            }
+        }
+        let latest = Arc::new(Latest::new());
+        let released = Arc::new(AtomicBool::new(false));
+        latest.publish_captured(
+            Arc::new(Image {
+                latest: Arc::downgrade(&latest),
+                released: released.clone(),
+            }),
+            Instant::now(),
+        )?;
+        latest.publish_captured(
+            Arc::new(Image {
+                latest: Weak::new(),
+                released: released.clone(),
+            }),
+            Instant::now(),
+        )?;
+        assert!(released.load(Ordering::Acquire));
+        Ok(())
     }
     #[test]
     fn publications_before_wait_and_independent_consumers_keep_the_latest_frame() -> Result<()> {

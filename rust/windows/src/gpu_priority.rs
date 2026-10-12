@@ -30,11 +30,50 @@ fn priority(vendor: u32, hags: bool, realtime_hags: bool) -> i32 {
         5
     }
 }
-static PREVIOUS: std::sync::Mutex<Option<i32>> = std::sync::Mutex::new(None);
+struct ProcessPriority {
+    previous: Option<i32>,
+    configured: Option<i32>,
+}
+static PROCESS_PRIORITY: std::sync::Mutex<ProcessPriority> =
+    std::sync::Mutex::new(ProcessPriority {
+        previous: None,
+        configured: None,
+    });
+
+pub(crate) fn resume() -> Result<()> {
+    let mut state = PROCESS_PRIORITY.lock().unwrap();
+    let Some(priority) = state.configured else {
+        return Ok(());
+    };
+    let directory = std::env::var_os("SystemRoot").context("Windows directory missing")?;
+    // SAFETY: The exports have the documented D3DKMT signatures, the output is live, and the
+    // library outlives the calls.
+    unsafe {
+        let library = Library::new(std::path::PathBuf::from(directory).join("System32/gdi32.dll"))?;
+        let set = library.get::<unsafe extern "system" fn(*mut std::ffi::c_void, i32) -> i32>(
+            b"D3DKMTSetProcessSchedulingPriorityClass\0",
+        )?;
+        let mut original = 2;
+        if state.previous.is_none()
+            && let Ok(get) =
+                library.get::<unsafe extern "system" fn(*mut std::ffi::c_void, *mut i32) -> i32>(
+                    b"D3DKMTGetProcessSchedulingPriorityClass\0",
+                )
+        {
+            let _ = get(GetCurrentProcess().0, &mut original);
+        }
+        let code = set(GetCurrentProcess().0, priority);
+        if code < 0 {
+            bail!("resuming GPU process scheduling priority was denied ({code:#x})");
+        }
+        state.previous.get_or_insert(original);
+    }
+    Ok(())
+}
 
 pub(crate) fn restore() -> Result<()> {
-    let mut previous = PREVIOUS.lock().unwrap();
-    let Some(priority) = *previous else {
+    let mut state = PROCESS_PRIORITY.lock().unwrap();
+    let Some(priority) = state.previous else {
         return Ok(());
     };
     let directory = std::env::var_os("SystemRoot").context("Windows directory missing")?;
@@ -49,7 +88,7 @@ pub(crate) fn restore() -> Result<()> {
             bail!("restoring GPU process scheduling priority was denied ({code:#x})");
         }
     }
-    *previous = None;
+    state.previous = None;
     Ok(())
 }
 pub fn configure(
@@ -81,9 +120,9 @@ pub fn configure(
         let set = library.get::<unsafe extern "system" fn(*mut std::ffi::c_void, i32) -> i32>(
             b"D3DKMTSetProcessSchedulingPriorityClass\0",
         )?;
-        let mut previous = PREVIOUS.lock().unwrap();
+        let mut state = PROCESS_PRIORITY.lock().unwrap();
         let mut original = 2;
-        if previous.is_none()
+        if state.previous.is_none()
             && let Ok(get) =
                 library.get::<unsafe extern "system" fn(*mut std::ffi::c_void, *mut i32) -> i32>(
                     b"D3DKMTGetProcessSchedulingPriorityClass\0",
@@ -127,7 +166,8 @@ pub fn configure(
         if code < 0 {
             bail!("GPU process scheduling priority was denied ({code:#x})");
         }
-        previous.get_or_insert(original);
+        state.previous.get_or_insert(original);
+        state.configured = Some(priority);
         tracing::debug!(hags, priority, "GPU process scheduling configured");
         Ok(())
     }

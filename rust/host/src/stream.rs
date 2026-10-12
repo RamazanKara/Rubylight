@@ -60,6 +60,14 @@ const ENCODER_RECOVERY: Duration = Duration::from_secs(20);
 /// Keep one queued picture while an encode is running. Larger queues did not
 /// improve throughput on an overloaded AMF encoder, but increased frame age.
 const ENCODER_BACKLOG: usize = 2;
+const CONTROL_EVENT_LIMIT: usize = 512;
+fn control_wait_timeout(remaining: Duration, events: usize) -> i32 {
+    if events == CONTROL_EVENT_LIMIT {
+        0
+    } else {
+        remaining.as_micros().div_ceil(1000) as i32
+    }
+}
 fn encoder_progress(
     failing: &mut Option<Instant>,
     produced_frame: bool,
@@ -655,6 +663,8 @@ impl Tagged {
 pub struct Media {
     video: Arc<UdpSocket>,
     audio: Arc<UdpSocket>,
+    control_wake: Arc<UdpSocket>,
+    control_wake_receiver: UdpSocket,
     /// The microphone receiver's counts; None when its port could not be bound.
     pub(crate) mic: Option<Arc<crate::mic::Counters>>,
     peers: Mutex<HashMap<(String, bool), SocketAddr>>,
@@ -790,6 +800,12 @@ impl Media {
         butterpollo_windows::net::configure_udp(&audio)?;
         video.set_nonblocking(true)?;
         audio.set_nonblocking(true)?;
+        let control_wake_receiver = UdpSocket::bind("127.0.0.1:0")?;
+        let control_wake = UdpSocket::bind("127.0.0.1:0")?;
+        control_wake.connect(control_wake_receiver.local_addr()?)?;
+        control_wake_receiver.connect(control_wake.local_addr()?)?;
+        control_wake.set_nonblocking(true)?;
+        control_wake_receiver.set_nonblocking(true)?;
         // A microphone port taken by another program only costs the microphone.
         let mic = crate::network::udp((bind, ports.mic).into())
             .and_then(|socket| crate::mic::spawn(h.clone(), socket))
@@ -800,6 +816,8 @@ impl Media {
         let m = Arc::new(Self {
             video: Arc::new(video),
             audio: Arc::new(audio),
+            control_wake: Arc::new(control_wake),
+            control_wake_receiver,
             mic,
             peers: Mutex::new(HashMap::new()),
             captures: Mutex::new(HashMap::new()),
@@ -1145,7 +1163,20 @@ impl Media {
         capture_wake.wake_on_recovery(s);
         Ok((latest, capture_wake))
     }
+    fn set_display_hdr_metadata(
+        &self,
+        s: &Session,
+        display: butterpollo_core::hdr::Metadata,
+    ) -> butterpollo_core::hdr::Metadata {
+        let previous = s.hdr_metadata.read().unwrap().map(|m| m.wire(s.config.hdr));
+        let metadata = s.set_display_hdr_metadata(display);
+        if previous != Some(metadata.wire(s.config.hdr)) {
+            let _ = self.control_wake.send(&[1]);
+        }
+        metadata
+    }
     fn configure_encoder(
+        &self,
         s: &Session,
         c: &Config,
         first: &GpuImage,
@@ -1198,7 +1229,7 @@ impl Media {
             );
         }
         // The client's display luminance (0x5531) replaces the display's when it applies.
-        let metadata = s.set_display_hdr_metadata(first.gpu.hdr_metadata());
+        let metadata = self.set_display_hdr_metadata(s, first.gpu.hdr_metadata());
         if let Some(encoder) = encoder.as_mut() {
             encoder.set_hdr_metadata(metadata);
         }
@@ -1232,26 +1263,30 @@ impl Media {
                 let h = worker_h;
                 let s = worker_s;
                 tracing::info!(client=%s.launch.client.name,"CLIENT CONNECTED");
-                {
-                    let mut paired = h.paired.write().unwrap();
+                let paired_h = h.clone();
+                let client_uuid = s.launch.client.uuid.clone();
+                let last_seen = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs();
+                if let Err(error) = thread::Builder::new().name("client last seen".into()).spawn(move || {
+                    let mut paired = paired_h.paired.write().unwrap();
                     if let Some(client) = paired
                         .clients
                         .iter_mut()
-                        .find(|c| c.uuid == s.launch.client.uuid)
+                        .find(|c| c.uuid == client_uuid)
                     {
+                        let last_seen = last_seen.max(client.extra.get("last_seen").and_then(serde_json::Value::as_u64).unwrap_or(0));
                         client.extra.insert(
                             "last_seen".into(),
-                            serde_json::json!(
-                                std::time::SystemTime::now()
-                                    .duration_since(std::time::UNIX_EPOCH)
-                                    .unwrap_or_default()
-                                    .as_secs()
-                            ),
+                            serde_json::json!(last_seen),
                         );
-                        if let Err(error) = paired.save(&h.paired_path) {
+                        if let Err(error) = paired.save(&paired_h.paired_path) {
                             tracing::warn!(%error,"client last-seen persistence failed");
                         }
                     }
+                }) {
+                    tracing::warn!(%error, "client last-seen worker failed");
                 }
                 let mut com = None;
                 let mut stream_preparation = None;
@@ -1315,6 +1350,9 @@ impl Media {
                     let stream_preparation = stream_preparation.insert(match initial {
                         Some(p) if p.prepared().display.matches(&s.config) => p.into_prepared(),
                         previous => {
+                            if previous.is_some() {
+                                tracing::info!(client = %s.launch.client.name, width = s.config.width, height = s.config.height, fps_millihz = s.config.fps_millihz(), hdr = s.config.hdr, "negotiated mode differs from launch; preparing display again");
+                            }
                             drop(previous);
                             let previous = h.app_display.lock().unwrap().remove(&s.launch.client.uuid);
                             drop(previous);
@@ -1350,7 +1388,7 @@ impl Media {
                             if let Some(image) = latest.wait_for_frame(&timer, &capture_wake, (Instant::now() + Duration::from_millis(50)).min(deadline))? { break image; }
                         }
                     };
-                    let pinned_backend = Self::configure_encoder(&s, &c, &first, &prepared, &mut encoder)?;
+                    let pinned_backend = m.configure_encoder(&s, &c, &first, &prepared, &mut encoder)?;
                     let mut truehdr = if use_truehdr {
                         truehdr_filter(&first, &c, &s.launch.warnings)
                     } else {
@@ -1890,7 +1928,7 @@ impl Media {
                             }
                             progress.mark(crate::stall_watch::Phase::Picture);
                             let image = latest.wait_for_frame(&timer, &capture_wake, Instant::now() + period.min(Duration::from_millis(50)))?;
-                            let Some(image) = image else {
+                            let Some(mut image) = image else {
                                 // The capture is being re-created on a new device.
                                 // Release everything on the old one so Windows can
                                 // give the new capture a current adapter.
@@ -1935,8 +1973,11 @@ impl Media {
                                 {
                                     send_frames(recovery.collect(&mut encoder, &s.launch.warnings, Instant::now)?, peer, Duration::ZERO, latest)?;
                                 }
-                                let until = if encoder.as_ref().is_some_and(|e| recovery.pending(e)) {
-                                    deadline.min(Instant::now() + OUTPUT_POLL)
+                                let now = Instant::now();
+                                let until = if encoder.as_ref().is_some_and(|e| recovery.pending(e))
+                                    && deadline.saturating_duration_since(now) >= Duration::from_millis(1)
+                                {
+                                    deadline.min(now + OUTPUT_POLL)
                                 } else {
                                     deadline
                                 };
@@ -2100,6 +2141,15 @@ impl Media {
                                         continue;
                                     }
                                 }
+                                // Encoder creation can outlast several source frames.
+                                let Some(current) = latest.current()? else { continue };
+                                if !encoder.as_ref().unwrap().accepts_gpu_device(&current) {
+                                    continue;
+                                }
+                                image = current;
+                                if arrival_pacing {
+                                    pacer.observe_source(image.captured);
+                                }
                                 metadata_due = Instant::now();
                                 truehdr = if use_truehdr {
                                     truehdr_filter(&image, &runtime_config, &s.launch.warnings)
@@ -2120,6 +2170,7 @@ impl Media {
                                 });
                             }
                             let begin = Instant::now();
+                            let fresh = last_image.as_ref().is_none_or(|previous| !Arc::ptr_eq(previous, &image));
                             if tracing::enabled!(target: "pacing", tracing::Level::TRACE) {
                                 let us = |at: Instant| at.saturating_duration_since(start).as_micros() as u64;
                                 let key = Arc::as_ptr(&image) as usize;
@@ -2158,7 +2209,7 @@ impl Media {
                                 }
                             }
                             if Instant::now() >= metadata_due {
-                                let metadata = s.set_display_hdr_metadata(image.gpu.hdr_metadata());
+                                let metadata = m.set_display_hdr_metadata(&s, image.gpu.hdr_metadata());
                                 active.set_hdr_metadata(metadata);
                                 metadata_due = Instant::now() + Duration::from_secs(1);
                             }
@@ -2424,10 +2475,11 @@ impl Media {
                 .as_ref()
                 .filter(|capturing| capturing.event_driven())
             {
-                // Woken the moment audio is captured. An idle endpoint sends
-                // no events: the wait ends at its next silence, at most 5 ms.
+                // Audio events wake immediately. Before the silence threshold,
+                // an expired packet deadline must not turn this into a 1 ms poll.
                 Some(capturing) => capturing.wait(
-                    next.saturating_duration_since(Instant::now())
+                    next.max(heard + Duration::from_millis(50))
+                        .saturating_duration_since(Instant::now())
                         .clamp(Duration::from_millis(1), Duration::from_millis(5)),
                 ),
                 None => timer.until(Instant::now() + Duration::from_millis(1)),
@@ -2606,6 +2658,8 @@ impl Media {
         let socket = crate::network::udp((self.bind, self.control_port).into())?;
         butterpollo_windows::net::configure_udp(&socket)?;
         let raw_socket = std::os::windows::io::AsRawSocket::as_raw_socket(&socket);
+        let raw_wake =
+            std::os::windows::io::AsRawSocket::as_raw_socket(&self.control_wake_receiver);
         let mut host = Host::new(
             ControlSocket::new(socket),
             HostSettings {
@@ -2645,6 +2699,7 @@ impl Media {
         let input_timer = butterpollo_windows::timing::Timer::new()?;
         let mut feedback_at = Instant::now();
         while !h.stop.load(Ordering::Acquire) {
+            while self.control_wake_receiver.recv(&mut [0]).is_ok() {}
             let ping_timeout = crate::network::ping_timeout(&h.config.read().unwrap());
             #[cfg(test)]
             if let Some(fixture) = &h.reconnect_fixture {
@@ -2655,8 +2710,10 @@ impl Media {
             // pass's input is applied.
             host.socket_mut().hold();
             // Bound each pass so a busy input peer cannot starve cleanup or feedback.
-            for _ in 0..512 {
+            let mut serviced = 0;
+            for _ in 0..CONTROL_EVENT_LIMIT {
                 let Some(event) = host.service()? else { break };
+                serviced += 1;
                 match event {
                     Event::Connect { peer, data } => {
                         let Some(address) = peer.address() else {
@@ -3021,6 +3078,7 @@ impl Media {
                         ) {
                             Ok(mut i) => {
                                 s.launch.warnings.clear("input_initialization");
+                                i.set_feedback_waker(self.control_wake.clone());
                                 i.set_stream_size(s.config.width, s.config.height);
                                 p.injector = Some(i);
                             }
@@ -3128,11 +3186,10 @@ impl Media {
                     .filter_map(|p| p.injector.as_ref()?.next_due())
                     .fold(feedback_at, Instant::min)
             };
-            let timeout = due
-                .saturating_duration_since(now)
-                .as_micros()
-                .div_ceil(1000) as i32;
-            if butterpollo_windows::net::wait_readable(raw_socket, timeout).is_err() {
+            let timeout = control_wait_timeout(due.saturating_duration_since(now), serviced);
+            if butterpollo_windows::net::wait_readable_or_wake(raw_socket, raw_wake, timeout)
+                .is_err()
+            {
                 // A polling error must not spin the loop.
                 input_timer.until(now + Duration::from_millis(timeout.max(1) as u64));
             }
@@ -3236,6 +3293,31 @@ fn feedback_packets(id: u16, kind: u16, data: &[u8]) -> Vec<(u16, Vec<u8>)> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn control_backlog_is_serviced_without_the_feedback_delay() {
+        for queued in [600, 1100] {
+            let mut remaining = queued;
+            while remaining >= super::CONTROL_EVENT_LIMIT {
+                assert_eq!(
+                    super::control_wait_timeout(
+                        Duration::from_millis(8),
+                        super::CONTROL_EVENT_LIMIT
+                    ),
+                    0
+                );
+                remaining -= super::CONTROL_EVENT_LIMIT;
+            }
+            assert_eq!(
+                super::control_wait_timeout(Duration::from_millis(8), remaining),
+                8
+            );
+        }
+        assert_eq!(super::control_wait_timeout(Duration::ZERO, 0), 0);
+        assert_eq!(
+            super::control_wait_timeout(Duration::from_micros(100), 0),
+            1
+        );
+    }
     use super::*;
     #[test]
     fn ignored_config_values_and_host_wide_overrides_are_logged() {

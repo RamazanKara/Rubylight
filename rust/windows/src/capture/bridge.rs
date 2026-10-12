@@ -17,7 +17,12 @@ use std::{
 };
 use windows::Win32::{
     Foundation::*,
-    System::{StationsAndDesktops::*, Threading::GetCurrentProcessId},
+    System::{
+        StationsAndDesktops::*,
+        Threading::{
+            GetCurrentProcess, GetCurrentProcessId, HIGH_PRIORITY_CLASS, SetPriorityClass,
+        },
+    },
 };
 use windows::core::HRESULT;
 
@@ -311,6 +316,7 @@ impl Session {
             // SAFETY: GetCurrentProcessId has no preconditions.
             unsafe { GetCurrentProcessId() }.to_string().into(),
         ];
+        let started = Instant::now();
         let process = crate::process::Process::spawn(
             &program,
             &args,
@@ -329,6 +335,12 @@ impl Session {
             ensure!(Instant::now() < deadline, "WGC helper connection timed out");
             std::thread::sleep(Duration::from_millis(2));
         }
+        let connected = Instant::now();
+        tracing::debug!(
+            pid = process.pid,
+            elapsed_ms = started.elapsed().as_secs_f64() * 1000.,
+            "WGC helper connected"
+        );
         let frame = Arc::new(crate::timing::Signal::new()?);
         pipe.send(&Request::Start {
             version: VERSION,
@@ -367,6 +379,12 @@ impl Session {
             );
             std::thread::sleep(Duration::from_millis(2));
         };
+        tracing::debug!(
+            pid = process.pid,
+            elapsed_ms = started.elapsed().as_secs_f64() * 1000.,
+            ready_ms = connected.elapsed().as_secs_f64() * 1000.,
+            "WGC helper ready"
+        );
         let device: ID3D11Device1 = gpu.device.cast()?;
         let mut owned = GpuPool {
             compute: handoff(&gpu, config, &warnings),
@@ -720,6 +738,10 @@ fn worker(pipe: &Pipe) -> Result<()> {
     };
     let _com = ComGuard::new()?;
     let _priority = Priority::new();
+    // SAFETY: The current-process pseudo handle needs no closing; only this helper is affected.
+    if let Err(error) = unsafe { SetPriorityClass(GetCurrentProcess(), HIGH_PRIORITY_CLASS) } {
+        tracing::debug!(%error, "WGC helper high process priority unavailable");
+    }
     crate::timing::disable_power_throttling();
     let _streaming = config
         .boolean("wgc_helper_streaming_scope", false)
@@ -745,7 +767,7 @@ fn worker(pipe: &Pipe) -> Result<()> {
     // may not be for seconds: the host then gave up on WGC for the whole
     // session (Desktop Duplication paces worse). A repaint of every window
     // composes one; nothing visible changes.
-    let mut repaint = Instant::now() + Duration::from_millis(250);
+    let mut repaint = Instant::now() + Duration::from_millis(33);
     let mut first = loop {
         if let Some(frame) = next_native(&mut capture)? {
             break Some(frame);

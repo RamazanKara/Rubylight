@@ -75,18 +75,43 @@ fn watch_done(pid: u32) -> Result<OwnedHandle> {
     }
 }
 
-fn finish_watch() -> Result<()> {
-    if let Some((mut process, event)) = WATCH.lock().unwrap().take() {
-        // SAFETY: The owned event remains live until the watcher exits.
-        unsafe { SetEvent(HANDLE(event.as_raw_handle()))? };
-        process.wait()?;
+fn finish_watch(path: &Path) -> Result<()> {
+    let guard = lock(path)?;
+    let journal: Journal = serde_json::from_slice(&std::fs::read(path)?)?;
+    if !journal.entries.is_empty() {
+        return Ok(());
     }
+    let mut watch = WATCH.lock().unwrap();
+    let Some((process, event)) = watch.as_mut() else {
+        return Ok(());
+    };
+    // SAFETY: The owned event remains live until the watcher exits.
+    unsafe { SetEvent(HANDLE(event.as_raw_handle()))? };
+    drop(guard);
+    // Keep WATCH locked so a new watcher cannot reset this event before the old
+    // watcher observes it. Native process exit must not hold the journal lock.
+    wait_for_watch(process)?;
+    watch.take();
     Ok(())
 }
-fn write_journal(path: &Path, journal: &Journal) -> Result<()> {
-    butterpollo_core::state::write_json(path, journal)?;
-    if journal.entries.is_empty() && PATH.get().is_some_and(|current| current == path) {
-        finish_watch()?;
+fn wait_for_watch(process: &mut Child) -> Result<()> {
+    // SAFETY: Child owns the process handle for the entire bounded wait.
+    match unsafe { WaitForSingleObject(HANDLE(process.as_raw_handle()), 100) } {
+        WAIT_OBJECT_0 => {}
+        WAIT_TIMEOUT => {
+            // Its journal is empty; a stalled watcher has nothing left to restore.
+            tracing::warn!("display recovery helper did not exit within 100 ms; stopping it");
+            process.kill()?;
+            // Termination is asynchronous. Keep the signaled watcher registered
+            // unless it exits, so a new watcher cannot reuse its named event.
+            // SAFETY: Child still owns the process handle after requesting termination.
+            match unsafe { WaitForSingleObject(HANDLE(process.as_raw_handle()), 100) } {
+                WAIT_OBJECT_0 => {}
+                WAIT_TIMEOUT => bail!("display recovery helper did not stop within 100 ms"),
+                _ => return Err(windows::core::Error::from_thread().into()),
+            }
+        }
+        _ => return Err(windows::core::Error::from_thread().into()),
     }
     Ok(())
 }
@@ -175,9 +200,13 @@ pub fn initialize(directory: &Path) -> Result<Option<anyhow::Error>> {
 fn watch(path: &Path) -> Result<()> {
     use std::os::windows::process::CommandExt;
     let mut child = WATCH.lock().unwrap();
-    if let Some((process, _)) = child.as_mut()
+    if let Some((process, event)) = child.as_mut()
         && process.try_wait()?.is_none()
     {
+        // SAFETY: The watcher entry owns the event for this nonblocking check.
+        if unsafe { WaitForSingleObject(HANDLE(event.as_raw_handle()), 0) } == WAIT_OBJECT_0 {
+            bail!("display recovery helper is still stopping");
+        }
         return Ok(());
     }
     let done = watch_done(std::process::id())?;
@@ -208,7 +237,7 @@ fn watch(path: &Path) -> Result<()> {
 }
 fn change(id: &str, output: &str, update: impl FnOnce(&mut Entry)) -> Result<()> {
     let path = PATH.get().context("display recovery is not initialized")?;
-    let _guard = lock(path)?;
+    let guard = lock(path)?;
     let mut journal: Journal = if path.exists() {
         serde_json::from_slice(&std::fs::read(path)?)?
     } else {
@@ -221,9 +250,10 @@ fn change(id: &str, output: &str, update: impl FnOnce(&mut Entry)) -> Result<()>
     entry.output = output.into();
     update(entry);
     journal.entries.retain(|_, entry| entry.pending());
-    write_journal(path, &journal)?;
+    butterpollo_core::state::write_json(path, &journal)?;
     if journal.entries.is_empty() {
-        return Ok(());
+        drop(guard);
+        return finish_watch(path);
     }
     if let Err(e) = watch(path) {
         butterpollo_core::state::write_json(path, &prior)?;
@@ -279,8 +309,13 @@ pub fn activation(
 }
 pub fn reset() -> Result<()> {
     let path = PATH.get().context("display recovery is not initialized")?;
-    let _guard = lock(path)?;
-    recover(path)
+    let guard = lock(path)?;
+    let result = recover(path);
+    drop(guard);
+    if path.exists() {
+        finish_watch(path)?;
+    }
+    result
 }
 /// What a kept entry holds for a display, which was away when a stream
 /// ended and still has what that stream applied: the original values, and
@@ -326,8 +361,10 @@ pub fn release(id: &str) -> Result<()> {
     let Some(path) = PATH.get().filter(|p| p.exists()) else {
         return Ok(());
     };
-    let _guard = lock(path)?;
-    release_in(path, id)
+    let guard = lock(path)?;
+    release_in(path, id)?;
+    drop(guard);
+    finish_watch(path)
 }
 pub(crate) fn release_in(path: &Path, id: &str) -> Result<()> {
     let mut journal: Journal = serde_json::from_slice(&std::fs::read(path)?)?;
@@ -337,7 +374,7 @@ pub(crate) fn release_in(path: &Path, id: &str) -> Result<()> {
         entry.hdr = None;
     }
     journal.entries.retain(|_, e| e.pending());
-    write_journal(path, &journal)
+    butterpollo_core::state::write_json(path, &journal)
 }
 pub fn position(
     id: &str,
@@ -351,13 +388,15 @@ pub fn release_position(id: &str) -> Result<()> {
     let Some(path) = PATH.get().filter(|p| p.exists()) else {
         return Ok(());
     };
-    let _guard = lock(path)?;
+    let guard = lock(path)?;
     let mut journal: Journal = serde_json::from_slice(&std::fs::read(path)?)?;
     if let Some(entry) = journal.entries.get_mut(id) {
         entry.position = None;
     }
     journal.entries.retain(|_, e| e.pending());
-    write_journal(path, &journal)
+    butterpollo_core::state::write_json(path, &journal)?;
+    drop(guard);
+    finish_watch(path)
 }
 pub fn profile(
     id: &str,
@@ -375,13 +414,15 @@ pub fn release_profile(id: &str) -> Result<()> {
     let Some(path) = PATH.get().filter(|p| p.exists()) else {
         return Ok(());
     };
-    let _guard = lock(path)?;
+    let guard = lock(path)?;
     let mut journal: Journal = serde_json::from_slice(&std::fs::read(path)?)?;
     if let Some(entry) = journal.entries.get_mut(id) {
         entry.profile = None;
     }
     journal.entries.retain(|_, e| e.pending());
-    write_journal(path, &journal)
+    butterpollo_core::state::write_json(path, &journal)?;
+    drop(guard);
+    finish_watch(path)
 }
 /// Undo what an interrupted host changed. Every step is attempted even when
 /// an earlier one fails, and the failures are reported together. A display
@@ -533,7 +574,7 @@ fn recover(path: &Path) -> Result<()> {
     }
     // Keep a valid document so interrupted reads never see partial JSON. The
     // kept entries have no owner until the next host records a change.
-    write_journal(path, &kept)?;
+    butterpollo_core::state::write_json(path, &kept)?;
     if !failures.is_empty() {
         bail!("display recovery incomplete: {}", failures.join("; "));
     }
@@ -598,6 +639,26 @@ pub fn wait_and_recover(pid: u32, directory: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn stalled_watcher_exit_is_bounded() -> Result<()> {
+        use std::os::windows::process::CommandExt;
+        let mut child = Command::new("cmd.exe")
+            .args(["/C", "set /p waiting="])
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::null())
+            .creation_flags(CREATE_NO_WINDOW.0)
+            .spawn()?;
+        let started = std::time::Instant::now();
+        wait_for_watch(&mut child)?;
+        assert!(started.elapsed() < std::time::Duration::from_secs(1));
+        assert_eq!(
+            // SAFETY: Child retains its process handle through this bounded exit check.
+            unsafe { WaitForSingleObject(HANDLE(child.as_raw_handle()), 1000) },
+            WAIT_OBJECT_0
+        );
+        assert!(!child.wait()?.success());
+        Ok(())
+    }
     #[test]
     fn completed_journal_wakes_watcher_while_host_is_alive() -> Result<()> {
         let directory = tempfile::tempdir()?;

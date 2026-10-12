@@ -68,6 +68,7 @@ impl Pads for Gamepads {
 struct Shared {
     warnings: Arc<butterpollo_core::session::Warnings>,
     queue: Mutex<Queue>,
+    feedback_waker: Mutex<Option<Arc<std::net::UdpSocket>>>,
     wake: Condvar,
     stop: AtomicBool,
 }
@@ -113,6 +114,7 @@ impl GamepadThread {
         let shared = Arc::new(Shared {
             warnings,
             queue: Mutex::default(),
+            feedback_waker: Mutex::default(),
             wake: Condvar::new(),
             stop: AtomicBool::new(false),
         });
@@ -149,6 +151,9 @@ impl GamepadThread {
     /// Feedback and motion requests the thread has produced since the last call.
     pub fn reports(&self) -> impl Iterator<Item = PadReport> + '_ {
         self.reports.try_iter()
+    }
+    pub(super) fn set_feedback_waker(&self, waker: Arc<std::net::UdpSocket>) {
+        *self.shared.feedback_waker.lock().unwrap() = Some(waker);
     }
     pub(super) fn release_all(&self) {
         let mut queue = self.shared.queue.lock().unwrap();
@@ -206,6 +211,13 @@ fn run<P: Pads>(
     reports: &mpsc::Sender<PadReport>,
 ) {
     let _priority = crate::capture::Priority::input();
+    let report = |report| {
+        if reports.send(report).is_ok()
+            && let Some(waker) = shared.feedback_waker.lock().unwrap().as_ref()
+        {
+            let _ = waker.send(&[1]);
+        }
+    };
     let mut pads: Option<P> = None;
     let mut retry: Option<Instant> = None;
     let mut poll_at = Instant::now();
@@ -279,7 +291,7 @@ fn run<P: Pads>(
                     } = event
                         && pads.motion_supported(u16::from(id))
                     {
-                        let _ = reports.send(PadReport::Motion { id, capabilities });
+                        report(PadReport::Motion { id, capabilities });
                     }
                 }
             }
@@ -294,7 +306,7 @@ fn run<P: Pads>(
                 tracing::debug!(%error, "controller refresh failed");
             }
             for (id, kind, data) in pads.feedback() {
-                let _ = reports.send(PadReport::Feedback { id, kind, data });
+                report(PadReport::Feedback { id, kind, data });
             }
             polling = pads.plugged();
         }
@@ -617,6 +629,14 @@ mod tests {
     #[test]
     fn feedback_and_motion_are_reported_back() {
         let (pads, gate, _) = fake();
+        let receiver = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        receiver
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .unwrap();
+        let sender = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        sender.connect(receiver.local_addr().unwrap()).unwrap();
+        sender.set_nonblocking(true).unwrap();
+        pads.set_feedback_waker(Arc::new(sender));
         gate.open();
         pads.send(Event::Arrival {
             id: 2,
@@ -624,11 +644,10 @@ mod tests {
             capabilities: 0x30,
             buttons: 0,
         });
-        let mut reports = Vec::new();
-        gate.wait_until(|| {
-            reports.extend(pads.reports());
-            reports.len() >= 2
-        });
+        let mut wake = [0];
+        receiver.recv(&mut wake).unwrap();
+        receiver.recv(&mut wake).unwrap();
+        let reports: Vec<_> = pads.reports().collect();
         assert_eq!(
             reports,
             [

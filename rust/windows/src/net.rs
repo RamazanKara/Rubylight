@@ -251,14 +251,28 @@ pub fn wait_readable(
     socket: std::os::windows::io::RawSocket,
     timeout_ms: i32,
 ) -> std::io::Result<bool> {
-    let mut poll = [WSAPOLLFD {
+    wait_readable_sockets([socket], timeout_ms)
+}
+/// Include host feedback in the same wait as incoming control traffic.
+pub fn wait_readable_or_wake(
+    socket: std::os::windows::io::RawSocket,
+    wake: std::os::windows::io::RawSocket,
+    timeout_ms: i32,
+) -> std::io::Result<bool> {
+    wait_readable_sockets([socket, wake], timeout_ms)
+}
+fn wait_readable_sockets<const N: usize>(
+    sockets: [std::os::windows::io::RawSocket; N],
+    timeout_ms: i32,
+) -> std::io::Result<bool> {
+    let mut poll = sockets.map(|socket| WSAPOLLFD {
         fd: SOCKET(socket as usize),
         events: POLLRDNORM,
         revents: WSAPOLL_EVENT_FLAGS(0),
-    }];
-    // SAFETY: `poll` is a one-element array that outlives the call; a stale socket only makes
+    });
+    // SAFETY: `poll` holds N entries and outlives the call; a stale socket only makes
     // WSAPoll fail.
-    match unsafe { WSAPoll(poll.as_mut_ptr(), 1, timeout_ms) } {
+    match unsafe { WSAPoll(poll.as_mut_ptr(), N as u32, timeout_ms) } {
         ready if ready >= 0 => Ok(ready > 0),
         _ => Err(std::io::Error::from_raw_os_error(
             // SAFETY: WSAGetLastError only reads this thread's last Winsock error.
@@ -904,6 +918,31 @@ mod tests {
         let waited = std::time::Instant::now();
         assert!(wait_readable(receiver.as_raw_socket(), 1000)?);
         assert!(waited.elapsed() < std::time::Duration::from_millis(500));
+        Ok(())
+    }
+    #[test]
+    fn control_wait_wakes_for_feedback_without_client_input() -> Result<()> {
+        let control = UdpSocket::bind("127.0.0.1:0")?;
+        let feedback = UdpSocket::bind("127.0.0.1:0")?;
+        let sender = UdpSocket::bind("127.0.0.1:0")?;
+        let wait = |timeout| {
+            wait_readable_or_wake(control.as_raw_socket(), feedback.as_raw_socket(), timeout)
+        };
+        assert!(!wait(0)?);
+        let address = feedback.local_addr()?;
+        let thread = std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(20));
+            sender.send_to(&[1], address)
+        });
+        let started = std::time::Instant::now();
+        assert!(wait(1000)?);
+        assert!(started.elapsed() < std::time::Duration::from_millis(500));
+        thread.join().unwrap()?;
+        feedback.recv(&mut [0])?;
+        assert!(!wait(0)?);
+        let sender = UdpSocket::bind("127.0.0.1:0")?;
+        sender.send_to(&[1], control.local_addr()?)?;
+        assert!(wait(1000)?);
         Ok(())
     }
     #[test]

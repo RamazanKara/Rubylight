@@ -10,6 +10,160 @@ entry may have been measured in a later one. Results to a real laptop over
 Wi-Fi are in "October 8 real-client picture age over Wi-Fi"; the
 [performance overview](../docs/performance.md) carries the current numbers.
 
+## October 12 latency follow-up (issue 24)
+
+[Issue #24](https://github.com/RamazanKara/Rubylight/issues/24) reviews 2.2.7
+(`7ad9596`). Its timing estimates and Linux models identify candidates; they
+are not Windows measurements. This pass implements the correctness and bounded
+latency follow-ups and records the experiments still requiring evidence.
+
+| Item | Disposition |
+| --- | --- |
+| R1: reconnect GPU scheduling | Implemented. The first streaming scope reapplies the last successfully configured GPU priority, including when capture is reused. The final scope still restores the prior class. |
+| R2: host feedback | Implemented. Gamepad motion/rumble/light/trigger reports and changed HDR metadata signal a connected loopback socket in the control wait. Reports are queued before the wake; no periodic wake was added. The driver's existing 8 ms feedback poll remains. |
+| R3: ENet backlog | Implemented. A pass that consumes its 512-event allowance uses a zero wait, so ENet's internal queue drains without an extra feedback interval between passes. |
+| Active display leases | Implemented. Game and retained remote-monitor leases check every 100 ms while a stream owns them, retaining 250 ms idle checks and existing faster recovery retries. Resume unparks the workers. |
+| Display watcher completion | Implemented. Journal ownership is released before waiting up to 100 ms for exit. A stalled owned watcher is terminated with a further bounded 100 ms wait; its completion event cannot be reused until exit is confirmed. |
+| B1: WGC helper HIGH class | Implemented after controlled idle/loaded comparisons. Only the helper process moves to HIGH; its capture thread runs at priority 14 instead of 9, distinct from MMCSS 18. The results and the initial idle outlier are recorded below. |
+| B2: Wi-Fi pacing at 4× | Deferred. The model predicts earlier packet delivery, but larger bursts can increase access-point/client loss. Keep 2× until real Wi-Fi ABBA runs, outage recovery and a ten-minute loss comparison establish the trade-off. No adaptive fallback was added without those measurements. |
+| B3: newest image after encoder rebuild | Implemented. A successful rebuild rereads the latest image, verifies device compatibility and refreshes source timing before encoding it. A picture published during initialization can replace the pre-rebuild picture. |
+| B4: static-desktop helper repaint | Implemented. The initial repaint deadline is 33 ms rather than 250 ms; retries stay 500 ms apart. This changes a deadline, not a measured launch-time result. |
+| B5: interrupt a sending delta for an IDR | Deferred after prototyping and testing. Cancellation/nonce model tests passed, but the live recovery check did not trigger in-flight cancellation and did not consistently improve IDR p95. Existing pending-delta dropping remains. |
+| B6: standing microphone backlog | Deferred after prototyping and testing. The queue/device model recovered within the proposed deadline, but baseline and candidate both failed the live tone probe, which never exercised trimming. The shorter device-buffer margin and speech-splice quality remain unvalidated. Microphone playout retains its existing behavior. |
+| B7: final claim millisecond | Implemented. When collection is no longer attempted inside the final millisecond, the loop precisely waits on the claim deadline instead of repeating short non-precise output polls. |
+| B8: hybrid WGC arrival/poll | Deferred. Explain the earlier excluded zero-frame run and obtain valid idle/loaded comparisons before changing capture wake policy. A theoretical earlier wake does not establish loaded scheduling behavior. |
+| B9: paired-state save at startup | Implemented. Client last-seen persistence runs on a background worker with the existing paired-state lock; timestamps remain monotonic across overlapping starts. A failed save or worker start is logged. |
+| B10: capture during `/launch` | Deferred. No first-frame measurement yet justifies the additional ownership path for abandoned launches, reconnects and differing negotiated modes. It also requires proving unused helpers are reclaimed within the proposed deadline. |
+| B11: encoder backlog of one | Deferred. The issue predicts a throughput reduction. Keep the existing bound until the saturated fixture establishes the quality/throughput trade-off; no new configuration option was added. |
+| B12a: release replaced capture image | Implemented. The old image is dropped after the publication lock is released and before notifying consumers. |
+| B12b: grid pacing | Deferred. Guarding collection near the existing opt-in grid deadline and switching its waits to precise waits still need frame-age, jitter and CPU comparisons on that path. |
+| B12c: parallel audio/display preparation | Deferred. No launch-stage measurement isolates its benefit, and concurrent preparation needs explicit failure, rollback and session-ownership validation. |
+| B12d: skip pacing for short tails | Deferred. Changing the last batch's pacing is a burst-size trade-off; the arithmetic estimate is not evidence of a real-link gain without increased drops. |
+| B12e: audio idle waits | Implemented. Event-driven capture waits account for the 50 ms silence threshold as well as the next packet deadline, avoiding an expired packet deadline forcing repeated 1 ms waits before silence is due. Capture events still wake immediately and the existing 5 ms wait cap remains. |
+
+The issue's **measure-before-building** items remain experiments:
+
+| Candidate | Evidence still needed |
+| --- | --- |
+| GPU handoff fences/keyed mutex and helper conversion | Per-hop GPU timestamps and an equivalent end-to-end comparison; the proposed sub-millisecond gain is unmeasured. |
+| Separate encoder-output thread | Show that encode time exceeds the useful claim window and that another thread reduces picture age without changing throughput or ordering. |
+| Drop the AV1 RFI confirmation keyframe | Establish decoder recovery correctness on independent clients before removing it. |
+| Shorter hotplug quiet window | Measure reconnect/reconfigure tails and prove competing topology changes settle safely before shortening the current 500 ms window. |
+| Cached WGC HDR output detection | Verify real HDR toggles through the cached output before changing cache or capture behavior. |
+| Drain VHF feedback FIFO | Establish whether the driver actually queues reports and how reads complete. The new control wake does not change driver polling semantics. |
+
+For **C, measurement gaps**, debug logs now record AMF encoder Init,
+encoder/context Terminate and helper connection/Ready elapsed times. A launch
+mode that differs from the negotiated mode emits an explicit display-preparation
+log. There is no new preparation counter, and `interop.py`/`recovery_gaps.py`
+have not been extended to aggregate all these stages. Launch-to-first-frame,
+reconnect, reconfigure switch time, HDR-toggle freeze and microphone end-to-end
+delay still need the issue's dedicated fixtures; log instrumentation alone
+does not close those measurement gaps.
+
+The paths checked as sound in section D are preserved. Section E's excluded
+directions are not reopened: no slice/tile protocol, FEC-layout, wired-ceiling,
+Opus-complexity, microphone reorder-buffer or cross-reopen D3D-device change.
+
+### Validation
+
+Locked Windows workspace tests passed: 815 tests, zero failures and 51
+explicitly ignored native/environment fixtures. Workspace/all-target Clippy
+with warnings denied, formatting, four release-tool tests and the 18-page
+documentation-site build passed. The native RX 7900 XT streaming-scope test
+passed, including a reconnect that reuses the still-live capture and restores
+the original GPU class afterwards.
+
+An initial HEVC 1920x1080x60 helper-forced ABBA compared released 2.2.7 against
+the candidate that included HIGH helper priority, using a 5120x1440@240 SDR
+source and twelve-second streams. All four runs decoded every received frame,
+retained continuous audio and passed the existing stream checks. Baseline
+picture-age means were 13.420/13.154 ms; candidate means were 21.683/17.932 ms.
+Those values are outside the proposed idle tolerance, but a concurrent release
+test build in another workspace was subsequently observed. These runs are
+therefore unsuitable for latency acceptance or causal attribution. The priority
+change was removed for the subsequent controlled comparisons. An earlier fixture attempt used relative paths
+and exited before connecting; the recorded comparisons use absolute paths.
+
+After the other release task finished, B1 was isolated on one candidate binary:
+only the initialized helper's process class changed, with
+`wgc_helper_streaming_scope=false`. HEVC 1080p60 at 20 Mbps used a 120 fps motion
+source on the same 5120x1440@240 SDR display and a loopback D3D11VA receiver.
+Source, receiver, tone and orchestration stayed HIGH in both arms to protect
+the fixture from the CPU load. Independent 30-second launches ran in ABBA
+order, discarding five seconds after priorities/load were established.
+`input_path_probe --spin=highest` supplied one busy HIGHEST thread per logical
+CPU in a NORMAL-class process. No other test or build ran concurrently.
+Picture age means source barcode timestamp to barcode extraction after decode,
+not presentation or input-to-photon delay.
+
+| Condition / run | Helper | Fresh FPS | Mean age, ms | p95, ms | p99, ms |
+| --- | --- | ---: | ---: | ---: | ---: |
+| Idle A1 | NORMAL | 60.020 | 10.050 | 10.601 | 10.760 |
+| Idle B1 | HIGH | 60.000 | 11.769 | 19.063 | 19.240 |
+| Idle B2 | HIGH | 60.001 | 10.311 | 10.845 | 11.097 |
+| Idle A2 | NORMAL | 59.999 | 10.408 | 10.893 | 11.168 |
+| Loaded A1 | NORMAL | 40.449 | 44.373 | 63.597 | 81.423 |
+| Loaded B1 | HIGH | 59.919 | 9.425 | 10.091 | 10.426 |
+| Loaded B2 | HIGH | 59.997 | 10.785 | 11.278 | 12.387 |
+| Loaded A2 | NORMAL | 41.365 | 48.336 | 70.942 | 96.332 |
+
+Both loaded HIGH runs passed the stream checks and retained over 99% of idle
+fresh FPS; both loaded NORMAL runs failed the moving-picture continuity check.
+All runs had zero decode errors. These are trimmed, post-control windows:
+loaded HIGH B2's broader E2E window still recorded a 552.240 ms picture-age
+p99, so the comparison does not establish elimination of startup/load
+transients. Independent idle launches averaged 0.810 ms
+higher at HIGH, outside the proposed 0.3 ms tolerance. That outlier remains
+unexplained, so a follow-up held the source, helper and receiver connected in
+one 140-second stream and changed only helper priority in four 30-second ABBA
+windows, again discarding five seconds after each assignment:
+
+| Helper | Mean age, ms | p99, ms | Fresh FPS |
+| --- | ---: | ---: | ---: |
+| NORMAL A1 | 10.039885 | 10.813 | 60.001 |
+| HIGH B1 | 10.053541 | 10.962 | 59.999 |
+| HIGH B2 | 10.076316 | 10.917 | 60.001 |
+| NORMAL A2 | 10.096460 | 10.839 | 59.999 |
+
+The HIGH-minus-NORMAL mean was -0.003244 ms; adjacent comparisons were
++0.013656 and -0.020144 ms. All 8,378 received frames decoded with continuous
+audio. This controls reconnect state and passes the idle criterion within
+this stream. It does not explain the independent-launch outlier or establish
+equivalence across sessions. B1 is accepted for the observed CPU-contention
+benefit with that uncertainty recorded; no real-game, Wi-Fi or other-hardware
+latency claim follows from these tests.
+
+The combined candidate then passed four quiet 30-second HEVC 1080p60 streams
+against released 2.2.8 in ABBA order, with continuous audio, no decode errors
+and 59.999–60.000 fresh FPS. Mean picture age was 10.329/9.859/10.166/7.499 ms;
+p99 was 11.192/10.650/11.126/11.732 ms. These independently launched sessions
+do not establish an overall latency improvement.
+
+H.264 1080p60 recovery at a 40,000 kbps pacing cap delivered and decoded all
+20 requested IDRs in both builds, with no decode errors or unchanged pictures
+re-encoded. An earlier quiet pair had baseline/candidate IDR-arrival p95 of
+39.236/36.427 ms; the final combined pair measured 38.303/40.993 ms. Per-frame
+and request CSVs found no missing wire IDs in any request-to-IDR bracket.
+Candidate brackets also had no missing source barcodes, but sender debug logs
+recorded no in-flight cancellations. Thus neither cancellation behavior on a
+real paced stream nor a consistent recovery gain was established. B5 and its
+prototype test were removed before release; no sender behavior changes ship.
+
+The unshipped microphone prototype passed a deterministic queue/device model
+with 20/40 ms network holds at 5/10/20 ms packet cadence: mean delay returned
+within 5 ms of baseline by 900 ms without the hard queue limit or added silence.
+Quiet native ABBA runs nevertheless detected only 36/59, 36/59, 37/59 and
+36/59 tones, with zero trimming in every run. The existing `mic_probe` generates
+tone pulses but has no `--burst` network option. These failures also occur in
+the baseline; they neither establish a regression nor validate the proposed
+drain. The prototype and its model tests were removed from the release.
+
+After removing both prototypes, the rebuilt release passed another 30-second
+HEVC stream and H.264 stream with 20 keyframe requests at the same settings.
+Both decoded every received frame with zero decode errors and continuous
+audio; all 20 recovery IDRs decoded, with no unchanged picture re-encoded.
+
 ## October 12 4:2:0 and pacing follow-up
 
 The accepted GPU change uses one compute dispatch for D3D11 NV12/P010 and

@@ -399,6 +399,10 @@ impl StreamingScope {
     pub fn enter() -> Self {
         let mut streams = STREAMS.lock().unwrap();
         if streams.count == 0 {
+            // A reconnect may reuse capture after the last stream restored the process priority.
+            if let Err(error) = crate::gpu_priority::resume() {
+                tracing::debug!(%error, "resuming GPU process scheduling failed");
+            }
             // SAFETY: DwmEnableMMCSS takes only a BOOL.
             unsafe {
                 let _ = windows::Win32::Graphics::Dwm::DwmEnableMMCSS(true);
@@ -567,7 +571,7 @@ mod tests {
         let original_gpu = gpu_priority();
         let first = StreamingScope::enter();
         let gpu = crate::capture::Device::new("")?;
-        let _ = crate::gpu_priority::configure(&gpu, &Default::default());
+        crate::gpu_priority::configure(&gpu, &Default::default())?;
         let active_power = power()?;
         let active_gpu = gpu_priority();
         let second = StreamingScope::enter();
@@ -577,6 +581,13 @@ mod tests {
         assert_eq!(gpu_priority(), active_gpu);
         drop(first);
         assert_eq!(power()?, original_power);
+        if original_gpu.is_some() {
+            assert_eq!(gpu_priority(), original_gpu);
+        }
+        // Capture is still alive, so reconnect must restore its configured GPU priority itself.
+        let reconnect = StreamingScope::enter();
+        assert_eq!(gpu_priority(), active_gpu);
+        drop(reconnect);
         if original_gpu.is_some() {
             assert_eq!(gpu_priority(), original_gpu);
         }

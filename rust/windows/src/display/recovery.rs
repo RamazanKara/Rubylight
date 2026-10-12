@@ -881,9 +881,21 @@ pub struct Retained {
     pub mode: (u32, u32, u32, bool),
     guard: std::sync::Arc<std::sync::Mutex<Option<Guard>>>,
     stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    active: std::sync::Arc<std::sync::atomic::AtomicUsize>,
     worker: Option<std::thread::JoinHandle<()>>,
 }
 impl Retained {
+    pub fn stream_started(&self) {
+        self.active
+            .fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+        if let Some(worker) = &self.worker {
+            worker.thread().unpark();
+        }
+    }
+    pub fn stream_stopped(&self) {
+        self.active
+            .fetch_sub(1, std::sync::atomic::Ordering::AcqRel);
+    }
     pub fn capture_target(&self) -> (String, u64) {
         self.guard.lock().unwrap().as_ref().map_or_else(
             || (self.output.clone(), 0),
@@ -948,8 +960,10 @@ impl Retained {
         let output = guard.output.clone();
         let guard = std::sync::Arc::new(std::sync::Mutex::new(Some(guard)));
         let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let active = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let worker_guard = guard.clone();
         let worker_stop = stop.clone();
+        let worker_active = active.clone();
         let worker = std::thread::Builder::new()
             .name("monitor-lease".into())
             .spawn(move || {
@@ -995,6 +1009,8 @@ impl Retained {
                     }
                     std::thread::park_timeout(Duration::from_millis(if pending || retry_feed {
                         25
+                    } else if worker_active.load(std::sync::atomic::Ordering::Acquire) != 0 {
+                        100
                     } else {
                         250
                     }));
@@ -1005,6 +1021,7 @@ impl Retained {
             mode: (width, height, rate.0, hdr),
             guard,
             stop,
+            active,
             worker: Some(worker),
         })
     }

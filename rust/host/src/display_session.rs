@@ -231,6 +231,9 @@ impl StreamPreparation {
 impl Drop for StreamPreparation {
     fn drop(&mut self) {
         self.display.active.fetch_sub(1, Ordering::AcqRel);
+        if let Some(retained) = &self.display.retained {
+            retained.stream_stopped();
+        }
     }
 }
 
@@ -248,6 +251,7 @@ pub struct Ready {
     mode_report: ModeReport,
     stop: Arc<AtomicBool>,
     active: Arc<AtomicUsize>,
+    retained: Option<Arc<Retained>>,
     worker: Option<std::thread::JoinHandle<()>>,
 }
 impl Ready {
@@ -258,6 +262,7 @@ impl Ready {
         let virtual_layout = prepared.virtual_layout.clone();
         let framegen = prepared.framegen.clone();
         let mode_report = prepared.mode_report.clone();
+        let retained = prepared._retained.clone();
         let state = Arc::new(Mutex::new(prepared));
         let stop = Arc::new(AtomicBool::new(false));
         let worker_state = state.clone();
@@ -273,8 +278,9 @@ impl Ready {
                     // desktop while it is locked (issue #6).
                     butterpollo_windows::input::keep_on_input_desktop();
                     let mut prepared = worker_state.lock().unwrap();
-                    let result = prepared.feed(worker_active.load(Ordering::Acquire) != 0);
-                    let tick = if result.is_err() || prepared.recovery.pending {
+                    let active = worker_active.load(Ordering::Acquire) != 0;
+                    let result = prepared.feed(active);
+                    let tick = if active || result.is_err() || prepared.recovery.pending {
                         Duration::from_millis(100)
                     } else {
                         Duration::from_millis(250)
@@ -290,6 +296,9 @@ impl Ready {
                     std::thread::park_timeout(tick);
                 }
             })?;
+        if let Some(retained) = &retained {
+            retained.stream_started();
+        }
         let display = Arc::new(Self {
             _state: state,
             target,
@@ -300,6 +309,7 @@ impl Ready {
             mode_report,
             stop,
             active,
+            retained,
             worker: Some(worker),
         });
         Ok(StreamPreparation {
@@ -329,6 +339,12 @@ impl Ready {
         })?;
         self.mode_report.attach(warnings);
         self.active.fetch_add(1, Ordering::AcqRel);
+        if let Some(retained) = &self.retained {
+            retained.stream_started();
+        }
+        if let Some(worker) = &self.worker {
+            worker.thread().unpark();
+        }
         Ok(StreamPreparation {
             display: self,
             _limiter: limiter,
@@ -378,6 +394,8 @@ impl Drop for Ready {
             worker.thread().unpark();
             let _ = worker.join();
         }
+        // Prepared drops the final monitor lease on the input desktop.
+        self.retained.take();
     }
 }
 

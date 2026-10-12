@@ -151,6 +151,7 @@ public class DiskAssetLoader {
                 f.delete();
             }
         }
+        dir.delete();
     }
 
     public void populateCacheWithStream(CachedAppAssetLoader.LoaderTuple tuple, InputStream input) {

@@ -13,9 +13,11 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 
+import com.limelight.AppView;
 import com.limelight.LimeLog;
 import com.limelight.binding.PlatformBinding;
 import com.limelight.discovery.DiscoveryService;
+import com.limelight.grid.assets.DiskAssetLoader;
 import com.limelight.nvstream.NvConnection;
 import com.limelight.nvstream.http.ComputerDetails;
 import com.limelight.nvstream.http.NvApp;
@@ -520,6 +522,10 @@ public class ComputerManagerService extends Service {
             for (String preferences : new String[] {"AdaptiveBitrate", "PyroWaveBitrate"}) {
                 getSharedPreferences(preferences, MODE_PRIVATE).edit().remove(computer.uuid).apply();
             }
+            getSharedPreferences(AppView.HIDDEN_APPS_PREF_FILENAME, MODE_PRIVATE)
+                    .edit().remove(computer.uuid).apply();
+            CacheHelper.deleteCacheFile(getCacheDir(), "applist", computer.uuid);
+            new DiskAssetLoader(this).deleteAssetsForComputer(computer.uuid);
 
             synchronized (pollingTuples) {
                 // Remove the computer from the computer list

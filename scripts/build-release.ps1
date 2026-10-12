@@ -1,10 +1,10 @@
 $ErrorActionPreference = 'Stop'
 Push-Location (Join-Path $PSScriptRoot '..')
 try {
-    & .\gradlew.bat --no-daemon --max-workers=2 -PabiFilters=arm64-v8a :app:assembleNonRootRelease
-    if ($LASTEXITCODE -ne 0) { throw 'Release APK build failed' }
-    & .\gradlew.bat --no-daemon --max-workers=2 :app:bundleNonRootRelease
-    if ($LASTEXITCODE -ne 0) { throw 'Release bundle build failed' }
+    & .\gradlew.bat --no-daemon --max-workers=2 :app:lintNonRootRelease :app:testNonRootDebugUnitTest :app:testRootDebugUnitTest
+    if ($LASTEXITCODE -ne 0) { throw 'Release validation failed' }
+    & .\gradlew.bat --no-daemon --max-workers=2 :app:assembleNonRootRelease :app:bundleNonRootRelease
+    if ($LASTEXITCODE -ne 0) { throw 'Release artifact build failed' }
 
     @(
         'app/build/outputs/apk/nonRoot/release/app-nonRoot-release.apk'

@@ -1,18 +1,18 @@
 # Google Play readiness
 
-State of Rubylight 0.4.0 (`versionCode` 316, package `com.butterpollo.client`) against what a
-first Play upload needs. Updated 2026-10-10.
+State of the source prepared for Rubylight 0.4.6 (`versionCode` 323, package `com.butterpollo.client`) against what a
+first Play upload needs. Updated 2026-10-13. This is not a claim that the version is published or submitted to Play.
 
 ## Ready in the repository
 
 | Item | Where |
 | --- | --- |
-| Minified (R8) release APK and AAB, signing hook with debug-key fallback | `app/build.gradle`, [building](../docs/building.md#release-signing), `scripts/build-release.*` |
-| Version 0.4.0, shown in Settings > App | `app/build.gradle` |
+| Minified (R8) release APK and AAB; a dedicated signing key is required, with no debug-key fallback | `app/build.gradle`, [building](../docs/building.md#release-signing), `scripts/build-release.*` |
+| Version 0.4.6 prepared in source, shown in Settings > About | `app/build.gradle` |
 | Target SDK 36, 16 KB page-size alignment for native libraries | `app/build.gradle`, `app/src/main/jni` |
 | Crash and abnormal-exit capture, local only, shared only by the user | Settings > Support > Report a problem |
 | English and German only (`localeFilters`) | `app/build.gradle` |
-| Store title, short and full description, 0.4.0 changelog (EN and DE) | `fastlane/metadata/android/{en-US,de}` |
+| Store title, short and full description, 0.4.6 changelog (EN and DE) | `fastlane/metadata/android/{en-US,de}` |
 | Icon 512 px, feature graphic 1024x500, TV banner | `fastlane/metadata/android/en-US/images` |
 | Phone screenshots (1080x1920 and 1920x1080, from demo-mode captures) | `fastlane/metadata/android/en-US/images/phoneScreenshots`, made by `scripts/store/store-screenshots.py` |
 | Privacy policy | [PRIVACY.md](../docs/PRIVACY.md), published at `https://ramazankara.github.io/rubylight-android/privacy.html` |
@@ -37,4 +37,4 @@ illustrative values. Regenerate the stills with `scripts/demo/capture-stills.ps1
 
 - German store screenshots (the German listing falls back to the English ones).
 - Tablet screenshots (optional for a phone app; needed for the large-screen badge).
-- Release build smoke test on an emulator and a real phone.
+- The exact production-signed 0.4.6 APK needs an in-place upgrade and smoke test; validation-key builds cannot establish signing continuity. Keep real-phone streaming checks separate from emulator fixtures.

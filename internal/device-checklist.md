@@ -25,16 +25,16 @@ Record the app build, host version, phone/tablet/TV model, SoC, Android build, c
 - [ ] Compare SurfaceView and compatibility TextureView where allowed. Record physical panel Hz, app render-rate override, cadence hints, battery saver and thermal restrictions.
 - [ ] Test HDR10 PQ highlights, gradients, black/white patches, metadata changes, HDR↔SDR transitions and 10-bit SDR. Confirm no stale metadata, clipping or eight-bit intermediate output.
 - [ ] Compare 4:2:0/4:4:4 and limited/full range with colored single-pixel text. Verify negotiated fallback and HDR priority.
-- [ ] Test Compact/Advanced switching by menu and long press, keyboard toggle, persistence, Copy stats, missing values, health thresholds and PiP hiding. Compare exported CSV columns with the displayed stages.
+- [ ] Test Statistics/Debug switching from the stream menu, keyboard toggle, persistence, Copy stats, missing values, health thresholds and PiP hiding. Long-press switching belongs only to the debug overlay preview. Compare exported CSV columns with the displayed stages.
 - [ ] Compare Phone performance hints on/off, decoder hints and sustained thermal load for at least 20 minutes. Keep network loss separate from decoder/presentation stalls.
 
 ## Upscaling
 
 - [ ] Compare Off, Bilinear, FSR and SGSR at 720p/1080p → native, with 0/50/100% sharpening. Check text, diagonals, texture, motion, ringing, color, crop, portrait and stretched output.
-- [ ] Confirm native/larger input, HDR, 10-bit and PyroWave use direct output with the appropriate reason. Check missing GLES/OES support.
+- [ ] Confirm native/larger input, HDR and 10-bit use direct output with the appropriate reason. For lower-resolution SDR PyroWave, verify SGSR is used for both the FSR and SGSR selections and that Debug reports the active path. Check missing GLES/OES support on the conventional path.
 - [ ] Compare added-time estimates, latency traces and battery use at 60/120 FPS. Do not count decoder texture callbacks as displayed frames.
 - [ ] Overload the GPU and trigger repeated drops, rotation/resize and renderer recovery. Confirm one direct-output fallback, released resources and no reactivation until reconnect.
-- [ ] Save/reset per-PC overrides, exercise old-profile inheritance and all four presets, and test sharpening cancellation and persistence.
+- [ ] Save/reset per-PC overrides, exercise old-profile inheritance and both presets, and test sharpening cancellation and persistence.
 
 ## Network and PyroWave
 
@@ -71,7 +71,7 @@ Record the app build, host version, phone/tablet/TV model, SoC, Android build, c
 - [ ] Check 360 × 800 dp and 393 × 851 dp, portrait/landscape, font scales 1.0/1.3/2.0, gesture/three-button navigation, English/German and long host/app names.
 - [ ] Visit library/roles, all five settings sections, search/empty results, profiles, help and every stream subdialog. Check wrapping, scrolling, IME insets, Back behavior and reachable Save/Cancel controls.
 - [ ] With TalkBack and keyboard/D-pad, check labels, headings, focus return and touch targets. Search titles/categories/accents/punctuation and verify original dependencies after opening a result.
-- [ ] Export ES-DE configuration and covers; launch from ES-DE, Daijisho and Pegasus. Test unreadable/malformed files, missing PCs/apps, URI grants and return to the frontend.
+- [ ] Export ES-DE configuration and covers; launch from ES-DE, Daijisho and Pegasus. Test renamed games with stable IDs/UUIDs, interrupted writes and retry, custom-cover preservation, unreadable/malformed files, missing PCs/apps, URI grants and return to the frontend.
 - [ ] Test debug and R8 release artifacts and the production signing identity. Retain GPL and bundled shader/native notices.
 - [ ] Verify packaged native ELF and ZIP alignment and run on a 16 KB page-size Android device. Check all included ABIs and the 64-bit-only PyroWave path.
 - [ ] Capture current Rubylight setup, settings, PC profile and live stream-menu/overlay screens. UI fixture captures do not establish a live host or hardware decode result.

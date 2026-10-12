@@ -4,7 +4,9 @@ import android.app.Application;
 import android.content.Intent;
 import android.content.ServiceConnection;
 
+import com.limelight.AppView;
 import com.limelight.nvstream.http.ComputerDetails;
+import com.limelight.utils.CacheHelper;
 
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -15,6 +17,8 @@ import org.robolectric.util.ReflectionHelpers;
 
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.nio.file.Files;
+import java.util.Collections;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.Assert.*;
@@ -25,6 +29,33 @@ public class ComputerManagerLifecycleTest {
     public static class Manager extends ComputerManagerService {
         @Override public boolean bindService(Intent intent, ServiceConnection connection, int flags) {
             return false;
+        }
+    }
+
+    @Test
+    public void deletingComputerRemovesItsCachedLibraryArtworkAndHiddenAppsOnly() throws Exception {
+        ServiceController<Manager> controller = Robolectric.buildService(Manager.class).create();
+        ComputerManagerService service = controller.get();
+        ComputerDetails computer = new ComputerDetails();
+        computer.uuid = "removed-host";
+        try {
+            for (String host : new String[] {computer.uuid, "another-host"}) {
+                Files.writeString(CacheHelper.openPath(true, service.getCacheDir(), "applist", host).toPath(), "library");
+                Files.writeString(CacheHelper.openPath(true, service.getCacheDir(), "boxart", host, "42.png").toPath(), "cover");
+                service.getSharedPreferences(AppView.HIDDEN_APPS_PREF_FILENAME, 0).edit()
+                        .putStringSet(host, Collections.singleton("42")).commit();
+            }
+
+            service.removeComputer(computer);
+
+            assertFalse(CacheHelper.openPath(false, service.getCacheDir(), "applist", computer.uuid).exists());
+            assertFalse(CacheHelper.openPath(false, service.getCacheDir(), "boxart", computer.uuid).exists());
+            assertFalse(service.getSharedPreferences(AppView.HIDDEN_APPS_PREF_FILENAME, 0).contains(computer.uuid));
+            assertTrue(CacheHelper.openPath(false, service.getCacheDir(), "applist", "another-host").isFile());
+            assertTrue(CacheHelper.openPath(false, service.getCacheDir(), "boxart", "another-host", "42.png").isFile());
+            assertTrue(service.getSharedPreferences(AppView.HIDDEN_APPS_PREF_FILENAME, 0).contains("another-host"));
+        } finally {
+            controller.destroy();
         }
     }
 

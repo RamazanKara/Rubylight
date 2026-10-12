@@ -12,7 +12,9 @@ Rubylight can stream a game opened from ES-DE, Daijisho, Pegasus or another Andr
 4. Select the ES-DE folder to merge the custom system and copy cached covers. Skip this step when exporting only game files for another frontend.
 5. Restart ES-DE and open its **Rubylight** system.
 
-On Android 11+, select the actual ROMs/ES-DE directories rather than a restricted storage root. Repeat export after changing the host library. Entries are updated in place; same-name games from different PCs are disambiguated.
+On Android 11+, select the actual ROMs/ES-DE directories rather than a restricted storage root. Repeat export after changing the host library. Entries are matched by PC and app identity and updated in place even if a game was renamed; the existing filename and matching cover filename stay stable. Same-name games from different PCs are disambiguated.
+
+An unsuccessful new entry or cover write is removed when the document provider permits it, so a retry does not leave a broken duplicate or empty cover. Existing custom covers and files belonging to other PCs are preserved. Export does not prune entries for games you removed or hid after an earlier export; remove those entries manually in your frontend's ROMs folder. If storage permission or a provider failure prevents cleanup, remove the incomplete file before retrying.
 
 The exporter uses these literal paths and identifiers:
 

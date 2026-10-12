@@ -6,12 +6,34 @@ body:
   - type: markdown
     attributes:
       value: |
-        Thank you for taking the time to fill out this bug form!
-        
-        **READ ME FIRST!**
-        If you're here because something basic is not working (like gamepad input, video, or similar), it's probably something specific to your setup, so make sure you've gone through the Troubleshooting Guide first: https://github.com/moonlight-stream/moonlight-docs/wiki/Troubleshooting
-        
-        If you still have trouble with basic functionality after following the guide, join our Discord server where there are many other volunteers who can help (or direct you back here if it looks like a Moonlight bug after all). https://moonlight-stream.org/discord
+        Please check the Rubylight troubleshooting guide first:
+        https://github.com/RamazanKara/rubylight-android/blob/main/docs/TROUBLESHOOTING.md
+
+        Include the exact Android app and host versions, not just "latest".
+        For pairing or discovery failures, choose "Not applicable" for gamepad questions.
+        Never attach pairing PINs, private keys, keystores or unredacted credentials.
+  - type: input
+    id: client-version
+    attributes:
+      label: Rubylight Android version
+      description: Find the version in Settings → About. Include whether this is a release or debug build.
+      placeholder: e.g. 0.4.5 (322), release APK
+    validations:
+      required: true
+  - type: dropdown
+    id: affected-stage
+    attributes:
+      label: Where does the failure happen?
+      options:
+        - Discovery or adding a PC
+        - Pairing
+        - Opening the library or launching an app
+        - Video or audio streaming
+        - Controls or clipboard
+        - Settings or launcher export
+        - Other
+    validations:
+      required: true
   - type: textarea
     id: describe-bug
     attributes:
@@ -30,15 +52,17 @@ body:
     id: affected-games
     attributes:
       label: Affected games
-      description: List the games you've tried that exhibit the issue. To see if the issue is game-specific, try streaming Steam Big Picture with Moonlight and see if the issue persists there.
+      description: List affected apps or games. Enter "Not applicable" if pairing, discovery or settings fail before a stream starts.
     validations:
       required: true   
   - type: dropdown
     id: other-clients
     attributes:
-      label: Other Moonlight clients
-      description: Does the issue occur when using Moonlight on PC or iOS?
+      label: Other streaming clients tested
+      description: Which other client did you test against the same host? Describe its result in Additional context.
       options:
+        - "Not tested"
+        - "Android (Moonlight or Artemis)"
         - "PC"
         - "iOS"
     validations:
@@ -46,7 +70,7 @@ body:
   - type: dropdown
     id: settings-adjusted
     attributes:
-      label: Moonlight adjusted settings
+      label: Rubylight adjusted settings
       description: Have any settings been adjusted from defaults?
       options:
         - "Yes"
@@ -56,16 +80,17 @@ body:
   - type: textarea
     id: settings-adjusted-settings
     attributes:
-      label: Moonlight adjusted settings (please complete the following information)
+      label: Changed settings
       description: If the settings have been adjusted, which settings have been changed?
     validations:
-      required: true
+      required: false
   - type: dropdown
     id: settings-default
     attributes:
-      label: Moonlight default settings
+      label: Rubylight default settings
       description: Does the problem still occur after reverting settings back to default?
       options:
+        - "Not tested"
         - "Yes"
         - "No"
     validations:
@@ -76,6 +101,7 @@ body:
       label: Gamepad-related connection issue
       description: Do you have any gamepads connected to your host PC directly?
       options:
+        - "Not applicable"
         - "Yes"
         - "No"
     validations:
@@ -84,8 +110,10 @@ body:
     id: gamepad-on-screen
     attributes:
       label: Gamepad-related input issue
-      description: If gamepad input is not working, does it work if you use Moonlight's on-screen controls?
+      description: If gamepad input is not working, does it work with Rubylight's on-screen controls?
       options:
+        - "Not applicable"
+        - "Not tested"
         - "Yes"
         - "No"
     validations:
@@ -96,8 +124,10 @@ body:
       label: Gamepad-related streaming issue
       description: |
         Does the problem still remain if you stream the desktop and use https://html5gamepad.com to test your gamepad? 
-        Instructions for streaming the desktop can be found here: https://github.com/moonlight-stream/moonlight-docs/wiki/Setup-Guide
+        Add Desktop to your host's application list, then launch it from Rubylight.
       options:
+        - "Not applicable"
+        - "Not tested"
         - "Yes"
         - "No"
     validations:
@@ -129,17 +159,17 @@ body:
   - type: input
     id: server-geforce
     attributes:
-      label: Server PC GeForce Experience version
-      description: What is the GeForce Experience version?
-      placeholder: e.g. 3.16.0.140
+      label: Host software and version
+      description: Include the host name and exact version (Rubylight, Sunshine, Apollo or GeForce Experience).
+      placeholder: e.g. Rubylight 2.2.5
     validations:
       required: true
   - type: input
     id: server-driver
     attributes:
-      label: Server PC Nvidia GPU driver version
-      description: What is the Nvidia GPU driver version?
-      placeholder: e.g. 417.35
+      label: Host GPU and driver version
+      description: Include the GPU vendor/model and driver version, or "Not known".
+      placeholder: e.g. AMD Radeon, NVIDIA GeForce or Intel Arc and driver version
     validations:
       required: true
   - type: input
@@ -173,4 +203,3 @@ body:
       description: Anything else you think may be relevant to the issue or special about your specific setup.
     validations:
       required: false
-      

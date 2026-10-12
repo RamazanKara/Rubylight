@@ -180,9 +180,11 @@ Long-press a PC and choose **This PC → Display on the PC** to choose what the 
 | Virtual display only (exclusive) | `hostDisplay=exclusive`, `virtualDisplay=1` | Adds a virtual display and switches the PC's monitors off during the stream. |
 | Additional virtual display, as main display | `hostDisplay=extended_primary`, `virtualDisplay=1` | Adds a virtual display beside the monitors and makes it the main display, so games open on it. |
 | Additional virtual display, PC display stays main | `hostDisplay=extended`, `virtualDisplay=1` | Adds a virtual display beside the monitors; the PC keeps its main display. |
+| Additional virtual display, separated from PC displays | `hostDisplay=extended_isolated`, `virtualDisplay=1` | Keeps the PC primary and places the virtual display away from the other displays. |
+| Additional virtual display, main and separated | `hostDisplay=extended_primary_isolated`, `virtualDisplay=1` | Makes the virtual display primary and places the PC's other displays away from it. |
 | Physical display (no virtual display) | `hostDisplay=physical` | Streams the PC's monitor, even when the PC or **Host virtual display** would add a virtual display. |
 
-The PC puts its displays back when the stream ends. The choice needs a Rubylight host with display choice support; other hosts ignore `hostDisplay` and give a virtual display only for the virtual choices, where they support one. Remote Monitor and Remote Input keep the PC's settings, and GameStream (GFE) PCs don't offer the entry.
+The PC puts its displays back when the stream ends. Separated displays still share the same Windows session; they are not separate user sessions. The choice needs a Rubylight host with display choice support; other hosts ignore `hostDisplay` and give a virtual display only for the virtual choices, where they support one. Remote Monitor and Remote Input keep the PC's settings, and GameStream (GFE) PCs don't offer the entry.
 
 ## Settings available during a stream
 
@@ -190,7 +192,7 @@ The PC puts its displays back when the stream ends. The choice needs a Rubylight
 | --- | --- | --- |
 | Touch mode | Trackpad initially; saved globally | Switch Trackpad, Direct mouse or Multi-touch immediately. |
 | Show on-screen controls / Edit controller layout | Hidden initially; saved control preference/layout | Show the virtual gamepad, move/resize it and save. |
-| Overlay visibility / mode | Off / Compact initially; saved globally | Show, hide, switch Compact/Advanced or copy detailed stats. |
+| Overlay visibility / mode | Off / Statistics initially; saved globally | Show, hide, switch Statistics/Debug or copy detailed stats. |
 | Set bitrate | Starts from the effective stream configuration; session adjustment | Request 0.5–500 Mbps, subject to host limits. A manual selection disables automatic bitrate. |
 | Automatic bitrate | Off initially; saved per PC, separately for PyroWave and conventional codecs | Lower bitrate under congestion and recover gradually within the selected/host cap. Requires a supporting Rubylight host. |
 | Keyboard, clipboard and host actions | Actions, not factory preferences | Open the keyboard, transfer text explicitly, view host status, reconnect, disconnect or request app exit. Host permissions apply. |

@@ -1,6 +1,6 @@
 # Rubylight privacy
 
-Applies to Rubylight for Android 0.4.0.
+Describes the Rubylight for Android source prepared for 0.4.6.
 
 Rubylight streams your PC's desktop, apps, video and audio directly to your
 Android device. Your controls and any clipboard text you choose to send go to
@@ -69,7 +69,8 @@ latency files, may be backed up or transferred by Android. Client certificates,
 private keys, the client identifier and preferences are excluded. Crash records
 and temporary report files are kept outside Android backup.
 
-Remove a saved PC in Rubylight to remove its saved-host entry and per-PC settings. Revoke pairing
+Remove a saved PC in Rubylight to remove its saved-host entry, per-PC settings, hidden-app choices,
+cached app list and artwork. Revoke pairing
 on the PC to remove that device's access there. Clear Rubylight's app storage
 or uninstall it to remove its local data. Separately delete any exported logs,
 shared reports or Android backups using the app or service holding them.

@@ -38,3 +38,7 @@ How the Android client works with each Rubylight host feature.
 | Host administration | Open host administration from an online Rubylight PC's menu. Devices, app overrides, display layout and host services remain in the web console, with its own login and network access requirements. |
 
 See [building](building.md) for reproducible checks.
+
+## Remaining gaps and validation
+
+The [October 2026 Android audit](android-audit-2026-10.md) records the reproducible defects, release tooling gaps and remaining hardware/integration checks. Feature implementation is not a claim that every device, host or document provider has been tested.

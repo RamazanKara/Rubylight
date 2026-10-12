@@ -52,7 +52,7 @@ During a stream, **Host commands** provides host status and device-permission in
 
 Same-install updates keep pairing. Android backups and device transfer exclude the client certificate, private key and installation identity; a restored installation must pair again.
 
-Remove an unwanted PC from Android and revoke the device in the host console to remove its host access. Clearing app storage or uninstalling removes the local pairing identity.
+Remove an unwanted PC from Android to clear its saved-host entry, per-PC settings, cached library/artwork and hidden-app choices. Other PCs and the installation's pairing identity are retained. Revoke the device in the host console to remove its host access. Clearing app storage or uninstalling removes the local pairing identity. Launcher entries exported to a folder you selected are separate files and are not removed when deleting a PC.
 
 ## Wake a sleeping PC
 

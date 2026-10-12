@@ -2,8 +2,9 @@
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
-bash ./gradlew --no-daemon --max-workers=2 -PabiFilters=arm64-v8a :app:assembleNonRootRelease
-bash ./gradlew --no-daemon --max-workers=2 :app:bundleNonRootRelease
+bash ./gradlew --no-daemon --max-workers=2 \
+    :app:lintNonRootRelease :app:testNonRootDebugUnitTest :app:testRootDebugUnitTest
+bash ./gradlew --no-daemon --max-workers=2 :app:assembleNonRootRelease :app:bundleNonRootRelease
 
 artifacts=(
     app/build/outputs/apk/nonRoot/release/app-nonRoot-release.apk

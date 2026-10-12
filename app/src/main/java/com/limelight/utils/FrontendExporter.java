@@ -78,6 +78,16 @@ public final class FrontendExporter {
         Uri systemDir = directory(romsTree, romsRoot, FrontendEntry.ES_SYSTEM_NAME);
         Map<String, Uri> existing = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
         existing.putAll(listChildren(romsTree, systemDir));
+        Map<String, Map<String, String>> entries = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+        for (Map.Entry<String, Uri> child : existing.entrySet()) {
+            String name = child.getKey();
+            if (name.length() >= FrontendEntry.EXTENSION.length() && name.regionMatches(true,
+                    name.length() - FrontendEntry.EXTENSION.length(), FrontendEntry.EXTENSION, 0,
+                    FrontendEntry.EXTENSION.length())) {
+                Map<String, String> values = readEntry(child.getValue());
+                if (values != null) entries.put(name, values);
+            }
+        }
 
         Uri coversDir = null;
         Map<String, Uri> existingCovers = new HashMap<>();
@@ -92,19 +102,24 @@ public final class FrontendExporter {
 
         int written = 0;
         for (NvApp app : apps) {
-            String base = entryBaseName(app, existing);
-            String fileName = base + FrontendEntry.EXTENSION;
+            String fileName = entryFileName(app, existing, entries);
+            String base = fileName.substring(0, fileName.length() - FrontendEntry.EXTENSION.length());
+            String contents = FrontendEntry.serialize(computer.uuid, computer.name,
+                    app.getAppUuid(), app.getAppName(), app.getAppId());
+            Map<String, String> values = FrontendEntry.parse(new StringReader(contents));
             Uri entry = existing.get(fileName);
             if (entry == null) {
-                entry = create(systemDir, ENTRY_MIME, fileName);
+                entry = createText(systemDir, ENTRY_MIME, fileName, contents);
                 existing.put(fileName, entry);
+            } else {
+                writeText(entry, contents);
             }
-            writeText(entry, FrontendEntry.serialize(computer.uuid, computer.name,
-                    app.getAppUuid(), app.getAppName(), app.getAppId()));
+            entries.put(fileName, values);
             written++;
 
             if (coversDir != null && !existingCovers.containsKey(base + ".png")) {
-                copyCover(app, coversDir, base + ".png");
+                Uri cover = copyCover(app, coversDir, base + ".png");
+                if (cover != null) existingCovers.put(base + ".png", cover);
             }
         }
         return written;
@@ -113,28 +128,31 @@ public final class FrontendExporter {
     /**
      * Preserve an existing game's file even when names collide after sanitizing or truncating.
      */
-    private String entryBaseName(NvApp app, Map<String, Uri> existing) {
+    private String entryFileName(NvApp app, Map<String, Uri> existing,
+                                Map<String, Map<String, String>> entries) {
+        for (Map.Entry<String, Map<String, String>> entry : entries.entrySet()) {
+            if (FrontendEntry.matchesApp(entry.getValue(), computer.uuid, app.getAppUuid(), app.getAppId())) {
+                return entry.getKey();
+            }
+        }
         String base = FrontendEntry.fileBaseName(app.getAppName());
         String hostBase = FrontendEntry.fileBaseName(app.getAppName() + " (" + computer.name + ")");
         for (int suffix = 1; ; suffix++) {
-            Uri current = existing.get(base + FrontendEntry.EXTENSION);
-            if (current == null || belongsToApp(current, app)) {
-                return base;
+            if (!existing.containsKey(base + FrontendEntry.EXTENSION)) {
+                return base + FrontendEntry.EXTENSION;
             }
             base = suffix == 1 ? hostBase : hostBase + " (" + suffix + ")";
         }
     }
 
-    private boolean belongsToApp(Uri entry, NvApp app) {
+    private Map<String, String> readEntry(Uri entry) {
         try (InputStream in = resolver.openInputStream(entry)) {
             if (in == null) {
-                return false;
+                return null;
             }
-            Map<String, String> values = FrontendEntry.parse(new InputStreamReader(in, StandardCharsets.UTF_8));
-            return FrontendEntry.matchesApp(values, computer.uuid, app.getAppUuid(), app.getAppId());
+            return FrontendEntry.parse(new InputStreamReader(in, StandardCharsets.UTF_8));
         } catch (IOException | SecurityException e) {
-            // Not one of our entries: never overwrite it
-            return false;
+            return null;
         }
     }
 
@@ -169,31 +187,58 @@ public final class FrontendExporter {
                 }
                 existing = CacheHelper.readInputStreamToString(in);
             }
-        } else {
-            file = create(dir, "text/xml", name);
         }
-        writeText(file, merge.merge(existing));
+        String contents = merge.merge(existing);
+        if (file == null) {
+            createText(dir, "text/xml", name, contents);
+        } else {
+            writeText(file, contents);
+        }
     }
 
-    private void copyCover(NvApp app, Uri coversDir, String name) {
+    private Uri copyCover(NvApp app, Uri coversDir, String name) {
         File cached = CacheHelper.openPath(false, context.getCacheDir(), "boxart",
                 computer.uuid, app.getAssetCacheKey() + ".png");
         if (!cached.isFile()) {
-            return;
+            return null;
         }
-        try (InputStream in = new FileInputStream(cached);
-             OutputStream out = resolver.openOutputStream(create(coversDir, "image/png", name), "wt")) {
-            if (out == null) {
-                return;
-            }
-            byte[] buffer = new byte[16384];
-            int count;
-            while ((count = in.read(buffer)) != -1) {
-                out.write(buffer, 0, count);
+        Uri created = null;
+        try (InputStream in = new FileInputStream(cached)) {
+            created = create(coversDir, "image/png", name);
+            try (OutputStream out = resolver.openOutputStream(created, "wt")) {
+                if (out == null) throw new IOException("Unable to write cover");
+                byte[] buffer = new byte[16384];
+                int count;
+                while ((count = in.read(buffer)) != -1) {
+                    out.write(buffer, 0, count);
+                }
             }
         } catch (IOException | SecurityException e) {
-            // Covers are a convenience; ES-DE's scraper can still fetch them
+            if (created != null) deleteIncomplete(created);
             LimeLog.warning("Unable to copy cover for " + app.getAppName() + ": " + e.getMessage());
+            return null;
+        }
+        return created;
+    }
+
+    private Uri createText(Uri parent, String mime, String name, String contents) throws IOException {
+        Uri created = create(parent, mime, name);
+        try {
+            writeText(created, contents);
+            return created;
+        } catch (IOException | RuntimeException failure) {
+            deleteIncomplete(created);
+            throw failure;
+        }
+    }
+
+    private void deleteIncomplete(Uri document) {
+        try {
+            if (!DocumentsContract.deleteDocument(resolver, document)) {
+                LimeLog.warning("Unable to remove incomplete frontend document");
+            }
+        } catch (IOException | RuntimeException failure) {
+            LimeLog.warning("Unable to remove incomplete frontend document: " + failure.getMessage());
         }
     }
 

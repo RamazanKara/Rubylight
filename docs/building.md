@@ -12,6 +12,8 @@ Updates require the same signing key. Debug APKs built on different machines use
 
 Use JDK 17 and the Android SDK/NDK already installed on your machine. The repository pins compile SDK 37, target SDK 36, minimum SDK 21, NDK `29.0.14206865`, Android Gradle Plugin `9.4.0` and Gradle `9.7.1`. Check [app/build.gradle](../app/build.gradle), [build.gradle](../build.gradle) and the [wrapper configuration](../gradle/wrapper/gradle-wrapper.properties) when updating the toolchain.
 
+The SDK Manager package for compile SDK 37 is `platforms;android-37.0`, not `platforms;android-37`. Install it together with `build-tools;36.0.0`, `platform-tools` and `ndk;29.0.14206865` when preparing a clean build environment.
+
 Clone the Android repository with its native submodules:
 
 ```sh
@@ -112,13 +114,13 @@ Build the release APK and bundle directly:
 .\gradlew.bat --no-daemon --max-workers=2 :app:assembleNonRootRelease :app:bundleNonRootRelease :app:lintNonRootRelease :app:testNonRootDebugUnitTest
 ```
 
-Or use the existing artifact helper after the checks pass:
+Or use the artifact helper, which runs release lint and both flavors' unit tests before building:
 
 ```powershell
 .\scripts\build-release.ps1
 ```
 
-The Linux helper is `bash scripts/build-release.sh`. Both helpers build an arm64 APK and a bundle with the default ABIs, then print SHA-256 hashes and byte sizes. They do not publish. Preserve `app/build/outputs/mapping/nonRootRelease/mapping.txt` and native debug symbols for the matching release.
+The Linux helper is `bash scripts/build-release.sh`. Both helpers build a universal APK and bundle with all four default ABIs (`arm64-v8a`, `armeabi-v7a`, `x86`, `x86_64`), then print SHA-256 hashes and byte sizes. They stop on validation/build failure and do not publish. Single-ABI builds are for explicit device testing, not the default downloadable release. Preserve `app/build/outputs/mapping/nonRootRelease/mapping.txt` and native debug symbols for the matching release.
 
 Releases are built and published from a local machine with `gh release create` using the retained release key. Test prereleases carry a debug-signed arm64 APK with the separate debug package ID and are never marked Latest.
 
@@ -128,10 +130,12 @@ Use Python 3.10+ and Node.js 18+; these scripts use only standard libraries and 
 
 ```sh
 python scripts/generate-settings.py
-node --test scripts/check-doc-links.test.mjs
+node --test scripts/check-doc-links.test.mjs scripts/build-release.test.mjs
 node scripts/check-doc-links.mjs
 ```
 
 Use `python3` instead of `python` where that is your Python 3 command. The generator reads the real XML and Java presets; it fails if a preference lacks usage guidance or a preset expression needs review. The CI documentation job regenerates the page and uses `git diff --exit-code -- docs/settings.md` to reject stale committed output.
+
+The [Documentation workflow](../.github/workflows/docs.yml) also checks documentation-only pushes and pull requests, which intentionally do not rebuild Android. Release-helper tests use a disposable fake Gradle launcher to verify task ordering, universal packaging and failure handling; the PowerShell helper receives a static parity check, not execution on Windows.
 
 The link checker checks README and every Markdown page under `docs/`: relative file/image paths, filename case, Markdown heading fragments, explicit HTML anchors and reference links. External URLs are syntax-checked and counted, not fetched; an offline pass does not certify remote availability.

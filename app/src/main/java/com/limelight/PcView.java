@@ -10,7 +10,6 @@ import com.limelight.binding.crypto.AndroidCryptoProvider;
 import com.limelight.computers.ComputerManagerListener;
 import com.limelight.computers.ComputerManagerService;
 import com.limelight.grid.PcGridAdapter;
-import com.limelight.grid.assets.DiskAssetLoader;
 import com.limelight.nvstream.http.ComputerDetails;
 import com.limelight.nvstream.http.NvApp;
 import com.limelight.nvstream.http.NvHTTP;
@@ -922,14 +921,6 @@ public class PcView extends AppCompatActivity implements AdapterFragmentCallback
     
     private void removeComputer(ComputerDetails details) {
         managerBinder.removeComputer(details);
-
-        new DiskAssetLoader(this).deleteAssetsForComputer(details.uuid);
-
-        // Delete hidden games preference value
-        getSharedPreferences(AppView.HIDDEN_APPS_PREF_FILENAME, MODE_PRIVATE)
-                .edit()
-                .remove(details.uuid)
-                .apply();
 
         for (int i = 0; i < pcGridAdapter.getCount(); i++) {
             ComputerObject computer = (ComputerObject) pcGridAdapter.getItem(i);

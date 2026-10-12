@@ -70,6 +70,7 @@ struct Target {
     texture: Arc<ID3D11Texture2D>,
     luma: ID3D11RenderTargetView,
     chroma: Option<ID3D11RenderTargetView>,
+    unordered: Option<[ID3D11UnorderedAccessView; 2]>,
 }
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Layout {
@@ -83,6 +84,7 @@ pub(crate) struct Converter {
     vertex: ID3D11VertexShader,
     luma: ID3D11PixelShader,
     chroma: ID3D11PixelShader,
+    compute: Option<ID3D11ComputeShader>,
     constants: ID3D11Buffer,
     values: [u32; 20],
     dirty: bool,
@@ -188,6 +190,14 @@ impl Converter {
                 None,
                 Some(&mut chroma),
             )?;
+            let mut compute = None;
+            if !config.yuv444 {
+                let _ = gpu.device.CreateComputeShader(
+                    &compile(b"yuv420_cs\0", b"cs_5_0\0")?,
+                    None,
+                    Some(&mut compute),
+                );
+            }
             let values = constants(config, source, [100., 1.], None);
             let mut constants = None;
             gpu.device.CreateBuffer(
@@ -208,6 +218,7 @@ impl Converter {
                 vertex: vertex.unwrap(),
                 luma: luma.unwrap(),
                 chroma: chroma.unwrap(),
+                compute,
                 constants: constants.unwrap(),
                 values,
                 dirty: false,
@@ -243,37 +254,50 @@ impl Converter {
         // new texture.
         unsafe {
             let mut texture = None;
-            self.gpu
+            let mut desc = D3D11_TEXTURE2D_DESC {
+                Width: self.width,
+                Height: if self.layout == Layout::Planar444 {
+                    self.height * 3
+                } else {
+                    self.height
+                },
+                MipLevels: 1,
+                ArraySize: 1,
+                Format: match self.layout {
+                    Layout::Nv12 => DXGI_FORMAT_NV12,
+                    Layout::P010 => DXGI_FORMAT_P010,
+                    Layout::Ayuv => DXGI_FORMAT_AYUV,
+                    Layout::Planar444 => DXGI_FORMAT_R16_UINT,
+                },
+                SampleDesc: DXGI_SAMPLE_DESC {
+                    Count: 1,
+                    Quality: 0,
+                },
+                Usage: D3D11_USAGE_DEFAULT,
+                BindFlags: (D3D11_BIND_RENDER_TARGET.0
+                    | D3D11_BIND_SHADER_RESOURCE.0
+                    | if self.compute.is_some() {
+                        D3D11_BIND_UNORDERED_ACCESS.0
+                    } else {
+                        0
+                    }) as u32,
+                ..Default::default()
+            };
+            if let Err(error) = self
+                .gpu
                 .device
-                .CreateTexture2D(
-                    &D3D11_TEXTURE2D_DESC {
-                        Width: self.width,
-                        Height: if self.layout == Layout::Planar444 {
-                            self.height * 3
-                        } else {
-                            self.height
-                        },
-                        MipLevels: 1,
-                        ArraySize: 1,
-                        Format: match self.layout {
-                            Layout::Nv12 => DXGI_FORMAT_NV12,
-                            Layout::P010 => DXGI_FORMAT_P010,
-                            Layout::Ayuv => DXGI_FORMAT_AYUV,
-                            Layout::Planar444 => DXGI_FORMAT_R16_UINT,
-                        },
-                        SampleDesc: DXGI_SAMPLE_DESC {
-                            Count: 1,
-                            Quality: 0,
-                        },
-                        Usage: D3D11_USAGE_DEFAULT,
-                        BindFlags: (D3D11_BIND_RENDER_TARGET.0 | D3D11_BIND_SHADER_RESOURCE.0)
-                            as u32,
-                        ..Default::default()
-                    },
-                    None,
-                    Some(&mut texture),
-                )
-                .context("GPU YUV texture allocation")?;
+                .CreateTexture2D(&desc, None, Some(&mut texture))
+            {
+                if self.compute.is_none() {
+                    return Err(error).context("GPU YUV texture allocation");
+                }
+                self.compute = None;
+                desc.BindFlags &= !(D3D11_BIND_UNORDERED_ACCESS.0 as u32);
+                self.gpu
+                    .device
+                    .CreateTexture2D(&desc, None, Some(&mut texture))
+                    .context("GPU YUV texture allocation")?;
+            }
             let texture = texture.unwrap();
             let view = |format| -> Result<ID3D11RenderTargetView> {
                 let mut view = None;
@@ -301,10 +325,42 @@ impl Converter {
                 Layout::P010 => Some(view(DXGI_FORMAT_R16G16_UNORM)?),
                 _ => None,
             };
+            let unordered = if self.compute.is_some() {
+                let formats = if self.layout == Layout::Nv12 {
+                    [DXGI_FORMAT_R8_UNORM, DXGI_FORMAT_R8G8_UNORM]
+                } else {
+                    [DXGI_FORMAT_R16_UNORM, DXGI_FORMAT_R16G16_UNORM]
+                };
+                let views = formats.map(|format| -> Result<ID3D11UnorderedAccessView> {
+                    let mut view = None;
+                    self.gpu.device.CreateUnorderedAccessView(
+                        &texture,
+                        Some(&D3D11_UNORDERED_ACCESS_VIEW_DESC {
+                            Format: format,
+                            ViewDimension: D3D11_UAV_DIMENSION_TEXTURE2D,
+                            Anonymous: D3D11_UNORDERED_ACCESS_VIEW_DESC_0 {
+                                Texture2D: D3D11_TEX2D_UAV { MipSlice: 0 },
+                            },
+                        }),
+                        Some(&mut view),
+                    )?;
+                    Ok(view.unwrap())
+                });
+                match views {
+                    [Ok(y), Ok(uv)] => Some([y, uv]),
+                    _ => {
+                        self.compute = None;
+                        None
+                    }
+                }
+            } else {
+                None
+            };
             self.targets.push(Target {
                 texture: Arc::new(texture),
                 luma,
                 chroma,
+                unordered,
             });
             Ok(self.targets.len() - 1)
         }
@@ -350,35 +406,51 @@ impl Converter {
                 );
                 self.dirty = false;
             }
-            context.IASetInputLayout(None);
-            context.IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-            context.VSSetShader(&self.vertex, None);
-            context.PSSetShaderResources(0, Some(&source));
-            context.PSSetConstantBuffers(0, Some(&[Some(self.constants.clone())]));
-            context.RSSetState(None);
-            context.OMSetBlendState(None, None, u32::MAX);
             let target = &self.targets[index];
-            for (view, shader, divisor) in std::iter::once((&target.luma, &self.luma, 1))
-                .chain(target.chroma.as_ref().map(|view| (view, &self.chroma, 2)))
-            {
-                context.RSSetViewports(Some(&[D3D11_VIEWPORT {
-                    Width: (self.width / divisor) as f32,
-                    Height: (self.height / divisor
-                        * if self.layout == Layout::Planar444 {
-                            3
-                        } else {
-                            1
-                        }) as f32,
-                    MinDepth: 0.,
-                    MaxDepth: 1.,
-                    ..Default::default()
-                }]));
-                context.OMSetRenderTargets(Some(&[Some(view.clone())]), None);
-                context.PSSetShader(shader, None);
-                context.Draw(3, 0);
+            if let (Some(shader), Some(views)) = (&self.compute, &target.unordered) {
+                context.CSSetShader(shader, None);
+                context.CSSetShaderResources(0, Some(&source));
+                context.CSSetConstantBuffers(0, Some(&[Some(self.constants.clone())]));
+                context.CSSetUnorderedAccessViews(
+                    0,
+                    2,
+                    Some(views.each_ref().map(|v| Some(v.clone())).as_ptr()),
+                    None,
+                );
+                context.Dispatch(self.width.div_ceil(16), self.height.div_ceil(16), 1);
+                context.CSSetUnorderedAccessViews(0, 2, Some([None, None].as_ptr()), None);
+                context.CSSetShaderResources(0, Some(&[None, None]));
+                context.CSSetShader(None, None);
+            } else {
+                context.IASetInputLayout(None);
+                context.IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+                context.VSSetShader(&self.vertex, None);
+                context.PSSetShaderResources(0, Some(&source));
+                context.PSSetConstantBuffers(0, Some(&[Some(self.constants.clone())]));
+                context.RSSetState(None);
+                context.OMSetBlendState(None, None, u32::MAX);
+                for (view, shader, divisor) in std::iter::once((&target.luma, &self.luma, 1))
+                    .chain(target.chroma.as_ref().map(|view| (view, &self.chroma, 2)))
+                {
+                    context.RSSetViewports(Some(&[D3D11_VIEWPORT {
+                        Width: (self.width / divisor) as f32,
+                        Height: (self.height / divisor
+                            * if self.layout == Layout::Planar444 {
+                                3
+                            } else {
+                                1
+                            }) as f32,
+                        MinDepth: 0.,
+                        MaxDepth: 1.,
+                        ..Default::default()
+                    }]));
+                    context.OMSetRenderTargets(Some(&[Some(view.clone())]), None);
+                    context.PSSetShader(shader, None);
+                    context.Draw(3, 0);
+                }
+                context.PSSetShaderResources(0, Some(&[None, None]));
+                context.OMSetRenderTargets(None, None);
             }
-            context.PSSetShaderResources(0, Some(&[None, None]));
-            context.OMSetRenderTargets(None, None);
             context.Flush();
             lock.Leave();
         }
@@ -389,6 +461,7 @@ pub(crate) struct PlanarConverter {
     base: Converter,
     shaders: [ID3D11PixelShader; 3],
     combined: Option<ID3D11PixelShader>,
+    compute: Option<(ID3D11ComputeShader, [ID3D11UnorderedAccessView; 3])>,
     pub textures: [Arc<ID3D11Texture2D>; 3],
     views: [ID3D11RenderTargetView; 3],
     divisor: u32,
@@ -462,10 +535,35 @@ impl PlanarConverter {
                 textures.push(Arc::new(texture));
                 views.push(view.unwrap());
             }
+            let compute = if config.yuv444 {
+                None
+            } else {
+                (|| -> Result<_> {
+                    let mut shader = None;
+                    gpu.device.CreateComputeShader(
+                        &compile(b"pyro_cs\0", b"cs_5_0\0")?,
+                        None,
+                        Some(&mut shader),
+                    )?;
+                    let mut unordered = Vec::new();
+                    for texture in &textures {
+                        let mut view = None;
+                        gpu.device.CreateUnorderedAccessView(
+                            texture.as_ref(),
+                            None,
+                            Some(&mut view),
+                        )?;
+                        unordered.push(view.unwrap());
+                    }
+                    Ok((shader.unwrap(), unordered.try_into().ok().unwrap()))
+                })()
+                .ok()
+            };
             Ok(Self {
                 base,
                 shaders: shaders.try_into().ok().unwrap(),
                 combined,
+                compute,
                 textures: textures.try_into().ok().unwrap(),
                 views: views.try_into().ok().unwrap(),
                 divisor,
@@ -492,44 +590,64 @@ impl PlanarConverter {
                 );
                 self.base.dirty = false;
             }
-            context.IASetInputLayout(None);
-            context.IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-            context.VSSetShader(&self.base.vertex, None);
-            context.PSSetShaderResources(0, Some(&source));
-            context.PSSetConstantBuffers(0, Some(&[Some(self.base.constants.clone())]));
-            context.RSSetState(None);
-            context.OMSetBlendState(None, None, u32::MAX);
-            if let Some(shader) = &self.combined {
-                context.RSSetViewports(Some(&[D3D11_VIEWPORT {
-                    Width: self.base.width as f32,
-                    Height: self.base.height as f32,
-                    MinDepth: 0.,
-                    MaxDepth: 1.,
-                    ..Default::default()
-                }]));
-                context.OMSetRenderTargets(
-                    Some(&self.views.each_ref().map(|view| Some(view.clone()))),
+            if let Some((shader, views)) = &self.compute {
+                context.CSSetShader(shader, None);
+                context.CSSetShaderResources(0, Some(&source));
+                context.CSSetConstantBuffers(0, Some(&[Some(self.base.constants.clone())]));
+                context.CSSetUnorderedAccessViews(
+                    2,
+                    3,
+                    Some(views.each_ref().map(|v| Some(v.clone())).as_ptr()),
                     None,
                 );
-                context.PSSetShader(shader, None);
-                context.Draw(3, 0);
+                context.Dispatch(
+                    self.base.width.div_ceil(16),
+                    self.base.height.div_ceil(16),
+                    1,
+                );
+                context.CSSetUnorderedAccessViews(2, 3, Some([None, None, None].as_ptr()), None);
+                context.CSSetShaderResources(0, Some(&[None, None]));
+                context.CSSetShader(None, None);
             } else {
-                for plane in 0..3 {
-                    let divisor = if plane == 0 { 1 } else { self.divisor };
+                context.IASetInputLayout(None);
+                context.IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+                context.VSSetShader(&self.base.vertex, None);
+                context.PSSetShaderResources(0, Some(&source));
+                context.PSSetConstantBuffers(0, Some(&[Some(self.base.constants.clone())]));
+                context.RSSetState(None);
+                context.OMSetBlendState(None, None, u32::MAX);
+                if let Some(shader) = &self.combined {
                     context.RSSetViewports(Some(&[D3D11_VIEWPORT {
-                        Width: (self.base.width / divisor) as f32,
-                        Height: (self.base.height / divisor) as f32,
+                        Width: self.base.width as f32,
+                        Height: self.base.height as f32,
                         MinDepth: 0.,
                         MaxDepth: 1.,
                         ..Default::default()
                     }]));
-                    context.OMSetRenderTargets(Some(&[Some(self.views[plane].clone())]), None);
-                    context.PSSetShader(&self.shaders[plane], None);
+                    context.OMSetRenderTargets(
+                        Some(&self.views.each_ref().map(|view| Some(view.clone()))),
+                        None,
+                    );
+                    context.PSSetShader(shader, None);
                     context.Draw(3, 0);
+                } else {
+                    for plane in 0..3 {
+                        let divisor = if plane == 0 { 1 } else { self.divisor };
+                        context.RSSetViewports(Some(&[D3D11_VIEWPORT {
+                            Width: (self.base.width / divisor) as f32,
+                            Height: (self.base.height / divisor) as f32,
+                            MinDepth: 0.,
+                            MaxDepth: 1.,
+                            ..Default::default()
+                        }]));
+                        context.OMSetRenderTargets(Some(&[Some(self.views[plane].clone())]), None);
+                        context.PSSetShader(&self.shaders[plane], None);
+                        context.Draw(3, 0);
+                    }
                 }
+                context.PSSetShaderResources(0, Some(&[None, None]));
+                context.OMSetRenderTargets(None, None);
             }
-            context.PSSetShaderResources(0, Some(&[None, None]));
-            context.OMSetRenderTargets(None, None);
             lock.Leave();
         }
         Ok(())

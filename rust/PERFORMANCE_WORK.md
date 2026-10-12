@@ -10,6 +10,73 @@ entry may have been measured in a later one. Results to a real laptop over
 Wi-Fi are in "October 8 real-client picture age over Wi-Fi"; the
 [performance overview](../docs/performance.md) carries the current numbers.
 
+## October 12 4:2:0 and pacing follow-up
+
+The accepted GPU change uses one compute dispatch for D3D11 NV12/P010 and
+PyroWave 4:2:0 fallback conversion, retaining pixel passes when resources are
+unavailable. Default AMD D3D12 conversion is unchanged.
+[The conversion evidence](PERFORMANCE.md#october-12-single-pass-d3d11-420-conversion)
+records GPU timestamps, exact pixel comparisons, debug-layer validation and
+independent stream checks. These establish component performance and
+interoperability, not whole-stream latency or CPU savings.
+
+Two pacing candidates remain unshipped. Timer-only waits for non-final batches,
+preserving the precise final-batch wait, consistently increased sender
+completion tails in the first ABBA matrix. At
+150 Mbps/60 fps with an 800 Mbps wire target, final-packet p95 increased by
+0.512 ms and keyframe p95 by 1.769 ms. At 80 Mbps/120 fps with a 160 Mbps wire
+target, the increases were 0.100 and 0.350 ms. CPU results varied across runs;
+there is no universal CPU-saving claim. The timer-only candidate was rejected.
+
+The burst candidate sent each frame's second batch early, retaining its pacing
+debt. An SM-F966B phone on the same Wi-Fi connection compared 2.2.7 with the
+combined GPU-plus-burst candidate, using the
+same moving scene, 1920×1080/60 HEVC SDR and 62,988 kbps negotiated encoder
+rate. Each stable window lasted approximately 120 seconds. API counter deltas
+and raw per-frame traces gave:
+
+| Measurement | 2.2.7 baseline | GPU + burst candidate |
+| --- | ---: | ---: |
+| Host sent FPS | 60.371 | 60.369 |
+| Video payload Mbps | 67.746 | 74.351 |
+| Send duration mean / p95, ms | 0.731 / 1.603 | 0.823 / 1.613 |
+| Client-reported inferred unrecoverable frames | 0 | 25 |
+| IDR requests | 0 | 17 |
+| Reference invalidations | 0 | 83 |
+
+FEC reports are best effort, so zero reports do not prove zero loss. Adaptive
+FEC varied in both windows, and measured payload rates were unequal. This
+single pair does not prove causality: it combined GPU and pacing changes, and
+wireless conditions vary. It nevertheless fails the no-regression gate, so the
+burst change is dropped. A GPU-only Wi-Fi rerun was not completed: the phone
+run ended before that check, and the available laptop had no authenticated
+execution connection exposed to this test session. No Wi-Fi no-regression
+claim is made for the GPU-only build.
+
+The final GPU-only 2.2.8 build, with both pacing experiments removed, passed
+all 811 ordinary workspace tests, formatting and workspace/all-target Clippy
+with warnings denied. Four quiet 20-second loopback streams at 1080p60 and
+40 Mbps, with `gpu_compute_conversion=false`, decoded every picture: HEVC
+1198/1198, HEVC HDR 1198/1198, PyroWave SDR 1181/1181 and PyroWave HDR
+1199/1199. Steady rates were 59.994–60.002 fps, with continuous audio and
+zero decode errors. Raw results are under `work/gpu-only-e2e`.
+
+Evidence is in `work/phone-tests/phone-20261012T010118-447124Z`, under
+`run-20261012T011159-475248Z/measurement.json` and
+`run-20261012T011751-458854Z/measurement.json`.
+
+The native C receiver matrix in
+`work/pacing-native/20261012T012146-056459Z/result.json` completed eight
+30-second ABBA runs at an 800 Mbps wire target. Mean reported thread cycles
+per frame, baseline/burst, were 14.562M/12.769M at 150 Mbps/60 fps and
+2.290M/1.597M at 80 Mbps/120 fps. These raw `QueryThreadCycleTime` counts are
+not converted to time. `GetThreadTimes` was inconsistent: the two 80 Mbps
+burst CPU readings were 12.66% and 0.31% despite similar cycle counts. Both
+150 Mbps arms had kernel receive overflows with the unchanged 425,984-byte
+buffer. The 80 Mbps runs had no missing packets, but one baseline had 74
+duplicates, so the matrix was not entirely clean. The phone gate failed;
+no ten-minute soak was run or claimed.
+
 ## October 12 resource use (issue 23)
 
 [Issue #23](https://github.com/RamazanKara/Rubylight/issues/23) separates

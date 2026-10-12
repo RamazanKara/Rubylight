@@ -7,6 +7,7 @@ This is the dated measurement record. For a guided comparison, start with the [p
 | Find a result | Recorded evidence |
 | --- | --- |
 | Radeon compute off/on | [1080p60 comparison](#1080p-at-60-fps) |
+| D3D11 4:2:0 fallback | [October 12 single-pass conversion](#october-12-single-pass-d3d11-420-conversion) |
 | Real laptop client over Wi-Fi | [Render to received, rc.24](PERFORMANCE_WORK.md#october-8-real-client-picture-age-over-wi-fi-rc24-laptop) |
 | Other Sunshine hosts | [Vibepollo 2.0 baseline](#against-vibepollo-20) · [rc.24 on the same GPU](PERFORMANCE_WORK.md#rc24-against-vibepollo-20-on-the-same-gpu) |
 | WGC capture and pacing | [Guarded comparisons](#guarded-ab-stress-and-compatibility-checks) |
@@ -4245,6 +4246,78 @@ denied; 171 core tests; and 63 host tests, with two existing ignores.
 The release host and capture probes built successfully. This section is
 the only tracked change; the experimental harness and receiver remain
 under `target/vrr-capture`.
+
+## October 12: single-pass D3D11 4:2:0 conversion
+
+The D3D11 fallback converts NV12/P010 and PyroWave 4:2:0 with one compute
+dispatch on the existing immediate context, reusing the existing shaders.
+Unsupported shader or unordered-access-view creation retains the pixel-pass
+fallback. The separate D3D12 compute queue and PyroWave 4:4:4 MRT draw remain
+unchanged. This applies to the fallback, including
+`gpu_compute_conversion=false`; the default AMD D3D12 path is unchanged.
+
+Release-build D3D11 timestamps on the RX 7900 XT compared the previous pixel
+passes with the single dispatch in ABBA order: two runs per path, 32 warmups
+and 128 samples per run. Outputs were 1920×1080, 2560×1440 and 3840×2160,
+using a 3840×2160 BGRA8 SDR source or FP16 HDR source. The loaded comparison
+used `gpu_load 20 1000 60 200`. These GPU conversion times exclude capture,
+encoding, transport, decoding and scanout.
+
+| 3840×2160 output | Idle previous / single pass, mean ms | Loaded previous / single pass, mean ms |
+| --- | ---: | ---: |
+| NV12 SDR | 0.2348 / 0.1230 | 0.3159 / 0.2018 |
+| P010 HDR | 0.2300 / 0.1450 | 0.3125 / 0.2157 |
+| PyroWave SDR 4:2:0 | 0.3060 / 0.1032 | 0.4667 / 0.1427 |
+| PyroWave HDR 4:2:0 | 0.3065 / 0.1237 | 0.4771 / 0.1619 |
+
+PyroWave mean GPU time fell 32–68% idle and 33–69% under this load across
+the three resolutions. NV12/P010 improvements were strongest at 1440p and
+4K. Loaded 1080p video results were less decisive: NV12 mean changed from
+0.3055 to 0.2990 ms, while p95 changed from 0.2446 to 0.2482 ms; P010 p95
+changed from 0.2686 to 0.2764 ms. The 4K case avoids resampling the 4K source,
+so its times do not establish scaling cost from resolution alone. CPU call
+times were mixed. These measurements cover only this Radeon GPU.
+
+All nine native GPU correctness tests passed. Exact comparisons covered 480
+NV12/P010 cases and 480 PyroWave planar cases, including every luma/chroma
+byte, SDR eight/ten-bit, FP16 SDR/HDR, matrix/range settings, scaling,
+letterboxing, dimensions that do not divide evenly into thread groups, and
+monochrome/clipped/alpha cursors. The D3D11 debug layer accepted both video
+plane UAV bindings without warnings or errors. Existing D3D12/pixel
+comparisons, 4:4:4 output, HDR colour and codec-held texture tests also passed.
+
+Isolated 1080p60 streams with `gpu_compute_conversion=false` passed the AMF
+HEVC SDR/HDR and PyroWave SDR 4:2:0 gates: respectively 686/686, 715/715 and
+676/676 pictures decoded, with continuous audio and full motion coverage.
+WGC captured a 5120×1440 SDR desktop, so the HDR streams check conversion and
+negotiation rather than native HDR capture. The first PyroWave HDR run
+overlapped unit tests and failed the delivery-gap limit with nine long
+intervals, despite decoding all 716 pictures. With other jobs stopped,
+20-second repeats passed for both the previous build (1176/1176 decoded,
+60.012 fresh fps, three long intervals) and the candidate (1199/1199,
+59.982 fresh fps, four long intervals), with no decode errors or audio
+underruns. The failed first run remains recorded. These checks establish
+interop and correctness; no CPU savings or end-to-end latency improvement
+is claimed.
+
+After removing the pacing experiments, the final GPU-only 2.2.8 build passed
+four quiet 20-second loopback runs at 1080p60/40 Mbps with the same fallback
+configuration. HEVC SDR/HDR and PyroWave SDR/HDR decoded respectively
+1198/1198, 1198/1198, 1181/1181 and 1199/1199 pictures, at 59.994–60.002
+steady fps. Audio was continuous, with no decode errors; long intervals
+were respectively zero, zero, zero and one. Evidence is under
+`work/gpu-only-e2e`. The [pacing follow-up](PERFORMANCE_WORK.md#october-12-420-and-pacing-follow-up)
+records the unsuccessful combined-candidate Wi-Fi comparison and the
+unavailable GPU-only Wi-Fi rerun.
+
+Reproduce with the ignored release tests in `gpu_color::tests`:
+`gpu_420_single_pass_timing`, `gpu_420_single_pass_matches_pixel_passes` and
+`gpu_420_video_plane_uavs_are_disjoint`. The timing test retains the old pixel
+passes as its reference and writes JSON to `BUTTERPOLLO_TEST_GPU_REPORT`.
+Run timing separately from builds and other workloads, except the explicit
+synthetic GPU load. Local evidence: `gpu-420-timing-idle.json`,
+`gpu-420-timing-loaded.json`, `gpu-regressions.log`, and the `candidate-e2e`,
+`baseline-e2e-quiet` and `candidate-e2e-quiet` stream results.
 
 ## Hardware covered
 

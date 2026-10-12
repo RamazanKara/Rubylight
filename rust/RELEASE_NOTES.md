@@ -1,10 +1,17 @@
-# Rubylight 2.2.7 for Windows
+# Rubylight 2.2.8 for Windows
 
 [Documentation](../docs/README.md) · [Install and migrate](../docs/getting-started.md) · [Configuration](../docs/configuration.md) · [Features](../docs/features.md)
 
-**Release history:** [2.2.7](#new-in-227) · [2.2.6](#new-in-226) · [2.2.5](#new-in-225) · [2.2.4](#new-in-224) · [2.2.3](#new-in-223) · [2.2.2](#new-in-222) · [2.2.1](#new-in-221) · [2.2.0](#new-in-220) · [2.1.0](#new-in-210) · [2.0.1](#new-in-201) · [2.0.0](#new-in-200) · [rc.30](#new-in-rc30) · [rc.29](#new-in-rc29) · [rc.28](#new-in-rc28) · [rc.27](#new-in-rc27) · [rc.26](#new-in-rc26) · [rc.25](#new-in-rc25) · [rc.24](#new-in-rc24) · [rc.23](#new-in-rc23) · [rc.22](#new-in-rc22) · [rc.21](#new-in-rc21) · [rc.20](#new-in-rc20) · [rc.19](#new-in-rc19) · [rc.18](#new-in-rc18) · [rc.17](#new-in-rc17) · [rc.16](#new-in-rc16) · [rc.15](#new-in-rc15) · [rc.14](#new-in-rc14) · [rc.13](#new-in-rc13) · [rc.12](#new-in-rc12) · [rc.11](#new-in-rc11) · [rc.10](#new-in-rc10) · [rc.9](#new-in-rc9) · [rc.8](#new-in-rc8) · [rc.7](#new-in-rc7) · [rc.6](#new-in-rc6) · [rc.5](#new-in-rc5) · [rc.4](#new-in-rc4) · [rc.3](#new-in-rc3) · [rc.2](#new-in-rc2)
+**Release history:** [2.2.8](#new-in-228) · [2.2.7](#new-in-227) · [2.2.6](#new-in-226) · [2.2.5](#new-in-225) · [2.2.4](#new-in-224) · [2.2.3](#new-in-223) · [2.2.2](#new-in-222) · [2.2.1](#new-in-221) · [2.2.0](#new-in-220) · [2.1.0](#new-in-210) · [2.0.1](#new-in-201) · [2.0.0](#new-in-200) · [rc.30](#new-in-rc30) · [rc.29](#new-in-rc29) · [rc.28](#new-in-rc28) · [rc.27](#new-in-rc27) · [rc.26](#new-in-rc26) · [rc.25](#new-in-rc25) · [rc.24](#new-in-rc24) · [rc.23](#new-in-rc23) · [rc.22](#new-in-rc22) · [rc.21](#new-in-rc21) · [rc.20](#new-in-rc20) · [rc.19](#new-in-rc19) · [rc.18](#new-in-rc18) · [rc.17](#new-in-rc17) · [rc.16](#new-in-rc16) · [rc.15](#new-in-rc15) · [rc.14](#new-in-rc14) · [rc.13](#new-in-rc13) · [rc.12](#new-in-rc12) · [rc.11](#new-in-rc11) · [rc.10](#new-in-rc10) · [rc.9](#new-in-rc9) · [rc.8](#new-in-rc8) · [rc.7](#new-in-rc7) · [rc.6](#new-in-rc6) · [rc.5](#new-in-rc5) · [rc.4](#new-in-rc4) · [rc.3](#new-in-rc3) · [rc.2](#new-in-rc2)
 
-Rubylight, called Butterpollo until rc.29, is written in Rust: host, native helpers, service and setup, with a Svelte web console. The 2.2.7 installer is named `rubylight-setup-2.2.7.exe` and upgrades an existing Vibepollo or Butterpollo installation in place, keeping settings, paired devices, the app library and covers. Codec SDKs and Windows drivers remain external components; the setup installs the drivers.
+Rubylight, called Butterpollo until rc.29, is written in Rust: host, native helpers, service and setup, with a Svelte web console. The 2.2.8 installer is named `rubylight-setup-2.2.8.exe` and upgrades an existing Vibepollo or Butterpollo installation in place, keeping settings, paired devices, the app library and covers. Codec SDKs and Windows drivers remain external components; the setup installs the drivers.
+
+## New in 2.2.8
+
+- **Single-pass 4:2:0 GPU conversion.** The D3D11 fallback converts NV12/P010 video and PyroWave 4:2:0 with one compute dispatch, reusing the existing shaders. Unsupported devices retain the pixel-pass fallback. The separate D3D12 compute path and PyroWave 4:4:4 remain unchanged.
+- **Measured and checked on the RX 7900 XT.** At 4K while otherwise idle, mean conversion GPU time fell from 0.235 to 0.123 ms for NV12 and from 0.307 to 0.124 ms for PyroWave HDR 4:2:0. Exact pixel comparisons covered 960 cases, and real HEVC/PyroWave streams covered SDR and HDR. These are conversion measurements, not an end-to-end latency claim; [the evidence and limits](PERFORMANCE.md#october-12-single-pass-d3d11-420-conversion) include the loaded results and stream checks.
+
+The pacing experiments from [#23](https://github.com/RamazanKara/Rubylight/issues/23) did not meet the latency/loss checks, so packet pacing retains its previous behavior. The [work log](PERFORMANCE_WORK.md#october-12-420-and-pacing-follow-up) records why.
 
 ## New in 2.2.7
 

@@ -360,6 +360,7 @@ fn compute_conversion_matches_the_graphics_converter() -> Result<()> {
                     ..Default::default()
                 };
                 let mut graphics = Converter::new(&gpu, &config, (96, 40, image.pixel))?;
+                graphics.compute = None;
                 graphics.set_luminance([100., 1.]);
                 let expected = readback(&gpu, graphics.convert(image)?.as_ref())?;
                 let mut converter =
@@ -400,7 +401,7 @@ fn plane_bytes(gpu: &Device, texture: &ID3D11Texture2D) -> Result<Vec<u8>> {
     unsafe {
         let mut desc = D3D11_TEXTURE2D_DESC::default();
         texture.GetDesc(&mut desc);
-        let pixel = if desc.Format == DXGI_FORMAT_R16_UNORM {
+        let pixel = if matches!(desc.Format, DXGI_FORMAT_R16_UNORM | DXGI_FORMAT_P010) {
             2
         } else {
             1
@@ -418,7 +419,12 @@ fn plane_bytes(gpu: &Device, texture: &ID3D11Texture2D) -> Result<Vec<u8>> {
         gpu.context
             .Map(&staging, 0, D3D11_MAP_READ, 0, Some(&mut mapped))?;
         let mut bytes = Vec::new();
-        for y in 0..desc.Height as usize {
+        let rows = if matches!(desc.Format, DXGI_FORMAT_NV12 | DXGI_FORMAT_P010) {
+            desc.Height * 3 / 2
+        } else {
+            desc.Height
+        };
+        for y in 0..rows as usize {
             bytes.extend_from_slice(std::slice::from_raw_parts(
                 (mapped.pData as *const u8).add(y * mapped.RowPitch as usize),
                 desc.Width as usize * pixel,
@@ -426,6 +432,392 @@ fn plane_bytes(gpu: &Device, texture: &ID3D11Texture2D) -> Result<Vec<u8>> {
         }
         gpu.context.Unmap(&staging, 0);
         Ok(bytes)
+    }
+}
+#[test]
+#[ignore = "requires native D3D11 video UAVs"]
+fn gpu_420_single_pass_matches_pixel_passes() -> Result<()> {
+    use windows::Win32::Graphics::Dxgi::{
+        DXGI_OUTDUPL_POINTER_SHAPE_INFO, DXGI_OUTDUPL_POINTER_SHAPE_TYPE_COLOR,
+        DXGI_OUTDUPL_POINTER_SHAPE_TYPE_MONOCHROME,
+    };
+    let _com = ComGuard::new()?;
+    let gpu = Device::new("")?;
+    let hdr_image = GpuImage::upload(
+        &gpu,
+        &make_image(
+            &[
+                [0.; 3],
+                [1.; 3],
+                [12.5; 3],
+                [1.2, 0.1, 0.05],
+                [0.05, 0.8, 0.3],
+                [0.2, 0.3, 4.],
+            ],
+            16,
+            40,
+        ),
+    )?;
+    let mut bytes = vec![0u8; 96 * 40 * 4];
+    for (index, pixel) in bytes.as_chunks_mut::<4>().0.iter_mut().enumerate() {
+        let (x, y) = (index % 96, index / 96);
+        *pixel = [(x * 2) as u8, (y * 6) as u8, (255 - x * 2) as u8, 255];
+    }
+    let sdr_image = GpuImage::upload(
+        &gpu,
+        &Image {
+            width: 96,
+            height: 40,
+            stride: 96 * 4,
+            bytes,
+            pixel: Pixel::Bgra8,
+            captured: Instant::now(),
+        },
+    )?;
+    let mut pointer = crate::cursor::Cursor::new(
+        &gpu,
+        &DXGI_OUTDUPL_POINTER_SHAPE_INFO {
+            Type: DXGI_OUTDUPL_POINTER_SHAPE_TYPE_MONOCHROME.0 as u32,
+            Width: 4,
+            Height: 2,
+            Pitch: 1,
+            ..Default::default()
+        },
+        &[0b00110000, 0b01010000],
+    )?;
+    pointer.position = [20, 10];
+    let mut clipped = pointer.clone();
+    clipped.position = [-2, 30];
+    let mut color = crate::cursor::Cursor::new(
+        &gpu,
+        &DXGI_OUTDUPL_POINTER_SHAPE_INFO {
+            Type: DXGI_OUTDUPL_POINTER_SHAPE_TYPE_COLOR.0 as u32,
+            Width: 2,
+            Height: 2,
+            Pitch: 8,
+            ..Default::default()
+        },
+        &[0, 0, 255, 255, 0, 128, 0, 128, 255, 0, 0, 255, 0, 0, 0, 0],
+    )?;
+    color.position = [7, 7];
+    let mut cases = 0;
+    for (width, height) in [(96, 40), (48, 20), (64, 64), (130, 70)] {
+        for (hdr, ten_bit, source) in [
+            (false, false, &sdr_image),
+            (false, true, &sdr_image),
+            (false, false, &hdr_image),
+            (false, true, &hdr_image),
+            (true, true, &hdr_image),
+        ] {
+            for csc_mode in [0, 1, 2, 3, 4, 5] {
+                for cursor in [None, Some(&pointer), Some(&clipped), Some(&color)] {
+                    let mut image = source.clone();
+                    image.cursor = cursor.cloned();
+                    let config = butterpollo_core::rtsp::Negotiated {
+                        width,
+                        height,
+                        codec: 1,
+                        hdr,
+                        sdr_10bit: ten_bit && !hdr,
+                        csc_mode,
+                        ..Default::default()
+                    };
+                    let source = (image.width, image.height, image.pixel);
+                    let mut converter = Converter::new(&gpu, &config, source)?;
+                    let output = converter.convert(&image)?;
+                    assert!(
+                        converter.compute.is_some(),
+                        "video UAV conversion is unavailable"
+                    );
+                    let actual = plane_bytes(&gpu, &output)?;
+                    converter.compute = None;
+                    let expected = plane_bytes(&gpu, converter.convert(&image)?.as_ref())?;
+                    assert!(
+                        actual == expected,
+                        "video {width}x{height} hdr {hdr} ten_bit {ten_bit} csc {csc_mode} cursor {:?}: first mismatch {:?}",
+                        cursor.map(|c| c.position),
+                        actual
+                            .iter()
+                            .zip(&expected)
+                            .enumerate()
+                            .find(|(_, (a, b))| a != b)
+                    );
+                    let mut planar = PlanarConverter::new(&gpu, &config, source)?;
+                    assert!(
+                        planar.compute.is_some(),
+                        "planar UAV conversion is unavailable"
+                    );
+                    planar.convert(&image, [100., 1.])?;
+                    let actual = planar
+                        .textures
+                        .iter()
+                        .map(|p| plane_bytes(&gpu, p))
+                        .collect::<Result<Vec<_>>>()?;
+                    planar.compute = None;
+                    planar.convert(&image, [100., 1.])?;
+                    let expected = planar
+                        .textures
+                        .iter()
+                        .map(|p| plane_bytes(&gpu, p))
+                        .collect::<Result<Vec<_>>>()?;
+                    assert!(
+                        actual == expected,
+                        "planar {width}x{height} hdr {hdr} ten_bit {ten_bit} csc {csc_mode} cursor {:?}",
+                        cursor.map(|c| c.position)
+                    );
+                    cases += 1;
+                }
+            }
+        }
+    }
+    eprintln!("D3D11 single-pass parity: {cases} video and {cases} planar cases");
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires native D3D11 video UAVs and an idle GPU"]
+fn gpu_420_single_pass_timing() -> Result<()> {
+    let _com = ComGuard::new()?;
+    let gpu = Device::new("")?;
+    let image = make_image(&[[0.; 3], [1.; 3], [12.5; 3], [125.; 3]], 960, 2160);
+    let hdr_source = GpuImage::upload(&gpu, &image)?;
+    let mut sdr = Image {
+        width: image.width,
+        height: image.height,
+        stride: image.width as usize * 4,
+        bytes: vec![0; image.width as usize * image.height as usize * 4],
+        pixel: Pixel::Bgra8,
+        captured: Instant::now(),
+    };
+    for (index, pixel) in sdr.bytes.as_chunks_mut::<4>().0.iter_mut().enumerate() {
+        *pixel = [
+            (index % 256) as u8,
+            ((index / image.width as usize) % 256) as u8,
+            (255 - index % 256) as u8,
+            255,
+        ];
+    }
+    let sdr_source = GpuImage::upload(&gpu, &sdr)?;
+    let mut reports = Vec::new();
+    for (width, height) in [(1920, 1080), (2560, 1440), (3840, 2160)] {
+        for hdr in [false, true] {
+            let config = butterpollo_core::rtsp::Negotiated {
+                width,
+                height,
+                codec: 1,
+                hdr,
+                ..Default::default()
+            };
+            let source = if hdr { &hdr_source } else { &sdr_source };
+            let shape = (source.width, source.height, source.pixel);
+            let mut single = Converter::new(&gpu, &config, shape)?;
+            let mut baseline = Converter::new(&gpu, &config, shape)?;
+            baseline.compute = None;
+            single.convert(source)?;
+            assert!(single.compute.is_some());
+            let mut single_planar = PlanarConverter::new(&gpu, &config, shape)?;
+            let mut baseline_planar = PlanarConverter::new(&gpu, &config, shape)?;
+            baseline_planar.compute = None;
+            assert!(single_planar.compute.is_some());
+            for planar in [false, true] {
+                let mut runs = Vec::new();
+                for compute in [false, true, true, false] {
+                    let stats = time_conversion(&gpu, || {
+                        if planar {
+                            let converter = if compute {
+                                &mut single_planar
+                            } else {
+                                &mut baseline_planar
+                            };
+                            converter.convert(source, [100., 1.])?;
+                        } else {
+                            let converter = if compute { &mut single } else { &mut baseline };
+                            converter.convert(source)?;
+                        }
+                        Ok(())
+                    })?;
+                    runs.push(serde_json::json!({"single_pass":compute,"stats":stats}));
+                }
+                reports.push(serde_json::json!({"width":width,"height":height,"hdr":hdr,"planar":planar,"runs":runs}));
+            }
+        }
+    }
+    let report = serde_json::json!({"scope":"D3D11 fallback conversion; four ABBA runs per case, 128 GPU timestamps each; excludes capture/encoding/network/decoding", "adapter":gpu.display.adapter,"cases":reports});
+    eprintln!("{report}");
+    if let Some(path) = std::env::var_os("BUTTERPOLLO_TEST_GPU_REPORT") {
+        std::fs::write(path, serde_json::to_vec_pretty(&report)?)?;
+    }
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires the native D3D11 debug layer and video UAVs"]
+fn gpu_420_video_plane_uavs_are_disjoint() -> Result<()> {
+    use windows::{
+        Win32::{
+            Foundation::HMODULE,
+            Graphics::{Direct3D::D3D_DRIVER_TYPE_UNKNOWN, Dxgi::IDXGIDevice},
+        },
+        core::Interface,
+    };
+    let _com = ComGuard::new()?;
+    let mut gpu = Device::new("")?;
+    // SAFETY: The adapter is owned, every descriptor/out-slot is live, and query buffers are
+    // aligned and sized from GetMessage before their contents are read.
+    unsafe {
+        let adapter = gpu.device.cast::<IDXGIDevice>()?.GetAdapter()?;
+        let mut device = None;
+        let mut context = None;
+        D3D11CreateDevice(
+            &adapter,
+            D3D_DRIVER_TYPE_UNKNOWN,
+            HMODULE::default(),
+            D3D11_CREATE_DEVICE_BGRA_SUPPORT | D3D11_CREATE_DEVICE_DEBUG,
+            None,
+            D3D11_SDK_VERSION,
+            Some(&mut device),
+            None,
+            Some(&mut context),
+        )
+        .context("native D3D11 debug device unavailable")?;
+        gpu.device = device.unwrap();
+        gpu.context = context.unwrap();
+        let _ = gpu
+            .context
+            .cast::<ID3D11Multithread>()?
+            .SetMultithreadProtected(true);
+        let messages: ID3D11InfoQueue = gpu.device.cast()?;
+        for hdr in [false, true] {
+            let config = butterpollo_core::rtsp::Negotiated {
+                width: 64,
+                height: 64,
+                codec: 1,
+                hdr,
+                ..Default::default()
+            };
+            let mut converter = Converter::new(&gpu, &config, (64, 64, Pixel::Bgra8))?;
+            let index = converter.target()?;
+            let views = converter.targets[index]
+                .unordered
+                .as_ref()
+                .context("native video UAVs unavailable")?;
+            messages.ClearStoredMessages();
+            gpu.context.CSSetUnorderedAccessViews(
+                0,
+                2,
+                Some(views.each_ref().map(|v| Some(v.clone())).as_ptr()),
+                None,
+            );
+            let mut bound = [None, None];
+            gpu.context.CSGetUnorderedAccessViews(0, Some(&mut bound));
+            gpu.context
+                .CSSetUnorderedAccessViews(0, 2, Some([None, None].as_ptr()), None);
+            for index in 0..messages.GetNumStoredMessages() {
+                let mut size = 0;
+                messages.GetMessage(index, None, &mut size)?;
+                let mut storage = vec![0u64; size.div_ceil(8)];
+                let message = storage.as_mut_ptr().cast::<D3D11_MESSAGE>();
+                messages.GetMessage(index, Some(message), &mut size)?;
+                let message = &*message;
+                assert!(
+                    message.Severity.0 > D3D11_MESSAGE_SEVERITY_WARNING.0,
+                    "video UAV binding hdr {hdr}: {}",
+                    String::from_utf8_lossy(std::slice::from_raw_parts(
+                        message.pDescription,
+                        message.DescriptionByteLength
+                    ))
+                );
+            }
+            for (actual, expected) in bound.iter().zip(views) {
+                assert!(
+                    actual.as_ref() == Some(expected),
+                    "video UAV binding was rejected for hdr {hdr}"
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
+fn time_conversion(
+    gpu: &Device,
+    mut convert: impl FnMut() -> Result<()>,
+) -> Result<serde_json::Value> {
+    let query = |kind| -> Result<ID3D11Query> {
+        let mut query = None;
+        // SAFETY: The device and the descriptor/out-slot are live.
+        unsafe {
+            gpu.device.CreateQuery(
+                &D3D11_QUERY_DESC {
+                    Query: kind,
+                    MiscFlags: 0,
+                },
+                Some(&mut query),
+            )?;
+        }
+        query.context("no timestamp query")
+    };
+    for _ in 0..32 {
+        convert()?;
+    }
+    let disjoint = query(D3D11_QUERY_TIMESTAMP_DISJOINT)?;
+    let queries: Vec<_> = (0..128)
+        .map(|_| Ok((query(D3D11_QUERY_TIMESTAMP)?, query(D3D11_QUERY_TIMESTAMP)?)))
+        .collect::<Result<_>>()?;
+    let mut calls = Vec::new();
+    // SAFETY: Every query belongs to this context; GetData writes the exact-sized live locals.
+    unsafe {
+        gpu.context.Begin(&disjoint);
+        for (start, end) in &queries {
+            gpu.context.End(start);
+            let begin = Instant::now();
+            convert()?;
+            calls.push(begin.elapsed().as_secs_f64() * 1000.);
+            gpu.context.End(end);
+        }
+        gpu.context.End(&disjoint);
+        gpu.context.Flush();
+        let deadline = Instant::now() + std::time::Duration::from_secs(5);
+        let mut clock = D3D11_QUERY_DATA_TIMESTAMP_DISJOINT::default();
+        while clock.Frequency == 0 {
+            gpu.context.GetData(
+                &disjoint,
+                Some((&mut clock as *mut D3D11_QUERY_DATA_TIMESTAMP_DISJOINT).cast()),
+                std::mem::size_of_val(&clock) as u32,
+                D3D11_ASYNC_GETDATA_DONOTFLUSH.0 as u32,
+            )?;
+            if Instant::now() >= deadline {
+                bail!("GPU clock timed out");
+            }
+            std::thread::yield_now();
+        }
+        if clock.Disjoint.as_bool() {
+            bail!("GPU clock changed during benchmark");
+        }
+        let mut gpu_ms = Vec::new();
+        for (start, end) in queries {
+            let mut ticks = [0u64; 2];
+            for (query, value) in [start, end].iter().zip(&mut ticks) {
+                while *value == 0 {
+                    gpu.context.GetData(
+                        query,
+                        Some((value as *mut u64).cast()),
+                        8,
+                        D3D11_ASYNC_GETDATA_DONOTFLUSH.0 as u32,
+                    )?;
+                    if Instant::now() >= deadline {
+                        bail!("GPU timestamp timed out");
+                    }
+                    std::thread::yield_now();
+                }
+            }
+            gpu_ms.push((ticks[1] - ticks[0]) as f64 / clock.Frequency as f64 * 1000.);
+        }
+        let stats = |mut values: Vec<f64>| {
+            values.sort_by(f64::total_cmp);
+            serde_json::json!({"mean_ms":values.iter().sum::<f64>() / values.len() as f64,"p50_ms":values[(values.len()-1)/2],"p95_ms":values[(values.len()-1)*95/100],"max_ms":values.last()})
+        };
+        Ok(serde_json::json!({"gpu":stats(gpu_ms),"cpu_call":stats(calls)}))
     }
 }
 #[test]
@@ -492,6 +884,7 @@ fn compute_planes_match_the_pyrowave_graphics_planes() -> Result<()> {
                     };
                     let source = (image.width, image.height, image.pixel);
                     let mut graphics = PlanarConverter::new(&gpu, &config, source)?;
+                    graphics.compute = None;
                     graphics.convert(&image, [100., 1.])?;
                     let expected = graphics
                         .textures
@@ -913,6 +1306,7 @@ fn gpu_444_preserves_per_pixel_chroma_and_planar_ten_bit_codes() -> Result<()> {
             texture: Arc::new(texture),
             luma: view.unwrap(),
             chroma: None,
+            unordered: None,
         });
     }
     let texture = converter.convert(&source)?;

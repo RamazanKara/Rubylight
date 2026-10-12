@@ -5039,7 +5039,7 @@ reconstruction. The inline sender then adds the small interval to its
 pre-packetization sample; the separate paced sender also includes residence
 in its sending queue and waiting for sender capacity. Only the frame-header
 value rounds to 0.1 ms. These loopback runs used inline sending. In these runs,
-runs, the reported host duration matched the AMF stage duration within the
+the reported host duration matched the AMF stage duration within the
 wire rounding. Therefore the observed increase cannot be called slower
 hardware compression from the host counter alone.
 
@@ -5095,8 +5095,9 @@ copy completion was first observed at **4.995 / 5.263 / 5.542 ms**, and
 encoded output at **7.182 / 7.381 / 7.828 ms**. These are CPU-observed
 completion bounds, not exact GPU execution timestamps. They locate the
 dominant added wait at the D3D11 producer/acquisition dependency, before
-the compute copy, conversion and AMF compression. They do not separate
-DWM copy execution from scheduling delay before its completion signal.
+the compute copy, conversion and AMF compression. These CPU observations do
+not separate DWM execution from scheduling delay; the deeper ETW analysis
+[below](#dwm-dependency-and-early-signal-experiment) follows that dependency.
 
 The independent GPU ETW trace corroborates this ordering. For slow PTS 2583
 (capture-copy fence 2590), the host's Compute0 queue waited **3.541 ms**
@@ -5133,8 +5134,9 @@ FPS with 64 source discontinuities; the second delivered 120.009 with none.
 This establishes a capture/cadence tradeoff, not a general end-to-end latency
 improvement. A future DDX optimization must reduce the producer dependency
 while retaining synchronized pixels, picture freshness and throughput. Moving
-the producer signal earlier to overlap command-list preparation is a small
-source-level candidate, not a measured multi-millisecond solution. No
+the producer signal earlier to overlap command-list preparation was tested
+in the [four-run experiment below](#dwm-dependency-and-early-signal-experiment).
+It did not establish a real picture-age improvement. No
 production algorithm or default was changed by this diagnosis.
 
 **Evidence and validation.** All **17** diagnostic cases completed their
@@ -5157,3 +5159,81 @@ matched GPU queue records are in `etw\gpu-window-analysis.json`. The
 release sources are rc.24 `ec84f48abbea67e0e3c3f8fc0c7c71e090831580` and
 2.2.9 `d0bfcb5e764095250b8f0e22fd5a0cb3656d5ea6`. Temporary source changes,
 builds, raw evidence and credentials remain outside the repository.
+
+#### DWM dependency and early-signal experiment
+
+Following the producer fence upstream in the same retained ETW window
+identified **unfinished `dwm.exe` graphics work in all 13 slow frames**.
+After DWM's fence completed, the host wait completed within **6–74 µs**;
+its producer signal then completed **3–24 µs** later. The multi-millisecond
+delay is therefore upstream of host signal completion.
+
+For PTS 2583, DWM submitted its preceding graphics DMA packet at trace time
+37.115663 s. That packet was released at 37.118722 s and completed at
+37.119220 s: **3.059 ms before release**, followed by **0.498 ms** to
+completion. DWM's signal was queued at 37.115673 s but only completed at
+37.119237 s. The host wait completed at 37.119271 s, and its producer signal
+at 37.119295 s. Queuing a signal must not be mistaken for completing it.
+
+Twelve of the thirteen slow frames' preceding DWM packets spent
+**2.423–3.412 ms between submission and release**. The remaining packet
+spent **3.358 ms between release and completion**. All thirteen overlapped
+two graphics packets from the synthetic GPU load. No explicit wait packet
+on DWM's queue appeared in the retained window. An adjacent fast DWM packet
+took **31 µs** from submission to release and **104 µs** from release to
+completion. These events identify DWM graphics scheduling/completion as
+the upstream dependency; they do not identify a particular DWM shader or
+measure pure GPU execution time. The command-buffer byte count is not an
+image-copy size.
+
+**Candidate and acceptance rule.** A scratch build moved the D3D11 producer
+`Signal` and `Flush` before shared-resource opening and copy-command-list
+preparation. Every synchronization wait, resource lifetime and timing
+boundary remained intact. Before running it, the plan required repeated
+reductions in host p95 and producer wait, without deterioration in picture
+age or fresh-picture cadence. Both arms used identical stage tracing,
+native HDR settings and the 59 FPS load described above. Four serial runs
+used unchanged/candidate/candidate/unchanged order:
+
+| Run | Host mean / p95 / p99 (ms) | Picture age mean / p95 (ms) | Fresh pictures/s | Host samples ≥6 ms |
+| --- | ---: | ---: | ---: | ---: |
+| Unchanged A1 | 3.103 / 3.4 / 7.0 | 11.240 / 15.225 | 119.969 | 54/3582 |
+| Earlier signal B1 | 3.061 / 3.3 / 4.6 | 10.859 / 15.003 | 120.003 | 27/3571 |
+| Earlier signal B2 | 3.089 / 3.3 / 6.9 | 11.208 / 15.245 | 119.778 | 50/3576 |
+| Unchanged A2 | 3.138 / 3.4 / 7.5 | 10.896 / 14.962 | 119.979 | 81/3581 |
+
+Host p95 decreased by **0.1 ms** in both candidate runs. However, the
+picture-age improvement did not repeat: B1 versus A1 improved its mean by
+0.382 ms, while B2 versus A2 increased it by 0.312 ms. Averaging each arm's
+two run statistics, picture-age mean changed by **−0.035 ms** and p95 by
+**+0.031 ms**; these are not pooled percentiles. B2 omitted six source
+pictures, versus one in either control. This does not establish
+candidate-caused degradation, but it fails the combined acceptance rule.
+
+All **208 stage samples at or above 6 ms** still had a pending producer
+fence and a completed prior-reader fence. Per-run first-observed producer
+completion means were **4.944 / 5.062 / 4.776 / 5.007 ms** after encoder
+entry. These CPU-observed bounds show no consistent shortening of the
+slow dependency. The counts at or above 6 ms differ between stage and wire
+measurements because of 0.1 ms wire rounding. The candidate was **not adopted**, and the conditional
+60 FPS confirmation was not run. Acquisition timing remains an untested
+optimization direction; neither bypassing the correctness fence nor moving
+the timer past it would resolve this measured delay.
+
+**Validation and provenance.** All four stream gates, binary-hash checks,
+native-source modes and physical-display restoration checks passed.
+All **16,646 nonzero source-ID/QPC pairs** matched exactly; **49 zero-ID
+startup rows** remain in the raw evidence. All **14,310 steady frames**
+mapped to stage records. No production source, installed binary, capture
+default or migration behavior changed.
+
+The batch is `work\host-mean-trace\early-signal-20261012T163740Z`, with
+`analysis\early-signal-comparison.json` and adjacent raw logs and ledgers.
+The parent directory retains `early-signal-plan.json`,
+`early-signal-receiver-judgment.json` and
+`receiver-analysis-early-signal-20261012T163740Z.json`. Exact DWM fence/value
+joins are in `etw\producer-chain-analysis.json` and
+`etw\producer-chain-summary.json`. The instrumented unchanged host SHA-256
+is `9e11727043573faecdaf536f3bedb785407852a5e888267f4eefd04f8b51fc1a`;
+the candidate is
+`3a001534068d0756ee8b742eccc53aa0a8c0c2c939fb2edaeae1aa8c04277182`.

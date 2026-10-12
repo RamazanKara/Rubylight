@@ -87,7 +87,7 @@ The signing hook in [app/build.gradle](../app/build.gradle) reads these four val
 | `BP_KEY_ALIAS` | `keyAlias` |
 | `BP_KEY_PASSWORD` | `keyPassword` |
 
-Each nonempty environment variable overrides its matching property. Supply all four values using the existing release key. Relative keystore paths resolve from the repository root; use forward slashes in Windows property paths. The properties file and `*.jks`/`*.keystore` files are ignored by Git.
+Each nonempty environment variable overrides its matching property. Supply all four values using the existing release key. Relative keystore paths resolve from the repository root; use forward slashes in Windows property paths. The properties file and `*.jks`, `*.keystore`, `*.p12` and `*.pfx` files are ignored by Git. Never commit signing keys or passwords, regardless of filename.
 
 Release builds require a dedicated signing key. Missing or partial signing configuration and the standard Android debug key fail the build, including when using the artifact helpers. CI uses a disposable validation key for minified build tests; it never publishes those release APKs. Updates must use the installed app's signing identity.
 

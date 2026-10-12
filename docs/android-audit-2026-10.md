@@ -17,6 +17,7 @@ The source is prepared as 0.4.6 (`versionCode` 323). This version bump is not ev
 | A failed cover copy left an empty PNG that prevented later exports from retrying it. | Remove incomplete new covers when the provider permits deletion; keep existing custom covers. | Cover failure/retry and preservation tests. |
 | Removing a PC retained its cached app list and empty artwork directory; hidden-app cleanup depended on the UI caller. | Put PC-scoped cache/hidden-app cleanup in the computer service with the existing per-PC preference cleanup. | Removed-PC and unaffected-PC assertions. |
 | Release helpers produced an ARM64-only APK despite universal published releases, and skipped validation. | Build all default ABIs after release lint and both flavors' unit tests pass. | Shell execution with a fake Gradle launcher, failure gate and PowerShell static parity checks. |
+| Common PKCS#12 signing-key filenames were not ignored. | Ignore `.p12` and `.pfx` alongside the existing keystore patterns, and document secret handling. | Git ignore-rule checks. |
 | Documentation-only changes skipped the only docs CI job. | Add a dedicated documentation workflow for relevant pushes and pull requests. | Generated-settings and local-link checks. |
 | The bug template required GeForce Experience details and implied gamepad testing for pairing failures. | Ask for exact client/host versions and failure stage; add Android-client and not-applicable/not-tested choices. | Template review against the deficiencies recorded in issue #2. |
 

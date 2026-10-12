@@ -21,6 +21,8 @@ local.properties
 keystore.properties
 *.keystore
 *.jks
+*.p12
+*.pfx
 
 # Windows thumbnail db
 Thumbs.db

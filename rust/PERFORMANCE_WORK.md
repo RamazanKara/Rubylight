@@ -4513,10 +4513,13 @@ remaining 21 samples. The host working-set, handle and thread checks passed:
 
 GPU memory is **outside that resource-growth gate**. For the same host and
 adapter, the first/last settled churn snapshots (`churn-02` / `churn-52`)
-reported dedicated GPU memory of **4,365,221,888 / 17,118,527,488 bytes**, an
-increase of 12,753,305,600 bytes. This observed counter increase is retained;
-these snapshots alone do not diagnose a leak, and the host-resource pass
-does not establish stable GPU memory.
+recorded the per-process `DedicatedUsage` counter at
+**4,365,221,888 / 17,118,527,488 bytes**, an increase of 12,753,305,600 bytes.
+These original readings remain preserved as counter observations. The
+[follow-up below](#gpu-memory-counter-follow-up-october-12) reproduced the
+growing counter without sustained adapter-wide VRAM growth, identifying
+the large staircase as a reporting artifact. It must not be presented as
+12.75 GB of leaked VRAM.
 
 The final 20-second HEVC 1080p60 case terminates only the isolated host's
 owned WGC helper at **8.442 seconds**. The host logged `capture_recovery`;
@@ -4558,6 +4561,63 @@ settled resource snapshots and the final `result.json`; stage metadata and
 Reproduce with `work\run_remaining_streams.py --stages soak-short`; this
 runner version has SHA-256
 `c9e16755be55449132c47952982e1cbcad768cc0f173e12ae79ed04a57b57563`.
+
+#### GPU-memory counter follow-up (October 12)
+
+A focused diagnostic on the same published **2.2.9** host, RX 7900 XT,
+driver and physical desktop ran at **14:06–14:10 UTC**. It reused the first
+30 HEVC 1920x1080p60 reconnect cases from the existing soak fixture,
+alternating launch/resume with three-second streams through the WGC helper.
+All **30/30 cases** and the existing CPU resource-growth checks passed.
+The eight-second pairing stream accounts for the additional disconnect:
+the log contains **31 completed disconnects** and no stuck-worker teardown
+warnings. This diagnostic adds separate adapter-wide counters and a
+30-second final idle period; it does not repeat the mixed-codec or GPU-load
+parts of the original soak.
+
+The original sampler reads
+`Win32_PerfFormattedData_GPUPerformanceCounters_GPUProcessMemory`, filtered
+by host PID. The follow-up also reads `GPUAdapterMemory` for the same
+RX 7900 XT adapter (`luid_0x00000000_0x00016702_phys_0`). Each snapshot has
+one matching process instance; the increase is not a duplicated-row sum
+or a running total calculated by the fixture. GB below means decimal GB.
+
+| Observation | Process dedicated counter (GB) | Process GPU commitment (bytes) | Adapter dedicated usage (GB) |
+| --- | ---: | ---: | ---: |
+| Before test host starts | not running | not running | 2.664 |
+| After 30 reconnects, host still running | 7.910 | 4,096 | 2.786 |
+| After 30 seconds idle, host still running | 7.910 | 4,096 | 2.659 |
+| After test host exits | not running | not running | 2.659 |
+
+All 15 settled reconnect snapshots report **4,096 bytes** of process GPU
+commitment. Adapter dedicated usage returns from **2,664,321,024 bytes**
+before launch to **2,659,160,064 bytes** by 15 seconds idle, remaining there
+at 30 seconds and after host exit. Adapter commitment changes from
+**3,152,412,672 to 3,152,408,576 bytes** on exit, a decrease of exactly
+**4,096 bytes**. There is no corresponding 7.91 GB of adapter consumption
+to release. The original soak also returned process commitment to 4,096
+bytes in all 41 settled snapshots while its dedicated counter accumulated.
+
+The reproduced staircase is a **per-process counter/accounting artifact**;
+no sustained adapter VRAM growth was observed in this HEVC/WGC reconnect
+test. Microsoft documents [false growth in GPU Process Memory counters](https://learn.microsoft.com/en-us/troubleshoot/windows-client/performance/gpu-process-memory-counters-report-wrong-value)
+during resource recreation. That Windows 10 report is supporting context,
+not confirmation of the underlying Windows/driver defect on this Windows
+11 build. These results resolve the large counter-growth warning; they do
+not establish every codec, capture path or longer session as leak-free.
+
+Raw evidence is retained under
+`work\leak-analysis\repro-20261012T140648Z`, including the original
+`independent-counters.jsonl`, fixture metadata and the soak results in
+`soak\20261012T140650-275038Z`. The counter timeline has SHA-256
+`f2e69f58ec3195e03d5f626e9631c4ae8a43267771d8be53f5d18d48b03f2521`;
+the soak `result.json` has
+`90e3306e5f0fc5d398884003baeb428bb6058ddf7bcff6c64992a052c1224f03`.
+`work\leak-analysis\reproduction-summary.json` indexes the comparison and
+hashes; `soak-counter-audit.json` retains the original 92-snapshot audit.
+The task-local diagnostic is `work\leak-analysis\reproduce_counter.py`,
+with its sampler and released-host identity pinned in the metadata.
+Original benchmark outcomes and competitor measurements remain unchanged.
 
 ### Real Wi-Fi hardware-receiver streams (October 12)
 

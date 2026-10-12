@@ -4354,8 +4354,12 @@ controls passed; all four deliberate 20 ms outage streams failed the normal
 gap gate. Both 120-second audio/video streams passed. The corrected short soak
 completed 67 cases: 64 passed, three failed GPU-load freshness; all 52 churn
 cycles, eight codec switches, capture-helper recovery and host working-set,
-handle and thread growth checks passed. The separately observed dedicated GPU memory counter increased by **12,753,305,600 bytes**, outside those growth
-gates; see the [soak results and scope](PERFORMANCE_WORK.md#short-soak-switching-reconnects-and-wgc-helper-recovery).
+handle and thread growth checks passed. The [GPU-memory follow-up](PERFORMANCE_WORK.md#gpu-memory-counter-follow-up-october-12)
+reproduced the rising process counter as a reporting artifact: all 30 HEVC
+reconnects passed, and adapter-wide dedicated usage returned to baseline
+after idle. No sustained VRAM growth was observed in that focused test.
+The [soak record](PERFORMANCE_WORK.md#short-soak-switching-reconnects-and-wgc-helper-recovery)
+retains the original counter readings separately from adapter consumption.
 The initial soak attempt could not start its direct receivers
 because of a missing DLL search path and is retained as invalid fixture
 evidence, not a set of product failures.

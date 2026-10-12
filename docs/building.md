@@ -68,6 +68,16 @@ For a build without TrueHDR:
 .\rust\build.ps1 -FetchDependencies -SkipTrueHdr -Package
 ```
 
+Official releases use this command's `-SkipTrueHdr` setting. The [Code signing policy](code-signing.md) describes which files can be signed and how to enable the currently disabled signing job.
+
+## Optional unsigned TrueHDR add-on
+
+TrueHDR is excluded from the official installer and portable ZIP because its adapter links NVIDIA's proprietary NGX library. To add it yourself, use the same release's source and run the full build command above **without `-SkipTrueHdr`** in a Visual Studio x64 developer PowerShell. This fetches the pinned RTX Video SDK, builds the MSVC adapter and copies its license; the output is a local, unsigned build.
+
+With Rubylight stopped, copy only `release\butterpollo_truehdr.dll` and `release\nvngx_truehdr.dll` from your target directory beside the installed `butterpollo.exe`. Copy `butterpollo-rust-release\licenses\NVIDIA_RTX_Video_SDK_License.pdf` into the installation's `licenses` directory and retain the NVIDIA notices in NOTICE and THIRD_PARTY.md. If sharing the add-on, include these notices and the vendor license and label it **unsigned optional TrueHDR add-on**. Do not put it in a SignPath submission or describe it as covered by Rubylight's signature.
+
+Restart Rubylight and enable TrueHDR only on supported NVIDIA hardware. Remove those two DLLs to remove the add-on; manually added files are outside the official package manifest. Without the adapter, the host advertises TrueHDR as unavailable. If a saved profile requests it, the existing loader reports a warning and continues with neutral SDR-to-PQ conversion; ordinary SDR and native HDR streaming remain available. No streaming code changes are required for this split.
+
 ## SDK environment
 
 Cargo alone cannot build the Windows crates: their build scripts generate bindings from pinned SDK headers and link pinned codec libraries. The build script sets these variables for the session it runs in; set them yourself to run `cargo` in another shell.

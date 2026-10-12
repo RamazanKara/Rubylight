@@ -21,7 +21,7 @@ Already using Rubylight? Go straight to [Upgrading](#upgrading). Moving a portab
 
 ## Install or run portable
 
-Download the Windows package from [Rubylight Releases](https://github.com/RamazanKara/Rubylight/releases). For 2.2.9, choose:
+Download the Windows package from [Rubylight Releases](https://github.com/RamazanKara/Rubylight/releases); see the [Code signing policy](code-signing.md) for signing status, privacy and system changes. Standard release packages exclude the [optional unsigned TrueHDR add-on](building.md#optional-unsigned-truehdr-add-on). For 2.2.9, choose:
 
 | Package | How to start | Best fit |
 | --- | --- | --- |

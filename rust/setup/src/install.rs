@@ -22,6 +22,7 @@ pub struct Options {
     /// End active streams instead of refusing to install. The user chose
     /// this; tests and automatic updates never set it.
     pub end_streams: bool,
+    pub disable_background_downloads: bool,
 }
 pub struct Outcome {
     pub install: PathBuf,
@@ -148,6 +149,43 @@ pub(crate) fn probe(profile: &Path) -> SocketAddr {
     SocketAddr::new(probe_address(&conf_text(profile)), web_port(profile) - 1)
 }
 
+fn disable_background_downloads(profile: &Path) -> Result<()> {
+    use std::io::Write;
+    let path = profile.join("sunshine.conf");
+    let text = match std::fs::read_to_string(&path) {
+        Ok(text) => text,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(error) => return Err(error.into()),
+    };
+    let mut lines: Vec<_> = text
+        .trim_start_matches('\u{feff}')
+        .lines()
+        .filter(|line| {
+            !line
+                .split('#')
+                .next()
+                .and_then(|line| line.split_once('='))
+                .is_some_and(|(key, _)| {
+                    matches!(
+                        key.trim(),
+                        "update_check_interval" | "auto_update" | "steam_auto_sync"
+                    )
+                })
+        })
+        .collect();
+    lines.extend([
+        "update_check_interval = 0",
+        "auto_update = false",
+        "steam_auto_sync = false",
+    ]);
+    let contents = format!("{}\n", lines.join("\n"));
+    crate::update_files::write(
+        &path,
+        |file| Ok(file.write_all(contents.as_bytes())?),
+        system::remove_file_later,
+    )
+}
+
 pub fn install(options: &Options, progress: &Progress) -> Result<Outcome> {
     let mut payload = Payload::open()?
         .context("this setup.exe carries no package; build it with build.ps1 -Package")?;
@@ -180,6 +218,9 @@ pub fn install(options: &Options, progress: &Progress) -> Result<Outcome> {
             options.end_streams,
             progress,
             &mut || {
+                if options.disable_background_downloads {
+                    disable_background_downloads(&profile)?;
+                }
                 restart_needed |= install_drivers(
                     &install,
                     options.display_driver,
@@ -187,6 +228,7 @@ pub fn install(options: &Options, progress: &Progress) -> Result<Outcome> {
                     progress,
                     &mut notes,
                 );
+                Ok(())
             },
         )?;
         // A reinstall also repairs the profile's permissions and the firewall
@@ -395,6 +437,9 @@ pub fn install(options: &Options, progress: &Progress) -> Result<Outcome> {
     }
     secure_profile(&profile)?;
 
+    if options.disable_background_downloads {
+        disable_background_downloads(&profile)?;
+    }
     remember_driver_choice(&profile, options.display_driver);
     restart_needed |= install_drivers(
         &install,
@@ -1068,6 +1113,26 @@ pub(crate) fn wait_ready(address: SocketAddr, version: Option<&str>) -> Result<(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn privacy_choice_disables_background_downloads_and_keeps_other_settings() -> Result<()> {
+        let directory = tempfile::tempdir()?;
+        let path = directory.path().join("sunshine.conf");
+        std::fs::write(
+            &path,
+            "\u{feff}# User profile\nupdate_check_interval = 86400\nauto_update=true\nsteam_auto_sync=true\nsteam_enabled=true\nbitrate=12345\n",
+        )?;
+        disable_background_downloads(directory.path())?;
+        let config = butterpollo_core::config::Config::parse(&std::fs::read_to_string(&path)?)?;
+        assert_eq!(config.integer("update_check_interval", 86400), 0);
+        assert!(!config.boolean("auto_update", true));
+        assert!(!config.boolean("steam_auto_sync", true));
+        assert!(config.boolean("steam_enabled", false));
+        assert_eq!(config.integer("bitrate", 0), 12345);
+        let saved = std::fs::read(&path)?;
+        disable_background_downloads(directory.path())?;
+        assert_eq!(std::fs::read(&path)?, saved);
+        Ok(())
+    }
     #[test]
     fn driver_reboot_exit_codes_are_successful_but_warnings_are_shown() {
         let mut notes = Vec::new();

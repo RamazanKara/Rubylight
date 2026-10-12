@@ -9,13 +9,15 @@ use crate::{
     payload, system,
     ui::Progress,
 };
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
 use std::{
     collections::BTreeSet,
     path::{Path, PathBuf},
     time::Duration,
 };
-use windows::Win32::System::Registry::{HKEY_LOCAL_MACHINE, KEY_WOW64_64KEY};
+use windows::Win32::System::Registry::{
+    HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, HKEY_USERS, KEY_WOW64_64KEY,
+};
 
 pub struct Options {
     pub factory_reset: bool,
@@ -52,7 +54,7 @@ pub fn uninstall(options: &Options, progress: &Progress) -> Result<()> {
     };
     line(format!("uninstalling from {}", install.display()));
     progress.set("Stopping Rubylight…");
-    let _ = system::stop_service(SERVICE);
+    system::stop_service(SERVICE)?;
     system::kill(&HOST_PROCESSES[..4]);
     if system::service_program(SERVICE).is_some_and(|p| p.starts_with(&install)) {
         system::delete_service(SERVICE)?;
@@ -65,9 +67,20 @@ pub fn uninstall(options: &Options, progress: &Progress) -> Result<()> {
     // With the separator, so removing ...\Butterpollo keeps ...\Butterpollo2's layer.
     let prefix =
         format!("{}\\", install.display().to_string().trim_end_matches('\\')).to_ascii_lowercase();
-    for value in system::values(HKEY_LOCAL_MACHINE, layers, KEY_WOW64_64KEY) {
-        if value.to_ascii_lowercase().starts_with(&prefix) {
-            system::delete_value(HKEY_LOCAL_MACHINE, layers, &value, KEY_WOW64_64KEY);
+    let mut keys = vec![
+        (HKEY_LOCAL_MACHINE, layers.to_owned()),
+        (HKEY_CURRENT_USER, layers.to_owned()),
+    ];
+    keys.extend(
+        system::subkeys(HKEY_USERS, "", KEY_WOW64_64KEY)
+            .into_iter()
+            .map(|sid| (HKEY_USERS, format!("{sid}\\{layers}"))),
+    );
+    for (root, key) in keys {
+        for value in system::values(root, &key, KEY_WOW64_64KEY) {
+            if value.to_ascii_lowercase().starts_with(&prefix) {
+                system::delete_value(root, &key, &value, KEY_WOW64_64KEY);
+            }
         }
     }
 
@@ -97,7 +110,15 @@ pub fn uninstall(options: &Options, progress: &Progress) -> Result<()> {
                     path.as_str(),
                 ];
                 arguments.extend(args);
-                let _ = system::run_as_system(&powershell, &arguments, Duration::from_secs(600));
+                let (code, output) =
+                    system::run_as_system(&powershell, &arguments, Duration::from_secs(600))
+                        .with_context(|| format!("removing driver with {script}"))?;
+                line(&output);
+                if !matches!(code, 0 | 3010) || output.contains("DRIVER_WARNING:") {
+                    bail!(
+                        "Driver removal failed ({script}, exit {code}); see the setup log. Restart Windows and retry uninstallation."
+                    );
+                }
             }
         }
     }

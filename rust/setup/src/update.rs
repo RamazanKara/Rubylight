@@ -17,7 +17,7 @@ pub fn run(
     start: bool,
     end_streams: bool,
     progress: &Progress,
-    before_start: &mut dyn FnMut(),
+    before_start: &mut dyn FnMut() -> Result<()>,
 ) -> Result<()> {
     detect::scan().check_version()?;
     let profile = install::profile();
@@ -107,7 +107,7 @@ pub fn run(
         || -> Result<()> {
             progress.set("Installing the update…");
             replace_package(&staged, &install, &entries)?;
-            before_start();
+            before_start()?;
             progress.set("Checking that Rubylight starts…");
             if start {
                 system::start_service(detect::SERVICE)?;

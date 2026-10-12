@@ -11,6 +11,8 @@
 
 **[Download 2.2.9](https://github.com/RamazanKara/Rubylight/releases/tag/v2.2.9)** · **[Get started](docs/getting-started.md)** · [Website](https://ramazankara.github.io/Rubylight/) · [Docs](docs/README.md) · [Android client](https://github.com/RamazanKara/rubylight-android)
 
+[Code signing policy](docs/code-signing.md)
+
 <sub>Windows x64 · Free and open source · Formerly Butterpollo</sub>
 
 </div>

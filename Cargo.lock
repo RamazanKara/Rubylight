@@ -359,6 +359,7 @@ dependencies = [
  "anyhow",
  "cbc",
  "crc32fast",
+ "embed-resource",
  "hex",
  "pem 3.0.6",
  "rand 0.8.8",
@@ -397,6 +398,7 @@ dependencies = [
 name = "butterpollo-vulkan-layer"
 version = "2.2.9"
 dependencies = [
+ "embed-resource",
  "windows",
 ]
 
@@ -407,6 +409,7 @@ dependencies = [
  "anyhow",
  "bindgen",
  "butterpollo-core",
+ "embed-resource",
  "half",
  "libloading",
  "rayon",

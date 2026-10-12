@@ -13,6 +13,7 @@ class ReleaseVersions(unittest.TestCase):
         for name in ('Cargo.toml', 'Cargo.lock', 'README.md', 'docs/README.md',
                      'docs/getting-started.md', 'rust/README.md', 'rust/RELEASE_NOTES.md',
                      'rust/release/bump.py', 'rust/release/notes.py', 'rust/release/body.md',
+                     'rust/truehdr-runtime/Cargo.lock',
                      'rust/web/package.json', 'rust/web/package-lock.json'):
             target = self.root / name
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -41,6 +42,7 @@ class ReleaseVersions(unittest.TestCase):
                 self.assertIn(f'/download/{tag}/rubylight-{self.version}-windows-x64.zip', body)
                 self.assertIn(f'/blob/{tag}/rust/../docs/api.md', body)
                 self.assertIn(f'/blob/{tag}/rust/RELEASE_NOTES.md', body)
+                self.assertIn('[Code signing policy](https://github.com/RamazanKara/Rubylight/blob/main/docs/code-signing.md)', body)
 
     def test_wrong_tag_version_is_rejected(self):
         out = self.root / 'body.md'
@@ -63,6 +65,8 @@ class ReleaseVersions(unittest.TestCase):
         self.assertIn(f'rubylight-setup-{new}.exe', text)
         self.assertIn('Measured in 2.1.0.', text)
         self.assertIn(f'version = "{new}"', (self.root / 'Cargo.toml').read_text(encoding='utf-8'))
+        self.assertIn(f'version = "{new}"', (self.root / 'rust/truehdr-runtime/Cargo.toml').read_text(encoding='utf-8'))
+        self.assertIn(f'name = "butterpollo-truehdr"\nversion = "{new}"', (self.root / 'rust/truehdr-runtime/Cargo.lock').read_text(encoding='utf-8'))
         self.assertIn(f'## New in {new}', (self.root / 'rust/RELEASE_NOTES.md').read_text(encoding='utf-8'))
         package = json.loads((self.root / 'rust/web/package.json').read_text(encoding='utf-8'))
         lock = json.loads((self.root / 'rust/web/package-lock.json').read_text(encoding='utf-8'))

@@ -1,5 +1,6 @@
 //! The release package appended to setup.exe: the executable, then the ZIP,
 //! then a 16-byte footer (`BPSETUP1` and the ZIP's length, little endian).
+//! Authenticode may append alignment padding and a certificate table.
 use anyhow::{Context, Result, bail};
 use sha2::{Digest, Sha256};
 use std::{
@@ -9,6 +10,61 @@ use std::{
 };
 
 const MAGIC: &[u8; 8] = b"BPSETUP1";
+
+fn certificate_offset(file: &mut File, total: u64) -> Result<Option<u64>> {
+    if total < 64 {
+        return Ok(None);
+    }
+    file.seek(SeekFrom::Start(0))?;
+    let mut dos = [0u8; 64];
+    file.read_exact(&mut dos)?;
+    if &dos[..2] != b"MZ" {
+        return Ok(None);
+    }
+    let pe = u32::from_le_bytes(dos[60..64].try_into().unwrap()) as u64;
+    if pe + 24 > total {
+        bail!("invalid setup PE header");
+    }
+    file.seek(SeekFrom::Start(pe))?;
+    let mut header = [0u8; 24];
+    file.read_exact(&mut header)?;
+    if &header[..4] != b"PE\0\0" {
+        bail!("invalid setup PE signature");
+    }
+    let size = u16::from_le_bytes(header[20..22].try_into().unwrap()) as usize;
+    if pe + 24 + size as u64 > total || size < 2 {
+        bail!("invalid setup optional header");
+    }
+    let mut optional = vec![0u8; size];
+    file.read_exact(&mut optional)?;
+    let directories = match u16::from_le_bytes(optional[..2].try_into().unwrap()) {
+        0x10b => 96,
+        0x20b => 112,
+        _ => bail!("unsupported setup PE format"),
+    };
+    if size < directories
+        || u32::from_le_bytes(optional[directories - 4..directories].try_into().unwrap()) < 5
+    {
+        return Ok(None);
+    }
+    if size < directories + 40 {
+        bail!("missing setup certificate directory");
+    }
+    let entry = &optional[directories + 32..directories + 40];
+    let offset = u32::from_le_bytes(entry[..4].try_into().unwrap()) as u64;
+    let length = u32::from_le_bytes(entry[4..].try_into().unwrap()) as u64;
+    if offset == 0 && length == 0 {
+        return Ok(None);
+    }
+    if offset < pe + 24 + size as u64
+        || !offset.is_multiple_of(8)
+        || length < 8
+        || offset + length != total
+    {
+        bail!("invalid setup certificate table");
+    }
+    Ok(Some(offset))
+}
 
 /// A window onto part of a file, so the ZIP reader sees only the payload.
 struct Slice {
@@ -56,17 +112,25 @@ fn layout(path: &Path) -> Result<Option<(u64, u64)>> {
     if total < 16 {
         return Ok(None);
     }
-    file.seek(SeekFrom::End(-16))?;
-    let mut footer = [0u8; 16];
-    file.read_exact(&mut footer)?;
-    if &footer[..8] != MAGIC {
-        return Ok(None);
+    let certificate = certificate_offset(&mut file, total)?;
+    let end = certificate.unwrap_or(total);
+    // Signing aligns the certificate table to eight bytes, after our footer.
+    let padding = if certificate.is_some() { 7 } else { 0 };
+    for pad in 0..=padding.min(end.saturating_sub(16)) {
+        let footer_at = end - pad - 16;
+        file.seek(SeekFrom::Start(footer_at))?;
+        let mut tail = vec![0u8; 16 + pad as usize];
+        file.read_exact(&mut tail)?;
+        if &tail[..8] != MAGIC || tail[16..].iter().any(|&b| b != 0) {
+            continue;
+        }
+        let length = u64::from_le_bytes(tail[8..16].try_into().unwrap());
+        if length == 0 || length > footer_at {
+            bail!("setup payload is damaged");
+        }
+        return Ok(Some((footer_at - length, length)));
     }
-    let length = u64::from_le_bytes(footer[8..].try_into().unwrap());
-    if length == 0 || length > total - 16 {
-        bail!("setup payload is damaged");
-    }
-    Ok(Some((total - 16 - length, length)))
+    Ok(None)
 }
 pub struct Payload {
     archive: zip::ZipArchive<Slice>,
@@ -120,10 +184,20 @@ impl Payload {
         Ok(())
     }
 }
-/// Copy setup.exe without its payload, to serve as the uninstaller.
+fn stub_length(exe: &Path) -> Result<u64> {
+    let mut file = File::open(exe)?;
+    let total = file.metadata()?.len();
+    // Truncating a signed installer invalidates its signature. Keep it intact.
+    if certificate_offset(&mut file, total)?.is_some() {
+        Ok(total)
+    } else {
+        Ok(layout(exe)?.map_or(total, |(start, _)| start))
+    }
+}
+/// Copy setup.exe to serve as the uninstaller, preserving any signature.
 pub fn write_stub(destination: &Path) -> Result<()> {
     let exe = std::env::current_exe()?;
-    let length = layout(&exe)?.map_or(std::fs::metadata(&exe)?.len(), |(start, _)| start);
+    let length = stub_length(&exe)?;
     let mut source = File::open(&exe)?.take(length);
     crate::update_files::write(
         destination,
@@ -250,7 +324,40 @@ mod tests {
         bytes.extend_from_slice(&7u64.to_le_bytes());
         std::fs::write(&path, &bytes).unwrap();
         assert_eq!(layout(&path).unwrap(), Some((4, 7)));
+        assert_eq!(stub_length(&path).unwrap(), 4);
         std::fs::write(&path, b"plain executable without payload").unwrap();
         assert_eq!(layout(&path).unwrap(), None);
+    }
+
+    #[test]
+    fn signed_payload_skips_certificate_padding_and_keeps_the_uninstaller_intact() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("setup.exe");
+        for (magic, directories) in [(0x10bu16, 96usize), (0x20b, 112)] {
+            for length in 1..=8usize {
+                let mut bytes = vec![0u8; 512];
+                bytes[..2].copy_from_slice(b"MZ");
+                bytes[60..64].copy_from_slice(&64u32.to_le_bytes());
+                bytes[64..68].copy_from_slice(b"PE\0\0");
+                bytes[84..86].copy_from_slice(&240u16.to_le_bytes());
+                bytes[88..90].copy_from_slice(&magic.to_le_bytes());
+                bytes[88 + directories - 4..88 + directories].copy_from_slice(&16u32.to_le_bytes());
+                bytes.extend(vec![42; length]);
+                bytes.extend_from_slice(MAGIC);
+                bytes.extend_from_slice(&(length as u64).to_le_bytes());
+                bytes.resize(bytes.len().next_multiple_of(8), 0);
+                let certificate = bytes.len() as u32;
+                let entry = 88 + directories + 32;
+                bytes[entry..entry + 4].copy_from_slice(&certificate.to_le_bytes());
+                bytes[entry + 4..entry + 8].copy_from_slice(&32u32.to_le_bytes());
+                bytes.extend_from_slice(&[0xaa; 32]);
+                std::fs::write(&path, &bytes).unwrap();
+                assert_eq!(layout(&path).unwrap(), Some((512, length as u64)));
+                assert_eq!(stub_length(&path).unwrap(), bytes.len() as u64);
+                bytes.pop();
+                std::fs::write(&path, &bytes).unwrap();
+                assert!(layout(&path).is_err());
+            }
+        }
     }
 }

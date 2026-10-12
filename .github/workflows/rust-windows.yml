@@ -58,6 +58,8 @@ jobs:
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           python3 rust/release/notes.py "$tag" --out "$RUNNER_TEMP/body.md"
       - id: built
+        # Signing provenance must come from this release's hosted build.
+        if: vars.SIGNPATH_ORGANIZATION_ID == ''
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -125,7 +127,7 @@ jobs:
           $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
           Import-Module "$vs\Common7\Tools\Microsoft.VisualStudio.DevShell.dll"
           Enter-VsDevShell -VsInstallPath $vs -SkipAutomaticLocation -DevCmdArguments '-arch=x64 -host_arch=x64'
-          .\rust\build.ps1 -MsysRoot '${{ steps.msys.outputs.msys2-location }}' -FetchDependencies -Package -TargetDirectory "$env:RUNNER_TEMP\butterpollo-rust-target"
+          .\rust\build.ps1 -MsysRoot '${{ steps.msys.outputs.msys2-location }}' -FetchDependencies -SkipTrueHdr -Package -TargetDirectory "$env:RUNNER_TEMP\butterpollo-rust-target"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: butterpollo-rust-windows-x64
@@ -135,9 +137,102 @@ jobs:
             ${{ runner.temp }}/butterpollo-rust-target/butterpollo-setup-*.exe
           if-no-files-found: error
           retention-days: 30
-  publish:
+  sign:
     needs: [tag, windows]
-    if: ${{ !cancelled() && needs.tag.result == 'success' && (needs.tag.outputs.run || needs.windows.result == 'success') }}
+    if: ${{ !cancelled() && vars.SIGNPATH_ORGANIZATION_ID != '' && needs.tag.result == 'success' && needs.windows.result == 'success' }}
+    runs-on: windows-2022
+    timeout-minutes: 150
+    permissions:
+      contents: read
+      actions: read
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      GH_TOKEN: ${{ github.token }}
+      VERSION: ${{ needs.tag.outputs.version }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      - name: Prepare the unsigned payload
+        run: |
+          gh run download "${{ github.run_id }}" -R "$env:GITHUB_REPOSITORY" -n butterpollo-rust-windows-x64 -D "$env:RUNNER_TEMP\build"
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          Expand-Archive -LiteralPath "$env:RUNNER_TEMP\build\butterpollo-rust-release.zip" -DestinationPath "$env:RUNNER_TEMP\unsigned"
+          $root = "$env:RUNNER_TEMP\unsigned\butterpollo-rust-release"
+          foreach ($dll in @('butterpollo_truehdr.dll', 'nvngx_truehdr.dll')) {
+            if (Get-ChildItem -LiteralPath $root -Recurse -Filter $dll) { throw "TrueHDR must not enter the signed package: $dll" }
+          }
+      - name: Upload files for payload signing
+        id: payload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: rubylight-unsigned-payload
+          path: ${{ runner.temp }}/unsigned/butterpollo-rust-release/
+          if-no-files-found: error
+          retention-days: 7
+      # release-signing must require manual approval in SignPath for BOTH requests.
+      - name: Sign Rubylight payload binaries
+        uses: signpath/github-action-submit-signing-request@f6d04783b4569d051e0c80105fe66e82819d0092 # v3
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: rubylight
+          signing-policy-slug: release-signing
+          artifact-configuration-slug: payload
+          github-artifact-id: ${{ steps.payload.outputs.artifact-id }}
+          wait-for-completion: true
+          wait-for-completion-timeout-in-seconds: 3600
+          output-artifact-directory: ${{ runner.temp }}/signed/butterpollo-rust-release
+          parameters: |
+            version: ${{ toJSON(needs.tag.outputs.version) }}
+      - name: Rebuild the manifest, portable ZIP and installer
+        run: |
+          [xml]$config = Get-Content .signpath/artifact-configuration.xml
+          foreach ($file in $config.SelectNodes("//*[local-name()='include']")) {
+            $path = Join-Path "$env:RUNNER_TEMP\signed\butterpollo-rust-release" $file.path
+            if ((Get-AuthenticodeSignature -LiteralPath $path).Status -ne 'Valid') { throw "Invalid signature: $path" }
+          }
+          .\rust\release\repackage.ps1 -Distribution "$env:RUNNER_TEMP\signed\butterpollo-rust-release" -Zip "$env:RUNNER_TEMP\build\butterpollo-rust-release.zip" -Installer "$env:RUNNER_TEMP\build\butterpollo-setup-$env:VERSION.exe"
+      - name: Upload the assembled installer for signing
+        id: installer
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: rubylight-unsigned-installer
+          path: ${{ runner.temp }}/build/butterpollo-setup-*.exe
+          if-no-files-found: error
+          retention-days: 7
+      - name: Sign the assembled installer
+        uses: signpath/github-action-submit-signing-request@f6d04783b4569d051e0c80105fe66e82819d0092 # v3
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: rubylight
+          signing-policy-slug: release-signing
+          artifact-configuration-slug: installer
+          github-artifact-id: ${{ steps.installer.outputs.artifact-id }}
+          wait-for-completion: true
+          wait-for-completion-timeout-in-seconds: 3600
+          output-artifact-directory: ${{ runner.temp }}/signed-installer
+          parameters: |
+            version: ${{ toJSON(needs.tag.outputs.version) }}
+      - name: Verify the signed installer and its embedded payload
+        run: |
+          $installer = "$env:RUNNER_TEMP\signed-installer\butterpollo-setup-$env:VERSION.exe"
+          if ((Get-AuthenticodeSignature -LiteralPath $installer).Status -ne 'Valid') { throw 'Installer signature is invalid' }
+          $process = Start-Process -FilePath $installer -ArgumentList @('--extract', ('"{0}"' -f "$env:RUNNER_TEMP\verify-payload")) -WindowStyle Hidden -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw "Signed installer extraction failed: $($process.ExitCode)" }
+          Copy-Item -LiteralPath $installer -Destination "$env:RUNNER_TEMP\build\butterpollo-setup-$env:VERSION.exe"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: rubylight-signed-windows-x64
+          path: |
+            ${{ runner.temp }}/build/butterpollo-rust-release.zip
+            ${{ runner.temp }}/build/butterpollo-setup-*.exe
+          if-no-files-found: error
+          retention-days: 30
+  publish:
+    needs: [tag, windows, sign]
+    if: ${{ !cancelled() && needs.tag.result == 'success' && ((vars.SIGNPATH_ORGANIZATION_ID == '' && (needs.tag.outputs.run || needs.windows.result == 'success')) || needs.sign.result == 'success') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -148,6 +243,7 @@ jobs:
       VERSION: ${{ needs.tag.outputs.version }}
       TAG: ${{ needs.tag.outputs.tag }}
       BUILD: ${{ needs.tag.outputs.run || github.run_id }}
+      ARTIFACT: ${{ needs.sign.result == 'success' && 'rubylight-signed-windows-x64' || 'butterpollo-rust-windows-x64' }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
       - name: Publish the release
@@ -157,7 +253,7 @@ jobs:
             exit 0
           fi
           python3 rust/release/notes.py "$TAG" --out body.md --run "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$BUILD"
-          gh run download "$BUILD" -n butterpollo-rust-windows-x64 -D build
+          gh run download "$BUILD" -n "$ARTIFACT" -D build
           mkdir out
           mv "build/butterpollo-setup-$VERSION.exe" "out/rubylight-setup-$VERSION.exe"
           mv build/butterpollo-rust-release.zip "out/rubylight-$VERSION-windows-x64.zip"

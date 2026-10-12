@@ -20,6 +20,14 @@ The tag's run (or the published run) of [`rust-windows.yml`](../../.github/workf
 
 Tag a commit whose main run is green and the release is out in about a minute. A failed run can be re-run from the Actions page. To release again after a fix, bump to the next version.
 
+## Code signing
+
+The [Code signing policy](../../docs/code-signing.md) contains the application draft, privacy disclosure and maintainer activation steps. Signing stays disabled while `SIGNPATH_ORGANIZATION_ID` is absent. Official builds use `-SkipTrueHdr`; the proprietary [TrueHDR add-on](../../docs/building.md#optional-unsigned-truehdr-add-on) is built separately and stays unsigned.
+
+With the variable set, releases always build in their own workflow run on GitHub-hosted runners. The `sign` job signs the package's own binaries using the `payload` artifact configuration, rebuilds the internal SHA-256 manifest and portable ZIP with `repackage.ps1`, then signs the assembled installer using the `installer` configuration. Both requests use `release-signing` and require manual SignPath approval (up to an hour each). The installer must be signed after appending its payload; the extractor understands the certificate table, and the installed uninstaller keeps the complete signed file.
+
+The publish job uses only the signed artifact when signing is enabled and computes `SHA256SUMS` last. A rejected, timed-out or failed signing request prevents publication. Ordinary CI remains unsigned; when the variable is absent, release build reuse and publication work as before.
+
 ## Host check
 
 The only part GitHub's runners cannot do needs the Radeon release workstation, with the installed host idle:

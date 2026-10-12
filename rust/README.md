@@ -128,4 +128,4 @@ An optional [Moonlight 6.2.0 source patch](compatibility/moonlight-6.2.0/README.
 
 Setup backs up replaced package files, verifies that the requested host version starts and restores those files on copying or startup failure. A failed version is not retried automatically; the console offers a manual retry. Recovery records stay under the service profile's `updates` directory.
 
-The installer is unsigned. Its digest check over HTTPS is an integrity check against the official release, distinct from an Authenticode signature. Portable hosts use release-page downloads. [Release notes](RELEASE_NOTES.md) and the release's validation record describe package provenance.
+The installer remains unsigned until the maintainer activates the SignPath release policy. See the [Code signing policy](../docs/code-signing.md) for status and coverage. Its digest check over HTTPS is an integrity check against the official release, distinct from an Authenticode signature. Portable hosts use release-page downloads. [Release notes](RELEASE_NOTES.md) and the release's validation record describe package provenance.

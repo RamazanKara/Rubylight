@@ -166,6 +166,7 @@ fn main() {
                             &progress,
                             &mut notes,
                         );
+                        Ok(())
                     })?;
                     // Hosts updated from the console keep the names Windows
                     // shows from their first install; bring them up to date.
@@ -208,6 +209,7 @@ fn run_install(args: &Arguments) -> i32 {
     let mut folder = detect::install_dir(&found, args.install_dir.clone());
     let mut gamepad_driver = !args.no_gamepad_driver;
     let mut end_streams = args.end_streams;
+    let mut disable_background_downloads = false;
     if !args.quiet {
         // Updating from inside a stream is fine: the stream ends while
         // Rubylight restarts and the client connects again afterwards, as
@@ -216,6 +218,7 @@ fn run_install(args: &Arguments) -> i32 {
         let choosable = args.install_dir.is_none() && detect::folder_choosable(&found);
         loop {
             let mut text = detect::summary(&found, &folder);
+            text.push_str("\n\nSetup installs the Rubylight Windows service (ApolloService), starts it automatically, and adds inbound Windows Firewall rules. It installs the virtual display driver unless --no-display-driver is used, and the gamepad driver if selected below.\n\nThe host registers a Vulkan HDR implicit layer for all Vulkan apps (machine-wide when running as the service); its HDR changes activate during owned HDR sessions. Streams can create virtual displays, change display modes, turn other monitors off and switch default audio devices, then restore the previous state.\n\nPaired clients with permission can stream and control the Windows lock screen and secure desktop. Only pair devices you trust. Windows authentication is still required.\n\nWindows Settings > Apps removes Rubylight. The uninstaller also offers driver removal; settings can be kept.");
             if streaming {
                 text.push_str("\n\nRubylight is streaming. Installing ends the stream and closes games started from Moonlight; connect again when setup has finished.");
             }
@@ -251,6 +254,18 @@ fn run_install(args: &Arguments) -> i32 {
             end_streams |= streaming;
             break;
         }
+        let privacy = ui::ask(
+            TITLE,
+            "Privacy and network access",
+            "Rubylight checks GitHub for updates once a day by default; GitHub receives your IP address and the Rubylight user agent. Automatic installation is opt-in. Steam integration and automatic sync, when enabled, download missing artwork from Valve using game IDs. Cover searches you request contact GitHub GameDB and IGDB.\n\nStreaming and optional hardware metrics go to permitted paired clients. Local discovery advertises the host; UPnP contacts your router only when enabled. Logs and crash reports stay on this PC unless you share them.\n\nDisable background downloads to turn off scheduled update checks, automatic updates and Steam auto-sync before the host starts. Manual downloads remain available.\n\nCode signing policy and full privacy statement:\nhttps://ramazankara.github.io/Rubylight/docs/code-signing.html",
+            "Keep current settings",
+            Some("Disable background downloads"),
+            None,
+        );
+        if !privacy.accepted && !privacy.other {
+            return 1223;
+        }
+        disable_background_downloads = privacy.other;
     }
     let options = install::Options {
         install_dir: Some(folder),
@@ -258,6 +273,7 @@ fn run_install(args: &Arguments) -> i32 {
         display_driver: !args.no_display_driver,
         start: !args.no_start,
         end_streams,
+        disable_background_downloads,
     };
     let result = ui::progress(TITLE, "Installing Rubylight", args.quiet, move |progress| {
         install::install(&options, &progress)
@@ -305,18 +321,19 @@ fn run_uninstall(args: &Arguments) -> i32 {
         let choice = ui::ask(
             TITLE,
             "Remove Rubylight?",
-            "Streaming stops and the Rubylight service is removed. The virtual display and gamepad drivers stay installed.",
+            "Streaming stops and session display/audio changes are restored. Setup removes the Rubylight service, firewall rules and Vulkan HDR layer registration. Virtual display and gamepad drivers stay installed unless you choose Remove drivers too or use --remove-drivers. Driver removal can require a Windows restart.",
             "Remove",
-            None,
+            Some("Remove drivers too"),
             Some((
                 "Also delete settings, paired devices and logs",
                 args.factory_reset,
             )),
         );
-        if !choice.accepted {
+        if !choice.accepted && !choice.other {
             return 1223;
         }
         options.factory_reset = choice.checked;
+        options.remove_drivers |= choice.other;
     }
     let result = ui::progress(TITLE, "Removing Rubylight", args.quiet, move |progress| {
         uninstall::uninstall(&options, &progress)

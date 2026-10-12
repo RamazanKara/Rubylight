@@ -1,7 +1,14 @@
+#[path = "../version_resource.rs"]
+mod version_resource;
+
 fn main() {
     if !std::env::var("TARGET").unwrap().ends_with("windows-msvc") {
         panic!("NVIDIA's vendor library requires --target x86_64-pc-windows-msvc");
     }
+    let rc = version_resource::write("truehdr", "Rubylight optional NVIDIA TrueHDR adapter", true);
+    embed_resource::compile_for_cdylib(&rc, embed_resource::NONE)
+        .manifest_optional()
+        .unwrap();
     println!("cargo:rerun-if-env-changed=NV_RTX_VIDEO_SDK");
     let sdk = std::path::PathBuf::from(
         std::env::var("NV_RTX_VIDEO_SDK").expect("set NV_RTX_VIDEO_SDK to RTX Video SDK 1.1.0"),

@@ -45,6 +45,16 @@ text, count = re.subn(r'(?m)^(name = "(?:%s)"\nversion = )"%s"$' % ('|'.join(map
 assert count, 'no workspace crate in Cargo.lock'
 lock.write_text(text, encoding='utf-8', newline='')
 
+# The optional MSVC adapter is excluded from the GNU workspace.
+adapter = root / 'rust/truehdr-runtime/Cargo.toml'
+text = adapter.read_text(encoding='utf-8')
+adapter.write_text(text.replace(f'version = "{old}"', f'version = "{new}"', 1), encoding='utf-8', newline='')
+lock = root / 'rust/truehdr-runtime/Cargo.lock'
+text = lock.read_text(encoding='utf-8')
+lock.write_text(text.replace(f'name = "butterpollo-truehdr"\nversion = "{old}"',
+                            f'name = "butterpollo-truehdr"\nversion = "{new}"'),
+                encoding='utf-8', newline='')
+
 short = re.compile(r'(?<![\w.])%s(?![\w])' % re.escape(label(old)))
 # Only the short labels that name the release to download: a sentence about
 # what an older release measured or changed keeps its version.

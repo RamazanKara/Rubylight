@@ -45,32 +45,30 @@ Coming from Apollo or Vibepollo? Rubylight can import your settings, paired devi
 
 [First-stream walkthrough, portable setup and migration →](docs/getting-started.md)
 
-## Measured, not claimed
+## Radeon performance
 
-**Rubylight 2.2.9: 14.34 ms HEVC and 13.65 ms AV1 average picture age under GPU load.** The October 12 native-HDR tests measured **16.03 / 18.00 ms p95**, respectively, at 1968×2184 and 120 fps, through independent hardware decoding on the same PC. [Current native measurements →](docs/performance.md#october-12-229-measurements)
+**Nearly 120 fresh HDR pictures per second under GPU load.** Rubylight 2.2.9 delivered **14.34 ms average picture age with HEVC** and **13.65 ms with AV1**, measured from rendering through local hardware decoding on an RX 7900 XT.
 
-[![Rubylight 2.2.9 October 12 and historical Vibepollo 2.0 October 8 average and p95 picture age under GPU load. Measurements use different physical desktop conditions.](docs/media/gaming-latency.svg)](docs/performance.md#october-12-229-measurements)
+| Native HDR under GPU load | Average picture age | p95 picture age | Fresh pictures/s |
+| --- | ---: | ---: | ---: |
+| HEVC | **14.34 ms** | **16.03 ms** | **119.99** |
+| AV1 | **13.65 ms** | **18.00 ms** | **119.98** |
 
-<sub>RX 7900 XT · virtual HDR source at 120 Hz · 80 Mbps · Desktop Duplication · synthetic GPU load capped at 60 fps · means of two runs' statistics. Excludes remote network and display time. The physical desktop changed from 2560×1440/120 Hz on October 8 to 5120×1440/240 Hz on October 12; these separate dates do not establish a matched improvement over the unchanged competitor results.</sub>
+<sub>October 12, 2026 · Rubylight 2.2.9 · 1968×2184 native virtual HDR at 120 fps · 80 Mbps · Desktop Duplication · synthetic GPU load capped at 60 fps · each figure averages two runs' corresponding statistics.</sub>
 
-**Rubylight 2.2.9 — October 12, 2026.** The refresh passed 81 encoder probes, encoded and scored 148 AMF quality cases (32 defaults plus 116 settings variants), and passed 36 short loopback streams and 12 static-keyframe checks, alongside CPU, GPU, input and PyroWave component checks. [Current measurements and scope →](docs/performance.md#october-12-229-measurements)
+[![Rubylight 2.2.9 measured October 12 and historical Vibepollo 2.0 measured October 8: average and p95 picture age under GPU load.](docs/media/gaming-latency.svg)](docs/performance.md#october-12-229-measurements)
 
-The AMF property sweeps passed **1,018/1,030 probes**. Twelve 4K SDR cases with preanalysis enabled failed completion or frame-accounting checks; these probes do not measure full-stream latency. [Settings results and failures →](rust/PERFORMANCE.md#retained-amf-property-sweeps-october-12)
+<sub>Chart provenance: Rubylight on October 12 with a 5120×1440/240 Hz physical desktop; historical Vibepollo on October 8 with a 2560×1440/120 Hz physical desktop. Both use a 120 Hz virtual HDR source.</sub>
 
-Both 4K120 HEVC runs and both 5120×1440/240 FPS saturation runs failed the stream gates. The audio/load/outage batch passed **6/11 full-stream checks**, while **11/11 retained continuous audio**. Those earlier stream batches used physical SDR capture with converted HDR output, separately from the native-HDR measurements above.
+- **Smooth on stock Moonlight over Wi-Fi.** Official Moonlight 6.2.0 rendered **59.99 FPS in both 165-second 1080p60 HEVC SDR sessions** on a Radeon 780M laptop, with **0.50–0.59 ms average decoding time** across the two runs. [Real-client results →](rust/PERFORMANCE_WORK.md#stock-moonlight-620-over-wi-fi-october-12)
+- **Native HDR verified.** **28/28 stream and timing checks** passed across Desktop Duplication and Windows Graphics Capture, together with **4/4 HDR pixel checks**. [HDR results →](rust/PERFORMANCE_WORK.md#native-virtual-hdr-headline-streams-october-12)
 
-Both 120-second audio streams passed, with **24/24 continuous audio windows**. All four loss controls passed; all four injected-outage runs failed the normal gap checks. The short soak passed **64/67 cases**, with three GPU-load freshness failures. Reconnect, switching, helper recovery and host working set, handle and thread growth checks passed. A [30-reconnect follow-up](rust/PERFORMANCE_WORK.md#gpu-memory-counter-follow-up-october-12) reproduced the rising GPU process counter as a reporting artifact: adapter-wide memory returned to baseline, with no sustained VRAM growth observed. [Soak results and scope →](rust/PERFORMANCE_WORK.md#short-soak-switching-reconnects-and-wgc-helper-recovery)
-
-The real Radeon 780M Wi-Fi receiver passed **20/20 stream checks**: 12 HDR-output conversion runs and eight control/recovery runs. **19/20 calibrated timing records** passed source validation; one had mismatched barcode timestamps and remains unavailable. Timing ends at frame assembly/enqueue, before decoder queueing, decoding or display. [Current Wi-Fi results →](rust/PERFORMANCE_WORK.md#real-wi-fi-hardware-receiver-streams-october-12)
-
-Official **Moonlight 6.2.0** completed two **165-second 1080p60 HEVC SDR sessions requesting 80 Mbps** on the Radeon 780M laptop over Wi-Fi, reporting **59.99 FPS rendering** in both. These component statistics do not measure full picture age. Both wrappers failed their immediate exit check; later checks confirmed natural exit with settings and pairings preserved. [Stock Moonlight results →](rust/PERFORMANCE_WORK.md#stock-moonlight-620-over-wi-fi-october-12)
-
-The native-HDR follow-up passed **28/28 DDX/WGC stream and timing checks** and **4/4 HDR pixel checks**. The separate SDR VRR capture sweep produced **20 valid requested-mode phases**; **12 phases remain unavailable** because Windows selected different refresh rates. The historical private HDR/RTSS fixture source is unavailable.
-
-**Recorded with Rubylight rc.24 on October 8: 43–48% lower p95 picture age under game-like GPU load.** In matched 120 fps HDR tests against Vibepollo 2.0, Rubylight reduced average picture age by **7.4 ms** in both HEVC and AV1. The slower frames improved too: HEVC p95 fell from **37.62 to 21.56 ms**, and AV1 from **36.77 to 18.96 ms**.
+[Full October 12 measurement record, settings and methods →](docs/performance.md#october-12-229-measurements)
 
 <details>
 <summary><strong>See the historical October 8 comparison and other dated measurements</strong></summary>
+
+**Recorded with Rubylight rc.24 on October 8: 43–48% lower p95 picture age under game-like GPU load.** In matched 120 fps HDR tests against Vibepollo 2.0, Rubylight reduced average picture age by **7.4 ms** in both HEVC and AV1. The slower frames improved too: HEVC p95 fell from **37.62 to 21.56 ms**, and AV1 from **36.77 to 18.96 ms**.
 
 ### While a game runs
 

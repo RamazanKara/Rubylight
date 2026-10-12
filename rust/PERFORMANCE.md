@@ -4307,8 +4307,17 @@ configuration. HEVC SDR/HDR and PyroWave SDR/HDR decoded respectively
 steady fps. Audio was continuous, with no decode errors; long intervals
 were respectively zero, zero, zero and one. Evidence is under
 `work/gpu-only-e2e`. The [pacing follow-up](PERFORMANCE_WORK.md#october-12-420-and-pacing-follow-up)
-records the unsuccessful combined-candidate Wi-Fi comparison and the
-unavailable GPU-only Wi-Fi rerun.
+records the unsuccessful combined-candidate Wi-Fi comparison and a separate
+completed GPU-only laptop check. Four ABBA runs against 2.2.7 used official
+Moonlight 6.2.0 on a Radeon 780M over WLAN, at 1080p60 HEVC SDR with the
+same fallback configuration. Each ran for approximately 165 seconds, with
+120-second requested host measurement windows. All four reported 59.99
+rendered fps, 0.00% network drops and 0.03% jitter drops; the host windows
+had no sender drops, IDR requests or reference invalidations. The repeated
+baseline matched candidate send p95. This short check found no observed
+regression at that workload; rounded client statistics and absent FEC reports
+do not establish exact packet loss, and no end-to-end latency improvement
+is claimed. The final GPU-only build contains no pacing changes.
 
 Reproduce with the ignored release tests in `gpu_color::tests`:
 `gpu_420_single_pass_timing`, `gpu_420_single_pass_matches_pixel_passes` and

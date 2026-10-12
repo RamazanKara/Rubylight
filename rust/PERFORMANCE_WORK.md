@@ -48,10 +48,41 @@ FEC reports are best effort, so zero reports do not prove zero loss. Adaptive
 FEC varied in both windows, and measured payload rates were unequal. This
 single pair does not prove causality: it combined GPU and pacing changes, and
 wireless conditions vary. It nevertheless fails the no-regression gate, so the
-burst change is dropped. A GPU-only Wi-Fi rerun was not completed: the phone
-run ended before that check, and the available laptop had no authenticated
-execution connection exposed to this test session. No Wi-Fi no-regression
-claim is made for the GPU-only build.
+burst change is dropped.
+
+A separate GPU-only Wi-Fi check then completed in ABBA order: 2.2.7,
+2.2.8, 2.2.8, 2.2.7. The same Radeon 780M laptop used official Moonlight
+6.2.0 over WLAN, with identical 1920×1080/60 HEVC SDR settings, 80 Mbps
+requested and 62,988 kbps negotiated. The host used
+`gpu_compute_conversion=false` and the same full-screen 120 fps motion
+scene. Each client run lasted approximately 165 seconds; host counters and
+raw send traces cover an interior 120-second requested window. The GPU-only
+build contains no pacing changes.
+
+| Run | Host sent FPS | Video payload Mbps | Send duration mean / p95, ms | Send gap p95, ms |
+| --- | ---: | ---: | ---: | ---: |
+| A1: 2.2.7 | 59.999 | 74.881 | 0.881 / 1.656 | 18.076 |
+| B1: 2.2.8 | 60.003 | 75.556 | 0.942 / 0.972 | 17.228 |
+| B2: 2.2.8 | 60.000 | 75.736 | 0.937 / 0.980 | 17.712 |
+| A2: 2.2.7 | 59.997 | 75.513 | 0.940 / 0.972 | 17.224 |
+
+All four host windows had zero IDR requests, reference invalidations, frame
+replacements, sender drops and send gaps above 1.5 frame periods. Client
+statistics reported 60.04–60.06 incoming/decoded fps, 59.99 rendered fps,
+0.00% network drops and 0.03% jitter drops in every run. Average reported
+host latency was 2.4/2.4/2.6/2.5 ms in run order. This short check found no
+observed regression at this workload; it does not establish exact packet
+loss, because client percentages are rounded and no FEC block reports were
+received. A2 matches the candidate's send p95, so A1's wider distribution
+does not establish an improvement. No end-to-end latency or CPU saving is
+claimed.
+
+The laptop host evidence is in the same fixture directory below, in runs
+`run-20261012T015057-514555Z`, `run-20261012T020813-526021Z`,
+`run-20261012T021320-288379Z` and `run-20261012T021915-058867Z`, each with
+`measurement.json` and a `host-logs` snapshot including rotated traces.
+Client evidence is `a1`/`b1`/`b2`/`a2` `.raw.log` and `.stats.json` under
+the laptop's `C:\Users\ramaz\Documents\Codex\2026-10-11\lade\work`.
 
 The final GPU-only 2.2.8 build, with both pacing experiments removed, passed
 all 811 ordinary workspace tests, formatting and workspace/all-target Clippy

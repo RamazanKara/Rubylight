@@ -6,12 +6,13 @@ This is the dated measurement record. For a guided comparison, start with the [p
 
 | Find a result | Recorded evidence |
 | --- | --- |
+| Rubylight 2.2.9 refresh | [October 12 released-package encoder probes](#october-12-rubylight-229-released-package-refresh) |
 | Radeon compute off/on | [1080p60 comparison](#1080p-at-60-fps) |
 | D3D11 4:2:0 fallback | [October 12 single-pass conversion](#october-12-single-pass-d3d11-420-conversion) |
-| Real laptop client over Wi-Fi | [Render to received, rc.24](PERFORMANCE_WORK.md#october-8-real-client-picture-age-over-wi-fi-rc24-laptop) |
+| Real laptop client over Wi-Fi | [2.2.9 current receiver](PERFORMANCE_WORK.md#real-wi-fi-hardware-receiver-streams-october-12) · [Render to received, rc.24](PERFORMANCE_WORK.md#october-8-real-client-picture-age-over-wi-fi-rc24-laptop) |
 | Other Sunshine hosts | [Vibepollo 2.0 baseline](#against-vibepollo-20) · [rc.24 on the same GPU](PERFORMANCE_WORK.md#rc24-against-vibepollo-20-on-the-same-gpu) |
 | WGC capture and pacing | [Guarded comparisons](#guarded-ab-stress-and-compatibility-checks) |
-| Native HEVC / AV1 HDR | [Final rc.10 pixels and repeat runs](#final-native-virtual-hdr-pixels-excluding-physical-panel-calibration) |
+| Native HEVC / AV1 HDR | [2.2.9 headline streams](#native-virtual-hdr-results-october-12) · [Final rc.10 pixels and repeat runs](#final-native-virtual-hdr-pixels-excluding-physical-panel-calibration) |
 | PyroWave HDR 4:4:4 | [Transport and decoding](#vibepollo-20-pyrowave-transport) |
 | CPU error correction | [C++ FEC comparison](#controlled-comparison-with-the-original-c-fec) |
 | Reproduction and scope | [Probes](#reproduce-on-another-machine) · [Hardware covered](#hardware-covered) |
@@ -4328,11 +4329,880 @@ synthetic GPU load. Local evidence: `gpu-420-timing-idle.json`,
 `gpu-420-timing-loaded.json`, `gpu-regressions.log`, and the `candidate-e2e`,
 `baseline-e2e-quiet` and `candidate-e2e-quiet` stream results.
 
+## October 12: Rubylight 2.2.9 released-package refresh
+
+**The physical-SDR local fixtures, real Wi-Fi receiver matrix, native HDR
+headline/pixel measurements, stock Moonlight checks and retained AMF
+settings sweeps have completed. Their individual outcomes and limitations
+remain separate; completion does not mean every case passed.**
+The portable repeat-frame matrix passed all 81
+cases on October 12, 2026, from 06:15 to 06:28 CEST. CPU, packet, input,
+wait and native GPU component probes also completed, alongside 16/16
+PyroWave compute/load cases, 16/16 synthetic-motion cases, 32/32 AMF quality
+cases and 4/4 independent UDP pacing checks.
+The [retained AMF property sweeps](#retained-amf-property-sweeps-october-12)
+completed **1,030 cases: 1,018 passed and 12 failed**, with every original
+failure retained.
+
+The [current stream record](PERFORMANCE_WORK.md#rubylight-229-short-release-streams-2026-10-12)
+retains every outcome: 36/36 short release streams, 12/12 controls, 8/8
+compute checks, 4/4 default-pacing streams and 12/12 static-IDR checks passed.
+The supplemental stage passed 10/12 checks; both 4K120 HEVC streams and both
+240 FPS saturation attempts failed. The audio/load/80 ms outage batch passed
+6/11 full-stream checks, with continuous audio in all 11. All four 90-second
+controls passed; all four deliberate 20 ms outage streams failed the normal
+gap gate. Both 120-second audio/video streams passed. The corrected short soak
+completed 67 cases: 64 passed, three failed GPU-load freshness; all 52 churn
+cycles, eight codec switches, capture-helper recovery and host working-set,
+handle and thread growth checks passed. The separately observed dedicated GPU memory counter increased by **12,753,305,600 bytes**, outside those growth
+gates; see the [soak results and scope](PERFORMANCE_WORK.md#short-soak-switching-reconnects-and-wgc-helper-recovery).
+The initial soak attempt could not start its direct receivers
+because of a missing DLL search path and is retained as invalid fixture
+evidence, not a set of product failures.
+
+The [real Radeon 780M Wi-Fi matrix](PERFORMANCE_WORK.md#real-wi-fi-hardware-receiver-streams-october-12)
+passed **20/20 ordinary receiver checks**: 12 HDR-output conversion runs and
+eight SDR control/recovery runs, including four injected-outage cases.
+**19/20 calibrated timing records** passed exact source validation; AV1 HDR
+1080p60 run 2 remains unavailable because three decoded barcode timestamps
+did not match the source ledger. The hardware receiver's arrival boundary
+is frame assembly/enqueue, before decoder queueing, decoding and display.
+Its 1.177 ms clock-fit diagnostic is not a confidence interval or proven
+error bound. These are physical-SDR source measurements, not native HDR.
+
+The [native HDR streams and pixels](#native-virtual-hdr-results-october-12)
+passed 28/28 and 4/4 checks respectively. The SDR capture-only sweep attempted
+32 runs: 20 matched the requested mode; 12 have unavailable requested-mode
+timings because Windows selected different refresh rates. The historical
+private HDR capture/RTSS fixture sources were not retained. Current results
+do not establish matched deltas against the earlier native-HDR, Wi-Fi or
+historical competitor evidence.
+
+### Native virtual-HDR results (October 12)
+
+All **28/28** native headline streams passed the ordinary receiver gates and
+exact decoded source ID/QPC validation. The virtual capture source is native
+HDR at **120 Hz**, with DDX and WGC verified separately. The active physical
+desktop remains **5120x1440 SDR at 240 Hz**; the historical October 8 runs
+used a **2560x1440 / 120 Hz** physical desktop. The current host/driver and
+all dated competitor results retain their separate provenance; no percentage
+improvement or matched before/after conclusion follows from this table.
+
+These use the published host and a pinned independent D3D11VA receiver on
+the same RX 7900 XT. Picture age runs from the source QPC timestamp through
+decoded-barcode readback, excluding presentation and display scanout. The
+separate hardware `arrival_ms` field estimates frame assembly/enqueue,
+not decode start; adding callback time to it omits decoder-queue waiting.
+This local picture-age endpoint also differs from the Wi-Fi
+render-to-received endpoint. Each stream requests 35 seconds with five
+seconds excluded for warmup. The loaded fixture is `gpu_load 45 1000 60 200`;
+all 12 load processes completed naturally at **60.000 FPS / 2,701 frames**.
+
+Every cell below is the arithmetic mean of **two per-run statistics**,
+including the p95 and p99 columns: these are not pooled percentiles.
+All age and host columns are milliseconds. The [per-repeat record](PERFORMANCE_WORK.md#native-virtual-hdr-headline-streams-october-12)
+retains variation, decoder times, source checks and executable hashes.
+
+| Capture | Codec / output / requested FPS / Mbps / load | Picture age mean / p95 / p99 | Fresh FPS | Host mean |
+| --- | --- | ---: | ---: | ---: |
+| DDX | HEVC HDR / 1968x2184 / 120 / 80 / idle | 9.649 / 10.868 / 12.165 | 119.993 | 3.296 |
+| DDX | AV1 HDR / 1968x2184 / 120 / 80 / idle | 10.502 / 11.256 / 11.610 | 119.998 | 3.032 |
+| DDX | HEVC HDR / 2560x1440 / 120 / 50 / idle | 9.385 / 9.892 / 10.194 | 119.999 | 2.970 |
+| DDX | HEVC HDR / 1920x1080 / 60 / 20 / idle | 10.092 / 10.557 / 10.763 | 60.000 | 2.139 |
+| DDX | HEVC HDR / 1968x2184 / 120 / 80 / load | 14.339 / 16.026 / 18.151 | 119.990 | 3.347 |
+| DDX | AV1 HDR / 1968x2184 / 120 / 80 / load | 13.645 / 17.995 / 18.951 | 119.984 | 5.249 |
+| DDX | HEVC HDR / 1920x1080 / 60 / 20 / load | 10.638 / 18.265 / 18.580 | 60.002 | 2.237 |
+| WGC | HEVC HDR / 1968x2184 / 120 / 80 / idle | 12.238 / 13.734 / 15.910 | 119.983 | 3.262 |
+| WGC | AV1 HDR / 1968x2184 / 120 / 80 / idle | 10.572 / 11.775 / 13.520 | 120.008 | 3.037 |
+| WGC | HEVC HDR / 2560x1440 / 120 / 50 / idle | 11.291 / 11.996 / 12.203 | 120.001 | 2.972 |
+| WGC | HEVC HDR / 1920x1080 / 60 / 20 / idle | 9.359 / 9.927 / 10.228 | 60.001 | 2.273 |
+| WGC | HEVC HDR / 1968x2184 / 120 / 80 / load | 16.747 / 19.389 / 19.750 | 119.945 | 3.383 |
+| WGC | AV1 HDR / 1968x2184 / 120 / 80 / load | 17.320 / 19.478 / 21.933 | 119.868 | 3.043 |
+| WGC | HEVC HDR / 1920x1080 / 60 / 20 / load | 11.938 / 12.517 / 15.487 | 59.999 | 2.371 |
+
+The separate [native HDR pixel roundtrip](PERFORMANCE_WORK.md#native-hdr-pixel-roundtrip-october-12)
+passed **4/4** WGC software-decoded HEVC/AV1 checks at 720p60 / 40 Mbps.
+This confirms the existing pixel gates, not physical-panel calibration.
+The [SDR VRR capture-only record](PERFORMANCE_WORK.md#sdr-vrr-capture-only-measurements-october-12)
+retains **20 requested-mode-valid runs out of 32 attempted**. All 20 captured
+every retained presented picture. The other 12 requested-mode timings are
+unavailable: 1080p240 selected 120 Hz, 4K232 selected 928 Hz, and 4K240
+selected 960 Hz. They were not retried or counted as requested-mode passes.
+All eight capture groups restored the recorded active-monitor state.
+Full raw paths and validation hashes are indexed in `work\native-summary.json`.
+
+### Package, source and scope
+
+- Published release: **2.2.9**, source commit
+  `d0bfcb5e764095250b8f0e22fd5a0cb3656d5ea6`.
+- Release ZIP: `rubylight-2.2.9-windows-x64.zip`, SHA-256
+  `2a9b76a0380ec60e189de040656366302dfce3ee2d84d895720eb84a36b81289`.
+- Packaged `butterpollo-performance.exe`, SHA-256
+  `078470dac3e1ccfbb33cd83e97d4b74d4735ea054cb891571f4a3a84f1ee4ced`.
+- Host: Ryzen 7 5800X3D, 8 cores / 16 threads; Radeon RX 7900 XT,
+  AMD driver **32.0.32015.2008**; Windows 11 Pro build 26200.
+- Capture source for every portable case: **5120×1440 SDR at 240 Hz**, the physical
+  Odyssey G93SC, through WGC. Display mode and HDR state were unchanged.
+
+The probe captures one desktop image per process and repeatedly encodes that
+image. The desktop was not frozen across cases, so this is not a matched
+content comparison with earlier measurements. **HDR output below is converted
+from the SDR source; it is not native HDR capture.** The 4K rows are resized
+output from that source, not native 4K capture.
+
+Each row contains three separate runs: unpaced GPU input, unpaced CPU
+compatibility input, and GPU input paced at 120 fps. CPU mode reads the captured
+image back once before measurement; it does not measure repeated GPU readback
+or CPU colour conversion in isolation. AMF remains the video encoder for
+H.264, HEVC and AV1. PyroWave uses its own encoder and record framing, with
+4:2:0 or 4:4:4 as labelled.
+
+These 81 runs executed serially without added synthetic GPU load. Each requested
+eight measurement seconds; recorded durations were 8.000–8.036 seconds after
+warmup. There is one run per path and setting, not a mean across repeats.
+Capacity is completed encoded frames divided by measured time. The paced
+column is submission-to-observed-output **mean / p95 in milliseconds**; those
+runs completed 120.09–120.11 fps. These values exclude capture age, transport,
+client decoding and display latency. Completed encodes alone do not establish
+independent decoding, exact coded dimensions or fresh-picture throughput.
+
+### 1920×1080 output
+
+Requested bitrate: **20,000 kbps** for H.264 / HEVC / AV1 and **400,000 kbps**
+for PyroWave. Every path requests 120 fps; the two capacity paths are unpaced.
+
+| Codec / output | GPU capacity, fps | CPU path capacity, fps | GPU paced at 120 fps, mean / p95 ms |
+| --- | ---: | ---: | ---: |
+| H.264 SDR | 667.00 | 144.95 | 2.224 / 2.399 |
+| HEVC SDR | 671.09 | 146.29 | 2.315 / 2.612 |
+| HEVC HDR output | 670.63 | 101.14 | 2.252 / 2.598 |
+| AV1 SDR | 849.88 | 147.29 | 1.755 / 1.872 |
+| AV1 HDR output | 848.43 | 101.17 | 1.900 / 2.028 |
+| PyroWave SDR 4:2:0 | 2423.90 | 99.41 | 0.666 / 0.781 |
+| PyroWave SDR 4:4:4 | 2270.61 | 114.92 | 0.827 / 0.986 |
+| PyroWave HDR output 4:2:0 | 2462.08 | 125.33 | 0.959 / 1.077 |
+| PyroWave HDR output 4:4:4 | 2211.53 | 132.70 | 0.985 / 1.025 |
+
+### 2560×1440 output
+
+Requested bitrate: **50,000 kbps** for H.264 / HEVC / AV1 and **600,000 kbps**
+for PyroWave. This is not the older 40,000 kbps HEVC fixture.
+
+| Codec / output | GPU capacity, fps | CPU path capacity, fps | GPU paced at 120 fps, mean / p95 ms |
+| --- | ---: | ---: | ---: |
+| H.264 SDR | 419.06 | 133.73 | 3.174 / 3.597 |
+| HEVC SDR | 415.95 | 134.13 | 3.354 / 3.641 |
+| HEVC HDR output | 415.75 | 60.31 | 3.425 / 3.709 |
+| AV1 SDR | 521.62 | 133.17 | 2.688 / 3.069 |
+| AV1 HDR output | 520.86 | 60.91 | 2.709 / 3.083 |
+| PyroWave SDR 4:2:0 | 2066.73 | 134.83 | 1.209 / 1.355 |
+| PyroWave SDR 4:4:4 | 1722.53 | 136.84 | 1.012 / 1.210 |
+| PyroWave HDR output 4:2:0 | 2054.49 | 138.41 | 1.006 / 1.106 |
+| PyroWave HDR output 4:4:4 | 1668.18 | 138.62 | 1.027 / 1.224 |
+
+### 3840×2160 output
+
+Requested bitrate: **80,000 kbps** for H.264 / HEVC / AV1 and **800,000 kbps**
+for PyroWave.
+
+| Codec / output | GPU capacity, fps | CPU path capacity, fps | GPU paced at 120 fps, mean / p95 ms |
+| --- | ---: | ---: | ---: |
+| H.264 SDR | 199.48 | 71.76 | 5.954 / 6.166 |
+| HEVC SDR | 200.48 | 69.51 | 5.876 / 6.167 |
+| HEVC HDR output | 200.82 | 27.63 | 5.788 / 6.147 |
+| AV1 SDR | 250.00 | 71.83 | 5.106 / 5.364 |
+| AV1 HDR output | 249.25 | 26.80 | 4.851 / 5.166 |
+| PyroWave SDR 4:2:0 | 1660.24 | 136.91 | 1.106 / 1.264 |
+| PyroWave SDR 4:4:4 | 1114.62 | 136.55 | 1.368 / 1.566 |
+| PyroWave HDR output 4:2:0 | 1603.32 | 138.60 | 1.096 / 1.230 |
+| PyroWave HDR output 4:4:4 | 1028.88 | 137.21 | 1.402 / 1.521 |
+
+### PyroWave compute conversion with and without GPU load
+
+All **16/16** repeat-frame cases passed, from 07:16 to 07:24 CEST on October
+12. They use the same package and physical **5120×1440 SDR / 240 Hz** WGC
+source, converted to **1920×1080 HDR 4:4:4 output at 120 fps and 400,000 kbps**,
+with PyroWave record framing. Each process captures its own repeated image;
+desktop content was not frozen across cases. These are SDR-source conversion
+results, not native-HDR capture or a matched comparison with the older fixture.
+Capture age, transport, decoding and display latency are excluded.
+
+`gpu_compute_conversion` is explicitly false or true. Repeat 1 tests false
+then true within each load condition; repeat 2 reverses that order. Each
+setting has a separate unpaced capacity run and a run paced at 120 fps, with
+eight measurement seconds after 20 or 240 warmup frames respectively.
+Entries below preserve **r1 / r2**. Latency is submission to observed encoder
+output in milliseconds. The paced runs completed 120.105–120.113 fps.
+
+| Compute | Load | Capacity, fps | Capacity mean, ms | Capacity p95, ms | Paced mean, ms | Paced p95, ms |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| false | Idle | 2149.409 / 2148.261 | 0.464 / 0.464 | 0.610 / 0.610 | 1.103 / 0.971 | 1.256 / 1.216 |
+| true | Idle | 2227.784 / 2227.324 | 0.447 / 0.447 | 0.552 / 0.549 | 0.971 / 0.782 | 1.026 / 0.888 |
+| false | GPU load | 1333.729 / 1326.874 | 0.748 / 0.752 | 0.875 / 0.912 | 0.959 / 0.953 | 1.292 / 1.087 |
+| true | GPU load | 2107.694 / 2128.274 | 0.473 / 0.468 | 0.569 / 0.559 | 0.734 / 0.743 | 0.869 / 0.847 |
+
+Every loaded case used the finite `gpu_load.exe 45 1000 60 200` fixture,
+started two seconds before the probe. It remained alive through measurement
+and exited naturally before the next case. All eight load summaries recorded
+**2,701 frames at 60.0 fps** over the complete load run; this is the load
+fixture's throughput, not GPU utilization or streaming throughput. Its frame
+timings are retained separately from the encoder timings:
+
+| Compute / probe | Load frame p50, r1 / r2 (ms) | Load frame p95, r1 / r2 (ms) |
+| --- | ---: | ---: |
+| false / capacity | 9.869 / 9.963 | 10.010 / 9.997 |
+| false / paced | 9.895 / 9.778 | 10.096 / 9.982 |
+| true / capacity | 9.971 / 10.193 | 10.631 / 10.940 |
+| true / paced | 9.888 / 9.896 | 10.001 / 10.006 |
+
+Raw evidence is retained in
+`C:\Users\ramaz\Documents\Codex\2026-10-12\wait\work\measurements\current-portable-load-20261012T051656834135Z`.
+Each case retains the full-precision encoder JSON in `stdout.log`, its
+`compute.conf`, `source.json`, exact arguments/status in `run.json`, and load
+stdout/stderr where applicable. Stage metadata and the 16-entry summary
+record completion. The task-local reproduction is
+`work\run_current_matrix.py --stages portable-load`; its cases request
+`--codec pyrowave --hdr --records --yuv444`, with `--paced` only for paced runs.
+
+### Synthetic-motion AMF compute conversion under GPU load
+
+All **16/16** cases passed from 07:47 to 07:50 CEST on October 12, using the
+same published 2.2.9 performance executable and host above. This fixture cycles
+through **16 generated BGRA8 pictures** with moving detail at the requested
+output dimensions, converted to HDR10. It does not capture the physical
+desktop or native HDR input, and excludes transport, independent decoding and
+display latency. The JSON's generic `repeat-frame encoder throughput` label
+does not distinguish this synthetic mode; `capture_backend=synthetic` and the
+saved `--synthetic 16` arguments establish the actual source.
+
+HEVC uses **1920×1080 at 60 fps / 20,000 kbps**; AV1 uses **1968×2184 at
+120 fps / 80,000 kbps**. Both use AMF `ultralowlatency`, `speed` and
+`vbr_latency`, paced for six measured seconds after 120 or 240 warmup frames.
+The eight codec/load/compute combinations run once, then in reverse order for
+repeat 2. AMF settings in every case confirm **D3D11/host input** with
+`gpu_compute_conversion=false` and **D3D12 input** with it enabled. No
+priority or direct-input variant is requested.
+
+Entries preserve **r1 / r2**, in milliseconds. `encode_call` is the probe's
+host-side encode-call duration, separate from submission to observed output;
+neither is an isolated GPU hardware timer. Each HEVC run completed 361 frames
+at 60.151–60.165 fps, and each AV1 run completed 721 frames at
+120.134–120.147 fps. Measured durations were 6.000–6.002 seconds.
+
+| Codec | Load | Compute | Encode-call mean | Submit-to-output mean | Submit-to-output p95 | Submit-to-output max |
+| --- | --- | --- | ---: | ---: | ---: | ---: |
+| HEVC | Idle | false | 0.842 / 0.946 | 2.557 / 2.347 | 3.130 / 2.598 | 3.643 / 2.951 |
+| HEVC | Idle | true | 1.081 / 1.103 | 2.078 / 2.034 | 2.571 / 2.154 | 2.622 / 2.666 |
+| HEVC | GPU load | false | 0.960 / 0.870 | 7.570 / 8.728 | 12.647 / 15.587 | 14.111 / 21.365 |
+| HEVC | GPU load | true | 1.089 / 1.099 | 2.047 / 2.104 | 2.201 / 2.332 | 2.888 / 5.605 |
+| AV1 | Idle | false | 0.633 / 0.770 | 3.128 / 3.113 | 3.500 / 3.411 | 3.605 / 3.695 |
+| AV1 | Idle | true | 1.094 / 1.112 | 2.932 / 2.868 | 3.125 / 3.121 | 3.592 / 3.828 |
+| AV1 | GPU load | false | 0.903 / 0.962 | 7.621 / 7.840 | 14.612 / 14.915 | 22.941 / 21.994 |
+| AV1 | GPU load | true | 1.194 / 1.134 | 2.928 / 2.914 | 3.137 / 3.138 | 4.644 / 6.871 |
+
+The finite load is `gpu_load.exe 12 1000 0 1`: **12 seconds, 1,000 iterations,
+uncapped, one draw**, started 1.5 seconds before the encoder process. These
+are the archived October 4 runner's defaults. Its original invocation
+overrides were not retained, and the original `target/release/examples`
+load binary is absent; this run reuses the archived `bench-rc21` executable.
+Consequently these are not matched old/new measurements. They also use a
+different load from the capped 200-draw PyroWave fixture above.
+
+All eight load processes remained alive through encoder completion and then
+exited naturally with status zero. Their actual throughput and frame timings
+over the complete load run follow; these are not encoder throughput or GPU
+utilization. Entries again preserve **r1 / r2**.
+
+| Codec / compute | Load frames | Load fps | Load frame p50, ms | Load frame p95, ms |
+| --- | ---: | ---: | ---: | ---: |
+| HEVC / false | 2353 / 2359 | 196.0 / 196.5 | 5.032 / 5.015 | 5.423 / 5.417 |
+| HEVC / true | 2338 / 2368 | 194.8 / 197.3 | 5.080 / 5.023 | 5.407 / 5.336 |
+| AV1 / false | 2326 / 2320 | 193.8 / 193.3 | 5.064 / 5.072 | 5.664 / 5.683 |
+| AV1 / true | 2332 / 2331 | 194.3 / 194.2 | 5.106 / 5.107 | 5.441 / 5.436 |
+
+Raw evidence is retained in
+`C:\Users\ramaz\Documents\Codex\2026-10-12\wait\work\measurements\synthetic-compute-20261012T054709781835Z`:
+per-case `run.json`, `result.json`, `encoder.conf`, encoder stdout/stderr,
+and load JSON/logs, plus stage metadata, hardware and the 16-entry summary.
+The task-local reproduction is `work\run_synthetic_compute.py`; its SHA-256 is
+`5d0245ff34b981de4a27966942c170f54c04e5bac2de6ca86d90d6631dcfc8c5`.
+For example, the HEVC command is
+`butterpollo-performance.exe --synthetic 16 --width 1920 --height 1080 --fps 60 --codec hevc --hdr --encoder amf --paced --seconds 6 --bitrate 20000 --config <case>\encoder.conf`.
+The retained configurations and run records specify the compute toggle and
+load command for each repeat.
+
+### Isolated colour conversion and GPU correctness
+
+These probes ran serially on the same host, using release-built test binaries
+from the exact 2.2.9 source commit above. They exercise synthetic images and
+individual functions, not the captured desktop or a complete HDR stream.
+
+The CPU probe calls `color::hdr_rgba_scaled` on the historical synthetic
+1968×2184 RGBA FP16 input, with one warmup call and three measurement seconds
+per output. It excludes capture, encoding, transport and client work. This is
+separate from the portable CPU-input encoder rows above.
+
+| Output | Calls | Mean, ms | p95, ms | Maximum, ms |
+| --- | ---: | ---: | ---: | ---: |
+| 1920×1080 | 376 | 7.984 | 8.895 | 9.278 |
+| 2560×1440 | 223 | 13.489 | 14.891 | 15.976 |
+| 3840×2160 | 103 | 29.310 | 32.452 | 33.719 |
+
+The independent `gpu_conversion_timing` fixture converts a synthetic
+1968×2184 FP16 image to P010. It records 64 GPU timestamp pairs after 16
+warmup conversions. GPU timestamps and CPU call times measure different
+parts of the operation and are not additive.
+
+| Output | GPU mean / p95, ms | CPU call mean / p95, ms |
+| --- | ---: | ---: |
+| 1968×2184 | 0.138 / 0.153 | 0.087 / 0.209 |
+| 3840×2160 | 0.224 / 0.382 | 0.092 / 0.279 |
+
+The D3D11 4:2:0 fallback fixture compares the retained pixel-pass reference
+with the current single-pass converter. Each case uses an **ABBA** order,
+128 GPU timestamp samples per run, and synthetic 3840×2160 BGRA8 or FP16
+input. Each table entry is the arithmetic mean of the two run means for that
+path, in milliseconds; it is not a percentile or a full-stream latency.
+The loaded pass used the established `gpu_load.exe 60 1000 60 200` fixture,
+which remained alive through the measurements. Video means NV12/P010 encoder
+surfaces; planar means PyroWave planes.
+
+| Output / format | Idle pixel passes | Idle single pass | Loaded pixel passes | Loaded single pass |
+| --- | ---: | ---: | ---: | ---: |
+| 1920×1080 SDR video | 0.246 | 0.198 | 0.340 | 0.294 |
+| 1920×1080 SDR planar | 0.252 | 0.172 | 0.379 | 0.259 |
+| 1920×1080 HDR video | 0.227 | 0.211 | 0.356 | 0.337 |
+| 1920×1080 HDR planar | 0.243 | 0.191 | 0.364 | 0.284 |
+| 2560×1440 SDR video | 0.312 | 0.155 | 0.470 | 0.239 |
+| 2560×1440 SDR planar | 0.394 | 0.133 | 0.574 | 0.169 |
+| 2560×1440 HDR video | 0.322 | 0.235 | 0.480 | 0.363 |
+| 2560×1440 HDR planar | 0.388 | 0.223 | 0.577 | 0.322 |
+| 3840×2160 SDR video | 0.255 | 0.129 | 0.352 | 0.190 |
+| 3840×2160 SDR planar | 0.315 | 0.110 | 0.482 | 0.145 |
+| 3840×2160 HDR video | 0.240 | 0.155 | 0.375 | 0.246 |
+| 3840×2160 HDR planar | 0.309 | 0.133 | 0.460 | 0.205 |
+
+All nine selected native correctness tests passed: compute/video parity,
+compute/PyroWave-plane parity, single-pass/pixel-pass parity, disjoint video
+plane UAVs, 4:4:4 chroma and ten-bit codes, SDR/HDR pointer composition,
+absolute HDR luminance/gamut/linear resizing, retained-frame pool ownership,
+and SDR ten-bit matrix/full-range handling. These native GPU tests validate
+their synthetic fixtures; they do not establish native-HDR capture or
+end-to-end HDR pixel correctness.
+
+### FEC and video packet preparation
+
+The packaged protocol probe reports the following current Rubylight FEC
+medians over seven timing rounds. All four parity outputs matched the
+existing reference byte for byte. No reference timing is refreshed here.
+
+| Data / parity shards | Bytes per shard | Rubylight median, µs |
+| --- | ---: | ---: |
+| 32 / 7 | 1416 | 5.053 |
+| 96 / 20 | 1416 | 43.271 |
+| 192 / 39 | 1416 | 167.246 |
+| 4 / 2 | 144 | 0.122 |
+
+The packaged video-packet probe measures CPU packetization, 20% FEC,
+optional AES-GCM and packet release, excluding capture, encoding and UDP
+sending. Values are medians of seven 250 ms rounds. Fresh and reusable are
+two buffer-allocation paths in the current build, not release comparisons.
+
+| Data shards / payload bytes | Plaintext fresh, µs | Plaintext reusable, µs | AES-GCM fresh, µs | AES-GCM reusable, µs |
+| --- | ---: | ---: | ---: | ---: |
+| 32 / 44,024 | 8.147 | 5.621 | 15.439 | 12.821 |
+| 192 / 264,184 | 158.085 | 145.109 | 199.857 | 189.920 |
+| 576 / 792,568 | 476.564 | 433.632 | 605.496 | 565.106 |
+
+### UDP pacing on Windows loopback
+
+All **4/4** current-pacer component cases passed on October 12, from 07:41
+to 07:42 CEST. The release-built `udp_pacing_probe` uses the same 2.2.9 source
+commit, in `paced` mode, with an independent Python UDP receiver on
+`127.0.0.1`. Each case sent exactly **600 synthetic frames, 46,042 data
+packets and 64,458,800 UDP payload bytes**. Data packets are 1,400 bytes,
+including the fixture header; the separate end marker is excluded from
+those counts. The fixture requests 60 frames/s with a nominal 50 Mbps frame
+budget and eight-times-sized keyframes at frames 0 and 300. The pacing
+budgets are 100 or 800 Mbps, with a 0 or 3 ms scheduler stall after the second
+packet batch of each keyframe.
+
+Sender times cover each frame's batch-send loop, including pacing waits and
+the imposed stall. Values are **mean / p99 / maximum, in milliseconds**.
+
+| Pacing budget, Mbps | Stall, ms | Sender frame span, ms | Batch-send system calls |
+| --- | ---: | ---: | ---: |
+| 100 | 0 | 7.832 / 8.792 / 69.599 | 3062 |
+| 100 | 3 | 7.837 / 8.798 / 72.264 | 3062 |
+| 800 | 0 | 0.452 / 0.634 / 8.115 | 1222 |
+| 800 | 3 | 0.449 / 0.508 / 10.842 | 1222 |
+
+The receiver timestamps userspace `recvfrom` completion with
+`time.perf_counter_ns`. Frame span runs from the first to last received
+packet; completion gap runs between completed frames in frame-ID order.
+Both distributions include the two large keyframes. The receive buffer was
+4,194,304 bytes in all cases. Values again show **mean / p99 / maximum**.
+
+| Pacing budget, Mbps | Stall, ms | Receiver frame span, ms | Completion gap, ms | Gaps over 25 / 50 ms |
+| --- | ---: | ---: | ---: | ---: |
+| 100 | 0 | 7.773 / 8.005 / 69.320 | 16.563 / 16.725 / 78.628 | 1 / 1 |
+| 100 | 3 | 7.804 / 8.025 / 72.128 | 16.558 / 16.712 / 81.396 | 1 / 1 |
+| 800 | 0 | 0.498 / 0.669 / 7.971 | 16.653 / 16.837 / 24.290 | 0 / 0 |
+| 800 | 3 | 0.501 / 0.537 / 11.009 | 16.648 / 16.774 / 27.027 | 1 / 0 |
+
+Every case received all 46,042 unique packets and all 600 frames intact,
+with zero missing, duplicate, corrupt or malformed data packets, partial
+frames or sender-reported drops. Passing here means exact delivery and
+integrity, not an absence of timing gaps. `kernel_overflow` is **unavailable
+(`null`)**, not a measured zero. Python scheduling and receive processing
+affect these userspace spans and gaps; they are not kernel arrival timestamps
+or one-way latency. This Windows loopback component excludes capture,
+codecs, FEC, the physical NIC, LAN/Wi-Fi and client display. It does not
+replace real-client or historical pacing measurements.
+
+Raw evidence is retained in
+`C:\Users\ramaz\Documents\Codex\2026-10-12\wait\work\measurements\udp-pacing-loopback-20261012T054151299614Z`.
+Each case contains `sender.json`, `receiver.json` with every frame's timing,
+`run.json` and process logs. `manifest.json` records exact commands and hashes
+for the source-built sender and adapted Windows receiver. The sender SHA-256
+is `bc7f7decfd1718c0fec92c5d3e2355ab470ef383d5ba4856ae72436b911ac565`.
+The retained task-local runner is `work\run_udp_pacing.py`, using
+`udp_pacing_probe.exe <loopback-peer> paced <100-or-800> <0-or-3>`.
+
+### Wait and input components
+
+`wait_performance` recorded 40 samples per method and requested duration.
+Entries are observed wait **mean / p95 in milliseconds**, not additional
+stream latency or overshoot alone.
+
+| Requested wait, µs | Condition variable | Thread sleep | Capture event + timer | Input timer |
+| --- | ---: | ---: | ---: | ---: |
+| 250 | 15.413 / 16.172 | 0.517 / 0.541 | 0.512 / 0.525 | 0.514 / 0.544 |
+| 500 | 15.492 / 16.103 | 1.050 / 1.213 | 1.038 / 1.407 | 0.540 / 0.969 |
+| 1000 | 15.232 / 16.299 | 1.524 / 1.571 | 1.519 / 1.558 | 1.082 / 1.517 |
+| 16667 | 30.775 / 31.955 | 16.965 / 17.229 | 16.957 / 17.178 | 16.930 / 17.139 |
+
+Input probes used HIGH process priority, 1 ms timer resolution and disabled
+power throttling. They inject zero relative mouse movement or neutral
+controller states; these are host component measurements, not input-to-display
+latency. Control decrypt-and-decode averaged 0.3 µs for both protocol variants
+over 20,000 datagrams each, with p99 of 0.4 µs for `v2=true` and 0.5 µs for
+`v2=false`.
+Idle `SendInput` batching produced the following per-input times, with zero
+failed calls:
+
+| Inputs per call | Calls | Mean per input, µs | p99 per input, µs | Maximum per input, µs |
+| --- | ---: | ---: | ---: | ---: |
+| 1 | 1500 | 30.6 | 89.8 | 156.8 |
+| 2 | 750 | 16.0 | 56.5 | 74.6 |
+| 4 | 375 | 8.3 | 43.9 | 51.9 |
+| 8 | 200 | 6.2 | 37.5 | 41.3 |
+
+Under TIME_CRITICAL spinners on every CPU, the receiver-priority fixture
+recorded 1,500 loopback input samples for each current scheduling variant:
+
+| Receiver variant | Mean, µs | p99, µs | Maximum, µs |
+| --- | ---: | ---: | ---: |
+| Poll1 PriorityNew | 7501.6 | 24855.7 | 32111.7 |
+| Poll1 PriorityInput | 17.4 | 30.0 | 211.0 |
+| Poll1 MmcssOnly | 25.9 | 33.7 | 214.0 |
+
+The separate queued-controller fixture measures completion of a zero mouse
+move immediately after a neutral controller state through the injector.
+Its normal/highest worker loads are distinct from the TIME_CRITICAL fixture.
+
+| Worker load | Samples | Mean, µs | p99, µs | Maximum, µs |
+| --- | ---: | ---: | ---: | ---: |
+| None | 6000 | 49.6 | 204.8 | 652.9 |
+| Normal | 5949 | 50.1 | 130.3 | 2128.3 |
+| Highest | 5887 | 57.8 | 167.4 | 2261.3 |
+
+Direct synchronous VHF state calls remain a different scope, with two rounds
+of 1,000 calls each per worker load:
+
+| Worker load / round | Mean, µs | p99, µs | Maximum, µs |
+| --- | ---: | ---: | ---: |
+| None / 1 | 103.1 | 145.9 | 211.0 |
+| None / 2 | 100.0 | 129.4 | 217.6 |
+| Normal / 1 | 81.7 | 170.4 | 4680.8 |
+| Normal / 2 | 100.6 | 2035.8 | 10442.7 |
+| Highest / 1 | 559.5 | 2072.6 | 218535.4 |
+| Highest / 2 | 306.5 | 2069.7 | 212881.8 |
+
+Direct driver calls still showed a **218.535 ms** tail, while the
+queued controller/mouse fixture above had a **2.261 ms** maximum. Passing the
+probe does not establish a bound on driver-call latency. VHF open/first
+neutral state/drop took 3281.6 / 954.9 / 407.4 µs; the neutral pad was removed
+at completion.
+
+Two ENet loopback repeats held acknowledgments until after apply and used
+3,000 samples each. Both recorded zero socket sends inside the service drain.
+
+| Repeat | Client send+flush → apply, mean / p99 µs | Server wake → drain end, mean / p99 µs |
+| --- | ---: | ---: |
+| 1 | 34.7 / 51.4 | 8.8 / 17.0 |
+| 2 | 34.8 / 51.5 | 9.1 / 17.0 |
+
+Two additional **immediate-ACK** reference runs completed on October 12 at
+09:37 UTC, with the same exact-source executable and original return-code /
+30-second timeout gates. Each sent 3,000 reliable 36-byte loopback packets;
+the server uses HIGH priority and a 1 ms timer. These ran later than the
+deferred-ACK pair above and are **not an alternating matched comparison**.
+No input-latency threshold was added to the gate.
+
+| Immediate-ACK repeat | Send+flush → apply, mean / p99 / max µs | Wake → drain end, mean / p99 / max µs | Socket send time in drain, mean / p99 µs |
+| --- | ---: | ---: | ---: |
+| 1 | 48.9 / 72.5 / 99.7 | 22.9 / 36.4 / 57.9 | 16.2 / 24.2 |
+| 2 | 49.7 / 73.2 / 243.8 | 23.3 / 36.9 / 201.0 | 16.5 / 24.7 |
+
+Both immediate runs averaged **1.0 socket send** inside the drain, with a
+maximum of two. Those are counts, despite the probe's generic `us` suffix
+on count-labelled lines. Raw evidence is in
+`work\measurements\enet-immediate-20261012T093736Z`; the executable SHA-256 is
+`c9195204c667cec0b2e0c0a0fb40be2f2824c2ba55b71f03fb8ba1989571ec3f`.
+The two original deferred runs and their measurements remain unchanged.
+
+### PyroWave decoded pictures and quality budgets
+
+Five serial source-built tests, using the published package's
+`libpyrowave-shared-1.dll` and bitstream `186f0393`, completed all **7,200
+expected decoded comparisons**. The log audit found no missing, duplicate or
+unexpected sample combinations. These tests encode synthetic pictures,
+packetize them, reconstruct complete delivery in an independent parser, then
+decode through Vulkan and read back the planes. They exclude live network
+loss, socket pacing, sustained frame rate and client display latency.
+
+| Test | Decoded comparisons / expected | Result | Test duration, s |
+| --- | ---: | --- | ---: |
+| Chart, 720p and 1080p | 1,152 / 1,152 | Pass | 73.48 |
+| Quality, 720p, default critical FEC | 1,872 / 1,872 | Pass | 126.58 |
+| Quality, 1080p, default critical FEC | 1,872 / 1,872 | Pass | 158.11 |
+| Quality, 2160p, default critical FEC | 1,872 / 1,872 | Pass | 323.60 |
+| Quality, 2160p, critical FEC disabled | 432 / 432 | Pass | 100.95 |
+
+The chart covers SDR8, SDR10 and HDR10, both chroma formats, and requested
+30/125/400/1000 Mbps budgets. Its passing assertions require identical decoded
+samples across graphics/compute conversion, plain/record framing and three
+alternating batches. The separate quality sweeps use compute conversion,
+record framing, 1392-byte packets, 20% critical FEC and no detail FEC, except
+for the explicitly labelled no-FEC control. Each encoder interval is reset
+before the picture, so nominal 30/60/120 fps defines its byte budget rather
+than measuring sustained throughput. Quality scores and frame sizes matched
+exactly across both repeats and all three nominal frame rates.
+
+Current warning/recommended budgets, in bits per pixel per frame (bpp),
+remain **2.5/5 bpp below 1080 lines** and
+**1.5/3.2 bpp at 1080 lines and above**. Every row below met the warning-floor
+criterion and the recommended-quality criterion in **24/24 desktop/game
+comparisons at each level**: two scenes, two pictures, two repeats and three
+frame rates. The floor requires luma PSNR ≥25 dB and luma SSIM ≥0.80; the
+recommendation requires every plane's PSNR ≥35 dB and luma SSIM ≥0.95.
+
+| Size | Output | Floor / recommended bpp | Recommended minimum plane PSNR / luma SSIM | Derived RTP Mbps at 60 fps |
+| --- | --- | ---: | ---: | ---: |
+| 720p | SDR8 4:2:0 | 2.5 / 5 | 41.82 / 0.9751 | 236.5–295.3 |
+| 720p | SDR8 4:4:4 | 2.5 / 5 | 39.99 / 0.9672 | 227.8–286.6 |
+| 720p | HDR10 4:2:0 | 2.5 / 5 | 48.56 / 0.9946 | 289.3–331.8 |
+| 720p | HDR10 4:4:4 | 2.5 / 5 | 46.83 / 0.9907 | 285.9–303.5 |
+| 1080p | SDR8 4:2:0 | 1.5 / 3.2 | 38.92 / 0.9721 | 412.3–424.4 |
+| 1080p | SDR8 4:4:4 | 1.5 / 3.2 | 38.26 / 0.9653 | 412.9–441.3 |
+| 1080p | HDR10 4:2:0 | 1.5 / 3.2 | 46.17 / 0.9912 | 412.3–458.9 |
+| 1080p | HDR10 4:4:4 | 1.5 / 3.2 | 45.23 / 0.9894 | 412.9–458.9 |
+| 2160p | SDR8 4:2:0 | 1.5 / 3.2 | 44.73 / 0.9910 | 1645.0–1737.6 |
+| 2160p | SDR8 4:4:4 | 1.5 / 3.2 | 40.68 / 0.9747 | 1649.7–1710.6 |
+| 2160p | HDR10 4:2:0 | 1.5 / 3.2 | 50.88 / 0.9956 | 1649.7–1884.9 |
+| 2160p | HDR10 4:4:4 | 1.5 / 3.2 | 49.24 / 0.9936 | 1643.6–1884.9 |
+
+PSNR and SSIM minima can come from different pictures. PSNR uses peaks of
+255/1023; HDR is measured in PQ code space. SSIM uses uniform 8×8 windows.
+These synthetic-scene targets do not establish visually perfect output.
+The RTP ranges cover 12 samples per row at the recommended budget, including
+the dark scene: three scenes, two pictures and two repeats at nominal 60 fps.
+They are measured datagram bytes converted to bits and scaled by 60 fps,
+including FEC but excluding
+UDP/IP/link headers; they are **not measured network throughput**. Ranges are
+observed minima/maxima, not confidence intervals.
+
+At 4K, the default-FEC encoder budget remained capped at **3,921,592 bytes**
+for all requested 4/4.5/5 bpp points. The separate no-FEC control allowed
+4,147,196 / 4,665,596 / 5,183,996 bytes respectively, with 144/144 decoded
+comparisons at each point for each FEC setting. These requested high budgets
+do not establish that a live client can negotiate or sustain those rates.
+
+Raw evidence is under
+`C:\Users\ramaz\Documents\Codex\2026-10-12\wait\work\measurements\remaining-probes-20261012T043354Z`,
+in `pyrowave-decoded`, `pyrowave-quality-720p`, `pyrowave-quality-1080p`,
+`pyrowave-quality-2160p` and `pyrowave-quality-2160p_without_fec`. Each has
+`stdout.log`, `stderr.log` and `run.json`; the stage manifest pins the test
+binary and published DLL hashes. The task-local
+`C:\Users\ramaz\Documents\Codex\2026-10-12\wait\work\pyrowave-summary.json`
+retains the coverage audit, unrounded scores, byte ranges and repeat checks,
+produced by `work\summarize_pyrowave.py` without changing the evidence.
+
+### Retained AMF property sweeps (October 12)
+
+The published 2.2.9 performance executable completed **1,030 serial cases**
+between **10:21 and 13:04 UTC**: **30/30** low-latency-property cases,
+**280/280** rate-control/IDR cases and **708/720** split-frame cases passed.
+These ran on the Ryzen 7 5800X3D / RX 7900 XT, AMD driver
+`32.0.32015.2008`, Windows build 26200. All 12 failures remain recorded;
+there were no interrupted attempts or measurement retries.
+
+Each process cycles 16 deterministic synthetic BGRA8 pictures through GPU
+conversion and AMF. HDR rows convert those SDR pictures to HDR output.
+This excludes capture, network, independent decoding and display latency;
+it does not measure perceptual quality. Paced cases warm up for two seconds;
+unpaced cases warm up for 20 frames. The original gate checks process return
+code, requested fixture identity, measured duration, and equality of submitted
+frames, completed frames and latency samples. **Pass does not mean that a
+requested cadence or latency threshold was met**, or that every optional
+property took effect. Installed-stream and competing-workload guards ran
+around the cases; the installed host was also checked during each case.
+
+#### Low-latency properties
+
+All runs use **2560x1440 SDR / 120 FPS / 20 Mbps**, eight measurement seconds.
+`auto` is paired with `amd_lowlatency_mode=enabled` for H.264/HEVC or
+`amd_av1_latency_mode=lowest` for AV1. The ultralowlatency usage has three
+repeats per arm; the other usages have one. Values below are **auto / forced**,
+with latency in milliseconds. For the three-repeat rows, each number is the
+arithmetic mean of the per-run statistic, not a pooled percentile.
+
+| Usage | Codec | Runs per arm | Submission-to-output mean, auto / forced | p99, auto / forced | Driver property readback, auto / forced |
+| --- | --- | ---: | ---: | ---: | ---: |
+| ultralowlatency | H.264 | 3 | 3.107 / 3.064 | 3.608 / 3.585 | 1 / 1 |
+| ultralowlatency | HEVC | 3 | 3.229 / 3.213 | 3.658 / 3.624 | 1 / 1 |
+| ultralowlatency | AV1 | 3 | 2.634 / 2.659 | 3.105 / 3.115 | 3 / 3 |
+| lowlatency | HEVC | 1 | 3.539 / 3.228 | 3.941 / 3.636 | 0 / 1 |
+| lowlatency | AV1 | 1 | 3.649 / 2.641 | 4.130 / 3.082 | 0 / 3 |
+| lowlatency_high_quality | HEVC | 1 | 3.567 / 3.567 | 3.966 / 3.986 | 1 / 1 |
+| lowlatency_high_quality | AV1 | 1 | 3.476 / 3.493 | 3.909 / 3.906 | 3 / 3 |
+| transcoding | HEVC | 1 | 3.543 / 3.240 | 3.957 / 3.687 | 0 / 1 |
+| transcoding | AV1 | 1 | 4.005 / 2.640 | 4.437 / 3.098 | 0 / 3 |
+
+The readback is `LowLatencyInternal` for H.264/HEVC and
+`Av1EncodingLatencyMode` for AV1. Current ultralowlatency defaults already
+read enabled/lowest; measured times are similar, not numerically identical.
+The single lowlatency/transcoding pairs show lower means when forcing the
+property, but do not establish a quality tradeoff, confidence interval or
+reason to change the default usage. The old table did not retain a duration;
+this rerun uses the current probe's eight-second default and does not claim
+an exact historical timing comparison.
+
+#### Rate control and recovery-frame sizes
+
+The 280 runs preserve **140 unique codec/fixture/configuration conditions,
+two repeats each**. Main rows use HEVC/AV1 SDR at 1080p60, 1440p120 and 4K60,
+20/40/80 Mbps, with default, CBR, CBR+VBV1, cap1, cap2 and intra-refresh
+settings. Frequent-IDR rows use 4K60 / 63 Mbps and an IDR every six frames.
+The peak/VBV recheck uses 4K60 / 40 Mbps. These request eight measurement
+seconds after two seconds of warmup. Duplicate default rows are represented
+once; historical contamination replacements and private development
+screening are not additional current conditions.
+
+In the following table, ranges are **minimum–maximum per-run observations
+over each setting's actual retained conditions**, not pooled distributions
+or matched comparisons between differently populated rows. Latencies are
+milliseconds. Actual/requested bitrate is encoded bytes × 8 / measured
+seconds / requested bitrate. IDR ratio is the largest measured IDR divided
+by the same run's mean non-IDR frame size; startup IDRs are separate.
+
+| Setting | Runs | Mean submission-to-output range | p99 range | Actual/requested bitrate range | Largest-IDR / mean non-IDR range |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| default | 40 | 1.779–6.196 | 1.865–6.703 | 0.936–1.018 | 1.45–3.43 |
+| cbr | 36 | 1.777–6.209 | 1.871–6.719 | 0.986–1.011 | 1.20–3.03 |
+| cbr_vbv1 | 40 | 1.780–6.155 | 1.870–6.696 | 0.973–1.072 | 1.18–3.17 |
+| cap1 | 40 | 1.755–6.176 | 1.813–6.683 | 0.810–1.001 | 0.85–1.35 |
+| cap2 | 40 | 1.757–6.193 | 1.802–6.729 | 0.936–1.007 | 1.45–2.35 |
+| intra | 36 | 1.756–6.187 | 1.822–6.709 | 0.932–1.006 | no measured IDR |
+| cbr_cap1 | 4 | 4.967–6.009 | 5.392–6.637 | 0.869–0.921 | 1.36–1.74 |
+| cbr_cap2 | 4 | 5.007–6.059 | 5.422–6.675 | 1.028–1.042 | 1.65–2.39 |
+| peak1 | 4 | 4.906–6.000 | 5.348–6.422 | 0.966–0.985 | 1.94–3.33 |
+| peak15 | 4 | 4.925–5.993 | 5.346–6.404 | 0.966–0.985 | 1.94–3.33 |
+| peak2 | 4 | 4.927–5.979 | 5.329–6.365 | 0.966–0.985 | 1.94–3.33 |
+| vbv05 | 4 | 4.943–5.964 | 5.282–6.613 | 0.958–0.965 | 2.08–3.78 |
+| vbv1 | 4 | 4.943–6.007 | 5.372–6.504 | 0.966–0.985 | 1.94–3.33 |
+| vbv2 | 4 | 4.956–5.992 | 5.370–6.413 | 0.969–0.999 | 1.94–3.01 |
+| cap4 | 4 | 4.919–5.995 | 5.346–6.856 | 0.966–0.985 | 1.94–3.33 |
+| hrd | 4 | 4.895–6.000 | 5.344–6.596 | 0.966–0.985 | 1.94–3.33 |
+| cap2hrd | 4 | 4.948–5.993 | 5.316–6.623 | 0.964–0.969 | 1.93–2.10 |
+| intra_idr | 4 | 4.931–5.957 | 5.308–6.374 | 0.963–0.986 | 1.94–3.34 |
+
+Names map to the saved configurations: `cbr` sets `amd_rc=cbr`; `vbv05`,
+`vbv1`, `vbv2` set `amd_vbv_buffer_frames` to 0.5, 1, 2; `cap1`, `cap2`,
+`cap4` set `amd_max_frame_size` to 1, 2, 4; `peak1`, `peak15`, `peak2`
+set `amd_peak_bitrate_ratio` to 1, 1.5, 2. `hrd` sets `amd_enforce_hrd=true`.
+`cbr_cap1/2` combine CBR, VBV1 and that cap; `cap2hrd` combines cap2 and HRD.
+`intra` uses `--intra-refresh` without periodic IDRs; `intra_idr` keeps the
+one-second IDR interval. The saved per-condition index preserves the exact
+codec, dimensions, rate, bitrate, IDR interval and requested/applied fields.
+
+The logs retain actual driver readbacks rather than inferring them from
+the configuration. For example, 4K60 / 40 Mbps peak1/1.5/2 reads peak bitrates
+of 40/60/80 Mbps; cap1/2 reads 666,667 / 1,333,333 **bits**, not bytes.
+Observed bitrate and IDR ratios remain measurements, not hard bounds or
+proof of visual quality. No recovery decoder or packet-loss test runs in
+this component fixture.
+
+#### Split-frame settings
+
+All **240 fixture/repeat slots** ran current release `auto`, `enabled` and
+`disabled`, for 720 cases. Main: 60 fixtures × two repeats × three modes;
+interaction: 37 × two × three; unpaced throughput: eight × two × three;
+stability: six × five × three. Main/interaction request three measurement
+seconds, throughput four, stability eight. The retained fixtures include
+HEVC/AV1, SDR and converted-HDR output, five widths from 1920 to 7680,
+60/120/240 FPS requests, and 20/40/80/150 Mbps targets, plus their saved
+slices, intra-refresh, LTR, quality, preanalysis, usage, Smart Access Video
+and rate-control interactions. Current `auto` replaces the old private
+untouched-binary arm; it is not that historical binary.
+
+The table gives min–max per-run latency observations over each subgroup's
+completed cases, not averages across different fixtures. Failures remain
+in the denominators and have no accepted latency values.
+
+| Subgroup | Mode | Passed / attempted | Mean submission-to-output range, ms | p99 range, ms |
+| --- | --- | ---: | ---: | ---: |
+| main | auto | 120 / 120 | 1.702–87.228 | 1.768–89.815 |
+| main | enabled | 120 / 120 | 1.702–87.131 | 1.752–89.794 |
+| main | disabled | 120 / 120 | 1.711–87.133 | 1.761–89.799 |
+| interaction | auto | 70 / 74 | 4.833–43.527 | 5.184–72.844 |
+| interaction | enabled | 70 / 74 | 4.835–43.575 | 5.194–72.919 |
+| interaction | disabled | 70 / 74 | 4.804–43.585 | 5.192–73.229 |
+| throughput | auto | 16 / 16 | 9.804–87.901 | 10.513–89.735 |
+| throughput | enabled | 16 / 16 | 9.800–87.837 | 10.485–89.724 |
+| throughput | disabled | 16 / 16 | 9.795–87.937 | 10.498–89.725 |
+| stability | auto | 30 / 30 | 3.117–6.145 | 3.592–6.692 |
+| stability | enabled | 30 / 30 | 3.098–6.166 | 3.601–6.688 |
+| stability | disabled | 30 / 30 | 3.089–6.149 | 3.600–6.695 |
+
+Unpaced capacity below is the arithmetic mean of two runs for each identical
+fixture. All eight throughput fixtures are SDR; the FPS values are encoded
+capacity, not independently decoded or fresh captured pictures.
+
+| Codec / SDR output / Mbps | Auto FPS | Enabled FPS | Disabled FPS |
+| --- | ---: | ---: | ---: |
+| HEVC / 1920x1080 / 20 | 669.11 | 669.44 | 668.89 |
+| HEVC / 3840x2160 / 80 | 197.32 | 197.37 | 197.36 |
+| HEVC / 5120x1440 / 80 | 217.93 | 217.92 | 217.97 |
+| HEVC / 7680x2160 / 150 | 102.05 | 102.07 | 102.06 |
+| AV1 / 1920x1080 / 20 | 842.40 | 842.81 | 842.81 |
+| AV1 / 3840x2160 / 80 | 250.45 | 250.51 | 250.48 |
+| AV1 / 5120x1440 / 80 | 273.81 | 273.73 | 273.76 |
+| AV1 / 7680x2160 / 150 | 127.04 | 126.88 | 126.96 |
+
+All 720 split-frame readbacks were present: `auto` and `enabled` read
+`MultiHwInstanceEncode=1`, while `disabled` read 0, with the codec-specific
+prefix. A matching property value does not prove how much work each hardware
+engine performed. Throughput was similar across these arms, not identical.
+**66 passed paced cases completed below 97% of requested FPS**; this is a
+descriptive observation, not a retroactively added gate. For example, HEVC
+7680x2160 SDR at a requested 240 FPS completed **102.532–102.733 FPS** across
+its six main-matrix runs. The high submission-to-output tails above include
+such capacity-limited fixtures and are not display latency.
+
+All 12 failures are the retained `amd_preanalysis=true` interaction at
+**3840x2160 SDR / 60 FPS / 80 Mbps**, for both codecs, all three split-frame
+settings and both repeats:
+
+| Codec / interaction row | Nonzero probe exits | Original sample-accounting failures | Accepted timing results |
+| --- | ---: | ---: | ---: |
+| HEVC / 7 | 6 | 0 | 0 |
+| AV1 / 19 | 4 | 2 | 0 |
+
+The ten nonzero exits report `encoder did not complete measured frames`.
+AV1 `auto` run 1 and `disabled` run 1 return zero with 181 submitted and
+completed frames but **180 latency samples**, failing the unchanged equality
+gate. Their raw JSON is retained as failed-case diagnostics and excluded
+from accepted timing aggregates. The results do not isolate a cause to
+split-frame mode: every mode failed this preanalysis condition. No run was
+retried, fixed or silently dropped.
+
+Across the full property sweep, the logs retain **78 AV1 1080p geometry
+warnings** and **six HEVC LTR-setting warnings**. The former warn about AMD
+padding and client cropping; the latter state that `amd_ltr_frames` applies
+only to AV1 and the HEVC request is ignored. There were no logged
+`AMF setting unavailable` warnings. Completion and primary-property
+readback therefore remain distinct from support for every requested
+interaction, independent decoding or visual quality.
+
+#### Property evidence and validation
+
+Raw results are in
+`work\measurements\amf-properties-20261012T102110Z`, produced by
+`work\run_amf_properties.py` (SHA-256
+`b11eabc9a2ee9d76dbb858a3582353b31fa60e1ccb6dc8359603aa8922fddf66`).
+The executable is the published package probe identified above. Each case
+retains its exact configuration, arguments, stdout/stderr, status and hashes;
+`planned.json` and `manifest.json` index all 1,030 cases. The saved CSVs and
+dated rate-control tables are pinned in the manifest, with current source
+and package identities.
+
+`work\amf-properties-summary.json`, generated by
+`work\summarize_amf_properties.py`, verifies all **1,030 run records and
+4,110 raw-file hashes** against the original evidence and rechecks the
+original gates. It indexes every case, requested/applied field, warning and
+failure, plus **491 distinct fixture/configuration aggregates** with
+per-run ranges. Only identical repeats are averaged; no percentiles are
+pooled, and no failed result is promoted to a pass. The same summary
+retains the two immediate-ACK ENet runs and their original gates/provenance.
+Historical and competitor measurements remain unchanged.
+
+### Reproduction and retained evidence
+
+From the extracted 2.2.9 package, the following commands reproduce the
+1440p HEVC HDR-output triple with the recorded requested settings:
+
+```powershell
+.\butterpollo-performance.exe --encoder amf --capture wgc --codec hevc --width 2560 --height 1440 --fps 120 --bitrate 50000 --seconds 8 --hdr
+.\butterpollo-performance.exe --encoder amf --capture wgc --codec hevc --width 2560 --height 1440 --fps 120 --bitrate 50000 --seconds 8 --hdr --paced
+.\butterpollo-performance.exe --encoder amf --capture wgc --codec hevc --width 2560 --height 1440 --fps 120 --bitrate 50000 --seconds 8 --hdr --cpu
+```
+
+Use the dimensions and bitrates above for the other rows, `--codec h264`,
+`--codec hevc`, `--codec av1` or `--codec pyrowave`, and omit `--hdr` for SDR.
+PyroWave additionally uses `--records`, plus `--yuv444` for its 4:4:4 rows.
+Keep the source, display state and lack of competing workloads consistent;
+the recorded source was SDR even when `--hdr` was requested.
+
+Local raw evidence is retained in
+`C:\Users\ramaz\Documents\Codex\2026-10-12\wait\work\measurements\current-portable-20261012T041533202030Z`.
+Each `<width>x<height>-<codec>-gpu-capacity`, `-gpu-paced` or `-cpu-capacity`
+directory contains `stdout.log` with the full measurement JSON, `stderr.log`,
+`run.json` with arguments, status and timestamps, and `source.json` with the
+actual display state. Stage `metadata.json`, `hardware.json` and `summary.json`
+retain executable hashes, the driver/OS inventory and all 81 completion records.
+The task-local runner is `work\run_current_matrix.py --stages portable`.
+
+The component results above are retained separately in
+`C:\Users\ramaz\Documents\Codex\2026-10-12\wait\work\measurements\remaining-probes-20261012T043354Z`.
+Its `manifest.json` records source revision, package/test-binary hashes and
+completion status; each named case has `run.json` with the exact executable,
+arguments and timestamps, plus stdout/stderr. The FEC values above come only
+from `fec\rubylight-only.json`; GPU timing comes from each case's `gpu.json`.
+The CPU fixture source and its input specification are retained under
+`work\cpu-color-probe`. Input diagnostic detail not tabulated above remains
+in the complete logs.
+
+Reproduce the source-built components with the existing `wait_performance`,
+`input_path_probe` and `enet_input_probe` release examples from the recorded
+commit. Input modes were the default invocation, `vhf --load=none,normal,highest --trace`,
+`pad-contention --load=none,normal,highest --trace`, and
+`contention --samples=1500`; ENet used `3000 defer` twice, followed later by
+two separate `3000` immediate-ACK reference runs. The isolated CPU
+fixture had no arguments. Native GPU cases used their `gpu_color::tests`
+names with `--exact --ignored --nocapture --test-threads=1` and wrote timing
+reports through `BUTTERPOLLO_TEST_GPU_REPORT`. Run these serially and keep
+the explicitly loaded GPU pass separate from idle measurements. These
+source-built tests supplement the published-package probes; they are not
+additional downloaded release executables.
+
 ## Hardware covered
 
 Measurements ran with AMD AMF on an RX 7900 XT host, with real-client Wi-Fi
-runs to a Radeon 780M laptop recorded in
-[PERFORMANCE_WORK.md](PERFORMANCE_WORK.md#october-8-real-client-picture-age-over-wi-fi-rc24-laptop).
+runs to a Radeon 780M laptop recorded for
+[2.2.9 on October 12](PERFORMANCE_WORK.md#real-wi-fi-hardware-receiver-streams-october-12)
+and [rc.24 on October 8](PERFORMANCE_WORK.md#october-8-real-client-picture-age-over-wi-fi-rc24-laptop).
 Native NVENC calls the installed NVIDIA driver directly and supports reviewed
 API versions 11.0–13.0, reference frame invalidation, D3D11 4:2:0/8-bit 4:4:4
 and GPU-only CUDA interop for ten-bit 4:4:4. QSV has native D3D11 imports, and

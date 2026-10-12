@@ -2,16 +2,16 @@
 
 [Docs](README.md) · [How compute works](architecture.md) · [Troubleshooting](troubleshooting.md) · [Full measurement record](../rust/PERFORMANCE.md)
 
-Rubylight's performance work targets fresh pictures and lower picture age, especially when the GPU is busy. Start with the [matched comparison under GPU load](#next-to-vibepollo-20), then use the component tests to see where the time goes. Every result links to its fixture and recorded runs; these are dated measurements, not a benchmark of each new release.
+Rubylight's performance work targets fresh pictures and lower picture age, especially when the GPU is busy. Start with the [current 2.2.9 measurements](#october-12-229-measurements), then use the component tests to see where the time goes. The [matched October 8 comparison](#next-to-vibepollo-20) retains its original builds and results.
 
-**On this page:** [Metrics](#what-the-numbers-mean) · [Host comparison](#next-to-vibepollo-20) · [Wi-Fi](#on-a-real-client-over-wi-fi) · [Radeon compute](#isolating-radeon-compute) · [GPU pressure](#radeon-under-pressure) · [Measure your setup](#measure-your-setup)
+**On this page:** [Metrics](#what-the-numbers-mean) · [2.2.9 measurements](#october-12-229-measurements) · [Host comparison](#next-to-vibepollo-20) · [Wi-Fi](#on-a-real-client-over-wi-fi) · [Radeon compute](#isolating-radeon-compute) · [GPU pressure](#radeon-under-pressure) · [Measure your setup](#measure-your-setup)
 
 ## What the numbers mean
 
 | Metric | What it measures |
 | --- | --- |
 | **Render-to-decode delay / picture age** | Time from a timestamped rendered picture through independent decoding and readback. The matched host comparisons use loopback on the same PC, so they include composition, capture, encoding and client decoding, but exclude remote network transit and display time. |
-| **Render-to-received** | Time from a timestamped rendered picture until the client's decode thread starts on a fully received frame. The Wi-Fi tests include real network transit, receive queueing and clock-sync error, but exclude decoding. Do not compare their absolute values with render-to-decode measurements. |
+| **Render-to-received** | Read the fixture's arrival boundary: the October 12 hardware receiver estimates completed frame assembly/enqueue, excluding decoder-queue waiting and decoding. The historical October 8 method below describes arrival at decode start. Both include network transit and clock-mapping uncertainty; neither measures display latency. Do not compare their absolute values with render-to-decode measurements. |
 | **95th / 99th percentile (p95 / p99)** | The slower end of the sample: 95% / 99% of observations are at or below this delay. The matched host-comparison table averages the per-run metrics rather than pooling samples. |
 | **Fresh pictures per second** | Distinct pictures received, counted from changing picture IDs. Repeated frames do not increase this count. |
 | **Encoder time** | The encoder's submission-to-completion interval. It covers one part of the frame journey. |
@@ -19,11 +19,43 @@ Rubylight's performance work targets fresh pictures and lower picture age, espec
 
 None of these timings measures button press to visible response on a client display. Compare hosts within the same fixture, and read picture age alongside fresh-picture throughput.
 
+## October 12: 2.2.9 measurements
+
+Native virtual-HDR capture passed **28/28 stream and timing checks** across DDX and WGC, plus **4/4 HDR pixel checks**. The table below gives the current **DDX** results: arithmetic means of two runs' statistics, measured from a timestamped rendered picture through local hardware decoding. It excludes remote network transit and display time.
+
+| Rubylight 2.2.9, October 12 | Picture age mean / p95 / p99 (ms) | Fresh pictures/s | Host mean (ms) |
+| --- | ---: | ---: | ---: |
+| Under GPU load, 1968×2184 HEVC HDR 120 fps | **14.34 / 16.03 / 18.15** | 119.99 | 3.35 |
+| Under GPU load, 1968×2184 AV1 HDR 120 fps | **13.65 / 18.00 / 18.95** | 119.98 | 5.25 |
+| Under GPU load, 1920×1080 HEVC HDR 60 fps | **10.64 / 18.27 / 18.58** | 60.00 | 2.24 |
+| Idle, 1968×2184 HEVC HDR 120 fps | 9.65 / 10.87 / 12.16 | 119.99 | 3.30 |
+| Idle, 1968×2184 AV1 HDR 120 fps | 10.50 / 11.26 / 11.61 | 120.00 | 3.03 |
+| Idle, 2560×1440 HEVC HDR 120 fps | 9.38 / 9.89 / 10.19 | 120.00 | 2.97 |
+| Idle, 1920×1080 HEVC HDR 60 fps | 10.09 / 10.56 / 10.76 | 60.00 | 2.14 |
+
+![Rubylight 2.2.9 October 12 and unchanged Vibepollo 2.0 October 8 mean and p95 picture age under GPU load, with different physical desktop conditions.](media/gaming-latency.svg)
+
+**Different dates and physical desktop conditions.** The RX 7900 XT and 120 Hz virtual HDR source are retained; the physical desktop is now **5120×1440 SDR at 240 Hz**, versus **2560×1440 at 120 Hz** on October 8. The loaded native rows request 80 Mbps and use the 60 fps-capped synthetic GPU load. Current Rubylight and historical competitor bars do not establish a matched improvement. The original matched October 8 tables below remain unchanged. [Native runs, source validation and capture scope →](../rust/PERFORMANCE_WORK.md#native-virtual-hdr-headline-streams-october-12)
+
+The separate SDR VRR capture sweep has **20 valid requested-mode phases** and **12 unavailable phases** whose observed Windows refresh rates differed from the requested modes. Their timings are excluded rather than relabelled. The historical private HDR/RTSS source is unavailable.
+
+The [October 12, 2026 release record](../rust/PERFORMANCE.md#october-12-rubylight-229-released-package-refresh) includes **81/81 repeat-frame encoder cases**, CPU/GPU conversion, FEC, packet, wait/input/ENet and PyroWave checks. The [32 current-default AMF quality cases](../rust/PERFORMANCE_WORK.md#current-amf-default-quality) and [116 settings variants](../rust/PERFORMANCE_WORK.md#current-amf-quality-settings-comparison) all encoded and scored **180 frames per case**. Passing means successful execution and scoring, not a minimum quality score. Settings readback was verified in 106 variants; it was unavailable for ten high-motion-boost requests. HDR quality here uses SDR clips converted to HDR, not native HDR capture.
+
+The [AMF property sweeps](../rust/PERFORMANCE.md#retained-amf-property-sweeps-october-12) passed **1,018/1,030 probes**: 30/30 low-latency, 280/280 rate-control and 708/720 split-frame cases. All 12 failures used HEVC or AV1 4K SDR at 60 fps/80 Mbps with preanalysis enabled: ten did not complete the measured frames, and two reported 181 completed frames for 180 timing samples. Passing checks completion and accounting; it does not establish a latency target or prove that every optional setting applied. These synthetic encoder and clip-quality probes exclude capture, network, decoding and display timing.
+
+The stream refresh passed **36/36 short release streams** and **12/12 static-keyframe checks**. Both **4K120 HEVC** runs and both **5120×1440 at 240 FPS** saturation attempts failed the unchanged stream gates. The separate [audio/load/outage batch](../rust/PERFORMANCE_WORK.md#audio-under-load-and-80-ms-outage-recovery) passed **6/11 full-stream checks**, while **all 11 kept continuous audio with zero source underruns**. [Per-run measurements and failures →](../rust/PERFORMANCE_WORK.md#rubylight-229-short-release-streams-2026-10-12)
+
+Those earlier short-stream batches used the physical **5120×1440 SDR display at 240 Hz**; their HDR output is SDR conversion. Conventional streams use a loopback software decoder, and PyroWave uses Vulkan decode with CPU readback. Their scope differs from the new native-HDR results above and the historical host comparison below.
+
+In the [eight 90-second loss checks](../rust/PERFORMANCE_WORK.md#ninety-second-control-and-20-ms-outage-streams), all four controls passed and all four injected-outage runs failed the normal gap gates. [Both 120-second audio streams](../rust/PERFORMANCE_WORK.md#two-minute-decoded-audio-continuity-and-video-windows) passed, with **24/24 continuous audio windows**. The short soak passed **64/67 cases**: three GPU-load cases failed fresh-picture delivery, while all 52 reconnect/churn cases, eight codec switches and helper recovery passed. Host working set, handle and thread growth checks passed; the separately observed dedicated GPU memory counter rose from **4.37 to 17.12 GB**, an increase of **12.75 GB** outside those growth gates. [Detailed soak results and scope →](../rust/PERFORMANCE_WORK.md#short-soak-switching-reconnects-and-wgc-helper-recovery)
+
+The real Radeon 780M Wi-Fi receiver passed **20/20 stream checks**: 12 HDR-output conversion runs and eight SDR control/recovery runs, including four injected-outage cases. **19/20 calibrated timing records** passed exact source-ID/timestamp validation; AV1 HDR 1080p60 run 2 remains unavailable because three barcode timestamps disagreed with the source ledger. This independent D3D11VA receiver measures render-to-assembly/enqueue timing, excluding decoder queueing, decoding and display. [Per-repeat Wi-Fi timing, recovery and clock scope →](../rust/PERFORMANCE_WORK.md#real-wi-fi-hardware-receiver-streams-october-12)
+
+Official **Moonlight 6.2.0** completed two **165-second 1080p60 HEVC SDR sessions requesting 80 Mbps** on the Radeon 780M laptop over Wi-Fi. Both reported **59.99 FPS rendering**; host counters measured **60.002 / 59.998 FPS** over separate **119.329 / 119.304-second** windows. Client decode averages were **0.59 / 0.50 ms**, queueing **0.02 / 0.02 ms**, and rendering **0.48 / 0.47 ms**. These endpoints and windows differ: do not add them or infer full picture age. Both wrappers failed their immediate exit check; later checks confirmed natural exit, with settings and pairings preserved. [Stock results and cleanup evidence →](../rust/PERFORMANCE_WORK.md#stock-moonlight-620-over-wi-fi-october-12)
+
 ## Next to Vibepollo 2.0
 
-**Under game-like GPU load, p95 picture age was 43% lower in HEVC and 48% lower in AV1.** Average picture age fell by 7.4 ms for both codecs. This is the matched comparison highlighted in the [README](../README.md).
-
-![Rubylight and Vibepollo average and p95 picture age under matched GPU load; exact values appear in the following table.](media/gaming-latency.svg)
+**In the October 8, 2026 rc.24 comparison, p95 picture age under game-like GPU load was 43% lower in HEVC and 48% lower in AV1.** Average picture age fell by 7.4 ms for both codecs. These matched historical results are separate from the current chart above.
 
 ### Test setup
 
@@ -40,7 +72,7 @@ None of these timings measures button press to visible response on a client disp
 
 Picture age, average / p95 / p99. Host processing is shown separately and is not the basis for the percentage improvement: the implementations' host counters do not cover exactly the same work. The comparison isolates the hosts from a remote network, but includes the local client's decoding. Rubylight's current default capture is WGC; these tests deliberately use DDX for both hosts.
 
-| | Rubylight | Vibepollo 2.0 |
+| | Rubylight rc.24 | Vibepollo 2.0 |
 | --- | ---: | ---: |
 | **Under GPU load**, 1968×2184 AV1 HDR 120 fps | **17.15 / 18.96 / 22.18 ms**, host 3.1 ms | 24.53 / 36.77 / 38.05 ms, host 7.4 ms |
 | **Under GPU load**, 1968×2184 HEVC HDR 120 fps | **19.61 / 21.56 / 23.10 ms**, host 3.4 ms | 26.96 / 37.62 / 39.25 ms, host 8.3 ms |
@@ -69,7 +101,9 @@ The idle comparison measured 16.0 ms versus 13.8 ms. Most of the loaded gap is n
 
 ## On a real client over Wi-Fi
 
-The host on Ethernet streamed to a client on **5 GHz Wi-Fi**, decoding in hardware. The client's clock was synchronised to the host with 200 ms pings (offset error about ±0.6 ms), so each rendered picture's age is measured on arrival. HDR on every row, one 30-second run per row on October 8, 2026.
+The [October 12, 2026 2.2.9 hardware-receiver matrix](../rust/PERFORMANCE_WORK.md#real-wi-fi-hardware-receiver-streams-october-12) completed 20/20 ordinary receiver checks with 19 valid calibrated timing records. It uses a physical SDR source, including SDR-to-HDR output conversion, and an assembly/enqueue arrival boundary. Its 1.177 ms clock-fit diagnostic is not a confidence interval or proven error bound. The following October 8 values retain their original source, method and date; no new before/after delta is inferred.
+
+The rc.24 host on Ethernet streamed to a client on **5 GHz Wi-Fi**, decoding in hardware. The client's clock was synchronised to the host with 200 ms pings (offset error about ±0.6 ms), so each rendered picture's age is measured on arrival. HDR on every row, one 30-second run per row on October 8, 2026.
 
 | Render to received, average / p95 / p99 | Fresh pictures per second | Host time |
 | --- | ---: | ---: |
@@ -120,7 +154,7 @@ The encoder-queue test compared rc.18 with rc.19 at 150 Mbps, with two alternati
 
 [PyroWave runs →](../rust/PERFORMANCE.md#october-7-pyrowave-conversion-on-the-compute-queue) · [Encoder queue runs →](../rust/PERFORMANCE.md#october-7-two-frames-in-the-encoder)
 
-**AMF's low-latency switches were checked too.** With the default ultra-low-latency usage, the driver already applies its internal low-latency mode and AV1's lowest latency; forcing them changed neither encode time nor output size, so they stay on Driver default. [When forcing them helps →](configuration.md#capture-and-video)
+**Earlier AMF low-latency measurements.** With the default ultra-low-latency usage, the driver already applies its internal low-latency mode and AV1's lowest latency; forcing them changed neither encode time nor output size, so they stay on Driver default. [When forcing them helps →](configuration.md#capture-and-video)
 
 ## Input under load
 
@@ -139,13 +173,15 @@ Smaller changes take a few tens of microseconds off every input packet (the netw
 
 Automatic capture prefers WGC and supported Radeon streams use compute by default. Guarded source-phase pacing waits for a predicted fresh update when the capture history supports it.
 
-In the controlled local 720p60 AV1 comparison, guarded pacing delivered **59.862–60.000 fresh pictures/s**, versus **57.650**, and reduced estimated source-presentation-to-software-decode age by about **3.8 ms on average**. The default-path SDR check recorded **59.999 fresh pictures/s**.
+In the earlier controlled local 720p60 AV1 comparison, guarded pacing delivered **59.862–60.000 fresh pictures/s**, versus **57.650**, and reduced estimated source-presentation-to-software-decode age by about **3.8 ms on average**. The default-path SDR check recorded **59.999 fresh pictures/s**.
 
 These WGC results use a different fixture from the DDX comparisons above. The full record includes slower sources, 120 FPS operation, helper recovery and GPU saturation.
 
 [Pacing comparisons](../rust/PERFORMANCE.md#guarded-ab-stress-and-compatibility-checks) · [Default-path checks](../rust/PERFORMANCE.md#hdr-state-correction-and-current-sdr-validation)
 
 ## HDR and PyroWave validation
+
+The table retains the earlier validation runs linked below. The [October 12 release results](#october-12-229-measurements) record the new native-HDR checks and the failed 4K120 stream attempts separately.
 
 | Check | Recorded result | What was inspected |
 | --- | --- | --- |

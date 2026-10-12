@@ -1,3 +1,5 @@
+Still in Alpha. Expect Bugs to happen
+
 <p align="center">
   <img src="docs/assets/banner.png" width="800" alt="RUBYLIGHT — Your games. Your screen. Your stream.">
 </p>

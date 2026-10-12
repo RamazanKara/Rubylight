@@ -5237,3 +5237,54 @@ joins are in `etw\producer-chain-analysis.json` and
 is `9e11727043573faecdaf536f3bedb785407852a5e888267f4eefd04f8b51fc1a`;
 the candidate is
 `3a001534068d0756ee8b742eccc53aa0a8c0c2c939fb2edaeae1aa8c04277182`.
+
+#### DDX post-publication hold experiment
+
+A second scratch candidate tested frame ownership timing. After publishing
+each DDX snapshot and waking encoders, it requested one existing polling
+interval (**500 µs**) before the next release/acquire. The timer can overshoot;
+500 µs is not a measured maximum hold. The current picture still publishes
+immediately, and all GPU waits, texture-ownership rules and encoder timer boundaries remain
+unchanged. The earlier-signal change was removed. This tests whether holding
+the duplication surface briefly changes subsequent DWM work; it does not
+assume that the retained trace contains redundant desktop copies.
+
+The same instrumented baseline, native HDR settings and 59 FPS load were
+run in A/B/B/A order. Acceptance required repeatable picture-age and host-tail
+improvement with fresh-picture cadence preserved, before any 60 FPS
+confirmation or production change.
+
+| Run | Host mean / p95 / p99 (ms) | Picture age mean / p95 (ms) | Fresh pictures/s | Omitted source pictures |
+| --- | ---: | ---: | ---: | ---: |
+| Unchanged A1 | 3.109 / 3.5 / 6.6 | 10.808 / 14.853 | 118.880 | 33 |
+| Hold B1 | 3.058 / 3.3 / 4.4 | 10.136 / 14.636 | 120.001 | 0 |
+| Hold B2 | 3.166 / 4.1 / 7.5 | 10.411 / 14.616 | 119.979 | 1 |
+| Unchanged A2 | 3.498 / 7.2 / 8.0 | 10.342 / 13.740 | 119.998 | 0 |
+
+The first candidate run improved on the first control, but the second
+increased picture-age mean by **0.069 ms** and p95 by **0.876 ms** against
+the final control. Both candidate picture-age p95 values exceeded the final
+control, despite its higher host p95. Across all four runs, **544/544 stage
+samples at or above 6 ms** still had a pending producer fence, a completed
+prior-reader fence and a completed previous copy. Slow-frame first-observed
+producer completion means were **4.648 / 4.843 / 4.688 / 4.709 ms** after
+encoder entry: the same multi-millisecond dependency remained. These are
+CPU-observed bounds, not GPU execution durations.
+
+The acceptance rule was not met, so the hold was **not adopted** and the
+conditional 60 FPS confirmation was not run. Baseline variation also
+prevents claiming that the candidate caused a regression. No production
+code, capture defaults or installed settings changed.
+
+All four ordinary stream checks, binary hashes, native source modes and
+physical-display restoration checks passed. All **16,643 nonzero source
+ID/QPC pairs** matched their render ledgers, and **14,293 steady frames**
+aligned to stage records without flags. The **47 zero-ID startup rows**
+remain in the evidence. Raw source omissions were retained in the results.
+
+Evidence is `work\host-mean-trace\posthold-20261012T174145Z`, including
+`analysis\posthold-comparison.json`, the predeclared plan, source hashes,
+logs and ledgers. The parent directory retains
+`receiver-analysis-posthold-20261012T174145Z.json`. The baseline host hash
+is unchanged from the earlier-signal experiment; the hold candidate SHA-256
+is `97a570378033c0cbbedf33c7785903bfb2072b69c9ed847b036074e961823612`.

@@ -2,7 +2,7 @@ Streame deinen PC mit geringer Latenz. Rubylight verbindet sich mit Rubylight-Ho
 
 Nutze deinen Desktop und deine Apps auf deinem Android-Smartphone, Tablet oder Fernseher. Kopple deinen PC, öffne deine Bibliothek und starte einen Stream. Steuere alles per Touch, Controller oder mit Tastatur und Maus.
 
-Wähle eine Voreinstellung für geringe Latenz, ausgewogene Leistung, beste Qualität oder längere Akkulaufzeit. Speichere eigene Einstellungen für jeden PC. Behalte Latenz und Bildrate im kompakten Overlay im Blick. Im Stream-Menü kannst du Steuerung und Einstellungen während des Streams anpassen.
+Wähle die native Voreinstellung für die Auflösung und maximale Bildrate deines Bildschirms oder den Energiesparmodus für einen geringeren Stromverbrauch. Speichere eigene Einstellungen für jeden PC. Behalte Latenz und Bildrate im Leistungs-Overlay im Blick und wähle bei Bedarf die ausführliche Debug-Ansicht. Im Stream-Menü kannst du Steuerung und Einstellungen während des Streams anpassen.
 
 Rubylight ist kostenlos und quelloffen. Ohne Werbung und In-App-Käufe.
 

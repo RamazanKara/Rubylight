@@ -475,6 +475,7 @@ public class NvHTTP {
         details.pyroWaveBandwidthProbeBytes = (int) readUnsignedValue(
                 getXmlString(serverInfo, "PyroWaveBandwidthProbeBytes", false), PYROWAVE_BANDWIDTH_PROBE_BYTES);
         details.hardwareMetricsVersion = getHardwareMetricsVersion(serverInfo);
+        details.networkPathVersion = "1".equals(getXmlString(serverInfo, "NetworkPathVersion", false)) ? 1 : 0;
 
         XmlPullParser parser = XmlPullParserFactory.newInstance().newPullParser();
         parser.setInput(new StringReader(serverInfo));
@@ -534,6 +535,26 @@ public class NvHTTP {
                 throw new IOException("Hardware metrics response too large");
             }
             return HardwareMetrics.parse(response.string());
+        }
+    }
+
+    /** Always pinned HTTPS: the remote setup test must verify the selected PC, without HTTP fallback. */
+    public ComputerDetails probePairedComputer() throws IOException, XmlPullParserException {
+        if (serverCert == null || httpsPort <= 0) throw new IOException("Pair locally before testing remote access");
+        OkHttpClient client = httpClientShortConnectTimeout.newBuilder().callTimeout(3, TimeUnit.SECONDS)
+                .followRedirects(false).followSslRedirects(false).build();
+        return getComputerDetails(openHttpConnectionToString(client, getHttpsUrl(true), "serverinfo"));
+    }
+
+    public NetworkPathInfo getNetworkPath() throws IOException {
+        if (serverCert == null || httpsPort <= 0) throw new IOException("Route diagnosis requires a paired host");
+        OkHttpClient client = httpClientShortConnectTimeout.newBuilder().callTimeout(4, TimeUnit.SECONDS)
+                .followRedirects(false).followSslRedirects(false).build();
+        try (ResponseBody response = openHttpConnection(client, getHttpsUrl(true), "api/network-path")) {
+            MediaType type = response.contentType();
+            if (type == null || !"application".equals(type.type()) || !"json".equals(type.subtype()) ||
+                    response.source().request(513)) throw new IOException("Invalid route response");
+            return NetworkPathInfo.parse(response.string());
         }
     }
     

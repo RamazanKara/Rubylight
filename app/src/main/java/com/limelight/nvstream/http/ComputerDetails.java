@@ -103,6 +103,7 @@ public class ComputerDetails {
     public long pyroWaveHostLinkMbps;
     public int pyroWaveBandwidthProbeBytes;
     public int hardwareMetricsVersion;
+    public int networkPathVersion;
 
     public boolean supportsHardwareMetrics() {
         return hardwareMetricsVersion == 1 && rustHostVersion != null &&
@@ -175,6 +176,7 @@ public class ComputerDetails {
     }
 
     public void update(ComputerDetails details) {
+        this.networkPathVersion = details.networkPathVersion;
         this.state = details.state;
         this.name = details.name;
         this.uuid = details.uuid;

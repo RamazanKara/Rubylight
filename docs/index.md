@@ -10,6 +10,8 @@ Stream your PC games and desktop to the Android screen you want to use. Rubyligh
 | Use a controller, touch, mouse or keyboard | [Controls](controls.md) |
 | Tune picture quality and response time | [Video and latency](video-and-latency.md) |
 | Fix a problem or export a report | [Troubleshooting](TROUBLESHOOTING.md) |
+| Understand a stutter and try a reversible change | [Stream health](stream-health.md) |
+| Connect from outside my home | [Remote play setup](remote-setup.md) |
 | Build and sign an APK | [Building](building.md) |
 | Launch games from ES-DE, Daijisho or Pegasus | [Frontends](FRONTENDS.md) |
 | Find a short answer | [FAQ](faq.md) |

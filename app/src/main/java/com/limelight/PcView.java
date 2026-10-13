@@ -496,6 +496,11 @@ public class PcView extends AppCompatActivity implements AdapterFragmentCallback
             addPcAction(sheet, computer, HOST_ADMINISTRATION_ID, R.drawable.ic_settings, R.string.host_administration_menu);
         }
         addPcAction(sheet, computer, BANDWIDTH_PROBE_ID, R.drawable.ic_network, R.string.connection_test_title);
+        sheet.addAction(R.drawable.ic_network, getString(R.string.remote_setup_title)).setOnClickListener(v -> {
+            sheet.dismiss();
+            startActivity(new Intent(this, RemoteSetupActivity.class)
+                    .putExtra(RemoteSetupActivity.EXTRA_PC_UUID, computer.details.uuid));
+        });
         addPcAction(sheet, computer, WOL_ID, R.drawable.ic_power, R.string.pcview_menu_send_wol);
         if (online && paired) {
             addPcAction(sheet, computer, FULL_APP_LIST_ID, R.drawable.ic_library, R.string.pcview_menu_app_list);

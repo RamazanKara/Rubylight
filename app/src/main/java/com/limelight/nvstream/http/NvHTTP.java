@@ -5,7 +5,6 @@ import android.os.Build;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.InputStreamReader;
 import java.io.Reader;
 import java.io.StringReader;
 import java.net.Inet4Address;
@@ -88,6 +87,8 @@ public class NvHTTP {
     public static final int LONG_CONNECTION_TIMEOUT = 5000;
     public static final int READ_TIMEOUT = 7000;
     public static final int PYROWAVE_BANDWIDTH_PROBE_BYTES = 32 * 1024 * 1024;
+    static final int MAX_XML_RESPONSE_BYTES = 256 * 1024;
+    static final int MAX_APP_LIST_BYTES = 4 * 1024 * 1024;
 
     // Print URL and content to logcat on debug builds
     private static boolean verbose = BuildConfig.DEBUG;
@@ -694,11 +695,21 @@ public class NvHTTP {
         return openHttpConnectionToString(client, baseUrl, path, null);
     }
 
+    static String readXmlResponse(ResponseBody response, String path) throws IOException {
+        int limit = "applist".equals(path) ? MAX_APP_LIST_BYTES : MAX_XML_RESPONSE_BYTES;
+        // Content-Length may be absent, incorrect, or the size before decompression.
+        // Bound the actual decoded body before ResponseBody.string() allocates it.
+        if (response.contentLength() > limit || response.source().request(limit + 1L)) {
+            throw new IOException("Host XML response exceeds the " + limit + " byte limit");
+        }
+        return response.string();
+    }
+
     private String openHttpConnectionToString(OkHttpClient client, HttpUrl baseUrl, String path, String query) throws IOException {
         try {
             String respString;
             try (ResponseBody resp = openHttpConnection(client, baseUrl, path, query)) {
-                respString = resp.string();
+                respString = readXmlResponse(resp, path);
             }
 
             if (verbose && !path.equals("serverinfo") && !path.equals("pair")) {
@@ -955,7 +966,7 @@ public class NvHTTP {
         }
         else {
             try (final ResponseBody resp = openHttpConnection(httpClientLongConnectTimeout, getHttpsUrl(true), "applist")) {
-                return getAppListByReader(new InputStreamReader(resp.byteStream()));
+                return getAppListByReader(new StringReader(readXmlResponse(resp, "applist")));
             }
         }
     }

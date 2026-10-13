@@ -1892,6 +1892,10 @@ namespace {
         std::mutex eventsMutex;
         std::vector<jlong> renderedFrames;   // (ptsUs, presentNs) pairs; 0 when the surface lost timing
         std::vector<jlong> releasedFrames;   // (ptsUs, releaseNs, shown) triples
+        // JNI polling is serialized by PyroWaveDecoderRenderer. Keep both sides of the swap
+        // alive so the presenter and poller reuse their buffers after the first two batches.
+        std::vector<jlong> renderedBatch;
+        std::vector<jlong> releasedBatch;
 
         // Present thread only: it owns the swapchain.
         void pollRenderedFrames() {
@@ -1946,6 +1950,8 @@ namespace {
 
         // Hands the queued release and display-time events to the caller.
         void takeEvents(std::vector<jlong> &released, std::vector<jlong> &rendered) {
+            released.clear();
+            rendered.clear();
             std::lock_guard<std::mutex> lock(eventsMutex);
             released.swap(releasedFrames);
             rendered.swap(renderedFrames);
@@ -2205,7 +2211,8 @@ Java_com_limelight_binding_video_PyroWaveDecoderRenderer_nativePollRenderedFrame
     const jboolean timing = renderer->displayTimingSupported ? JNI_TRUE : JNI_FALSE;
     // Presentation runs on the renderer's own thread, so releases (and replaced frames) are
     // reported here, ahead of the display times that follow them.
-    std::vector<jlong> released, rendered;
+    auto &released = renderer->releasedBatch;
+    auto &rendered = renderer->renderedBatch;
     renderer->takeEvents(released, rendered);
     if (released.empty() && rendered.empty()) return timing;
     jclass statsClass = env->GetObjectClass(stats);

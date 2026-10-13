@@ -250,7 +250,7 @@ impl AdaptiveBitrate {
                 self.last_change = Some(now);
                 self.reason = if loss { "packet_loss" } else { "rising_rtt" };
             }
-        } else if ping && busy && !queued {
+        } else if ping && busy && !queued && !rtt.is_zero() {
             let clean = self.clean_since.get_or_insert(now);
             if now.saturating_duration_since(*clean) >= Duration::from_secs(8)
                 && self
@@ -267,6 +267,8 @@ impl AdaptiveBitrate {
             self.clean_since = None;
             self.reason = if !ping {
                 "feedback_stale"
+            } else if rtt.is_zero() {
+                "rtt_unavailable"
             } else {
                 "low_activity"
             };
@@ -535,5 +537,31 @@ mod tests {
         }
         assert!(!c.active());
         assert_eq!(c.video_pacing_bps(), 0);
+    }
+    #[test]
+    fn missing_rtt_never_counts_as_stable_latency_for_recovery() {
+        let mut c = controller();
+        c.on_block(Block::Unrecoverable);
+        let start = Instant::now();
+        let rate = run(&mut c, start, 2, true, true, 20);
+        let budget = c.current_bps;
+        for i in 2..60 {
+            let now = start + Duration::from_secs(i);
+            c.on_ping(now, &[4, 0, 0, 0, 0, 0, 0, 0]);
+            c.tick(
+                now,
+                Traffic {
+                    frames: i * 60,
+                    bytes: i * u64::from(rate) * 125,
+                    send_losses: 0,
+                },
+                Duration::ZERO,
+                20,
+                Duration::from_secs_f64(1. / 60.),
+                rate,
+            );
+        }
+        assert_eq!(c.current_bps, budget);
+        assert_eq!(c.reason, "rtt_unavailable");
     }
 }

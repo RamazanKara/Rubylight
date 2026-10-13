@@ -27,7 +27,7 @@ Still in Alpha. Expect Bugs to happen
 
 - **React instantly** with ultra-low latency streaming and decoding.
 - **See every detail** with AV1, HEVC and H.264 video, plus HDR10.
-- **Keep motion fluid** with high refresh rates and VRR frame pacing.
+- **Keep motion fluid** with high refresh rates and VRR like ARR frame pacing.
 - **Sharpen your stream** with client-side FSR and Snapdragon GSR upscaling.
 - **Play your way** with USB and Bluetooth controllers, including DualSense.
 - **Stay in control** with touch, trackpad, mouse, keyboard and [on-screen keys and desktop shortcuts](docs/controls.md).

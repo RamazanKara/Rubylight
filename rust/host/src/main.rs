@@ -395,7 +395,8 @@ async fn run(args: Args, assets: PathBuf) -> Result<()> {
         _=runtime::maintain(h.clone(), stop_signal, actions, ports.web)=>Ok(())
     };
     h.stop.store(true, Ordering::Release);
-    h.sessions.lock().unwrap().request_stop(None);
+    let canceled = h.sessions.lock().unwrap().request_stop(None);
+    drop(canceled);
     let deadline = Instant::now() + Duration::from_secs(10);
     while !h.sessions.lock().unwrap().idle() && Instant::now() < deadline {
         tokio::time::sleep(Duration::from_millis(10)).await;

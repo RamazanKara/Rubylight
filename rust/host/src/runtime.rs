@@ -66,7 +66,8 @@ fn start_deferred(h: &Shared) {
             }
             Err(error) => {
                 tracing::warn!(%error, app = %app.name, "deferred application failed to start");
-                h.sessions.lock().unwrap().stop_role(Role::Stream, None);
+                let canceled = h.sessions.lock().unwrap().stop_role(Role::Stream, None);
+                drop(canceled);
                 h.stop_app();
             }
         }
@@ -92,7 +93,8 @@ fn user_action(h: &Shared, action: Action, web_port: u16) {
             // Stopping the app waits for it to exit.
             tokio::task::spawn_blocking(move || {
                 let _transition = h.launch_transition.lock().unwrap();
-                h.sessions.lock().unwrap().stop_role(Role::Stream, None);
+                let canceled = h.sessions.lock().unwrap().stop_role(Role::Stream, None);
+                drop(canceled);
                 h.stop_app();
             });
         }
@@ -125,7 +127,8 @@ fn show_app(h: &Shared, tray: &mut butterpollo_core::tray::Tracker) {
 /// End every stream and remote monitor and release the displays they held,
 /// which removes the virtual displays and restores the layout.
 pub fn release_displays(h: &Shared) {
-    h.sessions.lock().unwrap().request_stop(None);
+    let canceled = h.sessions.lock().unwrap().request_stop(None);
+    drop(canceled);
     crate::remote_display::disconnect(h, None);
     let audio = h.app_audio.lock().unwrap().take();
     let displays = std::mem::take(&mut *h.app_display.lock().unwrap());
@@ -216,7 +219,8 @@ pub async fn maintain(
                 };
                 h.reap_paused_display();
                 if application_finished(&h) {
-                    h.sessions.lock().unwrap().stop_role(Role::Stream, None);
+                    let canceled = h.sessions.lock().unwrap().stop_role(Role::Stream, None);
+                    drop(canceled);
                     h.stop_app();
                 }
             }));

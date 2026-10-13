@@ -169,10 +169,12 @@ pub fn activate(h: &Shared, client: &str, config: &Negotiated) -> Result<Arc<Ret
     Ok(lease)
 }
 pub fn disconnect(h: &Shared, client: Option<&str>) {
-    h.sessions
+    let canceled = h
+        .sessions
         .lock()
         .unwrap()
         .stop_role(Role::RemoteMonitor, client);
+    drop(canceled);
     let mut monitors = h.monitors.lock().unwrap();
     let (kept, removed): (
         std::collections::BTreeMap<_, _>,

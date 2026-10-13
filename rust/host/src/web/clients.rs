@@ -33,7 +33,8 @@ pub(super) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
             json!({"status":true,"clients":clients,"named_certs":clients})
         }
         ("POST", "/api/clients/unpair") => {
-            h.sessions.lock().unwrap().request_stop(Some(text("uuid")));
+            let canceled = h.sessions.lock().unwrap().request_stop(Some(text("uuid")));
+            drop(canceled);
             crate::remote_display::disconnect(h, Some(text("uuid")));
             h.paired
                 .write()
@@ -42,7 +43,8 @@ pub(super) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
             json!({"status":true})
         }
         ("POST", "/api/clients/unpair-all") => {
-            h.sessions.lock().unwrap().request_stop(None);
+            let canceled = h.sessions.lock().unwrap().request_stop(None);
+            drop(canceled);
             crate::remote_display::disconnect(h, None);
             let mut state = h.paired.write().unwrap();
             let mut next = state.clone();
@@ -52,7 +54,8 @@ pub(super) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
             json!({"status":true})
         }
         ("POST", "/api/clients/disconnect") => {
-            h.sessions.lock().unwrap().request_stop(Some(text("uuid")));
+            let canceled = h.sessions.lock().unwrap().request_stop(Some(text("uuid")));
+            drop(canceled);
             crate::remote_display::disconnect(h, Some(text("uuid")));
             json!({"status":true})
         }
@@ -99,7 +102,8 @@ pub(super) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
             // Other changes apply from the device's next stream; disabling
             // it or removing permissions ends what it is doing now.
             if revoked {
-                h.sessions.lock().unwrap().request_stop(Some(text("uuid")));
+                let canceled = h.sessions.lock().unwrap().request_stop(Some(text("uuid")));
+                drop(canceled);
                 crate::remote_display::disconnect(h, Some(text("uuid")));
             }
             json!({"status":true,"disconnected":revoked})

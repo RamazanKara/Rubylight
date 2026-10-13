@@ -353,6 +353,56 @@ mod tests {
         assert!(restored.load(Ordering::Acquire));
     }
     #[test]
+    fn canceled_launches_restore_resources_after_unlocking_sessions() {
+        use std::sync::{Mutex, Weak};
+        struct Restore {
+            sessions: Weak<Mutex<Sessions>>,
+            restored: Arc<AtomicBool>,
+        }
+        impl Preparation<()> for Restore {
+            fn prepared(&self) -> &() {
+                &()
+            }
+            fn into_prepared(self: Box<Self>) {}
+        }
+        impl Drop for Restore {
+            fn drop(&mut self) {
+                assert!(self.sessions.upgrade().unwrap().try_lock().is_ok());
+                self.restored.store(true, Ordering::Release);
+            }
+        }
+        let cancellations: [fn(&mut Sessions) -> Vec<Launch>; 7] = [
+            |s| s.supersede("client", Role::Stream),
+            |s| s.request_stop(None),
+            |s| s.request_stop(Some("pending")),
+            |s| s.request_stop(Some("client")),
+            |s| s.stop_role(Role::Stream, None),
+            |s| s.stop_role(Role::Stream, Some("client")),
+            |s| s.queue(launch("replacement", Role::Stream)).unwrap(),
+        ];
+        for cancel in cancellations {
+            let sessions = Arc::new(Mutex::new(Sessions::default()));
+            let restored = Arc::new(AtomicBool::new(false));
+            let pending = launch("pending", Role::Stream);
+            *pending.preparation.lock().unwrap() = Some(Box::new(Restore {
+                sessions: Arc::downgrade(&sessions),
+                restored: restored.clone(),
+            }));
+            let canceled = {
+                let mut locked = sessions.lock().unwrap();
+                locked.pending.insert(pending.id.clone(), pending);
+                let canceled = cancel(&mut locked);
+                assert_eq!(canceled.len(), 1);
+                assert!(!locked.pending.contains_key("pending"));
+                assert!(!restored.load(Ordering::Acquire));
+                canceled
+            };
+            assert!(!restored.load(Ordering::Acquire));
+            drop(canceled);
+            assert!(restored.load(Ordering::Acquire));
+        }
+    }
+    #[test]
     fn pending_launches_and_streams_keep_sessions_busy_until_they_expire_or_end() {
         let mut sessions = Sessions::default();
         assert!(sessions.idle());
@@ -615,14 +665,14 @@ mod tests {
         let input = sessions
             .start(launch("input", Role::InputOnly), Negotiated::default())
             .unwrap();
-        sessions.stop_role(Role::RemoteMonitor, Some("client"));
+        drop(sessions.stop_role(Role::RemoteMonitor, Some("client")));
         assert!(sessions.pending.is_empty());
         assert!(!game.stopping());
         assert!(!input.stopping());
-        sessions.stop_role(Role::Stream, None);
+        drop(sessions.stop_role(Role::Stream, None));
         assert!(game.stopping());
         assert!(!input.stopping());
-        sessions.request_stop(Some("client"));
+        drop(sessions.request_stop(Some("client")));
         assert!(input.stopping());
     }
     #[test]
@@ -1000,13 +1050,19 @@ impl<P, A> Default for Sessions<P, A> {
 impl<P, A> Sessions<P, A> {
     #[must_use = "drop expired launches after releasing the sessions lock"]
     pub fn expire(&mut self) -> Vec<Launch<P, A>> {
-        let expired: Vec<_> = self
+        self.remove_pending(|p| !p.live())
+    }
+    fn remove_pending(
+        &mut self,
+        mut matches: impl FnMut(&Launch<P, A>) -> bool,
+    ) -> Vec<Launch<P, A>> {
+        let removed: Vec<_> = self
             .pending
             .iter()
-            .filter(|(_, p)| !p.live())
+            .filter(|(_, p)| matches(p))
             .map(|(id, _)| id.clone())
             .collect();
-        expired
+        removed
             .iter()
             .filter_map(|id| self.pending.remove(id))
             .collect()
@@ -1014,30 +1070,34 @@ impl<P, A> Sessions<P, A> {
     /// Withdraw a client's launches and streams in one role. Moonlight starts a
     /// stream only after abandoning its previous one, which may never have
     /// connected or may not have timed out yet; either would otherwise block
-    /// the new attempt. Returns the streams asked to stop.
-    pub fn supersede(&mut self, client: &str, role: Role) -> Vec<Arc<Session<P, A>>> {
-        self.pending
-            .retain(|_, p| p.client.uuid != client || p.role != role);
-        let stopped: Vec<_> = self
-            .active
-            .values()
-            .filter(|s| s.launch.client.uuid == client && s.launch.role == role)
-            .cloned()
-            .collect();
-        for session in &stopped {
-            session.stop();
-        }
-        stopped
+    /// the new attempt. Returns the removed launches for restoration after unlocking.
+    #[must_use = "drop canceled launches after releasing the sessions lock"]
+    pub fn supersede(&mut self, client: &str, role: Role) -> Vec<Launch<P, A>> {
+        self.stop_role(role, Some(client))
     }
     /// Queue a launch, replacing the same client's earlier launch in its role.
-    pub fn queue(&mut self, launch: Launch<P, A>) -> Result<()> {
-        self.supersede(&launch.client.uuid, launch.role);
-        let streaming = self.active.values().filter(|s| !s.stopping()).count();
-        if self.pending.values().filter(|p| p.live()).count() + streaming >= 16 {
+    /// Drop the returned launches after releasing the sessions lock.
+    pub fn queue(&mut self, launch: Launch<P, A>) -> Result<Vec<Launch<P, A>>> {
+        let replaced =
+            |p: &Launch<P, A>| p.client.uuid == launch.client.uuid && p.role == launch.role;
+        let streaming = self
+            .active
+            .values()
+            .filter(|s| !s.stopping() && !replaced(&s.launch))
+            .count();
+        if self
+            .pending
+            .values()
+            .filter(|p| p.live() && !replaced(p))
+            .count()
+            + streaming
+            >= 16
+        {
             bail!("session limit reached");
         }
-        self.pending.insert(launch.id.clone(), launch);
-        Ok(())
+        let mut canceled = self.supersede(&launch.client.uuid, launch.role);
+        canceled.extend(self.pending.insert(launch.id.clone(), launch));
+        Ok(canceled)
     }
     pub fn pending_for_peer(&self, peer: IpAddr) -> Result<Launch<P, A>> {
         let mut found = self.pending.values().filter(|p| p.peer == peer && p.live());
@@ -1082,14 +1142,16 @@ impl<P, A> Sessions<P, A> {
         session.fail();
         self.active.remove(&session.launch.id);
     }
-    pub fn request_stop(&mut self, id: Option<&str>) {
-        self.pending
-            .retain(|_, p| id.is_some_and(|id| p.client.uuid != id && p.id != id));
+    #[must_use = "drop canceled launches after releasing the sessions lock"]
+    pub fn request_stop(&mut self, id: Option<&str>) -> Vec<Launch<P, A>> {
+        let canceled =
+            self.remove_pending(|p| id.is_none_or(|id| p.client.uuid == id || p.id == id));
         for s in self.active.values() {
             if id.is_none_or(|id| s.launch.client.uuid == id || s.launch.id == id) {
                 s.stop();
             }
         }
+        canceled
     }
     pub fn owns_capture(&self) -> bool {
         !self.pending.is_empty() || !self.active.is_empty() || !self.teardown.is_empty()
@@ -1102,13 +1164,15 @@ impl<P, A> Sessions<P, A> {
             && self.teardown.is_empty()
             && !self.pending.values().any(Launch::live)
     }
-    pub fn stop_role(&mut self, role: Role, client: Option<&str>) {
-        self.pending
-            .retain(|_, p| p.role != role || client.is_some_and(|id| p.client.uuid != id));
+    #[must_use = "drop canceled launches after releasing the sessions lock"]
+    pub fn stop_role(&mut self, role: Role, client: Option<&str>) -> Vec<Launch<P, A>> {
+        let canceled =
+            self.remove_pending(|p| p.role == role && client.is_none_or(|id| p.client.uuid == id));
         for s in self.active.values() {
             if s.launch.role == role && client.is_none_or(|id| id == s.launch.client.uuid) {
                 s.stop();
             }
         }
+        canceled
     }
 }

@@ -344,13 +344,24 @@ pub struct FecBlock {
     pub percentage: usize,
 }
 pub fn parity(data: usize, percentage: usize, minimum: usize) -> usize {
-    if percentage == 0 {
-        0
-    } else {
-        (data * percentage)
-            .div_ceil(100)
-            .max(minimum_parity(data, minimum))
+    fec_parameters(data, percentage, minimum).0
+}
+/// The parity count must be exactly derivable from the percentage on the wire:
+/// it also selects the receiver's Reed-Solomon matrix, not just its packet count.
+pub(crate) fn fec_parameters(data: usize, percentage: usize, minimum: usize) -> (usize, usize) {
+    if data == 0 || percentage == 0 {
+        return (0, percentage);
     }
+    let fec = (data * percentage).div_ceil(100);
+    let minimum = minimum_parity(data, minimum);
+    if fec >= minimum {
+        return (fec, percentage);
+    }
+    let mut effective = 100 * minimum / data;
+    if (data * effective).div_ceil(100) < minimum {
+        effective += 1;
+    }
+    ((data * effective).div_ceil(100), effective)
 }
 /// A client's minimum parity, capped where the 8-bit FEC percentage that
 /// carries it can still describe it: 3 parity shards for 1 data shard would
@@ -421,9 +432,12 @@ pub fn plan(
                 .collect();
             if candidate
                 .iter()
-                .map(|b| parity(b.data, b.percentage, minimum))
-                .sum::<usize>()
-                <= extra
+                .all(|b| b.data + parity(b.data, b.percentage, minimum) <= 255)
+                && candidate
+                    .iter()
+                    .map(|b| parity(b.data, b.percentage, minimum))
+                    .sum::<usize>()
+                    <= extra
             {
                 out.extend(candidate);
                 return Ok(out);
@@ -433,16 +447,20 @@ pub fn plan(
         if detail > 0 && extra > 0 {
             let mut leading = critical;
             while leading < total.min(capacity(rate))
-                && parity(leading + 1, rate, minimum) - base <= extra
+                && leading + 1 + parity(leading + 1, rate, minimum) <= 255
+                && parity(leading + 1, rate, minimum).saturating_sub(base) <= extra
             {
                 leading += 1;
             }
             out[0].data = leading;
-            extra -= parity(leading, rate, minimum) - base;
+            extra -= parity(leading, rate, minimum).saturating_sub(base);
             let mut remaining = total - leading;
             while remaining > 0 && out.len() < 4 {
                 let mut data = remaining.min(capacity(detail));
-                while data > 0 && parity(data, detail, minimum) > extra {
+                while data > 0
+                    && (parity(data, detail, minimum) > extra
+                        || data + parity(data, detail, minimum) > 255)
+                {
                     data -= 1;
                 }
                 if data == 0 || remaining - data > (3 - out.len()) * 1023 {
@@ -568,6 +586,27 @@ mod tests {
             out.resize(out.len() + size - 8, 42);
         }
         out
+    }
+    #[test]
+    fn minimum_parity_rounding_keeps_every_planned_block_representable() {
+        for total in [230, 231, 460, 462, 600, 800] {
+            for critical in [1, 2, 201] {
+                for minimum in [24, 42] {
+                    for extra in [0, 50, 200] {
+                        let blocks = plan(total, critical, 20, minimum, 50, extra).unwrap();
+                        assert_eq!(blocks.iter().map(|b| b.data).sum::<usize>(), total);
+                        assert!(blocks.len() <= 4);
+                        for block in blocks {
+                            let (parity, percentage) =
+                                fec_parameters(block.data, block.percentage, minimum);
+                            assert_eq!(parity, (block.data * percentage).div_ceil(100));
+                            assert!(block.data <= 1023);
+                            assert!(percentage == 0 || block.data + parity <= 255);
+                        }
+                    }
+                }
+            }
+        }
     }
     #[test]
     fn quality_bitrates_scale_with_pixels_and_frame_rate() {

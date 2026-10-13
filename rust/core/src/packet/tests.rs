@@ -21,6 +21,85 @@ fn large_conventional_frames_report_the_wire_fec_cutoff() {
 use super::*;
 
 #[test]
+fn minimum_fec_uses_the_receivers_exact_parity_count() {
+    for data in 1..=1023 {
+        for percentage in [0, 1, 20, 100, 255] {
+            for minimum in [0, 2, 24, 42, 255] {
+                let (parity, effective) = block_parity(data, percentage, minimum);
+                assert!(effective <= 255);
+                assert_eq!(parity, (data * effective).div_ceil(100));
+                if percentage > 0 {
+                    assert!(parity >= crate::pyrowave::minimum_parity(data, minimum));
+                }
+            }
+        }
+    }
+    // 44 parity shards cannot be advertised exactly for 211 data shards.
+    // The representable 45 exceed the 255-shard limit, so split the frame.
+    assert_eq!(conventional_fec(211, 20, 44), (2, 20));
+    for data in 1..=1020 {
+        for percentage in [1, 20, 100] {
+            for minimum in [2, 24, 42, 255] {
+                let (blocks, effective) = conventional_fec(data, percentage, minimum);
+                let aligned = data.div_ceil(blocks);
+                for block in 0..blocks {
+                    let count = data.saturating_sub(block * aligned).min(aligned);
+                    assert!(count + block_parity(count, effective, minimum).0 <= 255);
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn minimum_fec_recovers_loss_using_the_wire_selected_matrix() {
+    for key in [None, Some([42; 16])] {
+        let mut packetizer = VideoPacketizer {
+            sequence: 0,
+            iv_counter: 0,
+            frame: 1,
+            packet_size: 1392,
+            fec_percent: 20,
+            min_fec: 42,
+            key,
+        };
+        let payload: Vec<_> = (0..201 * 1376 - 8)
+            .map(|i| (i * 29 + i / 1376) as u8)
+            .collect();
+        let packets: Vec<_> = packetizer
+            .encode(&payload, false, 9000, 500)
+            .unwrap()
+            .into_iter()
+            .map(|packet| match key {
+                Some(key) => {
+                    crypto::gcm_open(&key, &packet[..12], &packet[16..32], &packet[32..]).unwrap()
+                }
+                None => packet,
+            })
+            .collect();
+        let info = u32::from_le_bytes(packets[0][28..32].try_into().unwrap());
+        let data = (info >> 22) as usize;
+        let percentage = ((info >> 4) & 255) as usize;
+        let parity = (data * percentage).div_ceil(100);
+        assert_eq!((data, percentage, parity), (201, 21, 43));
+        assert_eq!(packets.len(), data + parity);
+        // Recover a missing data shard with the client's matrix formula. The
+        // advertised parity count selects the coefficients as well as the size.
+        let missing = 17;
+        for offset in [32, 40, 255, 1407] {
+            let mut recovered = packets[data][offset];
+            for (column, packet) in packets[..data].iter().enumerate() {
+                if column != missing {
+                    recovered ^= gf_mul(packet[offset], inverse((parity + column) as u8));
+                }
+            }
+            recovered = gf_mul(recovered, (parity + missing) as u8);
+            assert_eq!(recovered, packets[missing][offset]);
+        }
+    }
+}
+
+#[test]
 fn conventional_blocks_reuse_shards_and_match_collected_packets() {
     for key in [None, Some([42; 16])] {
         let make = || VideoPacketizer {

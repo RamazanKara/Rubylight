@@ -80,18 +80,17 @@ async fn read_message(socket: &mut TcpStream, launches: &[Launch]) -> Result<(La
     if launch.rtsp_encrypted {
         bail!("unencrypted RTSP message for encrypted launch");
     }
-    let mut b = first.to_vec();
-    loop {
-        if let Some(total) = rtsp::complete_length(&b)? {
-            if b.len() != total {
-                bail!("unexpected RTSP trailing data");
-            }
-            return Ok((launch.clone(), b));
+    let mut message = rtsp::MessageBuffer::default();
+    let mut complete = message.append(&first)?;
+    let mut chunk = [0; 4096];
+    while !complete {
+        let read = socket.read(&mut chunk).await?;
+        if read == 0 {
+            return Err(std::io::Error::from(std::io::ErrorKind::UnexpectedEof).into());
         }
-        let mut byte = [0; 1];
-        socket.read_exact(&mut byte).await?;
-        b.push(byte[0]);
+        complete = message.append(&chunk[..read])?;
     }
+    Ok((launch.clone(), message.into_bytes()))
 }
 async fn connection(
     mut socket: TcpStream,
@@ -308,7 +307,8 @@ async fn connection(
                     media.start(h.clone(), session);
                 }
                 "TEARDOWN" => {
-                    h.sessions.lock().unwrap().request_stop(Some(&launch.id));
+                    let canceled = h.sessions.lock().unwrap().request_stop(Some(&launch.id));
+                    drop(canceled);
                 }
                 _ => {
                     code = 405;

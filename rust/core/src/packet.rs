@@ -125,8 +125,18 @@ pub struct PyrowaveFec {
 /// 4K60 and 80 Mbps large P-frames lost all protection just past the cutoff.
 fn conventional_fec(total_shards: usize, percentage: usize, minimum: usize) -> (usize, usize) {
     let blocks = total_shards.div_ceil(255 * 100 / (100 + percentage));
-    if blocks <= 4 {
-        return (blocks, percentage);
+    let fits = |blocks: usize, percentage| {
+        let aligned = total_shards.div_ceil(blocks);
+        (0..blocks).all(|block| {
+            let data = total_shards.saturating_sub(block * aligned).min(aligned);
+            data + block_parity(data, percentage, minimum).0 <= 255
+        })
+    };
+    // A negotiated minimum can need more blocks than the configured percentage.
+    for blocks in blocks.max(1)..=4 {
+        if fits(blocks, percentage) {
+            return (blocks, percentage);
+        }
     }
     let per_block = total_shards.div_ceil(4);
     let room = 255usize.saturating_sub(per_block);
@@ -134,18 +144,13 @@ fn conventional_fec(total_shards: usize, percentage: usize, minimum: usize) -> (
         return (4, 0);
     }
     // ceil(per_block * fitted / 100) <= room for every block.
-    (4, (100 * room / per_block).min(percentage))
+    let fitted = (100 * room / per_block).min(percentage);
+    (4, if fits(4, fitted) { fitted } else { 0 })
 }
 /// Parity shards for a block of `count` data shards, and the percentage the
 /// client is told. A block below the minimum parity is raised to it.
 fn block_parity(count: usize, percentage: usize, minimum: usize) -> (usize, usize) {
-    let fec = (count * percentage).div_ceil(100);
-    let minimum = crate::pyrowave::minimum_parity(count, minimum);
-    if percentage > 0 && fec < minimum {
-        (minimum, 100 * minimum / count)
-    } else {
-        (fec, percentage)
-    }
+    crate::pyrowave::fec_parameters(count, percentage, minimum)
 }
 impl VideoPacketizer {
     /// Data and parity shards of each FEC block of an H.264, HEVC or AV1

@@ -20,6 +20,10 @@ pub fn complete_length(b: &[u8]) -> Result<Option<usize>> {
     let Some(i) = b.windows(4).position(|b| b == b"\r\n\r\n") else {
         return Ok(None);
     };
+    let total = message_length(b, i)?;
+    Ok(if b.len() >= total { Some(total) } else { None })
+}
+fn message_length(b: &[u8], i: usize) -> Result<usize> {
     let head = std::str::from_utf8(&b[..i])?;
     let mut length = 0;
     let mut seen = false;
@@ -40,7 +44,40 @@ pub fn complete_length(b: &[u8]) -> Result<Option<usize>> {
     if total > MAX_MESSAGE {
         bail!("RTSP message too large");
     }
-    Ok(if b.len() >= total { Some(total) } else { None })
+    Ok(total)
+}
+/// Incremental framing for one RTSP request. Search new header bytes only and
+/// parse Content-Length once, even when the peer fragments a large request.
+#[derive(Default)]
+pub struct MessageBuffer {
+    bytes: Vec<u8>,
+    expected: Option<usize>,
+}
+impl MessageBuffer {
+    pub fn append(&mut self, bytes: &[u8]) -> Result<bool> {
+        if bytes.len() > MAX_MESSAGE - self.bytes.len() {
+            bail!("RTSP message too large");
+        }
+        let scan_from = self.bytes.len().saturating_sub(3);
+        self.bytes.extend_from_slice(bytes);
+        if self.expected.is_none()
+            && let Some(offset) = self.bytes[scan_from..]
+                .windows(4)
+                .position(|b| b == b"\r\n\r\n")
+        {
+            self.expected = Some(message_length(&self.bytes, scan_from + offset)?);
+        }
+        if let Some(total) = self.expected {
+            if self.bytes.len() > total {
+                bail!("unexpected RTSP trailing data");
+            }
+            return Ok(self.bytes.len() == total);
+        }
+        Ok(false)
+    }
+    pub fn into_bytes(self) -> Vec<u8> {
+        self.bytes
+    }
 }
 impl Request {
     pub fn parse(b: &[u8]) -> Result<Self> {
@@ -421,6 +458,62 @@ mod tests {
             )
             .is_err()
         );
+    }
+    #[test]
+    fn message_buffer_handles_every_header_boundary_and_large_chunks() {
+        let raw = b"ANNOUNCE rtsp://host RTSP/1.0\r\nCSeq: 2\r\nContent-Length: 5\r\n\r\nhello";
+        for split in 0..raw.len() {
+            let mut message = MessageBuffer::default();
+            assert!(!message.append(&raw[..split]).unwrap());
+            assert!(message.append(&raw[split..]).unwrap());
+            assert_eq!(
+                Request::parse(&message.into_bytes()).unwrap().body,
+                b"hello"
+            );
+        }
+        let mut raw = b"OPTIONS * RTSP/1.0\r\nCSeq: 2\r\nX-Fill: ".to_vec();
+        raw.resize(MAX_MESSAGE - 4, b'a');
+        raw.extend_from_slice(b"\r\n\r\n");
+        for chunk in [1, 3, 4096, MAX_MESSAGE] {
+            let mut message = MessageBuffer::default();
+            let mut consumed = 0;
+            for bytes in raw.chunks(chunk) {
+                consumed += bytes.len();
+                assert_eq!(message.append(bytes).unwrap(), consumed == raw.len());
+            }
+            let parsed = Request::parse(&message.into_bytes()).unwrap();
+            assert_eq!(parsed.cseq, 2);
+            assert!(parsed.body.is_empty());
+        }
+        let mut message = MessageBuffer::default();
+        assert!(
+            !message
+                .append(b"ANNOUNCE * RTSP/1.0\r\nCSeq: 3\r\nContent-Length: 60000\r\n\r\n")
+                .unwrap()
+        );
+        for i in 0..60 {
+            assert_eq!(message.append(&[b'x'; 1000]).unwrap(), i == 59);
+        }
+        assert_eq!(
+            Request::parse(&message.into_bytes()).unwrap().body.len(),
+            60_000
+        );
+    }
+    #[test]
+    fn message_buffer_rejects_oversized_duplicate_and_trailing_data() {
+        for raw in [
+            b"OPTIONS * RTSP/1.0\r\nContent-Length: 0\r\nContent-Length: 1\r\n\r\n".as_slice(),
+            b"OPTIONS * RTSP/1.0\r\nContent-Length: 65536\r\n\r\n",
+            b"OPTIONS * RTSP/1.0\r\nContent-Length: 0\r\n\r\nx",
+        ] {
+            assert!(MessageBuffer::default().append(raw).is_err());
+        }
+        let mut message = MessageBuffer::default();
+        assert!(!message.append(&vec![b'x'; MAX_MESSAGE]).unwrap());
+        assert!(message.append(b"x").is_err());
+        let mut message = MessageBuffer::default();
+        assert!(message.append(b"OPTIONS * RTSP/1.0\r\n\r\n").unwrap());
+        assert!(message.append(b"x").is_err());
     }
     #[test]
     fn sdp_negotiation_rejects_integers_that_would_truncate() {

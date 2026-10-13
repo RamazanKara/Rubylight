@@ -988,17 +988,19 @@ fn start(h: Shared, connection: Connection, args: Args, resume: bool) -> Respons
         // Stopping streams can still own displays shared with this launch.
         // Read both maps under one lock so a worker moving into teardown
         // cannot disappear from the wait before releasing its resources.
-        let stopping: Vec<_> = {
+        let (canceled, stopping) = {
             let mut sessions = h.sessions.lock().unwrap();
-            sessions.supersede(&launch.client.uuid, role);
-            sessions
+            let canceled = sessions.supersede(&launch.client.uuid, role);
+            let stopping: Vec<_> = sessions
                 .active
                 .values()
                 .filter(|s| s.stopping())
                 .map(|s| s.launch.id.clone())
                 .chain(sessions.teardown.keys().cloned())
-                .collect()
+                .collect();
+            (canceled, stopping)
         };
+        drop(canceled);
         if !stopping.is_empty() {
             tracing::info!(client = %launch.client.name, "waiting for previous streams to release their resources");
             if !wait_for_teardown(&h.sessions, &stopping, Duration::from_secs(5)) {
@@ -1018,7 +1020,8 @@ fn start(h: Shared, connection: Connection, args: Args, resume: bool) -> Respons
             .preparing
             .store(true, std::sync::atomic::Ordering::Release);
         let preparing = Preparing(launch.preparing.clone());
-        h.sessions.lock().unwrap().queue(launch.clone())?;
+        let canceled = h.sessions.lock().unwrap().queue(launch.clone())?;
+        drop(canceled);
         if role != Role::InputOnly {
             #[cfg(test)]
             if let Some(fixture) = &h.reconnect_fixture {
@@ -1029,7 +1032,8 @@ fn start(h: Shared, connection: Connection, args: Args, resume: bool) -> Respons
                 match prepared {
                     Ok(prepared) => *launch.preparation.lock().unwrap() = Some(Box::new(prepared)),
                     Err(error) => {
-                        h.sessions.lock().unwrap().pending.remove(&id);
+                        let canceled = h.sessions.lock().unwrap().pending.remove(&id);
+                        drop(canceled);
                         return Err(error);
                     }
                 }
@@ -1127,7 +1131,8 @@ fn validate_launch_request(
             }
             confirmations.clear(&client.uuid, remote::Confirmation::Terminate);
             drop(confirmations);
-            h.sessions.lock().unwrap().stop_role(Role::Stream, None);
+            let canceled = h.sessions.lock().unwrap().stop_role(Role::Stream, None);
+            drop(canceled);
             h.stop_app();
             return ControlFlow::Break(xml(
                 410,
@@ -1144,10 +1149,12 @@ fn validate_launch_request(
             ));
         }
         Some(Control::DisconnectInput) => {
-            h.sessions
+            let canceled = h
+                .sessions
                 .lock()
                 .unwrap()
                 .stop_role(Role::InputOnly, Some(&client.uuid));
+            drop(canceled);
             return ControlFlow::Break(xml(
                 410,
                 &[("gamesession", "0".into())],
@@ -1314,19 +1321,21 @@ fn replace_launch_app(
             .lock()
             .unwrap()
             .clear(&launch.client.uuid, remote::Confirmation::Replace);
-        let stopped: Vec<_> = {
+        let (canceled, stopped) = {
             let mut sessions = h.sessions.lock().unwrap();
-            sessions.stop_role(Role::Stream, None);
-            sessions
+            let canceled = sessions.stop_role(Role::Stream, None);
+            let stopped: Vec<_> = sessions
                 .active
                 .values()
                 .filter(|s| s.launch.role == Role::Stream)
                 .map(|s| s.launch.id.clone())
                 .chain(sessions.teardown.keys().cloned())
-                .collect()
+                .collect();
+            (canceled, stopped)
         };
         let previous = current.take();
         drop(current);
+        drop(canceled);
         // Stopping the app waits for it to exit, never under the lock
         // that every serverinfo and app list request takes.
         drop(previous);
@@ -1478,7 +1487,8 @@ fn prepare_launch_app(
                 }
             }
             Err(e) => {
-                h.sessions.lock().unwrap().pending.remove(id);
+                let canceled = h.sessions.lock().unwrap().pending.remove(id);
+                drop(canceled);
                 return Err(e);
             }
         }
@@ -1567,7 +1577,8 @@ fn cancel_app(h: Shared, connection: Connection) -> Response {
     } else {
         return xml(200, &[("cancel", "1".into())], None);
     }
-    h.sessions.lock().unwrap().stop_role(Role::Stream, None);
+    let canceled = h.sessions.lock().unwrap().stop_role(Role::Stream, None);
+    drop(canceled);
     h.stop_app();
     xml(200, &[("cancel", "1".into())], None)
 }
@@ -1585,7 +1596,8 @@ async fn unpair(State(h): State<Shared>, Extension(connection): Extension<Connec
     if let Err(e) = removed {
         return xml(500, &[("unpaired", "0".into())], Some(e.to_string()));
     }
-    h.sessions.lock().unwrap().request_stop(Some(&client.uuid));
+    let canceled = h.sessions.lock().unwrap().request_stop(Some(&client.uuid));
+    drop(canceled);
     crate::remote_display::disconnect(&h, Some(&client.uuid));
     xml(200, &[("unpaired", "1".into())], None)
 }

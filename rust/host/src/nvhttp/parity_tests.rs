@@ -965,11 +965,13 @@ async fn clipboard_requires_direction_view_text_and_an_active_session_for_this_d
     }
     f.host.paired.write().unwrap().clients[0].perm = (1 << 17) | (1 << 26);
     assert!(clipboard_client(&f.host, &c, 1 << 17, &args).is_ok());
-    f.host
+    let canceled = f
+        .host
         .sessions
         .lock()
         .unwrap()
         .request_stop(Some(&mine.launch.client.uuid));
+    drop(canceled);
     assert!(clipboard_client(&f.host, &c, 1 << 17, &args).is_err());
 }
 

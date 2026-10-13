@@ -493,7 +493,8 @@ impl Drop for Harness {
     fn drop(&mut self) {
         self.fixture.hold_teardown.store(false, Ordering::Release);
         self.h.stop.store(true, Ordering::Release);
-        self.h.sessions.lock().unwrap().request_stop(None);
+        let canceled = self.h.sessions.lock().unwrap().request_stop(None);
+        drop(canceled);
         for listener in &self.listeners {
             listener.abort();
         }
@@ -719,7 +720,8 @@ async fn malformed_rtsp_requests_receive_an_authenticated_error_response() -> Re
         assert!(response.starts_with("RTSP/1.0 400"), "{response}");
         assert!(response.contains(message), "{response}");
     }
-    h.h.sessions.lock().unwrap().request_stop(Some(&launch.id));
+    let canceled = h.h.sessions.lock().unwrap().request_stop(Some(&launch.id));
+    drop(canceled);
     drop(launch);
     h.finish().await
 }

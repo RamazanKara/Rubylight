@@ -27,9 +27,11 @@ fn server_command(
     h: &Shared,
     client: &butterpollo_core::state::Client,
     payload: &[u8],
+    authenticated: bool,
     command_at: &mut Option<Instant>,
 ) -> Option<(String, bool)> {
-    if !client.allows(1 << 20) || payload.len() != 1 {
+    // Legacy plaintext control is not proof that the sender owns the stream key.
+    if !authenticated || !client.allows(1 << 20) || payload.len() != 1 {
         return None;
     }
     if h.current_app
@@ -2784,7 +2786,8 @@ impl Media {
                         let id = peer.id();
                         if let Some(p) = peers.remove(&id) {
                             let session = h.sessions.lock().unwrap().active.get(&p.id).cloned();
-                            h.sessions.lock().unwrap().request_stop(Some(&p.id));
+                            let canceled = h.sessions.lock().unwrap().request_stop(Some(&p.id));
+                            drop(canceled);
                             if let Some(session) = session
                                 && session.launch.role == Role::RemoteMonitor
                                 && h.config.read().unwrap().boolean(
@@ -2846,6 +2849,7 @@ impl Media {
                                     &h,
                                     &s.launch.client,
                                     &payload,
+                                    encrypted,
                                     &mut p.command_at,
                                 ) && let Err(e) = commands.try_send((s.clone(), value, elevated))
                                 {
@@ -3098,12 +3102,12 @@ impl Media {
                         let mode = s.stream_mode();
                         i.set_stream_size(mode.width, mode.height);
                     }
-                    let inputs = std::mem::take(&mut p.inputs);
                     if let Some(i) = &mut p.injector {
-                        for e in i.apply_all(&inputs) {
+                        for e in i.apply_all(&p.inputs) {
                             s.launch.warnings.event("input_injection", format!("Input injection failed ({e:#}); keyboard, mouse, touch or pen actions may be missing. Unlock the desktop and check Windows input permissions or disable native touch/pen if unsupported."), butterpollo_core::session::EVENT_PERIOD);
                         }
                     }
+                    p.inputs.clear();
                     if !poll_feedback
                         && let Some(i) = &mut p.injector
                         && let Err(e) = i.due()
@@ -3364,26 +3368,31 @@ mod tests {
             {"name":"First","cmd":"echo first"}, {"name":"Second","cmd":"echo second","elevated":true}
         ]).to_string());
         let mut at = None;
+        assert_eq!(server_command(&f.host, &client, &[1], false, &mut at), None);
+        assert!(at.is_none());
         assert_eq!(
-            server_command(&f.host, &client, &[1], &mut at),
+            server_command(&f.host, &client, &[1], true, &mut at),
             Some(("echo second".into(), true))
         );
         assert!(at.is_some());
-        assert_eq!(server_command(&f.host, &client, &[0], &mut at), None);
+        assert_eq!(server_command(&f.host, &client, &[0], true, &mut at), None);
         at = Some(Instant::now() - Duration::from_secs(2));
         assert_eq!(
-            server_command(&f.host, &client, &[0], &mut at),
+            server_command(&f.host, &client, &[0], true, &mut at),
             Some(("echo first".into(), false))
         );
         for payload in [vec![], vec![0, 1], vec![2]] {
             at = None;
-            assert_eq!(server_command(&f.host, &client, &payload, &mut at), None);
+            assert_eq!(
+                server_command(&f.host, &client, &payload, true, &mut at),
+                None
+            );
         }
         for (permission, enabled) in [(0, true), (1 << 20, false)] {
             client.perm = permission;
             client.enabled = enabled;
             at = None;
-            assert_eq!(server_command(&f.host, &client, &[0], &mut at), None);
+            assert_eq!(server_command(&f.host, &client, &[0], true, &mut at), None);
             assert!(at.is_none());
         }
         client.perm = 1 << 20;
@@ -3393,7 +3402,7 @@ mod tests {
                 .unwrap();
         *f.host.current_app.lock().unwrap() =
             Some(crate::process::RunningApp::with_environment(&app, Default::default()).unwrap());
-        assert_eq!(server_command(&f.host, &client, &[0], &mut at), None);
+        assert_eq!(server_command(&f.host, &client, &[0], true, &mut at), None);
         assert!(at.is_none());
     }
     #[test]

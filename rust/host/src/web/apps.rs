@@ -94,10 +94,12 @@ pub(super) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
             json!({"status":true,"applied":h.update_live_rtx(text("uuid"),&values)?})
         }
         ("POST", "/api/apps/close") => {
-            h.sessions
+            let canceled = h
+                .sessions
                 .lock()
                 .unwrap()
                 .stop_role(butterpollo_core::session::Role::Stream, None);
+            drop(canceled);
             h.stop_app();
             json!({"status":true})
         }

@@ -12,6 +12,7 @@ How the Android client works with each Rubylight host feature.
 | Device permissions | Separate list, view, launch, input, clipboard and command permissions, set by the host. |
 | Library and artwork | Shows your apps in host order and caches artwork until the host publishes new art. |
 | Launch, resume, disconnect, quit | Checks permissions first and confirms before ending a game. |
+| Automatic recovery | Bounded retries resume the same running app after transient transport loss. Enabled by default; retries cannot launch, quit or replace an app. |
 | Remote Monitor / Input-only | View-only video and audio, or controls and feedback without starting decoders. |
 | H.264 / HEVC / AV1 | Hardware decoding with automatic codec selection and per-device low-latency decoder tuning ([decoder notes](../decoder-errata.txt)). |
 | HDR10 | Main10 negotiation, BT.2020/PQ, static display metadata and smooth HDR transitions. |
@@ -24,8 +25,13 @@ How the Android client works with each Rubylight host feature.
 | Client upscaling | Lower-resolution SDR video can use bilinear, FSR 1.0 or SGSR 1. PyroWave uses SGSR for both FSR and SGSR selections; native/larger inputs and HDR/10-bit use direct output. |
 | Snapdragon GPU drivers | Import a compatible Vulkan driver ZIP on ARM64 Adreno devices for PyroWave, with system-driver fallback. MediaCodec remains on the system driver. See [driver requirements](video-and-latency.md). |
 | Automatic bitrate | Per-PC adaptation from loss, RTT variation and decode headroom, up to 500 Mbps at runtime. |
+| Automatic resolution/FPS | Opt-in motion, detail and battery modes with user floors and a session ceiling, on hosts/decoders supporting stream reconfiguration. Unsupported hosts and PyroWave retain their negotiated size. |
+| Stream health | [Recent evidence](stream-health.md) for network, decoder, host, presentation and heat, with an optional reversible bitrate trial on compatible hosts. |
 | Audio | Stereo, 5.1 and 7.1, with low-latency AAudio for stereo on Android 8.1 and later. |
-| Controllers and mappings | Multiple players, per-model button mapping and built-in Xbox USB drivers. |
+| Controllers and mappings | Multiple players, per-model button, stick/trigger and D-pad mapping, and built-in Xbox USB drivers. |
+| Per-game touch controls | Held/toggle keyboard and mouse buttons, layout editing, and validated JSON import/export/sharing. |
+| Desktop tools | Pinch zoom/pan with matching absolute input, plus external-display video and a phone touchpad with reconnect fallback. |
+| Remote access guide | [Paired HTTPS checks](remote-setup.md) and, on updated Rubylight hosts, direct/DERP/peer-relay status for the current Tailscale peer. |
 | DualSense / Edge | Adaptive triggers, rumble, lightbar and Edge paddles over the direct USB driver. |
 | DualSense waveform haptics | Experimental, opt-in USB actuator PCM with compatible hosts such as Vibepollo nightly. Reserves controller USB audio; Bluetooth waveform output is unavailable. See [setup and limitations](dualsense-haptics.md). |
 | Touch, pen, mouse and keyboard | Trackpad, direct and multi-touch, native pen, pointer capture and keyboard input. Direct positions account for shifted stream layouts. Extra keyboard keys include Esc, F1–F12, modifiers and Task Manager/window shortcuts. Custom chords can be edited under Controls and imported/exported as JSON. |

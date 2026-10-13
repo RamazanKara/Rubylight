@@ -1,0 +1,5 @@
+Automatic stream recovery and optional adaptive quality modes.
+Stream health diagnosis with a reversible bitrate trial.
+Per-game touch controls, desktop zoom and external-display video.
+Paired remote-access guidance and route diagnostics.
+More reliable DualSense USB announcements and audio, with microphone mute and permission safeguards.

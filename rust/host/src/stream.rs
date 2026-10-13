@@ -2917,7 +2917,14 @@ impl Media {
                                         }
                                         p.controller_audio[id as usize] = policy.device_flags;
                                         state[1] = 3; // Acknowledge host microphone policy.
-                                        state[4] = policy.client_flags;
+                                        // Auto may have attached a VHF pad without audio.
+                                        // The client's periodic status retries after USB
+                                        // enumeration; retain its desired device policy.
+                                        state[4] = policy.acknowledged_flags(
+                                            p.injector
+                                                .as_ref()
+                                                .is_some_and(|i| i.controller_audio_ready(id)),
+                                        );
                                         if let Ok(message) = p.encrypt(&s, kind, &state) {
                                             let _ = peer.send(
                                                 FEEDBACK_CHANNEL,

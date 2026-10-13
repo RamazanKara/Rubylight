@@ -747,6 +747,9 @@ impl Injector {
     pub fn controller_audio(&self, id: u16, kind: u16, payload: &[u8]) {
         self.gamepads.audio(id, kind, payload);
     }
+    pub fn controller_audio_ready(&self, id: u16) -> bool {
+        self.gamepads.controller_audio_ready(id)
+    }
     pub fn gamepad_reports(&self) -> impl Iterator<Item = PadReport> + '_ {
         self.gamepads.reports()
     }

@@ -578,6 +578,10 @@ impl Gamepads {
             pad.audio(kind, payload);
         }
     }
+    pub(super) fn audio_ready(&self) -> u16 {
+        // DualSensePad::plug returns only after HID/audio enumeration succeeds.
+        self.dualsenses.keys().fold(0, |mask, id| mask | (1 << id))
+    }
     fn submit(
         &mut self,
         id: u16,

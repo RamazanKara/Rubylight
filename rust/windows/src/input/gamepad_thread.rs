@@ -57,6 +57,10 @@ pub(super) trait Pads {
         vec![]
     }
     fn audio(&mut self, _id: u16, _kind: u16, _payload: &[u8]) {}
+    /// Controllers with an attached USB microphone endpoint, excluding VHF fallback.
+    fn audio_ready(&self) -> u16 {
+        0
+    }
     fn motion_supported(&self, id: u16) -> bool;
     /// Whether any pad is plugged in, and so feedback needs polling.
     fn plugged(&self) -> bool;
@@ -84,6 +88,9 @@ impl Pads for Gamepads {
     fn audio(&mut self, id: u16, kind: u16, payload: &[u8]) {
         Gamepads::audio(self, id, kind, payload);
     }
+    fn audio_ready(&self) -> u16 {
+        Gamepads::audio_ready(self)
+    }
     fn motion_supported(&self, id: u16) -> bool {
         Gamepads::motion_supported(self, id)
     }
@@ -106,6 +113,7 @@ struct Shared {
     stop: AtomicBool,
     parked: AtomicBool,
     ready: AtomicU16,
+    audio_ready: AtomicU16,
 }
 struct AudioInput {
     id: u16,
@@ -250,6 +258,7 @@ impl GamepadThread {
             stop: AtomicBool::new(false),
             parked: AtomicBool::new(false),
             ready: AtomicU16::new(0),
+            audio_ready: AtomicU16::new(0),
         });
         let (sender, reports) = mpsc::channel();
         let thread = std::thread::Builder::new().name("gamepads".into()).spawn({
@@ -330,6 +339,12 @@ impl GamepadThread {
         if !self.shared.parked.load(Ordering::Acquire) {
             queue.push(id, kind, payload, Instant::now());
         }
+    }
+    pub fn controller_audio_ready(&self, id: u16) -> bool {
+        id < 16
+            && !self.shared.parked.load(Ordering::Acquire)
+            && !self.shared.stop.load(Ordering::Acquire)
+            && self.shared.audio_ready.load(Ordering::Acquire) & (1 << id) != 0
     }
     pub fn park(&self) {
         self.shared.parked.store(true, Ordering::Release);
@@ -498,7 +513,11 @@ fn run<P: Pads>(
                 }
                 _ => {}
             }
-            match pads.apply(&event) {
+            let applied = pads.apply(&event);
+            shared
+                .audio_ready
+                .store(pads.audio_ready(), Ordering::Release);
+            match applied {
                 Err(error) => shared.warnings.lock().unwrap().event("input_gamepad_injection", format!("Controller input failed ({error:#}); some controls may not work. Check the selected gamepad profile and virtual driver."), butterpollo_core::session::EVENT_PERIOD),
                 Ok(()) => {
                     match &event {
@@ -542,6 +561,9 @@ fn run<P: Pads>(
             if let Err(error) = pads.refresh() {
                 tracing::debug!(%error, "controller refresh failed");
             }
+            shared
+                .audio_ready
+                .store(pads.audio_ready(), Ordering::Release);
             for (id, kind, data) in pads.feedback() {
                 report(PadReport::Feedback { id, kind, data });
             }
@@ -708,6 +730,83 @@ mod tests {
             .iter()
             .filter(|entry| entry.starts_with("audio "))
             .count()
+    }
+
+    #[test]
+    fn controller_audio_readiness_excludes_pending_and_fallback_pads() {
+        struct AudioPad {
+            gate: Arc<Gate>,
+            usb_audio: bool,
+            active: u16,
+        }
+        impl Pads for AudioPad {
+            fn apply(&mut self, event: &Event) -> Result<()> {
+                self.gate.pass();
+                match event {
+                    Event::Arrival { id, .. } => self.active |= 1 << *id,
+                    Event::Controller { active, .. } => self.active &= *active,
+                    _ => {}
+                }
+                Ok(())
+            }
+            fn audio_ready(&self) -> u16 {
+                if self.usb_audio { self.active } else { 0 }
+            }
+            fn refresh(&mut self) -> Result<()> {
+                Ok(())
+            }
+            fn feedback(&mut self) -> Vec<(u16, u16, Vec<u8>)> {
+                vec![]
+            }
+            fn motion_supported(&self, _: u16) -> bool {
+                false
+            }
+            fn plugged(&self) -> bool {
+                self.active != 0
+            }
+            fn release_all(&mut self) -> Result<()> {
+                Ok(())
+            }
+        }
+        for usb_audio in [false, true] {
+            let gate = Arc::new(Gate::default());
+            let pads = GamepadThread::spawn_reported(
+                {
+                    let gate = gate.clone();
+                    move || {
+                        Ok(AudioPad {
+                            gate: gate.clone(),
+                            usb_audio,
+                            active: 0,
+                        })
+                    }
+                },
+                Default::default(),
+            )
+            .unwrap();
+            pads.send(Event::Arrival {
+                id: 0,
+                kind: 2,
+                capabilities: haptics::CAPABILITY,
+                buttons: 0,
+            });
+            gate.wait_entered(1);
+            assert!(!pads.controller_audio_ready(0));
+            gate.open();
+            assert!(pads.wait_ready(1, Duration::from_secs(1)));
+            // Both USB and VHF arrivals are ready for input; only actual USB
+            // audio may make the client abandon its ordinary microphone route.
+            assert_eq!(pads.controller_audio_ready(0), usb_audio);
+            assert!(!pads.controller_audio_ready(1));
+            assert!(!pads.controller_audio_ready(16));
+            pads.park();
+            assert!(!pads.controller_audio_ready(0));
+            pads.activate();
+            assert_eq!(pads.controller_audio_ready(0), usb_audio);
+            pads.send(state(0, 0, 0, 0));
+            gate.wait_until(|| pads.shared.ready.load(Ordering::Acquire) == 0);
+            assert!(!pads.controller_audio_ready(0));
+        }
     }
 
     #[test]

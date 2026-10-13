@@ -29,6 +29,17 @@ pub struct StatusPolicy {
     pub device_flags: u8,
     pub client_flags: u8,
 }
+impl StatusPolicy {
+    /// A successful controller arrival can be a VHF fallback without USB audio.
+    /// Keep normal stream-to-headset playback independent of microphone readiness.
+    pub fn acknowledged_flags(&self, audio_ready: bool) -> u8 {
+        if audio_ready {
+            self.client_flags
+        } else {
+            self.client_flags & !CAPTURE
+        }
+    }
+}
 pub fn status_policy(
     config: &crate::config::Config,
     role: crate::session::Role,
@@ -169,6 +180,26 @@ impl Capture {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn microphone_ack_requires_a_ready_audio_endpoint_without_changing_queued_policy() {
+        let config = crate::config::Config::parse("audio_capture_mode=game").unwrap();
+        let flags = PLAYBACK | CAPTURE | HEADPHONES | MUTED;
+        let policy = status_policy(&config, crate::session::Role::Stream, true, flags);
+        assert_eq!(policy.device_flags, CAPTURE | HEADPHONES | MUTED);
+        assert_eq!(
+            policy.acknowledged_flags(false),
+            PLAYBACK | HEADPHONES | MUTED
+        );
+        assert_eq!(policy.acknowledged_flags(true), flags);
+        // Readiness cannot override disabled host capture or a client decline.
+        for (text, requested) in [("stream_mic=false", flags), ("", PLAYBACK)] {
+            let config = crate::config::Config::parse(text).unwrap();
+            let policy = status_policy(&config, crate::session::Role::Stream, true, requested);
+            assert_eq!(policy.acknowledged_flags(true) & CAPTURE, 0);
+            assert_ne!(policy.acknowledged_flags(false) & PLAYBACK, 0);
+        }
+    }
+
     #[test]
     fn unscoped_usb_sound_cannot_bypass_game_only_or_muted_streams() {
         use crate::session::Role;

@@ -19,6 +19,8 @@ A stream disconnect releases held controls and clears buffered audio while retai
 
 Microphone input requires the host microphone setting, Android’s microphone setting and recording permission. The stream mute control and DualSense mute button are synchronized; Android’s global microphone mute and host mute commands also stop capture. Select the virtual DualSense microphone in the game or voice application. Plugging a headset into the physical controller routes stream sound there, including a stereo mix of surround streams; unplugging it restores Android’s usual output. With several controllers, the lowest numbered attached headset receives normal stream sound. Rubylight does not change Windows audio defaults.
 
+Controller microphone capture is accepted only after the host's USB audio endpoint is ready. During attachment, or when Automatic falls back to VHF, Android keeps its ordinary microphone route available. The client refreshes controller status once per second, so successful USB attachment is acknowledged on the next refresh; normal stream sound to a connected headset remains available independently.
+
 With [Game-only audio](configuration.md#game-only-audio), dedicated USB speaker PCM is suppressed because the virtual endpoint cannot identify which application wrote it. Normal process-captured game sound still reaches a connected controller headset. Actuator haptics and microphone permissions remain independent. Disabled stream audio and muted Remote Monitor sessions also suppress this separate speaker path.
 
 ## Installer and portable packages

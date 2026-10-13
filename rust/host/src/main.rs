@@ -5,6 +5,7 @@ mod lossless;
 mod maintenance;
 mod mic;
 mod network;
+mod network_path;
 mod nvhttp;
 mod playnite;
 mod process;

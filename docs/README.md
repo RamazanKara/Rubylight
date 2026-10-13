@@ -38,6 +38,7 @@ The full [configuration guide](configuration.md) starts with the defaults. If a 
 | [HTTP API](api.md) | Authentication, CSRF, permissions and the current Rust endpoints. |
 | [Control messages](control-messages.md) | Rubylight's own client-to-host messages (phase lock, display luminance, mid-stream resolution change) and how a client finds out the host takes them. |
 | [Hardware metrics](hardware-metrics.md) | Client overlay telemetry: discovery, paired-client authentication, JSON readings, units, polling and errors. |
+| [Remote connection route](network-path.md) | Paired-client Tailscale route diagnosis, unavailable states and remote setup limits. |
 | [Third-party components](../rust/THIRD_PARTY.md) | Codec SDKs, drivers and licensing. |
 | [Detailed performance record](../rust/PERFORMANCE.md) | Dated fixtures, raw results, rejected experiments and reproduction instructions. |
 

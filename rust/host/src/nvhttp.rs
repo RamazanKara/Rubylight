@@ -222,6 +222,7 @@ pub fn router(h: Shared, https: bool) -> Router {
             .route("/bitrate", get(bitrate))
             .route("/api/abr/capabilities", get(abr))
             .route("/api/hardware-metrics", get(hardware_metrics))
+            .route("/api/network-path", get(network_path))
             .route("/pyrowave-bandwidth-probe", get(pyrowave_bandwidth))
             .route(
                 "/actions/clipboard",
@@ -233,6 +234,17 @@ pub fn router(h: Shared, https: bool) -> Router {
     r.layer(axum::extract::DefaultBodyLimit::max(1024 * 1024))
         .with_state(h)
 }
+async fn network_path(State(h): State<Shared>, Extension(c): Extension<Connection>) -> Response {
+    if authenticated_viewer(&h, &c).is_err() {
+        return ([(header::CACHE_CONTROL, "no-store")], StatusCode::FORBIDDEN).into_response();
+    }
+    let report = crate::network_path::inspect(c.peer.ip().to_canonical()).await;
+    if authenticated_viewer(&h, &c).is_err() {
+        return ([(header::CACHE_CONTROL, "no-store")], StatusCode::FORBIDDEN).into_response();
+    }
+    ([(header::CACHE_CONTROL, "no-store")], axum::Json(report)).into_response()
+}
+
 async fn hardware_metrics(
     State(h): State<Shared>,
     Extension(connection): Extension<Connection>,
@@ -424,6 +436,10 @@ fn serverinfo_response(
         .map(|game| game.app.uuid.clone())
         .unwrap_or_default();
     let mut fields = vec![
+        (
+            "NetworkPathVersion",
+            u8::from(permission & VIEW != 0).to_string(),
+        ),
         (
             "HardwareMetricsVersion",
             u8::from(permission & VIEW != 0 && config.boolean("hardware_metrics", false))

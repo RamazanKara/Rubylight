@@ -191,6 +191,49 @@ async fn hardware_metrics_capability_requires_opt_in_and_viewer_permission() {
 }
 
 #[tokio::test]
+async fn network_path_requires_paired_tls_viewer_and_returns_only_route_category() {
+    let f = Fixture::new();
+    let path = "/api/network-path";
+    assert_eq!(
+        request(&f, false, "GET", path).await.status(),
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        request(&f, true, "GET", path).await.status(),
+        StatusCode::FORBIDDEN
+    );
+    f.client(0);
+    assert_eq!(
+        request(&f, true, "GET", path).await.status(),
+        StatusCode::FORBIDDEN
+    );
+    f.host.paired.write().unwrap().clients[0].perm = VIEW;
+    let response = request(&f, true, "GET", path).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+    let value: serde_json::Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), 512).await.unwrap()).unwrap();
+    assert_eq!(value, json!({"version": 1, "kind": "unknown"}));
+    for (tls, permission, expected) in [(false, VIEW, "0"), (true, 0, "0"), (true, VIEW, "1")] {
+        f.host.paired.write().unwrap().clients[0].perm = permission;
+        let connection = f.connection(tls);
+        let client = authenticated(&f.host, &connection, 0).ok();
+        let root = document(serverinfo_response(
+            &f.host,
+            &connection,
+            &butterpollo_core::config::Config::default(),
+            client.as_ref(),
+            true,
+            String::new(),
+            0,
+            false,
+        ))
+        .await;
+        assert_eq!(field(&root, "NetworkPathVersion"), expected);
+    }
+}
+
+#[tokio::test]
 async fn xml_preserves_protocol_status_and_escapes_values_and_errors() {
     let text = "<Game & \"screen\"> '日本語'";
     let root = document(xml(403, &[("AppTitle", text.into())], Some(text.into()))).await;

@@ -8,6 +8,8 @@ This guide covers the current Rust implementation: routing, authentication and t
 
 For client overlay telemetry, see [Hardware metrics](hardware-metrics.md). Its `/api/hardware-metrics` endpoint uses the streaming HTTPS port and the paired client's TLS certificate; the administration authentication methods below do not apply to it.
 
+[Remote connection route](network-path.md) documents the separately authenticated `/api/network-path` endpoint and `NetworkPathVersion` capability. It returns only the requesting peer's current Tailscale route category.
+
 ## Authentication
 
 Create the administrator account through the local console first. Initial account creation is restricted to requests from the host PC. Access to the web interface also follows `origin_web_ui_allowed`: `pc`, `lan` (the default), or `wan`.

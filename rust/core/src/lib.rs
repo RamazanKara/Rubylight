@@ -46,6 +46,7 @@ pub mod ltr;
 pub mod mic;
 pub mod migration;
 pub mod network_pacing;
+pub mod network_path;
 pub mod nvenc;
 pub mod packet;
 pub mod pairing;

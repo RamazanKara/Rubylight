@@ -34,14 +34,6 @@ class FrameLatencyStats {
     private final boolean vrr;
     private long lastOutputNs;
     private long lastReleaseNs;
-    private long outputIntervalTotalNs;
-    private int outputIntervalCount;
-    private long outputIntervalMinNs = Long.MAX_VALUE;
-    private long outputIntervalMaxNs;
-    private long outputReceiveIntervalTotalNs;
-    private long lastOutputReceiveNs;
-    private int lastOutputFrameNumber;
-    private boolean outputCadenceInterrupted;
     private long decodeTimeTotalNs;
     private int decodeTimeSamples;
     private long totalDecodeTimeNs;
@@ -127,23 +119,7 @@ class FrameLatencyStats {
             frame.outputNs = outputNs;
             if (vrr) {
                 frame.previousOutputNs = lastOutputNs;
-                if (lastOutputNs > 0) {
-                    long intervalNs = outputNs - lastOutputNs;
-                    long receiveIntervalNs = frame.receiveNs - lastOutputReceiveNs;
-                    if (intervalNs <= 0 || receiveIntervalNs <= 0 || frame.number - lastOutputFrameNumber != 1) {
-                        outputCadenceInterrupted = true;
-                    }
-                    if (intervalNs > 0) {
-                        outputIntervalTotalNs += intervalNs;
-                        outputIntervalCount++;
-                        outputIntervalMinNs = Math.min(outputIntervalMinNs, intervalNs);
-                        outputIntervalMaxNs = Math.max(outputIntervalMaxNs, intervalNs);
-                        outputReceiveIntervalTotalNs += Math.max(0, receiveIntervalNs);
-                    }
-                }
                 lastOutputNs = outputNs;
-                lastOutputReceiveNs = frame.receiveNs;
-                lastOutputFrameNumber = frame.number;
             }
             outputs.put(index, frame);
             addSample(1, frame.inputNs, outputNs);
@@ -212,8 +188,7 @@ class FrameLatencyStats {
         for (Frame frame : new ArrayList<>(pending.values())) {
             finish(frame, reason);
         }
-        lastOutputNs = lastReleaseNs = lastOutputReceiveNs = 0;
-        resetOutputIntervals();
+        lastOutputNs = lastReleaseNs = 0;
         decodeTimeTotalNs = 0;
         decodeTimeSamples = 0;
         fpsStartNs = 0;
@@ -233,30 +208,6 @@ class FrameLatencyStats {
 
     synchronized int getAverageEndToEndLatency() {
         return totalClientTimeSamples == 0 ? 0 : (int) (totalClientTimeNs / totalClientTimeSamples / 1000000);
-    }
-
-    synchronized float takeOutputFrameRate(long nowNs) {
-        double meanIntervalNs = outputIntervalCount == 0 ? 0 :
-                (double) outputIntervalTotalNs / outputIntervalCount;
-        // Decoder completion is independent of display pacing, including frames replaced before
-        // presentation. Loss, stalls, bursts and decoder backpressure are not evidence of lower
-        // game cadence. Receive timestamps distinguish a slow decoder from a slower source, but
-        // neither timestamp can distinguish a steadily updating desktop from a game.
-        boolean continuous = outputIntervalCount >= 2 && !outputCadenceInterrupted &&
-                outputIntervalMinNs >= meanIntervalNs * 0.5 && outputIntervalMaxNs <= meanIntervalNs * 1.5 &&
-                Math.abs((double) outputReceiveIntervalTotalNs - outputIntervalTotalNs) <= outputIntervalTotalNs * 0.1 &&
-                nowNs >= lastOutputNs && nowNs - lastOutputNs <= Math.max(50000000, meanIntervalNs * 2);
-        float frameRate = continuous ? (float) (1000000000.0 / meanIntervalNs) : 0;
-        resetOutputIntervals();
-        return frameRate;
-    }
-
-    private void resetOutputIntervals() {
-        outputIntervalTotalNs = 0;
-        outputIntervalCount = 0;
-        outputIntervalMinNs = Long.MAX_VALUE;
-        outputIntervalMaxNs = outputReceiveIntervalTotalNs = 0;
-        outputCadenceInterrupted = false;
     }
 
     private void recordFrameTime(int stage, long timeNs) {

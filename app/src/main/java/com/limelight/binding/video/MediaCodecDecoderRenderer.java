@@ -222,10 +222,6 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         return lastVideoFrameTimeMs != 0 && nowMs - lastVideoFrameTimeMs < 2000;
     }
 
-    public float takeOutputFrameRate() {
-        return frameLatencyStats.takeOutputFrameRate(System.nanoTime());
-    }
-
     public float getNetworkFrameLossPercent() {
         return networkFrameLossPercent;
     }
@@ -798,7 +794,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         this.activity = activity;
         this.prefs = prefs;
         this.frameLatencyStats = new FrameLatencyStats(prefs.vrr);
-        this.useArr = DisplayFrameRatePolicy.useAdaptiveHints(Build.VERSION.SDK_INT, prefs.vrr,
+        this.useArr = DisplayFrameRatePolicy.useAdaptiveRefreshRate(Build.VERSION.SDK_INT, prefs.vrr,
                 Build.VERSION.SDK_INT >= Build.VERSION_CODES.BAKLAVA &&
                         activity.getWindowManager().getDefaultDisplay().hasArrSupport());
         this.crashListener = crashListener;

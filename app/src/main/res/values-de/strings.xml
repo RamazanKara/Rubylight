@@ -286,7 +286,7 @@
     <string name="title_virtual_display">Virtuelles Host-Display</string>
     <string name="summary_virtual_display">Fordert am PC ein Display passend zum Stream an. Aus: Die Display-Einstellungen des PCs entscheiden.</string>
     <string name="title_vrr">Adaptive Bildwiederholrate (ARR / VRR)</string>
-    <string name="summary_vrr">Android ARR folgt der gemessenen Stream-Bildrate mit jedem kompatiblen Host. Benötigt Android 16 und ein ARR-Display; sonst wird die maximale Bildwiederholrate angefordert. Fordert auch VRR am Host an, falls unterstützt, etwa bei Rubylight oder Vibepollo; die Aktivierung hängt von den Host-Einstellungen ab und wird nicht bestätigt.</string>
+    <string name="summary_vrr">Android steuert die Bildwiederholrate automatisch mit jedem kompatiblen Host. Benötigt Android 16 und ein ARR-Display; sonst wird die maximale Bildwiederholrate angefordert. Fordert auch VRR am Host an, falls unterstützt, etwa bei Rubylight oder Vibepollo; die Aktivierung hängt von den Host-Einstellungen ab und wird nicht bestätigt.</string>
     <string name="title_virtual_display_scale">Host-Skalierung</string>
     <string name="summary_virtual_display_scale">Ändert die Renderauflösung des PCs, nicht die übertragene Videogröße. Senke die Stream-Auflösung, um weniger Pixel zu übertragen und auf diesem Gerät hochzuskalieren.</string>
     <string name="latency_values">%1$.2f / %2$.2f / %3$.2f (n=%4$d)</string>
@@ -348,7 +348,7 @@
     <string name="stream_limiter_status">Host-FPS-Limit: %1$s\nAuto-Display-Limit: %2$s\nZiel: %3$s</string>
     <string name="stream_limiter_stream_rate">Stream-Bildrate</string>
     <string name="stream_android_pacing">Adaptive Bildwiederholrate ist aus. Deine Frame-Pacing-Einstellung gilt.</string>
-    <string name="stream_android_arr">Android ARR: aktiv, nutzt die gemessene Stream-Bildrate. Funktioniert mit jedem kompatiblen Host; Android wählt die tatsächliche Bildwiederholrate.</string>
+    <string name="stream_android_arr">Android ARR: automatische Steuerung. Funktioniert mit jedem kompatiblen Host; Android wählt die tatsächliche Bildwiederholrate.</string>
     <string name="stream_android_max_refresh">Android ARR: auf dieser Android-Version oder diesem Display nicht verfügbar. Die maximale Bildwiederholrate wird angefordert und Frames werden sofort angezeigt.</string>
     <string name="stream_host_action_failed">Host-Aktion fehlgeschlagen: %1$s</string>
     <string name="host_launch_permission_denied">Erlaube App-Starts für dieses Gerät in der Host-Webkonsole.</string>

@@ -330,7 +330,7 @@
     <string name="title_virtual_display">Host virtual display</string>
     <string name="summary_virtual_display">Ask the PC for a display that matches the stream. Off: the PC’s own display settings decide.</string>
     <string name="title_vrr">Adaptive refresh (ARR / VRR)</string>
-    <string name="summary_vrr">Android ARR follows measured stream FPS with any compatible host. Requires Android 16 and an ARR display; otherwise requests maximum refresh. Also requests host-side VRR from supporting hosts such as Rubylight or Vibepollo; activation depends on host settings and is not confirmed.</string>
+    <string name="summary_vrr">Lets Android manage refresh rate automatically with any compatible host. Requires Android 16 and an ARR display; otherwise requests maximum refresh. Also requests host-side VRR from supporting hosts such as Rubylight or Vibepollo; activation depends on host settings and is not confirmed.</string>
     <string name="title_virtual_display_scale">Host render scale</string>
     <string name="summary_virtual_display_scale">Changes the PC’s render resolution, not the transmitted video size. To send fewer pixels and upscale on this device, lower Stream resolution.</string>
     <string name="latency_values">%1$.2f / %2$.2f / %3$.2f (n=%4$d)</string>
@@ -392,7 +392,7 @@
     <string name="stream_limiter_status">Host frame limit: %1$s\nAuto display limit: %2$s\nTarget: %3$s</string>
     <string name="stream_limiter_stream_rate">Stream frame rate</string>
     <string name="stream_android_pacing">Adaptive refresh is off. Your frame pacing setting applies.</string>
-    <string name="stream_android_arr">Android ARR: enabled, using measured stream FPS. Works with any compatible host; Android chooses the actual refresh rate.</string>
+    <string name="stream_android_arr">Android ARR: automatic policy. Works with any compatible host; Android chooses the actual refresh rate.</string>
     <string name="stream_android_max_refresh">Android ARR: unavailable on this Android version or display. Requesting maximum refresh and showing frames as they arrive.</string>
     <string name="stream_host_action_failed">Host action failed: %1$s</string>
     <string name="host_launch_permission_denied">Allow this device to launch apps in the host console.</string>

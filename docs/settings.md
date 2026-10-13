@@ -21,9 +21,9 @@ These tables include every preference, including actions. On/Off choices have no
 | Stream resolution<br>`list_resolution` | This screen's native resolution; follows the screen used for each stream | 360p (640 × 360 pixels); 480p (854 × 480 pixels); 720p (1280 × 720 pixels); 1080p (1920 × 1080 pixels); 1440p (2560 × 1440 pixels); 4K (3840 × 2160 pixels) | Raise for fine detail; lower when decode time or network load is high. Your screen's native size is added automatically. |
 | Video frame rate<br>`list_fps` | Screen maximum (rounded, 1–1000 FPS) | 30 FPS; 60 FPS; 90 FPS; 120 FPS | Raise for smoother motion on a fast screen. Your screen's native refresh rate is added automatically. Changing resolution or FPS recalculates bitrate. |
 | Video bitrate<br>`seekbar_bitrate_kbps` | Calculated for the native resolution and screen maximum FPS; recalculated when either changes | 0.5 Mbps–500 Mbps; step 0.5 Mbps; buttons 1 Mbps; presets 10 Mbps, 20 Mbps, 40 Mbps, 80 Mbps, 150 Mbps, 280 Mbps | Raise for image quality on a stable link; lower for network loss. The slider is logarithmic; the buttons make fine adjustments. |
-| Video codec<br>`video_format` | Automatic (recommended) | Automatic (recommended); AV1; HEVC; H.264; PyroWave | Start with Automatic. Choose a specific codec to compare decoder performance; PyroWave requires its own host and Vulkan capabilities. |
+| Video codec<br>`video_format` | Automatic (recommended) | Automatic (recommended); AV1; HEVC; H.264; PyroWave (host support required) | Start with Automatic. Choose a specific codec to compare decoder performance; PyroWave requires its own host and Vulkan capabilities. |
 | HDR<br>`checkbox_enable_hdr` | Off | On; Off | Enable with an HDR10 screen, a compatible decoder and HDR configured on the host display. Availability is device-filtered. |
-| Variable refresh (VRR)<br>`checkbox_vrr` | Off | On; Off | Enable to follow game cadence. Uses Android adaptive refresh when confirmed, otherwise the panel maximum. Overrides pacing to Lowest latency and disables lower refresh. |
+| Adaptive refresh (ARR / VRR)<br>`checkbox_vrr` | Off | On; Off | Enable Android's automatic ARR policy on supported Android 16 displays; otherwise request maximum refresh. Overrides pacing to Lowest latency and disables lower refresh. |
 | Prefer YUV 4:4:4<br>`checkbox_yuv444` | Off | On; Off | Enable for colored text and desktop detail when both ends support it. Otherwise 4:2:0 is used; HDR takes priority. |
 
 ### Client-side upscaling
@@ -35,11 +35,11 @@ These tables include every preference, including actions. On/Off choices have no
 | Upscaling sharpness<br>`upscaling_sharpness` | 50% | 0%–100%; step 1% | Reduce for halos or ringing; raise for soft edges. Applies on the next stream. At 0%, FSR skips extra sharpening; SGSR still reconstructs edges. |
 | Stretch to fill screen<br>`checkbox_stretch_video` | Off | On; Off | Enable to fill a screen with a different aspect ratio; shapes will stretch. |
 
-### PC display mode
+### PC display mode (Rubylight host)
 
 | Setting / preference key | Default | Choices and units | When to change or use |
 | --- | --- | --- | --- |
-| PC display mode<br>`host_display_location` | No stored default | Action | Choose Exclusive or Extended in the PC's own stream settings. This choice is saved per PC and overrides its virtual-display toggle. |
+| PC display mode (Rubylight host)<br>`host_display_location` | No stored default | Action | Choose Exclusive or Extended in the PC's own stream settings. This choice is saved per PC and overrides its virtual-display toggle. |
 | Host virtual display<br>`checkbox_virtual_display` | Off | On; Off | Enable to request a host display matching the stream. Requires host support and a ready display driver. |
 | Host render scale<br>`seekbar_virtual_display_scale` | 100% | 50%–200%; step 5% | Change the host render pixel count relative to the stream. Desktop text size stays as set on the host. Requires Host virtual display On. |
 

@@ -19,7 +19,7 @@ ADVICE = {
     "upscaling_mode": "Choose a stream resolution below the screen size for SDR upscaling. PyroWave uses SGSR for both FSR and SGSR selections. HDR and 10-bit streams use direct output.",
     "upscaling_sharpness": "Reduce for halos or ringing; raise for soft edges. Applies on the next stream. At 0%, FSR skips extra sharpening; SGSR still reconstructs edges.",
     "checkbox_enable_hdr": "Enable with an HDR10 screen, a compatible decoder and HDR configured on the host display. Availability is device-filtered.",
-    "checkbox_vrr": "Enable to follow game cadence. Uses Android adaptive refresh when confirmed, otherwise the panel maximum. Overrides pacing to Lowest latency and disables lower refresh.",
+    "checkbox_vrr": "Enable Android's automatic ARR policy on supported Android 16 displays; otherwise request maximum refresh. Overrides pacing to Lowest latency and disables lower refresh.",
     "checkbox_virtual_display": "Enable to request a host display matching the stream. Requires host support and a ready display driver.",
     "host_display_location": "Choose Exclusive or Extended in the PC's own stream settings. This choice is saved per PC and overrides its virtual-display toggle.",
     "seekbar_virtual_display_scale": "Change the host render pixel count relative to the stream. Desktop text size stays as set on the host.",

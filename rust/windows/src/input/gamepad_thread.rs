@@ -3,8 +3,8 @@
 //! acknowledgements.
 use super::{Event, Gamepads};
 use anyhow::Result;
-use butterpollo_core::haptics;
 use butterpollo_core::input::Batch;
+use butterpollo_core::{controller_audio, haptics};
 use std::{
     collections::VecDeque,
     sync::{
@@ -101,7 +101,7 @@ struct Shared {
     feedback_waker: Mutex<Option<Arc<std::net::UdpSocket>>>,
     haptics: Mutex<haptics::Queue>,
     speaker: Mutex<haptics::Queue>,
-    audio_input: Mutex<VecDeque<AudioInput>>,
+    audio_input: Mutex<AudioQueue>,
     wake: Condvar,
     stop: AtomicBool,
     parked: AtomicBool,
@@ -112,6 +112,93 @@ struct AudioInput {
     kind: u16,
     payload: Vec<u8>,
     at: Instant,
+}
+#[derive(Default)]
+struct AudioQueue {
+    // Status is reliable transport state, not a 20 ms audio sample. Keep it
+    // until the controller leaves so a slow USB attachment can replay it.
+    status: [Option<[u8; 8]>; 16],
+    pending: u16,
+    pcm: VecDeque<AudioInput>,
+}
+impl AudioQueue {
+    fn push(&mut self, id: u16, kind: u16, payload: &[u8], now: Instant) {
+        if id >= 16 || payload.len() > 972 {
+            return;
+        }
+        if kind == controller_audio::CONTROL {
+            if controller_audio::status(payload).is_some_and(|(index, _)| index == id) {
+                let status = Some(payload.try_into().unwrap());
+                if self.status[id as usize] != status {
+                    self.status[id as usize] = status;
+                    self.pending |= 1 << id;
+                }
+            }
+            return;
+        }
+        self.pcm
+            .retain(|input| now.saturating_duration_since(input.at) <= haptics::MAX_AGE);
+        if self.pcm.len() >= 64 {
+            self.pcm.pop_front();
+        }
+        self.pcm.push_back(AudioInput {
+            id,
+            kind,
+            payload: payload.to_vec(),
+            at: now,
+        });
+    }
+    fn arrived(&mut self, id: u16) {
+        if id < 16 && self.status[id as usize].is_some() {
+            self.pending |= 1 << id;
+        }
+    }
+    fn retain_controllers(&mut self, active: u16) {
+        for (id, status) in self.status.iter_mut().enumerate() {
+            if active & (1 << id) == 0 {
+                *status = None;
+            }
+        }
+        self.pending &= active;
+        self.pcm.retain(|input| active & (1 << input.id) != 0);
+    }
+    fn release_pcm(&mut self) {
+        self.pcm.clear();
+    }
+    fn replay_status(&mut self) {
+        // Releasing held input temporarily suspends the device's audio too.
+        // Restore the same transport's status after that release completes.
+        for id in 0..16 {
+            self.arrived(id);
+        }
+    }
+    fn clear(&mut self) {
+        self.status.fill(None);
+        self.pending = 0;
+        self.pcm.clear();
+    }
+    fn take(&mut self, now: Instant) -> Vec<AudioInput> {
+        let pending = std::mem::take(&mut self.pending);
+        let mut inputs = Vec::new();
+        for (id, status) in self.status.iter().enumerate() {
+            if pending & (1 << id) != 0
+                && let Some(payload) = status
+            {
+                inputs.push(AudioInput {
+                    id: id as u16,
+                    kind: controller_audio::CONTROL,
+                    payload: payload.to_vec(),
+                    at: now,
+                });
+            }
+        }
+        inputs.extend(
+            self.pcm
+                .drain(..)
+                .filter(|input| now.saturating_duration_since(input.at) <= haptics::MAX_AGE),
+        );
+        inputs
+    }
 }
 #[derive(Default)]
 struct Queue {
@@ -233,30 +320,20 @@ impl GamepadThread {
         queue.release = true;
         self.shared.haptics.lock().unwrap().retain_controllers(0);
         self.shared.speaker.lock().unwrap().retain_controllers(0);
-        self.shared.audio_input.lock().unwrap().clear();
+        self.shared.audio_input.lock().unwrap().release_pcm();
         drop(queue);
         self.shared.wake.notify_all();
     }
     /// Release controls immediately while keeping the device identity for reconnect.
     pub fn audio(&self, id: u16, kind: u16, payload: &[u8]) {
-        if self.shared.parked.load(Ordering::Acquire) || id >= 16 || payload.len() > 972 {
-            return;
-        }
         let mut queue = self.shared.audio_input.lock().unwrap();
-        let now = Instant::now();
-        queue.retain(|input| now.duration_since(input.at) <= haptics::MAX_AGE);
-        if queue.len() >= 64 {
-            queue.pop_front();
+        if !self.shared.parked.load(Ordering::Acquire) {
+            queue.push(id, kind, payload, Instant::now());
         }
-        queue.push_back(AudioInput {
-            id,
-            kind,
-            payload: payload.to_vec(),
-            at: now,
-        });
     }
     pub fn park(&self) {
         self.shared.parked.store(true, Ordering::Release);
+        self.shared.audio_input.lock().unwrap().clear();
         *self.shared.feedback_waker.lock().unwrap() = None;
         self.release_all();
         self.reports.lock().unwrap().try_iter().for_each(drop);
@@ -329,6 +406,8 @@ fn run<P: Pads>(
     mut open: impl FnMut() -> Result<P>,
     reports: &mpsc::Sender<PadReport>,
 ) {
+    // Mock workers must not boost their priority or register a Windows task.
+    #[cfg(not(test))]
     let _priority = crate::capture::Priority::input();
     let report = |report| {
         if !shared.parked.load(Ordering::Acquire)
@@ -345,6 +424,7 @@ fn run<P: Pads>(
     // last one leaves, which forgets its last report; otherwise the thread
     // sleeps until an event comes.
     let mut polling = false;
+    let mut known_controllers = 0u16;
     let stopping = || shared.stop.load(Ordering::Acquire);
     loop {
         let (release, events) = {
@@ -372,11 +452,14 @@ fn run<P: Pads>(
                 queue = shared.wake.wait_timeout(queue, poll_at - now).unwrap().0;
             }
         };
-        if release
-            && let Some(pads) = &mut pads
-            && let Err(error) = pads.release_all()
-        {
-            shared.warnings.lock().unwrap().event("input_gamepad_injection", format!("Controller release failed ({error:#}); held controls may remain active. Check the virtual gamepad driver."), butterpollo_core::session::EVENT_PERIOD);
+        if release && let Some(pads) = &mut pads {
+            let released = pads.release_all();
+            // The old iteration may already have drained audio when release
+            // was queued. Only replay after the device has been suspended.
+            shared.audio_input.lock().unwrap().replay_status();
+            if let Err(error) = released {
+                shared.warnings.lock().unwrap().event("input_gamepad_injection", format!("Controller release failed ({error:#}); held controls may remain active. Check the virtual gamepad driver."), butterpollo_core::session::EVENT_PERIOD);
+            }
         }
         for event in events {
             if stopping() {
@@ -420,11 +503,24 @@ fn run<P: Pads>(
                 Ok(()) => {
                     match &event {
                         Event::Arrival { id, .. } if *id < 16 => {
+                            known_controllers |= 1 << *id;
+                            shared.audio_input.lock().unwrap().arrived(u16::from(*id));
                             shared.ready.fetch_or(1 << *id, Ordering::Release);
                             drop(shared.queue.lock());
                             shared.wake.notify_all();
                         }
-                        Event::Controller { active, .. } => { shared.ready.fetch_and(*active, Ordering::Release); }
+                        Event::Controller { id, active, .. } => {
+                            let mut audio = shared.audio_input.lock().unwrap();
+                            audio.retain_controllers(*active);
+                            if *id < 16 && active & (1 << *id) != 0 {
+                                if known_controllers & (1 << *id) == 0 {
+                                    audio.arrived(*id);
+                                }
+                                known_controllers |= 1 << *id;
+                            }
+                            known_controllers &= *active;
+                            shared.ready.fetch_and(*active, Ordering::Release);
+                        }
                         _ => {}
                     }
                     if let Event::Arrival {
@@ -449,9 +545,9 @@ fn run<P: Pads>(
             for (id, kind, data) in pads.feedback() {
                 report(PadReport::Feedback { id, kind, data });
             }
-            let audio_input = std::mem::take(&mut *shared.audio_input.lock().unwrap());
+            let audio_input = shared.audio_input.lock().unwrap().take(Instant::now());
             for input in audio_input {
-                if now.duration_since(input.at) <= haptics::MAX_AGE {
+                if !shared.parked.load(Ordering::Acquire) {
                     pads.audio(input.id, input.kind, &input.payload);
                 }
             }
@@ -505,6 +601,7 @@ mod tests {
     struct Gate {
         open: Mutex<bool>,
         opened: Condvar,
+        blocked: AtomicBool,
         /// Calls that reached the driver.
         entered: std::sync::atomic::AtomicUsize,
     }
@@ -513,12 +610,17 @@ mod tests {
             self.entered.fetch_add(1, Ordering::SeqCst);
             let mut open = self.open.lock().unwrap();
             while !*open {
+                self.blocked.store(true, Ordering::SeqCst);
                 open = self.opened.wait(open).unwrap();
             }
+            self.blocked.store(false, Ordering::SeqCst);
         }
         fn open(&self) {
             *self.open.lock().unwrap() = true;
             self.opened.notify_all();
+        }
+        fn close(&self) {
+            *self.open.lock().unwrap() = false;
         }
         fn wait_until(&self, mut done: impl FnMut() -> bool) {
             let deadline = Instant::now() + Duration::from_secs(10);
@@ -552,6 +654,12 @@ mod tests {
         fn feedback(&mut self) -> Vec<(u16, u16, Vec<u8>)> {
             self.gate.pass();
             std::mem::take(&mut self.feedback)
+        }
+        fn audio(&mut self, id: u16, kind: u16, payload: &[u8]) {
+            self.log
+                .lock()
+                .unwrap()
+                .push(format!("audio {id} {kind:#06x} {payload:?}"));
         }
         fn motion_supported(&self, _: u16) -> bool {
             true
@@ -592,6 +700,152 @@ mod tests {
     }
     fn logged(events: &[Event]) -> Vec<String> {
         events.iter().map(|event| format!("{event:?}")).collect()
+    }
+
+    fn audio_count(log: &Mutex<Vec<String>>) -> usize {
+        log.lock()
+            .unwrap()
+            .iter()
+            .filter(|entry| entry.starts_with("audio "))
+            .count()
+    }
+
+    #[test]
+    fn controller_audio_status_outlives_pcm_and_stalled_arrival() {
+        let (pads, gate, log) = fake();
+        pads.send(Event::Arrival {
+            id: 0,
+            kind: 2,
+            capabilities: 0,
+            buttons: 0,
+        });
+        // The USB driver is still attaching when reliable status and PCM arrive.
+        gate.wait_entered(1);
+        let status = [1, 1, 0, 0, 7, 0, 0, 0];
+        pads.audio(0, controller_audio::CONTROL, &status);
+        pads.audio(0, controller_audio::MICROPHONE, &[1; 16]);
+        for input in &mut pads.shared.audio_input.lock().unwrap().pcm {
+            input.at = Instant::now() - haptics::MAX_AGE * 2;
+        }
+        gate.open();
+        gate.wait_until(|| audio_count(&log) == 1);
+        assert!(log.lock().unwrap().last().unwrap().contains("0x5535"));
+
+        // The client's periodic identical status must not reset device buffers.
+        pads.audio(0, controller_audio::CONTROL, &status);
+        gate.wait_entered(gate.entered.load(Ordering::SeqCst) + 2);
+        assert_eq!(audio_count(&log), 1);
+
+        // A transient control gap releases held buttons, but the same transport
+        // must resume its accepted audio policy after that release completes.
+        // Hold the preceding poll in the driver so it cannot consume a replay
+        // before the queued release gets its own iteration.
+        gate.close();
+        gate.wait_until(|| gate.blocked.load(Ordering::SeqCst));
+        pads.release_all();
+        gate.open();
+        gate.wait_until(|| log.lock().unwrap().iter().any(|entry| entry == "released"));
+        gate.wait_until(|| audio_count(&log) == 2);
+        let entries = log.lock().unwrap();
+        let release = entries
+            .iter()
+            .position(|entry| entry == "released")
+            .unwrap();
+        assert!(
+            entries[release + 1..]
+                .iter()
+                .any(|entry| entry.starts_with("audio "))
+        );
+        drop(entries);
+
+        // Disabling audio is durable too, including before another arrival.
+        let disabled = [1, 1, 0, 0, 0, 0, 0, 0];
+        pads.audio(0, controller_audio::CONTROL, &disabled);
+        gate.wait_until(|| audio_count(&log) == 3);
+        assert_eq!(
+            pads.shared.audio_input.lock().unwrap().status[0],
+            Some(disabled)
+        );
+    }
+
+    #[test]
+    fn controller_audio_status_does_not_cross_removal_or_park() {
+        let (pads, gate, log) = fake();
+        gate.open();
+        let arrival = Event::Arrival {
+            id: 0,
+            kind: 2,
+            capabilities: 0,
+            buttons: 0,
+        };
+        pads.send(arrival.clone());
+        assert!(pads.wait_ready(1, Duration::from_secs(1)));
+        let status = [1, 1, 0, 0, 7, 0, 0, 0];
+        pads.audio(0, controller_audio::CONTROL, &status);
+        gate.wait_until(|| audio_count(&log) == 1);
+
+        let removed = state(0, 0, 0, 0);
+        pads.send(removed.clone());
+        gate.wait_until(|| log.lock().unwrap().contains(&format!("{removed:?}")));
+        pads.send(arrival.clone());
+        assert!(pads.wait_ready(1, Duration::from_secs(1)));
+        gate.wait_entered(gate.entered.load(Ordering::SeqCst) + 2);
+        assert_eq!(audio_count(&log), 1);
+
+        pads.audio(0, controller_audio::CONTROL, &status);
+        gate.wait_until(|| audio_count(&log) == 2);
+        pads.park();
+        gate.wait_until(|| log.lock().unwrap().iter().any(|entry| entry == "released"));
+        // A late status from the departed transport is ignored while parked.
+        pads.audio(0, controller_audio::CONTROL, &status);
+        pads.activate();
+        pads.send(arrival);
+        assert!(pads.wait_ready(1, Duration::from_secs(1)));
+        gate.wait_entered(gate.entered.load(Ordering::SeqCst) + 2);
+        assert_eq!(audio_count(&log), 2);
+        assert!(
+            pads.shared
+                .audio_input
+                .lock()
+                .unwrap()
+                .status
+                .iter()
+                .all(Option::is_none)
+        );
+    }
+
+    #[test]
+    fn controller_audio_status_rejects_mismatched_ids_and_reserved_flags() {
+        let mut queue = AudioQueue::default();
+        let now = Instant::now();
+        for (id, status) in [
+            (16, [1, 1, 16, 0, 7, 0, 0, 0]),
+            (0, [1, 1, 1, 0, 7, 0, 0, 0]),
+            (0, [1, 1, 0, 0, 16, 0, 0, 0]),
+            (0, [1, 1, 0, 0, 7, 1, 0, 0]),
+        ] {
+            queue.push(id, controller_audio::CONTROL, &status, now);
+        }
+        assert!(queue.take(now).is_empty());
+        queue.arrived(16);
+        assert!(queue.status.iter().all(Option::is_none));
+    }
+
+    #[test]
+    fn controller_audio_status_replays_when_its_controller_arrives_later() {
+        let mut queue = AudioQueue::default();
+        let now = Instant::now();
+        let status = [1, 1, 1, 0, 7, 0, 0, 0];
+        queue.push(1, controller_audio::CONTROL, &status, now);
+        // Another controller is already polling, but controller 1 does not
+        // exist yet, so this initial device delivery cannot apply its policy.
+        assert_eq!(queue.take(now)[0].payload, status);
+        assert!(queue.take(now).is_empty());
+        queue.arrived(1);
+        let replay = queue.take(now + Duration::from_secs(6));
+        assert_eq!(replay.len(), 1);
+        assert_eq!(replay[0].payload, status);
+        assert!(queue.take(now + Duration::from_secs(7)).is_empty());
     }
 
     #[test]

@@ -9,6 +9,7 @@ use std::{
     },
     time::{Duration, Instant},
 };
+use windows::Win32::Foundation::DBG_TERMINATE_PROCESS;
 use windows_service::{
     define_windows_service,
     service::{
@@ -30,6 +31,7 @@ impl RestartPolicy {
         match code {
             0 => None,
             RESTART_EXIT_CODE => Some(Duration::ZERO),
+            code if code == DBG_TERMINATE_PROCESS.0 as u32 => Some(Duration::from_secs(1)),
             _ => {
                 self.failures
                     .retain(|failure| now.duration_since(*failure) < Duration::from_secs(60));
@@ -218,6 +220,12 @@ fn supervise() -> Result<()> {
             };
             if code == RESTART_EXIT_CODE {
                 tracing::info!("host requested a restart");
+            } else if code == DBG_TERMINATE_PROCESS.0 as u32 {
+                tracing::info!(
+                    code,
+                    retry_seconds = delay.as_secs(),
+                    "Windows terminated the host; retrying the console session"
+                );
             } else {
                 tracing::warn!(
                     code,
@@ -283,6 +291,35 @@ fn supervise() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn windows_termination_does_not_trigger_or_reset_crash_backoff() {
+        let mut policy = RestartPolicy::default();
+        let now = Instant::now();
+        for second in 0..5 {
+            assert_eq!(
+                policy.exited(
+                    DBG_TERMINATE_PROCESS.0 as u32,
+                    now + Duration::from_secs(second)
+                ),
+                Some(Duration::from_secs(1))
+            );
+        }
+        assert!(policy.failures.is_empty());
+        for second in 5..7 {
+            assert_eq!(
+                policy.exited(1, now + Duration::from_secs(second)),
+                Some(Duration::from_secs(1))
+            );
+        }
+        assert_eq!(
+            policy.exited(DBG_TERMINATE_PROCESS.0 as u32, now + Duration::from_secs(7)),
+            Some(Duration::from_secs(1))
+        );
+        assert_eq!(
+            policy.exited(1, now + Duration::from_secs(8)),
+            Some(Duration::from_secs(30))
+        );
+    }
     #[test]
     fn requested_restarts_do_not_trigger_crash_backoff_or_stop_the_service() {
         let mut policy = RestartPolicy::default();

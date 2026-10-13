@@ -4,7 +4,9 @@ use crate::{
 };
 use anyhow::{Context, Result, bail};
 #[cfg(not(test))]
-use butterpollo_windows::display::virtual_display_available;
+use butterpollo_windows::{display::virtual_display_available, process::ensure_streaming_session};
+#[cfg(test)]
+use parity_tests::ensure_streaming_session;
 #[cfg(test)]
 fn virtual_display_available() -> bool {
     false
@@ -940,16 +942,21 @@ fn start(h: Shared, connection: Connection, args: Args, resume: bool) -> Respons
             return xml(401, &[], Some(error.to_string()));
         }
     };
-    h.request_codec_probe();
     let _transition = h.launch_transition.lock().unwrap();
-    let owner = match validate_launch_request(&h, &client, control) {
-        ControlFlow::Continue(owner) => owner,
-        ControlFlow::Break(response) => return response,
-    };
     // The reply names the endpoint Moonlight called. Android and iOS read
     // <gamesession> from /launch and fail without it, also when the launch
     // joins the running game.
     let reply = if resume { "resume" } else { "gamesession" };
+    if control != Some(Control::Terminate)
+        && let Err(error) = ensure_streaming_session()
+    {
+        return launch_response(Err(error), requested, reply, resume, false);
+    }
+    h.request_codec_probe();
+    let owner = match validate_launch_request(&h, &client, control) {
+        ControlFlow::Continue(owner) => owner,
+        ControlFlow::Break(response) => return response,
+    };
     let resume = resume
         || matches!(control, Some(Control::Resume | Control::RunningGame))
         || (control == Some(Control::Monitor) && owner == remote::Owner::Monitor);

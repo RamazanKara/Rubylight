@@ -315,6 +315,49 @@ pub fn current_session() -> Result<u32> {
     unsafe { ProcessIdToSessionId(GetCurrentProcessId(), &mut session)? };
     Ok(session)
 }
+pub fn ensure_streaming_session() -> Result<()> {
+    let session = current_session()?;
+    let mut buffer = PWSTR::null();
+    let mut bytes = 0;
+    // SAFETY: WTS allocates each output buffer. Its size is checked before reading and it is
+    // freed once after copying the value, including when the returned size is invalid.
+    let (state, protocol) = unsafe {
+        WTSQuerySessionInformationW(None, session, WTSConnectState, &mut buffer, &mut bytes)
+            .context("Cannot check the host Windows session; retry after Windows finishes switching sessions")?;
+        let state = if !buffer.is_null() && bytes as usize >= size_of::<WTS_CONNECTSTATE_CLASS>() {
+            Some(buffer.0.cast::<WTS_CONNECTSTATE_CLASS>().read_unaligned())
+        } else {
+            None
+        };
+        WTSFreeMemory(buffer.0.cast());
+        let state = state.context("Windows returned an invalid session connection state")?;
+        buffer = PWSTR::null();
+        bytes = 0;
+        WTSQuerySessionInformationW(None, session, WTSClientProtocolType, &mut buffer, &mut bytes)
+            .context("Cannot check the host Windows session protocol; retry after Windows finishes switching sessions")?;
+        let protocol = if !buffer.is_null() && bytes as usize >= size_of::<u16>() {
+            Some(buffer.0.read_unaligned())
+        } else {
+            None
+        };
+        WTSFreeMemory(buffer.0.cast());
+        (
+            state,
+            protocol.context("Windows returned an invalid session protocol")?,
+        )
+    };
+    validate_streaming_session(state, session == console_session() && protocol == 0)
+}
+fn validate_streaming_session(state: WTS_CONNECTSTATE_CLASS, console: bool) -> Result<()> {
+    // The physical console can be connected before sign-in or disconnected while locked.
+    // Rejecting every state except WTSActive would break streaming its sign-in screen.
+    if state == WTSActive || (console && (state == WTSConnected || state == WTSDisconnected)) {
+        return Ok(());
+    }
+    bail!(
+        "The host Windows session is disconnected or changing. Retry in a moment. After using RDP, return to the console session if this persists."
+    )
+}
 /// Whether a user is signed in to this process's session. Only a host
 /// running as SYSTEM can tell; a portable host runs as the user.
 pub fn user_signed_in() -> bool {
@@ -1163,6 +1206,31 @@ pub fn stop_processes(processes: &BTreeMap<u32, u64>, timeout: Duration) {
 }
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn streaming_session_rejects_disconnected_rdp_and_session_transitions() {
+        for state in [
+            WTSConnected,
+            WTSDisconnected,
+            WTSConnectQuery,
+            WTSReset,
+            WTSDown,
+            WTSInit,
+        ] {
+            let error = validate_streaming_session(state, false).unwrap_err();
+            assert!(error.to_string().contains("disconnected or changing"));
+            assert!(error.to_string().contains("RDP"));
+        }
+        for state in [WTSConnectQuery, WTSReset, WTSDown, WTSInit] {
+            assert!(validate_streaming_session(state, true).is_err());
+        }
+    }
+    #[test]
+    fn streaming_session_preserves_active_sessions_and_console_sign_in() {
+        assert!(validate_streaming_session(WTSActive, false).is_ok());
+        for state in [WTSActive, WTSConnected, WTSDisconnected] {
+            assert!(validate_streaming_session(state, true).is_ok());
+        }
+    }
     #[test]
     fn the_process_list_names_this_test_and_its_program() {
         let me = std::process::id();

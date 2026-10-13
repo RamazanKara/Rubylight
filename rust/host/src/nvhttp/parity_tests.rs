@@ -7,6 +7,17 @@ use axum::{
 use std::sync::atomic::Ordering;
 use tower::ServiceExt;
 
+thread_local! {
+    static SESSION_ERROR: std::cell::Cell<Option<&'static str>> = const { std::cell::Cell::new(None) };
+}
+
+pub(super) fn ensure_streaming_session() -> Result<()> {
+    match SESSION_ERROR.get() {
+        Some(message) => bail!(message),
+        None => Ok(()),
+    }
+}
+
 #[test]
 fn serverinfo_hardware_cache_is_route_scoped_private_and_expires() {
     let now = Instant::now();
@@ -592,6 +603,32 @@ async fn unpair_get_and_post_require_tls_and_stop_only_the_paired_device() {
             ),
             "0"
         );
+    }
+}
+
+#[tokio::test]
+async fn launch_and_resume_reject_disconnected_sessions_before_preparation() {
+    let f = Fixture::new();
+    f.client(1 << 26);
+    let app_id = f.host.apps.read().unwrap()[0].id();
+    let args = Args::from([
+        ("appid".into(), app_id.to_string()),
+        ("rikey".into(), "00000000000000000000000000000000".into()),
+        ("rikeyid".into(), "1".into()),
+    ]);
+    let message = "The host Windows session is disconnected after RDP. Retry in a moment.";
+    for (resume, reply) in [(false, "gamesession"), (true, "resume")] {
+        SESSION_ERROR.set(Some(message));
+        let response = start(f.host.clone(), f.connection(true), args.clone(), resume);
+        SESSION_ERROR.set(None);
+        let root = document(response).await;
+        assert_eq!(root.attributes["status_code"], "503");
+        assert_eq!(root.attributes["status_message"], message);
+        assert_eq!(field(&root, reply), "0");
+        assert!(root.get_child("sessionUrl0").is_none());
+        assert!(f.host.sessions.lock().unwrap().pending.is_empty());
+        assert!(f.host.current_app.lock().unwrap().is_none());
+        assert!(f.host.app_display.lock().unwrap().is_empty());
     }
 }
 

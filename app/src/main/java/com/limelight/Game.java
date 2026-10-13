@@ -4103,6 +4103,11 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     }
 
     @Override
+    public void controllerHaptics(short controllerNumber, int sequence, byte[] pcm) {
+        controllerHandler.handleControllerHaptics(controllerNumber, sequence, pcm);
+    }
+
+    @Override
     public void setAdaptiveTriggers(short controllerNumber, byte eventFlags, byte typeLeft,
                                     byte typeRight, byte[] left, byte[] right) {
         controllerHandler.handleSetAdaptiveTriggers(controllerNumber, eventFlags, typeLeft, typeRight, left, right);

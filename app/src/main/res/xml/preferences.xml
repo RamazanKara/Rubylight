@@ -379,6 +379,12 @@
             android:summary="@string/summary_usb_dualsense"
             android:defaultValue="false" />
         <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_usb_dualsense_haptics"
+            android:dependency="checkbox_usb_dualsense"
+            android:title="@string/title_usb_dualsense_haptics"
+            android:summary="@string/summary_usb_dualsense_haptics"
+            android:defaultValue="false" />
+        <com.limelight.preferences.MaterialSwitchPreference
             android:key="checkbox_usb_bind_all"
             android:dependency="checkbox_usb_driver"
             android:title="@string/title_checkbox_usb_bind_all"

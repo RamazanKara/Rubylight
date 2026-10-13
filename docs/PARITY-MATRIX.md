@@ -27,6 +27,7 @@ How the Android client works with each Rubylight host feature.
 | Audio | Stereo, 5.1 and 7.1, with low-latency AAudio for stereo on Android 8.1 and later. |
 | Controllers and mappings | Multiple players, per-model button mapping and built-in Xbox USB drivers. |
 | DualSense / Edge | Adaptive triggers, rumble, lightbar and Edge paddles over the direct USB driver. |
+| DualSense waveform haptics | Experimental, opt-in USB actuator PCM with compatible hosts such as Vibepollo nightly. Reserves controller USB audio; Bluetooth waveform output is unavailable. See [setup and limitations](dualsense-haptics.md). |
 | Touch, pen, mouse and keyboard | Trackpad, direct and multi-touch, native pen, pointer capture and keyboard input. Direct positions account for shifted stream layouts. Extra keyboard keys include Esc, F1–F12, modifiers and Task Manager/window shortcuts. |
 | Clipboard / server commands | Foreground text transfer in both directions and the host's configured commands. |
 | Performance overlay / CSV | Statistics and scrollable Debug views with stage timings, available host processing and CSV export. Choose the mode in the stream menu's Overlay section. |

@@ -166,7 +166,7 @@ public class PreferenceConfiguration {
     // Send this device's microphone to the host when the host offers to take it.
     public boolean enableMic;
     public String language;
-    public boolean smallIconMode, multiController, usbDriver, usbDualSense, flipFaceButtons;
+    public boolean smallIconMode, multiController, usbDriver, usbDualSense, usbDualSenseHaptics, flipFaceButtons;
     public boolean onscreenController;
     public boolean onlyL3R3;
     public boolean showGuideButton;
@@ -795,6 +795,7 @@ public class PreferenceConfiguration {
         config.multiController = prefs.getBoolean(MULTI_CONTROLLER_PREF_STRING, DEFAULT_MULTI_CONTROLLER);
         config.usbDriver = prefs.getBoolean(USB_DRIVER_PREF_SRING, DEFAULT_USB_DRIVER);
         config.usbDualSense = prefs.getBoolean(USB_DUALSENSE_PREF_STRING, false);
+        config.usbDualSenseHaptics = config.usbDualSense && prefs.getBoolean("checkbox_usb_dualsense_haptics", false);
         config.onscreenController = prefs.getBoolean(ONSCREEN_CONTROLLER_PREF_STRING, ONSCREEN_CONTROLLER_DEFAULT);
         config.onlyL3R3 = prefs.getBoolean(ONLY_L3_R3_PREF_STRING, ONLY_L3_R3_DEFAULT);
         config.showGuideButton = prefs.getBoolean(SHOW_GUIDE_BUTTON_PREF_STRING, SHOW_GUIDE_BUTTON_DEFAULT);

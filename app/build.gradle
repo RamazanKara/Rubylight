@@ -178,7 +178,7 @@ def verifyReleaseSigning = tasks.register('verifyReleaseSigning') {
 def prepareNativePatches = tasks.register('prepareNativePatches') {
     doLast {
         def core = file('src/main/jni/moonlight-core')
-        ['bughunt-stream.patch', 'bughunt-input.patch'].each { name ->
+        ['bughunt-stream.patch', 'bughunt-input.patch', 'controller-haptics.patch'].each { name ->
             def patch = new File(core, "patches/$name").absolutePath
             def runGit = { List<String> arguments ->
                 def result = providers.exec {

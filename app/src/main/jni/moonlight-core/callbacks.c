@@ -11,6 +11,7 @@
 #include "phase_lock.h"
 #include "control_negotiation.h"
 #include "android_microphone.h"
+#include "ControllerHaptics.h"
 
 #include <opus_multistream.h>
 #include <android/log.h>
@@ -46,6 +47,7 @@ static jmethodID BridgeClRumbleTriggersMethod;
 static jmethodID BridgeClSetMotionEventStateMethod;
 static jmethodID BridgeClSetControllerLEDMethod;
 static jmethodID BridgeClSetAdaptiveTriggersMethod;
+static jmethodID BridgeClControllerHapticsMethod;
 static jbyteArray DecodedFrameBuffer;
 static jshortArray DecodedAudioBuffer;
 
@@ -110,6 +112,7 @@ Java_com_limelight_nvstream_jni_MoonBridge_init(JNIEnv *env, jclass clazz) {
     BridgeClRumbleTriggersMethod = (*env)->GetStaticMethodID(env, clazz, "bridgeClRumbleTriggers", "(SSS)V");
     BridgeClSetMotionEventStateMethod = (*env)->GetStaticMethodID(env, clazz, "bridgeClSetMotionEventState", "(SBS)V");
     BridgeClSetControllerLEDMethod = (*env)->GetStaticMethodID(env, clazz, "bridgeClSetControllerLED", "(SBBB)V");
+    BridgeClControllerHapticsMethod = (*env)->GetStaticMethodID(env, clazz, "bridgeClControllerHaptics", "(SI[B)V");
     BridgeClSetAdaptiveTriggersMethod = (*env)->GetStaticMethodID(env, clazz, "bridgeClSetAdaptiveTriggers", "(SBBB[B[B)V");
 }
 
@@ -451,6 +454,22 @@ void BridgeClSetAdaptiveTriggers(uint16_t controllerNumber, uint8_t eventFlags, 
                                 (jbyte)typeRight, leftArray, rightArray);
     (*env)->DeleteLocalRef(env, leftArray);
     (*env)->DeleteLocalRef(env, rightArray);
+    if ((*env)->ExceptionCheck(env)) {
+        (*JVM)->DetachCurrentThread(JVM);
+    }
+}
+
+void BridgeClControllerHaptics(uint16_t controller, uint32_t sequence, const uint8_t* pcm, uint16_t frames) {
+    JNIEnv* env = GetThreadEnv();
+    jbyteArray samples = (*env)->NewByteArray(env, frames * ML_HAPTICS_FRAME_BYTES);
+    if (samples == NULL) {
+        (*env)->ExceptionClear(env);
+        return;
+    }
+    (*env)->SetByteArrayRegion(env, samples, 0, frames * ML_HAPTICS_FRAME_BYTES, (const jbyte*)pcm);
+    (*env)->CallStaticVoidMethod(env, GlobalBridgeClass, BridgeClControllerHapticsMethod,
+                                (jshort)controller, (jint)sequence, samples);
+    (*env)->DeleteLocalRef(env, samples);
     if ((*env)->ExceptionCheck(env)) {
         (*JVM)->DetachCurrentThread(JVM);
     }

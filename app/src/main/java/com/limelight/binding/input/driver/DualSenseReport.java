@@ -217,6 +217,7 @@ final class DualSenseReport {
         private static final int[] PLAYER_LIGHTS = {0x04, 0x0A, 0x15, 0x1B, 0x1F, 0x11, 0x0E};
         private final byte[] state = new byte[48];
         private final boolean enhancedRumble;
+        private boolean waveform;
 
         Output(boolean enhancedRumble) {
             this.enhancedRumble = enhancedRumble;
@@ -225,13 +226,22 @@ final class DualSenseReport {
 
         private byte[] build(int triggerFlags, int ledFlags) {
             byte[] report = state.clone();
-            report[1] = (byte)(triggerFlags | (enhancedRumble ? 0x02 : 0x03));
+            report[1] = (byte)(triggerFlags | (waveform ? 0 : enhancedRumble ? 0x02 : 0x03));
             report[2] = (byte)ledFlags;
-            report[39] = (byte)(enhancedRumble ? 0x04 : 0);
+            report[39] = (byte)(!waveform && enhancedRumble ? 0x04 : 0);
+            if (waveform) report[3] = report[4] = 0;
             return report;
         }
 
+        byte[] waveform(boolean enabled) {
+            waveform = enabled;
+            // Do not replay an emulated effect remembered before waveform playback.
+            state[3] = state[4] = 0;
+            return build(0, 0);
+        }
+
         byte[] rumble(short lowFrequency, short highFrequency) {
+            if (waveform) return null;
             int shift = enhancedRumble ? 8 : 9;
             state[3] = (byte)((highFrequency & 0xFFFF) >> shift);
             state[4] = (byte)((lowFrequency & 0xFFFF) >> shift);
@@ -270,6 +280,7 @@ final class DualSenseReport {
         }
 
         byte[] reset() {
+            waveform = false;
             Arrays.fill(state, (byte)0);
             state[0] = 0x02;
             state[11] = state[22] = 0x05;

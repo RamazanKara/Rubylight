@@ -5,6 +5,7 @@ import android.hardware.usb.UsbDevice;
 import android.hardware.usb.UsbDeviceConnection;
 import android.hardware.usb.UsbEndpoint;
 import android.hardware.usb.UsbInterface;
+import android.hardware.usb.UsbManager;
 import android.os.SystemClock;
 
 import com.limelight.LimeLog;
@@ -14,6 +15,8 @@ public class DualSenseController extends AbstractController {
     private final UsbDevice device;
     private final UsbDeviceConnection connection;
     private final boolean edge;
+    private final UsbManager waveformUsbManager;
+    private volatile DualSenseHaptics haptics;
     private final DualSenseReport.Calibration calibration = new DualSenseReport.Calibration();
     private DualSenseReport.Input input = new DualSenseReport.Input();
     private DualSenseReport.Input previous = new DualSenseReport.Input();
@@ -26,9 +29,10 @@ public class DualSenseController extends AbstractController {
     private boolean batteryReported;
     private long accelIntervalNs, gyroIntervalNs, lastAccelNs, lastGyroNs;
 
-    public DualSenseController(UsbDevice device, UsbDeviceConnection connection, int deviceId, UsbDriverListener listener) {
+    public DualSenseController(UsbDevice device, UsbDeviceConnection connection, int deviceId, UsbDriverListener listener, UsbManager waveformUsbManager) {
         super(deviceId, listener, device.getVendorId(), device.getProductId());
         this.device = device;
+        this.waveformUsbManager = waveformUsbManager;
         this.connection = connection;
         edge = device.getProductId() == 0x0DF2;
         type = MoonBridge.LI_CTYPE_PS;
@@ -81,7 +85,7 @@ public class DualSenseController extends AbstractController {
         if (iface == null || !connection.claimInterface(iface, true)) {
             return false;
         }
-        // Claim only HID: the other interfaces belong to the controller's USB audio device.
+        // Audio remains with Android unless the separate waveform option is enabled.
         hidInterface = iface;
         for (int i = 0; i < iface.getEndpointCount(); i++) {
             UsbEndpoint endpoint = iface.getEndpoint(i);
@@ -106,6 +110,21 @@ public class DualSenseController extends AbstractController {
             connection.releaseInterface(hidInterface);
             hidInterface = null;
             return false;
+        }
+
+        if (waveformUsbManager != null) {
+            try {
+                DualSenseUsbAudio audio = DualSenseUsbAudio.open(waveformUsbManager, device);
+                if (audio != null) {
+                    haptics = new DualSenseHaptics(audio, this::setWaveformMode);
+                    capabilities |= MoonBridge.LI_CCAP_HAPTICS_PCM;
+                    LimeLog.info("DualSense USB waveform backend ready");
+                }
+                else LimeLog.warning("DualSense USB waveform output unavailable; ordinary feedback remains enabled");
+            }
+            catch (SecurityException e) {
+                LimeLog.warning("DualSense USB waveform access denied; ordinary feedback remains enabled");
+            }
         }
 
         inputThread = new Thread(this::readInput, "DualSense USB input");
@@ -193,6 +212,25 @@ public class DualSenseController extends AbstractController {
     }
 
     @Override
+    public short getCapabilities() {
+        DualSenseHaptics playback = haptics;
+        return playback != null && playback.isReady() ? capabilities :
+                (short)(capabilities & ~MoonBridge.LI_CCAP_HAPTICS_PCM);
+    }
+
+    private void setWaveformMode(boolean enabled) {
+        synchronized (outputLock) {
+            if (!stopped) writeOutput(output.waveform(enabled));
+        }
+    }
+
+    @Override
+    public void controllerHaptics(int sequence, byte[] pcm) {
+        DualSenseHaptics playback = haptics;
+        if (!stopped && playback != null) playback.offer(sequence, pcm);
+    }
+
+    @Override
     public void stop() {
         synchronized (outputLock) {
             if (stopped) {
@@ -202,6 +240,11 @@ public class DualSenseController extends AbstractController {
             if (inputThread != null) {
                 inputThread.interrupt();
             }
+        }
+        // The worker may be updating HID state, so join without holding outputLock.
+        DualSenseHaptics playback = haptics;
+        if (playback != null) playback.close();
+        synchronized (outputLock) {
             if (hidInterface != null) {
                 writeOutput(output.reset());
                 if (!connection.releaseInterface(hidInterface)) {

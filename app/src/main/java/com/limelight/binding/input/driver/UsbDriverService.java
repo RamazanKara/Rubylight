@@ -276,7 +276,8 @@ public class UsbDriverService extends Service implements UsbDriverListener {
             AbstractController controller;
 
             if (DualSenseController.canClaimDevice(device)) {
-                controller = new DualSenseController(device, connection, nextDeviceId++, this);
+                controller = new DualSenseController(device, connection, nextDeviceId++, this,
+                        PreferenceConfiguration.readPreferences(this).usbDualSenseHaptics ? usbManager : null);
             }
             else if (XboxOneController.canClaimDevice(device)) {
                 controller = new XboxOneController(device, connection, nextDeviceId++, this);

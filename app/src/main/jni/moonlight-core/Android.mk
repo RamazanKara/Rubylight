@@ -15,6 +15,7 @@ LOCAL_SRC_FILES := moonlight-common-c/src/AudioStream.c \
                    android_control.c \
                    moonlight-common-c/src/FakeCallbacks.c \
                    android_input.c \
+                   dualsense_usb_audio.c \
                    aaudio_output.c \
                    android_microphone.c \
                    latency.c \
@@ -48,7 +49,8 @@ LOCAL_SRC_FILES := moonlight-common-c/src/AudioStream.c \
                    minisdl.c \
 
 
-LOCAL_C_INCLUDES := $(LOCAL_PATH)/moonlight-common-c/enet/include \
+LOCAL_C_INCLUDES := $(LOCAL_PATH) \
+                    $(LOCAL_PATH)/moonlight-common-c/enet/include \
                     $(LOCAL_PATH)/moonlight-common-c/nanors/deps/obl \
                     $(LOCAL_PATH)/moonlight-common-c/nanors \
                     $(LOCAL_PATH)/moonlight-common-c/src \

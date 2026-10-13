@@ -67,6 +67,8 @@ public abstract class AbstractController {
 
     public abstract void rumbleTriggers(short leftTrigger, short rightTrigger);
 
+    public void controllerHaptics(int sequence, byte[] pcm) {}
+
     public void setAdaptiveTriggers(byte eventFlags, byte typeLeft, byte typeRight, byte[] left, byte[] right) {}
 
     public void setLed(byte r, byte g, byte b) {}

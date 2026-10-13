@@ -24,6 +24,8 @@ For direct DualSense or DualSense Edge USB support:
 
 The toggle is off by default. Denying USB access keeps the ordinary Android input path; unplug and reconnect to retry. The host must support the requested feedback.
 
+For native waveform vibration from a compatible **Vibepollo nightly** host, also enable **USB DualSense waveform haptics**, then reconnect the controller and stream. This experimental option sends the host's distinct left/right samples to a USB DualSense or Edge. It takes over the controller's USB audio interfaces, so its headphone and microphone functions are unavailable while enabled. Use the phone or another audio device for game sound. Bluetooth waveform output is not supported by Android's standard controller API. See [waveform setup and limitations](dualsense-haptics.md).
+
 The separate **USB controller driver** setting supplies Xbox USB support. **Always use the USB driver** prefers that path even if Android already recognizes the controller.
 
 ### Controller mouse mode

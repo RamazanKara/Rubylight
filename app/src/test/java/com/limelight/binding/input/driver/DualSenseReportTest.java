@@ -12,6 +12,37 @@ import java.util.List;
 import static org.junit.Assert.*;
 
 public class DualSenseReportTest {
+    @Test
+    public void waveformModeSurvivesOtherFeedbackAndRestoresOrdinaryRumble() {
+        for (boolean enhanced : new boolean[] {false, true}) {
+            DualSenseReport.Output output = new DualSenseReport.Output(enhanced);
+            output.rumble((short)0xffff, (short)0xffff);
+            byte[] report = output.waveform(true);
+            assertEquals(0, report[1] & 3);
+            assertEquals(0, report[39] & 4);
+            assertEquals(0, report[3] | report[4]);
+            assertNull(output.rumble((short)0xffff, (short)0xffff));
+            report = output.led((byte)1, (byte)2, (byte)3);
+            assertEquals(0, report[1] & 3);
+            assertEquals(0, report[39] & 4);
+            byte[] effect = new byte[10];
+            effect[0] = 12;
+            report = output.adaptiveTriggers((byte)0x0c, (byte)1, (byte)2, effect, effect);
+            assertEquals(0x0c, report[1] & 0xff);
+            assertEquals(12, report[12]);
+            assertEquals(12, report[23]);
+            report = output.waveform(false);
+            assertEquals(0, report[3] | report[4]);
+            report = output.rumble((short)0xffff, (short)0xffff);
+            assertEquals(enhanced ? 255 : 127, report[3] & 0xff);
+            assertEquals(enhanced ? 2 : 3, report[1] & 3);
+            output.waveform(true);
+            report = output.reset();
+            assertEquals(enhanced ? 2 : 3, report[1] & 3);
+            assertEquals(0, report[3] | report[4]);
+        }
+    }
+
     // Physical USB captures, Total Phase sniffer, DS5 -> PS5; unmodified 64-byte reports:
     // https://github.com/matlo/GIMX/issues/672#issuecomment-1019605142
     private static final byte[][] CAPTURED_USB = {

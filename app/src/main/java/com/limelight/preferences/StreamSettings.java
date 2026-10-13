@@ -993,6 +993,7 @@ public class StreamSettings extends AppCompatActivity {
                         (PreferenceCategory) findPreference("category_advanced_settings");
                 category.removePreference(findPreference("checkbox_usb_bind_all"));
                 category.removePreference(findPreference("checkbox_usb_driver"));
+                category.removePreference(findPreference("checkbox_usb_dualsense_haptics"));
                 category.removePreference(dualSense);
             }
 

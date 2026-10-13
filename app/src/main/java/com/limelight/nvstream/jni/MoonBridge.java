@@ -126,6 +126,7 @@ public class MoonBridge {
     public static final short LI_CCAP_BATTERY_STATE   = 0x40;
     public static final short LI_CCAP_RGB_LED         = 0x80;
     public static final short LI_CCAP_DUAL_TOUCHPAD   = 0x100;
+    public static final short LI_CCAP_HAPTICS_PCM     = (short)0x8000;
 
     public static final byte LI_MOTION_TYPE_ACCEL = 0x01;
     public static final byte LI_MOTION_TYPE_GYRO  = 0x02;
@@ -355,6 +356,17 @@ public class MoonBridge {
             connectionListener.setAdaptiveTriggers(controllerNumber, eventFlags, typeLeft, typeRight, left, right);
         }
     }
+
+    public static void bridgeClControllerHaptics(short controllerNumber, int sequence, byte[] pcm) {
+        if (connectionListener != null) {
+            connectionListener.controllerHaptics(controllerNumber, sequence, pcm);
+        }
+    }
+
+    public static native long openUsbHaptics(int fd, int endpoint, int interval);
+    public static native boolean writeUsbHaptics(long handle, byte[] samples);
+    public static native void closeUsbHaptics(long handle);
+    public static native void restoreUsbAudio(int fd, int controlInterface);
 
     public static void setupBridge(VideoDecoderRenderer videoRenderer, AudioRenderer audioRenderer,
                                    NvConnectionListener connectionListener, BooleanSupplier connectionCancelled) {

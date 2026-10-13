@@ -112,6 +112,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
 
     private final ConcurrentHashMap<Integer, InputDeviceContext> inputDeviceContexts = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<Integer, UsbDeviceContext> usbDeviceContexts = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<Short, AbstractController> waveformControllers = new ConcurrentHashMap<>();
 
     private final NvConnection conn;
     private final Activity activityContext;
@@ -2234,6 +2235,13 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         }
     }
 
+    public void handleControllerHaptics(short controllerNumber, int sequence, byte[] pcm) {
+        if (stopped) return;
+        // Avoid the input monitor and HID transfers on the control receive thread.
+        AbstractController controller = waveformControllers.get(controllerNumber);
+        if (controller != null) controller.controllerHaptics(sequence, pcm);
+    }
+
     public synchronized void handleSetAdaptiveTriggers(short controllerNumber, byte eventFlags, byte typeLeft,
                                           byte typeRight, byte[] left, byte[] right) {
         if (stopped) {
@@ -3528,12 +3536,15 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         public void destroy() {
             super.destroy();
 
-            // Nothing for now
+            waveformControllers.remove((short)controllerNumber, device);
         }
 
         @Override
         public void sendControllerArrival() {
             short capabilities = device.getCapabilities();
+            if ((capabilities & MoonBridge.LI_CCAP_HAPTICS_PCM) != 0) {
+                waveformControllers.put((short)controllerNumber, device);
+            }
             if (!prefConfig.gamepadMotionSensors) {
                 capabilities &= ~(MoonBridge.LI_CCAP_ACCEL | MoonBridge.LI_CCAP_GYRO);
             }

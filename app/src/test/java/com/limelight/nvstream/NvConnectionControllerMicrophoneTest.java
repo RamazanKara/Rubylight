@@ -27,8 +27,49 @@ import static org.junit.Assert.*;
 public class NvConnectionControllerMicrophoneTest {
     @Implements(MoonBridge.class)
     public static class MicrophoneBridge {
+        static int stateQueries;
         @Implementation protected static void __staticInitializer__() { }
-        @Implementation protected static int getMicrophoneState() { return MoonBridge.MIC_STATE_READY; }
+        @Implementation protected static int getMicrophoneState() {
+            stateQueries++;
+            return MoonBridge.MIC_STATE_READY;
+        }
+    }
+
+    @Test public void reconnectMuteSnapshotPreservesTheLocalChoiceWithoutNativeQueries() {
+        Connection connection = new Connection(73);
+        ReflectionHelpers.setField(connection, "nativeConnected", false);
+        int queries = MicrophoneBridge.stateQueries;
+        assertFalse(connection.isMicrophoneMutedForReconnect());
+        connection.setMicrophoneMuted(true);
+        assertTrue(connection.isMicrophoneMutedForReconnect());
+        connection.setMicrophoneMuted(false);
+        assertFalse(connection.isMicrophoneMutedForReconnect());
+        assertEquals(queries, MicrophoneBridge.stateQueries);
+        assertTrue(connection.captures.isEmpty());
+    }
+
+    @Test public void reconnectMuteSnapshotIncludesDeniedUsbCaptureAndOtherReadyOwners() {
+        Connection connection = new Connection(73);
+        ReflectionHelpers.setField(connection, "nativeConnected", false);
+        ReflectionHelpers.setField(connection, "micEnabled", false);
+        ReflectionHelpers.setField(connection, "micPermitted", false);
+        int queries = MicrophoneBridge.stateQueries;
+        Object muted = new Object(), ready = new Object();
+        connection.controllerMicrophoneState(muted, true, false, true);
+        assertFalse(connection.isMicrophoneMuted());
+        assertTrue(connection.isMicrophoneMutedForReconnect());
+        connection.controllerMicrophoneState(muted, false, false, true);
+        connection.controllerMicrophoneState(ready, true, true, false);
+        assertTrue(connection.isMicrophoneMutedForReconnect());
+        connection.controllerMicrophoneState(muted, false, false, false);
+        assertFalse(connection.isMicrophoneMutedForReconnect());
+        connection.controllerMicrophoneState(muted, false, false, true);
+        connection.releaseControllerMicrophone(muted);
+        assertTrue(connection.isMicrophoneMutedForReconnect());
+        connection.setMicrophoneMuted(false);
+        assertFalse(connection.isMicrophoneMutedForReconnect());
+        assertEquals(queries, MicrophoneBridge.stateQueries);
+        assertTrue(connection.captures.isEmpty());
     }
 
     @Test public void negotiationAndUnavailableUsbCaptureKeepTheOrdinaryMicrophone() {

@@ -7,6 +7,7 @@ import android.content.pm.ActivityInfo;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
+import com.limelight.binding.input.ControllerHandler;
 import com.limelight.binding.video.MediaCodecDecoderRenderer;
 import com.limelight.binding.video.MediaCodecHelper;
 import com.limelight.nvstream.NvConnection;
@@ -28,6 +29,8 @@ import static org.junit.Assert.*;
 @RunWith(org.robolectric.RobolectricTestRunner.class)
 @Config(sdk = 29, application = Application.class)
 public class GameRecoveryTest {
+    private static final String MICROPHONE_MUTED = "rubylight.microphoneMuted";
+
     @Test public void mergedManifestAllowsReturningToAStoppedStream() throws Exception {
         Game game = Robolectric.buildActivity(Game.class).get();
         ActivityInfo info = game.getPackageManager().getActivityInfo(new ComponentName(game, Game.class), 0);
@@ -67,6 +70,130 @@ public class GameRecoveryTest {
         ReflectionHelpers.setField(game, "recoveryAppUuid", "captured-game");
         ReflectionHelpers.setField(game, "connectedAt", SystemClock.elapsedRealtime());
         return game;
+    }
+
+    @Test public void automaticRecoveryRestoresLocalAndControllerHostMuteBeforeCapture() throws Exception {
+        for (boolean controllerMuted : new boolean[] {false, true}) {
+            Game game = recoveryGame();
+            MuteConnection connection = new MuteConnection();
+            ReflectionHelpers.setField(game, "conn", connection);
+            if (controllerMuted) connection.controllerMicrophoneState(new Object(), false, false, true);
+            else connection.setMicrophoneMuted(true);
+            try {
+                assertTrue(ReflectionHelpers.callInstanceMethod(game, "tryAutomaticRecovery"));
+                Intent retry = awaitRecoveryLaunch(game, 1);
+                assertRestoredMute(retry, true);
+            } finally {
+                cleanupRecovery(game);
+            }
+        }
+    }
+
+    @Test public void lockResumeKeepsHostMuteAfterTheStoppedConnectionClearsControllerState() throws Exception {
+        Game game = establishedGame();
+        MuteConnection connection = new MuteConnection();
+        connection.controllerMicrophoneState(new Object(), false, false, true);
+        ReflectionHelpers.setField(game, "conn", connection);
+        try {
+            game.onPause();
+            game.onStop();
+            Thread stopping = ReflectionHelpers.getField(game, "connectionStopThread");
+            stopping.join(1000);
+            assertFalse(connection.isMicrophoneMutedForReconnect());
+            game.onResume();
+            assertRestoredMute(awaitRecoveryLaunch(game, 1), true);
+        } finally {
+            cleanupRecovery(game);
+        }
+    }
+
+    @Test public void manualAndOutputReconnectPreserveTheCurrentMuteWithoutPersistingAnOldMute() {
+        for (boolean outputSwitch : new boolean[] {false, true}) {
+            Game game = recoveryGame();
+            MuteConnection connection = new MuteConnection();
+            ReflectionHelpers.setField(game, "conn", connection);
+            ReflectionHelpers.setField(game, "outputSwitchPending", outputSwitch);
+            connection.setMicrophoneMuted(true);
+            assertRestoredMute(ReflectionHelpers.callInstanceMethod(game, "createReconnectIntent"), true);
+            connection.setMicrophoneMuted(false);
+            assertRestoredMute(ReflectionHelpers.callInstanceMethod(game, "createReconnectIntent"), false);
+        }
+        // A separate fresh launch still uses the unmuted default; the choice belongs to this session.
+        assertRestoredMute(new Intent(), false);
+    }
+
+    @Test public void manualReconnectKeepsTheMuteSnapshotWhenTheStoppedConnectionIsGone() throws Exception {
+        Game game = recoveryGame();
+        MuteConnection connection = new MuteConnection();
+        connection.controllerMicrophoneState(new Object(), false, false, true);
+        ReflectionHelpers.setField(game, "conn", connection);
+        ReflectionHelpers.callInstanceMethod(game, "stopConnection");
+        Thread stopping = ReflectionHelpers.getField(game, "connectionStopThread");
+        stopping.join(1000);
+        assertFalse(connection.isMicrophoneMutedForReconnect());
+        ReflectionHelpers.setField(game, "conn", null);
+        assertRestoredMute(ReflectionHelpers.callInstanceMethod(game, "createReconnectIntent"), true);
+    }
+
+    @Test
+    @Config(shadows = PcViewLifecycleTest.NoNativeMoonBridge.class, instrumentedPackages = "com.limelight.nvstream.jni")
+    public void finalControllerTeardownMuteReachesAlreadyPreparedRecoveryAndReconnectIntents() throws Exception {
+        for (boolean automatic : new boolean[] {false, true}) {
+            Game game = recoveryGame();
+            MuteConnection connection = new MuteConnection();
+            ReflectionHelpers.setField(game, "conn", connection);
+            PreferenceConfiguration config = ReflectionHelpers.getField(game, "prefConfig");
+            // This fixture has no Shield service; do not post a successful binding with a null binder.
+            org.robolectric.Shadows.shadowOf(game.getApplication()).declareComponentUnbindable(
+                    new ComponentName("com.nvidia.blakepairing", "com.nvidia.blakepairing.AccessoryService"));
+            ControllerHandler handler = new ControllerHandler(game, connection, null, config) {
+                @Override public synchronized void stop() {
+                    // A USB worker can publish its last host mute while being synchronously joined.
+                    Object owner = new Object();
+                    connection.controllerMicrophoneState(owner, false, false, true);
+                    connection.releaseControllerMicrophone(owner);
+                    super.stop();
+                }
+            };
+            ReflectionHelpers.setField(game, "controllerHandler", handler);
+            try {
+                assertFalse(connection.isMicrophoneMutedForReconnect());
+                if (automatic) assertTrue(ReflectionHelpers.callInstanceMethod(game, "tryAutomaticRecovery"));
+                else ReflectionHelpers.callInstanceMethod(game, "reconnectStream");
+                assertRestoredMute(awaitRecoveryLaunch(game, automatic ? 1 : 0), true);
+            } finally {
+                cleanupRecovery(game);
+                handler.destroy();
+            }
+        }
+    }
+
+    private static void assertRestoredMute(Intent retry, boolean muted) {
+        assertNotNull(retry);
+        assertEquals(muted, retry.getBooleanExtra(MICROPHONE_MUTED, false));
+        Game replacement = Robolectric.buildActivity(Game.class).get();
+        replacement.setIntent(retry);
+        MuteConnection connection = new MuteConnection();
+        ReflectionHelpers.setField(replacement, "conn", connection);
+        ReflectionHelpers.callInstanceMethod(replacement, "restoreMicrophoneMute");
+        assertEquals(muted, connection.isMicrophoneMuted());
+        assertEquals(muted, connection.isMicrophoneMutedForReconnect());
+    }
+
+    private static class MuteConnection extends NvConnection {
+        MuteConnection() {
+            super(null, new ComputerDetails.AddressTuple("192.0.2.1", 47989), 47984, "test",
+                    new StreamConfiguration.Builder().setApp(new NvApp("Game", 73, false)).build(), null, null);
+        }
+
+        @Override public void stop() {
+            // Match native teardown's state removal without opening a socket, device, or microphone.
+            java.util.Map<?, ?> microphones = ReflectionHelpers.getField(this, "controllerMicrophones");
+            microphones.clear();
+        }
+
+        @Override public void sendControllerInput(short number, short mask, int buttons, byte leftTrigger,
+                                                   byte rightTrigger, short leftX, short leftY, short rightX, short rightY) { }
     }
 
     @Test

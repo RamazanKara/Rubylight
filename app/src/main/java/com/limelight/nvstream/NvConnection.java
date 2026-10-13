@@ -265,6 +265,16 @@ public class NvConnection {
         return micMuted;
     }
 
+    // Snapshot before teardown clears controller ownership. This must not query
+    // native state, which may already belong to a different connection.
+    public synchronized boolean isMicrophoneMutedForReconnect() {
+        if (micMuted) return true;
+        for (ControllerMicrophoneState state : controllerMicrophones.values()) {
+            if (state.hostMuted) return true;
+        }
+        return false;
+    }
+
     public NvConnection(Context appContext, ComputerDetails.AddressTuple host, int httpsPort, String uniqueId, StreamConfiguration config, LimelightCryptoProvider cryptoProvider, X509Certificate serverCert)
     {
         this.appContext = appContext;

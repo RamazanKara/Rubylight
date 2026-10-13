@@ -462,6 +462,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     public static final String EXTRA_SERVER_CERT = "ServerCert";
     private static final String EXTRA_RECOVERY_ATTEMPTS = "RecoveryAttempts";
     private static final String EXTRA_RECOVERY_STARTED = "RecoveryStarted";
+    private static final String EXTRA_MICROPHONE_MUTED = "rubylight.microphoneMuted";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -835,6 +836,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 new ComputerDetails.AddressTuple(host, port),
                 httpsPort, uniqueId, config,
                 PlatformBinding.getCryptoProvider(this), serverCert);
+        restoreMicrophoneMute();
         controllerHandler = new ControllerHandler(this, conn, this, prefConfig);
         conn.setControllerPreparation(controllerHandler::prepareControllersForLaunch);
         updateInputPollingRate();
@@ -2538,8 +2540,24 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 }).setNegativeButton(android.R.string.cancel, null).create());
     }
 
+    private void rememberMicrophoneMute() {
+        if (conn != null && (connected || connecting)) {
+            getIntent().putExtra(EXTRA_MICROPHONE_MUTED, conn.isMicrophoneMutedForReconnect());
+        }
+    }
+
+    private void restoreMicrophoneMute() {
+        // This is session state, applied before controller binding or native capture can start.
+        conn.setMicrophoneMuted(getIntent().getBooleanExtra(EXTRA_MICROPHONE_MUTED, false));
+    }
+
+    private Intent createStreamHandoffIntent() {
+        rememberMicrophoneMute();
+        return new Intent(getIntent());
+    }
+
     private Intent createReconnectIntent() {
-        Intent retry = new Intent(getIntent());
+        Intent retry = createStreamHandoffIntent();
         retry.removeExtra(EXTRA_RECOVERY_ATTEMPTS);
         retry.removeExtra(EXTRA_RECOVERY_STARTED);
         retry.removeExtra(EXTRA_OUTPUT_RESUME_ONLY);
@@ -2573,6 +2591,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         displayedFailureDialog = true;
         setInputGrabState(false);
         stopConnection();
+        retry.putExtra(EXTRA_MICROPHONE_MUTED, getIntent().getBooleanExtra(EXTRA_MICROPHONE_MUTED, false));
         final Thread stopping = connectionStopThread;
         final int generation = foregroundGeneration;
         final int recovery = recoveryGeneration;
@@ -2623,7 +2642,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         // Count only time actually connected, never time spent locked or in another app.
         recoveryPolicy.resetAfterStableConnection(SystemClock.elapsedRealtime(), connectedAt);
         connectedAt = -1;
-        stoppedStreamResumeIntent = new Intent(getIntent())
+        stoppedStreamResumeIntent = createStreamHandoffIntent()
                 .putExtra(EXTRA_APP_ID, recoveryAppId).putExtra(EXTRA_APP_UUID, recoveryAppUuid);
     }
 
@@ -2647,7 +2666,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 app.getControl() == NvApp.Control.NONE ? app.getAppId() : 0;
         String resumeUuid = recoveryAppId != 0 ? recoveryAppUuid : app.getAppUuid();
         if (resumeId == 0) return false;
-        return queueAutomaticRecovery(new Intent(getIntent())
+        return queueAutomaticRecovery(createStreamHandoffIntent()
                 .putExtra(EXTRA_APP_ID, resumeId).putExtra(EXTRA_APP_UUID, resumeUuid));
     }
 
@@ -2664,7 +2683,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         spinner = SpinnerDialog.displayDialog(this, getString(R.string.conn_establishing_title),
                 getString(R.string.stream_recovery_attempt, recoveryPolicy.attempts(), StreamRecoveryPolicy.MAX_ATTEMPTS), true);
         retry.putExtra(EXTRA_RECOVERY_ATTEMPTS, recoveryPolicy.attempts())
-                .putExtra(EXTRA_RECOVERY_STARTED, recoveryPolicy.startedAt());
+                .putExtra(EXTRA_RECOVERY_STARTED, recoveryPolicy.startedAt())
+                .putExtra(EXTRA_MICROPHONE_MUTED, getIntent().getBooleanExtra(EXTRA_MICROPHONE_MUTED, false));
         final int generation = foregroundGeneration;
         final int recovery = recoveryGeneration;
         // Keep this true after the delayed callback hands off to its teardown worker. A
@@ -4301,6 +4321,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     }
 
     private void stopConnection() {
+        rememberMicrophoneMute();
         cancelAutomaticRecovery();
         if (gameTouchControls != null) gameTouchControls.releaseInput();
         stopHardwareMetricsPolling();
@@ -4334,6 +4355,10 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             updatePipAutoEnter();
 
             if (controllerHandler != null) controllerHandler.stop();
+
+            // USB teardown can report a final host mute before releasing its route.
+            // Keep that mute after the native connection clears controller state.
+            if (conn.isMicrophoneMutedForReconnect()) getIntent().putExtra(EXTRA_MICROPHONE_MUTED, true);
 
             // Update GameManager state to indicate we're no longer in game
             UiHelper.notifyStreamEnded(this);

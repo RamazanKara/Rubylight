@@ -271,7 +271,12 @@ public class DualSenseController extends AbstractController {
         if (previousConnection != null) previousConnection.releaseControllerMicrophone(previousOwner);
         audioNumber = number; audioConnection = conn;
         audioNegotiated = microphoneAccepted = hostMicMuted = false;
-        playback.microphone(new DualSenseHaptics.Microphone() {
+        playback.microphone(createMicrophoneSink(conn, owner));
+        lastAudioFlags = -1;
+        updateAudioState();
+    }
+    private DualSenseHaptics.Microphone createMicrophoneSink(com.limelight.nvstream.NvConnection conn, Object owner) {
+        return new DualSenseHaptics.Microphone() {
             public boolean start() { return conn.beginControllerMicrophone(); }
             public void finish() { conn.endControllerMicrophone(); }
             public boolean enabled() { return !stopped && microphoneOwner == owner && microphoneAccepted && !hostMicMuted && conn.controllerMicrophoneEnabled(); }
@@ -280,16 +285,23 @@ public class DualSenseController extends AbstractController {
                 conn.controllerMicrophoneState(owner, microphoneAccepted, ready, hostMicMuted);
             }
             public void closed() {
-                if (microphoneOwner == owner) microphoneOwner = null;
+                if (microphoneOwner == owner) {
+                    // An idle worker can be interrupted before ready(false) observes
+                    // the last host mute. Publish it before releasing the route.
+                    boolean muted = hostMicMuted;
+                    // Revoked controller permission may discard route state, but
+                    // must not discard the mute choice carried into a reconnect.
+                    if (muted) conn.setMicrophoneMuted(true);
+                    conn.controllerMicrophoneState(owner, microphoneAccepted, false, muted);
+                    microphoneOwner = null;
+                }
                 conn.releaseControllerMicrophone(owner);
             }
             public void samples(byte[] pcm, int length) {
                 if (enabled()) MoonBridge.sendControllerAudio(DualSenseAudioPacket.MICROPHONE,
                         DualSenseAudioPacket.pcm(audioNumber, micSequence++, pcm, length));
             }
-        });
-        lastAudioFlags = -1;
-        updateAudioState();
+        };
     }
     private void updateAudioState() {
         com.limelight.nvstream.NvConnection conn = audioConnection;

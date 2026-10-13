@@ -507,7 +507,11 @@ impl VirtualDisplay {
             if let Ok(monitors) = monitors()
                 && let Some(m) = monitors
                     .into_iter()
-                    .find(|m| m.adapter == luid && m.target == target)
+                    // Windows can report the active route before publishing its
+                    // monitor interface. An empty path cannot identify our display.
+                    .find(|m| {
+                        m.adapter == luid && m.target == target && !m.monitor_device_path.is_empty()
+                    })
             {
                 self.name = m.display_name.clone();
                 self.resolved_target = Some(m);

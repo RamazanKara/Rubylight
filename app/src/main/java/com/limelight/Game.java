@@ -176,6 +176,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     private String recoveryAppUuid;
     private Runnable pendingRecovery;
     private int recoveryGeneration;
+    private boolean recoveryHandoffInProgress;
     private boolean recoveryCancelledOnPause;
     private final Runnable recoveryTimeout = () -> {
         if (this.connecting && this.foreground && !isFinishing() && isRecoveryAttempt()) {
@@ -393,6 +394,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     private com.limelight.ui.GameTouchControls gameTouchControls;
     private boolean outputSwitchPending;
     private static final String EXTRA_OUTPUT_DISPLAY = "rubylight.outputDisplay";
+    private static final String EXTRA_OUTPUT_RESUME_ONLY = "rubylight.outputResumeOnly";
     private final Map<Short, Integer> customPressedKeys = new HashMap<>();
     private Surface videoSurface;
     private long lastAbsTouchUpTime = 0;
@@ -793,6 +795,13 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             }
         }
 
+        // The capped-FPS policy above can choose Balanced too. Apply the external
+        // output fallback after that decision so it cannot reintroduce phone-vsync pacing.
+        if (mediaStream && decoderRenderer.applyOutputPacingFallback() &&
+                prefConfig.videoFormat != PreferenceConfiguration.FormatOption.FORCE_PYROWAVE) {
+            Toast.makeText(this, R.string.desktop_pacing_fallback, Toast.LENGTH_LONG).show();
+        }
+
         streamFps = chosenFrameRate;
         streamPanelHz = panelMaxRefreshRate;
 
@@ -802,7 +811,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 .setLaunchRefreshRateX100(prefConfig.launchRefreshRateX100)
                 .setRefreshRate(chosenFrameRate)
                 .setApp(app)
-                .setResumeOnly(isRecoveryAttempt())
+                .setResumeOnly(isResumeOnlyStream())
                 .setBitrate(prefConfig.bitrate)
                 .setEnableSops(prefConfig.enableSops)
                 .enableLocalAudioPlayback(prefConfig.playHostAudio)
@@ -889,6 +898,12 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     }
 
     private Display getVideoDisplay() {
+        // The intent describes the next output while a reconnect is in progress. Keep
+        // reporting capabilities for the surface that this activity actually renders.
+        if (renderView != null) {
+            return externalPresentation == null ? getWindowManager().getDefaultDisplay() :
+                    externalPresentation.getDisplay();
+        }
         int requested = getIntent().getIntExtra(EXTRA_OUTPUT_DISPLAY, Display.DEFAULT_DISPLAY);
         if (requested != Display.DEFAULT_DISPLAY) {
             for (Display display : ((android.hardware.display.DisplayManager)getSystemService(DISPLAY_SERVICE))
@@ -907,13 +922,14 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         Display display = getVideoDisplay();
         renderView = streamView;
         if (display.getDisplayId() != getWindowManager().getDefaultDisplay().getDisplayId()) {
-            com.limelight.ui.StreamPresentation presentation = new com.limelight.ui.StreamPresentation(this, display, prefConfig.useTextureView);
-            externalPresentation = presentation;
-            renderView = presentation.videoView();
-            presentation.setOnDismissListener(ignored -> {
-                if (!isFinishing() && !isDestroyed() && !outputSwitchPending) returnVideoToDevice();
-            });
+            com.limelight.ui.StreamPresentation presentation = null;
             try {
+                presentation = new com.limelight.ui.StreamPresentation(this, display, prefConfig.useTextureView);
+                externalPresentation = presentation;
+                renderView = presentation.videoView();
+                presentation.setOnDismissListener(ignored -> {
+                    if (!isFinishing() && !isDestroyed() && !outputSwitchPending) returnVideoToDevice();
+                });
                 presentation.show();
                 prefConfig.touchscreenTrackpad = true;
                 nativeTouchEnabled = false;
@@ -926,13 +942,26 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 }
                 nativeResolutionStream = false;
                 return;
-            } catch (WindowManager.InvalidDisplayException | SecurityException e) {
+            } catch (WindowManager.InvalidDisplayException | SecurityException | IllegalArgumentException e) {
+                if (presentation != null) {
+                    presentation.setOnDismissListener(null);
+                    presentation.dismiss();
+                }
                 externalPresentation = null; renderView = streamView;
                 getIntent().removeExtra(EXTRA_OUTPUT_DISPLAY);
                 Toast.makeText(this, R.string.desktop_display_unavailable, Toast.LENGTH_LONG).show();
             }
         }
         getIntent().removeExtra(EXTRA_OUTPUT_DISPLAY);
+        // A hot-unplug can happen between reading preferences and creating the
+        // presentation. Do not retain the missing monitor's VRR/FPS launch values.
+        panelMaxRefreshRate = com.limelight.binding.video.DisplayFrameRatePolicy.maxRefreshRate(getVideoDisplay());
+        if (prefConfig.vrr) {
+            prefConfig.fps = com.limelight.binding.video.DisplayFrameRatePolicy.streamFrameRate(panelMaxRefreshRate);
+            prefConfig.launchRefreshRateX100 = Math.max(100, Math.min(100000, Math.round(panelMaxRefreshRate * 100)));
+        }
+        fpsFollowsDisplay = prefConfig.vrr || prefConfig.fps ==
+                com.limelight.binding.video.DisplayFrameRatePolicy.streamFrameRate(panelMaxRefreshRate);
         streamView.initializeSurface(prefConfig.useTextureView);
     }
 
@@ -1847,7 +1876,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     protected void onPause() {
         if (gameTouchControls != null) gameTouchControls.releaseInput();
         foreground = false;
-        recoveryCancelledOnPause = pendingRecovery != null || (isRecoveryAttempt() && connecting);
+        recoveryCancelledOnPause = recoveryHandoffInProgress || pendingRecovery != null || (isRecoveryAttempt() && connecting);
         cancelAutomaticRecovery();
         stopHardwareMetricsPolling();
         foregroundGeneration++;
@@ -2485,16 +2514,44 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 }).setNegativeButton(android.R.string.cancel, null).create());
     }
 
+    private Intent createReconnectIntent() {
+        Intent retry = new Intent(getIntent());
+        retry.removeExtra(EXTRA_RECOVERY_ATTEMPTS);
+        retry.removeExtra(EXTRA_RECOVERY_STARTED);
+        if (outputSwitchPending) {
+            if (app == null || app.isControlAction()) return null;
+            if (app.getRole() == NvApp.Role.STREAM) {
+                // Output changes only move the existing stream. Resolve Resume/Running
+                // Game tiles to the actual game so a changed host session is rejected
+                // by NvConnection's existing resume-only checks, never launched/quit.
+                int resumeId = recoveryAppId != 0 ? recoveryAppId :
+                        app.getControl() == NvApp.Control.NONE ? app.getAppId() : 0;
+                if (resumeId == 0) return null;
+                retry.putExtra(EXTRA_APP_ID, resumeId)
+                        .putExtra(EXTRA_APP_UUID, recoveryAppId != 0 ? recoveryAppUuid : app.getAppUuid())
+                        .putExtra(EXTRA_OUTPUT_RESUME_ONLY, true);
+            }
+            // Remote Monitor retains its dedicated view-only host operation.
+        }
+        return retry;
+    }
+
     private void reconnectStream() {
-        getIntent().removeExtra(EXTRA_RECOVERY_ATTEMPTS);
-        getIntent().removeExtra(EXTRA_RECOVERY_STARTED);
+        final Intent retry = createReconnectIntent();
+        if (retry == null) {
+            stopConnection();
+            finish();
+            return;
+        }
         displayedFailureDialog = true;
         setInputGrabState(false);
         stopConnection();
         final Thread stopping = connectionStopThread;
         final int generation = foregroundGeneration;
+        final int recovery = recoveryGeneration;
         spinner = SpinnerDialog.displayDialog(this, getString(R.string.conn_establishing_title),
                 getString(R.string.stream_reconnecting), true);
+        recoveryHandoffInProgress = true;
         new Thread(() -> {
             if (stopping != null) {
                 try {
@@ -2505,9 +2562,11 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 }
             }
             runOnUiThread(() -> {
-                if (foreground && generation == foregroundGeneration && !isFinishing()) {
+                if (foreground && generation == foregroundGeneration && recovery == recoveryGeneration &&
+                        !isFinishing() && !isDestroyed()) {
+                    recoveryHandoffInProgress = false;
                     finish();
-                    startActivity(new Intent(getIntent()));
+                    startActivity(retry);
                 }
             });
         }, "Stream reconnect").start();
@@ -2517,8 +2576,13 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         return getIntent().getIntExtra(EXTRA_RECOVERY_ATTEMPTS, 0) > 0;
     }
 
+    private boolean isResumeOnlyStream() {
+        return isRecoveryAttempt() || getIntent().getBooleanExtra(EXTRA_OUTPUT_RESUME_ONLY, false);
+    }
+
     private void cancelAutomaticRecovery() {
         recoveryGeneration++;
+        recoveryHandoffInProgress = false;
         if (pendingRecovery != null) bitrateHandler.removeCallbacks(pendingRecovery);
         pendingRecovery = null;
         bitrateHandler.removeCallbacks(recoveryTimeout);
@@ -2547,6 +2611,9 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 .putExtra(EXTRA_RECOVERY_STARTED, recoveryPolicy.startedAt());
         final int generation = foregroundGeneration;
         final int recovery = recoveryGeneration;
+        // Keep this true after the delayed callback hands off to its teardown worker. A
+        // pause/resume in that interval must still replace the spinner with manual recovery.
+        recoveryHandoffInProgress = true;
         pendingRecovery = () -> {
             pendingRecovery = null;
             if (!foreground || generation != foregroundGeneration || recovery != recoveryGeneration || isFinishing() || isDestroyed()) return;
@@ -2563,10 +2630,12 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                     if (!foreground || generation != foregroundGeneration || recovery != recoveryGeneration || isFinishing() || isDestroyed()) return;
                     if ((stopping != null && stopping.isAlive()) ||
                             SystemClock.elapsedRealtime() - recoveryPolicy.startedAt() >= StreamRecoveryPolicy.WINDOW_MS) {
+                        recoveryHandoffInProgress = false;
                         if (spinner != null) { spinner.dismiss(); spinner = null; }
                         showReconnectDialog(R.string.conn_terminated_title, getString(R.string.stream_recovery_exhausted));
                         return;
                     }
+                    recoveryHandoffInProgress = false;
                     finish();
                     startActivity(retry);
                 });
@@ -4738,24 +4807,26 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     }
 
     private void destroyVideoSurface() {
+        if (!surfaceCreated) {
+            return;
+        }
+        surfaceCreated = false;
+        videoSurface = null;
+        if (attemptedConnection && decoderRenderer != null) {
+            // Stop rendering synchronously before TextureView releases its surface.
+            // Reconnecting an external output still tears down the connection on a worker.
+            decoderRenderer.prepareForStop();
+        }
         if (externalPresentation != null && !isFinishing() && !isDestroyed()) {
             returnVideoToDevice();
             return;
         }
-        if (!surfaceCreated) {
-            return;
-        }
         if (attemptedConnection) {
-            // Let the decoder know immediately that the surface is gone
-            decoderRenderer.prepareForStop();
-
             displayedFailureDialog = true;
             stopConnection();
             // Decoder and input state are terminal after stop; resume with a fresh activity.
             finish();
         }
-        surfaceCreated = false;
-        videoSurface = null;
     }
 
     @Override

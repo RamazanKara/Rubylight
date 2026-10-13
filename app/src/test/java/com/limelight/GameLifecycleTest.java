@@ -309,6 +309,7 @@ public class GameLifecycleTest {
                 };
                 ReflectionHelpers.setField(activity, "prefConfig", prefs);
                 ReflectionHelpers.setField(activity, "streamView", view);
+                ReflectionHelpers.setField(activity, "renderView", view);
                 ReflectionHelpers.callInstanceMethod(activity, "prepareDisplayForRendering");
                 assertArrayEquals(mode == UpscalingPolicy.Mode.OFF ? new int[] {1280, 720} : new int[2],
                         bufferSize);

@@ -309,6 +309,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     };
     private final boolean useArr;
     private final Display outputDisplay;
+    private final boolean outputVsyncAvailable;
 
     private int numSpsIn;
     private int numPpsIn;
@@ -813,6 +814,9 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         this.thermalMonitor = new ThermalMonitor(activity);
         this.activity = activity;
         this.outputDisplay = outputDisplay;
+        // The public Choreographer API receives internal-display callbacks, even
+        // when a Presentation and its decoder surface are on another display.
+        this.outputVsyncAvailable = outputDisplay.getDisplayId() == Display.DEFAULT_DISPLAY;
         this.prefs = prefs;
         this.frameLatencyStats = new FrameLatencyStats(prefs.vrr);
         this.useArr = DisplayFrameRatePolicy.useAdaptiveRefreshRate(Build.VERSION.SDK_INT, prefs.vrr,
@@ -1743,9 +1747,16 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         return nextVsyncTimeNs(readyNs, vsyncNs, intervalNs, presentationDeadlineNs) - presentationDeadlineNs - readyNs;
     }
 
+    /** Changes only this stream's preference object, never the saved pacing setting. */
+    public boolean applyOutputPacingFallback() {
+        if (outputVsyncAvailable || prefs.framePacing != PreferenceConfiguration.FRAME_PACING_BALANCED) return false;
+        prefs.framePacing = PreferenceConfiguration.FRAME_PACING_MIN_LATENCY;
+        return true;
+    }
+
     private void reportPhaseSlack(long readyNs) {
         // Adaptive refresh has no fixed latch; an upscaled frame is not display-ready yet.
-        if (useArr || upscaler != null) return;
+        if (!outputVsyncAvailable || useArr || upscaler != null) return;
         long slackNs, intervalNs;
         synchronized (vsyncMonitor) {
             intervalNs = vsyncIntervalNs;
@@ -1770,7 +1781,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     @Override
     public void doFrame(long frameTimeNanos) {
         // Do nothing if we're stopping
-        if (stopping) {
+        if (stopping || !outputVsyncAvailable) {
             return;
         }
 
@@ -1823,7 +1834,9 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     }
 
     private void startChoreographerThread() {
-        // Every pacing mode tracks vsync for phase-lock reports; only balanced renders here.
+        // Local output tracks vsync for phase-lock reports; only balanced renders here.
+        // External output still observes mode changes for upscaling, but cannot use
+        // the internal display's callback as an external pacing or phase signal.
         // We use a separate thread to avoid any main thread delays from delaying rendering
         choreographerHandlerThread = new HandlerThread("Video - Choreographer", Process.THREAD_PRIORITY_DISPLAY);
         choreographerHandlerThread.start();
@@ -1838,7 +1851,9 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             public void run() {
                 displayManager.registerDisplayListener(displayListener, choreographerHandler);
                 updateDisplayTiming();
-                Choreographer.getInstance().postFrameCallback(MediaCodecDecoderRenderer.this);
+                if (outputVsyncAvailable) {
+                    Choreographer.getInstance().postFrameCallback(MediaCodecDecoderRenderer.this);
+                }
             }
         });
     }
@@ -2020,8 +2035,10 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
     @Override
     public void start() {
+        applyOutputPacingFallback();
         if ((videoFormat & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0) {
-            // The Vulkan renderer presents on its own; vsync is still tracked for phase-lock reports.
+            // Vulkan presents to its own target surface. The MediaCodec pacing
+            // fallback does not change its presentation mode or frame scheduling.
             startChoreographerThread();
             return;
         }
@@ -2069,7 +2086,9 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                     choreographerHandlerThread.quit();
 
                     // Deregister the frame callback (if registered)
-                    Choreographer.getInstance().removeFrameCallback(MediaCodecDecoderRenderer.this);
+                    if (outputVsyncAvailable) {
+                        Choreographer.getInstance().removeFrameCallback(MediaCodecDecoderRenderer.this);
+                    }
                 }
             });
         }

@@ -34,6 +34,7 @@
     <string name="desktop_output">Video output (reconnects stream)</string>
     <string name="desktop_output_device">This device</string>
     <string name="desktop_touchpad_help">Video is on your external display. Use this screen as a touchpad. Keyboard, game buttons and the stream menu remain available here.</string>
+    <string name="desktop_pacing_fallback">External video uses lowest-latency pacing instead of Balanced for this session. Your saved pacing setting is unchanged.</string>
     <string name="desktop_display_unavailable">No usable external display is available. Connect an HDMI/USB-C or wireless display supported by Android. Video remains on this device.</string>
     <string name="controller_axes_title">Sticks, triggers and D-pad</string>
     <string name="controller_axes_configured">Custom axis or D-pad mapping; applies to the next stream</string>

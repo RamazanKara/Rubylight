@@ -195,6 +195,19 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     private long adaptiveBitrateRetryAt;
     private int adaptiveBitrateRetryTarget;
     private final Handler bitrateHandler = new Handler(Looper.getMainLooper());
+    private final com.limelight.utils.StreamHealth streamHealth = new com.limelight.utils.StreamHealth();
+    private int healthOriginalBitrate, healthTrialBitrate;
+    private final Runnable sampleStreamHealth = new Runnable() {
+        @Override public void run() {
+            if (!connected || decoderRenderer == null || app.getRole() == NvApp.Role.INPUT_ONLY) return;
+            if (foreground && streamMenu == null && !hostActionInProgress) {
+                long rtt = MoonBridge.getEstimatedRttInfo();
+                streamHealth.add(decoderRenderer.healthSample(SystemClock.uptimeMillis(), streamFps,
+                        rtt == -1 ? -1 : (float) (rtt & 0xffffffffL)));
+            }
+            bitrateHandler.postDelayed(this, 1000);
+        }
+    };
     private final Runnable updateBitrate = new Runnable() {
         @Override
         public void run() {
@@ -1857,6 +1870,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                     if (!prefConfig.enablePerfOverlay) togglePerformanceOverlay();
                 });
         addStreamAction(sheet, R.drawable.ic_clipboard, R.string.overlay_copy, this::copyPerformanceStats);
+        addStreamAction(sheet, R.drawable.ic_help, R.string.health_title, this::showStreamHealth);
         if (conn.canSendInput()) {
             addStreamAction(sheet, R.drawable.ic_network, R.string.latency_test, this::runLatencyTest);
         }
@@ -1864,6 +1878,68 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     }
 
     private boolean latencyTestRunning;
+
+    private void showStreamHealth() {
+        com.limelight.utils.StreamHealth.Report report = streamHealth.report(SystemClock.uptimeMillis());
+        StringBuilder text = new StringBuilder(getString(R.string.health_intro, report.samples));
+        if (!report.recent || report.samples < 3) text.append("\n\n").append(getString(R.string.health_insufficient));
+        else if (report.findings.isEmpty()) text.append("\n\n").append(getString(R.string.health_no_issue));
+        int[] descriptions = {R.string.health_network, R.string.health_decoder, R.string.health_host,
+                R.string.health_presentation, R.string.health_heat};
+        for (com.limelight.utils.StreamHealth.Finding finding : report.findings) {
+            text.append("\n\n").append(getString(descriptions[finding.ordinal()]));
+        }
+        text.append("\n\n").append(getString(R.string.health_evidence,
+                healthMeasurement(report.worstLossPercent), healthMeasurement(report.worstDecodeMs),
+                healthMeasurement(report.worstHostP95Ms), healthMeasurement(report.worstDisplayP95Ms)));
+        boolean undo = healthOriginalBitrate > 0 && currentBitrate == healthTrialBitrate && !isAdaptiveBitrateEnabled();
+        boolean suggest = report.canSuggestBitrate() && supportsAdaptiveBitrate() && !isAdaptiveBitrateEnabled() &&
+                currentBitrate > 500 && !hostActionInProgress && !undo;
+        if (undo || suggest) text.append("\n\n").append(getString(R.string.health_trial_help));
+        MaterialAlertDialogBuilder builder = new MaterialAlertDialogBuilder(this).setTitle(R.string.health_title)
+                .setMessage(text).setNegativeButton(android.R.string.cancel, null)
+                .setNeutralButton(R.string.overlay_copy, (dialog, which) -> {
+                    ClipboardManager clipboard = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+                    clipboard.setPrimaryClip(ClipData.newPlainText(getString(R.string.health_title), text));
+                });
+        if (undo || suggest) builder.setPositiveButton(undo ? R.string.health_undo : R.string.health_try,
+                (dialog, which) -> applyHealthBitrate(undo));
+        else builder.setPositiveButton(android.R.string.ok, null);
+        showStreamDialog(builder.create());
+    }
+
+    private String healthMeasurement(float value) {
+        return Float.isFinite(value) && value >= 0 ? String.format(Locale.getDefault(), "%.1f", value) :
+                getString(R.string.latency_unavailable);
+    }
+
+    private void applyHealthBitrate(boolean undo) {
+        if (!foreground || !connected || hostActionInProgress || isAdaptiveBitrateEnabled() || !supportsAdaptiveBitrate()) return;
+        if (undo && (healthOriginalBitrate <= 0 || currentBitrate != healthTrialBitrate)) return;
+        final int previous = currentBitrate;
+        final int target = undo ? healthOriginalBitrate : Math.max(500, previous * 4 / 5);
+        if (target == previous) return;
+        final int generation = foregroundGeneration;
+        hostActionInProgress = true;
+        new Thread(() -> {
+            try {
+                int applied = conn.setBitrate(target);
+                runOnUiThread(() -> {
+                    if (!connected || isFinishing()) return;
+                    currentBitrate = applied;
+                    healthOriginalBitrate = undo ? 0 : previous;
+                    healthTrialBitrate = undo ? 0 : applied;
+                    if (foreground && generation == foregroundGeneration) {
+                        Toast.makeText(this, getString(R.string.stream_bitrate_applied, applied / 1000.0), Toast.LENGTH_LONG).show();
+                    }
+                });
+            } catch (IOException | XmlPullParserException e) {
+                showHostActionError(e, generation);
+            } finally {
+                runOnUiThread(() -> hostActionInProgress = false);
+            }
+        }, "Stream doctor bitrate trial").start();
+    }
 
     // Nudges the host mouse back and forth on a still screen and times each nudge until its frame is shown.
     private void runLatencyTest() {
@@ -2363,6 +2439,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                     int applied = conn.setBitrate(kbps);
                     runOnUiThread(() -> {
                         currentBitrate = applied;
+                        healthOriginalBitrate = healthTrialBitrate = 0;
                         if (foreground && generation == foregroundGeneration && connected && !isFinishing()) {
                             Toast.makeText(this, getString(R.string.stream_bitrate_applied, applied / 1000.0), Toast.LENGTH_LONG).show();
                         }
@@ -2399,6 +2476,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         pyroWaveBitrate = null;
         adaptiveBitrateRetryAt = 0;
         if (enabled) {
+            healthOriginalBitrate = healthTrialBitrate = 0;
             if ((decoderRenderer.getActiveVideoFormat() & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0) {
                 pyroWaveBitrate = new PyroWaveBitrateController(0, 0, streamFps,
                         SystemClock.uptimeMillis());
@@ -3692,6 +3770,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         bitrateHandler.removeCallbacks(updateBitrate);
         bitrateHandler.removeCallbacks(checkReconfigure);
         adaptiveBitrate = null;
+        bitrateHandler.removeCallbacks(sampleStreamHealth);
         pyroWaveBitrate = null;
         displayCapsReporter = null;
         if (usbDriverBinder != null) {
@@ -3928,6 +4007,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 }
 
                 connected = true;
+                bitrateHandler.removeCallbacks(sampleStreamHealth);
+                bitrateHandler.postDelayed(sampleStreamHealth, 1000);
                 updateHardwareMetricsPolling();
                 LimeLog.info("Stream connected");
                 connecting = false;

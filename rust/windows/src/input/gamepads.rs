@@ -70,6 +70,8 @@ pub struct Gamepads {
     /// Controllers a Steam Deck could not be attached for; they keep their
     /// VHF pad until they arrive again.
     deck_failed: BTreeSet<u16>,
+    pub(super) dualsenses: BTreeMap<u16, dualsense_pad::DualSensePad>,
+    dualsense_failed: BTreeSet<u16>,
     warnings: std::sync::Arc<butterpollo_core::session::Warnings>,
 }
 #[derive(Default)]
@@ -78,6 +80,27 @@ struct FeedbackFailure {
     reported: Option<Instant>,
 }
 static SLOTS: std::sync::Mutex<[bool; 16]> = std::sync::Mutex::new([false; 16]);
+/// Reserve a host-wide identity until its USB attachment is fully detached.
+pub(super) struct Slot(u16);
+impl Slot {
+    fn reserve() -> Result<Self> {
+        let mut slots = SLOTS.lock().unwrap();
+        let id = slots
+            .iter()
+            .position(|used| !used)
+            .context("no free controller slots")?;
+        slots[id] = true;
+        Ok(Self(id as u16))
+    }
+    pub(super) fn id(&self) -> u16 {
+        self.0
+    }
+}
+impl Drop for Slot {
+    fn drop(&mut self) {
+        SLOTS.lock().unwrap()[self.0 as usize] = false;
+    }
+}
 impl Gamepads {
     pub fn open(profile: u16) -> Result<Self> {
         Self::open_options(
@@ -108,6 +131,8 @@ impl Gamepads {
             feedback_failures: BTreeMap::new(),
             decks: BTreeMap::new(),
             deck_failed: BTreeSet::new(),
+            dualsenses: BTreeMap::new(),
+            dualsense_failed: BTreeSet::new(),
             warnings,
         })
     }
@@ -116,6 +141,9 @@ impl Gamepads {
     /// whether controller `id` is one.
     fn ensure_deck(&mut self, id: u16) -> Result<bool> {
         use butterpollo_core::input_policy::{CTYPE_STEAM, DeckPad};
+        if self.profile == butterpollo_core::input_policy::USBIP_DUALSENSE {
+            return Ok(false);
+        }
         if self.decks.contains_key(&id) {
             return Ok(true);
         }
@@ -177,6 +205,9 @@ impl Gamepads {
         if id >= 16 {
             bail!("controller ID out of range");
         }
+        if self.ensure_dualsense(id)? {
+            return Ok(());
+        }
         let (kind, capabilities) = self.arrivals.get(&id).copied().unwrap_or_default();
         let profile = self
             .policy
@@ -217,6 +248,61 @@ impl Gamepads {
         }
         bail!("no free virtual controller slots")
     }
+    fn ensure_dualsense(&mut self, id: u16) -> Result<bool> {
+        use butterpollo_core::{
+            haptics,
+            input_policy::{USBIP_DUALSENSE, VHF_DUALSENSE},
+        };
+        if self.dualsenses.contains_key(&id) {
+            return Ok(true);
+        }
+        let forced = self.profile == USBIP_DUALSENSE;
+        if self.dualsense_failed.contains(&id) {
+            if forced {
+                bail!("DualSense USB attachment failed; reconnect after checking usbip-win2");
+            }
+            return Ok(false);
+        }
+        let (kind, caps) = self.arrivals.get(&id).copied().unwrap_or_default();
+        let selected = self
+            .policy
+            .controller_profile(self.profile, kind, caps, self.available);
+        if !forced && (caps & haptics::CAPABILITY == 0 || selected != Some(VHF_DUALSENSE)) {
+            return Ok(false);
+        }
+        let attached = (|| -> Result<_> {
+            let exe = steam_deck_pad::usbip_exe().context("usbip-win2 is not installed")?;
+            dualsense_pad::DualSensePad::plug(&exe, Slot::reserve()?, id, caps)
+        })();
+        let pad = match attached {
+            Ok(pad) => pad,
+            Err(error) => {
+                self.dualsense_failed.insert(id);
+                self.warnings.set("input_dualsense", format!("DualSense waveform haptics unavailable ({error:#}). Install usbip-win2 on the host and reconnect. Automatic controller selection keeps ordinary rumble and adaptive triggers through the VHF driver."));
+                if forced {
+                    return Err(error);
+                }
+                return Ok(false);
+            }
+        };
+        // Arrival may follow the first state; replace the temporary VHF pad.
+        if let Some(global) = self.active.get(&id).copied() {
+            self.backend.unplug(u32::from(global))?;
+            self.active.remove(&id);
+            SLOTS.lock().unwrap()[global as usize] = false;
+            self.profiles.remove(&id);
+            self.last_feedback.remove(&id);
+            self.feedback_failures.remove(&id);
+            self.pointers.retain(|(pad, _), _| u16::from(*pad) != id);
+        }
+        self.dualsenses.insert(id, pad);
+        self.warnings.clear("input_dualsense");
+        tracing::info!(
+            controller = id,
+            "Composite DualSense HID and audio attached through usbip-win2"
+        );
+        Ok(true)
+    }
     pub fn apply(&mut self, event: &Event) -> Result<()> {
         match event {
             Event::Controller {
@@ -231,6 +317,10 @@ impl Gamepads {
                     bail!("controller ID out of range");
                 }
                 self.decks.retain(|i, _| active & (1 << *i) != 0);
+                self.dualsenses.retain(|i, _| active & (1 << *i) != 0);
+                self.arrivals.retain(|i, _| active & (1 << *i) != 0);
+                self.dualsense_failed.retain(|i| active & (1 << *i) != 0);
+                self.states.retain(|i, _| active & (1 << *i) != 0);
                 for (i, global) in self.active.clone() {
                     if active & (1 << i) == 0 {
                         // A pad that would not unplug stays tracked and is
@@ -295,6 +385,10 @@ impl Gamepads {
             } => {
                 let id = u16::from(*id);
                 self.arrivals.insert(id, (*kind, *capabilities));
+                self.dualsense_failed.remove(&id);
+                if let Some(pad) = self.dualsenses.get(&id) {
+                    pad.capabilities(*capabilities);
+                }
                 // A controller that arrives again may try a Steam Deck again.
                 self.deck_failed.remove(&id);
                 if !self.ensure_deck(id)? {
@@ -302,6 +396,10 @@ impl Gamepads {
                 }
             }
             Event::Motion { id, kind, xyz } => {
+                if let Some(pad) = self.dualsenses.get(&u16::from(*id)) {
+                    pad.apply(event);
+                    return Ok(());
+                }
                 if let Some(deck) = self.decks.get(&u16::from(*id)) {
                     deck.apply(event);
                     return Ok(());
@@ -313,6 +411,9 @@ impl Gamepads {
                 }
                 self.backend
                     .motion(self.slot(u16::from(*id))?, *kind, xyz)?;
+            }
+            Event::ControllerTouch { id, .. } if self.dualsenses.contains_key(&u16::from(*id)) => {
+                self.dualsenses[&u16::from(*id)].apply(event);
             }
             Event::ControllerTouch { id, .. } if self.decks.contains_key(&u16::from(*id)) => {
                 self.decks[&u16::from(*id)].apply(event);
@@ -350,6 +451,10 @@ impl Gamepads {
                 }
             }
             Event::Battery { id, state, percent } => {
+                if let Some(pad) = self.dualsenses.get(&u16::from(*id)) {
+                    pad.apply(event);
+                    return Ok(());
+                }
                 // Only the PlayStation and Switch profiles have a battery.
                 if !matches!(self.profiles.get(&u16::from(*id)).copied(), Some(5..=7)) {
                     return Ok(());
@@ -366,6 +471,7 @@ impl Gamepads {
             .active
             .keys()
             .chain(self.decks.keys())
+            .chain(self.dualsenses.keys())
             .copied()
             .collect();
         let active = ids.iter().fold(0, |mask, id| mask | (1 << id));
@@ -413,6 +519,9 @@ impl Gamepads {
                 }
             }
         }
+        for pad in self.dualsenses.values() {
+            pad.clear_pcm();
+        }
         failure.map_or(Ok(()), Err)
     }
     /// New feedback (rumble, lights, trigger effects) for each controller.
@@ -432,7 +541,20 @@ impl Gamepads {
                 reports.push((*id, kind, data));
             }
         }
+        for (id, pad) in &self.dualsenses {
+            reports.extend(
+                pad.feedback()
+                    .into_iter()
+                    .map(|(kind, data)| (*id, kind, data)),
+            );
+        }
         reports
+    }
+    pub(super) fn haptics(&self) -> Vec<butterpollo_core::haptics::Frame> {
+        self.dualsenses
+            .values()
+            .flat_map(|pad| pad.haptics())
+            .collect()
     }
     fn submit(
         &mut self,
@@ -442,6 +564,17 @@ impl Gamepads {
         right: u8,
         sticks: &[i16; 4],
     ) -> Result<()> {
+        if let Some(pad) = self.dualsenses.get(&id) {
+            pad.apply(&Event::Controller {
+                id,
+                active: 1 << id,
+                buttons,
+                left_trigger: left,
+                right_trigger: right,
+                sticks: *sticks,
+            });
+            return Ok(());
+        }
         self.backend
             .submit(self.slot(id)?, buttons, left, right, sticks)
     }
@@ -456,7 +589,7 @@ impl Gamepads {
     pub(super) fn refresh(&mut self) -> Result<()> {
         let mut updates = Vec::new();
         for (id, (event, back)) in &mut self.states {
-            if !self.active.contains_key(id) {
+            if !self.active.contains_key(id) && !self.dualsenses.contains_key(id) {
                 continue;
             }
             if let Some(buttons) =
@@ -477,7 +610,9 @@ impl Gamepads {
         Ok(())
     }
     pub fn motion_supported(&self, id: u16) -> bool {
-        self.decks.contains_key(&id) || matches!(self.profiles.get(&id).copied(), Some(5..=7))
+        self.decks.contains_key(&id)
+            || self.dualsenses.contains_key(&id)
+            || matches!(self.profiles.get(&id).copied(), Some(5..=7))
     }
 }
 fn poll_feedback(

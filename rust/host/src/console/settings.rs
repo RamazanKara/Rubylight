@@ -149,7 +149,7 @@ pub const GLOBAL: &[Setting] = settings! {
         "mouse", "Mouse input", Bool;
         "controller", "Controller input", Bool;
         "native_pen_touch", "Native pen and touch", Bool;
-        "gamepad", "Controller profile (auto: DualSense for PlayStation-type or motion/touchpad, Switch Pro for Nintendo, Xbox Series otherwise)", Choice(&["auto","vhf_xbox","vhf_xbox_one","vhf_ds4","vhf_ds5","vhf_switch"]);
+        "gamepad", "Controller profile (auto: DualSense for PlayStation-type or motion/touchpad, Switch Pro for Nintendo, Xbox Series otherwise)", Choice(&["auto","vhf_xbox","vhf_xbox_one","vhf_ds4","vhf_ds5","usbip_ds5","vhf_switch"]);
         "keybindings", "Keyboard remapping pairs", Json;
         "always_send_scancodes", "Send keyboard scan codes", Bool;
         "key_rightalt_to_key_win", "Map right Alt to Windows key", Bool;
@@ -219,7 +219,7 @@ pub const APP: &[Setting] = settings! {
         "exclude-global-state-cmd", "Exclude global pause and resume commands", Bool;
         "state-cmd", "App resume and pause commands", Json;
         "output", "App log path (null discards output)", Text;
-        "gamepad", "Controller profile override", Choice(&["auto","vhf_xbox","vhf_xbox_one","vhf_ds4","vhf_ds5","vhf_switch"]);
+        "gamepad", "Controller profile override", Choice(&["auto","vhf_xbox","vhf_xbox_one","vhf_ds4","vhf_ds5","usbip_ds5","vhf_switch"]);
     ]
     "App display and frame generation" => [
         "display-output", "Display override (sunshine:virtual_display selects a virtual display)", Text;
@@ -362,6 +362,7 @@ pub fn render(prefix: &str, schema: &[Setting], values: &Value) -> String {
                             "vhf_xbox_one" => "Xbox One",
                             "vhf_ds4" => "DualShock 4",
                             "vhf_ds5" => "DualSense",
+                            "usbip_ds5" => "DualSense with waveform haptics (USB/IP)",
                             "vhf_switch" => "Switch Pro",
                             "steam_deck" => "Steam Deck",
                             "virtual_pad" => "Virtual controller",

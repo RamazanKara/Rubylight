@@ -29,7 +29,7 @@ const RET_SUBMIT: u32 = 3;
 const RET_UNLINK: u32 = 4;
 const EPIPE: i32 = -32;
 const ECONNRESET: i32 = -104;
-/// The largest transfer accepted; HID transfers are at most a few hundred bytes.
+/// Bound both HID and audio transfer buffers before allocating them.
 const MAX_TRANSFER: usize = 65536;
 /// How long a client may take to ask for the device once connected.
 const IMPORT_WAIT: Duration = Duration::from_secs(5);
@@ -65,6 +65,8 @@ impl Setup {
 /// What the device list and import replies say about the device.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct UsbDevice {
+    /// Linux USB speed: 2 = full speed, 3 = high speed.
+    pub speed: u32,
     pub vendor: u16,
     pub product: u16,
     pub release: u16,
@@ -72,14 +74,14 @@ pub struct UsbDevice {
     pub interfaces: Vec<(u8, u8, u8)>,
 }
 impl UsbDevice {
-    /// `usbip_usb_device`: a full-speed device in configuration 1.
+    /// `usbip_usb_device`: a device in configuration 1 at its declared speed.
     fn encode(&self) -> Vec<u8> {
         let mut b = vec![0u8; 256 + 32];
         let path = format!("/sys/devices/butterpollo/usb1/{BUS_ID}");
         b[..path.len()].copy_from_slice(path.as_bytes());
         b[256..256 + BUS_ID.len()].copy_from_slice(BUS_ID.as_bytes());
-        for n in [1u32, 2, 2] {
-            // bus 1, device 2, USB_SPEED_FULL
+        for n in [1u32, 2, self.speed] {
+            // bus 1, device 2
             b.extend_from_slice(&n.to_be_bytes());
         }
         for n in [self.vendor, self.product, self.release] {
@@ -100,6 +102,86 @@ pub trait Device: Send + 'static {
     /// The next report on an interrupt IN endpoint. None holds that
     /// endpoint's transfers until the client cancels them.
     fn interrupt(&mut self, endpoint: u8) -> Option<Vec<u8>>;
+    fn output(&mut self, _endpoint: u8, _data: &[u8]) -> bool {
+        false
+    }
+    /// Maximum packet size and frame alignment for a 1 ms isochronous endpoint.
+    fn iso_layout(&self, _endpoint: u8, _input: bool) -> Option<(usize, usize)> {
+        None
+    }
+    /// An audio deadline was missed or its transport disconnected.
+    fn iso_discontinuity(&mut self) {}
+    /// One validated USB frame, at its scheduled time. IN returns its data;
+    /// OUT consumes data and returns an empty vector. None stalls the packet.
+    fn iso(
+        &mut self,
+        _endpoint: u8,
+        _input: bool,
+        _data: &[u8],
+        _length: usize,
+    ) -> Option<Vec<u8>> {
+        None
+    }
+}
+
+#[derive(Clone, Debug)]
+struct IsoPacket {
+    offset: usize,
+    length: usize,
+}
+struct IsoTransfer {
+    seqnum: u32,
+    endpoint: u8,
+    input: bool,
+    length: usize,
+    packets: Vec<IsoPacket>,
+    data: Vec<u8>,
+    due: Instant,
+    start_frame: u32,
+}
+impl IsoTransfer {
+    fn reply(&self, status: i32, data: &[u8], lengths: &[usize]) -> Vec<u8> {
+        let mut b = ret(
+            RET_SUBMIT,
+            self.seqnum,
+            status,
+            self.input.then_some(data),
+            if status != 0 {
+                0
+            } else if self.input {
+                data.len()
+            } else {
+                self.length
+            },
+        );
+        b[28..32].copy_from_slice(&self.start_frame.to_be_bytes());
+        b[32..36].copy_from_slice(&(self.packets.len() as u32).to_be_bytes());
+        b[36..40].copy_from_slice(
+            &(if status == 0 {
+                0
+            } else {
+                self.packets.len() as u32
+            })
+            .to_be_bytes(),
+        );
+        for (i, p) in self.packets.iter().enumerate() {
+            for n in [
+                p.offset as u32,
+                p.length as u32,
+                if status != 0 {
+                    0
+                } else if self.input {
+                    lengths[i] as u32
+                } else {
+                    p.length as u32
+                },
+                status as u32,
+            ] {
+                b.extend_from_slice(&n.to_be_bytes());
+            }
+        }
+        b
+    }
 }
 
 /// An interrupt IN transfer waiting for data.
@@ -119,6 +201,8 @@ struct Link {
     pending: VecDeque<Transfer>,
     /// Transfers on endpoints that never report, kept until unlinked.
     held: Vec<Transfer>,
+    iso: VecDeque<IsoTransfer>,
+    iso_next: [Option<Instant>; 16],
     /// Whether the device changed since its last report.
     changed: bool,
 }
@@ -140,6 +224,7 @@ struct Shared<D> {
     wake: Condvar,
     stop: AtomicBool,
     period: Duration,
+    epoch: Instant,
 }
 
 /// One device served on `127.0.0.1` at [`Export::port`] under [`BUS_ID`].
@@ -163,6 +248,7 @@ impl<D: Device> Export<D> {
             wake: Condvar::new(),
             stop: AtomicBool::new(false),
             period,
+            epoch: Instant::now(),
         });
         let mut threads = vec![];
         let accept = shared.clone();
@@ -238,6 +324,9 @@ fn accept_clients<D: Device>(shared: &Shared<D>, listener: &TcpListener) {
         link.imported = false;
         link.pending.clear();
         link.held.clear();
+        link.iso.clear();
+        link.iso_next = [None; 16];
+        shared.device.lock().unwrap().iso_discontinuity();
     }
 }
 
@@ -357,10 +446,16 @@ fn serve<D: Device>(shared: &Shared<D>, stream: TcpStream) -> io::Result<()> {
         read(&mut h, None)?;
         let (command, seqnum, direction, endpoint) =
             (be32(&h, 0), be32(&h, 4), be32(&h, 12), be32(&h, 16));
+        if direction > 1 || endpoint > 15 {
+            return Err(io::Error::other("invalid USB/IP endpoint or direction"));
+        }
         match command {
             CMD_SUBMIT => {
                 let length = be32(&h, 24) as i32;
                 let packets = be32(&h, 32) as i32;
+                if !(-1..=1024).contains(&packets) {
+                    return Err(io::Error::other("invalid USB/IP packet count"));
+                }
                 let length = usize::try_from(length)
                     .ok()
                     .filter(|n| *n <= MAX_TRANSFER)
@@ -370,16 +465,97 @@ fn serve<D: Device>(shared: &Shared<D>, stream: TcpStream) -> io::Result<()> {
                     data.resize(length, 0);
                     read(&mut data, None)?;
                 }
-                if (1..=1024).contains(&packets) {
-                    // Isochronous: the device has no such endpoint.
-                    read(&mut vec![0; 16 * packets as usize], None)?;
-                    let reply = ret(RET_SUBMIT, seqnum, EPIPE, None, 0);
-                    shared.link.lock().unwrap().send(&reply);
+                if packets > 0 {
+                    let mut wire = vec![0; 16 * packets as usize];
+                    read(&mut wire, None)?;
+                    let mut descriptors = Vec::new();
+                    let mut end = 0;
+                    for p in wire.as_chunks::<16>().0 {
+                        let offset = be32(p, 0) as usize;
+                        let size = be32(p, 4) as usize;
+                        if offset < end || offset > length || size > length - offset {
+                            return Err(io::Error::other("invalid USB/IP isochronous offsets"));
+                        }
+                        end = offset + size;
+                        descriptors.push(IsoPacket {
+                            offset,
+                            length: size,
+                        });
+                    }
+                    let layout = shared
+                        .device
+                        .lock()
+                        .unwrap()
+                        .iso_layout(endpoint as u8, direction == 1);
+                    let valid = layout.is_some_and(|(max, align)| {
+                        align != 0
+                            && descriptors
+                                .iter()
+                                .all(|p| p.length <= max && p.length.is_multiple_of(align))
+                    });
+                    let mut link = shared.link.lock().unwrap();
+                    let now = Instant::now();
+                    let cursor = &mut link.iso_next[endpoint as usize];
+                    let start = cursor
+                        .filter(|last| {
+                            now.saturating_duration_since(*last) <= Duration::from_millis(50)
+                        })
+                        .unwrap_or(now);
+                    let due = start + Duration::from_millis(packets as u64);
+                    let transfer = IsoTransfer {
+                        seqnum,
+                        endpoint: endpoint as u8,
+                        input: direction == 1,
+                        length,
+                        packets: descriptors,
+                        data,
+                        due,
+                        start_frame: due.duration_since(shared.epoch).as_millis() as u32,
+                    };
+                    if !valid || link.iso.len() >= 64 {
+                        link.send(&transfer.reply(if valid { -12 } else { EPIPE }, &[], &[]));
+                    } else {
+                        link.iso_next[endpoint as usize] = Some(due);
+                        link.iso.push_back(transfer);
+                        shared.wake.notify_all();
+                    }
                     continue;
                 }
                 let reply = if endpoint == 0 {
                     let setup = Setup::parse(h[40..48].try_into().unwrap());
-                    let answer = shared.device.lock().unwrap().control(&setup, &data);
+                    let answer = if u32::from(setup.request_type >> 7) != direction
+                        || usize::from(setup.length) > length
+                    {
+                        None
+                    } else {
+                        shared.device.lock().unwrap().control(&setup, &data)
+                    };
+                    if answer.is_some() {
+                        let reset = (setup.request_type == 0 && setup.request == 9)
+                            || (setup.request_type == 0x23
+                                && setup.request == 3
+                                && setup.value == 4);
+                        let stop_audio = setup.request_type == 1
+                            && setup.request == 11
+                            && setup.value == 0
+                            && matches!(setup.index, 1 | 2);
+                        if reset || stop_audio {
+                            let mut link = shared.link.lock().unwrap();
+                            cancel_iso(&mut link, |t| {
+                                reset || u16::from(t.endpoint) == setup.index
+                            });
+                            if reset {
+                                let mut pending: Vec<_> = link.pending.drain(..).collect();
+                                pending.append(&mut link.held);
+                                for t in pending {
+                                    link.send(&ret(RET_SUBMIT, t.seqnum, ECONNRESET, None, 0));
+                                }
+                                link.iso_next = [None; 16];
+                            } else {
+                                link.iso_next[setup.index as usize] = None;
+                            }
+                        }
+                    }
                     match answer {
                         Some(mut answer) if direction == 1 => {
                             answer.truncate(length.min(usize::from(setup.length)));
@@ -390,6 +566,10 @@ fn serve<D: Device>(shared: &Shared<D>, stream: TcpStream) -> io::Result<()> {
                     }
                 } else if direction == 1 {
                     let mut link = shared.link.lock().unwrap();
+                    if link.pending.len() + link.held.len() >= 64 {
+                        link.send(&ret(RET_SUBMIT, seqnum, -12, None, 0));
+                        continue;
+                    }
                     link.pending.push_back(Transfer {
                         seqnum,
                         endpoint: endpoint as u8,
@@ -399,18 +579,34 @@ fn serve<D: Device>(shared: &Shared<D>, stream: TcpStream) -> io::Result<()> {
                     shared.wake.notify_all();
                     continue;
                 } else {
-                    ret(RET_SUBMIT, seqnum, 0, None, length)
+                    let accepted = shared.device.lock().unwrap().output(endpoint as u8, &data);
+                    ret(
+                        RET_SUBMIT,
+                        seqnum,
+                        if accepted { 0 } else { EPIPE },
+                        None,
+                        if accepted { length } else { 0 },
+                    )
                 };
                 shared.link.lock().unwrap().send(&reply);
             }
             CMD_UNLINK => {
                 let victim = be32(&h, 20);
                 let mut link = shared.link.lock().unwrap();
-                let before = link.pending.len() + link.held.len();
+                let before = link.pending.len() + link.held.len() + link.iso.len();
                 link.pending.retain(|t| t.seqnum != victim);
                 link.held.retain(|t| t.seqnum != victim);
+                link.iso.retain(|t| t.seqnum != victim);
+                for endpoint in 0..16 {
+                    link.iso_next[endpoint] = link
+                        .iso
+                        .iter()
+                        .rev()
+                        .find(|t| usize::from(t.endpoint) == endpoint)
+                        .map(|t| t.due);
+                }
                 // A transfer already completed is not cancelled: status 0.
-                let found = link.pending.len() + link.held.len() != before;
+                let found = link.pending.len() + link.held.len() + link.iso.len() != before;
                 let status = if found { ECONNRESET } else { 0 };
                 link.send(&ret(RET_UNLINK, seqnum, status, None, 0));
             }
@@ -419,6 +615,18 @@ fn serve<D: Device>(shared: &Shared<D>, stream: TcpStream) -> io::Result<()> {
                     "unknown USB/IP command {command}"
                 )));
             }
+        }
+    }
+}
+
+fn cancel_iso(link: &mut Link, matches: impl Fn(&IsoTransfer) -> bool) {
+    let mut i = 0;
+    while i < link.iso.len() {
+        if matches(&link.iso[i]) {
+            let transfer = link.iso.remove(i).unwrap();
+            link.send(&transfer.reply(ECONNRESET, &[], &[]));
+        } else {
+            i += 1;
         }
     }
 }
@@ -432,21 +640,67 @@ fn report<D: Device>(shared: &Shared<D>) {
         if shared.stop.load(Ordering::Acquire) {
             return;
         }
-        let waiting = link.imported && !link.pending.is_empty();
+        let waiting = link.imported && (!link.pending.is_empty() || !link.iso.is_empty());
         let now = Instant::now();
         if !waiting {
             link = shared.wake.wait(link).unwrap();
             continue;
         }
-        if !link.changed && now < next {
-            link = shared.wake.wait_timeout(link, next - now).unwrap().0;
+        let due = link
+            .iso
+            .iter()
+            .map(|t| t.due)
+            .chain((!link.pending.is_empty()).then_some(if link.changed { now } else { next }))
+            .min()
+            .unwrap_or(next);
+        if now < due {
+            link = shared.wake.wait_timeout(link, due - now).unwrap().0;
             continue;
         }
         let mut device = shared.device.lock().unwrap();
+        let mut iso_index = 0;
+        while iso_index < link.iso.len() {
+            if link.iso[iso_index].due > now {
+                iso_index += 1;
+                continue;
+            }
+            let transfer = link.iso.remove(iso_index).unwrap();
+            // A delayed worker completes old USB requests but must not play
+            // their audio at the current time or join it to a fresh PCM block.
+            if !transfer.input
+                && now.saturating_duration_since(transfer.due) > crate::haptics::MAX_AGE
+            {
+                device.iso_discontinuity();
+                link.send(&transfer.reply(0, &[], &[]));
+                continue;
+            }
+            let mut data = vec![];
+            let mut lengths = vec![];
+            let mut status = 0;
+            for packet in &transfer.packets {
+                let out = if transfer.input {
+                    &[][..]
+                } else {
+                    &transfer.data[packet.offset..packet.offset + packet.length]
+                };
+                match device.iso(transfer.endpoint, transfer.input, out, packet.length) {
+                    Some(bytes) if bytes.len() <= packet.length => {
+                        lengths.push(bytes.len());
+                        data.extend_from_slice(&bytes);
+                    }
+                    _ => {
+                        status = EPIPE;
+                        data.clear();
+                        break;
+                    }
+                }
+            }
+            link.send(&transfer.reply(status, &data, &lengths));
+        }
         let mut served = 0u32;
         let mut sent = false;
         let mut i = 0;
-        while i < link.pending.len() {
+        while (link.changed || now >= next) && i < link.pending.len() {
             let transfer = link.pending[i];
             let bit = 1u32 << (transfer.endpoint & 31);
             if served & bit != 0 {
@@ -477,6 +731,80 @@ fn report<D: Device>(shared: &Shared<D>) {
 mod tests {
     use super::*;
     use crate::steam_deck::{REPORT_PERIOD, SteamDeck};
+
+    #[test]
+    fn composite_audio_round_trips_packet_descriptors_and_actuator_pcm() {
+        let mut pad = crate::dualsense::DualSense::new(0, 3);
+        pad.capabilities(crate::haptics::CAPABILITY);
+        let export = Export::listen(pad, REPORT_PERIOD).unwrap();
+        let mut client = TcpStream::connect((Ipv4Addr::LOCALHOST, export.port())).unwrap();
+        client
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        let mut request = op_reply(OP_REQ_IMPORT, 0);
+        request.extend_from_slice(b"1-1");
+        request.resize(40, 0);
+        client.write_all(&request).unwrap();
+        let mut imported = [0; 320];
+        client.read_exact(&mut imported).unwrap();
+        assert_eq!(be32(&imported, 8 + 296), 3, "high speed");
+        assert_eq!(&imported[8 + 300..8 + 304], &[5, 0x4c, 0x0c, 0xe6]);
+        // Five 1 ms packets with deliberate padding between packets. USB/IP
+        // offsets describe the transfer buffer, not concatenated audio.
+        let packet_size = 384;
+        let stride = 392;
+        let length = stride * 5;
+        let mut wire = vec![];
+        for n in [CMD_SUBMIT, 7, 0x0001_0002, 0, 1, 0, length, 0, 5, 1] {
+            wire.extend_from_slice(&n.to_be_bytes());
+        }
+        wire.extend_from_slice(&[0; 8]);
+        let mut audio = vec![0xcc; length as usize];
+        for packet in 0..5 {
+            for frame in audio[packet * stride as usize..packet * stride as usize + packet_size]
+                .as_chunks_mut::<8>()
+                .0
+            {
+                frame.copy_from_slice(&[0x11, 0x22, 0x33, 0x44, 1, 0x80, 2, 0x7f]);
+            }
+        }
+        wire.extend_from_slice(&audio);
+        for p in 0..5 {
+            for n in [p * stride, packet_size as u32, 0, 0] {
+                wire.extend_from_slice(&n.to_be_bytes());
+            }
+        }
+        client.write_all(&wire).unwrap();
+        let mut reply = [0; 48 + 5 * 16];
+        client.read_exact(&mut reply).unwrap();
+        assert_eq!(be32(&reply, 0), RET_SUBMIT);
+        assert_eq!(be32(&reply, 4), 7);
+        assert_eq!(be32(&reply, 20), 0);
+        assert_eq!(be32(&reply, 24), length);
+        assert_eq!(be32(&reply, 32), 5);
+        for (i, descriptor) in reply[48..].as_chunks::<16>().0.iter().enumerate() {
+            assert_eq!(be32(descriptor, 0), i as u32 * stride);
+            assert_eq!(be32(descriptor, 8), packet_size as u32);
+            assert_eq!(be32(descriptor, 12), 0);
+        }
+        let frames = export.with(crate::dualsense::DualSense::take_pcm);
+        assert_eq!(frames.len(), 1);
+        assert_eq!(frames[0].samples, [1, 0x80, 2, 0x7f].repeat(240));
+        // The next HID control request still parses after isochronous metadata.
+        submit(
+            &mut client,
+            8,
+            0,
+            true,
+            3,
+            [0xa1, 1, 0x85, 3, 3, 0, 3, 0],
+            &[],
+        );
+        assert_eq!(
+            self::reply(&mut client),
+            (RET_SUBMIT, 8, 0, vec![0x85, 0, 0])
+        );
+    }
 
     fn import(port: u16) -> TcpStream {
         let mut client = TcpStream::connect((Ipv4Addr::LOCALHOST, port)).unwrap();

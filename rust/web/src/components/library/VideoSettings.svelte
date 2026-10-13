@@ -28,6 +28,7 @@
     { value: 'vhf_xbox', label: 'Xbox Series' },
     { value: 'vhf_ds4', label: 'DualShock 4' },
     { value: 'vhf_ds5', label: 'DualSense' },
+    { value: 'usbip_ds5', label: 'DualSense with waveform haptics (USB/IP)', hint: 'Requires usbip-win2 on the host and a waveform-capable client. Start the game after connecting the controller.' },
     { value: 'vhf_switch', label: 'Switch Pro' },
   ];
 </script>

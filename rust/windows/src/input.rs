@@ -24,6 +24,7 @@ use windows::{
 };
 
 mod desktop;
+mod dualsense_pad;
 mod gamepad_backend;
 #[path = "input/gamepad_thread.rs"]
 mod gamepad_thread;
@@ -31,6 +32,7 @@ mod gamepads;
 mod keyboard_mouse;
 mod steam_deck_pad;
 mod touch_pen;
+mod usbip_pad;
 
 pub use desktop::{
     follow_input_desktop, input_desktop_name, keep_on_input_desktop, on_input_desktop,
@@ -751,7 +753,8 @@ impl Injector {
         self.gamepads.set_feedback_waker(waker);
     }
     pub fn feedback_allowed(&self, kind: u16) -> bool {
-        !matches!(kind, 0x010b | 0x5500 | 0x5503) || (self.policy.forward_rumble && self.haptics)
+        !matches!(kind, 0x010b | 0x5500 | 0x5503 | 0x5601)
+            || (self.policy.forward_rumble && self.haptics)
     }
     /// The driver worker keeps ownership of its slots until unplug completes.
     /// Disconnecting a peer must not wait for that driver on the control thread.
@@ -905,7 +908,7 @@ mod tests {
             injector.policy.forward_rumble = forward;
             for haptics in [false, true] {
                 injector.apply(&Event::Haptics(haptics)).unwrap();
-                for kind in [0x010b, 0x5500, 0x5503] {
+                for kind in [0x010b, 0x5500, 0x5503, 0x5601] {
                     assert_eq!(injector.feedback_allowed(kind), forward && haptics);
                 }
                 assert!(injector.feedback_allowed(0x5502));

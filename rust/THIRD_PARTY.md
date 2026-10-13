@@ -15,3 +15,30 @@ External SDKs are not a port of the original host:
 - The host compiles its embedded HLSL GPU conversion shaders through Windows' D3DCompiler API. These shaders are part of Rubylight's source; the Windows compiler and GPU driver remain system dependencies.
 
 The standalone C programs under `rust/tests` are independent interoperability fixtures. Moonlight-common-c, nanors, FFmpeg decoding, OpenSSL and Opus are used by these fixtures and are not compiled as original host implementation code.
+
+## Composite DualSense haptics
+
+The USB/IP audio and haptics implementation was adapted to Rust on 2026-10-13 from [Nonary/Vibepollo 8b3ea1c4](https://github.com/Nonary/Vibepollo/tree/8b3ea1c4a41c383752475ffa551168a16b024d48), under GPL-3.0-or-later (used here under GPLv3). USB descriptors, reports and calibration derive from [Nonary/libvirtualgamepad 9edbce11](https://github.com/Nonary/libvirtualgamepad/tree/9edbce11ad71e9455867c356c8368a6b39fa2242), by Chase Payne, and HIDMaestro’s composite profile under the MIT terms below. No additional driver is bundled; users install usbip-win2 separately.
+
+MIT License
+
+Copyright (c) 2026 Chase Payne
+Copyright (c) 2026 HIDMaestro Contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

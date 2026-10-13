@@ -169,6 +169,9 @@ pub struct Negotiated {
     pub audio_quality: bool,
     pub encryption: u32,
     pub reliable_control: u32,
+    /// Client extensions announced in x-ml-general.featureFlags.
+    #[serde(default)]
+    pub moonlight_features: u32,
     /// Moonlight asks for QoS tags on a local network and not over the
     /// internet, where routers may drop tagged packets.
     #[serde(default)]
@@ -206,6 +209,7 @@ impl Default for Negotiated {
             audio_quality: false,
             encryption: 1,
             reliable_control: 13,
+            moonlight_features: 0,
             video_qos: true,
             audio_qos: true,
             mic: false,
@@ -297,6 +301,7 @@ impl Negotiated {
             n.encryption |= 4;
         }
         n.reliable_control = get("x-nv-general.useReliableUdp", 13)?;
+        n.moonlight_features = get("x-ml-general.featureFlags", 0)?;
         // Tagged unless the client says not to, as in Vibepollo.
         n.video_qos = get("x-nv-vqos[0].qosTrafficType", 5)? != 0;
         n.audio_qos = get("x-nv-aqos.qosTrafficType", 4)? != 0;

@@ -606,7 +606,7 @@ const input: Setting[] = [
     key: 'gamepad',
     label: 'Controller type',
     description:
-      "Automatic picks the virtual controller that matches each device's controller: DualSense, with adaptive triggers, for PlayStation, Switch Pro for Nintendo, and Xbox Series otherwise, or DualSense when the motion or touchpad options below select it. Choosing a type here uses it for all connected controllers. Steam stable can list a virtual Xbox controller twice; the Steam beta lists it once.",
+      "Automatic picks the virtual controller that matches each device's controller: DualSense, with adaptive triggers, for PlayStation, Switch Pro for Nintendo, and Xbox Series otherwise, or DualSense when the motion or touchpad options below select it. Waveform-capable DualSense clients use native USB audio haptics when usbip-win2 is installed on the host. The USB/IP option requires that driver and exposes a DualSense audio device. Choosing a type here uses it for all connected controllers. Steam stable can list a virtual Xbox controller twice; the Steam beta lists it once.",
     category: 'input',
     group: 'Controllers',
     control: {
@@ -617,6 +617,7 @@ const input: Setting[] = [
         { value: 'vhf_xbox_one', label: 'Xbox One' },
         { value: 'vhf_ds4', label: 'DualShock 4' },
         { value: 'vhf_ds5', label: 'DualSense' },
+        { value: 'usbip_ds5', label: 'DualSense with waveform haptics (USB/IP)' },
         { value: 'vhf_switch', label: 'Switch Pro' },
       ],
     },

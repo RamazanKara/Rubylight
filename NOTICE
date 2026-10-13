@@ -36,3 +36,13 @@ HID report descriptors and the feature-report replies Steam expects as captured 
 InputPlumber (https://github.com/ShadowBlip/InputPlumber, GPLv3), and the input
 report layout and button bits from SDL's SDL_hidapi_steamdeck.c and
 controller_structs.h (https://github.com/libsdl-org/SDL, zlib license).
+
+Composite DualSense haptics
+
+The Rust composite DualSense implementation was adapted for Rubylight on
+2026-10-13 from Nonary/Vibepollo commit 8b3ea1c4a41c383752475ffa551168a16b024d48
+(GPL-3.0-or-later), and USB reports/calibration from Nonary/libvirtualgamepad
+commit 9edbce11ad71e9455867c356c8368a6b39fa2242 (MIT, Copyright 2026 Chase Payne).
+Composite descriptors use HIDMaestro's MIT profile, Copyright 2026 HIDMaestro
+Contributors. Original notices remain in rust/core/src/dualsense/descriptors.rs;
+the complete MIT terms are also included in rust/THIRD_PARTY.md.

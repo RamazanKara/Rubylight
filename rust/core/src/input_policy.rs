@@ -6,6 +6,8 @@ use std::{collections::BTreeMap, time::Duration};
 
 // Host profile IDs; 3..=7 are the VHF driver's profile numbers.
 pub const VHF_AUTO: u16 = 10;
+/// Composite HID + USB audio through usbip-win2.
+pub const USBIP_DUALSENSE: u16 = 11;
 pub const VHF_XBOX_ONE: u16 = 3;
 pub const VHF_XBOX_SERIES: u16 = 4;
 pub const VHF_DS4: u16 = 5;
@@ -121,6 +123,7 @@ pub fn gamepad_profile(value: &str) -> u16 {
         "vhf_xbox" => VHF_XBOX_SERIES,
         "vhf_ds4" | "ds4" => VHF_DS4,
         "vhf_ds5" | "ds5" => VHF_DUALSENSE,
+        "usbip_ds5" => USBIP_DUALSENSE,
         "vhf_switch" => VHF_SWITCH,
         "vhf" => VHF_AUTO,
         other => {

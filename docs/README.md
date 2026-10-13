@@ -14,7 +14,7 @@ Rubylight runs on your Windows gaming PC; Moonlight runs on the device you play 
 | Bring my settings or update an existing host | [Import a profile](getting-started.md#bring-an-existing-profile) · [Upgrade safely](getting-started.md#upgrading) |
 | Choose a codec, enable HDR or try PyroWave | [Choose your stream format](getting-started.md#choose-your-stream-format) · [Capture and video settings](configuration.md#capture-and-video) |
 | Give each device its own display or cap a game's frame rate | [Displays and RTSS](configuration.md#displays-and-rtss) · [Settings for one app or device](configuration.md#settings-for-one-app-or-device) |
-| Set up a controller or use my client's microphone | [Controllers](configuration.md#controllers) · [Microphone](microphone.md) |
+| Set up a controller or use my client's microphone | [Controllers](configuration.md#controllers) · [DualSense haptics](dualsense-haptics.md) · [Microphone](microphone.md) |
 | Launch Steam games from Steam Deck with MoonDeck | [MoonDeck setup](configuration.md#moondeck) |
 | **Fix a stream that will not start or feels wrong** | [Troubleshooting](troubleshooting.md): pairing, black screens, HDR colour, audio, controllers and smoothness. |
 

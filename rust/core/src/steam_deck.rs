@@ -304,6 +304,7 @@ const ATTRIBUTES: [u8; 42] = [
 impl Device for SteamDeck {
     fn describe(&self) -> UsbDevice {
         UsbDevice {
+            speed: 2,
             vendor: VENDOR,
             product: PRODUCT,
             release: 0x0100,

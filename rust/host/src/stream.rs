@@ -1,4 +1,5 @@
 use crate::state::{Launch, Session, Shared};
+use butterpollo_core::haptics;
 mod capture;
 mod device_recovery;
 #[cfg(test)]
@@ -2961,7 +2962,13 @@ impl Media {
                                             s.launch.warnings.set(&code, message);
                                         }
                                     }
-                                    Ok(event) => {
+                                    Ok(mut event) => {
+                                        if let input::Input::Arrival { capabilities, .. } =
+                                            &mut event
+                                            && !haptics_negotiated(&s.config, peer.channel_count())
+                                        {
+                                            *capabilities &= !haptics::CAPABILITY;
+                                        }
                                         if let input::Input::Arrival { capabilities, .. } = &event
                                             && let Some(hint) =
                                                 butterpollo_core::input_policy::steam_input_hint(
@@ -3123,9 +3130,22 @@ impl Media {
                     // The gamepad thread polls feedback every 8 ms; pass on
                     // what it found, and the sensors an arrived pad has.
                     let mut messages = Vec::new();
+                    let mut waveforms = Vec::new();
                     if let Some(i) = &p.injector {
                         for report in i.gamepad_reports() {
                             match report {
+                                PadReport::Haptics(frame) => {
+                                    if i.feedback_allowed(haptics::PACKET_TYPE)
+                                        && haptics_negotiated(
+                                            &s.config,
+                                            host.peer(*peer_id).channel_count(),
+                                        )
+                                        && frame.created.elapsed() <= haptics::MAX_AGE
+                                        && let Some(payload) = frame.payload()
+                                    {
+                                        waveforms.push(payload);
+                                    }
+                                }
                                 PadReport::Feedback { id, kind, data } => messages.extend(
                                     feedback_packets(id, kind, &data)
                                         .into_iter()
@@ -3135,6 +3155,17 @@ impl Media {
                                     messages.extend(motion_requests(id, capabilities))
                                 }
                             }
+                        }
+                    }
+                    for payload in waveforms {
+                        if let Ok(message) = p.encrypt(&s, haptics::PACKET_TYPE, &payload) {
+                            let _ = host.peer_mut(*peer_id).send(
+                                haptics::CHANNEL,
+                                &Packet::new(
+                                    message,
+                                    PacketKind::AlwaysUnreliable { sequenced: false },
+                                ),
+                            );
                         }
                     }
                     for (kind, payload) in messages {
@@ -3271,7 +3302,25 @@ fn motion_requests(id: u8, capabilities: u16) -> Vec<(u16, Vec<u8>)> {
         })
         .collect()
 }
+fn haptics_negotiated(config: &butterpollo_core::rtsp::Negotiated, channels: usize) -> bool {
+    config.encryption & 1 != 0
+        && config.moonlight_features & haptics::FEATURE != 0
+        && channels > usize::from(haptics::CHANNEL)
+}
 fn feedback_packets(id: u16, kind: u16, data: &[u8]) -> Vec<(u16, Vec<u8>)> {
+    if (kind == RUMBLE_DATA && data.len() == 4)
+        || (kind == 0x5502 && data.len() == 3)
+        || (kind == 0x5503 && data.len() == 23)
+    {
+        let mut payload = if kind == RUMBLE_DATA {
+            RUMBLE_MARKER.to_le_bytes().to_vec()
+        } else {
+            vec![]
+        };
+        payload.extend_from_slice(&id.to_le_bytes());
+        payload.extend_from_slice(data);
+        return vec![(kind, payload)];
+    }
     let mut result = vec![];
     if matches!(kind, 4 | 5) && data.len() >= 8 {
         let mut rumble = RUMBLE_MARKER.to_le_bytes().to_vec();
@@ -3302,6 +3351,31 @@ fn feedback_packets(id: u16, kind: u16, data: &[u8]) -> Vec<(u16, Vec<u8>)> {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn waveform_haptics_require_negotiation_and_encrypted_multichannel_control() {
+        let mut config = butterpollo_core::rtsp::Negotiated::from_sdp(
+            b"a=x-ml-general.featureFlags:7\na=x-ss-general.encryptionEnabled:1\n",
+        )
+        .unwrap();
+        assert!(haptics_negotiated(&config, 9));
+        assert!(!haptics_negotiated(&config, 8));
+        config.encryption = 0;
+        assert!(!haptics_negotiated(&config, 9));
+        config.encryption = 1;
+        config.moonlight_features = 3;
+        assert!(!haptics_negotiated(&config, 9));
+        assert!(!haptics_negotiated(&Default::default(), 9));
+    }
+    #[test]
+    fn composite_feedback_preserves_partial_trigger_flags_and_rumble_layout() {
+        let mut effect = vec![0; 23];
+        effect[..3].copy_from_slice(&[4, 1, 0]);
+        let packet = feedback_packets(2, 0x5503, &effect).remove(0);
+        assert_eq!(&packet.1[..5], &[2, 0, 4, 1, 0]);
+        let rumble = feedback_packets(2, RUMBLE_DATA, &[0, 9, 0, 7]).remove(0);
+        assert_eq!(&rumble.1, &[0xee, 0xff, 0xc0, 0, 2, 0, 0, 9, 0, 7]);
+    }
     #[test]
     fn control_backlog_is_serviced_without_the_feedback_delay() {
         for queued in [600, 1100] {

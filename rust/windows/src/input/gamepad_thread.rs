@@ -3,6 +3,7 @@
 //! acknowledgements.
 use super::{Event, Gamepads};
 use anyhow::Result;
+use butterpollo_core::haptics;
 use butterpollo_core::input::Batch;
 use std::{
     collections::VecDeque,
@@ -27,11 +28,19 @@ const QUEUE_LIMIT: usize = 1024;
 /// What the gamepad thread hands back to the control stream.
 #[derive(Debug, PartialEq)]
 pub enum PadReport {
+    Haptics(haptics::Frame),
     /// New rumble, lights or trigger effects for a controller.
-    Feedback { id: u16, kind: u16, data: Vec<u8> },
+    Feedback {
+        id: u16,
+        kind: u16,
+        data: Vec<u8>,
+    },
     /// A controller arrived on a profile with motion sensors; the client's
     /// arrival capabilities say which sensors to ask for.
-    Motion { id: u8, capabilities: u16 },
+    Motion {
+        id: u8,
+        capabilities: u16,
+    },
 }
 
 /// The pads the thread drives: VHF, or a stand-in in tests.
@@ -39,6 +48,9 @@ pub(super) trait Pads {
     fn apply(&mut self, event: &Event) -> Result<()>;
     fn refresh(&mut self) -> Result<()>;
     fn feedback(&mut self) -> Vec<(u16, u16, Vec<u8>)>;
+    fn haptics(&mut self) -> Vec<haptics::Frame> {
+        vec![]
+    }
     fn motion_supported(&self, id: u16) -> bool;
     /// Whether any pad is plugged in, and so feedback needs polling.
     fn plugged(&self) -> bool;
@@ -54,11 +66,14 @@ impl Pads for Gamepads {
     fn feedback(&mut self) -> Vec<(u16, u16, Vec<u8>)> {
         Gamepads::feedback(self)
     }
+    fn haptics(&mut self) -> Vec<haptics::Frame> {
+        Gamepads::haptics(self)
+    }
     fn motion_supported(&self, id: u16) -> bool {
         Gamepads::motion_supported(self, id)
     }
     fn plugged(&self) -> bool {
-        !self.active.is_empty() || !self.decks.is_empty()
+        !self.active.is_empty() || !self.decks.is_empty() || !self.dualsenses.is_empty()
     }
     fn release_all(&mut self) -> Result<()> {
         Gamepads::release_all(self)
@@ -69,6 +84,7 @@ struct Shared {
     warnings: Arc<butterpollo_core::session::Warnings>,
     queue: Mutex<Queue>,
     feedback_waker: Mutex<Option<Arc<std::net::UdpSocket>>>,
+    haptics: Mutex<haptics::Queue>,
     wake: Condvar,
     stop: AtomicBool,
 }
@@ -115,6 +131,7 @@ impl GamepadThread {
             warnings,
             queue: Mutex::default(),
             feedback_waker: Mutex::default(),
+            haptics: Mutex::default(),
             wake: Condvar::new(),
             stop: AtomicBool::new(false),
         });
@@ -150,7 +167,16 @@ impl GamepadThread {
     }
     /// Feedback and motion requests the thread has produced since the last call.
     pub fn reports(&self) -> impl Iterator<Item = PadReport> + '_ {
-        self.reports.try_iter()
+        let pcm: Vec<_> = self
+            .shared
+            .haptics
+            .lock()
+            .unwrap()
+            .drain(Instant::now())
+            .collect();
+        self.reports
+            .try_iter()
+            .chain(pcm.into_iter().map(PadReport::Haptics))
     }
     pub(super) fn set_feedback_waker(&self, waker: Arc<std::net::UdpSocket>) {
         *self.shared.feedback_waker.lock().unwrap() = Some(waker);
@@ -159,6 +185,7 @@ impl GamepadThread {
         let mut queue = self.shared.queue.lock().unwrap();
         queue.events.clear();
         queue.release = true;
+        self.shared.haptics.lock().unwrap().retain_controllers(0);
         drop(queue);
         self.shared.wake.notify_one();
     }
@@ -283,6 +310,17 @@ fn run<P: Pads>(
                 }
             }
             let Some(pads) = &mut pads else { continue };
+            match &event {
+                Event::Arrival { id, .. } if *id < 16 => shared
+                    .haptics
+                    .lock()
+                    .unwrap()
+                    .retain_controllers(!(1 << *id)),
+                Event::Controller { active, .. } => {
+                    shared.haptics.lock().unwrap().retain_controllers(*active)
+                }
+                _ => {}
+            }
             match pads.apply(&event) {
                 Err(error) => shared.warnings.event("input_gamepad_injection", format!("Controller input failed ({error:#}); some controls may not work. Check the selected gamepad profile and virtual driver."), butterpollo_core::session::EVENT_PERIOD),
                 Ok(()) => {
@@ -307,6 +345,17 @@ fn run<P: Pads>(
             }
             for (id, kind, data) in pads.feedback() {
                 report(PadReport::Feedback { id, kind, data });
+            }
+            let pcm = pads.haptics();
+            if !pcm.is_empty() {
+                let mut queue = shared.haptics.lock().unwrap();
+                for frame in pcm {
+                    queue.push(frame, now);
+                }
+                drop(queue);
+                if let Some(waker) = shared.feedback_waker.lock().unwrap().as_ref() {
+                    let _ = waker.send(&[1]);
+                }
             }
             polling = pads.plugged();
         }

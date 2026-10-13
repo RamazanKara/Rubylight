@@ -1,7 +1,7 @@
 use super::gamepads::{GamepadTouchRequest, request};
 use super::open_interface;
 use anyhow::{Result, bail};
-use butterpollo_core::input_policy::VHF_AUTO;
+use butterpollo_core::input_policy::{USBIP_DUALSENSE, VHF_AUTO};
 use windows::{
     Win32::{Foundation::*, System::IO::DeviceIoControl},
     core::GUID,
@@ -9,13 +9,16 @@ use windows::{
 
 /// The VHF gamepad driver, which the installer brings: Xbox One, Xbox
 /// Series, DualShock 4, DualSense and Switch Pro pads in 16 slots.
-pub(super) struct Backend(HANDLE);
+pub(super) struct Backend(Option<HANDLE>);
 impl Backend {
     /// Returns the profiles the installed driver offers, as a bit per profile.
     pub(super) fn open(profile: u16) -> Result<(Self, u32)> {
-        let mut backend = Self(open_interface(GUID::from_u128(
+        if profile == USBIP_DUALSENSE {
+            return Ok((Self(None), 1 << 5));
+        }
+        let mut backend = Self(Some(open_interface(GUID::from_u128(
             0x27debbf5_1d1e_4e9c_906d_d104b1418b2b,
-        ))?);
+        ))?));
         let out = backend.ioctl(0x800, &request(8, None), 28)?;
         if out.len() != 28 || u16::from_le_bytes(out[4..6].try_into().unwrap()) != 2 {
             bail!("incompatible VHF gamepad protocol");
@@ -41,7 +44,8 @@ impl Backend {
             let mut result = vec![0; output];
             let mut n = 0;
             DeviceIoControl(
-                self.0,
+                self.0
+                    .ok_or_else(|| windows::core::Error::from_hresult(E_HANDLE))?,
                 (0x22 << 16) | (3 << 14) | (function << 2),
                 Some(data.as_ptr().cast()),
                 data.len() as u32,
@@ -130,7 +134,9 @@ impl Drop for Backend {
         // SAFETY: open_interface transferred this handle to Backend, which closes it
         // exactly once after its synchronous I/O has completed.
         unsafe {
-            let _ = CloseHandle(self.0);
+            if let Some(handle) = self.0 {
+                let _ = CloseHandle(handle);
+            }
         }
     }
 }

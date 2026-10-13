@@ -102,6 +102,12 @@ impl Drop for Slot {
     }
 }
 impl Gamepads {
+    pub(super) fn set_warnings(
+        &mut self,
+        warnings: std::sync::Arc<butterpollo_core::session::Warnings>,
+    ) {
+        self.warnings = warnings;
+    }
     pub fn open(profile: u16) -> Result<Self> {
         Self::open_options(
             profile,
@@ -384,6 +390,14 @@ impl Gamepads {
                 ..
             } => {
                 let id = u16::from(*id);
+                if self
+                    .arrivals
+                    .get(&id)
+                    .is_some_and(|old| *old != (*kind, *capabilities))
+                {
+                    self.decks.remove(&id);
+                    self.dualsenses.remove(&id);
+                }
                 self.arrivals.insert(id, (*kind, *capabilities));
                 self.dualsense_failed.remove(&id);
                 if let Some(pad) = self.dualsenses.get(&id) {
@@ -555,6 +569,14 @@ impl Gamepads {
             .values()
             .flat_map(|pad| pad.haptics())
             .collect()
+    }
+    pub(super) fn speaker(&self) -> Vec<butterpollo_core::haptics::Frame> {
+        self.dualsenses.values().flat_map(|p| p.speaker()).collect()
+    }
+    pub(super) fn audio(&mut self, id: u16, kind: u16, payload: &[u8]) {
+        if let Some(pad) = self.dualsenses.get(&id) {
+            pad.audio(kind, payload);
+        }
     }
     fn submit(
         &mut self,

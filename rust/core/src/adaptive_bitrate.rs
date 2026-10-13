@@ -74,6 +74,7 @@ pub struct AdaptiveBitrate {
     client_owned: bool,
     supported: bool,
     viable: bool,
+    controller_pcm_bps: u64,
     ceiling_kbps: u32,
     ceiling_bps: u64,
     current_bps: u64,
@@ -95,7 +96,8 @@ impl AdaptiveBitrate {
             self.budget = None;
             return;
         }
-        let budget = WireBudget::of(stream);
+        let mut budget = WireBudget::of(stream);
+        budget.audio_bps += self.controller_pcm_bps;
         let period = crate::reconfigure::Mode::of(stream).period();
         let inferred =
             budget.video_bps(stream.bitrate_kbps, fec, period) * 10 / 9 + budget.audio_bps;
@@ -114,6 +116,9 @@ impl AdaptiveBitrate {
         self.budget = Some(budget);
         self.reason = "waiting_for_feedback";
         self.update_floor(fec, period);
+        if self.client_owned {
+            self.reason = "client_controlled";
+        }
     }
 
     fn update_floor(&mut self, fec: usize, period: Duration) {
@@ -136,6 +141,20 @@ impl AdaptiveBitrate {
 
     pub fn budget_unusable(&self) -> bool {
         self.configured() && !self.viable
+    }
+
+    pub fn reserve_controller_pcm(&mut self, streams: usize, fec: usize, period: Duration) {
+        let next = streams.min(48) as u64 * crate::controller_audio::PCM_WIRE_BPS;
+        if next == self.controller_pcm_bps {
+            return;
+        }
+        if let Some(budget) = &mut self.budget {
+            budget.audio_bps = budget.audio_bps - self.controller_pcm_bps + next;
+        }
+        self.controller_pcm_bps = next;
+        if self.configured() {
+            self.update_floor(fec, period);
+        }
     }
 
     pub fn client_takeover(&mut self) {
@@ -294,6 +313,7 @@ impl AdaptiveBitrate {
             "feedback_observed": self.supported,
             "wire_budget_kbps": self.current_bps / 1000,
             "wire_ceiling_kbps": self.ceiling_bps / 1000,
+            "controller_pcm_reserved_kbps": self.controller_pcm_bps / 1000,
         })
     }
 }
@@ -563,5 +583,53 @@ mod tests {
         }
         assert_eq!(c.current_bps, budget);
         assert_eq!(c.reason, "rtt_unavailable");
+    }
+    #[test]
+    fn controller_pcm_shares_the_budget_and_released_reserves_recover_slowly() {
+        let mut c = controller();
+        c.on_block(Block::Clean);
+        let start = Instant::now();
+        let original = run(&mut c, start, 2, true, true, 20);
+        let pacing = c.video_pacing_bps();
+        let period = Duration::from_secs_f64(1. / 60.);
+        c.reserve_controller_pcm(3, 20, period);
+        assert_eq!(pacing - c.video_pacing_bps(), 6_000_000);
+        let reduced = c
+            .tick(
+                start + Duration::from_secs(2),
+                Traffic::default(),
+                Duration::from_millis(8),
+                20,
+                period,
+                original,
+            )
+            .unwrap();
+        assert!(reduced < original);
+        assert!(
+            c.budget.unwrap().video_bps(reduced, 20, period) + c.budget.unwrap().audio_bps
+                <= c.ceiling_bps
+        );
+        c.reserve_controller_pcm(0, 20, period);
+        let held = c
+            .tick(
+                start + Duration::from_secs(3),
+                Traffic::default(),
+                Duration::from_millis(8),
+                20,
+                period,
+                reduced,
+            )
+            .unwrap();
+        assert_eq!(held, reduced);
+        c.reserve_controller_pcm(usize::MAX, 20, period);
+        assert_eq!(c.controller_pcm_bps, 96_000_000);
+        assert_eq!(c.video_pacing_bps(), 0);
+        c.reserve_controller_pcm(0, 20, period);
+        assert!(c.active());
+        c.client_takeover();
+        c.reserve_controller_pcm(48, 20, period);
+        assert_eq!(c.video_pacing_bps(), 0);
+        assert_eq!(c.reason, "client_controlled");
+        assert!(!c.budget_unusable());
     }
 }

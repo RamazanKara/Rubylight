@@ -26,6 +26,7 @@ pub mod browse;
 pub mod capture_policy;
 pub mod catalog;
 pub mod config;
+pub mod controller_audio;
 pub mod crypto;
 pub mod display_caps;
 pub mod display_policy;

@@ -1,5 +1,5 @@
 use crate::state::{Launch, Session, Shared};
-use butterpollo_core::haptics;
+use butterpollo_core::{controller_audio, haptics};
 mod capture;
 mod device_recovery;
 #[cfg(test)]
@@ -2734,8 +2734,14 @@ impl Media {
         let mut unattended: HashMap<String, Instant> = HashMap::new();
         let input_timer = butterpollo_windows::timing::Timer::new()?;
         let mut feedback_at = Instant::now();
+        let mut controller_cleanup = Instant::now();
         while !h.stop.load(Ordering::Acquire) {
             while self.control_wake_receiver.recv(&mut [0]).is_ok() {}
+            if controller_cleanup.elapsed() >= Duration::from_secs(1) {
+                let app_running = h.current_app.lock().unwrap().is_some();
+                h.controller_sessions.expire(app_running);
+                controller_cleanup = Instant::now();
+            }
             let ping_timeout = crate::network::ping_timeout(&h.config.read().unwrap());
             #[cfg(test)]
             if let Some(fixture) = &h.reconnect_fixture {
@@ -2804,6 +2810,8 @@ impl Media {
                                     session: None,
                                     inputs: vec![],
                                     denied: 0,
+                                    controller_audio: [0; 16],
+                                    controller_pcm: Default::default(),
                                     command_at: None,
                                 },
                             );
@@ -2878,6 +2886,55 @@ impl Media {
                                 .lock()
                                 .unwrap()
                                 .on_ping(Instant::now(), &payload),
+                            controller_audio::CONTROL | controller_audio::MICROPHONE
+                                if encrypted
+                                    && haptics_negotiated(&s.config, peer.channel_count()) =>
+                            {
+                                if !s.launch.client.allows(1 << 8) {
+                                    continue;
+                                }
+                                if kind == controller_audio::CONTROL {
+                                    if let Some((id, flags)) = controller_audio::status(&payload) {
+                                        let Ok(config) = effective_config(&h, &s.launch) else {
+                                            continue;
+                                        };
+                                        let policy = controller_audio::status_policy(
+                                            &config,
+                                            s.launch.role,
+                                            s.launch.client.perm & ((1 << 25) | (1 << 26)) != 0,
+                                            flags,
+                                        );
+                                        if flags & controller_audio::PLAYBACK != 0
+                                            && policy.device_flags & controller_audio::PLAYBACK == 0
+                                            && config.get("audio_capture_mode", "system") == "game"
+                                        {
+                                            s.launch.warnings.set("audio_controller_scope", "Game-only audio suppresses dedicated USB controller speaker sound because that endpoint cannot identify its source process. The normal captured game stream still routes to a connected controller headset; haptics and microphone settings remain independent.");
+                                        }
+                                        let mut state = payload.clone();
+                                        state[4] = policy.device_flags;
+                                        if let Some(i) = &p.injector {
+                                            i.controller_audio(id, kind, &state);
+                                        }
+                                        p.controller_audio[id as usize] = policy.device_flags;
+                                        state[1] = 3; // Acknowledge host microphone policy.
+                                        state[4] = policy.client_flags;
+                                        if let Ok(message) = p.encrypt(&s, kind, &state) {
+                                            let _ = peer.send(
+                                                FEEDBACK_CHANNEL,
+                                                &Packet::new(message, PacketKind::Reliable),
+                                            );
+                                        }
+                                    }
+                                } else if let Some((id, _, _)) = controller_audio::pcm(&payload)
+                                    && p.controller_audio[id as usize]
+                                        & (controller_audio::CAPTURE | controller_audio::MUTED)
+                                        == controller_audio::CAPTURE
+                                    && let Some(i) = &p.injector
+                                {
+                                    p.controller_pcm.observe(id, kind, Instant::now());
+                                    i.controller_audio(id, kind, &payload);
+                                }
+                            }
                             0x3000 => {
                                 if let Some((value, elevated)) = server_command(
                                     &h,
@@ -3123,6 +3180,14 @@ impl Media {
                             }
                         };
                         let output = s.output.read().unwrap().clone();
+                        let pads = match h.controller_sessions.acquire(&s.launch, &c) {
+                            Ok(pads) => pads,
+                            Err(error) => {
+                                s.launch.warnings.set("input_initialization", format!("Controller recovery is still in progress ({error:#}); retrying."));
+                                p.injector_tried = false;
+                                continue;
+                            }
+                        };
                         match Injector::new_options_reported(
                             if output.is_empty() {
                                 c.get("output_name", "")
@@ -3134,6 +3199,16 @@ impl Media {
                             s.launch.warnings.clone(),
                         ) {
                             Ok(mut i) => {
+                                i.use_gamepads(pads);
+                                // The client can announce USB audio before input
+                                // initialization finishes. Apply its scoped flags
+                                // to the acquired (possibly retained) devices now.
+                                for (id, flags) in p.controller_audio.iter().copied().enumerate() {
+                                    if flags != 0 {
+                                        i.controller_audio(id as u16, controller_audio::CONTROL,
+                                            &[1, 1, id as u8, 0, flags, 0, 0, 0]);
+                                    }
+                                }
                                 s.launch.warnings.clear("input_initialization");
                                 i.set_feedback_waker(self.control_wake.clone());
                                 i.set_stream_size(s.config.width, s.config.height);
@@ -3175,6 +3250,21 @@ impl Media {
                     if let Some(i) = &p.injector {
                         for report in i.gamepad_reports() {
                             match report {
+                                PadReport::Speaker(frame) => {
+                                    if p.controller_audio[frame.id as usize]
+                                        & controller_audio::PLAYBACK
+                                        != 0
+                                        && frame.created.elapsed() <= haptics::MAX_AGE
+                                        && let Some(payload) = frame.payload()
+                                    {
+                                        p.controller_pcm.observe(
+                                            frame.id,
+                                            controller_audio::SPEAKER,
+                                            Instant::now(),
+                                        );
+                                        waveforms.push((controller_audio::SPEAKER, payload));
+                                    }
+                                }
                                 PadReport::Haptics(frame) => {
                                     if i.feedback_allowed(haptics::PACKET_TYPE)
                                         && haptics_negotiated(
@@ -3184,7 +3274,12 @@ impl Media {
                                         && frame.created.elapsed() <= haptics::MAX_AGE
                                         && let Some(payload) = frame.payload()
                                     {
-                                        waveforms.push(payload);
+                                        p.controller_pcm.observe(
+                                            frame.id,
+                                            haptics::PACKET_TYPE,
+                                            Instant::now(),
+                                        );
+                                        waveforms.push((haptics::PACKET_TYPE, payload));
                                     }
                                 }
                                 PadReport::Feedback { id, kind, data } => messages.extend(
@@ -3198,8 +3293,9 @@ impl Media {
                             }
                         }
                     }
-                    for payload in waveforms {
-                        if let Ok(message) = p.encrypt(&s, haptics::PACKET_TYPE, &payload) {
+                    s.reserve_controller_pcm(p.controller_pcm.streams(Instant::now()));
+                    for (kind, payload) in waveforms {
+                        if let Ok(message) = p.encrypt(&s, kind, &payload) {
                             let _ = host.peer_mut(*peer_id).send(
                                 haptics::CHANNEL,
                                 &Packet::new(
@@ -3299,6 +3395,8 @@ struct ControlPeer {
     inputs: Vec<input::Input>,
     /// Input permissions this device lacked and was warned about.
     denied: u32,
+    controller_audio: [u8; 16],
+    controller_pcm: controller_audio::PcmTraffic,
     command_at: Option<Instant>,
 }
 impl Drop for ControlPeer {
@@ -3349,6 +3447,9 @@ fn haptics_negotiated(config: &butterpollo_core::rtsp::Negotiated, channels: usi
         && channels > usize::from(haptics::CHANNEL)
 }
 fn feedback_packets(id: u16, kind: u16, data: &[u8]) -> Vec<(u16, Vec<u8>)> {
+    if kind == controller_audio::CONTROL && data.len() == 12 {
+        return vec![(kind, data.to_vec())];
+    }
     if (kind == RUMBLE_DATA && data.len() == 4)
         || (kind == 0x5502 && data.len() == 3)
         || (kind == 0x5503 && data.len() == 23)

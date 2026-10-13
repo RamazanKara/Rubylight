@@ -1010,6 +1010,12 @@ impl<P, A> Session<P, A> {
             configured_bps.min(limit)
         }
     }
+    pub fn reserve_controller_pcm(&self, streams: usize) {
+        let mut controller = self.adaptive_bitrate.lock().unwrap();
+        controller.reserve_controller_pcm(streams, self.fec_percent(), self.stream_mode().period());
+        self.adaptive_video_pacing_bps
+            .store(controller.video_pacing_bps(), Ordering::Release);
+    }
     pub fn tick_adaptive_bitrate(&self, now: Instant, rtt: Duration) -> Option<(u32, u32)> {
         let mut controller = self.adaptive_bitrate.lock().unwrap();
         let previous = self.bitrate.load(Ordering::Acquire);

@@ -1,5 +1,61 @@
 use super::*;
 
+#[test]
+fn controller_audio_separates_speaker_and_haptics_and_gates_microphone() {
+    let mut pad = DualSense::new(0, 2);
+    pad.capabilities(haptics::CAPABILITY);
+    pad.audio(controller_audio::CONTROL, &[1, 1, 2, 0, 7, 0, 0, 0]);
+    assert_eq!(pad.input_report()[54], 9);
+    let data = [1, 2, 3, 4, 5, 6, 7, 8].repeat(48);
+    for _ in 0..5 {
+        pad.iso(1, false, &data, data.len()).unwrap();
+    }
+    assert_eq!(pad.take_speaker()[0].samples, [1, 2, 3, 4].repeat(240));
+    assert_eq!(pad.take_pcm()[0].samples, [5, 6, 7, 8].repeat(240));
+    let mic = haptics::Frame {
+        id: 2,
+        sequence: 1,
+        created: Instant::now(),
+        samples: vec![9; 192],
+    }
+    .payload()
+    .unwrap();
+    pad.audio(controller_audio::MICROPHONE, &mic);
+    assert_eq!(pad.iso(2, true, &[], 196), Some(vec![9; 192]));
+    pad.audio(controller_audio::CONTROL, &[1, 1, 2, 0, 15, 0, 0, 0]);
+    pad.audio(controller_audio::MICROPHONE, &mic);
+    assert_eq!(pad.iso(2, true, &[], 196), Some(vec![0; 192]));
+    pad.suspend_audio();
+    pad.audio(controller_audio::MICROPHONE, &mic);
+    assert_eq!(pad.iso(2, true, &[], 196), Some(vec![0; 192]));
+}
+
+#[test]
+fn reconnect_replays_persistent_effects_and_audio_controls() {
+    let mut pad = DualSense::new(0, 0);
+    let mut report = [0; 48];
+    report[0] = 2;
+    report[1] = 0x28;
+    report[6] = 61;
+    report[22] = 1;
+    pad.output(3, &report);
+    pad.take_feedback();
+    pad.suspend_audio();
+    pad.capabilities(haptics::CAPABILITY);
+    pad.audio(controller_audio::CONTROL, &[1, 1, 0, 0, 1, 0, 0, 0]);
+    let feedback = pad.take_feedback();
+    assert!(
+        feedback
+            .iter()
+            .any(|(kind, p)| *kind == 0x5503 && p[..2] == [8, 1])
+    );
+    assert!(
+        feedback
+            .iter()
+            .any(|(kind, p)| *kind == controller_audio::CONTROL && p[7] == 61)
+    );
+}
+
 fn request(ty: u8, request: u8, value: u16, index: u16, length: u16) -> Setup {
     Setup {
         request_type: ty,

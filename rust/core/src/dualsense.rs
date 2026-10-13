@@ -4,7 +4,7 @@
 //! (GPL-3.0-or-later) and Chase Payne's libvirtualgamepad 9edbce11 (MIT).
 //! Descriptor and calibration notices are retained in descriptors.rs.
 use crate::{
-    haptics,
+    controller_audio, haptics,
     input::Input,
     usbip::{Device, Setup, UsbDevice},
 };
@@ -17,6 +17,7 @@ use descriptors::*;
 
 pub const REPORT_PERIOD: Duration = Duration::from_millis(4);
 static SEQUENCES: [AtomicU32; 16] = [const { AtomicU32::new(0) }; 16];
+static SPEAKER_SEQUENCES: [AtomicU32; 16] = [const { AtomicU32::new(0) }; 16];
 
 pub struct DualSense {
     slot: u8,
@@ -40,6 +41,14 @@ pub struct DualSense {
     waveform: bool,
     packetizer: haptics::Packetizer,
     pcm: haptics::Queue,
+    speaker_packetizer: haptics::Packetizer,
+    speaker: haptics::Queue,
+    capture: controller_audio::Capture,
+    audio_flags: u8,
+    audio_output: [u8; 8],
+    audio_pending: bool,
+    hid_seen: bool,
+    audio_seen: bool,
 }
 impl DualSense {
     pub fn new(slot: u8, client: u16) -> Self {
@@ -74,14 +83,69 @@ impl DualSense {
             waveform: false,
             packetizer: Default::default(),
             pcm: Default::default(),
+            speaker_packetizer: Default::default(),
+            speaker: Default::default(),
+            capture: Default::default(),
+            audio_flags: 0,
+            audio_output: [0; 8],
+            audio_pending: false,
+            hid_seen: false,
+            audio_seen: false,
         }
     }
     pub fn capabilities(&mut self, caps: u16) {
         self.waveform = caps & haptics::CAPABILITY != 0;
         self.dual_touch = caps & 0x100 != 0;
         self.clear_pcm();
+        self.pending = u8::from(self.rumble.is_some())
+            | (u8::from(self.rgb.is_some()) << 1)
+            | (u8::from(self.triggers[0].is_some()) << 3)
+            | (u8::from(self.triggers[1].is_some()) << 2);
+        self.audio_pending = true;
+    }
+    pub fn enumerated(&self) -> bool {
+        self.hid_seen && self.audio_seen
+    }
+    pub fn audio(&mut self, kind: u16, payload: &[u8]) {
+        if kind == controller_audio::CONTROL {
+            if let Some((id, flags)) = controller_audio::status(payload)
+                && id == self.client
+            {
+                if flags & controller_audio::CAPTURE == 0 || flags & controller_audio::MUTED != 0 {
+                    self.capture.clear();
+                }
+                if self.audio_flags & controller_audio::PLAYBACK == 0
+                    && flags & controller_audio::PLAYBACK != 0
+                {
+                    self.audio_pending = true;
+                }
+                self.audio_flags = flags;
+                self.input[54] = 8 | if flags & controller_audio::HEADPHONES != 0 {
+                    1
+                } else {
+                    0
+                };
+            }
+        } else if kind == controller_audio::MICROPHONE
+            && self.audio_flags & (controller_audio::CAPTURE | controller_audio::MUTED)
+                == controller_audio::CAPTURE
+            && let Some((id, seq, samples)) = controller_audio::pcm(payload)
+            && id == self.client
+        {
+            self.capture.push(seq, samples, Instant::now());
+        }
+    }
+    pub fn take_speaker(&mut self) -> Vec<haptics::Frame> {
+        self.speaker.drain(Instant::now()).collect()
+    }
+    pub fn suspend_audio(&mut self) {
+        self.audio_flags = 0;
+        self.clear_pcm();
     }
     pub fn clear_pcm(&mut self) {
+        self.speaker_packetizer.clear();
+        self.speaker.retain_controllers(0);
+        self.capture.clear();
         self.packetizer.clear();
         self.pcm.retain_controllers(0);
     }
@@ -247,6 +311,21 @@ impl DualSense {
                 }
             }
         }
+        // Preserve partial audio controls independently of triggers and lights.
+        for (flag, src, target) in [(0x10, 5, 2), (0x20, 6, 3), (0x40, 7, 4), (0x80, 8, 5)] {
+            if bytes[1] & flag != 0 {
+                self.audio_output[0] |= flag;
+                self.audio_output[target] = bytes[src];
+                self.audio_pending = true;
+            }
+        }
+        for (flag, src, target) in [(1, 9, 6), (2, 10, 7)] {
+            if bytes[2] & flag != 0 {
+                self.audio_output[1] |= flag;
+                self.audio_output[target] = bytes[src];
+                self.audio_pending = true;
+            }
+        }
         true
     }
     /// Wire feedback, without the controller index. Partial output reports
@@ -254,6 +333,13 @@ impl DualSense {
     pub fn take_feedback(&mut self) -> Vec<(u16, Vec<u8>)> {
         let pending = std::mem::take(&mut self.pending);
         let mut messages = vec![];
+        if self.audio_pending && self.audio_flags & controller_audio::PLAYBACK != 0 {
+            self.audio_pending = false;
+            let mut control = vec![1, 2];
+            control.extend_from_slice(&self.client.to_le_bytes());
+            control.extend_from_slice(&self.audio_output);
+            messages.push((controller_audio::CONTROL, control));
+        }
         if pending & 1 != 0 {
             messages.push((0x010b, self.rumble.unwrap().to_vec()));
         }
@@ -339,7 +425,10 @@ impl Device for DualSense {
                         Some(other)
                     }
                     0x21 if index == 3 => Some(CONFIGURATION[204..213].to_vec()),
-                    0x22 if index == 3 => Some(REPORT.to_vec()),
+                    0x22 if index == 3 => {
+                        self.hid_seen = true;
+                        Some(REPORT.to_vec())
+                    }
                     _ => None,
                 },
                 (0x80..=0x82, 0) => Some(vec![u8::from(ty == 0x80), 0]),
@@ -414,6 +503,7 @@ impl Device for DualSense {
         {
             return None;
         }
+        self.audio_seen = true;
         let control = usize::from(unit == 5);
         match (selector, ty & 0x80, code) {
             (1, 0x80, 0x81) if channel == 0 => Some(vec![self.mute[control]]),
@@ -456,7 +546,10 @@ impl Device for DualSense {
         }
     }
     fn interrupt(&mut self, endpoint: u8) -> Option<Vec<u8>> {
-        (endpoint == 4 && self.configuration == 1).then(|| self.input_report())
+        (endpoint == 4 && self.configuration == 1).then(|| {
+            self.hid_seen = true;
+            self.input_report()
+        })
     }
     fn output(&mut self, endpoint: u8, data: &[u8]) -> bool {
         endpoint == 3 && self.configuration == 1 && self.hid_output(data)
@@ -480,11 +573,43 @@ impl Device for DualSense {
         }
         self.alternate[endpoint as usize] = 1;
         if input {
-            return Some(vec![0; length.min(192)]);
+            let n = length.min(192);
+            if self.mute[1] != 0
+                || self.audio_flags & (controller_audio::CAPTURE | controller_audio::MUTED)
+                    != controller_audio::CAPTURE
+            {
+                self.capture.clear();
+                return Some(vec![0; n]);
+            }
+            let mut samples = self.capture.read(n, Instant::now());
+            audio_volume(&mut samples, &self.volume[1], false);
+            return Some(samples);
+        }
+        if self.audio_flags & controller_audio::PLAYBACK != 0 {
+            let mut stereo: Vec<_> = data
+                .as_chunks::<8>()
+                .0
+                .iter()
+                .flat_map(|f| f[..4].iter().copied())
+                .collect();
+            audio_volume(&mut stereo, &self.volume[0], self.mute[0] != 0);
+            let now = Instant::now();
+            for samples in self.speaker_packetizer.push(&stereo, now) {
+                self.speaker.push(
+                    haptics::Frame {
+                        id: self.client,
+                        sequence: SPEAKER_SEQUENCES[self.slot as usize]
+                            .fetch_add(1, Ordering::Relaxed),
+                        created: now,
+                        samples,
+                    },
+                    now,
+                );
+            }
         }
         if self.waveform {
             // Windows/game audio already applies volume. Preserve only the two
-            // actuator channels byte-for-byte; the speaker channels are discarded.
+            // actuator channels byte-for-byte; speaker sound travels separately.
             let stereo: Vec<_> = data
                 .as_chunks::<8>()
                 .0
@@ -505,6 +630,25 @@ impl Device for DualSense {
             }
         }
         Some(vec![])
+    }
+}
+fn audio_volume(samples: &mut [u8], volume: &[i16; 5], muted: bool) {
+    if muted {
+        samples.fill(0);
+        return;
+    }
+    for channel in 0..2 {
+        let db = (i32::from(volume[0]) + i32::from(volume[channel + 1])) as f32 / 256.;
+        if db == 0. {
+            continue;
+        }
+        let gain = 10_f32.powf(db.clamp(-100., 40.) / 20.);
+        for frame in samples.as_chunks_mut::<4>().0 {
+            let at = channel * 2;
+            let sample = i16::from_le_bytes([frame[at], frame[at + 1]]);
+            let scaled = (f32::from(sample) * gain).round().clamp(-32768., 32767.) as i16;
+            frame[at..at + 2].copy_from_slice(&scaled.to_le_bytes());
+        }
     }
 }
 fn usb_string(s: &str) -> Vec<u8> {

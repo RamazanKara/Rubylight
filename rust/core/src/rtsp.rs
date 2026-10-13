@@ -342,8 +342,9 @@ impl Negotiated {
     }
 }
 /// The Rubylight control messages this host takes, by id: phase lock reports
-/// (0x5530), display luminance (0x5531) and reconfiguration (0x5532).
-pub const CONTROL_MESSAGES: &str = "a=x-rl-control:0x5530,0x5531,0x5532\r\n";
+/// (0x5530), display luminance (0x5531), reconfiguration (0x5532) and USB
+/// controller speaker, microphone and status (0x5533–0x5535).
+pub const CONTROL_MESSAGES: &str = "a=x-rl-control:0x5530,0x5531,0x5532,0x5533,0x5534,0x5535\r\n";
 /// The `DESCRIBE` answer. `mic` is set when the host takes a client's
 /// microphone: its encryption is then supported and requested, and the
 /// caller ends the answer with `mic::sdp`, whose `m=` line must come last.
@@ -556,7 +557,7 @@ mod tests {
                 sdp.lines()
                     .filter(|line| line.starts_with("a=x-rl-control:"))
                     .collect::<Vec<_>>(),
-                ["a=x-rl-control:0x5530,0x5531,0x5532"]
+                ["a=x-rl-control:0x5530,0x5531,0x5532,0x5533,0x5534,0x5535"]
             );
             assert!(
                 !sdp.lines().any(|line| line.starts_with("m=")),
@@ -568,10 +569,13 @@ mod tests {
                 crate::phase_sync::REPORT_MESSAGE_TYPE,
                 crate::display_caps::DISPLAY_CAPS_MESSAGE_TYPE,
                 rubylight_protocol::control::RECONFIGURE_MESSAGE_TYPE,
+                crate::controller_audio::SPEAKER,
+                crate::controller_audio::MICROPHONE,
+                crate::controller_audio::CONTROL,
             ]
             .map(|id| format!("{id:#06x}"))
             .join(","),
-            "0x5530,0x5531,0x5532"
+            "0x5530,0x5531,0x5532,0x5533,0x5534,0x5535"
         );
     }
     #[test]

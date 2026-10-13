@@ -60,6 +60,8 @@ Separate the host's HDR source, the negotiated stream and the client's display o
 - Confirm the game's HDR setting and the receiving display's HDR mode. For a comparison between two clients, keep the codec, scene and host display the same; AV1 HDR on one device versus HEVC SDR on another is not an equivalent check.
 - Report whether black levels, mid-grey menus, bright highlights or colour saturation are wrong. Include the client app/version, device and display model, codec, stream resolution/rate and the host log time.
 
+If HDR was enabled after the stream started, reconnect once with HDR already enabled on the selected host display and compare the same scene. Version 2.2.16 and earlier can retain stale display colour information after a mode change. The [unreleased HDR refresh fix](../rust/RELEASE_NOTES.md#unreleased) updates that information and reopens capture when its colour space changes. Include the log from stream startup, especially `stream configured`, `source_pixel`, `hdr`, `full_range`, and any AMF range or HDR-metadata warnings; a timing-only excerpt cannot establish the negotiated colour path.
+
 If HDR looks washed out with no HDR badge on the TV, update the host: since 2.0.1 every client gets the HDR state once per stream ([#11](https://github.com/RamazanKara/Rubylight/issues/11)). Rubylight's native HEVC and AV1 HDR path is checked down to reference pixels; see the [native HDR record](../rust/PERFORMANCE.md#final-native-virtual-hdr-pixels-excluding-physical-panel-calibration).
 
 ## Audio cuts out or lags

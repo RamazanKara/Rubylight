@@ -6,6 +6,12 @@
 
 Rubylight, called Butterpollo until rc.29, is written in Rust: host, native helpers, service and setup, with a Svelte web console. The 2.2.16 installer is named `rubylight-setup-2.2.16.exe` and upgrades an existing Vibepollo or Butterpollo installation in place, keeping settings, paired devices, the app library and covers. Codec SDKs and Windows drivers remain external components; the setup installs the drivers.
 
+## Unreleased
+
+- **Refresh HDR state during capture.** Re-query the selected display when Windows invalidates its cached display information. Switching between SDR and HDR reopens WGC capture with the appropriate pixel format; luminance-only changes refresh HDR metadata without restarting capture. Refreshes match the original monitor and its owning GPU, including when another GPU encodes the stream.
+
+Automated regression coverage simulates display changes without using graphics hardware. Live HDR switching and its effect on frame delivery have not been measured for this change; the shared washed-out-color report is not yet confirmed fixed on the reporter's hardware.
+
 ## New in 2.2.16
 
 - **Optional adaptive bitrate.** The host can adjust bitrate from validated client loss and measured round-trip time, reserving bandwidth for stream and controller audio. Explicit client bitrate control takes ownership. This experimental option is off by default and works with compatible Moonlight clients.

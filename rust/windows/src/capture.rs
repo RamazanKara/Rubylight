@@ -28,6 +28,8 @@ use windows::{
     core::{Interface, PCWSTR},
 };
 
+mod output;
+
 #[derive(Clone, Debug, Serialize)]
 pub struct Display {
     pub device_id: String,
@@ -289,6 +291,8 @@ pub struct Device {
     /// where the device can still encode.
     pub output: Option<IDXGIOutput1>,
     pub display: std::sync::Arc<Display>,
+    // Capture and all encoder clones observe one throttled colour snapshot.
+    color: Option<std::sync::Arc<std::sync::Mutex<output::Color>>>,
 }
 impl Device {
     /// The monitor this device captures.
@@ -299,23 +303,15 @@ impl Device {
     }
     /// Read the selected output's luminance; conversion produces Rec.2020/D65.
     pub fn hdr_metadata(&self) -> butterpollo_core::hdr::Metadata {
-        self.output
+        self.color
             .as_ref()
-            // SAFETY: `output` is a live IDXGIOutput1, and GetDesc1 returns an owned struct.
-            .and_then(|output| unsafe {
-                output
-                    .cast::<IDXGIOutput6>()
-                    .and_then(|output| output.GetDesc1())
-                    .ok()
-            })
-            .map(|desc| {
-                butterpollo_core::hdr::Metadata::display(
-                    desc.MaxLuminance,
-                    desc.MinLuminance,
-                    desc.MaxFullFrameLuminance,
-                )
-            })
+            .map(|color| color.lock().unwrap().metadata(Instant::now()))
             .unwrap_or_default()
+    }
+    fn color_description(&self) -> Result<Option<output::Description>> {
+        self.color
+            .as_ref()
+            .map_or(Ok(None), |color| color.lock().unwrap().poll(Instant::now()))
     }
     pub fn new(name: &str) -> Result<Self> {
         Self::new_adapter(name, "", "")
@@ -469,11 +465,17 @@ impl Device {
             let context = context.unwrap();
             let multithread: ID3D11Multithread = context.cast()?;
             let _ = multithread.SetMultithreadProtected(true);
+            let color = output
+                .as_ref()
+                .map(|output| output::Color::new(output, &display.display_name))
+                .transpose()?
+                .map(|color| std::sync::Arc::new(std::sync::Mutex::new(color)));
             Ok(Self {
                 device: device.unwrap(),
                 context,
                 output,
                 display: std::sync::Arc::new(display),
+                color,
             })
         }
     }
@@ -519,11 +521,9 @@ impl Duplication {
             );
         }
         let native_hdr = hdr
-            && output
-                .cast::<IDXGIOutput6>()
-                // SAFETY: `output` is a live IDXGIOutput6, and GetDesc1 returns an owned struct.
-                .and_then(|output| unsafe { output.GetDesc1() })
-                .is_ok_and(|desc| desc.ColorSpace == DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020);
+            && gpu
+                .color_description()?
+                .is_some_and(|desc| desc.color_space == DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020);
         // Always name the formats this host accepts. The legacy call loses
         // access in a loop whenever Windows composes the output in FP16, as it
         // does for advanced color or after another virtual display arrives.
@@ -1116,11 +1116,7 @@ impl Wgc {
         unsafe {
             let output = gpu.output()?.clone();
             let d = output.GetDesc()?;
-            let color_space = output
-                .cast::<IDXGIOutput6>()
-                .and_then(|output| output.GetDesc1())
-                .map(|desc| desc.ColorSpace)
-                .ok();
+            let color_space = gpu.color_description()?.map(|desc| desc.color_space);
             let native_hdr = color_space
                 .map(|space| space == DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020)
                 .unwrap_or(hdr);
@@ -1367,17 +1363,8 @@ impl Wgc {
         {
             bail!("the captured display left the desktop");
         }
-        // SAFETY: `output` is a live IDXGIOutput1, and GetDesc1 returns an owned struct.
-        let current = unsafe {
-            self.gpu
-                .output()
-                .map_err(|_| windows::core::Error::from(windows::Win32::Foundation::E_FAIL))
-                .and_then(|output| output.cast::<IDXGIOutput6>())
-                .and_then(|output| output.GetDesc1())
-        }
-        .map(|desc| desc.ColorSpace)
-        .ok();
-        if current.is_some() && current != self.color_space {
+        let current = self.gpu.color_description()?;
+        if output::mode_changed(self.color_space, current) {
             bail!("capture output color space changed");
         }
         Ok(())

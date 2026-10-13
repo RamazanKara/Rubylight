@@ -35,6 +35,21 @@ Rubylight works with Moonlight and other Sunshine-compatible clients across PCs,
 
 [All features →](docs/features.md) · [How the frame pipeline works →](docs/architecture.md) · [Choose your stream format →](docs/getting-started.md#choose-your-stream-format)
 
+### Radeon-specific features
+
+- **Native AMD AMF.** Direct hardware encoding for H.264, HEVC and AV1, with captured pictures kept in GPU memory through colour conversion and encoding. HEVC and AV1 support 10-bit HDR on capable hardware.
+- **Asynchronous D3D12 compute.** Frame copies, colour conversion, resizing and letterboxing can run alongside your game's graphics work. PyroWave colour conversion uses this compute path too; unsupported capture textures fall back to the graphics path.
+- **Fresh pictures under load.** Bounded encoder and video-send queues keep old pictures from piling up. When capacity returns, Rubylight takes the newest available picture.
+- **Split-frame encoding.** On Radeon GPUs with two encoder engines, Rubylight can ask AMF to split a HEVC or AV1 frame across both. Automatic, On and Off controls are available; the driver decides whether to split. H.264 and single-engine GPUs do not use this feature.
+- **SmartAccess Video controls.** Exposes the driver's option to share encoding between AMD integrated and discrete graphics on supported systems. Rubylight prevents explicitly enabling it together with forced H.264/HEVC internal low-latency mode.
+- **AMF quality and bitrate tuning.** Defaults are tuned per codec from VMAF measurements, with controls for quality presets, adaptive quantization, high-motion quality boost, rate control, peak bitrate, buffer size and maximum frame size. Optional pre-analysis and quality rate-control modes require 8-bit SDR input.
+- **AV1 tools and loss recovery.** Controls for screen-content coding, tiles and latency modes, plus long-term reference frames that can repair packet loss with a smaller recovery frame when the client's reference budget allows. H.264 and HEVC use keyframes for reference-loss recovery.
+- **AMD GPU readings for client overlays.** Compatible clients can request GPU usage, clocks, temperatures, power, voltage, fan speed and VRAM usage through ADLX, where the GPU and driver expose them. Collection is off by default and only happens on request during that client's stream.
+
+Encoder controls are under **Settings → Encoders → AMD AMF**. Native AMF supplies 4:2:0 colour; full 10-bit HDR 4:4:4 on Radeon uses **PyroWave**, a compatible client and a fast local network.
+
+[Radeon settings and defaults →](docs/configuration.md#capture-and-video) · [GPU overlay setup →](docs/hardware-metrics.md#enable-on-the-host)
+
 ## Install. Pair. Play.
 
 1. **Install on your PC.** Run **`rubylight-setup-2.2.11.exe`** from the [release](https://github.com/RamazanKara/Rubylight/releases/tag/v2.2.11).

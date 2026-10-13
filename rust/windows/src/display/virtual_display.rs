@@ -323,7 +323,7 @@ pub(super) fn display_lease(
     displays.insert(id.into(), std::sync::Arc::downgrade(&display));
     Ok(display)
 }
-fn renewed_lease(result: Result<()>) -> Result<bool> {
+fn lease_exists(result: Result<()>) -> Result<bool> {
     match result {
         Ok(()) => Ok(true),
         // The driver reports STATUS_NOT_FOUND for an expired/missing lease.
@@ -362,9 +362,11 @@ fn retry_busy<T>(mut attempt: impl FnMut() -> Result<T>, timeout: Duration) -> R
 }
 fn wait_for_monitor(
     mut query: impl FnMut() -> Result<Option<Monitor>>,
+    mut recover: impl FnMut() -> Result<()>,
     timeout: Duration,
 ) -> Result<Monitor> {
     let deadline = Instant::now() + timeout;
+    let mut next_recovery = Instant::now();
     loop {
         if let Some(monitor) = query()? {
             return Ok(monitor);
@@ -373,6 +375,10 @@ fn wait_for_monitor(
             Instant::now() < deadline,
             "owned virtual display unavailable after startup protection"
         );
+        if Instant::now() >= next_recovery {
+            recover()?;
+            next_recovery = Instant::now() + Duration::from_secs(1);
+        }
         std::thread::sleep(
             Duration::from_millis(50).min(deadline.saturating_duration_since(Instant::now())),
         );
@@ -569,12 +575,37 @@ impl VirtualDisplay {
         self.name = self.current_monitor()?.display_name;
         Ok(())
     }
-    pub(super) fn current_monitor(&self) -> Result<Monitor> {
-        // Windows can briefly omit an owned target while the console session
-        // or hotplug layout changes. Never substitute a different monitor.
+    pub(super) fn current_monitor(&mut self) -> Result<Monitor> {
+        let owned = self.hotplug_monitor()?.clone();
         wait_for_monitor(
-            || Ok(monitors()?.into_iter().find(|m| self.owns_monitor(m))),
-            Duration::from_secs(1),
+            || {
+                Ok(monitors()?.into_iter().find(|m| {
+                    m.adapter == owned.adapter
+                        && m.target == owned.target
+                        && m.monitor_device_path
+                            .eq_ignore_ascii_case(&owned.monitor_device_path)
+                }))
+            },
+            || {
+                // Windows can switch the owned target off during startup,
+                // before the stream starts feeding its lease.
+                self.renew()?;
+                self.last_feed = Instant::now();
+                // SAFETY: Topology::shows supplies initialized device-name
+                // structures with matching header types and sizes.
+                if Topology::query_all()?.shows(&owned, |header| unsafe {
+                    DisplayConfigGetDeviceInfo(header)
+                })? && let Some(kept_timings) = activate_target(owned.adapter, owned.target)?
+                {
+                    self.switched_on = true;
+                    tracing::info!(
+                        kept_timings,
+                        "owned virtual display reactivated during startup"
+                    );
+                }
+                Ok(())
+            },
+            Duration::from_secs(10),
         )
     }
     fn check_hotplug(&mut self, stage: &str) -> Result<()> {
@@ -667,7 +698,7 @@ impl VirtualDisplay {
     pub fn feed(&mut self) -> Result<()> {
         if self.last_feed.elapsed() >= Duration::from_secs(1) {
             self.last_feed = Instant::now();
-            let renewed = renewed_lease(self.renew());
+            let renewed = lease_exists(self.renew());
             if renewed.is_err() {
                 // Reopen a stale transport for the next heartbeat, without
                 // mistaking its error for permission to create another monitor.
@@ -735,18 +766,19 @@ impl Drop for VirtualDisplay {
         let mut request = NAMESPACE.to_vec();
         request.extend_from_slice(&self.lease.to_le_bytes());
         request.extend_from_slice(&self.id.to_le_bytes());
-        if let Err(e) = retry_busy(
-            || self.driver.ioctl(0x902, 3, &request, 0),
+        if let Err(e) = lease_exists(retry_busy(
+            || self.driver.ioctl(0x902, 3, &request, 0).map(|_| ()),
             Duration::from_secs(1),
-        ) {
+        )) {
             tracing::warn!(error=%e,"virtual display removal failed; lease expiration will recover it");
         }
         request.truncate(24);
         request.extend_from_slice(&0u64.to_le_bytes());
-        if let Err(e) = retry_busy(
-            || self.driver.ioctl(0x904, 3, &request, 0),
+        // Removing the last display also removes its lease in the driver.
+        if let Err(e) = lease_exists(retry_busy(
+            || self.driver.ioctl(0x904, 3, &request, 0).map(|_| ()),
             Duration::from_secs(1),
-        ) {
+        )) {
             tracing::warn!(error=%e,"virtual display lease release failed; lease expiration will recover it");
         }
     }
@@ -811,11 +843,49 @@ mod tests {
                 attempts += 1;
                 Ok((attempts == 3).then(|| super::super::monitor("owned", 4, false)))
             },
+            || Ok(()),
             Duration::from_secs(1),
         )
         .unwrap();
         assert_eq!(found.device_id, "owned");
         assert_eq!(attempts, 3);
+    }
+    #[test]
+    fn startup_recovers_a_connected_monitor_instead_of_only_polling_it() {
+        let renewals = std::cell::Cell::new(0);
+        let found = wait_for_monitor(
+            || Ok((renewals.get() == 2).then(|| super::super::monitor("owned", 4, false))),
+            || {
+                renewals.set(renewals.get() + 1);
+                Ok(())
+            },
+            Duration::from_secs(2),
+        )
+        .unwrap();
+        assert_eq!(found.device_id, "owned");
+        assert_eq!(renewals.get(), 2);
+    }
+    #[test]
+    fn startup_does_not_reactivate_a_present_monitor_or_hide_a_lease_error() {
+        assert!(
+            wait_for_monitor(
+                || Ok(Some(super::super::monitor("owned", 4, false))),
+                || panic!("an active display needs no recovery"),
+                Duration::ZERO,
+            )
+            .is_ok()
+        );
+        let error = wait_for_monitor(
+            || Ok(None),
+            || Err(windows::core::Error::from_hresult(ERROR_ACCESS_DENIED.to_hresult()).into()),
+            Duration::from_secs(1),
+        )
+        .err()
+        .unwrap();
+        assert_eq!(
+            error.downcast_ref::<windows::core::Error>().unwrap().code(),
+            ERROR_ACCESS_DENIED.to_hresult()
+        );
     }
     #[test]
     fn an_absent_owned_monitor_or_failed_query_does_not_wait_forever() {
@@ -826,6 +896,7 @@ mod tests {
                     attempts += 1;
                     Ok(None)
                 },
+                || panic!("expired lookup must not change the topology"),
                 Duration::ZERO,
             )
             .is_err()
@@ -833,6 +904,7 @@ mod tests {
         assert_eq!(attempts, 1);
         let error = wait_for_monitor(
             || Err(windows::core::Error::from_hresult(ERROR_ACCESS_DENIED.to_hresult()).into()),
+            || panic!("failed query must not change the topology"),
             Duration::from_secs(1),
         )
         .err()
@@ -929,7 +1001,7 @@ mod tests {
     }
     #[test]
     fn only_a_missing_driver_lease_allows_recreation() {
-        assert!(renewed_lease(Ok(())).unwrap());
+        assert!(lease_exists(Ok(())).unwrap());
         for code in [
             ERROR_BUSY,
             ERROR_RETRY,
@@ -939,24 +1011,24 @@ mod tests {
         ] {
             let error =
                 windows::core::Error::from_hresult(windows::core::HRESULT::from_win32(code.0));
-            assert!(renewed_lease(Err(error.into())).is_err(), "{code:?}");
+            assert!(lease_exists(Err(error.into())).is_err(), "{code:?}");
             assert!(
-                renewed_lease(Ok(())).unwrap(),
+                lease_exists(Ok(())).unwrap(),
                 "the next heartbeat can succeed"
             );
         }
         let error = windows::core::Error::from_hresult(windows::core::HRESULT::from_win32(
             ERROR_NOT_FOUND.0,
         ));
-        assert!(!renewed_lease(Err(error.into())).unwrap());
+        assert!(!lease_exists(Err(error.into())).unwrap());
     }
     #[test]
     fn heartbeat_recreates_only_a_missing_lease_and_switches_on_a_display_windows_turned_off() {
         let failure = |code: WIN32_ERROR| -> anyhow::Error {
             windows::core::Error::from_hresult(windows::core::HRESULT::from_win32(code.0)).into()
         };
-        let busy = || renewed_lease(Err(failure(ERROR_BUSY)));
-        let missing = || renewed_lease(Err(failure(ERROR_NOT_FOUND)));
+        let busy = || lease_exists(Err(failure(ERROR_BUSY)));
+        let missing = || lease_exists(Err(failure(ERROR_NOT_FOUND)));
         // The log this guards against: the lease renewed, Windows had switched
         // the display off, and a duplicate create returned ERROR_BUSY.
         assert_eq!(
@@ -1064,6 +1136,20 @@ mod tests {
             !monitors()?.iter().any(ours),
             "virtual display stayed on after switching it off"
         );
+        let recovered = display.current_monitor()?;
+        assert!(display.owns_monitor(&recovered));
+        assert!(display.switched_on);
+        assert_eq!(display.generation, 0);
+        assert_eq!(timings()?, before);
+        // Exercise the established stream's heartbeat separately from startup.
+        // SAFETY: The same retained paths and queried modes remain valid here.
+        check(unsafe {
+            SetDisplayConfig(
+                Some(&off),
+                Some(&active.modes),
+                SDC_APPLY | SDC_USE_SUPPLIED_DISPLAY_CONFIG | SDC_ALLOW_CHANGES,
+            )
+        })?;
         display.last_feed = Instant::now() - Duration::from_secs(2);
         display.feed()?;
         anyhow::ensure!(monitors()?.iter().any(ours), "virtual display stayed off");

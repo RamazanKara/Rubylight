@@ -55,6 +55,7 @@ import java.lang.reflect.InvocationTargetException;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicIntegerArray;
 
 public class ControllerHandler implements InputManager.InputDeviceListener, UsbDriverListener {
 
@@ -113,6 +114,8 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
     private final ConcurrentHashMap<Integer, InputDeviceContext> inputDeviceContexts = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<Integer, UsbDeviceContext> usbDeviceContexts = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<Short, AbstractController> waveformControllers = new ConcurrentHashMap<>();
+    // A late USB attachment must not block releases from an existing shared slot.
+    private final AtomicIntegerArray controllerSlotsWithInput = new AtomicIntegerArray(MAX_GAMEPADS);
 
     private final NvConnection conn;
     private final Activity activityContext;
@@ -347,11 +350,22 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
             inputContext.emulatingButtonFlags = 0;
             inputContext.pendingExit = false;
         }
-        if (context.assignedControllerNumber) {
+        if (context.assignedControllerNumber && (controllerSlotsWithInput.get(context.controllerNumber) != 0 ||
+                !hasPendingControllerArrival(context.controllerNumber))) {
             // Bypass fusion while the other contexts sharing this number are being cleared.
+            // A neutral report must not create a USB pad before its pending capabilities.
             conn.sendControllerInput(context.controllerNumber, getActiveControllerMask(),
                     0, (byte) 0, (byte) 0, (short) 0, (short) 0, (short) 0, (short) 0);
         }
+    }
+
+    private boolean hasPendingControllerArrival(short controllerNumber) {
+        for (UsbDeviceContext context : usbDeviceContexts.values()) {
+            if (context.assignedControllerNumber && context.controllerNumber == controllerNumber && context.arrivalPending) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public void disableSensors() {
@@ -478,12 +492,20 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         // If this device sent data as a gamepad, zero the values before removing.
         // We must do this after clearing the currentControllers entry so this
         // causes the device to be removed on the server PC.
-        if (context.assignedControllerNumber) {
-            conn.sendControllerInput(context.controllerNumber, getActiveControllerMask(),
+        short activeControllerMask = getActiveControllerMask();
+        if (context.assignedControllerNumber && (controllerSlotsWithInput.get(context.controllerNumber) != 0 ||
+                !hasPendingControllerArrival(context.controllerNumber) ||
+                (activeControllerMask & (1 << context.controllerNumber)) == 0)) {
+            // A cleared slot can retire a pre-launch prepared pad even before arrival.
+            // A new active shared slot waits for its capabilities, without retrying on removal.
+            conn.sendControllerInput(context.controllerNumber, activeControllerMask,
                     (short) 0,
                     (byte) 0, (byte) 0,
                     (short) 0, (short) 0,
                     (short) 0, (short) 0);
+        }
+        if (context.assignedControllerNumber && (activeControllerMask & (1 << context.controllerNumber)) == 0) {
+            controllerSlotsWithInput.set(context.controllerNumber, 0);
         }
     }
 
@@ -1300,11 +1322,14 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         if (!originalContext.assignedControllerNumber) {
             return;
         }
-        if (originalContext instanceof UsbDeviceContext &&
-                !((UsbDeviceContext) originalContext).ensureControllerArrival()) {
-            // Input must not create a default host controller before its type and
-            // waveform capabilities arrive. A rejected announcement is retried.
-            return;
+        for (UsbDeviceContext context : usbDeviceContexts.values()) {
+            if (context.assignedControllerNumber && context.controllerNumber == originalContext.controllerNumber &&
+                    !context.ensureControllerArrival() && (context == originalContext ||
+                    controllerSlotsWithInput.get(originalContext.controllerNumber) == 0)) {
+                // A new slot must wait for its USB capabilities. A context already
+                // using a shared slot must still be able to release its held input.
+                return;
+            }
         }
 
         // Take the context's controller number and fuse all inputs with the same number
@@ -1336,8 +1361,8 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
                 rightStickY = maxByMagnitude(rightStickY, mapped.ry);
             }
         }
-        for (GenericControllerContext context : usbDeviceContexts.values()) {
-            if (context.assignedControllerNumber &&
+        for (UsbDeviceContext context : usbDeviceContexts.values()) {
+            if (context.assignedControllerNumber && !context.arrivalPending &&
                     context.controllerNumber == controllerNumber &&
                     context.mouseEmulationActive == originalContext.mouseEmulationActive) {
                 context.axisMap.apply(context.inputMap, context.leftTrigger, context.rightTrigger,
@@ -1362,6 +1387,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
             rightStickY = maxByMagnitude(rightStickY, defaultContext.rightStickY);
         }
 
+        short activeControllerMask = getActiveControllerMask();
         if (originalContext.mouseEmulationActive) {
             int changedMask = inputMap ^  originalContext.mouseEmulationLastInputMap;
 
@@ -1407,15 +1433,18 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
                 }
             }
 
-            conn.sendControllerInput(controllerNumber, getActiveControllerMask(),
+            conn.sendControllerInput(controllerNumber, activeControllerMask,
                     (short)0, (byte)0, (byte)0, (short)0, (short)0, (short)0, (short)0);
         }
         else {
-            conn.sendControllerInput(controllerNumber, getActiveControllerMask(),
+            conn.sendControllerInput(controllerNumber, activeControllerMask,
                     inputMap,
                     leftTrigger, rightTrigger,
                     leftStickX, leftStickY,
                     rightStickX, rightStickY);
+        }
+        if (conn.canSendControllerInput() && (activeControllerMask & (1 << controllerNumber)) != 0) {
+            controllerSlotsWithInput.set(controllerNumber, 1);
         }
     }
 

@@ -6,6 +6,7 @@ import com.limelight.binding.input.driver.AbstractController;
 import com.limelight.nvstream.NvConnection;
 import com.limelight.nvstream.StreamConfiguration;
 import com.limelight.nvstream.http.ComputerDetails;
+import com.limelight.nvstream.input.ControllerPacket;
 import com.limelight.nvstream.jni.MoonBridge;
 import com.limelight.preferences.PreferenceConfiguration;
 import org.junit.Test;
@@ -83,6 +84,202 @@ public class UsbControllerArrivalTest {
         }
     }
 
+    @Test
+    public void menuReleaseWaitsForArrivalAndStillClearsAnnouncedInput() {
+        try (ActivityController<Activity> activity = Robolectric.buildActivity(Activity.class).create()) {
+            Connection connection = new Connection();
+            PreferenceConfiguration preferences = new PreferenceConfiguration();
+            preferences.multiController = true;
+            ControllerHandler handler = new ControllerHandler(activity.get(), connection, null, preferences);
+            try {
+                handler.deviceAdded(new Pad());
+                handler.reportControllerState(42, ControllerPacket.A_FLAG, 1, 0, 0, 0, 0, 0);
+                connection.ready = true;
+                handler.setInputEnabled(false);
+                ShadowSystemClock.advanceBy(1, TimeUnit.SECONDS);
+                handler.releaseInput();
+                assertEquals(1, connection.arrivals);
+                assertEquals(0, connection.inputs);
+
+                handler.setInputEnabled(true);
+                input(handler);
+                assertEquals(Arrays.asList("arrival", "arrival", "input"), connection.events);
+                assertEquals(0, connection.lastButtons);
+                handler.reportControllerState(42, ControllerPacket.A_FLAG, 1, 0, 0, 0, 0, 0);
+                assertEquals(ControllerPacket.A_FLAG, connection.lastButtons);
+                handler.setInputEnabled(false);
+                // Both USB and default contexts release their shared, announced slot.
+                assertEquals(4, connection.inputs);
+                assertEquals(0, connection.lastButtons);
+                assertEquals(1, connection.lastInputMask);
+                assertEquals(2, connection.arrivals);
+            } finally {
+                handler.destroy();
+            }
+        }
+    }
+
+    @Test
+    public void sharedOnscreenInputWaitsForUsbCapabilities() {
+        try (ActivityController<Activity> activity = Robolectric.buildActivity(Activity.class).create()) {
+            Connection connection = new Connection();
+            PreferenceConfiguration preferences = new PreferenceConfiguration();
+            preferences.multiController = false;
+            preferences.onscreenController = true;
+            ControllerHandler handler = new ControllerHandler(activity.get(), connection, null, preferences);
+            try {
+                handler.deviceAdded(new Pad());
+                input(handler);
+                connection.ready = true;
+                handler.reportOscState(ControllerPacket.B_FLAG,
+                        (short) 0, (short) 0, (short) 0, (short) 0, (byte) 0, (byte) 0);
+                assertEquals(1, connection.arrivals);
+                assertEquals(0, connection.inputs);
+                ShadowSystemClock.advanceBy(1, TimeUnit.SECONDS);
+                handler.reportOscState(ControllerPacket.B_FLAG,
+                        (short) 0, (short) 0, (short) 0, (short) 0, (byte) 0, (byte) 0);
+                assertEquals(Arrays.asList("arrival", "arrival", "input"), connection.events);
+                assertEquals(MoonBridge.LI_CTYPE_PS, connection.type);
+                assertEquals(ControllerPacket.B_FLAG, connection.lastButtons);
+            } finally {
+                handler.destroy();
+            }
+        }
+    }
+
+    @Test
+    public void existingOnscreenInputStillReleasesWhenNewUsbArrivalFails() {
+        for (String release : new String[] {"buttonUp", "menu", "removal"}) {
+            try (ActivityController<Activity> activity = Robolectric.buildActivity(Activity.class).create()) {
+                Connection connection = new Connection();
+                connection.ready = true;
+                PreferenceConfiguration preferences = new PreferenceConfiguration();
+                preferences.multiController = false;
+                preferences.onscreenController = true;
+                ControllerHandler handler = new ControllerHandler(activity.get(), connection, null, preferences);
+                Pad pad = new Pad();
+                try {
+                    handler.reportOscState(ControllerPacket.B_FLAG,
+                            (short) 12000, (short) 0, (short) 0, (short) 0, (byte) 0, (byte) 0);
+                    assertEquals(1, connection.inputs);
+                    assertEquals(ControllerPacket.B_FLAG, connection.lastButtons);
+                    connection.ready = false;
+                    handler.deviceAdded(pad);
+                    handler.reportControllerState(42, ControllerPacket.A_FLAG, 1, 0, 0, 0, 0, 0);
+                    assertEquals(1, connection.arrivals);
+                    assertEquals(1, connection.inputs);
+
+                    if (release.equals("buttonUp")) {
+                        handler.reportOscState(0,
+                                (short) 0, (short) 0, (short) 0, (short) 0, (byte) 0, (byte) 0);
+                    } else {
+                        // Lifecycle releases must not retry an expired announcement.
+                        ShadowSystemClock.advanceBy(1, TimeUnit.SECONDS);
+                        if (release.equals("menu")) handler.setInputEnabled(false);
+                        else handler.deviceRemoved(pad);
+                    }
+                    assertEquals(release, release.equals("menu") ? 3 : 2, connection.inputs);
+                    // The pending USB button and axis must not leak into the OSC button-up.
+                    assertEquals(release, 0, connection.lastButtons);
+                    assertEquals(release, 0, connection.lastLeftX);
+                    assertEquals(release, 1, connection.lastInputMask);
+                    assertEquals(release, 1, connection.arrivals);
+                    assertEquals(release, 0, pad.audioBindings);
+                } finally {
+                    handler.destroy();
+                }
+            }
+        }
+    }
+
+    @Test
+    public void removedSlotDoesNotAuthorizeInputBeforeItsReplacementArrival() {
+        try (ActivityController<Activity> activity = Robolectric.buildActivity(Activity.class).create()) {
+            Connection connection = new Connection();
+            connection.ready = true;
+            PreferenceConfiguration preferences = new PreferenceConfiguration();
+            preferences.multiController = true;
+            ControllerHandler handler = new ControllerHandler(activity.get(), connection, null, preferences);
+            Pad pad = new Pad();
+            try {
+                handler.deviceAdded(pad);
+                handler.reportControllerState(42, ControllerPacket.A_FLAG, 1, 0, 0, 0, 0, 0);
+                handler.deviceRemoved(pad);
+                assertEquals(2, connection.inputs);
+                assertEquals(0, connection.lastInputMask);
+
+                connection.ready = false;
+                handler.deviceAdded(new Pad());
+                input(handler);
+                handler.setInputEnabled(false);
+                ShadowSystemClock.advanceBy(1, TimeUnit.SECONDS);
+                handler.releaseInput();
+                assertEquals(2, connection.arrivals);
+                assertEquals(2, connection.inputs);
+            } finally {
+                handler.destroy();
+            }
+        }
+    }
+
+    @Test
+    public void sharedUsbRemovalOnlySendsNeutralAfterAnnouncement() {
+        for (boolean announced : new boolean[] {false, true}) {
+            try (ActivityController<Activity> activity = Robolectric.buildActivity(Activity.class).create()) {
+                Connection connection = new Connection();
+                connection.ready = announced;
+                PreferenceConfiguration preferences = new PreferenceConfiguration();
+                preferences.multiController = false;
+                ControllerHandler handler = new ControllerHandler(activity.get(), connection, null, preferences);
+                Pad pad = new Pad();
+                try {
+                    handler.deviceAdded(pad);
+                    handler.reportControllerState(42, ControllerPacket.A_FLAG, 1, 0, 0, 0, 0, 0);
+                    connection.ready = true;
+                    ShadowSystemClock.advanceBy(1, TimeUnit.SECONDS);
+                    handler.deviceRemoved(pad);
+                    assertEquals(announced ? 2 : 0, connection.inputs);
+                    if (announced) {
+                        assertEquals(1, connection.lastInputMask);
+                        assertEquals(0, connection.lastButtons);
+                    }
+                    handler.stop();
+                    handler.resendControllerArrivals();
+                    handler.releaseInput();
+                    assertEquals(1, connection.arrivals);
+                    assertEquals(announced ? 1 : 0, pad.audioBindings);
+                } finally {
+                    handler.destroy();
+                }
+            }
+        }
+    }
+
+    @Test
+    public void pendingReservedUsbRemovalStillClearsTheHostPreparedSlot() {
+        try (ActivityController<Activity> activity = Robolectric.buildActivity(Activity.class).create()) {
+            Connection connection = new Connection();
+            PreferenceConfiguration preferences = new PreferenceConfiguration();
+            preferences.multiController = true;
+            ControllerHandler handler = new ControllerHandler(activity.get(), connection, null, preferences);
+            Pad pad = new Pad();
+            try {
+                handler.deviceAdded(pad);
+                input(handler);
+                connection.ready = true;
+                ShadowSystemClock.advanceBy(1, TimeUnit.SECONDS);
+                handler.deviceRemoved(pad);
+                assertEquals(1, connection.inputs);
+                assertEquals(0, connection.lastInputMask);
+                assertEquals(0, connection.lastButtons);
+                assertEquals(1, connection.arrivals);
+                assertEquals(0, pad.audioBindings);
+            } finally {
+                handler.destroy();
+            }
+        }
+    }
+
     private void checkRecovery(boolean connectionStarted) {
         try (ActivityController<Activity> activity = Robolectric.buildActivity(Activity.class).create()) {
             Connection connection = new Connection();
@@ -135,10 +332,10 @@ public class UsbControllerArrivalTest {
     private static class Connection extends NvConnection {
         boolean ready;
         boolean inputAllowed = true;
-        int arrivals, inputs, permissionChecks;
+        int arrivals, inputs, permissionChecks, lastButtons;
         final List<String> events = new ArrayList<>();
         byte slot, type;
-        short activeMask, capabilities;
+        short activeMask, capabilities, lastInputMask, lastLeftX;
         Connection() {
             super(null, new ComputerDetails.AddressTuple("127.0.0.1", 47989), 47984, "test",
                     new StreamConfiguration.Builder().build(), null, null);
@@ -157,6 +354,9 @@ public class UsbControllerArrivalTest {
         @Override public void sendControllerInput(short slot, short mask, int buttons, byte leftTrigger,
                                                  byte rightTrigger, short leftX, short leftY, short rightX, short rightY) {
             inputs++;
+            lastInputMask = mask;
+            lastButtons = buttons;
+            lastLeftX = leftX;
             events.add("input");
         }
     }

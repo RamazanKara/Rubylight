@@ -53,7 +53,13 @@ final class StreamRecoveryPolicy {
     static boolean transientStartup(String stage, int portFlags, int error) {
         // Startup retries are only used while recovering a previously connected session.
         // Host rejection, pairing, permission and decoder errors require a user decision.
-        return portFlags != 0 && error <= 0 && stage != null &&
+        // NvConnection reports Java transport failures with the two HTTP port flags and
+        // error 0. Its stage is the game's display name, not a native startup stage.
+        if (portFlags == (0x0001 | 0x0002) && error == 0) return true;
+        // Native RTSP/control startup propagates positive errno values (for example
+        // ETIMEDOUT), while Java transport failures use 0. Positive host status codes
+        // must still stay manual, so accept only the known transport errors here.
+        return portFlags != 0 && (error <= 0 || transientTermination(error)) && stage != null &&
                 !stage.toLowerCase(java.util.Locale.ROOT).contains("video");
     }
 }

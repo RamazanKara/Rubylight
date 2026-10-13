@@ -1,7 +1,9 @@
 package com.limelight;
 
 import android.app.Application;
+import android.content.ComponentName;
 import android.content.Intent;
+import android.content.pm.ActivityInfo;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
@@ -11,11 +13,14 @@ import com.limelight.nvstream.NvConnection;
 import com.limelight.nvstream.StreamConfiguration;
 import com.limelight.nvstream.http.ComputerDetails;
 import com.limelight.nvstream.http.NvApp;
+import com.limelight.nvstream.jni.MoonBridge;
 import com.limelight.preferences.PreferenceConfiguration;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.robolectric.Robolectric;
 import org.robolectric.annotation.Config;
+import org.robolectric.annotation.Implementation;
+import org.robolectric.annotation.Implements;
 import org.robolectric.util.ReflectionHelpers;
 import java.util.concurrent.atomic.AtomicInteger;
 import static org.junit.Assert.*;
@@ -23,6 +28,12 @@ import static org.junit.Assert.*;
 @RunWith(org.robolectric.RobolectricTestRunner.class)
 @Config(sdk = 29, application = Application.class)
 public class GameRecoveryTest {
+    @Test public void mergedManifestAllowsReturningToAStoppedStream() throws Exception {
+        Game game = Robolectric.buildActivity(Game.class).get();
+        ActivityInfo info = game.getPackageManager().getActivityInfo(new ComponentName(game, Game.class), 0);
+        assertEquals(0, info.flags & ActivityInfo.FLAG_NO_HISTORY);
+    }
+
     private Game recoveryGame() {
         Game game = Robolectric.buildActivity(Game.class).get();
         game.setTheme(R.style.AppTheme);
@@ -56,6 +67,41 @@ public class GameRecoveryTest {
         ReflectionHelpers.setField(game, "recoveryAppUuid", "captured-game");
         ReflectionHelpers.setField(game, "connectedAt", SystemClock.elapsedRealtime());
         return game;
+    }
+
+    @Test
+    @Config(shadows = RecoveryBridge.class, instrumentedPackages = "com.limelight.nvstream.jni")
+    public void nativeStartupTimeoutQueuesNextRecoveryWithoutAConnectivityProbe() {
+        Game game = recoveryGame();
+        long started = SystemClock.elapsedRealtime();
+        game.setIntent(new Intent().putExtra("RecoveryAttempts", 1).putExtra("RecoveryStarted", started));
+        StreamRecoveryPolicy policy = new StreamRecoveryPolicy(1, started);
+        ReflectionHelpers.setField(game, "recoveryPolicy", policy);
+        ReflectionHelpers.setField(game, "connected", false);
+        ReflectionHelpers.setField(game, "connecting", true);
+        RecoveryBridge.connectivityTests = 0;
+        try {
+            game.stageFailed("Control stream establishment", MoonBridge.ML_PORT_FLAG_UDP_47999, 110);
+            assertNotNull(ReflectionHelpers.getField(game, "pendingRecovery"));
+            assertEquals(2, policy.attempts());
+            assertEquals(0, RecoveryBridge.connectivityTests);
+            assertNull(ReflectionHelpers.getField(game, "streamMenu"));
+        } finally {
+            cleanupRecovery(game);
+        }
+    }
+
+    @Implements(value = MoonBridge.class, isInAndroidSdk = false)
+    public static class RecoveryBridge {
+        static int connectivityTests;
+        @Implementation protected static void __staticInitializer__() {}
+        @Implementation public static int testClientConnectivity(String server, int port, int portFlags) {
+            connectivityTests++;
+            return 0;
+        }
+        @Implementation public static String stringifyPortFlags(int portFlags, String separator) {
+            return Integer.toString(portFlags);
+        }
     }
 
     @Test public void lockResumePreservesCapturedIdentityOutputAndExistingRetryBudget() throws Exception {
@@ -149,6 +195,38 @@ public class GameRecoveryTest {
             }
             ReflectionHelpers.callInstanceMethod(game, "rememberStreamForResume");
             assertNull(condition, ReflectionHelpers.getField(game, "stoppedStreamResumeIntent"));
+        }
+    }
+
+    @Test public void stoppingDisabledOrIneligibleSessionsStillFinishesTheirActivity() {
+        for (String condition : new String[] {"disabled", "monitor", "input", "control", "failure", "uncaptured", "connecting"}) {
+            Game game = establishedGame();
+            if (condition.equals("disabled")) {
+                PreferenceConfiguration config = ReflectionHelpers.getField(game, "prefConfig");
+                config.autoReconnect = false;
+            } else if (condition.equals("monitor")) {
+                ReflectionHelpers.setField(game, "app", new NvApp("Monitor", 2147483505, false));
+            } else if (condition.equals("input")) {
+                ReflectionHelpers.setField(game, "app", new NvApp("Input", 2147483506, false));
+            } else if (condition.equals("control")) {
+                ReflectionHelpers.setField(game, "app", new NvApp("Terminate", 2147483504, false));
+            } else if (condition.equals("failure")) {
+                ReflectionHelpers.setField(game, "displayedFailureDialog", true);
+            } else if (condition.equals("uncaptured")) {
+                ReflectionHelpers.setField(game, "recoveryAppId", 0);
+            } else {
+                ReflectionHelpers.setField(game, "connected", false);
+                ReflectionHelpers.setField(game, "connecting", true);
+            }
+            try {
+                game.onPause();
+                game.onStop();
+                assertTrue(condition, game.isFinishing());
+                assertNull(condition, ReflectionHelpers.getField(game, "stoppedStreamResumeIntent"));
+                assertNull(condition, org.robolectric.Shadows.shadowOf(game).getNextStartedActivity());
+            } finally {
+                cleanupRecovery(game);
+            }
         }
     }
 

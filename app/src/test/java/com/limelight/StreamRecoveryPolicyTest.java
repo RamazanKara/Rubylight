@@ -59,6 +59,29 @@ public class StreamRecoveryPolicyTest {
         assertFalse(StreamRecoveryPolicy.transientStartup("Game", 0, 0));
     }
 
+    @Test public void nativeStartupTransportErrorsRetryWithoutTreatingHostStatusAsTransport() {
+        String[] stages = {"Control stream establishment", "RTSP handshake"};
+        int[] portFlags = {0x0200, 0x0c04};
+        for (int i = 0; i < stages.length; i++) {
+            for (int error : new int[] {32, 101, 104, 110, 111, 113}) {
+                assertTrue(stages[i] + " errno " + error,
+                        StreamRecoveryPolicy.transientStartup(stages[i], portFlags[i], error));
+            }
+            for (int error : new int[] {12, 22, 401, 403, 408, 409, 470, 500, 503, 525}) {
+                assertFalse(stages[i] + " error " + error,
+                        StreamRecoveryPolicy.transientStartup(stages[i], portFlags[i], error));
+            }
+        }
+    }
+
+    @Test public void javaTransportFailuresDoNotInterpretTheGameTitleAsADecoderStage() {
+        assertTrue(StreamRecoveryPolicy.transientStartup("Video Game", 0x0003, 0));
+        assertTrue(StreamRecoveryPolicy.transientStartup("VIDEO", 0x0003, 0));
+        assertFalse(StreamRecoveryPolicy.transientStartup("Video stream", 0x0100, -1));
+        assertFalse(StreamRecoveryPolicy.transientStartup("Video Game", 0, 0));
+        assertFalse(StreamRecoveryPolicy.transientStartup("Video Game", 0x0003, 403));
+    }
+
     @Test public void invalidPersistedStateCannotOverflowOrRunAfterAClockReset() {
         assertEquals(-1, new StreamRecoveryPolicy(Integer.MAX_VALUE, 1000).nextDelay(2000, -1));
         assertEquals(-1, new StreamRecoveryPolicy(1, 90000).nextDelay(1000, -1));

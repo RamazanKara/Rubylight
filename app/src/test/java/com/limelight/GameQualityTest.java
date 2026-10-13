@@ -1,9 +1,12 @@
 package com.limelight;
 
 import android.app.Application;
+import android.content.Context;
 import android.content.Intent;
+import android.hardware.display.DisplayManager;
 import android.os.Handler;
 import android.os.SystemClock;
+import android.view.Display;
 import com.limelight.binding.video.MediaCodecDecoderRenderer;
 import com.limelight.binding.video.MediaCodecHelper;
 import com.limelight.nvstream.AdaptiveQualityController;
@@ -13,18 +16,88 @@ import com.limelight.nvstream.http.ComputerDetails;
 import com.limelight.nvstream.http.NvApp;
 import com.limelight.nvstream.jni.MoonBridge;
 import com.limelight.preferences.PreferenceConfiguration;
+import com.limelight.ui.StreamPresentation;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.robolectric.Robolectric;
 import org.robolectric.annotation.Config;
 import org.robolectric.annotation.Implementation;
 import org.robolectric.annotation.Implements;
+import org.robolectric.shadows.ShadowDisplayManager;
+import org.robolectric.shadows.ShadowLooper;
 import org.robolectric.util.ReflectionHelpers;
 import static org.junit.Assert.*;
 
 @RunWith(org.robolectric.RobolectricTestRunner.class)
 @Config(sdk = 29, application = Application.class)
 public class GameQualityTest {
+    @Test
+    @Config(shadows = QualityBridge.class, instrumentedPackages = "com.limelight.nvstream.jni")
+    public void externalRefreshChangesUpdateTheStreamAndQualityCeilingIndependentlyOfThePhone() {
+        for (boolean automatic : new boolean[] {false, true}) {
+            Game game = reconfigurableGame();
+            int displayId = ShadowDisplayManager.addDisplay("w1920dp-h1080dp");
+            Display external = ((DisplayManager) game.getSystemService(Context.DISPLAY_SERVICE)).getDisplay(displayId);
+            setDisplayMode(external, 1920, 1080, 120);
+            StreamPresentation presentation = new StreamPresentation(game, external, false);
+            ReflectionHelpers.setField(game, "externalPresentation", presentation);
+            ReflectionHelpers.setField(game, "renderView", presentation.videoView());
+            ReflectionHelpers.setField(game, "displaySignature",
+                    ReflectionHelpers.callInstanceMethod(game, "displaySignature"));
+            if (automatic) {
+                PreferenceConfiguration config = ReflectionHelpers.getField(game, "prefConfig");
+                config.adaptiveQualityMode = AdaptiveQualityController.Mode.DETAIL;
+                ReflectionHelpers.callInstanceMethod(game, "startAdaptiveQuality");
+            }
+            try {
+                DisplayManager.DisplayListener listener = ReflectionHelpers.getField(game, "inputDisplayListener");
+                for (int fps : new int[] {60, 120}) {
+                    setDisplayMode(external, 1920, 1080, fps);
+                    listener.onDisplayChanged(displayId);
+                    assertEquals(fps, (float) ReflectionHelpers.getField(game, "panelMaxRefreshRate"), 0);
+                    ShadowLooper.idleMainLooper(StreamReconfigureRequester.SETTLE_MS,
+                            java.util.concurrent.TimeUnit.MILLISECONDS);
+                    assertEquals(fps, (int) ReflectionHelpers.getField(game, "streamFps"));
+                    assertEquals(fps, (int) ReflectionHelpers.getField(game, "qualityMaxFps"));
+                    if (automatic) {
+                        AdaptiveQualityController quality = ReflectionHelpers.getField(game, "adaptiveQuality");
+                        assertEquals(fps, quality.ceiling().fps);
+                        clearPendingQualityTarget(game);
+                    }
+                }
+                assertEquals(2, QualityBridge.requests);
+            } finally {
+                clearQualityCallbacks(game);
+                ShadowDisplayManager.removeDisplay(displayId);
+            }
+        }
+    }
+
+    @Test public void localDisplaySignatureStillTracksNativeResolutionChanges() {
+        Game game = Robolectric.buildActivity(Game.class).get();
+        Display local = game.getWindowManager().getDefaultDisplay();
+        Display.Mode[] originalModes = local.getSupportedModes();
+        try {
+            setDisplayMode(local, 1080, 1920, 60);
+            String before = ReflectionHelpers.callInstanceMethod(game, "displaySignature");
+            setDisplayMode(local, 1440, 2560, 60);
+            String after = ReflectionHelpers.callInstanceMethod(game, "displaySignature");
+            assertNotEquals(before, after);
+            assertTrue(after.contains("2560x1440"));
+        } finally {
+            ShadowDisplayManager.setSupportedModes(local.getDisplayId(), originalModes);
+        }
+    }
+
+    private static void setDisplayMode(Display display, int width, int height, int fps) {
+        Display.Mode mode = ReflectionHelpers.callConstructor(Display.Mode.class,
+                ReflectionHelpers.ClassParameter.from(int.class, display.getMode().getModeId()),
+                ReflectionHelpers.ClassParameter.from(int.class, width),
+                ReflectionHelpers.ClassParameter.from(int.class, height),
+                ReflectionHelpers.ClassParameter.from(float.class, (float) fps));
+        ShadowDisplayManager.setSupportedModes(display.getDisplayId(), mode);
+    }
+
     @Test
     @Config(shadows = QualityBridge.class, instrumentedPackages = "com.limelight.nvstream.jni")
     public void enablingQualityUsesOnlyTheAcceptedDisplayCeiling() {

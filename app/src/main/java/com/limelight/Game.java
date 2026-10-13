@@ -1746,8 +1746,12 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     }
 
     private String displaySignature() {
-        return PreferenceConfiguration.nativeResolution(this) + "@" +
-                com.limelight.binding.video.DisplayFrameRatePolicy.maxRefreshRate(getWindowManager().getDefaultDisplay());
+        Display display = getVideoDisplay();
+        // The input pane must not hide a refresh-capability change on the video output.
+        // Local output still tracks the phone's native size across folds and mode changes.
+        String resolution = externalPresentation == null ? PreferenceConfiguration.nativeResolution(this) : "";
+        return display.getDisplayId() + ":" + resolution + "@" +
+                com.limelight.binding.video.DisplayFrameRatePolicy.maxRefreshRate(display);
     }
 
     // Display changes also fire for refresh rate switches; only a new panel or a new top refresh

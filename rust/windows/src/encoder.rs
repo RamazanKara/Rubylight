@@ -14,6 +14,7 @@ use anyhow::{Context, Result, bail};
 use butterpollo_core::{rtsp::Negotiated, session::Warnings};
 use std::{
     ffi::{CStr, CString},
+    mem::size_of,
     ptr,
 };
 
@@ -353,6 +354,7 @@ pub struct Ffmpeg {
     config: Negotiated,
     software_pixel: i32,
     luminance: [f32; 2],
+    hdr_metadata: Option<butterpollo_core::hdr::Metadata>,
     index: i64,
     pub name: String,
     presentations: std::collections::BTreeMap<i64, std::time::Instant>,
@@ -548,6 +550,7 @@ impl Ffmpeg {
                 convert: None,
                 native,
                 config: config.clone(),
+                hdr_metadata: config.hdr.then(butterpollo_core::hdr::Metadata::default),
                 software_pixel: pixel,
                 luminance: [100., 1.],
                 index: 0,
@@ -606,6 +609,9 @@ impl Ffmpeg {
             (*frame).color_trc = (*self.context).color_trc;
             (*frame).colorspace = (*self.context).colorspace;
             (*frame).color_range = (*self.context).color_range;
+            if let Some(metadata) = self.hdr_metadata {
+                write_hdr_metadata(frame, metadata)?;
+            }
             (*frame).pict_type = if idr {
                 ff::AVPictureType_AV_PICTURE_TYPE_I
             } else {
@@ -647,6 +653,65 @@ impl Ffmpeg {
         }
     }
 }
+/// Update frame metadata without changing side data still referenced by an
+/// encoder submission. Reused frames retain their allocation when unshared.
+unsafe fn write_hdr_metadata(
+    frame: *mut ff::AVFrame,
+    metadata: butterpollo_core::hdr::Metadata,
+) -> Result<()> {
+    unsafe fn writable_side_data<T>(
+        frame: *mut ff::AVFrame,
+        kind: ff::AVFrameSideDataType,
+    ) -> Result<*mut T> {
+        // SAFETY: The caller supplies a live frame. FFmpeg owns the side data;
+        // make_writable preserves any copies held by previous submissions.
+        unsafe {
+            let mut side = ff::av_frame_get_side_data(frame, kind);
+            if side.is_null() {
+                side = ff::av_frame_new_side_data(frame, kind, size_of::<T>());
+            }
+            if side.is_null() {
+                bail!("cannot allocate HDR frame metadata");
+            }
+            if (*side).size < size_of::<T>() || (*side).buf.is_null() {
+                bail!("invalid HDR frame metadata buffer");
+            }
+            check(ff::av_buffer_make_writable(&mut (*side).buf))?;
+            (*side).data = (*(*side).buf).data;
+            Ok((*side).data.cast())
+        }
+    }
+    let rational = |value: u16, den| ff::AVRational {
+        num: i32::from(value),
+        den,
+    };
+    // SAFETY: Each side-data allocation is sized for its type, owned by the
+    // live frame and made writable before assigning the fully initialized value.
+    unsafe {
+        let mastering = writable_side_data::<ff::AVMasteringDisplayMetadata>(
+            frame,
+            ff::AVFrameSideDataType_AV_FRAME_DATA_MASTERING_DISPLAY_METADATA,
+        )?;
+        mastering.write(ff::AVMasteringDisplayMetadata {
+            display_primaries: metadata.primaries.map(|xy| xy.map(|v| rational(v, 50_000))),
+            white_point: metadata.white.map(|v| rational(v, 50_000)),
+            min_luminance: rational(metadata.minimum, 10_000),
+            max_luminance: rational(metadata.maximum_nits, 1),
+            has_primaries: 1,
+            has_luminance: 1,
+        });
+        let light = writable_side_data::<ff::AVContentLightMetadata>(
+            frame,
+            ff::AVFrameSideDataType_AV_FRAME_DATA_CONTENT_LIGHT_LEVEL,
+        )?;
+        light.write(ff::AVContentLightMetadata {
+            MaxCLL: u32::from(metadata.max_cll),
+            MaxFALL: u32::from(metadata.max_fall),
+        });
+    }
+    Ok(())
+}
+
 impl Drop for Ffmpeg {
     fn drop(&mut self) {
         // SAFETY: Self owns both FFmpeg allocations and frees each once after all
@@ -742,6 +807,7 @@ impl Encoder {
         match self {
             Self::Nvenc(encoder) => encoder.set_hdr_metadata(metadata),
             Self::Amf(encoder) => encoder.set_hdr_metadata(metadata),
+            Self::Ffmpeg(encoder) if encoder.config.hdr => encoder.hdr_metadata = Some(metadata),
             Self::Ffmpeg(_) | Self::Pyrowave(_) => {}
         }
     }
@@ -1143,6 +1209,57 @@ impl Encoder {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn hdr_frame_metadata_uses_wire_units_and_preserves_submitted_values() {
+        // SAFETY: Both frames are allocated and checked before use. The
+        // metadata pointers stay inside their live, FFmpeg-owned side data.
+        unsafe {
+            let mut frame = ff::av_frame_alloc();
+            let mut submitted = ff::av_frame_alloc();
+            assert!(!frame.is_null() && !submitted.is_null());
+            let metadata = butterpollo_core::hdr::Metadata {
+                maximum_nits: 1400,
+                minimum: 7,
+                max_cll: 1300,
+                max_fall: 700,
+                ..Default::default()
+            };
+            write_hdr_metadata(frame, metadata).unwrap();
+            check(ff::av_frame_copy_props(submitted, frame)).unwrap();
+            let updated = butterpollo_core::hdr::Metadata {
+                maximum_nits: 2200,
+                max_cll: 2100,
+                ..metadata
+            };
+            write_hdr_metadata(frame, updated).unwrap();
+            let master = |frame| {
+                &*(*ff::av_frame_get_side_data(
+                    frame,
+                    ff::AVFrameSideDataType_AV_FRAME_DATA_MASTERING_DISPLAY_METADATA,
+                ))
+                .data
+                .cast::<ff::AVMasteringDisplayMetadata>()
+            };
+            assert_eq!(master(frame).max_luminance.num, 2200);
+            assert_eq!(master(submitted).max_luminance.num, 1400);
+            assert_eq!(master(frame).min_luminance.num, 7);
+            assert_eq!(master(frame).min_luminance.den, 10_000);
+            assert_eq!(
+                master(frame).display_primaries[0][0].num,
+                i32::from(metadata.primaries[0][0])
+            );
+            assert_eq!(master(frame).display_primaries[0][0].den, 50_000);
+            let light = &*(*ff::av_frame_get_side_data(
+                frame,
+                ff::AVFrameSideDataType_AV_FRAME_DATA_CONTENT_LIGHT_LEVEL,
+            ))
+            .data
+            .cast::<ff::AVContentLightMetadata>();
+            assert_eq!((light.MaxCLL, light.MaxFALL), (2100, 700));
+            ff::av_frame_free(&mut submitted);
+            ff::av_frame_free(&mut frame);
+        }
+    }
     #[test]
     fn packet_slices_handle_empty_payloads_without_copying_nonempty_data() {
         let mut data = [1, 2, 3];

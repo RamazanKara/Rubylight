@@ -17,6 +17,7 @@ import android.widget.TextView;
 
 import com.limelight.R;
 import com.limelight.binding.input.ControllerButtonMap;
+import com.limelight.binding.input.ControllerAxisMap;
 import com.limelight.utils.UiHelper;
 
 import java.util.Map;
@@ -29,6 +30,8 @@ public class ControllerMappingActivity extends AppCompatActivity {
     private String deviceKey;
     private String deviceName;
     private ControllerButtonMap map;
+    private ControllerAxisMap axisMap;
+    private MaterialButton axisButton;
     private boolean capturing;
 
     @Override
@@ -67,6 +70,11 @@ public class ControllerMappingActivity extends AppCompatActivity {
         });
         root.addView(capture);
 
+        axisButton = new MaterialButton(this);
+        axisButton.setText(R.string.controller_axes_title);
+        axisButton.setOnClickListener(v -> chooseAxis());
+        root.addView(axisButton);
+
         mappingList = new LinearLayout(this);
         mappingList.setOrientation(LinearLayout.VERTICAL);
         root.addView(mappingList);
@@ -76,6 +84,8 @@ public class ControllerMappingActivity extends AppCompatActivity {
         resetButton.setOnClickListener(v -> {
             map = new ControllerButtonMap();
             map.save(this, deviceKey);
+            axisMap = new ControllerAxisMap();
+            axisMap.save(this, deviceKey);
             refresh();
         });
         root.addView(resetButton);
@@ -111,17 +121,23 @@ public class ControllerMappingActivity extends AppCompatActivity {
         deviceName = name == null || name.trim().isEmpty() ? getString(R.string.controller_mapping_unnamed) : name.trim();
         deviceKey = ControllerButtonMap.deviceKey(vendorId, productId, name);
         map = ControllerButtonMap.load(this, deviceKey);
+        axisMap = ControllerAxisMap.load(this, deviceKey);
     }
 
     private void refresh() {
         mappingList.removeAllViews();
+        axisButton.setEnabled(deviceKey != null);
         if (deviceKey == null) {
             deviceView.setText(R.string.controller_mapping_waiting);
             resetButton.setVisibility(View.GONE);
             return;
         }
         deviceView.setText(deviceName);
-        resetButton.setVisibility(map.isEmpty() ? View.GONE : View.VISIBLE);
+        resetButton.setVisibility(map.isEmpty() && axisMap.isEmpty() ? View.GONE : View.VISIBLE);
+        if (!axisMap.isEmpty()) {
+            mappingList.addView(row(getString(R.string.controller_axes_title),
+                    getString(R.string.controller_axes_configured), v -> chooseAxis()));
+        }
         if (map.isEmpty()) {
             mappingList.addView(row(getString(R.string.controller_mapping_none), null, null));
             return;
@@ -174,6 +190,49 @@ public class ControllerMappingActivity extends AppCompatActivity {
         int color = attrs.getColor(0, 0xFFFFFFFF);
         attrs.recycle();
         return color;
+    }
+
+    private void chooseAxis() {
+        if (deviceKey == null) return;
+        String[] names = getResources().getStringArray(R.array.controller_axes);
+        UiHelper.showDialog(this, new MaterialAlertDialogBuilder(this).setTitle(R.string.controller_axes_title)
+                .setItems(names, (dialog, which) -> {
+                    if (which < 6) chooseAxisSource(which);
+                    else chooseDpadTarget(which - 6);
+                }).setNegativeButton(android.R.string.cancel, null).create());
+    }
+
+    private void chooseAxisSource(int destination) {
+        String[] names = getResources().getStringArray(R.array.controller_axes);
+        boolean stick = destination < 4;
+        int first = stick ? 0 : 4, count = stick ? 4 : 2;
+        String[] choices = new String[1 + count * (stick ? 2 : 1)];
+        choices[0] = getString(R.string.controller_mapping_disabled);
+        int selected = 0;
+        for (int i = 0; i < count; i++) {
+            choices[1 + i] = names[first + i];
+            if (stick) choices[1 + count + i] = getString(R.string.controller_axes_inverted, names[first + i]);
+            if (axisMap.source(destination) == first + i) selected = 1 + i + (axisMap.inverted(destination) ? count : 0);
+        }
+        UiHelper.showDialog(this, new MaterialAlertDialogBuilder(this)
+                .setTitle(getString(R.string.controller_axes_source, names[destination]))
+                .setSingleChoiceItems(choices, selected, (dialog, which) -> {
+                    axisMap.setAxis(destination, which == 0 ? -1 : first + (which - 1) % count, which > count);
+                    axisMap.save(this, deviceKey); refresh(); dialog.dismiss();
+                }).setNegativeButton(android.R.string.cancel, null).create());
+    }
+
+    private void chooseDpadTarget(int direction) {
+        String[] labels = getResources().getStringArray(R.array.controller_dpad_targets);
+        int selected = 0;
+        for (int i = 0; i < ControllerAxisMap.DPAD_TARGETS.length; i++)
+            if (axisMap.dpadTarget(direction) == ControllerAxisMap.DPAD_TARGETS[i]) selected = i;
+        UiHelper.showDialog(this, new MaterialAlertDialogBuilder(this)
+                .setTitle(getResources().getStringArray(R.array.controller_axes)[direction + 6])
+                .setSingleChoiceItems(labels, selected, (dialog, which) -> {
+                    axisMap.setDpad(direction, ControllerAxisMap.DPAD_TARGETS[which]);
+                    axisMap.save(this, deviceKey); refresh(); dialog.dismiss();
+                }).setNegativeButton(android.R.string.cancel, null).create());
     }
 
     private int accentColor() {

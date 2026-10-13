@@ -75,6 +75,27 @@ public class GameTouchInputTest {
         assertTrue(connection.positions.isEmpty());
     }
 
+    @Test
+    public void desktopZoomMapsDirectAndNativeInputBackIntoTheSameHostCoordinates() {
+        for (boolean nativeTouch : new boolean[] {false, true}) {
+            RecordingConnection connection = new RecordingConnection();
+            Game game = game(connection);
+            View background = layout(game, 1050, 600);
+            StreamView stream = ReflectionHelpers.getField(game, "streamView");
+            com.limelight.ui.DesktopGestures desktop = new com.limelight.ui.DesktopGestures(game, stream, () -> { });
+            desktop.setEnabled(true); desktop.viewport().resize(800, 400);
+            desktop.viewport().zoom(2, 400, 200); desktop.viewport().pan(100, 0);
+            ReflectionHelpers.setField(game, "desktopGestures", desktop);
+            ReflectionHelpers.setField(game, "nativeTouchEnabled", nativeTouch);
+            ReflectionHelpers.callInstanceMethod(game, "initializeTouchContexts");
+            touch(game, background, MotionEvent.ACTION_DOWN, 500, 250);
+            touch(game, background, MotionEvent.ACTION_UP, 500, 250);
+            if (nativeTouch) assertArrayEquals(new float[] {.4375f, .5f}, connection.touches.get(0), .00001f);
+            else assertArrayEquals(new int[] {350, 200, 800, 400}, connection.positions.get(0));
+            Shadows.shadowOf(Looper.getMainLooper()).idleFor(100, TimeUnit.MILLISECONDS);
+        }
+    }
+
     private static Game game(RecordingConnection connection) {
         Game game = Robolectric.buildActivity(Game.class).get();
         ReflectionHelpers.setField(game, "conn", connection);

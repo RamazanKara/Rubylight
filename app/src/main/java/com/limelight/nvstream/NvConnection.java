@@ -966,18 +966,29 @@ public class NvConnection {
 
     public void sendMouseButtonDown(final byte mouseButton)
     {
-        if (canSendInput()) {
-            inputBatcher.boundary(() -> {
-                if (canSendInput()) MoonBridge.sendMouseButton(MouseButtonPacket.PRESS_EVENT, mouseButton);
-            });
-        }
+        sendOwnedMouseButton(mouseButton, true, false);
     }
     
     public void sendMouseButtonUp(final byte mouseButton)
     {
+        sendOwnedMouseButton(mouseButton, false, false);
+    }
+
+    private final com.limelight.binding.input.MouseButtonOwnership mouseButtonOwnership =
+            new com.limelight.binding.input.MouseButtonOwnership();
+
+    public void sendOverlayMouseButton(byte mouseButton, boolean down) {
+        sendOwnedMouseButton(mouseButton, down, true);
+    }
+
+    private void sendOwnedMouseButton(byte mouseButton, boolean down, boolean overlay) {
         if (canSendInput()) {
             inputBatcher.boundary(() -> {
-                if (canSendInput()) MoonBridge.sendMouseButton(MouseButtonPacket.RELEASE_EVENT, mouseButton);
+                synchronized (mouseButtonOwnership) {
+                    int transition = mouseButtonOwnership.update(mouseButton, down, overlay);
+                    if (canSendInput() && transition != 0) MoonBridge.sendMouseButton(
+                            transition > 0 ? MouseButtonPacket.PRESS_EVENT : MouseButtonPacket.RELEASE_EVENT, mouseButton);
+                }
             });
         }
     }

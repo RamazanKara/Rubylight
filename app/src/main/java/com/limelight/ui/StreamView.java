@@ -38,6 +38,14 @@ public class StreamView extends FrameLayout {
         return textureView;
     }
 
+    public void setVideoTransform(float scale, float x, float y) {
+        android.view.View video = textureView != null ? textureView : surfaceView;
+        if (video == null) return;
+        video.setPivotX(0); video.setPivotY(0);
+        video.setScaleX(scale); video.setScaleY(scale);
+        video.setTranslationX(x); video.setTranslationY(y);
+    }
+
     public void setDesiredAspectRatio(double aspectRatio) {
         this.desiredAspectRatio = aspectRatio;
     }

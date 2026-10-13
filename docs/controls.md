@@ -10,6 +10,8 @@ Connect a Bluetooth controller in Android's Bluetooth settings or plug a USB con
 
 Use **Controller buttons** to press a digital button and choose what it sends, including **Nothing**. Mappings are stored per controller model and apply on the next stream, including the USB drivers. **Reset this controller** restores its default mapping.
 
+Open **Sticks, triggers and D-pad** after selecting a controller. Each output stick axis can read either stick's horizontal or vertical axis, optionally inverted, or be disabled. Triggers can read either physical trigger or be disabled; their full analog range is preserved. Each D-pad direction can send another direction, a gamepad button, or nothing. These mappings apply to normalized Android and direct-USB reports, after deadzones, and also apply from the next stream. D-pad directions mapped to the same button stay held until every contributing source is released. Reset restores both digital and axis mappings. Axis mappings do not convert a stick into a trigger or emulate keyboard keys.
+
 **Flip face buttons** swaps A/B and X/Y. Raise the stick deadzone if a stationary stick drifts. **Vibrate device for rumble** gives you rumble on the phone or tablet when the controller has no motors.
 
 ### DualSense and USB
@@ -101,6 +103,26 @@ For an online Rubylight PC, **Open host administration** opens its web console i
 Turn on **Settings → Controls → Show on-screen controls**, or use **stream menu → Input mode**. The virtual gamepad supports opacity, press vibration, a Guide button and an L3/R3-only layout.
 
 During a stream choose **Input mode → Edit controller layout**. Select **Move controls** or **Resize controls**, drag the controls, then choose **Save layout and play**. **Reset controls layout** in Settings restores their sizes and positions.
+
+### Per-game keyboard and mouse buttons
+
+Choose **stream menu → Input mode → Controls for this game → Add keyboard or mouse button**. Give the button a label and a key or chord (`W`, `SPACE`, `CTRL + C`) or mouse binding (`MOUSE_1` left, `MOUSE_2` middle, `MOUSE_3` right, `MOUSE_4` back, `MOUSE_5` forward). Buttons normally hold their input while pressed. The **Tap to hold; tap again to release** option supports actions that would otherwise require a long press. TalkBack, Switch Access and keyboard activation can also activate a button; ordinary activation sends an 80 ms press.
+
+Set button width and height as percentages of the available control surface. Every button retains at least a 48 dp touch target. Select **Move game buttons**, drag them to position, then **Save layout and play**. Touch input to the PC is suppressed while placing buttons. Select a button's name in this menu to edit its size, binding or label, or delete it. These controls can coexist with the virtual gamepad; the virtual gamepad's existing layout remains separate.
+
+Layouts and their visibility are saved separately for each PC and game, using the app UUID when available and its numeric ID otherwise. Shared modifier keys and mouse buttons remain held until all controls using them have released. Opening the menu, hiding the layout, entering picture-in-picture, leaving the activity, disconnecting, canceling a touch, or replacing a layout releases its held input. The host's ordinary keyboard/mouse permissions still apply; no host extension is needed.
+
+**Export or share layout** offers selectable JSON, **Copy JSON**, and a JSON file through Android's share sheet. The share sheet may leave the stream according to Android's activity lifecycle; the PC game remains running. On another game/device, **Import layout** accepts pasted JSON and replaces that game's custom buttons only after pressing **Replace**. Layouts are limited to 32 buttons and 64 KiB. Unsupported versions, duplicate IDs, unsupported keys, nonfinite/out-of-bounds geometry and invalid mouse bindings are rejected without changing the current layout. Coordinates are normalized so layouts scale across devices; review placement on a different aspect ratio.
+
+### Tablet zoom and external displays
+
+Choose **stream menu → Desktop and display → Enable pinch zoom and pan**. Pinch to zoom from 1× to 4× and drag two fingers to pan within the desktop. One finger continues to use the selected touch mode; direct mouse, native touch, pen and absolute mouse positions use the inverse video transform. Trackpad movement stays relative. While enabled, the two-finger gesture controls the view instead of scrolling the PC. **Reset zoom** restores the full image. Android 5/6 require TextureView; Android 7+ support the SurfaceView path as well.
+
+For a dock, USB-C/HDMI monitor or Android presentation-capable wireless display, choose **Video output** and select the display. Switching output safely disconnects/reconnects the client while preserving the PC application, and starts the decoder on a dedicated presentation surface. Video goes to the monitor; the device remains a touchpad with its keyboard toolbar, game buttons and stream menu. This works with ordinary Sunshine-compatible hosts and does not ask the host to change its display layout. Android determines which attached outputs support presentations; mirroring-only outputs cannot be selected.
+
+Select **This device** to return. Removing the external display triggers the same client reconnect back to the phone/tablet. A display that disappears before launch falls back to the device. Output selection is session-local and is preserved through reconnects, not saved as a global preference. PiP auto-entry is disabled while presenting externally. Locking/leaving the activity follows the normal stream lifecycle; no background input or unattended reconnect is introduced.
+
+The JSON validator, held-input ownership, axis/hat report remapping, zoom bounds and inverse touch mapping have headless unit coverage. Actual monitor attach/detach, OEM SurfaceView transforms, controller hardware and accessibility services still require device testing; no physical display, audio or controller is used by these tests.
 
 ## Shortcuts
 

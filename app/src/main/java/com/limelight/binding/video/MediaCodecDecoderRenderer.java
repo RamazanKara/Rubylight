@@ -297,6 +297,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         }
     };
     private final boolean useArr;
+    private final Display outputDisplay;
 
     private int numSpsIn;
     private int numPpsIn;
@@ -594,7 +595,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             if (stopping || fps == refreshRate) return;
             refreshRate = fps;
             configuredFormat.setInteger(MediaFormat.KEY_FRAME_RATE, fps);
-            Display display = activity.getWindowManager().getDefaultDisplay();
+            Display display = outputDisplay;
             updateUpscalingFrameRate(Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ?
                     display.getMode().getRefreshRate() : display.getRefreshRate());
         }
@@ -649,7 +650,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     }
 
     private void setupUpscaling() {
-        Display display = activity.getWindowManager().getDefaultDisplay();
+        Display display = outputDisplay;
         float panelHz = Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ?
                 display.getMode().getRefreshRate() : display.getRefreshRate();
         upscalingPolicy = new UpscalingPolicy(Math.max(1, Math.min(refreshRate, Math.round(panelHz))));
@@ -787,16 +788,25 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                                      CrashListener crashListener, int consecutiveCrashCount,
                                      boolean meteredData, boolean requestedHdr,
                                      String glRenderer, PerfOverlayListener perfListener) {
+        this(activity, prefs, crashListener, consecutiveCrashCount, meteredData, requestedHdr,
+                glRenderer, perfListener, activity.getWindowManager().getDefaultDisplay());
+    }
+
+    public MediaCodecDecoderRenderer(Activity activity, PreferenceConfiguration prefs,
+                                     CrashListener crashListener, int consecutiveCrashCount,
+                                     boolean meteredData, boolean requestedHdr,
+                                     String glRenderer, PerfOverlayListener perfListener, Display outputDisplay) {
         //dumpDecoders();
 
         this.context = activity;
         this.thermalMonitor = new ThermalMonitor(activity);
         this.activity = activity;
+        this.outputDisplay = outputDisplay;
         this.prefs = prefs;
         this.frameLatencyStats = new FrameLatencyStats(prefs.vrr);
         this.useArr = DisplayFrameRatePolicy.useAdaptiveRefreshRate(Build.VERSION.SDK_INT, prefs.vrr,
                 Build.VERSION.SDK_INT >= Build.VERSION_CODES.BAKLAVA &&
-                        activity.getWindowManager().getDefaultDisplay().hasArrSupport());
+                        outputDisplay.hasArrSupport());
         this.crashListener = crashListener;
         this.consecutiveCrashCount = consecutiveCrashCount;
         this.glRenderer = glRenderer;
@@ -972,7 +982,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
     @Override
     public int prepareVideoFormats(int formats, int width, int height, int fps) {
-        float displayRefreshRate = activity.getWindowManager().getDefaultDisplay().getRefreshRate();
+        float displayRefreshRate = outputDisplay.getRefreshRate();
         int[] choices = { MoonBridge.VIDEO_FORMAT_PYROWAVE_MAIN10_444, MoonBridge.VIDEO_FORMAT_PYROWAVE_MAIN10,
                 MoonBridge.VIDEO_FORMAT_PYROWAVE_444, MoonBridge.VIDEO_FORMAT_PYROWAVE };
         for (int choice : choices) {
@@ -1807,7 +1817,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         choreographerHandlerThread = new HandlerThread("Video - Choreographer", Process.THREAD_PRIORITY_DISPLAY);
         choreographerHandlerThread.start();
 
-        streamDisplay = activity.getWindowManager().getDefaultDisplay();
+        streamDisplay = outputDisplay;
         displayManager = (DisplayManager) context.getSystemService(Context.DISPLAY_SERVICE);
 
         // Start the frame callbacks

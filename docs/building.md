@@ -10,7 +10,7 @@ Updates require the same signing key. Debug APKs built on different machines use
 
 ## Toolchain and source
 
-Use JDK 17 and the Android SDK/NDK already installed on your machine. The repository pins compile SDK 37, target SDK 36, minimum SDK 21, NDK `29.0.14206865`, Android Gradle Plugin `9.4.0` and Gradle `9.7.1`. Check [app/build.gradle](../app/build.gradle), [build.gradle](../build.gradle) and the [wrapper configuration](../gradle/wrapper/gradle-wrapper.properties) when updating the toolchain.
+Use JDK 21 and the Android SDK/NDK already installed on your machine. Android 16 Robolectric tests require JDK 21. The repository pins compile SDK 37, target SDK 36, minimum SDK 21, NDK `29.0.14206865`, Android Gradle Plugin `9.4.0` and Gradle `9.7.1`. Check [app/build.gradle](../app/build.gradle), [build.gradle](../build.gradle) and the [wrapper configuration](../gradle/wrapper/gradle-wrapper.properties) when updating the toolchain.
 
 The SDK Manager package for compile SDK 37 is `platforms;android-37.0`, not `platforms;android-37`. Install it together with `build-tools;36.0.0`, `platform-tools` and `ndk;29.0.14206865` when preparing a clean build environment.
 
@@ -27,7 +27,7 @@ For an existing checkout:
 git submodule update --init --recursive --jobs 2
 ```
 
-[.gitmodules](../.gitmodules) identifies the native core submodule; recursive initialization includes its dependencies. Use a Windows JDK and Windows SDK for PowerShell, or Linux toolchains when building inside WSL. Set `JAVA_HOME` to the installed JDK 17 directory and `ANDROID_HOME` to the installed SDK, or use `sdk.dir` in untracked `local.properties`. SDK licenses and the pinned SDK/NDK must already be available.
+[.gitmodules](../.gitmodules) identifies the native core submodule; recursive initialization includes its dependencies. Use a Windows JDK and Windows SDK for PowerShell, or Linux toolchains when building inside WSL. Set `JAVA_HOME` to the installed JDK 21 directory and `ANDROID_HOME` to the installed SDK, or use `sdk.dir` in untracked `local.properties`. SDK licenses and the pinned SDK/NDK must already be available.
 
 ## Build and tests
 
@@ -91,7 +91,7 @@ Each nonempty environment variable overrides its matching property. Supply all f
 
 Release builds require a dedicated signing key. Missing or partial signing configuration and the standard Android debug key fail the build, including when using the artifact helpers. CI uses a disposable validation key for minified build tests; it never publishes those release APKs. Updates must use the installed app's signing identity.
 
-Create a signing key once and retain it for future updates. JDK 17 supplies `keytool`; it prompts for the keystore password:
+Create a signing key once and retain it for future updates. JDK 21 supplies `keytool`; it prompts for the keystore password:
 
 ```sh
 keytool -genkeypair -keystore rubylight.keystore -alias rubylight -keyalg RSA -keysize 3072 -validity 10000

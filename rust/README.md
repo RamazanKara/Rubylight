@@ -4,7 +4,7 @@
 
 The Windows host, protocol implementation, native helpers, service and setup are written in Rust. The browser console is Svelte. The Rust executables do not link the previous C++ host; codec libraries, GPU SDKs and Windows drivers are external dependencies.
 
-The workspace version is **2.2.13**. This guide covers development and isolated validation. For what Rubylight does, see [Features](../docs/features.md); for measurements, [PERFORMANCE.md](PERFORMANCE.md).
+The workspace version is **2.2.14**. This guide covers development and isolated validation. For what Rubylight does, see [Features](../docs/features.md); for measurements, [PERFORMANCE.md](PERFORMANCE.md).
 
 ## Start streaming
 
@@ -128,4 +128,4 @@ An optional [Moonlight 6.2.0 source patch](compatibility/moonlight-6.2.0/README.
 
 Setup backs up replaced package files, verifies that the requested host version starts and restores those files on copying or startup failure. A failed version is not retried automatically; the console offers a manual retry. Recovery records stay under the service profile's `updates` directory.
 
-The installer is unsigned. Its digest check over HTTPS is an integrity check against the official release, distinct from an Authenticode signature. Portable hosts use release-page downloads. [Release notes](RELEASE_NOTES.md) and the release's validation record describe package provenance.
+Windows releases remain unsigned until the approved [SignPath account configuration](../docs/code-signing.md) is enabled. The workflow supports signing the binaries, installer and uninstaller. The updater's digest check over HTTPS is an integrity check against the official release, distinct from an Authenticode signature. Portable hosts use release-page downloads. [Release notes](RELEASE_NOTES.md) and the release's validation record describe package provenance and signing status.

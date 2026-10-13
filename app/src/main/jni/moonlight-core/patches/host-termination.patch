@@ -1,0 +1,71 @@
+Preserve the host termination reason before ENet teardown and claim callbacks atomically.
+Applies after bughunt-stream.patch, bughunt-input.patch and controller-haptics.patch.
+
+diff --git a/src/Connection.c b/src/Connection.c
+index bac9a6e..3287028 100644
+--- a/src/Connection.c
++++ b/src/Connection.c
+@@ -1,8 +1,9 @@
+ #include "Limelight-internal.h"
++#include <stdatomic.h>
+ 
+ static int stage = STAGE_NONE;
+ static ConnListenerConnectionTerminated originalTerminationCallback;
+-static bool alreadyTerminated;
++static atomic_bool alreadyTerminated;
+ static PLT_THREAD terminationCallbackThread;
+ static int terminationCallbackErrorCode;
+ 
+@@ -68,7 +69,7 @@ void LiInterruptConnection(void) {
+ // Stop the connection by undoing the step at the current stage and those before it
+ void LiStopConnection(void) {
+     // Disable termination callbacks now
+-    alreadyTerminated = true;
++    atomic_store(&alreadyTerminated, true);
+ 
+     // Set the interrupted flag
+     LiInterruptConnection();
+@@ -159,13 +160,13 @@ static void ClInternalConnectionTerminated(int errorCode)
+ {
+     int err;
+ 
+-    // Avoid recursion and issuing multiple callbacks
+-    if (alreadyTerminated || ConnectionInterrupted) {
++    // Claim the first reason before dispatch. Other stream workers may fail
++    // concurrently, including while the control receiver disconnects the peer.
++    if (atomic_exchange(&alreadyTerminated, true) || ConnectionInterrupted) {
+         return;
+     }
+ 
+     terminationCallbackErrorCode = errorCode;
+-    alreadyTerminated = true;
+ 
+     // Invoke the termination callback on a separate thread
+     err = PltCreateThread("AsyncTerm", terminationCallbackThreadFunc, NULL, &terminationCallbackThread);
+@@ -279,7 +280,7 @@ int LiStartConnection(PSERVER_INFORMATION serverInfo, PSTREAM_CONFIGURATION stre
+         Limelog("RTSP port: %u\n", RtspPortNumber);
+     }
+ 
+-    alreadyTerminated = false;
++    atomic_store(&alreadyTerminated, false);
+     ConnectionInterrupted = false;
+     
+     // Validate the audio configuration
+diff --git a/src/ControlStream.c b/src/ControlStream.c
+index f4da8a0..efad638 100644
+--- a/src/ControlStream.c
++++ b/src/ControlStream.c
+@@ -1396,9 +1396,12 @@ static void controlReceiveThreadFunc(void* context) {
+                 // disconnected now to avoid delays waiting for an ack that will
+                 // never arrive.
+                 PltLockMutex(&enetMutex);
++                // Reserve the host's reason before queued input can observe the
++                // disconnected peer and report a generic send failure instead.
++                // The internal shim dispatches the client's callback asynchronously.
++                ListenerCallbacks.connectionTerminated((int)terminationErrorCode);
+                 enet_peer_disconnect_now(peer, 0);
+                 PltUnlockMutex(&enetMutex);
+-                ListenerCallbacks.connectionTerminated((int)terminationErrorCode);
+                 free(ctlHdr);
+                 return;
+             }

@@ -1,0 +1,2 @@
+Fix a race that could show a false disconnect error or start reconnecting after a game exits normally on the host, especially while a controller is still sending input.
+Keep genuine network failures and host errors visible.

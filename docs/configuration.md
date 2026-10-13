@@ -92,6 +92,11 @@ client reports loss, or when sustained traffic shows a rising control RTT.
 The budget includes packet headers, FEC (including minimum parity), and a
 reserve for audio and control. Video pacing enforces the remaining video
 budget; bitrate targets leave additional headroom for encoder overshoot.
+Observed controller speaker, actuator and microphone PCM each reserve another
+2 Mbps, including transport overhead and shared wireless airtime. Each reserve
+expires after five seconds without that path's packets, including controller
+removal or microphone mute. Released headroom still follows slow bitrate
+recovery; it never takes ownership back from a client's controller.
 The ceiling is the client's configured network bitrate, bounded by Maximum
 bitrate when set. No change can exceed the initial encoder bitrate.
 If the budget cannot fit negotiated audio and even minimum video packets,
@@ -135,6 +140,13 @@ can still be audible even when the client requests local muting. Route the game
 to a virtual device yourself if local silence is needed. Other independent
 applications and system notifications are excluded; audio from children the
 game itself launches is included by Windows' process-tree capture.
+
+Dedicated USB controller speaker forwarding is suppressed in this mode because
+that endpoint has no process identity. Captured game sound still routes to a
+connected controller headset, and waveform haptics and microphone permissions
+remain independent. Process loopback includes all of the game's render outputs;
+games rendering actuator signals as audio may also put those signals in the
+capture. If that happens, use System audio on the normal playback endpoint.
 
 Desktop entries, detached or unconfirmed launches, several independent game
 process trees, unsupported Windows versions and capture errors send silence

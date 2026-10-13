@@ -12,6 +12,7 @@ Everything Rubylight does, grouped by what you will notice while streaming. For 
 - **HDR from capture to screen.** Ten-bit BT.2020/PQ through HEVC and AV1, with HDR metadata in the keyframes, and ten-bit SDR where you want it.
 - **PyroWave HDR 4:4:4.** A colour sample for every pixel, so coloured text and fine edges stay crisp, on [Rubylight Android](https://github.com/RamazanKara/rubylight-android) or any PyroWave-capable Moonlight client over a fast local network.
 - **Loss recovery that skips the keyframe.** Lost frames are repaired with reference frame invalidation, and forward error correction covers short bursts of loss. When the host's own Wi-Fi briefly stops taking packets, the host sends a keyframe at once instead of waiting for the client to ask.
+- **Experimental host bitrate adaptation.** Opt-in adaptation for conventional Moonlight streams uses observed feedback, accounts for FEC and audio, and yields to client bitrate control. [Policy and limits](configuration.md#host-bitrate-adaptation).
 - **Aspect ratio kept.** A source of another shape sits between black bars, on the GPU and in the software encoders.
 
 NVIDIA NVENC, Intel Quick Sync and software encoders are included for other hardware, but Rubylight's tuning is for Radeon.
@@ -59,6 +60,7 @@ NVIDIA NVENC, Intel Quick Sync and software encoders are included for other hard
 - **A tray icon** with notifications for pairing requests, new versions and apps launching, pausing and stopping.
 - **Logs and support.** Rotating logs, a live tail in the console, crash dumps and a support bundle.
 - **Hardware readings for client overlays.** Opt-in CPU usage and available AMD GPU readings, collected on request during a paired client's video stream. Compatible clients draw their own overlay; see the [hardware-metrics protocol](hardware-metrics.md).
+- **Private connection-path diagnosis.** An authenticated client can check whether its current Tailscale peer route is direct, relayed or unknown, without exposing other peers. [Protocol and limits](network-path.md).
 
 ## Install and update
 

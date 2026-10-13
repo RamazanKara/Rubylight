@@ -1655,15 +1655,21 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         if (adaptiveQuality != null && offered != null) {
             AdaptiveQualityController.Target target = adaptiveQuality.resizeCeiling(offered[0], offered[1],
                     Math.round(offered[2] / 1000f), now);
-            qualityMaxWidth = offered[0]; qualityMaxHeight = offered[1]; qualityMaxFps = Math.round(offered[2] / 1000f);
-            if (target != null) applyAdaptiveQuality(target, now);
+            if (target == null || applyAdaptiveQuality(target, now)) {
+                qualityMaxWidth = offered[0]; qualityMaxHeight = offered[1]; qualityMaxFps = Math.round(offered[2] / 1000f);
+                streamPanelHz = panelMaxRefreshRate;
+            }
             return;
         }
         int[] request = offered == null ? null : reconfigureRequester.decide(offered[0], offered[1], offered[2]);
         if (request == null) {
             return;
         }
-        requestStreamReconfigure(request);
+        if (requestStreamReconfigure(request)) {
+            // This is the new ceiling even if automatic quality is enabled later.
+            qualityMaxWidth = request[0]; qualityMaxHeight = request[1]; qualityMaxFps = Math.round(request[2] / 1000f);
+            streamPanelHz = panelMaxRefreshRate;
+        }
     }
 
     private boolean requestStreamReconfigure(int[] request) {
@@ -1683,7 +1689,6 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         boolean fpsChanged = request[2] != reconfigureRequester.fpsMillihz();
         reconfigureRequester.sent(request);
         if (fpsChanged) {
-            streamPanelHz = panelMaxRefreshRate;
             streamFps = fps;
             prefConfig.fps = fps;
             decoderRenderer.setFrameRate(fps);

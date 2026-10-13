@@ -122,6 +122,8 @@ public class NvHTTPRoleTest {
                 assertEquals("0", query.queryParameter("gcpersist"));
                 assertEquals("1", query.queryParameter("hdrMode"));
                 assertEquals("1", query.queryParameter("virtualDisplay"));
+                assertEquals("1", query.queryParameter("clientVrrRequested"));
+                assertEquals("1", query.queryParameter("vrr"));
                 assertEquals(app.getAppUuid(), query.queryParameter("appuuid"));
             }
         }
@@ -158,6 +160,7 @@ public class NvHTTPRoleTest {
             assertNull(query.queryParameter("hdrMode"));
             assertNull(query.queryParameter("virtualDisplay"));
             assertNull(query.queryParameter("scaleFactor"));
+            assertNull(query.queryParameter("clientVrrRequested"));
             assertNull(query.queryParameter("vrr"));
             assertEquals("3", query.queryParameter("gcmap"));
             assertEquals("-123", query.queryParameter("rikeyid"));
@@ -173,6 +176,7 @@ public class NvHTTPRoleTest {
         assertEquals("1", query.queryParameter("gcpersist"));
         assertEquals("1", query.queryParameter("hdrMode"));
         assertEquals("150", query.queryParameter("scaleFactor"));
+        assertEquals("1", query.queryParameter("clientVrrRequested"));
         assertEquals("1", query.queryParameter("vrr"));
     }
 

@@ -693,14 +693,24 @@ public class NvHTTPParityTest {
     }
 
     @Test
-    public void vrrIsRequestedOnlyWhenEnabledAndNeverFromGfe() throws Exception {
-        ConnectionContext context = context("butterpollo-serverinfo.xml");
-        assertNull(query(context, false).queryParameter("vrr"));
-        context.streamConfig = new StreamConfiguration.Builder().setLaunchRefreshRate(120)
-                .setClientRefreshRateX100(12000).setVrr(true).build();
-        assertEquals("1", query(context, false).queryParameter("vrr"));
-        context.isNvidiaServerSoftware = true;
-        assertNull(query(context, false).queryParameter("vrr"));
+    public void vrrLaunchAndResumeSendCanonicalAndLegacyParametersOnlyWhenEnabledOutsideGfe() throws Exception {
+        for (String server : new String[] {"butterpollo-serverinfo.xml", "apollo-serverinfo.xml", "sunshine-serverinfo.xml"}) {
+            for (String verb : new String[] {"launch", "resume"}) {
+                ConnectionContext context = context(server);
+                HttpUrl query = HttpUrl.get("https://host/" + verb + "?" + NvHTTP.getLaunchQuery(context, 42, false));
+                assertNull(query.queryParameter("clientVrrRequested"));
+                assertNull(query.queryParameter("vrr"));
+                context.streamConfig = new StreamConfiguration.Builder().setLaunchRefreshRate(120)
+                        .setClientRefreshRateX100(12000).setVrr(true).build();
+                query = HttpUrl.get("https://host/" + verb + "?" + NvHTTP.getLaunchQuery(context, 42, false));
+                assertEquals("1", query.queryParameter("clientVrrRequested"));
+                assertEquals("1", query.queryParameter("vrr"));
+                context.isNvidiaServerSoftware = true;
+                query = HttpUrl.get("https://host/" + verb + "?" + NvHTTP.getLaunchQuery(context, 42, false));
+                assertNull(query.queryParameter("clientVrrRequested"));
+                assertNull(query.queryParameter("vrr"));
+            }
+        }
     }
 
     @Test

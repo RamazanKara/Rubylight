@@ -1082,9 +1082,9 @@ public class NvHTTP {
                     "&virtualDisplay=1&scaleFactor=" + context.streamConfig.getVirtualDisplayScale() : "") +
             (hostDisplay.wireValue == null ? "" :
                     "&" + HostDisplayChoice.LAUNCH_PARAMETER + "=" + hostDisplay.wireValue) +
-            // Rubylight and Vibepollo pace a VRR stream at the game's frame rate (Nonary's 1000 Hz
-            // virtual display mode). Other hosts ignore the parameter; GFE never receives it.
-            (!inputOnly && context.streamConfig.getVrr() && !context.isNvidiaServerSoftware ? "&vrr=1" : "") +
+            // Vibepollo recognizes clientVrrRequested; older Rubylight hosts use vrr.
+            (!inputOnly && context.streamConfig.getVrr() && !context.isNvidiaServerSoftware ?
+                    "&clientVrrRequested=1&vrr=1" : "") +
             "&additionalStates=1&sops=" + (enableSops ? 1 : 0) +
             "&rikey="+bytesToHex(context.riKey.getEncoded()) +
             "&rikeyid="+context.riKeyId +

@@ -19,6 +19,7 @@ import com.limelight.computers.ComputerManagerService;
 import com.limelight.nvstream.http.ComputerDetails;
 import com.limelight.nvstream.http.NetworkPathInfo;
 import com.limelight.nvstream.http.NvHTTP;
+import com.limelight.nvstream.http.PairingManager;
 import com.limelight.preferences.AddComputerManually;
 import com.limelight.utils.ConnectionTestStats;
 import com.limelight.utils.ServerHelper;
@@ -62,15 +63,16 @@ public class RemoteSetupActivity extends AppCompatActivity {
         ((TextView) findViewById(R.id.settings_title)).setText(R.string.remote_setup_title);
         findViewById(R.id.settings_back).setOnClickListener(v -> finish());
         FrameLayout content = findViewById(R.id.stream_settings);
-        getLayoutInflater().inflate(R.layout.remote_setup, content, true);
-        heading = findViewById(R.id.remote_heading);
-        description = findViewById(R.id.remote_description);
-        result = findViewById(R.id.remote_result);
-        previous = findViewById(R.id.remote_previous);
-        next = findViewById(R.id.remote_next);
-        test = findViewById(R.id.remote_test);
-        link = findViewById(R.id.remote_link);
-        address = findViewById(R.id.remote_address);
+        View guide = getLayoutInflater().inflate(R.layout.remote_setup, content, false);
+        content.addView(guide);
+        heading = guide.findViewById(R.id.remote_heading);
+        description = guide.findViewById(R.id.remote_description);
+        result = guide.findViewById(R.id.remote_result);
+        previous = guide.findViewById(R.id.remote_previous);
+        next = guide.findViewById(R.id.remote_next);
+        test = guide.findViewById(R.id.remote_test);
+        link = guide.findViewById(R.id.remote_link);
+        address = guide.findViewById(R.id.remote_address);
         previous.setOnClickListener(v -> { cancelTest(); step = Math.max(0, step - 1); showStep(); });
         next.setOnClickListener(v -> { cancelTest(); step = Math.min(2, step + 1); showStep(); });
         link.setOnClickListener(v -> openGuide());
@@ -133,7 +135,13 @@ public class RemoteSetupActivity extends AppCompatActivity {
                     long at = SystemClock.elapsedRealtimeNanos();
                     try {
                         ComputerDetails candidate = http.probePairedComputer();
-                        if (!computer.uuid.equals(candidate.uuid)) throw new IOException("Host identity changed");
+                        int problem = verificationProblem(computer, candidate);
+                        if (problem != 0) {
+                            message = problem;
+                            verified = null;
+                            stats.add(Double.NaN);
+                            break;
+                        }
                         verified = candidate;
                         stats.add((SystemClock.elapsedRealtimeNanos() - at) / 1_000_000.0);
                     } catch (IOException | XmlPullParserException e) { stats.add(Double.NaN); }
@@ -164,6 +172,15 @@ public class RemoteSetupActivity extends AppCompatActivity {
             });
         }, "Remote setup verification");
         run.worker.start();
+    }
+
+    static int verificationProblem(ComputerDetails expected, ComputerDetails candidate) {
+        if (expected.uuid == null || !expected.uuid.equals(candidate.uuid)) return R.string.remote_failed;
+        if (candidate.pairState != PairingManager.PairState.PAIRED) return R.string.remote_pair_revoked;
+        if (!candidate.hasPermission(ComputerDetails.PERMISSION_VIEW | ComputerDetails.PERMISSION_LAUNCH)) {
+            return R.string.remote_permission_denied;
+        }
+        return 0;
     }
 
     private void cancelTest() {

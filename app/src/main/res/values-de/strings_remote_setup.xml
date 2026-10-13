@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="remote_pair_revoked">Der PC hat geantwortet, aber dieses Gerät ist nicht mehr gekoppelt. Kopple es zu Hause erneut, bevor du den Fernzugriff testest.</string>
+    <string name="remote_permission_denied">Der gekoppelte PC hat geantwortet, aber dieses Gerät darf keine Streams ansehen. Erlaube diesem Gerät in der Host-Konsole das Ansehen oder Starten von Anwendungen.</string>
     <string name="remote_setup_title">Unterwegs spielen</string>
     <string name="remote_step">Schritt %1$d von 3</string>
     <string name="remote_prepare">Zu Hause vorbereiten\n\nKopple dieses Gerät im Heimnetz mit dem PC und prüfe einen normalen Stream. Der PC muss wach sein und der Host laufen.\n\nWake-on-LAN von unterwegs benötigt einen geeigneten Router oder ein dauerhaft eingeschaltetes Gerät zu Hause. Das Telefon allein kann einen unerreichbaren PC nicht wecken.</string>

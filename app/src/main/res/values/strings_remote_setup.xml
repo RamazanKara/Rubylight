@@ -11,6 +11,8 @@
     <string name="remote_previous">Previous</string>
     <string name="remote_next">Next</string>
     <string name="remote_pair_first">Pair this PC locally first. Its saved certificate and HTTPS port are required to verify that the remote address reaches your PC.</string>
+    <string name="remote_pair_revoked">The PC responded, but this device is no longer paired. Pair again at home before testing remote play.</string>
+    <string name="remote_permission_denied">The paired PC responded, but this device cannot view streams. Enable viewing or launching applications for this device in the host console.</string>
     <string name="remote_running">Checking your paired PC…</string>
     <string name="remote_cancelled">Test cancelled. No host or network settings were changed.</string>
     <string name="remote_failed">The paired PC could not be verified. Check that it is awake, the host and VPN are running, and the saved address and streaming ports are correct. If pairing changed, pair again at home. This test cannot distinguish a sleeping PC from a blocked route.</string>

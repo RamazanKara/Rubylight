@@ -543,7 +543,10 @@ public class NvHTTP {
         if (serverCert == null || httpsPort <= 0) throw new IOException("Pair locally before testing remote access");
         OkHttpClient client = httpClientShortConnectTimeout.newBuilder().callTimeout(3, TimeUnit.SECONDS)
                 .followRedirects(false).followSslRedirects(false).build();
-        return getComputerDetails(openHttpConnectionToString(client, getHttpsUrl(true), "serverinfo"));
+        try (ResponseBody response = openHttpConnection(client, getHttpsUrl(true), "serverinfo")) {
+            if (response.source().request(65537)) throw new IOException("Host information response too large");
+            return getComputerDetails(response.string());
+        }
     }
 
     public NetworkPathInfo getNetworkPath() throws IOException {

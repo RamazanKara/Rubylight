@@ -18,6 +18,21 @@ import static org.junit.Assert.*;
         shadows = PcViewLifecycleTest.NoNativeMoonBridge.class,
         instrumentedPackages = "com.limelight.nvstream.jni")
 public class RemoteSetupActivityTest {
+    @Test public void sameCertificateAndUuidDoNotBypassRevokedPairingOrViewingRights() {
+        com.limelight.nvstream.http.ComputerDetails expected = new com.limelight.nvstream.http.ComputerDetails();
+        expected.uuid = "paired-pc";
+        com.limelight.nvstream.http.ComputerDetails candidate = new com.limelight.nvstream.http.ComputerDetails(expected);
+        assertEquals(R.string.remote_pair_revoked, RemoteSetupActivity.verificationProblem(expected, candidate));
+        candidate.pairState = com.limelight.nvstream.http.PairingManager.PairState.PAIRED;
+        candidate.permission = 0;
+        assertEquals(R.string.remote_permission_denied, RemoteSetupActivity.verificationProblem(expected, candidate));
+        candidate.permission = com.limelight.nvstream.http.ComputerDetails.PERMISSION_LAUNCH;
+        assertEquals(0, RemoteSetupActivity.verificationProblem(expected, candidate));
+        candidate.permission = -1; // Sunshine does not advertise the permissions extension.
+        assertEquals(0, RemoteSetupActivity.verificationProblem(expected, candidate));
+        candidate.uuid = "another-pc";
+        assertEquals(R.string.remote_failed, RemoteSetupActivity.verificationProblem(expected, candidate));
+    }
     public static class OfflineActivity extends RemoteSetupActivity {
         @Override public boolean bindService(Intent intent, ServiceConnection connection, int flags) { return false; }
     }

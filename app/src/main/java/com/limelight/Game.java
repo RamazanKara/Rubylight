@@ -310,9 +310,13 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     private final android.hardware.display.DisplayManager.DisplayListener inputDisplayListener =
             new android.hardware.display.DisplayManager.DisplayListener() {
                 @Override public void onDisplayAdded(int displayId) {}
-                @Override public void onDisplayRemoved(int displayId) {}
+                @Override public void onDisplayRemoved(int displayId) {
+                    if (externalPresentation != null && externalPresentation.getDisplay().getDisplayId() == displayId) {
+                        returnVideoToDevice();
+                    }
+                }
                 @Override public void onDisplayChanged(int displayId) {
-                    Display display = getWindowManager().getDefaultDisplay();
+                    Display display = getVideoDisplay();
                     if (conn != null && display.getDisplayId() == displayId) {
                         updateInputPollingRate();
                         // Also fires when a foldable moves the stream to its other screen.
@@ -335,9 +339,9 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         boolean displayHdr = false;
         float maxNits = 0, maxAverageNits = 0, minNits = 0;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            Display display = getWindowManager().getDefaultDisplay();
+            Display display = getVideoDisplay();
             // getHdrCapabilities() returns null on some devices (Lenovo Mirage Solo, Android 8.0).
-            Display.HdrCapabilities hdrCaps = display.getHdrCapabilities();
+            Display.HdrCapabilities hdrCaps = getVideoDisplay().getHdrCapabilities();
             if (hdrCaps != null) {
                 int[] hdrTypes = Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE ?
                         display.getMode().getSupportedHdrTypes() : hdrCaps.getSupportedHdrTypes();
@@ -383,6 +387,13 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     private boolean waitingForAllModifiersUp = false;
     private int specialKeyCode = KeyEvent.KEYCODE_UNKNOWN;
     private StreamView streamView;
+    private StreamView renderView;
+    private com.limelight.ui.StreamPresentation externalPresentation;
+    private com.limelight.ui.DesktopGestures desktopGestures;
+    private com.limelight.ui.GameTouchControls gameTouchControls;
+    private boolean outputSwitchPending;
+    private static final String EXTRA_OUTPUT_DISPLAY = "rubylight.outputDisplay";
+    private final Map<Short, Integer> customPressedKeys = new HashMap<>();
     private Surface videoSurface;
     private long lastAbsTouchUpTime = 0;
     private long lastAbsTouchDownTime = 0;
@@ -503,7 +514,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         recoveryPolicy = new StreamRecoveryPolicy(getIntent().getIntExtra(EXTRA_RECOVERY_ATTEMPTS, 0),
                 getIntent().getLongExtra(EXTRA_RECOVERY_STARTED, 0));
         panelMaxRefreshRate = com.limelight.binding.video.DisplayFrameRatePolicy.maxRefreshRate(
-                getWindowManager().getDefaultDisplay());
+                getVideoDisplay());
         if (prefConfig.vrr) {
             prefConfig.fps = com.limelight.binding.video.DisplayFrameRatePolicy.streamFrameRate(panelMaxRefreshRate);
             prefConfig.launchRefreshRateX100 = Math.max(100, Math.min(100000, Math.round(panelMaxRefreshRate * 100)));
@@ -541,7 +552,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
 
         // Listen for non-touch events on the game surface
         streamView = findViewById(R.id.surfaceView);
-        streamView.initializeSurface(prefConfig.useTextureView);
+        initializeVideoOutput();
         streamView.setOnGenericMotionListener(this);
         streamView.setOnKeyListener(this);
         streamView.setInputCallbacks(this);
@@ -665,8 +676,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         if (mediaStream && prefConfig.enableHdr) {
             // Start our HDR checklist
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                Display display = getWindowManager().getDefaultDisplay();
-                Display.HdrCapabilities hdrCaps = display.getHdrCapabilities();
+                Display display = getVideoDisplay();
+                Display.HdrCapabilities hdrCaps = getVideoDisplay().getHdrCapabilities();
 
                 // We must now ensure our display is compatible with HDR10
                 if (hdrCaps != null) {
@@ -720,7 +731,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 connMgr.isActiveNetworkMetered(),
                 willStreamHdr,
                 glPrefs.glRenderer,
-                this);
+                this, getVideoDisplay());
         decoderRenderer.setStreamSizeListener((width, height) -> runOnUiThread(() -> applyStreamSize(width, height)));
 
         // Don't stream HDR if the decoder can't support it
@@ -825,6 +836,20 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
 
         initializeTouchContexts();
 
+        desktopGestures = new com.limelight.ui.DesktopGestures(this, streamView, this::cancelTouchInput);
+        if (app.getRole() != NvApp.Role.REMOTE_MONITOR) {
+            String profile = com.limelight.binding.input.TouchLayout.profileKey(getIntent().getStringExtra(EXTRA_PC_UUID),
+                    app.getAppUuid(), app.getAppId());
+            gameTouchControls = new com.limelight.ui.GameTouchControls(this, profile,
+                    new com.limelight.binding.input.HeldInputState.Sink() {
+                        @Override public void key(int key, boolean down) { sendCustomKey(key, down); }
+                        @Override public void mouse(int button, boolean down) { sendCustomMouse(button, down); }
+                    }, () -> foreground && connected && grabbedInput && streamMenu == null && conn.canSendInput(),
+                    this::showStreamDialog);
+            ((FrameLayout)streamView.getParent()).addView(gameTouchControls,
+                    new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+        }
+
         if (prefConfig.onscreenController && app.getRole() != NvApp.Role.REMOTE_MONITOR) {
             // create virtual onscreen controller
             virtualController = new VirtualController(controllerHandler,
@@ -854,14 +879,111 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
 
         // The connection will be started when the surface gets created
         if (prefConfig.useTextureView) {
-            streamView.getTextureView().setSurfaceTextureListener(this);
+            renderView.getTextureView().setSurfaceTextureListener(this);
+            if (renderView.getTextureView().isAvailable()) {
+                onSurfaceTextureAvailable(renderView.getTextureView().getSurfaceTexture(), renderView.getWidth(), renderView.getHeight());
+            }
         } else {
-            streamView.getHolder().addCallback(this);
+            renderView.getHolder().addCallback(this);
         }
     }
 
+    private Display getVideoDisplay() {
+        int requested = getIntent().getIntExtra(EXTRA_OUTPUT_DISPLAY, Display.DEFAULT_DISPLAY);
+        if (requested != Display.DEFAULT_DISPLAY) {
+            for (Display display : ((android.hardware.display.DisplayManager)getSystemService(DISPLAY_SERVICE))
+                    .getDisplays(android.hardware.display.DisplayManager.DISPLAY_CATEGORY_PRESENTATION)) {
+                if (display.getDisplayId() == requested && display.isValid()) return display;
+            }
+        }
+        return getWindowManager().getDefaultDisplay();
+    }
+
+    private android.view.Window getVideoWindow() {
+        return externalPresentation == null ? getWindow() : externalPresentation.getWindow();
+    }
+
+    private void initializeVideoOutput() {
+        Display display = getVideoDisplay();
+        renderView = streamView;
+        if (display.getDisplayId() != getWindowManager().getDefaultDisplay().getDisplayId()) {
+            com.limelight.ui.StreamPresentation presentation = new com.limelight.ui.StreamPresentation(this, display, prefConfig.useTextureView);
+            externalPresentation = presentation;
+            renderView = presentation.videoView();
+            presentation.setOnDismissListener(ignored -> {
+                if (!isFinishing() && !isDestroyed() && !outputSwitchPending) returnVideoToDevice();
+            });
+            try {
+                presentation.show();
+                prefConfig.touchscreenTrackpad = true;
+                nativeTouchEnabled = false;
+                TextView hint = findViewById(R.id.inputOnlyStatus);
+                hint.setText(R.string.desktop_touchpad_help); hint.setVisibility(View.VISIBLE);
+                // Device orientation and window changes must not resize the external video.
+                if (nativeResolutionStream) {
+                    Point size = new Point(); display.getRealSize(size);
+                    if (size.x > 0 && size.y > 0) { prefConfig.width = size.x; prefConfig.height = size.y; }
+                }
+                nativeResolutionStream = false;
+                return;
+            } catch (WindowManager.InvalidDisplayException | SecurityException e) {
+                externalPresentation = null; renderView = streamView;
+                getIntent().removeExtra(EXTRA_OUTPUT_DISPLAY);
+                Toast.makeText(this, R.string.desktop_display_unavailable, Toast.LENGTH_LONG).show();
+            }
+        }
+        getIntent().removeExtra(EXTRA_OUTPUT_DISPLAY);
+        streamView.initializeSurface(prefConfig.useTextureView);
+    }
+
+    private void returnVideoToDevice() {
+        if (outputSwitchPending || isFinishing() || isDestroyed()) return;
+        outputSwitchPending = true;
+        getIntent().removeExtra(EXTRA_OUTPUT_DISPLAY);
+        if (foreground && conn != null) reconnectStream();
+        else finish();
+    }
+
+    private void showDesktopMenu() {
+        ActionSheet sheet = new ActionSheet(this, getString(R.string.desktop_title));
+        if (externalPresentation == null) {
+            addStreamAction(sheet, R.drawable.ic_remote_monitor, desktopGestures.enabled() ?
+                    R.string.desktop_zoom_disable : R.string.desktop_zoom_enable, () -> {
+                if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N && !prefConfig.useTextureView) {
+                    showStreamDialog(new MaterialAlertDialogBuilder(this).setMessage(R.string.desktop_zoom_surface_help)
+                            .setPositiveButton(android.R.string.ok, null).create());
+                    return;
+                }
+                desktopGestures.setEnabled(!desktopGestures.enabled());
+                if (desktopGestures.enabled()) Toast.makeText(this, R.string.desktop_zoom_help, Toast.LENGTH_LONG).show();
+            });
+            addStreamAction(sheet, R.drawable.ic_remote_monitor, R.string.desktop_zoom_reset, () -> desktopGestures.reset());
+        }
+        addStreamAction(sheet, R.drawable.ic_remote_monitor, R.string.desktop_output, this::showVideoOutputDialog);
+        showStreamDialog(sheet);
+    }
+
+    private void showVideoOutputDialog() {
+        Display[] displays = ((android.hardware.display.DisplayManager)getSystemService(DISPLAY_SERVICE))
+                .getDisplays(android.hardware.display.DisplayManager.DISPLAY_CATEGORY_PRESENTATION);
+        String[] labels = new String[displays.length + 1]; labels[0] = getString(R.string.desktop_output_device);
+        for (int i = 0; i < displays.length; i++) labels[i + 1] = displays[i].getName();
+        showStreamDialog(new MaterialAlertDialogBuilder(this).setTitle(R.string.desktop_output)
+                .setItems(labels, (dialog, which) -> {
+                    int id = which == 0 ? Display.DEFAULT_DISPLAY : displays[which - 1].getDisplayId();
+                    if (id == getIntent().getIntExtra(EXTRA_OUTPUT_DISPLAY, Display.DEFAULT_DISPLAY)) return;
+                    streamMenuAction = () -> {
+                        outputSwitchPending = true;
+                        getIntent().putExtra(EXTRA_OUTPUT_DISPLAY, id);
+                        reconnectStream();
+                    };
+                }).setNegativeButton(android.R.string.cancel, null).create());
+        if (displays.length == 0) Toast.makeText(this, R.string.desktop_display_unavailable, Toast.LENGTH_LONG).show();
+    }
+
     private void setPreferredOrientationForCurrentDisplay() {
-        if ((Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && isInMultiWindowMode()) ||
+        if (getIntent().getIntExtra(EXTRA_OUTPUT_DISPLAY, Display.DEFAULT_DISPLAY) != Display.DEFAULT_DISPLAY ||
+                (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && isInMultiWindowMode()) ||
                 getResources().getConfiguration().smallestScreenWidthDp >= 600 ||
                 getPackageManager().hasSystemFeature("android.hardware.type.pc")) {
             setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_FULL_USER);
@@ -933,6 +1055,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             if (isInPictureInPictureMode()) {
                 isHidingOverlays = true;
+                if (gameTouchControls != null) gameTouchControls.hideForPip(true);
 
                 if (virtualController != null) {
                     virtualController.hide();
@@ -953,6 +1076,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             }
             else {
                 isHidingOverlays = false;
+                if (gameTouchControls != null) gameTouchControls.hideForPip(false);
 
                 // Restore overlays to previous state when leaving PiP
 
@@ -1025,7 +1149,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             return;
         }
 
-        boolean autoEnter = PictureInPicturePolicy.shouldAutoEnter(connected, app.getRole(), suppressPipRefCount,
+        boolean autoEnter = externalPresentation == null && PictureInPicturePolicy.shouldAutoEnter(connected, app.getRole(), suppressPipRefCount,
                 Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && isInMultiWindowMode());
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -1178,8 +1302,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     }
 
     private float prepareDisplayForRendering() {
-        Display display = getWindowManager().getDefaultDisplay();
-        WindowManager.LayoutParams windowLayoutParams = getWindow().getAttributes();
+        Display display = getVideoDisplay();
+        WindowManager.LayoutParams windowLayoutParams = getVideoWindow().getAttributes();
         float displayRefreshRate;
 
         useArr = com.limelight.binding.video.DisplayFrameRatePolicy.useAdaptiveRefreshRate(
@@ -1194,7 +1318,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             // Leave refresh-rate selection and touch boost to Android's automatic ARR policy.
             windowLayoutParams.preferredDisplayModeId = 0;
             windowLayoutParams.preferredRefreshRate = 0;
-            getWindow().setAttributes(windowLayoutParams);
+            getVideoWindow().setAttributes(windowLayoutParams);
             displayRefreshRate = panelMaxRefreshRate;
         }
         // On M, we can explicitly set the optimal display mode
@@ -1302,7 +1426,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                         display.getMode().getPhysicalHeight() != bestMode.getPhysicalHeight()) {
                     // Apply the display mode change
                     windowLayoutParams.preferredDisplayModeId = bestMode.getModeId();
-                    getWindow().setAttributes(windowLayoutParams);
+                    getVideoWindow().setAttributes(windowLayoutParams);
                 }
                 else {
                     LimeLog.info("Using setFrameRate() instead of preferredDisplayModeId due to matching resolution");
@@ -1337,22 +1461,22 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             displayRefreshRate = bestRefreshRate;
 
             // Apply the refresh rate change
-            getWindow().setAttributes(windowLayoutParams);
+            getVideoWindow().setAttributes(windowLayoutParams);
         }
 
         if (prefConfig.useTextureView && !useArr) {
             // A SurfaceTexture is composed into the window, so Surface.setFrameRate() cannot vote for it.
             windowLayoutParams.preferredRefreshRate = displayRefreshRate;
-            getWindow().setAttributes(windowLayoutParams);
+            getVideoWindow().setAttributes(windowLayoutParams);
         }
 
         if (!prefConfig.useTextureView && prefConfig.upscalingMode == UpscalingPolicy.Mode.OFF) {
             // Keep decoder buffers at stream resolution; the compositor scales them to the view.
-            streamView.getHolder().setFixedSize(prefConfig.width, prefConfig.height);
+            renderView.getHolder().setFixedSize(prefConfig.width, prefConfig.height);
         }
         if (!prefConfig.stretchVideo) {
             // Set the surface to scale based on the aspect ratio of the stream
-            streamView.setDesiredAspectRatio((double)prefConfig.width / (double)prefConfig.height);
+            renderView.setDesiredAspectRatio((double)prefConfig.width / (double)prefConfig.height);
         }
 
         // Set the desired refresh rate that will get passed into setFrameRate() later
@@ -1368,7 +1492,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         else {
             // Use the lower of the current refresh rate and the selected refresh rate.
             // The preferred refresh rate may not actually be applied (ex: Battery Saver mode).
-            return Math.min(getWindowManager().getDefaultDisplay().getRefreshRate(), displayRefreshRate);
+            return Math.min(getVideoDisplay().getRefreshRate(), displayRefreshRate);
         }
     }
 
@@ -1593,11 +1717,12 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         LimeLog.info("Display modes changed: " + displaySignature + " -> " + signature);
         displaySignature = signature;
         panelMaxRefreshRate = com.limelight.binding.video.DisplayFrameRatePolicy.maxRefreshRate(
-                getWindowManager().getDefaultDisplay());
+                getVideoDisplay());
         scheduleReconfigureCheck();
     }
 
     private void onPaneLaidOut(View pane) {
+        if (externalPresentation != null) return;
         int width = pane.getWidth() - pane.getPaddingLeft() - pane.getPaddingRight();
         int height = pane.getHeight() - pane.getPaddingTop() - pane.getPaddingBottom();
         if (width == lastPaneWidth && height == lastPaneHeight) {
@@ -1622,17 +1747,17 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         prefConfig.height = height;
         if (prefConfig.upscalingMode == UpscalingPolicy.Mode.OFF) {
             if (prefConfig.useTextureView) {
-                SurfaceTexture texture = streamView.getTextureView().getSurfaceTexture();
+                SurfaceTexture texture = renderView.getTextureView().getSurfaceTexture();
                 if (texture != null) {
                     texture.setDefaultBufferSize(width, height);
                 }
             } else {
-                streamView.getHolder().setFixedSize(width, height);
+                renderView.getHolder().setFixedSize(width, height);
             }
         }
         if (!prefConfig.stretchVideo) {
-            streamView.setDesiredAspectRatio((double) width / (double) height);
-            streamView.requestLayout();
+            renderView.setDesiredAspectRatio((double) width / (double) height);
+            renderView.requestLayout();
         }
         if (prefConfig.touchscreenTrackpad && conn != null) {
             // Trackpad motion is scaled to the stream size.
@@ -1646,6 +1771,11 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     @Override
     protected void onDestroy() {
         stopConnection();
+        if (externalPresentation != null) {
+            externalPresentation.setOnDismissListener(null);
+            externalPresentation.dismiss();
+            externalPresentation = null;
+        }
         ((android.hardware.display.DisplayManager) getSystemService(DISPLAY_SERVICE))
                 .unregisterDisplayListener(inputDisplayListener);
         SpinnerDialog.closeDialogs(this);
@@ -1715,6 +1845,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
 
     @Override
     protected void onPause() {
+        if (gameTouchControls != null) gameTouchControls.releaseInput();
         foreground = false;
         recoveryCancelledOnPause = pendingRecovery != null || (isRecoveryAttempt() && connecting);
         cancelAutomaticRecovery();
@@ -1888,6 +2019,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                     micMuted ? R.string.stream_mic_unmute : R.string.stream_mic_mute, this::toggleMicrophoneMute);
         }
         if (app.getRole() != NvApp.Role.INPUT_ONLY) {
+            addStreamAction(sheet, R.drawable.ic_remote_monitor, R.string.desktop_title, this::showDesktopMenu);
             addStreamAction(sheet, R.drawable.ic_remote_monitor, R.string.stream_overlay_menu, this::showOverlayMenu);
             if (details.rustHostVersion != null &&
                     details.hasPermission(ComputerDetails.PERMISSION_VIEW | ComputerDetails.PERMISSION_LAUNCH)) {
@@ -1928,6 +2060,9 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     private void showInputMenu() {
         if (!conn.canSendInput()) return;
         ActionSheet sheet = new ActionSheet(this, getString(R.string.stream_input_menu));
+        if (gameTouchControls != null) {
+            addStreamAction(sheet, R.drawable.ic_keyboard, R.string.touch_layout_title, gameTouchControls::showMenu);
+        }
         addStreamAction(sheet, R.drawable.ic_input_only, R.string.stream_touch_mode, this::showTouchModeDialog);
         addStreamAction(sheet, R.drawable.ic_input_only, prefConfig.onscreenController ?
                 R.string.stream_controls_hide : R.string.stream_controls_show,
@@ -2277,6 +2412,10 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     }
 
     private void showTouchModeDialog() {
+        if (externalPresentation != null) {
+            Toast.makeText(this, R.string.desktop_touchpad_help, Toast.LENGTH_LONG).show();
+            return;
+        }
         String[] modes = getResources().getStringArray(R.array.stream_touch_modes);
         int selected = prefConfig.touchscreenTrackpad ? 0 : nativeTouchEnabled ? 2 : 1;
         showStreamDialog(new MaterialAlertDialogBuilder(this).setTitle(R.string.stream_touch_mode)
@@ -2791,6 +2930,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             }
         }
         else {
+            if (gameTouchControls != null) gameTouchControls.releaseInput();
             cancelTouchInput();
             releaseKeyboardInput();
             releaseMouseButtons();
@@ -3534,6 +3674,26 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     // Returns true if the event was consumed
     // NB: View is only present if called from a view callback
     private boolean handleMotionEvent(View view, MotionEvent event) {
+        if (gameTouchControls != null && gameTouchControls.isEditing() &&
+                (event.getSource() & InputDevice.SOURCE_CLASS_POINTER) != 0) return true;
+        if (desktopGestures != null && desktopGestures.enabled() &&
+                desktopGestures.viewport().scale() != 1 && event.getPointerCount() > 0 &&
+                (event.getSource() & InputDevice.SOURCE_CLASS_POINTER) != 0 &&
+                (!prefConfig.touchscreenTrackpad || event.getToolType(0) != MotionEvent.TOOL_TYPE_FINGER)) {
+            MotionEvent translated = MotionEvent.obtain(event);
+            translated.offsetLocation(getStreamViewOffsetX(view), getStreamViewOffsetY(view));
+            com.limelight.ui.DesktopViewport viewport = desktopGestures.viewport();
+            android.graphics.Matrix inverse = new android.graphics.Matrix();
+            inverse.setValues(new float[] {1 / viewport.scale(), 0, -viewport.x() / viewport.scale(),
+                    0, 1 / viewport.scale(), -viewport.y() / viewport.scale(), 0, 0, 1});
+            translated.transform(inverse);
+            try { return handleMotionEventUntransformed(streamView, translated); }
+            finally { translated.recycle(); }
+        }
+        return handleMotionEventUntransformed(view, event);
+    }
+
+    private boolean handleMotionEventUntransformed(View view, MotionEvent event) {
         // Pass through mouse/touch/joystick input if we're not grabbing
         if (!grabbedInput) {
             return false;
@@ -3958,6 +4118,14 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     @SuppressLint("ClickableViewAccessibility")
     @Override
     public boolean onTouch(View view, MotionEvent event) {
+        if (desktopGestures != null && desktopGestures.enabled() && foreground && connected && streamMenu == null) {
+            MotionEvent relative = MotionEvent.obtain(event);
+            relative.offsetLocation(getStreamViewOffsetX(view), getStreamViewOffsetY(view));
+            boolean handled;
+            try { handled = desktopGestures.onTouch(relative); }
+            finally { relative.recycle(); }
+            if (handled) return true;
+        }
         if (event.getAction() == MotionEvent.ACTION_DOWN) {
             // Tell the OS not to buffer input events for us
             //
@@ -3986,6 +4154,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
 
     private void stopConnection() {
         cancelAutomaticRecovery();
+        if (gameTouchControls != null) gameTouchControls.releaseInput();
         stopHardwareMetricsPolling();
         getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         if (lowLatencyWifiLock != null && lowLatencyWifiLock.isHeld()) {
@@ -4262,6 +4431,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 }
                 startReconfigureTracking();
                 if (!conn.canSendInput()) {
+                    if (gameTouchControls != null) gameTouchControls.hideForPip(true);
                     if (virtualController != null) {
                         virtualController.hide();
                     }
@@ -4269,7 +4439,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                     setInputGrabState(false);
                 }
                 findViewById(R.id.inputOnlyStatus).setVisibility(
-                        app.getRole() == NvApp.Role.INPUT_ONLY ? View.VISIBLE : View.GONE);
+                        app.getRole() == NvApp.Role.INPUT_ONLY || externalPresentation != null ? View.VISIBLE : View.GONE);
                 currentBitrate = prefConfig.bitrate;
                 if (supportsAdaptiveBitrate() && getSharedPreferences(adaptiveBitratePreferences(), MODE_PRIVATE)
                         .getBoolean(getIntent().getStringExtra(EXTRA_PC_UUID), false)) {
@@ -4467,7 +4637,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             // Update GameManager state to indicate we're "loading" while connecting
             UiHelper.notifyStreamConnecting(Game.this);
 
-            decoderRenderer.setRenderTarget(videoSurface, streamView.getWidth(), streamView.getHeight());
+            decoderRenderer.setRenderTarget(videoSurface, renderView.getWidth(), renderView.getHeight());
             conn.start(new AndroidAudioRenderer(Game.this, prefConfig.enableAudioFx),
                     decoderRenderer, Game.this);
         }
@@ -4545,6 +4715,10 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     }
 
     private void destroyVideoSurface() {
+        if (externalPresentation != null && !isFinishing() && !isDestroyed()) {
+            returnVideoToDevice();
+            return;
+        }
         if (!surfaceCreated) {
             return;
         }
@@ -4579,7 +4753,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     public boolean onSurfaceTextureDestroyed(SurfaceTexture texture) {
         Surface surface = videoSurface;
         destroyVideoSurface();
-        surface.release();
+        if (surface != null) surface.release();
         return true;
     }
 
@@ -4670,11 +4844,38 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             } else {
                 pressedKeys.remove(key);
             }
-            conn.sendKeyboardInput(key, direction, modifiers, flags);
+            if (!customPressedKeys.containsKey(key)) {
+                conn.sendKeyboardInput(key, direction, (byte)(modifiers | customModifierState()), flags);
+            }
         }
     }
 
+    private byte customModifierState() {
+        int modifiers = 0;
+        for (int key : customPressedKeys.values()) {
+            int mask = getModifierMask(key);
+            modifiers |= mask | (mask >> 8);
+        }
+        return (byte)modifiers;
+    }
+
+    private void sendCustomKey(int keyCode, boolean down) {
+        short key = keyboardTranslator.translate(keyCode, -1);
+        synchronized (pressedKeys) {
+            if (down) customPressedKeys.put(key, keyCode); else customPressedKeys.remove(key);
+            if (!pressedKeys.containsKey(key)) {
+                conn.sendKeyboardInput(key, down ? KeyboardPacket.KEY_DOWN : KeyboardPacket.KEY_UP,
+                        (byte)(getModifierState() | customModifierState()), (byte)0);
+            }
+        }
+    }
+
+    private void sendCustomMouse(int button, boolean down) {
+        conn.sendOverlayMouseButton((byte)button, down);
+    }
+
     private void releaseKeyboardInput() {
+        if (gameTouchControls != null) gameTouchControls.releaseInput();
         synchronized (pressedKeys) {
             for (Map.Entry<Short, Byte> key : pressedKeys.entrySet()) {
                 conn.sendKeyboardInput(key.getKey(), KeyboardPacket.KEY_UP, (byte) 0, key.getValue());

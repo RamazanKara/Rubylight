@@ -645,6 +645,8 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         context.productId = device.getProductId();
         context.buttonMap = ControllerButtonMap.load(activityContext,
                 ControllerButtonMap.deviceKey(context.vendorId, context.productId, null));
+        context.axisMap = ControllerAxisMap.load(activityContext,
+                ControllerButtonMap.deviceKey(context.vendorId, context.productId, null));
 
         context.leftStickDeadzoneRadius = (float) stickDeadzone;
         context.rightStickDeadzoneRadius = (float) stickDeadzone;
@@ -799,6 +801,8 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         context.vendorId = dev.getVendorId();
         context.productId = dev.getProductId();
         context.buttonMap = ControllerButtonMap.load(activityContext,
+                ControllerButtonMap.deviceKey(context.vendorId, context.productId, devName));
+        context.axisMap = ControllerAxisMap.load(activityContext,
                 ControllerButtonMap.deviceKey(context.vendorId, context.productId, devName));
 
         // These aren't always present in the Android key layout files, so they won't show up
@@ -1314,26 +1318,32 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
             if (context.assignedControllerNumber &&
                     context.controllerNumber == controllerNumber &&
                     context.mouseEmulationActive == originalContext.mouseEmulationActive) {
-                inputMap |= context.inputMap;
-                leftTrigger = maxByMagnitude(leftTrigger, context.leftTrigger);
-                rightTrigger = maxByMagnitude(rightTrigger, context.rightTrigger);
-                leftStickX = maxByMagnitude(leftStickX, context.leftStickX);
-                leftStickY = maxByMagnitude(leftStickY, context.leftStickY);
-                rightStickX = maxByMagnitude(rightStickX, context.rightStickX);
-                rightStickY = maxByMagnitude(rightStickY, context.rightStickY);
+                context.axisMap.apply(context.inputMap, context.leftTrigger, context.rightTrigger,
+                        context.leftStickX, context.leftStickY, context.rightStickX, context.rightStickY, context.mappedReport);
+                ControllerAxisMap.Report mapped = context.mappedReport;
+                inputMap |= mapped.buttons;
+                leftTrigger = maxByMagnitude(leftTrigger, mapped.lt);
+                rightTrigger = maxByMagnitude(rightTrigger, mapped.rt);
+                leftStickX = maxByMagnitude(leftStickX, mapped.lx);
+                leftStickY = maxByMagnitude(leftStickY, mapped.ly);
+                rightStickX = maxByMagnitude(rightStickX, mapped.rx);
+                rightStickY = maxByMagnitude(rightStickY, mapped.ry);
             }
         }
         for (GenericControllerContext context : usbDeviceContexts.values()) {
             if (context.assignedControllerNumber &&
                     context.controllerNumber == controllerNumber &&
                     context.mouseEmulationActive == originalContext.mouseEmulationActive) {
-                inputMap |= context.inputMap;
-                leftTrigger = maxByMagnitude(leftTrigger, context.leftTrigger);
-                rightTrigger = maxByMagnitude(rightTrigger, context.rightTrigger);
-                leftStickX = maxByMagnitude(leftStickX, context.leftStickX);
-                leftStickY = maxByMagnitude(leftStickY, context.leftStickY);
-                rightStickX = maxByMagnitude(rightStickX, context.rightStickX);
-                rightStickY = maxByMagnitude(rightStickY, context.rightStickY);
+                context.axisMap.apply(context.inputMap, context.leftTrigger, context.rightTrigger,
+                        context.leftStickX, context.leftStickY, context.rightStickX, context.rightStickY, context.mappedReport);
+                ControllerAxisMap.Report mapped = context.mappedReport;
+                inputMap |= mapped.buttons;
+                leftTrigger = maxByMagnitude(leftTrigger, mapped.lt);
+                rightTrigger = maxByMagnitude(rightTrigger, mapped.rt);
+                leftStickX = maxByMagnitude(leftStickX, mapped.lx);
+                leftStickY = maxByMagnitude(leftStickY, mapped.ly);
+                rightStickX = maxByMagnitude(rightStickX, mapped.rx);
+                rightStickY = maxByMagnitude(rightStickY, mapped.ry);
             }
         }
         if (defaultContext.controllerNumber == controllerNumber) {
@@ -3059,6 +3069,8 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         public boolean reservedControllerNumber;
         public short controllerNumber;
 
+        public ControllerAxisMap axisMap = new ControllerAxisMap();
+        public final ControllerAxisMap.Report mappedReport = new ControllerAxisMap.Report();
         public int inputMap = 0;
         public byte leftTrigger = 0x00;
         public byte rightTrigger = 0x00;

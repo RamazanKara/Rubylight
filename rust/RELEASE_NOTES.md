@@ -8,8 +8,11 @@ Rubylight, called Butterpollo until rc.29, is written in Rust: host, native help
 
 ## New in 2.2.15
 
-- **Bundled USB audio and haptics for Steam Deck and DualSense.** The Windows installer now includes usbip-win2 0.9.8.1 as an optional **Steam Deck and DualSense USB audio and haptics** component. It enables native Steam Deck controllers and the DualSense USB audio endpoint used for waveform haptics. The signed upstream installer is included in the download; no separate driver download is needed. The component is off by default, its choice is remembered for updates, and existing shared USB/IP installations are kept. Installation can reconnect USB devices and require a restart; setup never restarts Windows automatically. Shared USBip remains installed when Rubylight is removed.
-- **Native DualSense waveform haptics.** Games can send actuator audio through the virtual DualSense to a compatible client, including Rubylight Android with a USB-connected DualSense or DualSense Edge. Ordinary rumble and adaptive triggers remain available. This carries haptic audio, not controller speaker/headset audio or microphone capture. [Setup and limitations](../docs/dualsense-haptics.md).
+- **Steam Deck and DualSense support with advanced controls and haptics.** Bundled USB/IP support provides native Steam Deck trackpads, gyro, back grips, Steam and “…” buttons and rumble, alongside DualSense adaptive triggers, USB audio waveform haptics, motion, touchpad, lightbar and battery reporting with compatible clients.
+
+The Windows installer includes the signed usbip-win2 0.9.8.1 installer as the optional **Steam Deck and DualSense USB audio and haptics** component, so no separate driver download is needed. It is off by default, its choice is remembered for updates, and existing shared USB/IP installations are kept. Installation can reconnect USB devices and require a restart; setup never restarts Windows automatically. Shared USBip remains installed when Rubylight is removed.
+
+For DualSense waveform haptics, use a compatible client such as Rubylight Android with a USB-connected DualSense or DualSense Edge. Controller speaker/headset audio and microphone capture are not carried by this extension. [Steam Deck setup](../docs/configuration.md#steam-deck) · [DualSense setup](../docs/dualsense-haptics.md).
 
 Validation covers package integrity, installer decisions and protocol checks without installing drivers. Physical controller output, native game detection and a live driver installation have not been verified for this change.
 

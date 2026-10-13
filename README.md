@@ -31,7 +31,7 @@
 - **Your controls come with you.** Controllers, keyboard, mouse, touch and pen, plus surround audio and microphone passthrough with compatible clients.
 - **Everything in one console.** Pair devices, manage games and watch frame rate, bitrate and encoder timing from your browser. Stream from the lock screen or a headless PC, too.
 
-Rubylight works with Moonlight and other Sunshine-compatible clients across PCs, phones, tablets, TVs, consoles and handhelds. Available codecs, HDR and extra controls depend on your hardware and client. NVIDIA NVENC, Intel Quick Sync and software encoding are also included; Rubylight's tuning and measurements focus on Radeon.
+Rubylight works with Moonlight and other Sunshine-compatible clients across PCs, phones, tablets, TVs, consoles and handhelds. Available codecs, HDR and extra controls depend on your hardware and client. NVIDIA NVENC, Intel Quick Sync and software encoding are also included but Rubylight's tuning and measurements focus on Radeon.
 
 [All features →](docs/features.md) · [How the frame pipeline works →](docs/architecture.md) · [Choose your stream format →](docs/getting-started.md#choose-your-stream-format)
 

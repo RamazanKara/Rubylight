@@ -569,6 +569,7 @@ pub fn override_allowed(key: &str) -> bool {
         "keybindings",
         // Audio, video and display automation
         "audio_sink",
+        "audio_capture_mode",
         "audio_sink_capture_only",
         "virtual_sink",
         "stream_audio",

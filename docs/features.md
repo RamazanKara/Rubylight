@@ -40,6 +40,7 @@ NVIDIA NVENC, Intel Quick Sync and software encoders are included for other hard
 - **Back grips.** Steam Deck L4/R4/L5/R5 and Xbox Elite paddles press the buttons you choose, under **Back grips**.
 - **A real Steam Deck controller.** With usbip-win2 installed, a Steam Deck client shows up on the host as a Steam Deck with trackpads, gyro and back grips.
 - **Audio.** Endpoint matching by id, name, description or adapter, Steam Streaming Speakers, and surround Opus.
+- **Game-only audio.** Optional capture of a verified launched game and its descendants on supported Windows versions, with explicit silence and warnings when identification fails. [Setup and limits](configuration.md#game-only-audio).
 - **Microphone.** A client's microphone plays into Steam Streaming Microphone, encrypted. See [Microphone](microphone.md).
 
 ## Library and frame pacing

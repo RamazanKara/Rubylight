@@ -4,6 +4,7 @@ mod capture;
 mod device_recovery;
 #[cfg(test)]
 mod encoder_tests;
+mod game_audio;
 #[cfg(test)]
 pub(crate) mod reconnect_tests;
 use anyhow::{Context, Result};
@@ -2438,6 +2439,14 @@ impl Media {
         let _com = ComGuard::new()?;
         let _priority = Priority::input();
         let config = effective_config(&h, &s.launch)?;
+        let game_audio = config.get("audio_capture_mode", "system") == "game";
+        anyhow::ensure!(
+            matches!(
+                config.get("audio_capture_mode", "system"),
+                "system" | "game"
+            ),
+            "unknown audio capture mode; choose System audio or Game only in Audio settings"
+        );
         let muted = !config.boolean("stream_audio", true)
             || (s.launch.role == Role::RemoteMonitor
                 && config.boolean("remote_monitor_mute_audio", false));
@@ -2448,6 +2457,11 @@ impl Media {
             .unwrap()
             .as_ref()
             .map(|route| route.route());
+        let mut game_capture = if game_audio && !muted {
+            Some(game_audio::GameAudio::start(h.clone(), s.clone())?)
+        } else {
+            None
+        };
         let mut capture: Option<Loopback> = None;
         let mut sink = String::new();
         let mut audio_check = Instant::now();
@@ -2496,7 +2510,10 @@ impl Media {
             if let Some(stall) = crate::soak_fault::audio_stall()? {
                 thread::sleep(stall);
             }
-            if !muted && Instant::now() >= audio_check {
+            if let Some(game_capture) = &mut game_capture {
+                game_capture.update(&s, &mut capture);
+            }
+            if !muted && !game_audio && Instant::now() >= audio_check {
                 audio_check = Instant::now() + Duration::from_secs(1);
                 if route.is_none() {
                     match butterpollo_windows::audio_route::Route::acquire(
@@ -2595,7 +2612,15 @@ impl Media {
                     Ok(Some(samples)) => packets.push(samples),
                     Ok(None) => break,
                     Err(error) => {
-                        s.launch.warnings.set("audio_capture", format!("Audio capture interrupted ({error:#}); reopening WASAPI and sending silence until it recovers. Check the playback device if this repeats."));
+                        let recovery = if game_audio {
+                            "sending silence until a verified game process can be captured again. No system audio is captured. Check the game's launch entry if this repeats."
+                        } else {
+                            "reopening WASAPI and sending silence until it recovers. Check the playback device if this repeats."
+                        };
+                        s.launch.warnings.set(
+                            "audio_capture",
+                            format!("Audio capture interrupted ({error:#}); {recovery}"),
+                        );
                         capture = None;
                         capture_failed = true;
                     }

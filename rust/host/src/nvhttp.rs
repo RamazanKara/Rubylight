@@ -1437,6 +1437,7 @@ fn prepare_launch_app(
     if launch.role != Role::InputOnly {
         let config = crate::stream::effective_config(h, launch)?;
         if config.boolean("stream_audio", true)
+            && config.get("audio_capture_mode", "system") == "system"
             && !(launch.role == Role::RemoteMonitor
                 && config.boolean("remote_monitor_mute_audio", false))
         {

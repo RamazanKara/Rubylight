@@ -829,6 +829,37 @@ impl Launch {
             Phase::Exited | Phase::Stopping
         )
     }
+    /// Game audio uses the connector's confirmed game path and excludes every
+    /// process already present when this launch began. Menu/launcher processes
+    /// are excluded by the same path policy used to follow game lifetime.
+    pub fn audio_processes(
+        &self,
+        processes: &[butterpollo_core::steam::Process],
+    ) -> Result<BTreeMap<u32, u64>> {
+        let (folder, exe) = {
+            let state = self.state.lock().unwrap();
+            ensure!(
+                state.phase == Phase::Running && state.has_process_hint(),
+                "Playnite has not identified the running game's executable yet"
+            );
+            (state.install_dir.clone(), state.exe.clone())
+        };
+        Ok(processes
+            .iter()
+            .filter(|p| {
+                p.started != 0
+                    && !self
+                        .baseline
+                        .iter()
+                        .any(|old| old.pid == p.pid && old.started == p.started)
+            })
+            .filter(|p| {
+                butterpollo_windows::process::image_path(p.pid)
+                    .is_some_and(|path| playnite::game_process(&path, &folder, &exe))
+            })
+            .map(|p| (p.pid, p.started))
+            .collect())
+    }
     /// The game's folder, once Playnite has reported it.
     pub fn folder(&self) -> impl Fn() -> Option<String> + Send + 'static {
         let state = self.state.clone();

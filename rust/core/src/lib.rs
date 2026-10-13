@@ -18,6 +18,7 @@
 pub mod adaptive_fec;
 pub mod audio;
 pub mod audio_defaults;
+pub mod audio_scope;
 pub mod auth;
 pub mod bitstream;
 pub mod browse;

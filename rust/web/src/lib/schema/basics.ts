@@ -357,6 +357,7 @@ const network: Setting[] = [
 ];
 
 const streamsAudio = (values: Values) => on(values, 'stream_audio', true);
+const systemAudio = (values: Values) => streamsAudio(values) && text(values, 'audio_capture_mode', 'system') === 'system';
 
 const audio: Setting[] = [
   {
@@ -370,6 +371,20 @@ const audio: Setting[] = [
     default: true,
   },
   {
+    key: 'audio_capture_mode',
+    label: 'Audio to stream',
+    description:
+      'Game only captures the launched game and its children, keeping browsers and notifications out. Requires Windows build 20348 or newer and a verified game process. Unavailable capture sends silence with a session warning. Game only currently uses stereo and leaves local playback devices unchanged. Reconnect to apply.',
+    category: 'audio',
+    group: 'Sound',
+    control: { kind: 'select', options: [
+      { value: 'system', label: 'System audio (selected playback device)' },
+      { value: 'game', label: 'Game only' },
+    ] },
+    default: 'system',
+    visibleWhen: streamsAudio,
+  },
+  {
     key: 'audio_sink',
     label: 'Audio device',
     description:
@@ -378,7 +393,7 @@ const audio: Setting[] = [
     group: 'Devices',
     control: { kind: 'audio' },
     default: '',
-    visibleWhen: streamsAudio,
+    visibleWhen: systemAudio,
   },
   {
     key: 'virtual_sink',
@@ -389,7 +404,7 @@ const audio: Setting[] = [
     group: 'Devices',
     control: { kind: 'audio' },
     default: '',
-    visibleWhen: streamsAudio,
+    visibleWhen: systemAudio,
   },
   {
     key: 'audio_sink_capture_only',
@@ -401,7 +416,7 @@ const audio: Setting[] = [
     control: { kind: 'toggle' },
     default: false,
     visibleWhen: (values) =>
-      streamsAudio(values) && text(values, 'audio_sink', '') !== '' && text(values, 'virtual_sink', '') === '',
+      systemAudio(values) && text(values, 'audio_sink', '') !== '' && text(values, 'virtual_sink', '') === '',
   },
   {
     key: 'auto_capture_sink',
@@ -412,7 +427,7 @@ const audio: Setting[] = [
     group: 'Devices',
     control: { kind: 'toggle' },
     default: true,
-    visibleWhen: streamsAudio,
+    visibleWhen: systemAudio,
   },
   {
     key: 'keep_sink_default',
@@ -423,7 +438,7 @@ const audio: Setting[] = [
     group: 'Virtual speakers',
     control: { kind: 'toggle' },
     default: true,
-    visibleWhen: streamsAudio,
+    visibleWhen: systemAudio,
   },
   {
     key: 'install_steam_audio_drivers',

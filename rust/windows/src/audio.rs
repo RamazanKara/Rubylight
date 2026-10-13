@@ -5,6 +5,8 @@ use std::{
     path::Path,
 };
 use windows::Win32::{Media::Audio::*, System::Com::*};
+mod process_loopback;
+pub use process_loopback::Activation as ProcessActivation;
 
 struct MixFormat(*mut WAVEFORMATEX);
 impl Drop for MixFormat {
@@ -36,6 +38,9 @@ pub struct Loopback {
     /// Whether audio arrived since `take_delivered`, and the frames
     /// skipped before it.
     delivered: Option<u64>,
+    /// Keeps a process identity alive for game-only capture; system capture
+    /// owns no process and retains its existing device-routing behavior.
+    process: Option<crate::process::AudioProcess>,
 }
 impl Loopback {
     pub fn new(output_channels: usize) -> Result<Self> {
@@ -146,6 +151,83 @@ impl Loopback {
                 rate,
                 position: None,
                 delivered: None,
+                process: None,
+            })
+        }
+    }
+    pub fn process_identity(&self) -> Option<butterpollo_core::audio_scope::Identity> {
+        self.process.as_ref().map(|p| p.identity)
+    }
+    /// Captures the verified game process and its children, across playback
+    /// devices. It never switches/mutes endpoints or captures other processes.
+    fn from_process_client(
+        output_channels: usize,
+        process: crate::process::AudioProcess,
+        client: IAudioClient,
+    ) -> Result<Self> {
+        anyhow::ensure!(
+            process.alive(),
+            "game process exited during audio activation"
+        );
+        // An explicit 48 kHz float stereo format works independently of an
+        // endpoint mix format. Surround streams receive a documented stereo
+        // upmix until process-loopback surround is independently validated.
+        let format = WAVEFORMATEX {
+            wFormatTag: 3,
+            nChannels: 2,
+            nSamplesPerSec: 48_000,
+            nAvgBytesPerSec: 48_000 * 8,
+            nBlockAlign: 8,
+            wBitsPerSample: 32,
+            cbSize: 0,
+        };
+        // SAFETY: COM is initialized by the caller; the format lives through
+        // Initialize, and the owned event outlives the client capture.
+        unsafe {
+            let event = windows::Win32::System::Threading::CreateEventW(
+                None,
+                false,
+                false,
+                windows::core::PCWSTR::null(),
+            )?;
+            let ready = OwnedHandle::from_raw_handle(event.0);
+            client.Initialize(
+                AUDCLNT_SHAREMODE_SHARED,
+                AUDCLNT_STREAMFLAGS_LOOPBACK
+                    | AUDCLNT_STREAMFLAGS_EVENTCALLBACK
+                    | AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM,
+                0,
+                0,
+                &format,
+                None,
+            )?;
+            client.SetEventHandle(event)?;
+            let buffer = client
+                .GetBufferSize()
+                .map_or(std::time::Duration::ZERO, |n| {
+                    std::time::Duration::from_secs_f64(f64::from(n) / 48_000.)
+                });
+            let capture = client.GetService()?;
+            let matrix = butterpollo_core::audio::mix_matrix(2, 3, output_channels)?;
+            let resampler = butterpollo_core::audio::Resampler::new(48_000, output_channels)?;
+            client.Start()?;
+            Ok(Self {
+                client,
+                capture,
+                ready: Some(ready),
+                channels: 2,
+                bits: 32,
+                float: true,
+                resampler,
+                matrix,
+                input: vec![0.; 2],
+                output: vec![0.; output_channels],
+                buffer,
+                drained: None,
+                rate: 48_000,
+                position: None,
+                delivered: None,
+                process: Some(process),
             })
         }
     }
@@ -188,6 +270,10 @@ impl Loopback {
             .map(|frames| std::time::Duration::from_secs_f64(frames as f64 / f64::from(self.rate)))
     }
     pub fn read(&mut self, frames: usize) -> Result<Option<Vec<f32>>> {
+        anyhow::ensure!(
+            self.process.as_ref().is_none_or(|process| process.alive()),
+            "game audio process exited; waiting for a verified surviving game process"
+        );
         // SAFETY: GetBuffer returns `count` frames of `channels` samples of `bits` bits each, read
         // only before ReleaseBuffer; each read is unaligned and inside that packet.
         unsafe {

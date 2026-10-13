@@ -417,6 +417,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "windows",
+ "windows-core",
  "windows-service",
 ]
 

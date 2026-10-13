@@ -303,6 +303,55 @@ pub struct Process {
     host_stop: Option<HostStop>,
     pub pid: u32,
 }
+/// Read-only process identity held open throughout audio capture. Keeping the
+/// process object alive prevents PID reuse between verification and activation.
+#[derive(Clone)]
+pub struct AudioProcess {
+    pub identity: butterpollo_core::audio_scope::Identity,
+    handle: std::sync::Arc<OwnedHandle>,
+}
+impl AudioProcess {
+    pub fn open(identity: butterpollo_core::audio_scope::Identity) -> Result<Self> {
+        // SAFETY: a newly opened query/synchronize-only handle is owned once;
+        // the out-pointers are live FILETIMEs and no process is modified.
+        unsafe {
+            let handle = owned(OpenProcess(
+                PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_SYNCHRONIZE,
+                false,
+                identity.pid,
+            )?);
+            let mut created = FILETIME::default();
+            let (mut exited, mut kernel, mut user) = (created, created, created);
+            GetProcessTimes(
+                raw(&handle),
+                &mut created,
+                &mut exited,
+                &mut kernel,
+                &mut user,
+            )?;
+            let started =
+                u64::from(created.dwHighDateTime) << 32 | u64::from(created.dwLowDateTime);
+            anyhow::ensure!(
+                started == identity.started && started != 0,
+                "game process identity changed"
+            );
+            anyhow::ensure!(
+                process_session(identity.pid)? == current_session()?,
+                "game process belongs to another Windows session"
+            );
+            let target = Self {
+                identity,
+                handle: std::sync::Arc::new(handle),
+            };
+            anyhow::ensure!(target.alive(), "game process exited before audio capture");
+            Ok(target)
+        }
+    }
+    pub fn alive(&self) -> bool {
+        // SAFETY: the read-only process handle stays open; zero timeout never blocks.
+        unsafe { WaitForSingleObject(raw(&self.handle), 0) == WAIT_TIMEOUT }
+    }
+}
 /// The session attached to the physical console.
 pub fn console_session() -> u32 {
     // SAFETY: WTSGetActiveConsoleSessionId takes no arguments and has no preconditions.

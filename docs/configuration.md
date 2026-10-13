@@ -83,6 +83,35 @@ These are encoder bit budgets, not extra queued frames or packet-pacing settings
 
 `amd_rc` remains `vbr_latency` by default. For an affected AMD stream, `amd_max_frame_size=1` or `2` lets you compare smaller recovery frames against picture quality; `0` restores the driver default. These caps cut the largest recovery frames sharply. They are off by default because they trade picture quality for smaller frames.
 
+## Game-only audio
+
+**Settings → Audio → Audio to stream** defaults to **System audio**, which keeps
+the existing playback-device capture and routing. Select **Game only**
+(`audio_capture_mode = game`) to capture the launched game's process tree using
+[Windows application loopback](https://learn.microsoft.com/en-us/samples/microsoft/windows-classic-samples/applicationloopbackaudio-sample/).
+Reconnect to apply; this setting also supports app and device overrides.
+
+This mode requires Windows build 20348 or newer. Direct executable launches
+follow their owned process job. Steam library entries use the game's existing
+process tracker; Playnite uses its confirmed game path and excludes processes
+present before launch. Creation times and held process handles prevent PID
+reuse from selecting another application. If a launcher exits, its remaining
+verified game child becomes the capture root.
+
+Game-only audio currently captures stereo, mapped to the negotiated layout.
+It leaves the host's playback devices and volume unchanged, so local game sound
+can still be audible even when the client requests local muting. Route the game
+to a virtual device yourself if local silence is needed. Other independent
+applications and system notifications are excluded; audio from children the
+game itself launches is included by Windows' process-tree capture.
+
+Desktop entries, detached or unconfirmed launches, several independent game
+process trees, unsupported Windows versions and capture errors send silence
+and an actionable session warning. They never switch to system capture.
+Choose a direct executable entry or explicitly select System audio to resolve
+those cases. Arbitrary multi-application selection and separate volume mixing
+are not implemented in this first game-only mode.
+
 ## Displays and RTSS
 
 Under **Settings → Display**, select a physical display or choose a virtual display per device/shared by all devices. **Exclusive** switches other monitors off; choose **Extended** to keep the existing desktop active. The primary and isolated variants control where the virtual display sits in that desktop.

@@ -37,6 +37,27 @@
             android:entryValues="@array/video_format_values"
             android:summary="@string/summary_video_format"
             android:defaultValue="auto" />
+        <com.limelight.preferences.MaterialListPreference
+            android:key="adaptive_quality_mode"
+            android:title="@string/title_adaptive_quality"
+            android:summary="@string/summary_adaptive_quality"
+            android:entries="@array/adaptive_quality_names"
+            android:entryValues="@array/adaptive_quality_values"
+            android:defaultValue="off" />
+        <com.limelight.preferences.MaterialListPreference
+            android:key="adaptive_quality_min_resolution"
+            android:title="@string/title_adaptive_quality_min_resolution"
+            android:summary="@string/summary_adaptive_quality_min_resolution"
+            android:entries="@array/adaptive_quality_resolution_names"
+            android:entryValues="@array/adaptive_quality_resolution_values"
+            android:defaultValue="720" />
+        <com.limelight.preferences.MaterialListPreference
+            android:key="adaptive_quality_min_fps"
+            android:title="@string/title_adaptive_quality_min_fps"
+            android:summary="@string/summary_adaptive_quality_min_fps"
+            android:entries="@array/adaptive_quality_fps_names"
+            android:entryValues="@array/adaptive_quality_fps_values"
+            android:defaultValue="30" />
         <com.limelight.preferences.MaterialSwitchPreference
             android:key="checkbox_enable_hdr"
             android:title="@string/title_enable_hdr"
@@ -280,6 +301,11 @@
             android:defaultValue="false"/>
     </PreferenceCategory>
     <PreferenceCategory android:key="category_ui_settings" android:title="@string/settings_section_app">
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_auto_reconnect"
+            android:title="@string/title_auto_reconnect"
+            android:summary="@string/summary_auto_reconnect"
+            android:defaultValue="true" />
         <com.limelight.preferences.MaterialSwitchPreference
             android:key="checkbox_enable_pip"
             android:title="@string/title_checkbox_enable_pip"

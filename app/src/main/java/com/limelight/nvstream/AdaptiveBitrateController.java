@@ -101,6 +101,11 @@ public final class AdaptiveBitrateController {
         decodeBitrateInsensitive = false;
     }
 
+    /** Prefer bitrate reductions before lowering stream resolution for network congestion. */
+    public boolean hasRoomBeforeQualityReduction() {
+        return ceilingKbps <= 0 || currentKbps > Math.max(floorKbps, ceilingKbps * 65 / 100);
+    }
+
     public void applied(int requestedKbps, int appliedKbps, long nowMs) {
         // The host may enforce a lower cap. Do not repeatedly probe beyond it.
         if (appliedKbps < requestedKbps) {

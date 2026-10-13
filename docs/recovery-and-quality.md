@@ -1,0 +1,35 @@
+# Stream recovery and automatic quality
+
+[Documentation](index.md) · [Settings reference](settings.md) · [Video and latency](video-and-latency.md)
+
+## Recovering a connection
+
+**Settings → App → Recover interrupted streams** is enabled by default. After a temporary transport failure, a normal game stream retries after 1, 2, 4, 8 and 12 seconds, with at most five attempts and a one-minute budget including connection startup. The progress dialog shows the attempt; Back cancels. Leaving the stream cancels pending recovery. A connection must remain up for 30 seconds before another interruption receives a fresh retry budget.
+
+Automatic recovery only resumes the same running game. It never sends a launch or quit request, confirms replacement, or takes over someone else's session. It stops if the game is no longer running, its identity changes, access is denied, or pairing is missing. Normal streams and a main-session Resume tile can recover. Remote Monitor, Remote Input and control actions keep the existing manual reconnect path. These restrictions apply with both Rubylight and other compatible Sunshine/GameStream hosts.
+
+Graceful host termination, protected content, host frame-conversion errors, decoder startup failures and unknown errors stay manual. The error dialog retains **Reconnect** and **Disconnect** after recovery stops. Manual Reconnect is an explicit new connection attempt using normal launch behavior. Recovery recreates the stream activity after the previous native connection has stopped, restoring its configured audio, controller and display setup; it does not quit the game.
+
+## Choosing automatic quality
+
+**Settings → Stream → Automatic stream quality** is off by default. Choose the mode and the minimum short edge and FPS. The selected stream resolution and FPS are the upper bounds; a floor above those bounds is clamped to the starting value. Aspect ratio and decoder alignment are preserved. For a stream set to follow the native display, its ceiling follows fold, window and panel changes.
+
+| Mode | Behavior |
+| --- | --- |
+| Preserve motion | Reduce resolution before lowering FPS. |
+| Preserve detail | Reduce FPS before lowering resolution. |
+| Extend battery life | Gradually reduce work even on a healthy connection, toward at most 60 FPS and a 1080-pixel short edge, while respecting the minimums. Further pressure can lower it more. |
+
+During a stream, **Bitrate → Automatic stream quality** overrides the mode for that PC. **Use app settings** removes that override. Turning it off restores the stream ceiling. Changing the mode starts its new policy from that ceiling. The floors come from app settings and apply to the next stream.
+
+Automatic quality requires the host to advertise control message `0x5532` and the active decoder to support in-place resolution changes. It is unavailable with PyroWave, input-only/remote-monitor streams, older hosts without this capability, and non-adaptive decoders. The UI reports this fallback; it does not silently reconnect or change codecs. Automatic bitrate remains separately available where supported.
+
+On a host that supports runtime bitrate, choosing automatic quality enables the existing bitrate controller first. The client reads the actual encoder budget and sends the current bitrate once to take control from host-side adaptation. It waits for sustained network trouble after substantial bitrate reduction before asking for a lower resolution/FPS. Slow decoding and thermal pressure can reduce quality independently because bitrate alone may not reduce those workloads.
+
+Resolution/FPS reductions are at least 15 seconds apart. Decoder/thermal pressure must persist for four samples; network pressure at a reduced bitrate must persist for eight. Recovery takes one step after 30 healthy seconds, with adequate decode headroom and no thermal warning. Missing video, unknown recovery metrics, menus, backgrounding and picture in picture do not count as healthy time.
+
+The quality request keeps the negotiated codec, HDR/color mode and host display selection. The host controls what display mode it can apply. If a requested size is rejected or has not appeared in decoded frames within ten seconds, automatic quality stops with a visible explanation and leaves the stream connected. FPS is shown as a requested target because this protocol has no separate frame-rate acknowledgement; received/shown FPS in the existing overlay remains the measurement. A MediaCodec upscaler may fall back to direct output after a size change, as described in [upscaling](video-and-latency.md#upscaling).
+
+## Verification limits
+
+Policy tests cover retry budgets and exclusions, lifecycle cancellation, resume-only launch/quit/confirmation guards, mode ordering, floors, thermal/network hysteresis, delayed recovery and display changes. These checks do not measure real device latency, battery savings, roaming recovery or decoder/display compatibility. Those require a later hardware session; no live host, display or controller is needed for the unit suite.

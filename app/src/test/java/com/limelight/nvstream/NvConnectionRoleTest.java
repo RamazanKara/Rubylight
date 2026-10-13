@@ -18,6 +18,25 @@ import java.util.function.Consumer;
 import static org.junit.Assert.*;
 
 public class NvConnectionRoleTest {
+    @Test
+    public void recoveryNeverLaunchesQuitsOrConfirmsReplacement() throws Exception {
+        AtomicInteger requests = new AtomicInteger();
+        ConnectionContext context = context(73, request -> fail("Recovery must never confirm replacement"), new AtomicInteger());
+        context.streamConfig = new StreamConfiguration.Builder()
+                .setApp(new NvApp("Game", 73, false)).setResumeOnly(true).build();
+        NvHTTP http = http(context, "resume", requests, NvHTTPRoleTest.error("replace-confirm"));
+        assertThrows(HostHttpResponseException.class, () -> NvConnection.launchApp(http, context, "launch"));
+        assertEquals(0, requests.get());
+        NvConnection connection = new NvConnection(null, new ComputerDetails.AddressTuple("192.0.2.1", 47989),
+                47984, "device", context.streamConfig, null, null);
+        assertThrows(HostHttpResponseException.class, () -> connection.quitAndLaunch(http, context));
+        assertEquals(0, requests.get());
+        assertThrows(HostHttpResponseException.class, () -> NvConnection.launchApp(http, context, "resume"));
+        assertEquals(1, requests.get());
+        assertTrue(NvConnection.launchApp(http, context, "resume"));
+        assertEquals(2, requests.get());
+    }
+
     private ConnectionContext context(int appId, Consumer<LaunchConfirmation> decide, AtomicInteger completed) {
         ConnectionContext context = new ConnectionContext();
         context.streamConfig = new StreamConfiguration.Builder().setApp(new NvApp("Tile", appId, false)).build();

@@ -2,10 +2,11 @@ use anyhow::{Context, Result, bail};
 #[cfg(test)]
 mod parity_tests;
 use butterpollo_core::state::{App, PrepCommand};
-use butterpollo_windows::process::Process;
+use butterpollo_windows::process::{CommandCancellation, Process};
 use std::{
     collections::{BTreeMap, HashMap},
     path::Path,
+    sync::Arc,
     time::Duration,
 };
 #[derive(Clone)]
@@ -169,6 +170,32 @@ impl Drop for ClientCommands {
         self.run(&self.undo);
     }
 }
+struct StateCommands {
+    sender: Option<std::sync::mpsc::Sender<bool>>,
+    cancel: Arc<CommandCancellation>,
+    worker: Option<std::thread::JoinHandle<()>>,
+}
+impl StateCommands {
+    fn send(&self, active: bool) {
+        if let Some(sender) = &self.sender {
+            let _ = sender.send(active);
+        }
+    }
+}
+impl Drop for StateCommands {
+    fn drop(&mut self) {
+        if let Err(error) = self.cancel.cancel() {
+            tracing::warn!(%error, "application state command cancellation failed");
+        }
+        // Wake an idle receiver as well as a running command. The worker
+        // checks cancellation before consuming any queued transition.
+        self.sender.take();
+        if let Some(worker) = self.worker.take() {
+            let _ = worker.join();
+        }
+    }
+}
+
 pub struct RunningApp {
     pub id: u32,
     pub name: String,
@@ -186,7 +213,7 @@ pub struct RunningApp {
     pub allow_client_commands: bool,
     terminate_on_pause: bool,
     connected: bool,
-    state_events: Option<std::sync::mpsc::Sender<bool>>,
+    state_events: Option<StateCommands>,
     exit_timeout: Duration,
     /// An app launched before anyone signed in, started once a user does.
     pub deferred: Option<(App, HashMap<String, String>)>,
@@ -298,17 +325,25 @@ impl RunningApp {
         )?;
         if !commands.is_empty() {
             let (sender, receiver) = std::sync::mpsc::channel::<bool>();
+            let cancel = Arc::new(CommandCancellation::new()?);
+            let stopping = cancel.clone();
             let mut environment = running.environment.clone();
             let working = running.working.clone();
-            std::thread::Builder::new()
+            let worker = std::thread::Builder::new()
                 .name("app-state-commands".into())
                 .spawn(move || {
                     for active in receiver {
+                        if stopping.requested() {
+                            break;
+                        }
                         environment.insert(
                             "APOLLO_APP_STATUS".into(),
                             if active { "RESUMING" } else { "PAUSING" }.into(),
                         );
                         for command in &commands {
+                            if stopping.requested() {
+                                return;
+                            }
                             let cmd = if active { &command.r#do } else { &command.undo };
                             if cmd.is_empty() {
                                 continue;
@@ -322,10 +357,12 @@ impl RunningApp {
                                         &environment,
                                     )
                                 })
-                                .and_then(|process| process.wait(Duration::from_secs(120)))
-                            {
-                                Ok(0) => {}
-                                Ok(code) => {
+                                .and_then(|process| {
+                                    process.wait_cancellable(Duration::from_secs(120), &stopping)
+                                }) {
+                                Ok(Some(0)) => {}
+                                Ok(None) => return,
+                                Ok(Some(code)) => {
                                     tracing::warn!(code, "application state command failed");
                                     break;
                                 }
@@ -337,7 +374,11 @@ impl RunningApp {
                         }
                     }
                 })?;
-            running.state_events = Some(sender);
+            running.state_events = Some(StateCommands {
+                sender: Some(sender),
+                cancel,
+                worker: Some(worker),
+            });
         }
         for (index, prep) in app.prep.iter().enumerate() {
             if !prep.r#do.is_empty() {
@@ -593,7 +634,7 @@ impl RunningApp {
             return true;
         }
         if let Some(events) = &self.state_events {
-            let _ = events.send(connected);
+            events.send(connected);
         }
         false
     }

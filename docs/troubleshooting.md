@@ -48,6 +48,8 @@ For an installed host, check **Rubylight** in Windows Services. Its internal ser
 
 For a controlled comparison, disconnect first, set **Settings → Video → Capture method** to **Desktop Duplication**, reconnect at the same resolution/rate, and record whether the symptom changes. Return to **Automatic** afterward unless the explicit choice is needed. Keep the original failure log so a successful fallback does not hide the WGC error.
 
+After using Windows Remote Desktop, open **Maintenance → Windows session → Return to console**. This explicit action returns only the Windows session running this host to the physical console. Its desktop becomes visible at the PC and an active RDP connection disconnects. Disconnect Moonlight streams first. Rubylight refuses if another signed-in session occupies the console; sign that session out at the PC before retrying. The host may restart while Windows switches sessions. Refresh the status once it returns, then reconnect Moonlight. If Windows refuses the operation, run the host as the session owner or through the installed service; no Windows password is collected by this action.
+
 ## HDR looks washed out, too bright, or different between clients
 
 Separate the host's HDR source, the negotiated stream and the client's display output:

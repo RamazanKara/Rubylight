@@ -209,6 +209,7 @@ fn token_catalog() -> Vec<auth::Scope> {
         ("/api/clients/unpair", &["POST"][..]),
         ("/api/clients/disconnect", &["POST"][..]),
         ("/api/session/status", &["GET"][..]),
+        ("/api/session/console", &["GET", "POST"][..]),
         ("/api/rtsp/sessions", &["GET"][..]),
         ("/api/display-devices", &["GET"][..]),
         ("/api/framegen/edid-refresh", &["GET"][..]),
@@ -925,6 +926,9 @@ pub(crate) async fn api(
             | ("GET", "/api/clients/pending") => clients::handle(&h, method.as_str(), path, &data)?,
             ("GET", "/api/rtsp/sessions") | ("GET", "/api/session/status") => {
                 session::handle(&h, method.as_str(), path)?
+            }
+            ("GET" | "POST", "/api/session/console") => {
+                session::console(&h, method.as_str(), &data)?
             }
             ("GET", "/api/display-devices") | ("GET", "/api/framegen/edid-refresh") => {
                 displays::handle(&h, method.as_str(), &uri, &data)?

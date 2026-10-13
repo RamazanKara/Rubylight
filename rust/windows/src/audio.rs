@@ -1,18 +1,31 @@
 use anyhow::{Context, Result, bail};
-use std::{ffi::c_void, path::Path};
+use std::{
+    ffi::c_void,
+    os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle},
+    path::Path,
+};
 use windows::Win32::{Media::Audio::*, System::Com::*};
+
+struct MixFormat(*mut WAVEFORMATEX);
+impl Drop for MixFormat {
+    fn drop(&mut self) {
+        // SAFETY: GetMixFormat allocated this pointer; this guard frees it exactly once.
+        unsafe { CoTaskMemFree(Some(self.0.cast::<c_void>())) };
+    }
+}
 pub struct Loopback {
     client: IAudioClient,
     capture: IAudioCaptureClient,
     /// Set by Windows when captured audio is ready; None where event mode
     /// could not be opened, and the caller polls.
-    ready: Option<windows::Win32::Foundation::HANDLE>,
+    ready: Option<OwnedHandle>,
     channels: usize,
     bits: u16,
     float: bool,
     resampler: butterpollo_core::audio::Resampler,
     matrix: Vec<Vec<f32>>,
-    output_channels: usize,
+    input: Vec<f32>,
+    output: Vec<f32>,
     /// Audio Windows holds for us; what arrives while it is full is lost.
     buffer: std::time::Duration,
     drained: Option<std::time::Instant>,
@@ -41,17 +54,17 @@ impl Loopback {
                 enumerator.GetDevice(windows::core::PCWSTR(id.as_ptr()))?
             };
             let mut client: IAudioClient = device.Activate(CLSCTX_ALL, None)?;
-            let format = client.GetMixFormat()?;
-            if format.is_null() {
+            let format = MixFormat(client.GetMixFormat()?);
+            if format.0.is_null() {
                 bail!("empty WASAPI mix format");
             }
-            let f = *format;
+            let f = *format.0;
             let float = f.wFormatTag == 3
                 || (f.wFormatTag == 65534
                     && f.cbSize >= 22
-                    && (*(format as *const WAVEFORMATEXTENSIBLE)).SubFormat.data1 == 3);
+                    && (*(format.0 as *const WAVEFORMATEXTENSIBLE)).SubFormat.data1 == 3);
             let mask = if f.wFormatTag == 65534 && f.cbSize >= 22 {
-                (*(format as *const WAVEFORMATEXTENSIBLE)).dwChannelMask
+                (*(format.0 as *const WAVEFORMATEXTENSIBLE)).dwChannelMask
             } else {
                 0
             };
@@ -68,44 +81,41 @@ impl Loopback {
                 false,
                 windows::core::PCWSTR::null(),
             )
-            .ok();
+            .ok()
+            .map(|handle| OwnedHandle::from_raw_handle(handle.0));
             let mut result = Err(windows::core::Error::empty());
-            if let Some(event) = ready {
+            if let Some(event) = &ready {
                 result = client
                     .Initialize(
                         AUDCLNT_SHAREMODE_SHARED,
                         AUDCLNT_STREAMFLAGS_LOOPBACK | AUDCLNT_STREAMFLAGS_EVENTCALLBACK,
                         100000,
                         0,
-                        format,
+                        format.0,
                         None,
                     )
-                    .and_then(|()| client.SetEventHandle(event));
+                    .and_then(|()| {
+                        client.SetEventHandle(windows::Win32::Foundation::HANDLE(
+                            event.as_raw_handle(),
+                        ))
+                    });
             }
             let ready = if result.is_ok() {
                 ready
             } else {
-                if let Some(event) = ready {
-                    let _ = windows::Win32::Foundation::CloseHandle(event);
-                }
+                drop(ready);
                 client = device.Activate(CLSCTX_ALL, None)?;
                 result = client.Initialize(
                     AUDCLNT_SHAREMODE_SHARED,
                     AUDCLNT_STREAMFLAGS_LOOPBACK,
                     100000,
                     0,
-                    format,
+                    format.0,
                     None,
                 );
                 None
             };
-            CoTaskMemFree(Some(format as *const c_void));
-            if let Err(error) = result {
-                if let Some(event) = ready {
-                    let _ = windows::Win32::Foundation::CloseHandle(event);
-                }
-                return Err(error.into());
-            }
+            result?;
             let matrix = matrix?;
             let resampler = resampler?;
             if !matches!(f.wBitsPerSample, 16 | 24 | 32) || (float && f.wBitsPerSample != 32) {
@@ -129,7 +139,8 @@ impl Loopback {
                 float,
                 resampler,
                 matrix,
-                output_channels,
+                input: vec![0.; f.nChannels as usize],
+                output: vec![0.; output_channels],
                 buffer,
                 drained: None,
                 rate,
@@ -142,11 +153,11 @@ impl Loopback {
     /// event mode. An idle endpoint sends no events; the timeout keeps the
     /// caller's silence on time.
     pub fn wait(&self, timeout: std::time::Duration) {
-        match self.ready {
+        match &self.ready {
             // SAFETY: `event` is the event this struct owns, closed only in Drop.
             Some(event) => unsafe {
                 let _ = windows::Win32::System::Threading::WaitForSingleObject(
-                    event,
+                    windows::Win32::Foundation::HANDLE(event.as_raw_handle()),
                     timeout.as_millis().clamp(1, u128::from(u32::MAX)) as u32,
                 );
             },
@@ -212,10 +223,8 @@ impl Loopback {
                 if flags & AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY.0 as u32 != 0 {
                     self.resampler.reset();
                 }
-                let mut input = vec![0.; self.channels];
-                let mut output = vec![0.; self.output_channels];
                 for frame in 0..count as usize {
-                    for (source, sample) in input.iter_mut().enumerate() {
+                    for (source, sample) in self.input.iter_mut().enumerate() {
                         let value = if silent || data.is_null() {
                             0.
                         } else {
@@ -245,10 +254,10 @@ impl Loopback {
                             0.
                         };
                     }
-                    for (dest, row) in output.iter_mut().zip(&self.matrix) {
-                        *dest = input.iter().zip(row).map(|(v, gain)| v * gain).sum();
+                    for (dest, row) in self.output.iter_mut().zip(&self.matrix) {
+                        *dest = self.input.iter().zip(row).map(|(v, gain)| v * gain).sum();
                     }
-                    self.resampler.push(&output);
+                    self.resampler.push(&self.output);
                 }
                 self.capture.ReleaseBuffer(count)?;
             }
@@ -264,13 +273,9 @@ impl Loopback {
 }
 impl Drop for Loopback {
     fn drop(&mut self) {
-        // SAFETY: `self.client` is live, and `self.ready` is the event this struct owns and closes
-        // only here.
+        // SAFETY: `self.client` is live. The owned event closes after capture stops.
         unsafe {
             let _ = self.client.Stop();
-            if let Some(event) = self.ready {
-                let _ = windows::Win32::Foundation::CloseHandle(event);
-            }
         }
     }
 }

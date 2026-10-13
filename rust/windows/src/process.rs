@@ -310,13 +310,21 @@ pub fn console_session() -> u32 {
 }
 /// This process's own session; the service starts the host in the user's.
 pub fn current_session() -> Result<u32> {
+    // SAFETY: GetCurrentProcessId has no preconditions.
+    process_session(unsafe { GetCurrentProcessId() })
+}
+pub fn process_session(pid: u32) -> Result<u32> {
     let mut session = 0;
     // SAFETY: `session` is a live local the call writes once.
-    unsafe { ProcessIdToSessionId(GetCurrentProcessId(), &mut session)? };
+    unsafe { ProcessIdToSessionId(pid, &mut session)? };
     Ok(session)
 }
 pub fn ensure_streaming_session() -> Result<()> {
     let session = current_session()?;
+    let (state, protocol) = session_connection(session)?;
+    validate_streaming_session(state, session == console_session() && protocol == 0)
+}
+fn session_connection(session: u32) -> Result<(WTS_CONNECTSTATE_CLASS, u16)> {
     let mut buffer = PWSTR::null();
     let mut bytes = 0;
     // SAFETY: WTS allocates each output buffer. Its size is checked before reading and it is
@@ -346,7 +354,7 @@ pub fn ensure_streaming_session() -> Result<()> {
             protocol.context("Windows returned an invalid session protocol")?,
         )
     };
-    validate_streaming_session(state, session == console_session() && protocol == 0)
+    Ok((state, protocol))
 }
 fn validate_streaming_session(state: WTS_CONNECTSTATE_CLASS, console: bool) -> Result<()> {
     // The physical console can be connected before sign-in or disconnected while locked.
@@ -355,8 +363,108 @@ fn validate_streaming_session(state: WTS_CONNECTSTATE_CLASS, console: bool) -> R
         return Ok(());
     }
     bail!(
-        "The host Windows session is disconnected or changing. Retry in a moment. After using RDP, return to the console session if this persists."
+        "The host Windows session is disconnected or changing. Retry in a moment. After using RDP, use Maintenance > Windows session > Return to console, or sign in at the PC."
     )
+}
+
+#[derive(serde::Serialize)]
+pub struct ConsoleRecovery {
+    pub session_id: u32,
+    pub console_session_id: u32,
+    pub can_reattach: bool,
+    pub reason: String,
+}
+
+fn session_has_user(session: u32) -> Result<bool> {
+    let mut buffer = PWSTR::null();
+    let mut bytes = 0;
+    // SAFETY: WTS owns the returned UTF-16 buffer. Inspect only a nonempty,
+    // adequately sized response, then free it exactly once.
+    unsafe {
+        WTSQuerySessionInformationW(None, session, WTSUserName, &mut buffer, &mut bytes)?;
+        let has_user = if !buffer.is_null() && bytes >= 2 {
+            Some(buffer.0.read_unaligned() != 0)
+        } else {
+            None
+        };
+        WTSFreeMemory(buffer.0.cast());
+        has_user.context("Windows returned an invalid session user name")
+    }
+}
+
+fn reattach_blocker(
+    session: u32,
+    console: u32,
+    state: WTS_CONNECTSTATE_CLASS,
+    protocol: u16,
+    host_has_user: bool,
+    console_has_user: bool,
+) -> Option<&'static str> {
+    if session == console && protocol == 0 {
+        Some("This host is already attached to the physical console.")
+    } else if console == u32::MAX || console == 0 || session == 0 || session == console {
+        Some(
+            "The physical console is changing or unavailable. Retry after Windows finishes switching sessions.",
+        )
+    } else if protocol != 2 || (state != WTSActive && state != WTSDisconnected) || !host_has_user {
+        Some("Only this host's signed-in RDP session can be returned to the console.")
+    } else if console_has_user {
+        Some(
+            "Another Windows session owns the physical console. Sign it out at the PC before retrying; Rubylight will not disconnect it.",
+        )
+    } else {
+        None
+    }
+}
+
+/// Read-only eligibility; the write operation repeats every check immediately
+/// before connecting. Never selects an arbitrary logged-in user's session.
+pub fn console_recovery() -> Result<ConsoleRecovery> {
+    let session = current_session()?;
+    let console = console_session();
+    let (state, protocol) = session_connection(session)?;
+    let host_has_user = session_has_user(session)?;
+    let console_has_user = if console == u32::MAX || console == 0 || console == session {
+        true
+    } else {
+        session_has_user(console)?
+    };
+    let reason = reattach_blocker(
+        session,
+        console,
+        state,
+        protocol,
+        host_has_user,
+        console_has_user,
+    );
+    Ok(ConsoleRecovery {
+        session_id: session,
+        console_session_id: console,
+        can_reattach: reason.is_none(),
+        reason: reason.unwrap_or("Return this RDP desktop to the PC's unoccupied physical console. The desktop becomes visible at the PC and its RDP connection disconnects.").into(),
+    })
+}
+
+/// Explicit administrator action. Expected IDs bind confirmation to the
+/// displayed host/console pair; no caller may supply another source session.
+pub fn reattach_console(expected_session: u32, expected_console: u32) -> Result<()> {
+    let status = console_recovery()?;
+    if status.session_id != expected_session || status.console_session_id != expected_console {
+        bail!("Windows sessions changed; refresh the session status and confirm again");
+    }
+    if !status.can_reattach {
+        bail!("{}", status.reason);
+    }
+    // SAFETY: Both IDs were freshly queried; the source is this process's own
+    // session and the destination has no signed-in user. The non-null empty
+    // password asks Windows to authorize the caller, without handling credentials.
+    // Return asynchronously so session-change notifications cannot deadlock
+    // the service supervisor waiting for this host to finish an API request.
+    unsafe {
+        WTSConnectSessionW(status.session_id, status.console_session_id, windows::core::w!(""), false)
+            .context("Windows refused the console connection. Run the host as the session owner or through the installed Windows service")?;
+    }
+    Ok(())
 }
 /// Whether a user is signed in to this process's session. Only a host
 /// running as SYSTEM can tell; a portable host runs as the user.
@@ -777,6 +885,33 @@ impl Process {
         }
         self.exit_code()?.context("process still running")
     }
+    /// Wait without polling; cancellation terminates this command's entire
+    /// job before the owner can run its undo commands.
+    pub fn wait_cancellable(
+        &self,
+        timeout: Duration,
+        cancel: &CommandCancellation,
+    ) -> Result<Option<u32>> {
+        // SAFETY: Both owned handles remain live for the synchronous wait.
+        let result = unsafe {
+            WaitForMultipleObjects(
+                &[raw(&cancel.0.0), raw(&self.handle)],
+                false,
+                timeout.as_millis().min(u32::MAX as u128) as u32,
+            )
+        };
+        if result == WAIT_OBJECT_0 {
+            self.stop()?;
+            Ok(None)
+        } else if result == WAIT_EVENT(WAIT_OBJECT_0.0 + 1) {
+            self.exit_code()?.context("process still running").map(Some)
+        } else if result == WAIT_TIMEOUT {
+            self.stop()?;
+            bail!("process timed out")
+        } else {
+            Err(windows::core::Error::from_thread().into())
+        }
+    }
     /// Waits, up to `timeout`, until a GUI process started here is pumping
     /// messages. False when it timed out or the process has no message loop.
     pub fn wait_input_idle(&self, timeout: Duration) -> bool {
@@ -877,6 +1012,21 @@ pub enum HostShutdown {
     Graceful(u32),
     Forced,
 }
+/// A shared, manual-reset event for cancelling owned application commands.
+pub struct CommandCancellation(HostStop);
+impl CommandCancellation {
+    pub fn new() -> Result<Self> {
+        Ok(Self(HostStop::new()?))
+    }
+    pub fn cancel(&self) -> Result<()> {
+        self.0.request()
+    }
+    pub fn requested(&self) -> bool {
+        // SAFETY: The event is owned for this nonblocking state check.
+        unsafe { WaitForSingleObject(raw(&self.0.0), 0) == WAIT_OBJECT_0 }
+    }
+}
+
 struct HostStop(OwnedHandle);
 impl HostStop {
     fn new() -> Result<Self> {
@@ -1206,6 +1356,46 @@ pub fn stop_processes(processes: &BTreeMap<u32, u64>, timeout: Duration) {
 }
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn console_reattachment_refuses_other_users_and_transitional_sessions() {
+        use super::*;
+        assert!(reattach_blocker(4, 1, WTSDisconnected, 2, true, false).is_none());
+        assert!(reattach_blocker(4, 1, WTSActive, 2, true, false).is_none());
+        for (source, console, state, protocol, user, occupied) in [
+            (4, 1, WTSDisconnected, 2, true, true),
+            (4, 1, WTSDisconnected, 2, false, false),
+            (4, 1, WTSConnected, 2, true, false),
+            (4, 1, WTSDisconnected, 0, true, false),
+            (4, u32::MAX, WTSDisconnected, 2, true, false),
+            (4, 4, WTSDisconnected, 2, true, false),
+            (4, 4, WTSActive, 0, true, false),
+            (0, 1, WTSDisconnected, 2, true, false),
+        ] {
+            assert!(reattach_blocker(source, console, state, protocol, user, occupied).is_some());
+        }
+    }
+    #[test]
+    fn command_cancellation_ends_the_owned_process_before_returning() -> anyhow::Result<()> {
+        use super::*;
+        let cancel = CommandCancellation::new()?;
+        let elevated = user_environment().is_err();
+        let child = Process::shell(
+            "ping -n 120 127.0.0.1 >nul",
+            None,
+            elevated,
+            &BTreeMap::new(),
+        )?;
+        cancel.cancel()?;
+        let started = std::time::Instant::now();
+        assert_eq!(
+            child.wait_cancellable(Duration::from_secs(120), &cancel)?,
+            None
+        );
+        assert!(started.elapsed() < Duration::from_secs(2));
+        assert!(child.exit_code()?.is_some());
+        assert_eq!(child.active_processes()?, 0);
+        Ok(())
+    }
     #[test]
     fn streaming_session_rejects_disconnected_rdp_and_session_transitions() {
         for state in [

@@ -9,6 +9,7 @@
   import SessionsPanel from '../components/maintenance/SessionsPanel.svelte';
   import UpdatesPanel from '../components/maintenance/UpdatesPanel.svelte';
   import VulkanPanel from '../components/maintenance/VulkanPanel.svelte';
+  import WindowsSessionPanel from '../components/maintenance/WindowsSessionPanel.svelte';
   import { reason } from '../components/maintenance/util';
   import { api, type WebSession } from '../lib/api';
 
@@ -34,6 +35,7 @@
   <div class="columns">
     <div class="stack">
       <HostPanel />
+      <WindowsSessionPanel />
       <UpdatesPanel />
       <CrashPanel />
       <DisplaysPanel />

@@ -348,9 +348,14 @@ fn retarget<'a>(current: Option<&Sample>, selected: Option<&'a Sample>) -> Optio
     selected.filter(|next| current.is_none_or(|game| game.identity() != next.identity()))
 }
 /// Lossless Scaling for one running app.
+struct Applied {
+    settings: PathBuf,
+    program: PathBuf,
+    session: u32,
+}
 pub struct Session {
     stop: Arc<AtomicBool>,
-    applied: Arc<Mutex<Option<PathBuf>>>,
+    applied: Arc<Mutex<Option<Applied>>>,
     worker: Option<std::thread::JoinHandle<()>>,
 }
 impl Session {
@@ -387,10 +392,11 @@ impl Session {
         if let Some(worker) = self.worker.take() {
             let _ = worker.join();
         }
-        let Some(settings) = self.applied.lock().unwrap().take() else {
+        let Some(applied) = self.applied.lock().unwrap().take() else {
             return;
         };
-        close_lossless();
+        close_lossless(&applied.program, applied.session);
+        let settings = applied.settings;
         let restored = std::fs::read_to_string(&settings)
             .map_err(anyhow::Error::from)
             .and_then(|text| without_profile(&text))
@@ -406,7 +412,10 @@ impl Session {
         }
     }
 }
-fn lossless_processes() -> std::collections::BTreeMap<u32, u64> {
+fn lossless_processes(program: &Path, session: u32) -> std::collections::BTreeMap<u32, u64> {
+    let Ok(program) = std::fs::canonicalize(program) else {
+        return BTreeMap::new();
+    };
     butterpollo_windows::process::processes()
         .unwrap_or_default()
         .into_iter()
@@ -415,11 +424,20 @@ fn lossless_processes() -> std::collections::BTreeMap<u32, u64> {
                 .iter()
                 .any(|n| p.name.eq_ignore_ascii_case(n))
         })
+        .filter(|p| {
+            butterpollo_windows::process::process_session(p.pid).ok() == Some(session)
+                && butterpollo_windows::process::image_path(p.pid)
+                    .and_then(|path| std::fs::canonicalize(path).ok())
+                    .is_some_and(|path| path.as_os_str().eq_ignore_ascii_case(program.as_os_str()))
+        })
         .map(|p| (p.pid, p.started))
         .collect()
 }
-fn close_lossless() {
-    butterpollo_windows::process::stop_processes(&lossless_processes(), Duration::from_secs(4));
+fn close_lossless(program: &Path, session: u32) {
+    butterpollo_windows::process::stop_processes(
+        &lossless_processes(program, session),
+        Duration::from_secs(4),
+    );
 }
 fn wait(stop: &AtomicBool, duration: Duration) -> bool {
     let until = Instant::now() + duration;
@@ -442,7 +460,7 @@ fn run(
     root_pid: u32,
     folder: &(dyn Fn() -> Option<String> + Send),
     stop: &AtomicBool,
-    applied: &Mutex<Option<PathBuf>>,
+    applied: &Mutex<Option<Applied>>,
 ) -> Result<()> {
     let program = butterpollo_windows::lossless::program(configured_program)
         .context("Lossless Scaling was not found; set its path in Settings")?;
@@ -543,9 +561,10 @@ fn apply_game(
     game: &Sample,
     folder: Option<&str>,
     stop: &AtomicBool,
-    applied: &Mutex<Option<PathBuf>>,
+    applied: &Mutex<Option<Applied>>,
 ) -> Result<()> {
-    close_lossless();
+    let session = butterpollo_windows::process::current_session()?;
+    close_lossless(program, session);
     if stop.load(Ordering::Acquire) {
         return Ok(());
     }
@@ -562,7 +581,11 @@ fn apply_game(
         ),
     )?;
     butterpollo_core::state::atomic_write(settings, updated.as_bytes())?;
-    *applied.lock().unwrap() = Some(settings.to_owned());
+    *applied.lock().unwrap() = Some(Applied {
+        settings: settings.to_owned(),
+        program: program.to_owned(),
+        session,
+    });
     if stop.load(Ordering::Acquire) {
         return Ok(());
     }
@@ -573,7 +596,7 @@ fn apply_game(
     )?;
     let started = Instant::now();
     let lossless = loop {
-        if let Some(pid) = lossless_processes().keys().next().copied()
+        if let Some(pid) = lossless_processes(program, session).keys().next().copied()
             && !butterpollo_windows::lossless::windows_of(pid).is_empty()
         {
             break Some(pid);

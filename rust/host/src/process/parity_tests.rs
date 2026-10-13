@@ -3,6 +3,40 @@ use crate::state::test_support::Fixture;
 use serde_json::json;
 
 #[test]
+fn stopping_an_app_cancels_running_and_queued_state_commands_before_undo() {
+    let fixture = Fixture::new();
+    let trace = fixture.host.directory.join("trace.txt");
+    let ready = fixture.host.directory.join("ready.txt");
+    let elevated = butterpollo_windows::process::user_environment().is_err();
+    let app: App = serde_json::from_value(json!({
+        "name": "State command cancellation",
+        "prep-cmd": [{"do": format!("echo prepared>\"{}\"", trace.display()),
+            "undo": format!("echo undone>>\"{}\"", trace.display()), "elevated": elevated}],
+        "state-cmd": [{"do": format!("echo state>>\"{}\" & echo ready>\"{}\" & ping -n 120 127.0.0.1 >nul & echo stale>>\"{}\"", trace.display(), ready.display(), trace.display()),
+            "undo": format!("echo queued-pause>>\"{}\"", trace.display()), "elevated": elevated}]
+    })).unwrap();
+    let mut running = RunningApp::with_environment(&app, BTreeMap::new()).unwrap();
+    running.connection_state(true);
+    let deadline = std::time::Instant::now() + Duration::from_secs(3);
+    while !ready.exists() {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "state command did not start"
+        );
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    running.connection_state(false);
+    running.connection_state(true);
+    running.stop();
+    let log = std::fs::read_to_string(trace).unwrap();
+    assert_eq!(
+        log.lines().map(str::trim).collect::<Vec<_>>(),
+        ["prepared", "state", "undone"]
+    );
+    assert!(running.state_events.is_none());
+}
+
+#[test]
 fn before_sign_in_app_commands_are_deferred_and_the_requesting_device_keeps_ownership() {
     let f = Fixture::new();
     let app: App = serde_json::from_value(json!({"name":"Deferred","cmd":"must not execute",

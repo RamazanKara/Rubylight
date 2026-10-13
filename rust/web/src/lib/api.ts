@@ -337,6 +337,13 @@ export interface StreamSession {
   uptime_seconds: number;
   role: Role;
 }
+export interface ConsoleRecovery {
+  session_id: number;
+  console_session_id: number;
+  can_reattach: boolean;
+  reason: string;
+}
+
 export interface SessionStatus {
   status: true;
   activeSessions: number;
@@ -527,6 +534,11 @@ export const api = {
   sessions: {
     status: () => get<SessionStatus>('/api/session/status'),
     streams: () => get<{ status: true; sessions: StreamSession[] }>('/api/rtsp/sessions'),
+    console: () => get<{ status: true; recovery: ConsoleRecovery }>('/api/session/console'),
+    returnToConsole: (recovery: ConsoleRecovery) => post<Ok>('/api/session/console', {
+      session_id: recovery.session_id,
+      console_session_id: recovery.console_session_id,
+    }),
   },
   displays: {
     devices: () => get<DisplayDevice[]>('/api/display-devices'),

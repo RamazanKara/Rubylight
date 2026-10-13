@@ -42,6 +42,17 @@ struct Entry {
     )>,
 }
 impl Entry {
+    fn display_settings(&self) -> Self {
+        Self {
+            output: self.output.clone(),
+            profile: self.profile.clone(),
+            hdr: self.hdr,
+            mode: self.mode,
+            mode_rate: self.mode_rate,
+            position: self.position,
+            ..Default::default()
+        }
+    }
     fn pending(&self) -> bool {
         self.mode.is_some()
             || self.hdr.is_some()
@@ -54,6 +65,14 @@ impl Entry {
             || self.baseline.is_some()
             || self.activation.is_some()
     }
+}
+
+/// Keep the original value until restoration succeeds (or the operation
+/// establishes that the user has since changed it).
+fn restored<T>(pending: &mut Option<T>, result: Result<()>) -> Result<()> {
+    result?;
+    *pending = None;
+    Ok(())
 }
 #[derive(Clone, Default, Serialize, Deserialize)]
 struct Journal {
@@ -429,7 +448,8 @@ pub fn release_profile(id: &str) -> Result<()> {
 /// that is not connected now, such as a TV that was switched off, keeps its
 /// own HDR, colour profile, mode and position entries for a later recovery:
 /// Windows remembers those settings per display, so they would otherwise
-/// stay changed. Layout entries are attempted once.
+/// stay changed. Failed per-display changes are also kept for retry. Layout
+/// entries are attempted once.
 fn recover(path: &Path) -> Result<()> {
     if !path.exists() {
         return Ok(());
@@ -462,75 +482,83 @@ fn recover(path: &Path) -> Result<()> {
         step("display list", Err(error));
         Vec::new()
     });
-    let mut kept = Journal::default();
+    let mut kept = Journal {
+        entries: journal
+            .entries
+            .iter()
+            .map(|(id, entry)| (id.clone(), entry.display_settings()))
+            .collect(),
+        ..Default::default()
+    };
     for (id, entry) in &journal.entries {
         let Some(m) = monitors.iter().find(|m| &m.device_id == id) else {
-            let display = Entry {
-                output: entry.output.clone(),
-                profile: entry.profile.clone(),
-                hdr: entry.hdr,
-                mode: entry.mode,
-                mode_rate: entry.mode_rate,
-                position: entry.position,
-                ..Default::default()
-            };
             // Each setting is restored later only if the display still has
             // the value the stream applied.
-            if display.pending() {
-                kept.entries.insert(id.clone(), display);
-            }
             continue;
         };
+        let pending = kept.entries.get_mut(id).expect("copied display entry");
         let what = |setting: &str| format!("{} {setting}", m.display_name);
         if let Some((previous, applied, system)) = &entry.profile {
             step(
                 &what("colour profile"),
-                crate::hdr_profile::restore(m, previous.as_deref(), applied, *system),
+                restored(
+                    &mut pending.profile,
+                    crate::hdr_profile::restore(m, previous.as_deref(), applied, *system),
+                ),
             );
         }
-        if let Some((previous, applied)) = entry.hdr
-            && m.hdr_enabled == applied
-        {
-            step(&what("HDR"), crate::display::set_hdr(m, previous));
+        if let Some((previous, applied)) = entry.hdr {
+            let result = if m.hdr_enabled == applied {
+                crate::display::set_hdr(m, previous)
+            } else {
+                Ok(())
+            };
+            step(&what("HDR"), restored(&mut pending.hdr, result));
         }
         if let Some((previous, applied)) = entry.mode {
             step(
                 &what("mode"),
-                crate::display::mode(&m.display_name).and_then(|current| {
-                    if (
-                        current.dmPelsWidth,
-                        current.dmPelsHeight,
-                        current.dmDisplayFrequency,
-                    ) == applied
-                    {
-                        crate::display::set_mode(
-                            &m.display_name,
-                            previous.0,
-                            previous.1,
-                            previous.2,
-                        )
-                    } else {
-                        Ok(())
-                    }
-                }),
+                restored(
+                    &mut pending.mode,
+                    crate::display::mode(&m.display_name).and_then(|current| {
+                        if (
+                            current.dmPelsWidth,
+                            current.dmPelsHeight,
+                            current.dmDisplayFrequency,
+                        ) == applied
+                        {
+                            crate::display::set_mode(
+                                &m.display_name,
+                                previous.0,
+                                previous.1,
+                                previous.2,
+                            )
+                        } else {
+                            Ok(())
+                        }
+                    }),
+                ),
             );
         }
         if let Some((previous, applied)) = entry.mode_rate {
             step(
                 &what("mode and refresh"),
-                (|| {
-                    let current = crate::display::mode(&m.display_name)?;
-                    let rate = crate::display::Topology::query()?.refresh(id)?;
-                    if (current.dmPelsWidth, current.dmPelsHeight, rate.0) == applied {
-                        crate::display::Topology::set_mode_rate(
-                            id,
-                            previous.0,
-                            previous.1,
-                            butterpollo_core::framegen::Rate(previous.2),
-                        )?;
-                    }
-                    Ok(())
-                })(),
+                restored(
+                    &mut pending.mode_rate,
+                    (|| {
+                        let current = crate::display::mode(&m.display_name)?;
+                        let rate = crate::display::Topology::query()?.refresh(id)?;
+                        if (current.dmPelsWidth, current.dmPelsHeight, rate.0) == applied {
+                            crate::display::Topology::set_mode_rate(
+                                id,
+                                previous.0,
+                                previous.1,
+                                butterpollo_core::framegen::Rate(previous.2),
+                            )?;
+                        }
+                        Ok(())
+                    })(),
+                ),
             );
         }
     }
@@ -553,6 +581,11 @@ fn recover(path: &Path) -> Result<()> {
             if !positions.is_empty() {
                 topology.set_positions(&positions)?;
             }
+            for (id, pending) in &mut kept.entries {
+                if nodes.iter().any(|node| &node.device_id == id) {
+                    pending.position = None;
+                }
+            }
             Ok(())
         })(),
     );
@@ -574,6 +607,7 @@ fn recover(path: &Path) -> Result<()> {
     }
     // Keep a valid document so interrupted reads never see partial JSON. The
     // kept entries have no owner until the next host records a change.
+    kept.entries.retain(|_, entry| entry.pending());
     butterpollo_core::state::write_json(path, &kept)?;
     if !failures.is_empty() {
         bail!("display recovery incomplete: {}", failures.join("; "));
@@ -639,6 +673,27 @@ pub fn wait_and_recover(pid: u32, directory: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn failed_display_settings_survive_the_next_recovery_journal() -> Result<()> {
+        let original = Entry {
+            hdr: Some((false, true)),
+            mode: Some(((3840, 2160, 60), (1920, 1080, 120))),
+            profile: Some((None, "stream.icm".into(), false)),
+            ..Default::default()
+        };
+        let mut pending = original.display_settings();
+        assert!(restored(&mut pending.hdr, Err(anyhow::anyhow!("busy"))).is_err());
+        restored(&mut pending.mode, Ok(()))?;
+        assert!(restored(&mut pending.profile, Err(anyhow::anyhow!("busy"))).is_err());
+        let mut reloaded: Entry = serde_json::from_slice(&serde_json::to_vec(&pending)?)?;
+        assert_eq!(reloaded.hdr, original.hdr);
+        assert_eq!(reloaded.profile, original.profile);
+        assert!(reloaded.mode.is_none());
+        restored(&mut reloaded.hdr, Ok(()))?;
+        restored(&mut reloaded.profile, Ok(()))?;
+        assert!(!reloaded.pending());
+        Ok(())
+    }
     #[test]
     fn stalled_watcher_exit_is_bounded() -> Result<()> {
         use std::os::windows::process::CommandExt;

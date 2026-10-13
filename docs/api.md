@@ -72,6 +72,8 @@ curl.exe --fail-with-body --silent --show-error --cacert $certificate --user adm
 
 `/api/session/status` includes `activeSessions`, `appRunning`, `appName`, `paused` and `running`. An app can remain running after its stream disconnects, so these fields describe different states.
 
+`GET /api/session/console` returns `recovery` with `session_id`, `console_session_id`, `can_reattach` and a human-readable `reason`. After explicit user confirmation, `POST /api/session/console` with those two IDs requests that Windows return the host's own RDP session to the unoccupied physical console. The host rechecks session identity, console occupancy and idle transports before making the request; it never selects another user's source session. The response acknowledges the request, not completion of the asynchronous Windows transition. The same authentication, token-scope and CSRF rules as other administration endpoints apply. This can disconnect RDP and make the desktop visible at the PC.
+
 ## Endpoint groups
 
 The routes below are implemented by the Rust host. JSON requests use `Content-Type: application/json`; most responses include a Boolean `status`. Display lists, images and log downloads have their own response formats.

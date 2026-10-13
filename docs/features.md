@@ -36,7 +36,7 @@ NVIDIA NVENC, Intel Quick Sync and software encoders are included for other hard
 
 - **Keyboard, mouse, touch, pen and controllers.** Standard profiles use the signed VHF driver included in the installer.
 - **The right pad for the client.** PlayStation-type clients get a DualSense with adaptive triggers, Nintendo-type clients a Switch Pro, and others an Xbox Series pad. Two touchpads from a Steam Deck sit side by side on one surface.
-- **DualSense waveform haptics (experimental, main builds).** Native USB audio haptics with usbip-win2 and a compatible client, including Rubylight Android over USB. [Setup and limits](dualsense-haptics.md).
+- **DualSense waveform haptics.** Native USB audio haptics with usbip-win2 and a compatible client, including Rubylight Android over USB. [Setup and limits](dualsense-haptics.md).
 - **Back grips.** Steam Deck L4/R4/L5/R5 and Xbox Elite paddles press the buttons you choose, under **Back grips**.
 - **A real Steam Deck controller.** With usbip-win2 installed, a Steam Deck client shows up on the host as a Steam Deck with trackpads, gyro and back grips.
 - **Audio.** Endpoint matching by id, name, description or adapter, Steam Streaming Speakers, and surround Opus.
@@ -61,7 +61,7 @@ NVIDIA NVENC, Intel Quick Sync and software encoders are included for other hard
 
 ## Install and update
 
-- **One installer** that sets up the service, drivers, firewall rule and shortcuts, and upgrades in place. Development installers now bundle optional usbip-win2 for native Steam Deck controllers and DualSense USB audio and waveform haptics. It imports an existing Vibepollo or Apollo profile and keeps your settings, paired devices, apps and covers.
+- **One installer** that sets up the service, drivers, firewall rule and shortcuts, and upgrades in place. The installer bundles optional usbip-win2 for native Steam Deck controllers and DualSense USB audio and waveform haptics. It imports an existing Vibepollo or Apollo profile and keeps your settings, paired devices, apps and covers.
 - **Updates notify you first.** Automatic installation is opt-in; the host downloads the exact installer from the official release, verifies its size and SHA-256 digest, waits for an idle minute and upgrades through the service. A failed copy or start restores the previous files.
 - **A service that restarts the host** after a crash.
 - **Separate instances** with independent profile folders and base ports. Copied portable packages can use an adjacent `config` folder from 2.2.6; older packages support explicit `--config-dir` paths. See [multiple instances](configuration.md#multiple-instances).

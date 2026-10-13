@@ -2,11 +2,11 @@
 
 Rubylight can expose a composite DualSense controller on the Windows host, including its USB audio endpoint. Games write their native haptic audio to that endpoint; Rubylight forwards the two actuator channels using Nonary's Moonlight PCM extension. Ordinary rumble, adaptive triggers, lightbar, motion, touchpad and battery reports remain available.
 
-This is experimental support in development builds from main. Released installers prepared before this change do not include it. Protocol, descriptor and queue checks run without installing a driver. Native game detection and physical controller output have not yet been verified end to end.
+Available in Rubylight 2.2.15 and later. Earlier releases do not include DualSense waveform haptics or the bundled USB/IP installer.
 
 ## Setup
 
-1. In the Windows installer, select **Install USB audio and haptics support** on the **Steam Deck and DualSense USB audio and haptics** page. Development packages now bundle the signed usbip-win2 0.9.8.1 installer; it is optional and off by default. Setup remembers your choice for updates and reuses an existing shared USB/IP installation. Installing it can reconnect USB devices and require a Windows restart; setup never restarts Windows automatically. For an older Rubylight package, install [usbip-win2](https://github.com/vadimgrn/usbip-win2/releases) separately.
+1. In the Windows installer, select **Install USB audio and haptics support** on the **Steam Deck and DualSense USB audio and haptics** page. Rubylight 2.2.15 and later bundle the signed usbip-win2 0.9.8.1 installer; it is optional and off by default. Setup remembers your choice for updates and reuses an existing shared USB/IP installation. Installing it can reconnect USB devices and require a Windows restart; setup never restarts Windows automatically. For an older Rubylight package, install [usbip-win2](https://github.com/vadimgrn/usbip-win2/releases) separately.
 2. Use a client that implements Nonary's PCM haptics extension. For [Rubylight Android](https://github.com/RamazanKara/rubylight-android/blob/main/docs/dualsense-haptics.md), connect a DualSense or DualSense Edge by USB and enable both USB DualSense options in Advanced settings before reconnecting.
 3. Leave **Settings → Input → Controller type** on **Automatic**, or choose **DualSense with waveform haptics (USB/IP)**. The same choice is available in an app's controller override.
 4. Connect to Desktop first, wait for the controller and its audio device to appear on the host, then start the game. Disable host-side Steam Input for games that need to access the native DualSense. Games that only detect devices at startup need restarting after the controller connects.

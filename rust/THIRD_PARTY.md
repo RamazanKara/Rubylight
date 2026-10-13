@@ -19,7 +19,7 @@ The standalone C programs under `rust/tests` are independent interoperability fi
 
 ## Composite DualSense haptics
 
-The USB/IP audio and haptics implementation was adapted to Rust on 2026-10-13 from [Nonary/Vibepollo 8b3ea1c4](https://github.com/Nonary/Vibepollo/tree/8b3ea1c4a41c383752475ffa551168a16b024d48), under GPL-3.0-or-later (used here under GPLv3). USB descriptors, reports and calibration derive from [Nonary/libvirtualgamepad 9edbce11](https://github.com/Nonary/libvirtualgamepad/tree/9edbce11ad71e9455867c356c8368a6b39fa2242), by Chase Payne, and HIDMaestro’s composite profile under the MIT terms below. Development packages now bundle the optional usbip-win2 installer described above, shared by native Steam Deck controllers and composite DualSense haptics.
+The USB/IP audio and haptics implementation was adapted to Rust on 2026-10-13 from [Nonary/Vibepollo 8b3ea1c4](https://github.com/Nonary/Vibepollo/tree/8b3ea1c4a41c383752475ffa551168a16b024d48), under GPL-3.0-or-later (used here under GPLv3). USB descriptors, reports and calibration derive from [Nonary/libvirtualgamepad 9edbce11](https://github.com/Nonary/libvirtualgamepad/tree/9edbce11ad71e9455867c356c8368a6b39fa2242), by Chase Payne, and HIDMaestro’s composite profile under the MIT terms below. Windows packages bundle the optional usbip-win2 installer described above, shared by native Steam Deck controllers and composite DualSense haptics.
 
 MIT License
 

@@ -21,16 +21,16 @@ Already using Rubylight? Go straight to [Upgrading](#upgrading). Moving a portab
 
 ## Install or run portable
 
-Download the Windows package from [Rubylight Releases](https://github.com/RamazanKara/Rubylight/releases). For 2.2.14, choose:
+Download the Windows package from [Rubylight Releases](https://github.com/RamazanKara/Rubylight/releases). For 2.2.15, choose:
 
 | Package | How to start | Best fit |
 | --- | --- | --- |
-| `rubylight-setup-2.2.14.exe` | Run the installer, then open **Rubylight** from the Start menu. | Normal use, automatic service startup and virtual displays. |
-| `rubylight-2.2.14-windows-x64.zip` | Extract the whole ZIP and open **Start Rubylight.exe**. | Trying the host with a physical display. |
+| `rubylight-setup-2.2.15.exe` | Run the installer, then open **Rubylight** from the Start menu. | Normal use, automatic service startup and virtual displays. |
+| `rubylight-2.2.15-windows-x64.zip` | Extract the whole ZIP and open **Start Rubylight.exe**. | Trying the host with a physical display. |
 
 Releases up to 2.0.1 also list a `butterpollo-setup-<version>.exe`. It is the same file as `rubylight-setup-<version>.exe` under the name Rubylight had before; download either. Butterpollo and Rubylight are one product, so there is no separate Butterpollo download, and installing over a Butterpollo host keeps its settings, paired devices and apps.
 
-The installer sets up the host, the Windows service, the virtual display driver and, unless you untick it, the VHF driver for standard emulated controllers. Development builds also bundle optional **Steam Deck and DualSense USB audio and haptics** support through usbip-win2. Select **Install USB audio and haptics support** to install it; it is off by default, and updates remember your choice. This can reconnect USB devices and require a restart. [USB audio and haptics setup](dualsense-haptics.md) covers quiet installation and portable packages. An upgrade preserves the existing Rubylight settings and paired devices and can migrate a detected Vibepollo installation.
+The installer sets up the host, the Windows service, the virtual display driver and, unless you untick it, the VHF driver for standard emulated controllers. The installer also bundles optional **Steam Deck and DualSense USB audio and haptics** support through usbip-win2. Select **Install USB audio and haptics support** to install it; it is off by default, and updates remember your choice. This can reconnect USB devices and require a restart. [USB audio and haptics setup](dualsense-haptics.md) covers quiet installation and portable packages. An upgrade preserves the existing Rubylight settings and paired devices and can migrate a detected Vibepollo installation.
 
 - **Install folder.** A new installation goes to `C:\Program Files\Rubylight`; **Change folder…** in the setup window picks another folder on a drive of this PC. Picking a folder that already holds other files installs into a `Rubylight` folder inside it. A folder outside Program Files gets the same permissions Program Files has: only administrators can change the programs the service runs. An installed Rubylight is updated in its own folder. To move it, uninstall it (settings and paired devices stay in `%PROGRAMDATA%\Butterpollo`) and install again in the new folder.
 - **Installing during a stream.** You can run the installer from inside a stream, for example from a PC on another floor. Setup says that Rubylight is streaming; **Install** then ends the stream and closes games started from Moonlight, installs, and starts Rubylight again. Connect again when setup has finished (16 seconds on the RX 7900 XT test host); the setup window shows the result on the host's desktop. **Maintenance → Updates → Install now** does the same from the console.

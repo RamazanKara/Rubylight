@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="host_display_menu">PC-Displaymodus</string>
+    <string name="host_display_menu">PC-Displaymodus (Rubylight-Host)</string>
     <string name="host_display_location">Exklusiv oder Erweitert findest du im Menü deines PCs → Stream-Einstellungen → PC-Displaymodus. Der Displaymodus wird für jeden PC separat gespeichert.</string>
     <string name="host_display_controls_virtual">Durch den PC-Displaymodus festgelegt: %1$s</string>
     <string name="host_display_title">Display an %1$s</string>

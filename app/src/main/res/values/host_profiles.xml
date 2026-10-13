@@ -30,7 +30,7 @@
         <item>Prefer AV1</item>
         <item>Prefer HEVC</item>
         <item>H.264</item>
-        <item>PyroWave</item>
+        <item>@string/videoformat_pyrowave</item>
     </string-array>
     <string name="host_profile_follows">Same as all PCs · %1$s</string>
     <string name="host_profile_same_as_all_value">Same as all PCs (%1$s)</string>

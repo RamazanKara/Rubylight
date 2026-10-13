@@ -2333,7 +2333,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                     details.frameLimiterFpsLimitMilliHz == 0 ? getString(R.string.stream_limiter_stream_rate) :
                             String.format(Locale.getDefault(), "%.3f FPS", details.frameLimiterFpsLimitMilliHz / 1000.0)));
         }
-        status.append("\n\n").append(getString(R.string.stream_android_pacing));
+        status.append("\n\n").append(getString(!prefConfig.vrr ? R.string.stream_android_pacing :
+                useArr ? R.string.stream_android_arr : R.string.stream_android_max_refresh));
         showStreamDialog(new MaterialAlertDialogBuilder(this).setTitle(R.string.stream_host_status)
                 .setMessage(status).setPositiveButton(android.R.string.ok, null).create());
     }

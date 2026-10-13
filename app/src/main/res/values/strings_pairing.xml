@@ -7,7 +7,7 @@
     <string name="pair_otp_invalid_pin">Enter the four-digit PIN from the host.</string>
     <string name="pair_otp_invalid_passphrase">Enter the host passphrase (at least four characters).</string>
     <string name="guide_title">Connect to your PC</string>
-    <string name="guide_text">1. Start Rubylight on the PC and open its web console.\n2. On Android, select the PC on the same network.\n3. In the PC’s web console, open Devices and enter the PIN shown on Android.</string>
+    <string name="guide_text">1. Start a GameStream-compatible host, such as Sunshine or Rubylight, on the PC.\n2. On Android, select the PC on the same network.\n3. Enter the PIN shown on Android in the host’s pairing screen (Sunshine: PIN; Rubylight: Devices).</string>
     <string name="guide_done">Got it</string>
     <string name="guide_troubleshooting">Help</string>
 </resources>

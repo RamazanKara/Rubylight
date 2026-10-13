@@ -30,9 +30,9 @@
     <string name="pairing">Pairing…</string>
     <string name="pair_pc_offline">Wake the PC and start the host app.\nUse the same network, then retry.</string>
     <string name="pair_pc_ingame">Stop the host’s stream, then pair again.</string>
-    <string name="pair_pairing_title">Pair Rubylight</string>
+    <string name="pair_pairing_title">Pair with PC</string>
     <string name="pair_pairing_msg">Enter this PIN on the host:</string>
-    <string name="pair_pairing_help">On the PC, open Rubylight’s web console → Devices and enter this PIN.</string>
+    <string name="pair_pairing_help">Enter this PIN in the PC’s host pairing screen (Sunshine: PIN; Rubylight: Devices).</string>
     <string name="pair_incorrect_pin">PIN rejected. Try pairing again and enter the new PIN shown on this device in the host web console.</string>
     <string name="pair_fail">Cancel the old request in the host console, then retry.</string>
     <string name="pair_already_in_progress">Finish or cancel the pending request on the host.</string>
@@ -131,7 +131,7 @@
     <!-- Add computer manually activity -->
     <string name="title_add_pc">Add PC</string>
     <string name="msg_add_pc">Connecting to the PC…</string>
-    <string name="addpc_fail">Start Rubylight on the PC and allow it through the firewall.</string>
+    <string name="addpc_fail">Start a compatible streaming host, such as Sunshine or Rubylight, on the PC and allow it through the firewall.</string>
     <string name="addpc_success">Host added</string>
     <string name="addpc_unknown_host">PC not found. Check the address.</string>
     <string name="addpc_enter_ip">Enter the host\'s IP address or name</string>
@@ -247,8 +247,8 @@
     <string name="title_disable_frame_drop">Never drop frames</string>
     <string name="summary_disable_frame_drop">Reduce stutter at the cost of some delay.</string>
     <string name="title_video_format">Video codec</string>
-    <string name="summary_video_format">Choose a codec supported by your PC and device.</string>
-    <string name="pyrowave_ready">Ready on this phone</string>
+    <string name="summary_video_format">Choose a codec supported by your PC and device. PyroWave requires Rubylight or another host with PyroWave support.</string>
+    <string name="pyrowave_ready">Ready on this phone. Requires Rubylight or another host with PyroWave support.</string>
     <string name="pyrowave_checking">Checking GPU support…</string>
     <string name="pyrowave_needs_android">Not supported: needs Android 10</string>
     <string name="pyrowave_needs_64_bit">Not supported: needs a 64-bit app</string>
@@ -329,8 +329,8 @@
     <string name="yuv444_fallback">YUV 4:4:4 unavailable; using 4:2:0.</string>
     <string name="title_virtual_display">Host virtual display</string>
     <string name="summary_virtual_display">Ask the PC for a display that matches the stream. Off: the PC’s own display settings decide.</string>
-    <string name="title_vrr">Variable refresh (VRR)</string>
-    <string name="summary_vrr">Match the screen to the game’s frame rate. Turns off frame timing with a Rubylight PC.</string>
+    <string name="title_vrr">Adaptive refresh (ARR / VRR)</string>
+    <string name="summary_vrr">Use measured stream FPS with any compatible host. Requires Android 16 and an ARR display; otherwise requests maximum refresh. Host-side VRR pacing needs a supporting host, such as Rubylight or Vibepollo.</string>
     <string name="title_virtual_display_scale">Host render scale</string>
     <string name="summary_virtual_display_scale">Changes the PC’s render resolution, not the transmitted video size. To send fewer pixels and upscale on this device, lower Stream resolution.</string>
     <string name="latency_values">%1$.2f / %2$.2f / %3$.2f (n=%4$d)</string>
@@ -391,12 +391,14 @@
     <string name="stream_disabled">Off</string>
     <string name="stream_limiter_status">Host frame limit: %1$s\nAuto display limit: %2$s\nTarget: %3$s</string>
     <string name="stream_limiter_stream_rate">Stream frame rate</string>
-    <string name="stream_android_pacing">VRR shows frames as they arrive.\nOtherwise, your frame pacing setting applies.</string>
+    <string name="stream_android_pacing">Adaptive refresh is off. Your frame pacing setting applies.</string>
+    <string name="stream_android_arr">Android ARR: enabled, using measured stream FPS. Works with any compatible host; Android chooses the actual refresh rate.</string>
+    <string name="stream_android_max_refresh">Android ARR: unavailable on this Android version or display. Requesting maximum refresh and showing frames as they arrive.</string>
     <string name="stream_host_action_failed">Host action failed: %1$s</string>
     <string name="host_launch_permission_denied">Allow this device to launch apps in the host console.</string>
     <string name="category_butterpollo_host">Host display</string>
     <string name="category_latency_diagnostics">Latency diagnostics</string>
-    <string name="videoformat_pyrowave">PyroWave</string>
+    <string name="videoformat_pyrowave">PyroWave (host support required)</string>
     <string name="settings">Settings</string>
     <string name="settings_navigate_up">Navigate up</string>
     <string name="settings_section_video">Stream</string>

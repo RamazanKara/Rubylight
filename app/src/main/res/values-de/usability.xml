@@ -1,5 +1,5 @@
 <resources>
-    <string name="startup_connection_failed">Keine Verbindung zum PC möglich. Prüfe, ob Rubylight läuft, beide Geräte sich erreichen und die Firewall am PC Streaming erlaubt. Versuche es dann erneut.</string>
+    <string name="startup_connection_failed">Keine Verbindung zum PC möglich. Prüfe, ob der Streaming-Host läuft, beide Geräte sich erreichen und die Firewall am PC Streaming erlaubt. Versuche es dann erneut.</string>
     <string name="startup_permission_denied">Der Host hat die Anfrage abgelehnt. Öffne am PC die Rubylight-Webkonsole → Geräte, aktiviere dieses Gerät und erlaube das Anzeigen oder Starten von Apps.</string>
     <string name="startup_host_error">Der Host konnte den Stream nicht starten (Fehler %1$d). Prüfe seinen Status in der Webkonsole, aktualisiere die App-Liste und versuche es erneut.</string>
     <string name="startup_invalid_host">Der PC hat eine ungültige Serverversion gemeldet. Aktualisiere den Host oder starte ihn neu und versuche es erneut.</string>

@@ -281,6 +281,8 @@ public final class HostStreamSettings extends AppCompatActivity {
             for (String key : new String[] {"hdr", "vrr", "virtual", "yuv444", "full_range"}) {
                 findPreference(key).setSummary(summary(switchOverride(key) != null, onOff(switchValue(config, key))));
             }
+            findPreference("vrr").setSummary(findPreference("vrr").getSummary() +
+                    "\n" + getString(R.string.summary_vrr));
             findPreference("scale").setSummary(summary(own.renderScale != null, config.virtualDisplayScale + "%") +
                     "\n" + getString(R.string.summary_virtual_display_scale));
             findPreference("reset").setEnabled(!own.isEmpty());

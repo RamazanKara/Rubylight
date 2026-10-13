@@ -6,6 +6,12 @@
 
 Rubylight, called Butterpollo until rc.29, is written in Rust: host, native helpers, service and setup, with a Svelte web console. The 2.2.11 installer is named `rubylight-setup-2.2.11.exe` and upgrades an existing Vibepollo or Butterpollo installation in place, keeping settings, paired devices, the app library and covers. Codec SDKs and Windows drivers remain external components; the setup installs the drivers.
 
+## Unreleased candidate
+
+- **Adaptive native AMF backlog.** Learn the application's encode depth from matched output, with bounded startup priming and room for the driver's reported pre-analysis. Keep packet sending separate so it can overlap a depth-one encoder. Unknown driver requirements retain the previous two-frame policy. The driver queue and surface ownership rules are unchanged.
+
+This candidate is not part of 2.2.11. Windows/AMD before-and-after performance measurements are still required before shipping; see the [validation record](PERFORMANCE_WORK.md#october-13-adaptive-amf-backlog-candidate).
+
 ## New in 2.2.11
 
 - **Recover headless virtual-display startup ([#18](https://github.com/RamazanKara/Rubylight/issues/18)).** Startup renews the lease and reactivates the same owned target if Windows takes it off the active desktop. Windows can also expose a display route before publishing its monitor interface; Rubylight now waits for that interface before saving the display identity, preventing the later `owned virtual display unavailable after startup protection` failure.

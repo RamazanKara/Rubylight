@@ -35,7 +35,9 @@ For standard H.264, HEVC and AV1 streams on supported AMD GPUs:
 
 The raw picture stays in GPU textures through preparation and encoding; compressed output returns to the CPU for transport. Moonlight receives, decodes and presents it on the client. Those client stages and network transit are separate from [host-processing time](performance.md#what-the-numbers-mean).
 
-Before claiming another picture, the [stream loop](../rust/host/src/stream.rs) checks both the encoder and the conventional video sender. Two outstanding frames stop another claim; keyframes reserve additional sending capacity. Once work drains, the host takes the newest available picture. This bounds picture age under pressure without promising a frame rate that the hardware or link cannot sustain.
+Before claiming another picture, the [stream loop](../rust/host/src/stream.rs) checks both the encoder and the conventional video sender. Native AMF learns its application backlog from completed pictures: a driver that drains each input can settle at one outstanding encode, while pre-analysis and drivers that retain inputs keep the depth they need. Startup permits four inputs without pre-analysis, or six with the configured one-frame lookahead; the existing eight-surface ownership cap and driver queue settings remain separate. If the driver's pre-analysis requirements cannot be read, the application keeps its previous limit of two.
+
+The combined encoder/sender allowance is at least two, so sending a packet can overlap the next encode even after AMF learns depth one. Larger AMF startup or lookahead requirements expand that combined allowance. Other encoders retain the existing two-picture budget; keyframes reserve additional sending capacity. Once work drains, the host takes the newest available picture. The adaptive policy is an [unreleased experiment awaiting hardware measurements](../rust/PERFORMANCE_WORK.md#october-13-adaptive-amf-backlog-candidate), not a measured latency improvement.
 
 ![Scheduling schematic comparing the reviewed Sunshine-derived D3D11 path with Rubylight's D3D12 compute path](media/compute-comparison.svg)
 

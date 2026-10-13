@@ -10,6 +10,58 @@ entry may have been measured in a later one. Results to a real laptop over
 Wi-Fi are in "October 8 real-client picture age over Wi-Fi"; the
 [performance overview](../docs/performance.md) carries the current numbers.
 
+## October 13 adaptive AMF backlog candidate
+
+The candidate adapts the application-depth learning rule from
+[Vibepollo #461](https://github.com/Nonary/Vibepollo/pull/461) to the Rust host.
+It is not released and does not yet establish a performance improvement.
+Baseline source: `dc02f1a9` (2.2.11).
+
+The old host admits two pictures across encoding and conventional packet
+sending. The candidate separates the encoder limit from that combined budget:
+
+- Without pre-analysis, allow up to four accepted inputs until output shows
+  the driver's retained depth. A fully drained pipeline learns a limit of one.
+- Preserve initialized pre-analysis lookahead. The configured depth of one
+  starts with six slots and cannot learn a limit below two. Unavailable or
+  out-of-range driver readback preserves the old fixed limit of two.
+- Learn only from nonempty output matched to an accepted submission. Failed
+  submissions, empty polls, expired timestamps and ownership callbacks do
+  not count as completed pictures. Recreating the encoder restarts learning.
+- Keep the combined allowance at least two so sending the previous packet
+  can overlap encoding. Expand it only for larger encoder requirements.
+  Sender pressure must not start encoder-stall recovery.
+- Keep AMF's configured driver queue, eight-surface ownership cap, conversion,
+  capture and polling behavior. A blocked claim polls output and then rereads
+  the latest captured image; it does not mark an unsubmitted image as encoded.
+
+Portable policy tests cover startup priming, retained-input drivers,
+pre-analysis, unreadable requirements, missing output, recreation, sender
+overlap and the unchanged policy for other codecs. A host regression covers
+a one-frame limit entering the existing 250 ms recovery path and resuming
+with a keyframe. On Linux with Rust 1.98.1, all 346 portable core tests pass,
+including the nine new backlog cases. Passing these checks is not an AMD
+hardware result; the host regression needs Windows validation.
+
+Hardware validation must compare release builds in ABBA order on the same
+Radeon, source display mode and driver, using an isolated profile/port rather
+than the installed service. Record mean/p95/p99 picture age, fresh FPS,
+output gaps and encoder resets with the independent barcode receiver:
+
+1. H.264 SDR, HEVC HDR and AV1 HDR at ordinary 60/120 FPS, idle and with
+   identical game-like GPU load; test both DDX and WGC.
+2. A saturated native encode (the earlier 5120x1440/240 FPS HEVC fixture),
+   where depth one can trade throughput for frame age.
+3. Eight-bit pre-analysis, motion-to-static and requested IDR, reconnect,
+   and a short encoder stall. Confirm startup and sustained output.
+4. Capture the debug `AMF application backlog initialized/learned` records
+   to prove the candidate exercised the adaptive path. Compare against a
+   baseline release build from the pinned source above.
+
+The decision to ship depends on those results, particularly sustained fresh
+FPS under saturation. This change does not remove the DWM/producer dependency
+identified in the October 12 DDX investigation.
+
 ## October 12 latency follow-up (issue 24)
 
 [Issue #24](https://github.com/RamazanKara/Rubylight/issues/24) reviews 2.2.7

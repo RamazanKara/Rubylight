@@ -5,6 +5,7 @@ use std::{collections::VecDeque, path::PathBuf};
 #[derive(Default)]
 struct MockEncoder {
     queued: VecDeque<Encoded>,
+    limit: Option<usize>,
     keep_backlog: bool,
     fault_directory: Option<PathBuf>,
     removed: Option<DeviceLost>,
@@ -34,6 +35,9 @@ impl EncoderOutput for MockEncoder {
     }
     fn backlog(&self) -> usize {
         self.queued.len()
+    }
+    fn backlog_limit(&self) -> usize {
+        self.limit.unwrap_or(encoder_backlog::DEFAULT_LIMIT)
     }
     fn log_stall(&self) {}
     fn device_removed(&self) -> Option<DeviceLost> {
@@ -124,7 +128,7 @@ impl Stream {
         let output = if self
             .encoder
             .as_ref()
-            .is_some_and(|e| self.recovery.backlog(e) >= ENCODER_BACKLOG)
+            .is_some_and(|e| self.recovery.backlog(e) >= e.backlog_limit())
         {
             let since = self.recovery.backlog_since;
             let Some(output) = self.recovery.poll_full(
@@ -327,6 +331,33 @@ fn a_300_ms_stall_recreates_requests_a_keyframe_and_resumes_sending() -> Result<
 }
 
 #[test]
+fn a_learned_one_frame_limit_still_recovers_a_stall_and_sends_a_keyframe() -> Result<()> {
+    let mut stream = Stream::new()?;
+    stream.encoder.as_mut().unwrap().limit = Some(1);
+    let start = Instant::now();
+    stream.step(start)?;
+    stream.inject(Some(300))?;
+    stream.step(start + Duration::from_millis(10))?;
+    // The fault holds exactly one output. A fixed two-frame admission check
+    // would submit again instead of starting the full-encoder recovery timer.
+    stream.step(start + Duration::from_millis(20))?;
+    assert_eq!(stream.recovery.backlog(stream.encoder.as_ref().unwrap()), 1);
+    assert_eq!(
+        stream.recovery.backlog_since,
+        Some(start + Duration::from_millis(20))
+    );
+    for ms in (30..=500).step_by(10) {
+        stream.step(start + Duration::from_millis(ms))?;
+    }
+    assert_eq!(stream.waits, [Duration::from_millis(250)]);
+    assert!(stream.sent.len() > 2);
+    assert!(stream.sent[1].1, "recreation must recover with a keyframe");
+    assert!(stream.recovery.failing.is_none());
+    assert!(!stream.session.stopping());
+    Ok(())
+}
+
+#[test]
 fn a_persistent_stall_backs_off_and_fails_the_session_at_the_recovery_budget() -> Result<()> {
     let mut stream = Stream::new()?;
     let start = Instant::now();
@@ -428,7 +459,10 @@ fn output_resets_the_stall_even_if_the_encoder_backlog_stays_full() -> Result<()
         })?
         .unwrap();
     assert_eq!(output.len(), 1);
-    assert_eq!(recovery.backlog(encoder.as_ref().unwrap()), ENCODER_BACKLOG);
+    assert_eq!(
+        recovery.backlog(encoder.as_ref().unwrap()),
+        encoder_backlog::DEFAULT_LIMIT
+    );
     assert!(recovery.failing.is_none());
     assert!(recovery.backlog_since.is_none());
     recovery.poll_full(&mut encoder, &Default::default(), || {

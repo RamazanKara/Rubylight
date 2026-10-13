@@ -974,6 +974,12 @@ impl Encoder {
             _ => 0,
         }
     }
+    pub fn backlog_limit(&self) -> usize {
+        match self {
+            Self::Amf(e) => e.backlog_limit(),
+            _ => butterpollo_core::encoder_backlog::DEFAULT_LIMIT,
+        }
+    }
     pub fn log_stall(&self) {
         if let Self::Amf(encoder) = self {
             encoder.log_stall();

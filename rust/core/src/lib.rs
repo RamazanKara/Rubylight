@@ -28,6 +28,7 @@ pub mod crypto;
 pub mod display_caps;
 pub mod display_policy;
 pub mod edid;
+pub mod encoder_backlog;
 pub mod encoder_policy;
 pub mod fec_status;
 pub mod framegen;

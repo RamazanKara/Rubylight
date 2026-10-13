@@ -13,6 +13,7 @@ use crate::{
     ff,
 };
 use anyhow::{Context, Result, bail};
+use butterpollo_core::encoder_backlog::{AMF_SURFACE_LIMIT, AmfBacklog};
 use std::{
     ptr,
     time::{Duration, Instant},
@@ -93,6 +94,7 @@ pub struct Encoder {
     index: i64,
     gpu_convert: Option<gpu::Converter>,
     in_flight: std::collections::VecDeque<Submission>,
+    backlog: AmfBacklog,
     /// A frame AMF never returned may have been a reference: the next frame
     /// is a keyframe, or the client decodes damaged pictures until one comes.
     recover: bool,
@@ -281,6 +283,7 @@ impl Encoder {
                 index: 0,
                 gpu_convert: None,
                 in_flight: std::collections::VecDeque::new(),
+                backlog: AmfBacklog::new(None),
                 recover: false,
                 bitrate: config.bitrate_kbps,
                 requested_bitrate: config.bitrate_kbps,
@@ -491,6 +494,26 @@ impl Encoder {
                 )
             }))
             .context("AMF encoder Init")?;
+            // Learn only when the initialized driver reports its buffering
+            // requirements. A preset can change these during Init.
+            let preanalysis = match config.codec {
+                0 => "EnablePreAnalysis",
+                1 => "HevcEnablePreAnalysis",
+                _ => "Av1EnablePreAnalysis",
+            };
+            let lookahead = match e.read(preanalysis) {
+                Some(0) => Some(0),
+                Some(_) => e
+                    .read("PALookAheadBufferDepth")
+                    .and_then(|n| usize::try_from(n).ok()),
+                None => None,
+            };
+            e.backlog = AmfBacklog::new(lookahead);
+            tracing::debug!(
+                ?lookahead,
+                limit = e.backlog.limit(),
+                "AMF application backlog initialized"
+            );
             e.log_effective();
             Ok(e)
         }
@@ -943,6 +966,10 @@ impl Encoder {
     pub fn backlog(&self) -> usize {
         self.in_flight.len()
     }
+    /// Application depth, independent of AMF's driver queue and surface pool.
+    pub fn backlog_limit(&self) -> usize {
+        self.backlog.limit()
+    }
     pub fn set_next_frame(&mut self, frame: u64) {
         debug_assert!(self.in_flight.is_empty());
         self.index = frame.saturating_sub(1).min(i64::MAX as u64) as i64;
@@ -1168,6 +1195,7 @@ impl Encoder {
                 .and_then(|position| self.in_flight.remove(position));
             let latency = submission.as_ref().map(|s| s.started.elapsed());
             let presentation = submission.as_ref().map(|s| s.presentation);
+            let matched_submission = submission.is_some();
             let after_invalidation = submission.is_some_and(|s| s.after_invalidation);
             let v = &*(*buffer).pVtbl;
             let size = (v.GetSize.unwrap())(buffer);
@@ -1195,6 +1223,17 @@ impl Encoder {
                 bytes.to_vec()
             };
             (v.Release.unwrap())(buffer);
+            if matched_submission && !bytes.is_empty() {
+                let previous = self.backlog.limit();
+                self.backlog.completed();
+                if self.backlog.limit() != previous {
+                    tracing::debug!(
+                        previous,
+                        limit = self.backlog.limit(),
+                        "AMF application backlog learned"
+                    );
+                }
+            }
             output.push(Encoded {
                 bytes,
                 idr,
@@ -1333,6 +1372,7 @@ impl Encoder {
                 _capture: None,
                 _converted: None,
             });
+            self.backlog.submitted();
             self.references.accepted(self.index as u64 + 1, &plan);
             self.index += 1;
             output.extend(self.poll()?);
@@ -1425,7 +1465,9 @@ impl Encoder {
         // frame is in flight, which delayed submitting the next frame.
         let mut output = Vec::new();
         let deadline = Instant::now() + Duration::from_millis(100);
-        while self.in_flight.len() >= 8 || self.ownership.retained() >= 8 {
+        while self.in_flight.len() >= AMF_SURFACE_LIMIT
+            || self.ownership.retained() >= AMF_SURFACE_LIMIT
+        {
             output.extend(self.poll()?);
             if Instant::now() >= deadline {
                 bail!("AMF GPU queue failed to drain");
@@ -1548,6 +1590,7 @@ impl Encoder {
                 _capture: self.compute.is_none().then(|| image.clone()),
                 _converted: converted,
             });
+            self.backlog.submitted();
             self.references.accepted(self.index as u64 + 1, &plan);
             self.index += 1;
             output.extend(self.poll()?);

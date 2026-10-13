@@ -6,6 +6,7 @@ import java.util.Objects;
 
 
 public class ComputerDetails {
+    public static final int PERMISSION_CONTROLLER = 1 << 8;
     public static final int PERMISSION_INPUT = 0x00001F00;
     public static final int PERMISSION_CLIPBOARD_SET = 1 << 16;
     public static final int PERMISSION_CLIPBOARD_READ = 1 << 17;

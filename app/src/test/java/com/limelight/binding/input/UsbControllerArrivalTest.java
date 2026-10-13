@@ -15,6 +15,9 @@ import org.robolectric.RobolectricTestRunner;
 import org.robolectric.android.controller.ActivityController;
 import org.robolectric.annotation.Config;
 import org.robolectric.shadows.ShadowSystemClock;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
 import static org.junit.Assert.*;
 
@@ -31,6 +34,53 @@ public class UsbControllerArrivalTest {
     @Test
     public void connectionStartedResendsCapabilitiesWithoutWaitingForTheRetryTimer() {
         checkRecovery(true);
+    }
+
+    @Test
+    public void restoredInputPermissionAnnouncesCapabilitiesBeforeFirstInput() {
+        try (ActivityController<Activity> activity = Robolectric.buildActivity(Activity.class).create()) {
+            Connection connection = new Connection();
+            connection.ready = true;
+            connection.inputAllowed = false;
+            PreferenceConfiguration preferences = new PreferenceConfiguration();
+            preferences.multiController = true;
+            ControllerHandler handler = new ControllerHandler(activity.get(), connection, null, preferences);
+            Pad pad = new Pad();
+            try {
+                handler.deviceAdded(pad);
+                input(handler);
+                assertTrue(connection.events.isEmpty());
+                assertEquals(0, pad.audioBindings);
+                int permissionChecks = connection.permissionChecks;
+                for (int i = 0; i < 10; i++) input(handler);
+                assertEquals(permissionChecks, connection.permissionChecks);
+
+                // A denied retry must also stay pending and respect the retry interval.
+                ShadowSystemClock.advanceBy(1, TimeUnit.SECONDS);
+                input(handler);
+                assertTrue(connection.events.isEmpty());
+                assertEquals(0, pad.audioBindings);
+                connection.inputAllowed = true;
+                input(handler);
+                assertTrue(connection.events.isEmpty());
+                assertEquals(0, pad.audioBindings);
+
+                ShadowSystemClock.advanceBy(1, TimeUnit.SECONDS);
+                input(handler);
+                assertEquals(Arrays.asList("arrival", "input"), connection.events);
+                assertEquals(0, connection.slot);
+                assertEquals(1, connection.activeMask);
+                assertEquals(MoonBridge.LI_CTYPE_PS, connection.type);
+                assertEquals((short)(MoonBridge.LI_CCAP_HAPTICS_PCM | MoonBridge.LI_CCAP_RUMBLE),
+                        connection.capabilities);
+                assertEquals(1, pad.audioBindings);
+                input(handler);
+                assertEquals(1, connection.arrivals);
+                assertEquals(2, connection.inputs);
+            } finally {
+                handler.destroy();
+            }
+        }
     }
 
     private void checkRecovery(boolean connectionStarted) {
@@ -84,22 +134,30 @@ public class UsbControllerArrivalTest {
 
     private static class Connection extends NvConnection {
         boolean ready;
-        int arrivals, inputs;
+        boolean inputAllowed = true;
+        int arrivals, inputs, permissionChecks;
+        final List<String> events = new ArrayList<>();
         byte slot, type;
         short activeMask, capabilities;
         Connection() {
             super(null, new ComputerDetails.AddressTuple("127.0.0.1", 47989), 47984, "test",
                     new StreamConfiguration.Builder().build(), null, null);
         }
+        @Override public boolean canSendInput() {
+            permissionChecks++;
+            return inputAllowed;
+        }
         @Override public int sendControllerArrivalEvent(byte slot, short activeMask, byte type,
                                                        int buttons, short capabilities) {
             arrivals++;
+            events.add("arrival");
             this.slot = slot; this.activeMask = activeMask; this.type = type; this.capabilities = capabilities;
             return ready ? 0 : -2;
         }
         @Override public void sendControllerInput(short slot, short mask, int buttons, byte leftTrigger,
                                                  byte rightTrigger, short leftX, short leftY, short rightX, short rightY) {
             inputs++;
+            events.add("input");
         }
     }
 

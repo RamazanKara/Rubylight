@@ -70,7 +70,7 @@ public class NvConnection {
     private Thread connectionThread;
     private volatile boolean stopRequested;
     private boolean nativeStarted;
-    private boolean nativeConnected;
+    private volatile boolean nativeConnected;
     private long lastServerCommandTime;
     private volatile ScheduledExecutorService inputPoller;
     private ScheduledFuture<?> inputPoll;
@@ -84,25 +84,36 @@ public class NvConnection {
     private volatile boolean micPermitted;
     private volatile boolean micMuted;
     private MicrophoneCapture microphone;
-    private volatile boolean controllerMicrophone, controllerMicReady, controllerMicAllowed;
-    private long controllerMicAccessAt;
-    private boolean controllerMicAccess;
-    public void useControllerMicrophone() {
-        controllerMicrophone = true;
-        stopMicrophone();
+    private static final class ControllerMicrophoneState {
+        final boolean allowed, ready, hostMuted;
+        ControllerMicrophoneState(boolean allowed, boolean ready, boolean hostMuted) {
+            this.allowed = allowed;
+            this.ready = allowed && ready;
+            // Losing the host capture endpoint must not unmute phone fallback.
+            this.hostMuted = hostMuted;
+        }
     }
-    public synchronized boolean controllerMicrophonePermitted() {
-        if (!micPermitted || stopRequested) return false;
+    private final java.util.Map<Object, ControllerMicrophoneState> controllerMicrophones =
+            new java.util.IdentityHashMap<>();
+    private long microphoneAccessAt;
+    private boolean microphoneAccess;
+    // Ordinary fallback shares Android microphone policy, but does not require
+    // permission to create or send input from a host controller.
+    synchronized boolean microphoneCapturePermitted() {
+        if (!micPermitted || !canSendInput()) return false;
         long now = android.os.SystemClock.uptimeMillis();
-        if (controllerMicAccessAt != 0 && now - controllerMicAccessAt < 100) return controllerMicAccess;
+        if (microphoneAccessAt != 0 && now - microphoneAccessAt < 100) return microphoneAccess;
         android.media.AudioManager audio = (android.media.AudioManager)appContext.getSystemService(Context.AUDIO_SERVICE);
         android.app.AppOpsManager ops = (android.app.AppOpsManager)appContext.getSystemService(Context.APP_OPS_SERVICE);
         int mode = ops == null ? android.app.AppOpsManager.MODE_ERRORED : ops.checkOpNoThrow(
                 android.app.AppOpsManager.OPSTR_RECORD_AUDIO, android.os.Process.myUid(), appContext.getPackageName());
-        controllerMicAccess = hasMicrophonePermission() && audio != null && !audio.isMicrophoneMute() &&
+        microphoneAccess = hasMicrophonePermission() && audio != null && !audio.isMicrophoneMute() &&
                 (mode == android.app.AppOpsManager.MODE_ALLOWED || mode == android.app.AppOpsManager.MODE_DEFAULT);
-        controllerMicAccessAt = now;
-        return controllerMicAccess;
+        microphoneAccessAt = now;
+        return microphoneAccess;
+    }
+    public boolean controllerMicrophonePermitted() {
+        return canSendControllerInput() && microphoneCapturePermitted();
     }
     public boolean beginControllerMicrophone() {
         if (!controllerMicrophoneEnabled()) return false;
@@ -116,8 +127,40 @@ public class NvConnection {
                 android.os.Process.myUid(), appContext.getPackageName());
     }
     public boolean controllerMicrophoneEnabled() { return controllerMicrophonePermitted() && !micMuted; }
-    public void controllerMicrophoneState(boolean allowed, boolean ready) {
-        controllerMicAllowed = allowed; controllerMicReady = ready;
+    public void controllerMicrophoneState(Object owner, boolean allowed, boolean ready, boolean hostMuted) {
+        updateControllerMicrophone(owner, new ControllerMicrophoneState(allowed, ready, hostMuted));
+    }
+    public void releaseControllerMicrophone(Object owner) {
+        updateControllerMicrophone(owner, null);
+    }
+    private void updateControllerMicrophone(Object owner, ControllerMicrophoneState state) {
+        if (owner == null) return;
+        MicrophoneCapture previousCapture = null;
+        boolean fallback;
+        synchronized (this) {
+            if (!canSendControllerInput()) state = null;
+            ControllerMicrophoneState previous = controllerMicrophones.get(owner);
+            // Removing a muted device must not turn another microphone on. The
+            // user can unmute the fallback through the existing stream control.
+            if (state == null && previous != null && previous.hostMuted) micMuted = true;
+            if (state == null) controllerMicrophones.remove(owner);
+            else controllerMicrophones.put(owner, state);
+            if (controllerMicrophoneOwnsRoute()) {
+                previousCapture = microphone;
+                microphone = null;
+            }
+            fallback = !controllerMicrophoneOwnsRoute() && microphone == null && nativeConnected && !stopRequested;
+        }
+        // Do not wait for the native connection lock from a USB worker: teardown
+        // joins that worker before interrupting a connection still being started.
+        if (previousCapture != null) previousCapture.stop();
+        if (fallback) startMicrophone(true);
+    }
+    private boolean controllerMicrophoneOwnsRoute() {
+        for (ControllerMicrophoneState state : controllerMicrophones.values()) {
+            if (state.ready || state.hostMuted) return true;
+        }
+        return false;
     }
     private java.util.function.Supplier<String> controllerPreparation;
     public void setControllerPreparation(java.util.function.Supplier<String> preparation) {
@@ -153,24 +196,35 @@ public class NvConnection {
         return appContext.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED;
     }
 
-    // Starts recording once the host has taken the microphone. Called with MoonBridge.class held.
+    // Starts only once the native connection is ready; the final lock check also
+    // serializes fallback creation with connection stop and a newly ready USB mic.
     private void startMicrophone() {
-        if (!micPermitted || controllerMicrophone) {
-            return;
+        startMicrophone(false);
+    }
+    private void startMicrophone(boolean fallback) {
+        synchronized (this) {
+            if (!micPermitted || stopRequested || controllerMicrophoneOwnsRoute() ||
+                    (fallback && (micMuted || !microphoneCapturePermitted()))) return;
         }
         int state = MoonBridge.getMicrophoneState();
         if (state != MoonBridge.MIC_STATE_READY) {
-            LimeLog.info("Microphone: not sending (" + (state == MoonBridge.MIC_STATE_NOT_OFFERED ?
+            if (!fallback) LimeLog.info("Microphone: not sending (" + (state == MoonBridge.MIC_STATE_NOT_OFFERED ?
                     "not offered by host" : "host did not set it up") + ")");
             return;
         }
         synchronized (this) {
-            if (stopRequested || controllerMicrophone || microphone != null) {
+            if (stopRequested || controllerMicrophoneOwnsRoute() || microphone != null ||
+                    (fallback && (micMuted || !microphoneCapturePermitted()))) {
                 return;
             }
-            microphone = new MicrophoneCapture(MoonBridge::sendMicrophonePcm, micMuted);
+            microphone = createMicrophoneCapture(micMuted);
             microphone.start();
         }
+    }
+
+    // Package-visible factory keeps route transitions testable without an audio device.
+    MicrophoneCapture createMicrophoneCapture(boolean muted) {
+        return new MicrophoneCapture(MoonBridge::sendMicrophonePcm, muted);
     }
 
     private void stopMicrophone() {
@@ -185,20 +239,26 @@ public class NvConnection {
     }
 
     public synchronized MicrophoneStatus getMicrophoneStatus() {
-        if (controllerMicrophone) {
-            return MicrophoneStatus.of(micEnabled, micPermitted,
-                    controllerMicAllowed ? MoonBridge.MIC_STATE_READY : MoonBridge.MIC_STATE_NOT_OFFERED,
-                    controllerMicReady || micMuted, micMuted);
+        boolean controllerMuted = false;
+        for (ControllerMicrophoneState state : controllerMicrophones.values()) {
+            if (state.ready) {
+                return MicrophoneStatus.of(micEnabled, micPermitted, MoonBridge.MIC_STATE_READY,
+                        true, micMuted);
+            }
+            controllerMuted |= state.hostMuted || (state.allowed && micMuted);
         }
+        if (controllerMuted) return MicrophoneStatus.of(micEnabled, micPermitted,
+                MoonBridge.MIC_STATE_READY, true, true);
         return MicrophoneStatus.of(micEnabled, micPermitted, micPermitted ? MoonBridge.getMicrophoneState() :
-                MoonBridge.MIC_STATE_OFF, microphone != null && microphone.isCapturing(), micMuted);
+                MoonBridge.MIC_STATE_OFF, micMuted || (microphone != null && microphone.isCapturing()), micMuted);
     }
 
-    public synchronized void setMicrophoneMuted(boolean muted) {
-        micMuted = muted;
-        if (microphone != null) {
-            microphone.setMuted(muted);
+    public void setMicrophoneMuted(boolean muted) {
+        synchronized (this) {
+            micMuted = muted;
+            if (microphone != null) microphone.setMuted(muted);
         }
+        if (!muted && nativeConnected) startMicrophone(true);
     }
 
     public boolean isMicrophoneMuted() {
@@ -248,6 +308,7 @@ public class NvConnection {
                 return;
             }
             stopRequested = true;
+            controllerMicrophones.clear();
             stopHardwareMetricsPolling();
             if (inputPoller != null) {
                 inputPoller.shutdownNow();
@@ -461,7 +522,7 @@ public class NvConnection {
         ComputerDetails details = h.getComputerDetails(serverInfo);
         hostDetails = details;
         context.isNvidiaServerSoftware = details.nvidiaServer;
-        if (NvHTTP.supportsControllerPreparation(serverInfo) && controllerPreparation != null) {
+        if (canSendControllerInput() && NvHTTP.supportsControllerPreparation(serverInfo) && controllerPreparation != null) {
             context.preparedControllers = controllerPreparation.get();
         }
         NvHTTP.readDisplayCapabilities(context, serverInfo);
@@ -925,6 +986,10 @@ public class NvConnection {
                 hostDetails.hasPermission(ComputerDetails.PERMISSION_INPUT);
     }
 
+    public boolean canSendControllerInput() {
+        return canSendInput() && hostDetails.hasPermission(ComputerDetails.PERMISSION_CONTROLLER);
+    }
+
     public ComputerDetails refreshHostDetails() throws IOException, XmlPullParserException {
         NvHTTP connection;
         synchronized (this) {
@@ -1063,9 +1128,9 @@ public class NvConnection {
             final short leftStickX, final short leftStickY,
             final short rightStickX, final short rightStickY)
     {
-        if (canSendInput()) {
+        if (canSendControllerInput()) {
             Runnable send = () -> {
-                if (canSendInput()) MoonBridge.sendMultiControllerInput(controllerNumber, activeGamepadMask, buttonFlags,
+                if (canSendControllerInput()) MoonBridge.sendMultiControllerInput(controllerNumber, activeGamepadMask, buttonFlags,
                         leftTrigger, rightTrigger, leftStickX, leftStickY, rightStickX, rightStickY);
             };
             if (inputPoller != null) inputBatcher.controller(controllerNumber, activeGamepadMask, buttonFlags,
@@ -1139,13 +1204,13 @@ public class NvConnection {
 
     public int sendControllerArrivalEvent(byte controllerNumber, short activeGamepadMask, byte type,
                                           int supportedButtonFlags, short capabilities) {
-        return canSendInput() ? MoonBridge.sendControllerArrivalEvent(controllerNumber, activeGamepadMask,
+        return canSendControllerInput() ? MoonBridge.sendControllerArrivalEvent(controllerNumber, activeGamepadMask,
                 type, supportedButtonFlags, capabilities) : MoonBridge.LI_ERR_UNSUPPORTED;
     }
 
     public int sendControllerTouchEvent(byte controllerNumber, byte eventType, int pointerId,
                                         float x, float y, float pressure) {
-        if (canSendInput()) {
+        if (canSendControllerInput()) {
             return MoonBridge.sendControllerTouchEvent(controllerNumber, eventType, pointerId, x, y, pressure);
         }
         else {
@@ -1155,7 +1220,7 @@ public class NvConnection {
 
     public int sendControllerMotionEvent(byte controllerNumber, byte motionType,
                                          float x, float y, float z) {
-        if (canSendInput()) {
+        if (canSendControllerInput()) {
             return MoonBridge.sendControllerMotionEvent(controllerNumber, motionType, x, y, z);
         }
         else {
@@ -1164,7 +1229,7 @@ public class NvConnection {
     }
 
     public void sendControllerBatteryEvent(byte controllerNumber, byte batteryState, byte batteryPercentage) {
-        if (canSendInput()) {
+        if (canSendControllerInput()) {
             MoonBridge.sendControllerBatteryEvent(controllerNumber, batteryState, batteryPercentage);
         }
     }

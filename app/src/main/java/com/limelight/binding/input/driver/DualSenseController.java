@@ -31,7 +31,7 @@ public class DualSenseController extends AbstractController {
     private boolean waveformReported, triggersReported;
     private volatile com.limelight.nvstream.NvConnection audioConnection;
     private volatile boolean audioNegotiated, microphoneAccepted, headphonesConnected, hostMicMuted;
-    private volatile boolean microphoneReady;
+    private volatile Object microphoneOwner;
     private final java.util.ArrayDeque<byte[]> audioControls = new java.util.ArrayDeque<>();
     private int audioNumber, micSequence, lastAudioFlags = -1;
     private long audioStatusAt;
@@ -257,16 +257,31 @@ public class DualSenseController extends AbstractController {
     @Override
     public void bindAudio(com.limelight.nvstream.NvConnection conn, int number) {
         DualSenseHaptics playback = haptics;
-        if (playback == null || !playback.isReady() || !MoonBridge.hostSupportsControlMessage(DualSenseAudioPacket.CONTROL)) return;
+        if (stopped || !conn.canSendControllerInput() || playback == null || !playback.isReady() ||
+                !MoonBridge.hostSupportsControlMessage(DualSenseAudioPacket.CONTROL)) return;
+        if (audioConnection == conn && audioNumber == number) {
+            lastAudioFlags = -1;
+            updateAudioState();
+            return;
+        }
+        com.limelight.nvstream.NvConnection previousConnection = audioConnection;
+        Object previousOwner = microphoneOwner;
+        Object owner = new Object();
+        microphoneOwner = owner;
+        if (previousConnection != null) previousConnection.releaseControllerMicrophone(previousOwner);
         audioNumber = number; audioConnection = conn;
-        conn.useControllerMicrophone();
+        audioNegotiated = microphoneAccepted = hostMicMuted = false;
         playback.microphone(new DualSenseHaptics.Microphone() {
             public boolean start() { return conn.beginControllerMicrophone(); }
             public void finish() { conn.endControllerMicrophone(); }
-            public boolean enabled() { return !stopped && microphoneAccepted && !hostMicMuted && conn.controllerMicrophoneEnabled(); }
+            public boolean enabled() { return !stopped && microphoneOwner == owner && microphoneAccepted && !hostMicMuted && conn.controllerMicrophoneEnabled(); }
             public void ready(boolean ready) {
-                microphoneReady = ready;
-                conn.controllerMicrophoneState(microphoneAccepted, ready);
+                if (microphoneOwner != owner) return;
+                conn.controllerMicrophoneState(owner, microphoneAccepted, ready, hostMicMuted);
+            }
+            public void closed() {
+                if (microphoneOwner == owner) microphoneOwner = null;
+                conn.releaseControllerMicrophone(owner);
             }
             public void samples(byte[] pcm, int length) {
                 if (enabled()) MoonBridge.sendControllerAudio(DualSenseAudioPacket.MICROPHONE,
@@ -278,7 +293,7 @@ public class DualSenseController extends AbstractController {
     }
     private void updateAudioState() {
         com.limelight.nvstream.NvConnection conn = audioConnection;
-        if (conn == null || stopped) return;
+        if (conn == null || stopped || !conn.canSendControllerInput()) return;
         int flags = 1 | (conn.controllerMicrophonePermitted() ? 2 : 0) | (headphonesConnected ? 4 : 0) |
                 (conn.isMicrophoneMuted() || hostMicMuted ? 8 : 0);
         long now = SystemClock.uptimeMillis();
@@ -293,7 +308,7 @@ public class DualSenseController extends AbstractController {
     }
     @Override
     public void controllerAudio(int kind, byte[] payload) {
-        if (stopped || audioConnection == null || DualSenseAudioPacket.id(payload) != audioNumber) return;
+        if (stopped || audioConnection == null || !audioConnection.canSendControllerInput() || DualSenseAudioPacket.id(payload) != audioNumber) return;
         DualSenseHaptics playback = haptics;
         if (kind == DualSenseAudioPacket.SPEAKER && DualSenseAudioPacket.validPcm(payload) && playback != null) {
             playback.speaker(DualSenseAudioPacket.sequence(payload), java.util.Arrays.copyOfRange(payload, 12, payload.length));
@@ -301,7 +316,6 @@ public class DualSenseController extends AbstractController {
             if (payload[1] == 3) {
                 audioNegotiated = (payload[4] & 1) != 0;
                 microphoneAccepted = (payload[4] & 2) != 0;
-                audioConnection.controllerMicrophoneState(microphoneAccepted, microphoneReady);
             } else {
                 if ((payload[5] & 2) != 0) hostMicMuted = (payload[11] & 0x10) != 0;
                 synchronized (audioControls) {
@@ -322,7 +336,9 @@ public class DualSenseController extends AbstractController {
     @Override
     public boolean headphoneAudio(short[] samples, int length, float volume) {
         DualSenseHaptics playback = haptics;
-        if (stopped || !audioNegotiated || !headphonesConnected || playback == null || !playback.isReady()) return false;
+        com.limelight.nvstream.NvConnection conn = audioConnection;
+        if (stopped || conn == null || !conn.canSendControllerInput() || !audioNegotiated ||
+                !headphonesConnected || playback == null || !playback.isReady()) return false;
         playback.headphones(samples, length, volume);
         return true;
     }

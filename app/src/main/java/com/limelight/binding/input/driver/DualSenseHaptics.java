@@ -16,6 +16,7 @@ final class DualSenseHaptics implements AutoCloseable {
         void finish();
         void samples(byte[] pcm, int length);
         void ready(boolean ready);
+        void closed();
     }
     private volatile Microphone microphone;
     private final Thread microphoneWorker;
@@ -56,24 +57,30 @@ final class DualSenseHaptics implements AutoCloseable {
     }
     private void capture() {
         byte[] samples = new byte[784];
-        while (!stopped) {
-            Microphone sink = microphone;
-            boolean failed = false;
-            if (sink != null && sink.enabled() && sink.start()) {
-                try (DualSenseUsbMicrophone mic = audio.openMicrophone()) {
-                    if (mic != null) {
-                        sink.ready(true);
-                        while (!stopped && sink == microphone && sink.enabled()) {
-                            int length = mic.read(samples);
-                            if (length < 0) { failed = true; break; }
-                            if (length > 0 && !stopped && sink.enabled()) sink.samples(samples, length);
-                        }
-                    } else failed = true;
-                } catch (RuntimeException error) { failed = true; }
-                finally { sink.ready(false); sink.finish(); }
+        try {
+            while (!stopped) {
+                Microphone sink = microphone;
+                boolean failed = false;
+                if (sink != null) sink.ready(false);
+                if (sink != null && sink.enabled() && sink.start()) {
+                    try (DualSenseUsbMicrophone mic = audio.openMicrophone()) {
+                        if (mic != null) {
+                            sink.ready(true);
+                            while (!stopped && sink == microphone && sink.enabled()) {
+                                int length = mic.read(samples);
+                                if (length < 0) { failed = true; break; }
+                                if (length > 0 && !stopped && sink.enabled()) sink.samples(samples, length);
+                            }
+                        } else failed = true;
+                    } catch (RuntimeException error) { failed = true; }
+                    finally { sink.ready(false); sink.finish(); }
+                }
+                try { Thread.sleep(failed ? 1000 : 100); }
+                catch (InterruptedException e) { Thread.currentThread().interrupt(); break; }
             }
-            try { Thread.sleep(failed ? 1000 : 100); }
-            catch (InterruptedException e) { Thread.currentThread().interrupt(); break; }
+        } finally {
+            Microphone sink = microphone;
+            if (sink != null) sink.closed();
         }
     }
     private void play() {

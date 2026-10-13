@@ -28,8 +28,38 @@ public class NvConnectionTest {
     public void stoppedConnectionCannotSendInputIntoTheNextNativeSession() {
         NvConnection connection = connection();
         assertTrue(connection.canSendInput());
+        assertTrue(connection.canSendControllerInput());
         connection.stop();
         assertFalse(connection.canSendInput());
+        assertFalse(connection.canSendControllerInput());
+    }
+
+    @Test
+    public void otherInputPermissionsCannotReachTheControllerNativeBridge() throws Exception {
+        NvConnection connection = connection();
+        com.limelight.nvstream.http.ComputerDetails details = new com.limelight.nvstream.http.ComputerDetails();
+        java.lang.reflect.Field field = NvConnection.class.getDeclaredField("hostDetails");
+        field.setAccessible(true);
+        field.set(connection, details);
+        // Touch, pen, mouse, and keyboard permissions each permit general input,
+        // but none can create a controller or send its state and capabilities.
+        for (int bit = 9; bit <= 12; bit++) {
+            details.permission = 1 << bit;
+            assertTrue(connection.canSendInput());
+            assertFalse(connection.canSendControllerInput());
+            connection.sendControllerInput((short) 0, (short) 1, 0, (byte) 0, (byte) 0,
+                    (short) 0, (short) 0, (short) 0, (short) 0);
+            connection.sendControllerBatteryEvent((byte) 0, (byte) 0, (byte) 0);
+            assertEquals(LI_ERR_UNSUPPORTED, connection.sendControllerArrivalEvent(
+                    (byte) 0, (short) 1, (byte) 0, 0, (short) 0));
+            assertEquals(LI_ERR_UNSUPPORTED, connection.sendControllerTouchEvent(
+                    (byte) 0, (byte) 0, 0, 0, 0, 0));
+            assertEquals(LI_ERR_UNSUPPORTED, connection.sendControllerMotionEvent(
+                    (byte) 0, (byte) 0, 0, 0, 0));
+        }
+        details.permission = com.limelight.nvstream.http.ComputerDetails.PERMISSION_CONTROLLER;
+        assertTrue(connection.canSendInput());
+        assertTrue(connection.canSendControllerInput());
     }
 
     @Test

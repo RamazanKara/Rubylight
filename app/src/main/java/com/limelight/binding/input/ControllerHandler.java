@@ -2254,11 +2254,11 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
     // Called only on the connection worker. Give the USB service time to finish its
     // permission/driver handover before the host starts a game that caches devices.
     public String prepareControllersForLaunch() {
-        if (!prefConfig.usbDualSenseHaptics) return "";
+        if (!prefConfig.usbDualSenseHaptics || !conn.canSendControllerInput()) return "";
         long deadline = android.os.SystemClock.uptimeMillis() + 2500;
         do {
             synchronized (this) {
-                if (stopped) return "";
+                if (stopped || !conn.canSendControllerInput()) return "";
                 StringBuilder result = new StringBuilder();
                 for (UsbDeviceContext context : usbDeviceContexts.values()) {
                     short caps = context.device.getCapabilities();
@@ -2266,7 +2266,6 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
                     assignControllerNumberIfNeeded(context);
                     if (!context.assignedControllerNumber) continue;
                     if (!prefConfig.gamepadMotionSensors) caps &= ~(MoonBridge.LI_CCAP_ACCEL | MoonBridge.LI_CCAP_GYRO);
-                    conn.useControllerMicrophone();
                     if (result.length() != 0) result.append(',');
                     result.append(context.controllerNumber).append(':').append(context.device.getType())
                             .append(':').append(caps & 0xffff).append(':')
@@ -2288,13 +2287,13 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
     }
 
     public void handleControllerAudio(int kind, byte[] payload) {
-        if (stopped || payload == null || payload.length < 4) return;
+        if (stopped || !conn.canSendControllerInput() || payload == null || payload.length < 4) return;
         short id = (short)((payload[2] & 255) | ((payload[3] & 255) << 8));
         AbstractController controller = waveformControllers.get(id);
         if (controller != null) controller.controllerAudio(kind, payload);
     }
     public boolean routeHeadphoneAudio(short[] samples, int length, float volume) {
-        if (stopped) return false;
+        if (stopped || !conn.canSendControllerInput()) return false;
         // A single headset owns normal game sound; controller-specific effects remain per-pad.
         for (short id = 0; id < 16; id++) {
             AbstractController controller = waveformControllers.get(id);
@@ -2303,7 +2302,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         return false;
     }
     public void handleControllerHaptics(short controllerNumber, int sequence, byte[] pcm) {
-        if (stopped) return;
+        if (stopped || !conn.canSendControllerInput()) return;
         // Avoid the input monitor and HID transfers on the control receive thread.
         AbstractController controller = waveformControllers.get(controllerNumber);
         if (controller != null) controller.controllerHaptics(sequence, pcm);
@@ -3622,6 +3621,13 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
 
         @Override
         public void sendControllerArrival() {
+            if (!conn.canSendControllerInput()) {
+                // The slot is already reserved. Keep its capabilities ahead of any
+                // input if permission is restored, with the same bounded retry rate.
+                arrivalPending = true;
+                arrivalRetryAt = android.os.SystemClock.uptimeMillis() + 1000;
+                return;
+            }
             short capabilities = device.getCapabilities();
             if ((capabilities & MoonBridge.LI_CCAP_HAPTICS_PCM) != 0) {
                 waveformControllers.put((short)controllerNumber, device);

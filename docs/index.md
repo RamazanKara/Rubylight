@@ -9,6 +9,7 @@ Stream your PC games and desktop to the Android screen you want to use. Rubyligh
 | Understand a setting or choose a preset | [Settings reference](settings.md) |
 | Use a controller, touch, mouse or keyboard | [Controls](controls.md) |
 | Tune picture quality and response time | [Video and latency](video-and-latency.md) |
+| Recover interruptions or adapt resolution and FPS | [Recovery and automatic quality](recovery-and-quality.md) |
 | Fix a problem or export a report | [Troubleshooting](TROUBLESHOOTING.md) |
 | Understand a stutter and try a reversible change | [Stream health](stream-health.md) |
 | Connect from outside my home | [Remote play setup](remote-setup.md) |

@@ -178,6 +178,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     private int recoveryGeneration;
     private boolean recoveryHandoffInProgress;
     private boolean recoveryCancelledOnPause;
+    private Intent stoppedStreamResumeIntent;
     private final Runnable recoveryTimeout = () -> {
         if (this.connecting && this.foreground && !isFinishing() && isRecoveryAttempt()) {
             displayedFailureDialog = true;
@@ -835,6 +836,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 httpsPort, uniqueId, config,
                 PlatformBinding.getCryptoProvider(this), serverCert);
         controllerHandler = new ControllerHandler(this, conn, this, prefConfig);
+        conn.setControllerPreparation(controllerHandler::prepareControllersForLaunch);
         updateInputPollingRate();
         ((android.hardware.display.DisplayManager) getSystemService(DISPLAY_SERVICE))
                 .registerDisplayListener(inputDisplayListener, bitrateHandler);
@@ -970,7 +972,14 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         outputSwitchPending = true;
         getIntent().removeExtra(EXTRA_OUTPUT_DISPLAY);
         if (foreground && conn != null) reconnectStream();
-        else finish();
+        else {
+            rememberStreamForResume();
+            if (stoppedStreamResumeIntent != null) {
+                stoppedStreamResumeIntent.removeExtra(EXTRA_OUTPUT_DISPLAY);
+                displayedFailureDialog = true;
+                stopConnection();
+            } else finish();
+        }
     }
 
     private void showDesktopMenu() {
@@ -1858,6 +1867,11 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     protected void onResume() {
         super.onResume();
         foreground = true;
+        if (resumeStoppedStreamIfNeeded()) {
+            recoveryCancelledOnPause = false;
+            restoreInputOnResume = false;
+            return;
+        }
         if (recoveryCancelledOnPause && !connected && !isFinishing()) {
             displayedFailureDialog = true;
             stopConnection();
@@ -1908,6 +1922,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     protected void onStop() {
         super.onStop();
         if (adaptiveLayout != null) adaptiveLayout.stop();
+        rememberStreamForResume();
 
         if (streamMenu != null) {
             streamMenu.dismiss();
@@ -1984,7 +1999,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             }
         }
 
-        finish();
+        if (stoppedStreamResumeIntent == null && !recoveryCancelledOnPause) finish();
     }
 
     @Override
@@ -2518,6 +2533,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         Intent retry = new Intent(getIntent());
         retry.removeExtra(EXTRA_RECOVERY_ATTEMPTS);
         retry.removeExtra(EXTRA_RECOVERY_STARTED);
+        retry.removeExtra(EXTRA_OUTPUT_RESUME_ONLY);
         if (outputSwitchPending) {
             if (app == null || app.isControlAction()) return null;
             if (app.getRole() == NvApp.Role.STREAM) {
@@ -2537,6 +2553,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     }
 
     private void reconnectStream() {
+        if (recoveryHandoffInProgress || isFinishing() || isDestroyed()) return;
+        stoppedStreamResumeIntent = null;
         final Intent retry = createReconnectIntent();
         if (retry == null) {
             stopConnection();
@@ -2588,6 +2606,30 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         bitrateHandler.removeCallbacks(recoveryTimeout);
     }
 
+    private void rememberStreamForResume() {
+        if (stoppedStreamResumeIntent != null || prefConfig == null || !prefConfig.autoReconnect ||
+                !connected || displayedFailureDialog || isFinishing() || isDestroyed() ||
+                recoveryCancelledOnPause || recoveryHandoffInProgress || recoveryAppId == 0 ||
+                app == null || app.getRole() != NvApp.Role.STREAM || app.isControlAction()) return;
+        // Count only time actually connected, never time spent locked or in another app.
+        recoveryPolicy.resetAfterStableConnection(SystemClock.elapsedRealtime(), connectedAt);
+        connectedAt = -1;
+        stoppedStreamResumeIntent = new Intent(getIntent())
+                .putExtra(EXTRA_APP_ID, recoveryAppId).putExtra(EXTRA_APP_UUID, recoveryAppUuid);
+    }
+
+    private boolean resumeStoppedStreamIfNeeded() {
+        if (stoppedStreamResumeIntent == null || !foreground || isFinishing() || isDestroyed()) return false;
+        Intent retry = stoppedStreamResumeIntent;
+        stoppedStreamResumeIntent = null;
+        if (!queueAutomaticRecovery(retry)) {
+            displayedFailureDialog = true;
+            if (spinner != null) { spinner.dismiss(); spinner = null; }
+            showReconnectDialog(R.string.conn_terminated_title, getString(R.string.stream_recovery_exhausted));
+        }
+        return true;
+    }
+
     private boolean tryAutomaticRecovery() {
         if (prefConfig == null || !prefConfig.autoReconnect || displayedFailureDialog ||
                 (!connected && !connecting) || !foreground || isFinishing() || isDestroyed() ||
@@ -2596,6 +2638,13 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 app.getControl() == NvApp.Control.NONE ? app.getAppId() : 0;
         String resumeUuid = recoveryAppId != 0 ? recoveryAppUuid : app.getAppUuid();
         if (resumeId == 0) return false;
+        return queueAutomaticRecovery(new Intent(getIntent())
+                .putExtra(EXTRA_APP_ID, resumeId).putExtra(EXTRA_APP_UUID, resumeUuid));
+    }
+
+    private boolean queueAutomaticRecovery(final Intent retry) {
+        if (prefConfig == null || !prefConfig.autoReconnect || !foreground || isFinishing() || isDestroyed() ||
+                recoveryHandoffInProgress || pendingRecovery != null) return false;
         long delay = recoveryPolicy.nextDelay(SystemClock.elapsedRealtime(), connectedAt);
         if (delay < 0) return false;
 
@@ -2605,9 +2654,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         if (spinner != null) spinner.dismiss();
         spinner = SpinnerDialog.displayDialog(this, getString(R.string.conn_establishing_title),
                 getString(R.string.stream_recovery_attempt, recoveryPolicy.attempts(), StreamRecoveryPolicy.MAX_ATTEMPTS), true);
-        final Intent retry = new Intent(getIntent())
-                .putExtra(EXTRA_APP_ID, resumeId).putExtra(EXTRA_APP_UUID, resumeUuid)
-                .putExtra(EXTRA_RECOVERY_ATTEMPTS, recoveryPolicy.attempts())
+        retry.putExtra(EXTRA_RECOVERY_ATTEMPTS, recoveryPolicy.attempts())
                 .putExtra(EXTRA_RECOVERY_STARTED, recoveryPolicy.startedAt());
         final int generation = foregroundGeneration;
         final int recovery = recoveryGeneration;
@@ -4365,8 +4412,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     @Override
     public void connectionTerminated(final int errorCode) {
         LimeLog.info("Stream disconnected");
-        // Perform a connection test if the failure could be due to a blocked port
-        // This does network I/O, so don't do it on the main thread.
+        // Retry promptly; a diagnostic network probe would delay teardown and reconnect.
         final int portFlags = MoonBridge.getPortFlagsFromTerminationErrorCode(errorCode);
         final boolean transientFailure = StreamRecoveryPolicy.transientTermination(errorCode);
         final int portTestResult = transientFailure && prefConfig != null && prefConfig.autoReconnect ?
@@ -4380,6 +4426,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                     return;
                 }
                 if (transientFailure && tryAutomaticRecovery()) return;
+                if (!foreground && transientFailure) rememberStreamForResume();
                 // Let the display go to sleep now
                 getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
 
@@ -4448,7 +4495,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
 
                         if (foreground) {
                             showReconnectDialog(R.string.conn_terminated_title, message);
-                        } else {
+                        } else if (stoppedStreamResumeIntent == null) {
                             finish();
                         }
                     }
@@ -4514,6 +4561,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 bitrateHandler.removeCallbacks(recoveryTimeout);
                 recoveryAppId = app.getControl() == NvApp.Control.NONE ? app.getAppId() : conn.getHostDetails().runningGameId;
                 recoveryAppUuid = app.getControl() == NvApp.Control.NONE ? app.getAppUuid() : conn.getHostDetails().runningGameUuid;
+                controllerHandler.resendControllerArrivals();
                 updateHardwareMetricsPolling();
                 LimeLog.info("Stream connected");
                 connecting = false;
@@ -4691,6 +4739,9 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     }
 
     @Override
+    public void controllerAudio(int kind, byte[] payload) { controllerHandler.handleControllerAudio(kind, payload); }
+
+    @Override
     public void controllerHaptics(short controllerNumber, int sequence, byte[] pcm) {
         controllerHandler.handleControllerHaptics(controllerNumber, sequence, pcm);
     }
@@ -4730,7 +4781,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             UiHelper.notifyStreamConnecting(Game.this);
 
             decoderRenderer.setRenderTarget(videoSurface, renderView.getWidth(), renderView.getHeight());
-            conn.start(new AndroidAudioRenderer(Game.this, prefConfig.enableAudioFx),
+            conn.start(new AndroidAudioRenderer(Game.this, prefConfig.enableAudioFx, controllerHandler::routeHeadphoneAudio),
                     decoderRenderer, Game.this);
         }
     }
@@ -4743,6 +4794,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     private void configureVideoSurface(Surface surface) {
         videoSurface = surface;
         surfaceCreated = true;
+        if (resumeStoppedStreamIfNeeded()) return;
         LimeLog.info("Video surface: " + (prefConfig.useTextureView ? "TextureView" : "SurfaceView") +
                 ", pacing: " + prefConfig.framePacing + ", newest frame: " + prefConfig.dropLateFrames);
 
@@ -4822,10 +4874,12 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             return;
         }
         if (attemptedConnection) {
+            rememberStreamForResume();
             displayedFailureDialog = true;
             stopConnection();
-            // Decoder and input state are terminal after stop; resume with a fresh activity.
-            finish();
+            // The stopped decoder cannot be reused. Resume the captured game in a fresh
+            // activity when foreground returns, with the existing recovery budget.
+            if (stoppedStreamResumeIntent == null && !recoveryCancelledOnPause) finish();
         }
     }
 

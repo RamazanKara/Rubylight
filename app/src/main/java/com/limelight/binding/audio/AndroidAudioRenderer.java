@@ -18,6 +18,11 @@ public class AndroidAudioRenderer implements AudioRenderer {
 
     private final Context context;
     private final boolean enableAudioFx;
+    public interface HeadphoneSink { boolean write(short[] pcm, int length, float volume); }
+    private final HeadphoneSink headphoneSink;
+    private long volumeReadAt;
+    private float streamVolume = 1;
+    private short[] stereo;
 
     private AudioTrack track;
     private long nativeAudio;
@@ -34,8 +39,12 @@ public class AndroidAudioRenderer implements AudioRenderer {
     private static native void nativeCloseAudio(long handle);
 
     public AndroidAudioRenderer(Context context, boolean enableAudioFx) {
+        this(context, enableAudioFx, null);
+    }
+    public AndroidAudioRenderer(Context context, boolean enableAudioFx, HeadphoneSink headphoneSink) {
         this.context = context;
         this.enableAudioFx = enableAudioFx;
+        this.headphoneSink = headphoneSink;
     }
 
     private AudioTrack createAudioTrack(int channelConfig, int sampleRate, int bufferSize, boolean lowLatency) {
@@ -226,6 +235,23 @@ public class AndroidAudioRenderer implements AudioRenderer {
     @Override
     public synchronized void playDecodedAudio(short[] audioData, int length) {
         if (stopped) return;
+        if (headphoneSink != null && sampleRate == 48000 && channels >= 2) {
+            if (SystemClock.uptimeMillis() - volumeReadAt >= 500) {
+                AudioManager manager = (AudioManager)context.getSystemService(Context.AUDIO_SERVICE);
+                streamVolume = manager.getStreamVolume(AudioManager.STREAM_MUSIC) /
+                        (float)Math.max(1, manager.getStreamMaxVolume(AudioManager.STREAM_MUSIC));
+                volumeReadAt = SystemClock.uptimeMillis();
+            }
+            short[] sound = audioData;
+            int count = length;
+            if (channels != 2) {
+                count = length / channels * 2;
+                if (stereo == null || stereo.length < count) stereo = new short[count];
+                downmixStereo(audioData, length, channels, stereo);
+                sound = stereo;
+            }
+            if (headphoneSink.write(sound, count, streamVolume)) return;
+        }
         // Only queue up to 40 ms of pending audio data in addition to what AudioTrack is buffering for us.
         if (MoonBridge.getPendingAudioDuration() < 40) {
             if (nativeAudio != 0) {
@@ -254,6 +280,18 @@ public class AndroidAudioRenderer implements AudioRenderer {
         }
         else {
             LimeLog.info("Too much pending audio data: " + MoonBridge.getPendingAudioDuration() +" ms");
+        }
+    }
+
+    static void downmixStereo(short[] input, int length, int channels, short[] stereo) {
+        for (int frame = 0; frame < length / channels; frame++) {
+            for (int side = 0; side < 2; side++) {
+                // The decoder supplies FL FR C LFE RL RR [SL SR].
+                int base = frame * channels;
+                float mix = input[base + side] + 0.7071f * input[base + 2];
+                for (int c = 4 + side; c < channels; c += 2) mix += 0.7071f * input[base + c];
+                stereo[frame * 2 + side] = (short)Math.max(-32768, Math.min(32767, Math.round(mix)));
+            }
         }
     }
 

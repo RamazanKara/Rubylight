@@ -33,7 +33,9 @@ How the Android client works with each Rubylight host feature.
 | Desktop tools | Pinch zoom/pan with matching absolute input, plus external-display video and a phone touchpad with reconnect fallback. |
 | Remote access guide | [Paired HTTPS checks](remote-setup.md) and, on updated Rubylight hosts, direct/DERP/peer-relay status for the current Tailscale peer. |
 | DualSense / Edge | Adaptive triggers, rumble, lightbar and Edge paddles over the direct USB driver. |
-| DualSense waveform haptics | Experimental, opt-in USB actuator PCM with compatible hosts such as Vibepollo nightly. Reserves controller USB audio; Bluetooth waveform output is unavailable. See [setup and limitations](dualsense-haptics.md). |
+| DualSense USB audio and haptics | Waveform feedback with compatible hosts, plus speaker, headset and microphone audio with matching updated Rubylight hosts. USB only. See [setup and limitations](dualsense-haptics.md). |
+| Controller reconnects | Host controller preparation and identity/audio-endpoint retention with matching Rubylight hosts, alongside the guarded stream recovery policy. |
+| Gyro aiming / radial menus | Provided by Steam Input using forwarded controller motion and touchpads. Configure per game in Steam. |
 | Touch, pen, mouse and keyboard | Trackpad, direct and multi-touch, native pen, pointer capture and keyboard input. Direct positions account for shifted stream layouts. Extra keyboard keys include Esc, F1–F12, modifiers and Task Manager/window shortcuts. Custom chords can be edited under Controls and imported/exported as JSON. |
 | Clipboard / server commands | Foreground text transfer in both directions and the host's configured commands. |
 | Performance overlay / CSV | Statistics and scrollable Debug views with stage timings, available host processing and CSV export. Choose the mode in the stream menu's Overlay section. |

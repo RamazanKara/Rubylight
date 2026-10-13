@@ -10,6 +10,20 @@ import java.util.List;
 import static org.junit.Assert.*;
 
 public class AndroidAudioRendererTest {
+    @Test public void headsetMixKeepsLeftRightAndCenterInTheirCorrectChannels() {
+        for (int channels : new int[] {6, 8}) {
+            short[][] expected = {{1000, 0}, {0, 1000}, {707, 707}, {0, 0},
+                    {707, 0}, {0, 707}, {707, 0}, {0, 707}};
+            for (int channel = 0; channel < channels; channel++) {
+                short[] input = new short[channels];
+                input[channel] = 1000;
+                short[] stereo = new short[2];
+                AndroidAudioRenderer.downmixStereo(input, input.length, channels, stereo);
+                assertArrayEquals(expected[channel], stereo);
+            }
+        }
+    }
+
     private static final class ScriptedRenderer extends AndroidAudioRenderer {
         private final int[] results;
         private int nextResult;

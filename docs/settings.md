@@ -105,7 +105,7 @@ These tables include every preference, including actions. On/Off choices have no
 
 | Setting / preference key | Default | Choices and units | When to change or use |
 | --- | --- | --- | --- |
-| Recover interrupted streams<br>`checkbox_auto_reconnect` | On | On; Off | Resume the same running game after transport failures, up to five attempts within one minute. Back or leaving the activity cancels recovery. Graceful termination, pairing, permissions and decoder failures stay manual; recovery never launches or replaces a game. |
+| Recover interrupted streams<br>`checkbox_auto_reconnect` | On | On; Off | Resume the same running game after transport failures or returning from screen lock, up to five attempts within one minute. Back or leaving during a retry cancels it. Graceful termination, pairing, permissions and decoder failures stay manual; recovery never launches or replaces a game. |
 | Picture in picture<br>`checkbox_enable_pip` | Off | On; Off | Enable to keep a small video window when leaving the app. Input and overlay are hidden there; requires device support. |
 | Language<br>`list_languages` | System default | System default; English; Deutsch | Choose the interface language. Android 13+ uses the system per-app language setting. |
 | Use small box art<br>`checkbox_small_icon_mode` | On below 500 dp smallest screen width; Off on TVs and larger screens | On; Off | Enable to fit more games in the library grid. |
@@ -134,7 +134,7 @@ These tables include every preference, including actions. On/Off choices have no
 | Force full-range video<br>`checkbox_full_range` | Off | On; Off | Use when the host and display both send full-range color, for full shadow and highlight detail. |
 | USB controller driver<br>`checkbox_usb_driver` | On | On; Off | Leave on for built-in Xbox USB support. Android requests USB access when needed. |
 | USB DualSense driver<br>`checkbox_usb_dualsense` | Off | On; Off | Enable for direct USB DualSense/Edge input, feedback and adaptive triggers. Accept the explanation and Android USB permission during a stream; Bluetooth retains Android's input path. |
-| USB DualSense waveform haptics<br>`checkbox_usb_dualsense_haptics` | Off | On; Off | Enable alongside the USB DualSense driver for native 48 kHz waveform feedback from Vibepollo nightly on DualSense/Edge. Reconnect after changing it. Uses the controller USB audio interfaces, so its headset/microphone are unavailable. Bluetooth does not support waveform playback. Requires USB DualSense driver On. |
+| USB DualSense audio and haptics<br>`checkbox_usb_dualsense_haptics` | Off | On; Off | Enable alongside the USB DualSense driver for native waveform feedback. Updated Rubylight hosts also forward controller speaker, headset and microphone audio. Microphone streaming needs its separate setting and Android permission; the controller mute button follows the stream mute. Reconnect after changing this option. USB only. Requires USB DualSense driver On. |
 | Always use the USB driver<br>`checkbox_usb_bind_all` | Off | On; Off | Enable to prefer Rubylight's Xbox USB driver even when Android already recognizes the controller. Requires USB controller driver On. |
 | Optimize game settings<br>`checkbox_enable_sops` | On | On; Off | Leave on to request game optimization from hosts that implement it; the host decides whether it has an effect. |
 | Hide connection warnings<br>`checkbox_disable_warnings` | Off | On; Off | Enable to hide stream connection warnings once your connection is tuned. |

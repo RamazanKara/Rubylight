@@ -48,6 +48,7 @@ static jmethodID BridgeClSetMotionEventStateMethod;
 static jmethodID BridgeClSetControllerLEDMethod;
 static jmethodID BridgeClSetAdaptiveTriggersMethod;
 static jmethodID BridgeClControllerHapticsMethod;
+static jmethodID BridgeClControllerAudioMethod;
 static jbyteArray DecodedFrameBuffer;
 static jshortArray DecodedAudioBuffer;
 
@@ -112,6 +113,7 @@ Java_com_limelight_nvstream_jni_MoonBridge_init(JNIEnv *env, jclass clazz) {
     BridgeClRumbleTriggersMethod = (*env)->GetStaticMethodID(env, clazz, "bridgeClRumbleTriggers", "(SSS)V");
     BridgeClSetMotionEventStateMethod = (*env)->GetStaticMethodID(env, clazz, "bridgeClSetMotionEventState", "(SBS)V");
     BridgeClSetControllerLEDMethod = (*env)->GetStaticMethodID(env, clazz, "bridgeClSetControllerLED", "(SBBB)V");
+    BridgeClControllerAudioMethod = (*env)->GetStaticMethodID(env, clazz, "bridgeClControllerAudio", "(I[B)V");
     BridgeClControllerHapticsMethod = (*env)->GetStaticMethodID(env, clazz, "bridgeClControllerHaptics", "(SI[B)V");
     BridgeClSetAdaptiveTriggersMethod = (*env)->GetStaticMethodID(env, clazz, "bridgeClSetAdaptiveTriggers", "(SBBB[B[B)V");
 }
@@ -457,6 +459,16 @@ void BridgeClSetAdaptiveTriggers(uint16_t controllerNumber, uint8_t eventFlags, 
     if ((*env)->ExceptionCheck(env)) {
         (*JVM)->DetachCurrentThread(JVM);
     }
+}
+
+void BridgeClControllerAudio(uint16_t kind, const uint8_t* payload, int length) {
+    JNIEnv* env = GetThreadEnv();
+    jbyteArray bytes = (*env)->NewByteArray(env, length);
+    if (!bytes) { (*env)->ExceptionClear(env); return; }
+    (*env)->SetByteArrayRegion(env, bytes, 0, length, (const jbyte*)payload);
+    (*env)->CallStaticVoidMethod(env, GlobalBridgeClass, BridgeClControllerAudioMethod, (jint)kind, bytes);
+    (*env)->DeleteLocalRef(env, bytes);
+    if ((*env)->ExceptionCheck(env)) (*env)->ExceptionClear(env);
 }
 
 void BridgeClControllerHaptics(uint16_t controller, uint32_t sequence, const uint8_t* pcm, uint16_t frames) {

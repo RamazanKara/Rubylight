@@ -68,6 +68,9 @@ public abstract class AbstractController {
     public abstract void rumbleTriggers(short leftTrigger, short rightTrigger);
 
     public void controllerHaptics(int sequence, byte[] pcm) {}
+    public void controllerAudio(int kind, byte[] payload) {}
+    public void bindAudio(com.limelight.nvstream.NvConnection connection, int number) {}
+    public boolean headphoneAudio(short[] samples, int length, float volume) { return false; }
 
     public void setAdaptiveTriggers(byte eventFlags, byte typeLeft, byte typeRight, byte[] left, byte[] right) {}
 

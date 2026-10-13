@@ -38,4 +38,5 @@ static inline int MlHapticsValidate(const uint8_t* p, size_t size) {
 }
 
 // Android bridge: borrowed PCM is copied into a bounded per-controller queue.
+void BridgeClControllerAudio(uint16_t kind, const uint8_t* payload, int length);
 void BridgeClControllerHaptics(uint16_t controller, uint32_t sequence, const uint8_t* pcm, uint16_t frames);

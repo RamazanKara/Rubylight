@@ -150,8 +150,8 @@
     <string name="suffix_seekbar_deadzone">%</string>
     <string name="title_checkbox_xb1_driver">USB-Controller-Treiber</string>
     <string name="summary_checkbox_xb1_driver">Nutze Xbox-Controller per USB ohne Root.</string>
-    <string name="title_usb_dualsense_haptics">DualSense-Wellenformhaptik per USB</string>
-    <string name="summary_usb_dualsense_haptics">Detaillierte Vibration von kompatiblen Hosts, auch Vibepollo Nightly. Übernimmt USB-Audio des Controllers; dessen Headset und Mikrofon sind nicht verfügbar. Verbinde den Controller nach einer Änderung erneut.</string>
+    <string name="title_usb_dualsense_haptics">DualSense-Audio und Haptik per USB</string>
+    <string name="summary_usb_dualsense_haptics">Detaillierte Vibration mit Rubylight und kompatiblen Vibepollo-Hosts. Aktualisierte Rubylight-Hosts unterstützen auch Controller-Lautsprecher, Headset und Mikrofon. Mikrofonübertragung benötigt die Berechtigung und ihre separate Einstellung. Verbinde den Controller nach einer Änderung erneut.</string>
     <string name="title_usb_dualsense">DualSense per USB</string>
     <string name="summary_usb_dualsense">Nutze adaptive Trigger, Vibration und mehr per USB.</string>
     <string name="usb_dualsense_permission_info">Erlaube beim Streamstart den USB-Zugriff.\nSonst bleiben adaptive Trigger aus.</string>

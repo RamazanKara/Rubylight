@@ -10,6 +10,7 @@ import android.os.SystemClock;
 
 import com.limelight.LimeLog;
 import com.limelight.nvstream.jni.MoonBridge;
+import com.limelight.nvstream.input.ControllerPacket;
 
 public class DualSenseController extends AbstractController {
     private final UsbDevice device;
@@ -27,6 +28,12 @@ public class DualSenseController extends AbstractController {
     private Thread inputThread;
     private volatile boolean stopped;
     private boolean batteryReported;
+    private volatile com.limelight.nvstream.NvConnection audioConnection;
+    private volatile boolean audioNegotiated, microphoneAccepted, headphonesConnected, hostMicMuted;
+    private volatile boolean microphoneReady;
+    private final java.util.ArrayDeque<byte[]> audioControls = new java.util.ArrayDeque<>();
+    private int audioNumber, micSequence, lastAudioFlags = -1;
+    private long audioStatusAt;
     private long accelIntervalNs, gyroIntervalNs, lastAccelNs, lastGyroNs;
 
     public DualSenseController(UsbDevice device, UsbDeviceConnection connection, int deviceId, UsbDriverListener listener, UsbManager waveformUsbManager) {
@@ -162,6 +169,13 @@ public class DualSenseController extends AbstractController {
                         continue;
                     }
                     calibration.apply(input);
+                    headphonesConnected = input.headphones;
+                    com.limelight.nvstream.NvConnection audioConn = audioConnection;
+                    if (audioConn != null && (input.buttons & ControllerPacket.MISC_FLAG) != 0 && (previous.buttons & ControllerPacket.MISC_FLAG) == 0) {
+                        audioConn.setMicrophoneMuted(!audioConn.isMicrophoneMuted());
+                    }
+                    drainAudioControls();
+                    updateAudioState();
                     listener.reportControllerState(getControllerId(), input.buttons,
                             input.leftStickX, input.leftStickY, input.rightStickX, input.rightStickY,
                             input.leftTrigger, input.rightTrigger);
@@ -228,6 +242,79 @@ public class DualSenseController extends AbstractController {
     public void controllerHaptics(int sequence, byte[] pcm) {
         DualSenseHaptics playback = haptics;
         if (!stopped && playback != null) playback.offer(sequence, pcm);
+    }
+
+    @Override
+    public void bindAudio(com.limelight.nvstream.NvConnection conn, int number) {
+        DualSenseHaptics playback = haptics;
+        if (playback == null || !playback.isReady() || !MoonBridge.hostSupportsControlMessage(DualSenseAudioPacket.CONTROL)) return;
+        audioNumber = number; audioConnection = conn;
+        conn.useControllerMicrophone();
+        playback.microphone(new DualSenseHaptics.Microphone() {
+            public boolean start() { return conn.beginControllerMicrophone(); }
+            public void finish() { conn.endControllerMicrophone(); }
+            public boolean enabled() { return !stopped && microphoneAccepted && !hostMicMuted && conn.controllerMicrophoneEnabled(); }
+            public void ready(boolean ready) {
+                microphoneReady = ready;
+                conn.controllerMicrophoneState(microphoneAccepted, ready);
+            }
+            public void samples(byte[] pcm, int length) {
+                if (enabled()) MoonBridge.sendControllerAudio(DualSenseAudioPacket.MICROPHONE,
+                        DualSenseAudioPacket.pcm(audioNumber, micSequence++, pcm, length));
+            }
+        });
+        lastAudioFlags = -1;
+        updateAudioState();
+    }
+    private void updateAudioState() {
+        com.limelight.nvstream.NvConnection conn = audioConnection;
+        if (conn == null || stopped) return;
+        int flags = 1 | (conn.controllerMicrophonePermitted() ? 2 : 0) | (headphonesConnected ? 4 : 0) |
+                (conn.isMicrophoneMuted() || hostMicMuted ? 8 : 0);
+        long now = SystemClock.uptimeMillis();
+        if (flags != lastAudioFlags || now - audioStatusAt >= 1000) {
+            if (MoonBridge.sendControllerAudio(DualSenseAudioPacket.CONTROL, DualSenseAudioPacket.status(audioNumber, flags))) {
+                lastAudioFlags = flags; audioStatusAt = now;
+            }
+            synchronized (outputLock) {
+                if (!stopped) writeOutput(output.audio(headphonesConnected, !conn.controllerMicrophoneEnabled() || hostMicMuted));
+            }
+        }
+    }
+    @Override
+    public void controllerAudio(int kind, byte[] payload) {
+        if (stopped || audioConnection == null || DualSenseAudioPacket.id(payload) != audioNumber) return;
+        DualSenseHaptics playback = haptics;
+        if (kind == DualSenseAudioPacket.SPEAKER && DualSenseAudioPacket.validPcm(payload) && playback != null) {
+            playback.speaker(DualSenseAudioPacket.sequence(payload), java.util.Arrays.copyOfRange(payload, 12, payload.length));
+        } else if (kind == DualSenseAudioPacket.CONTROL && DualSenseAudioPacket.validControl(payload)) {
+            if (payload[1] == 3) {
+                audioNegotiated = (payload[4] & 1) != 0;
+                microphoneAccepted = (payload[4] & 2) != 0;
+                audioConnection.controllerMicrophoneState(microphoneAccepted, microphoneReady);
+            } else {
+                if ((payload[5] & 2) != 0) hostMicMuted = (payload[11] & 0x10) != 0;
+                synchronized (audioControls) {
+                    if (audioControls.size() == 32) audioControls.removeFirst();
+                    audioControls.addLast(payload.clone());
+                }
+            }
+        }
+    }
+    private void drainAudioControls() {
+        byte[] control;
+        while (true) {
+            synchronized (audioControls) { control = audioControls.pollFirst(); }
+            if (control == null) return;
+            synchronized (outputLock) { if (!stopped) writeOutput(output.audioControl(control)); }
+        }
+    }
+    @Override
+    public boolean headphoneAudio(short[] samples, int length, float volume) {
+        DualSenseHaptics playback = haptics;
+        if (stopped || !audioNegotiated || !headphonesConnected || playback == null || !playback.isReady()) return false;
+        playback.headphones(samples, length, volume);
+        return true;
     }
 
     @Override

@@ -16,15 +16,19 @@ final class StreamRecoveryPolicy {
     }
 
     long nextDelay(long now, long connectedAt) {
+        resetAfterStableConnection(now, connectedAt);
+        if (attempts == 0) startedAt = now;
+        if (attempts >= MAX_ATTEMPTS || now < startedAt ||
+                now - startedAt + DELAYS_MS[attempts] >= WINDOW_MS) return -1;
+        return DELAYS_MS[attempts++];
+    }
+
+    void resetAfterStableConnection(long now, long connectedAt) {
         // Briefly starting a stream must not give a flapping connection an unlimited budget.
         if (connectedAt >= 0 && now - connectedAt >= STABLE_MS) {
             attempts = 0;
             startedAt = 0;
         }
-        if (attempts == 0) startedAt = now;
-        if (attempts >= MAX_ATTEMPTS || now < startedAt ||
-                now - startedAt + DELAYS_MS[attempts] >= WINDOW_MS) return -1;
-        return DELAYS_MS[attempts++];
     }
 
     int attempts() { return attempts; }

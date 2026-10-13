@@ -84,6 +84,45 @@ public class NvConnection {
     private volatile boolean micPermitted;
     private volatile boolean micMuted;
     private MicrophoneCapture microphone;
+    private volatile boolean controllerMicrophone, controllerMicReady, controllerMicAllowed;
+    private long controllerMicAccessAt;
+    private boolean controllerMicAccess;
+    public void useControllerMicrophone() {
+        controllerMicrophone = true;
+        stopMicrophone();
+    }
+    public synchronized boolean controllerMicrophonePermitted() {
+        if (!micPermitted || stopRequested) return false;
+        long now = android.os.SystemClock.uptimeMillis();
+        if (controllerMicAccessAt != 0 && now - controllerMicAccessAt < 100) return controllerMicAccess;
+        android.media.AudioManager audio = (android.media.AudioManager)appContext.getSystemService(Context.AUDIO_SERVICE);
+        android.app.AppOpsManager ops = (android.app.AppOpsManager)appContext.getSystemService(Context.APP_OPS_SERVICE);
+        int mode = ops == null ? android.app.AppOpsManager.MODE_ERRORED : ops.checkOpNoThrow(
+                android.app.AppOpsManager.OPSTR_RECORD_AUDIO, android.os.Process.myUid(), appContext.getPackageName());
+        controllerMicAccess = hasMicrophonePermission() && audio != null && !audio.isMicrophoneMute() &&
+                (mode == android.app.AppOpsManager.MODE_ALLOWED || mode == android.app.AppOpsManager.MODE_DEFAULT);
+        controllerMicAccessAt = now;
+        return controllerMicAccess;
+    }
+    public boolean beginControllerMicrophone() {
+        if (!controllerMicrophoneEnabled()) return false;
+        android.app.AppOpsManager ops = (android.app.AppOpsManager)appContext.getSystemService(Context.APP_OPS_SERVICE);
+        return ops != null && ops.startOpNoThrow(android.app.AppOpsManager.OPSTR_RECORD_AUDIO,
+                android.os.Process.myUid(), appContext.getPackageName()) == android.app.AppOpsManager.MODE_ALLOWED;
+    }
+    public void endControllerMicrophone() {
+        android.app.AppOpsManager ops = (android.app.AppOpsManager)appContext.getSystemService(Context.APP_OPS_SERVICE);
+        if (ops != null) ops.finishOp(android.app.AppOpsManager.OPSTR_RECORD_AUDIO,
+                android.os.Process.myUid(), appContext.getPackageName());
+    }
+    public boolean controllerMicrophoneEnabled() { return controllerMicrophonePermitted() && !micMuted; }
+    public void controllerMicrophoneState(boolean allowed, boolean ready) {
+        controllerMicAllowed = allowed; controllerMicReady = ready;
+    }
+    private java.util.function.Supplier<String> controllerPreparation;
+    public void setControllerPreparation(java.util.function.Supplier<String> preparation) {
+        controllerPreparation = preparation;
+    }
     private final InputBatcher inputBatcher = new InputBatcher(motion -> {
         if (!canSendInput()) return;
         if (motion.kind == 0) MoonBridge.sendMouseMove((short) motion.x, (short) motion.y);
@@ -116,7 +155,7 @@ public class NvConnection {
 
     // Starts recording once the host has taken the microphone. Called with MoonBridge.class held.
     private void startMicrophone() {
-        if (!micPermitted) {
+        if (!micPermitted || controllerMicrophone) {
             return;
         }
         int state = MoonBridge.getMicrophoneState();
@@ -126,7 +165,7 @@ public class NvConnection {
             return;
         }
         synchronized (this) {
-            if (stopRequested || microphone != null) {
+            if (stopRequested || controllerMicrophone || microphone != null) {
                 return;
             }
             microphone = new MicrophoneCapture(MoonBridge::sendMicrophonePcm, micMuted);
@@ -146,6 +185,11 @@ public class NvConnection {
     }
 
     public synchronized MicrophoneStatus getMicrophoneStatus() {
+        if (controllerMicrophone) {
+            return MicrophoneStatus.of(micEnabled, micPermitted,
+                    controllerMicAllowed ? MoonBridge.MIC_STATE_READY : MoonBridge.MIC_STATE_NOT_OFFERED,
+                    controllerMicReady || micMuted, micMuted);
+        }
         return MicrophoneStatus.of(micEnabled, micPermitted, micPermitted ? MoonBridge.getMicrophoneState() :
                 MoonBridge.MIC_STATE_OFF, microphone != null && microphone.isCapturing(), micMuted);
     }
@@ -417,6 +461,9 @@ public class NvConnection {
         ComputerDetails details = h.getComputerDetails(serverInfo);
         hostDetails = details;
         context.isNvidiaServerSoftware = details.nvidiaServer;
+        if (NvHTTP.supportsControllerPreparation(serverInfo) && controllerPreparation != null) {
+            context.preparedControllers = controllerPreparation.get();
+        }
         NvHTTP.readDisplayCapabilities(context, serverInfo);
         // The choice saved for the PC this stream was started from (its stored ID); the ID in this
         // serverinfo reply is only the fallback.

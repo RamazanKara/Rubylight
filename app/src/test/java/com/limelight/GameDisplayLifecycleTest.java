@@ -159,12 +159,14 @@ public class GameDisplayLifecycleTest {
     @Test public void manualReconnectKeepsUserSelectionAndStartsANewRetryBudget() {
         Game game = Robolectric.buildActivity(Game.class).get();
         game.setIntent(new Intent().putExtra(Game.EXTRA_APP_ID, 73)
-                .putExtra("RecoveryAttempts", 3).putExtra("RecoveryStarted", 1000L));
+                .putExtra("RecoveryAttempts", 3).putExtra("RecoveryStarted", 1000L)
+                .putExtra("rubylight.outputResumeOnly", true));
         ReflectionHelpers.setField(game, "app", new NvApp("Game", 73, false));
         Intent retry = ReflectionHelpers.callInstanceMethod(game, "createReconnectIntent");
         assertEquals(73, retry.getIntExtra(Game.EXTRA_APP_ID, 0));
         assertFalse(retry.hasExtra("RecoveryAttempts"));
         assertFalse(retry.hasExtra("RecoveryStarted"));
+        assertFalse(retry.hasExtra("rubylight.outputResumeOnly"));
         game.setIntent(retry);
         assertFalse(ReflectionHelpers.callInstanceMethod(game, "isResumeOnlyStream"));
     }

@@ -1,8 +1,12 @@
 package com.limelight;
 
 import android.app.Application;
+import android.content.Intent;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
+import com.limelight.binding.video.MediaCodecDecoderRenderer;
+import com.limelight.binding.video.MediaCodecHelper;
 import com.limelight.nvstream.NvConnection;
 import com.limelight.nvstream.StreamConfiguration;
 import com.limelight.nvstream.http.ComputerDetails;
@@ -34,6 +38,155 @@ public class GameRecoveryTest {
             @Override public void stop() {}
         });
         return game;
+    }
+
+    private Game establishedGame() {
+        Game game = recoveryGame();
+        PreferenceConfiguration config = ReflectionHelpers.getField(game, "prefConfig");
+        config.videoFormat = PreferenceConfiguration.FormatOption.AUTO;
+        config.enableLatencyToast = false;
+        ReflectionHelpers.setStaticField(MediaCodecHelper.class, "initialized", true);
+        ReflectionHelpers.setField(game, "decoderRenderer", new MediaCodecDecoderRenderer(game, config,
+                null, 0, false, false, "", null) {
+            @Override public void prepareForStop() {}
+        });
+        ReflectionHelpers.setField(game, "tombstonePrefs", game.getSharedPreferences("recovery-test", 0));
+        ReflectionHelpers.setField(game, "attemptedConnection", true);
+        ReflectionHelpers.setField(game, "recoveryAppId", 73);
+        ReflectionHelpers.setField(game, "recoveryAppUuid", "captured-game");
+        ReflectionHelpers.setField(game, "connectedAt", SystemClock.elapsedRealtime());
+        return game;
+    }
+
+    @Test public void lockResumePreservesCapturedIdentityOutputAndExistingRetryBudget() throws Exception {
+        org.robolectric.shadows.ShadowSystemClock.advanceBy(java.time.Duration.ofSeconds(10));
+        Game game = establishedGame();
+        long started = SystemClock.elapsedRealtime() - 5000;
+        game.setIntent(new Intent().putExtra(Game.EXTRA_APP_ID, 2147483501)
+                .putExtra("RecoveryAttempts", 2).putExtra("RecoveryStarted", started)
+                .putExtra("rubylight.outputDisplay", 42).putExtra("rubylight.outputResumeOnly", true));
+        ReflectionHelpers.setField(game, "recoveryPolicy", new StreamRecoveryPolicy(2, started));
+        try {
+            game.onPause();
+            game.onStop();
+            assertFalse(game.isFinishing());
+            assertNotNull(ReflectionHelpers.getField(game, "stoppedStreamResumeIntent"));
+            org.robolectric.shadows.ShadowLooper.idleMainLooper(10, java.util.concurrent.TimeUnit.SECONDS);
+            assertNull(org.robolectric.Shadows.shadowOf(game).getNextStartedActivity());
+            // A shortcut or tile must not replace the identity captured when the session began.
+            game.getIntent().putExtra(Game.EXTRA_APP_ID, 99);
+            game.onResume();
+            assertNull(ReflectionHelpers.getField(game, "stoppedStreamResumeIntent"));
+            assertFalse(ReflectionHelpers.callInstanceMethod(game, "resumeStoppedStreamIfNeeded"));
+            Intent retry = awaitRecoveryLaunch(game, 4);
+            assertEquals(73, retry.getIntExtra(Game.EXTRA_APP_ID, 0));
+            assertEquals("captured-game", retry.getStringExtra(Game.EXTRA_APP_UUID));
+            assertEquals(42, retry.getIntExtra("rubylight.outputDisplay", 0));
+            assertTrue(retry.getBooleanExtra("rubylight.outputResumeOnly", false));
+            assertEquals(3, retry.getIntExtra("RecoveryAttempts", 0));
+            assertEquals(started, retry.getLongExtra("RecoveryStarted", 0));
+            Game replacement = Robolectric.buildActivity(Game.class).get();
+            replacement.setIntent(retry);
+            assertTrue(ReflectionHelpers.callInstanceMethod(replacement, "isResumeOnlyStream"));
+            assertNull(org.robolectric.Shadows.shadowOf(game).getNextStartedActivity());
+        } finally {
+            cleanupRecovery(game);
+        }
+    }
+
+    @Test public void timeLockedCannotResetAnExhaustedUnstableRecoveryWindow() {
+        org.robolectric.shadows.ShadowSystemClock.advanceBy(java.time.Duration.ofSeconds(100));
+        Game game = establishedGame();
+        long started = SystemClock.elapsedRealtime() - 58000;
+        StreamRecoveryPolicy policy = new StreamRecoveryPolicy(4, started);
+        ReflectionHelpers.setField(game, "recoveryPolicy", policy);
+        try {
+            game.onPause();
+            game.onStop();
+            org.robolectric.shadows.ShadowSystemClock.advanceBy(java.time.Duration.ofMinutes(2));
+            game.onResume();
+            assertEquals(4, policy.attempts());
+            assertEquals(started, policy.startedAt());
+            assertNull(ReflectionHelpers.getField(game, "pendingRecovery"));
+            android.app.Dialog dialog = ReflectionHelpers.getField(game, "streamMenu");
+            assertNotNull(dialog);
+            assertTrue(dialog.isShowing());
+            assertNull(org.robolectric.Shadows.shadowOf(game).getNextStartedActivity());
+        } finally {
+            cleanupRecovery(game);
+        }
+    }
+
+    @Test public void leavingADelayedLockResumeCancelsItBeforeAnotherActivityStarts() throws Exception {
+        Game game = establishedGame();
+        try {
+            game.onPause();
+            game.onStop();
+            game.onResume();
+            com.limelight.utils.SpinnerDialog spinner = ReflectionHelpers.getField(game, "spinner");
+            assertNotNull(spinner);
+            spinner.onCancel(null);
+            assertTrue(game.isFinishing());
+            org.robolectric.shadows.ShadowLooper.idleMainLooper(15, java.util.concurrent.TimeUnit.SECONDS);
+            assertNull(org.robolectric.Shadows.shadowOf(game).getNextStartedActivity());
+        } finally {
+            cleanupRecovery(game);
+        }
+    }
+
+    @Test public void lifecycleResumeRequiresAnEstablishedEligibleSessionAndEnabledRecovery() {
+        for (String condition : new String[] {"disabled", "quit", "failure", "uncaptured", "connecting"}) {
+            Game game = establishedGame();
+            if (condition.equals("disabled")) {
+                PreferenceConfiguration config = ReflectionHelpers.getField(game, "prefConfig");
+                config.autoReconnect = false;
+            } else if (condition.equals("quit")) game.finish();
+            else if (condition.equals("failure")) ReflectionHelpers.setField(game, "displayedFailureDialog", true);
+            else if (condition.equals("uncaptured")) ReflectionHelpers.setField(game, "recoveryAppId", 0);
+            else {
+                ReflectionHelpers.setField(game, "connected", false);
+                ReflectionHelpers.setField(game, "connecting", true);
+            }
+            ReflectionHelpers.callInstanceMethod(game, "rememberStreamForResume");
+            assertNull(condition, ReflectionHelpers.getField(game, "stoppedStreamResumeIntent"));
+        }
+    }
+
+    @Test public void destroyingAnEstablishedSurfaceWaitsForForegroundBeforeResuming() {
+        Game game = establishedGame();
+        ReflectionHelpers.setField(game, "surfaceCreated", true);
+        game.onPause();
+        try {
+            ReflectionHelpers.callInstanceMethod(game, "destroyVideoSurface");
+            assertFalse(game.isFinishing());
+            assertNotNull(ReflectionHelpers.getField(game, "stoppedStreamResumeIntent"));
+            assertNull(ReflectionHelpers.getField(game, "pendingRecovery"));
+            game.onResume();
+            assertNotNull(ReflectionHelpers.getField(game, "pendingRecovery"));
+        } finally {
+            cleanupRecovery(game);
+        }
+    }
+
+    private static Intent awaitRecoveryLaunch(Game game, int delaySeconds) throws InterruptedException {
+        Thread stopping = ReflectionHelpers.getField(game, "connectionStopThread");
+        if (stopping != null) stopping.join(1000);
+        org.robolectric.shadows.ShadowLooper.idleMainLooper(delaySeconds, java.util.concurrent.TimeUnit.SECONDS);
+        for (int i = 0; i < 40; i++) {
+            Thread.sleep(5);
+            org.robolectric.shadows.ShadowLooper.idleMainLooper();
+            Intent retry = org.robolectric.Shadows.shadowOf(game).getNextStartedActivity();
+            if (retry != null) return retry;
+        }
+        fail("Recovery did not create the replacement activity");
+        return null;
+    }
+
+    private static void cleanupRecovery(Game game) {
+        ReflectionHelpers.callInstanceMethod(game, "cancelAutomaticRecovery");
+        android.app.Dialog dialog = ReflectionHelpers.getField(game, "streamMenu");
+        if (dialog != null) dialog.dismiss();
+        com.limelight.utils.SpinnerDialog.closeDialogs(game);
     }
 
     @Test public void recoveryQueuesOneAttemptAndStoppingCancelsIt() {

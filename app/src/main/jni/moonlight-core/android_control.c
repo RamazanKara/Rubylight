@@ -154,3 +154,20 @@ Java_com_limelight_nvstream_jni_MoonBridge_requestReconfigure(JNIEnv *env, jclas
                                 CTRL_CHANNEL_GENERIC, ENET_PACKET_FLAG_RELIABLE, false)
         ? JNI_TRUE : JNI_FALSE;
 }
+
+// Speaker/microphone control uses the authenticated stream and existing ENet sequencing.
+JNIEXPORT jboolean JNICALL
+Java_com_limelight_nvstream_jni_MoonBridge_sendControllerAudio(JNIEnv* env, jclass clazz, jint kind, jbyteArray payload) {
+    (void)clazz;
+    if ((kind != 0x5534 && kind != 0x5535) || !hostSupportsControlMessage((uint16_t)kind) ||
+        !encryptedControlStream || stopping || peer == NULL || !payload) return JNI_FALSE;
+    jsize length = (*env)->GetArrayLength(env, payload);
+    if (length < 8 || length > 972) return JNI_FALSE;
+    uint8_t bytes[972];
+    (*env)->GetByteArrayRegion(env, payload, 0, length, (jbyte*)bytes);
+    if ((*env)->ExceptionCheck(env)) return JNI_FALSE;
+    if (kind == 0x5534 && !MlHapticsValidate(bytes, length)) return JNI_FALSE;
+    if (kind == 0x5535 && (length != 8 || bytes[0] != 1 || bytes[1] != 1 || MlHapticsRead16(bytes+2) >= 16 || (bytes[4] & ~15) || bytes[5] || bytes[6] || bytes[7])) return JNI_FALSE;
+    return sendMessageAndForget((short)kind, (short)length, bytes, 8,
+        kind == 0x5535 ? ENET_PACKET_FLAG_RELIABLE : ENET_PACKET_FLAG_UNSEQUENCED, false) ? JNI_TRUE : JNI_FALSE;
+}

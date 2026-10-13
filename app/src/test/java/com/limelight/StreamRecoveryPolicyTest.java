@@ -29,6 +29,19 @@ public class StreamRecoveryPolicyTest {
         assertEquals(70000, policy.startedAt());
     }
 
+    @Test public void aStableSessionResetsAtStopWhileTimeLockedDoesNotCountAsStability() {
+        StreamRecoveryPolicy stable = new StreamRecoveryPolicy(5, 1000);
+        stable.resetAfterStableConnection(40000, 10000);
+        assertEquals(1000, stable.nextDelay(200000, -1));
+        assertEquals(200000, stable.startedAt());
+
+        StreamRecoveryPolicy flapping = new StreamRecoveryPolicy(4, 1000);
+        flapping.resetAfterStableConnection(25000, 20000);
+        assertEquals(-1, flapping.nextDelay(200000, -1));
+        assertEquals(4, flapping.attempts());
+        assertEquals(1000, flapping.startedAt());
+    }
+
     @Test public void gracefulPermanentAndUnknownErrorsDoNotRetry() {
         for (int code : new int[] {0, -103, -104, 401, 403, 409, 470, 525, -999, 123456}) {
             assertFalse("code " + code, StreamRecoveryPolicy.transientTermination(code));

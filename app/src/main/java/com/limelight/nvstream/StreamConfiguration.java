@@ -35,12 +35,19 @@ public class StreamConfiguration {
     private int colorRange;
     private int colorSpace;
     private boolean persistGamepadsAfterDisconnect;
+    private boolean resumeOnly;
 
     public static class Builder {
         private StreamConfiguration config = new StreamConfiguration();
         
         public StreamConfiguration.Builder setApp(NvApp app) {
             config.app = app;
+            return this;
+        }
+
+        /** Recovery must never launch, replace or terminate an application. */
+        public StreamConfiguration.Builder setResumeOnly(boolean resumeOnly) {
+            config.resumeOnly = resumeOnly;
             return this;
         }
         
@@ -208,6 +215,10 @@ public class StreamConfiguration {
 
     public NvApp getApp() {
         return app;
+    }
+
+    public boolean isResumeOnly() {
+        return resumeOnly;
     }
     
     public boolean getSops() {

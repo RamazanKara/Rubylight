@@ -26,6 +26,7 @@ import com.limelight.binding.video.StreamResizePolicy;
 import com.limelight.binding.video.UpscalingPolicy;
 import com.limelight.nvstream.NvConnection;
 import com.limelight.nvstream.AdaptiveBitrateController;
+import com.limelight.nvstream.AdaptiveQualityController;
 import com.limelight.nvstream.PyroWaveBitrateController;
 import com.limelight.nvstream.NvConnectionListener;
 import com.limelight.nvstream.StreamConfiguration;
@@ -169,6 +170,21 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     private boolean surfaceCreated = false;
     private boolean attemptedConnection = false;
     private Thread connectionStopThread;
+    private StreamRecoveryPolicy recoveryPolicy = new StreamRecoveryPolicy(0, 0);
+    private long connectedAt = -1;
+    private int recoveryAppId;
+    private String recoveryAppUuid;
+    private Runnable pendingRecovery;
+    private int recoveryGeneration;
+    private boolean recoveryCancelledOnPause;
+    private final Runnable recoveryTimeout = () -> {
+        if (this.connecting && this.foreground && !isFinishing() && isRecoveryAttempt()) {
+            displayedFailureDialog = true;
+            stopConnection();
+            if (spinner != null) { spinner.dismiss(); spinner = null; }
+            showReconnectDialog(R.string.conn_terminated_title, getString(R.string.stream_recovery_exhausted));
+        }
+    };
     private int suppressPipRefCount = 0;
     private android.app.Dialog streamMenu;
     private Runnable streamMenuAction;
@@ -194,7 +210,40 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     private boolean poorConnection;
     private long adaptiveBitrateRetryAt;
     private int adaptiveBitrateRetryTarget;
+    private AdaptiveQualityController adaptiveQuality;
+    private AdaptiveQualityController.Target pendingQualityTarget;
+    private long qualityRequestSentAt;
+    private String qualityStatus;
+    private int qualityMaxWidth, qualityMaxHeight, qualityMaxFps;
     private final Handler bitrateHandler = new Handler(Looper.getMainLooper());
+    private final Runnable updateQuality = new Runnable() {
+        @Override public void run() {
+            if (!connected || adaptiveQuality == null || isFinishing()) return;
+            long now = SystemClock.uptimeMillis();
+            if (!foreground || streamMenu != null || hostActionInProgress ||
+                    (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && isInPictureInPictureMode())) {
+                adaptiveQuality.suspend();
+            } else if (pendingQualityTarget != null) {
+                int[] shown = decoderRenderer.getStreamSize();
+                if (shown[0] == pendingQualityTarget.width && shown[1] == pendingQualityTarget.height) {
+                    pendingQualityTarget = null;
+                } else if (now - qualityRequestSentAt >= 10000) {
+                    stopAdaptiveQualityWithError();
+                    return;
+                }
+            } else {
+                long rtt = MoonBridge.getEstimatedRttInfo();
+                AdaptiveQualityController.Target target = adaptiveQuality.sample(now,
+                        decoderRenderer.hasRecentVideoFrames(now), poorConnection,
+                        decoderRenderer.getNetworkFrameLossPercent(), decoderRenderer.getDecodeTimeMs(),
+                        rtt == -1 ? -1 : (float) (rtt & 0xffffffffL), decoderRenderer.getQueueDelayMs(),
+                        decoderRenderer.getThermalLevel(),
+                        adaptiveBitrate != null && adaptiveBitrate.hasRoomBeforeQualityReduction());
+                if (target != null && !applyAdaptiveQuality(target, now)) return;
+            }
+            bitrateHandler.postDelayed(this, 1000);
+        }
+    };
     private final Runnable updateBitrate = new Runnable() {
         @Override
         public void run() {
@@ -384,6 +433,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     public static final String EXTRA_PC_NAME = "PcName";
     public static final String EXTRA_APP_HDR = "HDR";
     public static final String EXTRA_SERVER_CERT = "ServerCert";
+    private static final String EXTRA_RECOVERY_ATTEMPTS = "RecoveryAttempts";
+    private static final String EXTRA_RECOVERY_STARTED = "RecoveryStarted";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -436,6 +487,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
 
         // Read the stream preferences
         prefConfig = PreferenceConfiguration.readPreferences(this, getIntent().getStringExtra(EXTRA_PC_UUID));
+        recoveryPolicy = new StreamRecoveryPolicy(getIntent().getIntExtra(EXTRA_RECOVERY_ATTEMPTS, 0),
+                getIntent().getLongExtra(EXTRA_RECOVERY_STARTED, 0));
         panelMaxRefreshRate = com.limelight.binding.video.DisplayFrameRatePolicy.maxRefreshRate(
                 getWindowManager().getDefaultDisplay());
         if (prefConfig.vrr) {
@@ -725,6 +778,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 .setLaunchRefreshRateX100(prefConfig.launchRefreshRateX100)
                 .setRefreshRate(chosenFrameRate)
                 .setApp(app)
+                .setResumeOnly(isRecoveryAttempt())
                 .setBitrate(prefConfig.bitrate)
                 .setEnableSops(prefConfig.enableSops)
                 .enableLocalAudioPlayback(prefConfig.playHostAudio)
@@ -1398,6 +1452,9 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             offered = new int[] {size[0], size[1], fpsMillihz};
         }
         reconfigureRequester.start(size[0], size[1], fpsMillihz, offered[0], offered[1], offered[2]);
+        qualityMaxWidth = size[0];
+        qualityMaxHeight = size[1];
+        qualityMaxFps = streamFps;
     }
 
     private void checkStreamReconfigure() {
@@ -1413,12 +1470,28 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 !MoonBridge.hostSupportsControlMessage(MoonBridge.CONTROL_MESSAGE_RECONFIGURE)) {
             return;
         }
-        int[] offered = offeredStream(reconfigureRequester.width(), reconfigureRequester.height(),
-                reconfigureRequester.fpsMillihz());
+        if (adaptiveQuality != null && pendingQualityTarget != null) {
+            bitrateHandler.postDelayed(checkReconfigure, 1000);
+            return;
+        }
+        int[] offered = offeredStream(adaptiveQuality == null ? reconfigureRequester.width() : qualityMaxWidth,
+                adaptiveQuality == null ? reconfigureRequester.height() : qualityMaxHeight,
+                adaptiveQuality == null ? reconfigureRequester.fpsMillihz() : qualityMaxFps * 1000);
+        if (adaptiveQuality != null && offered != null) {
+            AdaptiveQualityController.Target target = adaptiveQuality.resizeCeiling(offered[0], offered[1],
+                    Math.round(offered[2] / 1000f), now);
+            qualityMaxWidth = offered[0]; qualityMaxHeight = offered[1]; qualityMaxFps = Math.round(offered[2] / 1000f);
+            if (target != null) applyAdaptiveQuality(target, now);
+            return;
+        }
         int[] request = offered == null ? null : reconfigureRequester.decide(offered[0], offered[1], offered[2]);
         if (request == null) {
             return;
         }
+        requestStreamReconfigure(request);
+    }
+
+    private boolean requestStreamReconfigure(int[] request) {
         LimeLog.info("Reconfigure: asking for " + request[0] + "x" + request[1] + " at " + request[2] / 1000f +
                 " fps (was " + reconfigureRequester.width() + "x" + reconfigureRequester.height() + " at " +
                 reconfigureRequester.fpsMillihz() / 1000f + " fps)");
@@ -1426,11 +1499,11 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         if (!decoderRenderer.prepareForReconfigure(request[0], request[1])) {
             LimeLog.warning("Reconfigure: the decoder cannot switch to " + request[0] + "x" + request[1] +
                     "; the stream stays as it is");
-            return;
+            return false;
         }
         if (!MoonBridge.requestReconfigure(request[0], request[1], request[2])) {
             LimeLog.warning("Reconfigure: request not sent");
-            return;
+            return false;
         }
         boolean fpsChanged = request[2] != reconfigureRequester.fpsMillihz();
         reconfigureRequester.sent(request);
@@ -1444,6 +1517,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 voteSurfaceFrameRate(videoSurface);
             }
         }
+        return true;
     }
 
     // What this phone offers a stream that follows it, {width, height, fps in millihertz}, given
@@ -1612,6 +1686,13 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     protected void onResume() {
         super.onResume();
         foreground = true;
+        if (recoveryCancelledOnPause && !connected && !isFinishing()) {
+            displayedFailureDialog = true;
+            stopConnection();
+            if (spinner != null) { spinner.dismiss(); spinner = null; }
+            showReconnectDialog(R.string.conn_terminated_title, getString(R.string.stream_recovery_paused));
+        }
+        recoveryCancelledOnPause = false;
         if (restoreInputOnResume && connected) {
             setInputGrabState(true);
         }
@@ -1622,6 +1703,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     @Override
     protected void onPause() {
         foreground = false;
+        recoveryCancelledOnPause = pendingRecovery != null || (isRecoveryAttempt() && connecting);
+        cancelAutomaticRecovery();
         stopHardwareMetricsPolling();
         foregroundGeneration++;
         streamMenuAction = null;
@@ -1909,6 +1992,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     private void showBitrateMenu() {
         ActionSheet sheet = new ActionSheet(this, getString(R.string.stream_bitrate));
         addStreamAction(sheet, R.drawable.ic_network, R.string.stream_bitrate_manual, this::showBitrateDialog);
+        addStreamAction(sheet, R.drawable.ic_network, R.string.title_adaptive_quality, this::showAdaptiveQualityDialog);
         if (supportsAdaptiveBitrate()) {
             addStreamAction(sheet, R.drawable.ic_network, isAdaptiveBitrateEnabled() ?
                     R.string.stream_auto_bitrate_disable : R.string.stream_auto_bitrate_enable, () -> {
@@ -2167,6 +2251,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     }
 
     private void reconnectStream() {
+        getIntent().removeExtra(EXTRA_RECOVERY_ATTEMPTS);
+        getIntent().removeExtra(EXTRA_RECOVERY_STARTED);
         displayedFailureDialog = true;
         setInputGrabState(false);
         stopConnection();
@@ -2190,6 +2276,69 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 }
             });
         }, "Stream reconnect").start();
+    }
+
+    private boolean isRecoveryAttempt() {
+        return getIntent().getIntExtra(EXTRA_RECOVERY_ATTEMPTS, 0) > 0;
+    }
+
+    private void cancelAutomaticRecovery() {
+        recoveryGeneration++;
+        if (pendingRecovery != null) bitrateHandler.removeCallbacks(pendingRecovery);
+        pendingRecovery = null;
+        bitrateHandler.removeCallbacks(recoveryTimeout);
+    }
+
+    private boolean tryAutomaticRecovery() {
+        if (prefConfig == null || !prefConfig.autoReconnect || displayedFailureDialog ||
+                (!connected && !connecting) || !foreground || isFinishing() || isDestroyed() ||
+                app == null || app.getRole() != NvApp.Role.STREAM || app.isControlAction()) return false;
+        int resumeId = recoveryAppId != 0 ? recoveryAppId :
+                app.getControl() == NvApp.Control.NONE ? app.getAppId() : 0;
+        String resumeUuid = recoveryAppId != 0 ? recoveryAppUuid : app.getAppUuid();
+        if (resumeId == 0) return false;
+        long delay = recoveryPolicy.nextDelay(SystemClock.elapsedRealtime(), connectedAt);
+        if (delay < 0) return false;
+
+        displayedFailureDialog = true;
+        setInputGrabState(false);
+        stopConnection();
+        if (spinner != null) spinner.dismiss();
+        spinner = SpinnerDialog.displayDialog(this, getString(R.string.conn_establishing_title),
+                getString(R.string.stream_recovery_attempt, recoveryPolicy.attempts(), StreamRecoveryPolicy.MAX_ATTEMPTS), true);
+        final Intent retry = new Intent(getIntent())
+                .putExtra(EXTRA_APP_ID, resumeId).putExtra(EXTRA_APP_UUID, resumeUuid)
+                .putExtra(EXTRA_RECOVERY_ATTEMPTS, recoveryPolicy.attempts())
+                .putExtra(EXTRA_RECOVERY_STARTED, recoveryPolicy.startedAt());
+        final int generation = foregroundGeneration;
+        final int recovery = recoveryGeneration;
+        pendingRecovery = () -> {
+            pendingRecovery = null;
+            if (!foreground || generation != foregroundGeneration || recovery != recoveryGeneration || isFinishing() || isDestroyed()) return;
+            final Thread stopping = connectionStopThread;
+            new Thread(() -> {
+                try {
+                    // Never overlap the native global connection with a previous stop.
+                    if (stopping != null) stopping.join(10000);
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    return;
+                }
+                runOnUiThread(() -> {
+                    if (!foreground || generation != foregroundGeneration || recovery != recoveryGeneration || isFinishing() || isDestroyed()) return;
+                    if ((stopping != null && stopping.isAlive()) ||
+                            SystemClock.elapsedRealtime() - recoveryPolicy.startedAt() >= StreamRecoveryPolicy.WINDOW_MS) {
+                        if (spinner != null) { spinner.dismiss(); spinner = null; }
+                        showReconnectDialog(R.string.conn_terminated_title, getString(R.string.stream_recovery_exhausted));
+                        return;
+                    }
+                    finish();
+                    startActivity(retry);
+                });
+            }, "Automatic stream recovery").start();
+        };
+        bitrateHandler.postDelayed(pendingRecovery, delay);
+        return true;
     }
 
     private void showReconnectDialog(int title, String message) {
@@ -2382,6 +2531,85 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 details.hasPermission(ComputerDetails.PERMISSION_VIEW | ComputerDetails.PERMISSION_LAUNCH);
     }
 
+    private AdaptiveQualityController.Mode qualityMode() {
+        return AdaptiveQualityController.Mode.parse(getSharedPreferences("AdaptiveQuality", MODE_PRIVATE)
+                .getString(getIntent().getStringExtra(EXTRA_PC_UUID), prefConfig.adaptiveQualityMode.preference()));
+    }
+
+    private boolean supportsAdaptiveQuality() {
+        return connected && decoderRenderer != null && app != null && app.getRole() == NvApp.Role.STREAM &&
+                (decoderRenderer.getActiveVideoFormat() & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) == 0 &&
+                MoonBridge.hostSupportsControlMessage(MoonBridge.CONTROL_MESSAGE_RECONFIGURE) &&
+                decoderRenderer.getReconfigureLimits() != null;
+    }
+
+    private void startAdaptiveQuality() {
+        bitrateHandler.removeCallbacks(updateQuality);
+        adaptiveQuality = null;
+        pendingQualityTarget = null;
+        qualityStatus = null;
+        AdaptiveQualityController.Mode mode = qualityMode();
+        if (mode == AdaptiveQualityController.Mode.OFF) return;
+        if (!supportsAdaptiveQuality()) {
+            qualityStatus = getString(R.string.quality_unavailable);
+            if (foreground) Toast.makeText(this, qualityStatus, Toast.LENGTH_LONG).show();
+            return;
+        }
+        int[] limits = decoderRenderer.getReconfigureLimits();
+        adaptiveQuality = new AdaptiveQualityController(mode, qualityMaxWidth, qualityMaxHeight, qualityMaxFps,
+                prefConfig.qualityMinShortEdge, prefConfig.qualityMinFps, limits[2], limits[3], SystemClock.uptimeMillis());
+        // A user changing the mode returns to the session's ceiling before the new policy starts.
+        int[] shown = decoderRenderer.getStreamSize();
+        if (!adaptiveQuality.current().matches(shown[0], shown[1], streamFps) &&
+                !applyAdaptiveQuality(adaptiveQuality.current(), SystemClock.uptimeMillis())) return;
+        if (supportsAdaptiveBitrate() && !isAdaptiveBitrateEnabled()) setAdaptiveBitrateEnabled(true);
+        bitrateHandler.postDelayed(updateQuality, 1000);
+    }
+
+    private boolean applyAdaptiveQuality(AdaptiveQualityController.Target target, long now) {
+        if (!requestStreamReconfigure(target.request())) {
+            stopAdaptiveQualityWithError();
+            return false;
+        }
+        adaptiveQuality.applied(target, now);
+        pendingQualityTarget = target;
+        qualityRequestSentAt = now;
+        return true;
+    }
+
+    private void stopAdaptiveQualityWithError() {
+        adaptiveQuality = null;
+        pendingQualityTarget = null;
+        bitrateHandler.removeCallbacks(updateQuality);
+        qualityStatus = getString(R.string.quality_request_failed);
+        LimeLog.warning("Automatic quality: requested size was not confirmed; adaptation stopped");
+        if (foreground) Toast.makeText(this, qualityStatus, Toast.LENGTH_LONG).show();
+    }
+
+    private void showAdaptiveQualityDialog() {
+        String[] modes = getResources().getStringArray(R.array.adaptive_quality_names);
+        String[] choices = new String[] {getString(R.string.quality_use_settings), modes[0], modes[1], modes[2], modes[3]};
+        SharedPreferences saved = getSharedPreferences("AdaptiveQuality", MODE_PRIVATE);
+        String key = getIntent().getStringExtra(EXTRA_PC_UUID);
+        int selected = saved.contains(key) ? qualityMode().ordinal() + 1 : 0;
+        showStreamDialog(new MaterialAlertDialogBuilder(this).setTitle(R.string.title_adaptive_quality)
+                .setSingleChoiceItems(choices, selected, (dialog, which) -> {
+                    if (which == 0) saved.edit().remove(key).apply();
+                    else saved.edit().putString(key, AdaptiveQualityController.Mode.values()[which - 1].preference()).apply();
+                    dialog.dismiss();
+                    startAdaptiveQuality();
+                    if (qualityMode() == AdaptiveQualityController.Mode.OFF && supportsAdaptiveQuality()) {
+                        requestStreamReconfigure(new int[] {qualityMaxWidth, qualityMaxHeight, qualityMaxFps * 1000});
+                    }
+                })
+                .setNeutralButton(R.string.quality_about, (dialog, which) ->
+                        showStreamDialog(new MaterialAlertDialogBuilder(this).setTitle(R.string.title_adaptive_quality)
+                                .setMessage(getString(R.string.quality_stream_help) + "\n\n" +
+                                        getString(supportsAdaptiveQuality() ? R.string.summary_adaptive_quality : R.string.quality_unavailable))
+                                .setPositiveButton(android.R.string.ok, null).create()))
+                .setNegativeButton(android.R.string.cancel, null).create());
+    }
+
     private boolean isAdaptiveBitrateEnabled() {
         return adaptiveBitrate != null || pyroWaveBitrate != null;
     }
@@ -2406,7 +2634,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 adaptiveBitrate = new AdaptiveBitrateController(0, 0, streamFps, SystemClock.uptimeMillis());
             }
             // The preference includes FEC/audio, while runtime changes use encoder Kbps.
-            // Read the actual rates before sampling instead of changing the host to discover them.
+            // Read the actual encoder budget, then claim ownership at that same bitrate.
             applyAdaptiveBitrate(0);
             bitrateHandler.postDelayed(updateBitrate, 1000);
         }
@@ -2422,7 +2650,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 if (details != null && (details.encoderBitrateKbps <= 0 || details.initialEncoderBitrateKbps <= 0)) {
                     throw new IOException("Host did not report the stream's encoder bitrate");
                 }
-                int applied = details == null ? conn.setBitrate(target) : details.encoderBitrateKbps;
+                // Claim bitrate ownership on hosts with their own controller, without probing a new rate.
+                int applied = conn.setBitrate(details == null ? target : details.encoderBitrateKbps);
                 runOnUiThread(() -> {
                     if (connected && !isFinishing()) {
                         if (adaptiveBitrate == controller && pyroWaveBitrate == pyroController) {
@@ -3678,6 +3907,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     }
 
     private void stopConnection() {
+        cancelAutomaticRecovery();
         stopHardwareMetricsPolling();
         getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         if (lowLatencyWifiLock != null && lowLatencyWifiLock.isHeld()) {
@@ -3691,6 +3921,9 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         getWindow().getDecorView().removeCallbacks(runWindowFocusActions);
         bitrateHandler.removeCallbacks(updateBitrate);
         bitrateHandler.removeCallbacks(checkReconfigure);
+        bitrateHandler.removeCallbacks(updateQuality);
+        adaptiveQuality = null;
+        pendingQualityTarget = null;
         adaptiveBitrate = null;
         pyroWaveBitrate = null;
         displayCapsReporter = null;
@@ -3704,7 +3937,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             connecting = connected = false;
             updatePipAutoEnter();
 
-            controllerHandler.stop();
+            if (controllerHandler != null) controllerHandler.stop();
 
             // Update GameManager state to indicate we're no longer in game
             UiHelper.notifyStreamEnded(this);
@@ -3725,7 +3958,9 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         LimeLog.info("Stream failed");
         // Perform a connection test if the failure could be due to a blocked port
         // This does network I/O, so don't do it on the main thread.
-        final int portTestResult = portFlags == 0 ? MoonBridge.ML_TEST_RESULT_INCONCLUSIVE :
+        final boolean transientRecoveryFailure = isRecoveryAttempt() &&
+                StreamRecoveryPolicy.transientStartup(stage, portFlags, errorCode);
+        final int portTestResult = portFlags == 0 || transientRecoveryFailure ? MoonBridge.ML_TEST_RESULT_INCONCLUSIVE :
                 MoonBridge.testClientConnectivity(ServerHelper.CONNECTION_TEST_SERVER, 443, portFlags);
 
         runOnUiThread(new Runnable() {
@@ -3734,6 +3969,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 if (isFinishing() || isDestroyed()) {
                     return;
                 }
+                if (transientRecoveryFailure && tryAutomaticRecovery()) return;
                 if (spinner != null) {
                     spinner.dismiss();
                     spinner = null;
@@ -3792,7 +4028,10 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         // Perform a connection test if the failure could be due to a blocked port
         // This does network I/O, so don't do it on the main thread.
         final int portFlags = MoonBridge.getPortFlagsFromTerminationErrorCode(errorCode);
-        final int portTestResult = MoonBridge.testClientConnectivity(ServerHelper.CONNECTION_TEST_SERVER,443, portFlags);
+        final boolean transientFailure = StreamRecoveryPolicy.transientTermination(errorCode);
+        final int portTestResult = transientFailure && prefConfig != null && prefConfig.autoReconnect ?
+                MoonBridge.ML_TEST_RESULT_INCONCLUSIVE :
+                MoonBridge.testClientConnectivity(ServerHelper.CONNECTION_TEST_SERVER,443, portFlags);
 
         runOnUiThread(new Runnable() {
             @Override
@@ -3800,11 +4039,12 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 if (isFinishing() || isDestroyed()) {
                     return;
                 }
+                if (transientFailure && tryAutomaticRecovery()) return;
                 // Let the display go to sleep now
                 getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
 
                 // Stop processing controller input
-                controllerHandler.stop();
+                if (controllerHandler != null) controllerHandler.stop();
 
                 // Ungrab input
                 setInputGrabState(false);
@@ -3928,6 +4168,10 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 }
 
                 connected = true;
+                connectedAt = SystemClock.elapsedRealtime();
+                bitrateHandler.removeCallbacks(recoveryTimeout);
+                recoveryAppId = app.getControl() == NvApp.Control.NONE ? app.getAppId() : conn.getHostDetails().runningGameId;
+                recoveryAppUuid = app.getControl() == NvApp.Control.NONE ? app.getAppUuid() : conn.getHostDetails().runningGameUuid;
                 updateHardwareMetricsPolling();
                 LimeLog.info("Stream connected");
                 connecting = false;
@@ -3950,6 +4194,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                         .getBoolean(getIntent().getStringExtra(EXTRA_PC_UUID), false)) {
                     setAdaptiveBitrateEnabled(true);
                 }
+                startAdaptiveQuality();
                 updatePipAutoEnter();
 
                 if (!conn.getHostDetails().hasPermission(ComputerDetails.PERMISSION_INPUT)) {
@@ -4124,6 +4369,16 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         }
 
         if (!attemptedConnection) {
+            if (isRecoveryAttempt()) {
+                long remaining = StreamRecoveryPolicy.WINDOW_MS -
+                        (SystemClock.elapsedRealtime() - recoveryPolicy.startedAt());
+                if (remaining <= 0) {
+                    if (spinner != null) { spinner.dismiss(); spinner = null; }
+                    showReconnectDialog(R.string.conn_terminated_title, getString(R.string.stream_recovery_exhausted));
+                    return;
+                }
+                bitrateHandler.postDelayed(recoveryTimeout, remaining);
+            }
             attemptedConnection = true;
             connecting = true;
             LimeLog.info("Stream starting");
@@ -4398,6 +4653,14 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                         useArr ? "ARR" : "max Hz") : "";
                 String networkText = !isAdaptiveBitrateEnabled() ? network : network + "\n" +
                         getString(R.string.stream_auto_bitrate_status, currentBitrate / 1000.0);
+                if (adaptiveQuality != null) {
+                    AdaptiveQualityController.Target quality = adaptiveQuality.current();
+                    networkText += "\n" + getString(R.string.quality_status,
+                            getResources().getStringArray(R.array.adaptive_quality_names)[qualityMode().ordinal()],
+                            quality.width, quality.height, quality.fps);
+                } else if (qualityStatus != null) {
+                    networkText += "\n" + qualityStatus;
+                }
                 MicrophoneStatus micStatus = conn.getMicrophoneStatus();
                 if (micStatus.label != 0) {
                     networkText += "\n" + getString(micStatus.label);

@@ -441,6 +441,13 @@ public class NvConnection {
         NvApp app = context.streamConfig.getApp();
         NvApp currentApp = null;
 
+        if (context.streamConfig.isResumeOnly() &&
+                (app.getControl() != NvApp.Control.NONE ||
+                        !app.matchesRunningApp(details.runningGameId, details.runningGameUuid))) {
+            context.connListener.displayMessage(appContext.getString(R.string.stream_recovery_session_changed));
+            return false;
+        }
+
         if (!app.getAppUuid().isEmpty()) {
             // Resolve stale shortcut IDs before the host's ID-or-UUID lookup can select another app.
             if (app.matchesRunningApp(details.runningGameId, details.runningGameUuid)) {
@@ -597,6 +604,9 @@ public class NvConnection {
 
     protected boolean quitAndLaunch(NvHTTP h, ConnectionContext context) throws IOException,
             XmlPullParserException {
+        if (context.streamConfig.isResumeOnly()) {
+            throw new HostHttpResponseException(409, "The previous session is no longer available.");
+        }
         if (context.streamConfig.getApp().getControl() != NvApp.Control.NONE) {
             return launchNotRunningApp(h, context);
         }
@@ -635,6 +645,9 @@ public class NvConnection {
 
     static boolean launchApp(NvHTTP http, ConnectionContext context, String verb)
             throws IOException, XmlPullParserException {
+        if (context.streamConfig.isResumeOnly() && !"resume".equals(verb)) {
+            throw new HostHttpResponseException(409, "Recovery can only resume the previous session.");
+        }
         NvApp app = context.streamConfig.getApp();
         boolean retried = false;
         while (true) {
@@ -646,7 +659,7 @@ public class NvConnection {
                     context.connListener.launchActionCompleted(e.getErrorMessage());
                     return false;
                 }
-                if (!LaunchConfirmation.isRequired(app, e)) {
+                if (context.streamConfig.isResumeOnly() || !LaunchConfirmation.isRequired(app, e)) {
                     throw e;
                 }
                 if (retried) {
@@ -761,7 +774,11 @@ public class NvConnection {
                     if (!stopRequested) {
                         e.printStackTrace();
                         context.connListener.displayMessage(appContext.getString(R.string.startup_connection_failed));
-                        context.connListener.stageFailed(appName, MoonBridge.ML_PORT_FLAG_TCP_47984 | MoonBridge.ML_PORT_FLAG_TCP_47989, 0);
+                        // Only transport failures qualify for automatic recovery. Malformed host
+                        // data, TLS/certificate rejection and client errors need a user decision.
+                        int retryPorts = e instanceof IOException && !(e instanceof javax.net.ssl.SSLException) ?
+                                MoonBridge.ML_PORT_FLAG_TCP_47984 | MoonBridge.ML_PORT_FLAG_TCP_47989 : 0;
+                        context.connListener.stageFailed(appName, retryPorts, 0);
                     }
                 } finally {
                     if (!started) {

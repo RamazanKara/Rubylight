@@ -1,0 +1,53 @@
+package com.limelight;
+
+import org.junit.Test;
+import static org.junit.Assert.*;
+
+public class StreamRecoveryPolicyTest {
+    @Test public void increasingDelaysAndBudgetSurviveActivityReplacement() {
+        StreamRecoveryPolicy policy = new StreamRecoveryPolicy(0, 0);
+        long now = 10000;
+        for (long delay : new long[] {1000, 2000, 4000, 8000, 12000}) {
+            assertEquals(delay, policy.nextDelay(now, -1));
+            now += delay;
+            policy = new StreamRecoveryPolicy(policy.attempts(), policy.startedAt());
+        }
+        assertEquals(-1, policy.nextDelay(now, -1));
+        assertEquals(10000, policy.startedAt());
+    }
+
+    @Test public void slowStartupAndFlappingConnectionsCannotExtendTheWindow() {
+        StreamRecoveryPolicy policy = new StreamRecoveryPolicy(3, 1000);
+        assertEquals(-1, policy.nextDelay(59000, 58000));
+        assertEquals(-1, new StreamRecoveryPolicy(5, 1000).nextDelay(25000, 20000));
+    }
+
+    @Test public void stableConnectionReceivesANewBudget() {
+        StreamRecoveryPolicy policy = new StreamRecoveryPolicy(5, 1000);
+        assertEquals(1000, policy.nextDelay(70000, 40000));
+        assertEquals(1, policy.attempts());
+        assertEquals(70000, policy.startedAt());
+    }
+
+    @Test public void gracefulPermanentAndUnknownErrorsDoNotRetry() {
+        for (int code : new int[] {0, -103, -104, 401, 403, 409, 470, 525, -999, 123456}) {
+            assertFalse("code " + code, StreamRecoveryPolicy.transientTermination(code));
+        }
+        for (int code : new int[] {-100, -101, -102, -1, 104, 110, 10054, 10060}) {
+            assertTrue("code " + code, StreamRecoveryPolicy.transientTermination(code));
+        }
+    }
+
+    @Test public void startupRejectsDecoderAndHostErrorsEvenWithPortFlags() {
+        assertTrue(StreamRecoveryPolicy.transientStartup("Control stream", 4, -1));
+        assertTrue(StreamRecoveryPolicy.transientStartup("Game", 3, 0));
+        assertFalse(StreamRecoveryPolicy.transientStartup("Video stream", 256, -1));
+        assertFalse(StreamRecoveryPolicy.transientStartup("Game", 3, 403));
+        assertFalse(StreamRecoveryPolicy.transientStartup("Game", 0, 0));
+    }
+
+    @Test public void invalidPersistedStateCannotOverflowOrRunAfterAClockReset() {
+        assertEquals(-1, new StreamRecoveryPolicy(Integer.MAX_VALUE, 1000).nextDelay(2000, -1));
+        assertEquals(-1, new StreamRecoveryPolicy(1, 90000).nextDelay(1000, -1));
+    }
+}

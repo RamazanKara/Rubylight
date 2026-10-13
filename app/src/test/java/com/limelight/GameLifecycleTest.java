@@ -152,7 +152,7 @@ public class GameLifecycleTest {
     }
 
     @Test
-    public void enablingAutoBitrateReadsEncoderBudgetWithoutWritingOrRecoveringAboveIt() throws Exception {
+    public void enablingAutoBitrateClaimsTheCurrentEncoderBudgetWithoutIncreasingIt() throws Exception {
         for (int format : new int[] {com.limelight.nvstream.jni.MoonBridge.VIDEO_FORMAT_H264,
                 com.limelight.nvstream.jni.MoonBridge.VIDEO_FORMAT_PYROWAVE}) {
             Game activity = Robolectric.buildActivity(Game.class).get();
@@ -180,7 +180,8 @@ public class GameLifecycleTest {
                 ReflectionHelpers.callInstanceMethod(activity, "setAdaptiveBitrateEnabled",
                         ReflectionHelpers.ClassParameter.from(boolean.class, true));
                 awaitBitrateRequest(activity);
-                assertEquals(0, connection.writes);
+                assertEquals(1, connection.writes);
+                assertEquals(38988, connection.lastWrite);
                 assertEquals(38988, (int) ReflectionHelpers.getField(activity, "currentBitrate"));
                 com.limelight.nvstream.AdaptiveBitrateController controller = ReflectionHelpers.getField(activity, "adaptiveBitrate");
                 com.limelight.nvstream.PyroWaveBitrateController pyro = ReflectionHelpers.getField(activity, "pyroWaveBitrate");
@@ -247,7 +248,8 @@ public class GameLifecycleTest {
             assertNotSame(waiting, controller);
             assertEquals(45000, (int) ReflectionHelpers.getField(controller, "ceilingKbps"));
             assertEquals(2, connection.reads);
-            assertEquals(0, connection.writes);
+            assertEquals(1, connection.writes);
+            assertEquals(45000, connection.lastWrite);
         } finally {
             handler.removeCallbacks(update);
         }
@@ -256,6 +258,7 @@ public class GameLifecycleTest {
     private static class RetryConnection extends com.limelight.nvstream.NvConnection {
         boolean fail = true;
         int writes;
+        int lastWrite;
         int reads;
         final com.limelight.nvstream.http.ComputerDetails details = new com.limelight.nvstream.http.ComputerDetails();
         RetryConnection() {
@@ -264,6 +267,7 @@ public class GameLifecycleTest {
         }
         @Override public int setBitrate(int bitrate) throws java.io.IOException {
             writes++;
+            lastWrite = bitrate;
             if (fail) throw new java.io.IOException("temporary failure");
             return bitrate;
         }

@@ -8,7 +8,9 @@ pub(crate) mod reconnect_tests;
 use anyhow::{Context, Result};
 use butterpollo_core::{
     config::Config,
-    crypto, input,
+    crypto,
+    encoder_backlog::{self, Backpressure},
+    input,
     packet::{AudioPacketizer, VideoPacketizer},
     session::Role,
 };
@@ -57,9 +59,6 @@ const OUTPUT_POLL: Duration = Duration::from_micros(100);
 /// gives up: a GPU busy with a game or a driver reset costs frames, not the
 /// stream. Moonlight keeps waiting with a frozen picture meanwhile.
 const ENCODER_RECOVERY: Duration = Duration::from_secs(20);
-/// Keep one queued picture while an encode is running. Larger queues did not
-/// improve throughput on an overloaded AMF encoder, but increased frame age.
-const ENCODER_BACKLOG: usize = 2;
 const CONTROL_EVENT_LIMIT: usize = 512;
 fn control_wait_timeout(remaining: Duration, events: usize) -> i32 {
     if events == CONTROL_EVENT_LIMIT {
@@ -91,6 +90,7 @@ trait EncoderOutput {
     fn poll(&mut self) -> Result<Vec<butterpollo_windows::encoder::Encoded>>;
     fn pending(&self) -> bool;
     fn backlog(&self) -> usize;
+    fn backlog_limit(&self) -> usize;
     fn log_stall(&self);
     fn device_removed(&self) -> Option<DeviceLost> {
         None
@@ -105,6 +105,9 @@ impl EncoderOutput for Encoder {
     }
     fn backlog(&self) -> usize {
         self.backlog()
+    }
+    fn backlog_limit(&self) -> usize {
+        self.backlog_limit()
     }
     fn log_stall(&self) {
         self.log_stall();
@@ -2035,14 +2038,16 @@ impl Media {
                                 None => 0,
                             };
                             let encoding = encoder.as_ref().map_or(0, |e| recovery.backlog(e));
-                            if !rebuild_encoder && encoding + sending >= ENCODER_BACKLOG {
-                                if encoding < ENCODER_BACKLOG {
+                            let encoding_limit = encoder.as_ref().map_or(encoder_backlog::DEFAULT_LIMIT, EncoderOutput::backlog_limit);
+                            let pressure = encoder_backlog::backpressure(encoding, sending, encoding_limit);
+                            if !rebuild_encoder && pressure != Backpressure::None {
+                                if pressure == Backpressure::Sender {
                                     // Network occupancy must not start encoder stall recovery.
                                     recovery.backlog_since = None;
                                     if encoder.as_ref().is_some_and(|e| recovery.pending(e)) {
                                         send_frames(recovery.collect(&mut encoder, &s.launch.warnings, Instant::now)?, peer, Duration::ZERO, latest)?;
                                     } else {
-                                        video_sender.get().unwrap().wait_for_capacity(ENCODER_BACKLOG, period)?;
+                                        video_sender.get().unwrap().wait_for_capacity(encoder_backlog::total_limit(encoding_limit), period)?;
                                     }
                                     continue;
                                 }

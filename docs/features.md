@@ -7,6 +7,7 @@ Everything Rubylight does, grouped by what you will notice while streaming. For 
 ## Fast video on Radeon
 
 - **Native AMF encoding** for H.264, HEVC and AV1, driven directly instead of through a generic wrapper, with defaults tuned per codec from VMAF measurements.
+- **Adaptive AMF backlog.** The encoder learns the driver's required depth and times the next input to preserve conversion and network overlap. The [Radeon measurements](../rust/PERFORMANCE_WORK.md#october-13-adaptive-amf-backlog-candidate) show lower picture age under saturation; normal-load tails and broader compatibility remain unresolved.
 - **Radeon compute.** Frame copies, colour conversion and letterboxing run on D3D12 compute queues beside the game's graphics work, so your game and your stream stop waiting on each other.
 - **HDR from capture to screen.** Ten-bit BT.2020/PQ through HEVC and AV1, with HDR metadata in the keyframes, and ten-bit SDR where you want it.
 - **PyroWave HDR 4:4:4.** A colour sample for every pixel, so coloured text and fine edges stay crisp, on [Rubylight Android](https://github.com/RamazanKara/rubylight-android) or any PyroWave-capable Moonlight client over a fast local network.

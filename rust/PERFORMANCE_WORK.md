@@ -10,6 +10,110 @@ entry may have been measured in a later one. Results to a real laptop over
 Wi-Fi are in "October 8 real-client picture age over Wi-Fi"; the
 [performance overview](../docs/performance.md) carries the current numbers.
 
+## October 13 adaptive AMF backlog candidate
+
+The implementation in 2.2.12 adapts the application-depth learning rule from
+[Vibepollo #461](https://github.com/Nonary/Vibepollo/pull/461) to the Rust host,
+with timed admission to preserve conversion/encode overlap. Windows testing
+compared current main `ff74b3fcb7ed7c1d89ac65cf91b97c136fe9360e` (2.2.11)
+against refinement `bf009268a092fa55cf3e2c17e9b840556fd33f79`. Main had only
+documentation changes since the original `dc02f1a9` baseline. The Rust
+implementation shipped here is identical to the tested refinement.
+
+The old host admits two pictures across encoding and conventional packet
+sending. The candidate separates the encoder limit from that combined budget:
+
+- Without pre-analysis, allow up to four accepted inputs until output shows
+  the driver's retained depth. A fully drained pipeline learns a limit of one.
+  When the first output leaves one accepted input, give it one bounded chance
+  to return (at most 10 ms); a driver needing two inputs resumes after that
+  probe. After depth one is demonstrated, admit the next input near predicted
+  output, reserving conversion time and two 1 ms poll allowances. The fastest
+  valid accepted-input-to-output sample bounds that delay, so temporary GPU
+  load cannot lengthen it. Fast encoding can reduce the delay to zero.
+- Preserve initialized pre-analysis lookahead. The configured depth of one
+  starts with six slots and cannot learn a limit below two. Unavailable or
+  out-of-range driver readback preserves the old fixed limit of two.
+- Learn only from nonempty output matched to an accepted submission. Failed
+  submissions, empty polls, expired timestamps and ownership callbacks do
+  not count as completed pictures. Recreating the encoder restarts learning.
+- Keep the combined allowance at least two so sending the previous packet
+  can overlap encoding. Expand it only for larger encoder requirements.
+  Sender pressure must not start encoder-stall recovery.
+- Keep AMF's configured driver queue, eight-surface ownership cap, conversion,
+  capture and polling behavior. A blocked claim polls output and then rereads
+  the latest captured image; it does not mark an unsubmitted image as encoded.
+
+### Radeon measurements and limits
+
+Optimized Rust 1.98.1 GNU release builds ran serially in repeated ABBA order
+with fresh profiles on port 48523. Hardware was an RX 7900 XT, driver
+32.0.32015.2008 (September 28, 2026), with an Odyssey G93SC at 5120x1440,
+240 Hz, SDR. Normal-rate fixtures used an extended virtual display: H.264
+1920x1080 SDR or AV1 1968x2184 HDR, with source refresh matching requested
+60/120 FPS. AMF used ultralowlatency/speed, VBR latency, driver input queue
+four, compute conversion, VBAQ on, pre-analysis/SAV/HRD/LTR off. The saturated
+HEVC fixture requested 150 Mbps; H.264 used 20 Mbps and AV1 HDR 80 Mbps.
+Loaded runs used the same offscreen 2560x1440 graphics workload at 59 FPS.
+
+Each stream ran 35 seconds with five seconds of warmup. An independent
+D3D11VA receiver decoded picture IDs and QPC timestamps and checked them
+against the source ledger. Picture age includes local decode and barcode
+readback, but excludes presentation, scanout and remote-network latency.
+These are means of per-run statistics, not pooled percentiles or game results.
+
+| DDX condition | Runs per arm | Baseline mean / p95 / p99 age (ms) | Timed mean / p95 / p99 age (ms) | Fresh FPS, baseline / timed |
+| --- | --- | --- | --- | --- |
+| 5120x1440 HEVC, 240 FPS request, saturated | 4 | 19.083 / 21.130 / 21.711 | 16.439 / 18.478 / 19.261 | 219.830 / 219.190 |
+| AV1 HDR, 120 FPS, GPU load | 4 | 11.355 / 15.529 / 18.319 | 11.196 / 15.457 / 18.037 | 119.631 / 119.475 |
+| H.264 SDR, 60 FPS, idle | 8 | 5.636 / 7.325 / 8.200 | 5.745 / 7.034 / 8.116 | 59.999 / 60.001 |
+| H.264 SDR, 60 FPS, GPU load | 8 | 9.103 / 13.764 / 15.459 | 9.408 / 14.013 / 16.375 | 60.001 / 59.995 |
+
+Both saturated ABBA blocks improved mean age (2.687 and 2.602 ms); fresh FPS
+fell 0.29% overall. Backlog logs confirmed learning from four to two to one.
+The original one-input candidate had reduced saturated fresh FPS from 222.142
+to 193.012, which motivated timed overlap. A separate fixed-three-input
+control increased mean age from 19.076 to 23.705 ms with only 219.509 to
+219.755 fresh FPS, so it is not included.
+
+**The normal-load non-regression gate remains inconclusive.** Production
+H.264 loaded p99 was 0.916 ms higher across four ABBA blocks. A separate
+timing-logging copy (`5978455ddea19fb063477f0b804640f623cd0e2e`) reached zero
+admission delay before warmup in all four sessions; its two ABBA p99 deltas
+were +0.527 and -0.704 ms. Identical-baseline controls had +0.094 and -0.316 ms
+deltas. This does not establish that the earlier higher tails are harmless,
+nor justify a general normal-load latency improvement claim. DDX H.264
+120 FPS idle also completed, with broad baseline-tail variation.
+
+Eight saturated motion/static/IDR streams decoded all 256 requested keyframes
+and retained the moving-picture age benefit after a two-second source pause.
+Resume-to-first-fresh-picture ranged from 12.25–16.45 ms on baseline and
+13.23–18.28 ms on the candidate; those four samples per arm do not clear a
+recovery-timing regression concern. No unexpected encoder reset or decoded
+ID/timestamp mismatch occurred in the valid completed runs. The installed
+service was not changed; temporary display/HDR changes were restored.
+
+All 835 ordinary Windows workspace tests, formatting, all-target Clippy with
+warnings denied, and optimized builds passed. Fifty-two environment/native
+tests remain ignored in the ordinary suite. Separate native HDR metadata,
+reference-loss recovery and hardware-device-without-output tests passed on
+both arms. The CI reconnect frame-count failure passed unchanged on rerun and
+locally on both arms; its synthetic path does not exercise native encoding.
+
+The full H.264/HEVC HDR/AV1 HDR 60/120 FPS DDX/WGC idle/load matrix, eight-bit
+pre-analysis, native reconnect churn and injected encoder-stall matrix remain
+incomplete. Earlier candidate WGC results are not validation of this timed
+refinement. No real-game or remote-client performance claim is made. The
+release includes the measured saturated improvement with these unresolved
+limits; it does not claim that the original complete non-regression gate
+passed, or remove the DWM/producer dependency from the October 12 investigation.
+
+Raw ledgers, receiver CSVs, executable hashes, plans, logs and a source bundle
+are retained on the test desktop under
+`C:\Users\ramaz\Documents\Codex\2026-10-13\continue-rubylight-s-adaptive-amf-backlog\evidence`.
+`decision.json` records the initial hold; the later release instruction
+supersedes its publication decision, not its measurements or limitations.
+
 ## October 12 latency follow-up (issue 24)
 
 [Issue #24](https://github.com/RamazanKara/Rubylight/issues/24) reviews 2.2.7

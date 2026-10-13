@@ -10,6 +10,7 @@ import androidx.core.content.ContextCompat;
 
 import com.google.android.material.button.MaterialButton;
 import com.limelight.R;
+import com.limelight.binding.input.KeyboardShortcuts;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -58,6 +59,13 @@ public final class KeyboardOverlay extends LinearLayout {
         addKey(row, "→", KeyEvent.KEYCODE_DPAD_RIGHT).setContentDescription(context.getString(R.string.keyboard_arrow_right));
         for (int i = 0; i < 12; i++) {
             addKey(row, "F" + (i + 1), KeyEvent.KEYCODE_F1 + i);
+        }
+        List<KeyboardShortcuts.Shortcut> shortcuts = KeyboardShortcuts.load(context);
+        if (!shortcuts.isEmpty()) {
+            row = addRow();
+            for (KeyboardShortcuts.Shortcut shortcut : shortcuts) {
+                addButton(row, shortcut.name, () -> sendShortcut(shortcut.keys()));
+            }
         }
     }
 

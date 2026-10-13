@@ -7,6 +7,7 @@ import android.view.ViewGroup;
 
 import com.google.android.material.button.MaterialButton;
 import com.limelight.R;
+import com.limelight.binding.input.KeyboardShortcuts;
 
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -24,6 +25,20 @@ import static org.junit.Assert.*;
 @RunWith(RobolectricTestRunner.class)
 @Config(sdk = 29, application = Application.class)
 public class KeyboardOverlayTest {
+    @Test
+    public void customButtonUsesTheSameShortcutDispatch() {
+        try (ActivityController<UiNavigationTest.Screen> controller = Robolectric.buildActivity(UiNavigationTest.Screen.class).setup()) {
+            KeyboardShortcuts.save(controller.get(), java.util.Collections.singletonList(
+                    new KeyboardShortcuts.Shortcut("desktop", "Desktop", KeyboardShortcuts.parseChord("WIN + D"))));
+            assertEquals(1, KeyboardShortcuts.load(controller.get()).size());
+            List<int[]> sent = new ArrayList<>();
+            KeyboardOverlay overlay = new KeyboardOverlay(controller.get(), sent::add, () -> { }, () -> { });
+            button(overlay, "Desktop").performClick();
+            assertArrayEquals(new int[] {KeyEvent.KEYCODE_META_LEFT, KeyEvent.KEYCODE_D}, sent.get(0));
+            KeyboardShortcuts.save(controller.get(), java.util.Collections.emptyList());
+        }
+    }
+
     @Test
     public void modifiersApplyToOneKeyWithoutHoldingRemoteKeys() {
         try (ActivityController<UiNavigationTest.Screen> controller = Robolectric.buildActivity(UiNavigationTest.Screen.class).setup()) {

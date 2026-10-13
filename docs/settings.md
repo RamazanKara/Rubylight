@@ -43,6 +43,12 @@ These tables include every preference, including actions. On/Off choices have no
 | Host virtual display<br>`checkbox_virtual_display` | Off | On; Off | Enable to request a host display matching the stream. Requires host support and a ready display driver. |
 | Host render scale<br>`seekbar_virtual_display_scale` | 100% | 50%–200%; step 5% | Change the host render pixel count relative to the stream. Desktop text size stays as set on the host. Requires Host virtual display On. |
 
+### Keyboard shortcuts
+
+| Setting / preference key | Default | Choices and units | When to change or use |
+| --- | --- | --- | --- |
+| Keyboard shortcuts<br>`keyboard_shortcuts_editor` | No stored default | Action | Create, edit or delete up to 32 named keyboard chords for the extra keyboard toolbar. Import/export JSON files to transfer them; importing asks before replacing the saved list. See [custom keyboard shortcuts](controls.md#custom-keyboard-shortcuts). |
+
 ### Controllers
 
 | Setting / preference key | Default | Choices and units | When to change or use |

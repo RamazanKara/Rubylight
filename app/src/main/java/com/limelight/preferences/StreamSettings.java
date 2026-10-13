@@ -73,7 +73,7 @@ public class StreamSettings extends AppCompatActivity {
     static final Map<String, String[]> SECTIONS = new LinkedHashMap<>();
     static {
         SECTIONS.put("video", new String[] {"category_basic_settings", "category_upscaling", "category_host_display"});
-        SECTIONS.put("input", new String[] {"category_gamepad_settings", "category_input_settings", "category_onscreen_controls"});
+        SECTIONS.put("input", new String[] {"category_gamepad_settings", "category_input_settings", "category_keyboard_shortcuts", "category_onscreen_controls"});
         SECTIONS.put("host", new String[] {"category_audio_settings"});
         SECTIONS.put("app", new String[] {"category_ui_settings"});
         SECTIONS.put("advanced", new String[] {"category_advanced_settings"});
@@ -919,6 +919,10 @@ public class StreamSettings extends AppCompatActivity {
             });
             findPreference("controller_button_mapping").setOnPreferenceClickListener(preference -> {
                 startActivity(new Intent(getActivity(), ControllerMappingActivity.class));
+                return true;
+            });
+            findPreference("keyboard_shortcuts_editor").setOnPreferenceClickListener(preference -> {
+                startActivity(new Intent(getActivity(), KeyboardShortcutsActivity.class));
                 return true;
             });
             findPreference("export_latency_csv").setOnPreferenceClickListener(new Preference.OnPreferenceClickListener() {

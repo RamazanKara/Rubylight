@@ -419,4 +419,20 @@
     <string name="video_format_measured">Auf diesem Handy gemessene Dekodierzeit: %1$s. Automatisch lässt deutlich langsamere Codecs weg.</string>
     <string name="upscaling_timing_estimate">Schätzung umfasst Texturübergabe, GPU-Verarbeitung und Ausgabewartezeit (1-ms-Abfrage). Anzeigezeitmessung nicht verfügbar.</string>
     <string name="upscaling_last_timing">Letzte GPU-Zeitschätzung: %1$s</string>
+    <string name="keyboard_shortcuts_title">Tastenkombinationen</string>
+    <string name="keyboard_shortcuts_summary">Schaltflächen für die zusätzliche Tastaturleiste erstellen, bearbeiten, importieren oder exportieren</string>
+    <string name="keyboard_shortcuts_help">Erstelle bis zu 32 Tastenkombinationen für „Zusätzliche Tasten“ im Streaming-Menü. Trenne Tasten mit +, zum Beispiel CTRL + SHIFT + ESC oder WIN + D. Jede Schaltfläche drückt die Tasten der Reihe nach und lässt sie in umgekehrter Reihenfolge los.</string>
+    <string name="keyboard_shortcuts_add">Tastenkombination hinzufügen</string>
+    <string name="keyboard_shortcuts_edit">Tastenkombination bearbeiten</string>
+    <string name="keyboard_shortcuts_save">Speichern</string>
+    <string name="keyboard_shortcuts_delete">Löschen</string>
+    <string name="keyboard_shortcuts_name">Name der Schaltfläche</string>
+    <string name="keyboard_shortcuts_chord">Tasten, zum Beispiel CTRL + C</string>
+    <string name="keyboard_shortcuts_invalid">Gib einen Namen und 1–8 unterstützte Tasten ohne Wiederholungen ein.</string>
+    <string name="keyboard_shortcuts_import">Tastenkombinationen importieren</string>
+    <string name="keyboard_shortcuts_export">Tastenkombinationen exportieren</string>
+    <string name="keyboard_shortcuts_replace">Gespeicherte Tastenkombinationen durch die %1$d Tastenkombinationen dieser Datei ersetzen?</string>
+    <string name="keyboard_shortcuts_replace_button">Ersetzen</string>
+    <string name="keyboard_shortcuts_exported">Tastenkombinationen exportiert.</string>
+    <string name="keyboard_shortcuts_file_error">Die Datei konnte nicht gelesen oder geschrieben werden. Prüfe den Dateizugriff und verwende einen gültigen Export mit höchstens 32 Tastenkombinationen.</string>
 </resources>

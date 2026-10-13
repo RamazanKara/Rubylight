@@ -463,4 +463,20 @@
     <string name="video_format_measured">Decode time measured on this phone: %1$s. Automatic skips codecs that are clearly slower.</string>
     <string name="upscaling_timing_estimate">Estimate includes texture handoff, GPU completion and swap wait (1 ms polling). Display presentation timing is unavailable.</string>
     <string name="upscaling_last_timing">Last GPU path estimate: %1$s</string>
+    <string name="keyboard_shortcuts_title">Keyboard shortcuts</string>
+    <string name="keyboard_shortcuts_summary">Create, edit, import or export buttons for the extra keyboard toolbar</string>
+    <string name="keyboard_shortcuts_help">Create up to 32 shortcuts for Extra keyboard keys in the stream menu. Enter keys separated by +, for example CTRL + SHIFT + ESC or WIN + D. Each button presses the keys in order and releases them in reverse order.</string>
+    <string name="keyboard_shortcuts_add">Add shortcut</string>
+    <string name="keyboard_shortcuts_edit">Edit shortcut</string>
+    <string name="keyboard_shortcuts_save">Save</string>
+    <string name="keyboard_shortcuts_delete">Delete</string>
+    <string name="keyboard_shortcuts_name">Button name</string>
+    <string name="keyboard_shortcuts_chord">Keys, for example CTRL + C</string>
+    <string name="keyboard_shortcuts_invalid">Enter a name and 1–8 supported keys without duplicates.</string>
+    <string name="keyboard_shortcuts_import">Import shortcuts</string>
+    <string name="keyboard_shortcuts_export">Export shortcuts</string>
+    <string name="keyboard_shortcuts_replace">Replace your saved shortcuts with the %1$d shortcuts in this file?</string>
+    <string name="keyboard_shortcuts_replace_button">Replace</string>
+    <string name="keyboard_shortcuts_exported">Shortcuts exported.</string>
+    <string name="keyboard_shortcuts_file_error">Could not read or write the shortcut file. Check file access and use a valid shortcut export with at most 32 shortcuts.</string>
 </resources>

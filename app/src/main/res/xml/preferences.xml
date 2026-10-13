@@ -97,6 +97,11 @@
             seekbar:step="5"
             android:text="%" />
     </PreferenceCategory>
+    <PreferenceCategory android:key="category_keyboard_shortcuts" android:title="@string/keyboard_shortcuts_title">
+        <Preference android:key="keyboard_shortcuts_editor"
+            android:title="@string/keyboard_shortcuts_title"
+            android:summary="@string/keyboard_shortcuts_summary" />
+    </PreferenceCategory>
     <PreferenceCategory android:key="category_gamepad_settings" android:title="@string/category_gamepad_settings">
         <com.limelight.preferences.SeekBarPreference
             android:key="seekbar_deadzone"

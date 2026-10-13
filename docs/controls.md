@@ -58,6 +58,28 @@ Select **stream menu → Extra keyboard keys** for a toolbar with Esc, Tab, Ente
 
 The toolbar also provides **Task Manager** (Ctrl+Shift+Esc), **Switch window** (Alt+Tab) and **Close window** (Alt+F4). To stop an unresponsive app, open Task Manager and use its **End task** action on the host. These controls require the host's keyboard permission.
 
+### Custom keyboard shortcuts
+
+Open **Settings → Controls → Keyboard shortcuts** and choose **Add shortcut**. Enter a button name and a chord such as `CTRL + SHIFT + ESC`, `WIN + D` or `ALT + F4`, then **Save**. Select a saved button to change its name or keys, or choose **Delete**. Unsaved editor text survives screen rotation.
+
+On the next stream, open **stream menu → Extra keyboard keys**. Your buttons appear in an additional row that scrolls horizontally. Tapping one presses its keys in the listed order and releases them in reverse order; put modifiers first. Toolbar modifier toggles reset when a shortcut is sent. Shortcuts require the host's keyboard permission and use the same input path as the built-in toolbar buttons.
+
+Key names are case-insensitive. Use letters `A`–`Z`, digits `0`–`9`, `F1`–`F24`, modifiers `CTRL`, `SHIFT`, `ALT`, `WIN`, and names such as `ESC`, `TAB`, `ENTER`, `BACKSPACE`, `DELETE`, `HOME`, `END`, `PAGE_UP`, `PAGE_DOWN`, `LEFT`, `RIGHT`, `UP`, `DOWN` and `SPACE`. `CTRL_RIGHT`, `SHIFT_RIGHT`, `ALT_RIGHT` and `META_RIGHT` select right-hand modifiers; `NUMPAD_0`–`NUMPAD_9` select number-pad keys. Other Android key names are accepted only when Rubylight can forward them to the host.
+
+Choose **Export shortcuts** to save a UTF-8 JSON file through Android's file picker. **Import shortcuts** validates a selected file and asks before replacing the entire saved list; canceling keeps your current buttons. Files can contain at most 32 shortcuts and must be at most 64 KiB. Each shortcut has a unique ID containing 1–64 letters, digits, underscores or hyphens, a nonblank name of at most 80 characters without control characters, and 1–8 supported keys without duplicates. The editor accepts at most 256 characters for a chord.
+
+```json
+{
+  "version": 1,
+  "data": [
+    {"id": "copy", "name": "Copy", "keys": ["CTRL", "C"]},
+    {"id": "desktop", "name": "Desktop", "keys": ["WIN", "D"]}
+  ]
+}
+```
+
+The importer also accepts this format without `version`, common Windows names such as `VK_LCONTROL` and `VK_C`, and supported Windows virtual-key values such as `0x41` for A. Exported files may use `ANDROID_KEYCODE_<number>` when the Android version lacks a symbolic label; this explicit form keeps Android codes distinct from digit keys. Empty `data` is valid and clears the list after confirmation.
+
 ## PC display mode and administration
 
 Open your PC's menu → **Stream settings → PC display mode**, or choose **PC display mode** directly from its menu. The choice is saved per PC and applies from the next stream.

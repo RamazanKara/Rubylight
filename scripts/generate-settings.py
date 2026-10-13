@@ -41,6 +41,7 @@ ADVICE = {
     "seekbar_mouse_speed": "Adjust physical relative mouse movement; 100% is normal speed.",
     "checkbox_mouse_nav_buttons": "Enable to send mouse Back/Forward buttons. Disable if it interferes with right-click.",
     "checkbox_absolute_mouse_mode": "Enable for desktop pointer acceleration. Leave off for game mouse look. Available on Android 8+ except devices using the separate raw pointer path.",
+    "keyboard_shortcuts_editor": "Create, edit or delete up to 32 named keyboard chords for the extra keyboard toolbar. Import/export JSON files to transfer them; importing asks before replacing the saved list. See [custom keyboard shortcuts](controls.md#custom-keyboard-shortcuts).",
     "checkbox_show_onscreen_controls": "Enable a touchscreen gamepad. The category is hidden on devices without a touchscreen.",
     "checkbox_vibrate_osc": "Enable feedback when pressing virtual buttons.",
     "checkbox_only_show_L3R3": "Enable when another controller supplies everything except stick clicks.",

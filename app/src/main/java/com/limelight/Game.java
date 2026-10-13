@@ -4541,6 +4541,13 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         });
     }
 
+    private void updateGameTouchProfile() {
+        if (gameTouchControls == null || app == null || app.getRole() != NvApp.Role.STREAM ||
+                app.isControlAction() || recoveryAppId == 0) return;
+        gameTouchControls.setProfile(com.limelight.binding.input.TouchLayout.profileKey(
+                getIntent().getStringExtra(EXTRA_PC_UUID), recoveryAppUuid, recoveryAppId));
+    }
+
     @Override
     public void connectionStarted() {
         runOnUiThread(new Runnable() {
@@ -4561,6 +4568,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 bitrateHandler.removeCallbacks(recoveryTimeout);
                 recoveryAppId = app.getControl() == NvApp.Control.NONE ? app.getAppId() : conn.getHostDetails().runningGameId;
                 recoveryAppUuid = app.getControl() == NvApp.Control.NONE ? app.getAppUuid() : conn.getHostDetails().runningGameUuid;
+                updateGameTouchProfile();
                 controllerHandler.resendControllerArrivals();
                 updateHardwareMetricsPolling();
                 LimeLog.info("Stream connected");

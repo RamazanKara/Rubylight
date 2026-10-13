@@ -36,12 +36,12 @@ import java.util.function.Consumer;
 @SuppressLint("ViewConstructor") // Created by Game with explicit profile/input ownership; never inflated from XML.
 public final class GameTouchControls extends FrameLayout {
     private final Activity activity;
-    private final String profile;
+    private String profile;
     private final Consumer<Dialog> showDialog;
     private final HeldInputState held;
     private final java.util.function.BooleanSupplier canInput;
     private TouchLayout layout;
-    private boolean editing, enabled;
+    private boolean editing, enabled, hiddenForPip;
     private int inputGeneration;
 
     public GameTouchControls(Activity activity, String profile, HeldInputState.Sink sink,
@@ -58,6 +58,18 @@ public final class GameTouchControls extends FrameLayout {
         rebuild();
     }
 
+    /** Select the established game's existing controls without migrating either saved layout. */
+    public void setProfile(String profile) {
+        if (this.profile.equals(profile)) return;
+        releaseInput();
+        editing = false;
+        this.profile = profile;
+        layout = TouchLayout.load(activity, profile);
+        enabled = TouchLayout.enabled(activity, profile);
+        setVisibility(hiddenForPip || !enabled ? GONE : VISIBLE);
+        rebuild();
+    }
+
     public void releaseInput() {
         inputGeneration++;
         held.releaseAll();
@@ -68,6 +80,7 @@ public final class GameTouchControls extends FrameLayout {
     }
     public void hideForPip(boolean hide) {
         releaseInput();
+        hiddenForPip = hide;
         setVisibility(hide || !enabled ? GONE : VISIBLE);
     }
     public boolean isEditing() { return editing; }
@@ -222,7 +235,7 @@ public final class GameTouchControls extends FrameLayout {
             ViewCompat.setStateDescription(view, activity.getString(R.string.touch_layout_released));
             view.setOnClickListener(v -> {
                 // Keyboard, Switch Access and TalkBack activation uses the same release-safe state.
-                if (editing || !canInput.getAsBoolean()) return;
+                if (view.getParent() != GameTouchControls.this || editing || !canInput.getAsBoolean()) return;
                 if (b.toggle) toggle(b, view);
                 else {
                     held.press(b);
@@ -249,6 +262,7 @@ public final class GameTouchControls extends FrameLayout {
             float downX, downY, startX, startY;
             int pressGeneration = -1;
             @Override public boolean onTouch(View v, MotionEvent event) {
+                if (v.getParent() != GameTouchControls.this) return true;
                 if (!editing && !canInput.getAsBoolean()) return true;
                 switch (event.getActionMasked()) {
                     case MotionEvent.ACTION_DOWN:

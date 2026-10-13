@@ -6,7 +6,7 @@ This is experimental support in development builds from main. Released installer
 
 ## Setup
 
-1. Install [usbip-win2](https://github.com/vadimgrn/usbip-win2/releases) on the Windows host when it is convenient to reconnect USB devices. Its installer can restart USB hubs. Rubylight uses the existing signed USB/IP driver and finds its client in the USBip folder under Program Files or on PATH.
+1. In the Windows installer, select **Install USB audio and haptics support** on the **Steam Deck and DualSense USB audio and haptics** page. Development packages now bundle the signed usbip-win2 0.9.8.1 installer; it is optional and off by default. Setup remembers your choice for updates and reuses an existing shared USB/IP installation. Installing it can reconnect USB devices and require a Windows restart; setup never restarts Windows automatically. For an older Rubylight package, install [usbip-win2](https://github.com/vadimgrn/usbip-win2/releases) separately.
 2. Use a client that implements Nonary's PCM haptics extension. For [Rubylight Android](https://github.com/RamazanKara/rubylight-android/blob/main/docs/dualsense-haptics.md), connect a DualSense or DualSense Edge by USB and enable both USB DualSense options in Advanced settings before reconnecting.
 3. Leave **Settings → Input → Controller type** on **Automatic**, or choose **DualSense with waveform haptics (USB/IP)**. The same choice is available in an app's controller override.
 4. Connect to Desktop first, wait for the controller and its audio device to appear on the host, then start the game. Disable host-side Steam Input for games that need to access the native DualSense. Games that only detect devices at startup need restarting after the controller connects.
@@ -16,6 +16,14 @@ Automatic selects the composite controller only when the chosen profile is DualS
 The host exposes Sony USB identity 054c:0ce6 with HID and audio interfaces in the same device. Rubylight does not request a change to the Windows default audio device. If Windows selects the newly attached controller, switch game audio back to your normal output: the DualSense endpoint is for games' dedicated haptic output. Controller speaker/headset output and microphone capture are not carried by this extension; the virtual microphone returns silence.
 
 Disconnecting or removing a controller detaches its virtual USB device and drops queued PCM. A reconnect creates the endpoint again; restart games that cached the old endpoint. Rubylight does not currently retain this USB controller across stream disconnects or wait for controller enumeration before automatically launching an app.
+
+## Installer and portable packages
+
+Quiet setup accepts `--usbip-driver` to select the component or `--no-usbip-driver` to skip it. Without either flag, setup and in-app updates keep the previously saved choice; a new installation leaves it off. Skipping the component does not remove an installed driver. If the shared USB/IP installation is incomplete, setup reports that it needs a restart or separate repair and leaves it unchanged.
+
+The portable ZIP also carries the original installer at `drivers/usbip/USBip-0.9.8.1-x64.exe`; extracting the ZIP or running the portable host does not install it. Run it as administrator when you are ready. The host finds USBip through its registered install folder, the USBip folder under Program Files, or PATH.
+
+USBip is shared with other applications. Rubylight uninstall, including `--remove-drivers`, leaves it installed. Remove **USBip** separately in Windows Settings if you no longer need it.
 
 ## Compatibility
 

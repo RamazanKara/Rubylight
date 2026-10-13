@@ -123,6 +123,8 @@ jobs:
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           npm run check
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - name: Check release notes tooling
+        run: python -m unittest discover -s rust/release -p test_release.py -v
       - uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae
         with:
           path: |

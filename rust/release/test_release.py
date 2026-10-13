@@ -70,6 +70,33 @@ class ReleaseVersions(unittest.TestCase):
         self.assertEqual(lock['version'], new)
         self.assertEqual(lock['packages']['']['version'], new)
 
+    def test_bump_carries_pending_notes_into_the_next_release(self):
+        notes = self.root / 'rust/RELEASE_NOTES.md'
+        history = notes.read_text(encoding='utf-8')
+        history = re.sub(r'(?ms)^## Unreleased\n.*?(?=^## )', '', history)
+        heading = f'## New in {self.version}'
+        pending = '- Bundled USB audio and haptics for Steam Deck and DualSense.'
+        original = history.replace(heading, f'## Unreleased\n\n{pending}\n\n{heading}', 1)
+        extra = self.root / 'extra.md'
+        extra.write_text('- Another release change.', encoding='utf-8')
+        major, minor, patch = map(int, self.version.split('-')[0].split('.'))
+        for with_extra in (False, True):
+            with self.subTest(with_extra=with_extra):
+                notes.write_text(original, encoding='utf-8')
+                new = f'{major}.{minor}.{patch + 1}'
+                result = self.run_tool('bump.py', new, *(['--notes', str(extra)] if with_extra else []))
+                self.assertEqual(result.returncode, 0, result.stderr)
+                updated = notes.read_text(encoding='utf-8')
+                section = updated.split(f'## New in {new}\n', 1)[1].split('\n## ', 1)[0]
+                self.assertIn(pending, section)
+                self.assertEqual(updated.count(pending), 1)
+                self.assertNotIn('## Unreleased', updated)
+                if with_extra:
+                    self.assertIn('- Another release change.', section)
+            # Restore the input version and manifests for the second case.
+            for name in ('Cargo.toml', 'Cargo.lock', 'rust/web/package.json', 'rust/web/package-lock.json'):
+                shutil.copyfile(ROOT / name, self.root / name)
+
     @unittest.skipUnless(BASH and pathlib.Path(BASH).is_file(), 'Bash is not installed')
     def test_reuse_requires_a_push_build_with_an_available_artifact(self):
         workflow = (ROOT / '.github/workflows/rust-windows.yml').read_text(encoding='utf-8')

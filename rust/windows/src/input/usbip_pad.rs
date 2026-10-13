@@ -14,13 +14,29 @@ use std::{
 const COMMAND_WAIT: Duration = Duration::from_secs(15);
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
-/// usbip-win2's command-line client: its installer's folder, then PATH.
+/// usbip-win2's client: registered install folder, default folder, then PATH.
 pub(super) fn usbip_exe() -> Option<PathBuf> {
-    let mut folders: Vec<PathBuf> = ["ProgramW6432", "ProgramFiles"]
-        .into_iter()
-        .filter_map(std::env::var_os)
-        .map(|folder| PathBuf::from(folder).join("USBip"))
-        .collect();
+    let mut folders: Vec<PathBuf> = [
+        r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{199505b0-b93d-4521-a8c7-897818e0205a}_is1",
+        r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\{199505b0-b93d-4521-a8c7-897818e0205a}_is1",
+    ]
+    .into_iter()
+    .filter_map(|key| {
+        crate::steam::registry_string(
+            windows::Win32::System::Registry::HKEY_LOCAL_MACHINE,
+            key,
+            "InstallLocation",
+        )
+    })
+    .filter(|folder| !folder.is_empty())
+    .map(PathBuf::from)
+    .collect();
+    folders.extend(
+        ["ProgramW6432", "ProgramFiles"]
+            .into_iter()
+            .filter_map(std::env::var_os)
+            .map(|folder| PathBuf::from(folder).join("USBip")),
+    );
     if let Some(path) = std::env::var_os("PATH") {
         folders.extend(std::env::split_paths(&path));
     }

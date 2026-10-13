@@ -6,6 +6,13 @@
 
 Rubylight, called Butterpollo until rc.29, is written in Rust: host, native helpers, service and setup, with a Svelte web console. The 2.2.14 installer is named `rubylight-setup-2.2.14.exe` and upgrades an existing Vibepollo or Butterpollo installation in place, keeping settings, paired devices, the app library and covers. Codec SDKs and Windows drivers remain external components; the setup installs the drivers.
 
+## Unreleased
+
+- **Bundled USB audio and haptics for Steam Deck and DualSense.** The Windows installer now includes usbip-win2 0.9.8.1 as an optional **Steam Deck and DualSense USB audio and haptics** component. It enables native Steam Deck controllers and the DualSense USB audio endpoint used for waveform haptics. The signed upstream installer is included in the download; no separate driver download is needed. The component is off by default, its choice is remembered for updates, and existing shared USB/IP installations are kept. Installation can reconnect USB devices and require a restart; setup never restarts Windows automatically. Shared USBip remains installed when Rubylight is removed.
+- **Native DualSense waveform haptics (experimental).** Games can send actuator audio through the virtual DualSense to a compatible client, including Rubylight Android with a USB-connected DualSense or DualSense Edge. Ordinary rumble and adaptive triggers remain available. This carries haptic audio, not controller speaker/headset audio or microphone capture. [Setup and limitations](../docs/dualsense-haptics.md).
+
+Validation covers package integrity, installer decisions and protocol checks without installing drivers. Physical controller output, native game detection and a live driver installation have not been verified for this change.
+
 ## New in 2.2.14
 
 - **Safer stream control and teardown.** Host commands require authenticated encrypted control messages. Canceling or replacing pending launches releases their resources outside the shared session lock. App state commands are canceled and joined before undo commands run, and Lossless Scaling cleanup is limited to the matching executable in the host's Windows session.

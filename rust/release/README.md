@@ -1,5 +1,7 @@
 # Release tooling
 
+Keep pending changes under `## Unreleased` in `rust/RELEASE_NOTES.md`. The version-bump tool moves that section into the new release automatically, also when `--notes` supplies additional release text.
+
 A release is a pushed tag:
 
 ```sh

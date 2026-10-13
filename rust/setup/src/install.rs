@@ -18,6 +18,7 @@ pub struct Options {
     pub install_dir: Option<PathBuf>,
     pub gamepad_driver: bool,
     pub display_driver: bool,
+    pub usbip_driver: bool,
     pub start: bool,
     /// End active streams instead of refusing to install. The user chose
     /// this; tests and automatic updates never set it.
@@ -184,11 +185,13 @@ pub fn install(options: &Options, progress: &Progress) -> Result<Outcome> {
                     &install,
                     options.display_driver,
                     options.gamepad_driver,
+                    options.usbip_driver,
                     progress,
                     &mut notes,
                 );
             },
         )?;
+        crate::usbip::remember(&profile, options.usbip_driver)?;
         // A reinstall also repairs the profile's permissions and the firewall
         // rule, as it did before.
         if let Err(error) = secure_install(&install) {
@@ -403,9 +406,11 @@ pub fn install(options: &Options, progress: &Progress) -> Result<Outcome> {
         &install,
         options.display_driver,
         options.gamepad_driver,
+        options.usbip_driver,
         progress,
         &mut notes,
     );
+    crate::usbip::remember(&profile, options.usbip_driver)?;
 
     progress.set("Adding Rubylight to Start and Apps…");
     match system::shortcut(
@@ -694,16 +699,18 @@ pub(crate) fn install_drivers(
     install: &Path,
     display: bool,
     gamepad: bool,
+    usbip: bool,
     progress: &Progress,
     notes: &mut Vec<String>,
 ) -> bool {
     let _turn = driver_lock(Duration::from_secs(900));
-    run_drivers(install, display, gamepad, progress, notes)
+    run_drivers(install, display, gamepad, usbip, progress, notes)
 }
 fn run_drivers(
     install: &Path,
     display: bool,
     gamepad: bool,
+    usbip: bool,
     progress: &Progress,
     notes: &mut Vec<String>,
 ) -> bool {
@@ -732,6 +739,15 @@ fn run_drivers(
         );
     }
 
+    if usbip {
+        let script = install.join("drivers\\usbip\\install.ps1");
+        if script.is_file() {
+            progress.set("Installing Steam Deck and DualSense USB audio and haptics…");
+            restart_needed |= run_driver_script(&script, &[], notes, "USB audio and haptics");
+        } else {
+            notes.push("The USB audio and haptics package is missing. Run the complete Rubylight installer to add it.".into());
+        }
+    }
     restart_needed
 }
 
@@ -780,10 +796,13 @@ fn driver_result(code: i32, output: &str, notes: &mut Vec<String>, name: &str) -
                 .filter(|reason| !reason.is_empty())
         };
         let reason = after("driver action failed: ").or_else(|| after("DRIVER_WARNING: "));
+        let retry = if name == "USB audio and haptics" {
+            "Run setup again with USB audio and haptics selected; the setup log has the details."
+        } else {
+            "Rubylight tries again when its service starts; the setup log has the details."
+        };
         notes.push(match reason {
-            Some(reason) => format!(
-                "The {name} driver could not be set up: {reason} Rubylight tries again when its service starts; the setup log has the details."
-            ),
+            Some(reason) => format!("The {name} driver could not be set up: {reason} {retry}"),
             None => format!("The {name} driver reported a problem; see the setup log."),
         });
     }
@@ -856,7 +875,8 @@ pub fn repair_drivers(progress: &Progress) -> Result<bool> {
         serde_json::to_vec(&serde_json::json!({"version": version, "unix": now}))?,
     )?;
     let mut notes = Vec::new();
-    let restart = run_drivers(&install, true, false, progress, &mut notes);
+    // Automatic display repair never installs an optional USB/IP driver.
+    let restart = run_drivers(&install, true, false, false, progress, &mut notes);
     for note in notes {
         line(format!("note: {note}"));
     }
@@ -1100,6 +1120,14 @@ mod tests {
             "{}",
             notes[2]
         );
+        assert!(driver_result(
+            1,
+            "RESTART_REQUIRED\nUSBIP_DRIVER_WARNING: Restart Windows or repair USBip separately.",
+            &mut notes,
+            "USB audio and haptics",
+        ));
+        assert!(notes[3].contains("Run setup again with USB audio and haptics selected"));
+        assert!(!notes[3].contains("when its service starts"));
     }
     #[test]
     fn nsis_uninstallers_run_in_place_so_setup_waits_for_them() -> Result<()> {

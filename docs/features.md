@@ -61,7 +61,7 @@ NVIDIA NVENC, Intel Quick Sync and software encoders are included for other hard
 
 ## Install and update
 
-- **One installer** that sets up the service, drivers, firewall rule and shortcuts, and upgrades in place. It imports an existing Vibepollo or Apollo profile and keeps your settings, paired devices, apps and covers.
+- **One installer** that sets up the service, drivers, firewall rule and shortcuts, and upgrades in place. Development installers now bundle optional usbip-win2 for native Steam Deck controllers and DualSense USB audio and waveform haptics. It imports an existing Vibepollo or Apollo profile and keeps your settings, paired devices, apps and covers.
 - **Updates notify you first.** Automatic installation is opt-in; the host downloads the exact installer from the official release, verifies its size and SHA-256 digest, waits for an idle minute and upgrades through the service. A failed copy or start restores the previous files.
 - **A service that restarts the host** after a crash.
 - **Separate instances** with independent profile folders and base ports. Copied portable packages can use an adjacent `config` folder from 2.2.6; older packages support explicit `--config-dir` paths. See [multiple instances](configuration.md#multiple-instances).

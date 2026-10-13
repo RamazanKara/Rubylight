@@ -109,6 +109,7 @@ try {
     & cargo $toolchain fmt --all -- --check
     Assert-NativeExit 'Rust formatting'
     if (!$SkipTests) {
+        & (Join-Path $repo 'rust\drivers\usbip\test_usbip.ps1')
         & cargo $toolchain test --workspace --locked
         Assert-NativeExit 'Rust tests'
         & cargo $toolchain clippy --workspace --all-targets --locked -- -D warnings
@@ -230,6 +231,11 @@ try {
                 'nefconc.exe: https://github.com/nefarius/nefcon by Nefarius Software Solutions.'
             ) | Set-Content -LiteralPath "$distribution\licenses\drivers.txt" -Encoding utf8
         }
+        # The shared USB/IP installer is carried offline in both packages.
+        # Bundling validates the original release without running it.
+        & (Join-Path $repo 'rust\drivers\usbip\bundle.ps1') -Cache $Dependencies `
+            -Destination (Join-Path $distribution 'drivers\usbip')
+        Copy-Item -LiteralPath (Join-Path $repo 'rust\drivers\usbip\LICENSE.txt') -Destination "$distribution\licenses\usbip-win2.txt"
         $metadata = & cargo $toolchain metadata --format-version 1 --locked
         Assert-NativeExit 'Dependency manifest'
         ($metadata | ConvertFrom-Json).packages | Select-Object name, version, license, repository, source | ConvertTo-Json | Set-Content -LiteralPath "$distribution\licenses\rust-dependencies.json" -Encoding utf8

@@ -82,8 +82,17 @@ for setup in ('butterpollo-setup', 'rubylight-setup'):
     lines[intro] = lines[intro].replace(f'{setup}-{old}.exe', f'rubylight-setup-{new}.exe')
 lines[intro] = short.sub(label(new), lines[intro].replace(old, new))
 if f'## New in {label(new)}' not in lines:
+    # Pending changes belong to the next release, including when release
+    # preparation supplies additional notes with --notes.
+    pending = []
+    if '## Unreleased' in lines:
+        start = lines.index('## Unreleased')
+        end = next((i for i in range(start + 1, len(lines)) if lines[i].startswith('## ')), len(lines))
+        pending = '\n'.join(lines[start + 1:end]).strip().splitlines()
+        del lines[start:end]
     at = lines.index(f'## New in {label(old)}')
-    body = args.notes.read_text(encoding='utf-8').strip().split('\n') if args.notes else ['- ']
+    body = args.notes.read_text(encoding='utf-8').strip().split('\n') if args.notes else []
+    body = (pending + [''] + body) if pending and body else (pending or body or ['- '])
     lines[at:at] = [f'## New in {label(new)}', '', *body, '']
 text = '\n'.join(lines)
 for setup in ('butterpollo-setup', 'rubylight-setup'):

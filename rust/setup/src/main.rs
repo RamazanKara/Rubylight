@@ -4,7 +4,8 @@
 //! devices, apps and drivers are kept), and removes Rubylight again.
 //!
 //! rubylight-setup.exe [--quiet] [--install-dir <folder>] [--no-gamepad-driver]
-//!                       [--no-display-driver] [--no-start] [--end-streams]
+//!                       [--no-display-driver] [--usbip-driver | --no-usbip-driver]
+//!                       [--no-start] [--end-streams]
 //! rubylight-setup.exe --uninstall [--quiet] [--factory-reset] [--remove-drivers]
 //! rubylight-setup.exe --repair-drivers (the service runs this one)
 #![warn(clippy::undocumented_unsafe_blocks)]
@@ -21,6 +22,7 @@ mod uninstall;
 mod update;
 #[path = "../../core/src/update_files.rs"]
 mod update_files;
+mod usbip;
 #[path = "../../core/src/version.rs"]
 mod version;
 
@@ -37,6 +39,7 @@ struct Arguments {
     install_dir: Option<PathBuf>,
     no_gamepad_driver: bool,
     no_display_driver: bool,
+    usbip_driver: Option<bool>,
     no_start: bool,
     /// Install even while the host streams, ending the stream. Without it a
     /// quiet setup refuses; the setup window asks instead.
@@ -66,6 +69,12 @@ fn arguments() -> Result<Arguments, String> {
             }
             "--no-gamepad-driver" => parsed.no_gamepad_driver = true,
             "--no-display-driver" => parsed.no_display_driver = true,
+            "--usbip-driver" | "--no-usbip-driver" => {
+                if parsed.usbip_driver.is_some() {
+                    return Err("choose only one USB/IP driver option".into());
+                }
+                parsed.usbip_driver = Some(arg.eq_ignore_ascii_case("--usbip-driver"));
+            }
             "--no-start" => parsed.no_start = true,
             "--end-streams" => parsed.end_streams = true,
             "--factory-reset" => parsed.factory_reset = true,
@@ -84,9 +93,10 @@ fn arguments() -> Result<Arguments, String> {
     }
     Ok(parsed)
 }
-const USAGE: &str = "rubylight-setup.exe [--quiet] [--install-dir <folder>] [--no-gamepad-driver] [--no-display-driver] [--no-start] [--end-streams]\n\
+const USAGE: &str = "rubylight-setup.exe [--quiet] [--install-dir <folder>] [--no-gamepad-driver] [--no-display-driver] [--usbip-driver | --no-usbip-driver] [--no-start] [--end-streams]\n\
 rubylight-setup.exe --uninstall [--quiet] [--factory-reset] [--remove-drivers]\n\n\
 A quiet setup refuses to install while Rubylight is streaming; --end-streams ends the stream instead, and the client can reconnect once setup has finished.\n\n\
+--usbip-driver installs the bundled Steam Deck and DualSense USB audio and haptics driver. It is optional, off by default, and its choice is kept for updates. --no-usbip-driver skips it without removing a shared driver.\n\n\
 Exit codes: 0 done, 3010 done but Windows must restart, 1223 cancelled, 1 failed.";
 
 fn main() {
@@ -152,21 +162,25 @@ fn main() {
             Some(folder) if args.quiet && !args.uninstall => {
                 let folder = folder.clone();
                 let end_streams = args.end_streams;
+                let usbip_driver = usbip::selected(&install::profile(), args.usbip_driver);
                 match ui::progress(TITLE, "Updating Rubylight", true, move |progress| {
                     let mut notes = Vec::new();
+                    let mut restart_needed = false;
                     let folder = system::win32_path(&folder)?;
                     // As a reinstall does. In-app updates never set the
                     // drivers up, so hosts updated from the console since
                     // rc.22 had none.
                     update::run(&folder, true, end_streams, &progress, &mut || {
-                        install::install_drivers(
+                        restart_needed |= install::install_drivers(
                             &folder,
                             !install::display_driver_declined(),
                             true,
+                            usbip_driver,
                             &progress,
                             &mut notes,
                         );
                     })?;
+                    usbip::remember(&install::profile(), usbip_driver)?;
                     // Hosts updated from the console keep the names Windows
                     // shows from their first install; bring them up to date.
                     if let Err(error) = install::refresh_service_name() {
@@ -182,9 +196,10 @@ fn main() {
                     for note in notes {
                         log::line(format!("note: {note}"));
                     }
-                    anyhow::Ok(())
+                    anyhow::Ok(restart_needed)
                 }) {
-                    Ok(()) => 0,
+                    Ok(true) => 3010,
+                    Ok(false) => 0,
                     Err(error) => failed(true, "Rubylight could not be updated", &error),
                 }
             }
@@ -207,6 +222,7 @@ fn run_install(args: &Arguments) -> i32 {
     let found = detect::scan();
     let mut folder = detect::install_dir(&found, args.install_dir.clone());
     let mut gamepad_driver = !args.no_gamepad_driver;
+    let mut usbip_driver = usbip::selected(&install::profile(), args.usbip_driver);
     let mut end_streams = args.end_streams;
     if !args.quiet {
         // Updating from inside a stream is fine: the stream ends while
@@ -223,7 +239,11 @@ fn run_install(args: &Arguments) -> i32 {
                 TITLE,
                 &format!("Install Rubylight {}", env!("CARGO_PKG_VERSION")),
                 &text,
-                "Install",
+                if args.usbip_driver.is_none() {
+                    "Next"
+                } else {
+                    "Install"
+                },
                 choosable.then_some("Change folder…"),
                 (!args.no_gamepad_driver).then_some((
                     "Install the virtual gamepad driver for controllers",
@@ -251,11 +271,26 @@ fn run_install(args: &Arguments) -> i32 {
             end_streams |= streaming;
             break;
         }
+        if args.usbip_driver.is_none() {
+            let choice = ui::ask(
+                TITLE,
+                "Steam Deck and DualSense USB audio and haptics",
+                "The bundled usbip-win2 driver enables native Steam Deck controllers and DualSense USB audio for waveform haptics. A compatible client is required.\n\nInstalling it can reconnect USB devices and require a Windows restart. Setup never restarts Windows automatically. Existing USB/IP installations are kept, and this shared driver remains installed when Rubylight is removed.",
+                "Install",
+                None,
+                Some(("Install USB audio and haptics support", usbip_driver)),
+            );
+            if !choice.accepted {
+                return 1223;
+            }
+            usbip_driver = choice.checked;
+        }
     }
     let options = install::Options {
         install_dir: Some(folder),
         gamepad_driver,
         display_driver: !args.no_display_driver,
+        usbip_driver,
         start: !args.no_start,
         end_streams,
     };
@@ -305,7 +340,7 @@ fn run_uninstall(args: &Arguments) -> i32 {
         let choice = ui::ask(
             TITLE,
             "Remove Rubylight?",
-            "Streaming stops and the Rubylight service is removed. The virtual display and gamepad drivers stay installed.",
+            "Streaming stops and the Rubylight service is removed. Drivers stay installed unless removal was requested; shared USBip always stays installed and can be removed separately in Windows Settings.",
             "Remove",
             None,
             Some((

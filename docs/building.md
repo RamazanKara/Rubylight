@@ -38,7 +38,7 @@ Run the full build from the repository root in a **Visual Studio x64 developer P
 
 The script fetches the pinned FFmpeg and NVIDIA SDK archives, builds the pinned PyroWave SDK and extracts the signed display/gamepad packages and the Playnite plugin from the pinned Vibepollo release. Archive hashes, PyroWave build identity and driver signatures are checked. CMake builds the external PyroWave SDK; Cargo builds the host.
 
-The build checks Rust formatting, runs ordinary workspace tests and Clippy with warnings denied, then builds the release executables, performance probes and TrueHDR adapter. Packaging also builds the Svelte console and includes runtime libraries, drivers, the Playnite plugin, artwork, licenses, the optional Moonlight source patch and a SHA-256 file manifest. Building a package does not install it.
+The build checks Rust formatting, runs ordinary workspace tests and Clippy with warnings denied, then builds the release executables, performance probes and TrueHDR adapter. Packaging also builds the Svelte console and includes runtime libraries, drivers, the Playnite plugin, artwork, licenses, the optional Moonlight source patch and a SHA-256 file manifest. Building a package does not install it. Packaging also downloads and verifies the pinned, signed usbip-win2 0.9.8.1 installer (about 26 MB), cached in the dependencies folder, and includes it with its BSD license. It never executes that installer. `rust/drivers/usbip/bundle.ps1` can check this small packaging step independently of a host build.
 
 Default outputs are under `%LOCALAPPDATA%\ButterpolloRust\target`:
 

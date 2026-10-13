@@ -343,7 +343,7 @@ impl Negotiated {
 }
 /// The Rubylight control messages this host takes, by id: phase lock reports
 /// (0x5530), display luminance (0x5531) and reconfiguration (0x5532).
-pub const CONTROL_MESSAGES: &str = "a=x-rl-control:0x5530,0x5531,0x5532\r\n";
+pub const CONTROL_MESSAGES: &str = "a=x-rl-control:0x5530,0x5531,0x5532,0x5533,0x5534,0x5535\r\n";
 /// The `DESCRIBE` answer. `mic` is set when the host takes a client's
 /// microphone: its encryption is then supported and requested, and the
 /// caller ends the answer with `mic::sdp`, whose `m=` line must come last.
@@ -556,7 +556,7 @@ mod tests {
                 sdp.lines()
                     .filter(|line| line.starts_with("a=x-rl-control:"))
                     .collect::<Vec<_>>(),
-                ["a=x-rl-control:0x5530,0x5531,0x5532"]
+                ["a=x-rl-control:0x5530,0x5531,0x5532,0x5533,0x5534,0x5535"]
             );
             assert!(
                 !sdp.lines().any(|line| line.starts_with("m=")),
@@ -571,7 +571,7 @@ mod tests {
             ]
             .map(|id| format!("{id:#06x}"))
             .join(","),
-            "0x5530,0x5531,0x5532"
+            "0x5530,0x5531,0x5532,0x5533,0x5534,0x5535"
         );
     }
     #[test]

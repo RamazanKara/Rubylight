@@ -133,7 +133,7 @@ pub fn gamepad_profile(value: &str) -> u16 {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct Policy {
     pub keyboard: bool,
     pub mouse: bool,

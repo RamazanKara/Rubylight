@@ -36,7 +36,7 @@ NVIDIA NVENC, Intel Quick Sync and software encoders are included for other hard
 
 - **Keyboard, mouse, touch, pen and controllers.** Standard profiles use the signed VHF driver included in the installer.
 - **The right pad for the client.** PlayStation-type clients get a DualSense with adaptive triggers, Nintendo-type clients a Switch Pro, and others an Xbox Series pad. Two touchpads from a Steam Deck sit side by side on one surface.
-- **DualSense waveform haptics.** Native USB audio haptics with usbip-win2 and a compatible client, including Rubylight Android over USB. [Setup and limits](dualsense-haptics.md).
+- **Steam Deck and DualSense advanced controls.** Steam Input handles gyro aiming and radial menus using forwarded motion and touchpads. DualSense USB support includes waveform haptics, adaptive triggers, speaker/headset audio and microphone input with matching updated Rubylight Android builds. Controller identities survive stream reconnects. [Setup and limits](dualsense-haptics.md).
 - **Back grips.** Steam Deck L4/R4/L5/R5 and Xbox Elite paddles press the buttons you choose, under **Back grips**.
 - **A real Steam Deck controller.** With usbip-win2 installed, a Steam Deck client shows up on the host as a Steam Deck with trackpads, gyro and back grips.
 - **Audio.** Endpoint matching by id, name, description or adapter, Steam Streaming Speakers, and surround Opus.

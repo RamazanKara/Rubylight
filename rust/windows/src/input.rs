@@ -88,7 +88,7 @@ pub struct Injector {
     /// When touch contacts and the pen were last injected.
     touch_refreshed: std::time::Instant,
     pen_refreshed: std::time::Instant,
-    gamepads: GamepadThread,
+    gamepads: std::sync::Arc<GamepadThread>,
     /// The display's desktop rectangle, None until the display exists.
     rect: Option<RECT>,
     policy: butterpollo_core::input_policy::Policy,
@@ -225,7 +225,7 @@ impl Injector {
             pen: Default::default(),
             touch_refreshed: std::time::Instant::now(),
             pen_refreshed: std::time::Instant::now(),
-            gamepads: GamepadThread::new(profile, policy.clone(), warnings)?,
+            gamepads: std::sync::Arc::new(GamepadThread::new(profile, policy.clone(), warnings)?),
             policy,
             key_flags: BTreeMap::new(),
             repeat: None,
@@ -744,6 +744,9 @@ impl Injector {
     }
     /// Feedback and motion-sensor requests from the virtual gamepads for the
     /// client, collected since the last call.
+    pub fn controller_audio(&self, id: u16, kind: u16, payload: &[u8]) {
+        self.gamepads.audio(id, kind, payload);
+    }
     pub fn gamepad_reports(&self) -> impl Iterator<Item = PadReport> + '_ {
         self.gamepads.reports()
     }
@@ -758,8 +761,16 @@ impl Injector {
     }
     /// The driver worker keeps ownership of its slots until unplug completes.
     /// Disconnecting a peer must not wait for that driver on the control thread.
-    pub fn detach_gamepads(&mut self) {
+    pub fn use_gamepads(&mut self, gamepads: std::sync::Arc<GamepadThread>) {
         drop(self.gamepads.stop());
+        self.gamepads = gamepads;
+        self.gamepads.activate();
+    }
+    pub fn detach_gamepads(&mut self) {
+        self.gamepads.park();
+        if std::sync::Arc::strong_count(&self.gamepads) == 1 {
+            drop(self.gamepads.stop());
+        }
     }
     pub fn release_all(&mut self) {
         self.gamepads.release_all();

@@ -1,4 +1,5 @@
 mod console;
+mod controller_sessions;
 mod display_session;
 mod logging;
 mod lossless;

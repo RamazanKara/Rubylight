@@ -505,6 +505,7 @@ fn serverinfo_response(
             (config.virtual_display_mode(windows_11) != "disabled").to_string(),
         ),
         ("VirtualDisplayDriverReady", driver_ready.to_string()),
+        ("ControllerPreparation", "1".into()),
         (
             "VirtualDisplayHDRCapable",
             (config.virtual_display_mode(windows_11) != "disabled"
@@ -1038,6 +1039,13 @@ fn start(h: Shared, connection: Connection, args: Args, resume: bool) -> Respons
                     }
                 }
             }
+        }
+        if let Some(value) = args.get("rlControllers")
+            && let Err(error) = crate::controller_sessions::prepare(&h, &launch, value)
+        {
+            let canceled = h.sessions.lock().unwrap().pending.remove(&id);
+            drop(canceled);
+            return Err(error);
         }
         prepare_launch_app(&h, &args, app.as_ref(), &launch, &id)?;
         // The client has 30 s to connect from now on.

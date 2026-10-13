@@ -27,6 +27,7 @@ public interface NvConnectionListener {
 
     void setControllerLED(short controllerNumber, byte r, byte g, byte b);
 
+    default void controllerAudio(int kind, byte[] payload) {}
     default void controllerHaptics(short controllerNumber, int sequence, byte[] pcm) {}
 
     default void setAdaptiveTriggers(short controllerNumber, byte eventFlags, byte typeLeft,

@@ -51,10 +51,11 @@ int fake_ioctl(int fd, unsigned long request, ...) {
         if (fail_submit) { errno = EIO; return -1; }
         struct usbdevfs_urb* urb = argument;
         assert(pending_count < 2);
-        assert(urb->type == USBDEVFS_URB_TYPE_ISO && urb->endpoint == 1);
+        assert(urb->type == USBDEVFS_URB_TYPE_ISO && (urb->endpoint == 1 || urb->endpoint == 0x82));
         assert(urb->flags == USBDEVFS_URB_ISO_ASAP);
-        assert(urb->number_of_packets == 4 && urb->buffer_length == 1536);
-        for (int i = 0; i < 4; i++) assert(urb->iso_frame_desc[i].length == 384);
+        int packet = urb->endpoint == 1 ? 384 : 196;
+        assert(urb->number_of_packets == 4 && urb->buffer_length == packet * 4);
+        for (int i = 0; i < 4; i++) assert(urb->iso_frame_desc[i].length == (unsigned)packet);
         pending[pending_count++] = urb;
         return 0;
     }
@@ -67,6 +68,12 @@ int fake_ioctl(int fd, unsigned long request, ...) {
     struct usbdevfs_urb* urb = pending[0];
     pending[0] = pending[--pending_count];
     urb->iso_frame_desc[0].status = bad_packet ? -EIO : 0;
+    if (urb->endpoint == 0x82) {
+        for (int i = 0; i < 4; i++) {
+            urb->iso_frame_desc[i].actual_length = 192;
+            memset((uint8_t*)urb->buffer + i * 196, i + 1, 192);
+        }
+    }
     *(struct usbdevfs_urb**)argument = urb;
     return 0;
 }
@@ -99,5 +106,14 @@ int main(void) {
         *failures[i] = false;
     }
     assert(closes == 5);
+    assert(!usb_mic_open(10, 2, 4));
+    audio = usb_mic_open(10, 0x82, 4);
+    assert(audio);
+    assert(usb_mic_read(audio, samples) == 768);
+    for (int i = 0; i < 768; i++) assert(samples[i] == i / 192 + 1);
+    bad_packet = true;
+    assert(usb_mic_read(audio, samples) == -1);
+    usb_audio_close(audio);
+    assert(closes == 6 && pending_count == 0);
     return 0;
 }

@@ -64,12 +64,14 @@ final class DualSenseReport {
         final float[] touchX = new float[2];
         final float[] touchY = new float[2];
         byte batteryState, batteryPercentage;
+        boolean headphones;
 
         boolean parse(byte[] data, int length, boolean edge) {
             if (length != INPUT_SIZE || length > data.length || data[0] != 0x01) {
                 return false;
             }
 
+            headphones = (data[54] & 1) != 0;
             leftStickX = stick(data[1]);
             leftStickY = stick(data[2]);
             rightStickX = stick(data[3]);
@@ -217,7 +219,7 @@ final class DualSenseReport {
         private static final int[] PLAYER_LIGHTS = {0x04, 0x0A, 0x15, 0x1B, 0x1F, 0x11, 0x0E};
         private final byte[] state = new byte[48];
         private final boolean enhancedRumble;
-        private boolean waveform;
+        private boolean waveform, audio, microphoneMuted;
 
         Output(boolean enhancedRumble) {
             this.enhancedRumble = enhancedRumble;
@@ -229,10 +231,28 @@ final class DualSenseReport {
             report[1] = (byte)(triggerFlags | (waveform ? 0 : enhancedRumble ? 0x02 : 0x03));
             report[2] = (byte)ledFlags;
             report[39] = (byte)(!waveform && enhancedRumble ? 0x04 : 0);
+            if (audio) {
+                report[1] |= (byte)0xf0; report[2] |= 3;
+                if (microphoneMuted) { report[9] = 1; report[10] |= 0x10; }
+            }
             if (waveform) report[3] = report[4] = 0;
             return report;
         }
 
+        byte[] audio(boolean headphones, boolean muted) {
+            if (!audio) { state[5] = 80; state[6] = 61; state[7] = 64; state[10] = 0; }
+            audio = true; microphoneMuted = muted;
+            // L/R to the headset, or the right speaker channel to the built-in speaker.
+            state[8] = (byte)((state[8] & 0xcf) | (headphones ? 0 : 0x30));
+            return build(0, 0);
+        }
+        byte[] audioControl(byte[] packet) {
+            if (!DualSenseAudioPacket.validControl(packet) || packet[1] != 2) return null;
+            for (int i = 0; i < 4; i++) if ((packet[4] & (0x10 << i)) != 0) state[5 + i] = packet[6 + i];
+            if ((packet[5] & 1) != 0) state[9] = packet[10];
+            if ((packet[5] & 2) != 0) state[10] = packet[11];
+            return build(0, 0);
+        }
         byte[] waveform(boolean enabled) {
             waveform = enabled;
             // Do not replay an emulated effect remembered before waveform playback.
@@ -280,7 +300,7 @@ final class DualSenseReport {
         }
 
         byte[] reset() {
-            waveform = false;
+            waveform = audio = microphoneMuted = false;
             Arrays.fill(state, (byte)0);
             state[0] = 0x02;
             state[11] = state[22] = 0x05;

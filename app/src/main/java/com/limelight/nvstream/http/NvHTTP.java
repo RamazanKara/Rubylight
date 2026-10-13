@@ -334,6 +334,10 @@ public class NvHTTP {
     static String getXmlString(String str, String tagname, boolean throwIfMissing) throws XmlPullParserException, IOException {
         return getXmlString(new StringReader(str), tagname, throwIfMissing);
     }
+
+    public static boolean supportsControllerPreparation(String serverInfo) throws XmlPullParserException, IOException {
+        return "1".equals(getXmlString(serverInfo, "ControllerPreparation", false));
+    }
     
     private static void verifyResponseStatus(XmlPullParser xpp) throws HostHttpResponseException {
         // We use Long.parseLong() because in rare cases GFE can send back a status code of
@@ -1102,6 +1106,7 @@ public class NvHTTP {
             (!enableHdr || inputOnly ? "" : "&hdrMode=1&clientHdrCapVersion=0&clientHdrCapSupportedFlagsInUint32=0&clientHdrCapMetaDataId=NV_STATIC_METADATA_TYPE_1&clientHdrCapDisplayData=0x0x0x0x0x0x0x0x0x0x0") +
             "&localAudioPlayMode=" + (context.streamConfig.getPlayLocalAudio() ? 1 : 0) +
             "&surroundAudioInfo=" + context.streamConfig.getAudioConfiguration().getSurroundAudioInfo() +
+            (context.preparedControllers.isEmpty() ? "" : "&rlControllers=" + context.preparedControllers) +
             "&remoteControllersBitmap=" + gamepads +
             "&gcmap=" + gamepads +
             "&gcpersist="+(role != NvApp.Role.REMOTE_MONITOR && context.streamConfig.getPersistGamepadsAfterDisconnect() ? 1 : 0);

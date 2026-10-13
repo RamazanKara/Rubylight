@@ -177,8 +177,8 @@
     <string name="suffix_seekbar_deadzone">%</string>
     <string name="title_checkbox_xb1_driver">USB controller driver</string>
     <string name="summary_checkbox_xb1_driver">Xbox USB drivers, without root.</string>
-    <string name="title_usb_dualsense_haptics">USB DualSense waveform haptics</string>
-    <string name="summary_usb_dualsense_haptics">Play detailed vibration from compatible hosts, including Vibepollo nightly. Takes over controller USB audio; its headset and microphone are unavailable. Reconnect the controller after changing this setting.</string>
+    <string name="title_usb_dualsense_haptics">USB DualSense audio and haptics</string>
+    <string name="summary_usb_dualsense_haptics">Detailed vibration with Rubylight and compatible Vibepollo hosts. Updated Rubylight hosts also support controller speaker, headset and microphone audio. Microphone streaming requires permission and its separate setting. Reconnect the controller after changing this setting.</string>
     <string name="title_usb_dualsense">USB DualSense driver</string>
     <string name="summary_usb_dualsense">Use adaptive triggers, rumble and more over USB.</string>
     <string name="usb_dualsense_permission_info">Allow USB access when you start a stream.\nWithout it, adaptive triggers stay off.</string>
@@ -479,4 +479,5 @@
     <string name="keyboard_shortcuts_replace_button">Replace</string>
     <string name="keyboard_shortcuts_exported">Shortcuts exported.</string>
     <string name="keyboard_shortcuts_file_error">Could not read or write the shortcut file. Check file access and use a valid shortcut export with at most 32 shortcuts.</string>
+    <string name="stream_auto_reconnecting">Connection lost. Reconnecting (%1$d/3)…</string>
 </resources>

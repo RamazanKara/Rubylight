@@ -29,6 +29,24 @@ import static org.junit.Assert.*;
 @Config(sdk = 29, application = Application.class)
 public class GameLifecycleTest {
     @Test
+    public void automaticReconnectIsBoundedAndDisconnectCancelsTheRetry() {
+        Game activity = Robolectric.buildActivity(Game.class).get();
+        activity.setTheme(R.style.AppTheme);
+        activity.setIntent(new Intent().putExtra("RubylightReconnectAttempt", 3));
+        ReflectionHelpers.setField(activity, "foreground", true);
+        assertFalse(ReflectionHelpers.callInstanceMethod(activity, "scheduleReconnect",
+                ReflectionHelpers.ClassParameter.from(int.class, R.string.conn_terminated_title)));
+        activity.getIntent().removeExtra("RubylightReconnectAttempt");
+        assertTrue(ReflectionHelpers.callInstanceMethod(activity, "scheduleReconnect",
+                ReflectionHelpers.ClassParameter.from(int.class, R.string.conn_terminated_title)));
+        androidx.appcompat.app.AlertDialog dialog = ReflectionHelpers.getField(activity, "streamMenu");
+        dialog.getButton(androidx.appcompat.app.AlertDialog.BUTTON_NEGATIVE).performClick();
+        org.robolectric.shadows.ShadowLooper.idleMainLooper(5, java.util.concurrent.TimeUnit.SECONDS);
+        assertTrue(activity.isFinishing());
+        assertNull(org.robolectric.Shadows.shadowOf(activity).getNextStartedActivity());
+    }
+
+    @Test
     public void invalidBitrateStaysInTheDialogForCorrection() {
         Game activity = Robolectric.buildActivity(Game.class).get();
         activity.setTheme(com.limelight.R.style.AppTheme);

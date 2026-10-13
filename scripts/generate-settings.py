@@ -79,7 +79,7 @@ ADVICE = {
     "checkbox_full_range": "Use when the host and display both send full-range color, for full shadow and highlight detail.",
     "checkbox_usb_driver": "Leave on for built-in Xbox USB support. Android requests USB access when needed.",
     "checkbox_usb_dualsense": "Enable for direct USB DualSense/Edge input, feedback and adaptive triggers. Accept the explanation and Android USB permission during a stream; Bluetooth retains Android's input path.",
-    "checkbox_usb_dualsense_haptics": "Enable alongside the USB DualSense driver for native 48 kHz waveform feedback from Vibepollo nightly on DualSense/Edge. Reconnect after changing it. Uses the controller USB audio interfaces, so its headset/microphone are unavailable. Bluetooth does not support waveform playback.",
+    "checkbox_usb_dualsense_haptics": "Enable alongside the USB DualSense driver for native waveform feedback. Updated Rubylight hosts also forward controller speaker, headset and microphone audio. Microphone streaming needs its separate setting and Android permission; the controller mute button follows the stream mute. Reconnect after changing this option. USB only.",
     "checkbox_usb_bind_all": "Enable to prefer Rubylight's Xbox USB driver even when Android already recognizes the controller.",
     "checkbox_enable_sops": "Leave on to request game optimization from hosts that implement it; the host decides whether it has an effect.",
     "checkbox_disable_warnings": "Enable to hide stream connection warnings once your connection is tuned.",

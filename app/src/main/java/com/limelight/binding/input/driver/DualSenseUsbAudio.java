@@ -17,7 +17,8 @@ final class DualSenseUsbAudio implements AutoCloseable {
     private boolean controlClaimed, streamClaimed;
     private long handle;
     private int featureIndex;
-    private byte[] savedMute, savedVolume;
+    private byte[] savedMute, savedVolume, savedMicMute, savedMicVolume;
+    private int micFeatureIndex;
 
     private DualSenseUsbAudio(UsbManager manager, UsbDevice device, UsbDeviceConnection connection) {
         this.manager = manager;
@@ -67,6 +68,21 @@ final class DualSenseUsbAudio implements AutoCloseable {
         }
     }
 
+    DualSenseUsbMicrophone openMicrophone() {
+        DualSenseAudioDescriptor descriptor = DualSenseAudioDescriptor.findMicrophone(connection.getRawDescriptors());
+        if (descriptor == null) return null;
+        micFeatureIndex = (descriptor.featureUnit << 8) | descriptor.controlInterface;
+        if (savedMicMute == null) {
+            byte[] mute = new byte[1], volume = new byte[2];
+            if (connection.controlTransfer(0xa1, 0x81, 0x100, micFeatureIndex, mute, 1, 100) != 1 ||
+                    connection.controlTransfer(0xa1, 0x81, 0x200, micFeatureIndex, volume, 2, 100) != 2) return null;
+            savedMicMute = mute; savedMicVolume = volume;
+        }
+        if (connection.controlTransfer(0x21, 1, 0x100, micFeatureIndex, new byte[1], 1, 100) != 1 ||
+                connection.controlTransfer(0x21, 1, 0x200, micFeatureIndex, new byte[2], 2, 100) != 2) return null;
+        return DualSenseUsbMicrophone.open(manager, device);
+    }
+
     boolean write(byte[] samples) {
         return MoonBridge.writeUsbHaptics(handle, samples);
     }
@@ -84,7 +100,11 @@ final class DualSenseUsbAudio implements AutoCloseable {
             if (savedVolume != null) audioControl(false, 2, savedVolume);
             connection.releaseInterface(stream);
         }
-        if (controlClaimed) connection.releaseInterface(control);
+        if (controlClaimed) {
+            if (savedMicMute != null) connection.controlTransfer(0x21, 1, 0x100, micFeatureIndex, savedMicMute, 1, 100);
+            if (savedMicVolume != null) connection.controlTransfer(0x21, 1, 0x200, micFeatureIndex, savedMicVolume, 2, 100);
+            connection.releaseInterface(control);
+        }
         connection.close();
         // This closes the final descriptor, cancelling all URBs before their buffers are freed.
         if (handle != 0) {

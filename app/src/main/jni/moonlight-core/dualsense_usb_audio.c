@@ -111,6 +111,47 @@ static bool usb_audio_write(USB_AUDIO* audio, const uint8_t* samples) {
     }
 }
 
+// UAC1 microphone: up to 49 stereo frames in each asynchronous 1 ms packet.
+static USB_AUDIO* usb_mic_open(int fd, int endpoint, int interval) {
+    if ((endpoint & 0xf0) != 0x80 || !(endpoint & 15)) return NULL;
+    USB_AUDIO* audio = usb_audio_open(fd, endpoint & 15, interval);
+    if (!audio) return NULL;
+    for (int i = 0; i < 2; i++) {
+        audio->urbs[i]->endpoint = (unsigned char)endpoint;
+        audio->urbs[i]->buffer_length = 4 * 196;
+        for (int p = 0; p < 4; p++) audio->urbs[i]->iso_frame_desc[p].length = 196;
+    }
+    return audio;
+}
+static int usb_mic_read(USB_AUDIO* audio, uint8_t* samples) {
+    if (!audio || !samples) return -1;
+    for (int i = 0; i < 2; i++) if (!audio->submitted[i] && !usb_audio_submit(audio, i)) return -1;
+    int64_t deadline = usb_audio_millis() + 50;
+    for (;;) {
+        struct usbdevfs_urb* completed = NULL;
+        if (ioctl(audio->fd, USBDEVFS_REAPURBNDELAY, &completed) == 0) {
+            int index = completed == audio->urbs[0] ? 0 : completed == audio->urbs[1] ? 1 : -1;
+            if (index < 0) return -1;
+            audio->submitted[index] = false;
+            if (completed->status || completed->error_count) return -1;
+            int count = 0;
+            for (int p = 0; p < 4; p++) {
+                unsigned length = completed->iso_frame_desc[p].actual_length;
+                if (completed->iso_frame_desc[p].status || length > 196 || length % 4) return -1;
+                memcpy(samples + count, audio->samples[index] + p * 196, length);
+                count += (int)length;
+            }
+            return usb_audio_submit(audio, index) ? count : -1;
+        }
+        if (errno != EAGAIN && errno != EINTR) return -1;
+        int timeout = (int)(deadline - usb_audio_millis());
+        if (timeout <= 0) return -1;
+        struct pollfd wait = {.fd = audio->fd, .events = POLLOUT};
+        int result = poll(&wait, 1, timeout);
+        if ((result < 0 && errno != EINTR) || result == 0 || (result > 0 && (wait.revents & (POLLERR | POLLHUP | POLLNVAL)))) return -1;
+    }
+}
+
 #ifndef USB_AUDIO_TEST
 #include <jni.h>
 
@@ -136,6 +177,21 @@ JNIEXPORT void JNICALL
 Java_com_limelight_nvstream_jni_MoonBridge_closeUsbHaptics(JNIEnv* env, jclass clazz, jlong handle) {
     (void)env; (void)clazz;
     usb_audio_close((USB_AUDIO*)(intptr_t)handle);
+}
+
+JNIEXPORT jlong JNICALL
+Java_com_limelight_nvstream_jni_MoonBridge_openUsbMicrophone(JNIEnv* env, jclass clazz, jint fd, jint endpoint, jint interval) {
+    (void)env; (void)clazz;
+    return (jlong)(intptr_t)usb_mic_open(fd, endpoint, interval);
+}
+JNIEXPORT jint JNICALL
+Java_com_limelight_nvstream_jni_MoonBridge_readUsbMicrophone(JNIEnv* env, jclass clazz, jlong handle, jbyteArray pcm) {
+    (void)clazz;
+    if (!handle || !pcm || (*env)->GetArrayLength(env, pcm) < 784) return -1;
+    uint8_t samples[784];
+    int count = usb_mic_read((USB_AUDIO*)(intptr_t)handle, samples);
+    if (count > 0) (*env)->SetByteArrayRegion(env, pcm, 0, count, (jbyte*)samples);
+    return (*env)->ExceptionCheck(env) ? -1 : count;
 }
 
 JNIEXPORT void JNICALL

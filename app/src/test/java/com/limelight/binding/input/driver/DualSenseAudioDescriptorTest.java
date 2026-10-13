@@ -20,6 +20,24 @@ public class DualSenseAudioDescriptorTest {
     }
 
     @Test
+    public void selectsStereoMicrophoneAndItsFeatureUnit() {
+        byte[] descriptors = {
+                9, 4, 0, 0, 0, 1, 1, 0, 0,
+                10, 0x24, 6, 5, 4, 1, 3, 0, 0, 0,
+                9, 0x24, 3, 6, 1, 1, 0, 5, 0,
+                9, 4, 2, 1, 1, 1, 2, 0, 0,
+                7, 0x24, 1, 6, 1, 1, 0,
+                11, 0x24, 2, 1, 2, 2, 16, 1, (byte)0x80, (byte)0xbb, 0,
+                9, 5, (byte)0x82, 5, (byte)196, 0, 4, 0, 0 };
+        DualSenseAudioDescriptor result = DualSenseAudioDescriptor.findMicrophone(descriptors);
+        assertNotNull(result);
+        assertEquals(2, result.streamingInterface);
+        assertEquals(0x82, result.endpoint);
+        assertEquals(5, result.featureUnit);
+        assertNull(DualSenseAudioDescriptor.find(descriptors));
+    }
+
+    @Test
     public void selectsOnlyTheFourChannelPlaybackAlternate() {
         DualSenseAudioDescriptor result = DualSenseAudioDescriptor.find(descriptors());
         assertNotNull(result);

@@ -169,6 +169,11 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     private boolean surfaceCreated = false;
     private boolean attemptedConnection = false;
     private Thread connectionStopThread;
+    private static final String RECONNECT_ATTEMPT = "RubylightReconnectAttempt";
+    private long connectedAt;
+    private boolean resumeStoppedStream;
+    private boolean reconnectScheduled;
+    private boolean reconnectInProgress;
     private int suppressPipRefCount = 0;
     private android.app.Dialog streamMenu;
     private Runnable streamMenuAction;
@@ -748,6 +753,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 httpsPort, uniqueId, config,
                 PlatformBinding.getCryptoProvider(this), serverCert);
         controllerHandler = new ControllerHandler(this, conn, this, prefConfig);
+        conn.setControllerPreparation(controllerHandler::prepareControllersForLaunch);
         updateInputPollingRate();
         ((android.hardware.display.DisplayManager) getSystemService(DISPLAY_SERVICE))
                 .registerDisplayListener(inputDisplayListener, bitrateHandler);
@@ -1612,6 +1618,11 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     protected void onResume() {
         super.onResume();
         foreground = true;
+        if (resumeStoppedStream && !isFinishing()) {
+            resumeStoppedStream = false;
+            reconnectStream();
+            return;
+        }
         if (restoreInputOnResume && connected) {
             setInputGrabState(true);
         }
@@ -1728,7 +1739,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             }
         }
 
-        finish();
+        if (!isFinishing() && attemptedConnection) resumeStoppedStream = true;
     }
 
     @Override
@@ -2167,11 +2178,12 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     }
 
     private void reconnectStream() {
+        if (reconnectInProgress || isFinishing()) return;
+        reconnectInProgress = true;
         displayedFailureDialog = true;
         setInputGrabState(false);
         stopConnection();
         final Thread stopping = connectionStopThread;
-        final int generation = foregroundGeneration;
         spinner = SpinnerDialog.displayDialog(this, getString(R.string.conn_establishing_title),
                 getString(R.string.stream_reconnecting), true);
         new Thread(() -> {
@@ -2184,19 +2196,54 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 }
             }
             runOnUiThread(() -> {
-                if (foreground && generation == foregroundGeneration && !isFinishing()) {
+                reconnectInProgress = false;
+                if (foreground && !isFinishing()) {
                     finish();
                     startActivity(new Intent(getIntent()));
+                } else if (!isFinishing()) {
+                    resumeStoppedStream = true;
                 }
             });
         }, "Stream reconnect").start();
+    }
+
+    private boolean scheduleReconnect(int title) {
+        int attempt = getIntent().getIntExtra(RECONNECT_ATTEMPT, 0);
+        if (connectedAt != 0 && SystemClock.uptimeMillis() - connectedAt >= 10000) attempt = 0;
+        if (!foreground || isFinishing() || attempt >= 3 || reconnectScheduled) return false;
+        final int nextAttempt = attempt + 1;
+        reconnectScheduled = true;
+        android.app.Dialog dialog = new MaterialAlertDialogBuilder(this).setTitle(title)
+                .setMessage(getString(R.string.stream_auto_reconnecting, nextAttempt))
+                .setCancelable(false)
+                .setNegativeButton(R.string.stream_disconnect, (d, which) -> {
+                    reconnectScheduled = false;
+                    finish();
+                }).create();
+        showStreamDialog(dialog);
+        bitrateHandler.postDelayed(() -> {
+            boolean retry = reconnectScheduled;
+            reconnectScheduled = false;
+            if (!retry || isFinishing()) return;
+            dialog.dismiss();
+            if (!foreground) {
+                resumeStoppedStream = true;
+                return;
+            }
+            getIntent().putExtra(RECONNECT_ATTEMPT, nextAttempt);
+            reconnectStream();
+        }, 1000L << attempt);
+        return true;
     }
 
     private void showReconnectDialog(int title, String message) {
         showStreamDialog(new MaterialAlertDialogBuilder(this).setTitle(title).setMessage(message)
                 .setCancelable(false)
                 .setNegativeButton(R.string.stream_disconnect, (dialog, which) -> finish())
-                .setPositiveButton(R.string.stream_reconnect, (dialog, which) -> reconnectStream()).create());
+                .setPositiveButton(R.string.stream_reconnect, (dialog, which) -> {
+                    getIntent().removeExtra(RECONNECT_ATTEMPT);
+                    reconnectStream();
+                }).create());
     }
 
     private void transferClipboard(boolean send) {
@@ -3725,7 +3772,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         LimeLog.info("Stream failed");
         // Perform a connection test if the failure could be due to a blocked port
         // This does network I/O, so don't do it on the main thread.
-        final int portTestResult = portFlags == 0 ? MoonBridge.ML_TEST_RESULT_INCONCLUSIVE :
+        final int portTestResult = portFlags == 0 || getIntent().getIntExtra(RECONNECT_ATTEMPT, 0) > 0 ? MoonBridge.ML_TEST_RESULT_INCONCLUSIVE :
                 MoonBridge.testClientConnectivity(ServerHelper.CONNECTION_TEST_SERVER, 443, portFlags);
 
         runOnUiThread(new Runnable() {
@@ -3768,7 +3815,11 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                     }
 
                     stopConnection();
-                    showReconnectDialog(R.string.conn_error_title, dialogText);
+                    if (getIntent().getIntExtra(RECONNECT_ATTEMPT, 0) == 0 ||
+                            (errorCode >= 400 && errorCode < 500) ||
+                            !scheduleReconnect(R.string.conn_error_title)) {
+                        showReconnectDialog(R.string.conn_error_title, dialogText);
+                    }
                 }
             }
         });
@@ -3789,10 +3840,9 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     @Override
     public void connectionTerminated(final int errorCode) {
         LimeLog.info("Stream disconnected");
-        // Perform a connection test if the failure could be due to a blocked port
-        // This does network I/O, so don't do it on the main thread.
+        // Retry promptly; a diagnostic network probe would delay teardown and reconnect.
         final int portFlags = MoonBridge.getPortFlagsFromTerminationErrorCode(errorCode);
-        final int portTestResult = MoonBridge.testClientConnectivity(ServerHelper.CONNECTION_TEST_SERVER,443, portFlags);
+        final int portTestResult = MoonBridge.ML_TEST_RESULT_INCONCLUSIVE;
 
         runOnUiThread(new Runnable() {
             @Override
@@ -3867,9 +3917,13 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                         }
 
                         if (foreground) {
-                            showReconnectDialog(R.string.conn_terminated_title, message);
+                            if (errorCode == MoonBridge.ML_ERROR_PROTECTED_CONTENT ||
+                                    errorCode == MoonBridge.ML_ERROR_FRAME_CONVERSION ||
+                                    !scheduleReconnect(R.string.conn_terminated_title)) {
+                                showReconnectDialog(R.string.conn_terminated_title, message);
+                            }
                         } else {
-                            finish();
+                            resumeStoppedStream = true;
                         }
                     }
                     else {
@@ -3928,6 +3982,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 }
 
                 connected = true;
+                connectedAt = SystemClock.uptimeMillis();
+                controllerHandler.resendControllerArrivals();
                 updateHardwareMetricsPolling();
                 LimeLog.info("Stream connected");
                 connecting = false;
@@ -4103,6 +4159,9 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     }
 
     @Override
+    public void controllerAudio(int kind, byte[] payload) { controllerHandler.handleControllerAudio(kind, payload); }
+
+    @Override
     public void controllerHaptics(short controllerNumber, int sequence, byte[] pcm) {
         controllerHandler.handleControllerHaptics(controllerNumber, sequence, pcm);
     }
@@ -4132,7 +4191,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             UiHelper.notifyStreamConnecting(Game.this);
 
             decoderRenderer.setRenderTarget(videoSurface, streamView.getWidth(), streamView.getHeight());
-            conn.start(new AndroidAudioRenderer(Game.this, prefConfig.enableAudioFx),
+            conn.start(new AndroidAudioRenderer(Game.this, prefConfig.enableAudioFx, controllerHandler::routeHeadphoneAudio),
                     decoderRenderer, Game.this);
         }
     }
@@ -4145,6 +4204,11 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     private void configureVideoSurface(Surface surface) {
         videoSurface = surface;
         surfaceCreated = true;
+        if (resumeStoppedStream && foreground && !isFinishing()) {
+            resumeStoppedStream = false;
+            reconnectStream();
+            return;
+        }
         LimeLog.info("Video surface: " + (prefConfig.useTextureView ? "TextureView" : "SurfaceView") +
                 ", pacing: " + prefConfig.framePacing + ", newest frame: " + prefConfig.dropLateFrames);
 
@@ -4218,8 +4282,9 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
 
             displayedFailureDialog = true;
             stopConnection();
-            // Decoder and input state are terminal after stop; resume with a fresh activity.
-            finish();
+            // Keep the activity available for screen-unlock/resume; its old decoder
+            // remains stopped and onResume creates a fresh connection.
+            if (!isFinishing()) resumeStoppedStream = true;
         }
         surfaceCreated = false;
         videoSurface = null;

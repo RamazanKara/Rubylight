@@ -29,6 +29,7 @@ public class ConnectionContext {
     // This is the sessionUrl0 tag from /resume and /launch
     public String rtspSessionUrl;
     public boolean launchActionCompleted;
+    public String preparedControllers = "";
     
     public int negotiatedWidth, negotiatedHeight;
     public boolean negotiatedHdr;

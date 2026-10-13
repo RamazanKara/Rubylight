@@ -363,6 +363,12 @@ public class MoonBridge {
         }
     }
 
+    public static native boolean sendControllerAudio(int kind, byte[] payload);
+    public static native long openUsbMicrophone(int fd, int endpoint, int interval);
+    public static native int readUsbMicrophone(long handle, byte[] samples);
+    public static void bridgeClControllerAudio(int kind, byte[] payload) {
+        if (connectionListener != null) connectionListener.controllerAudio(kind, payload);
+    }
     public static native long openUsbHaptics(int fd, int endpoint, int interval);
     public static native boolean writeUsbHaptics(long handle, byte[] samples);
     public static native void closeUsbHaptics(long handle);

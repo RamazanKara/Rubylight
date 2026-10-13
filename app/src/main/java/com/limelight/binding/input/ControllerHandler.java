@@ -2235,6 +2235,57 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         }
     }
 
+    // Called only on the connection worker. Give the USB service time to finish its
+    // permission/driver handover before the host starts a game that caches devices.
+    public String prepareControllersForLaunch() {
+        if (!prefConfig.usbDualSenseHaptics) return "";
+        long deadline = android.os.SystemClock.uptimeMillis() + 2500;
+        do {
+            synchronized (this) {
+                if (stopped) return "";
+                StringBuilder result = new StringBuilder();
+                for (UsbDeviceContext context : usbDeviceContexts.values()) {
+                    short caps = context.device.getCapabilities();
+                    if ((caps & MoonBridge.LI_CCAP_HAPTICS_PCM) == 0) continue;
+                    assignControllerNumberIfNeeded(context);
+                    if (!context.assignedControllerNumber) continue;
+                    if (!prefConfig.gamepadMotionSensors) caps &= ~(MoonBridge.LI_CCAP_ACCEL | MoonBridge.LI_CCAP_GYRO);
+                    conn.useControllerMicrophone();
+                    if (result.length() != 0) result.append(',');
+                    result.append(context.controllerNumber).append(':').append(context.device.getType())
+                            .append(':').append(caps & 0xffff).append(':')
+                            .append(Integer.toUnsignedString(context.device.getSupportedButtonFlags()));
+                }
+                if (result.length() != 0) return result.toString();
+            }
+            try { Thread.sleep(50); }
+            catch (InterruptedException e) { Thread.currentThread().interrupt(); return ""; }
+        } while (android.os.SystemClock.uptimeMillis() < deadline);
+        return "";
+    }
+
+    public synchronized void resendControllerArrivals() {
+        if (stopped) return;
+        for (UsbDeviceContext context : usbDeviceContexts.values()) {
+            if (context.assignedControllerNumber) context.sendControllerArrival();
+        }
+    }
+
+    public void handleControllerAudio(int kind, byte[] payload) {
+        if (stopped || payload == null || payload.length < 4) return;
+        short id = (short)((payload[2] & 255) | ((payload[3] & 255) << 8));
+        AbstractController controller = waveformControllers.get(id);
+        if (controller != null) controller.controllerAudio(kind, payload);
+    }
+    public boolean routeHeadphoneAudio(short[] samples, int length, float volume) {
+        if (stopped) return false;
+        // A single headset owns normal game sound; controller-specific effects remain per-pad.
+        for (short id = 0; id < 16; id++) {
+            AbstractController controller = waveformControllers.get(id);
+            if (controller != null && controller.headphoneAudio(samples, length, volume)) return true;
+        }
+        return false;
+    }
     public void handleControllerHaptics(short controllerNumber, int sequence, byte[] pcm) {
         if (stopped) return;
         // Avoid the input monitor and HID transfers on the control receive thread.
@@ -3017,6 +3068,9 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
 
     @Override
     public synchronized void deviceRemoved(AbstractController controller) {
+        // Stream teardown retains host controller identities; only a physical removal
+        // during a live stream should clear the active controller mask.
+        if (stopped) return;
         UsbDeviceContext context = usbDeviceContexts.get(controller.getControllerId());
         if (context != null) {
             LimeLog.info("Removed controller: "+controller.getControllerId());
@@ -3551,6 +3605,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
             conn.sendControllerArrivalEvent((byte)controllerNumber, getActiveControllerMask(),
                     device.getType(), device.getSupportedButtonFlags(), capabilities);
             device.setPlayerNumber(controllerNumber);
+            device.bindAudio(conn, controllerNumber);
         }
     }
 }

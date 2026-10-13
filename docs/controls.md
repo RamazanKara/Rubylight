@@ -24,7 +24,9 @@ For direct DualSense or DualSense Edge USB support:
 
 The toggle is off by default. Denying USB access keeps the ordinary Android input path; unplug and reconnect to retry. The host must support the requested feedback.
 
-For native waveform vibration from a compatible **Vibepollo nightly** host, also enable **USB DualSense waveform haptics**, then reconnect the controller and stream. This experimental option sends the host's distinct left/right samples to a USB DualSense or Edge. It takes over the controller's USB audio interfaces, so its headphone and microphone functions are unavailable while enabled. Use the phone or another audio device for game sound. Bluetooth waveform output is not supported by Android's standard controller API. See [waveform setup and limitations](dualsense-haptics.md).
+Enable **USB DualSense audio and haptics**, then reconnect the controller and stream, for native waveform vibration from Rubylight or compatible Vibepollo hosts. Matching updated Rubylight hosts also carry controller speaker, headset and microphone audio. Bluetooth waveform output is unavailable through Android’s standard controller API. See [audio and haptics setup](dualsense-haptics.md).
+
+For gyro aiming and radial menus, use the game’s **Steam Input** controller layout on the host and enable controller motion in Rubylight. The client forwards motion and touchpad input; Steam supplies the aiming behavior and menu overlay. Games using native DualSense effects may need Steam Input disabled for that game.
 
 The separate **USB controller driver** setting supplies Xbox USB support. **Always use the USB driver** prefers that path even if Android already recognizes the controller.
 

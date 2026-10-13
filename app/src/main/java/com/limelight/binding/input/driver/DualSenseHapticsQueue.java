@@ -50,7 +50,10 @@ final class DualSenseHapticsQueue {
     }
 
     synchronized boolean render(byte[] usb, long now) {
-        Arrays.fill(usb, (byte)0);
+        return render(usb, now, 4, true);
+    }
+    synchronized boolean render(byte[] usb, long now, int channelOffset, boolean clear) {
+        if (clear) Arrays.fill(usb, (byte)0);
         int frame = 0;
         while (!chunks.isEmpty() && frame < USB_FRAMES) {
             Chunk chunk = chunks.peekFirst();
@@ -62,7 +65,7 @@ final class DualSenseHapticsQueue {
             int count = Math.min(USB_FRAMES - frame, (chunk.pcm.length - chunk.offset) / 4);
             for (int i = 0; i < count; i++) {
                 // Channels 1/2 are speaker audio and stay silent. Preserve signed L/R samples.
-                System.arraycopy(chunk.pcm, chunk.offset, usb, frame * 8 + 4, 4);
+                System.arraycopy(chunk.pcm, chunk.offset, usb, frame * 8 + channelOffset, 4);
                 chunk.offset += 4;
                 frame++;
             }

@@ -25,6 +25,7 @@ public class AndroidAudioRenderer implements AudioRenderer {
     private long lastBufferCheckMs;
     private int channelConfig, sampleRate, samplesPerFrame, channels;
     private boolean stopped;
+    private boolean audioFxSessionOpen;
 
     private static native long nativeOpenAudio(int sampleRate);
     private static native boolean nativeWriteAudio(long handle, short[] samples, int length);
@@ -121,6 +122,8 @@ public class AndroidAudioRenderer implements AudioRenderer {
     }
 
     private int setupAudioTrack() {
+        bufferPolicy = null;
+        lastBufferCheckMs = 0;
         int bytesPerFrame = channels * samplesPerFrame * 2;
 
         // We're not supposed to request less than the minimum
@@ -242,12 +245,59 @@ public class AndroidAudioRenderer implements AudioRenderer {
             // This will block until the write is completed. That can cause a backlog
             // of pending audio data, so we do the above check to be able to bound
             // latency at 40 ms in that situation.
-            track.write(audioData, 0, length);
+            if (!writeAudioTrackFully(audioData, length)) {
+                stopped = true;
+                releaseAudioTrack();
+                return;
+            }
             tuneBuffer();
         }
         else {
             LimeLog.info("Too much pending audio data: " + MoonBridge.getPendingAudioDuration() +" ms");
         }
+    }
+
+    // Package-visible write/recreation hooks keep recovery testable without an audio device.
+    int writeAudioTrack(short[] audioData, int offset, int length) {
+        return track.write(audioData, offset, length);
+    }
+
+    boolean recreateAudioTrack() {
+        boolean reopenAudioFx = audioFxSessionOpen;
+        releaseAudioTrack();
+        if (setupAudioTrack() != 0) {
+            return false;
+        }
+        if (reopenAudioFx) {
+            setAudioFxSession(true);
+        }
+        return true;
+    }
+
+    boolean writeAudioTrackFully(short[] audioData, int length) {
+        int offset = 0;
+        boolean recreated = false;
+        while (offset < length) {
+            int written = writeAudioTrack(audioData, offset, length - offset);
+            if (written > 0 && written <= length - offset) {
+                offset += written;
+            }
+            else if (written == AudioTrack.ERROR_DEAD_OBJECT && !recreated) {
+                // A route change can invalidate AudioTrack. Retry only the unwritten samples,
+                // and at most once per buffer so a broken output cannot spin on this thread.
+                recreated = true;
+                LimeLog.warning("AudioTrack disconnected; recreating audio output");
+                if (!recreateAudioTrack()) {
+                    LimeLog.warning("Unable to recreate AudioTrack");
+                    return false;
+                }
+            }
+            else {
+                LimeLog.warning("AudioTrack write made no progress or failed: " + written);
+                return false;
+            }
+        }
+        return true;
     }
 
     private void tuneBuffer() {
@@ -264,28 +314,31 @@ public class AndroidAudioRenderer implements AudioRenderer {
         }
     }
 
-    @Override
-    public void start() {
-        if (enableAudioFx) {
-            // Open an audio effect control session to allow equalizers to apply audio effects
-            Intent i = new Intent(AudioEffect.ACTION_OPEN_AUDIO_EFFECT_CONTROL_SESSION);
-            i.putExtra(AudioEffect.EXTRA_AUDIO_SESSION, track.getAudioSessionId());
-            i.putExtra(AudioEffect.EXTRA_PACKAGE_NAME, context.getPackageName());
-            i.putExtra(AudioEffect.EXTRA_CONTENT_TYPE, AudioEffect.CONTENT_TYPE_GAME);
-            context.sendBroadcast(i);
+    private void setAudioFxSession(boolean open) {
+        if (!enableAudioFx || track == null || audioFxSessionOpen == open) {
+            return;
         }
+        Intent i = new Intent(open ? AudioEffect.ACTION_OPEN_AUDIO_EFFECT_CONTROL_SESSION :
+                AudioEffect.ACTION_CLOSE_AUDIO_EFFECT_CONTROL_SESSION);
+        i.putExtra(AudioEffect.EXTRA_AUDIO_SESSION, track.getAudioSessionId());
+        i.putExtra(AudioEffect.EXTRA_PACKAGE_NAME, context.getPackageName());
+        if (open) {
+            i.putExtra(AudioEffect.EXTRA_CONTENT_TYPE, AudioEffect.CONTENT_TYPE_GAME);
+        }
+        context.sendBroadcast(i);
+        audioFxSessionOpen = open;
+    }
+
+    @Override
+    public synchronized void start() {
+        // Allow equalizers to attach to this track, including a replacement after disconnect.
+        setAudioFxSession(true);
     }
 
     @Override
     public synchronized void stop() {
         stopped = true;
-        if (enableAudioFx) {
-            // Close our audio effect control session when we're stopping
-            Intent i = new Intent(AudioEffect.ACTION_CLOSE_AUDIO_EFFECT_CONTROL_SESSION);
-            i.putExtra(AudioEffect.EXTRA_AUDIO_SESSION, track.getAudioSessionId());
-            i.putExtra(AudioEffect.EXTRA_PACKAGE_NAME, context.getPackageName());
-            context.sendBroadcast(i);
-        }
+        setAudioFxSession(false);
     }
 
     @Override
@@ -295,12 +348,23 @@ public class AndroidAudioRenderer implements AudioRenderer {
             nativeCloseAudio(nativeAudio);
             nativeAudio = 0;
         }
-        if (track == null) return;
-        // Immediately drop all pending data
-        track.pause();
-        track.flush();
+        releaseAudioTrack();
+    }
 
-        track.release();
+    private void releaseAudioTrack() {
+        setAudioFxSession(false);
+        AudioTrack oldTrack = track;
         track = null;
+        bufferPolicy = null;
+        if (oldTrack == null) return;
+        try {
+            // Immediately drop pending data, but still release an already invalidated track.
+            oldTrack.pause();
+            oldTrack.flush();
+        } catch (IllegalStateException e) {
+            LimeLog.warning("AudioTrack was already stopped during release");
+        } finally {
+            oldTrack.release();
+        }
     }
 }

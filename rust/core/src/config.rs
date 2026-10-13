@@ -601,6 +601,7 @@ pub fn override_allowed(key: &str) -> bool {
         // Codec and capture
         "fec_percentage",
         "adaptive_fec",
+        "host_adaptive_bitrate",
         "video_max_batch_size_kb",
         "pyrowave_critical_fec_percentage",
         "qp",

@@ -83,6 +83,37 @@ These are encoder bit budgets, not extra queued frames or packet-pacing settings
 
 `amd_rc` remains `vbr_latency` by default. For an affected AMD stream, `amd_max_frame_size=1` or `2` lets you compare smaller recovery frames against picture quality; `0` restores the driver default. These caps cut the largest recovery frames sharply. They are off by default because they trade picture quality for smaller frames.
 
+## Host bitrate adaptation
+
+**Settings → Video → Adapt bitrate on the host (experimental)** enables
+`host_adaptive_bitrate = true` for the next connection. It is off by default.
+For H.264, HEVC and AV1, the host reduces the video budget when a Moonlight
+client reports loss, or when sustained traffic shows a rising control RTT.
+The budget includes packet headers, FEC (including minimum parity), and a
+reserve for audio and control. Video pacing enforces the remaining video
+budget; bitrate targets leave additional headroom for encoder overshoot.
+The ceiling is the client's configured network bitrate, bounded by Maximum
+bitrate when set. No change can exceed the initial encoder bitrate.
+If the budget cannot fit negotiated audio and even minimum video packets,
+adaptation remains inactive with a warning instead of slowing the pacer to an
+unusable rate. Lower the audio channel count/FPS or increase the budget.
+
+The controller starts only after a valid report for a recently sent video
+frame. Clients without those reports retain their existing behavior. It waits
+for eight seconds of busy video, recent control pings and stable RTT before
+raising the budget slowly. A static desktop, a stopped game, missing feedback
+or a quiet encoder cannot prove that more bandwidth is available. PyroWave
+keeps its existing controller. A successful client `/bitrate` request takes
+ownership for the rest of that connection, including removal of the host's
+adaptive pacing cap. Clients starting their own controller should send their
+current bitrate once to claim ownership immediately.
+
+Session API reports include `adaptive_bitrate` with the owner, reason, observed
+feedback and wire budget. This is an experimental controller validated with
+simulated loss, traffic, stale feedback and ownership tests. Device/network
+performance still needs live measurements; it does not promise lower latency
+on every connection.
+
 ## Game-only audio
 
 **Settings → Audio → Audio to stream** defaults to **System audio**, which keeps

@@ -279,6 +279,16 @@ const video: Setting[] = [
     default: 20,
   },
   {
+    key: 'host_adaptive_bitrate',
+    label: 'Adapt bitrate on the host (experimental)',
+    description:
+      'Reduce bitrate when a Moonlight device reports video loss, then recover slowly during sustained traffic with stable latency. Includes error correction and audio in the network budget. Requires observed client feedback; a device that adjusts its own bitrate takes control. H.264, HEVC and AV1 only. Changes apply on the next connection.',
+    category: 'video',
+    group: 'Bitrate and network',
+    control: { kind: 'toggle' },
+    default: false,
+  },
+  {
     key: 'adaptive_fec',
     label: 'Adapt error correction',
     description:

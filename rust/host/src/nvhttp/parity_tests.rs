@@ -914,7 +914,7 @@ async fn abr_capabilities_are_client_driven_and_require_view_or_launch_permissio
             let body = to_bytes(response.into_body(), 1024).await.unwrap();
             assert_eq!(
                 serde_json::from_slice::<serde_json::Value>(&body).unwrap(),
-                json!({"supported":false,"version":1,"features":["runtime_bitrate"]})
+                json!({"supported":false,"version":1,"features":["runtime_bitrate","host_loss_adaptation"],"host_adaptive_bitrate":false,"client_bitrate_takes_ownership":true})
             );
         }
     }

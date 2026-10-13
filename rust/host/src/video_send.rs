@@ -181,6 +181,7 @@ impl Sender {
                     route.bps,
                     route.wireless,
                 );
+                let bps = s.adaptive_pacing_bps(bps);
                 if Instant::now() >= link_due {
                     let needed = butterpollo_core::network_pacing::video_wire_rate_bps(&packetizer, s.bitrate.load(Ordering::Relaxed), period, peer.is_ipv6());
                     butterpollo_core::network_pacing::report_rate(&s.launch.warnings, bps, needed, c.integer("pacing_max_bitrate_kbps", 0));

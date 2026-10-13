@@ -15,6 +15,7 @@
     clippy::print_stderr,
     clippy::undocumented_unsafe_blocks
 )]
+pub mod adaptive_bitrate;
 pub mod adaptive_fec;
 pub mod audio;
 pub mod audio_defaults;

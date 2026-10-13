@@ -1749,8 +1749,7 @@ async fn bitrate(
                 applied,
                 "max_bitrate and the 500 Mbps runtime cap",
             );
-            s.bitrate
-                .store(applied, std::sync::atomic::Ordering::Release);
+            s.set_client_bitrate(applied);
             count += 1;
             let minimum = butterpollo_core::pyrowave::minimum_kbps(
                 s.config.width,
@@ -1796,9 +1795,10 @@ async fn abr(State(h): State<Shared>, Extension(c): Extension<Connection>) -> Re
     if authenticated_viewer(&h, &c).is_err() {
         return axum::http::StatusCode::UNAUTHORIZED.into_response();
     }
-    // The host has no adaptive bitrate of its own; clients that see this run
-    // their own controller and apply it through /bitrate.
-    axum::Json(json!({"supported":false,"version":1,"features":["runtime_bitrate"]}))
+    // Keep the legacy flag false: it means a client may delegate its complete
+    // controller to the host. Our conservative opt-in only starts after real
+    // feedback and explicitly yields to every client /bitrate request.
+    axum::Json(json!({"supported":false,"version":1,"features":["runtime_bitrate","host_loss_adaptation"],"host_adaptive_bitrate":h.config.read().unwrap().boolean("host_adaptive_bitrate",false),"client_bitrate_takes_ownership":true}))
         .into_response()
 }
 

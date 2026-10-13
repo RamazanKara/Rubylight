@@ -1,0 +1,539 @@
+//! Conservative, opt-in adaptation for conventional Moonlight video streams.
+//!
+//! Stock Moonlight reports FEC only on loss. A validated report proves support;
+//! silence alone proves nothing. Recovery needs recent standard control pings,
+//! a moving, busy video stream, stable RTT and a sustained loss-free interval.
+//! A client /bitrate request relinquishes host ownership until reconnection.
+use std::time::{Duration, Instant};
+
+use crate::{adaptive_fec::Block, packet::VideoPacketizer, rtsp::Negotiated};
+
+#[derive(Clone, Copy, Default)]
+pub struct Traffic {
+    pub frames: u64,
+    pub bytes: u64,
+    pub send_losses: u64,
+}
+
+#[derive(Clone, Copy)]
+pub struct WireBudget {
+    pub packet_size: usize,
+    pub min_fec: usize,
+    pub encrypted: bool,
+    pub audio_bps: u64,
+}
+
+impl WireBudget {
+    pub fn of(stream: &Negotiated) -> Self {
+        // Opus plus 4:2 audio FEC, encryption/framing and control traffic.
+        // Reserve the negotiated maximum even when audio is muted/quiet.
+        let audio_kbps =
+            u64::from(stream.audio_channels) * if stream.audio_quality { 256 } else { 96 };
+        Self {
+            packet_size: stream.packet_size,
+            min_fec: stream.min_fec,
+            encrypted: stream.encryption & 2 != 0,
+            audio_bps: audio_kbps * 1500 + 500_000,
+        }
+    }
+
+    pub fn video_bps(&self, kbps: u32, fec: usize, period: Duration) -> u64 {
+        let packetizer = VideoPacketizer {
+            sequence: 0,
+            frame: 1,
+            iv_counter: 0,
+            packet_size: self.packet_size,
+            fec_percent: fec,
+            min_fec: self.min_fec,
+            key: self.encrypted.then_some([0; 16]),
+        };
+        // IPv6 overhead is a conservative bound for both address families.
+        crate::network_pacing::video_wire_rate_bps(&packetizer, kbps, period, true)
+    }
+
+    pub fn encoder_kbps(&self, total_bps: u64, ceiling: u32, fec: usize, period: Duration) -> u32 {
+        // Keep 10% video headroom for rate control overshoot/keyframes. Packet
+        // rounding, minimum parity, encryption and IP framing all count.
+        let video = total_bps.saturating_sub(self.audio_bps) * 9 / 10;
+        let (mut lo, mut hi) = (1, ceiling.max(1));
+        while lo < hi {
+            let mid = lo + (hi - lo).div_ceil(2);
+            if self.video_bps(mid, fec, period) <= video {
+                lo = mid;
+            } else {
+                hi = mid - 1;
+            }
+        }
+        lo
+    }
+}
+
+#[derive(Default)]
+pub struct AdaptiveBitrate {
+    budget: Option<WireBudget>,
+    client_owned: bool,
+    supported: bool,
+    viable: bool,
+    ceiling_kbps: u32,
+    ceiling_bps: u64,
+    current_bps: u64,
+    floor_bps: u64,
+    last_ping: Option<Instant>,
+    last_sample: Option<(Instant, Traffic)>,
+    last_change: Option<Instant>,
+    clean_since: Option<Instant>,
+    minimum_rtt: Option<Duration>,
+    queued_loss: bool,
+    severe_loss: bool,
+    congested_samples: u8,
+    reason: &'static str,
+}
+
+impl AdaptiveBitrate {
+    pub fn configure(&mut self, enabled: bool, stream: &Negotiated, maximum_kbps: u32, fec: usize) {
+        if !enabled || stream.codec == 3 {
+            self.budget = None;
+            return;
+        }
+        let budget = WireBudget::of(stream);
+        let period = crate::reconfigure::Mode::of(stream).period();
+        let inferred =
+            budget.video_bps(stream.bitrate_kbps, fec, period) * 10 / 9 + budget.audio_bps;
+        let requested = if stream.configured_bitrate_kbps > 0 {
+            u64::from(stream.configured_bitrate_kbps) * 1000
+        } else {
+            inferred
+        };
+        self.ceiling_bps = requested.min(if maximum_kbps > 0 {
+            u64::from(maximum_kbps) * 1000
+        } else {
+            u64::MAX
+        });
+        self.ceiling_kbps = stream.bitrate_kbps.min(500_000);
+        self.current_bps = self.ceiling_bps;
+        self.budget = Some(budget);
+        self.reason = "waiting_for_feedback";
+        self.update_floor(fec, period);
+    }
+
+    fn update_floor(&mut self, fec: usize, period: Duration) {
+        let budget = self.budget.unwrap();
+        // Even one encoded byte needs a packet (and possibly minimum parity)
+        // every frame. Never turn an impossible audio/video budget into a
+        // near-zero pacer that holds a frame for seconds.
+        self.viable =
+            budget.video_bps(1, fec, period) * 10 / 9 + budget.audio_bps <= self.ceiling_bps;
+        if self.viable {
+            self.floor_bps = (budget.video_bps(self.ceiling_kbps.min(2_000), fec, period) * 10 / 9
+                + budget.audio_bps)
+                .min(self.ceiling_bps);
+            self.current_bps = self.current_bps.max(self.floor_bps);
+        } else {
+            self.reason = "wire_budget_too_small";
+            self.clean_since = None;
+        }
+    }
+
+    pub fn budget_unusable(&self) -> bool {
+        self.configured() && !self.viable
+    }
+
+    pub fn client_takeover(&mut self) {
+        self.client_owned = true;
+        self.reason = "client_controlled";
+    }
+
+    pub fn on_ping(&mut self, now: Instant, payload: &[u8]) {
+        if payload.len() == 8 && payload[..4] == 4u32.to_le_bytes() {
+            self.last_ping = Some(now);
+        }
+    }
+
+    /// Only call after wire validation, sent-frame checks and deduplication.
+    pub fn on_block(&mut self, block: Block) {
+        self.supported = true;
+        match block {
+            Block::Unrecoverable => {
+                self.queued_loss = true;
+                self.severe_loss = true;
+            }
+            Block::Recovered { lost, data } if u32::from(lost) * 100 >= u32::from(data) * 2 => {
+                self.queued_loss = true;
+            }
+            Block::Recovered { lost, .. } if lost > 0 => self.clean_since = None,
+            _ => {}
+        }
+    }
+
+    pub fn configured(&self) -> bool {
+        self.budget.is_some() && !self.client_owned
+    }
+
+    pub fn active(&self) -> bool {
+        self.configured() && self.supported && self.viable
+    }
+
+    /// Video pacing ceiling, after reserving audio/control. Zero means leave
+    /// the existing pacing policy alone (including clients without reports).
+    pub fn video_pacing_bps(&self) -> u64 {
+        if !self.active() {
+            return 0;
+        }
+        self.current_bps
+            .saturating_sub(self.budget.unwrap().audio_bps)
+            .max(1)
+    }
+
+    /// At most two samples/second. Returns a target even when only the FEC
+    /// percentage changed, so recovery packets cannot silently grow the budget.
+    pub fn tick(
+        &mut self,
+        now: Instant,
+        traffic: Traffic,
+        rtt: Duration,
+        fec: usize,
+        period: Duration,
+        current_kbps: u32,
+    ) -> Option<u32> {
+        if !self.configured() {
+            return None;
+        }
+        let Some((previous, before)) = self.last_sample else {
+            self.last_sample = Some((now, traffic));
+            return None;
+        };
+        let elapsed = now.saturating_duration_since(previous);
+        if elapsed < Duration::from_millis(500) {
+            return None;
+        }
+        self.last_sample = Some((now, traffic));
+        if !self.supported {
+            return None;
+        }
+        self.update_floor(fec, period);
+        if !self.viable {
+            return None;
+        }
+        let ping = self
+            .last_ping
+            .is_some_and(|at| now.saturating_duration_since(at) < Duration::from_secs(2));
+        let seconds = elapsed.as_secs_f64();
+        let busy = elapsed <= Duration::from_secs(2)
+            && traffic.frames.saturating_sub(before.frames) as f64
+                >= seconds / period.as_secs_f64() * 0.6
+            && traffic.bytes.saturating_sub(before.bytes) as f64 * 8.
+                >= f64::from(current_kbps) * 1000. * seconds * 0.6;
+        if ping && !rtt.is_zero() {
+            self.minimum_rtt = Some(self.minimum_rtt.map_or(rtt, |minimum| minimum.min(rtt)));
+        }
+        let queued = !rtt.is_zero()
+            && self
+                .minimum_rtt
+                .is_some_and(|minimum| rtt > minimum + (minimum / 2).max(Duration::from_millis(8)));
+        self.congested_samples = if ping && busy && queued {
+            self.congested_samples.saturating_add(1)
+        } else {
+            0
+        };
+        let loss =
+            std::mem::take(&mut self.queued_loss) || traffic.send_losses > before.send_losses;
+        let severe = std::mem::take(&mut self.severe_loss);
+        let due = self
+            .last_change
+            .is_none_or(|at| now.saturating_duration_since(at) >= Duration::from_secs(1));
+        let mut recovering = false;
+        if loss || self.congested_samples >= 2 {
+            self.clean_since = None;
+            if due {
+                self.current_bps =
+                    (self.current_bps * if severe { 75 } else { 85 } / 100).max(self.floor_bps);
+                self.last_change = Some(now);
+                self.reason = if loss { "packet_loss" } else { "rising_rtt" };
+            }
+        } else if ping && busy && !queued {
+            let clean = self.clean_since.get_or_insert(now);
+            if now.saturating_duration_since(*clean) >= Duration::from_secs(8)
+                && self
+                    .last_change
+                    .is_none_or(|at| now.saturating_duration_since(at) >= Duration::from_secs(2))
+            {
+                self.current_bps =
+                    (self.current_bps + (self.current_bps / 50).max(100_000)).min(self.ceiling_bps);
+                self.last_change = Some(now);
+                self.reason = "recovering";
+                recovering = true;
+            }
+        } else {
+            self.clean_since = None;
+            self.reason = if !ping {
+                "feedback_stale"
+            } else {
+                "low_activity"
+            };
+        }
+        let target =
+            self.budget
+                .unwrap()
+                .encoder_kbps(self.current_bps, self.ceiling_kbps, fec, period);
+        // A falling FEC percentage must not bypass the slow recovery policy.
+        Some(if recovering {
+            target.min(current_kbps.saturating_add((current_kbps / 50).max(100)))
+        } else {
+            target.min(current_kbps)
+        })
+    }
+
+    pub fn snapshot(&self) -> serde_json::Value {
+        serde_json::json!({
+            "configured": self.budget.is_some(),
+            "active": self.active(),
+            "owner": if self.client_owned { "client" } else if self.active() { "host" } else { "fixed" },
+            "reason": if self.reason.is_empty() { "disabled" } else { self.reason },
+            "feedback_observed": self.supported,
+            "wire_budget_kbps": self.current_bps / 1000,
+            "wire_ceiling_kbps": self.ceiling_bps / 1000,
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn controller() -> AdaptiveBitrate {
+        let mut c = AdaptiveBitrate::default();
+        let stream = Negotiated {
+            bitrate_kbps: 20_000,
+            configured_bitrate_kbps: 30_000,
+            ..Default::default()
+        };
+        c.configure(true, &stream, 0, 20);
+        c
+    }
+    fn run(
+        c: &mut AdaptiveBitrate,
+        start: Instant,
+        rounds: u64,
+        busy: bool,
+        ping: bool,
+        fec: usize,
+    ) -> u32 {
+        let mut kbps = 20_000;
+        let mut bytes = 0;
+        for i in 0..rounds {
+            let now = start + Duration::from_secs(i);
+            bytes += if busy { u64::from(kbps) * 125 } else { 0 };
+            if ping {
+                c.on_ping(now, &[4, 0, 0, 0, 0, 0, 0, 0]);
+            }
+            if let Some(target) = c.tick(
+                now,
+                Traffic {
+                    frames: i * if busy { 60 } else { 1 },
+                    bytes,
+                    send_losses: 0,
+                },
+                Duration::from_millis(8),
+                fec,
+                Duration::from_secs_f64(1. / 60.),
+                kbps,
+            ) {
+                kbps = target;
+            }
+        }
+        kbps
+    }
+    #[test]
+    fn no_feedback_and_client_ownership_leave_fixed_bitrate_untouched() {
+        let mut c = controller();
+        assert_eq!(run(&mut c, Instant::now(), 60, true, true, 20), 20_000);
+        assert_eq!(c.video_pacing_bps(), 0);
+        c.on_block(Block::Unrecoverable);
+        c.client_takeover();
+        assert_eq!(run(&mut c, Instant::now(), 60, true, true, 20), 20_000);
+        assert_eq!(c.video_pacing_bps(), 0);
+    }
+    #[test]
+    fn losses_reduce_budget_then_busy_clean_streams_recover_slowly() {
+        let start = Instant::now();
+        let mut c = controller();
+        c.on_block(Block::Unrecoverable);
+        let low = run(&mut c, start, 2, true, true, 20);
+        assert!(low < 20_000);
+        let low_budget = c.current_bps;
+        let restored = run(&mut c, start + Duration::from_secs(3), 90, true, true, 20);
+        assert!(restored > low);
+        assert!(c.current_bps > low_budget);
+        assert!(c.current_bps <= c.ceiling_bps);
+    }
+    #[test]
+    fn idle_video_and_stale_control_never_count_as_a_clean_link() {
+        for (busy, ping) in [(false, true), (true, false), (false, false)] {
+            let mut c = controller();
+            c.on_block(Block::Unrecoverable);
+            run(&mut c, Instant::now(), 2, true, true, 20);
+            let budget = c.current_bps;
+            run(
+                &mut c,
+                Instant::now() + Duration::from_secs(10),
+                120,
+                busy,
+                ping,
+                5,
+            );
+            assert_eq!(c.current_bps, budget);
+        }
+    }
+    #[test]
+    fn fec_rounding_audio_encryption_and_headers_fit_the_same_wire_ceiling() {
+        for size in [256, 1024, 1400] {
+            for fec in [0, 5, 20, 50, 100] {
+                let stream = Negotiated {
+                    packet_size: size,
+                    min_fec: 2,
+                    encryption: 2,
+                    audio_channels: 8,
+                    audio_quality: true,
+                    ..Default::default()
+                };
+                let budget = WireBudget::of(&stream);
+                let period = Duration::from_secs_f64(1. / 120.);
+                let rate = budget.encoder_kbps(30_000_000, 100_000, fec, period);
+                assert!(budget.video_bps(rate, fec, period) + budget.audio_bps <= 30_000_000);
+            }
+        }
+    }
+    #[test]
+    fn rtt_requires_sustained_congestion_and_unknown_rtt_does_not_poison_baseline() {
+        let start = Instant::now();
+        let mut c = controller();
+        c.on_block(Block::Clean);
+        let mut rate = 20_000;
+        for (i, rtt) in [0, 8, 50, 8, 50, 50].into_iter().enumerate() {
+            let now = start + Duration::from_secs(i as u64);
+            c.on_ping(now, &[4, 0, 0, 0, 0, 0, 0, 0]);
+            rate = c
+                .tick(
+                    now,
+                    Traffic {
+                        frames: i as u64 * 60,
+                        bytes: i as u64 * 2_500_000,
+                        send_losses: 0,
+                    },
+                    Duration::from_millis(rtt),
+                    20,
+                    Duration::from_secs_f64(1. / 60.),
+                    rate,
+                )
+                .unwrap_or(rate);
+            if i < 5 {
+                assert_eq!(c.current_bps, c.ceiling_bps);
+            }
+        }
+        assert!(c.current_bps < c.ceiling_bps);
+        assert_eq!(c.reason, "rising_rtt");
+    }
+    #[test]
+    fn configured_wire_cap_applies_with_parity_and_no_recovery_from_just_lower_fec() {
+        let mut c = controller();
+        let stream = Negotiated {
+            bitrate_kbps: 20_000,
+            configured_bitrate_kbps: 40_000,
+            ..Default::default()
+        };
+        c.configure(true, &stream, 25_000, 20);
+        c.on_block(Block::Unrecoverable);
+        let start = Instant::now();
+        let low = run(&mut c, start, 2, true, true, 20);
+        assert!(c.current_bps < 25_000_000);
+        let held = c
+            .tick(
+                start + Duration::from_secs(3),
+                Traffic::default(),
+                Duration::ZERO,
+                0,
+                Duration::from_secs_f64(1. / 60.),
+                low,
+            )
+            .unwrap();
+        assert_eq!(held, low);
+        assert!(c.video_pacing_bps() + c.budget.unwrap().audio_bps <= 25_000_000);
+    }
+    #[test]
+    fn disabled_and_pyrowave_streams_never_activate() {
+        for (enabled, codec) in [(false, 0), (true, 3)] {
+            let mut c = AdaptiveBitrate::default();
+            c.configure(
+                enabled,
+                &Negotiated {
+                    codec,
+                    ..Default::default()
+                },
+                0,
+                20,
+            );
+            c.on_block(Block::Unrecoverable);
+            assert!(!c.active());
+            assert_eq!(c.video_pacing_bps(), 0);
+        }
+    }
+    #[test]
+    fn a_budget_smaller_than_audio_and_minimum_packets_never_stalls_the_pacer() {
+        let mut c = controller();
+        let stream = Negotiated {
+            bitrate_kbps: 500,
+            configured_bitrate_kbps: 1_000,
+            audio_channels: 8,
+            audio_quality: true,
+            ..Default::default()
+        };
+        c.configure(true, &stream, 0, 20);
+        c.on_block(Block::Unrecoverable);
+        assert!(c.budget_unusable());
+        let start = Instant::now();
+        for i in 0..4 {
+            assert_eq!(
+                c.tick(
+                    start + Duration::from_secs(i),
+                    Traffic::default(),
+                    Duration::from_millis(8),
+                    20,
+                    Duration::from_secs_f64(1. / 60.),
+                    500
+                ),
+                None
+            );
+        }
+        assert_eq!(c.video_pacing_bps(), 0);
+        assert_eq!(c.snapshot()["reason"], "wire_budget_too_small");
+    }
+    #[test]
+    fn higher_fps_revalidates_the_minimum_wire_budget() {
+        let mut c = controller();
+        let stream = Negotiated {
+            bitrate_kbps: 2_000,
+            configured_bitrate_kbps: 6_000,
+            audio_channels: 8,
+            audio_quality: true,
+            packet_size: 1024,
+            min_fec: 2,
+            ..Default::default()
+        };
+        c.configure(true, &stream, 0, 20);
+        c.on_block(Block::Clean);
+        assert!(c.active());
+        let start = Instant::now();
+        for i in 0..2 {
+            c.tick(
+                start + Duration::from_secs(i),
+                Traffic::default(),
+                Duration::from_millis(8),
+                20,
+                Duration::from_secs_f64(1. / 240.),
+                2_000,
+            );
+        }
+        assert!(!c.active());
+        assert_eq!(c.video_pacing_bps(), 0);
+    }
+}

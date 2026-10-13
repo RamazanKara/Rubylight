@@ -203,6 +203,37 @@ mod tests {
         report
     }
     #[test]
+    fn host_bitrate_requires_valid_video_feedback_and_yields_to_the_client() {
+        let s = Session::new(
+            launch("host-abr", Role::Stream),
+            Negotiated {
+                bitrate_kbps: 20_000,
+                configured_bitrate_kbps: 30_000,
+                ..Default::default()
+            },
+        );
+        s.configure_adaptive_bitrate(true, 0);
+        let start = Instant::now();
+        s.tick_adaptive_bitrate(start, Duration::from_millis(8));
+        s.record_fec_status(&fec_report(1, 7, 1)); // no frame has been sent
+        assert!(!s.adaptive_bitrate.lock().unwrap().active());
+        s.stats.video_frame.store(10, Ordering::Release);
+        s.record_fec_status(&fec_report(1, 7, 1));
+        s.tick_adaptive_bitrate(start + Duration::from_secs(1), Duration::from_millis(8));
+        assert!(s.bitrate.load(Ordering::Acquire) < 20_000);
+        assert!(s.adaptive_pacing_bps(u64::MAX) < 30_000_000);
+        let after_loss = s.info()["adaptive_bitrate"]["wire_budget_kbps"].clone();
+        s.record_fec_status(&fec_report(1, 7, 1)); // same block is ignored
+        s.tick_adaptive_bitrate(start + Duration::from_secs(2), Duration::from_millis(8));
+        assert_eq!(s.info()["adaptive_bitrate"]["wire_budget_kbps"], after_loss);
+        s.set_client_bitrate(17_000);
+        s.record_fec_status(&fec_report(2, 7, 1));
+        s.tick_adaptive_bitrate(start + Duration::from_secs(4), Duration::from_millis(200));
+        assert_eq!(s.bitrate.load(Ordering::Acquire), 17_000);
+        assert_eq!(s.adaptive_pacing_bps(800_000_000), 800_000_000);
+        assert_eq!(s.info()["adaptive_bitrate"]["owner"], "client");
+    }
+    #[test]
     fn adaptive_fec_follows_reports_and_stays_fixed_without_them_or_when_off() {
         let start = Instant::now();
         // A client that never reports: the configured percentage, for minutes.
@@ -800,6 +831,9 @@ pub struct Session<P = (), A = ()> {
     pub invalidation: std::sync::Mutex<Option<(u64, u64)>>,
     pub recovery_wake: std::sync::Mutex<Option<Box<dyn Fn() + Send + Sync>>>,
     pub bitrate: AtomicU32,
+    /// All bitrate writers take this lock, including client ownership handoff.
+    pub adaptive_bitrate: std::sync::Mutex<crate::adaptive_bitrate::AdaptiveBitrate>,
+    pub adaptive_video_pacing_bps: AtomicU64,
     /// FEC percentage for the next video frame; the video sender reads it per
     /// frame, and `adaptive_fec` moves it from the client's 0x5502 reports.
     pub fec_percent: AtomicU32,
@@ -833,6 +867,8 @@ impl<P, A> Session<P, A> {
             invalidation: Default::default(),
             recovery_wake: Default::default(),
             bitrate: AtomicU32::new(bitrate),
+            adaptive_bitrate: Default::default(),
+            adaptive_video_pacing_bps: AtomicU64::new(0),
             fec_percent: AtomicU32::new(
                 crate::adaptive_fec::AdaptiveFec::default().percent() as u32
             ),
@@ -928,6 +964,7 @@ impl<P, A> Session<P, A> {
             .unwrap()
             .record_fec_status(payload, last_sent);
         if let Some(block) = block {
+            self.adaptive_bitrate.lock().unwrap().on_block(block);
             let mut fec = self.adaptive_fec.lock().unwrap();
             if fec.enabled() {
                 fec.on_block(Instant::now(), block);
@@ -949,6 +986,58 @@ impl<P, A> Session<P, A> {
     /// The FEC percentage for the next video frame.
     pub fn fec_percent(&self) -> usize {
         self.fec_percent.load(Ordering::Acquire) as usize
+    }
+    pub fn configure_adaptive_bitrate(&self, enabled: bool, maximum_kbps: u32) {
+        self.adaptive_bitrate.lock().unwrap().configure(
+            enabled,
+            &self.config,
+            maximum_kbps,
+            self.fec_percent(),
+        );
+    }
+    pub fn set_client_bitrate(&self, kbps: u32) {
+        let mut controller = self.adaptive_bitrate.lock().unwrap();
+        controller.client_takeover();
+        self.adaptive_video_pacing_bps.store(0, Ordering::Release);
+        self.bitrate.store(kbps, Ordering::Release);
+        self.launch.warnings.clear("host_bitrate_budget");
+    }
+    pub fn adaptive_pacing_bps(&self, configured_bps: u64) -> u64 {
+        let limit = self.adaptive_video_pacing_bps.load(Ordering::Acquire);
+        if limit == 0 {
+            configured_bps
+        } else {
+            configured_bps.min(limit)
+        }
+    }
+    pub fn tick_adaptive_bitrate(&self, now: Instant, rtt: Duration) -> Option<(u32, u32)> {
+        let mut controller = self.adaptive_bitrate.lock().unwrap();
+        let previous = self.bitrate.load(Ordering::Acquire);
+        let target = controller.tick(
+            now,
+            crate::adaptive_bitrate::Traffic {
+                frames: self.stats.frames.load(Ordering::Relaxed),
+                bytes: self.stats.bytes.load(Ordering::Relaxed),
+                send_losses: self.stats.send_loss_recoveries.load(Ordering::Relaxed),
+            },
+            rtt,
+            self.fec_percent(),
+            self.stream_mode().period(),
+            previous,
+        );
+        self.adaptive_video_pacing_bps
+            .store(controller.video_pacing_bps(), Ordering::Release);
+        if controller.budget_unusable() {
+            self.launch.warnings.set("host_bitrate_budget", "Host bitrate adaptation cannot fit the negotiated audio and minimum video packets inside this network budget, so it is inactive. Use stereo audio, reduce FPS or raise the configured bitrate.");
+        } else {
+            self.launch.warnings.clear("host_bitrate_budget");
+        }
+        let target = target?;
+        if target == previous {
+            return None;
+        }
+        self.bitrate.store(target, Ordering::Release);
+        Some((previous, target))
     }
     /// Lets adaptive FEC fall on a clean link; call regularly. Returns the
     /// `(old, new)` percentage to log, at most once a second.
@@ -1030,7 +1119,7 @@ impl<P, A> Session<P, A> {
                 mode.fps_millihz.saturating_add(500) / 1000,
             )
         };
-        serde_json::json!({"warnings":warnings,"encoder":*self.encoder.read().unwrap(),"uuid":self.launch.client.uuid,"device_name":self.launch.client.name,"width":width,"height":height,"fps":fps,"video_format":self.config.codec,"hdr":self.config.hdr,"vrr":self.config.vrr_low_latency,"encoder_bitrate_kbps":self.bitrate.load(Ordering::Relaxed),"fec_percent":(self.config.codec != 3).then(|| self.fec_percent()),"pyrowave_minimum_kbps":(self.config.codec == 3).then(|| crate::pyrowave::minimum_kbps(self.config.width, self.config.height, self.config.fps_millihz())),"pyrowave_recommended_kbps":(self.config.codec == 3).then(|| crate::pyrowave::recommended_kbps(self.config.width, self.config.height, self.config.fps_millihz())),"audio_channels":self.config.audio_channels,"state":if self.stopping(){"STOPPING"}else{"RUNNING"},"frames_sent":self.stats.frames.load(Ordering::Relaxed),"frames_replaced":self.stats.frames_replaced.load(Ordering::Relaxed),"packets_sent":self.stats.packets.load(Ordering::Relaxed),"bytes_sent":self.stats.bytes.load(Ordering::Relaxed),"idr_requests":self.stats.idr_requests.load(Ordering::Relaxed),"reference_invalidations":self.stats.reference_invalidations.load(Ordering::Relaxed),"send_loss_recoveries":self.stats.send_loss_recoveries.load(Ordering::Relaxed),"encode_latency_ms":self.stats.latency_us.load(Ordering::Relaxed) as f64/1000.,"performance":self.stats.performance.lock().unwrap().snapshot(Instant::now()),"uptime_seconds":self.started.elapsed().as_secs_f64(),"role":self.launch.role})
+        serde_json::json!({"warnings":warnings,"encoder":*self.encoder.read().unwrap(),"uuid":self.launch.client.uuid,"device_name":self.launch.client.name,"width":width,"height":height,"fps":fps,"video_format":self.config.codec,"hdr":self.config.hdr,"vrr":self.config.vrr_low_latency,"encoder_bitrate_kbps":self.bitrate.load(Ordering::Relaxed),"adaptive_bitrate":self.adaptive_bitrate.lock().unwrap().snapshot(),"fec_percent":(self.config.codec != 3).then(|| self.fec_percent()),"pyrowave_minimum_kbps":(self.config.codec == 3).then(|| crate::pyrowave::minimum_kbps(self.config.width, self.config.height, self.config.fps_millihz())),"pyrowave_recommended_kbps":(self.config.codec == 3).then(|| crate::pyrowave::recommended_kbps(self.config.width, self.config.height, self.config.fps_millihz())),"audio_channels":self.config.audio_channels,"state":if self.stopping(){"STOPPING"}else{"RUNNING"},"frames_sent":self.stats.frames.load(Ordering::Relaxed),"frames_replaced":self.stats.frames_replaced.load(Ordering::Relaxed),"packets_sent":self.stats.packets.load(Ordering::Relaxed),"bytes_sent":self.stats.bytes.load(Ordering::Relaxed),"idr_requests":self.stats.idr_requests.load(Ordering::Relaxed),"reference_invalidations":self.stats.reference_invalidations.load(Ordering::Relaxed),"send_loss_recoveries":self.stats.send_loss_recoveries.load(Ordering::Relaxed),"encode_latency_ms":self.stats.latency_us.load(Ordering::Relaxed) as f64/1000.,"performance":self.stats.performance.lock().unwrap().snapshot(Instant::now()),"uptime_seconds":self.started.elapsed().as_secs_f64(),"role":self.launch.role})
     }
 }
 pub struct Sessions<P = (), A = ()> {

@@ -94,3 +94,19 @@ The host logs each switch as `reconfigure` with the old and new mode and how lon
 ## Error correction reports
 
 Moonlight's own FEC status message (`0x5502`, `SS_FRAME_FEC_STATUS` in moonlight-common-c) needs no announcement. A client that sends it for frames it had to repair or could not rebuild gets adaptive error correction from 2.2.0: the share of recovery packets rises with reported loss, returns to the configured `fec_percentage` when a frame could not be rebuilt, and falls slowly towards 5 % while no loss is reported. A client that never sends it keeps the configured percentage.
+
+With the optional `host_adaptive_bitrate` setting, these validated reports also
+activate host bitrate adaptation for conventional codecs. Reports are checked
+against sent frame numbers and deduplicated before affecting either controller.
+Standard `0x0200` periodic pings (8-byte payload beginning with little-endian 4)
+provide feedback freshness. FEC report silence alone is not a clean-link signal:
+upward probes also require sustained sent frames/bytes and stable ENet RTT.
+The controller reserves audio, framing and FEC inside one wire budget.
+
+`/api/abr/capabilities` retains `supported: false` for older client controllers
+and adds `host_adaptive_bitrate`, `client_bitrate_takes_ownership: true` and the
+`host_loss_adaptation` feature. A successful authenticated `/bitrate` request
+atomically disables host bitrate and adaptive pacing control for that client's
+current sessions. A client should send its current encoder bitrate once when
+starting its own controller; no lease renewal is needed. New sessions reset
+ownership. PyroWave is excluded from this host controller.

@@ -1413,6 +1413,7 @@ impl Media {
                     // `adaptive_fec` off, or a client that sends no FEC status, it
                     // is used for every frame as before.
                     s.configure_fec(c.boolean("adaptive_fec", true) && s.config.codec != 3, requested_fec.clamp(0, 100) as usize);
+                    s.configure_adaptive_bitrate(c.boolean("host_adaptive_bitrate", false), c.integer("max_bitrate", 0).clamp(0, 500_000) as u32);
                     let mut packetizer = VideoPacketizer {
                         sequence: 0,
                         iv_counter: 0,
@@ -1554,11 +1555,12 @@ impl Media {
                                 route.bps,
                                 route.wireless,
                             );
+                            let bps = s.adaptive_pacing_bps(bps);
                             // Only before the first frame: the sender numbers
                             // frames and packets from the start.
                             if packetizer.frame == 1
                                 && c.boolean("video_send_thread", true)
-                                && butterpollo_core::network_pacing::paced(bps, s.bitrate.load(Ordering::Relaxed))
+                                && (c.boolean("host_adaptive_bitrate", false) || butterpollo_core::network_pacing::paced(bps, s.bitrate.load(Ordering::Relaxed)))
                             {
                                 let _ = video_sender.set(crate::video_send::Sender::new(m.video.clone(), s.clone(), c.clone(), h.clone(), start, prepared.capture() == "wgc")?);
                                 tracing::info!(pacing_bps = bps, bitrate_kbps = s.bitrate.load(Ordering::Relaxed), "video frames are sent on their own thread: pacing is near the stream bitrate");
@@ -1601,6 +1603,7 @@ impl Media {
                                 route.bps,
                                 route.wireless,
                             );
+                            let bps = s.adaptive_pacing_bps(bps);
                             if Instant::now() >= link_due {
                                 let needed = butterpollo_core::network_pacing::video_wire_rate_bps(&packetizer, s.bitrate.load(Ordering::Relaxed), stream_period.get(), peer.is_ipv6());
                                 butterpollo_core::network_pacing::report_rate(&s.launch.warnings, bps, needed, c.integer("pacing_max_bitrate_kbps", 0));
@@ -2870,6 +2873,11 @@ impl Media {
                         p.seen = Instant::now();
                         p.input_released = false;
                         match kind {
+                            0x0200 => s
+                                .adaptive_bitrate
+                                .lock()
+                                .unwrap()
+                                .on_ping(Instant::now(), &payload),
                             0x3000 => {
                                 if let Some((value, elevated)) = server_command(
                                     &h,
@@ -3093,6 +3101,14 @@ impl Media {
                             new_percent = new,
                             "adaptive fec"
                         );
+                    }
+                    if poll_feedback
+                        && let Some((old, new)) = s.tick_adaptive_bitrate(
+                            Instant::now(),
+                            host.peer(*peer_id).round_trip_time(),
+                        )
+                    {
+                        tracing::info!(client = %s.launch.client.name, old_kbps = old, new_kbps = new, "host adaptive bitrate");
                     }
                     // Made before input comes; after a failure, again when it
                     // does. Making it with the first input held that input up.

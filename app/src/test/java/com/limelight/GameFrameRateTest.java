@@ -60,7 +60,7 @@ public class GameFrameRateTest {
         assertEquals(120, prefs.fps);
         assertEquals(120, (int) ReflectionHelpers.getField(renderer, "refreshRate"));
         assertEquals(120000, requester.fpsMillihz());
-        assertEquals(120, DisplayFrameRatePolicy.cadenceVote(20, streamFps, 120, true), 0);
+        assertEquals(120, new DisplayFrameRatePolicy().cadenceVote(20, streamFps, 120, true, 0), 0);
         assertSame(bitrate, ReflectionHelpers.getField(activity, "adaptiveBitrate"));
         assertEquals(0, bitrate.sample(17000, true, false, 0, 10));
         assertEquals(12800, bitrate.sample(18000, true, false, 0, 10));

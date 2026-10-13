@@ -523,8 +523,8 @@ public class FrameLatencyStatsTest {
             stats.onDecoderOutput(0, i, start + 3000000);
             stats.onOutputReleased(0, start + 4000000, true, i != 3);
         }
-        assertEquals(50, stats.takeOutputFrameRate(), 0.00001);
-        assertEquals(0, stats.takeOutputFrameRate(), 0);
+        assertEquals(50, stats.takeOutputFrameRate(64000000), 0.00001);
+        assertEquals(0, stats.takeOutputFrameRate(64000000), 0);
         stats.onFrameRendered(2, 49000000);
         stats.onFrameRendered(1, 29000000);
         StringWriter csv = new StringWriter();
@@ -547,13 +547,13 @@ public class FrameLatencyStatsTest {
             stats.onDecoderOutput(0, i, start + 2000000);
             stats.onOutputReleased(0, start + 3000000, i != 2, false);
         }
-        assertEquals(100, stats.takeOutputFrameRate(), 0.00001);
+        assertEquals(100, stats.takeOutputFrameRate(33000000), 0.00001);
         stats.discardPending("codec_reset");
         stats.onDecoderInput(4, 4, 40000000, 40000000, 41000000, (char) 0);
         stats.onDecoderQueued(4, 41000000);
         stats.onDecoderOutput(0, 4, 42000000);
         stats.onOutputReleased(0, 43000000, true, false);
-        assertEquals(0, stats.takeOutputFrameRate(), 0);
+        assertEquals(0, stats.takeOutputFrameRate(43000000), 0);
         StringWriter csv = new StringWriter();
         stats.writeCsv(csv);
         String[] rows = csv.toString().split("\n");
@@ -574,7 +574,7 @@ public class FrameLatencyStatsTest {
             stats.onDecoderOutput(0, i, start + 1000000);
             stats.onOutputReleased(0, start + 2000000, true, false);
         }
-        assertEquals(59.94, stats.takeOutputFrameRate(), 0.001);
+        assertEquals(59.94, stats.takeOutputFrameRate(start + 2000000), 0.001);
         for (int i = 4; i < 7; i++) {
             start += 25000000;
             stats.onDecoderInput(i, i, start, start, start, (char) 0);
@@ -582,7 +582,7 @@ public class FrameLatencyStatsTest {
             stats.onDecoderOutput(0, i, start + 1000000);
             stats.onOutputReleased(0, start + 2000000, true, false);
         }
-        assertEquals(40, stats.takeOutputFrameRate(), 0.00001);
+        assertEquals(40, stats.takeOutputFrameRate(start + 2000000), 0.00001);
     }
 
     @Test
@@ -595,7 +595,7 @@ public class FrameLatencyStatsTest {
         stats.onDecoderInput(2, 2, 400, 400, 500, (char) 0);
         stats.onDecoderQueued(2, 500);
         stats.discardPending("codec_reset");
-        assertEquals(0, stats.takeOutputFrameRate(), 0);
+        assertEquals(0, stats.takeOutputFrameRate(500), 0);
         StringWriter csv = new StringWriter();
         stats.writeCsv(csv);
         for (String row : csv.toString().split("\n")) {
@@ -613,11 +613,131 @@ public class FrameLatencyStatsTest {
             stats.onDecoderQueued(i, outputNs - 1000000);
             stats.onDecoderOutput(i, i, outputNs);
         }
-        assertEquals(120, stats.takeOutputFrameRate(), 0.001);
+        assertEquals(120, stats.takeOutputFrameRate(2000000000L), 0.001);
         for (int i = 0; i < 120; i++) {
             stats.onOutputReleased(i, 3000000000L + i * 16666667L, true, true);
         }
-        assertEquals(0, stats.takeOutputFrameRate(), 0);
+        assertEquals(0, stats.takeOutputFrameRate(5000000000L), 0);
+    }
+
+    @Test
+    public void continuousDecoderCadenceReachesArrPolicyWithoutRoundingOrPresentationFeedback() {
+        for (float fps : new float[] {60, 90, 120, 59.94f, 119.88f}) {
+            FrameLatencyStats stats = new FrameLatencyStats(true);
+            DisplayFrameRatePolicy policy = new DisplayFrameRatePolicy();
+            int frame = 0;
+            long intervalNs = Math.round(1000000000.0 / fps);
+            float vote = 120;
+            for (int sample = 1; sample <= 12; sample++) {
+                long nowNs = 1000000000L + sample * 250000000L;
+                while (1000000000L + frame * intervalNs <= nowNs) {
+                    long outputNs = 1000000000L + frame * intervalNs;
+                    cadenceFrame(stats, frame, outputNs - 1000000, outputNs);
+                    // Even a half-rate presenter must not become the source of the cadence vote.
+                    stats.onOutputReleased(frame, outputNs + 100000, frame % 2 == 0, false);
+                    frame++;
+                }
+                float measured = stats.takeOutputFrameRate(nowNs);
+                assertEquals(fps, measured, 0.001);
+                vote = policy.cadenceVote(measured, 120, 120, true, sample * 250);
+                if (sample <= 8) assertEquals(120, vote, 0);
+            }
+            assertEquals(fps, vote, 0.001);
+        }
+    }
+
+    @Test
+    public void idleAndStaleOutputCannotSupplyALowCadenceVote() {
+        FrameLatencyStats stats = new FrameLatencyStats(true);
+        for (int frame = 0; frame < 15; frame++) {
+            long outputNs = 1000000000L + frame * 16666667L;
+            cadenceFrame(stats, frame, outputNs - 1000000, outputNs);
+        }
+        assertEquals(0, stats.takeOutputFrameRate(1500000000L), 0);
+        assertEquals(0, stats.takeOutputFrameRate(1750000000L), 0);
+        cadenceFrame(stats, 15, 1999000000L, 2000000000L);
+        assertEquals(0, stats.takeOutputFrameRate(2000000000L), 0);
+    }
+
+    @Test
+    public void renderingStallInvalidatesItsWindowAndRecoveryUsesOnlyFreshIntervals() {
+        FrameLatencyStats stats = new FrameLatencyStats(true);
+        long outputNs = 1000000000L;
+        for (int frame = 0; frame < 30; frame++) {
+            outputNs += frame == 15 ? 500000000L : 8333333L;
+            cadenceFrame(stats, frame, outputNs - 1000000, outputNs);
+        }
+        assertEquals(0, stats.takeOutputFrameRate(outputNs), 0);
+        for (int frame = 30; frame < 60; frame++) {
+            outputNs += 8333333L;
+            cadenceFrame(stats, frame, outputNs - 1000000, outputNs);
+        }
+        assertEquals(120, stats.takeOutputFrameRate(outputNs), 0.001);
+    }
+
+    @Test
+    public void missingNetworkFramesOrFramesSkippedBeforeDecodeAreNotLowerGameCadence() {
+        FrameLatencyStats stats = new FrameLatencyStats(true);
+        for (int frame = 0; frame < 30; frame++) {
+            long outputNs = 1000000000L + frame * 16666667L;
+            cadenceFrame(stats, frame * 2, outputNs - 1000000, outputNs);
+        }
+        assertEquals(0, stats.takeOutputFrameRate(1500000000L), 0);
+    }
+
+    @Test
+    public void decoderBackpressureDoesNotRatchetDisplayCadenceDown() {
+        FrameLatencyStats stats = new FrameLatencyStats(true);
+        for (int frame = 0; frame < 30; frame++) {
+            cadenceFrame(stats, frame, 1000000000L + frame * 8333333L,
+                    1001000000L + frame * 16666667L);
+        }
+        assertEquals(0, stats.takeOutputFrameRate(1500000000L), 0);
+    }
+
+    @Test
+    public void decoderBurstsAreNotAStableSixtyFpsSource() {
+        FrameLatencyStats stats = new FrameLatencyStats(true);
+        long outputNs = 1000000000L;
+        for (int frame = 0; frame < 30; frame++) {
+            outputNs += frame % 3 == 0 ? 48000000 : 1000000;
+            cadenceFrame(stats, frame, outputNs - 1000000, outputNs);
+        }
+        assertEquals(0, stats.takeOutputFrameRate(outputNs), 0);
+    }
+
+    @Test
+    public void modestArrivalJitterStillMeasuresContinuousCadence() {
+        FrameLatencyStats stats = new FrameLatencyStats(true);
+        long outputNs = 1000000000L;
+        for (int frame = 0; frame <= 30; frame++) {
+            outputNs += frame % 2 == 0 ? 15666667 : 17666667;
+            cadenceFrame(stats, frame, outputNs - 1000000, outputNs);
+        }
+        assertEquals(60, stats.takeOutputFrameRate(outputNs), 0.001);
+    }
+
+    @Test
+    public void invalidOutputTimesAndDisabledVrrDoNotInventCadence() {
+        for (boolean vrr : new boolean[] {true, false}) {
+            FrameLatencyStats stats = new FrameLatencyStats(vrr);
+            cadenceFrame(stats, 0, 1000000000L, 1001000000L);
+            cadenceFrame(stats, 1, 1010000000L, 1011000000L);
+            cadenceFrame(stats, 2, 1020000000L, 1010000000L);
+            assertEquals(0, stats.takeOutputFrameRate(1021000000L), 0);
+        }
+        FrameLatencyStats stats = new FrameLatencyStats(true);
+        for (int frame = 0; frame < 15; frame++) {
+            cadenceFrame(stats, frame, 1000000000L + frame * 16666667L,
+                    1001000000L + frame * 16666667L);
+        }
+        assertEquals(0, stats.takeOutputFrameRate(1000000000L), 0);
+    }
+
+    private static void cadenceFrame(FrameLatencyStats stats, int frame, long receiveNs, long outputNs) {
+        stats.onDecoderInput(frame, frame, receiveNs, receiveNs, receiveNs, (char) 0);
+        stats.onDecoderQueued(frame, receiveNs);
+        stats.onDecoderOutput(frame, frame, outputNs);
     }
 
     @Test

@@ -304,6 +304,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 display.getMode().getRefreshRate() : display.getRefreshRate());
     }
     private boolean useArr;
+    private com.limelight.binding.video.DisplayFrameRatePolicy arrFrameRatePolicy;
+    private float arrFrameRate;
     private PendingIntent pipDisconnectIntent;
     private final BroadcastReceiver pipReceiver = new BroadcastReceiver() {
         @Override public void onReceive(Context context, Intent intent) {
@@ -317,9 +319,10 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         @Override
         public void run() {
             if (useArr && surfaceCreated) {
-                setArrFrameRate(com.limelight.binding.video.DisplayFrameRatePolicy.cadenceVote(
-                        decoderRenderer.takeOutputFrameRate(), streamFps, panelMaxRefreshRate, useArr));
-                streamView.postDelayed(this, 1000);
+                setArrFrameRate(arrFrameRatePolicy.cadenceVote(
+                        decoderRenderer.takeOutputFrameRate(), streamFps, panelMaxRefreshRate, useArr,
+                        SystemClock.uptimeMillis()));
+                streamView.postDelayed(this, com.limelight.binding.video.DisplayFrameRatePolicy.SAMPLE_INTERVAL_MS);
             }
         }
     };
@@ -4164,8 +4167,11 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
 
         if (useArr) {
             // Start at panel maximum until decoder output provides the stream's cadence.
+            arrFrameRatePolicy = new com.limelight.binding.video.DisplayFrameRatePolicy();
+            arrFrameRate = 0;
             setArrFrameRate(panelMaxRefreshRate);
-            streamView.postDelayed(updateArrFrameRate, 1000);
+            streamView.removeCallbacks(updateArrFrameRate);
+            streamView.postDelayed(updateArrFrameRate, com.limelight.binding.video.DisplayFrameRatePolicy.SAMPLE_INTERVAL_MS);
         }
 
         if (prefConfig.useTextureView) {
@@ -4218,6 +4224,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
 
     @TargetApi(Build.VERSION_CODES.S)
     private void setArrFrameRate(float frameRate) {
+        if (arrFrameRate == frameRate) return;
         if (prefConfig.useTextureView && Build.VERSION.SDK_INT >= Build.VERSION_CODES.BAKLAVA) {
             streamView.getTextureView().setRequestedFrameRate(frameRate > 0 ? frameRate :
                     View.REQUESTED_FRAME_RATE_CATEGORY_NO_PREFERENCE);
@@ -4225,6 +4232,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             videoSurface.setFrameRate(frameRate, Surface.FRAME_RATE_COMPATIBILITY_DEFAULT,
                     Surface.CHANGE_FRAME_RATE_ONLY_IF_SEAMLESS);
         }
+        arrFrameRate = frameRate;
     }
 
     @Override

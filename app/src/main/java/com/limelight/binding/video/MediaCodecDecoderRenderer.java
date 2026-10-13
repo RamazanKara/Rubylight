@@ -223,7 +223,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     }
 
     public float takeOutputFrameRate() {
-        return frameLatencyStats.takeOutputFrameRate();
+        return frameLatencyStats.takeOutputFrameRate(System.nanoTime());
     }
 
     public float getNetworkFrameLossPercent() {

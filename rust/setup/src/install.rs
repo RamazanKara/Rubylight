@@ -316,7 +316,10 @@ pub fn install(options: &Options, progress: &Progress) -> Result<Outcome> {
     std::fs::create_dir_all(&install)?;
     secure_install(&install)?;
     copy_package(&staging, &install, &entries)?;
-    payload::write_stub(&install.join("uninstall.exe"))?;
+    payload::write_stub(
+        &install.join("uninstall.exe"),
+        payload::packaged_stub(&staging, &entries)?.as_deref(),
+    )?;
 
     // The previous host is removed from here on, so a failure now starts
     // the service Rubylight runs as instead.

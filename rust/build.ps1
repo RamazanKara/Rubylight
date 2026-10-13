@@ -161,7 +161,7 @@ try {
             Remove-Item -LiteralPath $resolvedDistribution -Recurse -Force
         }
         New-Item -ItemType Directory -Path "$distribution\assets\web", "$distribution\licenses" -Force | Out-Null
-        foreach ($exe in @('butterpollo.exe', 'butterpollo-service.exe')) { Copy-Item -LiteralPath (Join-Path $output $exe) -Destination $distribution }
+        foreach ($exe in @('butterpollo.exe', 'butterpollo-service.exe', 'butterpollo-setup.exe')) { Copy-Item -LiteralPath (Join-Path $output $exe) -Destination $distribution }
         Copy-Item -LiteralPath (Join-Path $output 'butterpollo-start.exe') -Destination (Join-Path $distribution 'Start Rubylight.exe')
         Copy-Item -LiteralPath (Join-Path $PyrowaveRoot 'share\pyrowave-shared\build-info.txt') -Destination "$distribution\licenses\pyrowave-build-info.txt"
         Copy-Item -LiteralPath (Join-Path $output 'examples\performance.exe') -Destination (Join-Path $distribution 'butterpollo-performance.exe')
@@ -233,27 +233,9 @@ try {
         $metadata = & cargo $toolchain metadata --format-version 1 --locked
         Assert-NativeExit 'Dependency manifest'
         ($metadata | ConvertFrom-Json).packages | Select-Object name, version, license, repository, source | ConvertTo-Json | Set-Content -LiteralPath "$distribution\licenses\rust-dependencies.json" -Encoding utf8
-        $manifest = Get-ChildItem -LiteralPath $distribution -File -Recurse | ForEach-Object {
-            [pscustomobject]@{ path = $_.FullName.Substring($distribution.Length + 1); sha256 = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant() }
-        }
-        $manifest | ConvertTo-Json | Set-Content -LiteralPath "$distribution\manifest.json" -Encoding utf8
-        $zip = "$TargetDirectory\butterpollo-rust-$profile.zip"
-        Compress-Archive -LiteralPath $distribution -DestinationPath $zip -Force
-        Write-Output "Package: $zip"
-        # setup.exe carries the package after its own executable, followed by
-        # 'BPSETUP1' and the package length (see rust/setup/src/payload.rs).
         $version = (Select-String -LiteralPath (Join-Path $repo 'Cargo.toml') -Pattern '^version = "(.+)"').Matches[0].Groups[1].Value
-        $installer = "$TargetDirectory\butterpollo-setup-$version.exe"
-        $stub = [IO.File]::ReadAllBytes((Join-Path $output 'butterpollo-setup.exe'))
-        $archive = [IO.File]::ReadAllBytes($zip)
-        $stream = [IO.File]::Create($installer)
-        try {
-            $stream.Write($stub, 0, $stub.Length)
-            $stream.Write($archive, 0, $archive.Length)
-            $stream.Write([Text.Encoding]::ASCII.GetBytes('BPSETUP1'), 0, 8)
-            $stream.Write([BitConverter]::GetBytes([uint64]$archive.Length), 0, 8)
-        } finally { $stream.Dispose() }
-        Write-Output "Installer: $installer"
+        & (Join-Path $repo 'rust\release\package.ps1') -Distribution $distribution -TargetDirectory $TargetDirectory `
+            -Stub (Join-Path $output 'butterpollo-setup.exe') -Version $version -ProfileName $profile
     }
     Write-Output "Rust executables: $output"
 } finally { Pop-Location }

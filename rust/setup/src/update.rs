@@ -164,7 +164,10 @@ fn replace_package(staged: &Path, install: &Path, entries: &[payload::Entry]) ->
         &staged.join("manifest.json"),
         &install.join("manifest.json"),
     )?;
-    payload::write_stub(&install.join("uninstall.exe"))
+    payload::write_stub(
+        &install.join("uninstall.exe"),
+        payload::packaged_stub(staged, entries)?.as_deref(),
+    )
 }
 
 fn finish_update(

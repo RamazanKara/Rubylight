@@ -1,11 +1,14 @@
+#define _GNU_SOURCE
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdatomic.h>
+#include <stddef.h>
 
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
+#include <sys/un.h>
 #include <fcntl.h>
 #include <linux/input.h>
 #include <unistd.h>
@@ -13,12 +16,8 @@
 #include <errno.h>
 #include <dirent.h>
 #include <pthread.h>
-#include <netinet/in.h>
-#include <netinet/tcp.h>
-
-#include <arpa/inet.h>
-
 #include <android/log.h>
+#include "evdev_ipc.h"
 
 #define EVDEV_MAX_EVENT_SIZE 24
 
@@ -305,35 +304,39 @@ static int enumerateDevices(void) {
     return 0;
 }
 
-static int connectSocket(int port) {
-    struct sockaddr_in saddr;
+static int connectSocket(const char* socketName, uid_t appUid) {
+    struct sockaddr_un saddr;
     int ret;
-    int val;
+    size_t nameLength = strlen(socketName);
+    if (nameLength == 0 || nameLength >= sizeof(saddr.sun_path)) {
+        return -1;
+    }
 
-    sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    sock = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
     if (sock < 0) {
         __android_log_print(ANDROID_LOG_ERROR, "EvdevReader", "socket() failed: %d", errno);
         return -1;
     }
 
     memset(&saddr, 0, sizeof(saddr));
-    saddr.sin_family = AF_INET;
-    saddr.sin_port = htons(port);
-    saddr.sin_addr.s_addr = inet_addr("127.0.0.1");
-    ret = connect(sock, (struct sockaddr*)&saddr, sizeof(saddr));
+    saddr.sun_family = AF_UNIX;
+    // Android LocalServerSocket uses Linux's abstract namespace (a leading NUL).
+    memcpy(saddr.sun_path + 1, socketName, nameLength);
+    ret = connect(sock, (struct sockaddr*)&saddr,
+                  offsetof(struct sockaddr_un, sun_path) + 1 + nameLength);
     if (ret < 0) {
         __android_log_print(ANDROID_LOG_ERROR, "EvdevReader", "connect() failed: %d", errno);
+        close(sock);
         return -1;
     }
 
-    val = 1;
-    ret = setsockopt(sock, IPPROTO_TCP, TCP_NODELAY, (char*)&val, sizeof(val));
-    if (ret < 0) {
-        __android_log_print(ANDROID_LOG_ERROR, "EvdevReader", "setsockopt() failed: %d", errno);
-        // We can continue anyways
+    if (!evdevPeerUidMatches(sock, appUid)) {
+        __android_log_print(ANDROID_LOG_ERROR, "EvdevReader", "Rejected unexpected app socket owner");
+        close(sock);
+        return -1;
     }
 
-    __android_log_print(ANDROID_LOG_INFO, "EvdevReader", "Connection established to port %d", port);
+    __android_log_print(ANDROID_LOG_INFO, "EvdevReader", "Authenticated app connection established");
 
     return 0;
 }
@@ -345,15 +348,25 @@ int main(int argc, char* argv[]) {
     int ret;
     int pollres;
     struct pollfd pollinfo;
-    int port;
+    char* uidEnd;
+    unsigned long appUid;
 
     __android_log_print(ANDROID_LOG_INFO, "EvdevReader", "Entered main()");
 
-    port = atoi(argv[1]);
-    __android_log_print(ANDROID_LOG_INFO, "EvdevReader", "Requested port number: %d", port);
+    if (argc != 3 || geteuid() != 0) {
+        __android_log_print(ANDROID_LOG_ERROR, "EvdevReader", "Expected root and socket name/app UID arguments");
+        return -1;
+    }
+    errno = 0;
+    appUid = strtoul(argv[2], &uidEnd, 10);
+    if (errno != 0 || uidEnd == argv[2] || *uidEnd != '\0' ||
+            appUid == 0 || (uid_t) appUid != appUid) {
+        __android_log_print(ANDROID_LOG_ERROR, "EvdevReader", "Invalid app UID");
+        return -1;
+    }
 
-    // Connect to the app's socket
-    ret = connectSocket(port);
+    // Authenticate the app before opening or exclusively grabbing any input device.
+    ret = connectSocket(argv[1], (uid_t) appUid);
     if (ret < 0) {
         return ret;
     }

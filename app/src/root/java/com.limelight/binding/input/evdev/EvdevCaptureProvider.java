@@ -1,8 +1,14 @@
 package com.limelight.binding.input.evdev;
 
 import android.app.Activity;
+import android.net.LocalServerSocket;
+import android.net.LocalSocket;
 import android.os.Build;
 import android.os.Looper;
+import android.system.ErrnoException;
+import android.system.Os;
+import android.system.OsConstants;
+import android.system.StructPollfd;
 import android.widget.Toast;
 
 import com.limelight.LimeLog;
@@ -14,11 +20,8 @@ import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.net.InetAddress;
-import java.net.ServerSocket;
-import java.net.Socket;
-import java.net.SocketTimeoutException;
 import java.nio.charset.StandardCharsets;
+import java.util.UUID;
 
 public class EvdevCaptureProvider extends InputCaptureProvider {
 
@@ -29,8 +32,8 @@ public class EvdevCaptureProvider extends InputCaptureProvider {
     private volatile InputStream evdevIn;
     private volatile OutputStream evdevOut;
     private volatile Process su;
-    private volatile ServerSocket servSock;
-    private volatile Socket evdevSock;
+    private volatile LocalServerSocket servSock;
+    private volatile LocalSocket evdevSock;
     private Activity activity;
     private boolean started = false;
 
@@ -45,9 +48,10 @@ public class EvdevCaptureProvider extends InputCaptureProvider {
             byte deltaVScroll = 0;
             byte deltaHScroll = 0;
 
-            // Bind a local listening socket for evdevreader to connect to
+            // A separate Unix socket per launch lets both ends verify kernel peer credentials.
+            final String socketName = "rubylight.evdev." + UUID.randomUUID();
             try {
-                servSock = new ServerSocket(0, 1, InetAddress.getByName("127.0.0.1"));
+                servSock = new LocalServerSocket(socketName);
             } catch (IOException e) {
                 e.printStackTrace();
                 return;
@@ -57,7 +61,8 @@ public class EvdevCaptureProvider extends InputCaptureProvider {
                 return;
             }
 
-            final String evdevReaderCmd = libraryPath+File.separatorChar+"libevdev_reader.so "+servSock.getLocalPort();
+            final String evdevReaderCmd = "exec " + shellQuote(libraryPath + File.separatorChar + "libevdev_reader.so") +
+                    " " + shellQuote(socketName) + " " + android.os.Process.myUid();
 
             // On Nougat and later, we'll need to pass the command directly to SU.
             // Writing to SU's input stream after it has started doesn't seem to work anymore.
@@ -111,35 +116,22 @@ public class EvdevCaptureProvider extends InputCaptureProvider {
                 closeResources();
                 return;
             }
-            LimeLog.info("Waiting for EvdevReader connection to port "+servSock.getLocalPort());
+            LimeLog.info("Waiting for authenticated EvdevReader connection");
             try {
-                servSock.setSoTimeout(1000);
-                while (!shutdown && evdevSock == null) {
-                    try {
-                        evdevSock = servSock.accept();
-                    } catch (SocketTimeoutException e) {
-                        try {
-                            su.exitValue();
-                            reportDeviceNotRooted();
-                            closeResources();
-                            return;
-                        } catch (IllegalThreadStateException stillRunning) {
-                            // A pending superuser prompt can outlive the socket timeout.
-                        }
-                    }
-                }
-                if (shutdown) {
+                evdevSock = acceptAuthenticatedHelper(servSock);
+                servSock.close();
+                if (shutdown || evdevSock == null) {
                     closeResources();
                     return;
                 }
                 evdevIn = evdevSock.getInputStream();
                 evdevOut = evdevSock.getOutputStream();
-            } catch (IOException e) {
-                e.printStackTrace();
+            } catch (IOException | ErrnoException e) {
+                if (!shutdown) e.printStackTrace();
                 closeResources();
                 return;
             }
-            LimeLog.info("EvdevReader connected from port "+evdevSock.getPort());
+            LimeLog.info("Authenticated EvdevReader connected");
 
             while (!isInterrupted() && !shutdown) {
                 EvdevEvent event;
@@ -244,6 +236,51 @@ public class EvdevCaptureProvider extends InputCaptureProvider {
         this.listener = listener;
         this.activity = activity;
         this.libraryPath = activity.getApplicationInfo().nativeLibraryDir;
+    }
+
+    private static String shellQuote(String value) {
+        return "'" + value.replace("'", "'\\''") + "'";
+    }
+
+    private LocalSocket acceptAuthenticatedHelper(LocalServerSocket server) throws IOException, ErrnoException {
+        StructPollfd pollfd = new StructPollfd();
+        pollfd.fd = server.getFileDescriptor();
+        pollfd.events = (short) OsConstants.POLLIN;
+        StructPollfd[] pollfds = {pollfd};
+        while (!shutdown) {
+            final int ready;
+            try {
+                ready = Os.poll(pollfds, 1000);
+            } catch (ErrnoException e) {
+                if (e.errno == OsConstants.EINTR) continue;
+                throw e;
+            }
+            if (shutdown) return null;
+            if (ready == 0) {
+                try {
+                    su.exitValue();
+                    reportDeviceNotRooted();
+                    return null;
+                } catch (IllegalThreadStateException stillRunning) {
+                    // A pending superuser prompt can outlive the poll timeout.
+                    continue;
+                }
+            }
+            if ((pollfd.revents & OsConstants.POLLIN) == 0) {
+                throw new IOException("EvdevReader listening socket closed");
+            }
+            LocalSocket candidate = server.accept();
+            boolean authenticated = false;
+            try {
+                // Local apps cannot forge SO_PEERCRED. Only the root helper may send input.
+                authenticated = candidate.getPeerCredentials().getUid() == 0 && !shutdown;
+                if (authenticated) return candidate;
+                LimeLog.warning("Rejected non-root EvdevReader peer");
+            } finally {
+                if (!authenticated) candidate.close();
+            }
+        }
+        return null;
     }
 
     private void dispatch(Runnable event) {

@@ -3,6 +3,7 @@
 #include "pyrowave_protocol.h"
 #include "control_negotiation.h"
 #include "android_microphone.h"
+#include "android_rtsp_receive.h"
 
 int PyroWaveRecordsSupported;
 int PyroWaveRecordsEnabled;
@@ -400,7 +401,6 @@ static bool transactRtspMessageTcp(PRTSP_MESSAGE request, PRTSP_MESSAGE response
     char* serializedMessage = NULL;
     int messageLen;
     char* responseBuffer;
-    int responseBufferSize;
     int connectRetries;
 
     *error = -1;
@@ -451,62 +451,10 @@ static bool transactRtspMessageTcp(PRTSP_MESSAGE request, PRTSP_MESSAGE response
         goto Exit;
     }
 
-    // Read the response until the server closes the connection
-    offset = 0;
-    responseBufferSize = 0;
-    for (;;) {
-        struct pollfd pfd;
-
-        if (offset >= responseBufferSize) {
-            if ((size_t)offset >= MAX_RTSP_RESPONSE_SIZE) {
-                *error = EMSGSIZE;
-                Limelog("RTSP response exceeded maximum allowed size\n");
-                goto Exit;
-            }
-      
-            responseBufferSize = offset + 16384;
-      
-            responseBuffer = extendBuffer(responseBuffer, responseBufferSize);
-            if (responseBuffer == NULL) {
-                Limelog("Failed to allocate RTSP response buffer\n");
-                goto Exit;
-            }
-        }
-
-        pfd.fd = sock;
-        pfd.events = POLLIN;
-        err = pollSockets(&pfd, 1, RTSP_RECEIVE_TIMEOUT_SEC * 1000);
-        if (err == 0) {
-            *error = ETIMEDOUT;
-            Limelog("RTSP request timed out\n");
-            goto Exit;
-        }
-        else if (err < 0) {
-            *error = LastSocketError();
-            Limelog("Failed to wait for RTSP response: %d\n", *error);
-            goto Exit;
-        }
-
-        err = recv(sock, &responseBuffer[offset], responseBufferSize - offset, 0);
-        if (err < 0) {
-            // Error reading
-            *error = LastSocketError();
-            Limelog("Failed to read RTSP response: %d\n", *error);
-            goto Exit;
-        }
-        else if (err == 0) {
-            // Done reading
-            break;
-        }
-        else {
-            if ((size_t)offset + err > MAX_RTSP_RESPONSE_SIZE) {
-                *error = EMSGSIZE;
-                Limelog("RTSP response exceeded maximum allowed size\n");
-                goto Exit;
-            }
-      
-            offset += err;
-        }
+    if (!receiveRtspResponse(sock, &responseBuffer, &offset, error,
+                             RTSP_RECEIVE_TIMEOUT_SEC * 1000, MAX_RTSP_RESPONSE_SIZE)) {
+        Limelog("Failed to receive RTSP response: %d\n", *error);
+        goto Exit;
     }
 
     // Decrypt (if necessary) and deserialize the RTSP response

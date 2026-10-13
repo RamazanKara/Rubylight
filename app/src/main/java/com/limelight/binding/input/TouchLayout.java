@@ -94,7 +94,10 @@ public final class TouchLayout {
         if (json == null || json.getBytes(StandardCharsets.UTF_8).length > MAX_BYTES) throw new IllegalArgumentException("Layout exceeds 64 KiB");
         try {
             JSONObject document = new JSONObject(json);
-            if (document.getInt("version") != 1) throw new IllegalArgumentException("Unsupported layout version");
+            Object version = document.get("version");
+            if (!(version instanceof Number) || ((Number) version).doubleValue() != 1) {
+                throw new IllegalArgumentException("Unsupported layout version");
+            }
             JSONArray buttons = document.getJSONArray("buttons");
             if (buttons.length() > MAX_BUTTONS) throw new IllegalArgumentException("Too many controls");
             List<Button> result = new ArrayList<>();

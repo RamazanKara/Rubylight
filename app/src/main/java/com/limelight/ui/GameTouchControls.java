@@ -33,6 +33,7 @@ import java.util.UUID;
 import java.util.function.Consumer;
 
 /** Independent per-game overlay. Blank areas pass through to the stream's mouse/touch handling. */
+@SuppressLint("ViewConstructor") // Created by Game with explicit profile/input ownership; never inflated from XML.
 public final class GameTouchControls extends FrameLayout {
     private final Activity activity;
     private final String profile;
@@ -246,10 +247,12 @@ public final class GameTouchControls extends FrameLayout {
     private void bindTouch(View view, TouchLayout.Button initial) {
         view.setOnTouchListener(new View.OnTouchListener() {
             float downX, downY, startX, startY;
+            int pressGeneration = -1;
             @Override public boolean onTouch(View v, MotionEvent event) {
                 if (!editing && !canInput.getAsBoolean()) return true;
                 switch (event.getActionMasked()) {
                     case MotionEvent.ACTION_DOWN:
+                        pressGeneration = inputGeneration;
                         downX = event.getRawX(); downY = event.getRawY(); startX = v.getX(); startY = v.getY();
                         if (!editing && !initial.toggle) { held.press(initial); v.setPressed(true); }
                         return true;
@@ -260,6 +263,8 @@ public final class GameTouchControls extends FrameLayout {
                         }
                         return true;
                     case MotionEvent.ACTION_UP:
+                        if (pressGeneration != inputGeneration) return true;
+                        pressGeneration = -1;
                         if (editing && getWidth() > 0 && getHeight() > 0) {
                             List<TouchLayout.Button> entries = new ArrayList<>(layout.buttons);
                             for (int i = 0; i < entries.size(); i++) if (entries.get(i).id.equals(initial.id))
@@ -269,6 +274,7 @@ public final class GameTouchControls extends FrameLayout {
                         else { held.release(initial.id); v.setPressed(false); }
                         return true;
                     case MotionEvent.ACTION_CANCEL:
+                        pressGeneration = -1;
                         held.release(initial.id); v.setPressed(false); v.setSelected(false); return true;
                     default: return true;
                 }

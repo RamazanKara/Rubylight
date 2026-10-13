@@ -221,7 +221,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     private final Runnable sampleStreamHealth = new Runnable() {
         @Override public void run() {
             if (!connected || decoderRenderer == null || app.getRole() == NvApp.Role.INPUT_ONLY) return;
-            if (foreground && streamMenu == null && !hostActionInProgress) {
+            if (foreground && !hostActionInProgress) {
                 long rtt = MoonBridge.getEstimatedRttInfo();
                 streamHealth.add(decoderRenderer.healthSample(SystemClock.uptimeMillis(), streamFps,
                         rtt == -1 ? -1 : (float) (rtt & 0xffffffffL)));
@@ -2110,9 +2110,10 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         text.append("\n\n").append(getString(R.string.health_evidence,
                 healthMeasurement(report.worstLossPercent), healthMeasurement(report.worstDecodeMs),
                 healthMeasurement(report.worstHostP95Ms), healthMeasurement(report.worstDisplayP95Ms)));
-        boolean undo = healthOriginalBitrate > 0 && currentBitrate == healthTrialBitrate && !isAdaptiveBitrateEnabled();
+        boolean undo = healthOriginalBitrate > 0 && currentBitrate == healthTrialBitrate &&
+                !isAdaptiveBitrateEnabled() && adaptiveQuality == null;
         boolean suggest = report.canSuggestBitrate() && supportsAdaptiveBitrate() && !isAdaptiveBitrateEnabled() &&
-                currentBitrate > 500 && !hostActionInProgress && !undo;
+                currentBitrate > 500 && !hostActionInProgress && adaptiveQuality == null && !undo;
         if (undo || suggest) text.append("\n\n").append(getString(R.string.health_trial_help));
         MaterialAlertDialogBuilder builder = new MaterialAlertDialogBuilder(this).setTitle(R.string.health_title)
                 .setMessage(text).setNegativeButton(android.R.string.cancel, null)
@@ -2132,18 +2133,37 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     }
 
     private void applyHealthBitrate(boolean undo) {
-        if (!foreground || !connected || hostActionInProgress || isAdaptiveBitrateEnabled() || !supportsAdaptiveBitrate()) return;
+        if (!foreground || !connected || hostActionInProgress || isAdaptiveBitrateEnabled() ||
+                adaptiveQuality != null || !supportsAdaptiveBitrate()) return;
         if (undo && (healthOriginalBitrate <= 0 || currentBitrate != healthTrialBitrate)) return;
-        final int previous = currentBitrate;
-        final int target = undo ? healthOriginalBitrate : Math.max(500, previous * 4 / 5);
-        if (target == previous) return;
+        final int original = healthOriginalBitrate;
+        final int expectedTrial = healthTrialBitrate;
         final int generation = foregroundGeneration;
+        final NvConnection connection = conn;
         hostActionInProgress = true;
         new Thread(() -> {
             try {
-                int applied = conn.setBitrate(target);
+                // The saved preference/current display value may be a transport budget including
+                // FEC/audio, or may predate host adaptation. Only the live encoder rate is a baseline.
+                int previous = connection.refreshHostDetails().encoderBitrateKbps;
+                if (previous <= 0) throw new IOException(getString(R.string.health_bitrate_unavailable));
+                if ((undo && previous != expectedTrial) || (!undo && previous <= 500)) {
+                    runOnUiThread(() -> {
+                        if (!connected || conn != connection || isFinishing() || isAdaptiveBitrateEnabled() || adaptiveQuality != null) return;
+                        currentBitrate = previous;
+                        healthOriginalBitrate = healthTrialBitrate = 0;
+                        if (foreground && generation == foregroundGeneration) {
+                            Toast.makeText(this, undo ? R.string.health_trial_replaced : R.string.health_bitrate_minimum,
+                                    Toast.LENGTH_LONG).show();
+                        }
+                    });
+                    return;
+                }
+                if (!connected || conn != connection) return;
+                int target = undo ? original : Math.max(500, (int) ((long) previous * 4 / 5));
+                int applied = connection.setBitrate(target);
                 runOnUiThread(() -> {
-                    if (!connected || isFinishing()) return;
+                    if (!connected || conn != connection || isFinishing() || isAdaptiveBitrateEnabled() || adaptiveQuality != null) return;
                     currentBitrate = applied;
                     healthOriginalBitrate = undo ? 0 : previous;
                     healthTrialBitrate = undo ? 0 : applied;
@@ -2771,6 +2791,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             if (foreground) Toast.makeText(this, qualityStatus, Toast.LENGTH_LONG).show();
             return;
         }
+        healthOriginalBitrate = healthTrialBitrate = 0;
         int[] limits = decoderRenderer.getReconfigureLimits();
         adaptiveQuality = new AdaptiveQualityController(mode, qualityMaxWidth, qualityMaxHeight, qualityMaxFps,
                 prefConfig.qualityMinShortEdge, prefConfig.qualityMinFps, limits[2], limits[3], SystemClock.uptimeMillis());
@@ -2787,6 +2808,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             stopAdaptiveQualityWithError();
             return false;
         }
+        healthOriginalBitrate = healthTrialBitrate = 0;
         adaptiveQuality.applied(target, now);
         pendingQualityTarget = target;
         qualityRequestSentAt = now;
@@ -2810,6 +2832,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         int selected = saved.contains(key) ? qualityMode().ordinal() + 1 : 0;
         showStreamDialog(new MaterialAlertDialogBuilder(this).setTitle(R.string.title_adaptive_quality)
                 .setSingleChoiceItems(choices, selected, (dialog, which) -> {
+                    if (!foreground || !connected || hostActionInProgress) return;
                     if (which == 0) saved.edit().remove(key).apply();
                     else saved.edit().putString(key, AdaptiveQualityController.Mode.values()[which - 1].preference()).apply();
                     dialog.dismiss();

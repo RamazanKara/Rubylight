@@ -240,8 +240,9 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
     /** A bounded snapshot for the stream doctor, including unavailable stage values. */
     public com.limelight.utils.StreamHealth.Sample healthSample(long nowMs, int fps, float jitterMs) {
-        double[][] timing = frameLatencyStats.summarize();
-        float[] rates = frameLatencyStats.getFrameRates(System.nanoTime());
+        long nowNs = System.nanoTime();
+        double[][] timing = frameLatencyStats.summarizeRecent(nowNs, 2_000_000_000L);
+        float[] rates = frameLatencyStats.getFrameRates(nowNs);
         return new com.limelight.utils.StreamHealth.Sample(nowMs, hasRecentVideoFrames(nowMs), fps,
                 (videoFormat & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0 ? getPyroWaveLossPercent() : getNetworkFrameLossPercent(),
                 jitterMs, getDecodeTimeMs(), timing[4][0] > 0 ? (float) timing[4][2] : -1,

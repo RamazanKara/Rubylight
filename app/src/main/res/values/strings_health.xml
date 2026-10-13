@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="health_title">Why did my stream stutter?</string>
-    <string name="health_intro">Evidence from the last 30 seconds (%1$d active samples). Several stages can be slow at once; these observations suggest causes, not a guaranteed diagnosis. No video or personal information is recorded.</string>
+    <string name="health_intro">Active samples: %1$d. Evidence covers the last 30 seconds. Several stages can be slow at once; these observations suggest causes, not a guaranteed diagnosis. No video or personal information is recorded.</string>
     <string name="health_insufficient">Not enough recent video to assess. Play for a few seconds with the menu closed, then return just after a stutter.</string>
     <string name="health_no_issue">No repeated bottleneck was observed in the available measurements. Short spikes and unmeasured stages can still cause a stutter.</string>
     <string name="health_network">Network: repeated frame loss or round-trip variation. Try a lower bitrate, a wired host or a less congested Wi-Fi connection.</string>
@@ -13,4 +13,7 @@
     <string name="health_trial_help">A bitrate trial changes only this session. Compare another 30 seconds of similar gameplay, then return here to undo it. Manual or automatic bitrate changes replace the trial.</string>
     <string name="health_try">Try a lower bitrate</string>
     <string name="health_undo">Undo bitrate trial</string>
+    <string name="health_bitrate_unavailable">The host did not report its current encoder bitrate. The trial was not applied.</string>
+    <string name="health_trial_replaced">The host bitrate has changed since the trial. Undo was cancelled to preserve that change.</string>
+    <string name="health_bitrate_minimum">The encoder is already at the minimum trial bitrate. No change was made.</string>
 </resources>

@@ -14,6 +14,45 @@ import static org.junit.Assert.*;
 
 public class FrameLatencyStatsTest {
     @Test
+    public void recentSummaryExpiresEachStageEvenWhenOtherStagesKeepReceivingFrames() {
+        FrameLatencyStats stats = new FrameLatencyStats();
+        stats.onDecoderInput(1, 1, 1000000000, 1000000000, 1001000000, (char) 300);
+        stats.onDecoderQueued(1, 1001000000);
+        stats.onDecoderOutput(0, 1, 1003000000);
+        stats.onOutputReleased(0, 1004000000, true, true);
+        stats.onFrameRendered(1, 1040000000);
+        // Fresh frames have decode measurements, but no host timing or render callback.
+        stats.onDecoderInput(2, 2, 5000000000L, 5000000000L, 5001000000L, (char) 0);
+        stats.onDecoderQueued(2, 5001000000L);
+        stats.onDecoderOutput(0, 2, 5004000000L);
+        stats.onOutputReleased(0, 5005000000L, true, false);
+
+        double[][] recent = stats.summarizeRecent(6000000000L, 2000000000L);
+        assertArrayEquals(new double[] {1, 3, 3, 3}, recent[1], 0);
+        assertEquals(0, recent[2][0], 0);
+        assertEquals(0, recent[4][0], 0);
+        // The existing last-N-frame overlay remains independent of diagnostic freshness.
+        assertEquals(1, stats.summarize()[2][0], 0);
+        assertEquals(1, stats.summarize()[4][0], 0);
+    }
+
+    @Test
+    public void recentSummaryHonorsTimeBoundariesAndBoundsTheSampleRing() {
+        FrameLatencyStats stats = new FrameLatencyStats();
+        stats.onDecoderInput(1, 1, 799, 799, 799, (char) 100);
+        stats.onDecoderInput(2, 2, 800, 800, 800, (char) 20);
+        stats.onDecoderInput(3, 3, 1000, 1000, 1000, (char) 40);
+        stats.onDecoderInput(4, 4, 1001, 1001, 1001, (char) 100);
+        assertArrayEquals(new double[] {2, 3, 4, 4}, stats.summarizeRecent(1000, 200)[4], 0);
+
+        for (int i = 0; i < FrameLatencyStats.WINDOW_SIZE + 10; i++) {
+            stats.onDecoderInput(i + 10, i + 10, 1100, 1100, 1100, (char) 10);
+        }
+        assertArrayEquals(new double[] {600, 1, 1, 1}, stats.summarizeRecent(1100, 200)[4], 0);
+        assertEquals(0, stats.summarizeRecent(1301, 200)[4][0], 0);
+    }
+
+    @Test
     public void surfaceRecreationDoesNotCountCancelledPresentationsAsDrops() throws Exception {
         FrameLatencyStats stats = new FrameLatencyStats();
         stats.onDecoderInput(1, 123, 1000000, 1500000, 2000000, (char) 0);

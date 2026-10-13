@@ -28,6 +28,7 @@ class FrameLatencyStats {
     private final HashMap<Integer, Frame> outputs = new HashMap<>();
     private final ArrayDeque<Frame> completed = new ArrayDeque<>();
     private final long[][] samples = new long[5][WINDOW_SIZE];
+    private final long[][] sampleTimes = new long[5][WINDOW_SIZE];
     private final int[] counts = new int[5];
     private final int[] positions = new int[5];
     private long csvRowsLost;
@@ -94,7 +95,7 @@ class FrameLatencyStats {
         frame.hostProcessingNs = hostProcessingLatency * 100000L;
         pending.put(ptsUs, frame);
         if (frame.hostProcessingNs != 0) {
-            addDuration(4, frame.hostProcessingNs);
+            addDuration(4, frame.hostProcessingNs, inputNs);
         }
     }
 
@@ -262,20 +263,39 @@ class FrameLatencyStats {
         if (startNs == 0 || endNs < startNs) {
             return;
         }
-        addDuration(stage, endNs - startNs);
+        addDuration(stage, endNs - startNs, endNs);
     }
 
-    private void addDuration(int stage, long durationNs) {
+    private void addDuration(int stage, long durationNs, long observedAtNs) {
         samples[stage][positions[stage]] = durationNs;
+        sampleTimes[stage][positions[stage]] = observedAtNs;
         positions[stage] = (positions[stage] + 1) % WINDOW_SIZE;
         counts[stage] = Math.min(counts[stage] + 1, WINDOW_SIZE);
     }
 
     double[][] summarize() {
+        return summarize(0, 0, false);
+    }
+
+    // Unlike the overlay's last-N-frame summary, a diagnostic tick must not revive a stage
+    // value from minutes ago simply because new frames arrived at a different stage.
+    double[][] summarizeRecent(long nowNs, long windowNs) {
+        return summarize(nowNs, Math.max(0, windowNs), true);
+    }
+
+    private double[][] summarize(long nowNs, long windowNs, boolean recentOnly) {
         long[][] snapshot = new long[samples.length][];
         synchronized (this) {
             for (int stage = 0; stage < snapshot.length; stage++) {
-                snapshot[stage] = Arrays.copyOf(samples[stage], counts[stage]);
+                long[] values = new long[counts[stage]];
+                int count = 0;
+                for (int i = 0; i < counts[stage]; i++) {
+                    long observedAt = sampleTimes[stage][i];
+                    if (!recentOnly || (observedAt > 0 && observedAt <= nowNs && nowNs - observedAt <= windowNs)) {
+                        values[count++] = samples[stage][i];
+                    }
+                }
+                snapshot[stage] = count == values.length ? values : Arrays.copyOf(values, count);
             }
         }
         double[][] summary = new double[samples.length][4];

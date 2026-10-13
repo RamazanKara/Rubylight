@@ -13,4 +13,7 @@
     <string name="health_trial_help">Der Bitratentest gilt nur für diese Sitzung. Vergleiche weitere 30 Sekunden ähnliches Spielgeschehen und kehre zum Rückgängigmachen zurück. Manuelle oder automatische Bitratenänderungen ersetzen den Test.</string>
     <string name="health_try">Niedrigere Bitrate testen</string>
     <string name="health_undo">Bitratentest rückgängig machen</string>
+    <string name="health_bitrate_unavailable">Der Host hat seine aktuelle Encoder-Bitrate nicht gemeldet. Der Test wurde nicht angewendet.</string>
+    <string name="health_trial_replaced">Die Host-Bitrate wurde nach dem Test geändert. Die Wiederherstellung wurde abgebrochen, damit diese Änderung erhalten bleibt.</string>
+    <string name="health_bitrate_minimum">Der Encoder nutzt bereits die niedrigste Testbitrate. Es wurde nichts geändert.</string>
 </resources>

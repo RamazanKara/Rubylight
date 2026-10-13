@@ -1300,6 +1300,12 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         if (!originalContext.assignedControllerNumber) {
             return;
         }
+        if (originalContext instanceof UsbDeviceContext &&
+                !((UsbDeviceContext) originalContext).ensureControllerArrival()) {
+            // Input must not create a default host controller before its type and
+            // waveform capabilities arrive. A rejected announcement is retried.
+            return;
+        }
 
         // Take the context's controller number and fuse all inputs with the same number
         short controllerNumber = originalContext.controllerNumber;
@@ -3597,6 +3603,15 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
     class UsbDeviceContext extends GenericControllerContext {
         public AbstractController device;
         public ControllerButtonMap buttonMap;
+        private boolean arrivalPending;
+        private long arrivalRetryAt;
+
+        boolean ensureControllerArrival() {
+            if (arrivalPending && android.os.SystemClock.uptimeMillis() >= arrivalRetryAt) {
+                sendControllerArrival();
+            }
+            return !arrivalPending;
+        }
 
         @Override
         public void destroy() {
@@ -3614,8 +3629,19 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
             if (!prefConfig.gamepadMotionSensors) {
                 capabilities &= ~(MoonBridge.LI_CCAP_ACCEL | MoonBridge.LI_CCAP_GYRO);
             }
-            conn.sendControllerArrivalEvent((byte)controllerNumber, getActiveControllerMask(),
+            int result = conn.sendControllerArrivalEvent((byte)controllerNumber, getActiveControllerMask(),
                     device.getType(), device.getSupportedButtonFlags(), capabilities);
+            if (result != 0) {
+                if (!arrivalPending) {
+                    LimeLog.warning("USB controller announcement deferred: slot=" + controllerNumber + ", rc=" + result);
+                }
+                arrivalPending = true;
+                arrivalRetryAt = android.os.SystemClock.uptimeMillis() + 1000;
+                return;
+            }
+            arrivalPending = false;
+            LimeLog.info("USB controller announcement queued: slot=" + controllerNumber +
+                    ", type=" + device.getType() + ", capabilities=0x" + Integer.toHexString(capabilities & 0xffff));
             device.setPlayerNumber(controllerNumber);
             device.bindAudio(conn, controllerNumber);
         }

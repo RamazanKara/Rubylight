@@ -18,6 +18,12 @@ For gyro aiming and radial menus, enable controller motion in Rubylight and conf
 
 The Android log reports `DualSense USB waveform backend ready` only after a silent USB audio transfer succeeds. If the phone's USB implementation cannot provide that output, Rubylight keeps ordinary controller feedback and does not advertise waveform support. Reconnect to retry after an output failure.
 
+## Troubleshooting missing feedback
+
+After reproducing the problem, use **Settings → Report a problem** without closing the app. Include the phone and Android version, controller model, USB connection, exact host version and game. On Vibepollo, also check that the optional **DualSense USB audio and haptics** installer component is installed and the host presents a DualSense to the game. A client setting alone cannot enable the host's audio endpoint or a game's native effects.
+
+Current builds include USB HID readiness, the waveform initialization stage, queued controller capabilities and the first received waveform/adaptive-trigger packet in the report. These distinguish USB setup failures from feedback that never arrives from the host. Controller announcements rejected during startup are retried before ordinary input; the successful queue result confirms local submission, not that the game produced effects. Version 0.4.8 lacks these additional diagnostics and announcement retries.
+
 ## Limitations
 
 - **USB only.** Android's standard Bluetooth controller path does not expose raw waveform output. This option does not convert the samples into phone vibration or ordinary rumble.

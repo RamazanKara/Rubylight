@@ -7,6 +7,24 @@ import static org.junit.Assert.*;
 
 public class RedactedLogTest {
     @Test
+    public void keepsControllerSetupAndFirstFeedbackWithoutHighRateInputNoise() {
+        RedactedLog log = new RedactedLog();
+        log.add("INFO", "DualSense USB waveform backend ready");
+        log.add("INFO", "USB controller announcement queued: slot=0, type=2, capabilities=0x803f");
+        log.add("INFO", "DualSense USB first adaptive-trigger packet received");
+        log.add("INFO", "DualSense USB first waveform packet received");
+        log.add("WARNING", "DualSense USB waveform initialization failed while claiming audio control interface");
+        for (int i = 0; i < 500; i++) log.add("INFO", "Controller input packet received");
+        String snapshot = log.snapshot();
+        assertEquals(5, snapshot.split("\n").length);
+        assertTrue(snapshot.contains("capabilities=0x803f"));
+        assertTrue(snapshot.contains("waveform backend ready"));
+        assertTrue(snapshot.contains("first adaptive-trigger packet received"));
+        assertTrue(snapshot.contains("first waveform packet received"));
+        assertTrue(snapshot.contains("claiming audio control interface"));
+    }
+
+    @Test
     public void pairingUuidIsRemovedBeforeItsNumericGroupsCanBeReplaced() {
         assertEquals("Pairing failed for [id] with PIN [omitted]",
                 RedactedLog.redact("Pairing failed for 3fa85f64-5717-4562-b3fc-2c963f66afa6 with PIN 1234"));

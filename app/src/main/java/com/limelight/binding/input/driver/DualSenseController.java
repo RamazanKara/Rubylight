@@ -28,6 +28,7 @@ public class DualSenseController extends AbstractController {
     private Thread inputThread;
     private volatile boolean stopped;
     private boolean batteryReported;
+    private boolean waveformReported, triggersReported;
     private volatile com.limelight.nvstream.NvConnection audioConnection;
     private volatile boolean audioNegotiated, microphoneAccepted, headphonesConnected, hostMicMuted;
     private volatile boolean microphoneReady;
@@ -90,6 +91,7 @@ public class DualSenseController extends AbstractController {
     public synchronized boolean start() {
         UsbInterface iface = findHidInterface(device);
         if (iface == null || !connection.claimInterface(iface, true)) {
+            LimeLog.warning("DualSense USB HID interface could not be claimed");
             return false;
         }
         // Audio remains with Android unless the separate waveform option is enabled.
@@ -118,6 +120,8 @@ public class DualSenseController extends AbstractController {
             hidInterface = null;
             return false;
         }
+        LimeLog.info("DualSense USB HID ready: firmware=0x" + Integer.toHexString(firmware) +
+                ", waveform requested=" + (waveformUsbManager != null));
 
         if (waveformUsbManager != null) {
             try {
@@ -241,7 +245,13 @@ public class DualSenseController extends AbstractController {
     @Override
     public void controllerHaptics(int sequence, byte[] pcm) {
         DualSenseHaptics playback = haptics;
-        if (!stopped && playback != null) playback.offer(sequence, pcm);
+        if (!stopped && playback != null && playback.isReady()) {
+            if (!waveformReported) {
+                waveformReported = true;
+                LimeLog.info("DualSense USB first waveform packet received");
+            }
+            playback.offer(sequence, pcm);
+        }
     }
 
     @Override
@@ -362,6 +372,10 @@ public class DualSenseController extends AbstractController {
     public void setAdaptiveTriggers(byte eventFlags, byte typeLeft, byte typeRight, byte[] left, byte[] right) {
         synchronized (outputLock) {
             if (!stopped) {
+                if (!triggersReported) {
+                    triggersReported = true;
+                    LimeLog.info("DualSense USB first adaptive-trigger packet received");
+                }
                 writeOutput(output.adaptiveTriggers(eventFlags, typeLeft, typeRight, left, right));
             }
         }

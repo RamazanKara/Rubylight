@@ -28,12 +28,12 @@ final class DualSenseUsbAudio implements AutoCloseable {
 
     static DualSenseUsbAudio open(UsbManager manager, UsbDevice device) {
         UsbDeviceConnection connection = manager.openDevice(device);
-        if (connection == null) return null;
+        if (connection == null) return unavailable("opening audio connection");
         DualSenseUsbAudio audio = new DualSenseUsbAudio(manager, device, connection);
         boolean ready = false;
         try {
             DualSenseAudioDescriptor descriptor = DualSenseAudioDescriptor.find(connection.getRawDescriptors());
-            if (descriptor == null) return null;
+            if (descriptor == null) return unavailable("matching four-channel audio descriptors");
             for (int i = 0; i < device.getInterfaceCount(); i++) {
                 UsbInterface iface = device.getInterface(i);
                 if (iface.getId() == descriptor.controlInterface) audio.control = iface;
@@ -42,30 +42,39 @@ final class DualSenseUsbAudio implements AutoCloseable {
                     if (iface.getAlternateSetting() == 0) audio.idle = iface;
                 }
             }
-            if (audio.control == null || audio.stream == null || audio.idle == null) return null;
+            if (audio.control == null || audio.stream == null || audio.idle == null) {
+                return unavailable("finding audio interfaces");
+            }
             audio.controlClaimed = connection.claimInterface(audio.control, true);
-            if (!audio.controlClaimed) return null;
+            if (!audio.controlClaimed) return unavailable("claiming audio control interface");
             audio.streamClaimed = connection.claimInterface(audio.stream, true);
-            if (!audio.streamClaimed || !connection.setInterface(audio.stream)) return null;
+            if (!audio.streamClaimed) return unavailable("claiming audio streaming interface");
+            if (!connection.setInterface(audio.stream)) return unavailable("selecting audio streaming alternate");
             audio.featureIndex = (descriptor.featureUnit << 8) | descriptor.controlInterface;
             byte[] mute = new byte[1], volume = new byte[2];
             if (audio.audioControl(true, 1, mute) != mute.length ||
-                    audio.audioControl(true, 2, volume) != volume.length) return null;
+                    audio.audioControl(true, 2, volume) != volume.length) return unavailable("reading audio mute and volume");
             audio.savedMute = mute;
             audio.savedVolume = volume;
             // USB Audio master mute and volume affect the actuator channels too.
             // Use unmuted 0 dB, then restore the prior values before returning audio to Android.
             if (audio.audioControl(false, 1, new byte[1]) != 1 ||
-                    audio.audioControl(false, 2, new byte[2]) != 2) return null;
+                    audio.audioControl(false, 2, new byte[2]) != 2) return unavailable("setting audio mute and volume");
             audio.handle = MoonBridge.openUsbHaptics(connection.getFileDescriptor(),
                     descriptor.endpoint, descriptor.interval);
+            if (audio.handle == 0) return unavailable("opening isochronous audio transport");
             // Probe real isochronous output with silence before advertising the capability.
-            ready = audio.handle != 0 && audio.write(new byte[DualSenseHapticsQueue.USB_BYTES]);
-            return ready ? audio : null;
+            ready = audio.write(new byte[DualSenseHapticsQueue.USB_BYTES]);
+            return ready ? audio : unavailable("probing isochronous audio transfer");
         }
         finally {
             if (!ready) audio.close();
         }
+    }
+
+    private static DualSenseUsbAudio unavailable(String stage) {
+        LimeLog.warning("DualSense USB waveform initialization failed while " + stage);
+        return null;
     }
 
     DualSenseUsbMicrophone openMicrophone() {

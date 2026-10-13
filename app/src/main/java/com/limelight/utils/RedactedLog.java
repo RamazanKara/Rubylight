@@ -45,7 +45,8 @@ public final class RedactedLog {
     private static final String[] INFO_PREFIXES = {
             "Stream request", "Connection terminated", "Selected ", "Decoder", "Reconfigure", "Stream now",
             "Display luminance", "Display modes changed", "Microphone", "PC stream profiles", "Present mode",
-            "PyroWave", "Phase lock", "Low latency", "Automatic codec"};
+            "PyroWave", "Phase lock", "Low latency", "Automatic codec",
+            "DualSense USB ", "USB controller announcement "};
 
     /** A PC name or address to keep out of problem reports. */
     public static void addSecret(String secret) {

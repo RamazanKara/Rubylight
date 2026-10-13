@@ -12,6 +12,8 @@ Automatic recovery only resumes the same running game. It never sends a launch o
 
 Graceful host termination, protected content, host frame-conversion errors, decoder startup failures and unknown errors stay manual. The error dialog retains **Reconnect** and **Disconnect** after recovery stops. Manual Reconnect is an explicit new connection attempt using normal launch behavior. Recovery recreates the stream activity after the previous native connection has stopped, restoring its configured audio, controller and display setup; it does not quit the game.
 
+Android 0.4.9 preserves microphone mute for the current session through automatic recovery, screen-lock resume, manual **Reconnect** and [**Video output** handoffs](controls.md#tablet-zoom-and-external-displays). This includes a USB controller microphone muted by the host, even if controller capture is lost during teardown. Unmute from the stream menu when ready; microphone streaming still requires its setting and Android permission. The mute choice does not change the microphone-streaming preference and is not saved for a separate new session.
+
 ## Choosing automatic quality
 
 **Settings → Stream → Automatic stream quality** is off by default. Choose the mode and the minimum short edge and FPS. The selected stream resolution and FPS are the upper bounds; a floor above those bounds is clamped to the starting value. Aspect ratio and decoder alignment are preserved. For a stream set to follow the native display, its ceiling follows fold, window and panel changes.

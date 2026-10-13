@@ -24,7 +24,9 @@ The Android log reports `DualSense USB waveform backend ready` only after a sile
 
 After reproducing the problem, use **Settings → Report a problem** without closing the app. Include the phone and Android version, controller model, USB connection, exact host version and game. On Vibepollo, also check that the optional **DualSense USB audio and haptics** installer component is installed and the host presents a DualSense to the game. A client setting alone cannot enable the host's audio endpoint or a game's native effects.
 
-Current builds include USB HID readiness, the waveform initialization stage, queued controller capabilities and the first received waveform/adaptive-trigger packet in the report. These distinguish USB setup failures from feedback that never arrives from the host. Controller announcements rejected during startup are retried before ordinary input; the successful queue result confirms local submission, not that the game produced effects. Version 0.4.8 lacks these additional diagnostics and announcement retries.
+Android 0.4.9 includes USB HID readiness, the waveform initialization stage, queued controller capabilities and the first received waveform/adaptive-trigger packet in the report. These distinguish USB setup failures from feedback that never arrives from the host. A successful queue result confirms local submission, not that the game produced effects. Version 0.4.8 lacks these additional diagnostics and announcement retries.
+
+In 0.4.9, a pending USB controller's input waits for its type and capabilities to be queued; rejected startup announcements are retried. Opening the stream menu or unplugging that controller does not bypass this ordering. Buttons already held by an existing controller or on-screen controls can still release while the new controller's announcement is pending.
 
 ## Limitations
 

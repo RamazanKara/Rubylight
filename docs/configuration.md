@@ -18,6 +18,8 @@ Start with the defaults below. Settings imported from an older installation keep
 | AMD quality — `amd_quality` | `speed` | Favours low encoding latency. |
 | Frame pacing — `frame_pacing` | `arrival` | Encodes arriving frames, limited to the requested stream rate. |
 | Video packet pacing — `pacing_max_bitrate_kbps` | `0` | Automatic: twice the encoder bitrate on confirmed Wi-Fi or mobile routes; up to 800 Mbps on other routes. PyroWave keeps its separate bandwidth policy. |
+| Host bitrate adaptation — `host_adaptive_bitrate` | `false` | Experimental loss adaptation for H.264, HEVC and AV1. Requires client feedback and yields to client bitrate control. [Details](#host-bitrate-adaptation). |
+| Audio to stream — `audio_capture_mode` | `system` | Captures the selected playback device. Optional [Game only](#game-only-audio) captures a verified game's process tree. |
 | HEVC / AV1 support — `hevc_mode`, `av1_mode` | `0` | Automatic capability detection; only working profiles are offered. |
 | PyroWave — `pyrowave` | `true` | Offers PyroWave to clients that support it. |
 | Virtual display — `virtual_display_mode` | Windows 11: `per_client`; Windows 10: `disabled` | A display for each device on Windows 11; a physical monitor on Windows 10. Requires the virtual display driver when enabled. |
@@ -85,6 +87,8 @@ These are encoder bit budgets, not extra queued frames or packet-pacing settings
 
 ## Host bitrate adaptation
 
+Available in Rubylight 2.2.16 and later.
+
 **Settings → Video → Adapt bitrate on the host (experimental)** enables
 `host_adaptive_bitrate = true` for the next connection. It is off by default.
 For H.264, HEVC and AV1, the host reduces the video budget when a Moonlight
@@ -120,6 +124,9 @@ performance still needs live measurements; it does not promise lower latency
 on every connection.
 
 ## Game-only audio
+
+Available in Rubylight 2.2.16 and later; it uses the normal audio stream and does
+not require a Rubylight-specific client.
 
 **Settings → Audio → Audio to stream** defaults to **System audio**, which keeps
 the existing playback-device capture and routing. Select **Game only**

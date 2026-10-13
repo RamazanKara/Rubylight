@@ -116,6 +116,8 @@ Opening the launcher again returns to the running profile's console. When launch
 
 ## Upgrading
 
+If you are playing a game locally on the host PC, install between gaming sessions. **Install when idle** checks Rubylight's streams and host-launched apps; it does not detect every game started outside Rubylight. Windows elevation prompts can take focus, and driver installation can briefly reconnect displays or devices even when no stream is active.
+
 - Installing ends streams and closes host-launched apps. The setup window warns first when Rubylight reports a stream; a quiet setup refuses unless given `--end-streams`. Vibepollo, Apollo and Sunshine cannot report this, so setup stops them without checking.
 - Back up the whole profile folder from the table above (or the previous host's `config` folder). Include `sunshine.conf`, `apps.json`, covers, both identity files in `credentials`, `sunshine_state.json`, `sunshine_credentials.json` if present, and `vibeshine_state.json`. Also back up files named by custom paths in the configuration. Keep this backup private: it contains credentials and device certificates.
 - Run the new installer, or use **Maintenance → Updates → Install when idle** or **Install now**. Settings, unknown configuration keys, paired devices, credentials, apps, device/display settings and saved session data stay in the profile. Active streams do not survive a restart. The service and web console use the new package; installed drivers remain available. Legacy AMD encoder names such as `amdvce_experimental` still select AMF. A saved Xbox 360 or DualShock 4 (ViGEmBus) controller type from an earlier version loads as the VHF Xbox One or DualShock 4 pad; an installed ViGEmBus is no longer used.

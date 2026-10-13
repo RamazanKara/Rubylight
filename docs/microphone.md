@@ -4,6 +4,8 @@
 
 A streaming device can send its microphone to the PC. Games and chat apps on the PC hear it as **Microphone (Steam Streaming Microphone)**, a recording device Steam provides. Rubylight speaks the format of Apollo's microphone passthrough ([Apollo pull request #1428](https://github.com/ClassicOldSong/Apollo/pull/1428), client side in [ClassicOldSong/moonlight-common-c](https://github.com/ClassicOldSong/moonlight-common-c/blob/784fa1d0f501155ab01fea7cefe8a0e9c9628b77/src/MicrophoneStream.c)), so a client built for it works with Rubylight unchanged.
 
+**USB DualSense microphone.** Rubylight 2.2.16 and a matching client such as Rubylight Android 0.4.9 also support the controller's microphone through the **virtual DualSense microphone** on the PC. That path needs the optional USB/IP support and the paired device's Controllers permission. Follow [DualSense USB audio setup](dualsense-haptics.md) for endpoint readiness, mute and fallback behavior. The Steam microphone instructions and UDP protocol below describe the ordinary client microphone path.
+
 ## On the PC
 
 - **Use the device microphone** (`stream_mic`, on by default) offers the microphone to every client. A device or app override can turn it off for one device or game.

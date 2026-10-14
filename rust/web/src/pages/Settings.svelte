@@ -230,7 +230,15 @@
     if (has(config, key)) edits[key] = null;
     else delete edits[key];
   }
-  function discard() {
+  async function discard() {
+    const count = pending.size;
+    const ok = await confirm({
+      title: 'Discard unsaved changes?',
+      message: `${count} unsaved ${count === 1 ? 'change is' : 'changes are'} lost. The host keeps its current settings.`,
+      confirm: 'Discard',
+      danger: true,
+    });
+    if (!ok) return;
     edits = {};
     invalid = {};
     review = 'all';

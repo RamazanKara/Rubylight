@@ -224,6 +224,28 @@ test('controls share a right-hand column on wide screens and stack under the tex
   assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
 });
 
+test('discarding asks first, and the save bar stays in view on a phone', async t => {
+  const { page, writes } = await fixture(t);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(base + '/settings/general');
+  const name = page.getByLabel('Host name', { exact: true });
+  await name.fill('Draft name');
+  await page.evaluate(() => scrollTo(0, 0));
+  const bar = await page.getByRole('button', { name: 'Save changes', exact: true }).boundingBox();
+  assert(bar && bar.y + bar.height <= 844, 'the save bar is visible without scrolling');
+  await page.getByText('1 unsaved change', { exact: true }).waitFor();
+  await page.getByRole('button', { name: 'Discard', exact: true }).click();
+  const dialog = page.getByRole('dialog');
+  await dialog.getByText(/1 unsaved change is lost/).waitFor();
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+  assert.equal(await name.inputValue(), 'Draft name');
+  await page.getByRole('button', { name: 'Discard', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Discard', exact: true }).click();
+  assert.equal(await name.inputValue(), '');
+  assert.equal(await page.getByRole('button', { name: 'Save changes' }).count(), 0);
+  assert.deepEqual(writes, []);
+});
+
 test('a malformed fixed resolution blocks saving and an empty one warns', async t => {
   const { page, writes } = await fixture(t);
   await page.goto(base + '/settings/display');

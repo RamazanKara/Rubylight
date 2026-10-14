@@ -6,6 +6,10 @@
 use super::*;
 
 const CHECK_INTERVAL: Duration = Duration::from_secs(1);
+/// Enumerations per poll while the display topology keeps changing, and the
+/// wait before trying again when it is still changing.
+const REFRESH_ATTEMPTS: usize = 3;
+const REFRESH_RETRY: Duration = Duration::from_millis(50);
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct Identity {
@@ -85,25 +89,39 @@ impl<S: Source> Cache<S> {
     fn poll(&mut self, now: Instant) -> Result<Option<Description>> {
         if now >= self.next_check {
             self.next_check = now + CHECK_INTERVAL;
-            let result = (|| {
-                if self.output.is_none() || !self.source.current() {
-                    self.output = None;
-                    self.output = Some(self.source.refresh(&self.identity)?);
+            let mut attempts = 0;
+            let result = loop {
+                attempts += 1;
+                let attempt = (|| {
+                    if self.output.is_none() || !self.source.current() {
+                        self.output = None;
+                        self.output = Some(self.source.refresh(&self.identity)?);
+                    }
+                    let description = self.source.describe(self.output.as_ref().unwrap());
+                    // The topology can change again during enumeration. Do not
+                    // publish an already stale factory's description as current.
+                    anyhow::Ok(self.source.current().then_some(description))
+                })();
+                match attempt {
+                    Ok(None) if attempts < REFRESH_ATTEMPTS => {}
+                    attempt => break attempt,
                 }
-                let description = self.source.describe(self.output.as_ref().unwrap());
-                // The topology can change again during enumeration. Do not
-                // publish an already stale factory's description as current.
-                if !self.source.current() {
-                    bail!("capture output changed while refreshing colour information");
-                }
-                Ok(description)
-            })();
+            };
             self.snapshot = match result {
-                Ok(description) => {
+                Ok(Some(description)) => {
                     if let Some(description) = description {
                         self.metadata = description.metadata;
                     }
                     Ok(description)
+                }
+                // Displays are still changing (another display arriving, or
+                // its mode and HDR being set). That is not a failed output:
+                // capture must not restart or fail to open for it. Keep the
+                // last published state and look again on the next poll.
+                Ok(None) => {
+                    self.output = None;
+                    self.next_check = now + REFRESH_RETRY;
+                    self.snapshot.clone()
                 }
                 Err(error) => {
                     // Retry even if the failed lookup left a current factory.
@@ -244,6 +262,8 @@ mod tests {
     struct Fake {
         current: bool,
         fresh_current: bool,
+        /// Refreshes whose factory is already stale when they return.
+        stale_refreshes: usize,
         candidates: Vec<(Identity, Option<Description>)>,
         enumerations: usize,
         reads: Cell<usize>,
@@ -256,7 +276,8 @@ mod tests {
         }
         fn refresh(&mut self, identity: &Identity) -> Result<Self::Output> {
             self.enumerations += 1;
-            self.current = self.fresh_current;
+            self.current = self.fresh_current && self.stale_refreshes == 0;
+            self.stale_refreshes = self.stale_refreshes.saturating_sub(1);
             selected(identity, self.candidates.clone())
         }
         fn describe(&self, output: &Self::Output) -> Option<Description> {
@@ -289,6 +310,7 @@ mod tests {
             Fake {
                 current: true,
                 fresh_current: true,
+                stale_refreshes: 0,
                 candidates: vec![(identity(), initial)],
                 enumerations: 0,
                 reads: Cell::new(0),
@@ -437,10 +459,50 @@ mod tests {
         cache.source.current = false;
         cache.source.fresh_current = false;
         cache.source.candidates = vec![(identity(), Some(new))];
-        assert!(cache.poll(now + CHECK_INTERVAL).is_err());
+        assert_eq!(cache.poll(now + CHECK_INTERVAL).unwrap(), Some(old));
         assert_eq!(cache.metadata(now + CHECK_INTERVAL), old.metadata);
         cache.source.fresh_current = true;
-        assert_eq!(cache.poll(now + CHECK_INTERVAL * 2).unwrap(), Some(new));
+        // Retried soon, without waiting another check interval.
+        assert_eq!(
+            cache.poll(now + CHECK_INTERVAL + REFRESH_RETRY).unwrap(),
+            Some(new)
+        );
+    }
+
+    #[test]
+    fn topology_changes_during_a_refresh_do_not_fail_capture() {
+        // Another display arriving, or its mode and HDR being set, changes
+        // the factory while the selected output is enumerated. Capture opens
+        // and its periodic colour check propagate errors, so this must not be
+        // one: v2.2.1 tolerated it, and failing restarted or refused capture.
+        let now = Instant::now();
+        let old = description(true, 1000.);
+        let new = description(false, 300.);
+        let mut cache = cache(now, Some(old));
+        cache.source.current = false;
+        cache.source.stale_refreshes = 1;
+        cache.source.candidates = vec![(identity(), Some(new))];
+        // At open: one more change during enumeration is absorbed in this poll.
+        assert_eq!(cache.poll(now).unwrap(), Some(new));
+        assert_eq!(cache.source.enumerations, 2);
+        // Mid-stream: changes outlasting the poll keep the published state.
+        cache.source.current = false;
+        cache.source.stale_refreshes = REFRESH_ATTEMPTS;
+        cache.source.candidates = vec![(identity(), Some(old))];
+        let current = cache.poll(now + CHECK_INTERVAL).unwrap();
+        assert_eq!(current, Some(new));
+        assert!(!mode_changed(Some(new.color_space), current));
+        assert_eq!(cache.metadata, new.metadata);
+        assert_eq!(cache.source.enumerations, 2 + REFRESH_ATTEMPTS);
+        assert_eq!(
+            cache.poll(now + CHECK_INTERVAL + REFRESH_RETRY).unwrap(),
+            Some(old)
+        );
+        assert_eq!(cache.source.enumerations, 3 + REFRESH_ATTEMPTS);
+        // A missing output remains an error.
+        cache.source.current = false;
+        cache.source.candidates.clear();
+        assert!(cache.poll(now + CHECK_INTERVAL * 3).is_err());
     }
 
     #[test]

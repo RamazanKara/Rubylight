@@ -2,6 +2,8 @@
     android:id="@+id/fragmentView" android:layout_width="match_parent" android:layout_height="match_parent"
     android:nextFocusUp="@id/library_back" android:accessibilityTraversalAfter="@id/library_back"
     android:numColumns="auto_fit" android:columnWidth="104dp" android:stretchMode="columnWidth"
-    android:horizontalSpacing="8dp" android:verticalSpacing="8dp" android:padding="16dp"
+    android:horizontalSpacing="@dimen/space_s" android:verticalSpacing="@dimen/space_s"
+    android:paddingStart="@dimen/screen_gutter" android:paddingEnd="@dimen/screen_gutter"
+    android:paddingTop="@dimen/space_xs" android:paddingBottom="@dimen/space_l"
     android:focusable="true" android:focusableInTouchMode="true" android:clipToPadding="false"
     android:drawSelectorOnTop="true" android:gravity="center" />

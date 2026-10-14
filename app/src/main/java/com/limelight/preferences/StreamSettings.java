@@ -456,8 +456,8 @@ public class StreamSettings extends AppCompatActivity {
         }
         list.setDivider(null);
         list.setDividerHeight(0);
-        int spacing = Math.round(8 * view.getResources().getDisplayMetrics().density);
-        list.setPadding(spacing, 0, spacing, spacing);
+        // Rows reach the edges and carry the screen gutter themselves (layout/settings_*.xml).
+        list.setPadding(0, 0, 0, view.getResources().getDimensionPixelSize(R.dimen.space_l));
         list.setClipToPadding(false);
     }
 

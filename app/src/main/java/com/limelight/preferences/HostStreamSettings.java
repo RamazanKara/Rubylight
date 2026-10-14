@@ -679,8 +679,7 @@ public final class HostStreamSettings extends AppCompatActivity {
             com.limelight.ui.UiNavigation.bindPreferences(list);
             list.setNextFocusDownId(R.id.host_profile_save);
             list.setDivider(null);
-            int padding = Math.round(8 * getResources().getDisplayMetrics().density);
-            list.setPadding(padding, 0, padding, padding);
+            list.setPadding(0, 0, 0, getResources().getDimensionPixelSize(R.dimen.space_s));
             return view;
         }
     }

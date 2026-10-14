@@ -7,7 +7,7 @@ and stops. A narrow moving strip and a virtual-speaker tone exercise capture.
 No display-mode, HDR or default-audio change; the installed host must be idle.
 
 usage: e2e.py --package DIR --work DIR --client EXE --codec CODEC [--mode 1280x720x60] [--seconds 12]
-              [--vrr] [--recovery N] [--motion-at-rate] [--name NAME] [--noise-height PIXELS]
+              [--vrr] [--recovery N] [--motion-at-rate] [--name NAME] [--noise-height PIXELS] [--hw-decoder TYPE]
 Writes WORK/e2e-NAME/result.json, NAME defaulting to CODEC[-vrr][-recovery|-at-rate].
 A mode faster than the captured display refreshes is recorded as skipped.
 
@@ -46,6 +46,7 @@ parser.add_argument('--config', action='append', default=[], metavar='KEY=VALUE'
 parser.add_argument('--recovery', type=int, default=0, metavar='N', help='keyframe requests during the stream, with the motion strip at the stream rate')
 parser.add_argument('--motion-at-rate', action='store_true', help='the strip at the stream rate without requests: the control for --recovery')
 parser.add_argument('--name', help='the case name, e.g. hevc-120; defaults to the codec and options')
+parser.add_argument('--hw-decoder', metavar='TYPE', help="the receiver decodes on the GPU, e.g. d3d11va; FFmpeg's software HEVC decoder takes about 14 ms a 1440p frame")
 parser.add_argument('--noise-height', type=int, default=0, metavar='PIXELS',
                     help='a taller strip with fresh per-pixel noise above its bottom 128 rows, for high bitrates')
 args = parser.parse_args()
@@ -107,6 +108,8 @@ try:
     time.sleep(.5)
     assert tone.poll() is None and motion.poll() is None, 'audio or motion fixture exited'
     client_env = receiver_environment(env, display, args.mode, args.client, args.vrr)
+    if args.hw_decoder:
+        client_env['BUTTERPOLLO_TEST_HW_DECODER'] = args.hw_decoder
     if args.recovery:
         client_env.update(BUTTERPOLLO_TEST_IDR_PROBE=str(args.recovery),
                           BUTTERPOLLO_TEST_IDR_PROBE_INTERVAL_MS=str(RECOVERY_INTERVAL_MS))

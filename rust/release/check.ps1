@@ -109,7 +109,10 @@ foreach ($case in 'h264', 'hevc', 'av1', 'hevc-vrr', 'hevc-recovery', 'hevc-120'
     $stream = @('--package', $package, '--work', $run, '--client', $client, '--codec', $codec, '--seconds', '12')
     if ($case.EndsWith('-vrr')) { $stream += '--vrr' }
     # Above 60 FPS at a higher bitrate; recorded as skipped below a 120 Hz display.
-    if ($case.EndsWith('-120')) { $stream += '--mode', '2560x1440x120', '--bitrate', '80000', '--name', $case }
+    # The receiver decodes on the GPU: software HEVC managed about 65 FPS here.
+    if ($case.EndsWith('-120')) {
+        $stream += '--mode', '2560x1440x120', '--bitrate', '80000', '--name', $case, '--hw-decoder', 'd3d11va'
+    }
     # A client losing packets: 16 keyframe requests, one every 0.5 s, must
     # not send pictures twice or skip new frames (rc.27-rc.28 did).
     if ($case.EndsWith('-recovery')) { $stream += '--recovery', '16' }

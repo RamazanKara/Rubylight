@@ -356,3 +356,14 @@ test('a device already waiting for a PIN shows as soon as the console loads', as
   // The shell polls every 3 s; the request must not wait for that.
   await page.getByLabel('PIN for Waiting phone', { exact: true }).waitFor({ timeout: 2000 });
 });
+
+test('choosing a settings category from the keyboard keeps focus on that category', async t => {
+  const { page } = await fixture(t);
+  await page.goto(base + '/settings/general');
+  const network = page.getByRole('link', { name: /^Network/ });
+  await network.focus();
+  await page.keyboard.press('Enter');
+  await page.waitForURL(base + '/settings/network');
+  await page.waitForTimeout(100);
+  assert.equal(await network.evaluate(element => element === document.activeElement), true);
+});

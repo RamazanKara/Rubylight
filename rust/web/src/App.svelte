@@ -101,8 +101,13 @@
     if (path === lastPath) return;
     lastPath = path;
     menuOpen = false;
-    // Navigation must not leave keyboard focus on a now-hidden mobile link.
-    void tick().then(() => content?.focus({ preventScroll: true }));
+    // Navigation must not leave keyboard focus on a now-hidden mobile link. A control
+    // inside the page that is still there (a settings category) keeps it, though.
+    void tick().then(() => {
+      const active = document.activeElement;
+      if (active && active !== content && content?.contains(active)) return;
+      content?.focus({ preventScroll: true });
+    });
   });
 </script>
 

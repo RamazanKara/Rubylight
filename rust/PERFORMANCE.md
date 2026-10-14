@@ -5409,7 +5409,7 @@ zero failures**, with 58 hardware/manual checks ignored. The reconnect
 regression, private-pipe and firewall checks all passed. Formatting, strict
 Clippy, console and release-tooling checks, release compilation and installer
 packaging also passed. The build produced the Windows package artifact;
-no tag, public release or local installation was performed.
+no tag, public release or local installation was performed during that validation.
 
 Raw timing, benchmark hashes, test logs and controls are retained under
 `C:\Users\ramaz\Documents\Codex\2026-10-13\on-ruby-lite-or-ruby-lite\outputs\pacing-followup`.

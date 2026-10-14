@@ -146,7 +146,7 @@ Keep a Windows user signed in, enable Playnite in **Settings → Game library**,
 
 In **Library**, check Playnite's plugin status. Use **Install plugin** or **Update plugin** if offered, fully exit and reopen Playnite, then try **Sync now**. Use the connector bundled with Rubylight; newer Vibepollo connectors may require different host support. A `Playnite CLI fallback requested` warning means automatic game-exit tracking is unavailable; quit that stream manually.
 
-**Long installation paths:** 2.2.18 can report Windows error 3 (path not found) even when the plugin folder exists, because its temporary filename exceeds the legacy Windows path limit. The unreleased fix supports these paths, including Unicode names, while preserving atomic replacement and partial-install detection.
+**Long installation paths:** 2.2.18 can report Windows error 3 (path not found) even when the plugin folder exists, because its temporary filename exceeds the legacy Windows path limit. [2.2.19](../rust/RELEASE_NOTES.md#new-in-2219) supports these paths, including Unicode names, while preserving atomic replacement and partial-install detection.
 
 Set **Log level** to **Debug** before reproducing so the log includes `Playnite plugin check` and the launch-pipe details. Send the failure time, installed or portable location, Desktop or Fullscreen mode, and the host log from `Playnite launch prepared` and `Playnite plugin check` through the pipe, startup, fallback or exit messages. Include any `Moonlight session launch failed`, `Playnite library sync failed`, `Playnite startup failed`, `Playnite did not confirm startup` or `Playnite game exit confirmed` lines. If available, include Playnite's `playnite.log` and the matching `%APPDATA%\Sunshine\logs\sunshine_playnite-*.log`.
 
@@ -201,7 +201,7 @@ The host only follows what Moonlight announces when a controller connects. With 
 - **No trackpads with Steam Input off:** Moonlight builds whose SDL predates SDL 3 do not read the Deck's trackpads, so they send none.
 - **Back grips do nothing on the virtual pad:** choose what each grip presses under **Settings → Input → Steam Deck and back grips**; the virtual pads have no back buttons of their own. A Deck attached as a Steam Deck keeps its own grips, and Steam Input on the host decides what they do.
 - **A Steam Deck controller left behind after a crash:** usbip-win2 detaches it when Rubylight's connection closes, then keeps trying to attach it again. `usbip.exe attach --stop-all` stops that.
-- **Shutdown hangs after a failed USB/IP attachment:** 2.2.18 depends on a second loopback connection to wake its idle controller server. If Windows blocks that connection, teardown can wait indefinitely. The unreleased fix wakes the server without making a connection. A working loopback connection is still required to attach the controller.
+- **Shutdown hangs after a failed USB/IP attachment:** 2.2.18 depends on a second loopback connection to wake its idle controller server. If Windows blocks that connection, teardown can wait indefinitely. [2.2.19](../rust/RELEASE_NOTES.md#new-in-2219) wakes the server without making a connection. A working loopback connection is still required to attach the controller.
 
 See [Steam Deck](configuration.md#steam-deck).
 

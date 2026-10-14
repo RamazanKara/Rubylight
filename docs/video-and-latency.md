@@ -36,7 +36,7 @@ Per-PC profiles accept rates to 0.01 Hz, such as 59.94 or 119.88. Hosts that sup
 
 ## Upscaling
 
-Choose **Settings → Stream → Client-side upscaling** or override it in a PC profile. First lower **Stream resolution**, for example to 720p on a 1080p screen. A PC profile also accepts a custom stream resolution. This reduces transmitted pixels and decode work; upscaling reconstructs that smaller video at the Android output size. **Host render scale** changes the PC's render resolution, not the transmitted video size.
+Choose **Settings → Display & image → Client-side upscaling** or override it in a PC profile. First lower **Stream resolution**, for example to 720p on a 1080p screen. A PC profile also accepts a custom stream resolution. This reduces transmitted pixels and decode work; upscaling reconstructs that smaller video at the Android output size. **Host render scale** changes the PC's render resolution, not the transmitted video size.
 
 | Mode | Processing |
 | --- | --- |
@@ -53,7 +53,7 @@ Sharpening ranges from 0–100%, default 50%. At 0%, FSR bypasses extra sharpeni
 
 ## Snapdragon GPU drivers
 
-**Settings → Stream → Snapdragon GPU driver** selects the Vulkan driver used by PyroWave. **System GPU driver** is the default. Custom drivers require Android 10+, an arm64 app and an Adreno GPU; they do not replace Android's system driver or the MediaCodec drivers used by H.264, HEVC and AV1. The selected driver must still pass PyroWave's Vulkan checks.
+**Settings → Advanced → Snapdragon GPU driver** selects the Vulkan driver used by PyroWave; it is shown on arm64 Adreno devices only. **System GPU driver** is the default. Custom drivers require Android 10+, an arm64 app and an Adreno GPU; they do not replace Android's system driver or the MediaCodec drivers used by H.264, HEVC and AV1. The selected driver must still pass PyroWave's Vulkan checks.
 
 Use **Import driver ZIP** to import and select a trusted Adreno package, or choose an already imported driver. Import and selection refresh the capability check; the next stream uses the selection. **Remove a driver** deletes its private app copy and returns to the system selection if that driver was selected. Stop a stream before removing its active driver. Imported drivers are excluded from app backups.
 
@@ -63,7 +63,7 @@ If loading, capability checks or initialization fail, Nightjar tries the system 
 
 ## Performance overlay
 
-Use **stream menu → Overlay → Statistics** or **Debug**. The saved default is under **Settings → Overlay & audio → Performance overlay mode**; **Ctrl+Alt+Shift+S** toggles visibility. **Copy stats** copies the full Debug text regardless of visible mode. Both modes hide in picture in picture.
+Use **stream menu → Overlay → Statistics** or **Debug**. The saved default is under **Settings → Developer options → Performance overlay mode**; **Ctrl+Alt+Shift+S** toggles visibility. **Copy stats** copies the full Debug text regardless of visible mode. Both modes hide in picture in picture.
 
 Statistics is the default. It shows stream resolution/codec/color, displayed and received FPS, received video payload Mbps, network frame loss, network RTT and variation, host processing, decode time and display wait. These are separate measurements: adding network RTT and decode time does not measure end-to-end latency. Payload Mbps excludes audio, protocol overhead and retransmissions, so it is not the configured bitrate or total link traffic.
 
@@ -107,8 +107,8 @@ For bounded reconnects and opt-in resolution/FPS adaptation, see [stream recover
 
 Enable **Automatic bitrate** in the stream's **Bitrate** menu on a host that supports it (currently Rubylight). It is opt-in and saved per PC, separately for conventional codecs and PyroWave. Loss, RTT variation and completed decode headroom inform adaptation; PyroWave also considers queue delay. Bitrate recovers gradually once the link is healthy. Manual session bitrate changes turn it off.
 
-Use **Settings → Advanced → Export latency CSV** to save the latest local frame timings. `queue_wait_ms`, `input_to_output_ms` and `output_to_render_ms` correspond to the stages above; The appended FPS sample separates received/released/shown FPS and estimated presentation drops.
+Use **Settings → Developer options → Export latency CSV** to save the latest local frame timings. `queue_wait_ms`, `input_to_output_ms` and `output_to_render_ms` correspond to the stages above; The appended FPS sample separates received/released/shown FPS and estimated presentation drops.
 
 **Stream menu → Overlay → Measure input latency** runs a software response probe during a stream: on a still host desktop with a visible pointer, it nudges the mouse 15 times and times each nudge until a subsequent frame receives a rendered callback. It reports typical, best and slowest-10% values. Keep the host desktop still between nudges so unrelated updates do not affect the result. This interval ends at the callback; it does not measure physical input-device delay or the screen's actual light output.
 
-**Settings → App → Latency benchmark** runs a 10-second hostless test of frame callbacks, timer wakeups and input dispatch age. Use it to compare devices and settings without a host; **Measure input latency** exercises the stream's software response path.
+**Settings → Developer options → Latency benchmark** runs a 10-second hostless test of frame callbacks, timer wakeups and input dispatch age. Use it to compare devices and settings without a host; **Measure input latency** exercises the stream's software response path.

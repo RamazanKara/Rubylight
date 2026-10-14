@@ -6,7 +6,7 @@ Nightjar implements the waveform extension used by [Nonary's Vibepollo nightly](
 
 ## Setup
 
-1. Enable **Settings → Advanced → USB DualSense driver** and **USB DualSense audio and haptics** on Android. Both are off by default.
+1. Enable **Settings → Controls → USB DualSense driver** and **USB DualSense audio and haptics** on Android. Both are off by default.
 2. Connect the controller by USB, grant Android's USB access request and start a new stream. Reconnect the controller and stream after changing the option.
 3. Enable DualSense haptics on the host. On a Windows Rubylight host, select the bundled **USB audio and haptics support** installer component and Automatic or USB/IP DualSense controller type. See [host setup](https://github.com/RamazanKara/Rubylight/blob/main/docs/dualsense-haptics.md). For waveform-only support with Vibepollo, follow [its host instructions](https://github.com/Nonary/Vibepollo/blob/8b3ea1c4a41c383752475ffa551168a16b024d48/docs/windows-dualsense-haptics.md).
 4. Enable native DualSense support in a compatible game. Steam Input translation can prevent the game from seeing the native controller and its audio endpoint.
@@ -22,7 +22,7 @@ The Android log reports `DualSense USB waveform backend ready` only after a sile
 
 ## Troubleshooting missing feedback
 
-After reproducing the problem, use **Settings → Report a problem** without closing the app. Include the phone and Android version, controller model, USB connection, exact host version and game. On Vibepollo, also check that the optional **DualSense USB audio and haptics** installer component is installed and the host presents a DualSense to the game. A client setting alone cannot enable the host's audio endpoint or a game's native effects.
+After reproducing the problem, use **Settings → App → Report a problem** without closing the app. Include the phone and Android version, controller model, USB connection, exact host version and game. On Vibepollo, also check that the optional **DualSense USB audio and haptics** installer component is installed and the host presents a DualSense to the game. A client setting alone cannot enable the host's audio endpoint or a game's native effects.
 
 Android 0.4.9 includes USB HID readiness, the waveform initialization stage, queued controller capabilities and the first received waveform/adaptive-trigger packet in the report. These distinguish USB setup failures from feedback that never arrives from the host. A successful queue result confirms local submission, not that the game produced effects. Version 0.4.8 lacks these additional diagnostics and announcement retries.
 

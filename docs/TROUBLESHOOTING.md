@@ -24,11 +24,11 @@ The client uses the host's advertised ports and custom-port offsets. Check the a
 
 | Symptom | Likely cause | Fix |
 | --- | --- | --- |
-| Black/flickering image or misplaced video | Decoder or surface-path issue. | Try H.264 at 720p/60 with HDR/upscaling off. For conventional SDR, try **Advanced → Compatibility video view**. It is disabled for HDR/PyroWave. |
+| Black/flickering image or misplaced video | Decoder or surface-path issue. | Try H.264 at 720p/60 with HDR/upscaling off. For conventional SDR, try **Developer options → Compatibility video view** (tap the version in **Settings → App → About** seven times to show Developer options). It is disabled for HDR/PyroWave. |
 | Decoder crash | Codec, resolution or driver combination is unstable. | Try another codec and lower resolution/FPS. After repeated decoder crashes Nightjar resets stream settings to safe values; check the PC override too. |
 | Network loss or stutter | Bitrate exceeds a stable link budget, or traffic is bursty. | Lower bitrate; wire the PC; move closer to the access point. Try **Automatic bitrate** on a host that supports it (currently Rubylight). |
 | Disconnect error after exiting a game | The host closed the transport before its normal end-of-stream message arrived. | Update to Android 0.4.11 or newer. Nightjar returns to the library when the paired host confirms the session has ended, with **Recover interrupted streams** on or off. If it still fails, attach a fresh **Settings → Report a problem** log and the exact host version. |
-| High Queue wait | Decoder input buffers or the submission thread are backed up. | Lower resolution/FPS and compare with Phone performance hints off. |
+| High Queue wait | Decoder input buffers or the submission thread are backed up. | Lower resolution/FPS and compare with **Developer options → Phone performance hints** off. |
 | High Decode time | Decoder/driver scheduling or decoding is slow. | Compare H.264, HEVC and AV1, then reduce resolution/FPS or disable HDR/4:4:4. |
 | Healthy decode but low shown FPS | Presentation, pacing, callback availability or display policy. | Compare Lowest latency/VRR and a rate the screen supports. Check power-saving modes. |
 | High Host processing | PC capture/encoder/game workload. | Reduce the host workload and compare host logs; Android decoder settings cannot remove host processing time. |
@@ -37,7 +37,7 @@ The client uses the host's advertised ports and custom-port offsets. Check the a
 | PyroWave unavailable | Unsupported Android ABI/Vulkan features, a host without PyroWave support, host codec version or surface format. | Read the codec readiness message. PyroWave needs a host that supports it (currently Rubylight); otherwise, and on unsupported devices, use Automatic/HEVC/AV1. Test link throughput before raising PyroWave bitrate. |
 | Custom GPU driver cannot be selected | Device/app does not meet the custom-driver requirements. | Custom drivers require Android 10+, arm64 and an Adreno GPU. Other devices use the system driver. This option affects PyroWave's Vulkan path, not MediaCodec. |
 | Driver ZIP is rejected | Invalid metadata, paths, ABI or package size. | Use a compatible Adreno package with root-level `meta.json` and arm64 libraries; see [package requirements](video-and-latency.md#snapdragon-gpu-drivers). A ZIP containing a parent folder is rejected. |
-| Custom driver falls back or the app exits | Driver loading, Vulkan checks or initialization failed, or the driver was active when the process exited. | Select **Settings → Stream → Snapdragon GPU driver → System GPU driver**, then start a new stream. After an interrupted custom-driver session, the next launch resets that selection automatically. Debug shows the driver actually used. |
+| Custom driver falls back or the app exits | Driver loading, Vulkan checks or initialization failed, or the driver was active when the process exited. | Select **Settings → Advanced → Snapdragon GPU driver → System GPU driver**, then start a new stream. After an interrupted custom-driver session, the next launch resets that selection automatically. Debug shows the driver actually used. |
 | Statistics shows **—** | The renderer/host has not provided that metric. | Wait for samples and inspect Debug. Display callbacks, host timings and individual hardware readings may be unavailable; a missing value is not zero. |
 | Host CPU/AMD GPU readings are missing | Host opt-in/capability, permissions, stream eligibility or driver support is absent. | Use a host that supports it (currently Rubylight) and enable **Send hardware metrics to client** in its settings (on Rubylight: **Settings → General → Hardware metrics**), reconnect a normal/Remote Monitor stream and show the overlay. The paired device needs its own active video stream and viewer permission. GPU readings require AMD ADLX; CPU usage can work independently. Check the host's metric selection. |
 | Host hardware readings disappear | The overlay/app became inactive, a request failed or the sample became stale. | Return to the foreground overlay and wait for a fresh sample. Temporary failures retry with backoff; reconnect after changing host settings or permissions. Disappearing metrics are cleared instead of displaying old values. |
@@ -51,7 +51,7 @@ See [video and latency](video-and-latency.md#performance-overlay) for metric def
 
 | Symptom | Likely cause | Fix |
 | --- | --- | --- |
-| USB DualSense has no adaptive triggers | Direct USB driver is off, access denied, or host feedback unavailable. | Enable **Advanced → USB DualSense driver**, reconnect the cable and allow USB access during a stream. Check host support. Bluetooth uses Android's input path. |
+| USB DualSense has no adaptive triggers | Direct USB driver is off, access denied, or host feedback unavailable. | Enable **Settings → Controls → USB DualSense driver**, reconnect the cable and allow USB access during a stream. Check host support. Bluetooth uses Android's input path. |
 | Mouse look behaves like a desktop cursor | Desktop mouse mode or capture state. | Turn Desktop mouse mode off and use Ctrl+Alt+Shift+Z to recapture input. |
 | Controller stick drifts | Deadzone too small for that pad/game. | Increase Analog stick deadzone slightly and compare. |
 | Touch behaves like a mouse | Trackpad/Direct mouse selected, or native touch unavailable. | Select Multi-touch and grant Touch input on the host. A host without native touch falls back to Direct mouse. |
@@ -71,7 +71,7 @@ On a paired host that supports it (Rubylight, or Vibepollo with PyroWave availab
 
 1. Reproduce the problem and note the app version, device/Android version, host version and time.
 2. Open **Settings → App → Report a problem**, select **Share** and choose a receiving app in Android's share sheet.
-3. Attach **Overlay → Copy stats** and **Settings → Advanced → Export latency CSV** when relevant. Copy stats includes all Debug details.
+3. Attach **Overlay → Copy stats** and **Settings → Developer options → Export latency CSV** when relevant. Copy stats includes all Debug details.
 4. For pairing/host issues, long-press the PC, use **PC settings… → View details → Copy debug info**, and add the relevant host log.
 5. Describe what you did, what you expected and what occurred in a [Nightjar issue](https://github.com/RamazanKara/nightjar-android/issues).
 

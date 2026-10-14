@@ -4,7 +4,7 @@
 
 ## Recovering a connection
 
-**Settings → App → Recover interrupted streams** is off by default. When it is on, after a temporary transport failure, a normal game stream retries after 1, 2, 4, 8 and 12 seconds, with at most five attempts and a one-minute budget including connection startup. The progress dialog shows the attempt; Back cancels. Leaving the stream cancels pending recovery. A connection must remain up for 30 seconds before another interruption receives a fresh retry budget.
+**Settings → Streaming → Recover interrupted streams** is off by default. When it is on, after a temporary transport failure, a normal game stream retries after 1, 2, 4, 8 and 12 seconds, with at most five attempts and a one-minute budget including connection startup. The progress dialog shows the attempt; Back cancels. Leaving the stream cancels pending recovery. A connection must remain up for 30 seconds before another interruption receives a fresh retry budget.
 
 When an established game stream stops because the screen locks or the app leaves the foreground, returning can resume that captured game through the same bounded policy. No connection starts while the app is in the background. Time spent locked does not count as a stable connection or refresh an exhausted retry budget. Leaving during startup, a queued retry or teardown cancels that handoff and keeps recovery manual. With **Recover interrupted streams** off, leaving the stream ends it and there is no automatic recovery after screen lock.
 
@@ -18,7 +18,7 @@ Android 0.4.9 preserves microphone mute for the current session through automati
 
 ## Choosing automatic quality
 
-**Settings → Stream → Automatic stream quality** is off by default. Choose the mode and the minimum short edge and FPS. The selected stream resolution and FPS are the upper bounds; a floor above those bounds is clamped to the starting value. Aspect ratio and decoder alignment are preserved. For a stream set to follow the native display, its ceiling follows fold, window and panel changes.
+**Settings → Video → Automatic stream quality** is off by default. Choose the mode, then the minimum short edge and FPS, which are available while it is on. The selected stream resolution and FPS are the upper bounds; a floor above those bounds is clamped to the starting value. Aspect ratio and decoder alignment are preserved. For a stream set to follow the native display, its ceiling follows fold, window and panel changes.
 
 | Mode | Behavior |
 | --- | --- |

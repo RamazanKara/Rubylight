@@ -6,7 +6,7 @@ If your host has per-device permissions, it must grant the relevant input permis
 
 ## Gamepads
 
-Connect a Bluetooth controller in Android's Bluetooth settings or plug a USB controller into the device. **Settings → Controls → Detect controllers** is on by default and supports multiple players; the protocol provides up to 16 controller slots.
+Connect a Bluetooth controller in Android's Bluetooth settings or plug a USB controller into the device. **Settings → Controls → Multiple controllers** is on by default and gives each controller its own player; the protocol provides up to 16 controller slots.
 
 Use **Controller buttons** to press a digital button and choose what it sends, including **Nothing**. Mappings are stored per controller model and apply on the next stream, including the USB drivers. **Reset this controller** restores its default mapping.
 
@@ -20,7 +20,7 @@ Bluetooth DualSense uses Android's controller path. Controller motion, lights, b
 
 For direct DualSense or DualSense Edge USB support:
 
-1. Enable **Settings → Advanced → USB DualSense driver** and accept its explanation.
+1. Enable **Settings → Controls → USB DualSense driver** and accept its explanation.
 2. Connect the pad by USB and start a stream.
 3. Allow Android's USB access request. Nightjar can then send host-provided adaptive trigger effects, rumble and lightbar changes and read the pad's input and Edge paddles.
 

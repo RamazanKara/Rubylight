@@ -4,9 +4,12 @@ use crate::{
 };
 use anyhow::{Context, Result, bail};
 #[cfg(not(test))]
-use butterpollo_windows::{display::virtual_display_available, process::ensure_streaming_session};
+use butterpollo_windows::{
+    display::virtual_display_available,
+    process::ensure_streaming_session as ensure_windows_streaming_session,
+};
 #[cfg(test)]
-use parity_tests::ensure_streaming_session;
+use parity_tests::ensure_streaming_session as ensure_windows_streaming_session;
 #[cfg(test)]
 fn virtual_display_available() -> bool {
     false
@@ -938,6 +941,26 @@ async fn blocking(work: impl FnOnce() -> Response + Send + 'static) -> Response 
         .await
         .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
 }
+pub(crate) fn check_streaming_session(h: &Shared, phase: &'static str) -> Result<()> {
+    #[cfg(test)]
+    let result = match &h.reconnect_fixture {
+        Some(fixture) => fixture.check_streaming_session(),
+        None => ensure_windows_streaming_session(),
+    };
+    #[cfg(not(test))]
+    let result = {
+        let _ = h;
+        ensure_windows_streaming_session()
+    };
+    // Success is useful evidence too: launch preparation can take seconds or
+    // minutes, so the final accepted-launch timestamp is not the first check.
+    tracing::info!(
+        phase,
+        ready = result.is_ok(),
+        "Windows streaming session gate sampled"
+    );
+    result
+}
 fn start(h: Shared, connection: Connection, args: Args, resume: bool) -> Response {
     let requested = args
         .get("appid")
@@ -965,7 +988,14 @@ fn start(h: Shared, connection: Connection, args: Args, resume: bool) -> Respons
     // joins the running game.
     let reply = if resume { "resume" } else { "gamesession" };
     if control != Some(Control::Terminate)
-        && let Err(error) = ensure_streaming_session()
+        && let Err(error) = check_streaming_session(
+            &h,
+            if resume {
+                "resume_request"
+            } else {
+                "launch_request"
+            },
+        )
     {
         return launch_response(Err(error), requested, reply, resume, false);
     }
@@ -1063,12 +1093,29 @@ fn start(h: Shared, connection: Connection, args: Args, resume: bool) -> Respons
             drop(canceled);
             return Err(error);
         }
-        prepare_launch_app(&h, &args, app.as_ref(), &launch, &id)?;
+        let prepared_app = prepare_launch_app(&h, &args, app.as_ref(), &launch, &id)?;
+        if let Err(error) = check_streaming_session(
+            &h,
+            if resume {
+                "resume_prepared"
+            } else {
+                "launch_prepared"
+            },
+        ) {
+            let canceled = h.sessions.lock().unwrap().pending.remove(&id);
+            // A newly started app still belongs to this attempt. Its RAII
+            // teardown stops it and undoes prep commands, outside host locks.
+            // An existing/resumed app has never been moved out of current_app.
+            drop(prepared_app);
+            drop(canceled);
+            return Err(error);
+        }
         // The client has 30 s to connect from now on.
         match h.sessions.lock().unwrap().pending.get_mut(&id) {
             Some(pending) => pending.created = Instant::now(),
             None => bail!("the launch was replaced by a newer one from this device"),
         }
+        retain_launch_app(&h, &launch, prepared_app);
         drop(preparing);
         tracing::info!(
             client = %launch.client.name,
@@ -1453,10 +1500,10 @@ fn prepare_launch_app(
     app: Option<&App>,
     launch: &Launch,
     id: &str,
-) -> Result<()> {
+) -> Result<Option<crate::process::RunningApp>> {
     #[cfg(test)]
-    if h.reconnect_fixture.is_some() {
-        return Ok(());
+    if let Some(fixture) = &h.reconnect_fixture {
+        return fixture.prepare_app(h, app, launch);
     }
     if launch.role != Role::InputOnly {
         let config = crate::stream::effective_config(h, launch)?;
@@ -1499,24 +1546,35 @@ fn prepare_launch_app(
         process_args.insert("clientName".into(), launch.client.name.clone());
         process_args.insert("clientUuid".into(), launch.client.uuid.clone());
         match crate::process::launch(h, app.context("application not found")?, &process_args) {
-            Ok(running) => {
-                let mut current = h.current_app.lock().unwrap();
-                if current.is_none() {
-                    *current = Some(running);
-                } else {
-                    drop(current);
-                    tracing::warn!(
-                        "another application started meanwhile; this launch's app is stopped"
-                    );
-                    drop(running);
-                }
-            }
+            Ok(running) => return Ok(Some(running)),
             Err(e) => {
                 let canceled = h.sessions.lock().unwrap().pending.remove(id);
                 drop(canceled);
                 return Err(e);
             }
         }
+    }
+    Ok(None)
+}
+fn retain_launch_app(
+    h: &Shared,
+    launch: &Launch,
+    prepared_app: Option<crate::process::RunningApp>,
+) {
+    if let Some(running) = prepared_app {
+        let mut current = h.current_app.lock().unwrap();
+        if current.is_none() {
+            *current = Some(running);
+        } else {
+            drop(current);
+            tracing::warn!("another application started meanwhile; this launch's app is stopped");
+            drop(running);
+        }
+    }
+    #[cfg(test)]
+    if let Some(fixture) = &h.reconnect_fixture {
+        fixture.retain_resources();
+        return;
     }
     if launch.role == Role::Stream {
         *h.app_audio.lock().unwrap() = launch
@@ -1538,7 +1596,6 @@ fn prepare_launch_app(
                 .insert(launch.client.uuid.clone(), (lease, None));
         }
     }
-    Ok(())
 }
 fn launch_response(
     result: Result<(String, String)>,

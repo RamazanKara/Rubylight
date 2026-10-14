@@ -676,6 +676,33 @@ async fn launch_and_resume_reject_disconnected_sessions_before_preparation() {
 }
 
 #[tokio::test]
+async fn the_session_gate_keeps_authorization_and_terminate_semantics() {
+    let f = Fixture::new();
+    f.client(1 << 24);
+    SESSION_ERROR.set(Some("session gate must not run for these requests"));
+    let unauthorized = start(f.host.clone(), f.connection(true), Args::new(), false);
+    f.host.paired.write().unwrap().clients[0].perm = 1 << 26;
+    let terminate = start(
+        f.host.clone(),
+        f.connection(true),
+        Args::from([("appid".into(), "2147483504".into())]),
+        false,
+    );
+    SESSION_ERROR.set(None);
+    assert_eq!(
+        document(unauthorized).await.attributes["status_code"],
+        "401"
+    );
+    let terminate = document(terminate).await;
+    assert_eq!(terminate.attributes["status_code"], "409");
+    assert_eq!(
+        terminate.attributes["status_message"],
+        "No application is running"
+    );
+    assert!(f.host.sessions.lock().unwrap().pending.is_empty());
+}
+
+#[tokio::test]
 async fn launch_and_resume_reject_permissions_and_report_protocol_failures() {
     let f = Fixture::new();
     f.client(1 << 24);

@@ -5523,6 +5523,54 @@ retained in `outputs/startup-pacing`, including `matched-policy-model.json`,
 `benchmark-summary.json` and `workspace-opt-in-final.log`; raw UDP records
 are under `D:\CodexArtifacts\rubylight-startup-pacing\loopback`.
 
+### RDP transition checks before 2.2.19
+
+The [latest issue #18 report](https://github.com/RamazanKara/Rubylight/issues/18#issuecomment-6164080730)
+confirms that headless display handover still works, but describes a stream
+accepted after RDP disconnection and terminated during Windows arbitration.
+The existing code already queries the host process's own Windows session ID;
+the report does not establish a wrong-ID lookup. It did expose a timing gap:
+the session check ran before display/audio/app preparation, while the accepted
+launch log appeared only after that potentially lengthy work.
+
+The host now rechecks after preparation and immediately before RTSP playback.
+A newly prepared app stays locally owned until acceptance, so a late refusal
+runs its teardown and undo commands instead of retaining it as the current
+app. Pending display and audio preparations are released. A resumed game or
+an app already accepted by HTTP retains its existing resumable lifecycle;
+rejecting one pending PLAY does not stop another client's stream.
+
+The Windows classifier still supports genuine console sign-in and lock-screen
+sessions. New diagnostics record the host and console IDs, connection state,
+protocol, acceptance reason and launch phase. They are needed to distinguish
+a transition during preparation from an unexpected Windows classification;
+no observed bad classification tuple was supplied with the report.
+
+Explicit Return to console additionally permits a signed-in destination only
+when it is disconnected and Windows user tokens prove both sessions belong
+to the same user. Its state and the console ID are rechecked after those
+identity reads. Active destinations, different users, unavailable identities
+and changed IDs remain blocked. This exception normally requires the installed
+SYSTEM service; portable hosts without token-query access retain the existing
+empty-console path. No session is moved automatically.
+
+Regression coverage injects Windows state changes into real HTTP/RTSP paths
+and uses fake display/audio owners. It also exercises a hidden preparation
+command and its undo marker. No physical RDP handover, live console transfer,
+display change or installed-host restart was performed. The affected host
+still needs to confirm recovery, and Windows can still switch sessions after
+playback has begun.
+
+The combined local workspace passed **991 tests, zero failures**, with 58
+existing hardware/manual checks ignored: 225 host, 437 core, 275 Windows,
+50 setup and four credential/Playnite/Vulkan tests. The new authorization and
+Terminate regression also passed in that full run. Evidence is retained in
+`outputs/issue-18-session-gate`, including `workspace-final.log`,
+`host-session-transition-tests.log` and `web-check.log`.
+Formatting, strict all-target Clippy and all five release-tooling checks also
+passed. Independent final code and documentation review found no actionable
+regressions; it did not perform a live Windows session transfer.
+
 ## Hardware covered
 
 Measurements ran with AMD AMF on an RX 7900 XT host, with real-client Wi-Fi

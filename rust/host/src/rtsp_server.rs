@@ -309,6 +309,15 @@ async fn connection(
                         .unwrap()
                         .remove(&launch.id)
                         .context("ANNOUNCE required before PLAY")?;
+                    if let Err(error) = crate::nvhttp::check_streaming_session(&h, "rtsp_play") {
+                        let canceled = h.sessions.lock().unwrap().pending.remove(&launch.id);
+                        mics.lock().unwrap().remove(&launch.id);
+                        // Release only this pending attempt, outside session
+                        // locks. The app accepted by HTTP remains resumable;
+                        // other streams and app-scoped leases keep ownership.
+                        drop(canceled);
+                        return Err(error);
+                    }
                     let session = h.sessions.lock().unwrap().start(launch.clone(), config)?;
                     media.start(h.clone(), session);
                 }

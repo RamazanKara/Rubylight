@@ -97,7 +97,6 @@ pub fn is_system() -> bool {
 /// folders hold per-user program settings. Without the service this is the
 /// current user.
 pub fn user_sid() -> Option<String> {
-    use windows::Win32::Security::Authorization::ConvertSidToStringSidW;
     let user_token = if is_system() {
         target_token(&Target::User { elevated: false }).ok()?
     } else {
@@ -105,6 +104,10 @@ pub fn user_sid() -> Option<String> {
     };
     let own = token().ok()?;
     let token = user_token.as_ref().unwrap_or(&own);
+    token_user_sid(token).ok()
+}
+fn token_user_sid(token: &OwnedHandle) -> Result<String> {
+    use windows::Win32::Security::Authorization::ConvertSidToStringSidW;
     // SAFETY: `buffer` holds a TOKEN_USER once the call succeeds, and the string from
     // ConvertSidToStringSidW is read before it is freed once with LocalFree.
     unsafe {
@@ -116,14 +119,17 @@ pub fn user_sid() -> Option<String> {
             Some(buffer.as_mut_ptr().cast()),
             size_of::<[usize; 64]>() as u32,
             &mut needed,
-        )
-        .ok()?;
+        )?;
+        anyhow::ensure!(
+            needed as usize >= size_of::<TOKEN_USER>(),
+            "Windows returned an invalid token owner"
+        );
         let user = &*buffer.as_ptr().cast::<TOKEN_USER>();
         let mut text = PWSTR::null();
-        ConvertSidToStringSidW(user.User.Sid, &mut text).ok()?;
-        let sid = text.to_string().ok();
+        ConvertSidToStringSidW(user.User.Sid, &mut text)?;
+        let sid = text.to_string();
         let _ = LocalFree(Some(HLOCAL(text.0.cast())));
-        sid
+        sid.context("Windows returned an invalid user SID")
     }
 }
 /// Give only SYSTEM and Administrators access to `folder` and the files in
@@ -369,9 +375,42 @@ pub fn process_session(pid: u32) -> Result<u32> {
     Ok(session)
 }
 pub fn ensure_streaming_session() -> Result<()> {
-    let session = current_session()?;
-    let (state, protocol) = session_connection(session)?;
-    validate_streaming_session(state, session == console_session() && protocol == 0)
+    ensure_streaming_session_with(current_session, console_session, session_connection)
+}
+fn ensure_streaming_session_with(
+    current: impl FnOnce() -> Result<u32>,
+    console: impl FnOnce() -> u32,
+    connection: impl FnOnce(u32) -> Result<(WTS_CONNECTSTATE_CLASS, u16)>,
+) -> Result<()> {
+    let session = current()?;
+    let (state, protocol) = match connection(session) {
+        Ok(connection) => connection,
+        Err(error) => {
+            tracing::warn!(session_id = session, %error, "Windows session query failed");
+            return Err(error);
+        }
+    };
+    let console = console();
+    let result = validate_streaming_session(state, session == console && protocol == 0);
+    let console_exception = state != WTSActive && result.is_ok();
+    let decision = if state == WTSActive {
+        "active"
+    } else if console_exception {
+        "physical_console_sign_in_or_lock"
+    } else {
+        "disconnected_or_changing"
+    };
+    tracing::info!(
+        session_id = session,
+        console_session_id = console,
+        state = state.0,
+        protocol,
+        console_exception,
+        allowed = result.is_ok(),
+        decision,
+        "Windows session streaming check"
+    );
+    result
 }
 fn session_connection(session: u32) -> Result<(WTS_CONNECTSTATE_CLASS, u16)> {
     let mut buffer = PWSTR::null();
@@ -441,6 +480,49 @@ fn session_has_user(session: u32) -> Result<bool> {
     }
 }
 
+fn session_user_sid(session: u32) -> Result<String> {
+    let mut token = HANDLE::default();
+    // SAFETY: WTS returns an owned token for this session's signed-in user.
+    // OwnedHandle closes it after reading its SID; no token is exposed or used
+    // to impersonate the user. Non-SYSTEM callers normally cannot query it.
+    let token = unsafe {
+        WTSQueryUserToken(session, &mut token)
+            .context("Cannot verify the Windows session owner")?;
+        owned(token)
+    };
+    token_user_sid(&token)
+}
+
+fn same_disconnected_owner(
+    state: Option<WTS_CONNECTSTATE_CLASS>,
+    source_sid: Option<&str>,
+    target_sid: Option<&str>,
+) -> bool {
+    state == Some(WTSDisconnected)
+        && source_sid
+            .zip(target_sid)
+            .is_some_and(|(source, target)| !source.is_empty() && source == target)
+}
+
+fn verify_disconnected_console_owner(
+    session: u32,
+    console: u32,
+    mut state: impl FnMut(u32) -> Result<WTS_CONNECTSTATE_CLASS>,
+    mut user_sid: impl FnMut(u32) -> Result<String>,
+    current_console: impl FnOnce() -> u32,
+) -> Result<bool> {
+    if state(console)? != WTSDisconnected {
+        return Ok(false);
+    }
+    let source_sid = user_sid(session)?;
+    let target_sid = user_sid(console)?;
+    // Check the destination again after querying the tokens: a user
+    // reconnecting while status is read must not be treated as idle.
+    let target_state = state(console)?;
+    Ok(current_console() == console
+        && same_disconnected_owner(Some(target_state), Some(&source_sid), Some(&target_sid)))
+}
+
 fn reattach_blocker(
     session: u32,
     console: u32,
@@ -448,6 +530,7 @@ fn reattach_blocker(
     protocol: u16,
     host_has_user: bool,
     console_has_user: bool,
+    same_disconnected_user: bool,
 ) -> Option<&'static str> {
     if session == console && protocol == 0 {
         Some("This host is already attached to the physical console.")
@@ -457,9 +540,9 @@ fn reattach_blocker(
         )
     } else if protocol != 2 || (state != WTSActive && state != WTSDisconnected) || !host_has_user {
         Some("Only this host's signed-in RDP session can be returned to the console.")
-    } else if console_has_user {
+    } else if console_has_user && !same_disconnected_user {
         Some(
-            "Another Windows session owns the physical console. Sign it out at the PC before retrying; Rubylight will not disconnect it.",
+            "The physical console has a signed-in user. Rubylight can return to it only if that session is disconnected and Windows verifies that both sessions belong to the same user. Active sessions, different users and unverifiable owners are not disconnected.",
         )
     } else {
         None
@@ -478,6 +561,43 @@ pub fn console_recovery() -> Result<ConsoleRecovery> {
     } else {
         session_has_user(console)?
     };
+    // The existing unoccupied-console path does not need user-token access.
+    // A signed-in destination gains an exception only after both owners are
+    // verified from Windows tokens; matching display names are insufficient.
+    let same_disconnected_user = if console_has_user
+        && reattach_blocker(
+            session,
+            console,
+            state,
+            protocol,
+            host_has_user,
+            false,
+            false,
+        )
+        .is_none()
+    {
+        let verified = verify_disconnected_console_owner(
+            session,
+            console,
+            |session| Ok(session_connection(session)?.0),
+            session_user_sid,
+            console_session,
+        );
+        match verified {
+            Ok(same) => same,
+            Err(error) => {
+                tracing::debug!(
+                    session_id = session,
+                    console_session_id = console,
+                    %error,
+                    "Cannot verify a disconnected console owner; keeping return to console blocked"
+                );
+                false
+            }
+        }
+    } else {
+        false
+    };
     let reason = reattach_blocker(
         session,
         console,
@@ -485,12 +605,17 @@ pub fn console_recovery() -> Result<ConsoleRecovery> {
         protocol,
         host_has_user,
         console_has_user,
+        same_disconnected_user,
     );
     Ok(ConsoleRecovery {
         session_id: session,
         console_session_id: console,
         can_reattach: reason.is_none(),
-        reason: reason.unwrap_or("Return this RDP desktop to the PC's unoccupied physical console. The desktop becomes visible at the PC and its RDP connection disconnects.").into(),
+        reason: reason.unwrap_or(if same_disconnected_user {
+            "Return this RDP desktop to the PC's physical console. Its disconnected session belongs to the same Windows user. The desktop becomes visible at the PC and its RDP connection disconnects."
+        } else {
+            "Return this RDP desktop to the PC's unoccupied physical console. The desktop becomes visible at the PC and its RDP connection disconnects."
+        }).into(),
     })
 }
 
@@ -505,8 +630,9 @@ pub fn reattach_console(expected_session: u32, expected_console: u32) -> Result<
         bail!("{}", status.reason);
     }
     // SAFETY: Both IDs were freshly queried; the source is this process's own
-    // session and the destination has no signed-in user. The non-null empty
-    // password asks Windows to authorize the caller, without handling credentials.
+    // session and the destination has no signed-in user, or is disconnected
+    // with a freshly verified matching user SID. The non-null empty password
+    // asks Windows to authorize the caller, without handling credentials.
     // Return asynchronously so session-change notifications cannot deadlock
     // the service supervisor waiting for this host to finish an API request.
     unsafe {
@@ -1408,8 +1534,8 @@ mod tests {
     #[test]
     fn console_reattachment_refuses_other_users_and_transitional_sessions() {
         use super::*;
-        assert!(reattach_blocker(4, 1, WTSDisconnected, 2, true, false).is_none());
-        assert!(reattach_blocker(4, 1, WTSActive, 2, true, false).is_none());
+        assert!(reattach_blocker(4, 1, WTSDisconnected, 2, true, false, false).is_none());
+        assert!(reattach_blocker(4, 1, WTSActive, 2, true, false, false).is_none());
         for (source, console, state, protocol, user, occupied) in [
             (4, 1, WTSDisconnected, 2, true, true),
             (4, 1, WTSDisconnected, 2, false, false),
@@ -1420,7 +1546,119 @@ mod tests {
             (4, 4, WTSActive, 0, true, false),
             (0, 1, WTSDisconnected, 2, true, false),
         ] {
-            assert!(reattach_blocker(source, console, state, protocol, user, occupied).is_some());
+            assert!(
+                reattach_blocker(source, console, state, protocol, user, occupied, false).is_some()
+            );
+        }
+    }
+    #[test]
+    fn occupied_console_requires_a_disconnected_verified_matching_owner() {
+        use super::*;
+        const OWNER: &str = "S-1-5-21-100-200-300-1001";
+        const OTHER: &str = "S-1-5-21-100-200-300-1002";
+        for (state, source, target, allowed) in [
+            (Some(WTSDisconnected), Some(OWNER), Some(OWNER), true),
+            (Some(WTSActive), Some(OWNER), Some(OWNER), false),
+            (Some(WTSConnected), Some(OWNER), Some(OWNER), false),
+            (None, Some(OWNER), Some(OWNER), false),
+            (Some(WTSDisconnected), Some(OWNER), Some(OTHER), false),
+            (Some(WTSDisconnected), None, Some(OWNER), false),
+            (Some(WTSDisconnected), Some(OWNER), None, false),
+            (Some(WTSDisconnected), None, None, false),
+            (Some(WTSDisconnected), Some(""), Some(""), false),
+        ] {
+            let verified = same_disconnected_owner(state, source, target);
+            for host_state in [WTSActive, WTSDisconnected] {
+                assert_eq!(
+                    reattach_blocker(4, 1, host_state, 2, true, true, verified).is_none(),
+                    allowed,
+                    "target state {state:?}, source {source:?}, target {target:?}"
+                );
+            }
+        }
+        // An owner match cannot authorize a different source or a changing console.
+        for (source, console, state, protocol, signed_in) in [
+            (0, 1, WTSDisconnected, 2, true),
+            (4, u32::MAX, WTSDisconnected, 2, true),
+            (4, 4, WTSDisconnected, 2, true),
+            (4, 1, WTSConnected, 2, true),
+            (4, 1, WTSDisconnected, 0, true),
+            (4, 1, WTSDisconnected, 2, false),
+        ] {
+            assert!(
+                reattach_blocker(source, console, state, protocol, signed_in, true, true).is_some()
+            );
+        }
+    }
+    #[test]
+    fn console_owner_verification_rechecks_the_target_after_reading_both_tokens() {
+        use super::*;
+        use std::cell::Cell;
+        for (final_state, final_console, allowed) in [
+            (WTSDisconnected, 1, true),
+            (WTSActive, 1, false),
+            (WTSDisconnected, 2, false),
+        ] {
+            let state_reads = Cell::new(0);
+            let sid_reads = Cell::new(0);
+            let verified = verify_disconnected_console_owner(
+                4,
+                1,
+                |session| {
+                    assert_eq!(session, 1);
+                    let read = state_reads.get();
+                    state_reads.set(read + 1);
+                    assert_eq!(sid_reads.get(), if read == 0 { 0 } else { 2 });
+                    Ok(if read == 0 {
+                        WTSDisconnected
+                    } else {
+                        final_state
+                    })
+                },
+                |session| {
+                    assert_eq!(state_reads.get(), 1);
+                    assert_eq!(session, if sid_reads.get() == 0 { 4 } else { 1 });
+                    sid_reads.set(sid_reads.get() + 1);
+                    Ok("S-1-5-21-100-200-300-1001".into())
+                },
+                || {
+                    assert_eq!(state_reads.get(), 2);
+                    assert_eq!(sid_reads.get(), 2);
+                    final_console
+                },
+            )
+            .unwrap();
+            assert_eq!(verified, allowed);
+            assert_eq!(state_reads.get(), 2);
+            assert_eq!(sid_reads.get(), 2);
+        }
+    }
+    #[test]
+    fn console_owner_verification_fails_closed_when_either_token_query_fails() {
+        use super::*;
+        use std::cell::Cell;
+        for failed_session in [4, 1] {
+            let state_reads = Cell::new(0);
+            let sid_reads = Cell::new(0);
+            let error = verify_disconnected_console_owner(
+                4,
+                1,
+                |session| {
+                    assert_eq!(session, 1);
+                    state_reads.set(state_reads.get() + 1);
+                    Ok(WTSDisconnected)
+                },
+                |session| {
+                    sid_reads.set(sid_reads.get() + 1);
+                    anyhow::ensure!(session != failed_session, "session token unavailable");
+                    Ok("S-1-5-21-100-200-300-1001".into())
+                },
+                || panic!("do not accept a console after an identity query failed"),
+            )
+            .unwrap_err();
+            assert!(error.to_string().contains("session token unavailable"));
+            assert_eq!(state_reads.get(), 1);
+            assert_eq!(sid_reads.get(), if failed_session == 4 { 1 } else { 2 });
         }
     }
     #[test]
@@ -1469,6 +1707,46 @@ mod tests {
         for state in [WTSActive, WTSConnected, WTSDisconnected] {
             assert!(validate_streaming_session(state, true).is_ok());
         }
+    }
+    #[test]
+    fn streaming_gate_queries_the_host_session_instead_of_the_console() {
+        use super::*;
+        for (state, allowed) in [(WTSActive, true), (WTSDisconnected, false)] {
+            let result = ensure_streaming_session_with(
+                || Ok(4),
+                || 1,
+                |session| {
+                    assert_eq!(session, 4, "query the host's own RDP session");
+                    Ok((state, 2))
+                },
+            );
+            assert_eq!(result.is_ok(), allowed);
+        }
+        for state in [WTSConnected, WTSDisconnected] {
+            assert!(ensure_streaming_session_with(|| Ok(1), || 1, |_| Ok((state, 0))).is_ok());
+            assert!(ensure_streaming_session_with(|| Ok(1), || 1, |_| Ok((state, 2))).is_err());
+        }
+    }
+    #[test]
+    fn streaming_gate_fails_closed_when_the_host_session_cannot_be_queried() {
+        use super::*;
+        let error = ensure_streaming_session_with(
+            || anyhow::bail!("process session unavailable"),
+            || panic!("do not fall back to the console session"),
+            |_| panic!("do not query a substitute session"),
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("process session unavailable"));
+        let error = ensure_streaming_session_with(
+            || Ok(4),
+            || 1,
+            |session| {
+                assert_eq!(session, 4);
+                anyhow::bail!("connection state unavailable")
+            },
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("connection state unavailable"));
     }
     #[test]
     fn the_process_list_names_this_test_and_its_program() {

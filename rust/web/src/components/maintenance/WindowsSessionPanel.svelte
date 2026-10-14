@@ -29,7 +29,7 @@
     if (!selected?.can_reattach || busy) return;
     const ok = await confirm({
       title: 'Return this RDP desktop to the PC?',
-      message: 'The desktop becomes visible on the PC’s physical console and its RDP connection disconnects. Rubylight only moves its own Windows session and refuses if another signed-in session occupies the console. Disconnect Moonlight streams first.',
+      message: 'The desktop becomes visible on the PC’s physical console and its RDP connection disconnects. Rubylight only moves its own Windows session. The console must have no signed-in user, or contain a disconnected session verified to belong to the same user. Active sessions and other users are protected. Disconnect Moonlight streams first.',
       confirm: 'Return to console',
     });
     if (!ok) return;

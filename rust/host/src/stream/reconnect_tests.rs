@@ -22,7 +22,13 @@ const WAIT: Duration = Duration::from_secs(5);
 #[derive(Default)]
 pub(crate) struct Fixture {
     displays: Arc<AtomicUsize>,
+    audios: Arc<AtomicUsize>,
     inputs: Arc<AtomicUsize>,
+    session_disconnected: AtomicBool,
+    disconnect_during_preparation: AtomicBool,
+    session_checks: AtomicUsize,
+    apps_prepared: AtomicUsize,
+    resources_retained: AtomicUsize,
     pub(super) input_releases: AtomicUsize,
     video_after_input_release: AtomicUsize,
     hold_teardown: AtomicBool,
@@ -52,6 +58,16 @@ struct Display {
     _slot: Slot,
     fixture: Arc<Fixture>,
 }
+struct Audio {
+    _slot: Slot,
+}
+impl butterpollo_core::session::AudioPreparation<butterpollo_windows::audio_route::Route>
+    for Audio
+{
+    fn route(&self) -> Arc<butterpollo_windows::audio_route::Route> {
+        panic!("the fake audio must never enter native audio preparation")
+    }
+}
 impl Preparation<crate::display_session::StreamPreparation> for Display {
     fn prepared(&self) -> &crate::display_session::StreamPreparation {
         panic!("the fake display must never enter native display preparation")
@@ -73,6 +89,35 @@ impl Drop for Display {
 }
 
 impl Fixture {
+    pub(crate) fn check_streaming_session(&self) -> Result<()> {
+        self.session_checks.fetch_add(1, Ordering::AcqRel);
+        anyhow::ensure!(
+            !self.session_disconnected.load(Ordering::Acquire),
+            "The host Windows session is disconnected or changing. Retry in a moment."
+        );
+        Ok(())
+    }
+    pub(crate) fn prepare_app(
+        &self,
+        h: &Shared,
+        app: Option<&App>,
+        launch: &Launch,
+    ) -> Result<Option<crate::process::RunningApp>> {
+        *launch.audio_preparation.lock().unwrap() = Some(Box::new(Audio {
+            _slot: Slot::new(&self.audios),
+        }));
+        if launch.role == Role::Stream && h.current_app.lock().unwrap().is_none() {
+            self.apps_prepared.fetch_add(1, Ordering::AcqRel);
+            return Ok(Some(crate::process::RunningApp::with_environment(
+                app.context("fixture application missing")?,
+                Default::default(),
+            )?));
+        }
+        Ok(None)
+    }
+    pub(crate) fn retain_resources(&self) {
+        self.resources_retained.fetch_add(1, Ordering::AcqRel);
+    }
     pub(crate) async fn before_rtsp_cleanup(&self) {
         if !self.hold_rtsp_cleanup.swap(false, Ordering::AcqRel) {
             return;
@@ -110,6 +155,9 @@ impl Fixture {
             _slot: Slot::new(&self.displays),
             fixture: self.clone(),
         }));
+        if self.disconnect_during_preparation.load(Ordering::Acquire) {
+            self.session_disconnected.store(true, Ordering::Release);
+        }
     }
     pub(crate) fn input(&self) -> Slot {
         Slot::new(&self.inputs)
@@ -131,6 +179,7 @@ impl Fixture {
         }
     }
     pub(super) fn stream(&self, media: &Media, h: &Shared, s: &Session) -> Result<()> {
+        let _audio = s.launch.audio_preparation.lock().unwrap().take();
         let mut packetizer = VideoPacketizer {
             sequence: 0,
             iv_counter: 0,
@@ -475,6 +524,7 @@ impl Harness {
             || {
                 self.h.sessions.lock().unwrap().idle()
                     && self.fixture.displays.load(Ordering::Acquire) == 0
+                    && self.fixture.audios.load(Ordering::Acquire) == 0
                     && self.fixture.inputs.load(Ordering::Acquire) == 0
             },
         )
@@ -703,6 +753,134 @@ impl Drop for Client {
             }
         }
     }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_session_change_during_launch_or_resume_releases_unaccepted_preparation() -> Result<()> {
+    for resume in [false, true] {
+        let h = Harness::new(10_000, 1).await?;
+        if !resume {
+            let previous = h.h.current_app.lock().unwrap().take();
+            drop(previous);
+        }
+        let undo_marker = h.directory.join("rejected-launch-prep.txt");
+        if !resume {
+            // with_environment runs the real prep/undo lifecycle. These are
+            // hidden cmd.exe built-ins writing only inside this test's TMP
+            // directory; no app window, input or user process is involved.
+            h.h.apps.write().unwrap()[0]
+                .prep
+                .push(butterpollo_core::state::PrepCommand {
+                    r#do: format!("echo prepared>\"{}\"", undo_marker.display()),
+                    undo: format!("echo undone>>\"{}\"", undo_marker.display()),
+                    elevated: false,
+                    extra: Default::default(),
+                });
+        }
+        let previous_generation =
+            h.h.current_app
+                .lock()
+                .unwrap()
+                .as_ref()
+                .map(|app| app.generation.clone());
+        h.fixture
+            .disconnect_during_preparation
+            .store(true, Ordering::Release);
+        let response = h.launch_response(0, resume).await?;
+        assert!(response.contains("status_code=\"503\""), "{response}");
+        assert!(response.contains("disconnected or changing"), "{response}");
+        assert_eq!(
+            xml(&response, if resume { "resume" } else { "gamesession" }),
+            "0"
+        );
+        assert!(!response.contains("sessionUrl0"));
+        assert_eq!(h.fixture.session_checks.load(Ordering::Acquire), 2);
+        assert_eq!(h.fixture.resources_retained.load(Ordering::Acquire), 0);
+        assert_eq!(
+            h.fixture.apps_prepared.load(Ordering::Acquire),
+            usize::from(!resume)
+        );
+        assert_eq!(
+            h.h.current_app
+                .lock()
+                .unwrap()
+                .as_ref()
+                .map(|app| app.generation.clone()),
+            previous_generation
+        );
+        assert!(h.h.app_audio.lock().unwrap().is_none());
+        if !resume {
+            assert_eq!(
+                std::fs::read_to_string(&undo_marker)?
+                    .lines()
+                    .collect::<Vec<_>>(),
+                ["prepared", "undone"],
+                "rejecting a newly prepared app must execute its real RAII undo"
+            );
+        }
+        h.empty().await?;
+
+        h.fixture
+            .disconnect_during_preparation
+            .store(false, Ordering::Release);
+        h.fixture
+            .session_disconnected
+            .store(false, Ordering::Release);
+        let retry = h.launch(0, resume).await?;
+        let (session, client) = h.play(&retry).await?;
+        h.end(&session, client).await?;
+        h.finish().await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_session_change_before_play_rejects_only_the_pending_attempt() -> Result<()> {
+    let h = Harness::new(10_000, 2).await?;
+    let live_launch = h.launch(0, false).await?;
+    let (session, client) = h.play(&live_launch).await?;
+    let generation =
+        h.h.current_app
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .generation
+            .clone();
+    let pending = h.launch(1, false).await?;
+    h.rtsp(
+        &pending,
+        1,
+        "ANNOUNCE",
+        "a=x-nv-video[0].clientViewportWd:640\r\na=x-nv-video[0].clientViewportHt:480\r\n",
+    )
+    .await?;
+    h.fixture
+        .session_disconnected
+        .store(true, Ordering::Release);
+    let error = h.rtsp(&pending, 2, "PLAY", "").await.unwrap_err();
+    assert!(
+        error.to_string().contains("disconnected or changing"),
+        "{error:#}"
+    );
+    // This test keeps an extra launch identity clone; real RTSP snapshots
+    // deliberately do not own its preparation. Release the test's clone too.
+    drop(pending);
+    h.counts(1, 0).await?;
+    assert!(!session.stopping());
+    assert_eq!(h.fixture.displays.load(Ordering::Acquire), 1);
+    assert_eq!(h.fixture.audios.load(Ordering::Acquire), 1);
+    assert_eq!(
+        h.h.current_app.lock().unwrap().as_ref().unwrap().generation,
+        generation
+    );
+    // HTTP already accepted this app; a later PLAY rejection must preserve
+    // its normal resumable lifecycle and must not stop another client's stream.
+    h.fixture
+        .session_disconnected
+        .store(false, Ordering::Release);
+    h.end(&session, client).await?;
+    h.finish().await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

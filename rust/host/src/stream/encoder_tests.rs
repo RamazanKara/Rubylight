@@ -9,6 +9,7 @@ struct MockEncoder {
     keep_backlog: bool,
     fault_directory: Option<PathBuf>,
     removed: Option<DeviceLost>,
+    poll_failure: bool,
 }
 fn frame(idr: bool) -> Encoded {
     Encoded {
@@ -21,6 +22,7 @@ fn frame(idr: bool) -> Encoded {
 }
 impl EncoderOutput for MockEncoder {
     fn poll(&mut self) -> Result<Vec<Encoded>> {
+        anyhow::ensure!(!self.poll_failure, "encoder output unavailable");
         if let Some(directory) = &self.fault_directory {
             crate::soak_fault::check_at(directory, "DXGI_ERROR_DEVICE_REMOVED")?;
         }
@@ -473,7 +475,7 @@ fn output_resets_the_stall_even_if_the_encoder_backlog_stays_full() -> Result<()
 }
 
 #[test]
-fn a_stall_deadline_at_the_budget_keeps_the_existing_terminal_message() -> Result<()> {
+fn a_stall_deadline_at_the_budget_still_ends_a_silent_encoder() -> Result<()> {
     let mut stream = Stream::new()?;
     let start = Instant::now();
     stream.inject(None)?;
@@ -482,7 +484,71 @@ fn a_stall_deadline_at_the_budget_keeps_the_existing_terminal_message() -> Resul
     }
     let end = stream.recovery.failing.unwrap() + ENCODER_RECOVERY;
     let error = stream.step(end).unwrap_err();
-    assert_eq!(error.to_string(), "the encoder stopped returning frames");
+    assert_eq!(
+        error.to_string(),
+        "the encoder did not produce a frame during recovery"
+    );
     assert!(stream.session.failed());
+    Ok(())
+}
+
+#[test]
+fn output_ready_after_a_late_wake_does_not_restart_a_healthy_encoder() -> Result<()> {
+    let start = Instant::now();
+    for failing in [None, Some(start)] {
+        let mut recovery = EncoderRecovery {
+            failing,
+            backlog_since: Some(start),
+            stall: crate::soak_fault::EncoderStall::new(None),
+            ..Default::default()
+        };
+        let mut encoder = Some(MockEncoder {
+            queued: [frame(false)].into(),
+            ..Default::default()
+        });
+        let warnings = butterpollo_core::session::Warnings::default();
+        // Cover both the first stall threshold and an existing recovery's
+        // terminal budget: ready output proves progress in either case.
+        let delayed = if failing.is_some() {
+            ENCODER_RECOVERY
+        } else {
+            Duration::from_millis(250)
+        };
+        let output = recovery
+            .poll_full(&mut encoder, &warnings, || start + delayed)?
+            .expect("completed output must be kept");
+        assert_eq!(output.len(), 1);
+        assert!(encoder.is_some());
+        assert!(recovery.backlog_since.is_none());
+        assert!(recovery.failing.is_none());
+        assert_eq!(recovery.recreations, 0);
+        assert!(warnings.snapshot().is_empty());
+    }
+    Ok(())
+}
+
+#[test]
+fn a_failed_poll_at_the_stall_deadline_schedules_one_recreation() -> Result<()> {
+    let start = Instant::now();
+    let mut recovery = EncoderRecovery {
+        backlog_since: Some(start),
+        ..Default::default()
+    };
+    let mut encoder = Some(MockEncoder {
+        poll_failure: true,
+        ..Default::default()
+    });
+    let warnings = butterpollo_core::session::Warnings::default();
+    let now = start + Duration::from_millis(250);
+    assert!(
+        recovery
+            .poll_full(&mut encoder, &warnings, || now)?
+            .is_none()
+    );
+    assert!(encoder.is_none());
+    assert_eq!(recovery.failing, Some(now));
+    assert!(recovery.backlog_since.is_none());
+    assert_eq!(recovery.recreations, 0);
+    assert_eq!(warnings.snapshot().len(), 1);
     Ok(())
 }

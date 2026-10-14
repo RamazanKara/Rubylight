@@ -210,6 +210,20 @@ impl EncoderRecovery {
         }
         let limit = butterpollo_core::stream_policy::encoder_stall_limit(self.recreations);
         let backlog_since = *self.backlog_since.get_or_insert_with(&now);
+        // The host can be descheduled while the GPU finishes its work. Poll
+        // before declaring a stall, or a late wake destroys healthy output
+        // and unnecessarily restarts the encoder.
+        let output = self.collect(encoder, warnings, &now)?;
+        if !output.is_empty() {
+            self.backlog_since = None;
+            return Ok(Some(output));
+        }
+        // collect can have dropped a failed encoder or requested device
+        // recovery. Let the session handle that before looking for a stall.
+        if encoder.is_none() || self.device_loss.is_some() {
+            self.backlog_since = None;
+            return Ok(None);
+        }
         if now().duration_since(backlog_since) >= limit {
             self.backlog_since = None;
             if let Some(loss) = encoder.as_ref().unwrap().device_removed() {
@@ -232,11 +246,6 @@ impl EncoderRecovery {
             self.recreations += 1;
             *encoder = None;
             return Ok(None);
-        }
-        let output = self.collect(encoder, warnings, now)?;
-        // Output is progress even when the in-flight count did not drop.
-        if !output.is_empty() {
-            self.backlog_since = None;
         }
         Ok(Some(output))
     }

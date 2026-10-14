@@ -125,7 +125,8 @@ public final class StreamMenu {
         ComputerDetails host = o.host;
         HostCapabilities caps = host.caps;
 
-        if (o.canSendInput) entries.add(entry(Section.QUICK, Item.KEYBOARD, R.string.stream_keyboard, R.drawable.ic_keyboard, false));
+        // Keyboard opens Android's keyboard and closes the menu: an action, not a switch.
+        if (o.canSendInput) entries.add(action(Section.QUICK, Item.KEYBOARD, R.string.stream_keyboard, R.drawable.ic_keyboard));
         if (o.mediaStream()) {
             entries.add(entry(Section.QUICK, Item.OVERLAY, R.string.stream_overlay_menu, R.drawable.ic_remote_monitor, o.overlayShown));
         }
@@ -300,6 +301,7 @@ public final class StreamMenu {
             if (entry.section == Section.QUICK) {
                 if (quickRow == null) quickRow = sheet.addToggleRow();
                 button = sheet.addToggle(quickRow, entry.icon, activity.getString(entry.label), Boolean.TRUE.equals(entry.checked));
+                if (entry.checked == null) button.setCheckable(false);
             } else {
                 if (entry.section != section) {
                     if (entry.section.title != 0) sheet.addSection(entry.section.title);
@@ -344,7 +346,7 @@ public final class StreamMenu {
         Options o = options.get();
         for (Entry entry : mainPage(o)) {
             MaterialButton button = rows.get(entry.item);
-            if (entry.section != Section.QUICK || button == null) continue;
+            if (entry.section != Section.QUICK || entry.checked == null || button == null) continue;
             button.setChecked(Boolean.TRUE.equals(entry.checked));
             button.setIconResource(entry.icon);
         }

@@ -1078,7 +1078,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     }
 
     private void enterPictureInPictureNow() {
-        if (!canEnterPictureInPicture() || !connected) return;
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || !canEnterPictureInPicture() || !connected) return;
         try {
             enterPictureInPictureMode(getPictureInPictureParams(false));
         } catch (IllegalStateException | IllegalArgumentException e) {
@@ -2301,13 +2301,16 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         // Lists and buttons handle their own keys; plain rows need the focus search the window would do.
         boolean handled = dialog.dispatchKeyEvent(down);
         dialog.dispatchKeyEvent(KeyEvent.changeAction(down, KeyEvent.ACTION_UP));
-        int direction = keyCode == KeyEvent.KEYCODE_DPAD_UP ? View.FOCUS_UP : keyCode == KeyEvent.KEYCODE_DPAD_DOWN ?
-                View.FOCUS_DOWN : keyCode == KeyEvent.KEYCODE_DPAD_LEFT ? View.FOCUS_LEFT :
-                keyCode == KeyEvent.KEYCODE_DPAD_RIGHT ? View.FOCUS_RIGHT : 0;
-        if (!handled && direction != 0) {
-            View next = focused.focusSearch(direction);
-            if (next != null) next.requestFocus(direction);
+        if (handled) return;
+        View next = null;
+        switch (keyCode) {
+            case KeyEvent.KEYCODE_DPAD_UP: next = focused.focusSearch(View.FOCUS_UP); break;
+            case KeyEvent.KEYCODE_DPAD_DOWN: next = focused.focusSearch(View.FOCUS_DOWN); break;
+            case KeyEvent.KEYCODE_DPAD_LEFT: next = focused.focusSearch(View.FOCUS_LEFT); break;
+            case KeyEvent.KEYCODE_DPAD_RIGHT: next = focused.focusSearch(View.FOCUS_RIGHT); break;
+            default: break;
         }
+        if (next != null) next.requestFocus();
     }
 
     private void showPerformanceOverlay(String mode) {

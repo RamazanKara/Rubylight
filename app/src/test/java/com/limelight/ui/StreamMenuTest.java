@@ -253,7 +253,9 @@ public class StreamMenuTest {
                 if (item == OVERLAY) state.overlayShown = !state.overlayShown;
             });
             menu.show();
+            assertFalse("Keyboard is an action, not a switch", menu.row(KEYBOARD).isCheckable());
             MaterialButton overlay = menu.row(OVERLAY);
+            assertTrue(overlay.isCheckable());
             assertFalse(overlay.isChecked());
             overlay.performClick();
             assertTrue(menu.row(OVERLAY).isChecked());

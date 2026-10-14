@@ -88,6 +88,9 @@ public class OverlayPlacementTest {
         // A cutout-safe stream's padding already holds the cutout: it is not counted twice.
         parent.setPadding(110, 0, 0, 0);
         assertEquals(new Rect(118, 8, 2392, 1072), OverlayPlacement.safeArea(parent, Insets.of(110, 0, 0, 0), 8));
+        // A half-opened fold pads the stream into one pane; the overlay stays in that pane.
+        parent.setPadding(0, 0, 1220, 0);
+        assertEquals(new Rect(8, 8, 1172, 1072), OverlayPlacement.safeArea(parent, Insets.NONE, 8));
     }
 
     @Test

@@ -3,7 +3,6 @@ package com.limelight.ui;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
-import android.content.res.Resources;
 import android.provider.Settings;
 import android.view.InputDevice;
 
@@ -70,15 +69,9 @@ public final class StreamMenuHint {
     static Back back(Context context) {
         if (!context.getPackageManager().hasSystemFeature(PackageManager.FEATURE_TOUCHSCREEN)) return Back.REMOTE;
         int mode = -1;
-        int id = Resources.getSystem().getIdentifier("config_navBarInteractionMode", "integer", "android");
-        if (id != 0) {
-            try {
-                mode = Resources.getSystem().getInteger(id);
-            } catch (Resources.NotFoundException ignored) {
-            }
-        }
         try {
-            mode = Settings.Secure.getInt(context.getContentResolver(), "navigation_mode", mode);
+            // Android 10 added gesture navigation and this setting with it.
+            mode = Settings.Secure.getInt(context.getContentResolver(), "navigation_mode", -1);
         } catch (SecurityException ignored) {
         }
         // 2 is gesture navigation; 0 and 1 show Back as a button once the bar is swiped in.

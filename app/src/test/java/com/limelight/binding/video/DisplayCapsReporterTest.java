@@ -19,34 +19,50 @@ public class DisplayCapsReporterTest {
     });
 
     @Test
-    public void sendsOnceUntilAValueChanges() {
-        assertNotNull(reporter.update(true, 1000, 500, 0.0005f));
-        assertNull(reporter.update(true, 1000, 500, 0.0005f));
-        assertNull(reporter.update(true, 1000.001f, 500, 0.0005f));
+    public void brightnessAndHdrMeasurementChangesOnTheSameOutputDoNotResend() {
+        assertNotNull(reporter.update("0:1968x2184", true, 1000, 500, 0.0005f));
+        assertNull(reporter.update("0:1968x2184", true, 1000, 500, 0.0005f));
+        assertNull(reporter.update("0:1968x2184", true, 1600, 800, 0.0006f));
+        assertNull(reporter.update("0:1968x2184", false, 0, 0, 0));
         assertEquals(1, sent.size());
-
-        // A foldable switching to its cover screen.
-        assertNotNull(reporter.update(true, 800, 400, 0.0005f));
-        assertNotNull(reporter.update(false, 800, 400, 0.0005f));
-        assertNull(reporter.update(false, 800, 400, 0.0005f));
-        assertEquals(3, sent.size());
-        assertEquals(800, sent.get(2)[1], 0);
     }
 
     @Test
-    public void blackLevelChangesAtWirePrecisionCount() {
-        assertNotNull(reporter.update(true, 1000, 500, 0.0005f));
-        assertNotNull(reporter.update(true, 1000, 500, 0.0006f));
+    public void foldAndExternalOutputChangesReportTheNewPanel() {
+        assertNotNull(reporter.update("0:1968x2184", true, 1000, 500, 0.0005f));
+        // The cover screen shares the inner screen's logical display ID.
+        assertNotNull(reporter.update("0:1080x2520", true, 800, 400, 0.0005f));
+        assertNotNull(reporter.update("2:1080x2520", false, 800, 400, 0.0005f));
+        assertNull(reporter.update("2:1080x2520", false, 800, 400, 0.0005f));
+        assertEquals(3, sent.size());
+        assertEquals(800, sent.get(2)[1], 0);
+        assertNotNull(reporter.update("0:1968x2184", true, 1000, 500, 0.0005f));
+        assertEquals(4, sent.size());
+    }
+
+    @Test
+    public void equivalentCapsOnANewOutputDoNotResendOrAllowLaterBrightnessUpdates() {
+        assertNotNull(reporter.update("inner", true, 1000, 500, 0.0005f));
+        assertNull(reporter.update("cover", true, 1000.001f, 500, 0.0005f));
+        assertNull(reporter.update("cover", true, 800, 400, 0.0006f));
+        assertEquals(1, sent.size());
+        assertNotNull(reporter.update("external", true, 1000, 500, 0.0006f));
         assertEquals(2, sent.size());
     }
 
     @Test
     public void failedSendIsRetriedOnTheNextUpdate() {
         delivered = false;
-        assertNull(reporter.update(true, 1000, 500, 0.0005f));
+        assertNull(reporter.update("inner", true, 1000, 500, 0.0005f));
         delivered = true;
-        assertNotNull(reporter.update(true, 1000, 500, 0.0005f));
+        assertNotNull(reporter.update("inner", true, 1000, 500, 0.0005f));
         assertEquals(1, sent.size());
+
+        delivered = false;
+        assertNull(reporter.update("cover", true, 800, 400, 0.0005f));
+        delivered = true;
+        assertNotNull(reporter.update("cover", true, 800, 400, 0.0005f));
+        assertEquals(2, sent.size());
     }
 
     @Test
@@ -84,7 +100,7 @@ public class DisplayCapsReporterTest {
         DisplayCapsReporter.Caps caps = DisplayCapsReporter.Caps.of(true, 600, 900, 0);
         assertEquals(600, caps.maxNits, 0);
         assertEquals(600, caps.maxAverageNits, 0);
-        assertNotNull(reporter.update(true, 600, 900, 0));
+        assertNotNull(reporter.update("inner", true, 600, 900, 0));
         assertEquals(600, sent.get(0)[2], 0);
     }
 

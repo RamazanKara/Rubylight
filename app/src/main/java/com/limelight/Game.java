@@ -331,19 +331,19 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     private boolean streamHdr;
     private DisplayCapsReporter displayCapsReporter;
 
-    // Tells a Rubylight 2.2.0+ host this display's HDR luminance so it tone-maps for the real
-    // panel. Sent once the stream is up and again only when a value changes.
+    // Reports the output's HDR capabilities to Rubylight 2.2.0+ hosts. Keep luminance fixed on
+    // that output: brightness changes must not reconfigure HDR on older hosts.
     private void reportDisplayCaps() {
         if (!connected || displayCapsReporter == null ||
                 !MoonBridge.hostSupportsControlMessage(MoonBridge.CONTROL_MESSAGE_DISPLAY_CAPS)) {
             return;
         }
+        Display display = getVideoDisplay();
         boolean displayHdr = false;
         float maxNits = 0, maxAverageNits = 0, minNits = 0;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            Display display = getVideoDisplay();
             // getHdrCapabilities() returns null on some devices (Lenovo Mirage Solo, Android 8.0).
-            Display.HdrCapabilities hdrCaps = getVideoDisplay().getHdrCapabilities();
+            Display.HdrCapabilities hdrCaps = display.getHdrCapabilities();
             if (hdrCaps != null) {
                 int[] hdrTypes = Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE ?
                         display.getMode().getSupportedHdrTypes() : hdrCaps.getSupportedHdrTypes();
@@ -359,7 +359,15 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 minNits = hdrCaps.getDesiredMinLuminance();
             }
         }
-        DisplayCapsReporter.Caps sent = displayCapsReporter.update(streamHdr && displayHdr,
+        String output = Integer.toString(display.getDisplayId());
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            Display.Mode mode = display.getMode();
+            // Foldable panels can share a logical display ID. Pixel geometry distinguishes them
+            // without reacting to brightness, rotation, or an automatic refresh-rate change.
+            output += ":" + Math.min(mode.getPhysicalWidth(), mode.getPhysicalHeight()) + "x" +
+                    Math.max(mode.getPhysicalWidth(), mode.getPhysicalHeight());
+        }
+        DisplayCapsReporter.Caps sent = displayCapsReporter.update(output, streamHdr && displayHdr,
                 maxNits, maxAverageNits, minNits);
         if (sent != null) {
             LimeLog.info("Display luminance sent to host: " + sent);

@@ -5,9 +5,11 @@ import java.util.Objects;
 
 /**
  * Tells a Rubylight host the client display's HDR luminance (control message 0x5531,
- * protocol/core/src/control.rs DisplayCaps), so it tone-maps for the real panel. Sent at
- * stream start and again only when a value changes, for example when a foldable switches
- * screens. One reporter per connection.
+ * protocol/core/src/control.rs DisplayCaps) for output diagnostics. Sent at
+ * stream start and when the output changes, for example when a foldable switches screens.
+ * Luminance reported by Android can change with brightness on the same panel; feeding those
+ * changes back into older hosts' HDR metadata restarts the decoder and flashes the picture.
+ * Keep the first successfully reported values for each continuous output. One reporter per connection.
  */
 public final class DisplayCapsReporter {
     /** Delivers the message; false when it could not go out (it is then retried on the next update). */
@@ -94,18 +96,31 @@ public final class DisplayCapsReporter {
     }
 
     private final Sender sender;
+    private String lastDisplay;
     private Caps lastSent;
 
     public DisplayCapsReporter(Sender sender) {
         this.sender = sender;
     }
 
-    /** Sends the values unless the host already has them; returns what was sent, or null. */
-    public synchronized Caps update(boolean hdr, float maxNits, float maxAverageNits, float minNits) {
-        Caps caps = Caps.of(hdr, maxNits, maxAverageNits, minNits);
-        if (caps.equals(lastSent) || !sender.send(caps.hdr, caps.maxNits, caps.maxAverageNits, caps.minNits)) {
+    /**
+     * Samples a new output, identified independently of brightness and refresh rate. Values on
+     * the current output stay fixed until another output is selected. Failed sends remain retryable.
+     */
+    public synchronized Caps update(String display, boolean hdr, float maxNits, float maxAverageNits, float minNits) {
+        Objects.requireNonNull(display);
+        if (display.equals(lastDisplay)) {
             return null;
         }
+        Caps caps = Caps.of(hdr, maxNits, maxAverageNits, minNits);
+        if (caps.equals(lastSent)) {
+            lastDisplay = display;
+            return null;
+        }
+        if (!sender.send(caps.hdr, caps.maxNits, caps.maxAverageNits, caps.minNits)) {
+            return null;
+        }
+        lastDisplay = display;
         lastSent = caps;
         return caps;
     }

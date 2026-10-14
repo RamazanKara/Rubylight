@@ -32,7 +32,7 @@ import java.util.List;
 import java.util.UUID;
 import java.util.function.Consumer;
 
-/** Independent per-game overlay. Blank areas pass through to the stream's mouse/touch handling. */
+/** Independent per-game overlay. Touches beside the controls go to the stream's mouse/touch handling. */
 @SuppressLint("ViewConstructor") // Created by Game with explicit profile/input ownership; never inflated from XML.
 public final class GameTouchControls extends FrameLayout {
     private final Activity activity;
@@ -43,6 +43,10 @@ public final class GameTouchControls extends FrameLayout {
     private TouchLayout layout;
     private boolean editing, enabled, hiddenForPip;
     private int inputGeneration;
+    // Bottom child covering the overlay. Splitting gives it every pointer that lands beside a
+    // control, so a held control never swallows another finger aiming on the stream.
+    private final View passthrough;
+    private View.OnTouchListener streamTouch;
 
     public GameTouchControls(Activity activity, String profile, HeldInputState.Sink sink,
                              java.util.function.BooleanSupplier canInput, Consumer<Dialog> showDialog) {
@@ -54,8 +58,25 @@ public final class GameTouchControls extends FrameLayout {
         setClipChildren(true);
         setMotionEventSplittingEnabled(true);
         setVisibility(enabled ? VISIBLE : GONE);
+        passthrough = new View(activity);
+        passthrough.setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);
+        passthrough.setOnTouchListener((v, event) -> streamTouch != null && streamTouch.onTouch(v, event));
+        addView(passthrough, new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT));
         addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> positionButtons());
         rebuild();
+    }
+
+    /** Receives touches beside the controls in this overlay's coordinates, each pointer exactly once. */
+    public void setStreamTouchListener(View.OnTouchListener listener) {
+        streamTouch = listener;
+    }
+
+    private int buttonCount() {
+        return getChildCount() - 1;
+    }
+
+    private View buttonAt(int index) {
+        return getChildAt(index + 1);
     }
 
     /** Select the established game's existing controls without migrating either saved layout. */
@@ -73,8 +94,8 @@ public final class GameTouchControls extends FrameLayout {
     public void releaseInput() {
         inputGeneration++;
         held.releaseAll();
-        for (int i = 0; i < getChildCount(); i++) {
-            View view = getChildAt(i); view.setSelected(false); view.setPressed(false); view.setAlpha(.8f);
+        for (int i = 0; i < buttonCount(); i++) {
+            View view = buttonAt(i); view.setSelected(false); view.setPressed(false); view.setAlpha(.8f);
             ViewCompat.setStateDescription(view, activity.getString(R.string.touch_layout_released));
         }
     }
@@ -224,9 +245,12 @@ public final class GameTouchControls extends FrameLayout {
     }
 
     private void rebuild() {
-        releaseInput(); removeAllViews();
+        releaseInput(); removeViews(1, buttonCount());
         for (TouchLayout.Button b : layout.buttons) {
             MaterialButton view = new MaterialButton(activity);
+            // Enter and Space belong to the host; a focused control would take them.
+            view.setFocusable(false);
+            view.setFocusableInTouchMode(false);
             view.setText(b.name); view.setAllCaps(false); view.setTextColor(Color.WHITE); view.setTextSize(13);
             view.setPadding(0, 0, 0, 0); view.setInsetTop(0); view.setInsetBottom(0);
             view.setBackgroundTintList(android.content.res.ColorStateList.valueOf(editing ? 0xC0556677 : 0xB030454D));
@@ -299,8 +323,8 @@ public final class GameTouchControls extends FrameLayout {
     private void positionButtons() {
         if (getWidth() <= 0 || getHeight() <= 0) return;
         int min = Math.round(48 * getResources().getDisplayMetrics().density);
-        for (int i = 0; i < getChildCount(); i++) {
-            TouchLayout.Button b = layout.buttons.get(i); View v = getChildAt(i);
+        for (int i = 0; i < buttonCount(); i++) {
+            TouchLayout.Button b = layout.buttons.get(i); View v = buttonAt(i);
             int width = Math.min(getWidth(), Math.max(min, Math.round(b.width * getWidth())));
             int height = Math.min(getHeight(), Math.max(min, Math.round(b.height * getHeight())));
             LayoutParams params = (LayoutParams)v.getLayoutParams(); params.width = width; params.height = height;

@@ -860,6 +860,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                         @Override public void mouse(int button, boolean down) { sendCustomMouse(button, down); }
                     }, () -> foreground && connected && grabbedInput && streamMenu == null && conn.canSendInput(),
                     this::showStreamDialog);
+            gameTouchControls.setStreamTouchListener(this::onTouchControlsPassthrough);
             ((FrameLayout)streamView.getParent()).addView(gameTouchControls,
                     new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
         }
@@ -4304,6 +4305,20 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     @Override
     public boolean onGenericMotion(View view, MotionEvent event) {
         return handleMotionEvent(view, event);
+    }
+
+    // Fingers beside the per-game touch controls reach the stream as one gesture of their own.
+    private boolean onTouchControlsPassthrough(View view, MotionEvent event) {
+        if (event.getActionMasked() == MotionEvent.ACTION_DOWN && debugPerformanceOverlay &&
+                performanceOverlayScroll.getVisibility() == View.VISIBLE) {
+            float x = event.getX() + gameTouchControls.getX(), y = event.getY() + gameTouchControls.getY();
+            if (x >= performanceOverlayScroll.getX() && x < performanceOverlayScroll.getX() + performanceOverlayScroll.getWidth() &&
+                    y >= performanceOverlayScroll.getY() && y < performanceOverlayScroll.getY() + performanceOverlayScroll.getHeight()) {
+                // The debug overlay below scrolls on its own.
+                return false;
+            }
+        }
+        return onOverlayTouch(gameTouchControls, event);
     }
 
     @SuppressLint("ClickableViewAccessibility")

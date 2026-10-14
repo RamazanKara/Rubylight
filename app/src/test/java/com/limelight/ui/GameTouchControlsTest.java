@@ -77,11 +77,11 @@ public class GameTouchControlsTest {
             controls.setProfile("second");
 
             assertEquals(Arrays.asList("113:true", "51:true", "51:false", "113:false"), transitions);
-            assertEquals("Second game", ((TextView) controls.getChildAt(0)).getText().toString());
+            assertEquals("Second game", ((TextView) button(controls)).getText().toString());
             assertEquals(View.GONE, controls.getVisibility());
             assertFalse(controls.isEditing());
             controls.setProfile("first");
-            assertEquals("First game", ((TextView) controls.getChildAt(0)).getText().toString());
+            assertEquals("First game", ((TextView) button(controls)).getText().toString());
             assertEquals(View.VISIBLE, controls.getVisibility());
             assertEquals(saved, screen.getSharedPreferences("GameTouchLayouts", 0).getAll());
         }
@@ -94,7 +94,7 @@ public class GameTouchControlsTest {
             saveMouseLayout(screen, "second", "Second game", 3, false);
             List<String> transitions = new ArrayList<>();
             GameTouchControls controls = controls(screen, "first", transitions);
-            View previous = controls.getChildAt(0);
+            View previous = button(controls);
             touch(previous, MotionEvent.ACTION_DOWN);
             touch(previous, MotionEvent.ACTION_UP);
             touch(previous, MotionEvent.ACTION_DOWN);
@@ -124,13 +124,103 @@ public class GameTouchControlsTest {
             controls.hideForPip(false);
             assertEquals(View.VISIBLE, controls.getVisibility());
             touch(controls, MotionEvent.ACTION_DOWN);
-            View current = controls.getChildAt(0);
+            View current = button(controls);
             controls.setProfile("second");
-            assertSame(current, controls.getChildAt(0));
+            assertSame(current, button(controls));
             assertEquals(Collections.singletonList("m3:true"), transitions);
             controls.releaseInput();
             assertEquals(Arrays.asList("m3:true", "m3:false"), transitions);
         }
+    }
+
+    @Test public void aFingerBesideAHeldControlReachesTheStreamAndTheControlReleasesOnItsOwnLift() {
+        try (ActivityController<Screen> controller = Robolectric.buildActivity(Screen.class).setup()) {
+            Screen screen = controller.get();
+            // "W" held by one finger at 80..240 x 40..120 while another finger aims on the stream.
+            new TouchLayout(Collections.singletonList(new TouchLayout.Button("w", "W", new int[] {51}, 0,
+                    false, .1f, .1f, .2f, .2f))).save(screen, "fps");
+            TouchLayout.setEnabled(screen, "fps", true);
+            List<String> transitions = new ArrayList<>();
+            List<String> stream = new ArrayList<>();
+            GameTouchControls controls = controls(screen, "fps", transitions);
+            controls.setStreamTouchListener((view, event) -> {
+                stream.add(MotionEvent.actionToString(event.getActionMasked()) + " " + event.getPointerCount() +
+                        " " + Math.round(event.getX()));
+                return true;
+            });
+            layOut(controls);
+            float[] w = {100, 60}, aim = {600, 300};
+            int[] first = {0}, second = {1}, two = {0, 1};
+
+            dispatch(controls, MotionEvent.ACTION_DOWN, 0, first, w);
+            assertEquals(Collections.singletonList("51:true"), transitions);
+            dispatch(controls, MotionEvent.ACTION_POINTER_DOWN, 1, two, w, aim);
+            assertEquals(Collections.singletonList("ACTION_DOWN 1 600"), stream);
+            dispatch(controls, MotionEvent.ACTION_MOVE, 0, two, new float[] {101, 61}, new float[] {640, 300});
+            assertEquals("ACTION_MOVE 1 640", stream.get(stream.size() - 1));
+            dispatch(controls, MotionEvent.ACTION_POINTER_UP, 0, two, new float[] {101, 61}, new float[] {640, 300});
+            assertEquals("Lifting the W finger releases W while the aim continues",
+                    Arrays.asList("51:true", "51:false"), transitions);
+            dispatch(controls, MotionEvent.ACTION_UP, 0, second, new float[] {660, 300});
+            assertEquals("ACTION_UP 1 660", stream.get(stream.size() - 1));
+            assertEquals(Arrays.asList("51:true", "51:false"), transitions);
+
+            // The other order: aiming first, then pressing and lifting W with a second finger.
+            stream.clear();
+            dispatch(controls, MotionEvent.ACTION_DOWN, 0, first, aim);
+            dispatch(controls, MotionEvent.ACTION_POINTER_DOWN, 1, two, aim, w);
+            dispatch(controls, MotionEvent.ACTION_POINTER_UP, 1, two, aim, w);
+            assertEquals(Arrays.asList("51:true", "51:false", "51:true", "51:false"), transitions);
+            dispatch(controls, MotionEvent.ACTION_UP, 0, first, aim);
+            assertEquals("ACTION_DOWN 1 600", stream.get(0));
+            assertEquals("ACTION_UP 1 600", stream.get(stream.size() - 1));
+        }
+    }
+
+    @Test public void controlsCannotTakeKeyboardFocusFromTheStream() {
+        try (ActivityController<Screen> controller = Robolectric.buildActivity(Screen.class).setup()) {
+            Screen screen = controller.get();
+            saveMouseLayout(screen, "keys", "Fire", 1, false);
+            List<String> transitions = new ArrayList<>();
+            GameTouchControls controls = controls(screen, "keys", transitions);
+            ((FrameLayout) screen.findViewById(android.R.id.content)).addView(controls);
+            View button = button(controls);
+            // Enter and Space must reach the host instead of activating a focused control.
+            assertFalse(button.isFocusable());
+            assertFalse(button.requestFocus());
+            assertTrue(transitions.isEmpty());
+        }
+    }
+
+    private static View button(GameTouchControls controls) {
+        // Child 0 is the full-size layer that forwards touches beside the controls to the stream.
+        return controls.getChildAt(1);
+    }
+
+    private static void layOut(GameTouchControls controls) {
+        for (int pass = 0; pass < 2; pass++) {
+            controls.measure(View.MeasureSpec.makeMeasureSpec(800, View.MeasureSpec.EXACTLY),
+                    View.MeasureSpec.makeMeasureSpec(400, View.MeasureSpec.EXACTLY));
+            controls.layout(0, 0, 800, 400);
+        }
+    }
+
+    private static void dispatch(View view, int action, int actionIndex, int[] ids, float[]... points) {
+        MotionEvent.PointerProperties[] properties = new MotionEvent.PointerProperties[points.length];
+        MotionEvent.PointerCoords[] coords = new MotionEvent.PointerCoords[points.length];
+        for (int i = 0; i < points.length; i++) {
+            properties[i] = new MotionEvent.PointerProperties();
+            properties[i].id = ids[i];
+            properties[i].toolType = MotionEvent.TOOL_TYPE_FINGER;
+            coords[i] = new MotionEvent.PointerCoords();
+            coords[i].x = points[i][0];
+            coords[i].y = points[i][1];
+        }
+        int masked = action == MotionEvent.ACTION_POINTER_DOWN || action == MotionEvent.ACTION_POINTER_UP ?
+                action | (actionIndex << MotionEvent.ACTION_POINTER_INDEX_SHIFT) : action;
+        MotionEvent event = MotionEvent.obtain(0, 10, masked, points.length, properties, coords, 0, 0, 1, 1, 0, 0,
+                android.view.InputDevice.SOURCE_TOUCHSCREEN, 0);
+        try { view.dispatchTouchEvent(event); } finally { event.recycle(); }
     }
 
     private static void saveMouseLayout(Screen screen, String profile, String name, int mouse, boolean toggle) {
@@ -149,7 +239,7 @@ public class GameTouchControlsTest {
     }
 
     private static void touch(GameTouchControls controls, int action) {
-        touch(controls.getChildAt(0), action);
+        touch(button(controls), action);
     }
 
     private static void touch(View view, int action) {

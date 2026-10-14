@@ -35,12 +35,12 @@ public class GameTouchProfileTest {
 
             established(game, 73, "first-game");
             assertEquals("First game", label(controls));
-            View selected = controls.getChildAt(0);
+            View selected = controls.getChildAt(1);
             NvApp recovered = new NvApp("First game", 73, false);
             recovered.setAppUuid("first-game");
             ReflectionHelpers.setField(game, "app", recovered);
             established(game, 73, "first-game");
-            assertSame(selected, controls.getChildAt(0));
+            assertSame(selected, controls.getChildAt(1));
 
             // The same control tile can later refer to a different game, including an older host without UUIDs.
             ReflectionHelpers.setField(game, "app", tile);
@@ -63,10 +63,10 @@ public class GameTouchProfileTest {
             save(game, "separate", "Separate controls");
             save(game, TouchLayout.profileKey("pc", "running-game", 73), "Game controls");
             GameTouchControls controls = controls(game, "separate");
-            View selected = controls.getChildAt(0);
+            View selected = controls.getChildAt(1);
             ReflectionHelpers.setField(game, "app", app);
             established(game, app.getAppName().equals("Unresolved resume") ? 0 : 73, "running-game");
-            assertSame(selected, controls.getChildAt(0));
+            assertSame(selected, controls.getChildAt(1));
             assertEquals("Separate controls", label(controls));
         }
     }
@@ -100,6 +100,7 @@ public class GameTouchProfileTest {
     }
 
     private static String label(GameTouchControls controls) {
-        return ((TextView) controls.getChildAt(0)).getText().toString();
+        // Child 0 forwards touches beside the controls to the stream; the first control follows it.
+        return ((TextView) controls.getChildAt(1)).getText().toString();
     }
 }

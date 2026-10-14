@@ -7,6 +7,7 @@ import com.limelight.nvstream.http.LimelightCryptoProvider;
 import com.limelight.nvstream.http.NvApp;
 import com.limelight.nvstream.http.NvHTTP;
 import com.limelight.nvstream.http.NvHTTPRoleTest;
+import com.limelight.nvstream.http.TestHosts;
 
 import org.junit.Test;
 
@@ -231,6 +232,49 @@ public class NvConnectionRoleTest {
                     47984, "device", context.streamConfig, null, null);
             assertTrue(connection.quitAndLaunch(http(context, "launch", requests), context));
             assertEquals(1, requests.get());
+        }
+    }
+
+    @Test
+    public void apolloRemoteInputEndsWithTheStreamInsteadOfADisconnectTile() throws Exception {
+        for (String host : new String[] {"apollo", "vibepollo"}) {
+            boolean apollo = host.equals("apollo");
+            NvApp app = new NvApp("Remote Input", apollo ? 1557224430 : 2147483506, false);
+            if (apollo) {
+                app.setAppUuid("8CB5C136-DA67-4F99-B4A1-F9CD35005CF4");
+            }
+            AtomicInteger disconnects = new AtomicInteger();
+            NvHTTP http = new NvHTTP(new ComputerDetails.AddressTuple("192.0.2.1", 47989), 47984, "device", null,
+                    new LimelightCryptoProvider() {
+                        public java.security.cert.X509Certificate getClientCertificate() { return null; }
+                        public java.security.PrivateKey getClientPrivateKey() { return null; }
+                        public byte[] getPemEncodedClientCertificate() { return new byte[0]; }
+                        public String encodeBase64String(byte[] data) { return ""; }
+                    }) {
+                @Override
+                public boolean disconnectRole(NvApp.Role role) {
+                    assertEquals(NvApp.Role.INPUT_ONLY, role);
+                    disconnects.incrementAndGet();
+                    return true;
+                }
+            };
+            ComputerDetails details = http.getComputerDetails(TestHosts.serverInfo(host + "-serverinfo.xml"));
+            app.setHostCapabilities(details.caps);
+            assertEquals(host, NvApp.Role.INPUT_ONLY, app.getRole());
+            NvConnection connection = new NvConnection(null, new ComputerDetails.AddressTuple("192.0.2.1", 47989),
+                    47984, "device", new StreamConfiguration.Builder().setApp(app).build(), null, null) {
+                @Override
+                public ComputerDetails refreshHostDetails() {
+                    return details;
+                }
+            };
+            java.lang.reflect.Field field = NvConnection.class.getDeclaredField("http");
+            field.setAccessible(true);
+            field.set(connection, http);
+            // Apollo ends Remote Input when the stream disconnects; /launch of a Vibepollo tile ID
+            // would find no app there.
+            connection.disconnectRemoteSession();
+            assertEquals(host, apollo ? 0 : 1, disconnects.get());
         }
     }
 

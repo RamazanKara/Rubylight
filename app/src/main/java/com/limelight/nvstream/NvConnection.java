@@ -550,7 +550,7 @@ public class NvConnection {
         context.isNvidiaServerSoftware = details.nvidiaServer;
         context.hostCaps = details.caps;
         LimeLog.info("Host: " + details.caps);
-        context.streamConfig.getApp().setControlTiles(details.caps.mayHave(HostCapabilities.Feature.REMOTE_SESSION_TILES));
+        context.streamConfig.getApp().setHostCapabilities(details.caps);
         if (canSendControllerInput() && details.caps.has(HostCapabilities.Feature.CONTROLLER_PREPARATION) &&
                 controllerPreparation != null) {
             context.preparedControllers = controllerPreparation.get();
@@ -1132,8 +1132,13 @@ public class NvConnection {
     }
 
     public void disconnectRemoteSession() throws IOException, XmlPullParserException {
-        if (!refreshHostDetails().hasPermission(ComputerDetails.PERMISSION_LAUNCH)) {
+        ComputerDetails details = refreshHostDetails();
+        if (!details.hasPermission(ComputerDetails.PERMISSION_LAUNCH)) {
             throw new IOException("The host denied permission to end this remote session.");
+        }
+        if (!details.caps.mayHave(HostCapabilities.Feature.REMOTE_SESSION_TILES)) {
+            // Apollo has no disconnect tile: its Remote Input session ends when this stream does.
+            return;
         }
         if (!http.disconnectRole(context.streamConfig.getApp().getRole())) {
             throw new IOException("The host did not end the remote session.");

@@ -903,9 +903,8 @@ public class NvHTTP {
         return getAppListByReader(r, HostCapabilities.UNKNOWN);
     }
 
-    /** The host's app list; reserved IDs are control tiles only if the host may publish them. */
+    /** The host's app list; reserved identities are control tiles or special apps only on hosts that give them that meaning. */
     public static LinkedList<NvApp> getAppListByReader(Reader r, HostCapabilities caps) throws XmlPullParserException, IOException {
-        boolean controlTiles = caps.mayHave(HostCapabilities.Feature.REMOTE_SESSION_TILES);
         XmlPullParserFactory factory = XmlPullParserFactory.newInstance();
         factory.setNamespaceAware(true);
         XmlPullParser xpp = factory.newPullParser();
@@ -925,7 +924,7 @@ public class NvHTTP {
                 currentTag.push(xpp.getName());
                 if (xpp.getName().equals("App")) {
                     NvApp added = new NvApp();
-                    added.setControlTiles(controlTiles);
+                    added.setHostCapabilities(caps);
                     appList.addLast(added);
                 }
                 break;

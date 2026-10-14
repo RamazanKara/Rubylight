@@ -9,6 +9,11 @@ public class NvApp {
     public enum Role { STREAM, REMOTE_MONITOR, INPUT_ONLY }
     public enum Control { NONE, RESUME, DISCONNECT_MONITOR, DISCONNECT_INPUT, TERMINATE, MONITOR, INPUT, RUNNING_GAME }
 
+    // Apollo src/process.h. Apollo lists these apps while its input-only mode is on, and Vibepollo
+    // still honors them at launch. Its Virtual Display and fallback Desktop apps are ordinary streams.
+    static final String APOLLO_REMOTE_INPUT_UUID = "8CB5C136-DA67-4F99-B4A1-F9CD35005CF4";
+    static final String APOLLO_TERMINATE_UUID = "E16CBE1B-295D-4632-9A76-EC4180C857D3";
+
     private String appName = "";
     private int appId;
     private boolean initialized;
@@ -18,6 +23,7 @@ public class NvApp {
     private String artVersion = "";
     private boolean monitorResume;
     private boolean controlTiles = true;
+    private boolean apolloApps = true;
     
     public NvApp() {}
     
@@ -63,14 +69,24 @@ public class NvApp {
     }
 
     /**
-     * Whether this app's host publishes control tiles. Elsewhere the reserved IDs and UUIDs are
-     * ordinary apps. A host not yet known keeps them, as before.
+     * Which reserved identities this app's host gives a meaning: control tiles where the host may
+     * publish them, and Apollo's Remote Input and Terminate apps on Apollo and Vibepollo. Elsewhere
+     * they are ordinary apps. A host not yet known keeps both, as before.
      */
-    public void setControlTiles(boolean controlTiles) {
-        this.controlTiles = controlTiles;
+    public void setHostCapabilities(HostCapabilities caps) {
+        controlTiles = caps.mayHave(HostCapabilities.Feature.REMOTE_SESSION_TILES);
+        HostCapabilities.Family family = caps.family();
+        apolloApps = family == HostCapabilities.Family.APOLLO || family == HostCapabilities.Family.VIBEPOLLO ||
+                family == HostCapabilities.Family.UNKNOWN;
     }
 
     public Control getControl() {
+        if (apolloApps && APOLLO_REMOTE_INPUT_UUID.equalsIgnoreCase(appUuid)) {
+            return Control.INPUT;
+        }
+        if (apolloApps && APOLLO_TERMINATE_UUID.equalsIgnoreCase(appUuid)) {
+            return Control.TERMINATE;
+        }
         if (!controlTiles) {
             return Control.NONE;
         }

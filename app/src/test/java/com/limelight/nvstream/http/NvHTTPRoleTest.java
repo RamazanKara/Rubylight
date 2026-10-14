@@ -83,6 +83,65 @@ public class NvHTTPRoleTest {
         }
     }
 
+    // An Apollo applist with input-only mode on and a game running (Apollo nvhttp.cpp applist,
+    // process.cpp parse()), plus the Virtual Display and fallback Desktop apps it adds elsewhere.
+    private static final String APOLLO_APPLIST = "<root status_code=\"200\">" +
+            apolloApp("Game", "0F3C2B1A-1111-4222-8333-944455556666", 0, 1385710102) +
+            apolloApp("Virtual Display", "8902CB19-674A-403D-A587-41B092E900BA", 1, 1913204568) +
+            apolloApp("Desktop (fallback)", "EAAC6159-089A-46A9-9E24-6436885F6610", 2, 1093255296) +
+            apolloApp("Remote Input", "8CB5C136-DA67-4F99-B4A1-F9CD35005CF4", 3, 1557224430) +
+            apolloApp("Terminate", "E16CBE1B-295D-4632-9A76-EC4180C857D3", 4, 1219834627) + "</root>";
+
+    private static String apolloApp(String title, String uuid, int index, int id) {
+        return "<App><IsHdrSupported>0</IsHdrSupported><AppTitle>" + title + "</AppTitle><UUID>" + uuid +
+                "</UUID><IDX>" + index + "</IDX><ID>" + id + "</ID></App>";
+    }
+
+    @Test
+    public void apolloRemoteInputAndTerminateAreRolesOnlyOnApolloAndVibepollo() throws Exception {
+        for (HostCapabilities caps : new HostCapabilities[] {TestHosts.fixture("apollo-serverinfo.xml"),
+                TestHosts.fixture("apollo-http-serverinfo.xml"), TestHosts.fixture("vibepollo-serverinfo.xml"),
+                HostCapabilities.UNKNOWN}) {
+            List<NvApp> apps = NvHTTP.getAppListByReader(new StringReader(APOLLO_APPLIST), caps);
+            for (int i : new int[] {0, 1, 2}) {
+                assertEquals(caps + " " + i, NvApp.Control.NONE, apps.get(i).getControl());
+                assertEquals(caps + " " + i, NvApp.Role.STREAM, apps.get(i).getRole());
+            }
+            assertEquals(caps.toString(), NvApp.Control.INPUT, apps.get(3).getControl());
+            assertEquals(caps.toString(), NvApp.Role.INPUT_ONLY, apps.get(3).getRole());
+            assertFalse(caps.toString(), apps.get(3).isControlAction());
+            assertEquals(caps.toString(), NvApp.Control.TERMINATE, apps.get(4).getControl());
+            assertTrue(caps.toString(), apps.get(4).isControlAction());
+        }
+        // Sunshine, GameStream and Rubylight never made these apps; there they stay ordinary.
+        for (String host : new String[] {"sunshine", "gamestream", "rubylight"}) {
+            for (NvApp app : NvHTTP.getAppListByReader(new StringReader(APOLLO_APPLIST),
+                    TestHosts.fixture(host + "-serverinfo.xml"))) {
+                assertEquals(host, NvApp.Control.NONE, app.getControl());
+                assertEquals(host, NvApp.Role.STREAM, app.getRole());
+            }
+        }
+        // A shortcut keeps the role by UUID alone, in whatever case it was stored.
+        NvApp shortcut = new NvApp("Remote Input", 0, false);
+        shortcut.setAppUuid("8cb5c136-da67-4f99-b4a1-f9cd35005cf4");
+        shortcut.setHostCapabilities(TestHosts.fixture("apollo-serverinfo.xml"));
+        assertEquals(NvApp.Role.INPUT_ONLY, shortcut.getRole());
+    }
+
+    @Test
+    public void apolloRemoteInputLaunchesInputOnlyByItsUuid() throws Exception {
+        NvApp app = NvHTTP.getAppListByReader(new StringReader(APOLLO_APPLIST),
+                TestHosts.fixture("apollo-serverinfo.xml")).get(3);
+        ConnectionContext context = context(app);
+        context.hostCaps = TestHosts.fixture("apollo-serverinfo.xml");
+        HttpUrl query = query(context, "launch");
+        assertEquals("1557224430", query.queryParameter("appid"));
+        assertEquals("8CB5C136-DA67-4F99-B4A1-F9CD35005CF4", query.queryParameter("appuuid"));
+        assertEquals("1", query.queryParameter("input_only"));
+        assertNull(query.queryParameter("hdrMode"));
+        assertNull(query.queryParameter("virtualDisplay"));
+    }
+
     @Test
     public void ordinaryNamesAndUnknownXmlFieldsDoNotAssignARole() throws Exception {
         NvApp app = NvHTTP.getAppListByReader(new StringReader(

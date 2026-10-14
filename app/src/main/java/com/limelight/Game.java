@@ -673,8 +673,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         app.setAppUuid(getIntent().getStringExtra(EXTRA_APP_UUID));
         app.setMonitorResume(getIntent().getBooleanExtra(EXTRA_MONITOR_RESUME, false));
         // Until the host answers, its last known capabilities decide whether this is a control tile.
-        app.setControlTiles(HostCapabilityCache.load(this, getIntent().getStringExtra(EXTRA_PC_UUID))
-                .mayHave(HostCapabilities.Feature.REMOTE_SESSION_TILES));
+        app.setHostCapabilities(HostCapabilityCache.load(this, getIntent().getStringExtra(EXTRA_PC_UUID)));
         boolean mediaStream = app.getRole() != NvApp.Role.INPUT_ONLY && !app.isControlAction();
 
         X509Certificate serverCert = null;

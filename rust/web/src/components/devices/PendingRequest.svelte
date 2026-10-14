@@ -25,12 +25,13 @@
       await api.clients.pin(pin, request.uniqueid, request.name);
       notify(`PIN sent to ${request.name}. Check the device for the result. If it rejects the PIN, start pairing again on the device and enter its new PIN.`, 'info', 8000);
       pin = '';
-      refreshPending().catch(() => {});
     } catch (error) {
       failed('Pairing failed', error);
     } finally {
       busy = false;
     }
+    // Also after a failure: an expired request should leave the list now, not on the next poll.
+    refreshPending().catch(() => {});
   }
 </script>
 
@@ -47,7 +48,6 @@
         class="input pin num"
         inputmode="numeric"
         autocomplete="one-time-code"
-        maxlength="4"
         placeholder="PIN"
         value={pin}
         oninput={typed}

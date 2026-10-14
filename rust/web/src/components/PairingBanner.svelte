@@ -10,21 +10,38 @@
   const first = $derived(requests[0]);
   let pin = $state('');
   let busy = $state(false);
+  // The PIN belongs to the device it was typed for. When that request goes
+  // away (paired elsewhere, expired), the next device must not receive it.
+  let pinFor = '';
+  $effect(() => {
+    const id = first?.uniqueid ?? '';
+    if (id !== pinFor) {
+      pinFor = id;
+      pin = '';
+    }
+  });
+
+  function typed(event: Event & { currentTarget: HTMLInputElement }) {
+    pin = event.currentTarget.value.replace(/\D/g, '').slice(0, 4);
+    event.currentTarget.value = pin;
+  }
 
   async function pair(event: SubmitEvent) {
     event.preventDefault();
-    if (!first || !/^\d{4}$/.test(pin)) return;
+    const target = first;
+    if (!target || !/^\d{4}$/.test(pin)) return;
     busy = true;
     try {
-      await api.clients.pin(pin, first.uniqueid, first.name);
-      notify(`PIN sent to ${first.name}. Check the device for the result. If it rejects the PIN, start pairing again on the device and enter its new PIN.`, 'info', 8000);
+      await api.clients.pin(pin, target.uniqueid, target.name);
+      notify(`PIN sent to ${target.name}. Check the device for the result. If it rejects the PIN, start pairing again on the device and enter its new PIN.`, 'info', 8000);
       pin = '';
-      await refreshPending();
     } catch (error) {
       failed('Pairing failed', error);
     } finally {
       busy = false;
     }
+    // Also after a failure: the request may have expired, and it should not stay on screen.
+    await refreshPending().catch(() => {});
   }
 </script>
 
@@ -41,10 +58,10 @@
       class="input pin num"
       inputmode="numeric"
       autocomplete="one-time-code"
-      maxlength="4"
       placeholder="PIN"
       aria-label="PIN for {first.name}"
-      bind:value={pin}
+      value={pin}
+      oninput={typed}
     />
     <Button type="submit" variant="primary" {busy} disabled={!/^\d{4}$/.test(pin)}>Pair</Button>
   </form>

@@ -211,3 +211,54 @@ test('library reordering cannot overlap writes and restores the server order aft
   assert.deepEqual(await page.locator('[data-uuid]').evaluateAll(nodes => nodes.map(node => node.dataset.uuid)), ['one', 'two', 'three']);
   assert.equal(writes.filter(write => write.path === '/api/apps/reorder').length, 1);
 });
+
+test('a PIN typed for one waiting device is never sent to the next one', async t => {
+  let pending = [{ uniqueid: 'a', name: 'Phone A', age_seconds: 1 }];
+  const { page, writes } = await fixture(t, async (route, url) => {
+    if (url.pathname !== '/api/clients/pending') return false;
+    await route.fulfill({ json: { status: true, requests: pending } });
+    return true;
+  });
+  await page.goto(base + '/library');
+  const banner = page.locator('.banner');
+  const first = page.getByLabel('PIN for Phone A', { exact: true });
+  await first.fill('12 34');
+  assert.equal(await first.inputValue(), '1234');
+  pending = [{ uniqueid: 'b', name: 'Phone B', age_seconds: 1 }];
+  const second = page.getByLabel('PIN for Phone B', { exact: true });
+  await second.waitFor();
+  assert.equal(await second.inputValue(), '');
+  assert.equal(await banner.getByRole('button', { name: 'Pair', exact: true }).isDisabled(), true);
+  await second.fill('5678');
+  await banner.getByRole('button', { name: 'Pair', exact: true }).click();
+  await page.getByText(/^PIN sent to Phone B/).waitFor();
+  assert.deepEqual(writes.filter(write => write.path === '/api/pin').map(write => write.body), [{ pin: '5678', uniqueid: 'b', name: 'Phone B' }]);
+});
+
+test('a rejected PIN removes the expired request at once instead of on the next poll', async t => {
+  let pending = [{ uniqueid: 'gone', name: 'Old phone', age_seconds: 299 }];
+  const { page } = await fixture(t, async (route, url) => {
+    if (url.pathname === '/api/metadata') {
+      await route.fulfill({ json: { version: '2.2.2', host_name: 'Fixture host', pc_address: '127.0.0.1', pc_addresses: [],
+        paired_devices: 2, enable_pairing: true, warnings: [], features: {} } });
+      return true;
+    }
+    if (url.pathname === '/api/clients/pending') {
+      await route.fulfill({ json: { status: true, requests: pending } });
+      return true;
+    }
+    if (url.pathname !== '/api/pin') return false;
+    pending = [];
+    await route.fulfill({ status: 400, json: { error: 'pairing request no longer exists' } });
+    return true;
+  });
+  await page.clock.install();
+  await page.goto(base + '/devices');
+  const pin = page.getByLabel('PIN shown on Old phone', { exact: true });
+  await pin.fill('1234');
+  // No more polling from here on: only the failure itself may refresh the list.
+  await page.clock.pauseAt(new Date(Date.now() + 60_000));
+  await page.getByRole('button', { name: 'Pair', exact: true }).click();
+  await page.getByText('Pairing failed: pairing request no longer exists', { exact: true }).waitFor();
+  await pin.waitFor({ state: 'detached' });
+});

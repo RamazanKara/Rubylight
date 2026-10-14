@@ -49,7 +49,7 @@ public class EvdevCaptureProvider extends InputCaptureProvider {
             byte deltaHScroll = 0;
 
             // A separate Unix socket per launch lets both ends verify kernel peer credentials.
-            final String socketName = "rubylight.evdev." + UUID.randomUUID();
+            final String socketName = "nightjar.evdev." + UUID.randomUUID();
             try {
                 servSock = new LocalServerSocket(socketName);
             } catch (IOException e) {

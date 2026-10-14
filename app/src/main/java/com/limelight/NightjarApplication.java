@@ -5,7 +5,7 @@ import android.content.Context;
 
 import com.limelight.utils.CrashCapture;
 
-public class ButterpolloApplication extends Application {
+public class NightjarApplication extends Application {
     private CrashCapture crashCapture;
 
     @Override

@@ -25,7 +25,7 @@
             android:exported="true" />
         <activity android:name="com.limelight.LatencyOverlaySmokeActivity"
             android:exported="true"
-            android:label="Rubylight overlay smoke test"
+            android:label="Nightjar overlay smoke test"
             android:theme="@style/StreamTheme" />
     </application>
 </manifest>

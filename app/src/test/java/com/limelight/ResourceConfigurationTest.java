@@ -105,11 +105,11 @@ public class ResourceConfigurationTest {
                 if (item.getAttribute("name").equals("toolbarStyle")) toolbarStyle = item.getTextContent();
             }
         }
-        assertEquals("@style/Widget.Butterpollo.Toolbar", toolbarStyle);
+        assertEquals("@style/Widget.Nightjar.Toolbar", toolbarStyle);
         boolean tinted = false;
         for (int i = 0; i < styles.getLength(); i++) {
             Element style = (Element) styles.item(i);
-            if (!style.getAttribute("name").equals("Widget.Butterpollo.Toolbar")) continue;
+            if (!style.getAttribute("name").equals("Widget.Nightjar.Toolbar")) continue;
             NodeList items = style.getElementsByTagName("item");
             for (int j = 0; j < items.getLength(); j++) {
                 Element item = (Element) items.item(j);

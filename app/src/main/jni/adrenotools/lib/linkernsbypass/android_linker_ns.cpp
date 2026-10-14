@@ -136,7 +136,7 @@ __attribute__((constructor)) static void resolve_linker_symbols() {
     auto loader_dlopen{[]() -> loader_dlopen_t {
         auto page{align_ptr(reinterpret_cast<void *>(&dlopen))};
         const size_t pageSize{static_cast<size_t>(getpagesize())};
-        // Rubylight: execute-only mappings must become readable before inspection.
+        // Nightjar: execute-only mappings must become readable before inspection.
         // If the linker layout differs, fail the optional driver load rather than scan other code.
         if (mprotect(page, pageSize, PROT_READ | PROT_EXEC) != 0)
             return nullptr;

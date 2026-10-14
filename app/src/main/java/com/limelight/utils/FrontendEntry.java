@@ -24,6 +24,8 @@ import org.w3c.dom.Node;
 import org.xml.sax.InputSource;
 import org.xml.sax.SAXException;
 
+import com.limelight.BuildConfig;
+
 /**
  * Game entry files for ES-DE, Daijisho, Pegasus and other Android frontends.
  *
@@ -42,13 +44,14 @@ public final class FrontendEntry {
     /** Entries are a few hundred bytes; anything larger is not one of ours. */
     public static final int MAX_CHARS = 16 * 1024;
 
+    // ES-DE keys ROM and media folders by these names; renaming them would orphan existing setups.
     public static final String ES_SYSTEM_NAME = "butterpollo";
     public static final String ES_EMULATOR_NAME = "BUTTERPOLLO";
 
     private FrontendEntry() {}
 
     public static String serialize(String hostUuid, String hostName, String appUuid, String appName, int appId) {
-        StringBuilder sb = new StringBuilder("# Rubylight game entry\n");
+        StringBuilder sb = new StringBuilder("# " + BuildConfig.BRAND_NAME + " game entry\n");
         appendLine(sb, KEY_HOST_UUID, hostUuid);
         appendLine(sb, KEY_HOST_NAME, hostName);
         appendLine(sb, KEY_APP_UUID, appUuid);
@@ -150,7 +153,7 @@ public final class FrontendEntry {
                 "        <fullname>" + xmlEscape(hostLabel) + "</fullname>\n" +
                 "        <path>%ROMPATH%/" + ES_SYSTEM_NAME + "</path>\n" +
                 "        <extension>" + EXTENSION + " " + EXTENSION.toUpperCase(Locale.ROOT) + "</extension>\n" +
-                "        <command label=\"Rubylight\">%EMULATOR_" + ES_EMULATOR_NAME + "% %ACTIVITY_CLEAR_TASK% %ACTIVITY_CLEAR_TOP% " +
+                "        <command label=\"" + BuildConfig.BRAND_NAME + "\">%EMULATOR_" + ES_EMULATOR_NAME + "% %ACTIVITY_CLEAR_TASK% %ACTIVITY_CLEAR_TOP% " +
                 "%ACTION%=android.intent.action.VIEW %DATA%=%ROMPROVIDER%</command>\n" +
                 "        <platform>pc</platform>\n" +
                 "        <theme>windows</theme>\n" +
@@ -159,7 +162,7 @@ public final class FrontendEntry {
 
     public static String esFindRuleBlock(String packageName) {
         return "    <emulator name=\"" + ES_EMULATOR_NAME + "\">\n" +
-                "        <!-- Rubylight game streaming client -->\n" +
+                "        <!-- " + BuildConfig.BRAND_NAME + " game streaming client -->\n" +
                 "        <rule type=\"androidpackage\">\n" +
                 "            <entry>" + xmlEscape(packageName) + "/com.limelight.ShortcutTrampoline</entry>\n" +
                 "        </rule>\n" +

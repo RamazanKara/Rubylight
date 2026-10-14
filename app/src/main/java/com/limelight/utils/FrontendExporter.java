@@ -8,6 +8,7 @@ import android.provider.DocumentsContract;
 import android.provider.DocumentsContract.Document;
 
 import com.limelight.AppView;
+import com.limelight.BuildConfig;
 import com.limelight.LimeLog;
 import com.limelight.nvstream.http.ComputerDetails;
 import com.limelight.nvstream.http.NvApp;
@@ -33,7 +34,7 @@ import java.util.TreeMap;
 
 /**
  * Writes one game entry file per host app into a frontend's ROMs folder and, when given the
- * ES-DE folder, registers the Butterpollo system there and copies cached cover art.
+ * ES-DE folder, registers our system there and copies cached cover art.
  *
  * Both folders come from the Storage Access Framework, so no storage permission is needed.
  */
@@ -162,7 +163,7 @@ public final class FrontendExporter {
         mergeXml(custom, files, "es_systems.xml", new XmlMerge() {
             @Override
             public String merge(String existing) {
-                return FrontendEntry.mergeEsSystems(existing, "Rubylight");
+                return FrontendEntry.mergeEsSystems(existing, BuildConfig.BRAND_NAME);
             }
         });
         mergeXml(custom, files, "es_find_rules.xml", new XmlMerge() {

@@ -49,7 +49,7 @@
         android:required="false"/>
 
     <application
-        android:name=".ButterpolloApplication"
+        android:name=".NightjarApplication"
         android:allowBackup="true"
         android:fullBackupContent="@xml/backup_rules"
         android:dataExtractionRules="@xml/backup_rules_s"

@@ -142,7 +142,7 @@ public class ComputerDetails {
         if (!canRunServerCommand(index)) {
             throw new IllegalArgumentException("Server command unavailable or permission denied");
         }
-        // Butterpollo Rust accepts one byte; Apollo/Artemis uses three reserved trailing bytes.
+        // Rubylight accepts one byte; Apollo/Artemis uses three reserved trailing bytes.
         return rustHostVersion != null ? new byte[] {(byte) index} : new byte[] {(byte) index, 0, 0, 0};
     }
 

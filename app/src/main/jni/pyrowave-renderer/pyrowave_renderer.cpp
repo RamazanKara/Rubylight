@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Adapted from joemossjr16/artemis-android-pyrowave 387d3a5c.
-// Rubylight: packet framing, feature gates, HDR/10-bit output and completion timing.
+// Nightjar: packet framing, feature gates, HDR/10-bit output and completion timing.
 // PyroWave video renderer for Moonlight Android.
 //
 // PyroWave is an intra-only wavelet codec decoded with Vulkan compute, so it cannot
@@ -545,7 +545,7 @@ namespace {
 
             // These create infos stay alive for the device's lifetime: PyroWave reads them.
             appInfo = {VK_STRUCTURE_TYPE_APPLICATION_INFO};
-            appInfo.pApplicationName = "Rubylight";
+            appInfo.pApplicationName = "Nightjar";
             appInfo.apiVersion = VK_API_VERSION_1_3;
             instanceInfo = {VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO};
             instanceInfo.pApplicationInfo = &appInfo;

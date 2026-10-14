@@ -318,7 +318,7 @@ public class StreamSettings extends AppCompatActivity {
         Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
         intent.addCategory(Intent.CATEGORY_OPENABLE);
         intent.setType("text/csv");
-        intent.putExtra(Intent.EXTRA_TITLE, MediaCodecDecoderRenderer.LATENCY_CSV_NAME);
+        intent.putExtra(Intent.EXTRA_TITLE, MediaCodecDecoderRenderer.LATENCY_CSV_EXPORT_NAME);
         try {
             startActivityForResult(intent, EXPORT_LATENCY_REQUEST);
         } catch (ActivityNotFoundException e) {
@@ -959,7 +959,7 @@ public class StreamSettings extends AppCompatActivity {
                         .setMessage(getString(R.string.summary_about, BuildConfig.VERSION_NAME))
                         .setPositiveButton(android.R.string.ok, null)
                         .setNeutralButton(R.string.settings_source, (dialog, which) ->
-                                HelpLauncher.launchUrl(getActivity(), "https://github.com/RamazanKara/rubylight-android"))
+                                HelpLauncher.launchUrl(getActivity(), "https://github.com/RamazanKara/nightjar-android"))
                         .show();
                 return true;
             });

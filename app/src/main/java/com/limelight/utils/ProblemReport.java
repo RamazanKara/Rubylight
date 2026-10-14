@@ -43,8 +43,8 @@ public final class ProblemReport {
             if (!directory.isDirectory() && !directory.mkdirs()) {
                 throw new IOException("Cannot create report directory");
             }
-            File report = new File(directory, "butterpollo-problem.txt");
-            String text = "Rubylight " + BuildConfig.VERSION_NAME + " / Android API " + Build.VERSION.SDK_INT
+            File report = new File(directory, "nightjar-problem.txt");
+            String text = BuildConfig.BRAND_NAME + " " + BuildConfig.VERSION_NAME + " / Android API " + Build.VERSION.SDK_INT
                     + "\nRedacted event log for this app process, oldest first (up to 200 entries)."
                     + "\nAddresses, user-assigned device/host names, PINs, credentials and free-text diagnostic details are omitted.\n\n"
                     + "Last decoder configuration:\n" + decoderDiagnostics + "\n\n"

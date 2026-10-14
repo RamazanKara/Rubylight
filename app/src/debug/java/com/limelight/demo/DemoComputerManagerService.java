@@ -19,7 +19,7 @@ public final class DemoComputerManagerService extends ComputerManagerService {
         }
         @Override public void stopPolling() { }
         @Override public void waitForPollingStopped() { }
-        @Override public String getUniqueId() { return "rubylight-demo"; }
+        @Override public String getUniqueId() { return "nightjar-demo"; }
         @Override public ComputerDetails getComputer(String uuid) {
             for (ComputerDetails computer : computers) {
                 if (computer.uuid.equals(uuid)) return computer;

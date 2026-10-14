@@ -109,7 +109,7 @@ public final class KeyboardShortcutsActivity extends AppCompatActivity {
                 .putExtra(Intent.EXTRA_MIME_TYPES, new String[] {"application/json", "text/plain", "application/octet-stream"}), IMPORT));
         button(getString(R.string.keyboard_shortcuts_export), !busy, () -> chooseFile(new Intent(Intent.ACTION_CREATE_DOCUMENT)
                 .addCategory(Intent.CATEGORY_OPENABLE).setType("application/json")
-                .putExtra(Intent.EXTRA_TITLE, "rubylight-keyboard-shortcuts.json"), EXPORT));
+                .putExtra(Intent.EXTRA_TITLE, "nightjar-keyboard-shortcuts.json"), EXPORT));
         if (work.message.getValue() != null) {
             TextView message = new TextView(this);
             message.setText(work.message.getValue());

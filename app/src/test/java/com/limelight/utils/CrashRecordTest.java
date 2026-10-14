@@ -24,21 +24,21 @@ public class CrashRecordTest {
         error.addSuppressed(new RuntimeException("password hunter2"));
         error.setStackTrace(new StackTraceElement[] {
                 new StackTraceElement("com.limelight.Game", "start", "/private/desktop.local/Game.java", 42),
-                new StackTraceElement("com.butterpollo.Client", "connect", "Client.java", 12),
+                new StackTraceElement("com.limelight.nvstream.NvConnection", "start", "NvConnection.java", 12),
                 new StackTraceElement("android.app.ActivityThread", "main", "ActivityThread.java", 123),
                 new StackTraceElement("java.lang.Thread", "run", "Thread.java", 10),
                 new StackTraceElement("okhttp3.internal.Connection", "connect", "Connection.java", 20)
         });
         String text = CrashRecord.javaCrash(34567, 100, "12.2 (315)", 35, "Pixel 8", "main", error).text;
         assertTrue(text.contains("1970-01-01 00:00:34.567 UTC"));
-        assertTrue(text.contains("Rubylight: 12.2 (315)"));
+        assertTrue(text.contains("Nightjar: 12.2 (315)"));
         assertTrue(text.contains("Android API: 35"));
         assertTrue(text.contains("Device model: Pixel 8"));
         assertTrue(text.contains("Thread: main"));
         assertTrue(text.contains("Caused by: java.lang.IllegalArgumentException"));
         assertTrue(text.contains("Suppressed: java.lang.RuntimeException"));
         assertTrue(text.contains("com.limelight.Game.start(line 42)"));
-        assertTrue(text.contains("com.butterpollo.Client.connect(line 12)"));
+        assertTrue(text.contains("com.limelight.nvstream.NvConnection.start(line 12)"));
         assertTrue(text.contains("android.app.ActivityThread.main(line 123)"));
         assertTrue(text.contains("java.lang.Thread.run(line 10)"));
         for (String secret : new String[] {"secret", "desktop.local", "192.168", "PIN", "1234", "fe80", "hunter2", "okhttp3", "/private/"}) {

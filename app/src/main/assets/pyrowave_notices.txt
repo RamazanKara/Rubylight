@@ -1,13 +1,13 @@
-PyroWave integration for Rubylight Android
+PyroWave integration for Nightjar
 
 Android renderer adapted from joemossjr16/artemis-android-pyrowave
 https://github.com/joemossjr16/artemis-android-pyrowave/tree/387d3a5ce1e3df8d4a4d29eec5b81a7b904926a5
 GPL-3.0, as is this Moonlight-derived application (see LICENSE.txt).
-Rubylight changes: protocol, capability checks, 10-bit/HDR, timing and lifecycle.
+Nightjar changes: protocol, capability checks, 10-bit/HDR, timing and lifecycle.
 
 PyroWave 502a3b52a39312ab82c85b1e2fc0e746faee91a4 (MIT)
 https://github.com/Themaister/pyrowave
-Includes the short-block fix attributed to Punktfunk by Rubylight.
+Includes the short-block fix, attributed to Punktfunk.
 
 Copyright (c) 2025 Hans-Kristian Arntzen
 
@@ -82,7 +82,7 @@ libadrenotools 8fae8ce254dfc1344527e05301e43f37dea2df80
 https://github.com/bylaws/libadrenotools
 liblinkernsbypass aa3975893d83ef1bc84c321ec60c65fbf1287887
 https://github.com/bylaws/liblinkernsbypass
-Rubylight adds a custom-driver load result flag for reliable system fallback.
+Nightjar adds a custom-driver load result flag for reliable system fallback.
 
 BSD 2-Clause License
 

@@ -206,7 +206,7 @@ public final class GameTouchControls extends FrameLayout {
                     try {
                         java.io.File directory = new java.io.File(activity.getCacheDir(), "reports");
                         if (!directory.isDirectory() && !directory.mkdirs()) throw new java.io.IOException("Cannot create export directory");
-                        java.io.File file = new java.io.File(directory, "rubylight-touch-layout.json");
+                        java.io.File file = new java.io.File(directory, "nightjar-touch-layout.json");
                         try (java.io.OutputStream output = new java.io.FileOutputStream(file)) {
                             output.write(json.getBytes(java.nio.charset.StandardCharsets.UTF_8));
                         }

@@ -50,22 +50,22 @@
         <item name="android:fontFamily">sans</item>
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
-        <item name="materialAlertDialogTheme">@style/ThemeOverlay.Butterpollo.Dialog</item>
-        <item name="toolbarStyle">@style/Widget.Butterpollo.Toolbar</item>
+        <item name="materialAlertDialogTheme">@style/ThemeOverlay.Nightjar.Dialog</item>
+        <item name="toolbarStyle">@style/Widget.Nightjar.Toolbar</item>
         <item name="android:textAllCaps">false</item>
-        <item name="shapeAppearanceSmallComponent">@style/ShapeAppearance.Butterpollo</item>
-        <item name="shapeAppearanceMediumComponent">@style/ShapeAppearance.Butterpollo</item>
+        <item name="shapeAppearanceSmallComponent">@style/ShapeAppearance.Nightjar</item>
+        <item name="shapeAppearanceMediumComponent">@style/ShapeAppearance.Nightjar</item>
     </style>
 
-    <style name="ThemeOverlay.Butterpollo.Dialog" parent="ThemeOverlay.Material3.MaterialAlertDialog">
-        <item name="buttonBarPositiveButtonStyle">@style/ButterpolloDialogButton</item>
-        <item name="buttonBarNegativeButtonStyle">@style/ButterpolloDialogButton</item>
-        <item name="buttonBarNeutralButtonStyle">@style/ButterpolloDialogButton</item>
+    <style name="ThemeOverlay.Nightjar.Dialog" parent="ThemeOverlay.Material3.MaterialAlertDialog">
+        <item name="buttonBarPositiveButtonStyle">@style/NightjarDialogButton</item>
+        <item name="buttonBarNegativeButtonStyle">@style/NightjarDialogButton</item>
+        <item name="buttonBarNeutralButtonStyle">@style/NightjarDialogButton</item>
     </style>
 
     <!-- Toolbar icons are white vectors; Widget.Material3.Toolbar does not tint the navigation icon, which left it
          invisible on the light surface. Menu item icons are tinted by app:iconTint in res/menu. -->
-    <style name="Widget.Butterpollo.Toolbar" parent="Widget.Material3.Toolbar">
+    <style name="Widget.Nightjar.Toolbar" parent="Widget.Material3.Toolbar">
         <item name="navigationIconTint">?attr/colorOnSurface</item>
         <item name="titleTextAppearance">@style/ScreenTitle</item>
         <item name="subtitleTextColor">@color/on_surface_variant</item>
@@ -76,12 +76,12 @@
         <item name="android:windowBackground">@android:color/transparent</item>
     </style>
 
-    <style name="ButterpolloDialogButton" parent="Widget.Material3.Button.TextButton.Dialog">
+    <style name="NightjarDialogButton" parent="Widget.Material3.Button.TextButton.Dialog">
         <item name="android:textAllCaps">false</item>
         <item name="android:minHeight">48dp</item>
     </style>
 
-    <style name="ShapeAppearance.Butterpollo" parent="ShapeAppearance.Material3.MediumComponent">
+    <style name="ShapeAppearance.Nightjar" parent="ShapeAppearance.Material3.MediumComponent">
         <item name="cornerSize">16dp</item>
     </style>
 

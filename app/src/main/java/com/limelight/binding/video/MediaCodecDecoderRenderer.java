@@ -160,7 +160,9 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     private volatile String latencyOverlay = "";
     private volatile double[][] latencySummary = new double[5][4];
     private volatile String decoderDiagnostics = "";
+    // Private file name kept from earlier releases so the last stream's timings survive updates.
     public static final String LATENCY_CSV_NAME = "butterpollo-latency.csv";
+    public static final String LATENCY_CSV_EXPORT_NAME = "nightjar-latency.csv";
     private static final long MAX_LATENCY_CSV_BYTES = 8 * 1024 * 1024;
     private final Runnable updateLatencyStats = new Runnable() {
         @Override

@@ -2,6 +2,8 @@ package com.limelight.utils;
 
 import android.app.ApplicationExitInfo;
 
+import com.limelight.BuildConfig;
+
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
@@ -47,7 +49,7 @@ final class CrashRecord {
         for (int i = 0; i < Math.min(frames.length, MAX_FRAMES) && text.length() < MAX_BYTES / 4; i++) {
             StackTraceElement frame = frames[i];
             String name = frame.getClassName();
-            if (name.startsWith("com.limelight.") || name.startsWith("com.butterpollo.") ||
+            if (name.startsWith("com.limelight.") ||
                     name.startsWith("android.") || name.startsWith("com.android.") ||
                     name.startsWith("androidx.") || name.startsWith("java.") ||
                     name.startsWith("javax.") || name.startsWith("dalvik.") || name.startsWith("libcore.")) {
@@ -82,7 +84,7 @@ final class CrashRecord {
         SimpleDateFormat date = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS 'UTC'", Locale.ROOT);
         date.setTimeZone(TimeZone.getTimeZone("UTC"));
         String text = "Crash: " + id + "\nTime: " + date.format(new Date(timestamp)) + "\nReason: " + reason
-                + "\nRubylight: " + singleLine(version) + "\nAndroid API: " + api + "\nDevice model: " + singleLine(model)
+                + "\n" + BuildConfig.BRAND_NAME + ": " + singleLine(version) + "\nAndroid API: " + api + "\nDevice model: " + singleLine(model)
                 + "\nException messages, file paths and free-text diagnostics omitted.\n" + details;
         byte[] bytes = text.getBytes(StandardCharsets.UTF_8);
         if (bytes.length > MAX_BYTES) {

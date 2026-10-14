@@ -35,7 +35,7 @@ public class FrontendEntryTest {
 
     @Test
     public void toleratesBomBeforeExportCommentOrBlankLine() throws IOException {
-        for (String prefix : new String[] {"\uFEFF# Butterpollo game entry\r\n", "\uFEFF\r\n"}) {
+        for (String prefix : new String[] {"\uFEFF# Nightjar game entry\r\n", "\uFEFF\r\n"}) {
             assertEquals("Desk", parse(prefix + "[host_name] Desk\n").get(FrontendEntry.KEY_HOST_NAME));
         }
     }
@@ -143,7 +143,7 @@ public class FrontendEntryTest {
                 "<systemList><system></systemList>",
                 "<!DOCTYPE systemList [<!ENTITY name 'secret'>]><systemList/>"}) {
             org.junit.Assert.assertThrows(IllegalArgumentException.class,
-                    () -> FrontendEntry.mergeEsSystems(text, "Butterpollo"));
+                    () -> FrontendEntry.mergeEsSystems(text, "Nightjar"));
         }
     }
 
@@ -246,16 +246,18 @@ public class FrontendEntryTest {
 
     @Test
     public void createsEsDeFilesWhenMissing() {
-        String systems = FrontendEntry.mergeEsSystems(null, "Butterpollo & Co");
+        String systems = FrontendEntry.mergeEsSystems(null, "Nightjar & Co");
         assertTrue(systems.startsWith("<?xml"));
         assertTrue(systems.contains("<name>butterpollo</name>"));
-        assertTrue(systems.contains("<fullname>Butterpollo &amp; Co</fullname>"));
+        assertTrue(systems.contains("<fullname>Nightjar &amp; Co</fullname>"));
         assertTrue(systems.contains("%EMULATOR_BUTTERPOLLO%"));
+        assertTrue(systems.contains("<command label=\"Nightjar\">"));
         assertTrue(systems.contains("%DATA%=%ROMPROVIDER%"));
         assertTrue(systems.trim().endsWith("</systemList>"));
 
         String rules = FrontendEntry.mergeEsFindRules("", "com.butterpollo.client");
         assertTrue(rules.contains("<entry>com.butterpollo.client/com.limelight.ShortcutTrampoline</entry>"));
+        assertTrue(rules.contains("<!-- Nightjar game streaming client -->"));
         assertTrue(rules.trim().endsWith("</ruleList>"));
     }
 

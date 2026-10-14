@@ -28,7 +28,7 @@ extern "C" {
  * @param fileRedirectDir The directory which to redirect all file accesses performed by the driver to. Only used if ADRENOTOOLS_DRIVER_FILE_REDIRECT is set in `featureFlags`
  * @param userMappingHandle A pointer to a void* which will be set to the mapping handle if ADRENOTOOLS_DRIVER_GPU_MAPPING_IMPORT is set in `featureFlags`
  */
-// Rubylight: the optional result stays alive with the loader and is written atomically by its hook.
+// Nightjar: the optional result stays alive with the loader and is written atomically by its hook.
 void *adrenotools_open_libvulkan(int dlopenMode, int featureFlags, const char *tmpLibDir, const char *hookLibDir, const char *customDriverDir, const char *customDriverName, const char *fileRedirectDir, void **userMappingHandle, uint32_t *customDriverLoaded);
 
 /**

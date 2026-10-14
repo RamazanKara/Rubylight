@@ -9,7 +9,7 @@ layout(push_constant) uniform Color { int ten_bit; int hdr; int full_range; } co
 
 void main() {
     vec2 cuv = v_uv;
-    // Butterpollo averages each 2x2 chroma block, so its sampling is centred.
+    // The Rubylight host averages each 2x2 chroma block, so its sampling is centred.
 
     // The host normalizes 10-bit codes by 1023, rather than shifting them into P010.
     float peak = color.ten_bit != 0 ? 1023.0 : 255.0;

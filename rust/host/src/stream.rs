@@ -5,6 +5,8 @@ mod device_recovery;
 #[cfg(test)]
 mod encoder_tests;
 mod game_audio;
+mod qos;
+use qos::Tagged;
 #[cfg(test)]
 pub(crate) mod reconnect_tests;
 use anyhow::{Context, Result};
@@ -650,30 +652,6 @@ impl Drop for RouteUpkeep {
             worker.thread().unpark();
             finish_worker(worker, "audio route");
         }
-    }
-}
-/// A session's QoS tag on a shared socket, moved along when the client's
-/// address changes.
-#[derive(Default)]
-struct Tagged(Option<(SocketAddr, Option<butterpollo_windows::net::QosFlow>)>);
-impl Tagged {
-    fn follow(&mut self, socket: &UdpSocket, peer: SocketAddr, voice: bool) {
-        if self.0.as_ref().is_some_and(|(tagged, _)| *tagged == peer) {
-            return;
-        }
-        let class = if voice { "voice" } else { "video" };
-        let flow = match butterpollo_windows::net::QosFlow::new(socket, peer, voice) {
-            Ok(Some(flow)) => {
-                tracing::info!(%peer, class, "stream traffic tagged for QoS");
-                Some(flow)
-            }
-            Ok(None) => None,
-            Err(error) => {
-                tracing::warn!(%peer, class, error = %format!("{error:#}"), "could not tag stream traffic for QoS");
-                None
-            }
-        };
-        self.0 = Some((peer, flow));
     }
 }
 pub struct Media {

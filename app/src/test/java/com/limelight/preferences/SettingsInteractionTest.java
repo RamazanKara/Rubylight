@@ -185,6 +185,47 @@ public class SettingsInteractionTest {
         assertFalse(PreferenceConfiguration.isBitrateUserSet(prefs));
     }
 
+    @Test
+    public void aStreamAtTheScreensSizeKeepsAChosenBitrateAndMovesADefaultOne() {
+        Application app = RuntimeEnvironment.getApplication();
+        SharedPreferences prefs = android.preference.PreferenceManager.getDefaultSharedPreferences(app);
+        String screen = PreferenceConfiguration.nativeResolution(app);
+        assertNotNull(screen);
+        assertNotEquals("1920x1080", screen);
+        int savedDefault = PreferenceConfiguration.getDefaultBitrate("1920x1080", "60");
+        int screenDefault = PreferenceConfiguration.getDefaultBitrate(screen, "60");
+        assertNotEquals(savedDefault, screenDefault);
+        // {stored bitrate, user-set flag (null: an install from before the flag), bitrate streamed}
+        Object[][] cases = {
+                // Picked by the user, even when it equals the saved size's default.
+                {savedDefault, true, savedDefault},
+                {45500, true, 45500},
+                // Written by a preset, the migration or a resolution change: it follows the size in use.
+                {45500, false, screenDefault},
+                {savedDefault, false, screenDefault},
+                // Older installs keep the heuristic: only the saved size's default follows.
+                {savedDefault, null, screenDefault},
+                {45500, null, 45500},
+        };
+        try {
+            for (Object[] c : cases) {
+                SharedPreferences.Editor editor = prefs.edit().clear()
+                        .putInt(PreferenceConfiguration.PREFS_VERSION_PREF_STRING, PreferenceConfiguration.PROFILE_NATIVE_VERSION)
+                        .putString(PreferenceConfiguration.RESOLUTION_PREF_STRING, "1920x1080")
+                        .putString(PreferenceConfiguration.FPS_PREF_STRING, "60")
+                        .putBoolean(PreferenceConfiguration.RESOLUTION_FOLLOWS_SCREEN_PREF_STRING, true)
+                        .putInt(PreferenceConfiguration.BITRATE_PREF_STRING, (Integer) c[0]);
+                if (c[1] != null) editor.putBoolean(PreferenceConfiguration.BITRATE_USER_SET_PREF_STRING, (Boolean) c[1]);
+                editor.commit();
+                PreferenceConfiguration config = PreferenceConfiguration.readPreferences(app);
+                assertEquals(screen, PreferenceConfiguration.getResolutionText(config.width, config.height));
+                assertEquals(c[0] + ", user-set " + c[1], (int) (Integer) c[2], config.bitrate);
+            }
+        } finally {
+            prefs.edit().clear().commit();
+        }
+    }
+
     private static void choose(StreamSettings.SettingsFragment fragment, String key, String value) {
         android.preference.ListPreference list = (android.preference.ListPreference) fragment.findPreference(key);
         // What ListPreference does when the user picks an entry.

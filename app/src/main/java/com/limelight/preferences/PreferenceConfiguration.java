@@ -795,11 +795,10 @@ public class PreferenceConfiguration {
         if (config.bitrate == 0) {
             config.bitrate = getDefaultBitrate(context);
         }
-        // A bitrate left at the saved size's default follows the size the stream really uses.
+        // A bitrate the user did not pick follows the size the stream really uses.
         String fpsString = Integer.toString(config.fps);
         String used = getResolutionText(config.width, config.height);
-        if (savedResolution != null && !used.equals(savedResolution) &&
-                config.bitrate == getDefaultBitrate(savedResolution, fpsString)) {
+        if (savedResolution != null && !used.equals(savedResolution) && !isBitrateUserSet(prefs)) {
             config.bitrate = getDefaultBitrate(used, fpsString);
         }
 

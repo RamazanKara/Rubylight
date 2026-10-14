@@ -1194,7 +1194,9 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         }
     }
 
-    private short getActiveControllerMask() {
+    // Slot assignment changes both masks under this lock, on the main thread or the connection
+    // worker. Read them under it too, so input never carries a mask from mid-assignment.
+    private synchronized short getActiveControllerMask() {
         if (prefConfig.multiController) {
             return (short)(currentControllers | initialControllers | (prefConfig.onscreenController ? 1 : 0));
         }

@@ -115,6 +115,56 @@ public class ControllerPreparationTest {
         }
     }
 
+    @Test public void inputDuringAnotherPadsSlotAssignmentSeesTheFinishedMask() throws Exception {
+        try (ActivityController<Activity> activity = Robolectric.buildActivity(Activity.class).create()) {
+            CountDownLatch announcing = new CountDownLatch(1), release = new CountDownLatch(1);
+            AtomicBoolean assigning = new AtomicBoolean();
+            List<String> inputsDuringAssignment = Collections.synchronizedList(new ArrayList<>());
+            Connection connection = new Connection(73) {
+                @Override public int sendControllerArrivalEvent(byte slot, short mask, byte type, int buttons, short caps) {
+                    if ((caps & MoonBridge.LI_CCAP_HAPTICS_PCM) != 0) {
+                        // Launch preparation is still inside the waveform pad's slot assignment.
+                        assigning.set(true);
+                        announcing.countDown();
+                        try { release.await(2, TimeUnit.SECONDS); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+                        assigning.set(false);
+                    }
+                    return super.sendControllerArrivalEvent(slot, mask, type, buttons, caps);
+                }
+                @Override public void sendControllerInput(short slot, short mask, int buttons, byte leftTrigger,
+                                                         byte rightTrigger, short leftX, short leftY, short rightX, short rightY) {
+                    if (assigning.get()) inputsDuringAssignment.add("slot " + slot + ", mask " + mask);
+                    super.sendControllerInput(slot, mask, buttons, leftTrigger, rightTrigger, leftX, leftY, rightX, rightY);
+                }
+            };
+            PreferenceConfiguration prefs = new PreferenceConfiguration();
+            prefs.usbDualSenseHaptics = true;
+            prefs.multiController = true;
+            ControllerHandler handler = new ControllerHandler(activity.get(), connection, null, prefs);
+            handler.deviceAdded(new Pad(43, MoonBridge.LI_CCAP_RUMBLE));
+            handler.reportControllerState(43, ControllerPacket.A_FLAG, 0, 0, 0, 0, 0, 0);
+            assertEquals(1, connection.inputs);
+            handler.deviceAdded(new Pad());
+            ExecutorService threads = Executors.newFixedThreadPool(2);
+            try {
+                Future<String> launch = threads.submit(handler::prepareControllersForLaunch);
+                assertTrue(announcing.await(2, TimeUnit.SECONDS));
+                // The pad that already has slot 0 keeps sending input on the main thread meanwhile.
+                Future<?> input = threads.submit(() -> handler.reportControllerState(43, 0, 0, 0, 0, 0, 0, 0));
+                try { input.get(300, TimeUnit.MILLISECONDS); } catch (TimeoutException expected) { }
+                assertEquals("The active-pad mask must not be read mid-assignment", List.of(), inputsDuringAssignment);
+                release.countDown();
+                assertFalse(launch.get(2, TimeUnit.SECONDS).isEmpty());
+                input.get(2, TimeUnit.SECONDS);
+                assertEquals(2, connection.inputs);
+            } finally {
+                release.countDown();
+                threads.shutdownNow();
+                handler.destroy();
+            }
+        }
+    }
+
     @Test public void monitorAndRevokedInputCannotPrepareBindOrRouteControllerAudio() {
         for (int appId : new int[] {2147483505, 73}) {
             checkDeniedControllerAccess(appId, appId == 73 ? 0 : -1);

@@ -25,7 +25,7 @@ public class DualSenseController extends AbstractController {
     private final Object outputLock = new Object();
     private UsbInterface hidInterface;
     private UsbEndpoint inEndpoint, outEndpoint;
-    private Thread inputThread;
+    private volatile Thread inputThread;
     private volatile boolean stopped;
     private boolean batteryReported;
     private boolean waveformReported, triggersReported;
@@ -38,7 +38,7 @@ public class DualSenseController extends AbstractController {
     private long accelIntervalNs, gyroIntervalNs, lastAccelNs, lastGyroNs;
 
     public DualSenseController(UsbDevice device, UsbDeviceConnection connection, int deviceId, UsbDriverListener listener, UsbManager waveformUsbManager) {
-        super(deviceId, listener, device.getVendorId(), device.getProductId());
+        super(deviceId, listener, device.getVendorId(), device.getProductId(), device.getDeviceName());
         this.device = device;
         this.waveformUsbManager = waveformUsbManager;
         this.connection = connection;
@@ -87,8 +87,13 @@ public class DualSenseController extends AbstractController {
                 hidInterface.getId(), data, data.length, 1000);
     }
 
+    // Runs on the device's USB worker: the feature reads below can each take a second on a failing
+    // pad. A stop() meanwhile ends it early; the release queued behind it cleans up.
     @Override
     public synchronized boolean start() {
+        if (stopped) {
+            return false;
+        }
         UsbInterface iface = findHidInterface(device);
         if (iface == null || !connection.claimInterface(iface, true)) {
             LimeLog.warning("DualSense USB HID interface could not be claimed");
@@ -108,6 +113,9 @@ public class DualSenseController extends AbstractController {
             }
         }
 
+        if (stopped) {
+            return false;
+        }
         byte[] feature = new byte[41];
         calibration.parse(feature, readFeature(0x05, feature));
         feature = new byte[64];
@@ -115,6 +123,9 @@ public class DualSenseController extends AbstractController {
         int firmware = size >= 46 && feature[0] == 0x20 ?
                 (feature[44] & 0xFF) | ((feature[45] & 0xFF) << 8) : 0;
         output = new DualSenseReport.Output(edge || firmware >= 0x0224);
+        if (stopped) {
+            return false;
+        }
         if (!writeOutput(output.reset())) {
             connection.releaseInterface(hidInterface);
             hidInterface = null;
@@ -138,6 +149,9 @@ public class DualSenseController extends AbstractController {
             }
         }
 
+        if (stopped) {
+            return false;
+        }
         inputThread = new Thread(this::readInput, "DualSense USB input");
         inputThread.start();
         return true;
@@ -362,13 +376,20 @@ public class DualSenseController extends AbstractController {
                 return;
             }
             stopped = true;
-            if (inputThread != null) {
-                inputThread.interrupt();
-            }
         }
-        // The worker may be updating HID state, so join without holding outputLock.
         Thread worker = inputThread;
-        if (worker != null && worker != Thread.currentThread()) {
+        if (worker != null) {
+            worker.interrupt();
+        }
+        // Releasing the pad waits for a USB read in progress, so never on the caller's thread.
+        runOnUsbWorker(this::release);
+    }
+
+    private void release() {
+        // The input thread may be updating HID state, so join without holding outputLock.
+        Thread worker = inputThread;
+        if (worker != null) {
+            worker.interrupt();
             try {
                 // An interrupt cannot end a USB read; it returns within its 1 s timeout.
                 worker.join(1500);
@@ -380,7 +401,9 @@ public class DualSenseController extends AbstractController {
         if (playback != null) playback.close();
         synchronized (outputLock) {
             if (hidInterface != null) {
-                writeOutput(output.reset());
+                if (output != null) {
+                    writeOutput(output.reset());
+                }
                 if (!connection.releaseInterface(hidInterface)) {
                     LimeLog.warning("Failed to release DualSense HID interface");
                 }

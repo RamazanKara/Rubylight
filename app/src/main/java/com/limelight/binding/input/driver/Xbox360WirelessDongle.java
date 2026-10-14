@@ -38,7 +38,7 @@ public class Xbox360WirelessDongle extends AbstractController {
     }
 
     public Xbox360WirelessDongle(UsbDevice device, UsbDeviceConnection connection, int deviceId, UsbDriverListener listener) {
-        super(deviceId, listener, device.getVendorId(), device.getProductId());
+        super(deviceId, listener, device.getVendorId(), device.getProductId(), device.getDeviceName());
         this.device = device;
         this.connection = connection;
     }
@@ -133,7 +133,8 @@ public class Xbox360WirelessDongle extends AbstractController {
 
     @Override
     public void stop() {
-        // Nothing to do
+        // start() always hands the dongle back to the kernel; only the connection remains.
+        connection.close();
     }
 
     @Override

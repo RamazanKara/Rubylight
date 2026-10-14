@@ -1,56 +1,54 @@
 package com.limelight.binding.input.driver;
 
 import android.app.Application;
-import android.hardware.usb.UsbDevice;
 import android.hardware.usb.UsbDeviceConnection;
 
+import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.robolectric.RobolectricTestRunner;
 import org.robolectric.annotation.Config;
 import org.robolectric.shadow.api.Shadow;
-import org.robolectric.util.ReflectionHelpers;
 
-import java.lang.reflect.Proxy;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.junit.Assert.*;
 
 @RunWith(RobolectricTestRunner.class)
 @Config(sdk = 29, application = Application.class,
-        shadows = com.limelight.PcViewLifecycleTest.NoNativeMoonBridge.class,
+        shadows = {UsbPads.Connection.class, com.limelight.PcViewLifecycleTest.NoNativeMoonBridge.class},
         instrumentedPackages = "com.limelight.nvstream.jni")
 public class DualSenseControllerStopTest {
-    @Test
-    public void stopWaitsForTheUsbWorkerBeforeClosingTheConnection() throws Exception {
-        UsbDriverListener listener = (UsbDriverListener) Proxy.newProxyInstance(
-                UsbDriverListener.class.getClassLoader(), new Class<?>[] {UsbDriverListener.class},
-                (proxy, method, args) -> null);
-        DualSenseController controller = new DualSenseController(Shadow.newInstanceOf(UsbDevice.class),
+    private final UsbPads.Recorder listener = new UsbPads.Recorder();
+
+    @Before
+    public void resetPads() {
+        UsbPads.Connection.reset();
+    }
+
+    private DualSenseController controller() {
+        return new DualSenseController(UsbPads.dualSense("/dev/bus/usb/001/005"),
                 Shadow.newInstanceOf(UsbDeviceConnection.class), 42, listener, null);
-        CountDownLatch reading = new CountDownLatch(1);
-        AtomicBoolean workerRunning = new AtomicBoolean(true);
-        Thread worker = new Thread(() -> {
-            reading.countDown();
-            // Like a USB read, this ignores interrupts and ends at its own timeout.
-            long end = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(200);
-            for (long left; (left = end - System.nanoTime()) > 0; ) {
-                try {
-                    TimeUnit.NANOSECONDS.sleep(left);
-                } catch (InterruptedException ignored) {
-                }
-            }
-            workerRunning.set(false);
-        }, "DualSense USB input");
-        ReflectionHelpers.setField(controller, "inputThread", worker);
-        worker.start();
-        assertTrue(reading.await(1, TimeUnit.SECONDS));
+    }
 
+    @Test
+    public void stopReturnsAtOnceAndReleasesThePadOnlyAfterItsUsbRead() throws Exception {
+        UsbPads.Connection.inputReport = UsbPads.dualSenseReport();
+        DualSenseController controller = controller();
+        // The USB service's worker would run this.
+        assertTrue(controller.start());
+        UsbPads.await(() -> listener.has("added") && listener.has("state"));
+        UsbPads.Connection.inputReadMs = 400;
+        Thread.sleep(30);
+        assertTrue(UsbPads.Connection.readInProgress.get());
+
+        long stop = System.nanoTime();
         controller.stop();
-
-        assertFalse(workerRunning.get());
-        worker.join(1000);
+        long stopMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - stop);
+        // The main thread calls stop() on detach and at the end of a stream.
+        assertTrue("stop() held its caller for " + stopMs + " ms", stopMs < 100);
+        UsbPads.await(() -> UsbPads.Connection.closes.get() == 1 && listener.has("removed"));
+        assertFalse("The connection was closed under a USB read", UsbPads.Connection.closedDuringRead);
+        assertEquals(1, UsbPads.Connection.releases.get());
     }
 }

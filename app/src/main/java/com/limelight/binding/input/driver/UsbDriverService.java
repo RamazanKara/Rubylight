@@ -52,7 +52,7 @@ public class UsbDriverService extends Service implements UsbDriverListener {
                                       float rightStickX, float rightStickY, float leftTrigger, float rightTrigger) {
         handler.post(() -> {
             UsbDriverListener current = listener;
-            if (started && current != null) {
+            if (started && current != null && isClaimed(controllerId)) {
                 current.reportControllerState(controllerId, buttonFlags, leftStickX, leftStickY, rightStickX, rightStickY, leftTrigger, rightTrigger);
             }
         });
@@ -62,7 +62,7 @@ public class UsbDriverService extends Service implements UsbDriverListener {
     public void reportControllerTouch(int controllerId, byte eventType, int pointerId, float x, float y, float pressure) {
         handler.post(() -> {
             UsbDriverListener current = listener;
-            if (started && current != null) {
+            if (started && current != null && isClaimed(controllerId)) {
                 current.reportControllerTouch(controllerId, eventType, pointerId, x, y, pressure);
             }
         });
@@ -72,7 +72,7 @@ public class UsbDriverService extends Service implements UsbDriverListener {
     public void reportControllerMotion(int controllerId, byte motionType, float x, float y, float z) {
         handler.post(() -> {
             UsbDriverListener current = listener;
-            if (started && current != null) {
+            if (started && current != null && isClaimed(controllerId)) {
                 current.reportControllerMotion(controllerId, motionType, x, y, z);
             }
         });
@@ -82,10 +82,21 @@ public class UsbDriverService extends Service implements UsbDriverListener {
     public void reportControllerBattery(int controllerId, byte state, byte percentage) {
         handler.post(() -> {
             UsbDriverListener current = listener;
-            if (started && current != null) {
+            if (started && current != null && isClaimed(controllerId)) {
                 current.reportControllerBattery(controllerId, state, percentage);
             }
         });
+    }
+
+    // A controller leaves this list on the main thread as soon as it is told to stop, while its
+    // input thread may still be finishing a read. Reports it posted meanwhile are dropped.
+    private boolean isClaimed(int controllerId) {
+        for (AbstractController controller : controllers) {
+            if (controller.getControllerId() == controllerId) {
+                return true;
+            }
+        }
+        return false;
     }
 
     @Override
@@ -148,6 +159,8 @@ public class UsbDriverService extends Service implements UsbDriverListener {
                 }
                 for (AbstractController controller : controllers) {
                     if (isControllerForDevice(controller, device)) {
+                        // Input stops now; the pad's USB worker finishes releasing it.
+                        controllers.remove(controller);
                         controller.stop();
                     }
                 }
@@ -293,15 +306,10 @@ public class UsbDriverService extends Service implements UsbDriverListener {
                 return;
             }
 
-            // Start the controller
-            if (!controller.start()) {
-                controller.stop();
-                connection.close();
-                return;
-            }
-
-            // Add this controller to the list
+            // Claim it at once so a detach or stop during its start finds it. Starting does USB
+            // transfers that take seconds on a failing pad; the controller's stop() closes the connection.
             controllers.add(controller);
+            controller.startOnUsbWorker(() -> controllers.remove(controller));
         }
     }
 

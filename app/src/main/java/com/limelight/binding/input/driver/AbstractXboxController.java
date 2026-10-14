@@ -18,14 +18,15 @@ public abstract class AbstractXboxController extends AbstractController {
     protected final UsbDevice device;
     protected final UsbDeviceConnection connection;
 
-    private Thread inputThread;
+    private volatile Thread inputThread;
     private volatile boolean stopped;
+    private final Object stopLock = new Object();
     private int claimedInterfaceCount;
 
     protected UsbEndpoint inEndpt, outEndpt;
 
     public AbstractXboxController(UsbDevice device, UsbDeviceConnection connection, int deviceId, UsbDriverListener listener) {
-        super(deviceId, listener, device.getVendorId(), device.getProductId());
+        super(deviceId, listener, device.getVendorId(), device.getProductId(), device.getDeviceName());
         this.device = device;
         this.connection = connection;
         this.type = MoonBridge.LI_CTYPE_XBOX;
@@ -97,7 +98,11 @@ public abstract class AbstractXboxController extends AbstractController {
         };
     }
 
+    // Runs on the device's USB worker: the init transfers can each take 3 s on a failing pad.
     public synchronized boolean start() {
+        if (stopped) {
+            return false;
+        }
         // Force claim all interfaces
         for (int i = 0; i < device.getInterfaceCount(); i++) {
             UsbInterface iface = device.getInterface(i);
@@ -136,7 +141,7 @@ public abstract class AbstractXboxController extends AbstractController {
         }
 
         // Run the init function
-        if (!doInit()) {
+        if (!doInit() || stopped) {
             return false;
         }
 
@@ -147,22 +152,41 @@ public abstract class AbstractXboxController extends AbstractController {
         return true;
     }
 
-    public synchronized void stop() {
-        if (stopped) {
-            return;
+    public void stop() {
+        // Not synchronized: a start() still running on the USB worker must not hold up the caller.
+        synchronized (stopLock) {
+            if (stopped) {
+                return;
+            }
+            stopped = true;
         }
 
-        stopped = true;
+        Thread worker = inputThread;
+        if (worker != null) {
+            worker.interrupt();
+        }
 
+        // Releasing the pad waits for a USB read in progress, so never on the caller's thread.
+        runOnUsbWorker(this::release);
+    }
+
+    private void release() {
         // Cancel any rumble effects
         if (outEndpt != null) {
             rumble((short)0, (short)0);
             rumbleTriggers((short)0, (short)0);
         }
 
-        // Stop the input thread
-        if (inputThread != null) {
-            inputThread.interrupt();
+        // Stop the input thread. An interrupt cannot end a USB read, which returns within its
+        // 3 s timeout, and closing the connection under a read in progress is not safe.
+        Thread worker = inputThread;
+        if (worker != null) {
+            worker.interrupt();
+            try {
+                worker.join(3500);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
             inputThread = null;
         }
 

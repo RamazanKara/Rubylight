@@ -304,7 +304,7 @@ def capture_ui_set(width, font, rotation=0):
     find(HOST_NAME)
     host_menu("Delete PC")
     tap("android:id/button1")
-    find("Searching for PCs…")
+    find(f"{PACKAGE}:id/discovery_add")
     screenshot(prefix + "-home-empty")
     tap(f"{PACKAGE}:id/discovery_add")
     tap(f"{PACKAGE}:id/addPcButton", scroll=True)
@@ -361,6 +361,60 @@ def library_regressions():
     adb("shell", "settings", "put", "system", "font_scale", "1.0")
 
 
+def capture_ui_sweep():
+    """Run identical responsive/navigation checks in full and focused UI runs."""
+    for width, font, rotation in ((393, 1.0, 0), (412, 1.0, 0), (393, 1.3, 0),
+                                  (393, 2.0, 0), (393, 2.0, 1)):
+        capture_ui_set(width, font, rotation)
+    adb("shell", "settings", "put", "system", "font_scale", "1.0")
+    if DEBUGGABLE:
+        library_regressions()
+        # 786 px at 320 dpi gives a 393 dp phone viewport.
+        adb("shell", "wm", "size", "786x1704")
+        adb("shell", "wm", "density", "320")
+        adb("shell", "wm", "user-rotation", "lock", "0")
+        adb("shell", "am", "start", "-W", "-n", f"{PACKAGE}/com.limelight.LatencyOverlaySmokeActivity")
+        for rotation, suffix in ((0, ""), (1, "-landscape")):
+            adb("shell", "wm", "user-rotation", "lock", str(rotation))
+            time.sleep(1)
+            node = find(f"{PACKAGE}:id/performanceOverlay")
+            text = node.get("text", "")
+            assert "Displayed: 119.9 FPS" in text and "Video payload: 14.2 Mbps" in text, node.attrib
+            assert "Host processing: 2.10 ms" in text and "Display wait: 1.20 ms" in text, node.attrib
+            assert "Host CPU: 41.6%" in text and "Host GPU 11520: 42.0%" in text, node.attrib
+            width, height = screenshot("overlay-statistics" + suffix)
+            assert (width < height) == (rotation == 0), "Overlay did not rotate"
+            x1, y1, x2, y2 = bounds(node)
+            assert 0 <= x1 < x2 <= width and 0 <= y1 < y2 <= height, node.attrib
+            assert 80 < y2 - y1 < height, "Statistics should be a readable multiline panel"
+            x, y = str((x1 + x2) // 2), str((y1 + y2) // 2)
+            adb("shell", "input", "swipe", x, y, x, y, "1000")
+            node = find(f"{PACKAGE}:id/performanceOverlay")
+            text = node.get("text", "")
+            for section in ("Video\n", "\n\nNetwork\n", "\n\nDecode\n", "\n\nHost\n"):
+                assert section in text, node.attrib
+            assert "Low latency mode: " in text, node.attrib
+            assert "Queue wait: " in text, node.attrib
+            assert "Host hardware (all GPUs)" in text and "GPU 11520 · AMD Radeon (preview)" in text, node.attrib
+            assert "GPU power: 28.0 W · Board power: 40.0 W" in text, node.attrib
+            screenshot("overlay-debug" + suffix)
+            x1, y1, x2, y2 = bounds(node)
+            x, y = str(x1 + 20), str(y1 + 20)
+            adb("shell", "input", "swipe", x, y, x, y, "1000")
+
+
+def assert_no_app_crashes():
+    crashes = adb("logcat", "-b", "crash", "-d")
+    LOGS.joinpath("logcat.txt").write_text(adb("logcat", "-d"), encoding="utf-8")
+    LOGS.joinpath("crashes.txt").write_text(crashes, encoding="utf-8")
+    # uiautomator itself can time out under host load and logs a FATAL EXCEPTION of its own;
+    # only crashes of this app count.
+    app_crashes = [block for block in re.split(r"(?=FATAL EXCEPTION)|(?=Fatal signal)", crashes)
+                   if ("FATAL EXCEPTION" in block or "Fatal signal" in block) and PACKAGE in block]
+    if app_crashes:
+        raise AssertionError("Emulator crash buffer is not clean")
+
+
 class HostFixture(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path.split("?", 1)[0] == "/pair":
@@ -401,6 +455,8 @@ def main():
                         help="Even emulator console port from 5554 to 5682")
     parser.add_argument("--output-dir", type=Path,
                         help="Write screenshots and logs under this directory instead of the repository")
+    parser.add_argument("--ui-only", action="store_true",
+                        help="Fresh install and PC fixture setup, then only responsive/navigation/overlay checks")
     args = parser.parse_args()
     if args.port < 5554 or args.port > 5682 or args.port % 2:
         parser.error("--port must be an even number from 5554 to 5682")
@@ -493,6 +549,15 @@ def main():
             adb("shell", "input", "keyevent", "82")
             adb("shell", "am", "start", "-W", "-n", f"{PACKAGE}/com.limelight.PcView")
             find(f"{PACKAGE}:id/discovery_add")
+            if args.ui_only:
+                tap(f"{PACKAGE}:id/discovery_add")
+                enter_text(f"{PACKAGE}:id/hostTextView", "127.0.0.1:47989")
+                tap(f"{PACKAGE}:id/addPcButton")
+                find(HOST_NAME)
+                capture_ui_sweep()
+                assert_no_app_crashes()
+                print(f"PASS: UI-only fresh install and PC setup; sheet scrolling/close, settings search/back restoration at 393/412 dp through font scale 2.0 and landscape, pairing and manual discovery, library search/rotation and live overlay rendering (debug only); screenshots: {SHOTS}", flush=True)
+                return
             screenshot("01-home-empty")
             tap(f"{PACKAGE}:id/discovery_help")
             find("Connect to your PC")
@@ -699,53 +764,8 @@ def main():
                 screenshot(shot)
                 tap("android:id/button1")
                 find(HOST_NAME)
-            for width, font, rotation in ((393, 1.0, 0), (412, 1.0, 0), (393, 1.3, 0),
-                                          (393, 2.0, 0), (393, 2.0, 1)):
-                capture_ui_set(width, font, rotation)
-            adb("shell", "settings", "put", "system", "font_scale", "1.0")
-            if DEBUGGABLE:
-                library_regressions()
-                # 786 px at 320 dpi gives a 393 dp phone viewport.
-                adb("shell", "wm", "size", "786x1704")
-                adb("shell", "wm", "density", "320")
-                adb("shell", "wm", "user-rotation", "lock", "0")
-                adb("shell", "am", "start", "-W", "-n", f"{PACKAGE}/com.limelight.LatencyOverlaySmokeActivity")
-                for rotation, suffix in ((0, ""), (1, "-landscape")):
-                    adb("shell", "wm", "user-rotation", "lock", str(rotation))
-                    time.sleep(1)
-                    node = find(f"{PACKAGE}:id/performanceOverlay")
-                    text = node.get("text", "")
-                    assert "Displayed: 119.9 FPS" in text and "Video payload: 14.2 Mbps" in text, node.attrib
-                    assert "Host processing: 2.10 ms" in text and "Display wait: 1.20 ms" in text, node.attrib
-                    assert "Host CPU: 41.6%" in text and "Host GPU 11520: 42.0%" in text, node.attrib
-                    width, height = screenshot("overlay-statistics" + suffix)
-                    assert (width < height) == (rotation == 0), "Overlay did not rotate"
-                    x1, y1, x2, y2 = bounds(node)
-                    assert 0 <= x1 < x2 <= width and 0 <= y1 < y2 <= height, node.attrib
-                    assert 80 < y2 - y1 < height, "Statistics should be a readable multiline panel"
-                    x, y = str((x1 + x2) // 2), str((y1 + y2) // 2)
-                    adb("shell", "input", "swipe", x, y, x, y, "1000")
-                    node = find(f"{PACKAGE}:id/performanceOverlay")
-                    text = node.get("text", "")
-                    for section in ("Video\n", "\n\nNetwork\n", "\n\nDecode\n", "\n\nHost\n"):
-                        assert section in text, node.attrib
-                    assert "Low latency mode: " in text, node.attrib
-                    assert "Queue wait: " in text, node.attrib
-                    assert "Host hardware (all GPUs)" in text and "GPU 11520 · AMD Radeon (preview)" in text, node.attrib
-                    assert "GPU power: 28.0 W · Board power: 40.0 W" in text, node.attrib
-                    screenshot("overlay-debug" + suffix)
-                    x1, y1, x2, y2 = bounds(node)
-                    x, y = str(x1 + 20), str(y1 + 20)
-                    adb("shell", "input", "swipe", x, y, x, y, "1000")
-            crashes = adb("logcat", "-b", "crash", "-d")
-            LOGS.joinpath("logcat.txt").write_text(adb("logcat", "-d"), encoding="utf-8")
-            LOGS.joinpath("crashes.txt").write_text(crashes, encoding="utf-8")
-            # uiautomator itself can time out under host load and logs a FATAL EXCEPTION of its own;
-            # only crashes of this app count.
-            app_crashes = [block for block in re.split(r"(?=FATAL EXCEPTION)|(?=Fatal signal)", crashes)
-                           if ("FATAL EXCEPTION" in block or "Fatal signal" in block) and PACKAGE in block]
-            if app_crashes:
-                raise AssertionError("Emulator crash buffer is not clean")
+            capture_ui_sweep()
+            assert_no_app_crashes()
             overlay_result = "overlay rendering" if DEBUGGABLE else "overlay settings (live rendering needs a paired host)"
             print(f"PASS: native {native} and latency defaults on a fresh install, pairing guide and PIN prompt, manual discovery and inline validation, OTP and details dialogs, host profile validation/save/reset, sheet scrolling/close, settings search/back restoration at 393/412 dp through font scale 2.0 and landscape, VRR toggle/persistence, PyroWave readiness, bitrate, controller mapping, reset, frontend entries, unpaired export menu, {overlay_result} and rotation; screenshots: {SHOTS}", flush=True)
         finally:

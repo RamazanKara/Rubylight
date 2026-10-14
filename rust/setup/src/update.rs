@@ -19,52 +19,25 @@ pub fn run(
     progress: &Progress,
     before_start: &mut dyn FnMut(),
 ) -> Result<()> {
-    detect::scan().check_version()?;
     let profile = install::profile();
     let result = profile.join("update-result.json");
-    let install = std::fs::canonicalize(folder)?;
-    let service =
-        system::service_program(detect::SERVICE).context("Rubylight service is not installed")?;
-    check_service_folder(&service, &install)?;
-    // Both are the installed service's now: repair what earlier installers
-    // left, or refuse.
-    install::prepare_profile(&profile, true)?;
-    install::prepare_install(folder)?;
-    // A reinstall may find the profile folder deleted; the lock lives in it.
-    std::fs::create_dir_all(&profile)?;
-    // A non-shared handle rejects another updater until this transaction ends.
-    let _lock = open_lock(&profile).context("Another update is already running")?;
-    // The new backup must hold one whole version, not what an interrupted
-    // update left.
-    install::ensure_idle(install::probe(&profile), end_streams)?;
-    recover_or_supersede(&result)?;
-    let work = profile.join("updates").join(format!(
-        "transaction-{}-{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)?
-            .as_nanos()
-    ));
-    std::fs::create_dir_all(&work)?;
-    system::restrict(&work, false)?;
-    let staged = work.join("package");
-    let backup = work.join("previous");
-    std::fs::create_dir(&staged)?;
-    progress.set("Verifying the update…");
-    payload::Payload::open()?
-        .context("The update installer has no package")?
-        .extract(&staged)?;
-    let entries = payload::verify(&staged)?;
-    let previous = payload::manifest(&install).context(
-        "The installed package has no readable manifest; run the Rubylight installer to repair it",
-    )?;
-    let paths = previous
-        .iter()
-        .chain(&entries)
-        .map(|e| e.path.clone())
-        .chain(["manifest.json".into(), "uninstall.exe".into()])
-        .collect::<BTreeSet<_>>();
-    install::ensure_idle(install::probe(&profile), end_streams)?;
+    let mut lock = None;
+    let Prepared {
+        install,
+        work,
+        staged,
+        backup,
+        entries,
+        previous,
+        paths,
+    } = match prepare(folder, &profile, end_streams, progress, &mut lock) {
+        Ok(prepared) => prepared,
+        Err(error) => {
+            record_refusal(&profile, lock, &error);
+            return Err(error);
+        }
+    };
+    let _lock = lock;
     write_result(&result, "installing", None)?;
     progress.set("Stopping Rubylight…");
     stop_for_update(
@@ -148,6 +121,78 @@ pub fn run(
     }
 }
 
+struct Prepared {
+    install: PathBuf,
+    work: PathBuf,
+    staged: PathBuf,
+    backup: PathBuf,
+    entries: Vec<payload::Entry>,
+    previous: Vec<payload::Entry>,
+    paths: BTreeSet<String>,
+}
+/// Everything before the update changes a file or the service. update.lock
+/// is held in `lock` from when it is taken.
+fn prepare(
+    folder: &Path,
+    profile: &Path,
+    end_streams: bool,
+    progress: &Progress,
+    lock: &mut Option<std::fs::File>,
+) -> Result<Prepared> {
+    detect::scan().check_version()?;
+    let install = std::fs::canonicalize(folder)?;
+    let service =
+        system::service_program(detect::SERVICE).context("Rubylight service is not installed")?;
+    check_service_folder(&service, &install)?;
+    // Both are the installed service's now: repair what earlier installers
+    // left, or refuse.
+    install::prepare_profile(profile, true)?;
+    install::prepare_install(folder)?;
+    // A reinstall may find the profile folder deleted; the lock lives in it.
+    std::fs::create_dir_all(profile)?;
+    // A non-shared handle rejects another updater until this transaction ends.
+    *lock = Some(open_lock(profile).context("Another update is already running")?);
+    // The new backup must hold one whole version, not what an interrupted
+    // update left.
+    install::ensure_idle(install::probe(profile), end_streams)?;
+    recover_or_supersede(&profile.join("update-result.json"))?;
+    let work = profile.join("updates").join(format!(
+        "transaction-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)?
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&work)?;
+    system::restrict(&work, false)?;
+    let staged = work.join("package");
+    let backup = work.join("previous");
+    std::fs::create_dir(&staged)?;
+    progress.set("Verifying the update…");
+    payload::Payload::open()?
+        .context("The update installer has no package")?
+        .extract(&staged)?;
+    let entries = payload::verify(&staged)?;
+    let previous = payload::manifest(&install).context(
+        "The installed package has no readable manifest; run the Rubylight installer to repair it",
+    )?;
+    let paths = previous
+        .iter()
+        .chain(&entries)
+        .map(|e| e.path.clone())
+        .chain(["manifest.json".into(), "uninstall.exe".into()])
+        .collect();
+    install::ensure_idle(install::probe(profile), end_streams)?;
+    Ok(Prepared {
+        install,
+        work,
+        staged,
+        backup,
+        entries,
+        previous,
+        paths,
+    })
+}
 fn open_lock(profile: &Path) -> std::io::Result<std::fs::File> {
     use std::os::windows::fs::OpenOptionsExt;
     std::fs::OpenOptions::new()
@@ -156,6 +201,39 @@ fn open_lock(profile: &Path) -> std::io::Result<std::fs::File> {
         .write(true)
         .share_mode(0)
         .open(profile.join("update.lock"))
+}
+/// The update stopped before it changed anything. The console shows the
+/// update record, so it says why there; the host itself only learns that
+/// setup exited. Only into a profile folder setup trusts, never while
+/// another setup holds update.lock (`lock` is this one's, if taken), and
+/// never over a record that names a backup still to be put back.
+fn record_refusal(profile: &Path, lock: Option<std::fs::File>, error: &anyhow::Error) {
+    let recorded = (|| -> Result<()> {
+        system::trusted_ancestors(profile.parent().context("profile has no parent")?)?;
+        let _lock = match lock {
+            Some(lock) => lock,
+            None => open_lock(profile)?,
+        };
+        refuse(&profile.join("update-result.json"), error)
+    })();
+    if let Err(problem) = recorded {
+        line(format!("the update record was left as it was: {problem:#}"));
+    }
+}
+fn refuse(result: &Path, error: &anyhow::Error) -> Result<()> {
+    let record: serde_json::Value = match std::fs::read(result) {
+        Ok(bytes) => serde_json::from_slice(&bytes).context("the update record is unreadable")?,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => serde_json::Value::Null,
+        Err(error) => return Err(error.into()),
+    };
+    if matches!(
+        record["phase"].as_str(),
+        Some("installing" | "recovery_failed")
+    ) && record["backup"].is_string()
+    {
+        bail!("it names a backup that is still to be restored");
+    }
+    write_result(result, "failed", Some(&format!("{error:#}")))
 }
 /// After setup installed a complete package. The console shows the update
 /// record, which may still say why an earlier update failed.
@@ -782,6 +860,101 @@ mod tests {
         recover(&profile)?;
         let record: serde_json::Value = serde_json::from_slice(&std::fs::read(&result)?)?;
         assert_eq!(record["phase"], "superseded");
+        Ok(())
+    }
+    #[test]
+    fn an_update_that_stops_early_records_why_unless_a_backup_is_pending() -> Result<()> {
+        let root = tempfile::tempdir()?;
+        let result = root.path().join("update-result.json");
+        let error = anyhow::anyhow!("D:\\Games must be owned by Administrators")
+            .context("Rubylight cannot be updated in D:\\Games\\Rubylight");
+        let read = || -> Result<serde_json::Value> {
+            Ok(serde_json::from_slice(&std::fs::read(&result)?)?)
+        };
+        let failed = json!({"version":env!("CARGO_PKG_VERSION"),"phase":"failed",
+            "error":"Rubylight cannot be updated in D:\\Games\\Rubylight: D:\\Games must be owned by Administrators"});
+        // No record yet, and the one the host writes before it starts setup.
+        refuse(&result, &error)?;
+        assert_eq!(read()?, failed);
+        write_record(
+            &result,
+            &json!({"version":"v2.2.22","phase":"installing","started_at":1}),
+        )?;
+        refuse(&result, &error)?;
+        assert_eq!(read()?, failed);
+        // A record that names a backup still to be put back stays for the
+        // rollback, and so does one that cannot be read.
+        for phase in ["installing", "recovery_failed"] {
+            let pending = json!({"version":"2.2.21","phase":phase,"error":null,
+                "backup":root.path().join("previous"),"install":root.path().join("installed")});
+            write_record(&result, &pending)?;
+            assert!(refuse(&result, &error).is_err());
+            assert_eq!(read()?, pending);
+        }
+        std::fs::write(&result, b"broken record")?;
+        assert!(refuse(&result, &error).is_err());
+        assert_eq!(std::fs::read(&result)?, b"broken record");
+        Ok(())
+    }
+    #[test]
+    fn early_failures_are_recorded_only_in_a_trusted_profile_no_other_setup_holds() -> Result<()> {
+        // The profile must be owned by Administrators, as setup leaves it.
+        if !system::elevated() {
+            return Ok(());
+        }
+        let temp = tempfile::tempdir_in(system::program_data())?;
+        system::restrict(temp.path(), true)?;
+        let profile = temp.path().join("Butterpollo/config");
+        std::fs::create_dir_all(&profile)?;
+        let result = profile.join("update-result.json");
+        let host = json!({"version":"v2.2.22","phase":"installing","started_at":1});
+        write_record(&result, &host)?;
+        let error = anyhow::anyhow!("Disconnect all streams");
+        let phase = || -> Result<serde_json::Value> {
+            Ok(
+                serde_json::from_slice::<serde_json::Value>(&std::fs::read(&result)?)?["phase"]
+                    .clone(),
+            )
+        };
+        {
+            let _other = open_lock(&profile)?;
+            record_refusal(&profile, None, &error);
+            assert_eq!(phase()?, "installing");
+        }
+        // With update.lock this setup's own, or free.
+        record_refusal(&profile, Some(open_lock(&profile)?), &error);
+        assert_eq!(phase()?, "failed");
+        write_record(&result, &host)?;
+        record_refusal(&profile, None, &error);
+        assert_eq!(phase()?, "failed");
+        let written: serde_json::Value = serde_json::from_slice(&std::fs::read(&result)?)?;
+        assert_eq!(written["error"], "Disconnect all streams");
+        // A profile another user could change is not written as SYSTEM.
+        write_record(&result, &host)?;
+        let (_, identity) = system::run(
+            &system::system32("whoami.exe"),
+            &["/user", "/fo", "csv", "/nh"],
+            Duration::from_secs(10),
+        )?;
+        let sid = identity
+            .trim()
+            .split(',')
+            .nth(1)
+            .context("whoami omitted SID")?
+            .trim_matches('"');
+        let (code, output) = system::run(
+            &system::system32("icacls.exe"),
+            &[
+                &profile.parent().unwrap().display().to_string(),
+                "/setowner",
+                &format!("*{sid}"),
+                "/Q",
+            ],
+            Duration::from_secs(10),
+        )?;
+        assert_eq!(code, 0, "{output}");
+        record_refusal(&profile, None, &error);
+        assert_eq!(phase()?, "installing");
         Ok(())
     }
     #[test]

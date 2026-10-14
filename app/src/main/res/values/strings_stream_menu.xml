@@ -10,4 +10,23 @@
     <string name="overlay_health_fair">Stream struggling</string>
     <string name="overlay_health_poor">Stream poor</string>
     <string name="overlay_health_unknown">Stream starting</string>
+
+    <!-- Stream menu: a quick row, then sections; the page opens in the same sheet. -->
+    <string name="stream_section_input">Input</string>
+    <string name="stream_section_display">Display</string>
+    <string name="stream_section_quality">Quality</string>
+    <string name="stream_section_host">Host</string>
+    <string name="stream_microphone">Microphone</string>
+    <string name="stream_cursor_show">Show mouse cursor</string>
+    <string name="stream_cursor_hide">Hide mouse cursor</string>
+    <string name="stream_keyboard_keys_hide">Hide extra keyboard keys</string>
+    <string name="stream_stretch_on">Stretch video to fill the screen</string>
+    <string name="stream_stretch_off">Fit video to the screen</string>
+    <string name="stream_overlay_page">Overlay and diagnostics</string>
+    <string name="stream_picture_in_picture">Picture-in-picture</string>
+    <string name="stream_quit_game">Quit game</string>
+    <string name="stream_quit_game_confirm">Quit the game on the PC?\nUnsaved progress will be lost.</string>
+    <string name="stream_choice_selected">Selected</string>
+    <string name="stream_choice_not_selected">Not selected</string>
+    <string name="stream_web_ui_leaves">Opening the browser leaves the stream; the game keeps running on the PC.</string>
 </resources>

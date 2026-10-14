@@ -25,7 +25,6 @@
     <string name="touch_layout_pressed">Gehalten</string>
     <string name="touch_layout_released">Losgelassen</string>
     <string name="touch_layout_invalid">Prüfe Name, unterstützte Belegung und Größe (4–80 %). Importierte Layouts müssen Version 1, höchstens 32 Tasten und 64 KiB haben.</string>
-    <string name="desktop_title">Desktop und Anzeige</string>
     <string name="desktop_zoom_enable">Zoom und Verschieben aktivieren</string>
     <string name="desktop_zoom_disable">Zoom und Verschieben deaktivieren</string>
     <string name="desktop_zoom_reset">Zoom zurücksetzen</string>

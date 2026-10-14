@@ -1,7 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="stream_overlay_show">Show performance overlay</string>
-    <string name="stream_overlay_hide">Hide performance overlay</string>
     <string name="stream_touch_mode">Touch mode</string>
     <string name="stream_keyboard">Keyboard</string>
     <string name="stream_controls_show">Show on-screen controls</string>

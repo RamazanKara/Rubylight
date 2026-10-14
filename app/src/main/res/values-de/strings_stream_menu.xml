@@ -9,4 +9,22 @@
     <string name="overlay_health_fair">Stream hakt</string>
     <string name="overlay_health_poor">Stream läuft schlecht</string>
     <string name="overlay_health_unknown">Stream startet</string>
+
+    <string name="stream_section_input">Eingabe</string>
+    <string name="stream_section_display">Anzeige</string>
+    <string name="stream_section_quality">Qualität</string>
+    <string name="stream_section_host">Host</string>
+    <string name="stream_microphone">Mikrofon</string>
+    <string name="stream_cursor_show">Mauszeiger einblenden</string>
+    <string name="stream_cursor_hide">Mauszeiger ausblenden</string>
+    <string name="stream_keyboard_keys_hide">Zusatztasten ausblenden</string>
+    <string name="stream_stretch_on">Video auf den ganzen Bildschirm strecken</string>
+    <string name="stream_stretch_off">Video in den Bildschirm einpassen</string>
+    <string name="stream_overlay_page">Overlay und Diagnose</string>
+    <string name="stream_picture_in_picture">Bild-im-Bild</string>
+    <string name="stream_quit_game">Spiel beenden</string>
+    <string name="stream_quit_game_confirm">Spiel auf dem PC beenden?\nNicht gespeicherter Fortschritt geht verloren.</string>
+    <string name="stream_choice_selected">Ausgewählt</string>
+    <string name="stream_choice_not_selected">Nicht ausgewählt</string>
+    <string name="stream_web_ui_leaves">Der Browser verlässt den Stream; das Spiel läuft auf dem PC weiter.</string>
 </resources>

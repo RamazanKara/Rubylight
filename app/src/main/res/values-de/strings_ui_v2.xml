@@ -9,11 +9,7 @@
     <string name="settings_source">Quellcode und Lizenzen</string>
     <string name="settings_csv_summary">Speichere die letzten Latenzmesswerte.</string>
     <string name="host_profile_footer">Speichere die Stream-Einstellungen vor dem Verlassen. Den Displaymodus speicherst du separat mit Displaymodus speichern in seinem Dialog. Änderungen gelten ab dem nächsten Stream.</string>
-    <string name="stream_input_menu">Eingabe</string>
     <string name="stream_overlay_menu">Leistungsanzeige</string>
-    <string name="stream_clipboard_menu">Zwischenablage</string>
-    <string name="stream_host_menu">Host-Befehle</string>
-    <string name="stream_quit_app">App beenden</string>
     <string name="stream_bitrate_manual">Bitrate festlegen</string>
     <string-array name="stream_preset_names">
         <item>Nativ (empfohlen)</item>

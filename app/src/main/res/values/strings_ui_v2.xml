@@ -8,11 +8,7 @@
     <string name="settings_source">Source and licenses</string>
     <string name="settings_csv_summary">Save the latest latency measurements</string>
     <string name="host_profile_footer">Save stream settings before leaving. Display mode saves separately with Save display mode in its dialog. Changes apply to the next stream.</string>
-    <string name="stream_input_menu">Input mode</string>
     <string name="stream_overlay_menu">Overlay</string>
-    <string name="stream_clipboard_menu">Clipboard</string>
-    <string name="stream_host_menu">Host commands</string>
-    <string name="stream_quit_app">Quit app</string>
     <string name="stream_bitrate_manual">Set bitrate</string>
     <string-array name="stream_preset_names">
         <item>Native (recommended)</item>

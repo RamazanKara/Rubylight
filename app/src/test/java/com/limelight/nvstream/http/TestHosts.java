@@ -36,4 +36,16 @@ public final class TestHosts {
     public static HostCapabilities rubylight() {
         return fixture("rubylight-serverinfo.xml");
     }
+
+    /** Capabilities, permissions, server commands and encoder bitrate of a fixture, as a stream sees them. */
+    public static ComputerDetails details(String fixture) {
+        ComputerDetails details = new ComputerDetails();
+        try {
+            NvHTTP.readClientCapabilities(details, serverInfo(fixture));
+        } catch (Exception e) {
+            throw new IllegalArgumentException(e);
+        }
+        details.httpsPort = 47984;
+        return details;
+    }
 }

@@ -1,7 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="stream_overlay_show">Leistungsanzeige einblenden</string>
-    <string name="stream_overlay_hide">Leistungsanzeige ausblenden</string>
     <string name="stream_touch_mode">Touch-Modus</string>
     <string name="stream_keyboard">Tastatur</string>
     <string name="stream_controls_show">Bildschirmtasten einblenden</string>

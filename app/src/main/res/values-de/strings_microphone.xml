@@ -8,8 +8,4 @@
     <string name="mic_status_not_offered">Mikrofon: vom Host nicht angeboten</string>
     <string name="mic_status_unavailable">Mikrofon: nicht verfügbar</string>
     <string name="mic_status_no_permission">Mikrofon: Berechtigung fehlt</string>
-    <string name="stream_mic_mute">Mikrofon stummschalten</string>
-    <string name="stream_mic_unmute">Mikrofon einschalten</string>
-    <string name="mic_toast_muted">Mikrofon stumm</string>
-    <string name="mic_toast_unmuted">Mikrofon an</string>
 </resources>

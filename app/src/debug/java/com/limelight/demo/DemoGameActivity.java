@@ -27,7 +27,10 @@ import com.limelight.R;
 import com.limelight.binding.input.virtual_controller.VirtualController;
 import com.limelight.binding.video.PerfOverlayListener;
 import com.limelight.binding.video.PerformanceOverlay;
-import com.limelight.ui.ActionSheet;
+import com.limelight.nvstream.http.ComputerDetails;
+import com.limelight.nvstream.http.HostCapabilities;
+import com.limelight.nvstream.http.NvApp;
+import com.limelight.ui.StreamMenu;
 import com.limelight.ui.AdaptiveLayout;
 import com.limelight.ui.StreamWindow;
 import com.limelight.ui.StreamView;
@@ -46,7 +49,7 @@ public final class DemoGameActivity extends Activity implements SurfaceHolder.Ca
     private boolean showControls, prepared, started, fallback;
     private int position;
     private long tick;
-    private ActionSheet menu;
+    private StreamMenu menu;
     private String fit;
     private final Runnable metrics = new Runnable() {
         @Override public void run() {
@@ -133,29 +136,80 @@ public final class DemoGameActivity extends Activity implements SurfaceHolder.Ca
                 PerformanceOverlay.describeCompact(this, compactText) : null);
     }
 
+    // A Rubylight host with every permission, so the demo shows the stream menu's full layout.
+    private static final String DEMO_HOST = "{\"v\":1,\"gameStream\":false,\"sunshineVersion\":true,\"paired\":true," +
+            "\"rustHostVersion\":\"2.2.21\",\"permission\":4294967295,\"serverCommands\":1,\"frameLimiter\":true," +
+            "\"virtualDisplayCapable\":true,\"pyroWaveFields\":false,\"pyroWaveProbeBytes\":0,\"pyroWaveCodecs\":0," +
+            "\"encoderBitrate\":true,\"hardwareMetricsVersion\":1,\"networkPathVersion\":0," +
+            "\"controllerPreparation\":true,\"currentGameUuid\":true}";
+
+    private StreamMenu.Options menuOptions() {
+        ComputerDetails host = new ComputerDetails();
+        host.caps = HostCapabilities.fromJson(DEMO_HOST);
+        host.permission = 0xFFFFFFFFL;
+        host.serverCommands.add("Sleep");
+        host.encoderBitrateSupported = true;
+        StreamMenu.Options options = new StreamMenu.Options(NvApp.Role.STREAM, host);
+        options.overlayShown = findViewById(R.id.performanceOverlayScroll).getVisibility() == View.VISIBLE;
+        options.overlayMode = mode;
+        options.onscreenControls = showControls;
+        options.stretchAvailable = true;
+        options.stretched = "stretch".equals(fit);
+        options.pictureInPicture = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+                getPackageManager().hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE);
+        options.automaticQuality = true;
+        options.webUiAddress = true;
+        return options;
+    }
+
     private void showMenu() {
         if (menu != null) return;
-        menu = new ActionSheet(this, getString(R.string.stream_overlay_menu));
-        menu.addAction(R.drawable.ic_remote_monitor, getString(R.string.overlay_compact))
-                .setOnClickListener(view -> { setMode(PerformanceOverlay.MODE_COMPACT); menu.dismiss(); });
-        menu.addAction(R.drawable.ic_remote_monitor, getString(R.string.overlay_statistics))
-                .setOnClickListener(view -> { setMode(PerformanceOverlay.MODE_STATISTICS); menu.dismiss(); });
-        menu.addAction(R.drawable.ic_remote_monitor, getString(R.string.overlay_debug))
-                .setOnClickListener(view -> { setMode(PerformanceOverlay.MODE_DEBUG); menu.dismiss(); });
-        menu.addAction(R.drawable.ic_settings, getString(showControls ? R.string.stream_controls_hide : R.string.stream_controls_show))
-                .setOnClickListener(view -> {
-                    showControls = !showControls;
-                    if (showControls) controls.show(); else controls.hide();
-                    // Showing controls changes no layout; ask for one so the overlay moves clear of them.
-                    findViewById(R.id.performanceOverlayScroll).requestLayout();
-                    menu.dismiss();
-                });
-        menu.setOnDismissListener(dialog -> menu = null);
+        menu = new StreamMenu(this, this::menuOptions, this::onMenuItem);
+        menu.sheet().setOnDismissListener(dialog -> menu = null);
         menu.show();
     }
 
+    // The demo has no host: it plays the parts it can show and says so for the rest.
+    private void onMenuItem(StreamMenu.Item item) {
+        View overlayScroll = findViewById(R.id.performanceOverlayScroll);
+        switch (item) {
+            case OVERLAY:
+                overlayScroll.setVisibility(overlayScroll.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE);
+                return;
+            case MICROPHONE:
+                return;
+            default:
+                break;
+        }
+        if (menu != null) menu.sheet().dismiss();
+        switch (item) {
+            case OVERLAY_COMPACT: setMode(PerformanceOverlay.MODE_COMPACT); overlayScroll.setVisibility(View.VISIBLE); break;
+            case OVERLAY_STATISTICS: setMode(PerformanceOverlay.MODE_STATISTICS); overlayScroll.setVisibility(View.VISIBLE); break;
+            case OVERLAY_DEBUG: setMode(PerformanceOverlay.MODE_DEBUG); overlayScroll.setVisibility(View.VISIBLE); break;
+            case ONSCREEN_CONTROLS:
+                showControls = !showControls;
+                if (showControls) controls.show(); else controls.hide();
+                // Showing controls changes no layout; ask for one so the overlay moves clear of them.
+                overlayScroll.requestLayout();
+                break;
+            case STRETCH:
+                fit = "stretch".equals(fit) ? null : "stretch";
+                stream.setDesiredAspectRatio("stretch".equals(fit) ? 0 : 16.0 / 9.0);
+                stream.requestLayout();
+                androidx.core.view.ViewCompat.requestApplyInsets(findViewById(android.R.id.content));
+                break;
+            case PICTURE_IN_PICTURE: enterPip(); break;
+            case DISCONNECT:
+            case QUIT_GAME: finish(); break;
+            default:
+                android.widget.Toast.makeText(this, R.string.demo_needs_host, android.widget.Toast.LENGTH_SHORT).show();
+                break;
+        }
+    }
+
     @Override public void onBackPressed() {
-        if (menu != null) menu.dismiss(); else super.onBackPressed();
+        // As in a real stream, Back opens the stream menu; Disconnect leaves.
+        showMenu();
     }
 
     private String sample() {
@@ -238,7 +292,7 @@ public final class DemoGameActivity extends Activity implements SurfaceHolder.Ca
         handler.removeCallbacksAndMessages(null);
         if (prepared) player.pause();
         controls.releaseInput();
-        if (menu != null) menu.dismiss();
+        if (menu != null) menu.sheet().dismiss();
         super.onStop();
     }
 

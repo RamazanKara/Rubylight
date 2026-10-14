@@ -195,6 +195,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     };
     private int suppressPipRefCount = 0;
     private android.app.Dialog streamMenu;
+    // The sectioned stream menu while it is open; streamMenu is its sheet or a dialog it opened.
+    private com.limelight.ui.StreamMenu streamMenuSheet;
     private Runnable streamMenuAction;
     private androidx.appcompat.app.AlertDialog launchConfirmationDialog;
     private LaunchConfirmation pendingConfirmation;
@@ -1023,23 +1025,54 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         }
     }
 
-    private void showDesktopMenu() {
-        ActionSheet sheet = new ActionSheet(this, getString(R.string.desktop_title));
-        if (externalPresentation == null) {
-            addStreamAction(sheet, R.drawable.ic_remote_monitor, desktopGestures.enabled() ?
-                    R.string.desktop_zoom_disable : R.string.desktop_zoom_enable, () -> {
-                if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N && !prefConfig.useTextureView) {
-                    showStreamDialog(new MaterialAlertDialogBuilder(this).setMessage(R.string.desktop_zoom_surface_help)
-                            .setPositiveButton(android.R.string.ok, null).create());
-                    return;
-                }
-                desktopGestures.setEnabled(!desktopGestures.enabled());
-                if (desktopGestures.enabled()) Toast.makeText(this, R.string.desktop_zoom_help, Toast.LENGTH_LONG).show();
-            });
-            addStreamAction(sheet, R.drawable.ic_remote_monitor, R.string.desktop_zoom_reset, () -> desktopGestures.reset());
+    private void toggleDesktopZoom() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N && !prefConfig.useTextureView) {
+            showStreamDialog(new MaterialAlertDialogBuilder(this).setMessage(R.string.desktop_zoom_surface_help)
+                    .setPositiveButton(android.R.string.ok, null).create());
+            return;
         }
-        addStreamAction(sheet, R.drawable.ic_remote_monitor, R.string.desktop_output, this::showVideoOutputDialog);
-        showStreamDialog(sheet);
+        desktopGestures.setEnabled(!desktopGestures.enabled());
+        if (desktopGestures.enabled()) Toast.makeText(this, R.string.desktop_zoom_help, Toast.LENGTH_LONG).show();
+    }
+
+    private boolean hasPresentationDisplays() {
+        return ((android.hardware.display.DisplayManager) getSystemService(DISPLAY_SERVICE))
+                .getDisplays(android.hardware.display.DisplayManager.DISPLAY_CATEGORY_PRESENTATION).length > 0;
+    }
+
+    // The view stretches or keeps the stream's shape at once. An upscaler or PyroWave sets its own
+    // output rectangle when the stream starts, so for those the choice waits for the next stream.
+    private boolean canStretchLive() {
+        return externalPresentation == null && decoderRenderer != null &&
+                prefConfig.upscalingMode == UpscalingPolicy.Mode.OFF &&
+                (decoderRenderer.getActiveVideoFormat() & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) == 0;
+    }
+
+    private void toggleStretch() {
+        if (!canStretchLive()) return;
+        prefConfig.stretchVideo = !prefConfig.stretchVideo;
+        PreferenceManager.getDefaultSharedPreferences(this).edit()
+                .putBoolean("checkbox_stretch_video", prefConfig.stretchVideo).apply();
+        renderView.setDesiredAspectRatio(prefConfig.stretchVideo ? 0 : (double) prefConfig.width / prefConfig.height);
+        renderView.requestLayout();
+        // A stretched stream spans the cutout too; the safe area follows.
+        configureStreamWindow();
+        updatePipAutoEnter();
+    }
+
+    private boolean canEnterPictureInPicture() {
+        return Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && prefConfig.enablePip && externalPresentation == null &&
+                app.getRole() != NvApp.Role.INPUT_ONLY &&
+                getPackageManager().hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE);
+    }
+
+    private void enterPictureInPictureNow() {
+        if (!canEnterPictureInPicture() || !connected) return;
+        try {
+            enterPictureInPictureMode(getPictureInPictureParams(false));
+        } catch (IllegalStateException | IllegalArgumentException e) {
+            LimeLog.warning("Picture-in-picture unavailable");
+        }
     }
 
     private void showVideoOutputDialog() {
@@ -2117,6 +2150,9 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             if (streamMenu == dialog) {
                 streamMenu = null;
             }
+            if (streamMenuSheet != null && streamMenuSheet.sheet() == dialog) {
+                streamMenuSheet = null;
+            }
             suppressPipRefCount--;
             updatePipAutoEnter();
             Runnable action = streamMenuAction;
@@ -2145,96 +2181,161 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             return;
         }
         restoreInputAfterMenu = grabbedInput;
+        streamMenuSheet = new com.limelight.ui.StreamMenu(this, this::streamMenuOptions, this::onStreamMenuItem);
+        showStreamDialog(streamMenuSheet.sheet());
+    }
+
+    // What the stream menu offers right now. Host features and permissions decide the rest.
+    private com.limelight.ui.StreamMenu.Options streamMenuOptions() {
+        com.limelight.ui.StreamMenu.Options options = new com.limelight.ui.StreamMenu.Options(app.getRole(), conn.getHostDetails());
+        options.canSendInput = conn.canSendInput();
+        options.microphoneOffered = conn.getMicrophoneStatus().canMute();
+        options.microphoneMuted = conn.isMicrophoneMuted();
+        options.overlayShown = prefConfig.enablePerfOverlay;
+        options.overlayMode = overlayMode;
+        options.localOutput = externalPresentation == null;
+        options.mouseConnected = hasExternalMouse();
+        options.cursorVisible = cursorVisible;
+        options.onscreenControls = prefConfig.onscreenController;
+        options.gameControls = gameTouchControls != null;
+        options.keyboardKeysShown = isKeyboardOverlayVisible();
+        options.stretchAvailable = canStretchLive();
+        options.stretched = prefConfig.stretchVideo;
+        options.zoomEnabled = desktopGestures != null && desktopGestures.enabled();
+        options.pictureInPicture = canEnterPictureInPicture();
+        options.externalDisplays = hasPresentationDisplays();
+        options.automaticQuality = supportsAdaptiveQuality();
+        options.automaticBitrateOn = isAdaptiveBitrateEnabled();
+        options.webUiAddress = hostWebUiUrl() != null;
+        return options;
+    }
+
+    private void onStreamMenuItem(com.limelight.ui.StreamMenu.Item item) {
+        switch (item) {
+            // The quick toggles change in place and leave the menu open.
+            case OVERLAY: togglePerformanceOverlay(); return;
+            case MICROPHONE: toggleMicrophoneMute(); return;
+            default: break;
+        }
+        Runnable action = null;
         ComputerDetails details = conn.getHostDetails();
-        ActionSheet sheet = new ActionSheet(this, getString(app.getRole() == NvApp.Role.REMOTE_MONITOR ?
-                R.string.stream_monitor_title : app.getRole() == NvApp.Role.INPUT_ONLY ?
-                R.string.stream_input_title : R.string.stream_menu));
-        if (conn.canSendInput()) {
-            addStreamAction(sheet, R.drawable.ic_keyboard, R.string.stream_keyboard, this::toggleKeyboard);
-            addStreamAction(sheet, R.drawable.ic_keyboard, keyboardOverlay != null && keyboardOverlay.getVisibility() == View.VISIBLE ?
-                    R.string.keyboard_keys_hide : R.string.keyboard_keys_show, this::toggleKeyboardOverlay);
-            addStreamAction(sheet, R.drawable.ic_input_only, R.string.stream_input_menu, this::showInputMenu);
+        switch (item) {
+            case KEYBOARD: action = this::toggleKeyboard; break;
+            case TOUCH_MODE: action = this::showTouchModeDialog; break;
+            case MOUSE_CURSOR: action = this::toggleCursorVisibility; break;
+            case ONSCREEN_CONTROLS: action = () -> setOnscreenControlsEnabled(!prefConfig.onscreenController); break;
+            case CONTROLS_LAYOUT: action = this::showControllerLayoutDialog; break;
+            case GAME_CONTROLS: action = gameTouchControls == null ? null : gameTouchControls::showMenu; break;
+            case KEYBOARD_KEYS: action = this::toggleKeyboardOverlay; break;
+            case STRETCH: action = this::toggleStretch; break;
+            case ZOOM: action = this::toggleDesktopZoom; break;
+            case ZOOM_RESET: action = () -> desktopGestures.reset(); break;
+            case PICTURE_IN_PICTURE: action = this::enterPictureInPictureNow; break;
+            case VIDEO_OUTPUT: action = this::showVideoOutputDialog; break;
+            case BITRATE: action = this::showBitrateDialog; break;
+            case AUTOMATIC_QUALITY: action = this::showAdaptiveQualityDialog; break;
+            case AUTOMATIC_BITRATE: action = this::toggleAdaptiveBitrateFromMenu; break;
+            case SERVER_COMMANDS: action = () -> showServerCommands(details); break;
+            case CLIPBOARD_SEND: action = () -> transferClipboard(true); break;
+            case CLIPBOARD_RECEIVE: action = () -> transferClipboard(false); break;
+            case HOST_WEB_UI: action = this::showHostWebUi; break;
+            case HOST_STATUS: action = this::refreshHostStatus; break;
+            case RECONNECT: action = this::reconnectStream; break;
+            case DISCONNECT: action = this::finish; break;
+            case QUIT_GAME: action = this::confirmQuitApp; break;
+            case END_SESSION: action = this::endRemoteSession; break;
+            case OVERLAY_COMPACT: action = () -> showPerformanceOverlay(PerformanceOverlay.MODE_COMPACT); break;
+            case OVERLAY_STATISTICS: action = () -> showPerformanceOverlay(PerformanceOverlay.MODE_STATISTICS); break;
+            case OVERLAY_DEBUG: action = () -> showPerformanceOverlay(PerformanceOverlay.MODE_DEBUG); break;
+            case OVERLAY_COPY: action = this::copyPerformanceStats; break;
+            case STREAM_HEALTH: action = this::showStreamHealth; break;
+            case LATENCY_TEST: action = this::runLatencyTest; break;
+            default: break;
         }
-        if (conn.getMicrophoneStatus().canMute()) {
-            boolean micMuted = conn.isMicrophoneMuted();
-            addStreamAction(sheet, micMuted ? R.drawable.ic_mic_off : R.drawable.ic_mic,
-                    micMuted ? R.string.stream_mic_unmute : R.string.stream_mic_mute, this::toggleMicrophoneMute);
-        }
-        if (app.getRole() != NvApp.Role.INPUT_ONLY) {
-            addStreamAction(sheet, R.drawable.ic_remote_monitor, R.string.desktop_title, this::showDesktopMenu);
-            addStreamAction(sheet, R.drawable.ic_remote_monitor, R.string.stream_overlay_menu, this::showOverlayMenu);
-            if (details.caps.has(HostCapabilities.Feature.RUNTIME_BITRATE) &&
-                    details.hasPermission(ComputerDetails.PERMISSION_VIEW | ComputerDetails.PERMISSION_LAUNCH)) {
-                addStreamAction(sheet, R.drawable.ic_network, R.string.stream_bitrate, this::showBitrateMenu);
+        // Like every menu action, it runs once the menu has closed and the stream has focus again.
+        streamMenuAction = action;
+        if (streamMenuSheet != null) streamMenuSheet.sheet().dismiss();
+    }
+
+    private void showPerformanceOverlay(String mode) {
+        setPerformanceOverlayMode(mode);
+        if (!prefConfig.enablePerfOverlay) togglePerformanceOverlay();
+    }
+
+    private void toggleAdaptiveBitrateFromMenu() {
+        boolean enable = !isAdaptiveBitrateEnabled();
+        if (!enable || !hostActionInProgress) {
+            setAdaptiveBitrateEnabled(enable, true);
+            if (enable) {
+                Toast.makeText(this, pyroWaveBitrate != null ? R.string.stream_pyrowave_bitrate_help :
+                        R.string.stream_auto_bitrate_help, Toast.LENGTH_LONG).show();
             }
+        } else {
+            Toast.makeText(this, R.string.stream_bitrate_busy, Toast.LENGTH_SHORT).show();
         }
-        if ((app.getRole() != NvApp.Role.REMOTE_MONITOR && details.canWriteClipboard()) || details.canReadClipboard()) {
-            addStreamAction(sheet, R.drawable.ic_clipboard, R.string.stream_clipboard_menu, this::showClipboardMenu);
+    }
+
+    // A USB or Bluetooth mouse, not a touchscreen or a virtual device.
+    private boolean hasExternalMouse() {
+        for (int id : InputDevice.getDeviceIds()) {
+            InputDevice device = InputDevice.getDevice(id);
+            if (device == null || device.isVirtual() ||
+                    (device.getSources() & InputDevice.SOURCE_MOUSE) != InputDevice.SOURCE_MOUSE) continue;
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q || device.isExternal()) return true;
         }
-        addStreamAction(sheet, R.drawable.ic_terminal, R.string.stream_host_menu, this::showHostMenu);
-        sheet.addDivider();
-        addStreamAction(sheet, R.drawable.ic_close, R.string.stream_disconnect, this::finish);
-        if (details.hasPermission(ComputerDetails.PERMISSION_LAUNCH)) {
-            if (app.getRole() == NvApp.Role.STREAM) {
-                addStreamAction(sheet, R.drawable.ic_stop, R.string.stream_quit_app, this::confirmQuitApp);
-            } else {
-                addStreamAction(sheet, R.drawable.ic_stop, app.getRole() == NvApp.Role.REMOTE_MONITOR ?
-                        R.string.stream_end_monitor : R.string.stream_end_input, this::endRemoteSession);
-            }
+        return false;
+    }
+
+    // The same as Ctrl+Alt+Shift+C: show or hide this device's cursor, capturing input if needed.
+    private void toggleCursorVisibility() {
+        if (inputCaptureProvider == null) return;
+        if (!grabbedInput) {
+            setInputGrabState(true);
         }
-        showStreamDialog(sheet);
+        cursorVisible = !cursorVisible;
+        if (cursorVisible || isKeyboardOverlayVisible()) {
+            inputCaptureProvider.showCursor();
+        } else {
+            inputCaptureProvider.hideCursor();
+        }
+    }
+
+    // The host web UI's address for this stream: the address and HTTPS port the stream connected to.
+    private okhttp3.HttpUrl hostWebUiUrl() {
+        ComputerDetails details = conn.getHostDetails();
+        String address = getIntent().getStringExtra(EXTRA_HOST);
+        if (details == null || address == null) return null;
+        ComputerDetails target = new ComputerDetails();
+        target.state = ComputerDetails.State.ONLINE;
+        target.caps = details.caps;
+        target.activeAddress = new ComputerDetails.AddressTuple(address,
+                getIntent().getIntExtra(EXTRA_PORT, NvHTTP.DEFAULT_HTTP_PORT));
+        target.httpsPort = details.httpsPort != 0 ? details.httpsPort : getIntent().getIntExtra(EXTRA_HTTPS_PORT, 0);
+        return ServerHelper.getHostSettingsUrl(target);
+    }
+
+    private void showHostWebUi() {
+        okhttp3.HttpUrl url = hostWebUiUrl();
+        if (url == null) return;
+        AlertDialog dialog = new MaterialAlertDialogBuilder(this).setTitle(R.string.host_administration_menu)
+                .setMessage(getString(R.string.host_administration_help, url.toString()) + "\n\n" +
+                        getString(R.string.stream_web_ui_leaves))
+                .setNegativeButton(android.R.string.cancel, null)
+                .setPositiveButton(R.string.host_administration_open, (prompt, which) -> streamMenuAction = () -> {
+                    try {
+                        startActivity(new Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url.toString())));
+                    } catch (android.content.ActivityNotFoundException | SecurityException e) {
+                        Toast.makeText(this, R.string.host_administration_no_browser, Toast.LENGTH_LONG).show();
+                    }
+                }).create();
+        showStreamDialog(dialog);
+        TextView message = dialog.findViewById(android.R.id.message);
+        if (message != null) message.setTextIsSelectable(true);
     }
 
     private void toggleMicrophoneMute() {
         if (conn == null) return;
-        boolean muted = !conn.isMicrophoneMuted();
-        conn.setMicrophoneMuted(muted);
-        Toast.makeText(this, muted ? R.string.mic_toast_muted : R.string.mic_toast_unmuted, Toast.LENGTH_SHORT).show();
-    }
-
-    private void addStreamAction(ActionSheet sheet, int icon, int label, Runnable action) {
-        sheet.addAction(icon, getString(label)).setOnClickListener(v -> {
-            streamMenuAction = action;
-            sheet.dismiss();
-        });
-    }
-
-    private void showInputMenu() {
-        if (!conn.canSendInput()) return;
-        ActionSheet sheet = new ActionSheet(this, getString(R.string.stream_input_menu));
-        if (gameTouchControls != null) {
-            addStreamAction(sheet, R.drawable.ic_keyboard, R.string.touch_layout_title, gameTouchControls::showMenu);
-        }
-        addStreamAction(sheet, R.drawable.ic_input_only, R.string.stream_touch_mode, this::showTouchModeDialog);
-        addStreamAction(sheet, R.drawable.ic_input_only, prefConfig.onscreenController ?
-                R.string.stream_controls_hide : R.string.stream_controls_show,
-                () -> setOnscreenControlsEnabled(!prefConfig.onscreenController));
-        if (prefConfig.onscreenController) {
-            addStreamAction(sheet, R.drawable.ic_settings, R.string.stream_controls_layout, this::showControllerLayoutDialog);
-        }
-        showStreamDialog(sheet);
-    }
-
-    private void showOverlayMenu() {
-        ActionSheet sheet = new ActionSheet(this, getString(R.string.stream_overlay_menu));
-        addStreamAction(sheet, R.drawable.ic_remote_monitor, prefConfig.enablePerfOverlay ?
-                R.string.stream_overlay_hide : R.string.stream_overlay_show, this::togglePerformanceOverlay);
-        String[] modes = {PerformanceOverlay.MODE_COMPACT, PerformanceOverlay.MODE_STATISTICS, PerformanceOverlay.MODE_DEBUG};
-        int[] labels = {R.string.overlay_compact, R.string.overlay_statistics, R.string.overlay_debug};
-        for (int i = 0; i < modes.length; i++) {
-            String mode = modes[i];
-            addStreamAction(sheet, mode.equals(overlayMode) ? R.drawable.ic_check : R.drawable.ic_remote_monitor,
-                    labels[i], () -> {
-                        setPerformanceOverlayMode(mode);
-                        if (!prefConfig.enablePerfOverlay) togglePerformanceOverlay();
-                    });
-        }
-        addStreamAction(sheet, R.drawable.ic_clipboard, R.string.overlay_copy, this::copyPerformanceStats);
-        addStreamAction(sheet, R.drawable.ic_help, R.string.health_title, this::showStreamHealth);
-        if (conn.canSendInput()) {
-            addStreamAction(sheet, R.drawable.ic_network, R.string.latency_test, this::runLatencyTest);
-        }
-        showStreamDialog(sheet);
+        conn.setMicrophoneMuted(!conn.isMicrophoneMuted());
     }
 
     private boolean latencyTestRunning;
@@ -2362,55 +2463,17 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         }, "Latency test").start();
     }
 
-    private void showBitrateMenu() {
-        ActionSheet sheet = new ActionSheet(this, getString(R.string.stream_bitrate));
-        addStreamAction(sheet, R.drawable.ic_network, R.string.stream_bitrate_manual, this::showBitrateDialog);
-        addStreamAction(sheet, R.drawable.ic_network, R.string.title_adaptive_quality, this::showAdaptiveQualityDialog);
-        if (supportsAdaptiveBitrate()) {
-            addStreamAction(sheet, R.drawable.ic_network, isAdaptiveBitrateEnabled() ?
-                    R.string.stream_auto_bitrate_disable : R.string.stream_auto_bitrate_enable, () -> {
-                boolean enable = !isAdaptiveBitrateEnabled();
-                if (!enable || !hostActionInProgress) {
-                    setAdaptiveBitrateEnabled(enable, true);
-                    if (enable) {
-                        Toast.makeText(this, pyroWaveBitrate != null ? R.string.stream_pyrowave_bitrate_help :
-                                R.string.stream_auto_bitrate_help, Toast.LENGTH_LONG).show();
-                    }
-                } else {
-                    Toast.makeText(this, R.string.stream_bitrate_busy, Toast.LENGTH_SHORT).show();
-                }
-            });
-        }
-        showStreamDialog(sheet);
-    }
-
-    private void showClipboardMenu() {
-        ComputerDetails details = conn.getHostDetails();
-        ActionSheet sheet = new ActionSheet(this, getString(R.string.stream_clipboard_menu));
-        if (app.getRole() != NvApp.Role.REMOTE_MONITOR && details.canWriteClipboard()) {
-            addStreamAction(sheet, R.drawable.ic_clipboard, R.string.stream_clipboard_send, () -> transferClipboard(true));
-        }
-        if (details.canReadClipboard()) {
-            addStreamAction(sheet, R.drawable.ic_clipboard, R.string.stream_clipboard_receive, () -> transferClipboard(false));
-        }
-        showStreamDialog(sheet);
-    }
-
-    private void showHostMenu() {
-        ComputerDetails details = conn.getHostDetails();
-        ActionSheet sheet = new ActionSheet(this, getString(R.string.stream_host_menu));
-        if (app.getRole() != NvApp.Role.REMOTE_MONITOR && details.canRunServerCommand(0)) {
-            addStreamAction(sheet, R.drawable.ic_terminal, R.string.stream_server_commands, () -> showServerCommands(details));
-        }
-        addStreamAction(sheet, R.drawable.ic_help, R.string.stream_host_status, this::refreshHostStatus);
-        addStreamAction(sheet, R.drawable.ic_play, R.string.stream_reconnect, this::reconnectStream);
-        showStreamDialog(sheet);
-    }
-
     private void confirmQuitApp() {
-        showStreamDialog(new MaterialAlertDialogBuilder(this).setTitle(R.string.stream_quit_app)
-                .setMessage(R.string.applist_quit_confirmation).setNegativeButton(R.string.no, null)
-                .setPositiveButton(R.string.yes, (dialog, which) -> streamMenuAction = this::quitStreamApp).create());
+        androidx.appcompat.app.AlertDialog dialog = new MaterialAlertDialogBuilder(this).setTitle(R.string.stream_quit_game)
+                .setMessage(R.string.stream_quit_game_confirm).setNegativeButton(android.R.string.cancel, null)
+                .setPositiveButton(R.string.stream_quit_game, (prompt, which) -> streamMenuAction = this::quitStreamApp).create();
+        showStreamDialog(dialog);
+        // Quitting ends the game on the PC: its button carries the same error colour as the menu item.
+        android.widget.Button quit = dialog.getButton(androidx.appcompat.app.AlertDialog.BUTTON_POSITIVE);
+        if (quit != null) {
+            quit.setTextColor(com.google.android.material.color.MaterialColors.getColor(quit,
+                    androidx.appcompat.R.attr.colorError));
+        }
     }
 
     private void quitStreamApp() {
@@ -3372,15 +3435,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
 
                     // Toggle cursor visibility
                     case KeyEvent.KEYCODE_C:
-                        if (!grabbedInput) {
-                            setInputGrabState(true);
-                        }
-                        cursorVisible = !cursorVisible;
-                        if (cursorVisible || isKeyboardOverlayVisible()) {
-                            inputCaptureProvider.showCursor();
-                        } else {
-                            inputCaptureProvider.hideCursor();
-                        }
+                        toggleCursorVisibility();
                         break;
 
                     default:

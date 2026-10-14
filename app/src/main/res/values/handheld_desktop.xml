@@ -25,7 +25,6 @@
     <string name="touch_layout_pressed">Held</string>
     <string name="touch_layout_released">Released</string>
     <string name="touch_layout_invalid">Check the name, supported binding, and size (4–80%). Imported layouts must be version 1, at most 32 buttons and 64 KiB.</string>
-    <string name="desktop_title">Desktop and display</string>
     <string name="desktop_zoom_enable">Enable pinch zoom and pan</string>
     <string name="desktop_zoom_disable">Disable pinch zoom and pan</string>
     <string name="desktop_zoom_reset">Reset zoom</string>

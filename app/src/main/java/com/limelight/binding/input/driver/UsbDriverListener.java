@@ -12,4 +12,7 @@ public interface UsbDriverListener {
 
     void deviceRemoved(AbstractController controller);
     void deviceAdded(AbstractController controller);
+
+    // The driver for this attached USB device could not start, so it will not be handed over.
+    default void deviceStartFailed(int usbDeviceId) {}
 }

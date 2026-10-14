@@ -278,10 +278,12 @@ public class UsbDriverService extends Service implements UsbDriverListener {
                 connection = usbManager.openDevice(device);
             } catch (SecurityException e) {
                 LimeLog.warning("USB permission denied");
+                reportStartFailed(device.getDeviceId());
                 return;
             }
             if (connection == null) {
                 LimeLog.warning("Unable to open USB device: "+device.getDeviceName());
+                reportStartFailed(device.getDeviceId());
                 return;
             }
 
@@ -309,8 +311,21 @@ public class UsbDriverService extends Service implements UsbDriverListener {
             // Claim it at once so a detach or stop during its start finds it. Starting does USB
             // transfers that take seconds on a failing pad; the controller's stop() closes the connection.
             controllers.add(controller);
-            controller.startOnUsbWorker(() -> controllers.remove(controller));
+            int usbDeviceId = device.getDeviceId();
+            controller.startOnUsbWorker(() -> {
+                controllers.remove(controller);
+                reportStartFailed(usbDeviceId);
+            });
         }
+    }
+
+    private void reportStartFailed(int usbDeviceId) {
+        handler.post(() -> {
+            UsbDriverListener current = listener;
+            if (started && current != null) {
+                current.deviceStartFailed(usbDeviceId);
+            }
+        });
     }
 
     public static boolean isRecognizedInputDevice(UsbDevice device) {

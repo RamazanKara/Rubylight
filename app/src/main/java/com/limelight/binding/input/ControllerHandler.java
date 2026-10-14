@@ -56,6 +56,7 @@ import org.cgutman.shieldcontrollerextensions.SceManager;
 import java.lang.reflect.InvocationTargetException;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicIntegerArray;
 
@@ -116,6 +117,8 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
     private final ConcurrentHashMap<Integer, InputDeviceContext> inputDeviceContexts = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<Integer, UsbDeviceContext> usbDeviceContexts = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<Short, AbstractController> waveformControllers = new ConcurrentHashMap<>();
+    // Attached USB devices whose driver could not start; launch preparation stops waiting for them.
+    private final Set<Integer> failedUsbDevices = ConcurrentHashMap.newKeySet();
     // A late USB attachment must not block releases from an existing shared slot.
     private final AtomicIntegerArray controllerSlotsWithInput = new AtomicIntegerArray(MAX_GAMEPADS);
 
@@ -2347,9 +2350,16 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         if (usbManager == null) return 0;
         int count = 0;
         for (UsbDevice device : usbManager.getDeviceList().values()) {
-            if (DualSenseController.canClaimDevice(device)) count++;
+            // A pad still at the USB permission prompt, or whose driver failed, cannot arrive in time.
+            if (DualSenseController.canClaimDevice(device) && usbManager.hasPermission(device) &&
+                    !failedUsbDevices.contains(device.getDeviceId())) count++;
         }
         return count;
+    }
+
+    @Override
+    public void deviceStartFailed(int usbDeviceId) {
+        failedUsbDevices.add(usbDeviceId);
     }
 
     public synchronized void resendControllerArrivals() {

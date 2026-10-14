@@ -2,7 +2,12 @@ package com.limelight.binding.input;
 
 import android.app.Activity;
 import android.app.Application;
+import android.content.Context;
+import android.content.Intent;
+import android.hardware.usb.UsbManager;
 import com.limelight.binding.input.driver.AbstractController;
+import com.limelight.binding.input.driver.UsbDriverService;
+import com.limelight.binding.input.driver.UsbPads;
 import com.limelight.nvstream.NvConnection;
 import com.limelight.nvstream.StreamConfiguration;
 import com.limelight.nvstream.http.ComputerDetails;
@@ -14,6 +19,9 @@ import org.junit.runner.RunWith;
 import org.robolectric.Robolectric;
 import org.robolectric.RobolectricTestRunner;
 import org.robolectric.android.controller.ActivityController;
+import org.robolectric.android.controller.ServiceController;
+import org.robolectric.shadows.ShadowLooper;
+import org.robolectric.shadows.ShadowUsbManager;
 import org.robolectric.annotation.Config;
 import org.robolectric.util.ReflectionHelpers;
 import com.limelight.nvstream.input.ControllerPacket;
@@ -33,7 +41,7 @@ import static org.junit.Assert.*;
 
 @RunWith(RobolectricTestRunner.class)
 @Config(sdk = 29, application = Application.class,
-        shadows = com.limelight.PcViewLifecycleTest.NoNativeMoonBridge.class,
+        shadows = {com.limelight.PcViewLifecycleTest.NoNativeMoonBridge.class, UsbPads.Connection.class},
         instrumentedPackages = "com.limelight.nvstream.jni")
 public class ControllerPreparationTest {
     @Test public void preparationDoesNotSelectTheMicrophoneBeforeAudioNegotiation() {
@@ -59,6 +67,7 @@ public class ControllerPreparationTest {
                 // No USB DualSense is attached: nothing can become ready, so launch goes ahead at once.
                 assertEquals("", worker.submit(handler::prepareControllersForLaunch).get(1, TimeUnit.SECONDS));
                 // A handed-over DualSense whose waveform output could not start will not gain it either.
+                usbManager(activity.get()).addOrUpdateUsbDevice(UsbPads.dualSense("/dev/bus/usb/002/001"), true);
                 handler.deviceAdded(new Pad((short) MoonBridge.LI_CCAP_RUMBLE));
                 assertEquals("", worker.submit(handler::prepareControllersForLaunch).get(1, TimeUnit.SECONDS));
                 assertEquals(0, connection.arrivals);
@@ -67,6 +76,86 @@ public class ControllerPreparationTest {
                 handler.destroy();
             }
         }
+    }
+
+    @Test public void anAttachedDualSenseNotYetHandedOverMakesLaunchWait() throws Exception {
+        try (ActivityController<Activity> activity = Robolectric.buildActivity(Activity.class).create()) {
+            usbManager(activity.get()).addOrUpdateUsbDevice(UsbPads.dualSense("/dev/bus/usb/002/002"), true);
+            Connection connection = new Connection(73);
+            ControllerHandler handler = handler(activity.get(), connection);
+            ExecutorService worker = Executors.newSingleThreadExecutor();
+            try {
+                Future<String> launch = worker.submit(handler::prepareControllersForLaunch);
+                try {
+                    launch.get(300, TimeUnit.MILLISECONDS);
+                    fail("Launch went ahead while the USB service was still starting the attached DualSense");
+                } catch (TimeoutException expected) {
+                }
+                // The USB service hands the started pad over with its waveform output ready.
+                handler.deviceAdded(new Pad());
+                assertFalse(launch.get(2, TimeUnit.SECONDS).isEmpty());
+            } finally {
+                worker.shutdownNow();
+                handler.destroy();
+            }
+        }
+    }
+
+    @Test public void aDualSenseAtTheUsbPermissionPromptDoesNotHoldTheLaunch() throws Exception {
+        try (ActivityController<Activity> activity = Robolectric.buildActivity(Activity.class).create()) {
+            // Attached, but the person has not answered Android's USB permission prompt yet.
+            usbManager(activity.get()).addOrUpdateUsbDevice(UsbPads.dualSense("/dev/bus/usb/002/003"), false);
+            ControllerHandler handler = handler(activity.get(), new Connection(73));
+            ExecutorService worker = Executors.newSingleThreadExecutor();
+            try {
+                assertEquals("", worker.submit(handler::prepareControllersForLaunch).get(1, TimeUnit.SECONDS));
+            } finally {
+                worker.shutdownNow();
+                handler.destroy();
+            }
+        }
+    }
+
+    // Android 13 registers the USB service's unexported receiver without a manifest permission.
+    @Config(sdk = 33)
+    @Test public void aDualSenseWhoseDriverFailedToStartDoesNotHoldTheLaunch() throws Exception {
+        // The test runs the main looper; the SHIELD accessory service is not on this device.
+        org.robolectric.Shadows.shadowOf(org.robolectric.RuntimeEnvironment.getApplication()).declareComponentUnbindable(
+                new android.content.ComponentName("com.nvidia.blakepairing", "com.nvidia.blakepairing.AccessoryService"));
+        try (ActivityController<Activity> activity = Robolectric.buildActivity(Activity.class).create()) {
+            android.preference.PreferenceManager.getDefaultSharedPreferences(activity.get()).edit()
+                    .putBoolean("checkbox_usb_dualsense", true).commit();
+            UsbPads.Connection.reset();
+            // Android's own driver keeps the HID interface: the USB service cannot claim it.
+            UsbPads.Connection.failClaims();
+            usbManager(activity.get()).addOrUpdateUsbDevice(UsbPads.dualSense("/dev/bus/usb/002/004"), true);
+            ControllerHandler handler = handler(activity.get(), new Connection(73));
+            ServiceController<UsbDriverService> service = Robolectric.buildService(UsbDriverService.class).create();
+            ExecutorService worker = Executors.newSingleThreadExecutor();
+            try {
+                UsbDriverService.UsbDriverBinder binder = (UsbDriverService.UsbDriverBinder) service.get().onBind(new Intent());
+                binder.setListener(handler);
+                binder.start();
+                Future<String> launch = worker.submit(handler::prepareControllersForLaunch);
+                long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
+                while (!launch.isDone() && System.nanoTime() < deadline) {
+                    // The service reports the failed start on the main thread.
+                    ShadowLooper.idleMainLooper();
+                    Thread.sleep(10);
+                }
+                assertTrue("Launch kept waiting for a DualSense whose driver failed", launch.isDone());
+                assertEquals("", launch.get());
+                assertEquals(1, UsbPads.Connection.closes.get());
+            } finally {
+                worker.shutdownNow();
+                service.destroy();
+                handler.destroy();
+            }
+        }
+    }
+
+    private static ShadowUsbManager usbManager(Activity activity) {
+        return org.robolectric.Shadows.shadowOf((UsbManager) activity.getSystemService(Context.USB_SERVICE));
     }
 
     @Test public void inputWaitsWhileLaunchPreparationAnnouncesAPad() throws Exception {

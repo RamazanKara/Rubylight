@@ -29,6 +29,7 @@ LOGS = ROOT / "app/build/emulator-smoke"
 HOST_NAME = "Gaming PC"
 ADDRESS_REQUIRED = "Enter the host's IP address or name"
 DEBUGGABLE = True
+EXPECTED_ROTATION = 0
 UI_CASES = {
     "393dp-font-1": (393, 1.0, 0),
     "412dp-font-1": (412, 1.0, 0),
@@ -42,6 +43,26 @@ def adb(*args, timeout=30, binary=False):
     result = subprocess.run([str(ADB), "-s", SERIAL, *args], check=True,
                             capture_output=True, timeout=timeout)
     return result.stdout if binary else result.stdout.decode("utf-8", errors="replace")
+
+
+def set_rotation(rotation):
+    """Persist rotation before locking it so settings reloads/UIAutomation cannot restore an old value."""
+    global EXPECTED_ROTATION
+    adb("shell", "settings", "put", "system", "accelerometer_rotation", "0")
+    adb("shell", "settings", "put", "system", "user_rotation", str(rotation))
+    adb("shell", "wm", "user-rotation", "lock", str(rotation))
+    EXPECTED_ROTATION = rotation
+    # UIAutomation saves/restores the *actual* display rotation when it connects.
+    # Wait for the window transition without connecting UIAutomation, or it can
+    # save the portrait launcher's old rotation and undo the requested landscape.
+    deadline = time.monotonic() + 15
+    while time.monotonic() < deadline:
+        png = adb("exec-out", "screencap", "-p", binary=True)
+        width, height = struct.unpack(">II", png[16:24])
+        if (width > height) == (rotation in (1, 3)):
+            return
+        time.sleep(0.25)
+    raise AssertionError(f"Display did not reach rotation {rotation}: {width}x{height}")
 
 
 def tree():
@@ -245,6 +266,7 @@ def prefs(name, check, message):
 def screenshot(name):
     ui = tree()
     png = adb("exec-out", "screencap", "-p", binary=True)
+    width, height = struct.unpack(">II", png[16:24])
     try:
         # Retain native dimensions for font and touch-target review.
         from PIL import Image
@@ -253,8 +275,12 @@ def screenshot(name):
     except ImportError:
         SHOTS.joinpath(name + ".png").write_bytes(png)
     LOGS.joinpath(name + ".xml").write_bytes(ET.tostring(ui))
+    assert (width > height) == (EXPECTED_ROTATION in (1, 3)), \
+        f"Wrong screenshot orientation for {name}: {width}x{height}, expected rotation {EXPECTED_ROTATION}"
+    assert int(ui.get("rotation", "-1")) == EXPECTED_ROTATION, \
+        f"UI hierarchy has rotation {ui.get('rotation')}, expected {EXPECTED_ROTATION} for {name}"
     print(f"Captured {name}", flush=True)
-    return struct.unpack(">II", png[16:24])
+    return width, height
 
 
 def frontend_entry(name, contents):
@@ -282,9 +308,9 @@ def capture_ui_set(width, font, rotation=0):
     adb("shell", "am", "force-stop", PACKAGE)
     adb("shell", "wm", "size", f"{width * 2}x1704")
     adb("shell", "wm", "density", "320")
-    adb("shell", "wm", "user-rotation", "lock", str(rotation))
     adb("shell", "settings", "put", "system", "font_scale", str(font))
     adb("shell", "am", "start", "-W", "-n", f"{PACKAGE}/com.limelight.PcView")
+    set_rotation(rotation)
     find(HOST_NAME)
     screenshot(prefix + "-home-host")
     tap(f"More options for {HOST_NAME}")
@@ -371,8 +397,8 @@ def library_regressions():
     """The debug fixture supplies real AppView cards without pairing a synthetic host."""
     adb("shell", "am", "force-stop", PACKAGE)
     adb("shell", "wm", "size", "786x1704")
-    adb("shell", "wm", "user-rotation", "lock", "0")
     adb("shell", "settings", "put", "system", "font_scale", "2.0")
+    set_rotation(0)
     adb("shell", "am", "start", "-W", "-n", f"{PACKAGE}/com.limelight.demo.DemoLauncherActivity",
         "--es", "state", "library", "--es", "codec", "h264")
     find("Racing Game", scroll=True)
@@ -391,17 +417,17 @@ def library_regressions():
     adb("shell", "input", "keyevent", "66")
     find("Racing Game")
     assert not any(n.get("text") == "Desktop" for n in tree().iter("node")), "Library query was not applied"
-    adb("shell", "wm", "user-rotation", "lock", "1")
+    set_rotation(1)
     find("Racing Game")
     assert find(search).get("text") == "Racing", "Rotation lost the library query"
     screenshot("library-search-landscape-font-2")
-    tap("More options for Racing Game")
+    tap("More options for Racing Game", scroll=True)
     find(f"{PACKAGE}:id/action_sheet_close")
     screenshot("library-app-sheet-landscape-font-2")
     tap(f"{PACKAGE}:id/action_sheet_close")
     adb("shell", "am", "force-stop", PACKAGE)
-    adb("shell", "wm", "user-rotation", "lock", "0")
     adb("shell", "settings", "put", "system", "font_scale", "1.0")
+    set_rotation(0)
 
 
 def capture_ui_sweep(cases=None):
@@ -414,10 +440,10 @@ def capture_ui_sweep(cases=None):
         # 786 px at 320 dpi gives a 393 dp phone viewport.
         adb("shell", "wm", "size", "786x1704")
         adb("shell", "wm", "density", "320")
-        adb("shell", "wm", "user-rotation", "lock", "0")
+        set_rotation(0)
         adb("shell", "am", "start", "-W", "-n", f"{PACKAGE}/com.limelight.LatencyOverlaySmokeActivity")
         for rotation, suffix in ((0, ""), (1, "-landscape")):
-            adb("shell", "wm", "user-rotation", "lock", str(rotation))
+            set_rotation(rotation)
             time.sleep(1)
             node = find(f"{PACKAGE}:id/performanceOverlay")
             text = node.get("text", "")
@@ -585,6 +611,7 @@ def main():
             adb("shell", "wm", "size", "786x1704")
             adb("shell", "wm", "density", "320")
             adb("shell", "settings", "put", "system", "font_scale", "1.0")
+            set_rotation(0)
             adb("shell", "settings", "put", "secure", "show_ime_with_hard_keyboard", "1")
             adb("shell", "svc", "wifi", "disable")
             adb("shell", "svc", "data", "disable")

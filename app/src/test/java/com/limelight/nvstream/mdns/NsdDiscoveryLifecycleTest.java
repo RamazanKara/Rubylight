@@ -10,22 +10,45 @@ import org.robolectric.RuntimeEnvironment;
 import org.robolectric.annotation.Config;
 import org.robolectric.annotation.Implementation;
 import org.robolectric.annotation.Implements;
+import org.robolectric.annotation.RealObject;
 import org.robolectric.shadow.api.Shadow;
 
 import java.net.InetAddress;
 import java.util.Collections;
+import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.Assert.*;
 
 @RunWith(org.robolectric.RobolectricTestRunner.class)
-@Config(sdk = 34, application = Application.class, shadows = NsdDiscoveryLifecycleTest.RecordingNsdManager.class)
+@Config(sdk = 34, application = Application.class, shadows = {
+        NsdDiscoveryLifecycleTest.RecordingNsdManager.class, NsdDiscoveryLifecycleTest.DelayedServiceInfo.class})
 public class NsdDiscoveryLifecycleTest {
+    @Implements(NsdServiceInfo.class)
+    public static class DelayedServiceInfo {
+        @RealObject private NsdServiceInfo serviceInfo;
+        CountDownLatch entered;
+        CountDownLatch release;
+
+        @Implementation protected List<InetAddress> getHostAddresses() {
+            if (entered != null) {
+                entered.countDown();
+                try {
+                    assertTrue(release.await(3, TimeUnit.SECONDS));
+                } catch (InterruptedException e) {
+                    throw new AssertionError(e);
+                }
+            }
+            return Shadow.directlyOn(serviceInfo, NsdServiceInfo.class, "getHostAddresses");
+        }
+    }
+
     @Implements(NsdManager.class)
     public static class RecordingNsdManager {
         NsdManager.DiscoveryListener discovery;
@@ -43,6 +66,92 @@ public class NsdDiscoveryLifecycleTest {
         }
 
         @Implementation protected void unregisterServiceInfoCallback(NsdManager.ServiceInfoCallback callback) { }
+    }
+
+    @Test
+    public void anOldResolutionCannotFillTheRestartedDiscoverysCache() throws Exception {
+        Application application = RuntimeEnvironment.getApplication();
+        RecordingNsdManager manager = Shadow.extract(application.getSystemService(NsdManager.class));
+        AtomicInteger hostProbes = new AtomicInteger();
+        NsdManagerDiscoveryAgent agent = new NsdManagerDiscoveryAgent(application, new MdnsDiscoveryListener() {
+            @Override public void notifyComputerAdded(MdnsComputer computer) { hostProbes.incrementAndGet(); }
+            @Override public void notifyDiscoveryFailure(Exception e) { throw new AssertionError(e); }
+        });
+        NsdServiceInfo info = new NsdServiceInfo();
+        info.setServiceName("PC");
+        info.setPort(47989);
+        info.setHostAddresses(Collections.singletonList(InetAddress.getByName("192.0.2.1")));
+        DelayedServiceInfo delayed = Shadow.extract(info);
+        delayed.entered = new CountDownLatch(1);
+        delayed.release = new CountDownLatch(1);
+        ExecutorService thread = Executors.newSingleThreadExecutor();
+        try {
+            agent.startDiscovery(1000);
+            manager.discovery.onDiscoveryStarted("_nvstream._tcp");
+            manager.discovery.onServiceFound(info);
+            NsdManager.ServiceInfoCallback previous = manager.callback;
+            Future<?> resolution = thread.submit(() -> previous.onServiceUpdated(info));
+            assertTrue(delayed.entered.await(2, TimeUnit.SECONDS));
+            agent.stopDiscovery();
+            agent.startDiscovery(1000);
+            manager.discovery.onDiscoveryStarted("_nvstream._tcp");
+            delayed.release.countDown();
+            resolution.get(2, TimeUnit.SECONDS);
+            assertEquals("A resolution from a stopped session cannot probe or cache a host", 0, hostProbes.get());
+            assertTrue(agent.getComputerSet().isEmpty());
+
+            manager.discovery.onServiceFound(info);
+            manager.callback.onServiceUpdated(info);
+            assertEquals(1, hostProbes.get());
+        } finally {
+            delayed.release.countDown();
+            thread.shutdownNow();
+            assertTrue(thread.awaitTermination(2, TimeUnit.SECONDS));
+            agent.stopDiscovery();
+        }
+    }
+
+    @Test
+    public void restartingDiscoveryRetriesHostsWhoseFirstProbeFailed() throws Exception {
+        Application application = RuntimeEnvironment.getApplication();
+        RecordingNsdManager manager = Shadow.extract(application.getSystemService(NsdManager.class));
+        AtomicInteger hostProbes = new AtomicInteger();
+        NsdManagerDiscoveryAgent agent = new NsdManagerDiscoveryAgent(application, new MdnsDiscoveryListener() {
+            @Override public void notifyComputerAdded(MdnsComputer computer) {
+                // ComputerManager's first serverinfo request may fail while the host is starting.
+                // It does not save that host, so a new discovery session must report it again.
+                hostProbes.incrementAndGet();
+            }
+            @Override public void notifyDiscoveryFailure(Exception e) { throw new AssertionError(e); }
+        });
+        NsdServiceInfo info = new NsdServiceInfo();
+        info.setServiceName("PC");
+        info.setPort(47989);
+        info.setHostAddresses(Collections.singletonList(InetAddress.getByName("192.0.2.1")));
+        try {
+            agent.startDiscovery(1000);
+            manager.discovery.onDiscoveryStarted("_nvstream._tcp");
+            manager.discovery.onServiceFound(info);
+            NsdManager.ServiceInfoCallback previous = manager.callback;
+            previous.onServiceUpdated(info);
+            previous.onServiceUpdated(info);
+            assertEquals("One probe per host within a discovery session", 1, hostProbes.get());
+
+            agent.stopDiscovery();
+            agent.startDiscovery(1000);
+            manager.discovery.onDiscoveryStarted("_nvstream._tcp");
+            previous.onServiceUpdated(info);
+            assertEquals("Stopped callbacks cannot seed the new session's cache", 1, hostProbes.get());
+            manager.discovery.onServiceFound(info);
+            manager.callback.onServiceUpdated(info);
+            assertEquals("Returning to PCs must retry the previously unreachable host", 2, hostProbes.get());
+
+            agent.startDiscovery(1000);
+            manager.callback.onServiceUpdated(info);
+            assertEquals("Starting an already active discovery must retain deduplication", 2, hostProbes.get());
+        } finally {
+            agent.stopDiscovery();
+        }
     }
 
     @Test

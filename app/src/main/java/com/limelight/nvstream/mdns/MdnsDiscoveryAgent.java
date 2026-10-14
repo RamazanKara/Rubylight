@@ -11,7 +11,8 @@ import java.util.List;
 public abstract class MdnsDiscoveryAgent {
     protected MdnsDiscoveryListener listener;
 
-    protected HashSet<MdnsComputer> computers = new HashSet<>();
+    protected final HashSet<MdnsComputer> computers = new HashSet<>();
+    private long discoveryGeneration;
 
     public MdnsDiscoveryAgent(MdnsDiscoveryListener listener) {
         this.listener = listener;
@@ -21,7 +22,25 @@ public abstract class MdnsDiscoveryAgent {
 
     public abstract void stopDiscovery();
 
+    protected final long resetDiscovery() {
+        synchronized (computers) {
+            computers.clear();
+            return ++discoveryGeneration;
+        }
+    }
+
+    protected final long getDiscoveryGeneration() {
+        synchronized (computers) {
+            return discoveryGeneration;
+        }
+    }
+
     protected void reportNewComputer(String name, int port, Inet4Address[] v4Addrs, Inet6Address[] v6Addrs) {
+        reportNewComputer(name, port, v4Addrs, v6Addrs, getDiscoveryGeneration());
+    }
+
+    protected void reportNewComputer(String name, int port, Inet4Address[] v4Addrs, Inet6Address[] v6Addrs,
+                                     long generation) {
         LimeLog.info("mDNS: "+name+" has "+v4Addrs.length+" IPv4 addresses");
         LimeLog.info("mDNS: "+name+" has "+v6Addrs.length+" IPv6 addresses");
 
@@ -32,6 +51,8 @@ public abstract class MdnsDiscoveryAgent {
             MdnsComputer computer = new MdnsComputer(name, v4Addr, v6GlobalAddr, port);
             boolean added;
             synchronized (computers) {
+                // Resolution can finish after stop/start. Only this session may populate its cache.
+                if (generation != discoveryGeneration) return;
                 added = computers.add(computer);
             }
             if (added) {
@@ -46,6 +67,7 @@ public abstract class MdnsDiscoveryAgent {
                 MdnsComputer computer = new MdnsComputer(name, v6LocalAddr, v6GlobalAddr, port);
                 boolean added;
                 synchronized (computers) {
+                    if (generation != discoveryGeneration) return;
                     added = computers.add(computer);
                 }
                 if (added) {

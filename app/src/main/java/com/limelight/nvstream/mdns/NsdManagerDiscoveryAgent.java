@@ -29,7 +29,7 @@ public class NsdManagerDiscoveryAgent extends MdnsDiscoveryAgent {
     private final HashMap<Pair<String, Network>, NsdManager.ServiceInfoCallback> serviceCallbacks = new HashMap<>();
     private final ThreadPoolExecutor executor = new ThreadPoolExecutor(0, 1, 1, TimeUnit.SECONDS, new LinkedBlockingQueue<>());
 
-    private NsdManager.DiscoveryListener createDiscoveryListener() {
+    private NsdManager.DiscoveryListener createDiscoveryListener(long generation) {
         return new NsdManager.DiscoveryListener() {
             @Override
             public void onStartDiscoveryFailed(String serviceType, int errorCode) {
@@ -125,7 +125,7 @@ public class NsdManagerDiscoveryAgent extends MdnsDiscoveryAgent {
                             LimeLog.info("NSD: Machine resolved: " + nsdServiceInfo.getServiceName());
                             reportNewComputer(nsdServiceInfo.getServiceName(), nsdServiceInfo.getPort(),
                                     getV4Addrs(nsdServiceInfo.getHostAddresses()),
-                                    getV6Addrs(nsdServiceInfo.getHostAddresses()));
+                                    getV6Addrs(nsdServiceInfo.getHostAddresses()), generation);
                         }
 
                         @Override
@@ -172,7 +172,7 @@ public class NsdManagerDiscoveryAgent extends MdnsDiscoveryAgent {
         synchronized (listenerLock) {
             // Register a new service discovery listener if there's not already one starting or running
             if (pendingListener == null && activeListener == null) {
-                pendingListener = createDiscoveryListener();
+                pendingListener = createDiscoveryListener(resetDiscovery());
                 nsdManager.discoverServices(SERVICE_TYPE, NsdManager.PROTOCOL_DNS_SD, pendingListener);
             }
         }
@@ -182,6 +182,7 @@ public class NsdManagerDiscoveryAgent extends MdnsDiscoveryAgent {
     public void stopDiscovery() {
         // Protect against racing ServiceInfoCallback and DiscoveryListener callbacks
         synchronized (listenerLock) {
+            resetDiscovery();
             // Clear any pending listener to ensure the discoverStarted() callback
             // will realize it's gone and stop itself.
             pendingListener = null;

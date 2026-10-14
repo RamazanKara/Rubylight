@@ -19,11 +19,32 @@ import javax.jmdns.impl.NetworkTopologyDiscoveryImpl;
 
 import com.limelight.LimeLog;
 
-public class JmDNSDiscoveryAgent extends MdnsDiscoveryAgent implements ServiceListener {
+public class JmDNSDiscoveryAgent extends MdnsDiscoveryAgent {
     private static final String SERVICE_TYPE = "_nvstream._tcp.local.";
     private WifiManager.MulticastLock multicastLock;
     private Thread discoveryThread;
-    private HashSet<String> pendingResolution = new HashSet<>();
+    private DiscoverySession discoverySession;
+
+    private final class DiscoverySession implements ServiceListener {
+        final long generation;
+        final HashSet<String> pendingResolution = new HashSet<>();
+
+        DiscoverySession(long generation) {
+            this.generation = generation;
+        }
+
+        @Override public void serviceAdded(ServiceEvent event) {
+            handleAddedService(event, this);
+        }
+
+        @Override public void serviceRemoved(ServiceEvent event) {
+            LimeLog.info("mDNS: Machine disappeared: " + event.getInfo().getName());
+        }
+
+        @Override public void serviceResolved(ServiceEvent event) {
+            // We handle this synchronously.
+        }
+    }
     
     // The resolver factory's instance member has a static lifetime which
     // means our ref count and listener must be static also.
@@ -150,13 +171,13 @@ public class JmDNSDiscoveryAgent extends MdnsDiscoveryAgent implements ServiceLi
         }
     }
 
-    private void handleResolvedServiceInfo(ServiceInfo info) {
-        synchronized (pendingResolution) {
-            pendingResolution.remove(info.getName());
+    private void handleResolvedServiceInfo(ServiceInfo info, DiscoverySession session) {
+        synchronized (session.pendingResolution) {
+            session.pendingResolution.remove(info.getName());
         }
 
         try {
-            handleServiceInfo(info);
+            handleServiceInfo(info, session.generation);
         } catch (UnsupportedEncodingException e) {
             // Invalid DNS response
             LimeLog.info("mDNS: Invalid response for machine: "+info.getName());
@@ -164,13 +185,15 @@ public class JmDNSDiscoveryAgent extends MdnsDiscoveryAgent implements ServiceLi
         }
     }
 
-    private void handleServiceInfo(ServiceInfo info) throws UnsupportedEncodingException {
-        reportNewComputer(info.getName(), info.getPort(), info.getInet4Addresses(), info.getInet6Addresses());
+    private void handleServiceInfo(ServiceInfo info, long generation) throws UnsupportedEncodingException {
+        reportNewComputer(info.getName(), info.getPort(), info.getInet4Addresses(), info.getInet6Addresses(), generation);
     }
     
     public synchronized void startDiscovery(final int discoveryIntervalMs) {
         // Kill any existing discovery before starting a new one
         stopDiscovery();
+        final DiscoverySession session = new DiscoverySession(resetDiscovery());
+        discoverySession = session;
 
         // Acquire the multicast lock to start receiving mDNS traffic
         if (multicastLock != null) {
@@ -183,7 +206,7 @@ public class JmDNSDiscoveryAgent extends MdnsDiscoveryAgent implements ServiceLi
         
         // Add our listener to the set
         synchronized (listeners) {
-            listeners.add(JmDNSDiscoveryAgent.this);
+            listeners.add(session);
         }
         
         discoveryThread = new Thread() {
@@ -200,8 +223,8 @@ public class JmDNSDiscoveryAgent extends MdnsDiscoveryAgent implements ServiceLi
                         
                         // Run service resolution again for pending machines
                         ArrayList<String> pendingNames;
-                        synchronized (pendingResolution) {
-                            pendingNames = new ArrayList<String>(pendingResolution);
+                        synchronized (session.pendingResolution) {
+                            pendingNames = new ArrayList<String>(session.pendingResolution);
                         }
                         for (String name : pendingNames) {
                             LimeLog.info("mDNS: Retrying service resolution for machine: "+name);
@@ -209,7 +232,7 @@ public class JmDNSDiscoveryAgent extends MdnsDiscoveryAgent implements ServiceLi
                             if (infos != null && infos.length != 0) {
                                 LimeLog.info("mDNS: Resolved (retry) with "+infos.length+" service entries");
                                 for (ServiceInfo svcinfo : infos) {
-                                    handleResolvedServiceInfo(svcinfo);
+                                    handleResolvedServiceInfo(svcinfo, session);
                                 }
                             }
                         }
@@ -233,6 +256,7 @@ public class JmDNSDiscoveryAgent extends MdnsDiscoveryAgent implements ServiceLi
     }
     
     public synchronized void stopDiscovery() {
+        resetDiscovery();
         // Release the multicast lock to stop receiving mDNS traffic
         if (multicastLock != null && multicastLock.isHeld()) {
             multicastLock.release();
@@ -240,8 +264,9 @@ public class JmDNSDiscoveryAgent extends MdnsDiscoveryAgent implements ServiceLi
 
         // Remove our listener from the set
         synchronized (listeners) {
-            listeners.remove(JmDNSDiscoveryAgent.this);
+            listeners.remove(discoverySession);
         }
+        discoverySession = null;
         
         // If there's already a running thread, interrupt it
         if (discoveryThread != null) {
@@ -250,30 +275,20 @@ public class JmDNSDiscoveryAgent extends MdnsDiscoveryAgent implements ServiceLi
         }
     }
 
-    @Override
-    public void serviceAdded(ServiceEvent event) {
+    private void handleAddedService(ServiceEvent event, DiscoverySession session) {
+        if (session.generation != getDiscoveryGeneration()) return;
         LimeLog.info("mDNS: Machine appeared: "+event.getInfo().getName());
 
         ServiceInfo info = event.getDNS().getServiceInfo(SERVICE_TYPE, event.getInfo().getName(), 500);
         if (info == null) {
             // This machine is pending resolution
-            synchronized (pendingResolution) {
-                pendingResolution.add(event.getInfo().getName());
+            synchronized (session.pendingResolution) {
+                session.pendingResolution.add(event.getInfo().getName());
             }
             return;
         }
         
         LimeLog.info("mDNS: Resolved (blocking)");
-        handleResolvedServiceInfo(info);
-    }
-
-    @Override
-    public void serviceRemoved(ServiceEvent event) {
-        LimeLog.info("mDNS: Machine disappeared: "+event.getInfo().getName());
-    }
-
-    @Override
-    public void serviceResolved(ServiceEvent event) {
-        // We handle this synchronously
+        handleResolvedServiceInfo(info, session);
     }
 }

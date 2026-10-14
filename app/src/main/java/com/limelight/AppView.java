@@ -2,8 +2,10 @@ package com.limelight;
 
 import java.io.IOException;
 import java.io.StringReader;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 
 import com.limelight.computers.ComputerManagerListener;
 import com.limelight.computers.ComputerManagerService;
@@ -601,32 +603,31 @@ public class AppView extends AppCompatActivity implements AdapterFragmentCallbac
                 showAppListStatus(!computer.hasPermission(ComputerDetails.PERMISSION_LIST) ?
                         R.string.applist_permission_required : appList.isEmpty() ? R.string.applist_empty : 0);
                 boolean updated = false;
+                List<AppObject> removedApps = appGridAdapter.getAllApps();
+                Map<NvApp, AppObject> matches = matchApps(appList, removedApps);
+                HashSet<Integer> remappedIds = new HashSet<>();
+                HashSet<Integer> remappedHiddenIds = new HashSet<>();
 
                 // First handle app updates and additions
                 for (NvApp app : appList) {
-                    boolean foundExistingApp = false;
-
-                    // Try to update an existing app in the list first
-                    for (int i = 0; i < appGridAdapter.getCount(); i++) {
-                        AppObject existingApp = (AppObject) appGridAdapter.getItem(i);
-                        if (existingApp.app.getAppId() == app.getAppId()) {
-                            // Found the app; update its properties
-                            if (!existingApp.app.getAppName().equals(app.getAppName()) ||
-                                    !existingApp.app.getAppUuid().equals(app.getAppUuid()) ||
-                                    existingApp.app.getHostIndex() != app.getHostIndex() ||
-                                    !existingApp.app.getArtVersion().equals(app.getArtVersion()) ||
-                                    existingApp.app.getRole() != app.getRole() ||
-                                    existingApp.app.isHdrSupported() != app.isHdrSupported()) {
-                                existingApp.app = app;
-                                updated = true;
-                            }
-
-                            foundExistingApp = true;
-                            break;
+                    AppObject existingApp = matches.get(app);
+                    if (existingApp != null) {
+                        if (existingApp.app.getAppId() != app.getAppId()) {
+                            remappedIds.add(existingApp.app.getAppId());
+                            if (existingApp.isHidden) remappedHiddenIds.add(app.getAppId());
                         }
-                    }
-
-                    if (!foundExistingApp) {
+                        // Found the app; update its properties
+                        if (existingApp.app.getAppId() != app.getAppId() ||
+                                !existingApp.app.getAppName().equals(app.getAppName()) ||
+                                !existingApp.app.getAppUuid().equals(app.getAppUuid()) ||
+                                existingApp.app.getHostIndex() != app.getHostIndex() ||
+                                !existingApp.app.getArtVersion().equals(app.getArtVersion()) ||
+                                existingApp.app.getRole() != app.getRole() ||
+                                existingApp.app.isHdrSupported() != app.isHdrSupported()) {
+                            existingApp.app = app;
+                            updated = true;
+                        }
+                    } else {
                         // This app must be new
                         appGridAdapter.addApp(new AppObject(app));
 
@@ -640,39 +641,53 @@ public class AppView extends AppCompatActivity implements AdapterFragmentCallbac
                 }
 
                 // Next handle app removals
-                int i = 0;
-                while (i < appGridAdapter.getCount()) {
-                    boolean foundExistingApp = false;
-                    AppObject existingApp = (AppObject) appGridAdapter.getItem(i);
-
-                    // Check if this app is in the latest list
+                for (AppObject existingApp : removedApps) {
                     for (NvApp app : appList) {
-                        if (existingApp.app.getAppId() == app.getAppId()) {
-                            foundExistingApp = true;
+                        if (existingApp.app.getAppId() == app.getAppId() &&
+                                !existingApp.app.getAppUuid().isEmpty() && !app.getAppUuid().isEmpty() &&
+                                !existingApp.app.getAppUuid().equals(app.getAppUuid())) {
+                            // A different known game owns this number now; it must not inherit hiding.
+                            remappedIds.add(existingApp.app.getAppId());
                             break;
                         }
                     }
-
-                    // This app was removed in the latest app list
-                    if (!foundExistingApp) {
-                        shortcutHelper.disableAppShortcut(computer, existingApp.app, "App removed from PC");
-                        appGridAdapter.removeApp(existingApp);
-                        updated = true;
-
-                        // Check this same index again because the item at i+1 is now at i after
-                        // the removal
-                        continue;
-                    }
-
-                    // Move on to the next item
-                    i++;
+                    shortcutHelper.disableAppShortcut(computer, existingApp.app, "App removed from PC");
+                    appGridAdapter.removeApp(existingApp);
+                    updated = true;
                 }
 
-                if (updated) {
+                if (!remappedIds.isEmpty()) {
+                    // Apply all ID moves together so hosts swapping IDs cannot lose a hidden choice.
+                    hiddenAppIds.removeAll(remappedIds);
+                    hiddenAppIds.addAll(remappedHiddenIds);
+                    updateHiddenApps(true);
+                } else if (updated) {
                     appGridAdapter.notifyDataSetChanged();
                 }
             }
         });
+    }
+
+    private static Map<NvApp, AppObject> matchApps(List<NvApp> apps, List<AppObject> unmatched) {
+        Map<NvApp, AppObject> matches = new HashMap<>();
+        // Resolve UUIDs before legacy numbers, using the original catalogue throughout. Otherwise
+        // an ID move can make a legacy item consume a known game's identity later in the same poll.
+        for (int pass = 0; pass < 2; pass++) {
+            for (NvApp app : apps) {
+                if (matches.containsKey(app)) continue;
+                for (int i = 0; i < unmatched.size(); i++) {
+                    NvApp previous = unmatched.get(i).app;
+                    boolean bothHaveUuid = !previous.getAppUuid().isEmpty() && !app.getAppUuid().isEmpty();
+                    boolean match = pass == 0 ? bothHaveUuid && previous.getAppUuid().equals(app.getAppUuid()) :
+                            !bothHaveUuid && previous.getAppId() == app.getAppId();
+                    if (match) {
+                        matches.put(app, unmatched.remove(i));
+                        break;
+                    }
+                }
+            }
+        }
+        return matches;
     }
 
     @Override

@@ -155,6 +155,11 @@ public class AppGridAdapter extends GenericGridAdapter<AppView.AppObject> {
         allApps.remove(app);
     }
 
+    /** A snapshot of the full catalogue, including apps omitted from the visible grid. */
+    public List<AppView.AppObject> getAllApps() {
+        return new ArrayList<>(allApps);
+    }
+
     @Override
     public void notifyDataSetChanged() {
         sortList(allApps);

@@ -444,6 +444,9 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     private CharSequence compactPerformanceText = "";
     // PerformanceOverlay.MODE_COMPACT, MODE_STATISTICS or MODE_DEBUG
     private String overlayMode = PerformanceOverlay.MODE_COMPACT;
+    private TextView streamMenuHint;
+    private final Runnable showStreamMenuHint = this::showStreamMenuHint;
+    private final Runnable expireStreamMenuHint = () -> dismissStreamMenuHint(true);
     private HardwareMetrics hardwareMetrics;
     private boolean hardwareMetricsPolling;
     private int hardwareMetricsGeneration;
@@ -618,6 +621,13 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         }
 
         notificationOverlayView = findViewById(R.id.notificationOverlay);
+        streamMenuHint = findViewById(R.id.streamMenuHint);
+        // Rotation, a fold or the overlay moving to the top centre move the hint too.
+        streamMenuHint.getViewTreeObserver().addOnGlobalLayoutListener(() -> {
+            if (streamMenuHint.getVisibility() == View.VISIBLE) {
+                com.limelight.ui.StreamMenuHint.place(streamMenuHint, performanceOverlayScroll);
+            }
+        });
 
         performanceOverlayView = findViewById(R.id.performanceOverlay);
         performanceOverlayScroll = findViewById(R.id.performanceOverlayScroll);
@@ -1179,6 +1189,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
 
                 performanceOverlayScroll.setVisibility(View.GONE);
                 notificationOverlayView.setVisibility(View.GONE);
+                dismissStreamMenuHint(false);
 
                 // Disable sensors while in PiP mode
                 controllerHandler.disableSensors();
@@ -2019,6 +2030,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     @Override
     protected void onPause() {
         if (gameTouchControls != null) gameTouchControls.releaseInput();
+        // Shown again on the next stream unless it was read.
+        dismissStreamMenuHint(false);
         foreground = false;
         recoveryCancelledOnPause = recoveryHandoffInProgress || pendingRecovery != null || (isRecoveryAttempt() && connecting);
         cancelAutomaticRecovery();
@@ -2181,6 +2194,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             return;
         }
         restoreInputAfterMenu = grabbedInput;
+        // Whoever opens the menu knows how; the first-stream hint has done its job.
+        dismissStreamMenuHint(true);
         streamMenuSheet = new com.limelight.ui.StreamMenu(this, this::streamMenuOptions, this::onStreamMenuItem);
         showStreamDialog(streamMenuSheet.sheet());
     }
@@ -2368,6 +2383,31 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         showStreamDialog(dialog);
         TextView message = dialog.findViewById(android.R.id.message);
         if (message != null) message.setTextIsSelectable(true);
+    }
+
+    // Once, on the first stream: how to open the stream menu with this device's own inputs.
+    private void showStreamMenuHint() {
+        if (!foreground || !connected || isFinishing() || streamMenu != null || streamMenuHint == null ||
+                isHidingOverlays || com.limelight.ui.StreamMenuHint.seen(this)) {
+            return;
+        }
+        boolean controller = com.limelight.ui.StreamMenuHint.hasGamepad() ||
+                (controllerHandler != null && controllerHandler.hasUsbControllers());
+        String text = com.limelight.ui.StreamMenuHint.text(this, controller);
+        streamMenuHint.setText(text);
+        streamMenuHint.setContentDescription(text + " " + getString(R.string.stream_menu_hint_close));
+        streamMenuHint.setOnClickListener(view -> dismissStreamMenuHint(true));
+        streamMenuHint.setVisibility(View.VISIBLE);
+        com.limelight.ui.StreamMenuHint.place(streamMenuHint, performanceOverlayScroll);
+        bitrateHandler.removeCallbacks(expireStreamMenuHint);
+        bitrateHandler.postDelayed(expireStreamMenuHint, com.limelight.ui.StreamMenuHint.SHOW_MS);
+    }
+
+    private void dismissStreamMenuHint(boolean read) {
+        bitrateHandler.removeCallbacks(showStreamMenuHint);
+        bitrateHandler.removeCallbacks(expireStreamMenuHint);
+        if (streamMenuHint != null) streamMenuHint.setVisibility(View.GONE);
+        if (read) com.limelight.ui.StreamMenuHint.markSeen(this);
     }
 
     private void toggleMicrophoneMute() {
@@ -4964,6 +5004,12 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 UiHelper.notifyStreamConnected(Game.this);
 
                 hideSystemUi(1000);
+
+                // The first stream says once how to open the stream menu, after the start settles.
+                if (!com.limelight.ui.StreamMenuHint.seen(Game.this)) {
+                    bitrateHandler.removeCallbacks(showStreamMenuHint);
+                    bitrateHandler.postDelayed(showStreamMenuHint, 1500);
+                }
             }
         });
 

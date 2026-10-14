@@ -27,4 +27,14 @@
     <string name="stream_choice_selected">Ausgewählt</string>
     <string name="stream_choice_not_selected">Nicht ausgewählt</string>
     <string name="stream_web_ui_leaves">Der Browser verlässt den Stream; das Spiel läuft auf dem PC weiter.</string>
+
+    <string name="stream_menu_hint">Zum Öffnen des Streammenüs %1$s.</string>
+    <string name="stream_menu_hint_swipe">wische vom Bildschirmrand zurück</string>
+    <string name="stream_menu_hint_buttons">wische vom unteren Rand nach oben und tippe auf Zurück</string>
+    <string name="stream_menu_hint_back">drücke Zurück</string>
+    <string name="stream_menu_hint_controller">drücke am Controller Start + Back + LB + RB</string>
+    <string name="stream_menu_hint_keyboard">drücke Strg + Alt + Umschalt + M</string>
+    <string name="stream_menu_hint_or">%1$s oder %2$s</string>
+    <string name="stream_menu_hint_list">%1$s, %2$s</string>
+    <string name="stream_menu_hint_close">Zum Schließen tippen</string>
 </resources>

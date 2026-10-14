@@ -61,6 +61,25 @@
             android:paddingVertical="4dp" />
     </ScrollView>
 
+    <!-- Shown once, on the first stream: how to open the stream menu with this device's inputs. -->
+    <TextView
+        android:id="@+id/streamMenuHint"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top|center_horizontal"
+        android:layout_margin="16dp"
+        android:maxWidth="560dp"
+        android:background="@drawable/bg_stream_overlay"
+        android:paddingHorizontal="16dp"
+        android:paddingVertical="10dp"
+        android:gravity="center"
+        android:textAppearance="@style/TextAppearance.Nightjar.Supporting"
+        android:textColor="@android:color/white"
+        android:focusable="false"
+        android:importantForAccessibility="yes"
+        android:accessibilityLiveRegion="polite"
+        android:visibility="gone" />
+
     <TextView
         android:id="@+id/notificationOverlay"
         android:layout_width="wrap_content"

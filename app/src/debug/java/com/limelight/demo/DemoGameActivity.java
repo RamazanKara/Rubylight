@@ -31,6 +31,7 @@ import com.limelight.nvstream.http.ComputerDetails;
 import com.limelight.nvstream.http.HostCapabilities;
 import com.limelight.nvstream.http.NvApp;
 import com.limelight.ui.StreamMenu;
+import com.limelight.ui.StreamMenuHint;
 import com.limelight.ui.AdaptiveLayout;
 import com.limelight.ui.StreamWindow;
 import com.limelight.ui.StreamView;
@@ -113,6 +114,28 @@ public final class DemoGameActivity extends Activity implements SurfaceHolder.Ca
         FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
         container.addView(label, params);
         DemoMetrics.update(this, this, 0);
+        // The first-stream hint, as a real stream shows it once; "--ez hint true" shows it until tapped.
+        TextView hint = findViewById(R.id.streamMenuHint);
+        hint.setOnClickListener(view -> {
+            hint.setVisibility(View.GONE);
+            StreamMenuHint.markSeen(this);
+        });
+        hint.getViewTreeObserver().addOnGlobalLayoutListener(() -> {
+            if (hint.getVisibility() == View.VISIBLE) StreamMenuHint.place(hint, findViewById(R.id.performanceOverlayScroll));
+        });
+        boolean forced = getIntent().getBooleanExtra("hint", false);
+        if (state == null && (forced || !StreamMenuHint.seen(this))) {
+            handler.postDelayed(() -> {
+                String text = StreamMenuHint.text(this, StreamMenuHint.hasGamepad());
+                hint.setText(text);
+                hint.setContentDescription(text + " " + getString(R.string.stream_menu_hint_close));
+                hint.setVisibility(View.VISIBLE);
+                if (!forced) handler.postDelayed(() -> {
+                    hint.setVisibility(View.GONE);
+                    StreamMenuHint.markSeen(this);
+                }, StreamMenuHint.SHOW_MS);
+            }, 1500);
+        }
     }
 
     private void setMode(String value) {
@@ -164,6 +187,8 @@ public final class DemoGameActivity extends Activity implements SurfaceHolder.Ca
 
     private void showMenu() {
         if (menu != null) return;
+        findViewById(R.id.streamMenuHint).setVisibility(View.GONE);
+        StreamMenuHint.markSeen(this);
         menu = new StreamMenu(this, this::menuOptions, this::onMenuItem);
         menu.sheet().setOnDismissListener(dialog -> menu = null);
         menu.show();

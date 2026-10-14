@@ -29,4 +29,15 @@
     <string name="stream_choice_selected">Selected</string>
     <string name="stream_choice_not_selected">Not selected</string>
     <string name="stream_web_ui_leaves">Opening the browser leaves the stream; the game keeps running on the PC.</string>
+
+    <!-- First-stream hint: "To open the stream menu, swipe back from the screen edge or press …" -->
+    <string name="stream_menu_hint">To open the stream menu, %1$s.</string>
+    <string name="stream_menu_hint_swipe">swipe back from the screen edge</string>
+    <string name="stream_menu_hint_buttons">swipe up from the bottom and tap Back</string>
+    <string name="stream_menu_hint_back">press Back</string>
+    <string name="stream_menu_hint_controller">press Start + Back + LB + RB on the controller</string>
+    <string name="stream_menu_hint_keyboard">press Ctrl + Alt + Shift + M</string>
+    <string name="stream_menu_hint_or">%1$s or %2$s</string>
+    <string name="stream_menu_hint_list">%1$s, %2$s</string>
+    <string name="stream_menu_hint_close">Tap to close</string>
 </resources>

@@ -319,6 +319,11 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         backgroundHandlerThread.quit();
     }
 
+    /** A controller the USB driver owns: Android lists no input device for it. */
+    public boolean hasUsbControllers() {
+        return !usbDeviceContexts.isEmpty();
+    }
+
     public void setInputEnabled(boolean enabled) {
         inputEnabled = enabled;
         if (!enabled) {

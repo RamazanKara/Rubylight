@@ -233,7 +233,7 @@ public class GameQualityTest {
             Game game = reconfigurableGame();
             NvConnection connection = ReflectionHelpers.getField(game, "conn");
             ComputerDetails host = new ComputerDetails();
-            host.rustHostVersion = "1.0";
+            host.caps = com.limelight.nvstream.http.TestHosts.rubylight();
             host.encoderBitrateSupported = true;
             ReflectionHelpers.setField(connection, "hostDetails", host);
             PreferenceConfiguration config = ReflectionHelpers.getField(game, "prefConfig");
@@ -268,7 +268,7 @@ public class GameQualityTest {
         Game game = reconfigurableGame();
         NvConnection connection = ReflectionHelpers.getField(game, "conn");
         ComputerDetails host = new ComputerDetails();
-        host.rustHostVersion = "1.0";
+        host.caps = com.limelight.nvstream.http.TestHosts.rubylight();
         host.encoderBitrateSupported = true;
         ReflectionHelpers.setField(connection, "hostDetails", host);
         PreferenceConfiguration config = ReflectionHelpers.getField(game, "prefConfig");

@@ -869,6 +869,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                     }, () -> foreground && connected && grabbedInput && streamMenu == null && conn.canSendInput(),
                     this::showStreamDialog);
             gameTouchControls.setStreamTouchListener(this::onTouchControlsPassthrough);
+            gameTouchControls.setGestureCancelListener(this::cancelTouchInput);
             ((FrameLayout)streamView.getParent()).addView(gameTouchControls,
                     new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
         }

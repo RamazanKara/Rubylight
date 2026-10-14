@@ -9,10 +9,13 @@ import android.content.Context;
 import android.content.Intent;
 import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
+import android.os.SystemClock;
 import android.text.InputFilter;
 import android.text.InputType;
+import android.view.InputDevice;
 import android.view.MotionEvent;
 import android.view.View;
+import android.view.ViewGroup;
 import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.FrameLayout;
@@ -47,6 +50,7 @@ public final class GameTouchControls extends FrameLayout {
     // control, so a held control never swallows another finger aiming on the stream.
     private final View passthrough;
     private View.OnTouchListener streamTouch;
+    private Runnable gestureCancelled;
 
     @SuppressLint("ClickableViewAccessibility") // The passthrough layer only forwards touches; it has no click.
     public GameTouchControls(Activity activity, String profile, HeldInputState.Sink sink,
@@ -70,6 +74,28 @@ public final class GameTouchControls extends FrameLayout {
     /** Receives touches beside the controls in this overlay's coordinates, each pointer exactly once. */
     public void setStreamTouchListener(View.OnTouchListener listener) {
         streamTouch = listener;
+    }
+
+    /** Runs after showing or hiding this overlay ended the touch gesture in progress. */
+    public void setGestureCancelListener(Runnable listener) {
+        gestureCancelled = listener;
+    }
+
+    @Override public void setVisibility(int visibility) {
+        boolean changed = visibility != getVisibility();
+        super.setVisibility(visibility);
+        if (!changed) return;
+        // Fingers already down stay with the view that took them, while new ones now land on this
+        // overlay or on the stream below it. Both feed the same stream touch state, so a host touch
+        // could stay pressed. End the gesture for every view in the container instead.
+        if (getParent() instanceof ViewGroup) {
+            long now = SystemClock.uptimeMillis();
+            MotionEvent cancel = MotionEvent.obtain(now, now, MotionEvent.ACTION_CANCEL, 0, 0, 0);
+            cancel.setSource(InputDevice.SOURCE_TOUCHSCREEN);
+            try { ((ViewGroup) getParent()).dispatchTouchEvent(cancel); }
+            finally { cancel.recycle(); }
+        }
+        if (gestureCancelled != null) gestureCancelled.run();
     }
 
     private int buttonCount() {

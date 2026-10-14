@@ -215,6 +215,68 @@ public class GameTouchControlsTest {
         }
     }
 
+    @Test public void showingOrHidingTheControlsEndsTheGestureInProgressEverywhere() {
+        try (ActivityController<Screen> controller = Robolectric.buildActivity(Screen.class).setup()) {
+            Screen screen = controller.get();
+            saveMouseLayout(screen, "fps", "Fire", 1, false);
+            List<String> transitions = new ArrayList<>();
+            List<String> touches = new ArrayList<>();
+            // Game's stream gets touches from this layer and, while it is hidden, from the view below.
+            View background = new View(screen);
+            background.setOnTouchListener((view, event) -> record(touches, "background", event));
+            GameTouchControls controls = controls(screen, "fps", transitions);
+            controls.setStreamTouchListener((view, event) -> record(touches, "layer", event));
+            int[] streamResets = {0};
+            controls.setGestureCancelListener(() -> streamResets[0]++);
+            FrameLayout stage = new FrameLayout(screen);
+            stage.addView(background);
+            stage.addView(controls);
+            layOut(stage);
+            float[] aim = {600, 300}, moved = {610, 300}, other = {500, 200};
+            int[] first = {0}, two = {0, 1};
+
+            // A finger aims through the visible layer when it hides (PiP, menu, another game's layout).
+            dispatch(stage, MotionEvent.ACTION_DOWN, 0, first, aim);
+            controls.hideForPip(true);
+            dispatch(stage, MotionEvent.ACTION_POINTER_DOWN, 1, two, aim, other);
+            dispatch(stage, MotionEvent.ACTION_MOVE, 0, two, moved, other);
+            dispatch(stage, MotionEvent.ACTION_POINTER_UP, 1, two, moved, other);
+            dispatch(stage, MotionEvent.ACTION_UP, 0, first, moved);
+            assertEquals(Arrays.asList("layer ACTION_DOWN 600", "layer ACTION_CANCEL"), touches);
+            assertEquals(1, streamResets[0]);
+            touches.clear();
+            dispatch(stage, MotionEvent.ACTION_DOWN, 0, first, aim);
+            dispatch(stage, MotionEvent.ACTION_UP, 0, first, aim);
+            assertEquals(Arrays.asList("background ACTION_DOWN 600", "background ACTION_UP 600"), touches);
+
+            // The reverse: a finger on the stream below when the layer shows again.
+            touches.clear();
+            dispatch(stage, MotionEvent.ACTION_DOWN, 0, first, aim);
+            controls.hideForPip(false);
+            dispatch(stage, MotionEvent.ACTION_POINTER_DOWN, 1, two, aim, other);
+            dispatch(stage, MotionEvent.ACTION_POINTER_UP, 1, two, aim, other);
+            dispatch(stage, MotionEvent.ACTION_UP, 0, first, aim);
+            assertEquals(Arrays.asList("background ACTION_DOWN 600", "background ACTION_CANCEL"), touches);
+            assertEquals(2, streamResets[0]);
+
+            // Selecting the same visibility again leaves a gesture alone.
+            touches.clear();
+            dispatch(stage, MotionEvent.ACTION_DOWN, 0, first, aim);
+            controls.hideForPip(false);
+            dispatch(stage, MotionEvent.ACTION_UP, 0, first, aim);
+            assertEquals(Arrays.asList("layer ACTION_DOWN 600", "layer ACTION_UP 600"), touches);
+            assertEquals(2, streamResets[0]);
+            assertTrue(transitions.isEmpty());
+        }
+    }
+
+    private static boolean record(List<String> touches, String source, MotionEvent event) {
+        String action = MotionEvent.actionToString(event.getActionMasked());
+        touches.add(source + " " + action + (event.getActionMasked() == MotionEvent.ACTION_CANCEL ? "" :
+                " " + Math.round(event.getX(event.getActionIndex()))));
+        return true;
+    }
+
     @Test public void enterAndSpaceReachTheStreamInsteadOfActivatingAControl() {
         try (ActivityController<Screen> controller = Robolectric.buildActivity(Screen.class).setup()) {
             Screen screen = controller.get();
@@ -259,7 +321,7 @@ public class GameTouchControlsTest {
         return controls.getChildAt(1);
     }
 
-    private static void layOut(GameTouchControls controls) {
+    private static void layOut(View controls) {
         for (int pass = 0; pass < 2; pass++) {
             controls.measure(View.MeasureSpec.makeMeasureSpec(800, View.MeasureSpec.EXACTLY),
                     View.MeasureSpec.makeMeasureSpec(400, View.MeasureSpec.EXACTLY));

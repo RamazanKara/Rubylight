@@ -35,6 +35,22 @@ fn uninstall(target: &Path) -> u32 {
 #[test]
 fn user_session_helper_copies_unicode_paths_and_reports_partial_installs() {
     let root = std::env::temp_dir().join(format!("butterpollo-playnite-{}", uuid::Uuid::new_v4()));
+    check_install(&root);
+}
+
+#[test]
+fn user_session_helper_copies_long_paths_and_reports_partial_installs() {
+    use std::os::windows::ffi::OsStrExt;
+    let root = std::env::temp_dir().join(format!("butterpollo-playnite-{}", uuid::Uuid::new_v4()));
+    let mut nested = root.clone();
+    while nested.as_os_str().encode_wide().count() < 280 {
+        nested.push("portable-playnite");
+    }
+    check_install(&nested);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+fn check_install(root: &Path) {
     let source = root.join("Packaged & plugin");
     let target = root.join("Çağrı & Oyunlar/Extensions/SunshinePlaynite");
     std::fs::create_dir_all(&source).unwrap();

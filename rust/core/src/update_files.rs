@@ -83,8 +83,31 @@ pub(crate) fn publish(source: &Path, target: &Path) -> std::io::Result<()> {
         unsafe extern "system" {
             fn MoveFileExW(existing: *const u16, new: *const u16, flags: u32) -> i32;
         }
-        let source: Vec<_> = source.as_os_str().encode_wide().chain(Some(0)).collect();
-        let target: Vec<_> = target.as_os_str().encode_wide().chain(Some(0)).collect();
+        let native_path = |path: &Path| -> std::io::Result<Vec<u16>> {
+            let name = path.file_name().ok_or_else(|| {
+                std::io::Error::new(std::io::ErrorKind::InvalidInput, "file path needs a name")
+            })?;
+            let parent = path
+                .parent()
+                .filter(|parent| !parent.as_os_str().is_empty())
+                .unwrap_or_else(|| Path::new("."));
+            // Rust opens long paths with extended Windows syntax, but this
+            // native call needs that syntax explicitly. Resolve only the
+            // parent: the destination need not exist, and replacing a final
+            // symlink must still replace the link rather than its referent.
+            let path = std::fs::canonicalize(parent)?.join(name);
+            let mut wide: Vec<_> = path.as_os_str().encode_wide().collect();
+            if wide.contains(&0) {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "file path contains a NUL",
+                ));
+            }
+            wide.push(0);
+            Ok(wide)
+        };
+        let source = native_path(source)?;
+        let target = native_path(target)?;
         // SAFETY: both paths are NUL-terminated UTF-16 buffers that outlive the call.
         let moved = unsafe {
             MoveFileExW(
@@ -105,6 +128,51 @@ pub(crate) fn publish(source: &Path, target: &Path) -> std::io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[cfg(windows)]
+    fn package_replacement_supports_long_unicode_paths() -> Result<()> {
+        use std::os::windows::ffi::OsStrExt;
+        let root = tempfile::tempdir()?;
+        let mut parent = root.path().join("Çağrı & Oyunlar");
+        while parent.as_os_str().encode_wide().count() < 280 {
+            parent.push("portable-installation");
+        }
+        let target = parent.join("SunshinePlaynite.psm1");
+        write(
+            &target,
+            |file| Ok(std::io::Write::write_all(file, b"first")?),
+            |_| panic!(),
+        )?;
+        assert_eq!(std::fs::read(&target)?, b"first");
+        let source = root.path().join("new.psm1");
+        std::fs::write(&source, b"updated")?;
+        replace(&source, &target, |_| panic!())?;
+        assert_eq!(std::fs::read(&target)?, b"updated");
+        assert_eq!(std::fs::read_dir(&parent)?.count(), 1);
+        Ok(())
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn publish_preserves_relative_paths_and_rejects_embedded_nuls() -> Result<()> {
+        let root = tempfile::tempdir_in(std::env::current_dir()?)?;
+        let relative = Path::new(".").join(root.path().file_name().unwrap());
+        let source = relative.join("new.txt");
+        let target = relative.join("state.txt");
+        std::fs::write(&source, b"new")?;
+        std::fs::write(&target, b"previous")?;
+        let invalid = relative.join("state.txt\0ignored");
+        assert_eq!(
+            publish(&source, &invalid).unwrap_err().kind(),
+            std::io::ErrorKind::InvalidInput
+        );
+        assert_eq!(std::fs::read(&target)?, b"previous");
+        publish(&source, &target)?;
+        assert_eq!(std::fs::read(&target)?, b"new");
+        assert!(!source.exists());
+        Ok(())
+    }
 
     #[test]
     fn a_partial_copy_never_truncates_the_installed_file() -> Result<()> {

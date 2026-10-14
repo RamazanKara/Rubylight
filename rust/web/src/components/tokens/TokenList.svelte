@@ -2,6 +2,7 @@
   import { SvelteSet } from 'svelte/reactivity';
   import Button from '../Button.svelte';
   import EmptyState from '../EmptyState.svelte';
+  import LoadState from '../LoadState.svelte';
   import Panel from '../Panel.svelte';
   import { api, type ApiToken } from '../../lib/api';
   import { confirm, failed, notify } from '../../lib/feedback.svelte';
@@ -41,15 +42,13 @@
   }
 </script>
 
-<Panel title="Tokens" flush>
+<Panel title="Tokens" description={tokens?.length ? `${tokens.length} ${tokens.length === 1 ? 'token' : 'tokens'}` : undefined} flush>
+  {#if tokens && error}
+    <!-- A failed refresh (after a revoke, say) must not pass the old list off as current. -->
+    <div class="pad"><LoadState {error} what="the tokens" stale onretry={onchange} /></div>
+  {/if}
   {#if tokens === null}
-    <div class="pad">
-      {#if error}
-        <p class="notice danger" role="alert">Could not load the tokens: {error}</p>
-      {:else}
-        <p class="muted loading">Loading tokens…</p>
-      {/if}
-    </div>
+    <div class="pad"><LoadState {error} what="the tokens" onretry={onchange} /></div>
   {:else if tokens.length === 0}
     <EmptyState icon="key" title="No API tokens">
       <p>Create one below for each script that needs access.</p>
@@ -95,9 +94,6 @@
 <style>
   .pad {
     padding: var(--space-4) var(--space-5);
-  }
-  .loading {
-    font-size: var(--text-sm);
   }
   ul {
     list-style: none;

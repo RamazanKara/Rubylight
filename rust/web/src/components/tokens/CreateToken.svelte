@@ -3,10 +3,12 @@
   import { SvelteSet } from 'svelte/reactivity';
   import Button from '../Button.svelte';
   import Icon from '../Icon.svelte';
+  import LoadState from '../LoadState.svelte';
   import Panel from '../Panel.svelte';
   import { api, type TokenScope } from '../../lib/api';
   import { failed, notify } from '../../lib/feedback.svelte';
   import { displayPath } from './scopes';
+  import { copyText } from '../../lib/clipboard';
 
   let { oncreated }: { oncreated: () => Promise<void> } = $props();
 
@@ -36,13 +38,16 @@
   );
   const tooMany = $derived(scopes.length > MAX_ROUTES);
 
-  onMount(async () => {
+  async function loadRoutes() {
     try {
       routes = (await api.tokens.routes()).routes;
+      loadError = '';
     } catch (error) {
       loadError = error instanceof Error ? error.message : String(error);
     }
-  });
+  }
+
+  onMount(loadRoutes);
 
   function toggle(method: string, path: string, on: boolean) {
     if (on) chosen.add(key(method, path));
@@ -67,7 +72,7 @@
   async function copy() {
     if (!secret) return;
     try {
-      await navigator.clipboard.writeText(secret);
+      await copyText(secret);
       notify('Token copied.', 'ok');
     } catch (error) {
       failed('Copying failed; select the token and copy it by hand', error);
@@ -144,10 +149,8 @@
         </div>
       </div>
     </div>
-  {:else if loadError}
-    <p class="notice danger" role="alert">Could not load the API paths: {loadError}</p>
   {:else}
-    <p class="muted loading">Loading API paths…</p>
+    <LoadState error={loadError} what="the API paths" onretry={loadRoutes} />
   {/if}
 </Panel>
 
@@ -248,8 +251,5 @@
   }
   .over {
     color: var(--danger);
-  }
-  .loading {
-    font-size: var(--text-sm);
   }
 </style>

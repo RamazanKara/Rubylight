@@ -4,7 +4,7 @@
   import Button from '../Button.svelte';
   import Icon from '../Icon.svelte';
   import Panel from '../Panel.svelte';
-  import LoadState from './LoadState.svelte';
+  import LoadState from '../LoadState.svelte';
   import { api, type UpdatesState } from '../../lib/api';
   import { confirm, failed } from '../../lib/feedback.svelte';
   import { ago } from '../../lib/format';

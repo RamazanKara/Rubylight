@@ -352,3 +352,36 @@ test('an update action spins only its own button, and update settings open insid
   await page.waitForURL(base + '/settings/general');
   assert.equal(await page.evaluate(() => window.consoleStayedLoaded), true);
 });
+
+test('API tokens say when a refresh fails, and both lists can be retried', async t => {
+  let listCalls = 0, routeCalls = 0;
+  const { page } = await fixture(t, async (route, url, request) => {
+    if (url.pathname === '/api/tokens' && request.method() === 'GET') {
+      if (++listCalls === 2) {
+        await route.fulfill({ status: 503, body: 'Tokens unavailable' });
+        return true;
+      }
+      const tokens = listCalls === 1 ? [{ hash: 'h1', created_at: 1, scopes: [{ path: '/api/apps', methods: ['GET'] }] }] : [];
+      await route.fulfill({ json: { status: true, tokens } });
+      return true;
+    }
+    if (url.pathname === '/api/token/routes') {
+      if (++routeCalls === 1) {
+        await route.fulfill({ status: 503, body: 'Routes unavailable' });
+        return true;
+      }
+      await route.fulfill({ json: { status: true, routes: [{ path: '/api/apps', methods: ['GET'] }] } });
+      return true;
+    }
+    return false;
+  });
+  await page.goto(base + '/tokens');
+  await page.getByText('Could not load the API paths: Routes unavailable', { exact: true }).waitFor();
+  await page.getByRole('button', { name: 'Retry the API paths', exact: true }).click();
+  await page.getByRole('checkbox', { name: 'GET /api/apps', exact: true }).waitFor();
+  await page.getByRole('button', { name: 'Revoke', exact: true }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Revoke', exact: true }).click();
+  await page.getByText('Could not refresh the tokens: Tokens unavailable. Showing the last known state.', { exact: true }).waitFor();
+  await page.getByRole('button', { name: 'Retry the tokens', exact: true }).click();
+  await page.getByText('No API tokens', { exact: true }).waitFor();
+});

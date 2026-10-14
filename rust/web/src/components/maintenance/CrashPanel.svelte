@@ -3,7 +3,7 @@
   import Badge from '../Badge.svelte';
   import Button from '../Button.svelte';
   import Panel from '../Panel.svelte';
-  import LoadState from './LoadState.svelte';
+  import LoadState from '../LoadState.svelte';
   import { api, type CrashStatus } from '../../lib/api';
   import { failed, notify } from '../../lib/feedback.svelte';
   import { bytes, duration } from '../../lib/format';

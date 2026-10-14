@@ -8,6 +8,7 @@
   import LogView from '../components/logs/LogView.svelte';
   import { countMatches, parse, passes, searchPattern, type LevelFilter, type LogLine } from '../components/logs/logtext';
   import { api, type LogChunk } from '../lib/api';
+  import { copyText } from '../lib/clipboard';
   import { failed, notify } from '../lib/feedback.svelte';
   import { poll } from '../lib/format';
 
@@ -133,7 +134,7 @@
 
   async function copy() {
     try {
-      await navigator.clipboard.writeText(visible.map((line) => line.text).join('\n'));
+      await copyText(visible.map((line) => line.text).join('\n'));
       notify(`Copied ${visible.length} ${visible.length === 1 ? 'line' : 'lines'}.`, 'ok');
     } catch (failure) {
       failed('Copying failed', failure);

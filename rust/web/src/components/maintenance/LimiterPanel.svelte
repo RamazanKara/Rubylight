@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import Badge from '../Badge.svelte';
   import Panel from '../Panel.svelte';
-  import LoadState from './LoadState.svelte';
+  import LoadState from '../LoadState.svelte';
   import { api, type LimiterStatus } from '../../lib/api';
   import { reason } from './util';
 

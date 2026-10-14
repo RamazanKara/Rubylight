@@ -144,10 +144,15 @@ impl<T> Latest<T> {
         let mut state = self.state.lock().unwrap();
         state.check()?;
         state.generation = state.generation.wrapping_add(1);
-        state.image = None;
+        let image = state.image.take();
         state.captured = None;
         state.cadence = Default::default();
-        self.notify()
+        let result = self.notify();
+        // GPU resource release can wait inside the driver. Consumers must be
+        // able to observe the reset and release their own resources meanwhile.
+        drop(state);
+        drop(image);
+        result
     }
     pub(super) fn device_lost(
         self: &Arc<Self>,
@@ -527,6 +532,53 @@ mod tests {
             Instant::now(),
         )?;
         assert!(released.load(Ordering::Acquire));
+        Ok(())
+    }
+    #[test]
+    fn capture_reset_notifies_consumers_before_releasing_the_latest_resources() -> Result<()> {
+        struct Image {
+            latest: Weak<Latest<Image>>,
+            consumer: Arc<Consumer>,
+            released: Arc<AtomicBool>,
+        }
+        impl Drop for Image {
+            fn drop(&mut self) {
+                let latest = self.latest.upgrade().unwrap();
+                let state = latest.state.try_lock().expect("reset held the state lock");
+                assert!(state.image.is_none());
+                assert_ne!(
+                    state.generation,
+                    self.consumer.released.load(Ordering::Acquire)
+                );
+                drop(state);
+                let timer = Timer::new().unwrap();
+                assert!(
+                    timer
+                        .until_or_signal(
+                            Instant::now() + Duration::from_millis(20),
+                            &self.consumer,
+                        )
+                        .unwrap()
+                );
+                latest.release_generation(&self.consumer);
+                self.released.store(true, Ordering::Release);
+            }
+        }
+        let latest = Arc::new(Latest::new());
+        let consumer = latest.subscribe(Weak::new())?;
+        let released = Arc::new(AtomicBool::new(false));
+        latest.publish_captured(
+            Arc::new(Image {
+                latest: Arc::downgrade(&latest),
+                consumer: consumer.clone(),
+                released: released.clone(),
+            }),
+            Instant::now(),
+        )?;
+        consumer.reset()?;
+        latest.begin_recovery()?;
+        assert!(released.load(Ordering::Acquire));
+        assert!(latest.consumers_released());
         Ok(())
     }
     #[test]

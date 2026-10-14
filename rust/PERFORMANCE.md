@@ -5398,6 +5398,19 @@ timeout, failure reason and reconnect. It still requires received video to
 advance. The final local host suite passes all 222 ordinary tests, five extra
 focused repetitions pass, and formatting and strict Clippy pass.
 
+The unchanged private-pipe and firewall-query tests subsequently passed when
+run outside the local sandbox with approval. The sandbox failures therefore
+do not require a product change or a relaxed security/test check. Their logs
+are saved as `pipe-outside-sandbox.log` and `firewall-outside-sandbox.log`.
+
+The final [Windows CI run](https://github.com/RamazanKara/Rubylight/actions/runs/38538959880)
+on `dff0623ee0ebef912aab703daec226f7aa3df208` passed **969 workspace tests,
+zero failures**, with 58 hardware/manual checks ignored. The reconnect
+regression, private-pipe and firewall checks all passed. Formatting, strict
+Clippy, console and release-tooling checks, release compilation and installer
+packaging also passed. The build produced the Windows package artifact;
+no tag, public release or local installation was performed.
+
 Raw timing, benchmark hashes, test logs and controls are retained under
 `C:\Users\ramaz\Documents\Codex\2026-10-13\on-ruby-lite-or-ruby-lite\outputs\pacing-followup`.
 

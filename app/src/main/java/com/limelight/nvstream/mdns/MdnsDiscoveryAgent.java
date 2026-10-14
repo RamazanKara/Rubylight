@@ -12,6 +12,9 @@ public abstract class MdnsDiscoveryAgent {
     protected MdnsDiscoveryListener listener;
 
     protected final HashSet<MdnsComputer> computers = new HashSet<>();
+    // Hosts that answered in an earlier session. Discovery restarts on every PC list resume and
+    // menu, which must not repeat their STUN and serverinfo probes; unanswered hosts are retried.
+    private final HashSet<MdnsComputer> answeredComputers = new HashSet<>();
     private long discoveryGeneration;
 
     public MdnsDiscoveryAgent(MdnsDiscoveryListener listener) {
@@ -48,15 +51,8 @@ public abstract class MdnsDiscoveryAgent {
 
         // Add a computer object for each IPv4 address reported by the PC
         for (Inet4Address v4Addr : v4Addrs) {
-            MdnsComputer computer = new MdnsComputer(name, v4Addr, v6GlobalAddr, port);
-            boolean added;
-            synchronized (computers) {
-                // Resolution can finish after stop/start. Only this session may populate its cache.
-                if (generation != discoveryGeneration) return;
-                added = computers.add(computer);
-            }
-            if (added) {
-                listener.notifyComputerAdded(computer);
+            if (!addComputer(new MdnsComputer(name, v4Addr, v6GlobalAddr, port), generation)) {
+                return;
             }
         }
         // If there were no IPv4 addresses, use IPv6 for registration
@@ -64,17 +60,26 @@ public abstract class MdnsDiscoveryAgent {
             Inet6Address v6LocalAddr = getLocalAddress(v6Addrs);
 
             if (v6LocalAddr != null || v6GlobalAddr != null) {
-                MdnsComputer computer = new MdnsComputer(name, v6LocalAddr, v6GlobalAddr, port);
-                boolean added;
-                synchronized (computers) {
-                    if (generation != discoveryGeneration) return;
-                    added = computers.add(computer);
-                }
-                if (added) {
-                    listener.notifyComputerAdded(computer);
-                }
+                addComputer(new MdnsComputer(name, v6LocalAddr, v6GlobalAddr, port), generation);
             }
         }
+    }
+
+    // Returns false once a newer discovery session owns the cache.
+    private boolean addComputer(MdnsComputer computer, long generation) {
+        boolean probe;
+        synchronized (computers) {
+            // Resolution can finish after stop/start. Only this session may populate its cache.
+            if (generation != discoveryGeneration) return false;
+            probe = computers.add(computer) && !answeredComputers.contains(computer);
+        }
+        // The probe can block on the network, so it runs without the cache lock.
+        if (probe && listener.notifyComputerAdded(computer)) {
+            synchronized (computers) {
+                answeredComputers.add(computer);
+            }
+        }
+        return true;
     }
 
     public List<MdnsComputer> getComputerSet() {

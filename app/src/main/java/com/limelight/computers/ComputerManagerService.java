@@ -403,7 +403,7 @@ public class ComputerManagerService extends Service {
     private MdnsDiscoveryListener createDiscoveryListener() {
         return new MdnsDiscoveryListener() {
             @Override
-            public void notifyComputerAdded(MdnsComputer computer) {
+            public boolean notifyComputerAdded(MdnsComputer computer) {
                 ComputerDetails details = new ComputerDetails();
 
                 // Populate the computer template with mDNS info
@@ -425,7 +425,9 @@ public class ComputerManagerService extends Service {
                     // Kick off a blocking serverinfo poll on this machine
                     if (!addComputerBlocking(details)) {
                         LimeLog.warning("Auto-discovered PC failed to respond");
+                        return false;
                     }
+                    return true;
                 } catch (InterruptedException e) {
                     e.printStackTrace();
 
@@ -433,6 +435,7 @@ public class ComputerManagerService extends Service {
                     // handle that here, we will re-interrupt the thread to set the interrupt
                     // status back to true.
                     Thread.currentThread().interrupt();
+                    return false;
                 }
             }
 

@@ -19,9 +19,10 @@ public class MdnsDiscoveryAgentTest {
         CountDownLatch probing = new CountDownLatch(1);
         CountDownLatch finish = new CountDownLatch(1);
         MdnsDiscoveryAgent agent = new MdnsDiscoveryAgent(new MdnsDiscoveryListener() {
-            public void notifyComputerAdded(MdnsComputer computer) {
+            public boolean notifyComputerAdded(MdnsComputer computer) {
                 probing.countDown();
                 try { finish.await(); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+                return true;
             }
             public void notifyDiscoveryFailure(Exception e) { throw new AssertionError(e); }
         }) {

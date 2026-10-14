@@ -14,6 +14,8 @@ import org.robolectric.annotation.RealObject;
 import org.robolectric.shadow.api.Shadow;
 
 import java.net.InetAddress;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
@@ -74,7 +76,10 @@ public class NsdDiscoveryLifecycleTest {
         RecordingNsdManager manager = Shadow.extract(application.getSystemService(NsdManager.class));
         AtomicInteger hostProbes = new AtomicInteger();
         NsdManagerDiscoveryAgent agent = new NsdManagerDiscoveryAgent(application, new MdnsDiscoveryListener() {
-            @Override public void notifyComputerAdded(MdnsComputer computer) { hostProbes.incrementAndGet(); }
+            @Override public boolean notifyComputerAdded(MdnsComputer computer) {
+                hostProbes.incrementAndGet();
+                return true;
+            }
             @Override public void notifyDiscoveryFailure(Exception e) { throw new AssertionError(e); }
         });
         NsdServiceInfo info = new NsdServiceInfo();
@@ -117,10 +122,11 @@ public class NsdDiscoveryLifecycleTest {
         RecordingNsdManager manager = Shadow.extract(application.getSystemService(NsdManager.class));
         AtomicInteger hostProbes = new AtomicInteger();
         NsdManagerDiscoveryAgent agent = new NsdManagerDiscoveryAgent(application, new MdnsDiscoveryListener() {
-            @Override public void notifyComputerAdded(MdnsComputer computer) {
+            @Override public boolean notifyComputerAdded(MdnsComputer computer) {
                 // ComputerManager's first serverinfo request may fail while the host is starting.
                 // It does not save that host, so a new discovery session must report it again.
                 hostProbes.incrementAndGet();
+                return false;
             }
             @Override public void notifyDiscoveryFailure(Exception e) { throw new AssertionError(e); }
         });
@@ -155,19 +161,58 @@ public class NsdDiscoveryLifecycleTest {
     }
 
     @Test
+    public void restartingDiscoveryDoesNotProbeAHostThatAlreadyAnswered() throws Exception {
+        Application application = RuntimeEnvironment.getApplication();
+        RecordingNsdManager manager = Shadow.extract(application.getSystemService(NsdManager.class));
+        List<String> probes = new ArrayList<>();
+        NsdManagerDiscoveryAgent agent = new NsdManagerDiscoveryAgent(application, new MdnsDiscoveryListener() {
+            @Override public boolean notifyComputerAdded(MdnsComputer computer) {
+                // Each probe is a STUN query and a serverinfo request; this host answers.
+                probes.add(computer.getLocalAddress().getHostAddress());
+                return true;
+            }
+            @Override public void notifyDiscoveryFailure(Exception e) { throw new AssertionError(e); }
+        });
+        NsdServiceInfo info = new NsdServiceInfo();
+        info.setServiceName("PC");
+        info.setPort(47989);
+        info.setHostAddresses(Collections.singletonList(InetAddress.getByName("192.0.2.1")));
+        try {
+            for (int resume = 0; resume < 3; resume++) {
+                // The PC list restarts discovery on every resume and around each PC menu.
+                agent.stopDiscovery();
+                agent.startDiscovery(1000);
+                manager.discovery.onDiscoveryStarted("_nvstream._tcp");
+                manager.discovery.onServiceFound(info);
+                manager.callback.onServiceUpdated(info);
+                assertEquals(1, agent.getComputerSet().size());
+            }
+            assertEquals(Collections.singletonList("192.0.2.1"), probes);
+
+            // A host that moved to another address is new and is probed there.
+            info.setHostAddresses(Collections.singletonList(InetAddress.getByName("192.0.2.2")));
+            manager.callback.onServiceUpdated(info);
+            assertEquals(Arrays.asList("192.0.2.1", "192.0.2.2"), probes);
+        } finally {
+            agent.stopDiscovery();
+        }
+    }
+
+    @Test
     public void stoppingDiscoveryDoesNotWaitForTheHostNetworkRequest() throws Exception {
         Application application = RuntimeEnvironment.getApplication();
         RecordingNsdManager manager = Shadow.extract(application.getSystemService(NsdManager.class));
         CountDownLatch entered = new CountDownLatch(1);
         CountDownLatch release = new CountDownLatch(1);
         NsdManagerDiscoveryAgent agent = new NsdManagerDiscoveryAgent(application, new MdnsDiscoveryListener() {
-            @Override public void notifyComputerAdded(MdnsComputer computer) {
+            @Override public boolean notifyComputerAdded(MdnsComputer computer) {
                 entered.countDown();
                 try {
                     release.await();
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                 }
+                return true;
             }
             @Override public void notifyDiscoveryFailure(Exception e) { throw new AssertionError(e); }
         });

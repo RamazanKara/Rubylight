@@ -42,11 +42,9 @@ public class DiscoveryService extends Service {
         super.onCreate();
         MdnsDiscoveryListener listener = new MdnsDiscoveryListener() {
             @Override
-            public void notifyComputerAdded(MdnsComputer computer) {
+            public boolean notifyComputerAdded(MdnsComputer computer) {
                 MdnsDiscoveryListener current = boundListener;
-                if (current != null) {
-                    current.notifyComputerAdded(computer);
-                }
+                return current != null && current.notifyComputerAdded(computer);
             }
 
             @Override

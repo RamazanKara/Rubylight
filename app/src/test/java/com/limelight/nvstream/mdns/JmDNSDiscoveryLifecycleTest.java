@@ -92,9 +92,10 @@ public class JmDNSDiscoveryLifecycleTest {
         CountDownLatch notified = new CountDownLatch(1);
         JmDNSDiscoveryAgent agent = new JmDNSDiscoveryAgent(RuntimeEnvironment.getApplication(),
                 new MdnsDiscoveryListener() {
-                    @Override public void notifyComputerAdded(MdnsComputer computer) {
+                    @Override public boolean notifyComputerAdded(MdnsComputer computer) {
                         hostProbes.incrementAndGet();
                         notified.countDown();
+                        return true;
                     }
                     @Override public void notifyDiscoveryFailure(Exception e) { throw new AssertionError(e); }
                 });
@@ -144,7 +145,10 @@ public class JmDNSDiscoveryLifecycleTest {
         AtomicInteger hostProbes = new AtomicInteger();
         JmDNSDiscoveryAgent agent = new JmDNSDiscoveryAgent(RuntimeEnvironment.getApplication(),
                 new MdnsDiscoveryListener() {
-                    @Override public void notifyComputerAdded(MdnsComputer computer) { hostProbes.incrementAndGet(); }
+                    @Override public boolean notifyComputerAdded(MdnsComputer computer) {
+                        hostProbes.incrementAndGet();
+                        return true;
+                    }
                     @Override public void notifyDiscoveryFailure(Exception e) { throw new AssertionError(e); }
                 });
         Thread previousThread = null;

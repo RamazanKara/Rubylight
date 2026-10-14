@@ -32,7 +32,9 @@ public final class UiNavigation {
         }
         if (event.getAction() == KeyEvent.ACTION_UP && !event.isCanceled()) {
             if (back) activity.onBackPressed();
-            else if (help) HelpLauncher.launchTroubleshooting(activity);
+            else if (help) {
+                if (!(activity instanceof com.limelight.HelpTopicsActivity)) HelpLauncher.showHelp(activity);
+            }
             else if (find) {
                 if (findLibrary) ((AppView) activity).openLibrarySearch();
                 else ((StreamSettings) activity).openSearch();

@@ -156,6 +156,7 @@
         </activity>
         <activity android:name=".preferences.KeyboardShortcutsActivity" android:exported="false" android:resizeableActivity="true" />
         <activity android:name=".LatencyBenchmarkActivity" android:exported="false" android:resizeableActivity="true" />
+        <activity android:name=".HelpTopicsActivity" android:exported="false" android:resizeableActivity="true" />
         <activity android:name=".preferences.GpuDriverSettings" android:exported="false" android:resizeableActivity="true" />
         <activity
             android:name=".preferences.HostStreamSettings"

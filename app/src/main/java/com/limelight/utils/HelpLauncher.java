@@ -6,6 +6,7 @@ import android.content.pm.PackageManager;
 import android.net.Uri;
 
 import com.limelight.HelpActivity;
+import com.limelight.HelpTopicsActivity;
 
 public class HelpLauncher {
     public static void launchUrl(Context context, String url) {
@@ -37,15 +38,9 @@ public class HelpLauncher {
         context.startActivity(i);
     }
 
-    public static final String TROUBLESHOOTING_URL =
-            "https://github.com/RamazanKara/nightjar-android/blob/main/docs/TROUBLESHOOTING.md";
-
-    public static void launchSetupGuide(Context context) {
-        launchUrl(context, "https://github.com/RamazanKara/nightjar-android/blob/main/docs/quick-start.md");
-    }
-
-    public static void launchTroubleshooting(Context context) {
-        launchUrl(context, TROUBLESHOOTING_URL);
+    /** Opens the bundled help (home Help, Settings › App › Help, F1 and error dialogs); it works offline. */
+    public static void showHelp(Context context) {
+        context.startActivity(new Intent(context, HelpTopicsActivity.class));
     }
 
     public static void launchGameStreamEolFaq(Context context) {

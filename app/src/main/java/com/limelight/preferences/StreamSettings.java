@@ -996,7 +996,7 @@ public class StreamSettings extends AppCompatActivity {
                 return true;
             });
             findPreference("help").setOnPreferenceClickListener(preference -> {
-                HelpLauncher.launchTroubleshooting(getActivity());
+                HelpLauncher.showHelp(getActivity());
                 return true;
             });
             findPreference("latency_benchmark").setOnPreferenceClickListener(preference -> {

@@ -14,7 +14,7 @@ You need an Android device running Android 5.0 or newer, a Moonlight-compatible 
 
 The fresh global video setup is 1280 × 720 at 60 FPS, 10 Mbps and Automatic codec selection. Try a first stream with these values before raising resolution or frame rate. A saved PC profile takes priority over the global setup.
 
-The skippable first-launch pairing guide is also available from the **?** button. The guide screenshots show an example address; enter your own PC's address.
+The skippable first-launch pairing guide is also available from **Pairing help** on the empty PC list. The **?** button opens the built-in Help, which works offline. The guide screenshots show an example address; enter your own PC's address.
 
 ## Your PC library
 

@@ -138,6 +138,19 @@ public class UiNavigationTest {
     }
 
     @Test
+    public void f1OpensTheBundledHelp() {
+        ActivityController<Screen> controller = Robolectric.buildActivity(Screen.class).setup();
+        try {
+            Screen screen = controller.get();
+            assertTrue(UiNavigation.handleKey(screen, new KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_F1)));
+            assertEquals(com.limelight.HelpTopicsActivity.class.getName(),
+                    Shadows.shadowOf(screen).getNextStartedActivity().getComponent().getClassName());
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    @Test
     public void preferenceExplanationDoesNotStealSelectionOrToggleTheSwitch() {
         ActivityController<Screen> controller = Robolectric.buildActivity(Screen.class).setup().visible();
         try {

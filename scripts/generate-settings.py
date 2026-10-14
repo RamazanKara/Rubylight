@@ -63,7 +63,7 @@ ADVICE = {
     "checkbox_auto_reconnect": "Resume the same running game after transport failures or returning from screen lock, up to five attempts within one minute. Back or leaving during a retry cancels it. Graceful termination, pairing, permissions and decoder failures stay manual; recovery never launches or replaces a game.",
     "list_languages": "Choose the interface language. Android 13+ uses the system per-app language setting.",
     "checkbox_small_icon_mode": "Enable to fit more games in the library grid.",
-    "help": "Open setup and troubleshooting help.",
+    "help": "Open the bundled help: connecting a PC, pairing, controls and the stream menu, common fixes and problem reports. Works offline; each topic links to these documents for detail.",
     "latency_benchmark": "Run a 10-second local frame-callback, timer and input-dispatch benchmark without a host. Use Measure input latency in the stream menu for end-to-end timing.",
     "report_problem": "Preview the explanation and share a redacted event/crash report through Android's share sheet.",
     "about_app": "View the installed app version and open Source and licenses.",

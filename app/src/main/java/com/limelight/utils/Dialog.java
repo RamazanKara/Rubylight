@@ -105,7 +105,7 @@ public class Dialog implements Runnable {
 
                 runOnDismiss.run();
 
-                HelpLauncher.launchTroubleshooting(activity);
+                HelpLauncher.showHelp(activity);
             }
         });
         alert.setOnShowListener(new DialogInterface.OnShowListener(){

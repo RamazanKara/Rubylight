@@ -109,7 +109,7 @@ These tables include every preference, including actions. On/Off choices have no
 | Picture in picture<br>`checkbox_enable_pip` | Off | On; Off | Enable to keep a small video window when leaving the app. Input and overlay are hidden there; requires device support. |
 | Language<br>`list_languages` | System default | System default; English; Deutsch | Choose the interface language. Android 13+ uses the system per-app language setting. |
 | Use small box art<br>`checkbox_small_icon_mode` | On below 500 dp smallest screen width; Off on TVs and larger screens | On; Off | Enable to fit more games in the library grid. |
-| Help<br>`help` | No stored default | Action | Open setup and troubleshooting help. |
+| Help<br>`help` | No stored default | Action | Open the bundled help: connecting a PC, pairing, controls and the stream menu, common fixes and problem reports. Works offline; each topic links to these documents for detail. |
 | Latency benchmark<br>`latency_benchmark` | No stored default | Action | Run a 10-second local frame-callback, timer and input-dispatch benchmark without a host. Use Measure input latency in the stream menu for end-to-end timing. |
 | Report a problem<br>`report_problem` | No stored default | Action | Preview the explanation and share a redacted event/crash report through Android's share sheet. |
 | About<br>`about_app` | No stored default | Action | View the installed app version and open Source and licenses. |

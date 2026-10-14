@@ -155,7 +155,7 @@ public class PcView extends AppCompatActivity implements AdapterFragmentCallback
             if (item.getItemId() == R.id.settingsButton) {
                 startActivity(new Intent(this, StreamSettings.class));
             } else if (item.getItemId() == R.id.helpButton) {
-                showPairingGuide();
+                HelpLauncher.showHelp(this);
             }
             return true;
         });
@@ -250,7 +250,7 @@ public class PcView extends AppCompatActivity implements AdapterFragmentCallback
                 .setMessage(R.string.guide_text)
                 .setPositiveButton(R.string.guide_done, null)
                 .setNeutralButton(R.string.guide_troubleshooting,
-                        (dialog, which) -> HelpLauncher.launchTroubleshooting(PcView.this))
+                        (dialog, which) -> HelpLauncher.showHelp(PcView.this))
                 .show();
     }
 

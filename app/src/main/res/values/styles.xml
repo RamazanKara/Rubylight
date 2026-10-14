@@ -286,6 +286,31 @@
         <item name="android:clickable">false</item>
     </style>
 
+    <!-- In-app help (layout/help_topics.xml): a heading, a paragraph and a link out per topic. -->
+    <style name="HelpTopic.Heading" parent="">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_marginTop">@dimen/space_xl</item>
+        <item name="android:textAppearance">@style/TextAppearance.Nightjar.Title</item>
+        <item name="android:textColor">?attr/colorOnSurface</item>
+    </style>
+
+    <style name="HelpTopic.Body" parent="">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_marginTop">@dimen/space_s</item>
+        <item name="android:textAppearance">@style/TextAppearance.Nightjar.Body</item>
+        <item name="android:textColor">?attr/colorOnSurfaceVariant</item>
+    </style>
+
+    <style name="HelpTopic.Link" parent="Widget.Nightjar.Button.Text">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_marginTop">@dimen/space_xs</item>
+        <item name="icon">@drawable/ic_open_in_new</item>
+        <item name="iconGravity">end</item>
+    </style>
+
     <style name="ToolbarIcon">
         <item name="android:layout_width">48dp</item>
         <item name="android:layout_height">48dp</item>

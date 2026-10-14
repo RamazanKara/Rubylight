@@ -213,8 +213,10 @@ fn token_elevated(token: &OwnedHandle) -> Result<bool> {
 }
 /// The desktop shell's primary token, for starting a non-elevated program
 /// from an elevated administrator process that is not SYSTEM. It must belong
-/// to the same user and must not be elevated itself.
-fn shell_token(own: &OwnedHandle) -> Result<OwnedHandle> {
+/// to the same user. None when the shell is elevated itself (User Account
+/// Control is off): there is no standard-rights token, and the program runs
+/// with the rights the user's own desktop gives it.
+fn shell_token(own: &OwnedHandle) -> Result<Option<OwnedHandle>> {
     use windows::Win32::UI::WindowsAndMessaging::{GetShellWindow, GetWindowThreadProcessId};
     const NO_SHELL: &str = "Cannot start a non-elevated program from this administrator host: the Windows desktop shell is not running. Start Rubylight without administrator rights, or use the installed Windows service";
     // SAFETY: the shell window is only used to read its process ID. The
@@ -254,11 +256,7 @@ fn shell_token(own: &OwnedHandle) -> Result<OwnedHandle> {
         token_user_sid(&primary)? == token_user_sid(own)?,
         "Cannot start a non-elevated program: the Windows desktop shell belongs to another user"
     );
-    anyhow::ensure!(
-        !token_elevated(&primary)?,
-        "Cannot start a non-elevated program: the Windows desktop shell is elevated, so User Account Control provides no standard-rights token"
-    );
-    Ok(primary)
+    Ok((!token_elevated(&primary)?).then_some(primary))
 }
 fn target_token(target: &Target) -> Result<Option<OwnedHandle>> {
     if !is_system() {
@@ -274,7 +272,7 @@ fn target_token(target: &Target) -> Result<Option<OwnedHandle>> {
             // The elevation-linked token is only an identification token for
             // a caller without SeTcbPrivilege, which Windows refuses for
             // process creation. The desktop shell holds the usable one.
-            return shell_token(&token).map(Some);
+            return shell_token(&token);
         }
         return Ok(None);
     }
@@ -2172,9 +2170,13 @@ mod tests {
         assert_eq!(child.wait(Duration::from_secs(10)).unwrap(), 0);
         // Localized output uses the OEM code page; the SIDs are ASCII.
         let groups = String::from_utf8_lossy(&std::fs::read(output).unwrap()).into_owned();
-        // Medium mandatory level, never High.
-        assert!(groups.contains("S-1-16-8192"), "{groups}");
-        assert!(!groups.contains("S-1-16-12288"), "{groups}");
+        // Medium mandatory level, never High, unless User Account Control is
+        // off (as on CI runners): then the desktop itself is elevated and the
+        // program gets what the desktop would give it rather than failing.
+        let own = token().unwrap();
+        let standard = !token_elevated(&own).unwrap() || shell_token(&own).unwrap().is_some();
+        assert_eq!(groups.contains("S-1-16-8192"), standard, "{groups}");
+        assert_eq!(groups.contains("S-1-16-12288"), !standard, "{groups}");
     }
     #[test]
     fn portable_user_identity_does_not_require_a_non_elevated_token() {

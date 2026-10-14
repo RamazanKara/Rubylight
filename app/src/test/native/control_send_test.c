@@ -1,6 +1,7 @@
 // The real JNI control senders and encrypted ENet send path against fake ENet and JNI:
 // DualSense microphone packets larger than the old 256-byte plaintext buffer, Java-thread
-// sends racing stream teardown, and phase-lock reports that need the host's announcement.
+// sends racing stream teardown or the next stream's initialization, and phase-lock reports
+// that need the host's announcement.
 #include <pthread.h>
 #include <unistd.h>
 #include "android_control.c"
@@ -29,24 +30,78 @@ static pthread_mutex_t gate = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t gateChanged = PTHREAD_COND_INITIALIZER;
 static bool holdNextService, serviceReleased;
 
-void PltLockMutex(PLT_MUTEX* mutex) { CHECK(pthread_mutex_lock(mutex) == 0); }
+// Each stream creates and destroys its own mutex and crypto contexts.
+static atomic_bool enetMutexExists;
+
+int PltCreateMutex(PLT_MUTEX* mutex) {
+    CHECK(mutex == &enetMutex && !atomic_load(&enetMutexExists));
+    atomic_store(&enetMutexExists, true);
+    return pthread_mutex_init(mutex, NULL);
+}
+
+void PltDeleteMutex(PLT_MUTEX* mutex) {
+    CHECK(mutex == &enetMutex && atomic_load(&enetMutexExists));
+    CHECK(pthread_mutex_destroy(mutex) == 0);
+    atomic_store(&enetMutexExists, false);
+}
+
+void PltLockMutex(PLT_MUTEX* mutex) {
+    // No sender may reach the mutex of a stream that has been destroyed.
+    CHECK(mutex != &enetMutex || atomic_load(&enetMutexExists));
+    CHECK(pthread_mutex_lock(mutex) == 0);
+}
+
 void PltUnlockMutex(PLT_MUTEX* mutex) { CHECK(pthread_mutex_unlock(mutex) == 0); }
 void PltSleepMs(int ms) { usleep((useconds_t)ms * 1000); }
 uint64_t PltGetMillis(void) { return fakeNowMs; }
+int PltCreateEvent(PLT_EVENT* event) { return 0; }
+void PltCloseEvent(PLT_EVENT* event) { }
 void PltSetEvent(PLT_EVENT* event) { }
 void PltInterruptThread(PLT_THREAD* thread) { }
 void PltJoinThread(PLT_THREAD* thread) { }
+int LbqInitializeLinkedBlockingQueue(PLINKED_BLOCKING_QUEUE queue, int sizeBound) { return 0; }
+PLINKED_BLOCKING_QUEUE_ENTRY LbqDestroyLinkedBlockingQueue(PLINKED_BLOCKING_QUEUE queue) { return NULL; }
 void LbqSignalQueueShutdown(PLINKED_BLOCKING_QUEUE queue) { }
 void LbqSignalQueueDrain(PLINKED_BLOCKING_QUEUE queue) { }
 bool isReferenceFrameInvalidationEnabled(void) { return false; }
 void shutdownTcpSocket(SOCKET s) { CHECK(false); }
 void closeSocket(SOCKET s) { CHECK(false); }
 
+// Crypto contexts are tokens that are alive from creation until they are destroyed. A
+// Java-thread send can be made to arrive while a stream is creating them.
+#define MAX_CONTEXTS 8
+static PLT_CRYPTO_CONTEXT contexts[MAX_CONTEXTS];
+static bool contextAlive[MAX_CONTEXTS];
+static int contextCount;
+static bool sendWhileCreatingContexts;
+static void sendFromAJavaThreadDuringInitialization(void);
+
+static bool isAliveContext(PPLT_CRYPTO_CONTEXT ctx) {
+    return ctx >= contexts && ctx < contexts + contextCount && contextAlive[ctx - contexts];
+}
+
+PPLT_CRYPTO_CONTEXT PltCreateCryptoContext(void) {
+    if (sendWhileCreatingContexts) {
+        sendWhileCreatingContexts = false;
+        sendFromAJavaThreadDuringInitialization();
+    }
+    CHECK(contextCount < MAX_CONTEXTS);
+    contextAlive[contextCount] = true;
+    return &contexts[contextCount++];
+}
+
+void PltDestroyCryptoContext(PPLT_CRYPTO_CONTEXT ctx) {
+    CHECK(isAliveContext(ctx));
+    contextAlive[ctx - contexts] = false;
+}
+
 // The identity "cipher" leaves the plaintext readable behind the header and tag.
 bool PltEncryptMessage(PPLT_CRYPTO_CONTEXT ctx, int algorithm, int flags,
         unsigned char* key, int keyLength, unsigned char* iv, int ivLength,
         unsigned char* tag, int tagLength, unsigned char* input, int inputLength,
         unsigned char* output, int* outputLength) {
+    // Never the context of a destroyed stream.
+    CHECK(isAliveContext(ctx));
     CHECK(tagLength == AES_GCM_TAG_LENGTH && inputLength >= (int)sizeof(NVCTL_ENET_PACKET_HEADER_V2));
     memset(tag, 0xA5, (size_t)tagLength);
     memcpy(output, input, (size_t)inputLength);
@@ -138,6 +193,13 @@ static void reset(void) {
     atomic_store(&senderInside, false);
     teardowns = 0;
     holdNextService = serviceReleased = false;
+    // A stream that has finished initializing: its own mutex and crypto contexts, sending open.
+    if (!atomic_load(&enetMutexExists)) CHECK(PltCreateMutex(&enetMutex) == 0);
+    sendWhileCreatingContexts = false;
+    contextCount = 0;
+    encryptionCtx = PltCreateCryptoContext();
+    decryptionCtx = PltCreateCryptoContext();
+    atomic_store(&enetSendsClosed, false);
     // A Sunshine host with the encrypted control stream.
     AppVersionQuad[0] = 7; AppVersionQuad[1] = 1; AppVersionQuad[2] = 431; AppVersionQuad[3] = -1;
     encryptedControlStream = true;
@@ -257,6 +319,39 @@ static void teardownWaitsForJavaSendersAndLaterSendsNeverReachENet(void) {
     ConnectionInterrupted = false;
 }
 
+static const uint8_t controllerStatus[8] = {1, 1, 0, 0, 0, 0, 0, 0};
+
+static void sendFromAJavaThreadDuringInitialization(void) {
+    CHECK(!sendMessageAndForget(0x5535, sizeof(controllerStatus), controllerStatus, 8, ENET_PACKET_FLAG_RELIABLE, false));
+}
+
+static void sendingStaysClosedFromAFailedStartUntilTheNextStreamIsReady(void) {
+    reset();
+    // startControlStream() failed before it had a peer (enet_host_create() or
+    // enet_host_connect() failed), so the stream is destroyed without being stopped.
+    peer = NULL;
+    client = NULL;
+    stopping = true;
+    destroyControlStream();
+    CHECK(!atomic_load(&enetMutexExists));
+    // A Java thread that passed its own checks earlier reaches the core afterwards.
+    CHECK(!sendMessageAndForget(0x5535, sizeof(controllerStatus), controllerStatus, 8, ENET_PACKET_FLAG_RELIABLE, false));
+
+    // The next stream: a Java send that arrives while it is still creating its crypto
+    // contexts must not encrypt with the destroyed stream's.
+    sendWhileCreatingContexts = true;
+    CHECK(initializeControlStream() == 0);
+    CHECK(!sendWhileCreatingContexts && atomic_load(&enetMutexExists));
+    CHECK(sentCount == 0);
+
+    // Once initialized and connected, the new stream sends with its own contexts.
+    client = &fakeHost;
+    peer = &fakePeer;
+    CHECK(sendMessageAndForget(0x5535, sizeof(controllerStatus), controllerStatus, 8, ENET_PACKET_FLAG_RELIABLE, false));
+    CHECK(sentCount == 1);
+    freeSent();
+}
+
 static void phaseLockReportsNeedTheHostsAnnouncement(void) {
     reset();
     // A host that announces other Rubylight messages but not phase lock.
@@ -286,17 +381,17 @@ static const struct { const char* name; void (*run)(void); } scenarios[] = {
     {"boundary", oversizeOrMalformedControllerAudioStopsAtTheBoundary},
     {"phase-lock", phaseLockReportsNeedTheHostsAnnouncement},
     {"teardown", teardownWaitsForJavaSendersAndLaterSendsNeverReachENet},
+    {"lifecycle", sendingStaysClosedFromAFailedStartUntilTheNextStreamIsReady},
 };
 
-// With an argument, only the named scenario runs. Teardown runs last: the stopped control
-// stream stays closed until a new stream initializes it.
+// With an argument, only the named scenario runs. Each scenario starts from a freshly
+// initialized stream.
 int main(int argc, char** argv) {
-    CHECK(pthread_mutex_init(&enetMutex, NULL) == 0);
     for (size_t i = 0; i < sizeof(scenarios) / sizeof(scenarios[0]); i++) {
         if (argc < 2 || strcmp(argv[1], scenarios[i].name) == 0) scenarios[i].run();
     }
     resetPhaseLockReports();
-    CHECK(pthread_mutex_destroy(&enetMutex) == 0);
+    if (atomic_load(&enetMutexExists)) PltDeleteMutex(&enetMutex);
     puts("control send: all tests passed");
     return 0;
 }

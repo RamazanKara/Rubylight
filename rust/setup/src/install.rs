@@ -623,12 +623,23 @@ fn import_error(output: &str) -> Option<String> {
 /// SYSTEM and Administrators control the service profile, users may read
 /// it (the launcher reads the port); credentials are not readable by users.
 fn secure_profile(profile: &Path) -> Result<()> {
+    secure_profile_with(profile, system::restrict, system::inherit_contents)
+}
+fn secure_profile_with(
+    profile: &Path,
+    mut restrict: impl FnMut(&Path, bool) -> Result<()>,
+    inherit: impl FnOnce(&Path) -> Result<()>,
+) -> Result<()> {
     let root = profile.parent().context("profile has no parent")?;
     std::fs::create_dir_all(root)?;
-    system::restrict(root, true)?;
+    restrict(root, true)?;
     std::fs::create_dir_all(profile.join("credentials"))?;
-    system::inherit_contents(root)?;
-    system::restrict(&profile.join("credentials"), false)
+    // The reset reaches the credentials as well. Lock them down again even
+    // when it fails partway (a file the host renames meanwhile), or the
+    // host's private key stays readable by users until the host restarts.
+    let reset = inherit(root);
+    let credentials = restrict(&profile.join("credentials"), false);
+    reset.and(credentials)
 }
 pub(crate) fn prepare_profile(profile: &Path, updating: bool) -> Result<()> {
     let root = profile.parent().context("profile has no parent")?;
@@ -1305,6 +1316,32 @@ mod tests {
             )?;
             assert!(!output.contains(&path.display().to_string()), "{output}");
         }
+        Ok(())
+    }
+    #[test]
+    fn credentials_are_locked_again_when_resetting_the_profile_fails() -> Result<()> {
+        // The reset makes the credentials inherit the profile's read access
+        // for users; a file it cannot reset must not leave them that way.
+        let temp = tempfile::tempdir()?;
+        let profile = temp.path().join("Butterpollo").join("config");
+        let mut restricted = Vec::new();
+        let error = secure_profile_with(
+            &profile,
+            |folder, users_read| {
+                restricted.push((folder.to_owned(), users_read));
+                Ok(())
+            },
+            |_| bail!("resetting permissions failed (5)"),
+        )
+        .unwrap_err();
+        assert!(format!("{error:#}").contains("resetting permissions failed"));
+        assert_eq!(
+            restricted,
+            [
+                (temp.path().join("Butterpollo"), true),
+                (profile.join("credentials"), false)
+            ]
+        );
         Ok(())
     }
     #[test]

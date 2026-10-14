@@ -21,13 +21,7 @@ pub struct Loopback {
     /// Set by Windows when captured audio is ready; None where event mode
     /// could not be opened, and the caller polls.
     ready: Option<OwnedHandle>,
-    channels: usize,
-    bits: u16,
-    float: bool,
-    resampler: butterpollo_core::audio::Resampler,
-    matrix: Vec<Vec<f32>>,
-    input: Vec<f32>,
-    output: Vec<f32>,
+    samples: CaptureSamples,
     /// Audio Windows holds for us; what arrives while it is full is lost.
     buffer: std::time::Duration,
     drained: Option<std::time::Instant>,
@@ -139,13 +133,15 @@ impl Loopback {
                 client,
                 capture,
                 ready,
-                channels: f.nChannels as usize,
-                bits: f.wBitsPerSample,
-                float,
-                resampler,
-                matrix,
-                input: vec![0.; f.nChannels as usize],
-                output: vec![0.; output_channels],
+                samples: CaptureSamples {
+                    channels: f.nChannels as usize,
+                    bits: f.wBitsPerSample,
+                    float,
+                    resampler,
+                    matrix,
+                    input: vec![0.; f.nChannels as usize],
+                    output: vec![0.; output_channels],
+                },
                 buffer,
                 drained: None,
                 rate,
@@ -215,13 +211,15 @@ impl Loopback {
                 client,
                 capture,
                 ready: Some(ready),
-                channels: 2,
-                bits: 32,
-                float: true,
-                resampler,
-                matrix,
-                input: vec![0.; 2],
-                output: vec![0.; output_channels],
+                samples: CaptureSamples {
+                    channels: 2,
+                    bits: 32,
+                    float: true,
+                    resampler,
+                    matrix,
+                    input: vec![0.; 2],
+                    output: vec![0.; output_channels],
+                },
                 buffer,
                 drained: None,
                 rate: 48_000,
@@ -304,57 +302,82 @@ impl Loopback {
                     None => position,
                 };
                 self.position = Some((position, start + u64::from(count)));
-                let step = (self.bits / 8) as usize;
-                let silent = flags & AUDCLNT_BUFFERFLAGS_SILENT.0 as u32 != 0;
-                if flags & AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY.0 as u32 != 0 {
-                    self.resampler.reset();
-                }
-                for frame in 0..count as usize {
-                    for (source, sample) in self.input.iter_mut().enumerate() {
-                        let value = if silent || data.is_null() {
-                            0.
-                        } else {
-                            let p = data.add((frame * self.channels + source) * step);
-                            if self.float {
-                                std::ptr::read_unaligned(p as *const f32)
-                            } else {
-                                match self.bits {
-                                    16 => std::ptr::read_unaligned(p as *const i16) as f32 / 32768.,
-                                    24 => {
-                                        let v = ((*p as i32)
-                                            | ((*p.add(1) as i32) << 8)
-                                            | ((*p.add(2) as i32) << 16))
-                                            << 8;
-                                        v as f32 / 2147483648.
-                                    }
-                                    _ => {
-                                        std::ptr::read_unaligned(p as *const i32) as f32
-                                            / 2147483648.
-                                    }
-                                }
-                            }
-                        };
-                        *sample = if value.is_finite() {
-                            value.clamp(-1., 1.)
-                        } else {
-                            0.
-                        };
-                    }
-                    for (dest, row) in self.output.iter_mut().zip(&self.matrix) {
-                        *dest = self.input.iter().zip(row).map(|(v, gain)| v * gain).sum();
-                    }
-                    self.resampler.push(&self.output);
-                }
+                self.samples.push_packet(data, count as usize, flags);
                 self.capture.ReleaseBuffer(count)?;
             }
-            // Steady state queues under one WASAPI period plus a packet;
-            // keep two packets once a stall left more than 30 ms.
-            let packet_ms = (frames / 48).max(1) as u32;
-            if self.resampler.bound((packet_ms * 3).max(30), packet_ms * 2) {
-                tracing::debug!("audio capture backlog dropped");
-            }
-            Ok(self.resampler.read(frames))
+            Ok(self.samples.read(frames))
         }
+    }
+}
+
+/// PCM queued across WASAPI packets, independent of the native capture client.
+struct CaptureSamples {
+    channels: usize,
+    bits: u16,
+    float: bool,
+    resampler: butterpollo_core::audio::Resampler,
+    matrix: Vec<Vec<f32>>,
+    input: Vec<f32>,
+    output: Vec<f32>,
+}
+impl CaptureSamples {
+    /// # Safety
+    /// Unless silent or null, `data` holds `count` interleaved frames in this
+    /// capture's validated sample format and remains readable throughout.
+    unsafe fn push_packet(&mut self, data: *const u8, count: usize, flags: u32) {
+        let step = (self.bits / 8) as usize;
+        let silent = flags & AUDCLNT_BUFFERFLAGS_SILENT.0 as u32 != 0;
+        // DATA_DISCONTINUITY marks a stream-position discontinuity, not invalid
+        // earlier samples. Clearing them here also erased whole packets drained
+        // earlier in this read, or a partial Opus packet from the previous read.
+        // Keep those samples and the fractional resampling phase; read() still
+        // bounds the entire backlog.
+        for frame in 0..count {
+            for (source, sample) in self.input.iter_mut().enumerate() {
+                let value = if silent || data.is_null() {
+                    0.
+                } else {
+                    // SAFETY: The caller supplies count complete frames in this
+                    // format; each unaligned access stays within its sample.
+                    unsafe {
+                        let p = data.add((frame * self.channels + source) * step);
+                        if self.float {
+                            std::ptr::read_unaligned(p as *const f32)
+                        } else {
+                            match self.bits {
+                                16 => std::ptr::read_unaligned(p as *const i16) as f32 / 32768.,
+                                24 => {
+                                    let v = ((*p as i32)
+                                        | ((*p.add(1) as i32) << 8)
+                                        | ((*p.add(2) as i32) << 16))
+                                        << 8;
+                                    v as f32 / 2147483648.
+                                }
+                                _ => std::ptr::read_unaligned(p as *const i32) as f32 / 2147483648.,
+                            }
+                        }
+                    }
+                };
+                *sample = if value.is_finite() {
+                    value.clamp(-1., 1.)
+                } else {
+                    0.
+                };
+            }
+            for (dest, row) in self.output.iter_mut().zip(&self.matrix) {
+                *dest = self.input.iter().zip(row).map(|(v, gain)| v * gain).sum();
+            }
+            self.resampler.push(&self.output);
+        }
+    }
+    fn read(&mut self, frames: usize) -> Option<Vec<f32>> {
+        // Steady state queues under one WASAPI period plus a packet;
+        // keep two packets once a stall left more than 30 ms.
+        let packet_ms = (frames / 48).max(1) as u32;
+        if self.resampler.bound((packet_ms * 3).max(30), packet_ms * 2) {
+            tracing::debug!("audio capture backlog dropped");
+        }
+        self.resampler.read(frames)
     }
 }
 impl Drop for Loopback {
@@ -585,6 +608,128 @@ impl Drop for OpusDecoder {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn capture_samples(rate: u32) -> CaptureSamples {
+        CaptureSamples {
+            channels: 2,
+            bits: 32,
+            float: true,
+            resampler: butterpollo_core::audio::Resampler::new(rate, 2).unwrap(),
+            matrix: butterpollo_core::audio::mix_matrix(2, 3, 2).unwrap(),
+            input: vec![0.; 2],
+            output: vec![0.; 2],
+        }
+    }
+
+    fn captured(samples: &mut CaptureSamples, values: &[f32], flags: u32) {
+        assert_eq!(
+            (samples.channels, samples.bits, samples.float),
+            (2, 32, true)
+        );
+        assert!(values.len().is_multiple_of(2));
+        // SAFETY: values contains complete float stereo frames and outlives the call.
+        unsafe { samples.push_packet(values.as_ptr().cast(), values.len() / 2, flags) };
+    }
+
+    #[test]
+    fn capture_discontinuity_preserves_valid_packets_from_the_same_drain() {
+        let discontinuity = AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY.0 as u32;
+        for packet_ms in [5, 10, 20] {
+            let mut samples = capture_samples(48_000);
+            // Windows delivers two 10 ms packets in one drain. The flag on
+            // the later packet must not erase any of the earlier packet.
+            let first = vec![0.25; 480 * 2];
+            let second = vec![-0.25; 480 * 2];
+            captured(&mut samples, &first, 0);
+            captured(&mut samples, &second, discontinuity);
+            let mut output = Vec::new();
+            while let Some(packet) = samples.read(packet_ms * 48) {
+                output.extend(packet);
+            }
+            assert_eq!(output, [first, second].concat(), "{packet_ms} ms packets");
+        }
+    }
+
+    #[test]
+    fn capture_discontinuity_preserves_a_partial_packet_across_reads() {
+        let mut samples = capture_samples(48_000);
+        let first = vec![0.25; 480 * 2];
+        captured(&mut samples, &first, 0);
+        assert!(samples.read(960).is_none());
+        // A silent discontinuity also carries valid frames, without a data
+        // pointer; the preceding half packet must still be delivered.
+        // SAFETY: Silent packets do not read the null data pointer.
+        unsafe {
+            samples.push_packet(
+                std::ptr::null(),
+                480,
+                (AUDCLNT_BUFFERFLAGS_SILENT.0 | AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY.0) as u32,
+            );
+        }
+        assert_eq!(
+            samples.read(960).unwrap(),
+            [first, vec![0.; 480 * 2]].concat()
+        );
+        assert!(samples.read(960).is_none());
+    }
+
+    #[test]
+    fn capture_discontinuity_keeps_fractional_resampling_position() {
+        let mut samples = capture_samples(44_100);
+        let ramp = |start| {
+            (start..start + 222)
+                .flat_map(|frame| [frame as f32 / 1000., -(frame as f32) / 1000.])
+                .collect::<Vec<_>>()
+        };
+        captured(&mut samples, &ramp(0), 0);
+        let mut output = samples.read(240).unwrap();
+        captured(
+            &mut samples,
+            &ramp(222),
+            AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY.0 as u32,
+        );
+        output.extend(samples.read(240).unwrap());
+        for (frame, stereo) in output.as_chunks::<2>().0.iter().enumerate() {
+            let expected = frame as f32 * 44_100. / 48_000. / 1000.;
+            assert!((stereo[0] - expected).abs() < 1e-6, "frame {frame}");
+            assert!((stereo[1] + expected).abs() < 1e-6, "frame {frame}");
+        }
+    }
+
+    #[test]
+    fn capture_discontinuities_keep_the_combined_backlog_bounded() {
+        for packet_ms in [5, 10, 20] {
+            let limit_ms = (packet_ms * 3).max(30);
+            for captured_ms in [limit_ms, limit_ms + 10] {
+                let mut samples = capture_samples(48_000);
+                let input = (0..captured_ms * 48)
+                    .flat_map(|frame| [frame as f32 / 10_000.; 2])
+                    .collect::<Vec<_>>();
+                for packet in input.as_chunks::<960>().0 {
+                    captured(
+                        &mut samples,
+                        packet,
+                        AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY.0 as u32,
+                    );
+                }
+                let mut output = Vec::new();
+                while let Some(packet) = samples.read(packet_ms * 48) {
+                    output.extend(packet);
+                }
+                let kept_ms = if captured_ms > limit_ms {
+                    packet_ms * 2
+                } else {
+                    captured_ms
+                };
+                assert_eq!(
+                    output,
+                    input[input.len() - kept_ms * 48 * 2..],
+                    "{packet_ms} ms packets, {captured_ms} ms captured"
+                );
+            }
+        }
+    }
+
     #[test]
     #[ignore = "requires the packaged libopus DLL"]
     fn native_opus_round_trip_preserves_every_surround_channel_and_quality_layout() {

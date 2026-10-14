@@ -67,6 +67,14 @@ $package = "$out\butterpollo-rust-release"
 $installer = "$out\rubylight-setup-$Version.exe"
 $zip = "$out\rubylight-$Version-windows-x64.zip"
 
+# The stream checks refuse to run beside a busy installed host; say so before
+# minutes of downloads and fixture builds.
+try {
+    & $python -c "import sys; sys.path.insert(0, r'$tools'); import e2e_host; e2e_host.installed_idle()"
+} catch {
+    throw 'The installed host is streaming or runs an app started from Moonlight. Disconnect and close it, then run the check again.'
+}
+
 Step "download $Version"
 Remove-Item -Recurse -Force $out -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force $out, $qa | Out-Null
@@ -119,7 +127,8 @@ foreach ($case in 'h264', 'hevc', 'av1', 'hevc-vrr', 'hevc-recovery', 'pyrowave'
         $failed = Join-Path $run "e2e-$case-failed"
         if (([IO.Path]::GetFullPath($failed) | Split-Path -Parent) -ne [IO.Path]::GetFullPath($run)) { throw 'Test output left the work directory' }
         Remove-Item -LiteralPath $failed -Recurse -Force -ErrorAction SilentlyContinue
-        Move-Item -LiteralPath "$run\e2e-$case" -Destination $failed
+        # A run refused before it started (a busy installed host) left no logs.
+        if (Test-Path -LiteralPath "$run\e2e-$case") { Move-Item -LiteralPath "$run\e2e-$case" -Destination $failed }
         & $python "$tools\e2e.py" @stream
     }
 }

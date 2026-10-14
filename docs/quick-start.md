@@ -24,11 +24,11 @@ Tablet, foldable, TV and desktop layouts adapt to the current window, preserving
 
 ## During a stream
 
-Press Android **Back** or **Ctrl+Alt+Shift+M** to open the menu. Use **Keyboard**, **Input mode**, **Overlay**, **Bitrate**, **Clipboard** or **Host commands** as needed. Host support and permissions determine which actions are available.
+Press Android **Back** (or swipe back), **Ctrl+Alt+Shift+M**, or **Start+Back+LB+RB** on a controller to open the menu; the first stream shows this once. The top row toggles **Keyboard**, **Overlay** and, when the PC offers it, **Microphone**. Below it, **Input**, **Display**, **Quality** and **Host** hold the rest; see [the stream menu](controls.md#the-stream-menu). Host support and permissions decide which items appear.
 
-**Disconnect** ends this device's connection and leaves the PC app running. Select the same app to resume. **Quit app** asks the host to end the app and requires permission and confirmation.
+**Disconnect** ends this device's connection and leaves the PC app running. Select the same app to resume. **Quit game**, last in the menu, asks the host to end the game and requires permission and confirmation.
 
-Clipboard transfer and host-configured commands need a host that supports them (e.g. Apollo or Rubylight). Clipboard transfer is plain text, explicitly initiated in the foreground, and needs an active session plus the corresponding host permission. Host commands use the host's configured commands and encrypted server-command transport. Reconnect, device permissions and host frame-limiter status are under **Host commands**.
+Clipboard transfer and host-configured commands need a host that supports them (e.g. Apollo or Rubylight). Clipboard transfer is plain text, explicitly initiated in the foreground, and needs an active session plus the corresponding host permission. Host commands use the host's configured commands and encrypted server-command transport. Device permissions and host frame-limiter status are under **Host**; **Reconnect stream** sits with Disconnect at the bottom.
 
 ## Next
 

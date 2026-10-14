@@ -178,7 +178,7 @@ Hidden until the version in **App → About** is tapped seven times. Values chan
 
 | Setting / preference key | Default | Choices and units | When to change or use |
 | --- | --- | --- | --- |
-| Performance overlay mode<br>`performance_overlay_mode` | Statistics | Statistics; Debug | Use Statistics for an Artemis-style summary or Debug for detailed measured stages. Switch in the stream menu under Overlay; Copy stats includes Debug details. |
+| Performance overlay mode<br>`performance_overlay_mode` | Compact | Compact; Statistics; Debug | Compact is one line: displayed FPS, network round trip (RTT) and frame loss behind a green, amber or red dot. Statistics is an Artemis-style summary with a status line of lasting facts; Debug shows detailed measured stages. Installs that kept the old Statistics default move to Compact once. Switch in stream menu → Display → Overlay and diagnostics; Copy stats includes Debug details. |
 | Show decode time after streaming<br>`checkbox_enable_post_stream_toast` | Off | On; Off | Enable to see the average decode time after a session ends; it is not end-to-end latency. |
 | Latency benchmark<br>`latency_benchmark` | No stored default | Action | Run a 10-second local frame-callback, timer and input-dispatch benchmark without a host. Use Measure input latency in the stream menu for end-to-end timing. |
 | Export latency CSV<br>`export_latency_csv` | No stored default | Action | Choose a destination for the latest local frame-timing CSV. Each row holds the measured stage timings. |
@@ -246,10 +246,10 @@ The PC puts its displays back when the stream ends. Separated displays still sha
 | --- | --- | --- |
 | Touch mode | Trackpad initially; saved globally | Switch Trackpad, Direct mouse or Multi-touch immediately. |
 | Show on-screen controls / Edit controller layout | Hidden initially; saved control preference/layout | Show the virtual gamepad, move/resize it and save. |
-| Overlay visibility / mode | Off / Statistics initially; saved globally | Show, hide, switch Statistics/Debug or copy detailed stats. |
+| Overlay visibility / mode | Off / Compact initially; saved globally | Show or hide from the menu's top row; switch Compact/Statistics/Debug or copy detailed stats under Display → Overlay and diagnostics. |
 | Set bitrate | Starts from the effective stream configuration; session adjustment | Request 0.5–500 Mbps, subject to host limits. A manual selection disables automatic bitrate. |
 | Automatic bitrate | Off initially; saved per PC, separately for PyroWave and conventional codecs | Lower bitrate under congestion and recover gradually within the selected/host cap. Requires a host that reports its encoder bitrate (currently Rubylight). |
-| Keyboard, clipboard and host actions | Actions, not factory preferences | Open the keyboard, transfer text explicitly, view host status, reconnect, disconnect or request app exit. Host permissions apply. |
+| Keyboard, clipboard and host actions | Actions, not factory preferences | Open the keyboard, transfer text explicitly, view host status, open the host web UI, reconnect, disconnect or quit the game. Host permissions apply. |
 
 ## Reset scope
 

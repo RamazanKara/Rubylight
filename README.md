@@ -33,7 +33,7 @@ Still in Alpha. Expect Bugs to happen
 - **Stay in control** with touch, trackpad, mouse, keyboard and [on-screen keys and desktop shortcuts](docs/controls.md).
 - **Choose your PC display** with per-PC exclusive, extended and separated display layouts on hosts that support it (currently Rubylight). Separated displays share the same Windows session. See the [host feature matrix](docs/PARITY-MATRIX.md).
 - **Choose a Snapdragon GPU driver** for PyroWave with a compatible driver ZIP and system-driver fallback. See [driver requirements](docs/video-and-latency.md).
-- **Know your stream** with Artemis-style Statistics and detailed Debug overlays for frame rates, video throughput, network loss and measured latency stages.
+- **Know your stream** at a glance with a one-line overlay (displayed FPS, network round trip, frame loss and a health dot), or Artemis-style Statistics and detailed Debug overlays for frame rates, video throughput, network loss and measured latency stages.
 - **Get playing sooner** with automatic PC discovery and Wake-on-LAN.
 
 ## Quick start

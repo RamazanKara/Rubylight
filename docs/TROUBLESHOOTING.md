@@ -2,7 +2,7 @@
 
 [Documentation](index.md)
 
-Use the symptom below, then make one change and retry. For performance issues, open **stream menu → Overlay → Debug** and **Copy stats** before changing settings.
+Use the symptom below, then make one change and retry. For performance issues, open **stream menu → Display → Overlay and diagnostics**, choose **Debug** and **Copy stats** before changing settings.
 
 ## Add and pair a host
 
@@ -71,7 +71,7 @@ On a paired host that supports it (Rubylight, or Vibepollo with PyroWave availab
 
 1. Reproduce the problem and note the app version, device/Android version, host version and time.
 2. Open **Settings → App → Report a problem**, select **Share** and choose a receiving app in Android's share sheet.
-3. Attach **Overlay → Copy stats** and **Settings → Developer options → Export latency CSV** when relevant. Copy stats includes all Debug details.
+3. Attach **stream menu → Display → Overlay and diagnostics → Copy stats** and **Settings → Developer options → Export latency CSV** when relevant. Copy stats includes all Debug details.
 4. For pairing/host issues, long-press the PC, use **PC settings… → View details → Copy debug info**, and add the relevant host log.
 5. Describe what you did, what you expected and what occurred in a [Nightjar issue](https://github.com/RamazanKara/nightjar-android/issues).
 

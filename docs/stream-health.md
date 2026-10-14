@@ -1,6 +1,6 @@
 # Stream health
 
-Open the stream menu, then **Overlays → Why did my stream stutter?** The report uses up to 30 seconds of measurements already collected by the client. It does not run the mouse-moving latency test, record video, contact an analytics service, or write a history to disk. Copying the report puts only its displayed evidence and advice on your clipboard.
+Open the stream menu, then **Display → Overlay and diagnostics → Why did my stream stutter?** The report uses up to 30 seconds of measurements already collected by the client. It does not run the mouse-moving latency test, record video, contact an analytics service, or write a history to disk. Copying the report puts only its displayed evidence and advice on your clipboard.
 
 Repeated observations can identify network loss/variation, slow decode output, host processing, display waits, and Android thermal pressure. Several findings may appear together. Host processing includes more than encoding. Display waits are compared with observed frame release rather than the requested frame rate, so a static or variable-refresh desktop does not automatically count as dropped frames. Missing counters stay unavailable; a lack of findings does not prove every stage is healthy. These measurements cannot be added together to claim input-to-screen latency.
 

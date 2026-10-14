@@ -28,7 +28,7 @@ In your host's settings or web UI, if it has per-device permissions (e.g. Apollo
 
 ## Does Disconnect close my game?
 
-Disconnect ends the local stream and leaves the host app running. Select it again to resume. Quit app requests host application exit and needs permission and confirmation.
+Disconnect ends the local stream and leaves the host app running. Select it again to resume. Quit game requests host application exit and needs permission and confirmation.
 
 ## Why did changing a preset do nothing?
 
@@ -40,7 +40,7 @@ Begin with Automatic codec and upscaling Off. Compare measured decode time and i
 
 ## Is the overlay latency the delay I feel?
 
-Statistics shows network round-trip time, available host processing, decode time and display wait separately. Debug adds detailed stage timings. These values do not measure physical input sampling through display scanout; physical end-to-end latency needs an external measurement. Choose the view through **stream menu → Overlay**.
+Statistics shows network round-trip time, available host processing, decode time and display wait separately. Debug adds detailed stage timings. These values do not measure physical input sampling through display scanout; physical end-to-end latency needs an external measurement. Choose the view through **stream menu → Display → Overlay and diagnostics**.
 
 ## Can I use my launcher?
 

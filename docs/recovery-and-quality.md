@@ -26,7 +26,7 @@ Android 0.4.9 preserves microphone mute for the current session through automati
 | Preserve detail | Reduce FPS before lowering resolution. |
 | Extend battery life | Gradually reduce work even on a healthy connection, toward at most 60 FPS and a 1080-pixel short edge, while respecting the minimums. Further pressure can lower it more. |
 
-During a stream, **Bitrate → Automatic stream quality** overrides the mode for that PC. **Use app settings** removes that override. Turning it off restores the stream ceiling. Changing the mode starts its new policy from that ceiling. The floors come from app settings and apply to the next stream.
+During a stream, **stream menu → Quality → Automatic stream quality** overrides the mode for that PC. It appears where the host can change the stream in place. **Use app settings** removes that override. Turning it off restores the stream ceiling. Changing the mode starts its new policy from that ceiling. The floors come from app settings and apply to the next stream.
 
 Automatic quality requires the host to advertise control message `0x5532` (currently Rubylight) and the active decoder to support in-place resolution changes. It is unavailable with PyroWave, input-only/remote-monitor streams, hosts without this capability, and non-adaptive decoders. The UI reports this fallback; it does not silently reconnect or change codecs. Automatic bitrate remains separately available where supported.
 

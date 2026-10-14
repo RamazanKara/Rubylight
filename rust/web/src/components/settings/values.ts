@@ -263,7 +263,13 @@ export function describeDefault(setting: Setting): DefaultText {
     case 'server-commands':
       return word(count(toServerCommands(value).length));
     case 'json':
-      return word(value === null || value === '' ? 'Not set' : Array.isArray(value) ? `${value.length} entries` : 'Built-in configuration');
+      if (value === null || value === '') return word('Not set');
+      if (Array.isArray(value)) return word(value.length ? `${value.length} entries` : 'None');
+      // An object of empty lists, such as no mode substitutions.
+      if (typeof value === 'object' && Object.values(value).every((item) => Array.isArray(item) && item.length === 0)) {
+        return word('None');
+      }
+      return word('Built-in configuration');
   }
 }
 

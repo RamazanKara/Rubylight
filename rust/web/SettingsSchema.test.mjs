@@ -115,6 +115,14 @@ test('a fixed resolution must be WIDTHxHEIGHT within the host limits', () => {
   assert.equal(settings.get('dd_manual_refresh_rate').requiredWhen({ dd_refresh_rate_option: 'manual' }), true);
 });
 
+test('restore hotkey modifiers hide while the hotkey is off in any spelling the host accepts', () => {
+  const setting = settings.get('dd_snapshot_restore_hotkey_modifiers');
+  for (const off of ['', '0', 'none', 'OFF', ' disabled ']) {
+    assert.equal(setting.visibleWhen({ dd_snapshot_restore_hotkey: off }), false, off);
+  }
+  assert.equal(setting.visibleWhen({ dd_snapshot_restore_hotkey: 'F12' }), true);
+});
+
 test('editing commands keeps fields the console does not show', () => {
   const prep = { do: 'a.cmd', undo: 'b.cmd', elevated: false, timeout_ms: 500 };
   const changes = computeChanges(settings, { global_prep_cmd: [{ ...prep, do: ' c.cmd ' }] }, { global_prep_cmd: [prep] });
@@ -129,6 +137,10 @@ test('host commands are shown as elevated only when the host would elevate them'
   // stream.rs reads elevated with as_bool: the text "true" is not elevated.
   assert.equal(toServerCommands([{ name: 'a', cmd: 'a', elevated: 'true' }])[0].elevated, false);
   assert.equal(toServerCommands([{ name: 'a', cmd: 'a', elevated: true }])[0].elevated, true);
+});
+
+test('empty mode substitutions read as none, not a built-in configuration', () => {
+  assert.equal(describeDefault(settings.get('dd_mode_remapping')).text, 'None');
 });
 
 test('an unset virtual display mode keeps the OS-dependent default without hiding an explicit per-device choice', () => {

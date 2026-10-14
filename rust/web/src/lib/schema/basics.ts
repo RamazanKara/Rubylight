@@ -604,7 +604,7 @@ const input: Setting[] = [
   {
     key: 'key_repeat_delay',
     label: 'Key repeat delay',
-    description: 'How long a held key waits before it starts repeating.',
+    description: 'How long a held key waits before it starts repeating. 0 turns key repeat off on the host.',
     category: 'input',
     group: 'Keyboard',
     control: { kind: 'number', min: 0, max: 60000, step: 1, unit: 'ms' },

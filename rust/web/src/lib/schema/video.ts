@@ -253,7 +253,7 @@ const video: Setting[] = [
     description:
       'How often an unchanged picture is sent again. Lower values save bandwidth on a still desktop.',
     details:
-      'Each resend counts toward the stream frame rate, so a value close to it makes late game frames wait. 0 uses a fifth of the stream rate, at least 10; with PyroWave, 0 resends at the full stream rate.',
+      'Each resend counts toward the stream frame rate, so a value close to it makes late game frames wait. 0 uses a fifth of the stream rate, at least 10; with PyroWave, 0 resends at the full stream rate. Other values are kept between 1 fps and the stream rate.',
     category: 'video',
     group: 'Frame pacing',
     control: { kind: 'number', min: 0, max: 1000, step: 0.1, unit: 'fps' },
@@ -896,7 +896,9 @@ const amd: Setting[] = [
     key: 'amd_input_queue_size',
     label: 'Input queue size',
     description:
-      'How many frames may wait for the encoder. 0 uses the driver default, or 1 for VRR streams.',
+      'How many frames may wait for the encoder. 0 uses the driver default, VRR streams included.',
+    details:
+      'The host sets a queue size only when you choose one: forcing a queue of one for every VRR stream exposed an RDNA4 driver freeze, with video stalling while audio plays.',
     category: 'encoders',
     group: 'AMD AMF',
     control: { kind: 'number', min: 0, max: 32, step: 1, unit: 'frames' },

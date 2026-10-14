@@ -282,7 +282,8 @@ export const settings: Setting[] = [
     label: 'Restore hotkey',
     description:
       'A key on this PC that ends every stream and restores the display layout, for when a stream leaves the screens unusable. F1 to F24, a letter or a digit.',
-    details: 'It also removes the virtual displays. A virtual-key code such as 0x2E works too. Empty turns it off.',
+    details:
+      'It also removes the virtual displays. A virtual-key code such as 0x2E works too. Empty, 0, none, off or disabled turns it off.',
     category: 'display',
     group: 'After a stream',
     control: { kind: 'text', placeholder: 'Off', mono: true },
@@ -297,7 +298,9 @@ export const settings: Setting[] = [
     control: { kind: 'text', placeholder: 'ctrl+alt+shift', mono: true },
     default: 'ctrl+alt+shift',
     inactiveHint: "Set a Restore hotkey to use these modifiers.",
-    visibleWhen: (values) => String(values.dd_snapshot_restore_hotkey ?? '').trim() !== '',
+    // hotkey.rs reads these words (0 is Vibepollo's stored default) as no hotkey.
+    visibleWhen: (values) =>
+      !['', '0', 'none', 'off', 'disabled'].includes(String(values.dd_snapshot_restore_hotkey ?? '').trim().toLowerCase()),
   },
   {
     key: 'remote_monitor_mute_audio',

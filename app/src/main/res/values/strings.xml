@@ -31,7 +31,6 @@
     <string name="pair_pc_offline">Wake the PC and start the host app.\nUse the same network, then retry.</string>
     <string name="pair_pc_ingame">Stop the host’s stream, then pair again.</string>
     <string name="pair_pairing_title">Pair with PC</string>
-    <string name="pair_pairing_msg">Enter this PIN on the host:</string>
     <string name="pair_pairing_help">Enter this PIN in your host’s settings or web UI, usually on its PIN or pairing page.</string>
     <string name="pair_incorrect_pin">PIN rejected. Try pairing again and enter the new PIN shown on this device in your host’s settings or web UI.</string>
     <string name="pair_fail">Cancel the old request in your host’s settings or web UI, then retry.</string>
@@ -114,11 +113,11 @@
     <string name="applist_menu_quit">Quit app</string>
     <string name="applist_menu_quit_and_start">Quit and start</string>
     <string name="applist_menu_cancel">Cancel</string>
-    <string name="applist_menu_details">View Details</string>
-    <string name="applist_menu_scut">Create Shortcut</string>
-    <string name="applist_menu_tv_channel">Add to Channel</string>
-    <string name="applist_menu_hide_app">Hide App</string>
-    <string name="applist_refresh_title">App List</string>
+    <string name="applist_menu_details">View details</string>
+    <string name="applist_menu_scut">Create shortcut</string>
+    <string name="applist_menu_tv_channel">Add to channel</string>
+    <string name="applist_menu_hide_app">Hide app</string>
+    <string name="applist_refresh_title">App list</string>
     <string name="applist_refresh_msg">Refreshing apps…</string>
     <string name="applist_refresh_error_title">Error</string>
     <string name="applist_refresh_error_msg">Failed to get app list</string>

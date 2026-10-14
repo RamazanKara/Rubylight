@@ -182,7 +182,10 @@ public class PcViewLifecycleTest {
             assertNotNull(dialog);
             assertTrue(dialog.isShowing());
             TextView message = dialog.findViewById(android.R.id.message);
-            assertTrue(message.getText().toString().matches("(?s).*\\n\\n[0-9]{4}\\n\\n.*"));
+            // One instruction, then the PIN.
+            String text = message.getText().toString();
+            assertTrue(text, text.matches("(?s)" + java.util.regex.Pattern.quote(
+                    screen.getString(R.string.pair_pairing_help)) + "\\n\\n[0-9]{4}"));
             assertFalse(ReflectionHelpers.<Boolean>getField(screen, "runningPolling"));
 
             dialog.getButton(AlertDialog.BUTTON_NEGATIVE).performClick();

@@ -22,7 +22,6 @@
     <string name="pair_pc_offline">Wecke den PC und starte den Host.\nNutze dasselbe Netzwerk und versuch es erneut.</string>
     <string name="pair_pc_ingame">Beende den Stream am Host und kopple erneut.</string>
     <string name="pair_pairing_title">Mit PC koppeln</string>
-    <string name="pair_pairing_msg">Gib diese PIN am Host ein:</string>
     <string name="pair_pairing_help">Gib diese PIN in den Einstellungen oder der Web-UI deines Hosts ein, meist auf der PIN- oder Kopplungsseite.</string>
     <string name="pair_incorrect_pin">PIN abgelehnt. Kopple erneut und gib die neue PIN dieses Geräts in den Einstellungen oder der Web-UI deines Hosts ein.</string>
     <string name="pair_fail">Brich die alte Anfrage am Host ab und versuch es erneut.</string>

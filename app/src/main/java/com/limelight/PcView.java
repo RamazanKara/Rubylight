@@ -642,12 +642,12 @@ public class PcView extends AppCompatActivity implements AdapterFragmentCallback
         final String pin = oneTimePin == null ? PairingManager.generatePinString() : oneTimePin;
         android.text.SpannableStringBuilder pairingText = new android.text.SpannableStringBuilder();
         if (oneTimePin == null) {
-            pairingText.append(getString(R.string.pair_pairing_msg)).append("\n\n");
+            // One instruction, then the PIN; the dialog used to ask for the PIN twice.
+            pairingText.append(getString(R.string.pair_pairing_help)).append("\n\n");
             int pinStart = pairingText.length();
             pairingText.append(pin);
             pairingText.setSpan(new android.text.style.RelativeSizeSpan(2f), pinStart, pairingText.length(), 0);
             pairingText.setSpan(new android.text.style.StyleSpan(android.graphics.Typeface.BOLD), pinStart, pairingText.length(), 0);
-            pairingText.append("\n\n").append(getString(R.string.pair_pairing_help));
         } else {
             pairingText.append(getString(R.string.pairing));
         }

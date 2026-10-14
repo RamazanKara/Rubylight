@@ -37,7 +37,11 @@ public class AndroidAudioRenderer implements AudioRenderer {
     private boolean audioFxSessionOpen;
     // A dead track is rebuilt at most this often; every other failure only drops one buffer.
     private static final long TRACK_RECREATE_INTERVAL_MS = 1000;
+    // Before Android 7.0, write() returns the native status for a dead track (DEAD_OBJECT is -32)
+    // instead of ERROR_DEAD_OBJECT. A run of dropped buffers rebuilds the track there too.
+    private static final int FAILED_WRITES_BEFORE_RECREATE = 5;
     private long nextTrackRecreateAt, nextWriteWarningAt;
+    private int failedWrites;
 
     private static native long nativeOpenAudio(int sampleRate);
     private static native boolean nativeWriteAudio(long handle, short[] samples, int length);
@@ -340,18 +344,23 @@ public class AndroidAudioRenderer implements AudioRenderer {
             if (written > 0 && written <= length - offset) {
                 offset += written;
             }
-            else if (written == AudioTrack.ERROR_DEAD_OBJECT && !recreated && uptimeMillis() >= nextTrackRecreateAt) {
+            else if ((written == AudioTrack.ERROR_DEAD_OBJECT || failedWrites + 1 >= FAILED_WRITES_BEFORE_RECREATE) &&
+                    !recreated && uptimeMillis() >= nextTrackRecreateAt) {
                 // A route change can invalidate AudioTrack. Retry only the unwritten samples,
                 // at most once per buffer and once a second so a broken output cannot spin on this thread.
                 recreated = true;
+                failedWrites = 0;
                 nextTrackRecreateAt = uptimeMillis() + TRACK_RECREATE_INTERVAL_MS;
-                LimeLog.warning("AudioTrack disconnected; recreating audio output");
+                LimeLog.warning(written == AudioTrack.ERROR_DEAD_OBJECT ?
+                        "AudioTrack disconnected; recreating audio output" :
+                        "AudioTrack writes keep failing: " + written + "; recreating audio output");
                 if (!recreateAudioTrack()) {
                     LimeLog.warning("Unable to recreate AudioTrack");
                     return false;
                 }
             }
             else {
+                failedWrites++;
                 long now = uptimeMillis();
                 if (now >= nextWriteWarningAt) {
                     nextWriteWarningAt = now + TRACK_RECREATE_INTERVAL_MS;
@@ -360,6 +369,7 @@ public class AndroidAudioRenderer implements AudioRenderer {
                 return false;
             }
         }
+        failedWrites = 0;
         return true;
     }
 

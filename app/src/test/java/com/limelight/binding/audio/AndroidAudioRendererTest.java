@@ -182,6 +182,59 @@ public class AndroidAudioRendererTest {
         assertEquals("The headset took the audio", 2, scripted.nextResult);
     }
 
+    // Before Android 7.0 a dead track's write() returns the native status (DEAD_OBJECT is -32),
+    // never ERROR_DEAD_OBJECT, so only the run of failed buffers shows that the track is gone.
+    private static final class LegacyDeadTrack extends AndroidAudioRenderer {
+        boolean dead = true, recreationRevives = true;
+        int writes, recreations;
+        long now = 1000;
+
+        LegacyDeadTrack() {
+            super(null, false, null);
+        }
+
+        @Override int writeAudioTrack(short[] data, int offset, int length) {
+            writes++;
+            return dead ? -32 : length;
+        }
+
+        @Override boolean recreateAudioTrack() {
+            recreations++;
+            dead = !recreationRevives;
+            return true;
+        }
+
+        @Override long uptimeMillis() {
+            return now;
+        }
+
+        void play() {
+            playDecodedAudio(new short[6], 6);
+        }
+    }
+
+    @Test public void aTrackThatOnlyFailsIsRecreatedAfterAShortRunOfDroppedBuffers() {
+        LegacyDeadTrack renderer = new LegacyDeadTrack();
+        for (int i = 0; i < 10 && renderer.recreations == 0; i++) renderer.play();
+        assertEquals("A track failing every write must not stay silent for the session", 1, renderer.recreations);
+        int writes = renderer.writes;
+        renderer.play();
+        assertEquals("The recreated track plays the next buffer", writes + 1, renderer.writes);
+        assertEquals(1, renderer.recreations);
+    }
+
+    @Test public void recreatingATrackThatOnlyFailsIsRateLimited() {
+        LegacyDeadTrack renderer = new LegacyDeadTrack();
+        renderer.recreationRevives = false;
+        for (int i = 0; i < 50; i++) renderer.play();
+        assertEquals("No recreation storm while the output stays broken", 1, renderer.recreations);
+        renderer.now += 1000;
+        renderer.recreationRevives = true;
+        for (int i = 0; i < 10 && renderer.recreations == 1; i++) renderer.play();
+        assertEquals(2, renderer.recreations);
+        assertFalse(renderer.dead);
+    }
+
     @Test public void failedRecreationIsRetriedByALaterBuffer() {
         int dead = AudioTrack.ERROR_DEAD_OBJECT;
         ScriptedRenderer renderer = new ScriptedRenderer(dead, dead, 6);

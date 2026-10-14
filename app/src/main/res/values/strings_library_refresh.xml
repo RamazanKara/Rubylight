@@ -19,7 +19,7 @@
     <string name="library_undo">Undo</string>
     <string name="library_pc_intro">Choose a computer to start streaming.</string>
     <string name="library_discovery_title">Your games, on this screen</string>
-    <string name="library_discovery_body">Turn on your computer and run RubyLight, Apollo, or Sunshine. Computers on the same network appear here automatically.</string>
+    <string name="library_discovery_body">Turn on your computer and start its streaming host, such as Apollo, Rubylight or Sunshine. Computers on the same network appear here automatically.</string>
     <string name="library_discovery_hint">On a different network? Add your computer by address.</string>
     <string name="library_results">%1$d of %2$d apps</string>
     <string name="library_showing_hidden">%1$d apps · including hidden</string>

@@ -362,7 +362,7 @@ public class PcView extends AppCompatActivity implements AdapterFragmentCallback
             exportRomsTree = picked;
             new MaterialAlertDialogBuilder(this)
                     .setTitle(R.string.frontend_export_esde_title)
-                    .setMessage(R.string.frontend_export_esde_message)
+                    .setMessage(getString(R.string.frontend_export_esde_message, getString(R.string.app_name)))
                     .setPositiveButton(R.string.frontend_export_pick, (dialog, which) -> pickFolder(PICK_ESDE_REQUEST))
                     .setNegativeButton(R.string.frontend_export_skip, (dialog, which) -> runFrontendExport(null))
                     .setOnCancelListener(dialog -> runFrontendExport(null))

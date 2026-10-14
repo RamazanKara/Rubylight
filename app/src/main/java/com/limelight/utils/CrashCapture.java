@@ -129,7 +129,7 @@ public final class CrashCapture implements Application.ActivityLifecycleCallback
             return;
         }
         new MaterialAlertDialogBuilder(new ContextThemeWrapper(activity, R.style.AppTheme))
-                .setTitle(R.string.crash_report_title)
+                .setTitle(activity.getString(R.string.crash_report_title, activity.getString(R.string.app_name)))
                 .setMessage(R.string.crash_report_details)
                 .setPositiveButton(R.string.crash_report_share, (dialog, which) -> ProblemReport.share(activity))
                 .setNegativeButton(R.string.crash_report_not_now, null)

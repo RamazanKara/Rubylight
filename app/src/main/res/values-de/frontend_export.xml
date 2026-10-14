@@ -4,7 +4,7 @@
     <string name="frontend_export_roms_title">ROM-Ordner wählen</string>
     <string name="frontend_export_roms_message">Füge hier Spielverknüpfungen für ES-DE oder andere Frontends hinzu.</string>
     <string name="frontend_export_esde_title">ES-DE-Ordner wählen</string>
-    <string name="frontend_export_esde_message">Rubylight und Cover für ES-DE?\nSonst wähle „Überspringen“.</string>
+    <string name="frontend_export_esde_message">%1$s und Cover für ES-DE?\nSonst wähle „Überspringen“.</string>
     <string name="frontend_export_pick">Ordner wählen</string>
     <string name="frontend_export_skip">Überspringen</string>
     <string name="frontend_export_no_apps">Öffne zuerst die Spieleliste dieses PCs.</string>
@@ -15,5 +15,5 @@
         <item quantity="other">%1$d Spiele hinzugefügt. Starte ES-DE neu, um sie zu sehen.</item>
     </plurals>
     <string name="frontend_export_failed">Spiele nicht hinzugefügt.\nWähle einen lokalen Ordner oder die SD-Karte.</string>
-    <string name="scut_invalid_entry">Spieldatei nicht verfügbar.\nFüge die Spiele in Rubylight erneut hinzu.</string>
+    <string name="scut_invalid_entry">Spieldatei nicht verfügbar.\nFüge die Spiele in %1$s erneut hinzu.</string>
 </resources>

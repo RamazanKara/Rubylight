@@ -2,7 +2,7 @@
     <string name="gpu_driver_title">Snapdragon GPU driver</string>
     <string name="gpu_driver_summary">Import, select or remove a custom Adreno Vulkan driver for PyroWave.</string>
     <string name="gpu_driver_system">System GPU driver</string>
-    <string name="gpu_driver_explanation">PyroWave can use an Adreno driver ZIP with meta.json and arm64 libraries. Choose a package you trust that supports your GPU and Android version. Changes apply to the next stream and only affect Rubylight. If loading fails, Rubylight uses the system driver. After a crash with a custom driver, the next launch returns to the system driver. Compatibility and performance still depend on your phone and driver.</string>
+    <string name="gpu_driver_explanation">PyroWave can use an Adreno driver ZIP with meta.json and arm64 libraries. Choose a package you trust that supports your GPU and Android version. Changes apply to the next stream and only affect this app. If loading fails, the app uses the system driver. After a crash with a custom driver, the next launch returns to the system driver. Compatibility and performance still depend on your phone and driver.</string>
     <string name="gpu_driver_unsupported">Custom drivers require Android 10 or newer, a 64-bit arm64 app and an Adreno GPU. This device uses the system GPU driver.</string>
     <string name="gpu_driver_system_fallback">Using the system GPU driver after a custom-driver failure.</string>
     <string name="gpu_driver_import">Import driver ZIP</string>

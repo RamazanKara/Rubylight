@@ -32,9 +32,9 @@
     <string name="pair_pc_ingame">Stop the host’s stream, then pair again.</string>
     <string name="pair_pairing_title">Pair with PC</string>
     <string name="pair_pairing_msg">Enter this PIN on the host:</string>
-    <string name="pair_pairing_help">Enter this PIN in the PC’s host pairing screen (Sunshine: PIN; Rubylight: Devices).</string>
-    <string name="pair_incorrect_pin">PIN rejected. Try pairing again and enter the new PIN shown on this device in the host web console.</string>
-    <string name="pair_fail">Cancel the old request in the host console, then retry.</string>
+    <string name="pair_pairing_help">Enter this PIN in your host’s settings or web UI, usually on its PIN or pairing page.</string>
+    <string name="pair_incorrect_pin">PIN rejected. Try pairing again and enter the new PIN shown on this device in your host’s settings or web UI.</string>
+    <string name="pair_fail">Cancel the old request in your host’s settings or web UI, then retry.</string>
     <string name="pair_already_in_progress">Finish or cancel the pending request on the host.</string>
 
     <!-- WOL messages -->
@@ -131,7 +131,7 @@
     <!-- Add computer manually activity -->
     <string name="title_add_pc">Add PC</string>
     <string name="msg_add_pc">Connecting to the PC…</string>
-    <string name="addpc_fail">Start a compatible streaming host, such as Sunshine or Rubylight, on the PC and allow it through the firewall.</string>
+    <string name="addpc_fail">Start a Moonlight-compatible streaming host, such as Apollo, Rubylight, Sunshine or Vibepollo, on the PC and allow it through the firewall.</string>
     <string name="addpc_success">Host added</string>
     <string name="addpc_unknown_host">PC not found. Check the address.</string>
     <string name="addpc_enter_ip">Enter the host\'s IP address or name</string>
@@ -178,14 +178,14 @@
     <string name="title_checkbox_xb1_driver">USB controller driver</string>
     <string name="summary_checkbox_xb1_driver">Xbox USB drivers, without root.</string>
     <string name="title_usb_dualsense_haptics">USB DualSense audio and haptics</string>
-    <string name="summary_usb_dualsense_haptics">Detailed vibration with Rubylight and compatible Vibepollo hosts. Updated Rubylight hosts also support controller speaker, headset and microphone audio. Microphone streaming requires permission and its separate setting. Reconnect the controller after changing this setting.</string>
+    <string name="summary_usb_dualsense_haptics">Detailed vibration with hosts that support DualSense haptics, such as Rubylight or Vibepollo. Some hosts (currently Rubylight) also carry controller speaker, headset and microphone audio. Microphone streaming requires permission and its separate setting. Reconnect the controller after changing this setting.</string>
     <string name="title_usb_dualsense">USB DualSense driver</string>
     <string name="summary_usb_dualsense">Use adaptive triggers, rumble and more over USB.</string>
     <string name="usb_dualsense_permission_info">Allow USB access when you start a stream.\nWithout it, adaptive triggers stay off.</string>
     <string name="usb_dualsense_enable">Enable USB driver</string>
     <string name="usb_dualsense_denied">No USB access; adaptive triggers are off.\nReconnect the cable to retry.</string>
     <string name="title_checkbox_usb_bind_all">Always use the USB driver</string>
-    <string name="summary_checkbox_usb_bind_all">Use Rubylight’s Xbox USB driver.</string>
+    <string name="summary_checkbox_usb_bind_all">Use the app’s built-in Xbox USB driver.</string>
     <string name="title_checkbox_mouse_emulation">Controller mouse mode</string>
     <string name="summary_checkbox_mouse_emulation">Hold Start to switch to mouse mode. Press Start + Back + LB + RB together to open the stream menu.</string>
     <string name="title_checkbox_flip_face_buttons">Flip face buttons</string>
@@ -249,8 +249,8 @@
     <string name="title_disable_frame_drop">Never drop frames</string>
     <string name="summary_disable_frame_drop">Reduce stutter at the cost of some delay.</string>
     <string name="title_video_format">Video codec</string>
-    <string name="summary_video_format">Choose a codec supported by your PC and device. PyroWave requires Rubylight or another host with PyroWave support.</string>
-    <string name="pyrowave_ready">Ready on this phone. Requires Rubylight or another host with PyroWave support.</string>
+    <string name="summary_video_format">Choose a codec supported by your PC and device. PyroWave needs a host that supports it (e.g. Rubylight).</string>
+    <string name="pyrowave_ready">Ready on this phone. Needs a host that supports PyroWave (e.g. Rubylight).</string>
     <string name="pyrowave_checking">Checking GPU support…</string>
     <string name="pyrowave_needs_android">Not supported: needs Android 10</string>
     <string name="pyrowave_needs_64_bit">Not supported: needs a 64-bit app</string>
@@ -279,7 +279,6 @@
     <string name="title_troubleshooting">Help and troubleshooting</string>
     <string name="summary_troubleshooting">Help with pairing, connections and streaming</string>
     <string name="title_privacy_policy">Privacy policy</string>
-    <string name="summary_privacy_policy">View Rubylight\'s privacy policy</string>
 
     <!-- Toasts -->
     <string name="toast_controller_type_changed">Motion controls may change the controller type.</string>
@@ -365,7 +364,7 @@
     <string name="category_display_settings">Display</string>
     <string name="category_latency_settings">Latency</string>
     <string name="category_codec_settings">Codec and color</string>
-    <string name="stream_menu">Rubylight stream</string>
+    <string name="stream_menu">Stream</string>
     <string name="stream_continue">Continue streaming</string>
     <string name="stream_disconnect">Disconnect</string>
     <string name="stream_status_unavailable">Host status unavailable.\nDisconnecting keeps the app running.</string>
@@ -383,8 +382,8 @@
     <string name="stream_permissions_unknown">This host does not share device permissions.</string>
     <string name="stream_permission_allowed">Allowed</string>
     <string name="stream_permission_denied">Denied</string>
-    <string name="stream_permissions_help">Change permissions under Devices in the host console.</string>
-    <string name="stream_input_denied">Input is blocked. On the PC, open Rubylight’s web console → Devices and allow this device’s keyboard, mouse or controller input.</string>
+    <string name="stream_permissions_help">Change permissions in your host’s settings or web UI.</string>
+    <string name="stream_input_denied">Input is blocked. Allow this device’s keyboard, mouse or controller input in your host’s settings or web UI.</string>
     <string name="stream_bitrate">Bitrate</string>
     <string name="stream_bitrate_help">Set Mbps for this session.\nThis turns off automatic bitrate.</string>
     <string name="stream_bitrate_invalid">Enter a bitrate from 0.5 to 500 Mbps</string>
@@ -397,8 +396,7 @@
     <string name="stream_android_arr">Android ARR: automatic policy. Works with any compatible host; Android chooses the actual refresh rate.</string>
     <string name="stream_android_max_refresh">Android ARR: unavailable on this Android version or display. Requesting maximum refresh and showing frames as they arrive.</string>
     <string name="stream_host_action_failed">Host action failed: %1$s</string>
-    <string name="host_launch_permission_denied">Allow this device to launch apps in the host console.</string>
-    <string name="category_butterpollo_host">Host display</string>
+    <string name="host_launch_permission_denied">Allow this device to launch apps in your host’s settings or web UI.</string>
     <string name="category_latency_diagnostics">Latency diagnostics</string>
     <string name="videoformat_pyrowave">PyroWave (host support required)</string>
     <string name="settings">Settings</string>

@@ -4,7 +4,7 @@
     <string name="frontend_export_roms_title">Pick your ROMs folder</string>
     <string name="frontend_export_roms_message">Add game shortcuts to this folder for ES-DE or another frontend.</string>
     <string name="frontend_export_esde_title">Pick your ES-DE folder</string>
-    <string name="frontend_export_esde_message">Add Rubylight and game covers to ES-DE?\nSkip for other frontends.</string>
+    <string name="frontend_export_esde_message">Add %1$s and game covers to ES-DE?\nSkip for other frontends.</string>
     <string name="frontend_export_pick">Pick folder</string>
     <string name="frontend_export_skip">Skip</string>
     <string name="frontend_export_no_apps">Open this PC\'s games once, then try again.</string>
@@ -15,5 +15,5 @@
         <item quantity="other">%1$d games added. Restart ES-DE to see them.</item>
     </plurals>
     <string name="frontend_export_failed">Could not add games.\nChoose a local or SD card folder.</string>
-    <string name="scut_invalid_entry">Game file unavailable.\nAdd the games again in Rubylight.</string>
+    <string name="scut_invalid_entry">Game file unavailable.\nAdd the games again in %1$s.</string>
 </resources>

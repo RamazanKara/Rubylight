@@ -5,7 +5,7 @@
     <string name="report_problem_details">Teile einen Bericht ohne persönliche Angaben.\nDu wählst, wohin du ihn sendest.</string>
     <string name="report_problem_share">Problembericht teilen</string>
     <string name="report_problem_failed">Bericht konnte nicht geteilt werden.\nPrüfe Speicherplatz und eine App zum Teilen.</string>
-    <string name="crash_report_title">Rubylight wurde beendet</string>
+    <string name="crash_report_title">%1$s wurde unerwartet beendet</string>
     <string name="crash_report_details">Absturzbericht zur Fehlersuche teilen?\nEs wird nichts automatisch gesendet.</string>
     <string name="crash_report_share">Bericht teilen</string>
     <string name="crash_report_not_now">Jetzt nicht</string>

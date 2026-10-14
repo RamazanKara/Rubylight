@@ -5,7 +5,7 @@
     <string name="report_problem_details">Share a report with personal details removed.\nYou choose where to send it.</string>
     <string name="report_problem_share">Share problem report</string>
     <string name="report_problem_failed">Could not share the report.\nCheck storage and install a file-sharing app.</string>
-    <string name="crash_report_title">Rubylight closed unexpectedly</string>
+    <string name="crash_report_title">%1$s closed unexpectedly</string>
     <string name="crash_report_details">Share crash details to help find the cause?\nNothing is sent automatically.</string>
     <string name="crash_report_share">Share report</string>
     <string name="crash_report_not_now">Not now</string>

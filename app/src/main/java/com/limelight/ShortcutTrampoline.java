@@ -427,7 +427,7 @@ public class ShortcutTrampoline extends Activity {
             LimeLog.warning("Unreadable frontend entry: " + e.getMessage());
             Dialog.displayDialog(this,
                     getResources().getString(R.string.conn_error_title),
-                    getResources().getString(R.string.scut_invalid_entry),
+                    getString(R.string.scut_invalid_entry, getString(R.string.app_name)),
                     true);
             return null;
         }

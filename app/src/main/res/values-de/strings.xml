@@ -23,8 +23,8 @@
     <string name="pair_pc_ingame">Beende den Stream am Host und kopple erneut.</string>
     <string name="pair_pairing_title">Mit PC koppeln</string>
     <string name="pair_pairing_msg">Gib diese PIN am Host ein:</string>
-    <string name="pair_pairing_help">Gib diese PIN im Kopplungsdialog des PC-Hosts ein (Sunshine: PIN; Rubylight: Geräte).</string>
-    <string name="pair_incorrect_pin">PIN abgelehnt. Kopple erneut und gib die neue PIN dieses Geräts in der Host-Webkonsole ein.</string>
+    <string name="pair_pairing_help">Gib diese PIN in den Einstellungen oder der Web-UI deines Hosts ein, meist auf der PIN- oder Kopplungsseite.</string>
+    <string name="pair_incorrect_pin">PIN abgelehnt. Kopple erneut und gib die neue PIN dieses Geräts in den Einstellungen oder der Web-UI deines Hosts ein.</string>
     <string name="pair_fail">Brich die alte Anfrage am Host ab und versuch es erneut.</string>
     <string name="pair_already_in_progress">Schließe die offene Anfrage am Host ab oder brich sie ab.</string>
     <string name="wol_pc_online">PC ist online</string>
@@ -108,7 +108,7 @@
     <string name="applist_details_id">App-ID:</string>
     <string name="title_add_pc">PC hinzufügen</string>
     <string name="msg_add_pc">Verbinde mit PC…</string>
-    <string name="addpc_fail">Starte einen kompatiblen Streaming-Host wie Sunshine oder Rubylight am PC und erlaube ihn in der Firewall.</string>
+    <string name="addpc_fail">Starte einen Moonlight-kompatiblen Streaming-Host wie Apollo, Rubylight, Sunshine oder Vibepollo am PC und erlaube ihn in der Firewall.</string>
     <string name="addpc_success">PC hinzugefügt</string>
     <string name="addpc_unknown_host">PC nicht gefunden. Prüfe die Adresse.</string>
     <string name="addpc_enter_ip">Gib die IP-Adresse oder den PC-Namen ein.</string>
@@ -151,14 +151,14 @@
     <string name="title_checkbox_xb1_driver">USB-Controller-Treiber</string>
     <string name="summary_checkbox_xb1_driver">Nutze Xbox-Controller per USB ohne Root.</string>
     <string name="title_usb_dualsense_haptics">DualSense-Audio und Haptik per USB</string>
-    <string name="summary_usb_dualsense_haptics">Detaillierte Vibration mit Rubylight und kompatiblen Vibepollo-Hosts. Aktualisierte Rubylight-Hosts unterstützen auch Controller-Lautsprecher, Headset und Mikrofon. Mikrofonübertragung benötigt die Berechtigung und ihre separate Einstellung. Verbinde den Controller nach einer Änderung erneut.</string>
+    <string name="summary_usb_dualsense_haptics">Detaillierte Vibration mit Hosts, die DualSense-Haptik unterstützen, etwa Rubylight oder Vibepollo. Manche Hosts (derzeit Rubylight) übertragen auch Controller-Lautsprecher, Headset und Mikrofon. Mikrofonübertragung benötigt die Berechtigung und ihre separate Einstellung. Verbinde den Controller nach einer Änderung erneut.</string>
     <string name="title_usb_dualsense">DualSense per USB</string>
     <string name="summary_usb_dualsense">Nutze adaptive Trigger, Vibration und mehr per USB.</string>
     <string name="usb_dualsense_permission_info">Erlaube beim Streamstart den USB-Zugriff.\nSonst bleiben adaptive Trigger aus.</string>
     <string name="usb_dualsense_enable">USB-Treiber aktivieren</string>
     <string name="usb_dualsense_denied">Kein USB-Zugriff; adaptive Trigger sind aus.\nVerbinde das Kabel erneut.</string>
     <string name="title_checkbox_usb_bind_all">USB-Treiber bevorzugen</string>
-    <string name="summary_checkbox_usb_bind_all">Nutze Rubylights Xbox-USB-Treiber.</string>
+    <string name="summary_checkbox_usb_bind_all">Nutze den integrierten Xbox-USB-Treiber der App.</string>
     <string name="title_checkbox_mouse_emulation">Controller als Maus</string>
     <string name="summary_checkbox_mouse_emulation">Halte Start gedrückt, um den Mausmodus zu wechseln. Drücke Start + Back + LB + RB zusammen, um das Stream-Menü zu öffnen.</string>
     <string name="title_checkbox_flip_face_buttons">Tasten tauschen</string>
@@ -217,8 +217,8 @@
     <string name="title_disable_frame_drop">Keine Frames verwerfen</string>
     <string name="summary_disable_frame_drop">Verringere Ruckeln auf Kosten einer höheren Latenz.</string>
     <string name="title_video_format">Videocodec</string>
-    <string name="summary_video_format">Wähle einen Codec, den PC und Gerät unterstützen. PyroWave benötigt Rubylight oder einen anderen Host mit PyroWave-Unterstützung.</string>
-    <string name="pyrowave_ready">Auf diesem Gerät verfügbar. Benötigt Rubylight oder einen anderen Host mit PyroWave-Unterstützung.</string>
+    <string name="summary_video_format">Wähle einen Codec, den PC und Gerät unterstützen. PyroWave benötigt einen Host mit PyroWave-Unterstützung (z. B. Rubylight).</string>
+    <string name="pyrowave_ready">Auf diesem Gerät verfügbar. Benötigt einen Host mit PyroWave-Unterstützung (z. B. Rubylight).</string>
     <string name="pyrowave_checking">GPU-Unterstützung wird geprüft…</string>
     <string name="pyrowave_needs_android">Benötigt Android 10</string>
     <string name="pyrowave_needs_64_bit">Benötigt eine 64-Bit-App</string>
@@ -246,7 +246,6 @@
     <string name="title_troubleshooting">Hilfe bei Problemen</string>
     <string name="summary_troubleshooting">Finde Hilfe beim Koppeln, Verbinden und Streamen.</string>
     <string name="title_privacy_policy">Datenschutz</string>
-    <string name="summary_privacy_policy">Lies die Datenschutzerklärung von Rubylight.</string>
     <string name="toast_controller_type_changed">Bewegungssteuerung kann den Controllertyp ändern.</string>
     <string name="local_network_rationale">Erlaube den Netzwerkzugriff, um deine PCs zu finden.</string>
     <string name="resolution_360p">360p</string>
@@ -321,7 +320,7 @@
     <string name="category_display_settings">Display</string>
     <string name="category_latency_settings">Latenz</string>
     <string name="category_codec_settings">Codec und Farbe</string>
-    <string name="stream_menu">Rubylight-Stream</string>
+    <string name="stream_menu">Stream</string>
     <string name="stream_continue">Weiterstreamen</string>
     <string name="stream_disconnect">Verbindung trennen</string>
     <string name="stream_status_unavailable">Host-Status nicht verfügbar.\nBeim Trennen läuft die App weiter.</string>
@@ -339,8 +338,8 @@
     <string name="stream_permissions_unknown">Dieser Host zeigt keine Geräterechte an.</string>
     <string name="stream_permission_allowed">Erlaubt</string>
     <string name="stream_permission_denied">Gesperrt</string>
-    <string name="stream_permissions_help">Ändere Rechte unter Geräte in der Host-Webkonsole.</string>
-    <string name="stream_input_denied">Eingaben sind gesperrt. Öffne am PC die Rubylight-Webkonsole → Geräte und erlaube diesem Gerät Tastatur-, Maus- oder Controller-Eingaben.</string>
+    <string name="stream_permissions_help">Ändere Rechte in den Einstellungen oder der Web-UI deines Hosts.</string>
+    <string name="stream_input_denied">Eingaben sind gesperrt. Erlaube diesem Gerät Tastatur-, Maus- oder Controller-Eingaben in den Einstellungen oder der Web-UI deines Hosts.</string>
     <string name="stream_bitrate">Bitrate</string>
     <string name="stream_bitrate_help">Mbit/s für diese Sitzung festlegen.\nDie automatische Bitrate wird deaktiviert.</string>
     <string name="stream_bitrate_invalid">Gib eine Bitrate von 0,5 bis 500 Mbit/s ein.</string>
@@ -353,8 +352,7 @@
     <string name="stream_android_arr">Android ARR: automatische Steuerung. Funktioniert mit jedem kompatiblen Host; Android wählt die tatsächliche Bildwiederholrate.</string>
     <string name="stream_android_max_refresh">Android ARR: auf dieser Android-Version oder diesem Display nicht verfügbar. Die maximale Bildwiederholrate wird angefordert und Frames werden sofort angezeigt.</string>
     <string name="stream_host_action_failed">Host-Aktion fehlgeschlagen: %1$s</string>
-    <string name="host_launch_permission_denied">Erlaube App-Starts für dieses Gerät in der Host-Webkonsole.</string>
-    <string name="category_butterpollo_host">Host-Display</string>
+    <string name="host_launch_permission_denied">Erlaube App-Starts für dieses Gerät in den Einstellungen oder der Web-UI deines Hosts.</string>
     <string name="category_latency_diagnostics">Latenzmessung</string>
     <string name="videoformat_pyrowave">PyroWave (Host-Unterstützung nötig)</string>
     <string name="settings">Einstellungen</string>

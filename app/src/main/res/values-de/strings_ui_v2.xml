@@ -5,7 +5,6 @@
     <string name="settings_custom">Eigene Einstellung</string>
     <string name="setting_help">Info zu %1$s</string>
     <string name="stream_presets_help_title">Info zu Vorgaben</string>
-    <string name="settings_overlay_audio_summary">Anzeige %1$s · %2$s</string>
     <string name="settings_version">Version %1$s</string>
     <string name="settings_source">Quellcode und Lizenzen</string>
     <string name="settings_csv_summary">Speichere die letzten Latenzmesswerte.</string>

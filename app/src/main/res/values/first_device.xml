@@ -11,15 +11,7 @@
     <string name="crash_report_not_now">Not now</string>
     <string name="stream_restore_help">Stream interrupted.\nOpen your PC’s app list to resume.</string>
     <string name="stream_presets">Presets</string>
-    <string name="stream_presets_summary">Choose settings for speed, quality or battery life.</string>
     <string name="stream_presets_help">Native streams at this screen\'s resolution and refresh rate with every latency setting on.\nBattery saver keeps that resolution at 30 fps.\nPC profiles still take priority.</string>
-    <string name="stream_preset_applied">Preset applied; PC profiles take priority.</string>
-    <string-array name="stream_preset_descriptions">
-        <item>Balanced · 15 Mbps, screen FPS, upscaling off</item>
-        <item>Low latency · 15 Mbps, VRR, SGSR 1</item>
-        <item>Best quality · 40 Mbps, screen FPS, FSR 1.0</item>
-        <item>Battery saver · 8 Mbps, 30 FPS, Bilinear</item>
-    </string-array>
     <string name="summary_stretch_video">Fill the screen; the image may look wider or taller.</string>
     <string name="summary_frame_pacing">Balance response time and smoothness when VRR is off.</string>
     <string name="summary_language">Choose the language used by the app.</string>

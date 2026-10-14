@@ -11,15 +11,7 @@
     <string name="crash_report_not_now">Jetzt nicht</string>
     <string name="stream_restore_help">Stream unterbrochen.\nÖffne die App-Liste deines PCs zum Fortsetzen.</string>
     <string name="stream_presets">Vorgaben</string>
-    <string name="stream_presets_summary">Wähle Tempo, Bildqualität oder längere Akkulaufzeit.</string>
     <string name="stream_presets_help">Nativ streamt in Auflösung und Bildrate dieses Bildschirms, mit allen Latenz-Einstellungen an.\nAkku sparen behält die Auflösung bei 30 FPS.\nPC-Profile haben weiterhin Vorrang.</string>
-    <string name="stream_preset_applied">Vorgabe angewendet; PC-Profile haben Vorrang.</string>
-    <string-array name="stream_preset_descriptions">
-        <item>Ausgewogen · 15 Mbit/s, Display-FPS, Hochskalierung aus</item>
-        <item>Niedrige Latenz · 15 Mbit/s, VRR, SGSR 1</item>
-        <item>Beste Qualität · 40 Mbit/s, Display-FPS, FSR 1.0</item>
-        <item>Akku sparen · 8 Mbit/s, 30 FPS, Bilinear</item>
-    </string-array>
     <string name="summary_stretch_video">Fülle das Display mit einem eventuell verzerrten Bild.</string>
     <string name="summary_frame_pacing">Wäge ohne VRR zwischen Latenz und flüssigem Bild ab.</string>
     <string name="summary_language">Wähle die Sprache der App.</string>

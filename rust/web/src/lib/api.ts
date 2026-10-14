@@ -164,6 +164,13 @@ export interface AudioEndpoint {
   default: boolean;
   virtual_sink: boolean;
 }
+export interface Gpu {
+  name: string;
+  vendor: number;
+  dedicated_memory: number;
+  luid: [number, number];
+  pnp_id: string | null;
+}
 export interface Metadata {
   status: true;
   platform: 'windows';
@@ -182,6 +189,8 @@ export interface Metadata {
     error: string | null;
   };
   virtual_display: { capable: boolean; ready: boolean; reason: string; protocol: string };
+  gpus: Gpu[] | null;
+  gpu_error: string | null;
   audio_sinks: AudioEndpoint[] | null;
   audio_error: string | null;
   audio_enabled: boolean;

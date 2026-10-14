@@ -53,49 +53,57 @@ pub(super) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
         ("GET", "/api/configLocale") => {
             json!({"status":true,"locale":h.config.read().unwrap().get("locale","en")})
         }
-        ("GET", "/api/meta" | "/api/metadata") => {
-            let shared = h.clone();
-            (|| -> anyhow::Result<Value> {
-                let mut cached = shared.metadata.lock().unwrap();
-                if let Some((checked, value)) = cached.as_ref()
-                    && checked.elapsed() < Duration::from_secs(5)
-                {
-                    return Ok(value.clone());
-                }
-                let _com = butterpollo_windows::capture::ComGuard::new()?;
-                let codecs = shared.codecs.load(std::sync::atomic::Ordering::Acquire);
-                let probing = shared
-                    .probing_codecs
-                    .load(std::sync::atomic::Ordering::Acquire);
-                let virtual_display = butterpollo_windows::display::virtual_display_status();
-                let capable = virtual_display["capable"].as_bool().unwrap_or(false);
-                let audio = butterpollo_windows::audio_route::endpoints();
-                let displays = butterpollo_windows::capture::displays();
-                let config = shared.config.read().unwrap().clone();
-                let port = config.ports()?.http;
-                let address = |host: String| {
-                    if port == 47989 {
-                        host
-                    } else {
-                        format!("{host}:{port}")
-                    }
-                };
-                let addresses = butterpollo_windows::net::lan_addresses()
-                    .unwrap_or_default()
-                    .into_iter()
-                    .map(address)
-                    .collect::<Vec<_>>();
-                let pc_address = addresses
-                    .first()
-                    .cloned()
-                    .unwrap_or_else(|| address(std::env::var("COMPUTERNAME").unwrap_or_default()));
-                let value = json!({"status":true,"platform":"windows","version":env!("CARGO_PKG_VERSION"),"branch":"codex/butterpollo-rust","host_name":crate::network::host_name(&config),"pc_address":pc_address,"pc_addresses":addresses,"paired_devices":shared.paired.read().unwrap().clients.len(),"enable_pairing":config.boolean("enable_pairing",true),"warnings":shared.warnings.snapshot(),"encoder_status":{"state":if probing {"checking"} else if codecs == 0 {"failed"} else {"ready"},"h264":codecs&1!=0,"hevc":codecs&0x100!=0,"av1":codecs&0x10000!=0,"pyrowave":codecs&0x800000!=0},"capture_status":{"configured_backend":config.get("capture","auto"),"virtual_display_configured":config.virtual_display_mode(butterpollo_windows::display::windows_11())!="disabled","displays":displays.as_ref().ok(),"error":displays.as_ref().err().map(|e|e.to_string())},"virtual_display":virtual_display,"audio_sinks":audio.as_ref().ok(),"audio_error":audio.as_ref().err().map(|e|e.to_string()),"audio_enabled":config.boolean("stream_audio",true),"features":{"rust_host":true,"hdr":true,"truehdr_runtime":butterpollo_windows::truehdr::available(),"pyrowave":codecs&0x800000!=0,"virtual_display":capable},"credentials_exists":shared.credentials.read().unwrap().is_some()});
-                *cached = Some((Instant::now(), value.clone()));
-                Ok(value)
-            })()?
-        }
+        ("GET", "/api/meta" | "/api/metadata") => metadata(
+            h,
+            butterpollo_windows::capture::gpus,
+            butterpollo_windows::capture::displays,
+        )?,
         _ => return Err(anyhow::anyhow!("unknown API endpoint")),
     })
+}
+
+fn metadata(
+    shared: &Shared,
+    gpu_inventory: impl FnOnce() -> anyhow::Result<Vec<butterpollo_windows::capture::Gpu>>,
+    display_inventory: impl FnOnce() -> anyhow::Result<Vec<butterpollo_windows::capture::Display>>,
+) -> anyhow::Result<Value> {
+    let mut cached = shared.metadata.lock().unwrap();
+    if let Some((checked, value)) = cached.as_ref()
+        && checked.elapsed() < Duration::from_secs(5)
+    {
+        return Ok(value.clone());
+    }
+    let _com = butterpollo_windows::capture::ComGuard::new()?;
+    let codecs = shared.codecs.load(std::sync::atomic::Ordering::Acquire);
+    let probing = shared
+        .probing_codecs
+        .load(std::sync::atomic::Ordering::Acquire);
+    let virtual_display = butterpollo_windows::display::virtual_display_status();
+    let capable = virtual_display["capable"].as_bool().unwrap_or(false);
+    let audio = butterpollo_windows::audio_route::endpoints();
+    let gpus = gpu_inventory();
+    let displays = display_inventory();
+    let config = shared.config.read().unwrap().clone();
+    let port = config.ports()?.http;
+    let address = |host: String| {
+        if port == 47989 {
+            host
+        } else {
+            format!("{host}:{port}")
+        }
+    };
+    let addresses = butterpollo_windows::net::lan_addresses()
+        .unwrap_or_default()
+        .into_iter()
+        .map(address)
+        .collect::<Vec<_>>();
+    let pc_address = addresses
+        .first()
+        .cloned()
+        .unwrap_or_else(|| address(std::env::var("COMPUTERNAME").unwrap_or_default()));
+    let value = json!({"status":true,"platform":"windows","version":env!("CARGO_PKG_VERSION"),"branch":"codex/butterpollo-rust","host_name":crate::network::host_name(&config),"pc_address":pc_address,"pc_addresses":addresses,"paired_devices":shared.paired.read().unwrap().clients.len(),"enable_pairing":config.boolean("enable_pairing",true),"warnings":shared.warnings.snapshot(),"encoder_status":{"state":if probing {"checking"} else if codecs == 0 {"failed"} else {"ready"},"h264":codecs&1!=0,"hevc":codecs&0x100!=0,"av1":codecs&0x10000!=0,"pyrowave":codecs&0x800000!=0},"capture_status":{"configured_backend":config.get("capture","auto"),"virtual_display_configured":config.virtual_display_mode(butterpollo_windows::display::windows_11())!="disabled","displays":displays.as_ref().ok(),"error":displays.as_ref().err().map(|e|e.to_string())},"virtual_display":virtual_display,"gpus":gpus.as_ref().ok(),"gpu_error":gpus.as_ref().err().map(|e|e.to_string()),"audio_sinks":audio.as_ref().ok(),"audio_error":audio.as_ref().err().map(|e|e.to_string()),"audio_enabled":config.boolean("stream_audio",true),"features":{"rust_host":true,"hdr":true,"truehdr_runtime":butterpollo_windows::truehdr::available(),"pyrowave":codecs&0x800000!=0,"virtual_display":capable},"credentials_exists":shared.credentials.read().unwrap().is_some()});
+    *cached = Some((Instant::now(), value.clone()));
+    Ok(value)
 }
 
 #[cfg(test)]
@@ -103,6 +111,111 @@ mod tests {
     use super::*;
     use crate::state::{Host, test_support::Fixture};
     use butterpollo_core::config::Config;
+    use butterpollo_windows::capture::{Display, Gpu};
+
+    fn hybrid_gpus() -> Vec<Gpu> {
+        vec![
+            Gpu {
+                name: "Intel Iris Xe Graphics".into(),
+                vendor: 0x8086,
+                dedicated_memory: 128 * 1024 * 1024,
+                luid: (1, 0),
+                pnp_id: Some("PCI\\VEN_8086&DEV_0001\\1".into()),
+            },
+            Gpu {
+                name: "AMD Radeon RX 7600M XT".into(),
+                vendor: 0x1002,
+                dedicated_memory: 8 * 1024 * 1024 * 1024,
+                luid: (2, 0),
+                pnp_id: None,
+            },
+        ]
+    }
+
+    fn integrated_display() -> Vec<Display> {
+        vec![Display {
+            device_id: r"\\.\DISPLAY1".into(),
+            display_name: r"\\.\DISPLAY1".into(),
+            friendly_name: "Laptop panel".into(),
+            width: 1920,
+            height: 1080,
+            x: 0,
+            y: 0,
+            primary: true,
+            adapter: "Intel Iris Xe Graphics".into(),
+            adapter_index: 0,
+            output_index: 0,
+        }]
+    }
+
+    #[test]
+    fn metadata_lists_render_only_gpus_independently_of_display_adapters() {
+        let fixture = Fixture::new();
+        let value = metadata(
+            &fixture.host,
+            || Ok(hybrid_gpus()),
+            || Ok(integrated_display()),
+        )
+        .unwrap();
+        assert_eq!(value["status"], true);
+        assert_eq!(value["gpus"], json!(hybrid_gpus()));
+        assert!(value["gpu_error"].is_null());
+        assert_eq!(
+            value["capture_status"]["displays"],
+            json!(integrated_display())
+        );
+        assert!(value["capture_status"]["error"].is_null());
+        let cached = metadata(
+            &fixture.host,
+            || panic!("a cached request must not enumerate GPUs again"),
+            || panic!("a cached request must not enumerate displays again"),
+        )
+        .unwrap();
+        assert_eq!(cached, value);
+    }
+
+    #[test]
+    fn metadata_keeps_gpu_and_display_enumeration_failures_separate() {
+        let fixture = Fixture::new();
+        let missing_displays = metadata(
+            &fixture.host,
+            || Ok(hybrid_gpus()),
+            || anyhow::bail!("display enumeration failed"),
+        )
+        .unwrap();
+        assert_eq!(missing_displays["gpus"], json!(hybrid_gpus()));
+        assert!(missing_displays["gpu_error"].is_null());
+        assert!(missing_displays["capture_status"]["displays"].is_null());
+        assert_eq!(
+            missing_displays["capture_status"]["error"],
+            "display enumeration failed"
+        );
+
+        fixture.host.metadata.lock().unwrap().take();
+        let missing_gpus = metadata(
+            &fixture.host,
+            || anyhow::bail!("GPU enumeration failed"),
+            || Ok(integrated_display()),
+        )
+        .unwrap();
+        assert!(missing_gpus["gpus"].is_null());
+        assert_eq!(missing_gpus["gpu_error"], "GPU enumeration failed");
+        assert_eq!(
+            missing_gpus["capture_status"]["displays"],
+            json!(integrated_display())
+        );
+        assert!(missing_gpus["capture_status"]["error"].is_null());
+    }
+
+    #[test]
+    fn metadata_distinguishes_empty_gpu_inventory_from_an_enumeration_failure() {
+        let fixture = Fixture::new();
+        let value = metadata(&fixture.host, || Ok(vec![]), || Ok(vec![])).unwrap();
+        assert_eq!(value["gpus"], json!([]));
+        assert!(value["gpu_error"].is_null());
+        assert_eq!(value["capture_status"]["displays"], json!([]));
+        assert!(value["capture_status"]["error"].is_null());
+    }
 
     #[test]
     fn concurrent_configuration_patches_preserve_both_updates() {

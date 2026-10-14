@@ -6,6 +6,10 @@
 
 Rubylight, called Butterpollo until rc.29, is written in Rust: host, native helpers, service and setup, with a Svelte web console. The 2.2.19 installer is named `rubylight-setup-2.2.19.exe` and upgrades an existing Vibepollo or Butterpollo installation in place, keeping settings, paired devices, the app library and covers. Codec SDKs and Windows drivers remain external components; the setup installs the drivers.
 
+## Unreleased
+
+- **Show GPUs without an attached monitor in Graphics card ([#28](https://github.com/RamazanKara/Rubylight/issues/28)).** The list now includes all hardware GPUs reported by Windows DXGI, so a hybrid system's dedicated GPU is no longer omitted just because its displays connect to the integrated GPU. Automatic still uses the captured display's GPU; appearing in the list does not confirm encoder or codec support.
+
 ## New in 2.2.19
 
 - **Offer adaptive packet pacing for difficult connections.** The existing fast route-based policy remains the default. Experimental adaptive pacing is an explicit option for H.264, HEVC and AV1: it starts conservatively, then probes faster rates with active video and healthy control feedback. Loss during a probe restores the preceding rate. Picture bitrate and FPS stay unchanged, but startup takes longer and probing can still lose packets. A suitable fixed pacing limit remains the simpler choice for a known constrained path. Explicit limits, PyroWave and opt-in host bitrate adaptation keep their own policies. The reported Onn issue is not confirmed resolved. [Configuration](../docs/configuration.md#capture-and-video).

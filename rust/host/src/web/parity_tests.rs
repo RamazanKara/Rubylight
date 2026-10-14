@@ -30,6 +30,31 @@ async fn value(response: Response, status: StatusCode) -> Value {
 }
 
 #[tokio::test]
+async fn both_metadata_routes_require_authentication_and_preserve_gpu_inventory() {
+    let f = Fixture::new();
+    let expected = json!({
+        "status": true,
+        "gpus": [{"name": "AMD Radeon RX 7600M XT", "vendor": 4098,
+            "dedicated_memory": 8589934592u64, "luid": [2, 0], "pnp_id": null}],
+        "gpu_error": null,
+        "capture_status": {"displays": [], "error": null}
+    });
+    for path in ["/api/metadata", "/api/meta"] {
+        // Populate the cache without opening GPU devices or probing encoders.
+        *f.host.metadata.lock().unwrap() = Some((Instant::now(), expected.clone()));
+        let actual = value(request(&f, "GET", path, Value::Null).await, StatusCode::OK).await;
+        assert_eq!(actual, expected);
+        let anonymous = router(f.host.clone())
+            .layer(Extension(f.connection(true)))
+            .oneshot(Request::builder().uri(path).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        let denied = value(anonymous, StatusCode::UNAUTHORIZED).await;
+        assert!(denied.get("gpus").is_none());
+    }
+}
+
+#[tokio::test]
 async fn device_updates_persist_permissions_overrides_and_revoke_only_that_devices_sessions() {
     let f = Fixture::new();
     let client = f.client(0x071f1f00);

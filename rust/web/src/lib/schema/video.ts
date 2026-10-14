@@ -387,7 +387,7 @@ const encoders: Setting[] = [
     key: 'adapter_name',
     label: 'Graphics card',
     description:
-      'The graphics processing unit (GPU) that captures and compresses the video. Automatic uses the card connected to the streamed display.',
+      'The graphics processing unit (GPU) that captures and compresses the video. Lists hardware GPUs even without a connected display; available codecs depend on the GPU and driver. Automatic uses the card connected to the streamed display.',
     category: 'encoders',
     group: 'Encoder',
     control: { kind: 'adapter' },

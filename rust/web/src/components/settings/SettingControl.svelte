@@ -88,7 +88,7 @@
         break;
       case 'adapter': {
         options.push({ value: '', label: 'Automatic' });
-        const names = new Set((meta?.capture_status.displays ?? []).map((display) => display.adapter).filter(Boolean));
+        const names = new Set((meta?.gpus ?? []).map((gpu) => gpu.name).filter(Boolean));
         for (const name of names) options.push({ value: current && same(current, name) ? current : name, label: name });
         break;
       }
@@ -107,9 +107,10 @@
   const hostError = $derived.by(() => {
     const meta = session.metadata;
     if (!meta) return '';
-    if (control.kind === 'display' || control.kind === 'adapter') {
+    if (control.kind === 'display') {
       return meta.capture_status.error ? `Could not list displays: ${meta.capture_status.error}` : '';
     }
+    if (control.kind === 'adapter') return meta.gpu_error ? `Could not list graphics cards: ${meta.gpu_error}` : '';
     if (control.kind === 'audio') return meta.audio_error ? `Could not list audio devices: ${meta.audio_error}` : '';
     return '';
   });

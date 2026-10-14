@@ -2,6 +2,10 @@
 
 The wire formats Rubylight's host and clients share, written once in Rust.
 
+These are the Rubylight host's extensions, so the crate, its C header and the static
+library keep their `rubylight` names: the host pins this crate, and Nightjar uses them only
+when the host advertises them.
+
 - `core/` is the `rubylight-protocol` crate: `no_std` with `alloc` and no dependencies, so
   the host can take it as an ordinary dependency.
 - `ffi/` wraps it in a C ABI for the Android client (`ffi/include/rubylight_protocol.h`).

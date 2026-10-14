@@ -1,6 +1,6 @@
-# Rubylight device checklist
+# Nightjar device checklist
 
-[Documentation](../docs/index.md) · [Parity matrix](../docs/PARITY-MATRIX.md)
+[Documentation](../docs/index.md) · [Host feature matrix](../docs/PARITY-MATRIX.md)
 
 Record the app build, host version, phone/tablet/TV model, SoC, Android build, controller model/firmware, display mode and network for each run. Attach the relevant copied stats, CSV, host logs and captures. Unchecked items below are a test plan, not claimed results.
 
@@ -74,4 +74,4 @@ Record the app build, host version, phone/tablet/TV model, SoC, Android build, c
 - [ ] Export ES-DE configuration and covers; launch from ES-DE, Daijisho and Pegasus. Test renamed games with stable IDs/UUIDs, interrupted writes and retry, custom-cover preservation, unreadable/malformed files, missing PCs/apps, URI grants and return to the frontend.
 - [ ] Test debug and R8 release artifacts and the production signing identity. Retain GPL and bundled shader/native notices.
 - [ ] Verify packaged native ELF and ZIP alignment and run on a 16 KB page-size Android device. Check all included ABIs and the 64-bit-only PyroWave path.
-- [ ] Capture current Rubylight setup, settings, PC profile and live stream-menu/overlay screens. UI fixture captures do not establish a live host or hardware decode result.
+- [ ] Capture current Nightjar setup, settings, PC profile and live stream-menu/overlay screens. UI fixture captures do not establish a live host or hardware decode result.

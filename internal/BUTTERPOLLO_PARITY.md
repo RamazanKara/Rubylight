@@ -1,4 +1,8 @@
-# Rubylight Android parity — client gap follow-up
+# Android client parity log (historical)
+
+> Historical record, written while this app was called Butterpollo and then Rubylight Android.
+> In client context "Rubylight" below means this app, now Nightjar; host links and host behavior
+> refer to the Rubylight host. See [RENAME.md](../docs/RENAME.md).
 
 > The current one-page status against the host's `main` is [PARITY-MATRIX.md](../docs/PARITY-MATRIX.md).
 > This file keeps the detailed evidence and the real-device checklist.

@@ -107,6 +107,30 @@ public class AdaptiveLayoutTest {
     }
 
     @Test
+    @Config(sdk = 30)
+    public void bottomSheetPassesBarsThroughAndAddsOnlyTheRemainingCutoutSafeArea() {
+        try (var controller = Robolectric.buildActivity(Screen.class).setup()) {
+            View root = new android.widget.FrameLayout(controller.get());
+            AdaptiveLayout.attachBottomSheet(controller.get(), root);
+            root.layout(0, 0, 1000, 800);
+            WindowInsetsCompat insets = new WindowInsetsCompat.Builder()
+                    .setInsets(WindowInsetsCompat.Type.systemBars(), Insets.of(12, 24, 0, 96))
+                    .setInsets(WindowInsetsCompat.Type.displayCutout(), Insets.of(52, 24, 0, 0)).build();
+            for (int i = 0; i < 2; i++) {
+                WindowInsetsCompat dispatched = ViewCompat.dispatchApplyWindowInsets(root, insets);
+                assertEquals(96, dispatched.getInsets(WindowInsetsCompat.Type.systemBars()).bottom);
+                assertEquals(40, root.getPaddingLeft());
+                assertEquals(0, root.getPaddingTop());
+                assertEquals(0, root.getPaddingBottom());
+            }
+            Consumer<WindowLayoutInfo> listener = ReflectionHelpers.getField(root.getTag(R.id.adaptive_layout), "listener");
+            listener.accept(new WindowLayoutInfo(Collections.singletonList(fold(true))));
+            assertEquals(510, root.getPaddingLeft());
+            assertEquals(0, root.getPaddingRight());
+        }
+    }
+
+    @Test
     public void unfoldingRestoresTheFullWindowAndFlatUnoccludedFoldsDoNotSplitIt() {
         ActivityController<Screen> controller = Robolectric.buildActivity(Screen.class).setup();
         try {

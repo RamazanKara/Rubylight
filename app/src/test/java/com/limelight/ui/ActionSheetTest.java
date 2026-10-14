@@ -12,6 +12,29 @@ import static org.junit.Assert.*;
 @RunWith(org.robolectric.RobolectricTestRunner.class)
 @Config(sdk = 28, application = Application.class)
 public class ActionSheetTest {
+    @Test @Config(sdk = 35) public void navigationInsetsReachTheMaterialSheet() {
+        try (var controller = Robolectric.buildActivity(ToolbarIconTintTest.Screen.class).setup()) {
+            ActionSheet sheet = new ActionSheet(controller.get(), "PC actions");
+            sheet.addAction(R.drawable.ic_settings, "Last action");
+            sheet.show();
+            org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle();
+            View decor = sheet.getWindow().getDecorView();
+            decor.measure(View.MeasureSpec.makeMeasureSpec(786, View.MeasureSpec.EXACTLY),
+                    View.MeasureSpec.makeMeasureSpec(1704, View.MeasureSpec.EXACTLY));
+            decor.layout(0, 0, 786, 1704);
+            var insets = new androidx.core.view.WindowInsetsCompat.Builder()
+                    .setInsets(androidx.core.view.WindowInsetsCompat.Type.systemBars(),
+                            androidx.core.graphics.Insets.of(0, 48, 0, 96)).build();
+            androidx.core.view.ViewCompat.dispatchApplyWindowInsets(decor, insets);
+            View surface = sheet.findViewById(com.google.android.material.R.id.design_bottom_sheet);
+            assertEquals(96, surface.getPaddingBottom());
+            // Repeated dispatch must not accumulate padding.
+            androidx.core.view.ViewCompat.dispatchApplyWindowInsets(decor, insets);
+            assertEquals(96, surface.getPaddingBottom());
+            sheet.dismiss();
+        }
+    }
+
     @Test public void controllerBackAndEscapeDismissWithoutActivatingAnAction() {
         try (var controller = Robolectric.buildActivity(ToolbarIconTintTest.Screen.class).setup()) {
             for (int key : new int[]{android.view.KeyEvent.KEYCODE_BUTTON_B, android.view.KeyEvent.KEYCODE_ESCAPE}) {

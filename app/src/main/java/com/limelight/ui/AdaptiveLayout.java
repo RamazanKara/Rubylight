@@ -30,14 +30,16 @@ public final class AdaptiveLayout {
     private final Activity activity;
     private final View root;
     private final boolean streaming;
+    private final boolean handleSystemInsets;
     private final WindowInfoTrackerCallbackAdapter tracker;
     private final Consumer<WindowLayoutInfo> listener;
     private WindowInsetsCompat windowInsets = WindowInsetsCompat.CONSUMED;
     private FoldingFeature fold;
 
-    private AdaptiveLayout(Activity activity, View root) {
+    private AdaptiveLayout(Activity activity, View root, boolean handleSystemInsets) {
         this.activity = activity;
         this.root = root;
+        this.handleSystemInsets = handleSystemInsets;
         streaming = activity instanceof Game && root == activity.findViewById(android.R.id.content);
         tracker = new WindowInfoTrackerCallbackAdapter(
                 WindowInfoTracker.getOrCreate(activity));
@@ -78,14 +80,23 @@ public final class AdaptiveLayout {
         ViewCompat.setOnApplyWindowInsetsListener(root, (view, appliedInsets) -> {
             windowInsets = appliedInsets;
             update();
-            return WindowInsetsCompat.CONSUMED;
+            return handleSystemInsets ? WindowInsetsCompat.CONSUMED : appliedInsets;
         });
         root.addOnLayoutChangeListener((view, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> update());
     }
 
     public static AdaptiveLayout attach(Activity activity, View root) {
+        return attach(activity, root, true);
+    }
+
+    /** Preserve hinge and TV safe areas while Material handles the sheet's system-bar insets. */
+    public static AdaptiveLayout attachBottomSheet(Activity activity, View root) {
+        return attach(activity, root, false);
+    }
+
+    private static AdaptiveLayout attach(Activity activity, View root, boolean handleSystemInsets) {
         if (root.getTag(R.id.adaptive_layout) == null) {
-            root.setTag(R.id.adaptive_layout, new AdaptiveLayout(activity, root));
+            root.setTag(R.id.adaptive_layout, new AdaptiveLayout(activity, root, handleSystemInsets));
         }
         ViewCompat.requestApplyInsets(root);
         return (AdaptiveLayout) root.getTag(R.id.adaptive_layout);
@@ -109,7 +120,9 @@ public final class AdaptiveLayout {
         boolean television = (root.getResources().getConfiguration().uiMode & Configuration.UI_MODE_TYPE_MASK)
                 == Configuration.UI_MODE_TYPE_TELEVISION;
         int types;
-        if (!streaming) {
+        if (!handleSystemInsets) {
+            types = 0;
+        } else if (!streaming) {
             types = WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout() |
                     WindowInsetsCompat.Type.ime();
         } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && activity.isInMultiWindowMode()) {
@@ -120,6 +133,13 @@ public final class AdaptiveLayout {
             types = ((Game) activity).usesFullDisplayForVideo() ? 0 : WindowInsetsCompat.Type.displayCutout();
         }
         Insets insets = windowInsets.getInsets(types);
+        if (!handleSystemInsets) {
+            // Material accounts for system bars, but a landscape camera cutout may extend farther.
+            Insets cutout = windowInsets.getInsets(WindowInsetsCompat.Type.displayCutout());
+            Insets bars = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars());
+            insets = Insets.of(Math.max(0, cutout.left - bars.left), Math.max(0, cutout.top - bars.top),
+                    Math.max(0, cutout.right - bars.right), Math.max(0, cutout.bottom - bars.bottom));
+        }
         int margin = television && !streaming ? Math.round(24 * density) : 0;
         Rect available = new Rect(insets.left + margin, insets.top + margin,
                 root.getWidth() - insets.right - margin, root.getHeight() - insets.bottom - margin);

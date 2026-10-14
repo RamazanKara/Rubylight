@@ -339,6 +339,28 @@ mod tests {
         assert!(!sessions.pending.contains_key("slow"));
     }
     #[test]
+    fn starting_rechecks_launch_expiry_after_rtsp_authorization() {
+        let mut sessions = Sessions::default();
+        let fresh = launch("expired-before-play", Role::Stream);
+        sessions.pending.insert(fresh.id.clone(), fresh.clone());
+        let authorized = sessions.pending_for_peer(fresh.peer).unwrap();
+        // The RTSP connection can wait for input after taking its authorized
+        // snapshot. PLAY must check the current launch, even before housekeeping.
+        sessions.pending.get_mut(&fresh.id).unwrap().created =
+            Instant::now() - Duration::from_secs(31);
+        assert!(sessions.start(authorized, Negotiated::default()).is_err());
+        assert!(sessions.active.is_empty());
+        // Keep preparation ownership for expire() to return to its caller;
+        // restoring display/audio resources must happen outside the session lock.
+        assert!(sessions.pending.contains_key(&fresh.id));
+        assert_eq!(sessions.expire().len(), 1);
+
+        let fresh = launch("valid-play", Role::Stream);
+        sessions.pending.insert(fresh.id.clone(), fresh.clone());
+        assert!(sessions.start(fresh.clone(), Negotiated::default()).is_ok());
+        assert!(sessions.start(fresh, Negotiated::default()).is_err());
+    }
+    #[test]
     fn expired_launches_restore_resources_after_unlocking_sessions() {
         use std::sync::{Mutex, Weak};
         struct Restore {
@@ -1221,9 +1243,17 @@ impl<P, A> Sessions<P, A> {
         launch: Launch<P, A>,
         config: Negotiated,
     ) -> Result<Arc<Session<P, A>>> {
-        if self.pending.remove(&launch.id).is_none() {
+        // RTSP authenticates before awaiting the request. Recheck the stored
+        // launch at PLAY so a stale snapshot cannot revive an expired launch.
+        // Leave expired preparations for expire() to release outside the lock.
+        if self
+            .pending
+            .get(&launch.id)
+            .is_none_or(|pending| !pending.live())
+        {
             bail!("launch expired or already consumed");
         }
+        self.pending.remove(&launch.id);
         let s = Session::new(launch, config);
         self.active.insert(s.launch.id.clone(), s.clone());
         Ok(s)

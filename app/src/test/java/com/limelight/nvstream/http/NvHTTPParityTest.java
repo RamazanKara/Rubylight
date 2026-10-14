@@ -167,7 +167,7 @@ public class NvHTTPParityTest {
     }
 
     @Test
-    public void butterpolloAdvertisesUnsignedPermissionsAndFractionalLimiter() throws Exception {
+    public void rubylightAdvertisesUnsignedPermissionsAndFractionalLimiter() throws Exception {
         ComputerDetails details = http().getComputerDetails(fixture("butterpollo-serverinfo.xml"));
         assertEquals(0xFFFFFFFFL, details.permission);
         assertTrue(details.canReadClipboard());
@@ -573,7 +573,7 @@ public class NvHTTPParityTest {
     }
 
     @Test
-    public void butterpolloLaunchPreservesNativePixelsAndFractionalHighRefresh() throws Exception {
+    public void rubylightLaunchPreservesNativePixelsAndFractionalHighRefresh() throws Exception {
         ConnectionContext context = context("butterpollo-serverinfo.xml");
         Locale previous = Locale.getDefault();
         try {
@@ -602,7 +602,7 @@ public class NvHTTPParityTest {
     }
 
     @Test
-    public void customFractionalRateOverridesPanelMatchingOnlyOnButterpollo() throws Exception {
+    public void customFractionalRateOverridesPanelMatchingOnlyOnRubylight() throws Exception {
         for (String host : new String[] {"butterpollo-serverinfo.xml", "apollo-serverinfo.xml", "sunshine-serverinfo.xml"}) {
             ConnectionContext context = context(host);
             context.streamConfig = new StreamConfiguration.Builder().setLaunchRefreshRate(60)

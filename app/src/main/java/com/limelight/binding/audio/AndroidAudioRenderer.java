@@ -31,6 +31,9 @@ public class AndroidAudioRenderer implements AudioRenderer {
     private int channelConfig, sampleRate, samplesPerFrame, channels;
     private boolean stopped;
     private boolean audioFxSessionOpen;
+    // A dead track is rebuilt at most this often; every other failure only drops one buffer.
+    private static final long TRACK_RECREATE_INTERVAL_MS = 1000;
+    private long nextTrackRecreateAt, nextWriteWarningAt;
 
     private static native long nativeOpenAudio(int sampleRate);
     private static native boolean nativeWriteAudio(long handle, short[] samples, int length);
@@ -263,20 +266,19 @@ public class AndroidAudioRenderer implements AudioRenderer {
                 nativeAudio = 0;
                 bufferPolicy = null;
                 LimeLog.warning("AAudio disconnected; falling back to AudioTrack");
+                nextTrackRecreateAt = uptimeMillis() + TRACK_RECREATE_INTERVAL_MS;
                 if (setupAudioTrack() != 0) {
-                    stopped = true;
+                    // Later buffers retry the AudioTrack like any other dead output.
                     return;
                 }
             }
             // This will block until the write is completed. That can cause a backlog
             // of pending audio data, so we do the above check to be able to bound
             // latency at 40 ms in that situation.
-            if (!writeAudioTrackFully(audioData, length)) {
-                stopped = true;
-                releaseAudioTrack();
-                return;
+            // A failed write drops only this buffer; the session's audio keeps playing.
+            if (writeAudioTrackFully(audioData, length)) {
+                tuneBuffer();
             }
-            tuneBuffer();
         }
         else {
             LimeLog.info("Too much pending audio data: " + MoonBridge.getPendingAudioDuration() +" ms");
@@ -295,9 +297,15 @@ public class AndroidAudioRenderer implements AudioRenderer {
         }
     }
 
-    // Package-visible write/recreation hooks keep recovery testable without an audio device.
+    // Package-visible write/recreation/clock hooks keep recovery testable without an audio device.
     int writeAudioTrack(short[] audioData, int offset, int length) {
-        return track.write(audioData, offset, length);
+        AudioTrack current = track;
+        // A failed recreation leaves no track. Treat that like a dead one so recovery is retried.
+        return current == null ? AudioTrack.ERROR_DEAD_OBJECT : current.write(audioData, offset, length);
+    }
+
+    long uptimeMillis() {
+        return SystemClock.uptimeMillis();
     }
 
     boolean recreateAudioTrack() {
@@ -312,6 +320,7 @@ public class AndroidAudioRenderer implements AudioRenderer {
         return true;
     }
 
+    // Returns false when the rest of this buffer was dropped. The caller keeps playing the next one.
     boolean writeAudioTrackFully(short[] audioData, int length) {
         int offset = 0;
         boolean recreated = false;
@@ -320,10 +329,11 @@ public class AndroidAudioRenderer implements AudioRenderer {
             if (written > 0 && written <= length - offset) {
                 offset += written;
             }
-            else if (written == AudioTrack.ERROR_DEAD_OBJECT && !recreated) {
+            else if (written == AudioTrack.ERROR_DEAD_OBJECT && !recreated && uptimeMillis() >= nextTrackRecreateAt) {
                 // A route change can invalidate AudioTrack. Retry only the unwritten samples,
-                // and at most once per buffer so a broken output cannot spin on this thread.
+                // at most once per buffer and once a second so a broken output cannot spin on this thread.
                 recreated = true;
+                nextTrackRecreateAt = uptimeMillis() + TRACK_RECREATE_INTERVAL_MS;
                 LimeLog.warning("AudioTrack disconnected; recreating audio output");
                 if (!recreateAudioTrack()) {
                     LimeLog.warning("Unable to recreate AudioTrack");
@@ -331,7 +341,11 @@ public class AndroidAudioRenderer implements AudioRenderer {
                 }
             }
             else {
-                LimeLog.warning("AudioTrack write made no progress or failed: " + written);
+                long now = uptimeMillis();
+                if (now >= nextWriteWarningAt) {
+                    nextWriteWarningAt = now + TRACK_RECREATE_INTERVAL_MS;
+                    LimeLog.warning("AudioTrack write made no progress or failed: " + written + "; dropping buffer");
+                }
                 return false;
             }
         }

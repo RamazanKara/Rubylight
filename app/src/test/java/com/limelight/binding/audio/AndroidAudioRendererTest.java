@@ -1,14 +1,22 @@
 package com.limelight.binding.audio;
 
+import android.app.Application;
 import android.media.AudioTrack;
 
 import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.robolectric.RobolectricTestRunner;
+import org.robolectric.annotation.Config;
 
 import java.util.ArrayList;
 import java.util.List;
 
 import static org.junit.Assert.*;
 
+@RunWith(RobolectricTestRunner.class)
+@Config(sdk = 29, application = Application.class,
+        shadows = com.limelight.PcViewLifecycleTest.NoNativeMoonBridge.class,
+        instrumentedPackages = "com.limelight.nvstream.jni")
 public class AndroidAudioRendererTest {
     @Test public void headsetMixKeepsLeftRightAndCenterInTheirCorrectChannels() {
         for (int channels : new int[] {6, 8}) {
@@ -29,6 +37,7 @@ public class AndroidAudioRendererTest {
         private int nextResult;
         private boolean recreationSucceeds = true;
         private int recreations;
+        private long now = 1000;
         private final List<Integer> offsets = new ArrayList<>();
         private final List<Integer> lengths = new ArrayList<>();
 
@@ -47,6 +56,14 @@ public class AndroidAudioRendererTest {
         @Override boolean recreateAudioTrack() {
             recreations++;
             return recreationSucceeds;
+        }
+
+        @Override long uptimeMillis() {
+            return now;
+        }
+
+        void play() {
+            playDecodedAudio(new short[6], 6);
         }
     }
 
@@ -82,12 +99,47 @@ public class AndroidAudioRendererTest {
         assertEquals(1, renderer.recreations);
     }
 
-    @Test public void zeroAndUnrecoverableErrorsDoNotSpin() {
-        for (int result : new int[] {0, AudioTrack.ERROR_BAD_VALUE, AudioTrack.ERROR_INVALID_OPERATION}) {
-            ScriptedRenderer renderer = new ScriptedRenderer(result);
-            assertFalse(renderer.writeAudioTrackFully(new short[6], 6));
+    @Test public void zeroAndUnrecoverableErrorsDropOnlyThatBuffer() {
+        for (int result : new int[] {0, AudioTrack.ERROR, AudioTrack.ERROR_BAD_VALUE, AudioTrack.ERROR_INVALID_OPERATION}) {
+            ScriptedRenderer renderer = new ScriptedRenderer(result, 6);
+            // The failed buffer is not retried on this thread and the track is kept.
+            renderer.play();
             assertEquals(1, renderer.nextResult);
             assertEquals(0, renderer.recreations);
+            // The next decoded buffer still plays: one bad write must not silence the session.
+            renderer.play();
+            assertEquals(2, renderer.nextResult);
+            assertEquals(List.of(0, 0), renderer.offsets);
+            assertEquals(0, renderer.recreations);
         }
+    }
+
+    @Test public void deadTrackRecreationIsRateLimitedAndRecoversLaterBuffers() {
+        int dead = AudioTrack.ERROR_DEAD_OBJECT;
+        ScriptedRenderer renderer = new ScriptedRenderer(dead, dead, dead, dead, 6);
+        renderer.play();
+        assertEquals("One recreation, then the still-dead buffer is dropped", 1, renderer.recreations);
+        assertEquals(2, renderer.nextResult);
+        renderer.now += 500;
+        renderer.play();
+        assertEquals("No recreation storm while the output stays dead", 1, renderer.recreations);
+        assertEquals(3, renderer.nextResult);
+        renderer.now += 500;
+        renderer.play();
+        assertEquals(2, renderer.recreations);
+        assertEquals("The recreated track plays the buffer", 5, renderer.nextResult);
+    }
+
+    @Test public void failedRecreationIsRetriedByALaterBuffer() {
+        int dead = AudioTrack.ERROR_DEAD_OBJECT;
+        ScriptedRenderer renderer = new ScriptedRenderer(dead, dead, 6);
+        renderer.recreationSucceeds = false;
+        renderer.play();
+        assertEquals(1, renderer.recreations);
+        renderer.now += 1000;
+        renderer.recreationSucceeds = true;
+        renderer.play();
+        assertEquals(2, renderer.recreations);
+        assertEquals(3, renderer.nextResult);
     }
 }

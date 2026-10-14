@@ -1,6 +1,8 @@
 //! Send deterministic, frame-sized UDP bursts to an independent receiver.
 //! No capture, codec, display changes or installed host are involved.
-//! Usage: udp_pacing_probe PEER legacy|paced|automatic WIRE_MBPS [STALL_MS]
+//! Automatic mode injects synthetic healthy control feedback. This measures
+//! sender timing, not network capacity or the behavior of a physical client.
+//! Usage: udp_pacing_probe PEER legacy|paced|automatic|automatic-no-feedback WIRE_MBPS [STALL_MS]
 #[cfg(not(windows))]
 fn main() {
     eprintln!("This probe requires Windows.");
@@ -20,9 +22,14 @@ fn main() -> anyhow::Result<()> {
     };
     let mut args = std::env::args().skip(1);
     let peer: std::net::SocketAddr = args.next().context("receiver address required")?.parse()?;
-    let mode = args.next().context("legacy, paced or automatic required")?;
+    let mode = args
+        .next()
+        .context("legacy, paced, automatic or automatic-no-feedback required")?;
     anyhow::ensure!(
-        matches!(mode.as_str(), "legacy" | "paced" | "automatic"),
+        matches!(
+            mode.as_str(),
+            "legacy" | "paced" | "automatic" | "automatic-no-feedback"
+        ),
         "invalid mode"
     );
     let bps: u64 = args.next().context("wire Mbps required")?.parse::<u64>()? * 1_000_000;
@@ -52,9 +59,18 @@ fn main() -> anyhow::Result<()> {
     let mut packets_sent = 0u64;
     let mut bytes_sent = 0u64;
     let mut spans = Vec::new();
-    let automatic = Mutex::new(AdaptivePacing::new(mode == "automatic"));
+    let is_automatic = matches!(mode.as_str(), "automatic" | "automatic-no-feedback");
+    let automatic = Mutex::new(AdaptivePacing::new(is_automatic));
+    let mut rate_transitions = Vec::new();
+    let mut first_ceiling = None;
+    let mut initial_bps = None;
     let mut final_bps = bps;
-    for frame in 0..600u32 {
+    let ceiling = if is_automatic {
+        butterpollo_core::network_pacing::rate_bps(0, 40_000, 0, false, 55_000_000).min(bps)
+    } else {
+        bps
+    };
+    for frame in 0..1200u32 {
         timer.until_precise(start + Duration::from_secs_f64(f64::from(frame) / 60.));
         // 50 Mbps at 60 fps, with a large keyframe every five seconds.
         let bytes: usize = 50_000_000 / 8 / 60 * if frame % 300 == 0 { 8 } else { 1 };
@@ -70,14 +86,19 @@ fn main() -> anyhow::Result<()> {
             })
             .collect();
         let begin = Instant::now();
-        let rate = if mode == "automatic" {
+        let rate = if is_automatic {
             // Exercise the same short per-frame controller lock as Session.
-            // No loss feedback is injected: this is the healthy fast path,
-            // not a claim to have measured a downstream bottleneck.
-            let base = butterpollo_core::network_pacing::rate_bps(0, 40_000, 0, false, 55_000_000)
-                .min(bps);
+            // The automatic case has SYNTHETIC standard pings and a stable
+            // 2 ms RTT. The no-feedback case must retain its cautious start.
+            // Neither case measures downstream capacity or a real client.
             let mut controller = automatic.lock().unwrap();
-            let rate = controller.rate(base, 55_000_000);
+            controller.rate(ceiling, 55_000_000, 40_000);
+            let rtt = if mode == "automatic" {
+                controller.on_ping(begin, &[4, 0, 0, 0, 0, 0, 0, 0]);
+                Duration::from_millis(2)
+            } else {
+                Duration::ZERO
+            };
             controller.tick(
                 begin,
                 Traffic {
@@ -89,12 +110,24 @@ fn main() -> anyhow::Result<()> {
                 frame.checked_sub(1),
                 Duration::from_secs_f64(1. / 60.),
                 40_000,
-                Duration::ZERO,
+                rtt,
             );
-            rate
+            controller.rate(ceiling, 55_000_000, 40_000)
         } else {
             bps
         };
+        initial_bps.get_or_insert(rate);
+        let elapsed = begin.saturating_duration_since(start);
+        if frame == 0 || rate != final_bps {
+            rate_transitions.push(serde_json::json!({
+                "frame": frame, "seconds": elapsed.as_secs_f64(), "bps": rate,
+            }));
+        }
+        if rate == ceiling && first_ceiling.is_none() {
+            first_ceiling = Some(serde_json::json!({
+                "frame": frame, "seconds": elapsed.as_secs_f64(),
+            }));
+        }
         final_bps = rate;
         legacy_due = legacy_due.max(begin);
         let mut remaining = packets.as_slice();
@@ -137,15 +170,75 @@ fn main() -> anyhow::Result<()> {
             remaining = &remaining[count..];
             batches += 1;
         }
-        spans.push(begin.elapsed().as_secs_f64() * 1000.);
+        spans.push((elapsed, begin.elapsed().as_secs_f64() * 1000.));
     }
     timer.until_precise(Instant::now() + Duration::from_millis(20));
     let end = format!("END {packets_sent}");
     socket.send_to(end.as_bytes(), peer)?;
-    spans.sort_by(f64::total_cmp);
+    let stats = |mut values: Vec<f64>| {
+        if values.is_empty() {
+            return None;
+        }
+        values.sort_by(f64::total_cmp);
+        Some(serde_json::json!({
+            "frames": values.len(),
+            "mean_ms": values.iter().sum::<f64>() / values.len() as f64,
+            "p99_ms": values[values.len() * 99 / 100],
+            "max_ms": values[values.len() - 1],
+        }))
+    };
+    let first_second = stats(
+        spans
+            .iter()
+            .filter(|(at, _)| *at < Duration::from_secs(1))
+            .map(|(_, span)| *span)
+            .collect(),
+    );
+    let first_two_seconds = stats(
+        spans
+            .iter()
+            .filter(|(at, _)| *at < Duration::from_secs(2))
+            .map(|(_, span)| *span)
+            .collect(),
+    );
+    let after_fifteen_seconds = stats(
+        spans
+            .iter()
+            .filter(|(at, _)| *at >= Duration::from_secs(15))
+            .map(|(_, span)| *span)
+            .collect(),
+    );
+    let first_frame_send_ms = spans[0].1;
+    let mut all_spans: Vec<_> = spans.into_iter().map(|(_, span)| span).collect();
+    all_spans.sort_by(f64::total_cmp);
     println!(
         "{}",
-        serde_json::json!({"mode":mode,"bps":bps,"final_bps":final_bps,"stall_ms":stall.as_millis(),"frames":600,"packets":packets_sent,"bytes":bytes_sent,"dropped":batch.dropped,"system_calls":batch.system_calls,"seconds":start.elapsed().as_secs_f64(),"frame_send_mean_ms":spans.iter().sum::<f64>()/spans.len() as f64,"frame_send_p99_ms":spans[spans.len()*99/100],"frame_send_max_ms":spans[spans.len()-1]})
+        serde_json::json!({
+            "mode": mode,
+            "feedback": if mode == "automatic" { "synthetic_standard_ping_and_stable_2ms_rtt" } else { "none" },
+            "scope": "isolated_sender_timing_not_network_capacity",
+            "bps": bps,
+            "ceiling_bps": ceiling,
+            "initial_bps": initial_bps,
+            "final_bps": final_bps,
+            "first_ceiling": first_ceiling,
+            "rate_transitions": rate_transitions,
+            "controller": automatic.lock().unwrap().snapshot(),
+            "stall_ms": stall.as_millis(),
+            "frames": 1200,
+            "packets": packets_sent,
+            "bytes": bytes_sent,
+            "dropped": batch.dropped,
+            "system_calls": batch.system_calls,
+            "seconds": start.elapsed().as_secs_f64(),
+            "first_frame_send_ms": first_frame_send_ms,
+            "startup_first_second": first_second,
+            "startup_first_two_seconds": first_two_seconds,
+            "steady_after_fifteen_seconds": after_fifteen_seconds,
+            "frame_send_mean_ms": all_spans.iter().sum::<f64>() / all_spans.len() as f64,
+            "frame_send_p99_ms": all_spans[all_spans.len() * 99 / 100],
+            "frame_send_max_ms": all_spans[all_spans.len() - 1],
+        })
     );
     Ok(())
 }

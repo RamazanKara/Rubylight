@@ -181,6 +181,15 @@ impl Config {
             })
             .unwrap_or(default)
     }
+    /// Experimental packet-rate adaptation is explicitly enabled per stream.
+    /// Manual pacing and host bitrate adaptation own their respective limits;
+    /// PyroWave and unknown codecs do not use the conventional controller.
+    pub fn adaptive_packet_pacing(&self, codec: u8) -> bool {
+        self.boolean("host_adaptive_pacing", false)
+            && self.integer("pacing_max_bitrate_kbps", 0) <= 0
+            && !self.boolean("host_adaptive_bitrate", false)
+            && codec < 3
+    }
     /// An integer setting; Vibepollo also writes quoted (`"756"`) and
     /// hexadecimal (`0x2a`) values.
     pub fn integer(&self, key: &str, default: i64) -> i64 {
@@ -602,6 +611,7 @@ pub fn override_allowed(key: &str) -> bool {
         "fec_percentage",
         "adaptive_fec",
         "host_adaptive_bitrate",
+        "host_adaptive_pacing",
         "video_max_batch_size_kb",
         "pyrowave_critical_fec_percentage",
         "qp",
@@ -815,6 +825,76 @@ impl Ports {
 #[cfg(test)]
 mod tests {
     #[test]
+    fn packet_pacing_requires_opt_in_and_yields_to_manual_bitrate_and_codec_policies() {
+        let cases = [
+            ("", [false, false, false, false]),
+            ("host_adaptive_pacing=false", [false, false, false, false]),
+            ("host_adaptive_pacing=invalid", [false, false, false, false]),
+            ("host_adaptive_pacing=true", [true, true, true, false]),
+            (
+                "host_adaptive_pacing=true\npacing_max_bitrate_kbps=0",
+                [true, true, true, false],
+            ),
+            (
+                "host_adaptive_pacing=true\npacing_max_bitrate_kbps=-1",
+                [true, true, true, false],
+            ),
+            (
+                "host_adaptive_pacing=true\npacing_max_bitrate_kbps=1",
+                [false, false, false, false],
+            ),
+            (
+                "host_adaptive_pacing=true\npacing_max_bitrate_kbps=80000",
+                [false, false, false, false],
+            ),
+            (
+                "host_adaptive_pacing=true\nhost_adaptive_bitrate=true",
+                [false, false, false, false],
+            ),
+            (
+                "host_adaptive_pacing=true\nhost_adaptive_bitrate=false",
+                [true, true, true, false],
+            ),
+        ];
+        for (text, expected) in cases {
+            let config = super::Config::parse(text).unwrap();
+            for (codec, enabled) in expected.into_iter().enumerate() {
+                assert_eq!(
+                    config.adaptive_packet_pacing(codec as u8),
+                    enabled,
+                    "codec {codec}: {text}"
+                );
+            }
+            assert!(!config.adaptive_packet_pacing(u8::MAX));
+        }
+    }
+
+    #[test]
+    fn resetting_packet_pacing_opt_in_restores_the_disabled_default() {
+        let mut config = super::Config::default();
+        assert!(!config.adaptive_packet_pacing(0));
+        for reset in [serde_json::Value::Null, serde_json::json!("")] {
+            config
+                .update(
+                    serde_json::json!({"host_adaptive_pacing": true})
+                        .as_object()
+                        .unwrap(),
+                )
+                .unwrap();
+            assert!(config.adaptive_packet_pacing(0));
+            config
+                .update(
+                    serde_json::json!({"host_adaptive_pacing": reset})
+                        .as_object()
+                        .unwrap(),
+                )
+                .unwrap();
+            assert!(!config.adaptive_packet_pacing(0));
+            assert!(!config.values.contains_key("host_adaptive_pacing"));
+        }
+    }
+
+    #[test]
     fn hardware_metrics_defaults_and_file_interval_bounds() {
         let defaults = super::Config::default();
         assert!(!defaults.boolean("hardware_metrics", false));
@@ -914,6 +994,7 @@ mod tests {
             "amd_quality",
             "frame_limiter_fps_limit",
             "adaptive_fec",
+            "host_adaptive_pacing",
         ] {
             assert!(super::override_allowed(key), "{key}");
         }

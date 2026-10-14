@@ -1,8 +1,8 @@
 //! Bound packet bursts without accumulating a catch-up burst after a late send.
 use std::time::{Duration, Instant};
 
-/// The starting rate, before loss-responsive pacing. Healthy wired/unknown
-/// routes retain the 800 Mbps ceiling. Confirmed Wi-Fi retains twice the
+/// The route ceiling, before startup and loss-responsive pacing. Wired/unknown
+/// routes allow up to 800 Mbps. Confirmed Wi-Fi retains twice the
 /// encoder bitrate, allowing at least 25% headroom above packetized demand.
 /// Explicit limits retain the stream-bitrate floor, subject to the physical link.
 pub fn rate_bps(

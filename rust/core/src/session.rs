@@ -253,7 +253,7 @@ mod tests {
         s.idr.store(false, Ordering::Relaxed);
         let mode = s.stream_mode();
         let start = Instant::now();
-        assert_eq!(s.video_pacing_bps(800_000_000, 50_000_000), 800_000_000);
+        assert_eq!(s.video_pacing_bps(800_000_000, 50_000_000), 80_000_000);
         s.tick_automatic_pacing(start, Duration::from_millis(2));
         s.record_fec_status(&fec_report(1, 7, 1)); // No sent frames yet.
         s.record_fec_status(&fec_report(2, 7, 1));
@@ -274,7 +274,7 @@ mod tests {
         s.record_fec_status(&fec_report(31, 7, 1));
         assert_eq!(
             s.tick_automatic_pacing(start + Duration::from_secs(1), Duration::from_millis(2)),
-            Some((800_000_000, 400_000_000))
+            Some((80_000_000, 62_500_000))
         );
         pacing_traffic(&s, 90);
         // These unseen blocks are valid telemetry, but describe the old rate.
@@ -292,9 +292,9 @@ mod tests {
         s.record_fec_status(&fec_report(120, 7, 1));
         assert_eq!(
             s.tick_automatic_pacing(start + Duration::from_secs(2), Duration::from_millis(2)),
-            Some((400_000_000, 200_000_000))
+            None // Already at the live wire-demand floor.
         );
-        assert_eq!(s.video_pacing_bps(800_000_000, 50_000_000), 200_000_000);
+        assert_eq!(s.video_pacing_bps(800_000_000, 50_000_000), 62_500_000);
         assert_eq!(s.bitrate.load(Ordering::Acquire), 40_000);
         assert_eq!(s.stream_mode(), mode);
         assert!(!s.idr.load(Ordering::Relaxed));
@@ -348,10 +348,11 @@ mod tests {
             s.record_fec_status(&fec_report(frame as u32 - 1, 7, 1));
             s.record_fec_status(&fec_report(frame as u32, 7, 1));
             let now = start + Duration::from_millis(interval * 500);
-            assert!(
-                s.tick_automatic_pacing(now, Duration::from_millis(2))
-                    .is_some()
-            );
+            let change = s.tick_automatic_pacing(now, Duration::from_millis(2));
+            // Startup is already close to wire demand, so the first cut
+            // reaches the floor; repeated loss must not push below it.
+            assert_eq!(change.is_some(), interval == 1);
+            assert_eq!(s.video_pacing_bps(800_000_000, needed), needed + needed / 4);
             assert_eq!(s.tick_adaptive_bitrate(now, Duration::from_millis(2)), None);
             assert_eq!(s.bitrate.load(Ordering::Acquire), 40_000);
         }
@@ -413,6 +414,41 @@ mod tests {
             assert_eq!(info["packet_pacing"]["automatic"], false);
             assert_eq!(info["performance"]["fec_unrecoverable_frames"], 2);
         }
+    }
+    #[test]
+    fn automatic_pacing_guards_first_frame_and_each_reconnect() {
+        let start = Instant::now();
+        let launch = launch("pacing-reconnect", Role::Stream);
+        let negotiated = Negotiated {
+            bitrate_kbps: 40_000,
+            ..Default::default()
+        };
+        let first = Session::new(launch.clone(), negotiated.clone());
+        first.configure_automatic_pacing(true);
+        assert_eq!(first.stats.frames.load(Ordering::Relaxed), 0);
+        assert_eq!(first.video_pacing_bps(800_000_000, 50_000_000), 80_000_000);
+        first.tick_automatic_pacing(start, Duration::from_millis(2));
+        let ping = [4, 0, 0, 0, 0, 0, 0, 0];
+        for interval in 1..=30 {
+            let now = start + Duration::from_millis(interval * 500);
+            pacing_traffic(&first, interval * 30);
+            first.record_control_ping(now, &ping);
+            first.tick_automatic_pacing(now, Duration::from_millis(2));
+            first.video_pacing_bps(800_000_000, 50_000_000);
+        }
+        assert_eq!(first.video_pacing_bps(800_000_000, 50_000_000), 800_000_000);
+        assert_eq!(first.bitrate.load(Ordering::Acquire), 40_000);
+        // A client can change its downstream connection without changing
+        // its identity or host route. Never reuse an old fast rate at startup.
+        let reconnect = Session::new(launch, negotiated);
+        reconnect.configure_automatic_pacing(true);
+        assert_eq!(reconnect.stats.frames.load(Ordering::Relaxed), 0);
+        assert_eq!(
+            reconnect.video_pacing_bps(800_000_000, 50_000_000),
+            80_000_000
+        );
+        assert_eq!(first.video_pacing_bps(800_000_000, 50_000_000), 800_000_000);
+        assert_eq!(reconnect.bitrate.load(Ordering::Acquire), 40_000);
     }
     #[test]
     fn adaptive_fec_follows_reports_and_stays_fixed_without_them_or_when_off() {
@@ -1331,7 +1367,11 @@ impl<P, A> Session<P, A> {
             crate::adaptive_pacing::AdaptivePacing::new(enabled && self.config.codec != 3);
     }
     pub fn video_pacing_bps(&self, base: u64, needed: u64) -> u64 {
-        let paced = self.automatic_pacing.lock().unwrap().rate(base, needed);
+        let paced = self.automatic_pacing.lock().unwrap().rate(
+            base,
+            needed,
+            self.bitrate.load(Ordering::Acquire),
+        );
         self.adaptive_pacing_bps(paced)
     }
     pub fn record_control_ping(&self, now: Instant, payload: &[u8]) {

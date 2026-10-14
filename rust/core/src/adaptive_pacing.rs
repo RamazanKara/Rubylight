@@ -1,9 +1,10 @@
 //! Loss-responsive packet spacing, independent of encoder bitrate.
 //!
-//! Start at the route's ordinary pacing rate. Repeated *validated* video loss
-//! can reduce bursts, but never below the current wire demand plus headroom.
-//! This is not a measurement of path capacity. Clients without FEC reports
-//! keep the ordinary rate; silence alone never authorizes faster probing.
+//! Start with room for the stream's wire demand, then cautiously probe the
+//! route's ordinary ceiling. Validated video loss can reduce bursts, but never
+//! below the current wire demand plus headroom. This is not a measurement of
+//! path capacity: control pings establish activity, not successful video
+//! delivery. Silence alone never authorizes faster probing.
 use std::time::{Duration, Instant};
 
 use crate::adaptive_fec::Block;
@@ -18,6 +19,8 @@ pub struct Traffic {
 
 pub struct AdaptivePacing {
     enabled: bool,
+    initialized: bool,
+    startup: bool,
     ceiling: u64,
     floor: u64,
     limit: Option<u64>,
@@ -34,9 +37,18 @@ pub struct AdaptivePacing {
     lost_packets: u64,
     any_loss: bool,
     clean_since: Option<Instant>,
-    /// A rate increase is tentative until two seconds of healthy traffic.
-    probe: Option<(u64, Instant)>,
+    /// A rate increase is tentative until its feedback interval has elapsed.
+    probe: Option<Probe>,
+    /// A changed wire budget invalidates feedback for the old rate. The
+    /// control loop supplies the new sent-frame fence before sampling again.
+    awaiting_fence: bool,
     recovery_hold: Duration,
+}
+
+struct Probe {
+    stable: u64,
+    started: Instant,
+    settle: Duration,
 }
 
 impl Default for AdaptivePacing {
@@ -49,6 +61,8 @@ impl AdaptivePacing {
     pub fn new(enabled: bool) -> Self {
         Self {
             enabled,
+            initialized: false,
+            startup: enabled,
             ceiling: 0,
             floor: 0,
             limit: None,
@@ -63,6 +77,7 @@ impl AdaptivePacing {
             any_loss: false,
             clean_since: None,
             probe: None,
+            awaiting_fence: false,
             recovery_hold: Duration::from_secs(8),
         }
     }
@@ -70,7 +85,10 @@ impl AdaptivePacing {
     /// Refresh on each frame: FEC, FPS, bitrate and the route can change.
     /// The physical/configured ceiling wins when the requested stream cannot
     /// fit. The caller reports that shortfall; this controller cannot fix it.
-    pub fn rate(&mut self, ceiling: u64, needed: u64) -> u64 {
+    pub fn rate(&mut self, ceiling: u64, needed: u64, encoder_kbps: u32) -> u64 {
+        let previous_rate = self.current();
+        let previous_ceiling = self.ceiling;
+        let previous_floor = self.floor;
         self.ceiling = ceiling.max(1);
         self.floor = needed
             .saturating_add(needed / 4)
@@ -78,6 +96,44 @@ impl AdaptivePacing {
             .min(self.ceiling);
         if !self.enabled {
             return ceiling;
+        }
+        if !self.initialized {
+            self.initialized = true;
+            self.limit = Some(
+                u64::from(encoder_kbps)
+                    .saturating_mul(2000)
+                    .clamp(self.floor, self.ceiling),
+            );
+        } else if self.ceiling != previous_ceiling || self.floor != previous_floor {
+            if self.ceiling != previous_ceiling {
+                // Route activity and RTT from before a changed ceiling do
+                // not validate probing the replacement route.
+                self.last_ping = None;
+                self.minimum_rtt = None;
+            }
+            if self.ceiling > previous_ceiling && self.limit.is_none() {
+                // A newly faster host route says nothing about downstream
+                // capacity. Keep the previously confirmed rate and probe the
+                // extra headroom using fresh evidence, without reseeding.
+                self.limit = Some(previous_rate);
+                self.startup = !self.any_loss;
+            }
+            // A tentative faster rate has not earned promotion. Retain its
+            // preceding rate, adjusted for the new demand, and gather fresh
+            // evidence instead of confirming across a changed wire budget.
+            if let Some(probe) = self.probe.take() {
+                self.limit = Some(probe.stable);
+                if self.any_loss {
+                    // The same report may raise FEC before the control loop
+                    // samples it. A changed wire floor must not erase this
+                    // failed probe or restart fast startup probing.
+                    self.startup = false;
+                    self.recovery_hold = (self.recovery_hold * 2).min(Duration::from_secs(60));
+                }
+            }
+            self.clean_since = None;
+            self.last_sample = None;
+            self.awaiting_fence = true;
         }
         if let Some(limit) = &mut self.limit {
             let next = (*limit).clamp(self.floor, self.ceiling);
@@ -107,6 +163,7 @@ impl AdaptivePacing {
         let recent_frames =
             (Duration::from_secs(2).as_nanos() / period.as_nanos().max(1)).clamp(1, 1024) as u32;
         if !self.enabled
+            || self.awaiting_fence
             || last_sent.wrapping_sub(frame) >= recent_frames
             || self.after_frame.is_some_and(|after| !newer(frame, after))
             || matches!(block, Block::Clean | Block::Recovered { lost: 0, .. })
@@ -138,9 +195,10 @@ impl AdaptivePacing {
     }
 
     /// The control loop supplies counters and ENet RTT, never the send loop.
-    /// Cuts require two distinct failed frames, or multiple recovered frames
-    /// missing at least 2% of all sent packets. Sparse, fully
-    /// repaired losses therefore don't ratchet every connection to the floor.
+    /// Outside tentative probes, cuts require two distinct failed frames, or
+    /// multiple recovered frames missing at least 2% of all sent packets.
+    /// Sparse, fully repaired losses therefore don't ratchet every connection
+    /// to the floor; any loss can reject an unconfirmed increase.
     pub fn tick(
         &mut self,
         now: Instant,
@@ -153,12 +211,23 @@ impl AdaptivePacing {
         if !self.enabled || self.ceiling == 0 {
             return None;
         }
+        if self.awaiting_fence {
+            self.awaiting_fence = false;
+            self.after_frame = last_sent;
+            self.lost_frames = 0;
+            self.failed_frames = 0;
+            self.lost_packets = 0;
+            self.any_loss = false;
+        }
         let Some((previous, before)) = self.last_sample else {
             self.last_sample = Some((now, traffic));
             return None;
         };
         let elapsed = now.saturating_duration_since(previous);
-        if elapsed < Duration::from_millis(500) {
+        // A validated loss during a tentative increase need not wait for a
+        // full sampling window before restoring the preceding rate.
+        let probe_loss = self.probe.is_some() && self.any_loss;
+        if elapsed < Duration::from_millis(500) && !probe_loss {
             return None;
         }
         self.last_sample = Some((now, traffic));
@@ -178,19 +247,20 @@ impl AdaptivePacing {
         if ping && !rtt.is_zero() {
             self.minimum_rtt = Some(self.minimum_rtt.map_or(rtt, |minimum| minimum.min(rtt)));
         }
-        let queued = self
-            .minimum_rtt
-            .is_some_and(|minimum| rtt > minimum + (minimum / 2).max(Duration::from_millis(8)));
-        if (substantial || (self.probe.is_some() && loss)) && recent && frames > 0 {
-            let next = if let Some((stable, _)) = self.probe.take() {
+        let queued = self.minimum_rtt.is_some_and(|minimum| {
+            rtt > minimum.saturating_add((minimum / 2).max(Duration::from_millis(8)))
+        });
+        if (substantial || (self.probe.is_some() && loss)) && recent && (frames > 0 || probe_loss) {
+            let next = if let Some(probe) = self.probe.take() {
                 // A failed probe restores the last working rate, and increases
                 // the quiet period before another attempt (up to a minute).
                 self.recovery_hold = (self.recovery_hold * 2).min(Duration::from_secs(60));
-                stable
+                probe.stable
             } else {
                 old / 2
             };
             self.limit = Some(next.clamp(self.floor, self.ceiling));
+            self.startup = false;
             self.after_frame = last_sent;
             self.clean_since = None;
         } else {
@@ -202,25 +272,59 @@ impl AdaptivePacing {
             if loss || !ping || !busy || rtt.is_zero() || queued {
                 self.clean_since = None;
             } else if self.limit.is_some() {
-                let clean = *self.clean_since.get_or_insert(now);
-                if self.probe.is_some_and(|(_, at)| {
-                    now.saturating_duration_since(at.max(clean)) >= Duration::from_secs(2)
+                // The counters describe the interval just completed. Startup
+                // can use that first active interval; recovery retains its
+                // longer quiet hold after an established loss.
+                let clean =
+                    *self
+                        .clean_since
+                        .get_or_insert(if self.startup { previous } else { now });
+                if self.probe.as_ref().is_some_and(|probe| {
+                    let settle = if self.startup {
+                        probe.settle.max(startup_feedback_wait(rtt))
+                    } else {
+                        probe.settle
+                    };
+                    now.saturating_duration_since(probe.started.max(clean)) >= settle
                 }) {
                     self.probe = None;
                     if old == self.ceiling {
                         self.limit = None;
+                        self.startup = false;
                     }
                 }
-                if self.probe.is_none()
-                    && old < self.ceiling
-                    && now.saturating_duration_since(clean) >= self.recovery_hold
-                {
-                    self.limit = Some(
-                        old.saturating_add((old / 20).max(1_000_000))
-                            .min(self.ceiling),
-                    );
-                    self.probe = Some((old, now));
-                    self.after_frame = last_sent;
+                let hold = if self.startup {
+                    startup_feedback_wait(rtt)
+                } else {
+                    self.recovery_hold
+                };
+                if self.probe.is_none() && now.saturating_duration_since(clean) >= hold {
+                    if old < self.ceiling {
+                        let step = if self.startup {
+                            // Smaller probes leave ordinary FEC more room to
+                            // repair losses while feedback returns. This is
+                            // headroom, not a guarantee of loss-free probing.
+                            (old / 8).max(1)
+                        } else {
+                            (old / 20).max(1_000_000)
+                        };
+                        self.limit = Some(old.saturating_add(step).min(self.ceiling));
+                        self.probe = Some(Probe {
+                            stable: old,
+                            started: now,
+                            settle: if self.startup {
+                                hold
+                            } else {
+                                Duration::from_secs(2)
+                            },
+                        });
+                        self.after_frame = last_sent;
+                    } else if self.startup {
+                        // The initial wire-demand floor can already equal a
+                        // low physical ceiling. Confirm it without probing.
+                        self.limit = None;
+                        self.startup = false;
+                    }
                 }
             }
         }
@@ -231,6 +335,8 @@ impl AdaptivePacing {
     pub fn snapshot(&self) -> serde_json::Value {
         serde_json::json!({
             "automatic": self.enabled,
+            "startup": self.startup,
+            "probing": self.probe.is_some(),
             "limited": self.enabled && self.current() < self.ceiling,
             "current_kbps": self.current() / 1000,
             "ceiling_kbps": self.ceiling / 1000,
@@ -238,6 +344,13 @@ impl AdaptivePacing {
             "recovery_hold_seconds": self.recovery_hold.as_secs(),
         })
     }
+}
+
+fn startup_feedback_wait(rtt: Duration) -> Duration {
+    Duration::from_millis(500).max(
+        rtt.saturating_mul(2)
+            .saturating_add(Duration::from_millis(100)),
+    )
 }
 
 fn newer(frame: u32, previous: u32) -> bool {

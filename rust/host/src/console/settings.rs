@@ -99,7 +99,8 @@ pub const GLOBAL: &[Setting] = settings! {
         "pyrowave_critical_fec_percentage", "PyroWave protection for required image data (%)", Number;
         "packetsize", "Video packet size (0 uses the device request)", Number;
         "video_max_batch_size_kb", "Video send batch limit (KiB)", Number;
-        "pacing_max_bitrate_kbps", "Network pacing limit (kbps; 0 keeps wired sessions fast and reduces bursts after reported loss; Wi-Fi starts at twice the bitrate with FEC headroom; PyroWave uses its own policy)", Number;
+        "pacing_max_bitrate_kbps", "Network pacing limit (kbps; 0 uses the route policy: up to 800 Mbps wired, twice the bitrate with FEC headroom on Wi-Fi; positive values set a fixed limit)", Number;
+        "host_adaptive_pacing", "Adaptive packet pacing (experimental; off by default; slower startup and loss-sensitive probes without changing picture bitrate or FPS; disabled by a manual pacing limit, host bitrate adaptation or PyroWave; reconnect after saving)", Bool;
     ]
     "AMD encoding" => [
         "amd_usage", "AMF usage", Choice(&["auto","transcoding","ultralowlatency","lowlatency","webcam","high_quality","lowlatency_high_quality"]);

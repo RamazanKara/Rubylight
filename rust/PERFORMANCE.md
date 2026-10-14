@@ -5280,6 +5280,10 @@ and `native-tests.ps1` record the component commands.
 
 ## October 14 conventional video pacing
 
+The fast-start results below record the earlier candidate, superseded before
+2.2.19 was published. The [conservative startup validation](#conservative-startup-before-2219)
+separates the final opening-frame cost from steady-state timing.
+
 The first candidate applied roughly 2× encoder-bitrate pacing to every
 conventional-codec route. It was **rejected before release**: a valid Windows
 loopback comparison measured mean frame-send time of 0.527 ms at the released
@@ -5413,6 +5417,111 @@ no tag, public release or local installation was performed during that validatio
 
 Raw timing, benchmark hashes, test logs and controls are retained under
 `C:\Users\ramaz\Documents\Codex\2026-10-13\on-ruby-lite-or-ruby-lite\outputs\pacing-followup`.
+
+### Conservative startup before 2.2.19
+
+**Release decision:** preserve the existing fast route-based policy as the
+default. `host_adaptive_pacing` is experimental and defaults to `false`.
+A suitable fixed rate is the simpler choice for a known constrained path;
+adaptation is an option when manual tuning is inconvenient. The comparisons
+below do not justify adding adaptive startup delay to every healthy connection.
+
+The fast-start candidate still exposed a constrained client to an initial
+800 Mbps burst. The optional controller starts before the first packet at twice
+the encoder bitrate or 1.25 times packetized wire demand, whichever is higher,
+within the route ceiling. It probes upward by 12.5% only with busy video,
+recent standard control pings and stable nonzero RTT. Each step waits at least
+500 ms and twice RTT plus 100 ms; a rising RTT extends an outstanding probe's
+confirmation period. The first validated probe loss rolls back promptly and
+enters slower recovery. Every reconnect starts conservatively rather than
+reusing a stale fast-path estimate.
+
+A 25% startup probe was also rejected before release. In the deterministic
+100 Mbps egress / 16 KiB queue fixture it preserved the first picture but
+caused 2, 3 or 6 unrecoverable frames during later probes, depending on feedback
+delay. A 25% step can imply 20% packet loss above a previously sustainable
+rate, exceeding the roughly 16.7% total-packet loss fraction covered by 20%
+parity even under ideal distribution. Halving the step leaves more repair
+margin; it is a probing heuristic, not a capacity measurement.
+
+The updated production-controller model runs 960 frames over 16 seconds,
+with 40 Mbps encoded video at 60 FPS, 20% FEC, encryption, IPv4/IPv6 and
+8x keyframes at the start and five seconds. Feedback is delayed by 2, 20 or
+80 ms rather than delivered immediately. No startup or probe interval is
+excluded from the unrecoverable-frame count.
+
+| Egress | Feedback delay | Packet losses | Unrecoverable frames | Final pacing |
+| --- | ---: | ---: | ---: | ---: |
+| 100 Mbps | 2 ms | 2 | 0 | 90 Mbps |
+| 100 Mbps | 20 ms | 3 | 0 | 90 Mbps |
+| 100 Mbps | 80 ms | 6 | 0 | 90 Mbps |
+| 1 Gbps | 2 / 20 / 80 ms | 0 | 0 | 800 Mbps |
+
+Counts match for IPv4 and IPv6. All initial keyframes arrive intact, completing
+in about 87.9 ms (IPv4) or 89.1 ms (IPv6) on the modeled slow path. The model
+records remaining probe losses rather than hiding them; its 20% FEC repairs
+them. These results do not guarantee the same recovery with lower FEC, other
+queues, competing traffic or the affected Onn device.
+
+The matched comparison also runs fixed 800 Mbps and fixed 80 Mbps with the
+same packetizer, bitrate, FPS, FEC, queue and feedback delays: 36 cases in all.
+The table spans IPv4/IPv6 and all three feedback delays. Delivery is measured
+from each frame's scheduled start, including backlog; incomplete frames are
+counted as failures, not silently treated as low-latency deliveries.
+
+| Policy | Healthy first IDR | Healthy first-two-second mean | 100 Mbps steady mean after 10 s | 100 Mbps losses over all 960 frames |
+| --- | ---: | ---: | ---: | --- |
+| Fixed 800 Mbps | 9.27–9.47 ms | 1.15–1.17 ms | No complete frames | All 960 frames unrecoverable |
+| Fixed 80 Mbps | 87.69–88.85 ms | 15.27–15.68 ms | 10.67–10.82 ms | None |
+| Adaptive | 87.69–88.85 ms | 13.60–13.98 ms | 9.45–9.58 ms | 2–6 packets, all repaired |
+
+All three policies deliver every frame without loss on the healthy modeled
+1 Gbps path. Adaptation eventually matches the fast policy there, but its
+opening picture is about 78–79 ms later. On the modeled slow path, a suitable
+fixed rate solves the failure without probing; adaptation saves only about
+1.22 ms of steady delivery time. These are deterministic queue-model results,
+not physical-network or end-to-end measurements.
+
+Twelve real Windows UDP loopback runs separately measured sender timing:
+three 20-second repetitions per policy, each with 1,200 frames at 60 FPS,
+50 Mbps UDP payload approximating a 40 Mbps encoder plus 20% FEC/framing,
+and 8x keyframes every five seconds. All 1,105,008 packets and 14,400 frames
+arrived. Automatic runs use synthetic standard pings and stable 2 ms RTT;
+loopback does not test congestion feedback or client capacity. Values below
+are means across the three runs, in milliseconds of frame-send duration.
+
+| Policy | First IDR | First-two-second mean | Steady mean after 15 s | Time to 800 Mbps |
+| --- | ---: | ---: | ---: | ---: |
+| Fixed 800 Mbps | 8.145 | 0.529 | 0.530 | Immediate |
+| Fixed 80 Mbps | 86.887 | 10.874 | 10.448 | Not applicable |
+| Adaptive, synthetic feedback | 86.969 | 9.238 | 0.535 | 10.17–10.20 s |
+| Adaptive, no feedback | 87.028 | 10.875 | 10.456 | Never in the 20 s run |
+
+The first frame and opening seconds are reported separately so the long-term
+mean cannot hide startup cost. Sender duration excludes time waiting before
+a frame is submitted, decode and display; it must not be read as picture age.
+No-feedback runs remain at their 80 Mbps initial rate. The benchmark and model
+support keeping adaptation optional, not a claim that it fixes the Onn report.
+
+Regression tests also cover fresh and repeated sessions, no/invalid control
+activity, changed FEC floors, stale and duplicate loss reports, a pending
+probe loss racing an FEC update, changing route ceilings, higher RTT,
+client-owned bitrate/FPS and manual/PyroWave bypasses. A confirmed low route
+ceiling cannot jump to a higher one without fresh activity. An FEC change
+cannot erase a failed probe and resume fast probing.
+
+The final local workspace passed 983 tests with 58 existing hardware/manual
+checks ignored, including 437 core tests, 28 pacing tests and 222 host tests.
+Formatting, strict all-target Clippy, the Svelte console check and all five
+release-tooling tests passed. Independent code and documentation reviews
+found no remaining actionable regressions after the corrections above.
+The policy matrix covers the disabled default, explicit opt-in, manual limits,
+host bitrate adaptation, PyroWave, unknown codecs, resetting defaults and
+per-device/app overrides. No capture, display change, installed service,
+controller driver, game input or streaming session was used. Evidence is
+retained in `outputs/startup-pacing`, including `matched-policy-model.json`,
+`benchmark-summary.json` and `workspace-opt-in-final.log`; raw UDP records
+are under `D:\CodexArtifacts\rubylight-startup-pacing\loopback`.
 
 ## Hardware covered
 

@@ -1401,10 +1401,9 @@ impl Media {
                     // is used for every frame as before.
                     s.configure_fec(c.boolean("adaptive_fec", true) && s.config.codec != 3, requested_fec.clamp(0, 100) as usize);
                     s.configure_adaptive_bitrate(c.boolean("host_adaptive_bitrate", false), c.integer("max_bitrate", 0).clamp(0, 500_000) as u32);
-                    // Explicit pacing and the opt-in bitrate controller own
-                    // their limits. Automatic burst control never owns quality.
-                    let automatic_pacing = c.integer("pacing_max_bitrate_kbps", 0) <= 0
-                        && !c.boolean("host_adaptive_bitrate", false) && s.config.codec != 3;
+                    // Packet adaptation is opt-in. Explicit pacing and host
+                    // bitrate adaptation keep their own policies.
+                    let automatic_pacing = c.adaptive_packet_pacing(s.config.codec);
                     s.configure_automatic_pacing(automatic_pacing);
                     let mut packetizer = VideoPacketizer {
                         sequence: 0,
@@ -3649,27 +3648,34 @@ mod tests {
         let mut client = f.client(u32::MAX);
         client.extra.insert(
             "config_overrides".into(),
-            json!({"max_bitrate":20000,"capture":"wgc","port":50000,"keyboard":false}),
+            json!({"max_bitrate":20000,"capture":"wgc","port":50000,"keyboard":false,"host_adaptive_pacing":true}),
         );
         let launch = f.launch(client, Role::Stream);
         let device = effective_config(&f.host, &launch).unwrap();
         assert_eq!(device.integer("max_bitrate", 0), 20000);
         assert_eq!(device.get("capture", ""), "wgc");
         assert!(!device.boolean("keyboard", true));
+        assert!(device.adaptive_packet_pacing(0));
+        assert!(!f.host.config.read().unwrap().adaptive_packet_pacing(0));
         assert_eq!(device.integer("port", 0), 47989);
         f.host.apps.write().unwrap()[0].extra.insert(
             "config-overrides".into(),
-            json!({"max_bitrate":30000,"capture":"","port":51000,"keyboard":true}),
+            json!({"max_bitrate":30000,"capture":"","port":51000,"keyboard":true,"host_adaptive_pacing":false}),
         );
         let app = effective_config(&f.host, &launch).unwrap();
         assert_eq!(app.integer("max_bitrate", 0), 30000);
         assert_eq!(app.get("capture", ""), "wgc");
         assert!(app.boolean("keyboard", false));
+        assert!(!app.adaptive_packet_pacing(0));
         assert_eq!(app.integer("port", 0), 47989);
         assert_eq!(f.host.config.read().unwrap().values, original);
         assert_eq!(
             launch.client.extra["config_overrides"]["max_bitrate"],
             20000
+        );
+        assert_eq!(
+            launch.client.extra["config_overrides"]["host_adaptive_pacing"],
+            true
         );
         assert_eq!(
             f.host.apps.read().unwrap()[0].extra["config-overrides"]["port"],

@@ -340,11 +340,22 @@ const video: Setting[] = [
     key: 'pacing_max_bitrate_kbps',
     label: 'Pacing rate',
     description:
-      "Spaces video packets without changing picture bitrate. 0 keeps wired sessions fast and reduces bursts after repeated reported loss. Confirmed Wi-Fi starts at twice the bitrate with FEC headroom. A positive value fixes the rate, with a 1.1-times-bitrate floor; known Ethernet speed can lower it. PyroWave and Host adaptive bitrate keep their own policies. Reconnect after saving.",
+      'Spaces video packets without changing picture bitrate. 0 uses the route policy: up to 800 Mbps on wired or unknown routes, or twice the bitrate with FEC headroom on confirmed host Wi-Fi. A positive value fixes the rate, with a 1.1-times-bitrate floor; known Ethernet speed can lower it. PyroWave and Host adaptive bitrate keep their own policies. Reconnect after saving.',
     category: 'video',
     group: 'Bitrate and network',
     control: { kind: 'number', min: 0, step: 1, unit: 'Kbps' },
     default: 0,
+    advanced: true,
+  },
+  {
+    key: 'host_adaptive_pacing',
+    label: 'Adaptive packet pacing (experimental)',
+    description:
+      'Starts with slower packet delivery, then probes faster rates and backs off when the device reports loss. Adds startup delay without changing picture bitrate or FPS; probing can still lose packets. Off by default. A manual pacing rate, Host adaptive bitrate or PyroWave disables it. Changes apply on the next connection.',
+    category: 'video',
+    group: 'Bitrate and network',
+    control: { kind: 'toggle' },
+    default: false,
     advanced: true,
   },
 ];

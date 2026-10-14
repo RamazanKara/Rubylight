@@ -33,7 +33,7 @@
 
 Rubylight works with Moonlight and other Sunshine-compatible clients across PCs, phones, tablets, TVs, consoles and handhelds. Available codecs, HDR and extra controls depend on your hardware and client. NVIDIA NVENC, Intel Quick Sync and software encoding are also included but Rubylight's tuning and measurements focus on Radeon.
 
-**New in 2.2.19:** loss-responsive packet pacing, more reliable reconnects and audio recovery, fewer unnecessary encoder restarts, long-path file updates and USB/IP shutdown fixes. [Release notes](rust/RELEASE_NOTES.md#new-in-2219) describe validation and hardware coverage.
+**New in 2.2.19:** optional adaptive packet pacing, more reliable reconnects and audio recovery, fewer unnecessary encoder restarts, long-path file updates and USB/IP shutdown fixes. [Release notes](rust/RELEASE_NOTES.md#new-in-2219) describe validation and hardware coverage.
 
 **New in 2.2.16:** optional [host bitrate adaptation](docs/configuration.md#host-bitrate-adaptation) for H.264, HEVC and AV1, [game-only audio](docs/configuration.md#game-only-audio) on Windows build 20348 or newer, and [paired Tailscale route diagnostics](docs/network-path.md). Host bitrate adaptation is experimental and off by default; System audio remains the default. [DualSense USB audio and controller continuity](docs/dualsense-haptics.md) work with matching clients such as Rubylight Android 0.4.9.
 

@@ -1,6 +1,6 @@
 // Settings for the categories named in settings-schema.ts: video and encoders.
 import type { ConfigValue } from '../api';
-import type { Setting } from '../settings-types';
+import { NATIVE_ENCODERS, type Setting } from '../settings-types';
 
 type Values = Record<string, ConfigValue>;
 
@@ -63,8 +63,13 @@ function encoder(values: Values): string {
       return 'auto';
   }
 }
-const nvenc = (values: Values) => ['nvenc', 'nvenc_legacy'].includes(encoder(values));
-const amf = (values: Values) => encoder(values) === 'amf';
+/** Automatic uses this native encoder on one of this PC's GPUs. */
+function automatic(values: Values, backend: string): boolean {
+  const native = values[NATIVE_ENCODERS];
+  return encoder(values) === 'auto' && Array.isArray(native) && native.includes(backend);
+}
+const nvenc = (values: Values) => ['nvenc', 'nvenc_legacy'].includes(encoder(values)) || automatic(values, 'nvenc');
+const amf = (values: Values) => encoder(values) === 'amf' || automatic(values, 'amf');
 const qsv = (values: Values) => ['qsv', 'quicksync'].includes(encoder(values));
 const software = (values: Values) => encoder(values) === 'software';
 
@@ -397,9 +402,9 @@ const encoders: Setting[] = [
     key: 'encoder',
     label: 'Encoder',
     description:
-      'Automatic picks AMF on AMD GPUs or NVENC on NVIDIA GPUs when the stream starts. Select an encoder to show its settings.',
+      "Automatic picks AMF on AMD GPUs or NVENC on NVIDIA GPUs when the stream starts, and shows that encoder's settings below.",
     details:
-      "If that encoder cannot start, Automatic tries another hardware encoder and shows a stream warning; it never falls back to software. To see an encoder's settings while keeping Automatic, search for them. The stream card and log show the encoder actually used; PyroWave streams use their own encoder.",
+      'If that encoder cannot start, Automatic tries another hardware encoder and shows a stream warning; it never falls back to software. Settings for other encoders appear when you select one, or in search. The stream card and log show the encoder actually used; PyroWave streams use their own encoder.',
     category: 'encoders',
     group: 'Encoder',
     control: {
@@ -463,7 +468,7 @@ const nvidia: Setting[] = [
       ],
     },
     default: 1,
-    inactiveHint: "Applies to NVIDIA NVENC streams, including when Automatic selects NVENC. Select NVIDIA NVENC to show this group outside search.",
+    inactiveHint: "Applies to NVIDIA NVENC streams, including when Automatic selects NVENC. Shown when an NVENC encoder is selected, or with Automatic when this PC has an NVIDIA GPU.",
     visibleWhen: nvenc,
   },
   {
@@ -482,7 +487,7 @@ const nvidia: Setting[] = [
       ],
     },
     default: 'quarter_res',
-    inactiveHint: "Applies to NVIDIA NVENC streams, including when Automatic selects NVENC. Select NVIDIA NVENC to show this group outside search.",
+    inactiveHint: "Applies to NVIDIA NVENC streams, including when Automatic selects NVENC. Shown when an NVENC encoder is selected, or with Automatic when this PC has an NVIDIA GPU.",
     visibleWhen: nvenc,
   },
   {
@@ -494,7 +499,7 @@ const nvidia: Setting[] = [
     group: 'NVIDIA NVENC',
     control: { kind: 'toggle' },
     default: false,
-    inactiveHint: "Applies to NVIDIA NVENC streams, including when Automatic selects NVENC. Select NVIDIA NVENC to show this group outside search.",
+    inactiveHint: "Applies to NVIDIA NVENC streams, including when Automatic selects NVENC. Shown when an NVENC encoder is selected, or with Automatic when this PC has an NVIDIA GPU.",
     visibleWhen: nvenc,
   },
   {
@@ -506,7 +511,7 @@ const nvidia: Setting[] = [
     group: 'NVIDIA NVENC',
     control: { kind: 'toggle' },
     default: false,
-    inactiveHint: "Applies to NVIDIA NVENC streams, including when Automatic selects NVENC. Select NVIDIA NVENC to show this group outside search.",
+    inactiveHint: "Applies to NVIDIA NVENC streams, including when Automatic selects NVENC. Shown when an NVENC encoder is selected, or with Automatic when this PC has an NVIDIA GPU.",
     visibleWhen: nvenc,
   },
   {
@@ -520,7 +525,7 @@ const nvidia: Setting[] = [
     group: 'NVIDIA NVENC',
     control: { kind: 'number', min: 0, max: 400, step: 1, unit: '%' },
     default: 0,
-    inactiveHint: "Applies to NVIDIA NVENC streams, including when Automatic selects NVENC. Select NVIDIA NVENC to show this group outside search.",
+    inactiveHint: "Applies to NVIDIA NVENC streams, including when Automatic selects NVENC. Shown when an NVENC encoder is selected, or with Automatic when this PC has an NVIDIA GPU.",
     visibleWhen: nvenc,
   },
   {
@@ -532,7 +537,7 @@ const nvidia: Setting[] = [
     group: 'NVIDIA NVENC',
     control: { kind: 'toggle' },
     default: false,
-    inactiveHint: "Applies to NVIDIA NVENC streams, including when Automatic selects NVENC. Select NVIDIA NVENC to show this group outside search.",
+    inactiveHint: "Applies to NVIDIA NVENC streams, including when Automatic selects NVENC. Shown when an NVENC encoder is selected, or with Automatic when this PC has an NVIDIA GPU.",
     visibleWhen: nvenc,
   },
   {
@@ -551,7 +556,7 @@ const nvidia: Setting[] = [
       ],
     },
     default: 'auto',
-    inactiveHint: "Applies to NVIDIA NVENC streams, including when Automatic selects NVENC. Select NVIDIA NVENC to show this group outside search.",
+    inactiveHint: "Applies to NVIDIA NVENC streams, including when Automatic selects NVENC. Shown when an NVENC encoder is selected, or with Automatic when this PC has an NVIDIA GPU.",
     visibleWhen: nvenc,
   },
   {
@@ -565,7 +570,7 @@ const nvidia: Setting[] = [
     group: 'NVIDIA NVENC',
     control: { kind: 'toggle' },
     default: true,
-    inactiveHint: "Applies to NVIDIA NVENC streams, including when Automatic selects NVENC. Select NVIDIA NVENC to show this group outside search.",
+    inactiveHint: "Applies to NVIDIA NVENC streams, including when Automatic selects NVENC. Shown when an NVENC encoder is selected, or with Automatic when this PC has an NVIDIA GPU.",
     visibleWhen: nvenc,
   },
   {
@@ -578,7 +583,7 @@ const nvidia: Setting[] = [
     group: 'NVIDIA NVENC',
     control: { kind: 'toggle' },
     default: true,
-    inactiveHint: "Applies to NVIDIA NVENC streams, including when Automatic selects NVENC. Select NVIDIA NVENC to show this group outside search.",
+    inactiveHint: "Applies to NVIDIA NVENC streams, including when Automatic selects NVENC. Shown when an NVENC encoder is selected, or with Automatic when this PC has an NVIDIA GPU.",
     visibleWhen: nvenc,
   },
   {
@@ -591,7 +596,7 @@ const nvidia: Setting[] = [
     group: 'NVIDIA NVENC',
     control: { kind: 'toggle' },
     default: true,
-    inactiveHint: "Applies to NVIDIA NVENC streams, including when Automatic selects NVENC. Select NVIDIA NVENC to show this group outside search.",
+    inactiveHint: "Applies to NVIDIA NVENC streams, including when Automatic selects NVENC. Shown when an NVENC encoder is selected, or with Automatic when this PC has an NVIDIA GPU.",
     visibleWhen: nvenc,
   },
   {
@@ -603,7 +608,7 @@ const nvidia: Setting[] = [
     group: 'NVIDIA NVENC',
     control: { kind: 'toggle' },
     default: false,
-    inactiveHint: "Applies to NVIDIA NVENC streams, including when Automatic selects NVENC. Select NVIDIA NVENC to show this group outside search.",
+    inactiveHint: "Applies to NVIDIA NVENC streams, including when Automatic selects NVENC. Shown when an NVENC encoder is selected, or with Automatic when this PC has an NVIDIA GPU.",
     visibleWhen: nvenc,
     advanced: true,
   },
@@ -616,7 +621,7 @@ const nvidia: Setting[] = [
     group: 'NVIDIA NVENC',
     control: { kind: 'toggle' },
     default: false,
-    inactiveHint: "Applies to NVIDIA NVENC streams, including when Automatic selects NVENC. Select NVIDIA NVENC to show this group outside search.",
+    inactiveHint: "Applies to NVIDIA NVENC streams, including when Automatic selects NVENC. Shown when an NVENC encoder is selected, or with Automatic when this PC has an NVIDIA GPU.",
     visibleWhen: nvenc,
     advanced: true,
   },
@@ -665,7 +670,7 @@ const nvidia: Setting[] = [
     group: 'NVIDIA NVENC',
     control: { kind: 'toggle' },
     default: false,
-    inactiveHint: "Applies to NVIDIA NVENC streams, including when Automatic selects NVENC. Select NVIDIA NVENC to show this group outside search.",
+    inactiveHint: "Applies to NVIDIA NVENC streams, including when Automatic selects NVENC. Shown when an NVENC encoder is selected, or with Automatic when this PC has an NVIDIA GPU.",
     visibleWhen: nvenc,
     advanced: true,
   },
@@ -699,7 +704,7 @@ const amd: Setting[] = [
       ],
     },
     default: 'ultralowlatency',
-    inactiveHint: "Applies to AMD AMF streams, including when Automatic selects AMF. Select AMD AMF to show this group outside search.",
+    inactiveHint: "Applies to AMD AMF streams, including when Automatic selects AMF. Shown when AMD AMF is selected, or with Automatic when this PC has an AMD GPU.",
     visibleWhen: amf,
   },
   {
@@ -719,7 +724,7 @@ const amd: Setting[] = [
       ],
     },
     default: 'speed',
-    inactiveHint: "Applies to AMD AMF streams, including when Automatic selects AMF. Select AMD AMF to show this group outside search.",
+    inactiveHint: "Applies to AMD AMF streams, including when Automatic selects AMF. Shown when AMD AMF is selected, or with Automatic when this PC has an AMD GPU.",
     visibleWhen: amf,
   },
   {
@@ -745,7 +750,7 @@ const amd: Setting[] = [
       ],
     },
     default: 'vbr_latency',
-    inactiveHint: "Applies to AMD AMF streams, including when Automatic selects AMF. Select AMD AMF to show this group outside search.",
+    inactiveHint: "Applies to AMD AMF streams, including when Automatic selects AMF. Shown when AMD AMF is selected, or with Automatic when this PC has an AMD GPU.",
     visibleWhen: amf,
   },
   {
@@ -766,7 +771,7 @@ const amd: Setting[] = [
       ],
     },
     default: 0,
-    inactiveHint: "Applies to AMD AMF streams, including when Automatic selects AMF. Select AMD AMF to show this group outside search.",
+    inactiveHint: "Applies to AMD AMF streams, including when Automatic selects AMF. Shown when AMD AMF is selected, or with Automatic when this PC has an AMD GPU.",
     visibleWhen: amf,
     advanced: true,
   },
@@ -788,7 +793,7 @@ const amd: Setting[] = [
       ],
     },
     default: 0,
-    inactiveHint: "Applies to AMD AMF streams, including when Automatic selects AMF. Select AMD AMF to show this group outside search.",
+    inactiveHint: "Applies to AMD AMF streams, including when Automatic selects AMF. Shown when AMD AMF is selected, or with Automatic when this PC has an AMD GPU.",
     visibleWhen: amf,
     advanced: true,
   },
@@ -812,7 +817,7 @@ const amd: Setting[] = [
       ],
     },
     default: 0,
-    inactiveHint: "Applies to AMD AMF streams, including when Automatic selects AMF. Select AMD AMF to show this group outside search.",
+    inactiveHint: "Applies to AMD AMF streams, including when Automatic selects AMF. Shown when AMD AMF is selected, or with Automatic when this PC has an AMD GPU.",
     visibleWhen: amf,
     advanced: true,
   },
@@ -837,7 +842,7 @@ const amd: Setting[] = [
     group: 'AMD AMF',
     control: { kind: 'toggle' },
     default: false,
-    inactiveHint: "Applies to AMD AMF streams, including when Automatic selects AMF. Select AMD AMF to show this group outside search.",
+    inactiveHint: "Applies to AMD AMF streams, including when Automatic selects AMF. Shown when AMD AMF is selected, or with Automatic when this PC has an AMD GPU.",
     visibleWhen: amf,
   },
   {
@@ -853,7 +858,7 @@ const amd: Setting[] = [
       options: [{ value: '', label: 'Default (H.264 off; HEVC/AV1 on)' }, ...tristate],
     },
     default: '',
-    inactiveHint: "Applies to AMD AMF streams, including when Automatic selects AMF. Select AMD AMF to show this group outside search.",
+    inactiveHint: "Applies to AMD AMF streams, including when Automatic selects AMF. Shown when AMD AMF is selected, or with Automatic when this PC has an AMD GPU.",
     visibleWhen: amf,
   },
   {
@@ -865,7 +870,7 @@ const amd: Setting[] = [
     group: 'AMD AMF',
     control: { kind: 'toggle' },
     default: false,
-    inactiveHint: "Applies to AMD AMF streams, including when Automatic selects AMF. Select AMD AMF to show this group outside search.",
+    inactiveHint: "Applies to AMD AMF streams, including when Automatic selects AMF. Shown when AMD AMF is selected, or with Automatic when this PC has an AMD GPU.",
     visibleWhen: amf,
   },
   {
@@ -883,7 +888,7 @@ const amd: Setting[] = [
       ],
     },
     default: 'auto',
-    inactiveHint: "Applies to AMD AMF streams, including when Automatic selects AMF. Select AMD AMF to show this group outside search.",
+    inactiveHint: "Applies to AMD AMF streams, including when Automatic selects AMF. Shown when AMD AMF is selected, or with Automatic when this PC has an AMD GPU.",
     visibleWhen: amf,
   },
   {
@@ -895,7 +900,7 @@ const amd: Setting[] = [
     group: 'AMD AMF',
     control: { kind: 'number', min: 0, max: 32, step: 1, unit: 'frames' },
     default: 0,
-    inactiveHint: "Applies to AMD AMF streams, including when Automatic selects AMF. Select AMD AMF to show this group outside search.",
+    inactiveHint: "Applies to AMD AMF streams, including when Automatic selects AMF. Shown when AMD AMF is selected, or with Automatic when this PC has an AMD GPU.",
     visibleWhen: amf,
   },
   {
@@ -908,7 +913,7 @@ const amd: Setting[] = [
     group: 'AMD AMF',
     control: { kind: 'number', min: 0, max: 4, step: 1, unit: 'frames' },
     default: 4,
-    inactiveHint: "Applies to AMD AMF streams, including when Automatic selects AMF. Select AMD AMF to show this group outside search.",
+    inactiveHint: "Applies to AMD AMF streams, including when Automatic selects AMF. Shown when AMD AMF is selected, or with Automatic when this PC has an AMD GPU.",
     visibleWhen: amf,
   },
   {
@@ -922,7 +927,7 @@ const amd: Setting[] = [
     group: 'AMD AMF',
     control: { kind: 'select', options: tristate },
     default: 'auto',
-    inactiveHint: "Applies to AMD AMF streams, including when Automatic selects AMF. Select AMD AMF to show this group outside search.",
+    inactiveHint: "Applies to AMD AMF streams, including when Automatic selects AMF. Shown when AMD AMF is selected, or with Automatic when this PC has an AMD GPU.",
     visibleWhen: amf,
   },
   {
@@ -933,7 +938,7 @@ const amd: Setting[] = [
     group: 'AMD AMF',
     control: { kind: 'select', options: tristate },
     default: 'auto',
-    inactiveHint: "Applies to AMD AMF streams, including when Automatic selects AMF. Select AMD AMF to show this group outside search.",
+    inactiveHint: "Applies to AMD AMF streams, including when Automatic selects AMF. Shown when AMD AMF is selected, or with Automatic when this PC has an AMD GPU.",
     visibleWhen: amf,
   },
   {
@@ -945,7 +950,7 @@ const amd: Setting[] = [
     group: 'AMD AMF',
     control: { kind: 'select', options: tristate },
     default: 'auto',
-    inactiveHint: "Applies to AMD AMF streams, including when Automatic selects AMF. Select AMD AMF to show this group outside search.",
+    inactiveHint: "Applies to AMD AMF streams, including when Automatic selects AMF. Shown when AMD AMF is selected, or with Automatic when this PC has an AMD GPU.",
     visibleWhen: amf,
   },
   {
@@ -966,7 +971,7 @@ const amd: Setting[] = [
       ],
     },
     default: 'auto',
-    inactiveHint: "Applies to AMD AMF streams, including when Automatic selects AMF. Select AMD AMF to show this group outside search.",
+    inactiveHint: "Applies to AMD AMF streams, including when Automatic selects AMF. Shown when AMD AMF is selected, or with Automatic when this PC has an AMD GPU.",
     visibleWhen: amf,
   },
   {
@@ -989,7 +994,7 @@ const amd: Setting[] = [
       ],
     },
     default: 'auto',
-    inactiveHint: "Applies to AMD AMF streams, including when Automatic selects AMF. Select AMD AMF to show this group outside search.",
+    inactiveHint: "Applies to AMD AMF streams, including when Automatic selects AMF. Shown when AMD AMF is selected, or with Automatic when this PC has an AMD GPU.",
     visibleWhen: amf,
   },
   {
@@ -1001,7 +1006,7 @@ const amd: Setting[] = [
     group: 'AMD AMF',
     control: { kind: 'select', options: tristate },
     default: 'auto',
-    inactiveHint: "Applies to AMD AMF streams, including when Automatic selects AMF. Select AMD AMF to show this group outside search.",
+    inactiveHint: "Applies to AMD AMF streams, including when Automatic selects AMF. Shown when AMD AMF is selected, or with Automatic when this PC has an AMD GPU.",
     visibleWhen: amf,
   },
   {
@@ -1020,7 +1025,7 @@ const amd: Setting[] = [
       ],
     },
     default: 0,
-    inactiveHint: "Applies to AMD AMF streams, including when Automatic selects AMF. Select AMD AMF to show this group outside search.",
+    inactiveHint: "Applies to AMD AMF streams, including when Automatic selects AMF. Shown when AMD AMF is selected, or with Automatic when this PC has an AMD GPU.",
     visibleWhen: amf,
     advanced: true,
   },

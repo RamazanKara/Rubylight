@@ -224,6 +224,24 @@ test('controls share a right-hand column on wide screens and stack under the tex
   assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
 });
 
+test('with Automatic, the encoder settings of this PC\'s GPU are shown', async t => {
+  const gpu = (name, vendor) => ({ name, vendor, dedicated_memory: 0, luid: [1, 0], pnp_id: null });
+  const { page } = await fixture(t, {}, { gpus: [gpu('AMD Radeon RX 7900 XT', 0x1002)] });
+  await page.goto(base + '/settings/encoders');
+  const usage = setting(page, 'amd_usage');
+  await usage.waitFor();
+  assert.doesNotMatch(await usage.innerText(), /Shown when AMD AMF is selected/, 'AMF settings are in effect, not conditional');
+  assert.equal(await setting(page, 'nvenc_preset').count(), 0);
+  assert.equal(await setting(page, 'qsv_preset').count(), 0);
+  if (process.env.BUTTERPOLLO_TEST_ARTIFACTS) {
+    await page.screenshot({ path: path.join(process.env.BUTTERPOLLO_TEST_ARTIFACTS, 'settings-encoders-amd-desktop.png'), fullPage: true });
+  }
+  // Choosing another encoder hides them again.
+  await setting(page, 'encoder').getByRole('combobox').selectOption('nvenc');
+  await setting(page, 'nvenc_preset').waitFor();
+  assert.equal(await setting(page, 'amd_usage').count(), 0);
+});
+
 test('undoing an advanced change keeps the Advanced section open', async t => {
   const { page } = await fixture(t);
   await page.goto(base + '/settings/video');

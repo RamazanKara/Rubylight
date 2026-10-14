@@ -56,6 +56,25 @@ test('the default is shown only when the saved value would differ from it', () =
   assert.equal(differsFromDefault(permanent, {}, {}), false);
 });
 
+test('Automatic shows the encoder settings for the GPUs this PC has', () => {
+  const { NATIVE_ENCODERS } = types;
+  const gpu = (name, vendor) => ({ name, vendor, dedicated_memory: 0, luid: [1, 0], pnp_id: null });
+  const radeon = gpu('AMD Radeon RX 7900 XT', 0x1002), geforce = gpu('NVIDIA GeForce RTX 4090', 0x10de);
+  // As encoder.rs native_backend: by vendor, else by name; Intel has no native encoder.
+  assert.deepEqual(values.nativeEncoders([radeon, gpu('Intel(R) Arc(TM) A770', 0x8086)], ''), ['amf']);
+  assert.deepEqual(values.nativeEncoders([gpu('AMD Radeon R7 M370', 0)], ''), ['amf']);
+  assert.deepEqual(values.nativeEncoders([radeon, geforce], ''), ['amf', 'nvenc']);
+  assert.deepEqual(values.nativeEncoders([radeon, geforce], 'nvidia geforce rtx 4090'), ['nvenc']);
+  assert.deepEqual(values.nativeEncoders(null, ''), []);
+  const amd = settings.get('amd_usage'), nvidia = settings.get('nvenc_preset');
+  assert.equal(amd.visibleWhen({ encoder: 'auto', [NATIVE_ENCODERS]: ['amf'] }), true);
+  assert.equal(amd.visibleWhen({ encoder: 'auto', [NATIVE_ENCODERS]: ['nvenc'] }), false);
+  assert.equal(amd.visibleWhen({ encoder: 'nvenc', [NATIVE_ENCODERS]: ['amf'] }), false);
+  assert.equal(nvidia.visibleWhen({ encoder: 'pyrowave', [NATIVE_ENCODERS]: ['nvenc'] }), true);
+  assert.equal(nvidia.visibleWhen({ encoder: 'auto' }), false);
+  assert.equal(settings.get('amd_qvbr_quality_level').visibleWhen({ encoder: 'auto', amd_rc: 'qvbr', [NATIVE_ENCODERS]: ['amf'] }), true);
+});
+
 test('an unset virtual display mode keeps the OS-dependent default without hiding an explicit per-device choice', () => {
   const key = 'virtual_display_mode';
   const setting = settings.get(key);

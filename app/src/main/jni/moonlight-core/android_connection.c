@@ -3,6 +3,7 @@
 
 bool AndroidInputOnly;
 bool AndroidRemoteMonitor;
+bool AndroidHapticsPcmRequested;
 
 // The microphone comes up with the last stage, as in ClassicOldSong/moonlight-common-c, and goes
 // down with it, before the other streams. A microphone that cannot start costs only itself.

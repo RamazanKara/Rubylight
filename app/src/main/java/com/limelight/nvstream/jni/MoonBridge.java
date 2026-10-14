@@ -399,7 +399,8 @@ public class MoonBridge {
                                               int videoCapabilities,
                                               int colorSpace, int colorRange,
                                               boolean unbatchedInput, boolean networkPriority, String rustHostVersion,
-                                              boolean inputOnly, boolean remoteMonitor, boolean enableMic);
+                                              boolean inputOnly, boolean remoteMonitor, boolean enableMic,
+                                              boolean hapticsPcm);
 
     public static native void stopConnection();
 

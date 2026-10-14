@@ -26,7 +26,7 @@ sanitize=(-fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame
 for mode in plain sanitized; do
     extra=()
     if [ "$mode" = sanitized ]; then extra=("${sanitize[@]}"); fi
-    for test in aaudio_queue control_negotiation controller_haptics dualsense_usb_audio networking rtsp_parser rtsp_receive evdev_ipc stun; do
+    for test in aaudio_queue control_negotiation controller_haptics dualsense_usb_audio networking rtsp_parser rtsp_receive evdev_ipc stun sdp_feature_flags; do
         cc "${flags[@]}" "${extra[@]}" -fno-builtin "$tests/${test}_test.c" -o "$out/$test-$mode"
     done
     cc "${flags[@]}" "${extra[@]}" -c "$tests/control_packet_types_test.c" -o "$out/control_packet_types-$mode.o"
@@ -45,7 +45,7 @@ for mode in plain sanitized; do
         -lcrypto -o "$out/microphone_packet-$mode"
     cc "${flags[@]}" "${extra[@]}" "$tests/input_queue_test.c" "$common/src/LinkedBlockingQueue.c" \
         "$common/src/Platform.c" "$common/src/PlatformCrypto.c" -lcrypto -lpthread -o "$out/input_queue-$mode"
-    for test in aaudio_queue control_negotiation controller_haptics dualsense_usb_audio networking rtsp_parser rtsp_receive evdev_ipc stun rtsp_duplicate audio_reorder video_shutdown control_termination enet_termination control_send microphone_packet input_queue; do
+    for test in aaudio_queue control_negotiation controller_haptics dualsense_usb_audio networking rtsp_parser rtsp_receive evdev_ipc stun sdp_feature_flags rtsp_duplicate audio_reorder video_shutdown control_termination enet_termination control_send microphone_packet input_queue; do
         "$out/$test-$mode"
         echo "$test ($mode): passed"
     done

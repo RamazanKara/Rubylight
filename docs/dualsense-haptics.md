@@ -41,7 +41,7 @@ Interrupted streams use the [bounded, resume-only recovery policy](recovery-and-
 
 ## Protocol and implementation
 
-The encrypted control packet is `0x5601`; connection feature `ML_FF_HAPTICS_PCM` is `0x04`, and per-controller capability `LI_CCAP_HAPTICS_PCM` is `0x8000`. The version-1 payload has a 12-byte little-endian header followed by 1–240 frames of 48 kHz stereo S16LE actuator PCM. Invalid version, format, controller, reserved fields and lengths are rejected before the Java callback.
+The encrypted control packet is `0x5601`; connection feature `ML_FF_HAPTICS_PCM` is `0x04` and is offered only while this option is on, because it moves a Vibepollo host's control loop to a 5 ms period; per-controller capability `LI_CCAP_HAPTICS_PCM` is `0x8000`. The version-1 payload has a 12-byte little-endian header followed by 1–240 frames of 48 kHz stereo S16LE actuator PCM. Invalid version, format, controller, reserved fields and lengths are rejected before the Java callback.
 
 Each ready controller owns separate bounded queues for actuator PCM and audible sound. The worker copies actuators to channels 3/4 and sound to channels 1/2 of four-channel USB audio, drops duplicate/out-of-order and stale samples, and discards queued samples across sequence gaps. At most 20 ms of each PCM stream waits in software and 8 ms is submitted to USB. Microphone capture uses its own USB connection so it cannot consume playback completions. Capture is registered with Android's app-operation tracking and stops on mute, permission loss or teardown. HID output keeps waveform mode enabled during adaptive-trigger, audio and light changes; sustained host silence returns control to ordinary rumble.
 

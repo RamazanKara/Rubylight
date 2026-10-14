@@ -567,10 +567,11 @@ Java_com_limelight_nvstream_jni_MoonBridge_startConnection(JNIEnv *env, jclass c
                                                            jboolean unbatchedInput, jboolean networkPriority,
                                                            jstring rustHostVersion,
                                                            jboolean inputOnly, jboolean remoteMonitor,
-                                                           jboolean enableMic) {
+                                                           jboolean enableMic, jboolean hapticsPcm) {
     AndroidInputOnly = inputOnly;
     AndroidRemoteMonitor = remoteMonitor;
     AndroidMicRequested = enableMic;
+    AndroidHapticsPcmRequested = hapticsPcm;
     const char* rustVersion = rustHostVersion ? (*env)->GetStringUTFChars(env, rustHostVersion, NULL) : NULL;
     PyroWaveRecordsSupported = supportsPyroWaveRecords(rustVersion);
     // Phase-lock reports go only to hosts that announce them in this connection's DESCRIBE answer.

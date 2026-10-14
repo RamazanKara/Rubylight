@@ -895,7 +895,7 @@ public class NvConnection {
                                 hostDetails.rustHostVersion,
                                 context.streamConfig.getApp().getRole() == NvApp.Role.INPUT_ONLY,
                                 context.streamConfig.getApp().getRole() == NvApp.Role.REMOTE_MONITOR,
-                                micPermitted);
+                                micPermitted, prefs.usbDualSenseHaptics);
                         if (ret != 0) {
                             return;
                         }

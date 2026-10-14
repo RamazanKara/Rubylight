@@ -46,8 +46,17 @@ pub struct Found {
     pub vibepollo_entries: Vec<Product>,
     /// The folder of a Rust host the service already runs, if any.
     pub service_install: Option<PathBuf>,
+    /// Why the installed Rubylight cannot stay in its folder, which then
+    /// moves (install::unrepairable).
+    pub relocate: Option<String>,
 }
 impl Found {
+    /// The installed Rubylight's folder: its service's, else its Apps entry's.
+    pub fn current(&self) -> Option<&Path> {
+        self.service_install
+            .as_deref()
+            .or_else(|| self.butterpollo.as_ref()?.location.as_deref())
+    }
     pub fn check_version(&self) -> anyhow::Result<()> {
         if let Some(product) = &self.butterpollo {
             check_version(&product.version, env!("CARGO_PKG_VERSION"))?;
@@ -239,21 +248,39 @@ pub fn scan() -> Found {
                 .is_some_and(|n| n.eq_ignore_ascii_case("butterpollo-service.exe"))
         })
         .and_then(|p| p.parent().map(PathBuf::from));
+    found.relocate = found
+        .current()
+        .and_then(crate::install::unrepairable)
+        .map(|reason| format!("{reason:#}"));
     found
+}
+/// Where a new installation goes.
+pub fn default_folder() -> PathBuf {
+    crate::system::program_files().join("Rubylight")
 }
 /// Where Rubylight is or will be installed.
 pub fn install_dir(found: &Found, requested: Option<PathBuf>) -> PathBuf {
-    // The running service's folder first: setup updates it in place.
+    // The running service's folder first: setup updates it in place, unless
+    // it has to move.
     requested
-        .or_else(|| found.service_install.clone())
-        .or_else(|| found.butterpollo.as_ref().and_then(|p| p.location.clone()))
-        .unwrap_or_else(|| crate::system::program_files().join("Rubylight"))
+        .or_else(|| {
+            found
+                .current()
+                .filter(|_| found.relocate.is_none())
+                .map(Path::to_path_buf)
+        })
+        .unwrap_or_else(default_folder)
 }
 /// Whether setup may install somewhere else. As with Vibepollo, only a new
 /// installation can choose; an installed Rubylight is updated where it is,
-/// so a failed update can be put back.
+/// so a failed update can be put back. One that cannot stay there moves.
 pub fn folder_choosable(found: &Found) -> bool {
-    found.service_install.is_none() && found.butterpollo.is_none()
+    (found.service_install.is_none() && found.butterpollo.is_none()) || found.relocate.is_some()
+}
+fn same_folder(a: &Path, b: &Path) -> bool {
+    a.canonicalize()
+        .ok()
+        .is_some_and(|a| b.canonicalize().ok() == Some(a))
 }
 /// The folder to install into when the user picked `picked`: the folder
 /// itself when it is empty or holds Rubylight, else a Rubylight folder in it,
@@ -277,6 +304,21 @@ pub fn summary(found: &Found, install: &std::path::Path) -> String {
         lines.push(format!("Rubylight {} will be updated.", ours.version));
     } else if found.service_install.is_some() {
         lines.push("The Rubylight host already running as a service will be updated.".to_owned());
+    }
+    if let (Some(current), Some(_)) = (found.current(), &found.relocate) {
+        let why = "its service runs as SYSTEM, and users other than administrators could change that folder";
+        lines.push(if same_folder(current, install) {
+            format!(
+                "Rubylight cannot stay in {}: {why}. Choose another folder.",
+                current.display()
+            )
+        } else {
+            format!(
+                "Rubylight moves out of {}: {why}. Settings and paired devices are kept. Nothing uses {} afterwards, and you can delete it.",
+                current.display(),
+                current.display()
+            )
+        });
     }
     for product in found.packages.iter().chain(&found.legacy) {
         // Vibepollo's own entry carries the release version; its package
@@ -323,6 +365,56 @@ mod tests {
         assert_eq!(chosen_folder(&ours), ours);
         let drive = std::path::Path::new("C:\\");
         assert_eq!(chosen_folder(drive), drive.join("Rubylight"));
+    }
+    #[test]
+    fn an_installation_that_cannot_stay_offers_program_files_instead() {
+        let root = tempfile::tempdir().unwrap();
+        let installed = root.path().join("Games").join("Rubylight");
+        std::fs::create_dir_all(&installed).unwrap();
+        let mut found = Found {
+            service_install: Some(installed.clone()),
+            ..Default::default()
+        };
+        assert_eq!(install_dir(&found, None), installed);
+        assert!(!folder_choosable(&found));
+        assert!(!summary(&found, &installed).contains("Rubylight moves out of"));
+        found.relocate = Some("Games must be owned by Administrators".into());
+        assert_eq!(install_dir(&found, None), default_folder());
+        assert!(folder_choosable(&found));
+        let text = summary(&found, &default_folder());
+        assert!(
+            text.contains(&format!(
+                "Rubylight moves out of {}: its service runs as SYSTEM",
+                installed.display()
+            )),
+            "{text}"
+        );
+        assert!(
+            text.contains("Settings and paired devices are kept."),
+            "{text}"
+        );
+        // Picked again, the folder is refused before setup starts.
+        assert!(summary(&found, &installed).contains("Choose another folder."));
+        // A folder chosen on the command line is still used.
+        let requested = root.path().join("Requested");
+        assert_eq!(install_dir(&found, Some(requested.clone())), requested);
+        // Without a service, the Apps entry names the folder.
+        let entry = Found {
+            butterpollo: Some(Product {
+                key: "Butterpollo".into(),
+                name: "Rubylight".into(),
+                version: "2.1.0".into(),
+                location: Some(installed.clone()),
+                uninstall: None,
+                quiet_uninstall: None,
+                msi: false,
+                root: HKEY_LOCAL_MACHINE,
+            }),
+            ..Default::default()
+        };
+        assert_eq!(entry.current(), Some(installed.as_path()));
+        assert_eq!(install_dir(&entry, None), installed);
+        assert!(!folder_choosable(&entry));
     }
     #[test]
     fn upgrades_and_reinstalls_are_allowed_but_downgrades_are_not() {

@@ -217,6 +217,13 @@ The [fix in 2.2.6](../rust/RELEASE_NOTES.md#new-in-226) repairs that legacy owne
 
 Setup still rejects reparse points (including links and junctions) and untrusted parent folders. The repair does not apply to a fresh install or to a damaged installation whose missing or unreadable package manifest forces a full reinstall. If setup still refuses the path, keep the profile backup and include the setup log from [the locations below](#logs-and-a-useful-report) in your report.
 
+## An update says Rubylight cannot be updated in its folder
+
+The Rubylight service runs as SYSTEM from the install folder, so setup only updates a folder that no one but Administrators, SYSTEM or TrustedInstaller owns. Installers up to 2.2.1 locked a folder outside Program Files down without taking it from the user who created it, and setup since 2.2.2 then refused every update there.
+
+- **The install folder itself belongs to a user** (for example `D:\Rubylight`, created in Explorer): an update now gives it to Administrators and locks it down again, as it does for the profile folder, and carries on.
+- **A folder above it belongs to a user** (for example `D:\Games` for `D:\Games\Rubylight`): that user could put another folder in its place, so Rubylight cannot stay there. **Maintenance → Updates** says so. Run the installer from the release page: it offers `C:\Program Files\Rubylight` (or another folder through **Change folder…**) and moves Rubylight there, keeping the service, settings, paired devices and drivers. If Rubylight does not start from the new folder, setup returns the service to the old one. Afterwards nothing uses the old folder; delete it yourself. A quiet setup without `--install-dir` moves to `C:\Program Files\Rubylight` as well.
+
 ## An update stays queued
 
 In **Maintenance → Updates**, read the current phase and any error. Installation needs the installed Windows service and one minute without streams, pending connections, remote monitors or host apps. Quit a retained Desktop/game session as well as disconnecting its video. A new connection defers the update.

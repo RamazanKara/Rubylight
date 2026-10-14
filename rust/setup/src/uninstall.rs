@@ -59,17 +59,7 @@ pub fn uninstall(options: &Options, progress: &Progress) -> Result<()> {
     }
     system::firewall_remove(FIREWALL_RULE);
     system::firewall_remove(LEGACY_FIREWALL_RULE);
-
-    // The host registers its HDR Vulkan layer while it runs.
-    let layers = "SOFTWARE\\Khronos\\Vulkan\\ImplicitLayers";
-    // With the separator, so removing ...\Butterpollo keeps ...\Butterpollo2's layer.
-    let prefix =
-        format!("{}\\", install.display().to_string().trim_end_matches('\\')).to_ascii_lowercase();
-    for value in system::values(HKEY_LOCAL_MACHINE, layers, KEY_WOW64_64KEY) {
-        if value.to_ascii_lowercase().starts_with(&prefix) {
-            system::delete_value(HKEY_LOCAL_MACHINE, layers, &value, KEY_WOW64_64KEY);
-        }
-    }
+    remove_layers(&install);
 
     if options.remove_drivers {
         progress.set("Removing the virtual drivers…");
@@ -131,6 +121,18 @@ pub fn uninstall(options: &Options, progress: &Progress) -> Result<()> {
         let _ = std::fs::remove_dir(&install);
     }
     Ok(())
+}
+/// The HDR Vulkan layer that the host registers from `install` while it runs.
+pub(crate) fn remove_layers(install: &Path) {
+    let layers = "SOFTWARE\\Khronos\\Vulkan\\ImplicitLayers";
+    // With the separator, so removing ...\Butterpollo keeps ...\Butterpollo2's layer.
+    let prefix =
+        format!("{}\\", install.display().to_string().trim_end_matches('\\')).to_ascii_lowercase();
+    for value in system::values(HKEY_LOCAL_MACHINE, layers, KEY_WOW64_64KEY) {
+        if value.to_ascii_lowercase().starts_with(&prefix) {
+            system::delete_value(HKEY_LOCAL_MACHINE, layers, &value, KEY_WOW64_64KEY);
+        }
+    }
 }
 /// Delete what the installer put in `install`: the manifest's files, the
 /// manifest, the uninstaller and driver folders carried over from Vibepollo.

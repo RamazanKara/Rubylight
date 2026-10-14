@@ -6,7 +6,7 @@ use crate::{
     system::{self, Value},
     ui::Progress,
 };
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, anyhow, bail};
 use std::{
     net::{IpAddr, SocketAddr},
     path::{Path, PathBuf},
@@ -157,9 +157,16 @@ pub fn install(options: &Options, progress: &Progress) -> Result<Outcome> {
     line(format!("found: {found:#?}"));
     let install = system::win32_path(&detect::install_dir(&found, options.install_dir.clone()))?;
     let profile = profile();
-    system::trusted_ancestors(&install)?;
-    let updating = updates_in_place(found.service_install.as_deref(), &install)?;
-    prepare_profile(&profile, updating)?;
+    let target = target(&found, &install)?;
+    let updating = target == Target::InPlace;
+    if updating {
+        prepare_install(&install)?;
+    } else {
+        system::trusted_ancestors(&install)
+            .map_err(|error| anyhow!("{error:#}; choose another installation folder"))?;
+    }
+    // The installed service identifies Rubylight's profile.
+    prepare_profile(&profile, target != Target::Fresh)?;
     let mut notes = Vec::new();
     let mut restart_needed = false;
 
@@ -214,23 +221,13 @@ pub fn install(options: &Options, progress: &Progress) -> Result<Outcome> {
             notes,
         });
     }
+    if let Target::Move(old) = &target {
+        return move_install(options, old, &install, &profile, &mut payload, progress);
+    }
 
     // Previous hosts are only removed by a full installation.
     let previous = migration_source(&found, &profile, &install)?;
-    progress.set("Unpacking Rubylight…");
-    let staging = system::program_data().join("Butterpollo").join("setup");
-    let staging_root = staging.parent().context("staging folder has no parent")?;
-    std::fs::create_dir_all(staging_root)?;
-    system::restrict(staging_root, true)?;
-    if staging.exists() {
-        std::fs::remove_dir_all(&staging).context("removing the previous setup staging folder")?;
-    }
-    std::fs::create_dir_all(&staging)?;
-    // The staged host runs elevated below (settings import) and loads DLLs
-    // from its own folder: lock the folder down before anything lands in it.
-    system::restrict(&staging, false)?;
-    payload.extract(&staging)?;
-    let entries = payload::verify(&staging)?;
+    let (staging, entries) = unpack(&mut payload, progress)?;
 
     let active_profile = previous
         .as_ref()
@@ -442,6 +439,7 @@ pub fn install(options: &Options, progress: &Progress) -> Result<Outcome> {
         wait_ready(probe(&profile), Some(env!("CARGO_PKG_VERSION")))?;
     }
     restart.services.clear();
+    crate::update::record_installed(&profile);
     let _ = std::fs::remove_dir_all(&staging);
     Ok(Outcome {
         install,
@@ -451,21 +449,210 @@ pub fn install(options: &Options, progress: &Progress) -> Result<Outcome> {
     })
 }
 
+/// Unpack and verify the package in the profile's setup folder.
+fn unpack(payload: &mut Payload, progress: &Progress) -> Result<(PathBuf, Vec<payload::Entry>)> {
+    progress.set("Unpacking Rubylight…");
+    let staging = system::program_data().join("Butterpollo").join("setup");
+    let staging_root = staging.parent().context("staging folder has no parent")?;
+    std::fs::create_dir_all(staging_root)?;
+    system::restrict(staging_root, true)?;
+    if staging.exists() {
+        std::fs::remove_dir_all(&staging).context("removing the previous setup staging folder")?;
+    }
+    std::fs::create_dir_all(&staging)?;
+    // The staged host runs elevated (settings import) and loads DLLs from its
+    // own folder: lock the folder down before anything lands in it.
+    system::restrict(&staging, false)?;
+    payload.extract(&staging)?;
+    let entries = payload::verify(&staging)?;
+    Ok((staging, entries))
+}
+
+/// Moves an installed Rubylight out of a folder it cannot stay in (see
+/// `unrepairable`) into `install`. The service, the profile and the drivers
+/// stay; only the folder the service runs from changes. Nothing in the old
+/// folder is changed or copied: if Rubylight does not start from `install`,
+/// the service is pointed back at the old folder and runs from it as before.
+/// Afterwards nothing uses the old folder. Its files are left for the user
+/// to delete: deleting in a folder another user controls can be redirected
+/// to other files.
+fn move_install(
+    options: &Options,
+    old: &Path,
+    install: &Path,
+    profile: &Path,
+    payload: &mut Payload,
+    progress: &Progress,
+) -> Result<Outcome> {
+    line(format!(
+        "moving Rubylight from {} to {}",
+        old.display(),
+        install.display()
+    ));
+    let (staging, entries) = unpack(payload, progress)?;
+    ensure_idle(probe(profile), options.end_streams)?;
+    progress.set("Stopping Rubylight…");
+    // Until the service has started from `install`, a failure starts it
+    // again from the old folder.
+    let mut restart = stop_running(
+        &[SERVICE],
+        system::service_running,
+        system::stop_service,
+        system::start_service,
+    )?;
+    crate::update::recover(profile)?;
+    progress.set("Installing files…");
+    std::fs::create_dir_all(install)?;
+    secure_install(install)?;
+    copy_package(&staging, install, &entries)?;
+    payload::write_stub(
+        &install.join("uninstall.exe"),
+        payload::packaged_stub(&staging, &entries)?.as_deref(),
+    )?;
+    remember_driver_choice(profile, options.display_driver);
+    let mut notes = Vec::new();
+    let mut restart_needed = false;
+    let point_at = |folder: &Path| {
+        system::install_service(
+            SERVICE,
+            SERVICE_DISPLAY_NAME,
+            SERVICE_DESCRIPTION,
+            &folder.join("butterpollo-service.exe"),
+        )
+    };
+    progress.set("Moving the Rubylight service…");
+    let switched = switch_service(
+        || point_at(install),
+        || {
+            // While the service is stopped, as an update does.
+            restart_needed |= install_drivers(
+                install,
+                options.display_driver,
+                options.gamepad_driver,
+                options.usbip_driver,
+                progress,
+                &mut notes,
+            );
+            if options.start {
+                progress.set("Starting Rubylight…");
+                system::start_service(SERVICE)?;
+                wait_ready(probe(profile), Some(env!("CARGO_PKG_VERSION")))?;
+            }
+            Ok(())
+        },
+        || {
+            progress.set("Returning to the previous installation…");
+            system::stop_service(SERVICE)?;
+            point_at(old)
+        },
+    );
+    if let Err(SwitchFailure { error, back }) = switched {
+        bail!(match back {
+            Ok(()) => format!(
+                "Rubylight could not be moved to {}: {error:#}. The service runs from {} again, as before.",
+                install.display(),
+                old.display()
+            ),
+            Err(back) => format!(
+                "Rubylight could not be moved to {}: {error:#}. Its service could not be pointed back at {}: {back:#}. Run setup again.",
+                install.display(),
+                old.display()
+            ),
+        });
+    }
+    restart.services.clear();
+    // The host registers its HDR layer from the folder it runs from; every
+    // Vulkan program would still load the old folder's copy.
+    crate::uninstall::remove_layers(old);
+    if let Err(error) = register(install, &entries) {
+        notes.push(format!("Rubylight could not be listed in Apps: {error:#}"));
+    }
+    if let Err(error) = secure_profile(profile) {
+        notes.push(format!(
+            "The permissions of {} could not be restricted: {error:#}",
+            profile.display()
+        ));
+    }
+    refresh_entries(install, &mut notes);
+    crate::usbip::remember(profile, options.usbip_driver)?;
+    crate::update::record_installed(profile);
+    notes.push(format!(
+        "Rubylight was moved from {} and nothing uses that folder any more. Delete it once you no longer need anything in it.",
+        old.display()
+    ));
+    let _ = std::fs::remove_dir_all(&staging);
+    Ok(Outcome {
+        install: install.to_path_buf(),
+        web_port: web_port(profile),
+        restart_needed,
+        notes,
+    })
+}
+#[derive(Debug)]
+struct SwitchFailure {
+    error: anyhow::Error,
+    /// Pointing the service back at the previous installation.
+    back: Result<()>,
+}
+/// Point the service at the new installation and start it there. If it does
+/// not start, the service is pointed back at the previous installation,
+/// whose files were not changed; the caller starts it again.
+fn switch_service(
+    to_new: impl FnOnce() -> Result<()>,
+    start: impl FnOnce() -> Result<()>,
+    to_old: impl FnOnce() -> Result<()>,
+) -> std::result::Result<(), SwitchFailure> {
+    if let Err(error) = to_new() {
+        // Windows changes a service's configuration whole or not at all.
+        return Err(SwitchFailure {
+            error,
+            back: Ok(()),
+        });
+    }
+    match start() {
+        Ok(()) => Ok(()),
+        Err(error) => Err(SwitchFailure {
+            error,
+            back: to_old(),
+        }),
+    }
+}
+
+/// What setup does with the folder it installs into.
+#[derive(Debug, PartialEq)]
+enum Target {
+    /// A new installation, or a damaged one with nothing to restore.
+    Fresh,
+    /// The installed service is updated in its folder, with a backup.
+    InPlace,
+    /// The installed service's folder, here, cannot be made safe (see
+    /// `unrepairable`), so the installation moves to another folder.
+    Move(PathBuf),
+}
 /// Whether an installed Rubylight service is updated in place, with a
 /// backup and rollback. An installation whose folder or manifest is gone has
-/// nothing to restore; the full installation repairs it instead.
-fn updates_in_place(service_install: Option<&Path>, install: &Path) -> Result<bool> {
-    let Some(current) = service_install else {
-        return Ok(false);
+/// nothing to restore; the full installation repairs it instead. Another
+/// folder is refused unless the installed one has to be left.
+fn target(found: &detect::Found, install: &Path) -> Result<Target> {
+    let Some(current) = found.service_install.as_deref() else {
+        return Ok(Target::Fresh);
     };
     let Ok(current_folder) = current.canonicalize() else {
         line(format!(
             "the service folder {} is missing; installing in full",
             current.display()
         ));
-        return Ok(false);
+        return Ok(Target::Fresh);
     };
     if install.canonicalize().ok().as_ref() != Some(&current_folder) {
+        if let Some(reason) = &found.relocate {
+            line(format!(
+                "leaving {} for {}: {reason}",
+                current.display(),
+                install.display()
+            ));
+            return Ok(Target::Move(current.to_owned()));
+        }
         bail!(
             "Rubylight is installed in {}. Install the update into that folder so the previous version can be restored if needed. Nothing has been changed.",
             current.display()
@@ -475,9 +662,48 @@ fn updates_in_place(service_install: Option<&Path>, install: &Path) -> Result<bo
         line(format!(
             "the installed package has no readable manifest ({error:#}); installing in full"
         ));
-        return Ok(false);
+        return Ok(Target::Fresh);
     }
-    Ok(true)
+    Ok(Target::InPlace)
+}
+/// Why the installed service's folder cannot be made safe where it is: a
+/// parent folder that is a link or that someone other than Administrators,
+/// SYSTEM or TrustedInstaller owns, or a link inside the folder. Whoever
+/// controls a parent can put another folder in its place, so locking this
+/// one down would not keep them from the programs the service runs.
+pub(crate) fn unrepairable(install: &Path) -> Option<anyhow::Error> {
+    system::trusted_parents(install)
+        .and_then(|()| match std::fs::symlink_metadata(install) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            _ => system::no_reparse_points(install),
+        })
+        .err()
+}
+/// The installed service's folder, which the SYSTEM service runs programs
+/// from. Earlier installers locked down a folder the user had created (such
+/// as D:\Rubylight) but left that user its owner, who can change its
+/// permissions back at any time. Once the caller has identified the
+/// installed service, that owner is replaced, as `prepare_profile` does for
+/// the profile, but only when no parent lets another user swap the folder.
+pub(crate) fn prepare_install(install: &Path) -> Result<()> {
+    if let Some(reason) = unrepairable(install) {
+        bail!(
+            "Rubylight cannot be updated in {}: {reason:#}. Its service runs as SYSTEM from this folder, so only administrators may be allowed to change it. Run the Rubylight installer from the release page: it moves Rubylight to {} and keeps its settings and paired devices.",
+            install.display(),
+            detect::default_folder().display()
+        );
+    }
+    match system::trusted_folder(install) {
+        Err(error) => {
+            line(format!(
+                "repairing the owner of {}: {error:#}",
+                install.display()
+            ));
+            secure_install(install)?;
+            system::trusted_folder(install)
+        }
+        trusted => trusted,
+    }
 }
 /// Canonicalizes the deepest existing ancestor and appends the rest, so a
 /// folder that does not exist yet compares with canonical ones even when it
@@ -1404,21 +1630,177 @@ mod tests {
         let temp = tempfile::tempdir()?;
         let installed = temp.path().join("Butterpollo");
         std::fs::create_dir(&installed)?;
-        assert!(!updates_in_place(None, &installed)?);
+        let service = |folder: &Path| detect::Found {
+            service_install: Some(folder.to_owned()),
+            ..Default::default()
+        };
+        assert_eq!(
+            target(&detect::Found::default(), &installed)?,
+            Target::Fresh
+        );
         // A deleted folder or a missing or broken manifest leaves nothing to
         // roll back to, so these do not block a reinstall.
         let deleted = temp.path().join("deleted");
-        assert!(!updates_in_place(Some(&deleted), &deleted)?);
-        assert!(!updates_in_place(Some(&installed), &installed)?);
+        assert_eq!(target(&service(&deleted), &deleted)?, Target::Fresh);
+        assert_eq!(target(&service(&installed), &installed)?, Target::Fresh);
         std::fs::write(installed.join("manifest.json"), "{")?;
-        assert!(!updates_in_place(Some(&installed), &installed)?);
+        assert_eq!(target(&service(&installed), &installed)?, Target::Fresh);
         std::fs::write(installed.join("manifest.json"), "[]")?;
-        assert!(updates_in_place(Some(&installed), &installed)?);
+        assert_eq!(target(&service(&installed), &installed)?, Target::InPlace);
         // Another folder would leave the service without its backup.
         let other = temp.path().join("other");
-        assert!(updates_in_place(Some(&installed), &other).is_err());
+        assert!(target(&service(&installed), &other).is_err());
         std::fs::create_dir(&other)?;
-        assert!(updates_in_place(Some(&installed), &other).is_err());
+        assert!(target(&service(&installed), &other).is_err());
+        Ok(())
+    }
+    #[test]
+    fn an_installation_that_cannot_stay_moves_to_another_folder() -> Result<()> {
+        let temp = tempfile::tempdir()?;
+        let installed = temp.path().join("Games/Rubylight");
+        std::fs::create_dir_all(&installed)?;
+        std::fs::write(installed.join("manifest.json"), "[]")?;
+        let found = detect::Found {
+            service_install: Some(installed.clone()),
+            relocate: Some("Games must be owned by Administrators".into()),
+            ..Default::default()
+        };
+        let program_files = temp.path().join("Program Files/Rubylight");
+        assert_eq!(
+            target(&found, &program_files)?,
+            Target::Move(installed.clone())
+        );
+        std::fs::create_dir_all(&program_files)?;
+        assert_eq!(
+            target(&found, &program_files)?,
+            Target::Move(installed.clone())
+        );
+        // Kept in its folder it is updated there, where prepare_install
+        // refuses it.
+        assert_eq!(target(&found, &installed)?, Target::InPlace);
+        Ok(())
+    }
+    #[test]
+    fn a_failed_move_points_the_service_back_at_the_previous_folder() {
+        let steps = std::cell::RefCell::new(Vec::new());
+        let step = |name: &'static str, ok: bool| {
+            let steps = &steps;
+            move || {
+                steps.borrow_mut().push(name);
+                if ok { Ok(()) } else { bail!("{name} failed") }
+            }
+        };
+        assert!(switch_service(step("new", true), step("start", true), step("old", true)).is_ok());
+        assert_eq!(steps.take(), ["new", "start"]);
+        // The service does not start from the new folder: back to the old
+        // one, after it was started there.
+        let failure =
+            switch_service(step("new", true), step("start", false), step("old", true)).unwrap_err();
+        assert_eq!(steps.take(), ["new", "start", "old"]);
+        assert!(failure.error.to_string().contains("start failed"));
+        assert!(failure.back.is_ok());
+        let failure = switch_service(step("new", true), step("start", false), step("old", false))
+            .unwrap_err();
+        assert_eq!(steps.take(), ["new", "start", "old"]);
+        assert!(failure.back.is_err());
+        // Not pointed at the new folder: nothing to undo or start there.
+        let failure =
+            switch_service(step("new", false), step("start", true), step("old", true)).unwrap_err();
+        assert_eq!(steps.take(), ["new"]);
+        assert!(failure.error.to_string().contains("new failed"));
+        assert!(failure.back.is_ok());
+    }
+    /// Makes the user running the tests own `path`, with full access for
+    /// everyone, as a folder that user created and earlier setups locked
+    /// down but left to that user.
+    fn give_to_user(path: &Path) -> Result<()> {
+        let (_, identity) = system::run(
+            &system::system32("whoami.exe"),
+            &["/user", "/fo", "csv", "/nh"],
+            Duration::from_secs(10),
+        )?;
+        let sid = identity
+            .trim()
+            .split(',')
+            .nth(1)
+            .context("whoami omitted SID")?
+            .trim_matches('"');
+        let owner = format!("*{sid}");
+        for arguments in [["/setowner", owner.as_str()], ["/grant:r", "*S-1-1-0:(F)"]] {
+            let (code, output) = system::run(
+                &system::system32("icacls.exe"),
+                &[
+                    &path.display().to_string(),
+                    arguments[0],
+                    arguments[1],
+                    "/Q",
+                ],
+                Duration::from_secs(10),
+            )?;
+            assert_eq!(code, 0, "{output}");
+        }
+        Ok(())
+    }
+    #[test]
+    fn updates_repair_a_user_owned_install_folder_only_under_trusted_parents() -> Result<()> {
+        // Taking ownership for SYSTEM and Administrators needs an administrator.
+        if !system::elevated() {
+            return Ok(());
+        }
+        let temp = tempfile::tempdir_in(system::program_data())?;
+        system::restrict(temp.path(), true)?;
+        // D:\Rubylight, created by the user and locked down by 2.2.1.
+        let install = temp.path().join("Rubylight");
+        std::fs::create_dir_all(install.join("assets"))?;
+        let host = install.join("butterpollo-service.exe");
+        std::fs::write(&host, b"service")?;
+        give_to_user(&install)?;
+        give_to_user(&host)?;
+        let error = system::trusted_ancestors(&install).unwrap_err();
+        assert!(error.to_string().contains("must be owned by"), "{error:#}");
+        assert!(unrepairable(&install).is_none());
+        prepare_install(&install)?;
+        system::trusted_ancestors(&install)?;
+        system::trusted_folder(&host)?;
+        assert_eq!(std::fs::read(&host)?, b"service");
+        for path in [&install, &host] {
+            let (_, output) = system::run(
+                &system::system32("icacls.exe"),
+                &[&path.display().to_string(), "/findsid", "*S-1-1-0", "/Q"],
+                Duration::from_secs(10),
+            )?;
+            assert!(!output.contains(&path.display().to_string()), "{output}");
+        }
+        // D:\Games\Rubylight: whoever owns D:\Games can put another folder
+        // in its place, so nothing is changed and the error says to move.
+        let games = temp.path().join("Games");
+        let nested = games.join("Rubylight");
+        std::fs::create_dir_all(&nested)?;
+        give_to_user(&games)?;
+        give_to_user(&nested)?;
+        assert!(unrepairable(&nested).is_some());
+        let error = prepare_install(&nested).unwrap_err().to_string();
+        assert!(
+            error.contains(&format!("cannot be updated in {}", nested.display())),
+            "{error}"
+        );
+        assert!(error.contains("must be owned by"), "{error}");
+        assert!(
+            error.contains(&format!(
+                "moves Rubylight to {}",
+                detect::default_folder().display()
+            )),
+            "{error}"
+        );
+        assert!(system::trusted_folder(&nested).is_err());
+        // Nor is a folder with a link inside repaired.
+        let linked = temp.path().join("Linked");
+        std::fs::create_dir(&linked)?;
+        give_to_user(&linked)?;
+        std::os::windows::fs::symlink_dir(&games, linked.join("assets"))?;
+        assert!(unrepairable(&linked).is_some());
+        assert!(prepare_install(&linked).is_err());
+        assert!(system::trusted_folder(&games).is_err());
         Ok(())
     }
     #[test]

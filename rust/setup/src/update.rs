@@ -21,24 +21,19 @@ pub fn run(
 ) -> Result<()> {
     detect::scan().check_version()?;
     let profile = install::profile();
-    system::trusted_ancestors(folder)?;
     let result = profile.join("update-result.json");
     let install = std::fs::canonicalize(folder)?;
     let service =
         system::service_program(detect::SERVICE).context("Rubylight service is not installed")?;
     check_service_folder(&service, &install)?;
+    // Both are the installed service's now: repair what earlier installers
+    // left, or refuse.
     install::prepare_profile(&profile, true)?;
+    install::prepare_install(folder)?;
     // A reinstall may find the profile folder deleted; the lock lives in it.
     std::fs::create_dir_all(&profile)?;
     // A non-shared handle rejects another updater until this transaction ends.
-    use std::os::windows::fs::OpenOptionsExt;
-    let _lock = std::fs::OpenOptions::new()
-        .create(true)
-        .truncate(false)
-        .write(true)
-        .share_mode(0)
-        .open(profile.join("update.lock"))
-        .context("Another update is already running")?;
+    let _lock = open_lock(&profile).context("Another update is already running")?;
     // The new backup must hold one whole version, not what an interrupted
     // update left.
     install::ensure_idle(install::probe(&profile), end_streams)?;
@@ -153,6 +148,26 @@ pub fn run(
     }
 }
 
+fn open_lock(profile: &Path) -> std::io::Result<std::fs::File> {
+    use std::os::windows::fs::OpenOptionsExt;
+    std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .share_mode(0)
+        .open(profile.join("update.lock"))
+}
+/// After setup installed a complete package. The console shows the update
+/// record, which may still say why an earlier update failed.
+pub fn record_installed(profile: &Path) {
+    let recorded = open_lock(profile)
+        .map_err(anyhow::Error::from)
+        .and_then(|_lock| write_result(&profile.join("update-result.json"), "installed", None));
+    if let Err(error) = recorded {
+        line(format!("the update record was not written: {error:#}"));
+    }
+}
+
 fn replace_package(staged: &Path, install: &Path, entries: &[payload::Entry]) -> Result<()> {
     for entry in entries {
         install::replace_file(
@@ -212,13 +227,7 @@ pub fn recover(profile: &Path) -> Result<()> {
     if !result.is_file() {
         return Ok(());
     }
-    use std::os::windows::fs::OpenOptionsExt;
-    let _lock = std::fs::OpenOptions::new()
-        .create(true)
-        .truncate(false)
-        .write(true)
-        .share_mode(0)
-        .open(profile.join("update.lock"))
+    let _lock = open_lock(profile)
         .context("Cannot recover the previous update; another setup may still be running")?;
     recover_or_supersede(&result)
 }
@@ -773,6 +782,28 @@ mod tests {
         recover(&profile)?;
         let record: serde_json::Value = serde_json::from_slice(&std::fs::read(&result)?)?;
         assert_eq!(record["phase"], "superseded");
+        Ok(())
+    }
+    #[test]
+    fn a_complete_installation_replaces_the_record_of_a_failed_update() -> Result<()> {
+        let root = tempfile::tempdir()?;
+        let result = root.path().join("update-result.json");
+        let failed =
+            json!({"version":"2.2.22","phase":"failed","error":"Rubylight cannot be updated"});
+        write_record(&result, &failed)?;
+        {
+            let _other = open_lock(root.path())?;
+            record_installed(root.path());
+            assert_eq!(
+                serde_json::from_slice::<serde_json::Value>(&std::fs::read(&result)?)?,
+                failed
+            );
+        }
+        record_installed(root.path());
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&std::fs::read(&result)?)?,
+            json!({"version":env!("CARGO_PKG_VERSION"),"phase":"installed","error":null})
+        );
         Ok(())
     }
     #[test]

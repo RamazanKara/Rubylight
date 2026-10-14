@@ -942,13 +942,13 @@ fn trusted_owner(folder: &Path) -> Result<()> {
         let _ = LocalFree(Some(HLOCAL(descriptor.0)));
         ensure!(
             trusted,
-            "{} must be owned by Administrators, SYSTEM or TrustedInstaller; choose a new installation folder",
+            "{} must be owned by Administrators, SYSTEM or TrustedInstaller",
             folder.display()
         );
     }
     Ok(())
 }
-fn no_reparse_points(folder: &Path) -> Result<()> {
+pub fn no_reparse_points(folder: &Path) -> Result<()> {
     use std::os::windows::fs::MetadataExt;
     let mut pending = vec![folder.to_path_buf()];
     while let Some(path) = pending.pop() {

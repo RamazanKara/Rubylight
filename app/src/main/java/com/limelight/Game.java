@@ -2862,7 +2862,9 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                         R.string.stream_permission_allowed : R.string.stream_permission_denied)).append('\n');
             }
         }
-        status.append("\n\n").append(getString(R.string.stream_permissions_help));
+        if (details.permission != -1) {
+            status.append("\n\n").append(getString(R.string.stream_permissions_help));
+        }
         if (details.frameLimiterSupported) {
             status.append("\n\n").append(getString(R.string.stream_limiter_status,
                     getString(details.frameLimiterEnabled ? R.string.stream_enabled : R.string.stream_disabled),

@@ -24,6 +24,7 @@ import com.limelight.binding.video.PerfOverlayListener;
 import com.limelight.binding.video.PerformanceOverlay;
 import com.limelight.binding.video.StreamResizePolicy;
 import com.limelight.binding.video.UpscalingPolicy;
+import com.limelight.computers.HostCapabilityCache;
 import com.limelight.nvstream.NvConnection;
 import com.limelight.nvstream.AdaptiveBitrateController;
 import com.limelight.nvstream.AdaptiveQualityController;
@@ -670,6 +671,9 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         app = new NvApp(appName != null ? appName : "app", appId, appSupportsHdr);
         app.setAppUuid(getIntent().getStringExtra(EXTRA_APP_UUID));
         app.setMonitorResume(getIntent().getBooleanExtra(EXTRA_MONITOR_RESUME, false));
+        // Until the host answers, its last known capabilities decide whether this is a control tile.
+        app.setControlTiles(HostCapabilityCache.load(this, getIntent().getStringExtra(EXTRA_PC_UUID))
+                .mayHave(HostCapabilities.Feature.REMOTE_SESSION_TILES));
         boolean mediaStream = app.getRole() != NvApp.Role.INPUT_ONLY && !app.isControlAction();
 
         X509Certificate serverCert = null;

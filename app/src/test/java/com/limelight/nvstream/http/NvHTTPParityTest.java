@@ -860,6 +860,24 @@ public class NvHTTPParityTest {
     }
 
     @Test
+    public void controlTilesAreOrdinaryAppsOnHostsWithoutThem() throws Exception {
+        String list = "<root status_code=\"200\"><App><ID>2147483505</ID><AppTitle>Remote Monitor</AppTitle></App>" +
+                "<App><ID>7</ID><AppTitle>Game</AppTitle><UUID>9a1c5a25-58fe-40e0-b9aa-7d3f00000004</UUID></App></root>";
+        for (String host : new String[] {"sunshine", "apollo", "gamestream"}) {
+            for (NvApp app : NvHTTP.getAppListByReader(new StringReader(list), TestHosts.fixture(host + "-serverinfo.xml"))) {
+                assertEquals(host, NvApp.Control.NONE, app.getControl());
+                assertEquals(host, NvApp.Role.STREAM, app.getRole());
+            }
+        }
+        for (HostCapabilities caps : new HostCapabilities[] {TestHosts.rubylight(), TestHosts.fixture("vibepollo-serverinfo.xml"),
+                HostCapabilities.UNKNOWN}) {
+            LinkedList<NvApp> apps = NvHTTP.getAppListByReader(new StringReader(list), caps);
+            assertEquals(NvApp.Control.MONITOR, apps.get(0).getControl());
+            assertEquals(NvApp.Control.TERMINATE, apps.get(1).getControl());
+        }
+    }
+
+    @Test
     public void emptyAppListAllowsRootWhitespaceAndExtensionText() throws Exception {
         assertTrue(NvHTTP.getAppListByReader(new StringReader(
                 "<root status_code=\"200\">\n<Extension>host data</Extension>\n</root>\n")).isEmpty());

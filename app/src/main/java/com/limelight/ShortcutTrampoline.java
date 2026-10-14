@@ -12,6 +12,7 @@ import android.os.IBinder;
 import com.limelight.computers.ComputerDatabaseManager;
 import com.limelight.computers.ComputerManagerListener;
 import com.limelight.computers.ComputerManagerService;
+import com.limelight.computers.HostCapabilityCache;
 import com.limelight.nvstream.http.ComputerDetails;
 import com.limelight.nvstream.http.HostCapabilities;
 import com.limelight.nvstream.http.NvApp;
@@ -354,6 +355,8 @@ public class ShortcutTrampoline extends Activity {
                     getIntent().getBooleanExtra(Game.EXTRA_APP_HDR, false));
             app.setAppUuid(getIntent().getStringExtra(Game.EXTRA_APP_UUID));
             app.setMonitorResume(getIntent().getBooleanExtra(Game.EXTRA_MONITOR_RESUME, false));
+            app.setControlTiles(HostCapabilityCache.load(this, uuidString)
+                    .mayHave(HostCapabilities.Feature.REMOTE_SESSION_TILES));
         }
         else if (appUuidString != null && !appUuidString.isEmpty()) {
             // The host resolves UUIDs at launch, so renamed apps and changed numeric IDs still work.
@@ -363,6 +366,8 @@ public class ShortcutTrampoline extends Activity {
                 app = new NvApp(appNameString != null ? appNameString : "",
                         0, getIntent().getBooleanExtra(Game.EXTRA_APP_HDR, false));
                 app.setAppUuid(appUuidString);
+                app.setControlTiles(HostCapabilityCache.load(this, uuidString)
+                        .mayHave(HostCapabilities.Feature.REMOTE_SESSION_TILES));
             }
             setIntent(new Intent(getIntent())
                     .putExtra(Game.EXTRA_APP_ID, Integer.toString(app.getAppId()))
@@ -381,7 +386,8 @@ public class ShortcutTrampoline extends Activity {
                             true);
                     return;
                 }
-                List<NvApp> applist = NvHTTP.getAppListByReader(new StringReader(rawAppList));
+                List<NvApp> applist = NvHTTP.getAppListByReader(new StringReader(rawAppList),
+                        HostCapabilityCache.load(this, uuidString));
 
                 for (NvApp _app : applist) {
                     if (_app.getAppName().equals(appNameString)) {
@@ -457,7 +463,8 @@ public class ShortcutTrampoline extends Activity {
             if (rawAppList.isEmpty()) {
                 return null;
             }
-            for (NvApp candidate : NvHTTP.getAppListByReader(new StringReader(rawAppList))) {
+            for (NvApp candidate : NvHTTP.getAppListByReader(new StringReader(rawAppList),
+                    HostCapabilityCache.load(this, uuidString))) {
                 if (appUuid != null && appUuid.equalsIgnoreCase(candidate.getAppUuid())) {
                     return candidate;
                 }

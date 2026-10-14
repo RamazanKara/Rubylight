@@ -9,6 +9,7 @@ import java.util.Map;
 
 import com.limelight.computers.ComputerManagerListener;
 import com.limelight.computers.ComputerManagerService;
+import com.limelight.computers.HostCapabilityCache;
 import com.limelight.grid.AppGridAdapter;
 import com.limelight.nvstream.http.ComputerDetails;
 import com.limelight.nvstream.http.NvApp;
@@ -268,7 +269,7 @@ public class AppView extends AppCompatActivity implements AdapterFragmentCallbac
                 lastRawApplist = rawAppList;
 
                 try {
-                    updateUiWithAppList(NvHTTP.getAppListByReader(new StringReader(rawAppList)));
+                    updateUiWithAppList(NvHTTP.getAppListByReader(new StringReader(rawAppList), details.caps));
                     updateUiWithServerinfo(details);
 
                 } catch (XmlPullParserException | IOException e) {
@@ -396,7 +397,8 @@ public class AppView extends AppCompatActivity implements AdapterFragmentCallbac
         try {
             // Try to load from cache
             lastRawApplist = CacheHelper.readInputStreamToString(CacheHelper.openCacheFileForInput(getCacheDir(), "applist", uuidString));
-            List<NvApp> applist = NvHTTP.getAppListByReader(new StringReader(lastRawApplist));
+            List<NvApp> applist = NvHTTP.getAppListByReader(new StringReader(lastRawApplist),
+                    HostCapabilityCache.load(this, uuidString));
             updateUiWithAppList(applist);
             LimeLog.info("Loaded applist from cache");
         } catch (IOException | XmlPullParserException e) {

@@ -78,6 +78,8 @@ import okio.Okio;
 public class NvHTTP {
     private final Set<Call> pendingCalls = Collections.newSetFromMap(new ConcurrentHashMap<>());
     private volatile boolean cancelled;
+    // From the last serverinfo reply this instance read; app lists interpret control tiles by it.
+    private volatile HostCapabilities hostCaps = HostCapabilities.UNKNOWN;
     private String uniqueId;
     private PairingManager pm;
 
@@ -456,6 +458,7 @@ public class NvHTTP {
         details.runningGameUuid = getXmlString(serverInfo, "currentgameuuid", false);
         readClientCapabilities(details, serverInfo);
         details.nvidiaServer = details.caps.family() == HostCapabilities.Family.GAMESTREAM;
+        hostCaps = details.caps;
 
         // We could reach it so it's online
         details.state = ComputerDetails.State.ONLINE;
@@ -897,6 +900,12 @@ public class NvHTTP {
     }
     
     public static LinkedList<NvApp> getAppListByReader(Reader r) throws XmlPullParserException, IOException {
+        return getAppListByReader(r, HostCapabilities.UNKNOWN);
+    }
+
+    /** The host's app list; reserved IDs are control tiles only if the host may publish them. */
+    public static LinkedList<NvApp> getAppListByReader(Reader r, HostCapabilities caps) throws XmlPullParserException, IOException {
+        boolean controlTiles = caps.mayHave(HostCapabilities.Feature.REMOTE_SESSION_TILES);
         XmlPullParserFactory factory = XmlPullParserFactory.newInstance();
         factory.setNamespaceAware(true);
         XmlPullParser xpp = factory.newPullParser();
@@ -915,7 +924,9 @@ public class NvHTTP {
                 }
                 currentTag.push(xpp.getName());
                 if (xpp.getName().equals("App")) {
-                    appList.addLast(new NvApp());
+                    NvApp added = new NvApp();
+                    added.setControlTiles(controlTiles);
+                    appList.addLast(added);
                 }
                 break;
             case (XmlPullParser.END_TAG):
@@ -981,11 +992,11 @@ public class NvHTTP {
     public LinkedList<NvApp> getAppList() throws HostHttpResponseException, IOException, XmlPullParserException {
         if (verbose) {
             // Use the raw function so the app list is printed
-            return getAppListByReader(new StringReader(getAppListRaw()));
+            return getAppListByReader(new StringReader(getAppListRaw()), hostCaps);
         }
         else {
             try (final ResponseBody resp = openHttpConnection(httpClientLongConnectTimeout, getHttpsUrl(true), "applist")) {
-                return getAppListByReader(new StringReader(readXmlResponse(resp, "applist")));
+                return getAppListByReader(new StringReader(readXmlResponse(resp, "applist")), hostCaps);
             }
         }
     }

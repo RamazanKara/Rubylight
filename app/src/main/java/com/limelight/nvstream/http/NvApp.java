@@ -17,6 +17,7 @@ public class NvApp {
     private int hostIndex = Integer.MAX_VALUE;
     private String artVersion = "";
     private boolean monitorResume;
+    private boolean controlTiles = true;
     
     public NvApp() {}
     
@@ -61,8 +62,20 @@ public class NvApp {
         return appUuid;
     }
 
+    /**
+     * Whether this app's host publishes control tiles. Elsewhere the reserved IDs and UUIDs are
+     * ordinary apps. A host not yet known keeps them, as before.
+     */
+    public void setControlTiles(boolean controlTiles) {
+        this.controlTiles = controlTiles;
+    }
+
     public Control getControl() {
-        // Rubylight rust/core/src/remote.rs keeps these identities stable across catalogues.
+        if (!controlTiles) {
+            return Control.NONE;
+        }
+        // Rubylight rust/core/src/remote.rs and Vibepollo remote_session.h keep these identities
+        // stable across catalogues.
         for (int offset = 1; offset <= 7; offset++) {
             if (appId == 2147483500 + offset || appId == 2147483600 + offset ||
                     ((offset == 1 || offset == 4 || offset == 5 || offset == 6) && appId == 2147483510 + offset) ||

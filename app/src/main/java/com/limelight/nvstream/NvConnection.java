@@ -549,6 +549,7 @@ public class NvConnection {
         context.isNvidiaServerSoftware = details.nvidiaServer;
         context.hostCaps = details.caps;
         LimeLog.info("Host: " + details.caps);
+        context.streamConfig.getApp().setControlTiles(details.caps.mayHave(HostCapabilities.Feature.REMOTE_SESSION_TILES));
         if (canSendControllerInput() && details.caps.has(HostCapabilities.Feature.CONTROLLER_PREPARATION) &&
                 controllerPreparation != null) {
             context.preparedControllers = controllerPreparation.get();

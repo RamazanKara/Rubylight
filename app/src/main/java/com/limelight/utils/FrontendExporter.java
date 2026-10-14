@@ -62,7 +62,7 @@ public final class FrontendExporter {
             }
             Set<String> hidden = context.getSharedPreferences(AppView.HIDDEN_APPS_PREF_FILENAME, Context.MODE_PRIVATE)
                     .getStringSet(computer.uuid, new HashSet<String>());
-            for (NvApp app : NvHTTP.getAppListByReader(new StringReader(raw))) {
+            for (NvApp app : NvHTTP.getAppListByReader(new StringReader(raw), computer.caps)) {
                 if (!hidden.contains(Integer.toString(app.getAppId()))) {
                     apps.add(app);
                 }

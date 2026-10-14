@@ -84,6 +84,16 @@ public class NvConnectionLaunchErrorTest {
         assertEquals(List.of(499), result.failures);
     }
 
+    @Test public void aReplyThisDeviceCannotReadIsNotShownAsTheHostsReason() throws Exception {
+        // The status attribute is not a number: the host reported neither a code nor a reason.
+        NvConnectionRecoveryTest.FakeHost.initial = "<root status_code=\"OK\"><appversion>7.1.431.0</appversion>" +
+                "<uniqueid>test-host</uniqueid><PairStatus>1</PairStatus></root>";
+        Result result = launch(Confirmation.UNEXPECTED);
+        assertEquals(List.of(context.getString(R.string.startup_connection_failed)), result.messages);
+        assertEquals("The host reported no error code", List.of(0), result.failures);
+        assertEquals("Retrying cannot fix the host's reply", List.of(0), result.portFlags);
+    }
+
     @Test public void clientSideFailuresUseTheirOwnText() {
         String timedOut = NvConnection.launchFailureMessage(context, new NvConnection.LocalLaunchFailure(
                 408, R.string.startup_confirmation_timed_out, "Confirmation timed out."));

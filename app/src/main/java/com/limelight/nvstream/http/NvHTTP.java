@@ -339,7 +339,7 @@ public class NvHTTP {
         return "1".equals(getXmlString(serverInfo, "ControllerPreparation", false));
     }
     
-    private static void verifyResponseStatus(XmlPullParser xpp) throws HostHttpResponseException {
+    private static void verifyResponseStatus(XmlPullParser xpp) throws HostHttpResponseException, XmlPullParserException {
         // We use Long.parseLong() because in rare cases GFE can send back a status code of
         // 0xFFFFFFFF, which will cause Integer.parseInt() to throw a NumberFormatException due
         // to exceeding Integer.MAX_VALUE. We'll get the desired error code of -1 by just casting
@@ -352,7 +352,9 @@ public class NvHTTP {
             }
             statusCode = (int) value;
         } catch (NumberFormatException e) {
-            throw new HostHttpResponseException(500, "Malformed status code in host response");
+            // Garbage from the host, like a missing field (see getXmlString). Not a host error:
+            // the host gave no code and no reason, so the UI must not show one as its own.
+            throw new XmlPullParserException("Malformed status code in host response");
         }
         if (statusCode != 200) {
             String statusMsg = xpp.getAttributeValue(XmlPullParser.NO_NAMESPACE, "status_message");

@@ -258,7 +258,8 @@ public class NvHTTPParityTest {
         NvHTTP http = http();
         for (String status : new String[] {"", "garbage", "4294967496", "-4294967096"}) {
             String xml = "<root status_code=\"" + status + "\"><appversion>7.1.2.3</appversion></root>";
-            assertThrows(HostHttpResponseException.class, () -> http.getServerVersion(xml));
+            // Garbage, not a host error: the host gave no code or reason to show as its own.
+            assertThrows(org.xmlpull.v1.XmlPullParserException.class, () -> http.getServerVersion(xml));
         }
         for (String value : new String[] {"-1", "65536", "garbage"}) {
             String xml = "<root status_code=\"200\"><HttpsPort>" + value +

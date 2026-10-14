@@ -96,6 +96,8 @@ if limiter_lifecycle: limiter_lifecycle.launched()
 url=launch.findtext('sessionUrl0');print('LAUNCH',url,flush=True)
 env=os.environ.copy()
 if os.name=='nt':env['PATH']=str(artifact/'target/debug')+';C:\\msys64\\ucrt64\\bin;'+env['PATH']
+# The receiver alone may reach the host through a relay, e.g. rust/release/bottleneck.py's shaper.
+if os.environ.get('BUTTERPOLLO_TEST_CLIENT_HOST'):env['BUTTERPOLLO_TEST_HOST']=os.environ['BUTTERPOLLO_TEST_CLIENT_HOST']
 try:
     duration=int(sys.argv[6]) if len(sys.argv)>6 else 0
     command=[str(client_exe),url,codec,*sys.argv[3:]]

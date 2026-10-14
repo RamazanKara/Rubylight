@@ -95,8 +95,10 @@ git -C $checkout submodule update --init --recursive --depth 1 third-party/moonl
 & "$checkout\rust\tests\build-moonlight-client.ps1" -ArtifactDirectory $fixtures *> "$qa\receiver-build.log"
 & "$checkout\rust\tests\build-pyrowave-client.ps1" -ArtifactDirectory $fixtures -PyrowaveRoot $env:BUTTERPOLLO_PYROWAVE_ROOT *> "$qa\pyrowave-receiver-build.log"
 cargo build --release --locked --manifest-path "$checkout\Cargo.toml" --target-dir "$checkout\target\ship" -p butterpollo-windows `
-    --example audio_probe --example motion_probe *> "$qa\probe-build.log"
-Copy-Item "$checkout\target\ship\release\examples\audio_probe.exe", "$checkout\target\ship\release\examples\motion_probe.exe" $fixtures
+    --example audio_probe --example motion_probe --example udp_shaper *> "$qa\probe-build.log"
+# udp_shaper is for bottleneck.py, the slow-link check, which this check does not run.
+Copy-Item "$checkout\target\ship\release\examples\audio_probe.exe", "$checkout\target\ship\release\examples\motion_probe.exe",
+    "$checkout\target\ship\release\examples\udp_shaper.exe" $fixtures
 $client = "$fixtures\moonlight-client.exe"
 
 foreach ($case in 'h264', 'hevc', 'av1', 'hevc-vrr', 'hevc-recovery', 'pyrowave', 'pyrowave-hdr-444') {

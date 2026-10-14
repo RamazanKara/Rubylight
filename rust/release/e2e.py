@@ -7,7 +7,7 @@ and stops. A narrow moving strip and a virtual-speaker tone exercise capture.
 No display-mode, HDR or default-audio change; the installed host must be idle.
 
 usage: e2e.py --package DIR --work DIR --client EXE --codec CODEC [--mode 1280x720x60] [--seconds 12]
-              [--vrr] [--recovery N] [--motion-at-rate]
+              [--vrr] [--recovery N] [--motion-at-rate] [--noise-height PIXELS]
 Writes WORK/e2e-CODEC[-vrr][-recovery|-at-rate]/result.json.
 
 --recovery N: the receiver asks for a keyframe N times, every
@@ -44,6 +44,8 @@ parser.add_argument('--vrr', action='store_true', help='launch as a client askin
 parser.add_argument('--config', action='append', default=[], metavar='KEY=VALUE', help='an extra sunshine.conf line for the host, e.g. wgc_user_helper=true')
 parser.add_argument('--recovery', type=int, default=0, metavar='N', help='keyframe requests during the stream, with the motion strip at the stream rate')
 parser.add_argument('--motion-at-rate', action='store_true', help='the strip at the stream rate without requests: the control for --recovery')
+parser.add_argument('--noise-height', type=int, default=0, metavar='PIXELS',
+                    help='a taller strip with fresh per-pixel noise above its bottom 128 rows, for high bitrates')
 args = parser.parse_args()
 RECOVERY_INTERVAL_MS = 500
 at_rate = bool(args.recovery) or args.motion_at_rate
@@ -89,7 +91,8 @@ try:
     fixture_seconds = str(int(args.seconds) + 90)
     tone = spawn([str(audio_probe), fixture_seconds, sink['id'], '--render-only'], 'tone.log', env=env)
     motion_rate = int(fps) if at_rate else int(fps) * 2
-    motion = spawn([str(motion_probe), display['display_name'], fixture_seconds, str(case / 'motion.json'), str(motion_rate), '128'], 'motion.log', env=env)
+    strip = [str(args.noise_height), 'noise'] if args.noise_height else ['128']
+    motion = spawn([str(motion_probe), display['display_name'], fixture_seconds, str(case / 'motion.json'), str(motion_rate), *strip], 'motion.log', env=env)
     time.sleep(.5)
     assert tone.poll() is None and motion.poll() is None, 'audio or motion fixture exited'
     client_env = receiver_environment(env, display, args.mode, args.client, args.vrr)

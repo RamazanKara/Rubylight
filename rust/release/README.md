@@ -49,3 +49,15 @@ pwsh rust/release/smoke.ps1 -Version v2.2.2
 ```
 
 It streams the Desktop app for 30 seconds per codec at 1968x2184, HDR, 120 fps, 80 Mbps with AV1 and HEVC, closes Moonlight and reads its "Global video stats". A run passes with at least 115 fps received and a host processing average under 5 ms. The result goes to the release as `REAL-CLIENT.json` when the GitHub CLI is signed in on the laptop. If the laptop is offline the release has no `REAL-CLIENT.json`: the smoke test was skipped.
+
+## Slow-link check
+
+`bottleneck.py` streams a packaged host like `e2e.py` (isolated profile and ports, the independent receiver, a moving strip at twice the stream rate), but the receiver reaches the host through `udp_shaper` on `127.0.0.2`. The shaper relays RTSP, control and audio unchanged and drains the video port toward the client at a fixed rate through a drop-tail queue, as a 100 Mbps switch port in front of a TV box does. It reports the frames the host sent, the frames the receiver got whole, keyframe requests and the shaper's drops; it does not judge.
+
+```powershell
+cargo build --release -p butterpollo-windows --example udp_shaper   # copy udp_shaper.exe beside the receiver
+& $python rust\release\bottleneck.py --package <pkg> --work <dir> --client <fixtures>\moonlight-client.exe `
+    --codec av1 --mode 2560x1440x60 --bitrate 40000 --rate-kbps 100000 --queue-kib 64 --rfi
+```
+
+`--rate-kbps 0` relays without shaping, the control. `udp_shaper --selftest` checks the shaper on loopback first: what it forwards must stay within 2% of the queue model fed with the sender's own send times, and back-to-back departures within 2% of the link's spacing. Its link thread runs at game priority, so other load on the machine does not slow the link.

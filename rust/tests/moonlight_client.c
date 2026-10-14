@@ -421,10 +421,11 @@ static int video_frame(PDECODE_UNIT unit){
         if(picture_timestamp(frame,strip.data[0]?&strip:NULL,strip_left,&picture_sequence,&picture_ticks)){
             // The sequence validates fresh motion on a remote receiver too.
             // Absolute picture age needs the renderer's clock: only compare
-            // QPC timestamps on the same Windows machine.
+            // QPC timestamps on the same Windows machine (any loopback
+            // address, such as bottleneck.py's relay on 127.0.0.2).
 #ifdef _WIN32
             const char *host=getenv("BUTTERPOLLO_TEST_HOST");
-            if(!host||strcmp(host,"127.0.0.1")==0||strcmp(host,"::1")==0){
+            if(!host||strncmp(host,"127.",4)==0||strcmp(host,"::1")==0){
             LARGE_INTEGER frequency;QueryPerformanceFrequency(&frequency);
             age_ms=clock_ms()-(double)picture_ticks*1000.0/(double)frequency.QuadPart;
             // A signature alone must not turn unrelated desktop content into a

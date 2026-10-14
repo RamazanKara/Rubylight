@@ -35,19 +35,28 @@ mod probe {
     };
 
     const SHADER: &str = r#"
-cbuffer Frame : register(b0) { uint frame; uint ticksLow; uint ticksHigh; uint unused; };
+cbuffer Frame : register(b0) { uint frame; uint ticksLow; uint ticksHigh; uint noise; };
 float4 vertex(uint id : SV_VertexID) : SV_Position {
     float2 p = float2((id << 1) & 2, id & 2);
     return float4(p * float2(2, -2) + float2(-1, 1), 0, 1);
 }
 float4 picture(float4 p : SV_Position) : SV_Target {
+    // With noise, the band below stays the window's bottom 128 pixels, as
+    // receivers read it, and fresh noise above it costs the encoder bits.
+    float y = p.y - (noise ? float(noise - 1) : 0);
+    if (y < 0) {
+        uint h = uint(p.x) * 1973u + uint(p.y) * 9277u + frame * 26699u;
+        h = (h ^ (h >> 13)) * 1274126177u;
+        h ^= h >> 16;
+        return float4(float3(h & 255, (h >> 8) & 255, (h >> 16) & 255) / 255.0, 1);
+    }
     // Four rows: sequence, QPC low, QPC high, and a signature. Calibration
     // patches at x=12/36 let the decoder read SDR and PQ HDR with the same test.
-    if (p.y >= 8 && p.y < 104) {
+    if (y >= 8 && y < 104) {
         if (p.x < 24) return float4(0, 0, 0, 1);
         if (p.x < 48) return float4(1.25, 1.25, 1.25, 1);
         if (p.x >= 64 && p.x < 576) {
-            uint row = uint(p.y - 8) / 24;
+            uint row = uint(y - 8) / 24;
             uint word = row == 0 ? frame : row == 1 ? ticksLow : row == 2 ? ticksHigh : 0xB17E2212;
             float value = ((word >> (uint(p.x - 64) / 16)) & 1) * 1.25;
             return float4(value, value, value, 1);
@@ -134,7 +143,7 @@ float4 picture(float4 p : SV_Position) : SV_Target {
     pub fn run() -> Result<()> {
         let mut args = std::env::args().skip(1);
         let display_name = args.next().context(
-            "usage: motion_probe DISPLAY SECONDS [REPORT.json [ANIMATION_HZ|current [STRIP_HEIGHT]]]",
+            "usage: motion_probe DISPLAY SECONDS [REPORT.json [ANIMATION_HZ|current [STRIP_HEIGHT [noise]]]]",
         )?;
         let seconds: u64 = args.next().context("duration is required")?.parse()?;
         let report = args.next();
@@ -144,6 +153,13 @@ float4 picture(float4 p : SV_Position) : SV_Target {
             .map(|s| s.parse())
             .transpose()?;
         let strip_height: Option<u32> = args.next().map(|s| s.parse()).transpose()?;
+        // Per-pixel noise above the bottom 128 rows, new every frame: a
+        // high-bitrate picture for encoder and network tests.
+        let noise = match args.next().as_deref() {
+            None => false,
+            Some("noise") => true,
+            Some(other) => bail!("unknown option {other}; expected noise"),
+        };
         if !(1..=3600).contains(&seconds) || args.next().is_some() {
             bail!("duration must be 1..3600 seconds");
         }
@@ -342,7 +358,12 @@ float4 picture(float4 p : SV_Position) : SV_Target {
                 let mut ticks = 0;
                 QueryPerformanceCounter(&mut ticks)?;
                 let frame = frames.len() as u32 + 1;
-                let values = [frame, ticks as u32, (ticks as u64 >> 32) as u32, 0];
+                let values = [
+                    frame,
+                    ticks as u32,
+                    (ticks as u64 >> 32) as u32,
+                    if noise { window_height - 127 } else { 0 },
+                ];
                 context.UpdateSubresource(&constants, 0, None, values.as_ptr().cast(), 0, 0);
                 context.OMSetRenderTargets(Some(&[target.clone()]), None);
                 context.Draw(3, 0);

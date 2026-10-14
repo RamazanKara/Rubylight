@@ -355,6 +355,7 @@ pub struct Ffmpeg {
     software_pixel: i32,
     luminance: [f32; 2],
     hdr_metadata: Option<butterpollo_core::hdr::Metadata>,
+    submitted_hdr_metadata: Option<butterpollo_core::hdr::Metadata>,
     index: i64,
     pub name: String,
     presentations: std::collections::BTreeMap<i64, std::time::Instant>,
@@ -386,6 +387,9 @@ impl Ffmpeg {
         image: Option<&GpuImage>,
     ) -> Result<Self> {
         let settings = butterpollo_core::encoder_policy::ffmpeg(tuning, config, name)?;
+        let hdr_metadata = config
+            .hdr
+            .then(|| image.map_or_else(Default::default, |image| image.gpu.hdr_metadata()));
         // SAFETY: FFmpeg's codec descriptor is static, allocations are null-checked
         // before access, and context/packet ownership is transferred to Self or freed
         // on error. CString arguments live through calls; dictionary entries are copied
@@ -511,6 +515,13 @@ impl Ffmpeg {
                     if let Some(native) = &native {
                         (*context).hw_frames_ctx = native.frames()?;
                     }
+                    if let Some(metadata) = hdr_metadata.filter(|_| name.ends_with("_nvenc")) {
+                        // FFmpeg NVENC enables HDR output from context side data
+                        // at open, before it can inspect the first input frame.
+                        // Other codecs may freeze these values at open (x265),
+                        // so keep their existing per-frame side-data behavior.
+                        seed_hdr_metadata(context, metadata)?;
+                    }
                     check(ff::avcodec_open2(context, codec, &mut options))
                 })();
                 let unused = ff::av_dict_get(
@@ -550,7 +561,8 @@ impl Ffmpeg {
                 convert: None,
                 native,
                 config: config.clone(),
-                hdr_metadata: config.hdr.then(butterpollo_core::hdr::Metadata::default),
+                hdr_metadata,
+                submitted_hdr_metadata: None,
                 software_pixel: pixel,
                 luminance: [100., 1.],
                 index: 0,
@@ -612,13 +624,17 @@ impl Ffmpeg {
             if let Some(metadata) = self.hdr_metadata {
                 write_hdr_metadata(frame, metadata)?;
             }
-            (*frame).pict_type = if idr {
+            let metadata = self.hdr_metadata.map(encoded_hdr_metadata);
+            // NVENC emits HDR metadata on keyframes. Remember only accepted
+            // input so a failed submission cannot consume the pending update.
+            (*frame).pict_type = if idr || metadata != self.submitted_hdr_metadata {
                 ff::AVPictureType_AV_PICTURE_TYPE_I
             } else {
                 ff::AVPictureType_AV_PICTURE_TYPE_NONE
             };
             self.index += 1;
             check(ff::avcodec_send_frame(self.context, frame))?;
+            self.submitted_hdr_metadata = metadata;
             self.presentations.insert((*frame).pts, presentation);
             if self.presentations.len() > 32 {
                 bail!("codec failed to return bounded output");
@@ -651,6 +667,44 @@ impl Ffmpeg {
             }
             Ok(output)
         }
+    }
+}
+/// Full-frame luminance is control-channel information, not encoded side data.
+fn encoded_hdr_metadata(
+    mut metadata: butterpollo_core::hdr::Metadata,
+) -> butterpollo_core::hdr::Metadata {
+    metadata.full_frame_nits = 0;
+    metadata
+}
+
+/// Seed the codec's owned metadata before avcodec_open2 decides which HDR
+/// messages to emit. Frame updates subsequently replace its initial values.
+unsafe fn seed_hdr_metadata(
+    context: *mut ff::AVCodecContext,
+    metadata: butterpollo_core::hdr::Metadata,
+) -> Result<()> {
+    // SAFETY: The caller owns a live, unopened context, which frees all cloned
+    // side data even if open fails. The temporary frame is freed on every path;
+    // av_frame_side_data_clone retains independent buffer references.
+    unsafe {
+        let mut frame = ff::av_frame_alloc();
+        if frame.is_null() {
+            bail!("cannot allocate initial HDR metadata frame");
+        }
+        let result = (|| {
+            write_hdr_metadata(frame, metadata)?;
+            for index in 0..(*frame).nb_side_data as usize {
+                check(ff::av_frame_side_data_clone(
+                    &mut (*context).decoded_side_data,
+                    &mut (*context).nb_decoded_side_data,
+                    *(*frame).side_data.add(index),
+                    0,
+                ))?;
+            }
+            Ok(())
+        })();
+        ff::av_frame_free(&mut frame);
+        result
     }
 }
 /// Update frame metadata without changing side data still referenced by an
@@ -1209,6 +1263,130 @@ impl Encoder {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn initial_hdr_side_data_outlives_its_frame_and_keeps_frame_updates_independent() {
+        // SAFETY: The context and frame are checked live allocations; FFmpeg
+        // owns all side data and releases retained references when they are freed.
+        unsafe {
+            let mut context = ff::avcodec_alloc_context3(ptr::null());
+            let mut frame = ff::av_frame_alloc();
+            assert!(!context.is_null() && !frame.is_null());
+            let initial = butterpollo_core::hdr::Metadata {
+                maximum_nits: 1400,
+                max_cll: 1200,
+                max_fall: 600,
+                ..Default::default()
+            };
+            seed_hdr_metadata(context, initial).unwrap();
+            assert_eq!((*context).nb_decoded_side_data, 2);
+            let mastering = ff::av_frame_side_data_get_c(
+                (*context).decoded_side_data.cast(),
+                (*context).nb_decoded_side_data,
+                ff::AVFrameSideDataType_AV_FRAME_DATA_MASTERING_DISPLAY_METADATA,
+            );
+            let light = ff::av_frame_side_data_get_c(
+                (*context).decoded_side_data.cast(),
+                (*context).nb_decoded_side_data,
+                ff::AVFrameSideDataType_AV_FRAME_DATA_CONTENT_LIGHT_LEVEL,
+            );
+            assert!(!mastering.is_null() && !light.is_null());
+            write_hdr_metadata(
+                frame,
+                butterpollo_core::hdr::Metadata {
+                    maximum_nits: 2200,
+                    max_cll: 0,
+                    max_fall: 0,
+                    ..initial
+                },
+            )
+            .unwrap();
+            let master = &*(*mastering).data.cast::<ff::AVMasteringDisplayMetadata>();
+            let light = &*(*light).data.cast::<ff::AVContentLightMetadata>();
+            assert_eq!(
+                (master.max_luminance.num, master.max_luminance.den),
+                (1400, 1)
+            );
+            assert_eq!((light.MaxCLL, light.MaxFALL), (1200, 600));
+            ff::av_frame_free(&mut frame);
+            ff::avcodec_free_context(&mut context);
+        }
+    }
+    #[test]
+    #[ignore = "requires the bundled FFmpeg software HEVC encoder"]
+    fn hdr_updates_emit_one_keyframe_and_ignore_control_only_luminance() -> Result<()> {
+        let mut encoder = Ffmpeg::new(
+            &Negotiated {
+                width: 64,
+                height: 64,
+                fps: 30,
+                codec: 1,
+                hdr: false,
+                bitrate_kbps: 2000,
+                ..Default::default()
+            },
+            "libx265",
+        )?;
+        // The bundled x265 supports eight-bit input. This exercises FFmpeg's
+        // keyframe scheduling with real encoded packets; it is not a ten-bit
+        // HDR pixel or metadata-emission test. Drive metadata updates below
+        // independently of the software codec's input precision.
+        // SAFETY: This encoder owns the open context until the end of the test.
+        assert_eq!(unsafe { (*encoder.context).nb_decoded_side_data }, 0);
+        let image = Image {
+            width: 64,
+            height: 64,
+            stride: 256,
+            bytes: vec![128; 64 * 64 * 4],
+            captured: std::time::Instant::now(),
+            pixel: crate::capture::Pixel::Bgra8,
+        };
+        let updates = [
+            (1000, 0, false, true),
+            (1000, 0, false, false),
+            (600, 300, false, true),
+            (600, 300, false, false),
+            (600, 400, false, false),
+            (600, 400, true, true),
+            (600, 400, false, false),
+        ];
+        let mut keyframes = Vec::new();
+        for (peak, full_frame, requested, _) in updates {
+            encoder.hdr_metadata = Some(butterpollo_core::hdr::Metadata {
+                maximum_nits: peak,
+                full_frame_nits: full_frame,
+                ..Default::default()
+            });
+            keyframes.extend(
+                encoder
+                    .encode(&image, requested, 2000)?
+                    .into_iter()
+                    .map(|frame| frame.idr),
+            );
+        }
+        // Threaded software encoders may delay output even in zero-latency
+        // mode. Feed unchanged frames until every requested update is observed.
+        for _ in 0..32 {
+            if keyframes.len() >= updates.len() {
+                break;
+            }
+            keyframes.extend(
+                encoder
+                    .encode(&image, false, 2000)?
+                    .into_iter()
+                    .map(|frame| frame.idr),
+            );
+        }
+        assert!(
+            keyframes.len() >= updates.len(),
+            "encoder did not return all updated frames"
+        );
+        assert_eq!(
+            &keyframes[..updates.len()],
+            &updates.map(|(_, _, _, expected)| expected)
+        );
+        assert!(keyframes[updates.len()..].iter().all(|keyframe| !keyframe));
+        Ok(())
+    }
     #[test]
     fn hdr_frame_metadata_uses_wire_units_and_preserves_submitted_values() {
         // SAFETY: Both frames are allocated and checked before use. The

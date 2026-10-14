@@ -1088,6 +1088,65 @@ fn gpu_sdr_ten_bit_respects_client_matrix_and_full_range() -> Result<()> {
 }
 #[test]
 #[ignore = "requires a D3D11 GPU with native P010 render views"]
+fn hdr_full_and_limited_range_match_absolute_pq_on_both_gpu_paths() -> Result<()> {
+    let _com = ComGuard::new()?;
+    let gpu = Device::new("")?;
+    let compute = crate::compute::Compute::for_device(&gpu.device)?;
+    // scRGB 1.0 is 80 cd/m². These PQ values independently anchor black,
+    // SDR reference white, 1000-nit highlights and the 10000-nit ceiling.
+    let pq = [0., 0.48585677, 0.7518271, 1.];
+    let image = make_image(&[[0.; 3], [1.; 3], [12.5; 3], [125.; 3]], 64, 64);
+    let source = GpuImage::upload(&gpu, &image)?;
+    for full in [false, true] {
+        let config = butterpollo_core::rtsp::Negotiated {
+            width: image.width,
+            height: image.height,
+            codec: 2,
+            hdr: true,
+            csc_mode: 4 | u8::from(full),
+            ..Default::default()
+        };
+        let mut graphics = Converter::new(&gpu, &config, (image.width, image.height, image.pixel))?;
+        graphics.compute = None;
+        let graphics_pixels = readback(&gpu, graphics.convert(&source)?.as_ref())?;
+        let mut converter =
+            crate::compute::Converter::new(compute.clone(), image.width, image.height, true)?;
+        converter.values = constants(
+            &config,
+            (image.width, image.height, image.pixel),
+            [100., 1.],
+            None,
+        );
+        let opened = compute.open(&source.texture)?;
+        let converted =
+            converter.convert(&opened, crate::compute::format(image.pixel), None, &source)?;
+        converted.wait()?;
+        let compute_pixels = readback_compute(&compute, &converted.texture)?;
+        for (path, pixels) in [("D3D11", graphics_pixels), ("D3D12", compute_pixels)] {
+            let width = image.width as usize;
+            for (patch, pq) in pq.into_iter().enumerate() {
+                let x = patch * 64 + 32;
+                let wanted = if full { 1023. * pq } else { 64. + 876. * pq };
+                let luma = pixels[32 * width + x];
+                assert!(
+                    (f64::from(luma) - wanted).abs() <= 2.,
+                    "{path} full={full} patch={patch}: luma {luma}, wanted {wanted}"
+                );
+                for c in 0..2 {
+                    let chroma = pixels[width * image.height as usize + 16 * width + x + c];
+                    assert!(
+                        chroma.abs_diff(512) <= 1,
+                        "{path} full={full} patch={patch}: neutral chroma {chroma}"
+                    );
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires a D3D11 GPU with native P010 render views"]
 fn gpu_hdr_preserves_absolute_luminance_gamut_and_linear_resize() -> Result<()> {
     let _com = ComGuard::new()?;
     let gpu = Device::new("")?;

@@ -177,6 +177,41 @@ public class GameTouchControlsTest {
         }
     }
 
+    @Test public void aHeldControlReleasesOnItsOwnLiftWhenTheStreamDeclinesTheOtherFinger() {
+        try (ActivityController<Screen> controller = Robolectric.buildActivity(Screen.class).setup()) {
+            Screen screen = controller.get();
+            new TouchLayout(Collections.singletonList(new TouchLayout.Button("w", "W", new int[] {51}, 0,
+                    false, .1f, .1f, .2f, .2f))).save(screen, "fps");
+            TouchLayout.setEnabled(screen, "fps", true);
+            List<String> transitions = new ArrayList<>();
+            GameTouchControls controls = controls(screen, "fps", transitions);
+            // The stream declines a finger that lands on the debug performance overlay, so
+            // Android hands that finger to the control that is already held.
+            controls.setStreamTouchListener((view, event) -> false);
+            layOut(controls);
+            float[] w = {100, 60}, overlay = {600, 300};
+            int[] first = {0}, second = {1}, two = {0, 1};
+
+            dispatch(controls, MotionEvent.ACTION_DOWN, 0, first, w);
+            dispatch(controls, MotionEvent.ACTION_POINTER_DOWN, 1, two, w, overlay);
+            dispatch(controls, MotionEvent.ACTION_MOVE, 0, two, w, new float[] {620, 300});
+            dispatch(controls, MotionEvent.ACTION_POINTER_UP, 0, two, w, new float[] {620, 300});
+            assertEquals("Lifting the W finger releases W while the overlay finger stays down",
+                    Arrays.asList("51:true", "51:false"), transitions);
+            dispatch(controls, MotionEvent.ACTION_MOVE, 0, second, new float[] {640, 300});
+            dispatch(controls, MotionEvent.ACTION_UP, 0, second, new float[] {640, 300});
+            assertEquals(Arrays.asList("51:true", "51:false"), transitions);
+
+            // The other order: the overlay finger lifts first and W stays held until its own lift.
+            dispatch(controls, MotionEvent.ACTION_DOWN, 0, first, w);
+            dispatch(controls, MotionEvent.ACTION_POINTER_DOWN, 1, two, w, overlay);
+            dispatch(controls, MotionEvent.ACTION_POINTER_UP, 1, two, w, overlay);
+            assertEquals(Arrays.asList("51:true", "51:false", "51:true"), transitions);
+            dispatch(controls, MotionEvent.ACTION_UP, 0, first, w);
+            assertEquals(Arrays.asList("51:true", "51:false", "51:true", "51:false"), transitions);
+        }
+    }
+
     @Test public void controlsCannotTakeKeyboardFocusFromTheStream() {
         try (ActivityController<Screen> controller = Robolectric.buildActivity(Screen.class).setup()) {
             Screen screen = controller.get();

@@ -285,25 +285,34 @@ public final class GameTouchControls extends FrameLayout {
     private void bindTouch(View view, TouchLayout.Button initial) {
         view.setOnTouchListener(new View.OnTouchListener() {
             float downX, downY, startX, startY;
-            int pressGeneration = -1;
+            int pressGeneration = -1, pointerId = -1;
             @Override public boolean onTouch(View v, MotionEvent event) {
                 if (v.getParent() != GameTouchControls.this) return true;
                 if (!editing && !canInput.getAsBoolean()) return true;
+                // Android hands a held control any later finger nothing else takes, such as one the
+                // stream declines over the debug overlay. Only the finger that pressed it counts.
+                int index = event.findPointerIndex(pointerId);
                 switch (event.getActionMasked()) {
                     case MotionEvent.ACTION_DOWN:
                         pressGeneration = inputGeneration;
+                        pointerId = event.getPointerId(0);
                         downX = event.getRawX(); downY = event.getRawY(); startX = v.getX(); startY = v.getY();
                         if (!editing && !initial.toggle) { held.press(initial); v.setPressed(true); }
                         return true;
                     case MotionEvent.ACTION_MOVE:
-                        if (editing) {
-                            v.setX(Math.max(0, Math.min(getWidth() - v.getWidth(), startX + event.getRawX() - downX)));
-                            v.setY(Math.max(0, Math.min(getHeight() - v.getHeight(), startY + event.getRawY() - downY)));
+                        if (editing && index >= 0) {
+                            // Raw coordinates exist only for the first pointer before API 29.
+                            float rawX = event.getX(index) + event.getRawX() - event.getX();
+                            float rawY = event.getY(index) + event.getRawY() - event.getY();
+                            v.setX(Math.max(0, Math.min(getWidth() - v.getWidth(), startX + rawX - downX)));
+                            v.setY(Math.max(0, Math.min(getHeight() - v.getHeight(), startY + rawY - downY)));
                         }
                         return true;
+                    case MotionEvent.ACTION_POINTER_UP:
                     case MotionEvent.ACTION_UP:
-                        if (pressGeneration != inputGeneration) return true;
+                        if (index != event.getActionIndex() || pressGeneration != inputGeneration) return true;
                         pressGeneration = -1;
+                        pointerId = -1;
                         if (editing && getWidth() > 0 && getHeight() > 0) {
                             List<TouchLayout.Button> entries = new ArrayList<>(layout.buttons);
                             for (int i = 0; i < entries.size(); i++) if (entries.get(i).id.equals(initial.id))
@@ -314,6 +323,7 @@ public final class GameTouchControls extends FrameLayout {
                         return true;
                     case MotionEvent.ACTION_CANCEL:
                         pressGeneration = -1;
+                        pointerId = -1;
                         held.release(initial.id); v.setPressed(false); v.setSelected(false); return true;
                     default: return true;
                 }

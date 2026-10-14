@@ -13,7 +13,7 @@ SEEKBAR = "{http://schemas.moonlight-stream.com/apk/res/seekbar}"
 # Usage advice is editorial; labels, options, ranges, dependencies and preset writes come from source.
 ADVICE = {
     "list_resolution": "Raise for fine detail; lower when decode time or network load is high. Your screen's native size is added automatically.",
-    "list_fps": "Raise for smoother motion on a fast screen. Your screen's native refresh rate is added automatically. Changing resolution or FPS recalculates bitrate.",
+    "list_fps": "Raise for smoother motion on a fast screen. Your screen's native refresh rate is added automatically. Changing resolution or FPS preserves an explicitly chosen bitrate.",
     "seekbar_bitrate_kbps": "Raise for image quality on a stable link; lower for network loss. The slider is logarithmic; the buttons make fine adjustments.",
     "video_format": "Start with Automatic. Choose a specific codec to compare decoder performance; PyroWave requires its own host and Vulkan capabilities.",
     "adaptive_quality_mode": "Off by default. Motion preserves FPS first, Detail preserves resolution first, and Battery also reduces work on healthy links. Requires the host's reconfigure capability and an adaptive decoder; PyroWave is unsupported. The stream menu can override the mode per PC.",
@@ -24,7 +24,7 @@ ADVICE = {
     "checkbox_enable_hdr": "Enable with an HDR10 screen, a compatible decoder and HDR configured on the host display. Availability is device-filtered.",
     "checkbox_vrr": "Enable Android's automatic ARR policy on supported Android 16 displays; otherwise request maximum refresh. Overrides pacing to Lowest latency and disables lower refresh.",
     "checkbox_virtual_display": "Enable to request a host display matching the stream. Requires host support and a ready display driver.",
-    "host_display_location": "Choose Exclusive or Extended in the PC's own stream settings. This choice is saved per PC and overrides its virtual-display toggle.",
+    "host_display_location": "Open this PC's display mode, choose a mode and confirm Save display mode. Keep PC display primary preserves the monitor's primary role; make virtual display primary moves it to the stream. Saved separately per PC.",
     "seekbar_virtual_display_scale": "Change the host render pixel count relative to the stream. Desktop text size stays as set on the host.",
     "checkbox_yuv444": "Enable for colored text and desktop detail when both ends support it. Otherwise 4:2:0 is used; HDR takes priority.",
     "checkbox_stretch_video": "Enable to fill a screen with a different aspect ratio; shapes will stretch.",
@@ -172,7 +172,7 @@ def generate():
             elif key == "list_fps":
                 default = f"Screen maximum (rounded, {bounds[1]}–{bounds[2]} FPS)"
             elif key == "seekbar_bitrate_kbps":
-                default = "Calculated for the native resolution and screen maximum FPS; recalculated when either changes"
+                default = "Calculated for the native resolution and screen maximum FPS; follows changes until bitrate is chosen explicitly"
             elif key == "checkbox_small_icon_mode":
                 threshold = re.search(r"smallestScreenWidthDp < (\d+)", config)[1]
                 default = f"On below {threshold} dp smallest screen width; Off on TVs and larger screens"
@@ -206,7 +206,7 @@ def generate():
               "| Video resolution | This screen's resolution | This screen's resolution |",
               f"| Video frame rate | Screen maximum (rounded, {bounds[1]}–{bounds[2]} FPS) | 30 FPS |",
               "| Video bitrate | Default for that resolution and frame rate | Default for that resolution and frame rate |",
-              "| Variable refresh (VRR) | Off | Off |",
+              "| Adaptive refresh (ARR / VRR) | Off | Off |",
               "| Client-side upscaling | Off | Off |",
               "| Frame pacing | Lowest latency | Balanced with FPS limit |",
               "| Allow lower refresh rate | Off | On |",

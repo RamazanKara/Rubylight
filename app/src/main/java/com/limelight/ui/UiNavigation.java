@@ -11,6 +11,7 @@ import androidx.appcompat.widget.SearchView;
 import androidx.core.view.ViewCompat;
 
 import com.limelight.R;
+import com.limelight.AppView;
 import com.limelight.preferences.AddComputerManually;
 import com.limelight.preferences.StreamSettings;
 import com.limelight.utils.HelpLauncher;
@@ -26,7 +27,8 @@ public final class UiNavigation {
         boolean back = event.hasNoModifiers() && (key == KeyEvent.KEYCODE_ESCAPE || key == KeyEvent.KEYCODE_BUTTON_B);
         boolean help = event.hasNoModifiers() && key == KeyEvent.KEYCODE_F1;
         SearchView search = activity.findViewById(R.id.settings_search);
-        boolean find = control && key == KeyEvent.KEYCODE_F && search != null && search.getVisibility() == View.VISIBLE;
+        boolean findLibrary = control && key == KeyEvent.KEYCODE_F && activity instanceof AppView;
+        boolean find = findLibrary || (control && key == KeyEvent.KEYCODE_F && search != null && search.getVisibility() == View.VISIBLE);
         if (!back && !help && !find && !(control && (key == KeyEvent.KEYCODE_N || key == KeyEvent.KEYCODE_COMMA))) {
             return false;
         }
@@ -34,8 +36,11 @@ public final class UiNavigation {
             if (back) activity.onBackPressed();
             else if (help) HelpLauncher.launchTroubleshooting(activity);
             else if (find) {
-                search.setIconified(false);
-                search.requestFocus();
+                if (findLibrary) ((AppView) activity).openLibrarySearch();
+                else {
+                    search.setIconified(false);
+                    search.requestFocus();
+                }
             } else if (key == KeyEvent.KEYCODE_N && !(activity instanceof AddComputerManually)) {
                 activity.startActivity(new Intent(activity, AddComputerManually.class));
             } else if (key == KeyEvent.KEYCODE_COMMA && !(activity instanceof StreamSettings)) {
@@ -65,9 +70,9 @@ public final class UiNavigation {
                     KeyEvent.KEYCODE_DPAD_LEFT : KeyEvent.KEYCODE_DPAD_RIGHT;
             if (key != helpDirection && key != KeyEvent.KEYCODE_F1) return false;
             View row = list.getSelectedView();
-            View help = row == null ? null : row.findViewById(R.id.preference_help);
-            if (help == null || help.getVisibility() != View.VISIBLE || !help.isEnabled()) return false;
-            if (event.getAction() == KeyEvent.ACTION_UP && !event.isCanceled()) help.performClick();
+            Object explanation = row == null ? null : row.getTag(R.id.preference_help);
+            if (!(explanation instanceof Runnable) || !row.isEnabled()) return false;
+            if (event.getAction() == KeyEvent.ACTION_UP && !event.isCanceled()) ((Runnable) explanation).run();
             return true;
         });
     }

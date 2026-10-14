@@ -46,8 +46,8 @@ public class SettingsInteractionTest {
             android.preference.PreferenceGroup first = (android.preference.PreferenceGroup)
                     fragment.getPreferenceScreen().getPreference(0);
             assertEquals("host_display", first.getPreference(0).getKey());
-            assertEquals(app.getString(R.string.host_display_exclusive),
-                    fragment.findPreference("host_display").getSummary());
+            assertTrue(fragment.findPreference("host_display").getSummary().toString()
+                    .startsWith(app.getString(R.string.host_display_exclusive)));
             assertFalse(fragment.findPreference("virtual").isEnabled());
             assertTrue(fragment.findPreference("virtual").getSummary().toString()
                     .contains(app.getString(R.string.host_display_exclusive)));
@@ -163,5 +163,156 @@ public class SettingsInteractionTest {
         } finally {
             controller.pause().stop().destroy();
         }
+    }
+
+    @Test
+    public void listHelpPreservesTheOpenPickerAndItsSelection() {
+        ActivityController<UiNavigationTest.Screen> controller = Robolectric.buildActivity(UiNavigationTest.Screen.class).setup();
+        try {
+            MaterialListPreference preference = new MaterialListPreference(controller.get(), null);
+            preference.setTitle("Video format");
+            preference.setDialogMessage("Choose the format supported by your PC.");
+            preference.setEntries(new String[] {"Automatic", "HEVC"});
+            preference.setEntryValues(new String[] {"auto", "hevc"});
+            preference.setValue("hevc");
+            preference.showDialog(null);
+            AlertDialog picker = (AlertDialog) ShadowDialog.getLatestDialog();
+            assertEquals(1, picker.getListView().getCheckedItemPosition());
+            picker.getButton(AlertDialog.BUTTON_NEUTRAL).performClick();
+            org.robolectric.shadows.ShadowLooper.idleMainLooper();
+            AlertDialog help = (AlertDialog) ShadowDialog.getLatestDialog();
+            assertNotSame(picker, help);
+            assertTrue(picker.isShowing());
+            help.dismiss();
+            assertEquals("hevc", preference.getValue());
+            picker.dismiss();
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    @Test
+    public void extendedDisplayChoicesSaveTheExactLabeledSemantics() {
+        ActivityController<UiNavigationTest.Screen> controller = Robolectric.buildActivity(UiNavigationTest.Screen.class).setup();
+        try {
+            for (HostDisplayChoice choice : new HostDisplayChoice[] {
+                    HostDisplayChoice.EXTENDED_PRIMARY, HostDisplayChoice.EXTENDED,
+                    HostDisplayChoice.EXTENDED_ISOLATED, HostDisplayChoice.EXTENDED_PRIMARY_ISOLATED}) {
+                HostDisplayChoice.save(controller.get(), "picker-semantics", HostDisplayChoice.HOST_DEFAULT);
+                HostDisplaySettings.show(controller.get(), "picker-semantics", "PC");
+                AlertDialog picker = (AlertDialog) ShadowDialog.getLatestDialog();
+                int index = displayChoiceIndex(picker, controller.get().getString(choice.label));
+                assertTrue(displayChoiceIndex(picker, controller.get().getString(HostDisplayChoice.EXTENDED.label)) <
+                        displayChoiceIndex(picker, controller.get().getString(HostDisplayChoice.EXTENDED_PRIMARY.label)));
+                picker.getListView().performItemClick(null, index, index);
+                assertEquals(HostDisplayChoice.HOST_DEFAULT, HostDisplayChoice.load(controller.get(), "picker-semantics"));
+                assertTrue(picker.isShowing());
+                picker.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+                org.robolectric.shadows.ShadowLooper.idleMainLooper();
+                assertEquals(choice, HostDisplayChoice.load(controller.get(), "picker-semantics"));
+            }
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    @Test
+    public void cancelingDisplayModeKeepsSavedChoiceAndDoesNotNotifyChange() {
+        ActivityController<UiNavigationTest.Screen> controller = Robolectric.buildActivity(UiNavigationTest.Screen.class).setup();
+        try {
+            HostDisplayChoice.save(controller.get(), "cancel-display", HostDisplayChoice.EXTENDED);
+            java.util.concurrent.atomic.AtomicInteger changes = new java.util.concurrent.atomic.AtomicInteger();
+            HostDisplaySettings.show(controller.get(), "cancel-display", "PC", changes::incrementAndGet);
+            AlertDialog picker = (AlertDialog) ShadowDialog.getLatestDialog();
+            int index = displayChoiceIndex(picker, controller.get().getString(HostDisplayChoice.EXTENDED_PRIMARY.label));
+            picker.getListView().performItemClick(null, index, index);
+            picker.getButton(AlertDialog.BUTTON_NEGATIVE).performClick();
+            org.robolectric.shadows.ShadowLooper.idleMainLooper();
+            assertEquals(HostDisplayChoice.EXTENDED, HostDisplayChoice.load(controller.get(), "cancel-display"));
+            assertEquals(0, changes.get());
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    private static int displayChoiceIndex(AlertDialog picker, String label) {
+        for (int i = 0; i < picker.getListView().getCount(); i++) {
+            if (label.equals(picker.getListView().getAdapter().getItem(i))) return i;
+        }
+        throw new AssertionError("Missing display choice: " + label);
+    }
+
+    @Test
+    public void unconfirmedDisplayChoiceSurvivesRecreationAndOnlySavePersistsIt() {
+        Intent intent = new Intent(RuntimeEnvironment.getApplication(), HostStreamSettings.class)
+                .putExtra("host_uuid", "display-draft-host").putExtra("host_name", "PC");
+        ActivityController<HostStreamSettings> controller = Robolectric.buildActivity(HostStreamSettings.class, intent).setup();
+        try {
+            for (boolean save : new boolean[] {false, true}) {
+                HostStreamSettings.SettingsFragment fragment = (HostStreamSettings.SettingsFragment)
+                        controller.get().getFragmentManager().findFragmentById(R.id.host_profile_settings);
+                fragment.findPreference("host_display").getOnPreferenceClickListener()
+                        .onPreferenceClick(fragment.findPreference("host_display"));
+                AlertDialog picker = (AlertDialog) ShadowDialog.getLatestDialog();
+                String label = controller.get().getString(HostDisplayChoice.EXTENDED_PRIMARY.label);
+                int index = displayChoiceIndex(picker, label);
+                picker.getListView().performItemClick(null, index, index);
+                assertEquals(HostDisplayChoice.HOST_DEFAULT, HostDisplayChoice.load(controller.get(), "display-draft-host"));
+                controller.recreate();
+                picker = (AlertDialog) ShadowDialog.getLatestDialog();
+                assertTrue(picker.isShowing());
+                assertEquals(label, picker.getListView().getItemAtPosition(picker.getListView().getCheckedItemPosition()));
+                assertEquals(HostDisplayChoice.HOST_DEFAULT, HostDisplayChoice.load(controller.get(), "display-draft-host"));
+                picker.getButton(save ? AlertDialog.BUTTON_POSITIVE : AlertDialog.BUTTON_NEGATIVE).performClick();
+                org.robolectric.shadows.ShadowLooper.idleMainLooper();
+                assertEquals(save ? HostDisplayChoice.EXTENDED_PRIMARY : HostDisplayChoice.HOST_DEFAULT,
+                        HostDisplayChoice.load(controller.get(), "display-draft-host"));
+            }
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    @Test
+    public void unconfirmedNumericEditorSurvivesRecreationAndDoesNotSaveEarly() {
+        Intent intent = new Intent(RuntimeEnvironment.getApplication(), HostStreamSettings.class)
+                .putExtra("host_uuid", "editor-host").putExtra("host_name", "PC");
+        ActivityController<HostStreamSettings> controller = Robolectric.buildActivity(HostStreamSettings.class, intent).setup();
+        try {
+            HostStreamSettings screen = controller.get();
+            assertFalse(screen.findViewById(R.id.host_profile_save).isEnabled());
+            HostStreamSettings.SettingsFragment fragment = (HostStreamSettings.SettingsFragment)
+                    screen.getFragmentManager().findFragmentById(R.id.host_profile_settings);
+            fragment.findPreference("bitrate").getOnPreferenceClickListener().onPreferenceClick(fragment.findPreference("bitrate"));
+            AlertDialog editor = (AlertDialog) ShadowDialog.getLatestDialog();
+            ((android.widget.CompoundButton) editor.findViewById(R.id.host_profile_follow_all)).setChecked(false);
+            ((android.widget.EditText) editor.findViewById(R.id.host_profile_field_primary)).setText("45.5");
+            assertNotNull(findScrollView((android.view.ViewGroup) editor.findViewById(android.R.id.content)));
+            controller.recreate();
+            editor = (AlertDialog) ShadowDialog.getLatestDialog();
+            assertTrue(editor.isShowing());
+            assertEquals("45.5", ((android.widget.EditText) editor.findViewById(R.id.host_profile_field_primary)).getText().toString());
+            assertFalse(((android.widget.CompoundButton) editor.findViewById(R.id.host_profile_follow_all)).isChecked());
+            assertNull(HostStreamProfile.load(controller.get(), "editor-host"));
+            editor.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+            org.robolectric.shadows.ShadowLooper.idleMainLooper();
+            assertTrue(controller.get().findViewById(R.id.host_profile_save).isEnabled());
+            controller.get().findViewById(R.id.host_profile_save).performClick();
+            assertEquals(Integer.valueOf(45500), HostStreamProfile.load(controller.get(), "editor-host").bitrate);
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    private static android.widget.ScrollView findScrollView(android.view.ViewGroup root) {
+        if (root instanceof android.widget.ScrollView) return (android.widget.ScrollView) root;
+        for (int i = 0; i < root.getChildCount(); i++) {
+            android.view.View child = root.getChildAt(i);
+            if (child instanceof android.view.ViewGroup) {
+                android.widget.ScrollView found = findScrollView((android.view.ViewGroup) child);
+                if (found != null) return found;
+            }
+        }
+        return null;
     }
 }

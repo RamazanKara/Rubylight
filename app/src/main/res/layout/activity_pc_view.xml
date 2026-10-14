@@ -3,6 +3,9 @@
     <com.google.android.material.appbar.MaterialToolbar android:id="@+id/home_toolbar"
         android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="64dp"
         app:title="@string/library_computers" app:menu="@menu/home" />
+    <TextView android:id="@+id/pc_intro" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:paddingStart="24dp" android:paddingEnd="24dp" android:paddingBottom="8dp"
+        android:text="@string/library_pc_intro" android:textAppearance="?attr/textAppearanceBodyMedium" android:textColor="@color/on_surface_variant" />
     <FrameLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1">
         <FrameLayout android:id="@+id/pcFragmentContainer"
             android:layout_width="match_parent" android:layout_height="match_parent" />
@@ -14,7 +17,13 @@
                     <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
                         android:orientation="vertical" android:padding="24dp">
                         <TextView android:id="@+id/discovery_message" android:layout_width="match_parent" android:layout_height="wrap_content"
-                            android:text="@string/searching_pc" android:textAppearance="?attr/textAppearanceTitleLarge" />
+                            android:text="@string/library_discovery_title" android:textAppearance="?attr/textAppearanceTitleLarge" />
+                        <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                            android:layout_marginTop="16dp" android:text="@string/library_discovery_body"
+                            android:textAppearance="?attr/textAppearanceBodyLarge" android:textColor="@color/on_surface_variant" />
+                        <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                            android:layout_marginTop="16dp" android:text="@string/library_discovery_hint"
+                            android:textAppearance="?attr/textAppearanceBodyMedium" android:textColor="@color/on_surface_variant" />
                         <com.google.android.material.button.MaterialButton android:id="@+id/discovery_add"
                             android:nextFocusDown="@+id/discovery_help" android:nextFocusForward="@id/discovery_help"
                             android:layout_width="match_parent" android:layout_height="wrap_content"

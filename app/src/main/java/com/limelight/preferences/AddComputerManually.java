@@ -31,6 +31,8 @@ import android.content.Intent;
 import android.content.ServiceConnection;
 import android.os.Bundle;
 import android.os.IBinder;
+import android.text.Editable;
+import android.text.TextWatcher;
 import android.view.KeyEvent;
 import android.view.View;
 import android.view.inputmethod.EditorInfo;
@@ -40,6 +42,8 @@ import android.widget.Toast;
 
 public class AddComputerManually extends AppCompatActivity {
     private TextView hostText;
+    private com.google.android.material.textfield.TextInputLayout hostInput;
+    private boolean submitting;
     private ComputerManagerService.ComputerManagerBinder managerBinder;
     private final LinkedBlockingQueue<String> computersToAdd = new LinkedBlockingQueue<>();
     private Thread addThread;
@@ -100,12 +104,12 @@ public class AddComputerManually extends AppCompatActivity {
         return true;
     }
 
-    private URI parseRawUserInputToUri(String rawUserInput) {
+    static URI parseRawUserInputToUri(String rawUserInput) {
         try {
             // Try adding a scheme and parsing the remaining input.
             // This handles input like 127.0.0.1:47989, [::1], [::1]:47989, and 127.0.0.1.
             URI uri = new URI("moonlight://" + rawUserInput);
-            if (uri.getHost() != null && !uri.getHost().isEmpty()) {
+            if (isHostAddress(uri)) {
                 return uri;
             }
         } catch (URISyntaxException ignored) {}
@@ -114,12 +118,19 @@ public class AddComputerManually extends AppCompatActivity {
             // Attempt to escape the input as an IPv6 literal.
             // This handles input like ::1.
             URI uri = new URI("moonlight://[" + rawUserInput + "]");
-            if (uri.getHost() != null && !uri.getHost().isEmpty()) {
+            if (isHostAddress(uri)) {
                 return uri;
             }
         } catch (URISyntaxException ignored) {}
 
         return null;
+    }
+
+    private static boolean isHostAddress(URI uri) {
+        return uri.getHost() != null && !uri.getHost().isEmpty()
+                && uri.getRawUserInfo() == null && uri.getRawQuery() == null && uri.getRawFragment() == null
+                && (uri.getRawPath() == null || uri.getRawPath().isEmpty())
+                && (uri.getPort() == -1 || (uri.getPort() > 0 && uri.getPort() <= 65535));
     }
 
     private void doAddPc(String rawUserInput, ComputerManagerService.ComputerManagerBinder binder) throws InterruptedException {
@@ -228,7 +239,13 @@ public class AddComputerManually extends AppCompatActivity {
                 while (!isInterrupted()) {
                     try {
                         String computer = computersToAdd.take();
-                        doAddPc(computer, binder);
+                        try {
+                            doAddPc(computer, binder);
+                        } finally {
+                            runOnUiThread(() -> {
+                                if (!isFinishing() && !isDestroyed()) setSubmitting(false);
+                            });
+                        }
                     } catch (InterruptedException e) {
                         return;
                     }
@@ -280,6 +297,14 @@ public class AddComputerManually extends AppCompatActivity {
         UiHelper.notifyNewRootView(this);
 
         this.hostText = content.findViewById(R.id.hostTextView);
+        this.hostInput = content.findViewById(R.id.host_input);
+        hostText.addTextChangedListener(new TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) { }
+            @Override public void onTextChanged(CharSequence s, int start, int before, int count) {
+                hostInput.setError(null);
+            }
+            @Override public void afterTextChanged(Editable value) { }
+        });
         if (savedInstanceState != null) hostText.setText(savedInstanceState.getString("address", ""));
         hostText.setImeOptions(EditorInfo.IME_ACTION_DONE);
         hostText.setOnEditorActionListener(new TextView.OnEditorActionListener() {
@@ -322,14 +347,37 @@ public class AddComputerManually extends AppCompatActivity {
 
     // Returns true if the event should be eaten
     private boolean handleDoneEvent() {
+        if (submitting) return true;
         String hostAddress = hostText.getText().toString().trim();
 
         if (hostAddress.length() == 0) {
-            Toast.makeText(AddComputerManually.this, getResources().getString(R.string.addpc_enter_ip), Toast.LENGTH_LONG).show();
+            hostInput.setError(getString(R.string.addpc_enter_ip));
+            hostText.requestFocus();
+            return true;
+        }
+        if (parseRawUserInputToUri(hostAddress) == null) {
+            hostInput.setError(getString(R.string.add_pc_address_error));
+            hostText.requestFocus();
+            return true;
+        }
+        if (!managerServiceBound) {
+            hostInput.setError(getString(R.string.add_pc_service_unavailable));
             return true;
         }
 
+        hostInput.setError(null);
+        setSubmitting(true);
+        InputMethodManager imm = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
+        if (imm != null) imm.hideSoftInputFromWindow(hostText.getWindowToken(), 0);
         computersToAdd.add(hostAddress);
-        return false;
+        return true;
+    }
+
+    private void setSubmitting(boolean submitting) {
+        this.submitting = submitting;
+        hostText.setEnabled(!submitting);
+        TextView button = findViewById(R.id.addPcButton);
+        button.setEnabled(!submitting);
+        button.setText(submitting ? R.string.add_pc_connecting : R.string.addpc_button);
     }
 }

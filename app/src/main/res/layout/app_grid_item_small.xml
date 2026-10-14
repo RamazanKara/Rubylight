@@ -1,24 +1,26 @@
 <com.google.android.material.card.MaterialCardView xmlns:android="http://schemas.android.com/apk/res/android"
-    android:layout_width="match_parent" android:layout_height="wrap_content" style="@style/LibraryCard">
+    android:layout_width="match_parent" android:layout_height="wrap_content" style="@style/LibraryCard"
+    android:descendantFocusability="blocksDescendants">
     <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
-        android:orientation="vertical" android:padding="8dp" android:importantForAccessibility="noHideDescendants">
-        <FrameLayout android:layout_width="match_parent" android:layout_height="144dp">
-            <ImageView android:id="@+id/grid_image" android:layout_width="match_parent" android:layout_height="match_parent"
-                android:scaleType="centerCrop" />
+        android:orientation="vertical" android:padding="8dp">
+        <FrameLayout android:layout_width="match_parent" android:layout_height="144dp" android:importantForAccessibility="noHideDescendants">
+            <ImageView android:id="@+id/grid_image" android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="centerCrop" />
             <TextView android:id="@+id/grid_status" android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:layout_margin="8dp" android:padding="8dp" android:background="@drawable/dialog_background"
-                android:textSize="16sp" android:textColor="@color/on_surface" />
-
+                android:layout_margin="4dp" android:padding="6dp" android:background="@drawable/dialog_background"
+                android:textSize="12sp" android:textColor="@color/on_surface" />
         </FrameLayout>
         <TextView android:id="@+id/grid_text" android:layout_width="match_parent" android:layout_height="wrap_content"
-            android:layout_marginTop="8dp" android:textSize="16sp" android:textColor="@color/on_surface"
-            android:minLines="2" />
+            android:layout_marginTop="8dp" android:paddingStart="4dp" android:paddingEnd="4dp" android:textSize="16sp" android:textColor="@color/on_surface"
+            android:minLines="2" android:maxLines="2" android:ellipsize="end" android:importantForAccessibility="no" />
         <TextView android:id="@+id/grid_role" android:layout_width="match_parent" android:layout_height="wrap_content"
-            android:layout_marginTop="8dp" android:padding="8dp"
+            android:layout_marginTop="8dp" android:padding="8dp" android:maxLines="2" android:ellipsize="end"
             android:background="@drawable/dialog_background" android:drawablePadding="8dp"
-            android:textSize="14sp" android:textColor="@color/on_surface" android:visibility="gone" />
-        <TextView android:id="@+id/grid_actions" android:layout_width="match_parent" android:layout_height="wrap_content"
-            android:minHeight="48dp" android:minLines="2" android:gravity="center_vertical"
-            android:text="@string/app_resume_quit" android:textSize="16sp" android:textColor="@color/accent" />
+            android:textSize="12sp" android:textColor="@color/on_surface" android:visibility="gone" android:importantForAccessibility="no" />
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:gravity="center_vertical">
+            <TextView android:id="@+id/grid_actions" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
+                android:paddingStart="4dp" android:maxLines="1" android:ellipsize="end" android:textSize="14sp" android:textColor="@color/accent" android:importantForAccessibility="no" />
+            <ImageButton android:id="@+id/grid_more" style="@style/ToolbarIcon" android:focusable="false"
+                android:importantForAccessibility="yes" android:src="@drawable/ic_library_more" android:contentDescription="@string/library_options" />
+        </LinearLayout>
     </LinearLayout>
 </com.google.android.material.card.MaterialCardView>

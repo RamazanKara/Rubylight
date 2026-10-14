@@ -217,4 +217,65 @@ public class AppLibraryReconciliationTest {
         assertEquals(Collections.emptySet(), screen.getSharedPreferences(AppView.HIDDEN_APPS_PREF_FILENAME, 0)
                 .getStringSet("library-host", Collections.emptySet()));
     }
+    @Test public void searchIgnoresCaseAndAccentsAndKeepsTheFullCatalogue() {
+        receive(app("Pokémon", 10, "pokemon"), app("Portal", 20, "portal"));
+        androidx.appcompat.widget.SearchView search = screen.findViewById(R.id.library_search);
+        search.setQuery(" POKEMON ", false);
+        assertEquals(1, adapter.getCount());
+        assertEquals("pokemon", ((AppView.AppObject) adapter.getItem(0)).app.getAppUuid());
+        assertEquals(2, adapter.getAllApps().size());
+
+        search.setQuery("no matching game", false);
+        assertEquals(0, adapter.getCount());
+        android.widget.TextView status = screen.findViewById(R.id.app_list_status);
+        assertEquals(screen.getString(R.string.library_no_matches), status.getText().toString());
+        screen.findViewById(R.id.library_retry).performClick();
+        assertEquals(2, adapter.getCount());
+        assertEquals("", search.getQuery().toString());
+    }
+
+    @Test public void searchReconcilesRenamedAndRemovedAppsOutsideTheVisibleResults() {
+        receive(app("Portal", 10, "portal"), app("Other", 20, "other"));
+        adapter.setSearchQuery("Portal");
+        receive(app("Portal 2", 10, "portal"), app("Portal companion", 20, "other"));
+        assertEquals(2, adapter.getCount());
+        receive(app("Different name", 10, "portal"));
+        assertEquals(0, adapter.getCount());
+        adapter.setSearchQuery("");
+        assertEquals(1, adapter.getCount());
+        assertEquals("Different name", ((AppView.AppObject) adapter.getItem(0)).app.getAppName());
+    }
+
+    @Test public void hiddenFilterCanBeChangedWithoutLeavingTheLibrary() {
+        receive(app("Hidden game", 10, "hidden"), app("Visible game", 20, "visible"));
+        adapter.updateHiddenApps(Collections.singleton(10), true);
+        assertEquals(1, adapter.getCount());
+        adapter.setShowHiddenApps(true);
+        assertEquals(2, adapter.getCount());
+        assertTrue(((AppView.AppObject) adapter.getItem(0)).isHidden);
+        adapter.setSearchQuery("hidden");
+        assertEquals(1, adapter.getCount());
+        adapter.setShowHiddenApps(false);
+        assertEquals(0, adapter.getCount());
+        adapter.updateHiddenApps(Collections.emptySet(), true);
+        assertEquals(1, adapter.getCount());
+    }
+
+    @Test public void runningStateRemainsCorrectWhenGamesAreFilteredOut() {
+        receive(app("First game", 10, "first"), app("Second game", 20, "second"));
+        ComputerDetails state = new ComputerDetails();
+        state.runningGameId = 10;
+        state.runningGameUuid = "first";
+        ReflectionHelpers.callInstanceMethod(screen, "updateUiWithServerinfo",
+                ReflectionHelpers.ClassParameter.from(ComputerDetails.class, state));
+        adapter.setSearchQuery("Second");
+        state.runningGameId = 20;
+        state.runningGameUuid = "second";
+        ReflectionHelpers.callInstanceMethod(screen, "updateUiWithServerinfo",
+                ReflectionHelpers.ClassParameter.from(ComputerDetails.class, state));
+        adapter.setSearchQuery("");
+        assertFalse(((AppView.AppObject) adapter.getItem(0)).isRunning);
+        assertTrue(((AppView.AppObject) adapter.getItem(1)).isRunning);
+    }
+
 }

@@ -134,7 +134,7 @@ public class UiNavigationTest {
     }
 
     @Test
-    public void preferenceHelpDoesNotStealSelectionOrToggleTheSwitch() {
+    public void preferenceExplanationDoesNotStealSelectionOrToggleTheSwitch() {
         ActivityController<Screen> controller = Robolectric.buildActivity(Screen.class).setup().visible();
         try {
             Screen screen = controller.get();
@@ -144,7 +144,7 @@ public class UiNavigationTest {
             screen.getLayoutInflater().inflate(R.layout.settings_switch, widget);
             AtomicInteger helpCount = new AtomicInteger();
             AtomicInteger toggles = new AtomicInteger();
-            row.findViewById(R.id.preference_help).setOnClickListener(v -> helpCount.incrementAndGet());
+            row.setTag(R.id.preference_help, (Runnable) helpCount::incrementAndGet);
             list.setAdapter(new BaseAdapter() {
                 @Override public int getCount() { return 1; }
                 @Override public Object getItem(int position) { return position; }

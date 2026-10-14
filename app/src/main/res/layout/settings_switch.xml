@@ -1,7 +1,5 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="wrap_content" android:layout_height="wrap_content" android:gravity="center_vertical">
-    <ImageButton android:id="@+id/preference_help" style="@style/ToolbarIcon"
-        android:src="@drawable/ic_help" />
     <com.google.android.material.materialswitch.MaterialSwitch
         android:id="@+id/preference_switch" android:layout_width="wrap_content" android:layout_height="48dp"
         android:clickable="false" android:focusable="false" android:importantForAccessibility="no" />

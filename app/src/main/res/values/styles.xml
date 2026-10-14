@@ -33,6 +33,7 @@
         <item name="colorOnSurface">@color/on_surface</item>
         <item name="colorOnSurfaceVariant">@color/on_surface_variant</item>
         <item name="colorOutline">@color/outline</item>
+        <item name="colorOutlineVariant">@color/outline_subtle</item>
         <item name="colorControlNormal">@color/on_surface_variant</item>
         <item name="colorControlActivated">@color/accent</item>
         <item name="android:colorAccent">@color/accent</item>
@@ -66,6 +67,8 @@
          invisible on the light surface. Menu item icons are tinted by app:iconTint in res/menu. -->
     <style name="Widget.Butterpollo.Toolbar" parent="Widget.Material3.Toolbar">
         <item name="navigationIconTint">?attr/colorOnSurface</item>
+        <item name="titleTextAppearance">@style/ScreenTitle</item>
+        <item name="subtitleTextColor">@color/on_surface_variant</item>
     </style>
 
     <style name="AddPcTheme" parent="AppTheme">
@@ -104,6 +107,7 @@
     <style name="ScreenTitle" parent="TextAppearance.Material3.TitleLarge">
         <item name="android:textColor">@color/on_surface</item>
         <item name="android:textSize">24sp</item>
+        <item name="android:fontFamily">sans-serif-medium</item>
     </style>
 
     <style name="StreamBaseTheme" parent="AppTheme">

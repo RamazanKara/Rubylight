@@ -1,0 +1,30 @@
+<resources>
+    <string name="library_search">Search apps</string>
+    <string name="library_options">Library options</string>
+    <string name="library_more_for">More options for %1$s</string>
+    <string name="library_play">Play</string>
+    <string name="library_action">Open</string>
+    <string name="library_open">Open library</string>
+    <string name="library_pc_options">View options</string>
+    <string name="library_loading">Loading your library…</string>
+    <string name="library_refresh">Refresh library</string>
+    <string name="library_retry">Try again</string>
+    <string name="library_show_hidden">Show hidden apps</string>
+    <string name="library_hide_hidden">Hide hidden apps</string>
+    <string name="library_no_matches">No apps match your search.</string>
+    <string name="library_clear_search">Clear search</string>
+    <string name="library_all_hidden">Your apps are hidden. Show hidden apps to bring them back.</string>
+    <string name="library_offline">This computer is offline. Your saved library is still here. Reconnect to play.</string>
+    <string name="library_hidden_notice">App hidden from your library</string>
+    <string name="library_undo">Undo</string>
+    <string name="library_pc_intro">Choose a computer to start streaming.</string>
+    <string name="library_discovery_title">Your games, on this screen</string>
+    <string name="library_discovery_body">Turn on your computer and run RubyLight, Apollo, or Sunshine. Computers on the same network appear here automatically.</string>
+    <string name="library_discovery_hint">On a different network? Add your computer by address.</string>
+    <string name="library_results">%1$d of %2$d apps</string>
+    <string name="library_showing_hidden">%1$d apps · including hidden</string>
+    <plurals name="library_app_count">
+        <item quantity="one">%d app</item>
+        <item quantity="other">%d apps</item>
+    </plurals>
+</resources>

@@ -8,6 +8,17 @@ import static org.junit.Assert.*;
 
 public class AddComputerManuallyTest {
     @Test
+    public void hostInputAcceptsNamesAndIpv6ButRejectsIgnoredUrlPartsAndInvalidPorts() {
+        for (String value : new String[]{"gaming-pc", "pc.local", "192.168.1.10:47989", "[::1]:47989", "::1"}) {
+            assertNotNull(value, AddComputerManually.parseRawUserInputToUri(value));
+        }
+        for (String value : new String[]{"", "bad host", "pc.local:0", "pc.local:65536", "pc.local/path",
+                "user@pc.local", "pc.local?port=10", "pc.local#anything", "https://pc.local"}) {
+            assertNull(value, AddComputerManually.parseRawUserInputToUri(value));
+        }
+    }
+
+    @Test
     public void nonByteAlignedSubnetsCompareMostSignificantBitsFirst() throws Exception {
         byte[] local = InetAddress.getByName("172.16.8.10").getAddress();
         assertTrue(AddComputerManually.isInSubnet(InetAddress.getByName("172.31.2.20").getAddress(), local, 12));

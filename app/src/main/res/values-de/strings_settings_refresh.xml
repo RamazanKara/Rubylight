@@ -1,0 +1,17 @@
+<resources>
+    <string name="settings_global_context">Standardwerte für alle PCs. Jeder PC kann eigene Stream-Einstellungen verwenden.</string>
+    <string name="settings_changes_saved">Änderungen werden automatisch gespeichert</string>
+    <string name="settings_search_results">Suchergebnisse</string>
+    <string name="settings_back_to_search">Zurück zu den Suchergebnissen</string>
+    <string name="settings_back_to_overview">Zurück zu den Einstellungen</string>
+    <string name="settings_search_empty_help">Versuche einen kürzeren Begriff wie Auflösung, Audio oder Controller.</string>
+    <string name="settings_search_breadcrumb">%1$s · %2$s</string>
+    <plurals name="settings_search_count">
+        <item quantity="one">%d Einstellung gefunden</item>
+        <item quantity="other">%d Einstellungen gefunden</item>
+    </plurals>
+    <string name="settings_profile_saved_context">Änderungen gelten nach dem Speichern für diesen PC.</string>
+    <string name="settings_profile_unsaved_context">Ungespeicherte Änderungen für diesen PC</string>
+    <string name="settings_profile_reset_message">Standardwerte für alle PCs verwenden. Speichere, um diese Änderung auf diesen PC anzuwenden.</string>
+    <string name="settings_profile_display_immediate">Der Displaymodus wird in seinem Dialog separat gespeichert.</string>
+</resources>

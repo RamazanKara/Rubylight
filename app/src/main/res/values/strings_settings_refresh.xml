@@ -1,0 +1,17 @@
+<resources>
+    <string name="settings_global_context">Defaults for all PCs. Each PC can use its own stream settings.</string>
+    <string name="settings_changes_saved">Changes save automatically</string>
+    <string name="settings_search_results">Search results</string>
+    <string name="settings_back_to_search">Back to search results</string>
+    <string name="settings_back_to_overview">Back to settings</string>
+    <string name="settings_search_empty_help">Try a shorter term, such as resolution, audio or controller.</string>
+    <string name="settings_search_breadcrumb">%1$s · %2$s</string>
+    <plurals name="settings_search_count">
+        <item quantity="one">%d setting found</item>
+        <item quantity="other">%d settings found</item>
+    </plurals>
+    <string name="settings_profile_saved_context">Changes apply to this PC after you save.</string>
+    <string name="settings_profile_unsaved_context">Unsaved changes for this PC</string>
+    <string name="settings_profile_reset_message">Use the defaults for all PCs. Save to apply this change to this PC.</string>
+    <string name="settings_profile_display_immediate">Display mode is saved separately in its dialog.</string>
+</resources>

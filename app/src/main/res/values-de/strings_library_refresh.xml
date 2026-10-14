@@ -1,0 +1,30 @@
+<resources>
+    <string name="library_search">Apps suchen</string>
+    <string name="library_options">Bibliotheksoptionen</string>
+    <string name="library_more_for">Weitere Optionen für %1$s</string>
+    <string name="library_play">Spielen</string>
+    <string name="library_action">Öffnen</string>
+    <string name="library_open">Bibliothek öffnen</string>
+    <string name="library_pc_options">Optionen anzeigen</string>
+    <string name="library_loading">Bibliothek wird geladen…</string>
+    <string name="library_refresh">Bibliothek aktualisieren</string>
+    <string name="library_retry">Erneut versuchen</string>
+    <string name="library_show_hidden">Ausgeblendete Apps anzeigen</string>
+    <string name="library_hide_hidden">Ausgeblendete Apps verbergen</string>
+    <string name="library_no_matches">Keine Apps entsprechen deiner Suche.</string>
+    <string name="library_clear_search">Suche löschen</string>
+    <string name="library_all_hidden">Deine Apps sind ausgeblendet. Zeige ausgeblendete Apps an, um sie wieder einzublenden.</string>
+    <string name="library_offline">Dieser Computer ist offline. Deine gespeicherte Bibliothek ist noch da. Stelle die Verbindung zum Spielen wieder her.</string>
+    <string name="library_hidden_notice">App aus der Bibliothek ausgeblendet</string>
+    <string name="library_undo">Rückgängig</string>
+    <string name="library_pc_intro">Wähle einen Computer zum Streamen.</string>
+    <string name="library_discovery_title">Deine Spiele auf diesem Bildschirm</string>
+    <string name="library_discovery_body">Schalte deinen Computer ein und starte RubyLight, Apollo oder Sunshine. Computer im selben Netzwerk erscheinen hier automatisch.</string>
+    <string name="library_discovery_hint">In einem anderen Netzwerk? Füge deinen Computer per Adresse hinzu.</string>
+    <string name="library_results">%1$d von %2$d Apps</string>
+    <string name="library_showing_hidden">%1$d Apps · einschließlich ausgeblendeter</string>
+    <plurals name="library_app_count">
+        <item quantity="one">%d App</item>
+        <item quantity="other">%d Apps</item>
+    </plurals>
+</resources>

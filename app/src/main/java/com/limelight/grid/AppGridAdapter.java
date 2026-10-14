@@ -23,6 +23,8 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
+import java.text.Normalizer;
 import java.util.Set;
 
 @SuppressWarnings("unchecked")
@@ -33,7 +35,8 @@ public class AppGridAdapter extends GenericGridAdapter<AppView.AppObject> {
 
     private final ComputerDetails computer;
     private final String uniqueId;
-    private final boolean showHiddenApps;
+    private boolean showHiddenApps;
+    private String searchQuery = "";
 
     private CachedAppAssetLoader loader;
     private Set<Integer> hiddenAppIds = new HashSet<>();
@@ -53,25 +56,38 @@ public class AppGridAdapter extends GenericGridAdapter<AppView.AppObject> {
         this.hiddenAppIds.clear();
         this.hiddenAppIds.addAll(newHiddenAppIds);
 
-        if (hideImmediately) {
-            // Reconstruct the itemList with the new hidden app set
-            itemList.clear();
-            for (AppView.AppObject app : allApps) {
-                app.isHidden = hiddenAppIds.contains(app.app.getAppId());
-
-                if (!app.isHidden || showHiddenApps) {
-                    itemList.add(app);
-                }
-            }
+        for (AppView.AppObject app : allApps) {
+            app.isHidden = hiddenAppIds.contains(app.app.getAppId());
         }
-        else {
-            // Just update the isHidden state to show the correct UI indication
-            for (AppView.AppObject app : allApps) {
-                app.isHidden = hiddenAppIds.contains(app.app.getAppId());
-            }
-        }
-
         notifyDataSetChanged();
+    }
+
+    public void setSearchQuery(String query) {
+        searchQuery = normalizeSearch(query);
+        notifyDataSetChanged();
+    }
+
+    public void setShowHiddenApps(boolean show) {
+        showHiddenApps = show;
+        notifyDataSetChanged();
+    }
+
+    public int getLibraryCount() {
+        int count = 0;
+        for (AppView.AppObject app : allApps) {
+            if (showHiddenApps || !app.isHidden) count++;
+        }
+        return count;
+    }
+
+    private static String normalizeSearch(String value) {
+        return Normalizer.normalize(value == null ? "" : value, Normalizer.Form.NFD)
+                .replaceAll("\\p{M}+", "").toLowerCase(Locale.ROOT).trim();
+    }
+
+    private boolean isVisible(AppView.AppObject app) {
+        return (showHiddenApps || !app.isHidden) &&
+                (searchQuery.isEmpty() || normalizeSearch(app.app.getAppName()).contains(searchQuery));
     }
 
     private static int getLayoutIdForPreferences(PreferenceConfiguration prefs) {
@@ -140,7 +156,7 @@ public class AppGridAdapter extends GenericGridAdapter<AppView.AppObject> {
         sortList(allApps);
 
         // Add the app to the adapter data if it's not hidden
-        if (showHiddenApps || !app.isHidden) {
+        if (isVisible(app)) {
             // Queue a request to fetch this bitmap into cache
             loader.queueCacheLoad(app.app);
 
@@ -163,7 +179,10 @@ public class AppGridAdapter extends GenericGridAdapter<AppView.AppObject> {
     @Override
     public void notifyDataSetChanged() {
         sortList(allApps);
-        sortList(itemList);
+        itemList.clear();
+        for (AppView.AppObject app : allApps) {
+            if (isVisible(app)) itemList.add(app);
+        }
         super.notifyDataSetChanged();
     }
 
@@ -193,8 +212,9 @@ public class AppGridAdapter extends GenericGridAdapter<AppView.AppObject> {
         status.setText(obj.isRunning ? (obj.isHidden ? R.string.app_running_hidden : R.string.app_running) : R.string.app_hidden);
         status.setVisibility(obj.isRunning || obj.isHidden ? View.VISIBLE : View.INVISIBLE);
         TextView actions = parentView.findViewById(R.id.grid_actions);
-        actions.setText(runningActionLabel(obj.app));
-        actions.setVisibility(obj.isRunning && !obj.app.isControlAction() ? View.VISIBLE : View.INVISIBLE);
+        actions.setText(obj.isRunning ? R.string.applist_menu_resume :
+                obj.app.getControl() != NvApp.Control.NONE ? R.string.library_action : R.string.library_play);
+        actions.setVisibility(View.VISIBLE);
         String description = obj.app.getAppName();
         if (roleLabel != 0) {
             description = context.getString(R.string.library_item_description, description, roleView.getText());

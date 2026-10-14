@@ -20,7 +20,7 @@
     <string name="applist_load_failed">Could not load the PC’s apps. Check the host and this device’s application-list permission in its web console. Retrying automatically.</string>
     <string name="applist_empty">No apps are available. Add apps to the host library and check this device’s application-list permission in the host web console.</string>
     <string name="host_profile_unsaved_title">Save stream settings?</string>
-    <string name="host_profile_unsaved_message">Your changes to this PC’s stream settings have not been saved. Display on the PC choices are already saved separately.</string>
+    <string name="host_profile_unsaved_message">Your changes to this PC’s stream settings have not been saved. A display mode confirmed in its own dialog is saved separately.</string>
     <string name="host_profile_discard">Discard changes</string>
     <string name="preset_replace_settings">This replaces resolution, frame rate, bitrate, frame pacing, upscaling, VRR and performance settings with this preset’s values. Codec and HDR choices stay as they are.</string>
     <string name="pair_otp_incorrect_pin">PIN rejected. Generate a new one-time PIN in the host web console and check the passphrase.</string>

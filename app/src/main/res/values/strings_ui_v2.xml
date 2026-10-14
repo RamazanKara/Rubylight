@@ -8,7 +8,7 @@
     <string name="settings_version">Version %1$s</string>
     <string name="settings_source">Source and licenses</string>
     <string name="settings_csv_summary">Save the latest latency measurements</string>
-    <string name="host_profile_footer">Save stream settings before leaving. Display on the PC choices save immediately. Changes apply to the next stream.</string>
+    <string name="host_profile_footer">Save stream settings before leaving. Display mode saves separately with Save display mode in its dialog. Changes apply to the next stream.</string>
     <string name="pc_sheet_pairing">Pairing</string>
     <string name="pc_sheet_this_pc">This PC</string>
     <string name="stream_input_menu">Input mode</string>

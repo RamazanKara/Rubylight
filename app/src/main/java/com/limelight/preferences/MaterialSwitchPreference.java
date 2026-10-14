@@ -5,8 +5,8 @@ import android.preference.SwitchPreference;
 import android.util.AttributeSet;
 import android.view.View;
 
-import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.google.android.material.materialswitch.MaterialSwitch;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.limelight.R;
 import com.limelight.utils.UiHelper;
 
@@ -39,6 +39,12 @@ public class MaterialSwitchPreference extends SwitchPreference {
         super.onBindView(view);
         MaterialSwitch toggle = view.findViewById(R.id.preference_switch);
         toggle.setChecked(isChecked());
+        Runnable showExplanation = explanation == null ? null : () -> UiHelper.showDialog(getContext(),
+                new MaterialAlertDialogBuilder(getContext()).setTitle(getTitle()).setMessage(explanation)
+                        .setPositiveButton(android.R.string.ok, null).create());
+        // The description is always visible. Keyboard and accessibility users can also open it
+        // separately without a second focus target taking space from the setting's text.
+        view.setTag(R.id.preference_help, showExplanation);
         androidx.core.view.ViewCompat.setAccessibilityDelegate(view, new androidx.core.view.AccessibilityDelegateCompat() {
             @Override
             public void onInitializeAccessibilityNodeInfo(View host,
@@ -47,12 +53,19 @@ public class MaterialSwitchPreference extends SwitchPreference {
                 info.setClassName(android.widget.Switch.class.getName());
                 info.setCheckable(true);
                 info.setChecked(isChecked());
+                if (showExplanation != null) {
+                    info.addAction(new androidx.core.view.accessibility.AccessibilityNodeInfoCompat.AccessibilityActionCompat(
+                            R.id.preference_help, getContext().getString(R.string.setting_help, getTitle())));
+                }
+            }
+
+            @Override public boolean performAccessibilityAction(View host, int action, android.os.Bundle args) {
+                if (action == R.id.preference_help && showExplanation != null && isEnabled()) {
+                    showExplanation.run();
+                    return true;
+                }
+                return super.performAccessibilityAction(host, action, args);
             }
         });
-        View help = view.findViewById(R.id.preference_help);
-        help.setVisibility(explanation == null ? View.GONE : View.VISIBLE);
-        help.setContentDescription(getContext().getString(R.string.setting_help, getTitle()));
-        help.setOnClickListener(v -> UiHelper.showDialog(getContext(), new MaterialAlertDialogBuilder(getContext())
-                .setTitle(getTitle()).setMessage(explanation).setPositiveButton(android.R.string.ok, null).create()));
     }
 }

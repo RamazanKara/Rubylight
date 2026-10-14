@@ -18,6 +18,7 @@ import android.widget.LinearLayout;
 import android.widget.ListView;
 import android.widget.Toast;
 import android.widget.TextView;
+import android.widget.ScrollView;
 
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
@@ -42,6 +43,10 @@ public final class HostStreamSettings extends AppCompatActivity {
     private HostStreamProfile overrides;
     private String hostUuid;
     private String savedProfile;
+    private String editorKey;
+    private AlertDialog editorDialog;
+    private Bundle restoredEditor;
+    private String restoredEditorKey;
 
     public static void show(Activity activity, String hostUuid, String hostName) {
         activity.startActivity(new Intent(activity, HostStreamSettings.class)
@@ -68,10 +73,12 @@ public final class HostStreamSettings extends AppCompatActivity {
             } catch (IllegalArgumentException ignored) {
                 // Keep the saved values.
             }
+            restoredEditorKey = state.getString("editor_key");
+            restoredEditor = state.getBundle("editor_state");
         }
         setContentView(R.layout.activity_host_stream_settings);
         MaterialToolbar toolbar = findViewById(R.id.host_profile_toolbar);
-        toolbar.setSubtitle(getIntent().getStringExtra("host_name"));
+        ((TextView) findViewById(R.id.host_profile_name)).setText(getIntent().getStringExtra("host_name"));
         toolbar.setNavigationOnClickListener(v -> leaveSettings());
         getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
             @Override
@@ -91,6 +98,7 @@ public final class HostStreamSettings extends AppCompatActivity {
                     Toast.LENGTH_SHORT).show();
             finish();
         });
+        updateSaveState();
         if (state == null) {
             getFragmentManager().beginTransaction().replace(R.id.host_profile_settings, new SettingsFragment()).commit();
         }
@@ -102,14 +110,21 @@ public final class HostStreamSettings extends AppCompatActivity {
             finish();
             return;
         }
-        new MaterialAlertDialogBuilder(this).setTitle(R.string.host_profile_unsaved_title)
+        UiHelper.showDialog(this, new MaterialAlertDialogBuilder(this).setTitle(R.string.host_profile_unsaved_title)
                 .setMessage(R.string.host_profile_unsaved_message)
                 .setPositiveButton(R.string.host_profile_save, (dialog, which) -> {
                     overrides.save(this, hostUuid);
                     finish();
                 })
                 .setNegativeButton(R.string.host_profile_discard, (dialog, which) -> finish())
-                .setNeutralButton(android.R.string.cancel, null).show();
+                .setNeutralButton(android.R.string.cancel, null).create());
+    }
+
+    private void updateSaveState() {
+        boolean changed = !savedProfile.equals(overrides.serialize());
+        findViewById(R.id.host_profile_save).setEnabled(changed);
+        ((TextView) findViewById(R.id.host_profile_status)).setText(changed ?
+                R.string.settings_profile_unsaved_context : R.string.settings_profile_saved_context);
     }
 
     /** What the next stream from this PC uses: the global settings with this PC's values on top. */
@@ -130,7 +145,11 @@ public final class HostStreamSettings extends AppCompatActivity {
     @Override
     protected void onSaveInstanceState(Bundle state) {
         super.onSaveInstanceState(state);
-        state.putString("draft", overrides.serialize());
+        if (overrides != null) state.putString("draft", overrides.serialize());
+        if (editorDialog != null && editorDialog.isShowing()) {
+            state.putString("editor_key", editorKey);
+            state.putBundle("editor_state", editorDialog.onSaveInstanceState());
+        }
     }
 
     public static class SettingsFragment extends PreferenceFragment {
@@ -155,8 +174,7 @@ public final class HostStreamSettings extends AppCompatActivity {
             display.setPersistent(false);
             displayCategory.addPreference(display);
             display.setOnPreferenceClickListener(pref -> {
-                HostDisplaySettings.show(activity, activity.hostUuid,
-                        activity.getIntent().getStringExtra("host_name"), this::updateSummaries);
+                showDisplay();
                 return true;
             });
             stream = displayCategory;
@@ -176,10 +194,13 @@ public final class HostStreamSettings extends AppCompatActivity {
             row("vrr", R.string.title_vrr, () -> showSwitch("vrr", R.string.title_vrr));
             row("yuv444", R.string.title_yuv444, () -> showSwitch("yuv444", R.string.title_yuv444));
             row("full_range", R.string.title_full_range, () -> showSwitch("full_range", R.string.title_full_range));
-            row("reset", R.string.host_profile_reset, () -> {
-                activity.overrides = new HostStreamProfile();
-                updateSummaries();
-            });
+            row("reset", R.string.host_profile_reset, () -> UiHelper.showDialog(activity,
+                    new MaterialAlertDialogBuilder(activity).setTitle(R.string.host_profile_reset)
+                            .setMessage(R.string.settings_profile_reset_message)
+                            .setPositiveButton(R.string.host_profile_reset, (dialog, which) -> {
+                                activity.overrides = new HostStreamProfile();
+                                updateSummaries();
+                            }).setNegativeButton(android.R.string.cancel, null).create()));
             Preference footer = new Preference(activity);
             footer.setLayoutResource(R.layout.settings_preference);
             footer.setSummary(R.string.host_profile_footer);
@@ -296,8 +317,9 @@ public final class HostStreamSettings extends AppCompatActivity {
                         getString(displayChoice.label)));
             }
             if (display != null) {
-                display.setSummary(displayChoice.label);
+                display.setSummary(getString(displayChoice.label) + "\n" + getString(R.string.settings_profile_display_immediate));
             }
+            activity.updateSaveState();
         }
 
         private void showSwitch(String key, int title) {
@@ -337,15 +359,17 @@ public final class HostStreamSettings extends AppCompatActivity {
             items[0] = getString(R.string.host_profile_same_as_all_value, modes[activity.global.upscalingMode.ordinal()]);
             System.arraycopy(modes, 0, items, 1, modes.length);
             UpscalingPolicy.Mode own = activity.overrides.upscalingMode;
-            new MaterialAlertDialogBuilder(activity).setTitle(R.string.title_upscaling)
+            AlertDialog picker = new MaterialAlertDialogBuilder(activity).setTitle(R.string.title_upscaling)
                     .setSingleChoiceItems(items, own == null ? 0 : own.ordinal() + 1, (dialog, which) -> {
                         activity.overrides.upscalingMode = which == 0 ? null : UpscalingPolicy.Mode.values()[which - 1];
                         updateSummaries();
                         dialog.dismiss();
-                    }).setNeutralButton(R.string.help, (dialog, which) ->
-                            new MaterialAlertDialogBuilder(activity).setTitle(R.string.title_upscaling)
-                                    .setMessage(R.string.summary_upscaling).setPositiveButton(android.R.string.ok, null).show())
-                    .setNegativeButton(android.R.string.cancel, null).show();
+                    }).setNeutralButton(R.string.help, null)
+                    .setNegativeButton(android.R.string.cancel, null).create();
+            UiHelper.showDialog(activity, picker);
+            picker.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(view ->
+                    UiHelper.showDialog(activity, new MaterialAlertDialogBuilder(activity).setTitle(R.string.title_upscaling)
+                            .setMessage(R.string.summary_upscaling).setPositiveButton(android.R.string.ok, null).create()));
         }
 
         private LinearLayout form() {
@@ -356,9 +380,52 @@ public final class HostStreamSettings extends AppCompatActivity {
             return form;
         }
 
+        private ScrollView scrollable(LinearLayout form) {
+            ScrollView scroll = new ScrollView(activity);
+            scroll.setFillViewport(true);
+            scroll.setClipToPadding(false);
+            scroll.addView(form);
+            return scroll;
+        }
+
+        private void showDisplay() {
+            AlertDialog picker = HostDisplaySettings.create(activity, activity.hostUuid,
+                    activity.getIntent().getStringExtra("host_name"), this::updateSummaries);
+            showEditor("display", picker);
+            HostDisplaySettings.bindHelp(activity, picker);
+        }
+
+        private void showEditor(String key, AlertDialog dialog) {
+            activity.editorKey = key;
+            activity.editorDialog = dialog;
+            UiHelper.showDialog(activity, dialog);
+            if (key.equals(activity.restoredEditorKey) && activity.restoredEditor != null) {
+                dialog.onRestoreInstanceState(activity.restoredEditor);
+                activity.restoredEditor = null;
+                activity.restoredEditorKey = null;
+            }
+        }
+
+        @Override
+        public void onResume() {
+            super.onResume();
+            String key = activity.restoredEditorKey;
+            if (key == null) return;
+            switch (key) {
+                case "display": showDisplay(); break;
+                case "resolution": showResolution(); break;
+                case "sharpness": showSharpness(); break;
+                case "refresh": showNumber(key, R.string.host_profile_refresh); break;
+                case "bitrate": showNumber(key, R.string.host_profile_bitrate); break;
+                case "scale": showNumber(key, R.string.host_profile_scale); break;
+                default: activity.restoredEditorKey = null; break;
+            }
+        }
+
         /** The "Same as all PCs" box on top of a value dialog; checked, it disables {@code fields}. */
         private MaterialCheckBox sameAsAll(LinearLayout form, String allPcsValue, boolean checked, View... fields) {
             MaterialCheckBox box = new MaterialCheckBox(activity);
+            box.setId(R.id.host_profile_follow_all);
             box.setText(getString(R.string.host_profile_same_as_all_value, allPcsValue));
             box.setChecked(checked);
             form.addView(box);
@@ -377,7 +444,8 @@ public final class HostStreamSettings extends AppCompatActivity {
             TextInputLayout container = new TextInputLayout(activity);
             container.setHint(title);
             EditText field = new TextInputEditText(container.getContext());
-            field.setId(View.generateViewId());
+            field.setId(form.findViewById(R.id.host_profile_field_primary) == null ?
+                    R.id.host_profile_field_primary : R.id.host_profile_field_secondary);
             field.setContentDescription(getString(title));
             field.setInputType(InputType.TYPE_CLASS_NUMBER | (decimal ? InputType.TYPE_NUMBER_FLAG_DECIMAL : 0));
             field.setSingleLine(true);
@@ -401,6 +469,7 @@ public final class HostStreamSettings extends AppCompatActivity {
             LinearLayout form = form();
             TextView value = new TextView(activity);
             Slider slider = new Slider(activity);
+            slider.setId(R.id.host_profile_sharpness);
             MaterialCheckBox allPcs = sameAsAll(form, getString(R.string.upscaling_sharpness_value,
                     activity.global.upscalingSharpness), activity.overrides.upscalingSharpness == null, slider);
             value.setText(getString(R.string.upscaling_sharpness_value, config.upscalingSharpness));
@@ -415,11 +484,11 @@ public final class HostStreamSettings extends AppCompatActivity {
             slider.addOnChangeListener((view, strength, fromUser) ->
                     value.setText(getString(R.string.upscaling_sharpness_value, Math.round(strength))));
             form.addView(slider);
-            new MaterialAlertDialogBuilder(activity).setTitle(R.string.title_upscaling_sharpness).setView(form)
+            showEditor("sharpness", new MaterialAlertDialogBuilder(activity).setTitle(R.string.title_upscaling_sharpness).setView(scrollable(form))
                     .setPositiveButton(android.R.string.ok, (dialog, which) -> {
                         activity.overrides.upscalingSharpness = allPcs.isChecked() ? null : Math.round(slider.getValue());
                         updateSummaries();
-                    }).setNegativeButton(android.R.string.cancel, null).show();
+                    }).setNegativeButton(android.R.string.cancel, null).create());
         }
 
         private void showResolution() {
@@ -427,6 +496,7 @@ public final class HostStreamSettings extends AppCompatActivity {
             HostStreamProfile own = activity.overrides;
             LinearLayout form = form();
             MaterialCheckBox nativeChoice = new MaterialCheckBox(activity);
+            nativeChoice.setId(R.id.host_profile_follow_screen);
             nativeChoice.setText(R.string.host_profile_native);
             nativeChoice.setChecked(config.resolutionFollowsScreen);
             EditText[] size = new EditText[2];
@@ -443,7 +513,7 @@ public final class HostStreamSettings extends AppCompatActivity {
             nativeChoice.setOnCheckedChangeListener((button, checked) -> refresh.run());
             refresh.run();
             AlertDialog dialog = new MaterialAlertDialogBuilder(activity).setTitle(R.string.title_resolution_list)
-                    .setView(form).setPositiveButton(android.R.string.ok, null)
+                    .setView(scrollable(form)).setPositiveButton(android.R.string.ok, null)
                     .setNegativeButton(android.R.string.cancel, null)
                     .setNeutralButton(R.string.host_profile_match_screen, null).create();
             dialog.setOnShowListener(ignored -> {
@@ -474,7 +544,7 @@ public final class HostStreamSettings extends AppCompatActivity {
                     }
                 });
             });
-            UiHelper.showDialog(activity, dialog);
+            showEditor("resolution", dialog);
         }
 
         private void showNumber(String key, int title) {
@@ -503,7 +573,7 @@ public final class HostStreamSettings extends AppCompatActivity {
             field[0] = field(form, title, value, !key.equals("scale"));
             allPcs.setOnCheckedChangeListener((button, checked) -> field[0].setEnabled(!checked));
             field[0].setEnabled(!followsAll);
-            MaterialAlertDialogBuilder builder = new MaterialAlertDialogBuilder(activity).setTitle(title).setView(form)
+            MaterialAlertDialogBuilder builder = new MaterialAlertDialogBuilder(activity).setTitle(title).setView(scrollable(form))
                     .setPositiveButton(android.R.string.ok, null).setNegativeButton(android.R.string.cancel, null);
             if (key.equals("refresh")) builder.setNeutralButton(R.string.host_profile_match_screen, null);
             AlertDialog dialog = builder.create();
@@ -538,7 +608,7 @@ public final class HostStreamSettings extends AppCompatActivity {
                     }
                 });
             });
-            UiHelper.showDialog(activity, dialog);
+            showEditor(key, dialog);
         }
 
         private Integer readNumber(EditText field, int min, int max) {

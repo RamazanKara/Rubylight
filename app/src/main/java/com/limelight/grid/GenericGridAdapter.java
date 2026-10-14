@@ -80,6 +80,23 @@ public abstract class GenericGridAdapter<T> extends BaseAdapter {
 
         populateView(convertView, imgView, prgView, txtView, overlayView, itemList.get(i));
 
+        View more = convertView.findViewById(R.id.grid_more);
+        if (more != null) {
+            final View card = convertView;
+            more.setContentDescription(context.getString(R.string.library_more_for, itemList.get(i).toString()));
+            // Keep a single D-pad stop per card; touch and accessibility users get a visible action.
+            more.setFocusable(false);
+            more.setOnClickListener(view -> {
+                if (viewGroup instanceof android.widget.AdapterView) {
+                    android.widget.AdapterView<?> grid = (android.widget.AdapterView<?>) viewGroup;
+                    int position = grid.getPositionForView(card);
+                    android.widget.AdapterView.OnItemLongClickListener listener = grid.getOnItemLongClickListener();
+                    if (position != android.widget.AdapterView.INVALID_POSITION && listener != null) {
+                        listener.onItemLongClick(grid, card, position, grid.getItemIdAtPosition(position));
+                    }
+                }
+            });
+        }
         return convertView;
     }
 }

@@ -116,6 +116,7 @@ public class PcView extends AppCompatActivity implements AdapterFragmentCallback
 
         public void onServiceDisconnected(ComponentName className) {
             managerBinder = null;
+            runningPolling = false;
         }
     };
 
@@ -146,8 +147,6 @@ public class PcView extends AppCompatActivity implements AdapterFragmentCallback
 
     private final static int PICK_ROMS_REQUEST = 1;
     private final static int PICK_ESDE_REQUEST = 2;
-    private final static String FIRST_RUN_PREFS = "FirstRun";
-    private final static String PAIRING_GUIDE_SHOWN = "pairing_guide_shown";
 
     private void initializeViews() {
         setContentView(R.layout.activity_pc_view);
@@ -264,11 +263,7 @@ public class PcView extends AppCompatActivity implements AdapterFragmentCallback
 
         initializeViews();
 
-        // Explain adding and pairing once; the help button shows it again
-        if (!getSharedPreferences(FIRST_RUN_PREFS, MODE_PRIVATE).getBoolean(PAIRING_GUIDE_SHOWN, false)) {
-            getSharedPreferences(FIRST_RUN_PREFS, MODE_PRIVATE).edit().putBoolean(PAIRING_GUIDE_SHOWN, true).apply();
-            showPairingGuide();
-        }
+        // The discovery screen explains setup inline; Help remains available from the toolbar.
     }
 
     private void showPairingGuide() {
@@ -460,6 +455,7 @@ public class PcView extends AppCompatActivity implements AdapterFragmentCallback
     private void updateEmptyState() {
         boolean empty = pcGridAdapter.getCount() == 0;
         noPcFoundLayout.setVisibility(empty ? View.VISIBLE : View.GONE);
+        findViewById(R.id.pc_intro).setVisibility(empty ? View.GONE : View.VISIBLE);
         findViewById(R.id.pcFragmentContainer).setVisibility(empty ? View.GONE : View.VISIBLE);
         findViewById(R.id.manuallyAddPc).setVisibility(empty ? View.GONE : View.VISIBLE);
     }

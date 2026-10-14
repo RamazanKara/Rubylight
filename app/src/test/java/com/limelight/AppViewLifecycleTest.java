@@ -33,7 +33,7 @@ public class AppViewLifecycleTest {
     }
 
     @Test
-    public void failedOrDeniedAppListsStopBlockingTheLibrary() {
+    public void failedOrDeniedAppListsOfferRetryWithoutBlockingNavigation() {
         Intent intent = new Intent(RuntimeEnvironment.getApplication(), Library.class)
                 .putExtra(AppView.UUID_EXTRA, "test-host").putExtra(AppView.NAME_EXTRA, "PC");
         ActivityController<Library> controller = Robolectric.buildActivity(Library.class, intent).setup();
@@ -41,10 +41,12 @@ public class AppViewLifecycleTest {
             Library screen = controller.get();
             for (int message : new int[] {R.string.applist_load_failed, R.string.applist_permission_required}) {
                 ReflectionHelpers.callInstanceMethod(screen, "loadAppsBlocking");
-                assertNotNull(ReflectionHelpers.getField(screen, "blockingLoadSpinner"));
+                assertEquals(View.VISIBLE, screen.findViewById(R.id.library_loading).getVisibility());
+                assertTrue(screen.findViewById(R.id.library_back).isEnabled());
                 ReflectionHelpers.callInstanceMethod(screen, "showAppListStatus",
                         ReflectionHelpers.ClassParameter.from(int.class, message));
-                assertNull(ReflectionHelpers.getField(screen, "blockingLoadSpinner"));
+                assertEquals(View.GONE, screen.findViewById(R.id.library_loading).getVisibility());
+                assertEquals(View.VISIBLE, screen.findViewById(R.id.library_retry).getVisibility());
                 TextView status = screen.findViewById(R.id.app_list_status);
                 assertEquals(View.VISIBLE, status.getVisibility());
                 assertEquals(screen.getString(message), status.getText().toString());
@@ -56,7 +58,7 @@ public class AppViewLifecycleTest {
     }
 
     @Test
-    public void validEmptyAppListExplainsItsStateAndDismissesTheSpinner() {
+    public void validEmptyAppListExplainsItsStateAndStopsInlineLoading() {
         Intent intent = new Intent(RuntimeEnvironment.getApplication(), Library.class)
                 .putExtra(AppView.UUID_EXTRA, "empty-host").putExtra(AppView.NAME_EXTRA, "PC");
         ActivityController<Library> controller = Robolectric.buildActivity(Library.class, intent).setup();
@@ -71,7 +73,8 @@ public class AppViewLifecycleTest {
             ReflectionHelpers.callInstanceMethod(screen, "loadAppsBlocking");
             ReflectionHelpers.callInstanceMethod(screen, "updateUiWithAppList",
                     ReflectionHelpers.ClassParameter.from(List.class, Collections.emptyList()));
-            assertNull(ReflectionHelpers.getField(screen, "blockingLoadSpinner"));
+            assertEquals(View.GONE, screen.findViewById(R.id.library_loading).getVisibility());
+                assertEquals(View.VISIBLE, screen.findViewById(R.id.library_retry).getVisibility());
             TextView status = screen.findViewById(R.id.app_list_status);
             assertEquals(screen.getString(R.string.applist_empty), status.getText().toString());
             assertEquals(View.VISIBLE, status.getVisibility());
@@ -120,4 +123,59 @@ public class AppViewLifecycleTest {
             controller.pause().stop().destroy();
         }
     }
+    @Test public void offlineHostKeepsCachedLibraryOpenAndOffersRetry() {
+        Intent intent = new Intent(RuntimeEnvironment.getApplication(), Library.class)
+                .putExtra(AppView.UUID_EXTRA, "offline-host").putExtra(AppView.NAME_EXTRA, "PC");
+        ActivityController<Library> controller = Robolectric.buildActivity(Library.class, intent).setup();
+        try {
+            Library screen = controller.get();
+            ComputerDetails computer = new ComputerDetails();
+            computer.uuid = "offline-host";
+            computer.state = ComputerDetails.State.OFFLINE;
+            ReflectionHelpers.setField(screen, "computer", computer);
+            ComputerManagerListener[] listener = new ComputerManagerListener[1];
+            ComputerManagerService manager = new ComputerManagerService();
+            ReflectionHelpers.setField(screen, "managerBinder", manager.new ComputerManagerBinder() {
+                @Override public void startPolling(ComputerManagerListener callback) { listener[0] = callback; }
+                @Override public void stopPolling() { }
+                @Override public ComputerManagerService.ApplistPoller createAppListPoller(ComputerDetails details) {
+                    return manager.new ApplistPoller(details) {
+                        @Override public void start() { }
+                        @Override public void stop() { }
+                    };
+                }
+            });
+            ReflectionHelpers.callInstanceMethod(screen, "startComputerUpdates");
+            listener[0].notifyComputerUpdated(computer);
+            assertFalse(screen.isFinishing());
+            assertEquals(View.GONE, screen.findViewById(R.id.library_loading).getVisibility());
+            assertEquals(View.VISIBLE, screen.findViewById(R.id.library_retry).getVisibility());
+            assertEquals(screen.getString(R.string.library_offline),
+                    ((TextView) screen.findViewById(R.id.app_list_status)).getText().toString());
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    @Test public void systemBackDispatcherClosesSearchBeforeLeavingTheLibrary() {
+        Intent intent = new Intent(RuntimeEnvironment.getApplication(), Library.class)
+                .putExtra(AppView.UUID_EXTRA, "search-host").putExtra(AppView.NAME_EXTRA, "PC");
+        ActivityController<Library> controller = Robolectric.buildActivity(Library.class, intent).setup();
+        try {
+            Library screen = controller.get();
+            screen.openLibrarySearch();
+            androidx.appcompat.widget.SearchView search = screen.findViewById(R.id.library_search);
+            search.setQuery("Portal", false);
+            // The Android 13+ system back gesture uses the dispatcher, not the legacy override.
+            screen.getOnBackPressedDispatcher().onBackPressed();
+            assertEquals(View.GONE, search.getVisibility());
+            assertEquals("", search.getQuery().toString());
+            assertFalse(screen.isFinishing());
+            screen.getOnBackPressedDispatcher().onBackPressed();
+            assertTrue(screen.isFinishing());
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
 }

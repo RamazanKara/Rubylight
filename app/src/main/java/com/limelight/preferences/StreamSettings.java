@@ -13,6 +13,7 @@ import android.os.Build;
 import android.os.Bundle;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.widget.SearchView;
+import androidx.activity.OnBackPressedCallback;
 import android.os.Handler;
 import android.os.Vibrator;
 import android.preference.SwitchPreference;
@@ -36,8 +37,6 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import android.content.res.XmlResourceParser;
 import android.widget.TextView;
 import android.widget.ListView;
-import android.window.OnBackInvokedCallback;
-import android.window.OnBackInvokedDispatcher;
 import com.limelight.utils.HelpLauncher;
 import org.xmlpull.v1.XmlPullParser;
 import org.xmlpull.v1.XmlPullParserException;
@@ -86,12 +85,27 @@ public class StreamSettings extends AppCompatActivity {
     private int previousDisplayPixelCount;
     private String section;
     private TextView title;
-    private Object backCallback;
     private String searchQuery = "";
     private SearchView searchView;
     private String searchResultKey;
+    private String returnSearchQuery;
+    private String returnSearchSection;
+    private TextView contextLabel;
+    private boolean changingQuery;
+    private boolean stateSaved;
+    private boolean renderPending;
+    private boolean searchPending;
+    private final Handler navigationHandler = new Handler();
+    private final Runnable searchUpdate = this::renderSearch;
 
     void reloadSettings() {
+        navigationHandler.removeCallbacks(searchUpdate);
+        searchPending = false;
+        if (isFinishing() || isDestroyed()) return;
+        if (stateSaved) {
+            renderPending = true;
+            return;
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             Display.Mode mode = getWindowManager().getDefaultDisplay().getMode();
             previousDisplayPixelCount = mode.getPhysicalWidth() * mode.getPhysicalHeight();
@@ -99,10 +113,57 @@ public class StreamSettings extends AppCompatActivity {
         getFragmentManager().beginTransaction().replace(
                 R.id.stream_settings, section == null && searchQuery.isEmpty() ?
                         new RootFragment() : SettingsFragment.forSection(section)
-        ).commitAllowingStateLoss();
-        title.setText(!searchQuery.isEmpty() ? getString(R.string.settings_search_hint) :
-                section == null ? getString(R.string.settings) : getString(sectionTitle(section)));
-        updateBackCallback();
+        ).commit();
+        updateHeader();
+    }
+
+    private void updateHeader() {
+        title.setText(!searchQuery.isEmpty() ? R.string.settings_search_results :
+                section == null ? R.string.settings : sectionTitle(section));
+        if (searchQuery.isEmpty()) {
+            contextLabel.setText(section == null ? R.string.settings_global_context : R.string.settings_changes_saved);
+        } else {
+            android.app.Fragment fragment = getFragmentManager().findFragmentById(R.id.stream_settings);
+            if (fragment instanceof SettingsFragment) {
+                int count = ((SettingsFragment) fragment).displayedResultCount;
+                contextLabel.setText(getResources().getQuantityString(R.plurals.settings_search_count, count, count));
+            }
+        }
+        findViewById(R.id.settings_back).setContentDescription(getString(returnSearchQuery != null ? R.string.settings_back_to_search :
+                section == null ? R.string.settings_navigate_up : R.string.settings_back_to_overview));
+    }
+
+    private void renderSearch() {
+        searchPending = false;
+        if (isFinishing() || isDestroyed()) return;
+        if (stateSaved) {
+            renderPending = true;
+            return;
+        }
+        android.app.Fragment fragment = getFragmentManager().findFragmentById(R.id.stream_settings);
+        if (fragment instanceof SettingsFragment && !searchQuery.isEmpty()) {
+            ((SettingsFragment) fragment).filterPreferences();
+            updateHeader();
+        } else {
+            reloadSettings();
+        }
+    }
+
+    private void setSearchQuery(String query) {
+        changingQuery = true;
+        searchQuery = query;
+        searchView.setQuery(query, false);
+        changingQuery = false;
+        searchView.clearFocus();
+        reloadSettings();
+    }
+
+    private void openSearchResult(String targetSection, String key) {
+        returnSearchQuery = searchQuery;
+        returnSearchSection = section;
+        section = targetSection;
+        searchResultKey = key;
+        setSearchQuery("");
     }
 
     static int sectionTitle(String section) {
@@ -120,32 +181,22 @@ public class StreamSettings extends AppCompatActivity {
         reloadSettings();
     }
 
-    // Android 13+ with predictive back skips onBackPressed(), so sub-screens register a callback
-    private void updateBackCallback() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            if ((section != null || !searchQuery.isEmpty()) && backCallback == null) {
-                OnBackInvokedCallback callback = this::navigateBack;
-                getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
-                        OnBackInvokedDispatcher.PRIORITY_DEFAULT, callback);
-                backCallback = callback;
-            }
-            else if (section == null && searchQuery.isEmpty() && backCallback != null) {
-                getOnBackInvokedDispatcher().unregisterOnBackInvokedCallback((OnBackInvokedCallback) backCallback);
-                backCallback = null;
-            }
-        }
-    }
-
     private void navigateBack() {
         if (!searchQuery.isEmpty()) {
-            searchView.setQuery("", false);
-            searchView.clearFocus();
+            setSearchQuery("");
+        }
+        else if (returnSearchQuery != null) {
+            String query = returnSearchQuery;
+            section = returnSearchSection;
+            returnSearchQuery = null;
+            returnSearchSection = null;
+            setSearchQuery(query);
         }
         else if (section != null) {
             showSection(null);
         }
         else {
-            onBackPressed();
+            finishSettings();
         }
     }
 
@@ -176,6 +227,14 @@ public class StreamSettings extends AppCompatActivity {
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        // Framework fragments can be recreated by super.onCreate(), before our views exist.
+        if (savedInstanceState != null) {
+            section = savedInstanceState.getString(STATE_SECTION);
+            searchQuery = savedInstanceState.getString("search", "");
+            returnSearchQuery = savedInstanceState.getString("return_search");
+            returnSearchSection = savedInstanceState.getString("return_section");
+            searchResultKey = savedInstanceState.getString("search_result");
+        }
         super.onCreate(savedInstanceState);
 
         previousPrefs = PreferenceConfiguration.readPreferences(this);
@@ -184,11 +243,8 @@ public class StreamSettings extends AppCompatActivity {
 
         setContentView(R.layout.activity_stream_settings);
         title = findViewById(R.id.settings_title);
+        contextLabel = findViewById(R.id.settings_context);
         findViewById(R.id.settings_back).setOnClickListener(v -> navigateBack());
-        if (savedInstanceState != null) {
-            section = savedInstanceState.getString(STATE_SECTION);
-            searchQuery = savedInstanceState.getString("search", "");
-        }
         searchView = findViewById(R.id.settings_search);
         searchView.setVisibility(View.VISIBLE);
         searchView.setIconifiedByDefault(false);
@@ -197,41 +253,60 @@ public class StreamSettings extends AppCompatActivity {
         searchView.clearFocus();
         searchView.setOnQueryTextListener(new SearchView.OnQueryTextListener() {
             @Override public boolean onQueryTextSubmit(String query) {
+                navigationHandler.removeCallbacks(searchUpdate);
+                renderSearch();
                 searchView.clearFocus();
                 return true;
             }
 
             @Override public boolean onQueryTextChange(String query) {
+                if (changingQuery) return true;
                 searchQuery = query.trim();
-                android.app.Fragment fragment = getFragmentManager().findFragmentById(R.id.stream_settings);
-                if (fragment instanceof SettingsFragment && !searchQuery.isEmpty()) {
-                    ((SettingsFragment) fragment).filterPreferences();
-                    title.setText(searchQuery.isEmpty() ? sectionTitle(section) : R.string.settings_search_hint);
-                    updateBackCallback();
-                } else {
-                    reloadSettings();
-                }
+                returnSearchQuery = null;
+                returnSearchSection = null;
+                navigationHandler.removeCallbacks(searchUpdate);
+                searchPending = true;
+                navigationHandler.postDelayed(searchUpdate, 120);
                 return true;
             }
         });
+        getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
+            @Override public void handleOnBackPressed() { navigateBack(); }
+        });
+        updateHeader();
 
         UiHelper.notifyNewRootView(this);
     }
 
     @Override
     protected void onSaveInstanceState(Bundle outState) {
+        // Save the screen for the latest query, including a last keystroke before rotation.
+        navigationHandler.removeCallbacks(searchUpdate);
+        if (searchPending) renderSearch();
+        getFragmentManager().executePendingTransactions();
+        stateSaved = true;
         super.onSaveInstanceState(outState);
         outState.putString(STATE_SECTION, section);
         outState.putString("search", searchQuery);
+        outState.putString("return_search", returnSearchQuery);
+        outState.putString("return_section", returnSearchSection);
+        outState.putString("search_result", searchResultKey);
+    }
+
+    @Override
+    protected void onPostResume() {
+        super.onPostResume();
+        stateSaved = false;
+        if (renderPending) {
+            renderPending = false;
+            reloadSettings();
+        }
     }
 
     @Override
     protected void onDestroy() {
         Dialog.closeDialogs(this);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && backCallback != null) {
-            getOnBackInvokedDispatcher().unregisterOnBackInvokedCallback((OnBackInvokedCallback) backCallback);
-            backCallback = null;
-        }
+        navigationHandler.removeCallbacksAndMessages(null);
         super.onDestroy();
     }
 
@@ -290,7 +365,12 @@ public class StreamSettings extends AppCompatActivity {
     public void onAttachedToWindow() {
         super.onAttachedToWindow();
 
-        reloadSettings();
+        if (getFragmentManager().findFragmentById(R.id.stream_settings) == null) {
+            reloadSettings();
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            Display.Mode mode = getWindowManager().getDefaultDisplay().getMode();
+            previousDisplayPixelCount = mode.getPhysicalWidth() * mode.getPhysicalHeight();
+        }
     }
 
     @Override
@@ -315,14 +395,10 @@ public class StreamSettings extends AppCompatActivity {
     @Override
     // NOTE: This will NOT be called on Android 13+ with android:enableOnBackInvokedCallback="true"
     public void onBackPressed() {
-        if (!searchQuery.isEmpty()) {
-            navigateBack();
-            return;
-        }
-        if (section != null) {
-            showSection(null);
-            return;
-        }
+        navigateBack();
+    }
+
+    private void finishSettings() {
         finish();
 
         // Language changes are handled via configuration changes in Android 13+,
@@ -409,6 +485,7 @@ public class StreamSettings extends AppCompatActivity {
             }
             stylePreferences(getPreferenceScreen());
             for (String key : SECTIONS.keySet()) {
+                findPreference(key).setLayoutResource(R.layout.settings_section);
                 findPreference(key).setOnPreferenceClickListener(preference -> {
                     ((StreamSettings) getActivity()).showSection(key);
                     return true;
@@ -429,6 +506,7 @@ public class StreamSettings extends AppCompatActivity {
             super.onResume();
             getPreferenceManager().getSharedPreferences().registerOnSharedPreferenceChangeListener(summaryUpdater);
             updateSummaries();
+            ((StreamSettings) getActivity()).searchResultKey = null;
         }
 
         @Override
@@ -443,6 +521,7 @@ public class StreamSettings extends AppCompatActivity {
         private static final int MIC_PERMISSION_REQUEST = 2;
         private final Map<PreferenceCategory, List<Preference>> searchCategories = new LinkedHashMap<>();
         private final Map<String, Preference> allPreferences = new HashMap<>();
+        private int displayedResultCount;
 
         @Override
         public Preference findPreference(CharSequence key) {
@@ -464,18 +543,18 @@ public class StreamSettings extends AppCompatActivity {
             String query = ((StreamSettings) getActivity()).searchQuery;
             String section = getArguments() == null ? null : getArguments().getString(ARG_SECTION);
             String[] categories = section == null ? null : SECTIONS.get(section);
+            int resultCount = 0;
             if (!query.isEmpty() && SettingsSearch.matches(query, getString(R.string.stream_presets),
                     getString(R.string.stream_presets_help), String.join(" ", getResources().getStringArray(R.array.stream_preset_names)))) {
                 Preference presets = new Preference(getActivity());
                 presets.setTitle(R.string.stream_presets);
                 presets.setOnPreferenceClickListener(pref -> {
                     StreamSettings activity = (StreamSettings) getActivity();
-                    activity.section = null;
-                    activity.searchView.setQuery("", false);
-                    activity.searchView.clearFocus();
+                    activity.openSearchResult(null, "stream_presets");
                     return true;
                 });
                 screen.addPreference(presets);
+                resultCount++;
             }
             for (Map.Entry<PreferenceCategory, List<Preference>> entry : searchCategories.entrySet()) {
                 PreferenceCategory category = entry.getKey();
@@ -484,29 +563,32 @@ public class StreamSettings extends AppCompatActivity {
                     continue;
                 }
                 PreferenceCategory results = new PreferenceCategory(getActivity());
-                results.setTitle(category.getTitle());
+                String targetSection = null;
+                for (Map.Entry<String, String[]> item : SECTIONS.entrySet()) {
+                    if (Arrays.asList(item.getValue()).contains(category.getKey())) {
+                        targetSection = item.getKey();
+                        break;
+                    }
+                }
+                final String resultSection = targetSection;
+                results.setTitle(targetSection == null ? category.getTitle() :
+                        getString(R.string.settings_search_breadcrumb, getString(sectionTitle(targetSection)), category.getTitle()));
                 screen.addPreference(results);
                 for (Preference pref : entry.getValue()) {
                     if (SettingsSearch.matches(query, pref.getTitle(), pref.getSummary(),
                             category.getTitle() + " " + java.util.Objects.toString(descriptions.get(pref.getKey()), ""))) {
                         // Search rows navigate to the original setting so dependency and dialog behavior stay intact.
                         Preference result = new Preference(getActivity());
+                        result.setKey("search_result_" + pref.getKey());
                         result.setTitle(pref.getTitle());
                         result.setSummary(pref.getSummary());
                         result.setOnPreferenceClickListener(clicked -> {
                             StreamSettings activity = (StreamSettings) getActivity();
-                            for (Map.Entry<String, String[]> item : SECTIONS.entrySet()) {
-                                if (Arrays.asList(item.getValue()).contains(category.getKey())) {
-                                    activity.section = item.getKey();
-                                    break;
-                                }
-                            }
-                            activity.searchResultKey = pref.getKey();
-                            activity.searchView.setQuery("", false);
-                            activity.searchView.clearFocus();
+                            activity.openSearchResult(resultSection, pref.getKey());
                             return true;
                         });
                         results.addPreference(result);
+                        resultCount++;
                     }
                 }
                 if (results.getPreferenceCount() == 0) screen.removePreference(results);
@@ -514,12 +596,19 @@ public class StreamSettings extends AppCompatActivity {
             if (screen.getPreferenceCount() == 0) {
                 Preference empty = new Preference(getActivity());
                 empty.setTitle(R.string.settings_search_empty);
+                empty.setSummary(R.string.settings_search_empty_help);
                 empty.setSelectable(false);
                 empty.setLayoutResource(R.layout.settings_preference);
                 screen.addPreference(empty);
             }
             stylePreferences(screen);
             setPreferenceScreen(screen);
+            displayedResultCount = resultCount;
+            TextView label = ((StreamSettings) getActivity()).contextLabel;
+            if (!query.isEmpty() && label != null) {
+                label.setText(getResources().getQuantityString(
+                        R.plurals.settings_search_count, resultCount, resultCount));
+            }
         }
 
         private final Map<String, CharSequence> descriptions = new HashMap<>();

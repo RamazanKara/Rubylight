@@ -20,7 +20,7 @@
     <string name="applist_load_failed">Die Apps des PCs konnten nicht geladen werden. Prüfe den Host und die Berechtigung zur App-Auflistung für dieses Gerät in seiner Webkonsole. Ein neuer Versuch erfolgt automatisch.</string>
     <string name="applist_empty">Keine Apps verfügbar. Füge Apps zur Host-Bibliothek hinzu und prüfe die Berechtigung zur App-Auflistung für dieses Gerät in der Host-Webkonsole.</string>
     <string name="host_profile_unsaved_title">Stream-Einstellungen speichern?</string>
-    <string name="host_profile_unsaved_message">Die Änderungen an den Stream-Einstellungen dieses PCs sind noch nicht gespeichert. Die Auswahl unter „Display am PC“ wurde bereits separat gespeichert.</string>
+    <string name="host_profile_unsaved_message">Die Änderungen an den Stream-Einstellungen dieses PCs sind noch nicht gespeichert. Ein im eigenen Dialog bestätigter Displaymodus wird separat gespeichert.</string>
     <string name="host_profile_discard">Änderungen verwerfen</string>
     <string name="preset_replace_settings">Dies ersetzt Auflösung, Bildrate, Bitrate, Frame-Pacing, Hochskalierung, VRR und Leistungseinstellungen durch diese Voreinstellung. Codec und HDR bleiben erhalten.</string>
     <string name="pair_otp_incorrect_pin">PIN abgelehnt. Erstelle eine neue Einmal-PIN in der Host-Webkonsole und prüfe die Passphrase.</string>

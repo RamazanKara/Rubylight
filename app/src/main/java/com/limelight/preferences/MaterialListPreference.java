@@ -4,6 +4,7 @@ import android.content.Context;
 import android.os.Bundle;
 import android.preference.ListPreference;
 import android.util.AttributeSet;
+import androidx.appcompat.app.AlertDialog;
 
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.limelight.R;
@@ -28,10 +29,14 @@ public class MaterialListPreference extends ListPreference {
                 })
                 .setNegativeButton(android.R.string.cancel, null);
         if (getDialogMessage() != null) {
-            builder.setNeutralButton(R.string.help, (dialog, which) ->
+            builder.setNeutralButton(R.string.help, null);
+        }
+        AlertDialog picker = builder.create();
+        UiHelper.showDialog(getContext(), picker);
+        if (getDialogMessage() != null) {
+            picker.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(view ->
                     UiHelper.showDialog(getContext(), new MaterialAlertDialogBuilder(getContext()).setTitle(getTitle())
                             .setMessage(getDialogMessage()).setPositiveButton(android.R.string.ok, null).create()));
         }
-        UiHelper.showDialog(getContext(), builder.create());
     }
 }

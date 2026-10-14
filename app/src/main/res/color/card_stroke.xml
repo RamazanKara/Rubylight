@@ -4,5 +4,5 @@
     <item android:state_focused="true" android:color="@color/accent" />
     <item android:state_selected="true" android:color="@color/accent" />
     <item android:state_activated="true" android:color="@color/accent" />
-    <item android:color="@android:color/transparent" />
+    <item android:color="@color/outline_subtle" />
 </selector>

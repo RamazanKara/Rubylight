@@ -21,10 +21,12 @@ import com.limelight.utils.CacheHelper;
 import com.limelight.utils.Dialog;
 import com.limelight.utils.ServerHelper;
 import com.limelight.utils.ShortcutHelper;
-import com.limelight.utils.SpinnerDialog;
+import androidx.appcompat.widget.SearchView;
+import com.google.android.material.snackbar.Snackbar;
 import com.limelight.utils.UiHelper;
 
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.activity.OnBackPressedCallback;
 import android.app.Service;
 import android.content.ComponentName;
 import android.content.Intent;
@@ -55,7 +57,12 @@ public class AppView extends AppCompatActivity implements AdapterFragmentCallbac
 
     private ComputerDetails computer;
     private ComputerManagerService.ApplistPoller poller;
-    private SpinnerDialog blockingLoadSpinner;
+    private SearchView librarySearch;
+    private ActionSheet libraryMenu;
+    private String searchQuery = "";
+    private boolean loadingApps = true;
+    private int libraryStatus;
+    private boolean runningPolling;
     private String lastRawApplist;
     private boolean lastAppListEmpty;
     private int lastRunningAppId;
@@ -129,6 +136,7 @@ public class AppView extends AppCompatActivity implements AdapterFragmentCallbac
                             }
                             appGridAdapter = adapter;
                             appGridAdapter.updateHiddenApps(hiddenAppIds, true);
+                            appGridAdapter.setSearchQuery(searchQuery);
                             managerBinder = localBinder;
                             populateAppGridWithCache();
                             startComputerUpdates();
@@ -155,6 +163,10 @@ public class AppView extends AppCompatActivity implements AdapterFragmentCallbac
 
         public void onServiceDisconnected(ComponentName className) {
             managerBinder = null;
+            runningPolling = false;
+            if (poller != null) poller.stop();
+            poller = null;
+            showAppListStatus(R.string.applist_load_failed);
         }
     };
 
@@ -174,21 +186,23 @@ public class AppView extends AppCompatActivity implements AdapterFragmentCallbac
 
     private void startComputerUpdates() {
         // Don't start polling if we're not bound or in the foreground
-        if (managerBinder == null || !inForeground) {
+        if (managerBinder == null || !inForeground || runningPolling) {
             return;
         }
 
+        runningPolling = true;
         managerBinder.startPolling(new ComputerManagerListener() {
             @Override
             public void notifyAppListUpdated(ComputerDetails details, boolean success) {
                 if (!details.uuid.equalsIgnoreCase(uuidString)) return;
-                if (success) {
+                if (success && details.state != ComputerDetails.State.OFFLINE) {
                     notifyComputerUpdated(details);
                     runOnUiThread(() -> showAppListStatus(!details.hasPermission(ComputerDetails.PERMISSION_LIST) ?
                             R.string.applist_permission_required : lastAppListEmpty ? R.string.applist_empty : 0));
                 } else {
-                    showAppListStatus(details.hasPermission(ComputerDetails.PERMISSION_LIST) ?
-                            R.string.applist_load_failed : R.string.applist_permission_required);
+                    showAppListStatus(details.state == ComputerDetails.State.OFFLINE ? R.string.library_offline :
+                            details.hasPermission(ComputerDetails.PERMISSION_LIST) ?
+                                    R.string.applist_load_failed : R.string.applist_permission_required);
                 }
             }
 
@@ -205,19 +219,7 @@ public class AppView extends AppCompatActivity implements AdapterFragmentCallbac
                 }
 
                 if (details.state == ComputerDetails.State.OFFLINE) {
-                    // The PC is unreachable now
-                    AppView.this.runOnUiThread(new Runnable() {
-                        @Override
-                        public void run() {
-                            if (!inForeground || isFinishing() || isDestroyed()) {
-                                return;
-                            }
-                            // Display a toast to the user and quit the activity
-                            Toast.makeText(AppView.this, getResources().getText(R.string.lost_connection), Toast.LENGTH_SHORT).show();
-                            finish();
-                        }
-                    });
-
+                    showAppListStatus(R.string.library_offline);
                     return;
                 }
 
@@ -251,12 +253,9 @@ public class AppView extends AppCompatActivity implements AdapterFragmentCallbac
                 // App list is the same or empty
                 if (rawAppList == null || rawAppList.equals(lastRawApplist)) {
 
-                    // Let's check if the running app ID changed
-                    if (details.runningGameId != lastRunningAppId) {
-                        // Update the currently running game using the app ID
-                        lastRunningAppId = details.runningGameId;
-                        updateUiWithServerinfo(details);
-                    }
+                    // UUID changes and hidden/search-filtered apps also need their running state updated.
+                    lastRunningAppId = details.runningGameId;
+                    updateUiWithServerinfo(details);
 
                     return;
                 }
@@ -268,10 +267,6 @@ public class AppView extends AppCompatActivity implements AdapterFragmentCallbac
                     updateUiWithAppList(NvHTTP.getAppListByReader(new StringReader(rawAppList)));
                     updateUiWithServerinfo(details);
 
-                    if (blockingLoadSpinner != null) {
-                        blockingLoadSpinner.dismiss();
-                        blockingLoadSpinner = null;
-                    }
                 } catch (XmlPullParserException | IOException e) {
                     e.printStackTrace();
                     showAppListStatus(R.string.applist_load_failed);
@@ -286,6 +281,7 @@ public class AppView extends AppCompatActivity implements AdapterFragmentCallbac
     }
 
     private void stopComputerUpdates() {
+        runningPolling = false;
         if (poller != null) {
             poller.stop();
         }
@@ -313,6 +309,26 @@ public class AppView extends AppCompatActivity implements AdapterFragmentCallbac
 
         setContentView(R.layout.activity_app_view);
         findViewById(R.id.library_back).setOnClickListener(v -> finish());
+        librarySearch = findViewById(R.id.library_search);
+        getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
+            @Override public void handleOnBackPressed() { navigateBack(); }
+        });
+        findViewById(R.id.library_search_button).setOnClickListener(v -> openLibrarySearch());
+        findViewById(R.id.library_options).setOnClickListener(v -> showLibraryOptions());
+        librarySearch.setOnQueryTextListener(new SearchView.OnQueryTextListener() {
+            @Override public boolean onQueryTextSubmit(String query) {
+                librarySearch.clearFocus();
+                View grid = findViewById(R.id.fragmentView);
+                if (grid != null) grid.requestFocus();
+                return true;
+            }
+            @Override public boolean onQueryTextChange(String query) {
+                searchQuery = query;
+                if (appGridAdapter != null) appGridAdapter.setSearchQuery(query);
+                updateLibraryState();
+                return true;
+            }
+        });
 
         // Allow floating expanded PiP overlays while browsing apps
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -321,7 +337,14 @@ public class AppView extends AppCompatActivity implements AdapterFragmentCallbac
 
         UiHelper.notifyNewRootView(this);
 
-        showHiddenApps = getIntent().getBooleanExtra(SHOW_HIDDEN_APPS_EXTRA, false);
+        showHiddenApps = savedInstanceState != null ? savedInstanceState.getBoolean("showHiddenApps") :
+                getIntent().getBooleanExtra(SHOW_HIDDEN_APPS_EXTRA, false);
+        if (savedInstanceState != null) {
+            searchQuery = savedInstanceState.getString("libraryQuery", "");
+            librarySearch.setQuery(searchQuery, false);
+            librarySearch.setVisibility(savedInstanceState.getBoolean("librarySearchVisible") ? View.VISIBLE : View.GONE);
+            librarySearch.clearFocus();
+        }
         uuidString = getIntent().getStringExtra(UUID_EXTRA);
         if (uuidString == null || uuidString.isEmpty()) {
             finish();
@@ -330,7 +353,11 @@ public class AppView extends AppCompatActivity implements AdapterFragmentCallbac
 
         SharedPreferences hiddenAppsPrefs = getSharedPreferences(HIDDEN_APPS_PREF_FILENAME, MODE_PRIVATE);
         for (String hiddenAppIdStr : hiddenAppsPrefs.getStringSet(uuidString, new HashSet<String>())) {
-            hiddenAppIds.add(Integer.parseInt(hiddenAppIdStr));
+            try {
+                hiddenAppIds.add(Integer.parseInt(hiddenAppIdStr));
+            } catch (NumberFormatException ignored) {
+                // Ignore a stale or malformed saved entry without making the library unusable.
+            }
         }
 
         String computerName = getIntent().getStringExtra(NAME_EXTRA);
@@ -342,6 +369,7 @@ public class AppView extends AppCompatActivity implements AdapterFragmentCallbac
         // Bind to the computer manager service
         managerServiceBound = bindService(new Intent(this, ComputerManagerService.class), serviceConnection,
                 Service.BIND_AUTO_CREATE);
+        if (!managerServiceBound) showAppListStatus(R.string.applist_load_failed);
     }
 
     private void updateHiddenApps(boolean hideImmediately) {
@@ -357,6 +385,7 @@ public class AppView extends AppCompatActivity implements AdapterFragmentCallbac
                 .apply();
 
         appGridAdapter.updateHiddenApps(hiddenAppIds, hideImmediately);
+        updateLibraryState();
     }
 
     private void populateAppGridWithCache() {
@@ -377,29 +406,123 @@ public class AppView extends AppCompatActivity implements AdapterFragmentCallbac
         }
     }
 
+    // Keep navigation and any cached apps usable while the host responds.
     private void loadAppsBlocking() {
-        blockingLoadSpinner = SpinnerDialog.displayDialog(this, getResources().getString(R.string.applist_refresh_title),
-                getResources().getString(R.string.applist_refresh_msg), true);
+        loadingApps = true;
+        libraryStatus = 0;
+        updateLibraryState();
     }
 
     private void showAppListStatus(int message) {
         runOnUiThread(() -> {
             if (!inForeground || isFinishing() || isDestroyed()) return;
-            if (blockingLoadSpinner != null) {
-                blockingLoadSpinner.dismiss();
-                blockingLoadSpinner = null;
-            }
-            TextView status = findViewById(R.id.app_list_status);
-            if (message != 0) status.setText(message);
-            status.setVisibility(message == 0 ? View.GONE : View.VISIBLE);
+            loadingApps = false;
+            libraryStatus = message;
+            updateLibraryState();
         });
+    }
+
+    private void updateLibraryState() {
+        if (librarySearch == null) return;
+        int visible = appGridAdapter == null ? 0 : appGridAdapter.getCount();
+        int total = appGridAdapter == null ? 0 : appGridAdapter.getLibraryCount();
+        TextView summary = findViewById(R.id.library_summary);
+        summary.setVisibility(appGridAdapter != null && !appGridAdapter.getAllApps().isEmpty() ? View.VISIBLE : View.GONE);
+        summary.setText(!searchQuery.trim().isEmpty() ? getString(R.string.library_results, visible, total) :
+                showHiddenApps ? getString(R.string.library_showing_hidden, visible) :
+                        getResources().getQuantityString(R.plurals.library_app_count, visible, visible));
+        findViewById(R.id.library_loading).setVisibility(loadingApps ? View.VISIBLE : View.GONE);
+
+        int message = libraryStatus;
+        int action = R.string.library_retry;
+        View.OnClickListener retry = v -> refreshLibrary();
+        if (loadingApps && visible == 0) {
+            message = R.string.library_loading;
+        } else if (message == 0 && visible == 0 && appGridAdapter != null) {
+            if (!searchQuery.trim().isEmpty()) {
+                message = R.string.library_no_matches;
+                action = R.string.library_clear_search;
+                retry = v -> librarySearch.setQuery("", false);
+            } else if (!appGridAdapter.getAllApps().isEmpty()) {
+                message = R.string.library_all_hidden;
+                action = R.string.library_show_hidden;
+                retry = v -> setShowHiddenApps(true);
+            }
+        }
+        TextView status = findViewById(R.id.app_list_status);
+        status.setVisibility(message == 0 ? View.GONE : View.VISIBLE);
+        if (message != 0) status.setText(message);
+        findViewById(R.id.library_status_panel).setVisibility(message == 0 ? View.GONE : View.VISIBLE);
+        TextView retryButton = findViewById(R.id.library_retry);
+        retryButton.setText(action);
+        retryButton.setOnClickListener(retry);
+        retryButton.setVisibility(message != 0 && !loadingApps ? View.VISIBLE : View.GONE);
+    }
+
+    public void openLibrarySearch() {
+        librarySearch.setVisibility(View.VISIBLE);
+        librarySearch.setIconified(false);
+        librarySearch.requestFocus();
+    }
+
+    private void refreshLibrary() {
+        if (poller == null) {
+            showAppListStatus(R.string.applist_load_failed);
+            return;
+        }
+        loadAppsBlocking();
+        poller.pollNow();
+    }
+
+    private void setShowHiddenApps(boolean show) {
+        showHiddenApps = show;
+        if (appGridAdapter != null) appGridAdapter.setShowHiddenApps(show);
+        updateLibraryState();
+    }
+
+    private void showLibraryOptions() {
+        if (libraryMenu != null) return;
+        ActionSheet sheet = new ActionSheet(this, getString(R.string.library_options));
+        libraryMenu = sheet;
+        sheet.addAction(R.drawable.ic_library, getString(R.string.library_refresh)).setOnClickListener(v -> {
+            sheet.dismiss();
+            refreshLibrary();
+        });
+        sheet.addAction(R.drawable.ic_library, getString(showHiddenApps ? R.string.library_hide_hidden :
+                R.string.library_show_hidden)).setOnClickListener(v -> {
+            sheet.dismiss();
+            setShowHiddenApps(!showHiddenApps);
+        });
+        sheet.setOnDismissListener(dialog -> libraryMenu = null);
+        sheet.show();
+    }
+
+    @Override protected void onSaveInstanceState(Bundle state) {
+        super.onSaveInstanceState(state);
+        state.putString("libraryQuery", searchQuery);
+        state.putBoolean("showHiddenApps", showHiddenApps);
+        state.putBoolean("librarySearchVisible", librarySearch != null && librarySearch.getVisibility() == View.VISIBLE);
+    }
+
+    @Override public void onBackPressed() {
+        navigateBack();
+    }
+
+    private void navigateBack() {
+        if (librarySearch != null && librarySearch.getVisibility() == View.VISIBLE) {
+            librarySearch.setQuery("", false);
+            librarySearch.clearFocus();
+            librarySearch.setVisibility(View.GONE);
+            findViewById(R.id.library_search_button).requestFocus();
+        } else {
+            finish();
+        }
     }
 
     @Override
     protected void onDestroy() {
         super.onDestroy();
 
-        SpinnerDialog.closeDialogs(this);
         Dialog.closeDialogs(AppView.this);
 
         if (serviceWaitThread != null) {
@@ -421,6 +544,8 @@ public class AppView extends AppCompatActivity implements AdapterFragmentCallbac
 
         inForeground = true;
         startComputerUpdates();
+        if (appGridAdapter != null) appGridAdapter.notifyDataSetChanged();
+        updateLibraryState();
     }
 
     @Override
@@ -429,6 +554,7 @@ public class AppView extends AppCompatActivity implements AdapterFragmentCallbac
 
         inForeground = false;
         if (appMenu != null) appMenu.dismiss();
+        if (libraryMenu != null) libraryMenu.dismiss();
         stopComputerUpdates();
     }
 
@@ -453,13 +579,17 @@ public class AppView extends AppCompatActivity implements AdapterFragmentCallbac
                         R.drawable.ic_play, getString(R.string.applist_menu_quit_and_start));
             }
         }
+        else if (computer.hasPermission(ComputerDetails.PERMISSION_LAUNCH)) {
+            addAppAction(sheet, selectedApp, selectedView, START_OR_RESUME_ID,
+                    R.drawable.ic_play, getString(R.string.library_play));
+        }
         if (!selectedApp.isRunning || selectedApp.isHidden) {
             addAppAction(sheet, selectedApp, selectedView, HIDE_APP_ID, R.drawable.ic_library,
                     getString(selectedApp.isHidden ? R.string.applist_menu_show_app : R.string.applist_menu_hide_app));
         }
         addAppAction(sheet, selectedApp, selectedView, VIEW_DETAILS_ID,
                 R.drawable.ic_help, getString(R.string.applist_menu_details));
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && selectedView != null) {
             ImageView image = selectedView.findViewById(R.id.grid_image);
             if (image != null && image.getDrawable() instanceof BitmapDrawable &&
                     ((BitmapDrawable) image.getDrawable()).getBitmap() != null) {
@@ -470,6 +600,7 @@ public class AppView extends AppCompatActivity implements AdapterFragmentCallbac
         sheet.setOnDismissListener(dialog -> {
             appMenu = null;
             suspendGridUpdates = false;
+            if (poller != null && inForeground) poller.pollNow();
         });
         sheet.show();
     }
@@ -482,6 +613,11 @@ public class AppView extends AppCompatActivity implements AdapterFragmentCallbac
     }
 
     private boolean onAppAction(AppObject app, View view, int action) {
+        if ((action == START_OR_RESUME_ID || action == START_WITH_QUIT || action == QUIT_ID) &&
+                (computer == null || managerBinder == null || computer.state == ComputerDetails.State.OFFLINE)) {
+            showAppListStatus(R.string.library_offline);
+            return true;
+        }
         switch (action) {
             case START_WITH_QUIT:
                 // Display a confirmation dialog first
@@ -535,12 +671,22 @@ public class AppView extends AppCompatActivity implements AdapterFragmentCallbac
                     // Transitioning shown to hidden
                     hiddenAppIds.add(app.app.getAppId());
                 }
-                updateHiddenApps(false);
+                boolean wasHidden = app.isHidden;
+                updateHiddenApps(true);
+                if (!wasHidden) {
+                    Snackbar.make(findViewById(R.id.appFragmentContainer), R.string.library_hidden_notice, Snackbar.LENGTH_LONG)
+                            .setAction(R.string.library_undo, v -> {
+                                hiddenAppIds.remove(app.app.getAppId());
+                                updateHiddenApps(true);
+                            }).show();
+                }
                 return true;
 
             case CREATE_SHORTCUT_ID:
-                ImageView appImageView = view.findViewById(R.id.grid_image);
+                ImageView appImageView = view == null ? null : view.findViewById(R.id.grid_image);
+                if (appImageView == null || !(appImageView.getDrawable() instanceof BitmapDrawable)) return true;
                 Bitmap appBits = ((BitmapDrawable)appImageView.getDrawable()).getBitmap();
+                if (appBits == null) return true;
                 if (!shortcutHelper.createPinnedGameShortcut(computer, app.app, appBits)) {
                     Toast.makeText(AppView.this, getResources().getString(R.string.unable_to_pin_shortcut), Toast.LENGTH_LONG).show();
                 }
@@ -558,30 +704,15 @@ public class AppView extends AppCompatActivity implements AdapterFragmentCallbac
                 if (isFinishing() || isDestroyed()) {
                     return;
                 }
+                if (appGridAdapter == null) return;
                 boolean updated = false;
 
-                    // Look through our current app list to tag the running app
-                for (int i = 0; i < appGridAdapter.getCount(); i++) {
-                    AppObject existingApp = (AppObject) appGridAdapter.getItem(i);
-
-                    // There can only be one or zero apps running.
-                    if (existingApp.isRunning &&
-                            existingApp.app.matchesRunningApp(details.runningGameId, details.runningGameUuid)) {
-                        // This app was running and still is, so we're done now
-                        return;
-                    }
-                    else if (existingApp.app.matchesRunningApp(details.runningGameId, details.runningGameUuid)) {
-                        // This app wasn't running but now is
-                        existingApp.isRunning = true;
+                // Update the full catalogue so a filtered or hidden running app never keeps a stale badge.
+                for (AppObject app : appGridAdapter.getAllApps()) {
+                    boolean running = app.app.matchesRunningApp(details.runningGameId, details.runningGameUuid);
+                    if (app.isRunning != running) {
+                        app.isRunning = running;
                         updated = true;
-                    }
-                    else if (existingApp.isRunning) {
-                        // This app was running but now isn't
-                        existingApp.isRunning = false;
-                        updated = true;
-                    }
-                    else {
-                        // This app wasn't running and still isn't
                     }
                 }
 
@@ -664,6 +795,7 @@ public class AppView extends AppCompatActivity implements AdapterFragmentCallbac
                 } else if (updated) {
                     appGridAdapter.notifyDataSetChanged();
                 }
+                updateLibraryState();
             }
         });
     }
@@ -709,6 +841,10 @@ public class AppView extends AppCompatActivity implements AdapterFragmentCallbac
                                     long id) {
                 AppObject app = (AppObject) appGridAdapter.getItem(pos);
 
+                if (computer == null || managerBinder == null || computer.state == ComputerDetails.State.OFFLINE) {
+                    showAppListStatus(R.string.library_offline);
+                    return;
+                }
                 // Only open the context menu if something is running, otherwise start it
                 if (lastRunningAppId != 0 && app.app.getControl() == NvApp.Control.NONE) {
                     showAppMenu(app, arg1);

@@ -18,7 +18,7 @@
             android:orientation="vertical" android:padding="24dp">
             <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
                 android:text="@string/add_pc_hint" android:textColor="@color/on_surface_variant" android:textSize="16sp" />
-            <com.google.android.material.textfield.TextInputLayout
+            <com.google.android.material.textfield.TextInputLayout android:id="@+id/host_input"
                 android:layout_width="match_parent" android:layout_height="wrap_content"
                 android:layout_marginTop="24dp" android:hint="@string/ip_hint"
                 style="@style/Widget.Material3.TextInputLayout.OutlinedBox">

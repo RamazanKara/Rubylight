@@ -40,7 +40,7 @@ public class PcGridAdapter extends GenericGridAdapter<PcView.ComputerObject> {
         Collections.sort(itemList, new Comparator<PcView.ComputerObject>() {
             @Override
             public int compare(PcView.ComputerObject lhs, PcView.ComputerObject rhs) {
-                return lhs.details.name.toLowerCase().compareTo(rhs.details.name.toLowerCase());
+                return lhs.details.name.compareToIgnoreCase(rhs.details.name);
             }
         });
     }
@@ -80,7 +80,12 @@ public class PcGridAdapter extends GenericGridAdapter<PcView.ComputerObject> {
         }
         TextView statusView = parentView.findViewById(R.id.grid_status);
         statusView.setText(status);
-        parentView.setContentDescription(obj.details.name);
+        TextView action = parentView.findViewById(R.id.grid_actions);
+        action.setText(checking || obj.details.state == ComputerDetails.State.OFFLINE ?
+                R.string.library_pc_options : obj.details.pairState == PairingManager.PairState.PAIRED ?
+                R.string.library_open : R.string.pcview_menu_pair_pc);
+        parentView.setContentDescription(context.getString(R.string.library_item_description,
+                obj.details.name, action.getText()));
         ViewCompat.setStateDescription(parentView, context.getString(status));
         ViewCompat.replaceAccessibilityAction(parentView,
                 androidx.core.view.accessibility.AccessibilityNodeInfoCompat.AccessibilityActionCompat.ACTION_LONG_CLICK,

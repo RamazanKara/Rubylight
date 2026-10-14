@@ -62,6 +62,8 @@ public abstract class VirtualControllerElement extends View {
     }
 
     private Mode currentMode = Mode.Normal;
+    private static final int INVALID_POINTER_ID = -1;
+    private int activePointerId = INVALID_POINTER_ID;
 
     protected VirtualControllerElement(VirtualController controller, Context context, int elementId) {
         super(context);
@@ -225,15 +227,53 @@ public abstract class VirtualControllerElement extends View {
 
     @Override
     public boolean onTouchEvent(MotionEvent event) {
-        // Ignore secondary touches on controls
-        //
-        // NB: We can get an additional pointer down if the user touches a non-StreamView area
-        // while also touching an OSC control, even if that pointer down doesn't correspond to
-        // an area of the OSC control.
-        if (event.getActionIndex() != 0) {
+        int action = event.getActionMasked();
+        if (action == MotionEvent.ACTION_CANCEL) {
+            activePointerId = INVALID_POINTER_ID;
+            // A button can also be held by sliding from a neighboring button, without owning
+            // a pointer itself. Always deliver cancellation to release that state too.
+            return onPrimaryTouchEvent(event);
+        }
+        if (action == MotionEvent.ACTION_DOWN) {
+            activePointerId = event.getPointerId(0);
+        } else if (activePointerId == INVALID_POINTER_ID || action == MotionEvent.ACTION_POINTER_DOWN) {
             return true;
         }
 
+        // Extra pointers can reach an OSC control from non-StreamView areas. Keep tracking the
+        // original finger by ID; pointer indices can change during a multi-touch gesture.
+        int pointerIndex = event.findPointerIndex(activePointerId);
+        if (pointerIndex < 0 || (action == MotionEvent.ACTION_POINTER_UP &&
+                event.getPointerId(event.getActionIndex()) != activePointerId)) {
+            return true;
+        }
+
+        if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_POINTER_UP) {
+            activePointerId = INVALID_POINTER_ID;
+        }
+
+        MotionEvent primaryEvent = event;
+        if (pointerIndex != 0 || action == MotionEvent.ACTION_POINTER_UP) {
+            primaryEvent = MotionEvent.obtain(event);
+            primaryEvent.setLocation(event.getX(pointerIndex), event.getY(pointerIndex));
+            if (action == MotionEvent.ACTION_POINTER_UP) {
+                primaryEvent.setAction(MotionEvent.ACTION_UP);
+            }
+        }
+        try {
+            boolean handled = onPrimaryTouchEvent(primaryEvent);
+            if (!handled && action == MotionEvent.ACTION_DOWN) {
+                activePointerId = INVALID_POINTER_ID;
+            }
+            return handled;
+        } finally {
+            if (primaryEvent != event) {
+                primaryEvent.recycle();
+            }
+        }
+    }
+
+    private boolean onPrimaryTouchEvent(MotionEvent event) {
         if (virtualController.getControllerMode() == VirtualController.ControllerMode.Active) {
             return onElementTouchEvent(event);
         }

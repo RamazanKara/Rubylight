@@ -190,7 +190,7 @@ public class VirtualController {
         long now = SystemClock.uptimeMillis();
         MotionEvent cancel = MotionEvent.obtain(now, now, MotionEvent.ACTION_CANCEL, 0, 0, 0);
         for (VirtualControllerElement element : elements) {
-            element.onElementTouchEvent(cancel);
+            element.onTouchEvent(cancel);
         }
         cancel.recycle();
         handler.removeCallbacksAndMessages(null);

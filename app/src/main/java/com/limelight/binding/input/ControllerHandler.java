@@ -553,7 +553,16 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         if (context.assignedControllerNumber) {
             return;
         }
+        // Input on the main thread and launch preparation on the connection worker can both
+        // assign a pad. Without one lock a pad could take two slots, or two pads share one.
+        synchronized (this) {
+            if (!context.assignedControllerNumber) {
+                assignControllerNumber(context);
+            }
+        }
+    }
 
+    private void assignControllerNumber(GenericControllerContext context) {
         if (context instanceof InputDeviceContext) {
             InputDeviceContext devContext = (InputDeviceContext) context;
 

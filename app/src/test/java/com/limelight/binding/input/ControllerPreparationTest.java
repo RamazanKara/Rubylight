@@ -16,9 +16,19 @@ import org.robolectric.RobolectricTestRunner;
 import org.robolectric.android.controller.ActivityController;
 import org.robolectric.annotation.Config;
 import org.robolectric.util.ReflectionHelpers;
+import com.limelight.nvstream.input.ControllerPacket;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import static org.junit.Assert.*;
 
 @RunWith(RobolectricTestRunner.class)
@@ -54,6 +64,52 @@ public class ControllerPreparationTest {
                 assertEquals(0, connection.arrivals);
             } finally {
                 worker.shutdownNow();
+                handler.destroy();
+            }
+        }
+    }
+
+    @Test public void inputWaitsWhileLaunchPreparationAnnouncesAPad() throws Exception {
+        try (ActivityController<Activity> activity = Robolectric.buildActivity(Activity.class).create()) {
+            CountDownLatch announcing = new CountDownLatch(1), release = new CountDownLatch(1);
+            AtomicInteger inProgress = new AtomicInteger();
+            AtomicBoolean overlapped = new AtomicBoolean();
+            List<Byte> slots = Collections.synchronizedList(new ArrayList<>());
+            Connection connection = new Connection(73) {
+                @Override public int sendControllerArrivalEvent(byte slot, short mask, byte type, int buttons, short caps) {
+                    if (inProgress.incrementAndGet() > 1) overlapped.set(true);
+                    slots.add(slot);
+                    if ((caps & MoonBridge.LI_CCAP_HAPTICS_PCM) != 0) {
+                        // The connection worker is announcing the waveform pad before launch.
+                        announcing.countDown();
+                        try { release.await(2, TimeUnit.SECONDS); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+                    }
+                    inProgress.decrementAndGet();
+                    return super.sendControllerArrivalEvent(slot, mask, type, buttons, caps);
+                }
+            };
+            PreferenceConfiguration prefs = new PreferenceConfiguration();
+            prefs.usbDualSenseHaptics = true;
+            prefs.multiController = true;
+            ControllerHandler handler = new ControllerHandler(activity.get(), connection, null, prefs);
+            handler.deviceAdded(new Pad());
+            handler.deviceAdded(new Pad(43, MoonBridge.LI_CCAP_RUMBLE));
+            ExecutorService threads = Executors.newFixedThreadPool(2);
+            try {
+                Future<String> launch = threads.submit(handler::prepareControllersForLaunch);
+                assertTrue(announcing.await(2, TimeUnit.SECONDS));
+                // The second pad's first input arrives meanwhile and needs a slot of its own.
+                Future<?> input = threads.submit(() -> handler.reportControllerState(43, ControllerPacket.A_FLAG,
+                        0, 0, 0, 0, 0, 0));
+                try { input.get(300, TimeUnit.MILLISECONDS); } catch (TimeoutException expected) { }
+                assertFalse("Slot assignment must not run on two threads at once", overlapped.get());
+                release.countDown();
+                assertFalse(launch.get(2, TimeUnit.SECONDS).isEmpty());
+                input.get(2, TimeUnit.SECONDS);
+                assertEquals(Arrays.asList((byte) 0, (byte) 1), slots);
+            } finally {
+                release.countDown();
+                threads.shutdownNow();
                 handler.destroy();
             }
         }
@@ -148,7 +204,8 @@ public class ControllerPreparationTest {
     private static class Pad extends AbstractController {
         int audioBindings, audioPackets, headphonePackets, waveforms;
         Pad() { this(MoonBridge.LI_CCAP_HAPTICS_PCM); }
-        Pad(short caps) { super(42, null, 0x054c, 0x0ce6); capabilities = caps; }
+        Pad(short caps) { this(42, caps); }
+        Pad(int id, short caps) { super(id, null, 0x054c, 0x0ce6); capabilities = caps; }
         @Override public void bindAudio(NvConnection connection, int number) { audioBindings++; }
         @Override public void controllerAudio(int kind, byte[] payload) { audioPackets++; }
         @Override public void controllerHaptics(int sequence, byte[] pcm) { waveforms++; }

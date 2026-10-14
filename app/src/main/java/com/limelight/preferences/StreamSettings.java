@@ -456,6 +456,7 @@ public class StreamSettings extends AppCompatActivity {
         }
         list.setDivider(null);
         list.setDividerHeight(0);
+        list.setSelector(R.drawable.list_focus_row);
         // Rows reach the edges and carry the screen gutter themselves (layout/settings_*.xml).
         list.setPadding(0, 0, 0, view.getResources().getDimensionPixelSize(R.dimen.space_l));
         list.setClipToPadding(false);

@@ -3,7 +3,11 @@ package com.limelight.ui;
 import android.content.Context;
 import android.content.res.Configuration;
 import android.util.AttributeSet;
+import android.view.KeyEvent;
+import android.view.View;
 import android.widget.GridView;
+
+import com.limelight.R;
 
 /**
  * A grid that picks its column count from the space it is measured with.
@@ -41,6 +45,85 @@ public class AdaptiveGridView extends GridView {
         this.computers = computers;
         this.smallIcons = smallIcons;
         requestLayout();
+    }
+
+    /**
+     * D-pad and keyboard focus stays on the grid, which moves a selection over its cards. A card's
+     * overflow button cannot take focus without breaking taps on the card, so the grid steps onto it:
+     * toward the end edge (right in left-to-right layouts) from a selected card marks its overflow
+     * button, Enter or the A button opens it, and the opposite direction returns to the card.
+     */
+    private View markedAction;
+
+    @Override
+    public boolean onKeyDown(int keyCode, KeyEvent event) {
+        if (event.hasNoModifiers()) {
+            View action = selectedAction();
+            int towardAction = getLayoutDirection() == LAYOUT_DIRECTION_RTL ? KeyEvent.KEYCODE_DPAD_LEFT : KeyEvent.KEYCODE_DPAD_RIGHT;
+            int towardCard = towardAction == KeyEvent.KEYCODE_DPAD_RIGHT ? KeyEvent.KEYCODE_DPAD_LEFT : KeyEvent.KEYCODE_DPAD_RIGHT;
+            if (markedAction == null && action != null && keyCode == towardAction) {
+                markAction(action);
+                return true;
+            }
+            if (markedAction != null && markedAction == action) {
+                if (keyCode == towardCard) {
+                    markAction(null);
+                    return true;
+                }
+                if (isActivateKey(keyCode)) return true;
+            }
+        }
+        markAction(null);
+        return super.onKeyDown(keyCode, event);
+    }
+
+    @Override
+    public boolean onKeyUp(int keyCode, KeyEvent event) {
+        if (markedAction != null && isActivateKey(keyCode) && markedAction == selectedAction()) {
+            if (!event.isCanceled()) markedAction.performClick();
+            return true;
+        }
+        return super.onKeyUp(keyCode, event);
+    }
+
+    @Override
+    protected void onFocusChanged(boolean gainFocus, int direction, android.graphics.Rect previouslyFocusedRect) {
+        super.onFocusChanged(gainFocus, direction, previouslyFocusedRect);
+        if (!gainFocus) markAction(null);
+    }
+
+    @Override
+    protected void layoutChildren() {
+        View action = markedAction;
+        super.layoutChildren();
+        // A rebuilt or recycled card no longer holds the marked button.
+        if (action != null && action != selectedAction()) markAction(null);
+    }
+
+    /** The overflow button of the selected card, if it shows one. */
+    View selectedAction() {
+        View card = getSelectedView();
+        View action = card == null ? null : card.findViewById(R.id.grid_more);
+        return action != null && action.getVisibility() == VISIBLE && action.isEnabled() ? action : null;
+    }
+
+    boolean isActionMarked() {
+        return markedAction != null;
+    }
+
+    private void markAction(View action) {
+        if (markedAction == action) return;
+        // Hover is the one state a card does not pass down to its children, so it can mark the button
+        // alone; the button's background draws the same ring as a focused icon button.
+        if (markedAction != null) markedAction.setHovered(false);
+        markedAction = action;
+        if (action != null) action.setHovered(true);
+    }
+
+    private static boolean isActivateKey(int keyCode) {
+        return keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER ||
+                keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER || keyCode == KeyEvent.KEYCODE_SPACE ||
+                keyCode == KeyEvent.KEYCODE_BUTTON_A;
     }
 
     /** True when the grid is too short for full-height artwork, as on a phone in landscape. */

@@ -85,6 +85,10 @@
         <item name="toolbarStyle">@style/Widget.Nightjar.Toolbar</item>
         <item name="extendedFloatingActionButtonStyle">@style/Widget.Nightjar.ExtendedFab</item>
         <item name="chipStyle">@style/Widget.Nightjar.Chip</item>
+        <!-- Toolbar actions resolve the platform attribute; set both so focus shows an amber ring. -->
+        <item name="actionBarItemBackground">@drawable/bg_icon_button</item>
+        <item name="android:actionBarItemBackground">@drawable/bg_icon_button</item>
+        <item name="toolbarNavigationButtonStyle">@style/Widget.Nightjar.Toolbar.Navigation</item>
         <item name="nightjarButtonTonalStyle">@style/Widget.Nightjar.Button.Tonal</item>
         <item name="nightjarButtonTextStyle">@style/Widget.Nightjar.Button.Text</item>
         <item name="nightjarButtonDestructiveStyle">@style/Widget.Nightjar.Button.Destructive</item>
@@ -177,6 +181,10 @@
         <item name="toolbarStyle">@style/Widget.Nightjar.Toolbar</item>
         <item name="extendedFloatingActionButtonStyle">@style/Widget.Nightjar.ExtendedFab</item>
         <item name="chipStyle">@style/Widget.Nightjar.Chip</item>
+        <!-- Toolbar actions resolve the platform attribute; set both so focus shows an amber ring. -->
+        <item name="actionBarItemBackground">@drawable/bg_icon_button</item>
+        <item name="android:actionBarItemBackground">@drawable/bg_icon_button</item>
+        <item name="toolbarNavigationButtonStyle">@style/Widget.Nightjar.Toolbar.Navigation</item>
         <item name="nightjarButtonTonalStyle">@style/Widget.Nightjar.Button.Tonal</item>
         <item name="nightjarButtonTextStyle">@style/Widget.Nightjar.Button.Text</item>
         <item name="nightjarButtonDestructiveStyle">@style/Widget.Nightjar.Button.Destructive</item>
@@ -215,6 +223,12 @@
         <!-- AppCompat's toolbar blocks focus on touchscreen devices, which kept D-pad and Tab focus
              out of Settings and Help and, once inside, trapped it in the bar. -->
         <item name="android:touchscreenBlocksFocus">false</item>
+    </style>
+
+    <style name="Widget.Nightjar.Toolbar.Navigation" parent="Widget.AppCompat.Toolbar.Button.Navigation">
+        <item name="android:minWidth">@dimen/touch_target</item>
+        <item name="android:minHeight">@dimen/touch_target</item>
+        <item name="android:background">@drawable/bg_icon_button</item>
     </style>
 
     <!--
@@ -276,7 +290,7 @@
         <item name="android:layout_height">48dp</item>
         <item name="android:padding">12dp</item>
         <item name="android:scaleType">fitCenter</item>
-        <item name="android:background">?attr/selectableItemBackgroundBorderless</item>
+        <item name="android:background">@drawable/bg_icon_button</item>
         <item name="android:tint">?attr/colorOnSurfaceVariant</item>
     </style>
 

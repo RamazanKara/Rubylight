@@ -6,4 +6,4 @@
     android:paddingStart="@dimen/screen_gutter" android:paddingEnd="@dimen/screen_gutter"
     android:paddingTop="@dimen/space_xs" android:paddingBottom="@dimen/space_l"
     android:focusable="true" android:focusableInTouchMode="true" android:clipToPadding="false"
-    android:drawSelectorOnTop="true" android:gravity="center" />
+    android:listSelector="@drawable/grid_focus_ring" android:drawSelectorOnTop="true" android:gravity="center" />

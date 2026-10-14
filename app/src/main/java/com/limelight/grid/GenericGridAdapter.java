@@ -90,7 +90,8 @@ public abstract class GenericGridAdapter<T> extends BaseAdapter {
         if (more != null) {
             final View card = convertView;
             more.setContentDescription(context.getString(R.string.library_more_for, itemList.get(i).toString()));
-            // Keep a single D-pad stop per card; touch and accessibility users get a visible action.
+            // A focusable child would stop the grid from handling taps on the card. D-pad and keyboard users
+            // reach the button through AdaptiveGridView; touch and accessibility users tap it directly.
             more.setFocusable(false);
             more.setOnClickListener(view -> {
                 if (viewGroup instanceof android.widget.AdapterView) {

@@ -218,6 +218,89 @@ public class UiNavigationTest {
         }
     }
 
+    private static AdaptiveGridView computerGrid(Screen screen, AtomicInteger menus) {
+        com.limelight.grid.PcGridAdapter adapter = new com.limelight.grid.PcGridAdapter(screen,
+                new com.limelight.preferences.PreferenceConfiguration());
+        for (String name : new String[] {"Desk", "Studio"}) {
+            com.limelight.nvstream.http.ComputerDetails details = new com.limelight.nvstream.http.ComputerDetails();
+            details.name = name;
+            details.state = com.limelight.nvstream.http.ComputerDetails.State.OFFLINE;
+            adapter.addComputer(new com.limelight.PcView.ComputerObject(details));
+        }
+        AdaptiveGridView grid = (AdaptiveGridView) screen.getLayoutInflater().inflate(R.layout.pc_grid_view,
+                (ViewGroup) screen.findViewById(R.id.pcFragmentContainer), false);
+        ((ViewGroup) screen.findViewById(R.id.pcFragmentContainer)).addView(grid);
+        grid.setColumnPolicy(true, false);
+        grid.setAdapter(adapter);
+        grid.setOnItemLongClickListener((parent, view, position, id) -> {
+            menus.incrementAndGet();
+            return true;
+        });
+        return grid;
+    }
+
+    private static void press(View view, int key) {
+        view.dispatchKeyEvent(new KeyEvent(KeyEvent.ACTION_DOWN, key));
+        view.dispatchKeyEvent(new KeyEvent(KeyEvent.ACTION_UP, key));
+    }
+
+    @Test
+    public void dpadReachesTheHomeToolbarActionsOnATouchscreenPhone() {
+        // AppCompat's toolbar blocks focus on touchscreen devices; the shared bar must not.
+        org.robolectric.Shadows.shadowOf(org.robolectric.RuntimeEnvironment.getApplication().getPackageManager())
+                .setSystemFeature(android.content.pm.PackageManager.FEATURE_TOUCHSCREEN, true);
+        ActivityController<Screen> controller = Robolectric.buildActivity(Screen.class).setup().visible();
+        try {
+            Screen screen = controller.get();
+            screen.setContentView(R.layout.activity_pc_view);
+            com.google.android.material.appbar.MaterialToolbar toolbar =
+                    TopAppBar.configure(screen, R.id.home_toolbar, "Computers", R.menu.home);
+            screen.findViewById(R.id.no_pc_found_layout).setVisibility(View.GONE);
+            AdaptiveGridView grid = computerGrid(screen, new AtomicInteger());
+            layout(screen);
+            grid.requestFocus();
+            grid.setSelection(0);
+            View up = grid.focusSearch(View.FOCUS_UP);
+            assertNotNull("UP from the PC list found nothing", up);
+            assertSame(toolbar, up.getParent().getParent());
+            View settings = screen.findViewById(R.id.settingsButton);
+            assertTrue(settings.isFocusable());
+            assertSame(grid, settings.focusSearch(View.FOCUS_DOWN));
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    @Test
+    public void dpadStepsOntoACardsOptionsButtonAndOpensItsMenu() {
+        ActivityController<Screen> controller = Robolectric.buildActivity(Screen.class).setup().visible();
+        try {
+            Screen screen = controller.get();
+            screen.setContentView(R.layout.activity_pc_view);
+            AtomicInteger menus = new AtomicInteger();
+            AdaptiveGridView grid = computerGrid(screen, menus);
+            layout(screen);
+            grid.requestFocus();
+            grid.setSelection(0);
+            layout(screen);
+            View more = grid.getSelectedView().findViewById(R.id.grid_more);
+            press(grid, KeyEvent.KEYCODE_DPAD_RIGHT);
+            assertTrue(grid.isActionMarked());
+            assertTrue("the options button shows the focus ring", more.isHovered());
+            assertEquals(0, grid.getSelectedItemPosition());
+            press(grid, KeyEvent.KEYCODE_DPAD_CENTER);
+            assertEquals(1, menus.get());
+            press(grid, KeyEvent.KEYCODE_DPAD_LEFT);
+            assertFalse(grid.isActionMarked());
+            assertFalse(more.isHovered());
+            press(grid, KeyEvent.KEYCODE_DPAD_RIGHT);
+            press(grid, KeyEvent.KEYCODE_DPAD_DOWN);
+            assertFalse("moving on leaves the options button", grid.isActionMarked());
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
     @Test
     public void mouseHoverHighlightsCardsWithoutTakingKeyboardFocus() {
         ActivityController<Screen> controller = Robolectric.buildActivity(Screen.class).setup();

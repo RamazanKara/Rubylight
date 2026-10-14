@@ -252,6 +252,27 @@ def assert_cold_start_insets(runs=5):
     print(f"Cold start keeps the home bar clear of the system bars ({runs} launches)", flush=True)
 
 
+def focused_id(root=None):
+    root = root if root is not None else tree()
+    node = next((n for n in root.iter("node") if n.get("focused") == "true"), None)
+    return None if node is None else node.get("resource-id")
+
+
+def assert_dpad_reaches_home_actions():
+    """D-pad and Tab must reach Settings and Help from the home content, not only the list and Add PC."""
+    adb("shell", "input", "keyevent", "KEYCODE_DPAD_DOWN")
+    for _ in range(4):
+        if focused_id() not in (f"{PACKAGE}:id/settingsButton", f"{PACKAGE}:id/helpButton", None):
+            break
+        adb("shell", "input", "keyevent", "KEYCODE_DPAD_DOWN")
+    content = focused_id()
+    assert content not in (None, f"{PACKAGE}:id/settingsButton", f"{PACKAGE}:id/helpButton"),         f"D-pad did not reach the home content: {content}"
+    adb("shell", "input", "keyevent", "KEYCODE_DPAD_UP", "KEYCODE_DPAD_UP", "KEYCODE_DPAD_UP")
+    reached = focused_id()
+    assert reached in (f"{PACKAGE}:id/settingsButton", f"{PACKAGE}:id/helpButton"),         f"D-pad up from the home content stopped at {reached} instead of the top app bar actions"
+    print(f"D-pad reaches the top app bar from {content.split('/')[-1]}", flush=True)
+
+
 def host_menu(item=None):
     x1, y1, x2, y2 = bounds(find(HOST_NAME))
     x, y = str((x1+x2)//2), str((y1+y2)//2)
@@ -696,6 +717,7 @@ def main():
             set_rotation(0)
             find(f"{PACKAGE}:id/discovery_add")
             assert_cold_start_insets()
+            assert_dpad_reaches_home_actions()
             if args.debug_only:
                 if not DEBUGGABLE:
                     raise ValueError("--debug-only requires a debug APK with library and overlay fixtures")

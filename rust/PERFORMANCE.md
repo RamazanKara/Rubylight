@@ -6,6 +6,7 @@ This is the dated measurement record. For a guided comparison, start with the [p
 
 | Find a result | Recorded evidence |
 | --- | --- |
+| Frame rates above 60 | [October 14, 1440p at 60-240 fps and 20-500 Mbps](#october-14-frame-rates-above-60) |
 | A port slower than the host | [October 14, keyframe loss through a 100 Mbps bottleneck](#october-14-keyframe-loss-on-a-slow-port) |
 | HDR and recovery fixes | [October 14, 2.2.17 against 2.2.18](#october-14-hdr-and-recovery-fixes-2218) |
 | Rubylight 2.2.9 refresh | [October 12 released-package encoder probes](#october-12-rubylight-229-released-package-refresh) |
@@ -5577,6 +5578,119 @@ the session gate: its administrator runner had no linked non-elevated token
 (`0x80070520`). The fixture now uses the same existing-runner-context selection
 as the project's process lifecycle tests. The real prep/undo assertion remains,
 and no production permission policy or session check was relaxed.
+
+## October 14: frame rates above 60
+
+A user reported that the stream would not go above 60 fps whatever frame rate
+they set, and an earlier report had an RX 9070 XT stuck at 60. The release
+check streamed only 720p60 at 20 Mbps, so higher rates were never tested there.
+
+**Machine:** AMD Radeon RX 7900 XT (driver 32.0.32015.2008), Ryzen 7 5800X3D,
+Windows 26200, one 5120x1440 monitor at 240 Hz. **Host:** the released 2.3.0
+package, isolated profile on ports 48518-48544 (`rust/release/e2e.py`), WGC
+capture of the physical monitor (no virtual display, no display change),
+AMF defaults, `minimum_fps_target = 20` (the default; the release check sets
+it to the stream rate). **Receiver:** the independent moonlight-common-c
+fixture with D3D11VA decoding on the same GPU. `motion_probe` moves a
+128-pixel strip at twice the stream rate. 12 seconds per stream.
+
+Every stream delivered its requested rate. The encoder took about 3 ms per
+frame at every rate and bitrate; capture supplied a fresh picture for every
+frame sent (fresh captures per second, from the host's 5-second timing
+lines). The strip is easy to compress, so the bitrate set is the encoder's
+target, not what it sent: 5-88 Mbps went out, the most for HEVC at 240 fps.
+
+| Codec | FPS | Mbps set | Mbps sent | Delivered fps | Host sent fps | Fresh captures/s | Encode mean / p99 ms | Host ms | Arrival p99 / max ms |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| AV1 | 60 | 20 | 5.5 | 60.0 | 60.0 | 60.5 | 2.84 / 3.51 | 2.84 | 18.4 / 20.7 |
+| AV1 | 60 | 80 | 6.0 | 60.0 | 60.0 | 60.6 | 2.79 / 3.06 | 2.79 | 19.4 / 21.5 |
+| AV1 | 60 | 150 | 5.3 | 60.0 | 60.0 | 60.5 | 2.94 / 3.46 | 2.94 | 17.8 / 20.5 |
+| AV1 | 60 | 300 | 5.8 | 60.0 | 60.1 | 60.5 | 2.86 / 3.50 | 2.87 | 21.4 / 22.6 |
+| AV1 | 60 | 500 | 5.6 | 60.0 | 60.0 | 60.5 | 2.97 / 3.43 | 2.98 | 18.7 / 24.1 |
+| AV1 | 120 | 20 | 12.1 | 120.0 | 119.9 | 120.5 | 2.81 / 3.14 | 2.81 | 10.7 / 12.8 |
+| AV1 | 120 | 80 | 10.9 | 120.0 | 120.1 | 120.7 | 2.83 / 3.40 | 2.83 | 10.1 / 12.8 |
+| AV1 | 120 | 150 | 13.2 | 120.0 | 120.0 | 120.4 | 2.79 / 3.50 | 2.79 | 10.0 / 13.2 |
+| AV1 | 120 | 300 | 13.5 | 120.0 | 119.9 | 120.6 | 2.80 / 3.31 | 2.82 | 11.1 / 13.6 |
+| AV1 | 120 | 500 | 15.0 | 120.0 | 120.0 | 120.5 | 2.82 / 3.35 | 2.83 | 11.7 / 13.3 |
+| AV1 | 240 | 20 | 21.0 | 240.1 | 240.1 | 240.4 | 2.65 / 3.92 | 2.65 | 5.9 / 7.0 |
+| AV1 | 240 | 80 | 39.9 | 239.1 | 239.1 | 239.0 | 2.74 / 4.08 | 2.74 | 6.0 / 12.0 |
+| AV1 | 240 | 150 | 40.0 | 240.0 | 240.1 | 240.5 | 2.71 / 3.96 | 2.72 | 5.9 / 8.3 |
+| AV1 | 240 | 300 | 40.3 | 239.7 | 239.8 | 239.9 | 2.77 / 4.07 | 2.78 | 6.0 / 9.2 |
+| AV1 | 240 | 500 | 41.7 | 240.0 | 239.9 | 240.5 | 2.75 / 3.99 | 2.77 | 6.0 / 8.2 |
+| HEVC | 60 | 20 | 13.3 | 60.0 | 60.1 | 60.5 | 3.18 / 3.73 | 3.18 | 18.2 / 18.5 |
+| HEVC | 60 | 80 | 15.4 | 60.0 | 60.1 | 60.6 | 3.21 / 3.63 | 3.21 | 18.3 / 18.9 |
+| HEVC | 60 | 150 | 14.9 | 60.0 | 60.0 | 60.5 | 3.16 / 3.54 | 3.16 | 18.6 / 23.0 |
+| HEVC | 60 | 300 | 15.5 | 60.0 | 60.0 | 60.5 | 3.25 / 3.73 | 3.26 | 18.3 / 24.0 |
+| HEVC | 60 | 500 | 17.0 | 60.0 | 60.1 | 60.7 | 3.16 / 3.59 | 3.17 | 21.9 / 23.2 |
+| HEVC | 120 | 20 | 21.0 | 120.0 | 120.0 | 120.6 | 3.10 / 3.58 | 3.10 | 10.9 / 13.0 |
+| HEVC | 120 | 80 | 32.5 | 120.0 | 120.0 | 120.7 | 3.12 / 3.64 | 3.12 | 10.8 / 12.7 |
+| HEVC | 120 | 150 | 34.9 | 120.0 | 120.0 | 120.6 | 3.17 / 3.71 | 3.17 | 10.5 / 11.2 |
+| HEVC | 120 | 300 | 33.2 | 119.9 | 120.0 | 120.5 | 3.13 / 3.61 | 3.14 | 10.4 / 12.3 |
+| HEVC | 120 | 500 | 35.6 | 120.0 | 120.1 | 120.4 | 3.14 / 3.64 | 3.15 | 9.8 / 11.7 |
+| HEVC | 240 | 20 | 20.4 | 240.0 | 240.0 | 240.1 | 3.15 / 4.04 | 3.15 | 6.1 / 6.9 |
+| HEVC | 240 | 80 | 76.7 | 239.3 | 239.3 | 239.9 | 3.18 / 4.24 | 3.18 | 6.1 / 7.5 |
+| HEVC | 240 | 150 | 84.1 | 239.6 | 239.6 | 240.0 | 3.18 / 4.17 | 3.18 | 6.1 / 15.3 |
+| HEVC | 240 | 300 | 85.6 | 239.4 | 238.8 | 239.1 | 3.15 / 4.05 | 3.16 | 6.4 / 7.7 |
+| HEVC | 240 | 500 | 87.7 | 236.8 | 236.6 | 238.1 | 3.16 / 4.05 | 3.17 | 6.8 / 12.4 |
+
+At 240 fps the receiver counted 205-217 distinct pictures a second: the probe
+itself presented 233 a second on the 240 Hz monitor, below the 480 it was
+asked for. The release check's motion rule (90% distinct pictures) fails most
+of those runs for that reason; the host sent 237-240 fresh frames a second.
+
+The strip leaves the encoder little to spend. With a 512-pixel strip of fresh
+per-pixel noise (`e2e.py --noise-height 512`), the encoder used the bitrate
+set (the sent rate includes 20% FEC):
+
+| Codec | FPS | Mbps set | Mbps sent | Delivered fps | Host sent fps | Fresh captures/s | Encode mean / p99 ms | Decode ms | Arrival p99 / max ms | Keyframe requests |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| AV1 | 120 | 500 | 470.2 | 120.0 | 120.0 | 120.4 | 4.29 / 7.62 | 5.9 | 13.8 / 16.9 | 1 |
+| HEVC | 120 | 500 | 543.7 | 119.9 | 119.9 | 120.3 | 4.04 / 4.46 | 5.0 | 12.1 / 20.0 | 1 |
+| AV1 | 240 | 500 | 497.2 | 142.9 | 224.1 | 224.5 | 4.15 / 6.16 | 6.8 | 82.6 / 103.8 | 52 |
+| HEVC | 240 | 500 | 535.2 | 238.4 | 238.3 | 238.7 | 3.68 / 4.31 | 3.6 | 5.8 / 16.5 | 1 |
+| AV1 | 240 | 150 | 160.5 | 238.5 | 238.6 | 238.9 | 3.08 / 4.57 | 4.1 | 6.8 / 16.9 | 1 |
+| HEVC | 240 | 150 | 159.0 | 239.6 | 239.6 | 240.3 | 3.27 / 3.76 | 2.6 | 5.2 / 12.7 | 1 |
+
+The one shortfall is AV1 at 240 fps and 500 Mbps: a 4.15 ms mean encode
+against a 4.17 ms period held the host to 224 fps, and the receiver, decoding
+on the same GPU at 6.8 ms a frame, lost frames and asked for 52 keyframes.
+HEVC sustained 240 fps at the same bitrate, and AV1 at 150 Mbps.
+
+The release check's receiver decodes in software, which held a 1440p120 HEVC
+stream to 65 fps (14 ms a frame) while the host sent 120. Its new `hevc-120`
+case (2560x1440, 120 fps, 80 Mbps) decodes with D3D11VA: 119.97 fps, arrival
+p99 12.0 ms. A second run with the CPU at 100% from other work failed on the
+fixture: `motion_probe` presented only 184-191 pictures a second.
+
+### What can hold a stream at 60
+
+None of the code paths clamps the rate to 60. A stream runs at the lowest of
+the stream rate, the captured display's refresh and the game's own rate:
+
+| Path | Default | Effect |
+| --- | --- | --- |
+| `limit_framerate` (Use the launch frame rate) | on | The stream runs at the rate of the launch request (`mode=WxHxFPS`), not the stream request (`maxFPS`). Artemis's Warp frame pacing launches at the display rate and asks for 2x or 4x. Vibepollo, with the same setting on, only uses the launch rate for the encoder's frame timestamps and captures at the requested rate. |
+| `virtual_display_mode` | per client on Windows 11, disabled on Windows 10 | On the physical display the host asks for the stream rate, but keeps the current refresh, or the highest at the chosen resolution, when the monitor lacks it. A 60 Hz monitor gives 60. |
+| Virtual display refresh | twice the launch rate (`frame_limiter_auto_virtual_framegen = legacy`) | Applied after creation; when Windows keeps another mode the log says "virtual display mode not applied" and capture runs at that mode. |
+| Frame limiter, Automatic | on with a virtual display | Caps the game at the launch rate (RTSS, or NVIDIA's driver limit without RTSS). |
+| Phase lock | only with the Rubylight client's 0x5530 reports | Locks only when a frame lasts a whole number of client refreshes (within 2%); a 120 fps stream to a 60 Hz client keeps 120. |
+| WGC `MinUpdateInterval` | set to 0 | If Windows refuses it, the log warns and the 16 ms default (50-57 updates a second) applies. |
+| AMF | frame rate = stream rate; bitrate, peak, VBV read back as set (399 Mbps target at 500 Mbps requested) | No level or profile limit was seen. |
+
+The launch-rate path, measured with the receiver launching at one rate and
+asking for twice that in the stream request (HEVC, 2560x1440, 80 Mbps):
+
+| Host | Launch, then stream request | Use the launch frame rate | Delivered fps | Console `fps` / `requested_fps` |
+| --- | --- | --- | ---: | --- |
+| 2.3.0 | 60, then 120 | on (default) | 60.0 | 120 / – |
+| 2.3.0 | 60, then 120 | off | 120.1 | 120 / – |
+| This branch | 60, then 120 | on (default) | 60.0 | 60 / 120 |
+| 2.3.0 | 120, then 240 | on (default) | 120.0 | 240 / – |
+| 2.3.0 | 120, then 240 | off | 240.1 | 240 / – |
+
+With the setting on, 2.3.0's console showed the stream request's rate as the
+target (120) while 60 frames a second went out, which reads as a host that
+cannot keep up. The console now shows the encoded rate and the requested one.
 
 ## October 14: keyframe loss on a slow port
 

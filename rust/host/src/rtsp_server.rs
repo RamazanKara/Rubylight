@@ -102,24 +102,30 @@ async fn connection(
     mics: Arc<Mutex<HashSet<String>>>,
 ) -> Result<()> {
     socket.set_nodelay(true)?;
-    let (launches, ids, expired) = {
+    let (launches, expired) = {
         let mut sessions = h.sessions.lock().unwrap();
         let expired = sessions.expire();
         let launches = sessions.rtsp_for_peer(peer.ip());
-        let ids: std::collections::HashSet<_> = sessions
-            .pending
-            .keys()
-            .chain(sessions.active.keys())
-            .cloned()
-            .collect();
-        (launches, ids, expired)
+        (launches, expired)
     };
     drop(expired);
     if launches.is_empty() {
         bail!("no authorized RTSP launch");
     }
-    configs.lock().unwrap().retain(|id, _| ids.contains(id));
-    mics.lock().unwrap().retain(|id| ids.contains(id));
+    #[cfg(test)]
+    if let Some(fixture) = &h.reconnect_fixture {
+        fixture.before_rtsp_cleanup().await;
+    }
+    {
+        // A launch may arrive after the authorization snapshot above. Keep
+        // the session map locked through pruning so an older connection
+        // cannot erase its ANNOUNCE or microphone SETUP state.
+        let sessions = h.sessions.lock().unwrap();
+        let live =
+            |id: &String| sessions.pending.contains_key(id) || sessions.active.contains_key(id);
+        configs.lock().unwrap().retain(|id, _| live(id));
+        mics.lock().unwrap().retain(live);
+    }
 
     {
         let (launch, raw) = tokio::time::timeout(

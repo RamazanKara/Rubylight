@@ -29,6 +29,9 @@ pub(crate) struct Fixture {
     reset: Mutex<Option<String>>,
     reset_done: AtomicBool,
     fail_on_control_connect: AtomicBool,
+    hold_rtsp_cleanup: AtomicBool,
+    rtsp_cleanup_waiting: AtomicBool,
+    resume_rtsp_cleanup: AtomicBool,
 }
 
 pub(crate) struct Slot(Arc<AtomicUsize>);
@@ -69,6 +72,18 @@ impl Drop for Display {
 }
 
 impl Fixture {
+    pub(crate) async fn before_rtsp_cleanup(&self) {
+        if !self.hold_rtsp_cleanup.swap(false, Ordering::AcqRel) {
+            return;
+        }
+        self.rtsp_cleanup_waiting.store(true, Ordering::Release);
+        let deadline = Instant::now() + WAIT;
+        while !self.resume_rtsp_cleanup.load(Ordering::Acquire) {
+            assert!(Instant::now() < deadline, "RTSP cleanup was not resumed");
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
+        self.rtsp_cleanup_waiting.store(false, Ordering::Release);
+    }
     pub(super) fn control_connected(&self, h: &Shared, id: &str) {
         if !self.fail_on_control_connect.swap(false, Ordering::AcqRel) {
             return;
@@ -679,6 +694,55 @@ impl Drop for Client {
             }
         }
     }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn concurrent_rtsp_cleanup_preserves_a_new_launch_announcement() -> Result<()> {
+    let h = Harness::new(10_000, 2).await?;
+    let older_launch = h.launch(0, false).await?;
+    h.fixture.hold_rtsp_cleanup.store(true, Ordering::Release);
+    let older_connection = tokio::net::TcpStream::connect(address(h.ports.rtsp)).await?;
+    until("older RTSP connection reached cleanup", WAIT, || {
+        h.fixture.rtsp_cleanup_waiting.load(Ordering::Acquire)
+    })
+    .await;
+
+    let launch = h.launch(1, false).await?;
+    h.rtsp(
+        &launch,
+        1,
+        "ANNOUNCE",
+        "a=x-nv-video[0].clientViewportWd:640\r\na=x-nv-video[0].clientViewportHt:480\r\n",
+    )
+    .await?;
+    h.fixture.resume_rtsp_cleanup.store(true, Ordering::Release);
+    until("older RTSP cleanup resumed", WAIT, || {
+        !h.fixture.rtsp_cleanup_waiting.load(Ordering::Acquire)
+    })
+    .await;
+    // The old connection can now reach its read only after pruning. Its EOF
+    // response establishes that cleanup completed before this PLAY.
+    let mut older_connection = older_connection;
+    older_connection.shutdown().await?;
+    let mut response = Vec::new();
+    older_connection.read_to_end(&mut response).await?;
+
+    h.rtsp(&launch, 2, "PLAY", "").await?;
+    let session = h.h.sessions.lock().unwrap().active[&launch.id].clone();
+    let client = Client::new(h.ports, launch)?;
+    until("newly announced session is streaming", WAIT, || {
+        client.frames.load(Ordering::Acquire) > 2
+            && session.stats.idr_requests.load(Ordering::Acquire) > 0
+    })
+    .await;
+    let canceled =
+        h.h.sessions
+            .lock()
+            .unwrap()
+            .request_stop(Some(&older_launch.id));
+    drop((canceled, older_launch));
+    h.end(&session, client).await?;
+    h.finish().await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

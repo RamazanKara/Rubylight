@@ -48,30 +48,37 @@
   }
   .track {
     flex: none;
-    width: 34px;
-    height: 20px;
-    border-radius: 10px;
-    background: var(--line-strong);
+    /* Matches the Settings page's switch: an outlined track when off. */
+    width: 40px;
+    height: 22px;
+    border-radius: 11px;
+    border: 1px solid var(--muted);
+    background: var(--panel);
     position: relative;
-    margin-top: 1px;
-    transition: background 0.12s;
+    transition:
+      background 0.12s,
+      border-color 0.12s;
   }
   .thumb {
     position: absolute;
-    top: 2px;
-    left: 2px;
-    width: 16px;
-    height: 16px;
+    top: 4px;
+    left: 4px;
+    width: 12px;
+    height: 12px;
     border-radius: 50%;
-    background: var(--panel);
-    box-shadow: 0 1px 2px rgb(0 0 0 / 25%);
+    background: var(--ink-2);
     transition: transform 0.12s;
+  }
+  .toggle:not(.disabled):hover .track {
+    border-color: var(--ink-2);
   }
   input:checked + .track {
     background: var(--accent);
+    border-color: var(--accent);
   }
   input:checked + .track .thumb {
-    transform: translateX(14px);
+    background: var(--accent-ink);
+    transform: translateX(18px);
   }
   input:focus-visible + .track {
     outline: 2px solid var(--focus);

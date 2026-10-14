@@ -8,7 +8,8 @@
             <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
                 android:orientation="vertical" android:padding="24dp">
                 <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
-                    android:text="@string/add_pc_hint" android:textColor="@color/on_surface_variant" android:textSize="16sp" />
+                    android:text="@string/add_pc_hint" android:textAppearance="@style/TextAppearance.Nightjar.Body"
+                    android:textColor="@color/on_surface_variant" />
                 <com.google.android.material.textfield.TextInputLayout android:id="@+id/host_input"
                     android:layout_width="match_parent" android:layout_height="wrap_content"
                     android:layout_marginTop="24dp" android:hint="@string/ip_hint"
@@ -17,7 +18,8 @@
                         android:nextFocusUp="@id/add_pc_back" android:nextFocusDown="@+id/addPcButton"
                         android:nextFocusForward="@id/addPcButton" android:accessibilityTraversalAfter="@id/add_pc_back"
                         android:layout_width="match_parent" android:layout_height="wrap_content"
-                        android:minHeight="56dp" android:singleLine="true" android:inputType="textUri" android:textSize="16sp">
+                        android:minHeight="56dp" android:singleLine="true" android:inputType="textUri"
+                        android:textAppearance="@style/TextAppearance.Nightjar.Body">
                         <requestFocus />
                     </com.google.android.material.textfield.TextInputEditText>
                 </com.google.android.material.textfield.TextInputLayout>

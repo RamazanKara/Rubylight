@@ -8,7 +8,6 @@
     android:paddingEnd="16dp"
     android:paddingTop="24dp"
     android:paddingBottom="8dp"
+    android:textAppearance="@style/TextAppearance.Nightjar.Label"
     android:textColor="@color/accent"
-    android:textSize="16sp"
-    android:fontFamily="sans-serif-medium"
     android:accessibilityHeading="true" tools:targetApi="p" />

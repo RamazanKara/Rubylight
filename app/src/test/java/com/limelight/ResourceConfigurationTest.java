@@ -121,6 +121,37 @@ public class ResourceConfigurationTest {
     }
 
     @Test
+    public void layoutsUseTheTypeScaleInsteadOfFixedTextSizes() throws Exception {
+        File[] layouts = new File("src/main/res/layout").listFiles((dir, name) -> name.endsWith(".xml"));
+        assertNotNull(layouts);
+        for (File layout : layouts) {
+            NodeList nodes = read("res/layout/" + layout.getName()).getElementsByTagName("*");
+            for (int i = 0; i < nodes.getLength(); i++) {
+                Element node = (Element) nodes.item(i);
+                assertFalse(layout.getName() + " " + node.getTagName() + " sets a fixed textSize; use a TextAppearance.Nightjar style",
+                        node.hasAttributeNS(ANDROID, "textSize"));
+            }
+        }
+    }
+
+    @Test
+    public void themesLeaveTextSizeAndFontToTheTextAppearances() throws Exception {
+        // A theme-level android:textSize or android:fontFamily overrides every textAppearance, which made
+        // screen titles render at 16sp, smaller than 18sp rows.
+        NodeList styles = read("res/values/styles.xml").getElementsByTagName("style");
+        for (int i = 0; i < styles.getLength(); i++) {
+            Element style = (Element) styles.item(i);
+            if (!style.getAttribute("name").contains("Theme")) continue;
+            NodeList items = style.getElementsByTagName("item");
+            for (int j = 0; j < items.getLength(); j++) {
+                String name = ((Element) items.item(j)).getAttribute("name");
+                assertNotEquals(style.getAttribute("name"), "android:textSize", name);
+                assertNotEquals(style.getAttribute("name"), "android:fontFamily", name);
+            }
+        }
+    }
+
+    @Test
     public void installLocationIsDeclaredOnTheManifest() throws Exception {
         Document manifest = read("AndroidManifest.xml");
         assertEquals("auto", manifest.getDocumentElement().getAttributeNS(ANDROID, "installLocation"));

@@ -161,6 +161,7 @@ public class SeekBarPreference extends DialogPreference
 
         if (dialogMessage != null) {
             TextView message = new TextView(context);
+            message.setTextAppearance(context, R.style.TextAppearance_Nightjar_Body);
             message.setPadding(dp(8), 0, dp(8), dp(8));
             message.setText(dialogMessage);
             layout.addView(message);
@@ -210,6 +211,7 @@ public class SeekBarPreference extends DialogPreference
 
         if (presets.length > 0) {
             TextView presetLabel = new TextView(context);
+            presetLabel.setTextAppearance(context, R.style.TextAppearance_Nightjar_Label);
             presetLabel.setPadding(dp(8), dp(8), dp(8), 0);
             presetLabel.setText(suffix == null ? context.getString(R.string.seekbar_presets) :
                     context.getString(R.string.seekbar_presets_unit, suffix));

@@ -8,7 +8,7 @@
                 <ProgressBar android:id="@+id/grid_spinner" android:layout_width="match_parent" android:layout_height="match_parent" android:visibility="gone" />
             </FrameLayout>
             <TextView android:id="@+id/grid_text" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
-                android:textSize="20sp" android:textColor="@color/on_surface" android:maxLines="2" android:ellipsize="end" android:importantForAccessibility="no" />
+                android:textAppearance="@style/TextAppearance.Nightjar.Title" android:textColor="@color/on_surface" android:maxLines="2" android:ellipsize="end" android:importantForAccessibility="no" />
             <ImageButton android:id="@+id/grid_more" style="@style/ToolbarIcon" android:focusable="false"
                 android:importantForAccessibility="yes" android:src="@drawable/ic_library_more" android:contentDescription="@string/library_options" />
         </LinearLayout>
@@ -16,9 +16,9 @@
             android:gravity="center_vertical" android:importantForAccessibility="noHideDescendants">
             <ImageView android:id="@+id/grid_overlay" android:layout_width="18dp" android:layout_height="18dp" android:layout_marginEnd="8dp" app:tint="@color/on_surface_variant" />
             <TextView android:id="@+id/grid_status" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
-                android:textSize="14sp" android:textColor="@color/on_surface_variant" />
+                android:textAppearance="@style/TextAppearance.Nightjar.Supporting" android:textColor="@color/on_surface_variant" />
         </LinearLayout>
         <TextView android:id="@+id/grid_actions" android:layout_width="match_parent" android:layout_height="wrap_content"
-            android:layout_marginTop="16dp" android:textSize="14sp" android:textColor="@color/accent" android:importantForAccessibility="no" />
+            android:layout_marginTop="16dp" android:textAppearance="@style/TextAppearance.Nightjar.Label" android:textColor="@color/accent" android:importantForAccessibility="no" />
     </LinearLayout>
 </com.google.android.material.card.MaterialCardView>

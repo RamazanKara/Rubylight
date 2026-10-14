@@ -125,7 +125,7 @@ public final class GpuDriverSettings extends AppCompatActivity {
 
     private void addText(LinearLayout content, String text) {
         TextView view = new TextView(this);
-        view.setTextAppearance(this, com.google.android.material.R.style.TextAppearance_Material3_BodyMedium);
+        view.setTextAppearance(this, R.style.TextAppearance_Nightjar_Body);
         view.setText(text);
         int padding = Math.round(12 * getResources().getDisplayMetrics().density);
         view.setPadding(0, padding, 0, padding);

@@ -5,7 +5,7 @@
         android:orientation="vertical" android:padding="24dp">
         <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
             android:text="@string/latency_benchmark_description"
-            android:textAppearance="?android:attr/textAppearanceMedium" />
+            android:textAppearance="@style/TextAppearance.Nightjar.Body" />
         <com.google.android.material.button.MaterialButton
             android:id="@+id/benchmark_start"
             android:layout_width="match_parent" android:layout_height="wrap_content"
@@ -14,9 +14,10 @@
         <TextView android:id="@+id/benchmark_results"
             android:layout_width="match_parent" android:layout_height="wrap_content"
             android:layout_marginTop="16dp" android:textIsSelectable="true"
-            android:textAppearance="?android:attr/textAppearanceMedium" />
+            android:textAppearance="@style/TextAppearance.Nightjar.Body" />
         <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
             android:layout_marginTop="24dp" android:text="@string/latency_benchmark_limits"
-            android:textAppearance="?android:attr/textAppearanceSmall" />
+            android:textAppearance="@style/TextAppearance.Nightjar.Supporting"
+            android:textColor="?attr/colorOnSurfaceVariant" />
     </LinearLayout>
 </ScrollView>

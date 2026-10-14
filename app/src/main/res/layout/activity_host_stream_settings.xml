@@ -7,12 +7,12 @@
         <TextView android:id="@+id/host_profile_name" android:layout_width="match_parent" android:layout_height="wrap_content"
             android:paddingStart="24dp" android:paddingEnd="24dp" android:paddingBottom="8dp"
             android:maxLines="2" android:ellipsize="end"
-            android:textAppearance="?attr/textAppearanceTitleMedium" android:textColor="@color/accent" />
+            android:textAppearance="@style/TextAppearance.Nightjar.Title" android:textColor="@color/accent" />
         <FrameLayout android:id="@+id/host_profile_settings" android:layout_width="match_parent"
             android:layout_height="0dp" android:layout_weight="1" />
         <TextView android:id="@+id/host_profile_status" android:layout_width="match_parent" android:layout_height="wrap_content"
             android:paddingStart="24dp" android:paddingEnd="24dp" android:paddingTop="12dp"
-            android:textAppearance="?attr/textAppearanceBodySmall" android:textColor="@color/on_surface_variant"
+            android:textAppearance="@style/TextAppearance.Nightjar.Supporting" android:textColor="@color/on_surface_variant"
             android:accessibilityLiveRegion="polite" />
         <com.google.android.material.button.MaterialButton android:id="@+id/host_profile_save"
             android:nextFocusUp="@android:id/list" android:accessibilityTraversalAfter="@android:id/list"

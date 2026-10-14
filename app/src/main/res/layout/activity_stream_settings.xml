@@ -14,7 +14,7 @@
         <TextView android:id="@+id/settings_context"
             android:layout_width="match_parent" android:layout_height="wrap_content"
             android:paddingStart="24dp" android:paddingEnd="24dp" android:paddingTop="12dp" android:paddingBottom="8dp"
-            android:textAppearance="?attr/textAppearanceBodySmall" android:textColor="@color/on_surface_variant"
+            android:textAppearance="@style/TextAppearance.Nightjar.Supporting" android:textColor="@color/on_surface_variant"
             android:accessibilityLiveRegion="polite" />
         <FrameLayout android:id="@+id/stream_settings"
             android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" />

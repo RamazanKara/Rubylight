@@ -91,6 +91,7 @@ public final class KeyboardShortcutsActivity extends AppCompatActivity {
     private void refresh() {
         content.removeAllViews();
         TextView intro = new TextView(this);
+        intro.setTextAppearance(this, R.style.TextAppearance_Nightjar_Body);
         intro.setText(R.string.keyboard_shortcuts_help);
         content.addView(intro);
         boolean busy = Boolean.TRUE.equals(work.busy.getValue());
@@ -105,6 +106,7 @@ public final class KeyboardShortcutsActivity extends AppCompatActivity {
                 .putExtra(Intent.EXTRA_TITLE, "nightjar-keyboard-shortcuts.json"), EXPORT));
         if (work.message.getValue() != null) {
             TextView message = new TextView(this);
+            message.setTextAppearance(this, R.style.TextAppearance_Nightjar_Supporting);
             message.setText(work.message.getValue());
             content.addView(message);
         }

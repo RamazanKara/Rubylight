@@ -47,12 +47,12 @@ public class ControllerMappingActivity extends AppCompatActivity {
 
         TextView intro = new TextView(this);
         intro.setText(R.string.controller_mapping_intro);
-        intro.setTextSize(16);
+        intro.setTextAppearance(this, R.style.TextAppearance_Nightjar_Body);
         root.addView(intro);
 
         deviceView = new TextView(this);
         ViewCompat.setAccessibilityLiveRegion(deviceView, ViewCompat.ACCESSIBILITY_LIVE_REGION_POLITE);
-        deviceView.setTextSize(14);
+        deviceView.setTextAppearance(this, R.style.TextAppearance_Nightjar_Label);
         deviceView.setTextColor(accentColor());
         deviceView.setPadding(0, padding * 3 / 2, 0, padding / 2);
         root.addView(deviceView);
@@ -152,13 +152,13 @@ public class ControllerMappingActivity extends AppCompatActivity {
         int padding = Math.round(14 * density);
         row.setPadding(0, padding, 0, padding);
         TextView titleView = new TextView(this);
-        titleView.setTextSize(18);
+        titleView.setTextAppearance(this, R.style.TextAppearance_Nightjar_Body);
         titleView.setTextColor(primaryTextColor());
         titleView.setText(title);
         row.addView(titleView);
         if (summary != null) {
             TextView summaryView = new TextView(this);
-            summaryView.setTextSize(14);
+            summaryView.setTextAppearance(this, R.style.TextAppearance_Nightjar_Supporting);
             summaryView.setText(summary);
             row.addView(summaryView);
             TypedArray attrs = obtainStyledAttributes(new int[] {android.R.attr.selectableItemBackground});

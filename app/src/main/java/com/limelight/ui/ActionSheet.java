@@ -33,7 +33,7 @@ public final class ActionSheet extends BottomSheetDialog {
         content.setOrientation(LinearLayout.VERTICAL);
         content.setPadding(spacing * 2, 0, spacing * 2, spacing * 2);
         TextView heading = new TextView(context);
-        heading.setTextAppearance(context, com.google.android.material.R.style.TextAppearance_Material3_TitleLarge);
+        heading.setTextAppearance(context, R.style.TextAppearance_Nightjar_ScreenTitle);
         heading.setText(title);
         heading.setMaxLines(2);
         heading.setEllipsize(android.text.TextUtils.TruncateAt.END);
@@ -68,7 +68,7 @@ public final class ActionSheet extends BottomSheetDialog {
     public void addSection(int title) {
         TextView heading = new TextView(getContext());
         heading.setText(title);
-        heading.setTextAppearance(getContext(), com.google.android.material.R.style.TextAppearance_Material3_LabelLarge);
+        heading.setTextAppearance(getContext(), R.style.TextAppearance_Nightjar_Label);
         heading.setTextColor(androidx.core.content.ContextCompat.getColor(getContext(), R.color.on_surface_variant));
         heading.setPadding(spacing, spacing * 2, spacing, spacing);
         ViewCompat.setAccessibilityHeading(heading, true);
@@ -79,7 +79,7 @@ public final class ActionSheet extends BottomSheetDialog {
         MaterialButton button = new MaterialButton(getContext(), null, androidx.appcompat.R.attr.borderlessButtonStyle);
         button.setText(label);
         button.setTextColor(androidx.core.content.ContextCompat.getColor(getContext(), R.color.on_surface));
-        button.setTextSize(16);
+        button.setTextAppearance(getContext(), R.style.TextAppearance_Nightjar_Body);
         button.setAllCaps(false);
         button.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
         button.setMinHeight(spacing * 7);

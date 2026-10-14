@@ -524,7 +524,7 @@ public final class HostStreamSettings extends AppCompatActivity {
             MaterialCheckBox allPcs = sameAsAll(form, getString(R.string.upscaling_sharpness_value,
                     activity.global.upscalingSharpness), activity.overrides.upscalingSharpness == null, slider);
             value.setText(getString(R.string.upscaling_sharpness_value, config.upscalingSharpness));
-            value.setTextSize(24);
+            value.setTextAppearance(activity, R.style.TextAppearance_Nightjar_ScreenTitle);
             form.addView(value);
             slider.setContentDescription(getString(R.string.title_upscaling_sharpness));
             slider.setValueFrom(0);

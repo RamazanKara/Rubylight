@@ -6,9 +6,9 @@
         <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
             android:orientation="vertical" android:layout_marginEnd="8dp">
             <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:text="@string/stream_presets" android:textAppearance="?attr/textAppearanceTitleMedium" />
+                android:text="@string/stream_presets" android:textAppearance="@style/TextAppearance.Nightjar.Title" />
             <TextView android:id="@+id/preset_value" android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:layout_marginTop="4dp" android:textAppearance="?attr/textAppearanceBodyMedium" android:textColor="@color/accent" />
+                android:layout_marginTop="4dp" android:textAppearance="@style/TextAppearance.Nightjar.Supporting" android:textColor="@color/accent" />
         </LinearLayout>
         <ImageButton android:id="@+id/preset_help" style="@style/ToolbarIcon"
             android:src="@drawable/ic_help" android:contentDescription="@string/stream_presets_help_title" />

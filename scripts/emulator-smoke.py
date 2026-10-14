@@ -74,8 +74,8 @@ def set_rotation(rotation):
 def tree():
     for attempt in range(5):
         try:
-            adb("shell", "uiautomator", "dump", "/sdcard/butterpollo-smoke.xml")
-            return ET.fromstring(adb("shell", "cat", "/sdcard/butterpollo-smoke.xml"))
+            adb("shell", "uiautomator", "dump", "/sdcard/nightjar-smoke.xml")
+            return ET.fromstring(adb("shell", "cat", "/sdcard/nightjar-smoke.xml"))
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired, ET.ParseError):
             if attempt == 4:
                 raise
@@ -290,7 +290,7 @@ def screenshot(name):
 
 
 def frontend_entry(name, contents):
-    entry = LOGS / f"butterpollo-smoke-{name}.art"
+    entry = LOGS / f"nightjar-smoke-{name}.art"
     entry.write_text(contents, encoding="utf-8", newline="\n")
     remote = f"/sdcard/Download/{entry.name}"
     adb("push", str(entry), remote)
@@ -526,8 +526,8 @@ def main():
     parser.add_argument("--apk", type=Path,
                         default=ROOT / "app/build/outputs/apk/nonRoot/debug/app-nonRoot-debug.apk",
                         help="APK to install; defaults to the nonRoot debug build")
-    parser.add_argument("--avd", default=os.environ.get("RUBYLIGHT_AVD", "sunset"),
-                        help="Existing rootable AVD name (default: RUBYLIGHT_AVD or sunset)")
+    parser.add_argument("--avd", default=os.environ.get("NIGHTJAR_AVD", "sunset"),
+                        help="Existing rootable AVD name (default: NIGHTJAR_AVD or sunset)")
     parser.add_argument("--port", type=int, default=5554,
                         help="Even emulator console port from 5554 to 5682")
     parser.add_argument("--output-dir", type=Path,
@@ -565,11 +565,11 @@ def main():
     with LOGS.joinpath("emulator.log").open("w") as log:
         process = subprocess.Popen([str(EMULATOR), "-avd", args.avd, "-read-only",
                                     "-no-snapshot", "-no-window", "-no-audio", "-no-boot-anim",
-                                    "-gpu", os.environ.get("BUTTERPOLLO_EMULATOR_GPU", "swiftshader"), "-cores", "2", "-memory", "4096",
+                                    "-gpu", os.environ.get("NIGHTJAR_EMULATOR_GPU", "swiftshader"), "-cores", "2", "-memory", "4096",
                                     "-port", str(args.port)], stdout=log, stderr=subprocess.STDOUT,
                                    creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
         try:
-            deadline = time.monotonic() + int(os.environ.get("BUTTERPOLLO_BOOT_TIMEOUT", "180"))
+            deadline = time.monotonic() + int(os.environ.get("NIGHTJAR_BOOT_TIMEOUT", "180"))
             while time.monotonic() < deadline:
                 if process.poll() is not None:
                     raise RuntimeError(f"Emulator exited; see {LOGS / 'emulator.log'}")
@@ -838,7 +838,7 @@ def main():
             for name, contents, message, shot in (
                     ("malformed", "This is not a game entry.\n",
                      "Game file unavailable.", "17-frontend-malformed"),
-                    ("unknown-host", "# Rubylight game entry\n"
+                    ("unknown-host", "# Nightjar game entry\n"
                      "[host_uuid] 00000000-0000-4000-8000-000000000007\n"
                      "[host_name] Unknown smoke PC\n[app_uuid] 00000000-0000-4000-8000-000000000008\n"
                      "[app_name] Smoke game\n[app_id] 123\n", "PC not found", "18-frontend-unknown-host")):

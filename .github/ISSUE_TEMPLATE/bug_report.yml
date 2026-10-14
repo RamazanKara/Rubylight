@@ -6,8 +6,8 @@ body:
   - type: markdown
     attributes:
       value: |
-        Please check the Rubylight troubleshooting guide first:
-        https://github.com/RamazanKara/rubylight-android/blob/main/docs/TROUBLESHOOTING.md
+        Please check the Nightjar troubleshooting guide first:
+        https://github.com/RamazanKara/nightjar-android/blob/main/docs/TROUBLESHOOTING.md
 
         Include the exact Android app and host versions, not just "latest".
         For pairing or discovery failures, choose "Not applicable" for gamepad questions.
@@ -15,7 +15,7 @@ body:
   - type: input
     id: client-version
     attributes:
-      label: Rubylight Android version
+      label: Nightjar version
       description: Find the version in Settings → About. Include whether this is a release or debug build.
       placeholder: e.g. 0.4.5 (322), release APK
     validations:
@@ -70,7 +70,7 @@ body:
   - type: dropdown
     id: settings-adjusted
     attributes:
-      label: Rubylight adjusted settings
+      label: Adjusted settings
       description: Have any settings been adjusted from defaults?
       options:
         - "Yes"
@@ -87,7 +87,7 @@ body:
   - type: dropdown
     id: settings-default
     attributes:
-      label: Rubylight default settings
+      label: Default settings
       description: Does the problem still occur after reverting settings back to default?
       options:
         - "Not tested"
@@ -110,7 +110,7 @@ body:
     id: gamepad-on-screen
     attributes:
       label: Gamepad-related input issue
-      description: If gamepad input is not working, does it work with Rubylight's on-screen controls?
+      description: If gamepad input is not working, does it work with Nightjar's on-screen controls?
       options:
         - "Not applicable"
         - "Not tested"
@@ -124,7 +124,7 @@ body:
       label: Gamepad-related streaming issue
       description: |
         Does the problem still remain if you stream the desktop and use https://html5gamepad.com to test your gamepad? 
-        Add Desktop to your host's application list, then launch it from Rubylight.
+        Add Desktop to your host's application list, then launch it from Nightjar.
       options:
         - "Not applicable"
         - "Not tested"
@@ -160,8 +160,8 @@ body:
     id: server-geforce
     attributes:
       label: Host software and version
-      description: Include the host name and exact version (Rubylight, Sunshine, Apollo or GeForce Experience).
-      placeholder: e.g. Rubylight 2.2.5
+      description: Include the host name and exact version (e.g. Apollo, GeForce Experience, Rubylight, Sunshine or Vibepollo).
+      placeholder: e.g. Sunshine 2025.x, Apollo, Vibepollo, Rubylight 2.2.x
     validations:
       required: true
   - type: input

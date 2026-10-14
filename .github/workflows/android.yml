@@ -56,7 +56,7 @@ jobs:
         run: |
           keytool -genkeypair -keystore "$RUNNER_TEMP/validation.p12" -storetype PKCS12 \
             -alias validation -keyalg RSA -keysize 3072 -validity 2 \
-            -dname 'CN=Rubylight CI validation' -storepass validation -keypass validation
+            -dname 'CN=Nightjar CI validation' -storepass validation -keypass validation
           echo "BP_KEYSTORE=$RUNNER_TEMP/validation.p12" >> "$GITHUB_ENV"
           echo 'BP_KEYSTORE_PASSWORD=validation' >> "$GITHUB_ENV"
           echo 'BP_KEY_ALIAS=validation' >> "$GITHUB_ENV"
@@ -72,7 +72,7 @@ jobs:
           bash scripts/test-native.sh
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
-          name: butterpollo-debug
+          name: nightjar-debug
           path: app/build/outputs/apk/nonRoot/debug/app-nonRoot-debug.apk
           if-no-files-found: error
       - name: Emulator smoke test
@@ -89,20 +89,20 @@ jobs:
           echo no | "$ANDROID_HOME/cmdline-tools/latest/bin/avdmanager" create avd -n sunset -k "$image" -d pixel_6
           pip install --quiet pillow
           status=0
-          BUTTERPOLLO_EMULATOR_GPU=swiftshader_indirect BUTTERPOLLO_BOOT_TIMEOUT=420 python3 scripts/emulator-smoke.py > smoke.out 2>&1 || status=$?
+          NIGHTJAR_EMULATOR_GPU=swiftshader_indirect NIGHTJAR_BOOT_TIMEOUT=420 python3 scripts/emulator-smoke.py > smoke.out 2>&1 || status=$?
           cat smoke.out
           if [ "$status" != 0 ]; then
             tail -n 12 smoke.out | cut -c1-2000 | sed -e 's/%/%25/g' -e 's/^/::error title=smoke::/'
             grep -E 'ERROR|FATAL' app/build/emulator-smoke/emulator.log | tail -n 5
             exit 1
           fi
-          BUTTERPOLLO_EMULATOR_GPU=swiftshader_indirect BUTTERPOLLO_BOOT_TIMEOUT=420 \
+          NIGHTJAR_EMULATOR_GPU=swiftshader_indirect NIGHTJAR_BOOT_TIMEOUT=420 \
             python3 scripts/emulator-smoke.py --apk app/build/outputs/apk/nonRoot/release/app-nonRoot-release.apk
       - name: Build arm64 test APK
         if: inputs.prerelease_tag
         run: |
           bash gradlew --no-daemon --max-workers=2 -PabiFilters=arm64-v8a :app:assembleNonRootDebug
-          cp app/build/outputs/apk/nonRoot/debug/app-nonRoot-debug.apk butterpollo-arm64-debug.apk
+          cp app/build/outputs/apk/nonRoot/debug/app-nonRoot-debug.apk nightjar-arm64-debug.apk
       - name: Publish pre-release
         if: inputs.prerelease_tag
         env:
@@ -111,15 +111,15 @@ jobs:
           NOTES: ${{ inputs.release_notes }}
         run: |
           zip -qj smoke-screenshots.zip docs/screenshots/*.png
-          gh release create "$TAG" butterpollo-arm64-debug.apk smoke-screenshots.zip \
+          gh release create "$TAG" nightjar-arm64-debug.apk smoke-screenshots.zip \
             --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease --latest=false --title "$TAG" \
             --notes "${NOTES:-Debug-signed arm64 test build from $GITHUB_SHA. Uninstall builds signed by another CI run first.}"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         if: always() && inputs.prerelease_tag
         with:
-          name: butterpollo-device-test
+          name: nightjar-device-test
           path: |
-            butterpollo-arm64-debug.apk
+            nightjar-arm64-debug.apk
             docs/screenshots/
             app/build/emulator-smoke/
           if-no-files-found: warn

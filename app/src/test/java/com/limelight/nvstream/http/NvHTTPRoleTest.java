@@ -273,18 +273,32 @@ public class NvHTTPRoleTest {
         client.setAccessible(true);
         AtomicInteger requests = new AtomicInteger();
         for (NvApp.Role role : new NvApp.Role[] {NvApp.Role.REMOTE_MONITOR, NvApp.Role.INPUT_ONLY}) {
-            String xml = fixture(role == NvApp.Role.REMOTE_MONITOR ? "monitor-disconnected" : "input-disconnected");
-            client.set(http, new OkHttpClient.Builder().addInterceptor(chain -> {
-                requests.incrementAndGet();
-                assertEquals("/launch", chain.request().url().encodedPath());
-                assertEquals(role == NvApp.Role.REMOTE_MONITOR ? "2147483502" : "2147483503",
-                        chain.request().url().queryParameter("appid"));
-                return new Response.Builder().request(chain.request()).protocol(Protocol.HTTP_1_1)
-                        .code(200).message("OK").body(ResponseBody.create(xml, MediaType.get("application/xml"))).build();
-            }).build());
-            assertTrue(http.disconnectRole(role));
+            boolean monitor = role == NvApp.Role.REMOTE_MONITOR;
+            // Rubylight's reply, then Vibepollo's.
+            for (String xml : new String[] {fixture(monitor ? "monitor-disconnected" : "input-disconnected"),
+                    completion(monitor ? "Remote Monitor disconnected successfully." :
+                            "Remote Input disconnected successfully.", true)}) {
+                client.set(http, new OkHttpClient.Builder().addInterceptor(chain -> {
+                    requests.incrementAndGet();
+                    assertEquals("/launch", chain.request().url().encodedPath());
+                    assertEquals(monitor ? "2147483502" : "2147483503", chain.request().url().queryParameter("appid"));
+                    return new Response.Builder().request(chain.request()).protocol(Protocol.HTTP_1_1)
+                            .code(200).message("OK").body(ResponseBody.create(xml, MediaType.get("application/xml"))).build();
+                }).build());
+                assertTrue(xml, http.disconnectRole(role));
+            }
         }
         assertThrows(IllegalArgumentException.class, () -> http.disconnectRole(NvApp.Role.STREAM));
-        assertEquals(2, requests.get());
+        assertEquals(4, requests.get());
+    }
+
+    /**
+     * A 410 completion as Vibepollo writes it for its control tiles (nvhttp.cpp launch(),
+     * remote_session.cpp successful_control_completion()), or as Apollo and Vibepollo write it for
+     * Apollo's Terminate app, without the gamesession element.
+     */
+    public static String completion(String message, boolean gameSession) {
+        return "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<root status_code=\"410\" status_message=\"" + message +
+                "\"><resume>0</resume>" + (gameSession ? "<gamesession>0</gamesession>" : "") + "</root>";
     }
 }

@@ -198,6 +198,23 @@ public class NvConnectionRoleTest {
     }
 
     @Test
+    public void vibepolloTerminationFromEitherTileCompletesAfterConfirmation() throws Exception {
+        // Vibepollo asks a secondary client to confirm with Rubylight's words, then reports its own.
+        HostHttpResponseException done = new HostHttpResponseException(410,
+                "Active stream terminated. Remote Monitor and Remote Input remain connected.");
+        for (int id : new int[] {2147483504, 2147483514}) {
+            AtomicInteger requests = new AtomicInteger();
+            AtomicInteger completed = new AtomicInteger();
+            ConnectionContext context = context(id, request -> request.confirm(LaunchConfirmation.nowMs()), completed);
+            assertFalse(NvConnection.launchApp(http(context, "launch", requests,
+                    NvHTTPRoleTest.error("terminate-confirm"), done), context, "launch"));
+            assertEquals(2, requests.get());
+            assertEquals(1, completed.get());
+            assertTrue(context.launchActionCompleted);
+        }
+    }
+
+    @Test
     public void disconnect410CompletesWithoutPromptOrRetry() throws Exception {
         AtomicInteger requests = new AtomicInteger();
         AtomicInteger completed = new AtomicInteger();

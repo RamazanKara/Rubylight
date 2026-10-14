@@ -25,16 +25,38 @@ public final class LaunchConfirmation {
         if (error.getErrorCode() != 410) {
             return false;
         }
+        // Rubylight's wording first (rust/host/src/nvhttp.rs), then Vibepollo's control tiles
+        // (remote_session.cpp successful_control_completion), then Apollo's Terminate app, which
+        // Vibepollo also still serves (nvhttp.cpp launch).
         switch (app.getControl()) {
             case DISCONNECT_MONITOR:
-                return "Remote monitor disconnected".equals(error.getErrorMessage());
+                return reports(error, "Remote monitor disconnected", "Remote Monitor disconnected successfully");
             case DISCONNECT_INPUT:
-                return "Remote input disconnected".equals(error.getErrorMessage());
+                return reports(error, "Remote input disconnected", "Remote Input disconnected successfully");
             case TERMINATE:
-                return "Application terminated".equals(error.getErrorMessage());
+                return reports(error, "Application terminated",
+                        "Active stream terminated. Remote Monitor and Remote Input remain connected", "App terminated");
             default:
                 return false;
         }
+    }
+
+    /** Whether the host's message is one of these, apart from case and a closing period. */
+    private static boolean reports(HostHttpResponseException error, String... messages) {
+        String message = error.getErrorMessage();
+        if (message == null) {
+            return false;
+        }
+        message = message.trim();
+        if (message.endsWith(".")) {
+            message = message.substring(0, message.length() - 1);
+        }
+        for (String known : messages) {
+            if (known.equalsIgnoreCase(message)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public static long nowMs() {

@@ -137,7 +137,8 @@ import java.util.Map;
 public class Game extends Activity implements SurfaceHolder.Callback, TextureView.SurfaceTextureListener,
         OnGenericMotionListener, OnTouchListener, NvConnectionListener, EvdevListener,
         OnSystemUiVisibilityChangeListener, GameGestures, StreamView.InputCallbacks,
-        PerfOverlayListener, UsbDriverService.UsbDriverStateListener, View.OnKeyListener {
+        PerfOverlayListener, UsbDriverService.UsbDriverStateListener, View.OnKeyListener,
+        com.limelight.ui.StreamWindow {
     private int lastButtonState = 0;
     private final MouseDeltaAccumulator mouseDeltaX = new MouseDeltaAccumulator();
     private final MouseDeltaAccumulator mouseDeltaY = new MouseDeltaAccumulator();
@@ -1362,10 +1363,28 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             }
         }
 
-        return false;
+        // The panel as the window manager reports it right now, for devices whose mode list
+        // describes a different (or scaled) size than the screen the stream fills.
+        android.graphics.Point real = new android.graphics.Point();
+        getWindowManager().getDefaultDisplay().getRealSize(real);
+        return (width == real.x && height == real.y) || (width == real.y && height == real.x);
+    }
+
+    @Override
+    public boolean isWindowedStream() {
+        return Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && isInMultiWindowMode() && !windowCoversDisplay();
+    }
+
+    /** A free-form or pop-up window maximised to the whole display reports multi-window mode too. */
+    protected boolean windowCoversDisplay() {
+        androidx.window.layout.WindowMetricsCalculator calculator =
+                androidx.window.layout.WindowMetricsCalculator.getOrCreate();
+        return calculator.computeCurrentWindowMetrics(this).getBounds()
+                .equals(calculator.computeMaximumWindowMetrics(this).getBounds());
     }
 
     /** Fullscreen native/fill video uses the complete panel; fixed presets retain a cutout-safe area. */
+    @Override
     public boolean usesFullDisplayForVideo() {
         // nativeResolutionStream also includes custom sizes and the explicit cutout-safe
         // Native entry. Only the user's fill/follow choice or an exact panel size spans a notch.
@@ -1600,7 +1619,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 // Keep one edge-to-edge coordinate space. AdaptiveLayout applies the
                 // visible system-bar insets while windowed; fitting here as well would
                 // subtract them twice, particularly after leaving fullscreen on API 29.
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && isInMultiWindowMode()) {
+                if (isWindowedStream()) {
                     Game.this.getWindow().getDecorView().setSystemUiVisibility(
                             View.SYSTEM_UI_FLAG_LAYOUT_STABLE |
                             View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION |

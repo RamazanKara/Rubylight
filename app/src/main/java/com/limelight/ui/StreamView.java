@@ -128,13 +128,15 @@ public class StreamView extends FrameLayout {
         int widthSize = MeasureSpec.getSize(widthMeasureSpec);
         int heightSize = MeasureSpec.getSize(heightMeasureSpec);
 
+        // Round, never truncate, and never exceed the space: a stream of the panel's exact size
+        // (2184 / 1968 is not exact in floating point) must fill it rather than leave a 1 px line.
         int measuredHeight, measuredWidth;
         if (widthSize > heightSize * desiredAspectRatio) {
             measuredHeight = heightSize;
-            measuredWidth = (int)(measuredHeight * desiredAspectRatio);
+            measuredWidth = Math.min(widthSize, (int) Math.round(measuredHeight * desiredAspectRatio));
         } else {
             measuredWidth = widthSize;
-            measuredHeight = (int)(measuredWidth / desiredAspectRatio);
+            measuredHeight = Math.min(heightSize, (int) Math.round(measuredWidth / desiredAspectRatio));
         }
 
         super.onMeasure(MeasureSpec.makeMeasureSpec(measuredWidth, MeasureSpec.EXACTLY),

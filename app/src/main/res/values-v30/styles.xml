@@ -1,0 +1,10 @@
+<resources>
+
+    <!-- As values-v28; ALWAYS also covers a cutout on a long edge, such as a foldable's inner camera
+         in landscape. -->
+    <style name="StreamTheme" parent="Theme.Nightjar.Stream">
+        <item name="android:windowBackground">@android:color/black</item>
+        <item name="android:windowLayoutInDisplayCutoutMode">always</item>
+    </style>
+
+</resources>

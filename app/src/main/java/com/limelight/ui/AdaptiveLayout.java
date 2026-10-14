@@ -24,7 +24,6 @@ import androidx.window.layout.WindowInfoTracker;
 import androidx.window.layout.WindowLayoutInfo;
 
 import com.limelight.R;
-import com.limelight.Game;
 
 public final class AdaptiveLayout {
     private final Activity activity;
@@ -41,7 +40,7 @@ public final class AdaptiveLayout {
         this.activity = activity;
         this.root = root;
         this.handleSystemInsets = handleSystemInsets;
-        streaming = activity instanceof Game && root == activity.findViewById(android.R.id.content);
+        streaming = activity instanceof StreamWindow && root == activity.findViewById(android.R.id.content);
         tracker = new WindowInfoTrackerCallbackAdapter(
                 WindowInfoTracker.getOrCreate(activity));
         listener = info -> {
@@ -49,6 +48,9 @@ public final class AdaptiveLayout {
             for (DisplayFeature feature : info.getDisplayFeatures()) {
                 if (feature instanceof FoldingFeature) {
                     FoldingFeature candidate = (FoldingFeature) feature;
+                    // A flat panel is one screen for video: only a half-opened fold may move the stream
+                    // to one side, so a fold reported as occluding while flat never splits or shrinks it.
+                    if (streaming && candidate.getState() == FoldingFeature.State.FLAT) continue;
                     if (candidate.isSeparating() || candidate.getOcclusionType() == FoldingFeature.OcclusionType.FULL) {
                         fold = candidate;
                         break;
@@ -139,12 +141,12 @@ public final class AdaptiveLayout {
         } else if (!streaming) {
             types = WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout() |
                     WindowInsetsCompat.Type.ime();
-        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && activity.isInMultiWindowMode()) {
+        } else if (((StreamWindow) activity).isWindowedStream()) {
             types = WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout();
         } else {
             // Transient bars overlay fullscreen video instead of resizing its aspect-ratio box.
             // Native/fill video extends beneath the cutout after either landscape rotation.
-            types = ((Game) activity).usesFullDisplayForVideo() ? 0 : WindowInsetsCompat.Type.displayCutout();
+            types = ((StreamWindow) activity).usesFullDisplayForVideo() ? 0 : WindowInsetsCompat.Type.displayCutout();
         }
         Insets insets = windowInsets.getInsets(types);
         if (!handleSystemInsets) {

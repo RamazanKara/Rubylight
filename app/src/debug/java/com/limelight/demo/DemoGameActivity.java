@@ -28,11 +28,14 @@ import com.limelight.binding.input.virtual_controller.VirtualController;
 import com.limelight.binding.video.PerfOverlayListener;
 import com.limelight.binding.video.PerformanceOverlay;
 import com.limelight.ui.ActionSheet;
+import com.limelight.ui.AdaptiveLayout;
+import com.limelight.ui.StreamWindow;
 import com.limelight.ui.StreamView;
 
 import java.io.IOException;
 
-public final class DemoGameActivity extends Activity implements SurfaceHolder.Callback, PerfOverlayListener {
+public final class DemoGameActivity extends Activity implements SurfaceHolder.Callback, PerfOverlayListener,
+        StreamWindow {
     static volatile boolean forceH264;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private StreamView stream;
@@ -43,6 +46,7 @@ public final class DemoGameActivity extends Activity implements SurfaceHolder.Ca
     private int position;
     private long tick;
     private ActionSheet menu;
+    private String fit;
     private final Runnable metrics = new Runnable() {
         @Override public void run() {
             DemoMetrics.update(DemoGameActivity.this, DemoGameActivity.this, tick++);
@@ -66,7 +70,17 @@ public final class DemoGameActivity extends Activity implements SurfaceHolder.Ca
         showControls = state == null ? "touch".equals(getIntent().getStringExtra("state")) : state.getBoolean("controls");
         position = state == null ? 0 : state.getInt("position");
         stream = findViewById(R.id.surfaceView);
-        stream.setDesiredAspectRatio(16.0 / 9.0);
+        // "--es fit stretch" fills the panel, "--es fit safe" keeps the cutout-safe area like the
+        // inset-excluded Native preset; the default is a native full-panel stream.
+        fit = getIntent().getStringExtra("fit");
+        stream.setDesiredAspectRatio("stretch".equals(fit) ? 0 : 16.0 / 9.0);
+        // The same window setup and safe-area handling as Game, so cutout and fold layouts can be checked here.
+        androidx.core.view.WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            getWindow().getAttributes().layoutInDisplayCutoutMode =
+                    WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS;
+        }
+        AdaptiveLayout.attach(this, findViewById(android.R.id.content));
         stream.initializeSurface(false);
         stream.getHolder().addCallback(this);
         overlay = findViewById(R.id.performanceOverlay);
@@ -255,8 +269,20 @@ public final class DemoGameActivity extends Activity implements SurfaceHolder.Ca
         if (pip || !showControls) controls.hide(); else controls.show();
     }
 
+    @Override public boolean usesFullDisplayForVideo() {
+        return !"safe".equals(fit);
+    }
+
+    @Override public boolean isWindowedStream() {
+        androidx.window.layout.WindowMetricsCalculator metrics = androidx.window.layout.WindowMetricsCalculator.getOrCreate();
+        return Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && isInMultiWindowMode() &&
+                !metrics.computeCurrentWindowMetrics(this).getBounds()
+                .equals(metrics.computeMaximumWindowMetrics(this).getBounds());
+    }
+
     @Override public void onConfigurationChanged(Configuration configuration) {
         super.onConfigurationChanged(configuration);
+        androidx.core.view.ViewCompat.requestApplyInsets(findViewById(android.R.id.content));
         placeOverlay();
         controls.refreshLayout();
         if (showControls && (Build.VERSION.SDK_INT < Build.VERSION_CODES.N || !isInPictureInPictureMode())) controls.show();

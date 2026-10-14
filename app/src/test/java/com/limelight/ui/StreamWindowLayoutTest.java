@@ -29,7 +29,185 @@ import static org.junit.Assert.*;
 public class StreamWindowLayoutTest {
     public static class WindowedGame extends Game {
         boolean windowed;
+        boolean coversDisplay;
         @Override public boolean isInMultiWindowMode() { return windowed; }
+        @Override protected boolean windowCoversDisplay() { return coversDisplay; }
+    }
+
+    // Galaxy Z Fold 7 inner screen in landscape: 2184x1968, punch-hole camera on a long edge.
+    private static final int FOLD_WIDTH = 2184;
+    private static final int FOLD_HEIGHT = 1968;
+    private static final int FOLD_CUTOUT = 54;
+
+    private static Game foldStream(boolean followScreen, boolean stretch, int width, int height) {
+        Game game = game(followScreen);
+        PreferenceConfiguration preferences = ReflectionHelpers.getField(game, "prefConfig");
+        preferences.width = width;
+        preferences.height = height;
+        preferences.stretchVideo = stretch;
+        return game;
+    }
+
+    /** Lays out the stream like activity_game.xml and returns the video view. */
+    private static StreamView layOutStream(Game game, View root, Insets cutout, boolean stretch) {
+        PreferenceConfiguration preferences = ReflectionHelpers.getField(game, "prefConfig");
+        FrameLayout content = (FrameLayout) root;
+        content.removeAllViews();
+        View background = new View(game);
+        StreamView video = new StreamView(game);
+        if (!stretch) video.setDesiredAspectRatio((double) preferences.width / preferences.height);
+        content.addView(background, new FrameLayout.LayoutParams(-1, -1, android.view.Gravity.CENTER));
+        content.addView(video, new FrameLayout.LayoutParams(-1, -1, android.view.Gravity.CENTER));
+        ReflectionHelpers.setField(game, "streamView", video);
+        ViewCompat.dispatchApplyWindowInsets(root, new WindowInsetsCompat.Builder()
+                .setInsets(WindowInsetsCompat.Type.displayCutout(), cutout).build());
+        root.forceLayout();
+        root.measure(View.MeasureSpec.makeMeasureSpec(FOLD_WIDTH, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(FOLD_HEIGHT, View.MeasureSpec.EXACTLY));
+        root.layout(0, 0, FOLD_WIDTH, FOLD_HEIGHT);
+        return video;
+    }
+
+    private static float[] touch(Game game, View view, float x, float y) {
+        android.view.MotionEvent event = android.view.MotionEvent.obtain(0, 0, android.view.MotionEvent.ACTION_DOWN, x, y, 0);
+        try {
+            return ReflectionHelpers.callInstanceMethod(game, "getStreamViewRelativeNormalizedXY",
+                    ReflectionHelpers.ClassParameter.from(View.class, view),
+                    ReflectionHelpers.ClassParameter.from(android.view.MotionEvent.class, event),
+                    ReflectionHelpers.ClassParameter.from(int.class, 0));
+        } finally {
+            event.recycle();
+        }
+    }
+
+    @Test
+    public void fullPanelStreamsSpanTheFoldInnerScreenWithTheCutoutOnEitherLongEdge() {
+        // Follow-screen, the exact native size and a stretched stream all use the strip beside the camera.
+        boolean[][] streams = {{true, false}, {false, false}, {false, true}};
+        for (boolean[] stream : streams) {
+            boolean follow = stream[0];
+            boolean stretch = stream[1];
+            Game game = foldStream(follow, stretch, FOLD_WIDTH, FOLD_HEIGHT);
+            if (!follow && !stretch) useFoldPanelMode(game);
+            View root = root(game);
+            for (Insets cutout : new Insets[] {Insets.of(0, 0, FOLD_CUTOUT, 0), Insets.of(FOLD_CUTOUT, 0, 0, 0),
+                    Insets.of(0, 0, FOLD_CUTOUT, 0)}) {
+                StreamView video = layOutStream(game, root, cutout, stretch);
+                String label = "follow=" + follow + " stretch=" + stretch + " cutout=" + cutout;
+                assertTrue(label, game.usesFullDisplayForVideo());
+                assertPadding(root, 0, 0, 0, 0);
+                assertEquals(label, 0, video.getLeft());
+                assertEquals(label, FOLD_WIDTH, video.getRight());
+                assertEquals(label, FOLD_HEIGHT, video.getHeight());
+                // A touch at the right edge of the panel, over the camera, is the right edge of the stream.
+                assertEquals(label, 1f, touch(game, video, FOLD_WIDTH, 0)[0], 0.001f);
+            }
+        }
+    }
+
+    private static void useFoldPanelMode(Game game) {
+        Display display = game.getWindowManager().getDefaultDisplay();
+        Display.Mode panel = ReflectionHelpers.callConstructor(Display.Mode.class,
+                ReflectionHelpers.ClassParameter.from(int.class, display.getMode().getModeId()),
+                ReflectionHelpers.ClassParameter.from(int.class, FOLD_HEIGHT),
+                ReflectionHelpers.ClassParameter.from(int.class, FOLD_WIDTH),
+                ReflectionHelpers.ClassParameter.from(float.class, 120f));
+        ShadowDisplayManager.setSupportedModes(display.getDisplayId(), panel);
+    }
+
+    @Test
+    public void exactNativeSizeCountsAsFullPanelEvenWhenTheModeListDisagrees() {
+        Game game = foldStream(false, false, 2400, 1080);
+        Display display = game.getWindowManager().getDefaultDisplay();
+        android.graphics.Point real = new android.graphics.Point();
+        display.getRealSize(real);
+        PreferenceConfiguration preferences = ReflectionHelpers.getField(game, "prefConfig");
+        preferences.width = Math.max(real.x, real.y);
+        preferences.height = Math.min(real.x, real.y);
+        Display.Mode[] original = display.getSupportedModes();
+        try {
+            Display.Mode scaled = ReflectionHelpers.callConstructor(Display.Mode.class,
+                    ReflectionHelpers.ClassParameter.from(int.class, display.getMode().getModeId()),
+                    ReflectionHelpers.ClassParameter.from(int.class, 7),
+                    ReflectionHelpers.ClassParameter.from(int.class, 7),
+                    ReflectionHelpers.ClassParameter.from(float.class, 60f));
+            ShadowDisplayManager.setSupportedModes(display.getDisplayId(), scaled);
+            assertTrue(game.usesFullDisplayForVideo());
+        } finally {
+            ShadowDisplayManager.setSupportedModes(display.getDisplayId(), original);
+        }
+    }
+
+    @Test
+    public void cutoutSafeNativeKeepsTheStripBesideTheCameraAfterEitherRotation() {
+        int safeWidth = FOLD_WIDTH - FOLD_CUTOUT;
+        Game game = foldStream(false, false, safeWidth, FOLD_HEIGHT);
+        View root = root(game);
+        StreamView video = layOutStream(game, root, Insets.of(0, 0, FOLD_CUTOUT, 0), false);
+        assertFalse(game.usesFullDisplayForVideo());
+        assertPadding(root, 0, 0, FOLD_CUTOUT, 0);
+        assertEquals(safeWidth, video.getRight());
+        // A touch in the strip is clamped to the right edge of the stream.
+        assertEquals(1f, touch(game, root, FOLD_WIDTH - 10, 10)[0], 0.001f);
+        video = layOutStream(game, root, Insets.of(FOLD_CUTOUT, 0, 0, 0), false);
+        assertPadding(root, FOLD_CUTOUT, 0, 0, 0);
+        assertEquals(FOLD_CUTOUT, video.getLeft());
+        // After the other rotation the stream starts after the strip, and touches follow it.
+        assertEquals(0f, touch(game, root, FOLD_CUTOUT, 10)[0], 0.001f);
+        assertEquals(0.5f, touch(game, root, FOLD_CUTOUT + safeWidth / 2f, 10)[0], 0.001f);
+    }
+
+    @Test
+    public void aMultiWindowStreamThatCoversTheDisplayKeepsTheWholePanel() {
+        // A pop-up or free-form window maximised over the display still reports multi-window mode.
+        WindowedGame game = Robolectric.buildActivity(WindowedGame.class).get();
+        PreferenceConfiguration preferences = new PreferenceConfiguration();
+        preferences.resolutionFollowsScreen = true;
+        preferences.width = FOLD_WIDTH;
+        preferences.height = FOLD_HEIGHT;
+        ReflectionHelpers.setField(game, "prefConfig", preferences);
+        game.windowed = true;
+        game.coversDisplay = true;
+        View root = root(game);
+        layOutStream(game, root, Insets.of(0, 0, FOLD_CUTOUT, 0), false);
+        assertFalse(game.isWindowedStream());
+        assertPadding(root, 0, 0, 0, 0);
+        game.coversDisplay = false;
+        assertTrue(game.isWindowedStream());
+        applyInsets(root, Insets.of(0, 0, FOLD_CUTOUT, 0));
+        assertPadding(root, 0, 24, FOLD_CUTOUT, 48);
+    }
+
+    @Test
+    public void aFlatFoldNeverSplitsOrShrinksTheStream() {
+        Game game = foldStream(true, false, FOLD_WIDTH, FOLD_HEIGHT);
+        View root = root(game);
+        StreamView video = layOutStream(game, root, Insets.NONE, false);
+        androidx.core.util.Consumer<androidx.window.layout.WindowLayoutInfo> listener =
+                ReflectionHelpers.getField(root.getTag(com.limelight.R.id.adaptive_layout), "listener");
+        listener.accept(new androidx.window.layout.WindowLayoutInfo(java.util.Collections.singletonList(
+                fold(androidx.window.layout.FoldingFeature.State.FLAT,
+                        androidx.window.layout.FoldingFeature.OcclusionType.FULL, false))));
+        assertPadding(root, 0, 0, 0, 0);
+        assertEquals(FOLD_WIDTH, video.getWidth());
+        // Half-opened like a book, the stream may still move to one side of the hinge.
+        listener.accept(new androidx.window.layout.WindowLayoutInfo(java.util.Collections.singletonList(
+                fold(androidx.window.layout.FoldingFeature.State.HALF_OPENED,
+                        androidx.window.layout.FoldingFeature.OcclusionType.NONE, true))));
+        assertTrue(root.getPaddingLeft() + root.getPaddingRight() > 0);
+    }
+
+    private static androidx.window.layout.FoldingFeature fold(androidx.window.layout.FoldingFeature.State state,
+            androidx.window.layout.FoldingFeature.OcclusionType occlusion, boolean separating) {
+        return new androidx.window.layout.FoldingFeature() {
+            @Override public android.graphics.Rect getBounds() {
+                return new android.graphics.Rect(FOLD_WIDTH / 2, 0, FOLD_WIDTH / 2, FOLD_HEIGHT);
+            }
+            @Override public boolean isSeparating() { return separating; }
+            @Override public State getState() { return state; }
+            @Override public Orientation getOrientation() { return Orientation.VERTICAL; }
+            @Override public OcclusionType getOcclusionType() { return occlusion; }
+        };
     }
 
     @Test

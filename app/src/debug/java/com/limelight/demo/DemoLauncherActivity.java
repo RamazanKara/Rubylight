@@ -42,7 +42,7 @@ public final class DemoLauncherActivity extends Activity {
                 "touch".equals(screen) || "pip".equals(screen)) target = DemoGameActivity.class;
         else target = DemoPcView.class;
         DemoGameActivity.forceH264 = "h264".equals(getIntent().getStringExtra("codec"));
-        Intent intent = new Intent(this, target).putExtra("state", screen)
+        Intent intent = new Intent(this, target).putExtra("state", screen).putExtra("fit", getIntent().getStringExtra("fit"))
                 .putExtra(AppView.UUID_EXTRA, DemoFixtures.PC_UUID).putExtra(AppView.NAME_EXTRA, "Living-room PC");
         startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK));
         finish();

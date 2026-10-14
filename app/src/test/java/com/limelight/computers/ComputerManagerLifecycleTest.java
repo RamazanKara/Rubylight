@@ -75,7 +75,8 @@ public class ComputerManagerLifecycleTest {
         ComputerManagerService service = controller.get();
         ComputerDetails computer = new ComputerDetails();
         computer.uuid = "removed-host";
-        String[] files = {"HostStreamProfiles", "HostDisplayChoices", "AdaptiveBitrate", "PyroWaveBitrate"};
+        String[] files = {"HostStreamProfiles", "HostDisplayChoices", "AdaptiveBitrate", "PyroWaveBitrate",
+                HostCapabilityCache.PREFERENCES};
         try {
             for (String file : files) {
                 service.getSharedPreferences(file, 0).edit()
@@ -138,6 +139,28 @@ public class ComputerManagerLifecycleTest {
                     Arrays.asList("PC", "PC"), probes);
         } finally {
             discoveryController.destroy();
+            controller.destroy();
+        }
+    }
+
+    @Test
+    public void offlinePcsKeepTheCapabilitiesTheyLastReported() {
+        android.content.Context context = org.robolectric.RuntimeEnvironment.getApplication();
+        ComputerDetails computer = new ComputerDetails();
+        computer.uuid = "cached-host";
+        computer.name = "Cached";
+        ComputerDatabaseManager database = new ComputerDatabaseManager(context);
+        database.updateComputer(computer);
+        database.close();
+        HostCapabilityCache.save(context, computer.uuid, com.limelight.nvstream.http.TestHosts.fixture("vibepollo-serverinfo.xml"));
+        ServiceController<Manager> controller = Robolectric.buildService(Manager.class).create();
+        try {
+            java.util.List<?> tuples = ReflectionHelpers.getField(controller.get(), "pollingTuples");
+            ComputerDetails restored = ReflectionHelpers.getField(tuples.get(0), "computer");
+            assertEquals(computer.uuid, restored.uuid);
+            assertEquals(com.limelight.nvstream.http.HostCapabilities.Family.VIBEPOLLO, restored.caps.family());
+            assertTrue(restored.caps.has(com.limelight.nvstream.http.HostCapabilities.Feature.VIRTUAL_DISPLAY));
+        } finally {
             controller.destroy();
         }
     }

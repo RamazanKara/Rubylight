@@ -140,6 +140,7 @@ public class ComputerManagerService extends Service {
                 // combine the existing data with this new data (which may be partially available
                 // due to detecting the PC via mDNS) without the saved external address. If we
                 // write to the DB without doing this first, we can overwrite our existing data.
+                HostCapabilityCache.save(this, details.uuid, details.caps);
                 if (existingComputer != null) {
                     existingComputer.update(details);
                     dbManager.updateComputer(existingComputer);
@@ -522,6 +523,7 @@ public class ComputerManagerService extends Service {
             dbManager.deleteComputer(computer);
             HostStreamProfile.reset(this, computer.uuid);
             HostDisplayChoice.save(this, computer.uuid, HostDisplayChoice.HOST_DEFAULT);
+            HostCapabilityCache.forget(this, computer.uuid);
             for (String preferences : new String[] {"AdaptiveBitrate", "PyroWaveBitrate"}) {
                 getSharedPreferences(preferences, MODE_PRIVATE).edit().remove(computer.uuid).apply();
             }
@@ -766,6 +768,8 @@ public class ComputerManagerService extends Service {
         }
 
         for (ComputerDetails computer : dbManager.getAllComputers()) {
+            // Offline PCs keep showing what they last reported
+            computer.caps = HostCapabilityCache.load(this, computer.uuid);
             // Add tuples for each computer
             addTuple(computer);
         }

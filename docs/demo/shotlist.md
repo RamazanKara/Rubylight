@@ -1,4 +1,4 @@
-# RUBYLIGHT demo shotlist
+# Nightjar demo shotlist
 
 Offline fixture tour: **47 seconds at 30 fps**, including a 3-second intro, 39
 seconds of UI and a 5-second outro. Shots are joined with hard cuts: a crossfade
@@ -7,15 +7,15 @@ would double the captions and UI text for a few frames. Only the very start
 and after each shot; the renderer trims those handles. The caller runs the
 capture scripts on a 1080x2400 portrait device.
 
-Brand: the ruby red (#C41242) and white of the README banner, with the banner's
-ruby "R" tile on the intro and outro. Safe areas for the 9:16 cut: captions end
+Brand: the Nightjar amber moon (#F2A93B) on night (#14161F), with the README
+banner's moon-and-nightjar tile on the intro and outro. Safe areas for the 9:16 cut: captions end
 by y=1440 (75% of 1920), the wordmark and headline start below y=290, and no
 text enters the right 120 px.
 
-Intro: **RUBYLIGHT** / **Your games. Your screen. Your stream.**
+Intro: **NIGHTJAR** / **Your games. Your screen. Your stream.**
 
-Outro: **RUBYLIGHT** / **Start your stream.** / **Get RUBYLIGHT** /
-**Download on GitHub** / **github.com/RamazanKara/rubylight-android**
+Outro: **NIGHTJAR** / **Start your stream.** / **Get NIGHTJAR** /
+**Download on GitHub** / **github.com/RamazanKara/nightjar-android**
 
 This table is the scripts' manifest. Keep the column order and IDs; IDs are
 stable, so gaps are expected (the presets and controller-mapping screens were

@@ -1,4 +1,4 @@
-# RUBYLIGHT debug demo
+# Nightjar debug demo
 
 The non-root debug APK includes an offline marketing fixture mode. Package IDs stay
 `com.butterpollo.client` / `com.butterpollo.client.root`. All demo activities,
@@ -119,8 +119,8 @@ landscape/portrait exports, posters, review frames and `sources.json` under
 Stream shots preserve the real 16:9 surface inside the portrait viewport; landscape clips get a landscape phone frame.
 The renderer needs an FFmpeg that supports `-/filter_complex` (FFmpeg 8 and later).
 
-The picture uses the README banner's palette (ruby #C41242 and white) and its ruby "R" tile
-(`scripts/demo/assets/r-tile.png`, cut from the banner by `extract-brand-tile.ps1`), joins shots with hard cuts
+The picture uses the Nightjar palette (amber moon #F2A93B on night #14161F) and the moon-and-nightjar tile
+(`scripts/demo/assets/nightjar-tile.png`, the README banner's mark), joins shots with hard cuts
 (a crossfade would double the captions and UI text for a few frames) and keeps the 9:16 cut inside the usual
 platform safe areas: wordmark and headline below y=290, captions ending by y=1440, no text in the right 120 px.
 It writes `demo-16x9.mp4` (1920x1080) and `demo-9x16.mp4` (1080x1920), posters, eight review frames per video in

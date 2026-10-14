@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 
 function releaseBuild(environment = {}) {
-  const directory = mkdtempSync(join(tmpdir(), 'rubylight-release-'));
+  const directory = mkdtempSync(join(tmpdir(), 'nightjar-release-'));
   try {
     mkdirSync(join(directory, 'scripts'));
     copyFileSync(new URL('./build-release.sh', import.meta.url), join(directory, 'scripts/build-release.sh'));

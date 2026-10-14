@@ -41,7 +41,7 @@ function Capture([int]$Width, [string]$Path, [bool]$Phone) {
     $extra = $(if ($Phone) { $phoneCss } else { '' })
     $html = "<!doctype html><html><head><meta charset='utf-8'><base href='$base'><style>$css$extra</style></head>" +
         "<body><div class='page'><div class='head'>README.md</div><article>$($body -join "`n")</article></div></body></html>"
-    $page = Join-Path ([IO.Path]::GetTempPath()) "rubylight-readme-preview-$Width.html"
+    $page = Join-Path ([IO.Path]::GetTempPath()) "nightjar-readme-preview-$Width.html"
     [IO.File]::WriteAllText($page, $html, (New-Object Text.UTF8Encoding($false)))
     $raw = "$Path.raw.png"
     $window = [Math]::Max($Width, 600)

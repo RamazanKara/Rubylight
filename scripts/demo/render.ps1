@@ -12,13 +12,14 @@ $intro = 3.0
 $outro = 5.0
 $introFade = 0.5
 $outroFade = 0.8
-$repoUrl = 'github.com/RamazanKara/rubylight-android'
-$tilePath = Join-Path $PSScriptRoot 'assets/r-tile.png'
+$repoUrl = 'github.com/RamazanKara/nightjar-android'
+$tilePath = Join-Path $PSScriptRoot 'assets/nightjar-tile.png'
 
-# Palette: the ruby red and white of the README banner (banner tile #C41242, gradient #301522 to #10141D).
-$ruby = '#C41242'
-$white = 'FFFFFF'
-$muted = 'DCC9D0'
+# Palette: the Nightjar brand, an amber moon (#F2A93B) on night (#14161F), as in the README banner.
+$accent = '#F2A93B'
+$night = '#14161F'
+$white = 'F4EFE6'
+$muted = 'B9B3C2'
 
 function Find-FFmpeg {
     $command = Get-Command ffmpeg.exe -ErrorAction SilentlyContinue
@@ -136,9 +137,9 @@ function New-Card([string]$Name, [int]$Width, [int]$Height, [scriptblock]$Draw) 
 
 function Draw-Backdrop([Drawing.Graphics]$Graphics, [int]$Width, [int]$Height, [double]$RingX, [double]$RingY, [double]$RingStep) {
     $rect = New-Object Drawing.Rectangle(0, 0, $Width, $Height)
-    $gradient = New-Object Drawing.Drawing2D.LinearGradientBrush($rect, (Hex '#301522'), (Hex '#0F131C'), 35.0)
+    $gradient = New-Object Drawing.Drawing2D.LinearGradientBrush($rect, (Hex '#1E2130'), (Hex '#0E1016'), 35.0)
     # Concentric rings echo the README banner.
-    $pen = New-Object Drawing.Pen([Drawing.Color]::FromArgb(54, 196, 18, 66), 2)
+    $pen = New-Object Drawing.Pen([Drawing.Color]::FromArgb(54, 242, 169, 59), 2)
     try {
         $Graphics.FillRectangle($gradient, $rect)
         for ($ring = 1; $ring -le 5; $ring++) {
@@ -157,8 +158,8 @@ function Draw-BrandRow([Drawing.Graphics]$Graphics, [Drawing.Image]$Tile, [int]$
     $brush = New-Object Drawing.SolidBrush((Hex "#$white"))
     try {
         Draw-Tile $Graphics $Tile $X $Y $TileSize
-        $height = $Graphics.MeasureString('RUBYLIGHT', $font, 4000, [Drawing.StringFormat]::GenericTypographic).Height
-        Draw-Text $Graphics 'RUBYLIGHT' $font $brush ($X + $TileSize + 16) ($Y + ($TileSize - $height) / 2)
+        $height = $Graphics.MeasureString('NIGHTJAR', $font, 4000, [Drawing.StringFormat]::GenericTypographic).Height
+        Draw-Text $Graphics 'NIGHTJAR' $font $brush ($X + $TileSize + 16) ($Y + ($TileSize - $height) / 2)
     } finally { $font.Dispose(); $brush.Dispose() }
 }
 
@@ -167,8 +168,9 @@ function New-TitleCard([string]$Name, [int]$Width, [int]$Height, [string]$Card, 
         param($g, $w, $h)
         $whiteBrush = New-Object Drawing.SolidBrush((Hex "#$white"))
         $mutedBrush = New-Object Drawing.SolidBrush((Hex "#$muted"))
-        $softBrush = New-Object Drawing.SolidBrush((Hex '#F1D3DC'))
-        $rubyBrush = New-Object Drawing.SolidBrush((Hex $ruby))
+        $softBrush = New-Object Drawing.SolidBrush((Hex '#D9D4E0'))
+        $accentBrush = New-Object Drawing.SolidBrush((Hex $accent))
+        $nightBrush = New-Object Drawing.SolidBrush((Hex $night))
         $fonts = @()
         try {
             if ($Card -eq 'intro') {
@@ -176,19 +178,19 @@ function New-TitleCard([string]$Name, [int]$Width, [int]$Height, [string]$Card, 
                     Draw-Backdrop $g $w $h ($w / 2) ($h * 0.55) 170
                     $word = New-Font 116; $tag = New-Font 46 'Regular'; $fonts += $word, $tag
                     Draw-Tile $g $Tile (($w - 200) / 2) 590 200
-                    Draw-CenteredText $g 'RUBYLIGHT' $word $whiteBrush ($w / 2) 825
+                    Draw-CenteredText $g 'NIGHTJAR' $word $whiteBrush ($w / 2) 825
                     Draw-CenteredText $g 'Your games. Your screen.' $tag $softBrush ($w / 2) 1015
                     Draw-CenteredText $g 'Your stream.' $tag $softBrush ($w / 2) 1080
                 } else {
                     Draw-Backdrop $g $w $h ($w * 0.8) ($h / 2) 150
                     $word = New-Font 150; $tag = New-Font 48 'Regular'; $fonts += $word, $tag
-                    $wordWidth = Measure-Text $g 'RUBYLIGHT' $word
+                    $wordWidth = Measure-Text $g 'NIGHTJAR' $word
                     $tagWidth = Measure-Text $g 'Your games. Your screen. Your stream.' $tag
                     $tileSize = 190; $gap = 56
                     $left = ($w - ($tileSize + $gap + [Math]::Max($wordWidth, $tagWidth))) / 2
                     $top = 330
                     Draw-Tile $g $Tile $left ($top + 20) $tileSize
-                    Draw-Text $g 'RUBYLIGHT' $word $whiteBrush ($left + $tileSize + $gap) ($top - 30)
+                    Draw-Text $g 'NIGHTJAR' $word $whiteBrush ($left + $tileSize + $gap) ($top - 30)
                     Draw-Text $g 'Your games. Your screen. Your stream.' $tag $softBrush ($left + $tileSize + $gap + 4) ($top + 180)
                 }
             } else {
@@ -197,33 +199,33 @@ function New-TitleCard([string]$Name, [int]$Width, [int]$Height, [string]$Card, 
                     $word = New-Font 84; $big = New-Font 80; $get = New-Font 44; $dl = New-Font 44; $url = New-Font 31 'Regular'
                     $fonts += $word, $big, $get, $dl, $url
                     Draw-Tile $g $Tile (($w - 132) / 2) 490 132
-                    Draw-CenteredText $g 'RUBYLIGHT' $word $whiteBrush ($w / 2) 650
+                    Draw-CenteredText $g 'NIGHTJAR' $word $whiteBrush ($w / 2) 650
                     Draw-CenteredText $g 'Start your stream.' $big $whiteBrush ($w / 2) 810
-                    $pillW = [int]((Measure-Text $g 'Get RUBYLIGHT' $get) + 120); $pillH = 100
-                    Round-Rectangle $g $rubyBrush ([int](($w - $pillW) / 2)) 960 $pillW $pillH 50
-                    Draw-CenteredText $g 'Get RUBYLIGHT' $get $whiteBrush ($w / 2) 982
+                    $pillW = [int]((Measure-Text $g 'Get NIGHTJAR' $get) + 120); $pillH = 100
+                    Round-Rectangle $g $accentBrush ([int](($w - $pillW) / 2)) 960 $pillW $pillH 50
+                    Draw-CenteredText $g 'Get NIGHTJAR' $get $nightBrush ($w / 2) 982
                     Draw-CenteredText $g 'Download on GitHub' $dl $whiteBrush ($w / 2) 1110
                     Draw-CenteredText $g $repoUrl $url $mutedBrush ($w / 2) 1190
                 } else {
                     Draw-Backdrop $g $w $h ($w * 0.82) ($h / 2) 150
                     $word = New-Font 78; $big = New-Font 108; $get = New-Font 44; $dl = New-Font 44; $url = New-Font 34 'Regular'
                     $fonts += $word, $big, $get, $dl, $url
-                    $wordWidth = Measure-Text $g 'RUBYLIGHT' $word
+                    $wordWidth = Measure-Text $g 'NIGHTJAR' $word
                     $tileSize = 112; $gap = 28
                     $left = ($w - ($tileSize + $gap + $wordWidth)) / 2
                     Draw-Tile $g $Tile $left 150 $tileSize
-                    Draw-Text $g 'RUBYLIGHT' $word $whiteBrush ($left + $tileSize + $gap) 168
+                    Draw-Text $g 'NIGHTJAR' $word $whiteBrush ($left + $tileSize + $gap) 168
                     Draw-CenteredText $g 'Start your stream.' $big $whiteBrush ($w / 2) 330
-                    $pillW = [int]((Measure-Text $g 'Get RUBYLIGHT' $get) + 140); $pillH = 104
-                    Round-Rectangle $g $rubyBrush ([int](($w - $pillW) / 2)) 530 $pillW $pillH 52
-                    Draw-CenteredText $g 'Get RUBYLIGHT' $get $whiteBrush ($w / 2) 554
+                    $pillW = [int]((Measure-Text $g 'Get NIGHTJAR' $get) + 140); $pillH = 104
+                    Round-Rectangle $g $accentBrush ([int](($w - $pillW) / 2)) 530 $pillW $pillH 52
+                    Draw-CenteredText $g 'Get NIGHTJAR' $get $nightBrush ($w / 2) 554
                     Draw-CenteredText $g 'Download on GitHub' $dl $whiteBrush ($w / 2) 690
                     Draw-CenteredText $g $repoUrl $url $mutedBrush ($w / 2) 765
                 }
             }
         } finally {
             foreach ($font in $fonts) { $font.Dispose() }
-            $whiteBrush.Dispose(); $mutedBrush.Dispose(); $softBrush.Dispose(); $rubyBrush.Dispose()
+            $whiteBrush.Dispose(); $mutedBrush.Dispose(); $softBrush.Dispose(); $accentBrush.Dispose(); $nightBrush.Dispose()
         }
     }
 }
@@ -256,19 +258,19 @@ function New-ShotArt([string]$Id, $Layout, [bool]$Vertical, [bool]$Landscape, [D
         param($g, $w, $h)
         Draw-Backdrop $g $w $h ($Layout.X + $Layout.ScreenW / 2) ($Layout.Y + $Layout.ScreenH / 2) 200
         Draw-BrandRow $g $Tile $Layout.BrandX $Layout.BrandY $Layout.Tile $Layout.BrandFont
-        $rubyBrush = New-Object Drawing.SolidBrush((Hex $ruby))
-        $rim = New-Object Drawing.SolidBrush((Hex '#5B4A53'))
+        $accentBrush = New-Object Drawing.SolidBrush((Hex $accent))
+        $rim = New-Object Drawing.SolidBrush((Hex '#3A3D4C'))
         $shadow = New-Object Drawing.SolidBrush([Drawing.Color]::FromArgb(80, 0, 0, 0))
         try {
             # Heading accent bar: centred under a centred heading, otherwise above the left-aligned one.
             $centered = $Vertical -or $Landscape
             $barX = $(if ($centered) { [int](($w - 68) / 2) } else { $Layout.BrandX })
-            $g.FillRectangle($rubyBrush, $barX, $Layout.BarY, 68, 4)
+            $g.FillRectangle($accentBrush, $barX, $Layout.BarY, 68, 4)
             $x = $Layout.X; $y = $Layout.Y; $pw = $Layout.ScreenW; $ph = $Layout.ScreenH
             Round-Rectangle $g $shadow ($x - 26) ($y - 4) ($pw + 52) ($ph + 40) 40
             Round-Rectangle $g $rim ($x - 18) ($y - 18) ($pw + 36) ($ph + 36) 34
             $g.FillRectangle($rim, ($x + $pw + 18), ($y + 70), 4, 60)
-        } finally { $rubyBrush.Dispose(); $rim.Dispose(); $shadow.Dispose() }
+        } finally { $accentBrush.Dispose(); $rim.Dispose(); $shadow.Dispose() }
     }
     New-Card "$Id-bezel.png" $Layout.Width $Layout.Height {
         param($g, $w, $h)
@@ -460,7 +462,7 @@ try {
         $final = Join-Path $output "demo-$format.mp4"
         Invoke-FFmpeg @('-i', "$format-picture.mp4", '-i', 'music.wav', '-map', '0:v:0', '-map', '1:a:0',
             '-c:v', 'copy', '-c:a', 'aac', '-b:a', '192k', '-ar', '48000', '-t', $length,
-            '-movflags', '+faststart', '-metadata', 'title=RUBYLIGHT - Your games. Your screen. Your stream.', $final) "$format-mux"
+            '-movflags', '+faststart', '-metadata', 'title=NIGHTJAR - Your games. Your screen. Your stream.', $final) "$format-mux"
         $media = Get-Media $final
         $video = @($media.streams | Where-Object codec_type -eq 'video')[0]
         $audioStream = @($media.streams | Where-Object codec_type -eq 'audio')[0]

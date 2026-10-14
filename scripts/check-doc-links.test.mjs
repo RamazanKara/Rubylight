@@ -7,9 +7,9 @@ import { checkDocs } from './check-doc-links.mjs';
 
 function fixture(t, readme, page = '# A page\n\n## Repeated\n\n## Repeated\n\n<a id="explicit"></a>\n') {
   const parent = resolve(tmpdir());
-  const root = mkdtempSync(join(parent, 'rubylight-doc-links-'));
+  const root = mkdtempSync(join(parent, 'nightjar-doc-links-'));
   t.after(() => {
-    assert.ok(resolve(root).startsWith(parent + sep + 'rubylight-doc-links-'));
+    assert.ok(resolve(root).startsWith(parent + sep + 'nightjar-doc-links-'));
     rmSync(root, { recursive: true });
   });
   mkdirSync(join(root, 'docs'));

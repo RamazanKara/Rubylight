@@ -37,6 +37,7 @@ import com.limelight.LimeLog;
 import com.limelight.Game;
 import com.limelight.R;
 import com.limelight.binding.input.driver.AbstractController;
+import com.limelight.binding.input.driver.DualSenseController;
 import com.limelight.binding.input.driver.UsbDriverListener;
 import com.limelight.binding.input.driver.UsbDriverService;
 import com.limelight.nvstream.NvConnection;
@@ -2298,10 +2299,13 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         if (!prefConfig.usbDualSenseHaptics || !conn.canSendControllerInput()) return "";
         long deadline = android.os.SystemClock.uptimeMillis() + 2500;
         do {
+            int attachedDualSenses = countAttachedDualSenses();
             synchronized (this) {
                 if (stopped || !conn.canSendControllerInput()) return "";
                 StringBuilder result = new StringBuilder();
+                int handedOver = 0;
                 for (UsbDeviceContext context : usbDeviceContexts.values()) {
+                    if (isDualSense(context.vendorId, context.productId)) handedOver++;
                     short caps = context.device.getCapabilities();
                     if ((caps & MoonBridge.LI_CCAP_HAPTICS_PCM) == 0) continue;
                     assignControllerNumberIfNeeded(context);
@@ -2313,11 +2317,27 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
                             .append(Integer.toUnsignedString(context.device.getSupportedButtonFlags()));
                 }
                 if (result.length() != 0) return result.toString();
+                // Only a DualSense the USB service has not handed over yet can still become ready.
+                if (handedOver >= attachedDualSenses) return "";
             }
             try { Thread.sleep(50); }
             catch (InterruptedException e) { Thread.currentThread().interrupt(); return ""; }
         } while (android.os.SystemClock.uptimeMillis() < deadline);
         return "";
+    }
+
+    private static boolean isDualSense(int vendorId, int productId) {
+        return vendorId == 0x054c && (productId == 0x0ce6 || productId == 0x0df2);
+    }
+
+    private int countAttachedDualSenses() {
+        UsbManager usbManager = (UsbManager) activityContext.getSystemService(Context.USB_SERVICE);
+        if (usbManager == null) return 0;
+        int count = 0;
+        for (UsbDevice device : usbManager.getDeviceList().values()) {
+            if (DualSenseController.canClaimDevice(device)) count++;
+        }
+        return count;
     }
 
     public synchronized void resendControllerArrivals() {

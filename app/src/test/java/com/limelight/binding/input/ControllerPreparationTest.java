@@ -16,6 +16,9 @@ import org.robolectric.RobolectricTestRunner;
 import org.robolectric.android.controller.ActivityController;
 import org.robolectric.annotation.Config;
 import org.robolectric.util.ReflectionHelpers;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import static org.junit.Assert.*;
 
 @RunWith(RobolectricTestRunner.class)
@@ -34,6 +37,25 @@ public class ControllerPreparationTest {
                 assertFalse(ReflectionHelpers.callInstanceMethod(connection, "controllerMicrophoneOwnsRoute"));
                 assertEquals(1, connection.arrivals);
             } finally { handler.destroy(); }
+        }
+    }
+
+    @Test public void launchDoesNotWaitWithoutAWaveformReadyDualSense() throws Exception {
+        try (ActivityController<Activity> activity = Robolectric.buildActivity(Activity.class).create()) {
+            Connection connection = new Connection(73);
+            ControllerHandler handler = handler(activity.get(), connection);
+            ExecutorService worker = Executors.newSingleThreadExecutor();
+            try {
+                // No USB DualSense is attached: nothing can become ready, so launch goes ahead at once.
+                assertEquals("", worker.submit(handler::prepareControllersForLaunch).get(1, TimeUnit.SECONDS));
+                // A handed-over DualSense whose waveform output could not start will not gain it either.
+                handler.deviceAdded(new Pad((short) MoonBridge.LI_CCAP_RUMBLE));
+                assertEquals("", worker.submit(handler::prepareControllersForLaunch).get(1, TimeUnit.SECONDS));
+                assertEquals(0, connection.arrivals);
+            } finally {
+                worker.shutdownNow();
+                handler.destroy();
+            }
         }
     }
 
@@ -125,7 +147,8 @@ public class ControllerPreparationTest {
     }
     private static class Pad extends AbstractController {
         int audioBindings, audioPackets, headphonePackets, waveforms;
-        Pad() { super(42, null, 0x054c, 0x0ce6); capabilities = MoonBridge.LI_CCAP_HAPTICS_PCM; }
+        Pad() { this(MoonBridge.LI_CCAP_HAPTICS_PCM); }
+        Pad(short caps) { super(42, null, 0x054c, 0x0ce6); capabilities = caps; }
         @Override public void bindAudio(NvConnection connection, int number) { audioBindings++; }
         @Override public void controllerAudio(int kind, byte[] payload) { audioPackets++; }
         @Override public void controllerHaptics(int sequence, byte[] pcm) { waveforms++; }

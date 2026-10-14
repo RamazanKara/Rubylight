@@ -1,6 +1,92 @@
 use super::*;
 
 #[test]
+#[ignore = "requires a live AMD D3D11 adapter and AMF runtime"]
+fn native_output_survives_a_late_poll_without_losing_submission_metadata() -> Result<()> {
+    let _com = crate::capture::ComGuard::new()?;
+    let device = Device::new("")?;
+    let config = butterpollo_core::rtsp::Negotiated {
+        width: 640,
+        height: 480,
+        codec: 0,
+        ..Default::default()
+    };
+    let presented = Instant::now();
+    let image = GpuImage::upload(
+        &device,
+        &Image {
+            width: config.width,
+            height: config.height,
+            stride: config.width as usize * 4,
+            bytes: vec![128; config.width as usize * config.height as usize * 4],
+            captured: presented,
+            pixel: crate::capture::Pixel::Bgra8,
+        },
+    )?;
+    let mut encoder = Encoder::new_device(&config, device)?;
+    let mut converter = gpu::Converter::new(
+        &encoder._device,
+        &config,
+        (image.width, image.height, image.pixel),
+    )?;
+    let (surface, converted) =
+        converter.convert(encoder.context, &image, &mut encoder.ownership)?;
+    encoder.gpu_convert = Some(converter);
+    let plan = encoder.prepare_surface(surface.0, true)?;
+    // Submit without the convenience encode method's immediate poll. This
+    // guarantees that QueryOutput must collect an accepted native picture,
+    // independently of how quickly this particular GPU completes it.
+    // SAFETY: The surface and component are owned by the live encoder/context;
+    // AMF retains the input, and its ownership callback retains the texture.
+    unsafe {
+        ((*(*surface.0).pVtbl).SetPts.unwrap())(surface.0, encoder.index);
+        check(((*(*encoder.component).pVtbl).SubmitInput.unwrap())(
+            encoder.component,
+            surface.0.cast(),
+        ))?;
+    }
+    let delayed = Instant::now() - Duration::from_secs(3);
+    encoder.in_flight.push_back(Submission {
+        pts: encoder.index,
+        started: delayed,
+        accepted: delayed,
+        presentation: presented,
+        after_invalidation: plan.after_invalidation,
+        _capture: Some(image),
+        _converted: Some(converted),
+    });
+    encoder.backlog.submitted();
+    encoder.references.accepted(encoder.index as u64 + 1, &plan);
+    encoder.index += 1;
+    drop(surface);
+    // Let the small synthetic frame complete while the caller does not poll,
+    // as happens when its thread is descheduled while the GPU keeps working.
+    std::thread::sleep(Duration::from_millis(100));
+    let deadline = Instant::now() + Duration::from_secs(2);
+    let mut output = Vec::new();
+    while encoder.pending() && Instant::now() < deadline {
+        output.extend(encoder.poll()?);
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    assert_eq!(
+        output.len(),
+        1,
+        "late polling must still query native output"
+    );
+    assert!(!encoder.pending());
+    assert!(!output[0].bytes.is_empty());
+    assert!(output[0].idr);
+    assert_eq!(output[0].presentation, Some(presented));
+    assert!(
+        output[0]
+            .latency
+            .is_some_and(|latency| latency >= Duration::from_secs(3))
+    );
+    assert!(!encoder.recover, "a late poll is not a lost reference");
+    Ok(())
+}
+
+#[test]
 fn output_range_preserves_optional_input_and_limited_driver_defaults() -> Result<()> {
     for (codec, input, output) in [
         (0, "InputFullRangeColor", "FullRangeColor"),

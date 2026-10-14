@@ -1184,10 +1184,7 @@ impl Encoder {
         }
         Ok(plan)
     }
-    pub fn poll(&mut self) -> Result<Vec<Encoded>> {
-        if let Some(input) = &mut self.compute {
-            input.converter.release_completed();
-        }
+    fn expire_unreturned(&mut self) {
         // A submission the driver never answers would otherwise keep every
         // later query waiting for its timeout.
         while self
@@ -1198,6 +1195,11 @@ impl Encoder {
             let stale = self.in_flight.pop_front();
             self.warnings.event("encoder_dropped", format!("AMF returned no output for frame {:?} within two seconds; dropping it and requesting a keyframe. You may see a pause; lower game GPU load or update the AMD driver if this repeats.", stale.map(|s| s.pts)), butterpollo_core::session::EVENT_PERIOD);
             self.recover = true;
+        }
+    }
+    pub fn poll(&mut self) -> Result<Vec<Encoded>> {
+        if let Some(input) = &mut self.compute {
+            input.converter.release_completed();
         }
         // SAFETY: Self retains the component/runtime; encoder QueryOutput returns an
         // owned AMFBuffer through its AMFData base. Null and size checks bound its host
@@ -1220,10 +1222,15 @@ impl Encoder {
                 || code == AMF_RESULT_AMF_EOF
                 || code == AMF_RESULT_AMF_NEED_MORE_INPUT
             {
+                // A late caller does not mean the GPU stopped producing.
+                // Query first, preserving ready pictures and their timestamps;
+                // only an empty query can retire an unanswered submission.
+                self.expire_unreturned();
                 return Ok(output);
             }
             check(code)?;
             if data.is_null() {
+                self.expire_unreturned();
                 return Ok(output);
             }
             let buffer = data as *mut AMFBuffer;

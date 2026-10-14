@@ -20,7 +20,7 @@ const TIMEOUT: Duration = Duration::from_secs(2);
 /// Starting the helper as SYSTEM in the user's session can take longer.
 const STARTUP: Duration = Duration::from_secs(5);
 pub fn root(config: &butterpollo_core::config::Config) -> PathBuf {
-    let configured = config.get("rtss_install_path", config.get("rtss_path", ""));
+    let configured = config.get("rtss_install_path", "");
     let path = PathBuf::from(if configured.is_empty() {
         "RivaTuner Statistics Server"
     } else {

@@ -31,6 +31,36 @@ pub const HARDWARE_METRICS: &[&str] = &[
     "gpu_vram_used_mb",
     "gpu_vram_usage_percent",
 ];
+/// Settings that Vibepollo, Apollo and earlier Rubylight releases saved under
+/// another name, and the name the host reads now. The values mean the same
+/// under both names.
+pub const RENAMED_KEYS: &[(&str, &str)] = &[
+    ("rtss_path", "rtss_install_path"),
+    ("rtss_disable_vsync_ullm", "frame_limiter_disable_vsync"),
+    ("nvenc_force_split_encode", "nvenc_split_encode"),
+    (
+        "dd_vdd_static_monitor_count",
+        "dd_virtual_display_permanent_count",
+    ),
+];
+/// The name the host reads `key` under now.
+pub fn current_name(key: &str) -> &str {
+    RENAMED_KEYS
+        .iter()
+        .find(|(old, _)| *old == key)
+        .map_or(key, |(_, new)| new)
+}
+/// A setting found under its earlier name and moved to its current one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Renamed {
+    pub old: &'static str,
+    pub new: &'static str,
+    /// What the earlier name held.
+    pub value: String,
+    /// The current name was set too; its value, which the host used, stays
+    /// and `value` is dropped.
+    pub superseded: bool,
+}
 /// The current value for a retired `value` of `key`, if it is one.
 pub fn replacement(key: &str, value: &str) -> Option<&'static str> {
     RETIRED_VALUES
@@ -79,8 +109,14 @@ impl Config {
     /// warning, characters before a key (a UTF-8 byte order mark) are dropped,
     /// the first of duplicate keys wins and an empty value keeps the default.
     /// `#` starts a comment outside quotes, and a value opening `[` or `{`
-    /// continues until its brackets close.
+    /// continues until its brackets close. A setting saved under an earlier
+    /// name is read under its current one (`RENAMED_KEYS`).
     pub fn parse(text: &str) -> Result<Self> {
+        let mut config = Self::parse_names_as_written(text)?;
+        config.rename_keys();
+        Ok(config)
+    }
+    fn parse_names_as_written(text: &str) -> Result<Self> {
         let mut values = BTreeMap::new();
         let mut lines = text.lines().enumerate();
         while let Some((number, raw)) = lines.next() {
@@ -154,6 +190,28 @@ impl Config {
         }
         Ok(Self { values })
     }
+    /// Move settings found under an earlier name to their current one. When
+    /// both names are set the current one is what the host has read, so it
+    /// stays and the earlier one is dropped.
+    fn rename_keys(&mut self) -> Vec<Renamed> {
+        let mut renamed = Vec::new();
+        for &(old, new) in RENAMED_KEYS {
+            let Some(value) = self.values.remove(old) else {
+                continue;
+            };
+            let superseded = self.values.contains_key(new);
+            if !superseded {
+                self.values.insert(new.to_owned(), value.clone());
+            }
+            renamed.push(Renamed {
+                old,
+                new,
+                value,
+                superseded,
+            });
+        }
+        renamed
+    }
     pub fn load(path: &Path) -> Result<Self> {
         match std::fs::read(path) {
             Ok(bytes) => {
@@ -162,6 +220,34 @@ impl Config {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Self::default()),
             Err(e) => Err(e.into()),
         }
+    }
+    /// Save settings that the file at `path` holds under an earlier name
+    /// under their current one, so the console shows and edits what the
+    /// host uses. The file is replaced atomically, as the console saves it:
+    /// every setting, known or not, keeps its value. Nothing is written
+    /// when no earlier name is found, or when the rewritten file would not
+    /// read back as the same settings. Returns what was moved.
+    pub fn rename_in_file(path: &Path) -> Result<Vec<Renamed>> {
+        let bytes = match std::fs::read(path) {
+            Ok(bytes) => bytes,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(e) => return Err(e.into()),
+        };
+        let mut config = Self::parse_names_as_written(&decode(&bytes))
+            .with_context(|| format!("reading {}", path.display()))?;
+        let renamed = config.rename_keys();
+        if renamed.is_empty() {
+            return Ok(renamed);
+        }
+        let text = config.text();
+        if Self::parse(&text)?.values != config.values {
+            bail!(
+                "{} would not read back unchanged after renaming settings",
+                path.display()
+            );
+        }
+        crate::state::atomic_write(path, text.as_bytes())?;
+        Ok(renamed)
     }
     /// The value of `key`, or `default` when it is unset or empty.
     pub fn get<'a>(&'a self, key: &str, default: &'a str) -> &'a str {
@@ -317,6 +403,17 @@ impl Config {
         )
     }
     pub fn update(&mut self, object: &serde_json::Map<String, serde_json::Value>) -> Result<()> {
+        // A setting sent under an earlier name is saved under its current
+        // one, unless that is sent too.
+        let mut object = object.clone();
+        for &(old, new) in RENAMED_KEYS {
+            if let Some(value) = object.remove(old)
+                && !object.contains_key(new)
+            {
+                object.insert(new.to_owned(), value);
+            }
+        }
+        let object = &object;
         let mut next = self.clone();
         for (key, value) in object {
             if !key.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') || key.is_empty() {
@@ -371,6 +468,7 @@ impl Config {
     /// give back, and settings that would keep the host from starting.
     pub fn check_saved<'a>(&self, keys: impl IntoIterator<Item = &'a String>) -> Result<()> {
         for key in keys {
+            let key = current_name(key);
             let Some(value) = self.values.get(key) else {
                 continue;
             };
@@ -1125,6 +1223,142 @@ mod tests {
                 "config-overrides": {"gamepad": "vhf_ds4", "fec_percentage": "30"}})
         );
         assert!(!replace_retired_in_app(app.as_object_mut().unwrap()));
+    }
+    /// A Vibepollo or Rubylight 2.0 file with every setting under its
+    /// earlier name, a setting this host does not know, and a comment.
+    const EARLIER_NAMES: &str = "# Vibepollo\nrtss_path = D:\\Tools\\RTSS\nrtss_disable_vsync_ullm = enabled\nnvenc_force_split_encode = driver_decides\ndd_vdd_static_monitor_count = \"2\"\nport = 48123\nfuture_setting = kept\n";
+    #[test]
+    fn settings_under_an_earlier_name_are_read_under_the_current_one() {
+        let c = Config::parse(EARLIER_NAMES).unwrap();
+        // What the host used before through its fallbacks, now under the
+        // names the console shows.
+        assert_eq!(c.get("rtss_install_path", ""), "D:\\Tools\\RTSS");
+        assert!(c.boolean("frame_limiter_disable_vsync", false));
+        assert_eq!(c.get("nvenc_split_encode", "auto"), "driver_decides");
+        assert_eq!(c.integer("dd_virtual_display_permanent_count", -1), 2);
+        for (old, _) in RENAMED_KEYS {
+            assert!(!c.values.contains_key(*old), "{old}");
+        }
+        assert_eq!(c.get("future_setting", ""), "kept");
+        assert_eq!(c.port().unwrap(), 48123);
+        // With both names set the host read the current one; it stays.
+        let both = Config::parse(
+            "rtss_disable_vsync_ullm = true\nframe_limiter_disable_vsync = false\nnvenc_split_encode = disabled\nnvenc_force_split_encode = forced\nrtss_install_path = C:\\RTSS\nrtss_path = D:\\RTSS\ndd_virtual_display_permanent_count = 0\ndd_vdd_static_monitor_count = 3\n",
+        )
+        .unwrap();
+        assert!(!both.boolean("frame_limiter_disable_vsync", true));
+        assert_eq!(both.get("nvenc_split_encode", ""), "disabled");
+        assert_eq!(both.get("rtss_install_path", ""), "C:\\RTSS");
+        assert_eq!(both.integer("dd_virtual_display_permanent_count", -1), 0);
+        assert_eq!(both.values.len(), 4);
+        assert_eq!(current_name("rtss_path"), "rtss_install_path");
+        assert_eq!(current_name("rtss_install_path"), "rtss_install_path");
+        assert_eq!(current_name("port"), "port");
+    }
+    #[test]
+    fn a_file_with_earlier_names_is_rewritten_once_under_the_current_ones() {
+        let d = tempfile::tempdir().unwrap();
+        let path = d.path().join("sunshine.conf");
+        std::fs::write(&path, EARLIER_NAMES).unwrap();
+        let before = Config::load(&path).unwrap();
+        let renamed = Config::rename_in_file(&path).unwrap();
+        assert_eq!(
+            renamed
+                .iter()
+                .map(|r| (r.old, r.new, r.value.as_str(), r.superseded))
+                .collect::<Vec<_>>(),
+            [
+                ("rtss_path", "rtss_install_path", "D:\\Tools\\RTSS", false),
+                (
+                    "rtss_disable_vsync_ullm",
+                    "frame_limiter_disable_vsync",
+                    "enabled",
+                    false
+                ),
+                (
+                    "nvenc_force_split_encode",
+                    "nvenc_split_encode",
+                    "driver_decides",
+                    false
+                ),
+                (
+                    "dd_vdd_static_monitor_count",
+                    "dd_virtual_display_permanent_count",
+                    "\"2\"",
+                    false
+                ),
+            ]
+        );
+        let text = std::fs::read_to_string(&path).unwrap();
+        for (old, new) in RENAMED_KEYS {
+            assert!(!text.contains(&format!("{old} =")), "{text}");
+            assert!(text.contains(&format!("{new} =")), "{text}");
+        }
+        assert!(text.contains("future_setting = kept"), "{text}");
+        let after = Config::load(&path).unwrap();
+        assert_eq!(after.values, before.values);
+        // Once: the file is left alone from then on.
+        assert!(Config::rename_in_file(&path).unwrap().is_empty());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), text);
+        // Nothing else in the directory: the write was atomic.
+        assert_eq!(std::fs::read_dir(d.path()).unwrap().count(), 1);
+    }
+    #[test]
+    fn with_both_names_in_the_file_the_current_one_stays_and_the_earlier_one_goes() {
+        let d = tempfile::tempdir().unwrap();
+        let path = d.path().join("sunshine.conf");
+        std::fs::write(
+            &path,
+            "frame_limiter_disable_vsync = false\nrtss_disable_vsync_ullm = true\nencoder = amf\n",
+        )
+        .unwrap();
+        let renamed = Config::rename_in_file(&path).unwrap();
+        assert_eq!(
+            renamed,
+            [Renamed {
+                old: "rtss_disable_vsync_ullm",
+                new: "frame_limiter_disable_vsync",
+                value: "true".into(),
+                superseded: true,
+            }]
+        );
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            "encoder = amf\nframe_limiter_disable_vsync = false\n"
+        );
+    }
+    #[test]
+    fn a_file_without_earlier_names_is_not_rewritten() {
+        let d = tempfile::tempdir().unwrap();
+        let path = d.path().join("sunshine.conf");
+        assert!(Config::rename_in_file(&path).unwrap().is_empty());
+        assert!(!path.exists());
+        let text = "# my settings\nrtss_install_path = C:\\RTSS # mine\nencoder=amf\n";
+        std::fs::write(&path, text).unwrap();
+        assert!(Config::rename_in_file(&path).unwrap().is_empty());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), text);
+    }
+    #[test]
+    fn a_setting_sent_under_an_earlier_name_is_saved_under_the_current_one() {
+        let mut config = Config::parse("frame_limiter_disable_vsync = false\n").unwrap();
+        change(&mut config, "rtss_disable_vsync_ullm", "true").unwrap();
+        assert!(config.boolean("frame_limiter_disable_vsync", false));
+        assert!(!config.values.contains_key("rtss_disable_vsync_ullm"));
+        // Sent together, the current name wins, as in the file.
+        let mut object = serde_json::Map::new();
+        object.insert("rtss_path".into(), "D:\\Old".into());
+        object.insert("rtss_install_path".into(), "C:\\New".into());
+        config.update(&object).unwrap();
+        assert_eq!(config.get("rtss_install_path", ""), "C:\\New");
+        assert!(!config.values.contains_key("rtss_path"));
+        // Resetting the earlier name resets the setting.
+        let mut object = serde_json::Map::new();
+        object.insert("rtss_path".into(), serde_json::Value::Null);
+        config.update(&object).unwrap();
+        assert!(!config.values.contains_key("rtss_install_path"));
+        // The value is checked under the name it is saved under.
+        assert!(change(&mut config, "rtss_path", "C:\\RTSS #2").is_err());
+        assert!(!config.values.contains_key("rtss_install_path"));
     }
     #[test]
     fn existing_config_round_trips() {

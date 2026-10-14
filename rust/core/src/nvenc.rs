@@ -123,10 +123,7 @@ impl Tuning {
                 1
             }
         };
-        let split = match config.get(
-            "nvenc_split_encode",
-            config.get("nvenc_force_split_encode", "auto"),
-        ) {
+        let split = match config.get("nvenc_split_encode", "auto") {
             "disabled" | "false" => 15,
             "forced" | "enabled" | "true" => 1,
             // Vibepollo's name for automatic split encoding.

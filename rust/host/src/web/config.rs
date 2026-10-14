@@ -248,6 +248,50 @@ mod tests {
     }
 
     #[test]
+    fn the_console_gets_settings_saved_under_an_earlier_name_under_the_current_one() {
+        let fixture = Fixture::new();
+        std::fs::write(
+            &fixture.host.config_path,
+            "rtss_disable_vsync_ullm = true\nnvenc_force_split_encode = forced\nrtss_path = D:\\RTSS\ndd_vdd_static_monitor_count = 2\nframe_limiter_disable_vsync_extra = kept\n",
+        )
+        .unwrap();
+        let host = Host::load(
+            fixture.host.directory.clone(),
+            fixture.host.assets.clone(),
+            None,
+        )
+        .unwrap();
+        let shown = handle(&host, "GET", "/api/config", &Value::Null).unwrap();
+        assert_eq!(shown["frame_limiter_disable_vsync"], true);
+        assert_eq!(shown["nvenc_split_encode"], "forced");
+        assert_eq!(shown["rtss_install_path"], "D:\\RTSS");
+        assert_eq!(shown["dd_virtual_display_permanent_count"], 2);
+        assert_eq!(shown["frame_limiter_disable_vsync_extra"], "kept");
+        for old in [
+            "rtss_disable_vsync_ullm",
+            "nvenc_force_split_encode",
+            "rtss_path",
+            "dd_vdd_static_monitor_count",
+        ] {
+            assert!(shown.get(old).is_none(), "{old}");
+        }
+        // The file was moved to the current names, so turning the setting
+        // off in the console turns it off.
+        let saved = std::fs::read_to_string(&host.config_path).unwrap();
+        assert!(!saved.contains("rtss_disable_vsync_ullm"), "{saved}");
+        handle(
+            &host,
+            "PATCH",
+            "/api/config",
+            &json!({"frame_limiter_disable_vsync": false}),
+        )
+        .unwrap();
+        let reloaded = Config::load(&host.config_path).unwrap();
+        assert!(!reloaded.boolean("frame_limiter_disable_vsync", true));
+        assert_eq!(reloaded.get("nvenc_split_encode", ""), "forced");
+    }
+
+    #[test]
     fn saving_configuration_does_not_persist_the_command_line_port() {
         let fixture = Fixture::new();
         std::fs::write(&fixture.host.config_path, "port = 48000\n").unwrap();

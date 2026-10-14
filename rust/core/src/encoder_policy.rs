@@ -504,13 +504,8 @@ pub fn ffmpeg(config: &Config, stream: &Negotiated, name: &str) -> Result<Vec<(S
                 },
             );
         }
-        if config.values.contains_key("nvenc_split_encode")
-            || config.values.contains_key("nvenc_force_split_encode")
-        {
-            let mode = config.get(
-                "nvenc_split_encode",
-                config.get("nvenc_force_split_encode", "auto"),
-            );
+        if config.values.contains_key("nvenc_split_encode") {
+            let mode = config.get("nvenc_split_encode", "auto");
             add(
                 "split_encode_mode",
                 match mode {

@@ -478,12 +478,12 @@ pub fn status(config: &Config) -> Json {
     let available = rtss::available(&root);
     let nvcp = Drs::open().is_ok();
     let state = state().lock().unwrap();
-    let configured = config.get("rtss_install_path", config.get("rtss_path", ""));
+    let configured = config.get("rtss_install_path", "");
     json!({"status":true,"enabled":config.boolean("frame_limiter_enable",false),
         "configured_provider":Provider::parse(config.get("frame_limiter_provider","auto")).name(),
         "active_provider":if state.active.is_empty(){"none"}else{&state.active},"nvidia_available":nvcp,"nvcp_ready":nvcp,
-        "rtss_available":available,"disable_vsync":config.boolean("frame_limiter_disable_vsync",config.boolean("rtss_disable_vsync_ullm",false)),
-        "disable_vsync_ullm":config.boolean("frame_limiter_disable_vsync",config.boolean("rtss_disable_vsync_ullm",false)),
+        "rtss_available":available,"disable_vsync":config.boolean("frame_limiter_disable_vsync",false),
+        "disable_vsync_ullm":config.boolean("frame_limiter_disable_vsync",false),
         "nv_overrides_supported":nvcp,"configured_path":configured,"path_configured":!configured.is_empty(),
         "resolved_path":root,"path_exists":root.is_dir(),"hooks_found":available,
         "rtss_version":rtss::version(&root).map(|v| v.map(|part| part.to_string()).join(".")),"profile_found":root.join("Profiles/Global").is_file(),

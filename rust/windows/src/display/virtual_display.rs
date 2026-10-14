@@ -311,12 +311,8 @@ pub fn configure_permanent(config: &butterpollo_core::config::Config) -> Result<
     set_permanent_display_count(count)
 }
 fn configured_permanent_count(config: &butterpollo_core::config::Config) -> Result<Option<u32>> {
-    // dd_vdd_static_monitor_count is the key's older name.
-    let Some(value) = config
-        .values
-        .get("dd_virtual_display_permanent_count")
-        .or_else(|| config.values.get("dd_vdd_static_monitor_count"))
-    else {
+    // Config reads dd_vdd_static_monitor_count, the key's older name, as this.
+    let Some(value) = config.values.get("dd_virtual_display_permanent_count") else {
         return Ok(None);
     };
     let count = butterpollo_core::config::parse_integer(value)

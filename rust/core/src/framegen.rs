@@ -222,10 +222,8 @@ impl Policy {
                 || (!virtual_display && framegen),
             provider,
             sync_limiter: sync,
-            disable_vsync: config.boolean(
-                "frame_limiter_disable_vsync",
-                config.boolean("rtss_disable_vsync_ullm", false),
-            ) || config.boolean("dd_wa_dummy_plug_hdr10", false),
+            disable_vsync: config.boolean("frame_limiter_disable_vsync", false)
+                || config.boolean("dd_wa_dummy_plug_hdr10", false),
             smooth_motion,
             capture,
         })

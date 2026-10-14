@@ -96,12 +96,12 @@ public final class KeyboardShortcutsActivity extends AppCompatActivity {
         content.addView(intro);
         boolean busy = Boolean.TRUE.equals(work.busy.getValue());
         List<Shortcut> entries = KeyboardShortcuts.load(this);
-        button(getString(R.string.keyboard_shortcuts_add), !busy && entries.size() < KeyboardShortcuts.MAX_SHORTCUTS,
+        button(com.google.android.material.R.attr.materialButtonStyle, getString(R.string.keyboard_shortcuts_add), !busy && entries.size() < KeyboardShortcuts.MAX_SHORTCUTS,
                 () -> edit(null));
-        button(getString(R.string.keyboard_shortcuts_import), !busy, () -> chooseFile(new Intent(Intent.ACTION_OPEN_DOCUMENT)
+        button(R.attr.nightjarButtonTonalStyle, getString(R.string.keyboard_shortcuts_import), !busy, () -> chooseFile(new Intent(Intent.ACTION_OPEN_DOCUMENT)
                 .addCategory(Intent.CATEGORY_OPENABLE).setType("application/json")
                 .putExtra(Intent.EXTRA_MIME_TYPES, new String[] {"application/json", "text/plain", "application/octet-stream"}), IMPORT));
-        button(getString(R.string.keyboard_shortcuts_export), !busy, () -> chooseFile(new Intent(Intent.ACTION_CREATE_DOCUMENT)
+        button(R.attr.nightjarButtonTonalStyle, getString(R.string.keyboard_shortcuts_export), !busy, () -> chooseFile(new Intent(Intent.ACTION_CREATE_DOCUMENT)
                 .addCategory(Intent.CATEGORY_OPENABLE).setType("application/json")
                 .putExtra(Intent.EXTRA_TITLE, "nightjar-keyboard-shortcuts.json"), EXPORT));
         if (work.message.getValue() != null) {
@@ -111,17 +111,19 @@ public final class KeyboardShortcutsActivity extends AppCompatActivity {
             content.addView(message);
         }
         for (Shortcut entry : entries) {
-            button(entry.name + "\n" + KeyboardShortcuts.format(entry.keys()), !busy, () -> edit(entry));
+            button(R.attr.nightjarButtonTextStyle, entry.name + "\n" + KeyboardShortcuts.format(entry.keys()), !busy, () -> edit(entry))
+                    .setGravity(android.view.Gravity.START | android.view.Gravity.CENTER_VERTICAL);
         }
     }
 
-    private void button(String text, boolean enabled, Runnable action) {
-        MaterialButton button = new MaterialButton(this);
+    private MaterialButton button(int styleAttr, String text, boolean enabled, Runnable action) {
+        MaterialButton button = new MaterialButton(this, null, styleAttr);
         button.setText(text);
         button.setAllCaps(false);
         button.setEnabled(enabled);
         button.setOnClickListener(view -> action.run());
         content.addView(button);
+        return button;
     }
 
     private void chooseFile(Intent intent, int request) {

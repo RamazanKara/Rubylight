@@ -98,7 +98,8 @@ public class ResourceConfigurationTest {
         String toolbarStyle = null;
         for (int i = 0; i < styles.getLength(); i++) {
             Element style = (Element) styles.item(i);
-            if (!style.getAttribute("name").equals("AppTheme")) continue;
+            // AppTheme inherits everything from Base.Theme.Nightjar.
+            if (!style.getAttribute("name").equals("Base.Theme.Nightjar")) continue;
             NodeList items = style.getElementsByTagName("item");
             for (int j = 0; j < items.getLength(); j++) {
                 Element item = (Element) items.item(j);

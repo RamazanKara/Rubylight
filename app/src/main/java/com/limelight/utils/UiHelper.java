@@ -235,10 +235,13 @@ public class UiHelper {
         };
 
         AlertDialog.Builder builder = new MaterialAlertDialogBuilder(parent);
-        builder.setMessage(parent.getResources().getString(R.string.delete_pc_msg))
+        AlertDialog dialog = builder.setMessage(parent.getResources().getString(R.string.delete_pc_msg))
                 .setTitle(computer.name)
-                .setPositiveButton(parent.getResources().getString(R.string.yes), dialogClickListener)
-                .setNegativeButton(parent.getResources().getString(R.string.no), dialogClickListener)
+                .setPositiveButton(parent.getResources().getString(R.string.pcview_menu_delete_pc), dialogClickListener)
+                .setNegativeButton(android.R.string.cancel, dialogClickListener)
                 .show();
+        // Removing a PC is the destructive choice, so it takes the error colour.
+        dialog.getButton(DialogInterface.BUTTON_POSITIVE).setTextColor(com.google.android.material.color.MaterialColors.getColor(
+                dialog.getContext(), androidx.appcompat.R.attr.colorError, 0));
     }
 }

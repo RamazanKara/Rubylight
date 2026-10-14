@@ -5,7 +5,7 @@
       android:windowBackgroundFallback is supposed to do this, but it wasn't working for
       me as of Android 7.1
     -->
-    <style name="StreamBaseTheme" parent="AppTheme">
+    <style name="StreamTheme" parent="Theme.Nightjar.Stream">
         <item name="android:windowBackground">@android:color/black</item>
     </style>
 

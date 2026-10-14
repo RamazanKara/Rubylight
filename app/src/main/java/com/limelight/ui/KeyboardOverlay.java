@@ -6,9 +6,9 @@ import android.view.KeyEvent;
 import android.widget.HorizontalScrollView;
 import android.widget.LinearLayout;
 
-import androidx.core.content.ContextCompat;
 
 import com.google.android.material.button.MaterialButton;
+import com.google.android.material.color.MaterialColors;
 import com.limelight.R;
 import com.limelight.binding.input.KeyboardShortcuts;
 
@@ -26,7 +26,7 @@ public final class KeyboardOverlay extends LinearLayout {
         this.sendKeys = sendKeys;
         spacing = Math.round(4 * getResources().getDisplayMetrics().density);
         setOrientation(VERTICAL);
-        setBackgroundColor(ContextCompat.getColor(context, R.color.surface_container));
+        setBackgroundColor(MaterialColors.getColor(context, com.google.android.material.R.attr.colorSurfaceContainerHigh, 0));
         setPadding(spacing, 0, spacing, 0);
 
         LinearLayout row = addRow();
@@ -81,7 +81,7 @@ public final class KeyboardOverlay extends LinearLayout {
     private MaterialButton addButton(LinearLayout row, String label, Runnable action) {
         MaterialButton button = new MaterialButton(getContext(), null, androidx.appcompat.R.attr.borderlessButtonStyle);
         button.setText(label);
-        button.setTextColor(ContextCompat.getColor(getContext(), R.color.on_surface));
+        button.setTextColor(MaterialColors.getColor(getContext(), com.google.android.material.R.attr.colorOnSurface, 0));
         button.setAllCaps(false);
         button.setMinWidth(spacing * 12);
         button.setMinimumWidth(spacing * 12);
@@ -99,7 +99,8 @@ public final class KeyboardOverlay extends LinearLayout {
         button.setCheckable(true);
         button.setBackgroundTintList(new ColorStateList(new int[][] {
                 new int[] {android.R.attr.state_checked}, new int[] { }
-        }, new int[] {ContextCompat.getColor(getContext(), R.color.accent_container), android.graphics.Color.TRANSPARENT}));
+        }, new int[] {MaterialColors.getColor(getContext(), com.google.android.material.R.attr.colorPrimaryContainer, 0),
+                android.graphics.Color.TRANSPARENT}));
         button.setTag(key);
         modifiers.add(button);
     }

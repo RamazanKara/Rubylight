@@ -6,7 +6,7 @@
         android:paddingTop="@dimen/space_s" android:paddingBottom="@dimen/space_s">
         <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
             android:text="@string/pair_otp_help" android:textAppearance="@style/TextAppearance.Nightjar.Body"
-            android:textColor="@color/on_surface_variant" />
+            android:textColor="?attr/colorOnSurfaceVariant" />
         <com.google.android.material.textfield.TextInputLayout
             style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
             android:layout_width="match_parent" android:layout_height="wrap_content"

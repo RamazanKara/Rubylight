@@ -2113,6 +2113,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 }
             }
         });
+        ActionSheet.keepSystemBarsHidden(dialog, this);
         dialog.show();
     }
 
@@ -4866,7 +4867,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             }
             pendingConfirmation = confirmation;
             launchConfirmationDialog = new com.google.android.material.dialog.MaterialAlertDialogBuilder(
-                    new androidx.appcompat.view.ContextThemeWrapper(this, R.style.AppTheme))
+                    new androidx.appcompat.view.ContextThemeWrapper(this, R.style.StreamTheme))
                     .setTitle(R.string.launch_confirm_title)
                     .setMessage(confirmation.isTerminate() ? R.string.launch_confirm_terminate : R.string.launch_confirm_replace)
                     .setPositiveButton(R.string.launch_confirm, (dialog, which) -> {

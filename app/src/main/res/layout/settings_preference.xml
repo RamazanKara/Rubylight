@@ -20,14 +20,14 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:textAppearance="@style/TextAppearance.Nightjar.Body"
-            android:textColor="@color/on_surface" />
+            android:textColor="?attr/colorOnSurface" />
         <TextView
             android:id="@android:id/summary"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="@dimen/space_xs"
             android:textAppearance="@style/TextAppearance.Nightjar.Supporting"
-            android:textColor="@color/on_surface_variant" />
+            android:textColor="?attr/colorOnSurfaceVariant" />
     </LinearLayout>
     <LinearLayout
         android:id="@android:id/widget_frame"

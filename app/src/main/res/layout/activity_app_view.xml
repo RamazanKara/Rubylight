@@ -12,7 +12,7 @@
         android:inputType="text" android:imeOptions="actionSearch" />
     <TextView android:id="@+id/library_summary" android:layout_width="match_parent" android:layout_height="wrap_content"
         android:paddingStart="@dimen/screen_gutter" android:paddingEnd="@dimen/screen_gutter" android:paddingBottom="@dimen/space_s"
-        android:textAppearance="@style/TextAppearance.Nightjar.Supporting" android:textColor="@color/on_surface_variant"
+        android:textAppearance="@style/TextAppearance.Nightjar.Supporting" android:textColor="?attr/colorOnSurfaceVariant"
         android:visibility="gone" />
     <ProgressBar android:id="@+id/library_loading" style="?android:attr/progressBarStyleHorizontal"
         android:layout_width="match_parent" android:layout_height="4dp" android:indeterminate="true" />
@@ -24,7 +24,7 @@
             android:textAppearance="@style/TextAppearance.Nightjar.Body"
             android:accessibilityLiveRegion="polite" android:visibility="gone" />
         <com.google.android.material.button.MaterialButton android:id="@+id/library_retry"
-            style="@style/Widget.Material3.Button.TextButton" android:layout_width="wrap_content" android:layout_height="wrap_content"
+            style="@style/Widget.Nightjar.Button.Text" android:layout_width="wrap_content" android:layout_height="wrap_content"
             android:minHeight="@dimen/touch_target" android:text="@string/library_retry" android:visibility="gone" />
     </LinearLayout>
     <FrameLayout android:id="@+id/appFragmentContainer"

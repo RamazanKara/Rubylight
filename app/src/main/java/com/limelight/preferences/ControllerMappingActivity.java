@@ -66,7 +66,7 @@ public class ControllerMappingActivity extends AppCompatActivity {
         });
         root.addView(capture);
 
-        axisButton = new MaterialButton(this);
+        axisButton = new MaterialButton(this, null, R.attr.nightjarButtonTonalStyle);
         axisButton.setText(R.string.controller_axes_title);
         axisButton.setOnClickListener(v -> chooseAxis());
         root.addView(axisButton);
@@ -75,7 +75,7 @@ public class ControllerMappingActivity extends AppCompatActivity {
         mappingList.setOrientation(LinearLayout.VERTICAL);
         root.addView(mappingList);
 
-        resetButton = new MaterialButton(this);
+        resetButton = new MaterialButton(this, null, R.attr.nightjarButtonDestructiveStyle);
         resetButton.setText(R.string.controller_mapping_reset);
         resetButton.setOnClickListener(v -> {
             map = new ControllerButtonMap();
@@ -173,7 +173,8 @@ public class ControllerMappingActivity extends AppCompatActivity {
         wrapper.setOrientation(LinearLayout.VERTICAL);
         wrapper.addView(row);
         View divider = new View(this);
-        divider.setBackgroundColor(getResources().getColor(R.color.outline));
+        divider.setBackgroundColor(com.google.android.material.color.MaterialColors.getColor(this,
+                com.google.android.material.R.attr.colorOutlineVariant, 0));
         wrapper.addView(divider, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,
                 Math.max(1, Math.round(density))));
         return wrapper;

@@ -10,5 +10,5 @@
     android:paddingTop="@dimen/space_xl"
     android:paddingBottom="@dimen/space_s"
     android:textAppearance="@style/TextAppearance.Nightjar.Label"
-    android:textColor="@color/accent"
+    android:textColor="?attr/colorOnSurfaceVariant"
     android:accessibilityHeading="true" tools:targetApi="p" />

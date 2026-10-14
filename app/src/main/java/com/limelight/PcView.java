@@ -510,7 +510,10 @@ public class PcView extends AppCompatActivity implements AdapterFragmentCallback
         }
         addPcAction(sheet, computer, VIEW_DETAILS_ID, R.drawable.ic_help, R.string.pcview_menu_details);
         sheet.addDivider();
-        addPcAction(sheet, computer, DELETE_ID, R.drawable.ic_delete, R.string.pcview_menu_delete_pc);
+        sheet.addDestructiveAction(R.drawable.ic_delete, getString(R.string.pcview_menu_delete_pc)).setOnClickListener(v -> {
+            sheet.dismiss();
+            onComputerAction(computer, DELETE_ID);
+        });
         sheet.setOnDismissListener(dialog -> {
             pcMenu = null;
             startComputerUpdates();

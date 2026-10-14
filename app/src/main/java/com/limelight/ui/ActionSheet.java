@@ -7,6 +7,10 @@ import android.widget.ImageButton;
 import android.widget.TextView;
 
 import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowCompat;
+import androidx.core.view.WindowInsetsCompat;
+import androidx.core.view.WindowInsetsControllerCompat;
+import com.google.android.material.color.MaterialColors;
 import androidx.core.widget.NestedScrollView;
 import com.google.android.material.bottomsheet.BottomSheetBehavior;
 import com.google.android.material.bottomsheet.BottomSheetDialog;
@@ -37,7 +41,7 @@ public final class ActionSheet extends BottomSheetDialog {
         heading.setText(title);
         heading.setMaxLines(2);
         heading.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        heading.setTextColor(androidx.core.content.ContextCompat.getColor(context, R.color.on_surface));
+        heading.setTextColor(MaterialColors.getColor(context, com.google.android.material.R.attr.colorOnSurface, 0));
         heading.setPadding(0, spacing, spacing, spacing);
         ViewCompat.setAccessibilityHeading(heading, true);
         header.addView(heading, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
@@ -45,7 +49,7 @@ public final class ActionSheet extends BottomSheetDialog {
         close.setId(R.id.action_sheet_close);
         close.setImageResource(R.drawable.ic_close);
         close.setImageTintList(android.content.res.ColorStateList.valueOf(
-                androidx.core.content.ContextCompat.getColor(context, R.color.on_surface)));
+                MaterialColors.getColor(context, com.google.android.material.R.attr.colorOnSurfaceVariant, 0)));
         close.setPadding(spacing * 3 / 2, spacing * 3 / 2, spacing * 3 / 2, spacing * 3 / 2);
         close.setContentDescription(context.getString(R.string.sheet_close));
         close.setOnClickListener(view -> dismiss());
@@ -69,17 +73,27 @@ public final class ActionSheet extends BottomSheetDialog {
         TextView heading = new TextView(getContext());
         heading.setText(title);
         heading.setTextAppearance(getContext(), R.style.TextAppearance_Nightjar_Label);
-        heading.setTextColor(androidx.core.content.ContextCompat.getColor(getContext(), R.color.on_surface_variant));
+        heading.setTextColor(MaterialColors.getColor(getContext(), com.google.android.material.R.attr.colorOnSurfaceVariant, 0));
         heading.setPadding(spacing, spacing * 2, spacing, spacing);
         ViewCompat.setAccessibilityHeading(heading, true);
         content.addView(heading);
     }
 
     public MaterialButton addAction(int icon, CharSequence label) {
+        return addAction(icon, label, com.google.android.material.R.attr.colorOnSurface,
+                com.google.android.material.R.attr.colorOnSurfaceVariant);
+    }
+
+    /** An action that removes something, in the error colour and kept last in the sheet. */
+    public MaterialButton addDestructiveAction(int icon, CharSequence label) {
+        return addAction(icon, label, androidx.appcompat.R.attr.colorError, androidx.appcompat.R.attr.colorError);
+    }
+
+    private MaterialButton addAction(int icon, CharSequence label, int textColor, int iconColor) {
         MaterialButton button = new MaterialButton(getContext(), null, androidx.appcompat.R.attr.borderlessButtonStyle);
         button.setText(label);
-        button.setTextColor(androidx.core.content.ContextCompat.getColor(getContext(), R.color.on_surface));
         button.setTextAppearance(getContext(), R.style.TextAppearance_Nightjar_Body);
+        button.setTextColor(MaterialColors.getColor(getContext(), textColor, 0));
         button.setAllCaps(false);
         button.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
         button.setMinHeight(spacing * 7);
@@ -87,7 +101,7 @@ public final class ActionSheet extends BottomSheetDialog {
         button.setSingleLine(false);
         button.setPaddingRelative(spacing, spacing, spacing, spacing);
         button.setIconResource(icon);
-        button.setIconTintResource(R.color.on_surface_variant);
+        button.setIconTint(android.content.res.ColorStateList.valueOf(MaterialColors.getColor(getContext(), iconColor, 0)));
         button.setIconPadding(spacing * 2);
         button.setIconSize(spacing * 3);
         content.addView(button, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,
@@ -105,6 +119,19 @@ public final class ActionSheet extends BottomSheetDialog {
         content.addView(divider, params);
     }
 
+    /**
+     * A dialog window that takes focus shows the system bars again unless it hides them too. Over an
+     * immersive stream, hide them on the dialog as well so a menu does not bring the bars back.
+     */
+    public static void keepSystemBarsHidden(android.app.Dialog dialog, android.app.Activity owner) {
+        android.view.Window window = dialog.getWindow();
+        WindowInsetsCompat ownerInsets = ViewCompat.getRootWindowInsets(owner.getWindow().getDecorView());
+        if (window == null || ownerInsets == null || ownerInsets.isVisible(WindowInsetsCompat.Type.systemBars())) return;
+        WindowInsetsControllerCompat controller = WindowCompat.getInsetsController(window, window.getDecorView());
+        controller.setSystemBarsBehavior(WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+        controller.hide(WindowInsetsCompat.Type.systemBars());
+    }
+
     @Override
     protected void onStart() {
         super.onStart();
@@ -112,7 +139,10 @@ public final class ActionSheet extends BottomSheetDialog {
         getBehavior().setSkipCollapsed(true);
         // Material's sheet behavior owns system-bar insets. Consuming them on the dialog's
         // outer content view prevents its bottom padding and hides the last action under navigation.
-        if (getOwnerActivity() != null) AdaptiveLayout.attachBottomSheet(getOwnerActivity(), findViewById(android.R.id.content));
+        if (getOwnerActivity() != null) {
+            AdaptiveLayout.attachBottomSheet(getOwnerActivity(), findViewById(android.R.id.content));
+            keepSystemBarsHidden(this, getOwnerActivity());
+        }
         getBehavior().setMaxWidth(spacing * 75);
         if (!content.isInTouchMode() && firstAction != null) firstAction.requestFocus();
     }

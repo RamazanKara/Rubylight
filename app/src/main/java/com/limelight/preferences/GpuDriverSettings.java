@@ -89,7 +89,7 @@ public final class GpuDriverSettings extends AppCompatActivity {
         if (busy) addText(content, getString(R.string.gpu_driver_working));
         else if (work.message.getValue() != null) addText(content, work.message.getValue());
 
-        MaterialButton importButton = button(content, R.string.gpu_driver_import);
+        MaterialButton importButton = button(content, R.string.gpu_driver_import, com.google.android.material.R.attr.materialButtonStyle);
         importButton.setEnabled(supported && !busy);
         importButton.setOnClickListener(view -> {
             try {
@@ -100,7 +100,7 @@ public final class GpuDriverSettings extends AppCompatActivity {
                 Toast.makeText(this, R.string.gpu_driver_no_picker, Toast.LENGTH_LONG).show();
             }
         });
-        MaterialButton removeButton = button(content, R.string.gpu_driver_remove);
+        MaterialButton removeButton = button(content, R.string.gpu_driver_remove, R.attr.nightjarButtonDestructiveStyle);
         removeButton.setEnabled(!drivers.isEmpty() && !busy);
         removeButton.setOnClickListener(view -> new MaterialAlertDialogBuilder(this)
                 .setTitle(R.string.gpu_driver_remove)
@@ -132,8 +132,8 @@ public final class GpuDriverSettings extends AppCompatActivity {
         content.addView(view);
     }
 
-    private MaterialButton button(LinearLayout content, int title) {
-        MaterialButton button = new MaterialButton(this);
+    private MaterialButton button(LinearLayout content, int title, int styleAttr) {
+        MaterialButton button = new MaterialButton(this, null, styleAttr);
         button.setText(title);
         content.addView(button);
         return button;

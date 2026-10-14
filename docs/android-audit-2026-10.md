@@ -1,6 +1,6 @@
 # Android audit — 13 October 2026
 
-[Documentation](index.md) · [Feature matrix](PARITY-MATRIX.md) · [Building](building.md)
+[Documentation](index.md) · [Host feature matrix](PARITY-MATRIX.md) · [Building](building.md)
 
 ## Scope
 
@@ -33,7 +33,7 @@ Executable source at `c7964a89b9bf2ff16bf17aa5ed6d303115060208` passed the follo
 - **Native validation:** C tests passed normally and with AddressSanitizer/UndefinedBehaviorSanitizer; 19 Rust tests and C++ framing/presentation tests passed. Eight differential seeds covered 640,000 identical C/Rust frames.
 - **Hostless Android 35 emulator:** the minified non-root release APK passed fresh-install, pairing-fixture, host-profile, settings, controller-mapping, reset and frontend-entry checks at 393/412 dp and font scale 1.3. All three removed-PC checks deleted only that PC's app-list/artwork fixtures and preserved another PC's files. No app crash was found. This is not live streaming or a production-key upgrade test.
 - **Documentation/release helpers:** all eight Node tests pass; generated settings match source and local documentation links resolve. External links are syntax-checked only. PowerShell parity is checked statically, not executed on Windows.
-- **Hosted CI:** [Android build and test run](https://github.com/RamazanKara/rubylight-android/actions/runs/38317358931) and [documentation run](https://github.com/RamazanKara/rubylight-android/actions/runs/38317358741) passed.
+- **Hosted CI:** [Android build and test run](https://github.com/RamazanKara/nightjar-android/actions/runs/38317358931) and [documentation run](https://github.com/RamazanKara/nightjar-android/actions/runs/38317358741) passed.
 
 **Publication is blocked:** the retained release key/configuration was unavailable during this audit. No `v0.4.6` tag or release was created, and no validation-key artifact was published. The exact production-signed APK still needs certificate comparison with 0.4.5 and an in-place upgrade check before publication.
 
@@ -44,6 +44,6 @@ Executable source at `c7964a89b9bf2ff16bf17aa5ed6d303115060208` passed the follo
 - **Launcher integration:** real ES-DE/Daijisho/Pegasus and third-party/cloud document-provider behavior need an integration pass. Automatic pruning of previously exported games that are now removed or hidden is not implemented; it must not silently delete user files. Existing documents cannot be updated transactionally on every Storage Access Framework provider.
 - **Release signing and upgrade:** a stable update requires the retained release key and a certificate comparison with 0.4.5. Disposable validation keys must never be published as replacement releases. Validate an in-place upgrade of the exact signed APK before marking it Latest.
 - **Host administration:** device management, app overrides and host services deliberately remain in the host web console. They are not partially implemented Android screens.
-- **Store distribution:** Play Console enrollment/submission and the reviewed Data safety declaration remain owner steps. German and tablet store screenshots are still missing; see [store readiness](../internal/STORE-READINESS.md). Historical audit evidence remains in [the internal parity log](../internal/BUTTERPOLLO_PARITY.md); use the current feature matrix and [device checklist](../internal/device-checklist.md) for today's behavior.
+- **Store distribution:** Play Console enrollment/submission and the reviewed Data safety declaration remain owner steps. German and tablet store screenshots are still missing; see [store readiness](../internal/STORE-READINESS.md). Historical audit evidence remains in [the internal parity log](../internal/BUTTERPOLLO_PARITY.md); use the current host feature matrix and [device checklist](../internal/device-checklist.md) for today's behavior.
 
 No new performance claim or blanket "all features complete" claim follows from this audit.

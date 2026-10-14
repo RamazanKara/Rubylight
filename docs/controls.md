@@ -2,7 +2,7 @@
 
 [Documentation](index.md) · [All defaults](settings.md)
 
-The Rubylight host must grant the relevant input permission to this device. If video works but controls do not, check [host permissions](pairing.md#per-device-permissions) first.
+If your host has per-device permissions, it must grant the relevant input permission to this device. If video works but controls do not, check [host permissions](pairing.md#per-device-permissions) first.
 
 ## Gamepads
 
@@ -22,13 +22,13 @@ For direct DualSense or DualSense Edge USB support:
 
 1. Enable **Settings → Advanced → USB DualSense driver** and accept its explanation.
 2. Connect the pad by USB and start a stream.
-3. Allow Android's USB access request. Rubylight can then send host-provided adaptive trigger effects, rumble and lightbar changes and read the pad's input and Edge paddles.
+3. Allow Android's USB access request. Nightjar can then send host-provided adaptive trigger effects, rumble and lightbar changes and read the pad's input and Edge paddles.
 
 The toggle is off by default. Denying USB access keeps the ordinary Android input path; unplug and reconnect to retry. The host must support the requested feedback.
 
-Enable **USB DualSense audio and haptics**, then reconnect the controller and stream, for native waveform vibration from Rubylight or compatible Vibepollo hosts. Matching updated Rubylight hosts also carry controller speaker, headset and microphone audio. Bluetooth waveform output is unavailable through Android’s standard controller API. See [audio and haptics setup](dualsense-haptics.md).
+Enable **USB DualSense audio and haptics**, then reconnect the controller and stream, for native waveform vibration from hosts that support it (e.g. Rubylight or Vibepollo). Hosts that also support controller audio (currently Rubylight) carry its speaker, headset and microphone audio. Bluetooth waveform output is unavailable through Android’s standard controller API. See [audio and haptics setup](dualsense-haptics.md).
 
-For gyro aiming and radial menus, use the game’s **Steam Input** controller layout on the host and enable controller motion in Rubylight. The client forwards motion and touchpad input; Steam supplies the aiming behavior and menu overlay. Games using native DualSense effects may need Steam Input disabled for that game.
+For gyro aiming and radial menus, use the game’s **Steam Input** controller layout on the host and enable controller motion in Nightjar. The client forwards motion and touchpad input; Steam supplies the aiming behavior and menu overlay. Games using native DualSense effects may need Steam Input disabled for that game.
 
 The separate **USB controller driver** setting supplies Xbox USB support. **Always use the USB driver** prefers that path even if Android already recognizes the controller.
 
@@ -44,7 +44,7 @@ Choose **Settings → Controls → Touch mode**, or **stream menu → Input mode
 | --- | --- |
 | Trackpad (default) | Drag to move the pointer relatively. Tap with one finger for left-click, two for right-click. Hold then drag to drag with a mouse button; move two fingers to scroll. |
 | Direct mouse | Tap a location to click there, drag to move while holding the left button, and hold still for right-click. A second finger scrolls. |
-| Multi-touch | Send fingers directly to the host touch interface. If native touch is unavailable, Rubylight uses Direct mouse. Use the stream menu for the keyboard. |
+| Multi-touch | Send fingers directly to the host touch interface. If native touch is unavailable, Nightjar uses Direct mouse. Use the stream menu for the keyboard. |
 
 **Trackpad speed** changes relative touch movement from 25–400%, with 100% as the default. Native pen input is forwarded when supported and permitted by the host.
 
@@ -68,7 +68,7 @@ Open **Settings → Controls → Keyboard shortcuts** and choose **Add shortcut*
 
 On the next stream, open **stream menu → Extra keyboard keys**. Your buttons appear in an additional row that scrolls horizontally. Tapping one presses its keys in the listed order and releases them in reverse order; put modifiers first. Toolbar modifier toggles reset when a shortcut is sent. Shortcuts require the host's keyboard permission and use the same input path as the built-in toolbar buttons.
 
-Key names are case-insensitive. Use letters `A`–`Z`, digits `0`–`9`, `F1`–`F24`, modifiers `CTRL`, `SHIFT`, `ALT`, `WIN`, and names such as `ESC`, `TAB`, `ENTER`, `BACKSPACE`, `DELETE`, `HOME`, `END`, `PAGE_UP`, `PAGE_DOWN`, `LEFT`, `RIGHT`, `UP`, `DOWN` and `SPACE`. `CTRL_RIGHT`, `SHIFT_RIGHT`, `ALT_RIGHT` and `META_RIGHT` select right-hand modifiers; `NUMPAD_0`–`NUMPAD_9` select number-pad keys. Other Android key names are accepted only when Rubylight can forward them to the host.
+Key names are case-insensitive. Use letters `A`–`Z`, digits `0`–`9`, `F1`–`F24`, modifiers `CTRL`, `SHIFT`, `ALT`, `WIN`, and names such as `ESC`, `TAB`, `ENTER`, `BACKSPACE`, `DELETE`, `HOME`, `END`, `PAGE_UP`, `PAGE_DOWN`, `LEFT`, `RIGHT`, `UP`, `DOWN` and `SPACE`. `CTRL_RIGHT`, `SHIFT_RIGHT`, `ALT_RIGHT` and `META_RIGHT` select right-hand modifiers; `NUMPAD_0`–`NUMPAD_9` select number-pad keys. Other Android key names are accepted only when Nightjar can forward them to the host.
 
 Choose **Export shortcuts** to save a UTF-8 JSON file through Android's file picker. **Import shortcuts** validates a selected file and asks before replacing the entire saved list; canceling keeps your current buttons. Files can contain at most 32 shortcuts and must be at most 64 KiB. Each shortcut has a unique ID containing 1–64 letters, digits, underscores or hyphens, a nonblank name of at most 80 characters without control characters, and 1–8 supported keys without duplicates. The editor accepts at most 256 characters for a chord.
 
@@ -86,7 +86,7 @@ The importer also accepts this format without `version`, common Windows names su
 
 ## PC display mode and administration
 
-Open your PC's menu → **Stream settings → PC display mode**, or choose **PC display mode** directly from its menu. The choice is saved per PC and applies from the next stream.
+Open your PC's menu → **Stream settings → PC display mode**, or choose **PC display mode** directly from its menu. The choice is saved per PC and applies from the next stream. The display layouts need a host that supports them (currently Rubylight).
 
 | Choice | What happens on the PC |
 | --- | --- |
@@ -96,9 +96,9 @@ Open your PC's menu → **Stream settings → PC display mode**, or choose **PC 
 | Extended and separated | Keep the other monitors on, but place the streamed display far away in the desktop layout. Choose which display is primary. Both displays share the same Windows session. |
 | Physical display | Stream the PC's monitor without adding a virtual display. |
 
-Rubylight restores the display layout when the stream ends. These choices apply to normal streaming; Remote Monitor and Input-only retain their host-controlled behavior. Other hosts may accept the virtual-display request without supporting the selected layout.
+The host restores the display layout when the stream ends. These choices apply to normal streaming; Remote Monitor and Input-only retain their host-controlled behavior. Other hosts with virtual displays may accept the virtual-display request without supporting the selected layout.
 
-For an online Rubylight PC, **Open host administration** opens its web console in your browser. Manage applications, paired devices, permissions and host display settings there. The console uses its own login; pairing does not sign you in. Remote access needs a reachable console port, which is separate from the streaming ports. The dialog's address can be selected and copied if no browser is available.
+On hosts that support it (currently Rubylight), **Open host administration** in an online PC's menu opens the host's web UI in your browser. Manage applications, paired devices, permissions and host display settings there. The web UI uses its own login; pairing does not sign you in. Remote access needs a reachable web UI port, which is separate from the streaming ports. The dialog's address can be selected and copied if no browser is available.
 
 ## On-screen controls
 
@@ -120,11 +120,11 @@ Layouts and their visibility are saved separately for each PC and game, using th
 
 Choose **stream menu → Desktop and display → Enable pinch zoom and pan**. Pinch to zoom from 1× to 4× and drag two fingers to pan within the desktop. One finger continues to use the selected touch mode; direct mouse, native touch, pen and absolute mouse positions use the inverse video transform. Trackpad movement stays relative. While enabled, the two-finger gesture controls the view instead of scrolling the PC. **Reset zoom** restores the full image. Android 5/6 require TextureView; Android 7+ support the SurfaceView path as well.
 
-For a dock, USB-C/HDMI monitor or Android presentation-capable wireless display, choose **Video output** and select the display. Switching output safely disconnects/reconnects the client while preserving the PC application, and starts the decoder on a dedicated presentation surface. Game streams resume only the captured application: if it stops or another application replaces it during handoff, the reconnect fails without launching or quitting an application. This guard is independent of automatic network recovery. Remote Monitor keeps its dedicated view-only host operation. Video goes to the monitor; the device remains a touchpad with its keyboard toolbar, game buttons and stream menu. This works with ordinary Sunshine-compatible hosts and does not ask the host to change its display layout. Android determines which attached outputs support presentations; mirroring-only outputs cannot be selected.
+For a dock, USB-C/HDMI monitor or Android presentation-capable wireless display, choose **Video output** and select the display. Switching output safely disconnects/reconnects the client while preserving the PC application, and starts the decoder on a dedicated presentation surface. Game streams resume only the captured application: if it stops or another application replaces it during handoff, the reconnect fails without launching or quitting an application. This guard is independent of automatic network recovery. Remote Monitor keeps its dedicated view-only host operation. Video goes to the monitor; the device remains a touchpad with its keyboard toolbar, game buttons and stream menu. This works with any Moonlight-compatible host and does not ask the host to change its display layout. Android determines which attached outputs support presentations; mirroring-only outputs cannot be selected.
 
 Select **This device** to return. Removing the external display triggers the same client reconnect back to the phone/tablet. A display that disappears before launch falls back to the device. Output selection is session-local and is preserved through reconnects, not saved as a global preference. PiP auto-entry is disabled while presenting externally. Locking/leaving the activity follows the normal stream lifecycle; no background input or unattended reconnect is introduced.
 
-Android 0.4.9 tracks changes to the selected video display's maximum refresh rate. On hosts and decoders supporting [in-place reconfiguration](recovery-and-quality.md#choosing-automatic-quality), streams that follow the display rate can update their FPS target and automatic-quality ceiling without reconnecting, even when the phone's refresh rate is unchanged. Returning to **This device** restores phone/tablet display tracking, including native-resolution changes. Received and shown FPS in the overlay remain the measurements of delivered video.
+Android 0.4.9 tracks changes to the selected video display's maximum refresh rate. On hosts (currently Rubylight) and decoders supporting [in-place reconfiguration](recovery-and-quality.md#choosing-automatic-quality), streams that follow the display rate can update their FPS target and automatic-quality ceiling without reconnecting, even when the phone's refresh rate is unchanged. Returning to **This device** restores phone/tablet display tracking, including native-resolution changes. Received and shown FPS in the overlay remain the measurements of delivered video.
 
 For external MediaCodec video, **Balanced** pacing uses the lowest-latency path for this session, with a notice when it changes. Android's public Choreographer callbacks follow the internal display, so using them to pace an external surface can hold video to the phone's cadence. The saved pacing preference is unchanged; other pacing modes keep their behavior. PyroWave keeps its own Vulkan presentation. External output does not send phase-lock timing derived from the phone display, and this fallback does not claim a measured FPS or VRR result.
 
@@ -155,4 +155,4 @@ In Settings, Right opens the selected switch's help (Left in RTL). TV settings p
 | Three-finger tap in Trackpad/Direct mouse mode | Toggle the on-screen keyboard. |
 | Stream menu → Overlay | Show or hide the overlay and choose Statistics or Debug. |
 
-Rubylight can also pin app shortcuts to the Android launcher. For external game libraries and intent-based shortcuts, see [frontends](FRONTENDS.md).
+Nightjar can also pin app shortcuts to the Android launcher. For external game libraries and intent-based shortcuts, see [frontends](FRONTENDS.md).

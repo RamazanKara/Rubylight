@@ -1,15 +1,15 @@
-# Rubylight privacy
+# Nightjar privacy
 
-Describes the Rubylight for Android source prepared for 0.4.6.
+Describes the Nightjar for Android source prepared for 0.4.6.
 
-Rubylight streams your PC's desktop, apps, video and audio directly to your
+Nightjar streams your PC's desktop, apps, video and audio directly to your
 Android device. Your controls and any clipboard text you choose to send go to
-your PC. Rubylight does not operate a streaming relay, advertising service,
+your PC. Nightjar does not operate a streaming relay, advertising service,
 analytics service or automatic crash-report upload service.
 
 ## What stays on your device
 
-Rubylight stores saved and paired hosts, including their names, addresses,
+Nightjar stores saved and paired hosts, including their names, addresses,
 identifiers and host certificates. It also stores the client certificate and
 private key used for pairing, a locally generated client identifier, app and
 per-PC settings, controller mappings, and cached app lists and artwork.
@@ -23,14 +23,14 @@ model, decoder settings, timing measurements and crash details.
 ## Network connections
 
 Stream content, input and clipboard transfers are between your device and the
-PC you connect to. When you turn on **Send microphone to the PC**, Rubylight asks
+PC you connect to. When you turn on **Send microphone to the PC**, Nightjar asks
 for microphone access and, during a stream, sends your microphone, encrypted, to
 that PC only. It is not recorded or stored on your device, and it stops when you
 mute it in the stream menu or the stream ends. Pairing exchanges identity information with that PC. Host
 discovery also uses your local network.
 
-If you enable **Send hardware metrics to client** on a supporting host,
-Rubylight can request host CPU usage and available AMD GPU readings, including
+If you enable **Send hardware metrics to client** on a host that supports it
+(currently Rubylight), Nightjar can request host CPU usage and available AMD GPU readings, including
 GPU names, utilization, clocks, temperatures, power, fans and VRAM use. This
 uses the paired streaming HTTPS connection during this device's active video
 stream while its foreground performance overlay is visible. Polling stops
@@ -55,7 +55,7 @@ site and your browser apply their own privacy practices.
 
 ## Sharing a problem or crash report
 
-Rubylight does not automatically send problem or crash reports. A report is
+Nightjar does not automatically send problem or crash reports. A report is
 shared only after you choose Share and select a receiving app in Android's
 share sheet. Canceling the sheet does not share the report. The report omits
 addresses, user-assigned host names, PINs, credentials and free-text diagnostic
@@ -69,11 +69,11 @@ latency files, may be backed up or transferred by Android. Client certificates,
 private keys, the client identifier and preferences are excluded. Crash records
 and temporary report files are kept outside Android backup.
 
-Remove a saved PC in Rubylight to remove its saved-host entry, per-PC settings, hidden-app choices,
+Remove a saved PC in Nightjar to remove its saved-host entry, per-PC settings, hidden-app choices,
 cached app list and artwork. Revoke pairing
-on the PC to remove that device's access there. Clear Rubylight's app storage
+on the PC to remove that device's access there. Clear Nightjar's app storage
 or uninstall it to remove its local data. Separately delete any exported logs,
 shared reports or Android backups using the app or service holding them.
 
-Rubylight has no developer-hosted user account to delete. For questions about
-this policy, use the contact details on the Rubylight store listing.
+Nightjar has no developer-hosted user account to delete. For questions about
+this policy, use the contact details on the Nightjar store listing.

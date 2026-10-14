@@ -1,6 +1,6 @@
-# Rubylight documentation
+# Nightjar documentation
 
-Stream your PC games and desktop to the Android screen you want to use. Rubylight brings your library, sound and controls together so you can start playing from your phone, tablet or TV.
+Stream your PC games and desktop to the Android screen you want to use. Nightjar brings your library, sound and controls together so you can start playing from your phone, tablet or TV. It works with Apollo, NVIDIA GameStream, Rubylight, Sunshine, Vibepollo and other Moonlight-compatible hosts.
 
 | I want to… | Guide |
 | --- | --- |
@@ -17,15 +17,15 @@ Stream your PC games and desktop to the Android screen you want to use. Rubyligh
 | Launch games from ES-DE, Daijisho or Pegasus | [Frontends](FRONTENDS.md) |
 | Find a short answer | [FAQ](faq.md) |
 
-Development references: [host feature matrix](PARITY-MATRIX.md), [October 2026 audit and remaining gaps](android-audit-2026-10.md) and [documentation checks](building.md#documentation-checks).
+Development references: [host feature matrix](PARITY-MATRIX.md), [October 2026 audit and remaining gaps](android-audit-2026-10.md), [rename history](RENAME.md) and [documentation checks](building.md#documentation-checks).
 
-[Download Rubylight](../README.md#download) · [Privacy](PRIVACY.md)
+[Download Nightjar](../README.md#download) · [Privacy](PRIVACY.md)
 
 ## License and credits
 
-Rubylight is licensed under [GPL-3.0](../LICENSE.txt). It includes Moonlight Android code by [Cameron Gutman](https://github.com/cgutman), [Diego Waxemberg](https://github.com/dwaxemberg), Aaron Neyer, [Andrew Hennessy](https://github.com/yetanothername) and contributors. Moonlight began as a project at [MHacks](https://mhacks.org/) by students at [Case Western Reserve University](https://case.edu/).
+Nightjar is licensed under [GPL-3.0](../LICENSE.txt). It includes Moonlight Android code by [Cameron Gutman](https://github.com/cgutman), [Diego Waxemberg](https://github.com/dwaxemberg), Aaron Neyer, [Andrew Hennessy](https://github.com/yetanothername) and contributors. Moonlight began as a project at [MHacks](https://mhacks.org/) by students at [Case Western Reserve University](https://case.edu/).
 
-Apollo extension behavior draws on [Artemis Android](https://github.com/ClassicOldSong/moonlight-android) by ClassicOldSong and contributors (GPL-3.0). Rubylight also streams from Sunshine and Apollo hosts.
+Apollo extension behavior draws on [Artemis Android](https://github.com/ClassicOldSong/moonlight-android) by ClassicOldSong and contributors (GPL-3.0).
 
 The [DualSense waveform extension](dualsense-haptics.md) uses the GPL-3.0-or-later protocol definition from [Nonary/moonlight-common-c](https://github.com/Nonary/moonlight-common-c) and interoperates with Nonary's Vibepollo hosts. DualSense HID report handling is adapted from SDL and retains its original notice in the source.
 

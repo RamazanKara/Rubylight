@@ -2,26 +2,26 @@
 
 [Documentation](index.md)
 
-Rubylight can stream a game opened from ES-DE, Daijisho, Pegasus or another Android launcher. Exported `.art` entries identify the paired PC and app; the launcher opens the entry with Rubylight.
+Nightjar can stream a game opened from ES-DE, Daijisho, Pegasus or another Android launcher. Exported `.art` entries identify the paired PC and app; the launcher opens the entry with Nightjar.
 
 ## ES-DE
 
-1. Pair the PC in Rubylight and open its library once to refresh the cached app list.
+1. Pair the PC in Nightjar and open its library once to refresh the cached app list.
 2. Long-press the PC and choose **Add games to ES-DE**.
 3. Select the ROMs folder used by ES-DE. The exporter creates a `butterpollo` subfolder containing a game entry for each visible app.
 4. Select the ES-DE folder to merge the custom system and copy cached covers. Skip this step when exporting only game files for another frontend.
-5. Restart ES-DE and open its **Rubylight** system.
+5. Restart ES-DE and open its **Nightjar** system.
 
 On Android 11+, select the actual ROMs/ES-DE directories rather than a restricted storage root. Repeat export after changing the host library. Entries are matched by PC and app identity and updated in place even if a game was renamed; the existing filename and matching cover filename stay stable. Same-name games from different PCs are disambiguated.
 
 An unsuccessful new entry or cover write is removed when the document provider permits it, so a retry does not leave a broken duplicate or empty cover. Existing custom covers and files belonging to other PCs are preserved. Export does not prune entries for games you removed or hid after an earlier export; remove those entries manually in your frontend's ROMs folder. If storage permission or a provider failure prevents cleanup, remove the incomplete file before retrying.
 
-The exporter uses these literal paths and identifiers:
+The system folder and emulator name stay `butterpollo` and `BUTTERPOLLO` from the app's earlier name, so existing ROM and media folders keep working; ES-DE shows the system as **Nightjar**. The exporter uses these literal paths and identifiers:
 
 | Relative to selected folder | Contents |
 | --- | --- |
 | ROMs: `butterpollo/*.art` | Game entries; hidden apps are omitted. |
-| ES-DE: `custom_systems/es_systems.xml` | Merged Rubylight system definition; other systems are retained. |
+| ES-DE: `custom_systems/es_systems.xml` | Merged Nightjar system definition; other systems are retained. |
 | ES-DE: `custom_systems/es_find_rules.xml` | Android component lookup. |
 | ES-DE: `downloaded_media/butterpollo/covers/` | Available cached game covers. |
 
@@ -58,7 +58,7 @@ launch: am start -n com.butterpollo.client/com.limelight.ShortcutTrampoline -a a
 A game entry is plain UTF-8 text. This example uses synthetic identifiers:
 
 ```text
-# Rubylight game entry
+# Nightjar game entry
 [host_uuid] 11111111-1111-1111-1111-111111111111
 [host_name] Gaming PC
 [app_uuid] 22222222-2222-2222-2222-222222222222
@@ -87,4 +87,4 @@ The parser is [FrontendEntry.java](../app/src/main/java/com/limelight/utils/Fron
 | Game file cannot be opened | Invalid entry or unreadable URI. | Re-export; make sure the launcher grants read access. Keep `%ROMPROVIDER%` in the ES-DE command. |
 | PC not found | PC is not saved on this Android installation. | Pair it here and export again. |
 | Library opens instead of the game | Entry has no usable app fields. | Open the PC library to refresh it, then re-export. |
-| Rubylight system absent in ES-DE | Configuration folder was skipped/wrong or ES-DE has not reloaded it. | Select the correct ES-DE folder, check both custom XML files, then restart ES-DE. |
+| Nightjar system absent in ES-DE | Configuration folder was skipped/wrong or ES-DE has not reloaded it. | Select the correct ES-DE folder, check both custom XML files, then restart ES-DE. |

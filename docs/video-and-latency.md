@@ -12,17 +12,17 @@ Use 720p/60 as a troubleshooting baseline, watch the overlay, then change one se
 | H.264 | Useful for compatibility and as a baseline when another decoder stalls. |
 | HEVC | Useful for high-quality streams at a lower bandwidth budget and compatible Main10 HDR decoding. |
 | AV1 | Uses compatible hardware and host encoding. Compare actual decode time on your device. |
-| PyroWave | Rubylight's own Vulkan codec for the lowest decode time at high bitrates. Choose it explicitly with a Rubylight host on a 64-bit Android/Vulkan device. |
+| PyroWave | Vulkan codec for the lowest decode time at high bitrates, on hosts that support it (currently Rubylight). Choose it explicitly on a 64-bit Android/Vulkan device. |
 
-PyroWave requires Android 10+, Vulkan 1.3 and the GPU features, limits and presentation formats checked by the renderer. Start with about 280 Mbps for 720p/60 or 400 Mbps for 1080p/60 on a fast LAN. Tune from there with the overlay. A PC profile accepts startup requests up to 2000 Mbps; runtime bitrate changes are capped at 500 Mbps. Rubylight switches to a conventional codec automatically when a device needs it.
+PyroWave requires Android 10+, Vulkan 1.3 and the GPU features, limits and presentation formats checked by the renderer. Start with about 280 Mbps for 720p/60 or 400 Mbps for 1080p/60 on a fast LAN. Tune from there with the overlay. A PC profile accepts startup requests up to 2000 Mbps; runtime bitrate changes are capped at 500 Mbps. Nightjar switches to a conventional codec automatically when a device needs it.
 
-Long-press a PC and use **This PC → Test your connection** before increasing bandwidth. Its optional, cancellable 32 MiB HTTPS download starts only when requested and reports throughput and the host link speed.
+Long-press a PC and use **This PC → Test your connection** before increasing bandwidth. On hosts that support it (currently Rubylight), its optional, cancellable 32 MiB HTTPS download starts only when requested and reports throughput and the host link speed.
 
 ## HDR and color
 
 HDR10 needs an HDR10 display, Android 7+ and a compatible HEVC Main10 or AV1 10-bit decoder, plus HDR configured on the streamed host display. PyroWave has its own HDR-capability checks. Enable **HDR** in Stream settings or the PC profile.
 
-Rubylight handles BT.2020/PQ and static mastering metadata. Debug stats show the negotiated format, so you can confirm HDR is active.
+Nightjar handles BT.2020/PQ and static mastering metadata. Debug stats show the negotiated format, so you can confirm HDR is active.
 
 **Prefer YUV 4:4:4** can improve colored text. It applies when the host and decoder both support it, with 4:2:0 used otherwise. HDR takes priority over a conflicting chroma preference. **Force full-range video** is an explicit override: mismatched range can crush blacks or clip highlights.
 
@@ -30,9 +30,9 @@ Rubylight handles BT.2020/PQ and static mastering metadata. Debug stats show the
 
 With VRR off, **Frame pacing** balances immediate response against regular presentation. **Lowest latency** favors fresh output; **Balanced** aligns cadence; **Balanced with FPS limit** and **Smoothest video** retain more queued output.
 
-With **Variable refresh (VRR)** on, Rubylight requests the screen's maximum refresh and shows decoded frames at the game's cadence. Confirmed Android 16 adaptive refresh uses cadence votes; other screens use a maximum-refresh fallback. VRR forces Lowest latency pacing and disables Allow lower refresh rate.
+With **Variable refresh (VRR)** on, Nightjar requests the screen's maximum refresh and shows decoded frames at the game's cadence. Hosts that support it (e.g. Rubylight or Vibepollo) are also asked for host-side VRR. Confirmed Android 16 adaptive refresh uses cadence votes; other screens use a maximum-refresh fallback. VRR forces Lowest latency pacing and disables Allow lower refresh rate.
 
-Per-PC profiles accept rates to 0.01 Hz, such as 59.94 or 119.88. The overlay reports received, released and shown FPS separately from panel refresh.
+Per-PC profiles accept rates to 0.01 Hz, such as 59.94 or 119.88. Hosts that support fractional rates (currently Rubylight) receive them as set; other hosts receive a whole-number rate. The overlay reports received, released and shown FPS separately from panel refresh.
 
 ## Upscaling
 
@@ -59,7 +59,7 @@ Use **Import driver ZIP** to import and select a trusted Adreno package, or choo
 
 Packages need a root-level `meta.json` with schema version 1, a compatible `minApi`, name, author, package/driver versions, Mesa or Qualcomm vendor, and the named arm64 `.so` library. The importer rejects folders, unsafe or duplicate paths, non-arm64 libraries and oversized packages. Limits are 128 MiB compressed, 256 MiB expanded, 64 files, 16 KiB metadata and eight installed drivers. Package validation does not establish compatibility with a particular GPU.
 
-If loading, capability checks or initialization fail, Rubylight tries the system driver and reports the fallback. A failed custom selection remains available to retry or remove. If the app exits while a custom driver is active, the next launch returns that selection to the system driver. Loaded driver libraries and capability results remain in the process until it exits; switching drivers affects a new stream without unloading libraries from an active one. To retry a failed load of the same installed package, fully close and reopen the app, then select it again. **Overlay → Debug** includes the driver used by that stream. Performance and stability need testing on the actual phone; custom drivers are optional, not a guaranteed speed improvement.
+If loading, capability checks or initialization fail, Nightjar tries the system driver and reports the fallback. A failed custom selection remains available to retry or remove. If the app exits while a custom driver is active, the next launch returns that selection to the system driver. Loaded driver libraries and capability results remain in the process until it exits; switching drivers affects a new stream without unloading libraries from an active one. To retry a failed load of the same installed package, fully close and reopen the app, then select it again. **Overlay → Debug** includes the driver used by that stream. Performance and stability need testing on the actual phone; custom drivers are optional, not a guaranteed speed improvement.
 
 ## Performance overlay
 
@@ -93,19 +93,19 @@ Debug groups diagnostics into Video, Network and Decode and scrolls on smaller s
 
 ## Host hardware metrics
 
-On a supporting Rubylight host, open **Settings → General → Hardware metrics** and enable **Send hardware metrics to client**. It is off by default. Start or reconnect a video stream and show **Overlay → Statistics** or **Debug**. The client checks the host's advertised protocol support; the host version number alone does not establish compatibility. Normal streams and Remote Monitor qualify, but input-only sessions do not. Pairing and **View streams** or **Launch applications** permission are required, and the active video stream must belong to this device.
+This needs a host that supports it (currently Rubylight). On the host, enable **Send hardware metrics to client** (on Rubylight: **Settings → General → Hardware metrics**). It is off by default. Start or reconnect a video stream and show **Overlay → Statistics** or **Debug**. The client checks the host's advertised protocol support; the host version number alone does not establish compatibility. Normal streams and Remote Monitor qualify, but input-only sessions do not. Pairing and **View streams** or **Launch applications** permission are required, and the active video stream must belong to this device.
 
 Statistics adds host CPU usage and each reported GPU's usage, temperature and GPU power. Debug adds a **Host hardware** section with GPU names/IDs, available clocks, hotspot/memory temperatures, voltage, fans, GPU/board power, VRAM readings and sample details. GPU readings need an AMD driver with ADLX support; Windows CPU usage can be available without an AMD GPU. CPU temperature and CPU clocks are not provided. These are host-wide readings, not per-game measurements; a listed GPU is not necessarily the capture or encoding GPU.
 
 The host's **Hardware metrics selection** controls which readings it sends; an empty selection requests all supported readings. Each reading is optional, and missing values appear as **—** rather than zero. A present zero, such as a stopped fan, is valid. The first CPU sample can be unavailable. Each new sample replaces the previous readings, including any GPUs that are now absent. Failed or stale samples remove the extra hardware section; a valid empty sample shows CPU usage as unavailable. Stream-provided **Host processing** time remains independent of this feature.
 
-Requests use the paired streaming HTTPS connection, independently of video decoding. Android polls at most once every two seconds, or less often when the host's sampling interval is longer. Polling stops when the overlay is hidden, the app is paused or in picture in picture, or the stream ends. Temporary failures clear the values and retry with backoff; denied access, an unavailable endpoint or an unsupported schema stop telemetry for that session. After enabling the host setting or restoring permissions, reconnect to rediscover support. **Copy stats** includes available hardware readings and GPU names. See the host's [hardware metrics protocol](https://github.com/RamazanKara/rubylight/blob/main/docs/hardware-metrics.md) for field definitions and units.
+Requests use the paired streaming HTTPS connection, independently of video decoding. Android polls at most once every two seconds, or less often when the host's sampling interval is longer. Polling stops when the overlay is hidden, the app is paused or in picture in picture, or the stream ends. Temporary failures clear the values and retry with backoff; denied access, an unavailable endpoint or an unsupported schema stop telemetry for that session. After enabling the host setting or restoring permissions, reconnect to rediscover support. **Copy stats** includes available hardware readings and GPU names. See the host's [hardware metrics protocol](https://github.com/RamazanKara/Rubylight/blob/main/docs/hardware-metrics.md) for field definitions and units.
 
 ## Automatic bitrate and diagnostics
 
 For bounded reconnects and opt-in resolution/FPS adaptation, see [stream recovery and automatic quality](recovery-and-quality.md).
 
-Enable **Automatic bitrate** in the stream's **Bitrate** menu on a supporting host. It is opt-in and saved per PC, separately for conventional codecs and PyroWave. Loss, RTT variation and completed decode headroom inform adaptation; PyroWave also considers queue delay. Bitrate recovers gradually once the link is healthy. Manual session bitrate changes turn it off.
+Enable **Automatic bitrate** in the stream's **Bitrate** menu on a host that supports it (currently Rubylight). It is opt-in and saved per PC, separately for conventional codecs and PyroWave. Loss, RTT variation and completed decode headroom inform adaptation; PyroWave also considers queue delay. Bitrate recovers gradually once the link is healthy. Manual session bitrate changes turn it off.
 
 Use **Settings → Advanced → Export latency CSV** to save the latest local frame timings. `queue_wait_ms`, `input_to_output_ms` and `output_to_render_ms` correspond to the stages above; The appended FPS sample separates received/released/shown FPS and estimated presentation drops.
 

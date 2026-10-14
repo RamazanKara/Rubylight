@@ -1,10 +1,10 @@
-# Building Rubylight
+# Building Nightjar
 
 [Documentation](index.md)
 
 ## Install a published or development build
 
-Get published APKs from [Rubylight releases](https://github.com/RamazanKara/rubylight-android/releases), or build one yourself as described below. Open the APK on Android 5.0 or newer and allow installation from the app opening it; no root is needed. With USB debugging enabled, `adb install -r app-nonRoot-debug.apk` also installs it.
+Get published APKs from [Nightjar releases](https://github.com/RamazanKara/nightjar-android/releases), or build one yourself as described below. Open the APK on Android 5.0 or newer and allow installation from the app opening it; no root is needed. With USB debugging enabled, `adb install -r app-nonRoot-debug.apk` also installs it.
 
 Updates require the same signing key. Debug APKs built on different machines use different keys; changing keys requires uninstalling the old app, which removes settings and pairing identity. The normal package ID remains `com.butterpollo.client`; debug builds use `com.butterpollo.client.debug` and a `(Debug)` label.
 
@@ -17,8 +17,8 @@ The SDK Manager package for compile SDK 37 is `platforms;android-37.0`, not `pla
 Clone the Android repository with its native submodules:
 
 ```sh
-git clone --recurse-submodules https://github.com/RamazanKara/rubylight-android.git
-cd rubylight-android
+git clone --recurse-submodules https://github.com/RamazanKara/nightjar-android.git
+cd nightjar-android
 ```
 
 For an existing checkout:
@@ -53,13 +53,13 @@ CI rebuilds the Rust protocol libraries from source and runs all native regressi
 bash scripts/test-native.sh
 ```
 
-This requires a C/C++ compiler, OpenSSL development headers and Rust. Gradle and the native runner apply the checked-in native fixes before compiling and fail if the patches do not apply. [The Android workflow](../.github/workflows/android.yml) also builds both release flavors and runs both flavors' unit tests. The optional [emulator smoke script](../scripts/emulator-smoke.py) requires an already configured Android SDK, Python and its expected AVD.
+This requires a C/C++ compiler, OpenSSL development headers and Rust. Gradle and the native runner apply the checked-in native fixes before compiling and fail if the patches do not apply. [The Android workflow](../.github/workflows/android.yml) also builds both release flavors, runs both flavors' unit tests and uploads the non-root debug APK as the `nightjar-debug` artifact. The optional [emulator smoke script](../scripts/emulator-smoke.py) requires an already configured Android SDK, Python and its expected AVD.
 
 ### UI smoke captures
 
-After building debug, `python scripts/emulator-smoke.py` uses the `sunset` Android 35 AVD in a headless disposable session. Use `--avd NAME` for another Google APIs AVD and `--port 5556` if the default emulator port is occupied. It refuses to replace an emulator already using its selected port and stops only its own emulator in a `finally` block. It installs the APK, adds a loopback server-info fixture and walks the pairing guide, one-time PIN and host-details dialogs, manual-address validation, PC profile input/save/reopen/reset, settings, bitrate and global reset. It also checks search navigation, visible card menus, long-sheet scrolling and per-PC global inheritance. The fixture holds the PIN prompt open without completing pairing or starting a stream.
+After building debug, `python scripts/emulator-smoke.py` uses the `sunset` Android 35 AVD in a headless disposable session. Use `--avd NAME` (or set `NIGHTJAR_AVD`) for another Google APIs AVD and `--port 5556` if the default emulator port is occupied. `NIGHTJAR_EMULATOR_GPU` (default `swiftshader`) and `NIGHTJAR_BOOT_TIMEOUT` (seconds, default 180) override the emulator's GPU mode and boot timeout. It refuses to replace an emulator already using its selected port and stops only its own emulator in a `finally` block. It installs the APK, adds a loopback server-info fixture and walks the pairing guide, one-time PIN and host-details dialogs, manual-address validation, PC profile input/save/reopen/reset, settings, bitrate and global reset. It also checks search navigation, visible card menus, long-sheet scrolling and per-PC global inheritance. The fixture holds the PIN prompt open without completing pairing or starting a stream.
 
-The capture matrix is 393 dp and 412 dp at default font size, plus 393 dp at font scales 1.3 and 2.0, including landscape at 2.0. The script applies landscape after launching the app so the portrait-only launcher cannot reset the test orientation, waits for physical rotation to settle, and checks both screenshot dimensions and UI-tree rotation. It scrolls the PC menu to its end and requires the final action and Close to retain visible touch targets of at least 48 dp outside system bars. Debug builds also exercise library search, no results, clearing and query restoration through rotation using the offline demo. Screenshots go to `docs/screenshots/ui-v2/` (native dimensions, palette PNG when Pillow is available); UI dumps and logcat go to `app/build/emulator-smoke/`. Use `--output-dir D:\CodexArtifacts\rubylight-ui-smoke` to keep both under a separate task directory. The debug-only overlay preview uses labeled synthetic values, supports rotation and long-press switching, and is absent from release builds. Its captures are `overlay-statistics.png` and `overlay-debug.png`, with `-landscape` variants. Long-press switching belongs to this preview; during a real stream, select the mode from **stream menu → Overlay**.
+The capture matrix is 393 dp and 412 dp at default font size, plus 393 dp at font scales 1.3 and 2.0, including landscape at 2.0. The script applies landscape after launching the app so the portrait-only launcher cannot reset the test orientation, waits for physical rotation to settle, and checks both screenshot dimensions and UI-tree rotation. It scrolls the PC menu to its end and requires the final action and Close to retain visible touch targets of at least 48 dp outside system bars. Debug builds also exercise library search, no results, clearing and query restoration through rotation using the offline demo. Screenshots go to `docs/screenshots/ui-v2/` (native dimensions, palette PNG when Pillow is available); UI dumps and logcat go to `app/build/emulator-smoke/`. Use `--output-dir D:\CodexArtifacts\nightjar-ui-smoke` to keep both under a separate task directory. The debug-only overlay preview uses labeled synthetic values, supports rotation and long-press switching, and is absent from release builds. Its captures are `overlay-statistics.png` and `overlay-debug.png`, with `-landscape` variants. Long-press switching belongs to this preview; during a real stream, select the mode from **stream menu → Overlay**.
 
 Focused runs reuse the full script's assertions. `--ui-only` installs fresh, adds the fixture PC and runs the UI matrix; it skips profile/preset persistence and import validation, so it does not replace the default full smoke run. Add repeatable `--ui-case` arguments to select `393dp-font-1`, `412dp-font-1`, `393dp-font-1.3`, `393dp-font-2` or `393dp-font-2-landscape`; omitting this option runs every case. For example, `python scripts/emulator-smoke.py --ui-only --ui-case 393dp-font-2-landscape` checks that viewport, then the debug library and overlays when using a debug APK. `--debug-only` runs only those library and overlay fixture checks and requires a debug APK; it cannot be combined with `--ui-only` or `--ui-case`. Every focused run still starts a disposable emulator and checks the app crash buffer; the default command runs every check.
 
@@ -96,16 +96,16 @@ Release builds require a dedicated signing key. Missing or partial signing confi
 Create a signing key once and retain it for future updates. JDK 21 supplies `keytool`; it prompts for the keystore password:
 
 ```sh
-keytool -genkeypair -keystore rubylight.keystore -alias rubylight -keyalg RSA -keysize 3072 -validity 10000
+keytool -genkeypair -keystore nightjar.keystore -alias nightjar -keyalg RSA -keysize 3072 -validity 10000
 ```
 
-An unsigned APK produced outside the normal Gradle signing path cannot be installed directly. With Android SDK Build Tools on your PATH, copy it to `rubylight-unsigned.apk`, align it, sign with the same key and verify:
+An unsigned APK produced outside the normal Gradle signing path cannot be installed directly. With Android SDK Build Tools on your PATH, copy it to `nightjar-unsigned.apk`, align it, sign with the same key and verify:
 
 ```sh
-zipalign -P 16 -f 4 rubylight-unsigned.apk rubylight-aligned.apk
-apksigner sign --ks rubylight.keystore --ks-key-alias rubylight --out rubylight.apk rubylight-aligned.apk
-apksigner verify --verbose rubylight.apk
-adb install -r rubylight.apk
+zipalign -P 16 -f 4 nightjar-unsigned.apk nightjar-aligned.apk
+apksigner sign --ks nightjar.keystore --ks-key-alias nightjar --out nightjar.apk nightjar-aligned.apk
+apksigner verify --verbose nightjar.apk
+adb install -r nightjar.apk
 ```
 
 See Android's [APK signing instructions](https://developer.android.com/tools/apksigner).
@@ -122,9 +122,9 @@ Or use the artifact helper, which runs release lint and both flavors' unit tests
 .\scripts\build-release.ps1
 ```
 
-The Linux helper is `bash scripts/build-release.sh`. Both helpers build a universal APK and bundle with all four default ABIs (`arm64-v8a`, `armeabi-v7a`, `x86`, `x86_64`), then print SHA-256 hashes and byte sizes. They stop on validation/build failure and do not publish. Single-ABI builds are for explicit device testing, not the default downloadable release. Preserve `app/build/outputs/mapping/nonRootRelease/mapping.txt` and native debug symbols for the matching release.
+The Linux helper is `bash scripts/build-release.sh`. Both helpers build a universal APK and bundle with all four default ABIs (`arm64-v8a`, `armeabi-v7a`, `x86`, `x86_64`), then print SHA-256 hashes and byte sizes of `app/build/outputs/apk/nonRoot/release/app-nonRoot-release.apk` and `app/build/outputs/bundle/nonRootRelease/app-nonRoot-release.aab`. They stop on validation/build failure and do not publish. Single-ABI builds are for explicit device testing, not the default downloadable release. Preserve `app/build/outputs/mapping/nonRootRelease/mapping.txt` and native debug symbols for the matching release.
 
-Releases are built and published from a local machine with `gh release create` using the retained release key. Test prereleases carry a debug-signed arm64 APK with the separate debug package ID and are never marked Latest.
+Releases are built and published from a local machine with `gh release create` using the retained release key. Test prereleases carry a debug-signed arm64 APK, `nightjar-arm64-debug.apk`, with the separate debug package ID and are never marked Latest.
 
 ## Documentation checks
 

@@ -4,11 +4,11 @@
 
 ## What do I need?
 
-An Android 5.0+ device, a PC running the Rubylight host and a working network between them. Start with the [quick start](quick-start.md). Individual HDR, USB and Vulkan features have additional device requirements.
+An Android 5.0+ device, a PC running a Moonlight-compatible streaming host (such as Apollo, Rubylight, Sunshine or Vibepollo) and a working network between them. Start with the [quick start](quick-start.md). Individual HDR, USB and Vulkan features have additional device requirements.
 
-## Does Rubylight run the game on Android?
+## Does Nightjar run the game on Android?
 
-The game runs on your PC. Rubylight streams its video/audio to Android and sends your controls back.
+The game runs on your PC. Nightjar streams its video/audio to Android and sends your controls back.
 
 ## Does it need root?
 
@@ -16,7 +16,7 @@ The normal `nonRoot` build does not. A separate root flavor exists for older And
 
 ## Why do filenames or package names contain a different identifier?
 
-The Android package ID remains `com.butterpollo.client` so existing installations keep their identity. Some exported folders, report filenames and CI artifacts retain literal identifiers used by the implementation. The product and repository are Rubylight.
+Nightjar was earlier called Butterpollo and then Rubylight. The Android package ID remains `com.butterpollo.client` so existing installations keep their identity. The ES-DE export folder stays `butterpollo`, and some internal identifiers keep their earlier names; [the rename history](RENAME.md) lists them. The product and repository are Nightjar.
 
 ## Can I stream outside my home network?
 
@@ -24,7 +24,7 @@ Yes, when your Android device can reach the host's streaming services. Establish
 
 ## Where do I set device permissions?
 
-In **Devices** in the Rubylight host web console. On an online Rubylight PC, choose **Open host administration** from its menu and sign in with the console's account. Listing apps, viewing, launching, each input type, clipboard directions and commands have separate permissions. See [pairing](pairing.md#per-device-permissions).
+In your host's settings or web UI, if it has per-device permissions (e.g. Apollo or Rubylight). On hosts that support it (currently Rubylight), choose **Open host administration** from an online PC's menu and sign in with the web UI's account. Listing apps, viewing, launching, each input type, clipboard directions and commands have separate permissions. See [pairing](pairing.md#per-device-permissions).
 
 ## Does Disconnect close my game?
 
@@ -44,12 +44,12 @@ Statistics shows network round-trip time, available host processing, decode time
 
 ## Can I use my launcher?
 
-Rubylight exports game files for ES-DE and accepts Android intents from Daijisho, Pegasus and other frontends. See [frontends](FRONTENDS.md).
+Nightjar exports game files for ES-DE and accepts Android intents from Daijisho, Pegasus and other frontends. See [frontends](FRONTENDS.md).
 
 ## Does an update preserve pairing?
 
 An update signed with the same key normally preserves the installation. Uninstalling, clearing app storage or restoring onto another device requires fresh pairing. A differently signed APK cannot update the installed app.
 
-## Does Rubylight upload diagnostics automatically?
+## Does Nightjar upload diagnostics automatically?
 
 No. Problem reports are local until you choose a receiving app in Android's share sheet. See [report export](TROUBLESHOOTING.md#export-a-problem-report) and [privacy](PRIVACY.md) for network checks, storage and backups.

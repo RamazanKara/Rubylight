@@ -1,11 +1,21 @@
 <resources>
+    <!-- Spacing scale. Use these instead of ad-hoc values. -->
+    <dimen name="space_xs">4dp</dimen>
+    <dimen name="space_s">8dp</dimen>
+    <dimen name="space_m">12dp</dimen>
+    <dimen name="space_l">16dp</dimen>
+    <dimen name="space_xl">24dp</dimen>
+    <dimen name="space_xxl">32dp</dimen>
 
-    <!-- Default screen margins, per the Android Design guidelines. -->
-    <dimen name="activity_horizontal_margin">16dp</dimen>
-    <dimen name="activity_vertical_margin">16dp</dimen>
-    <dimen name="tv_channel_logo_width">80dp</dimen>
-    <dimen name="tv_channel_logo_height">80dp</dimen>
+    <!-- Horizontal margin between the window's safe area and content; 24dp from 600dp wide (values-w600dp). -->
+    <dimen name="screen_gutter">16dp</dimen>
     <!-- List screens keep one readable column; see com.limelight.ui.ContentFrame. -->
     <dimen name="content_max_width">840dp</dimen>
+    <dimen name="touch_target">48dp</dimen>
+    <!-- The top app bar's own start/end padding; its 48dp icon buttons then line up with the gutter. -->
+    <dimen name="top_app_bar_padding">4dp</dimen>
+    <dimen name="top_app_bar_height">64dp</dimen>
 
+    <dimen name="tv_channel_logo_width">80dp</dimen>
+    <dimen name="tv_channel_logo_height">80dp</dimen>
 </resources>

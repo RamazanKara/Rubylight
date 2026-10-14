@@ -398,6 +398,31 @@ test('an update action spins only its own button, and update settings open insid
   assert.equal(await page.evaluate(() => window.consoleStayedLoaded), true);
 });
 
+test('an update that setup refused shows setup\'s reason once', async t => {
+  const reason = 'Rubylight cannot be updated in D:\\Games\\Rubylight: D:\\Games must be owned by Administrators, SYSTEM or TrustedInstaller. '
+    + 'Run the Rubylight installer from the release page: it moves Rubylight to C:\\Program Files\\Rubylight and keeps its settings and paired devices.';
+  let state = { releases: [], checked_at: 1, update_check_interval: 0, install_supported: true, update_available: false,
+    phase: 'failed', error: reason, last_install: { version: '2.2.22', phase: 'failed', error: reason } };
+  const { page } = await fixture(t, async (route, url, request) => {
+    if (url.pathname !== '/api/updates' || request.method() !== 'GET') return false;
+    await route.fulfill({ json: state });
+    return true;
+  });
+  await page.goto(base + '/maintenance');
+  const panel = page.locator('section', { has: page.getByRole('heading', { name: 'Updates', exact: true }) });
+  const shown = panel.getByText(reason, { exact: true });
+  await shown.waitFor();
+  assert.equal(await shown.count(), 1);
+  assert.equal(await shown.getAttribute('role'), 'alert');
+  assert.equal(await panel.getByText(/did not report completion/).count(), 0);
+  // After the host restarts, the record alone says it.
+  state = { ...state, phase: 'idle', error: null };
+  await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+  await panel.getByRole('status').filter({ hasText: reason }).waitFor();
+  assert.equal(await shown.count(), 1);
+  assert.equal(await panel.getByRole('alert').count(), 0);
+});
+
 test('API tokens say when a refresh fails, and both lists can be retried', async t => {
   let listCalls = 0, routeCalls = 0;
   const { page } = await fixture(t, async (route, url, request) => {

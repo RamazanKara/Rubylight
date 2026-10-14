@@ -26,6 +26,8 @@
   const notes = $derived(latest?.body?.trim() ?? '');
   const available = $derived(updates?.update_available ?? false);
   const queued = $derived(['waiting', 'downloading', 'ready', 'installing'].includes(updates?.phase ?? ''));
+  /** The last install's outcome, unless the failure notice above already says it. */
+  const lastInstall = $derived(queued || (updates?.phase === 'failed' && updates.last_install?.error === updates.error) ? null : updates?.last_install ?? null);
   const progress = $derived(Math.min(100, Math.floor(100 * (updates?.downloaded_bytes ?? 0) / (updates?.download_size || 1))));
 
   async function load() {
@@ -106,10 +108,10 @@
       {:else if updates.phase === 'failed'}
         <p class="notice warn" role="alert">{updates.error}</p>
       {/if}
-      {#if updates.last_install && !queued}
-        <p class:warn={updates.last_install.phase !== 'installed'} class="notice" role="status">
-          {#if updates.last_install.phase === 'installed'}Installed {updates.last_install.version} successfully.
-          {:else if updates.last_install.error}{updates.last_install.error}
+      {#if lastInstall}
+        <p class:warn={lastInstall.phase !== 'installed'} class="notice" role="status">
+          {#if lastInstall.phase === 'installed'}Installed {lastInstall.version} successfully.
+          {:else if lastInstall.error}{lastInstall.error}
           {:else}The previous update did not report completion. Check the setup log before retrying.{/if}
         </p>
       {/if}

@@ -381,13 +381,8 @@ pub fn poll(h: &Shared) {
             std::thread::spawn(move || {
                 let result = child.wait();
                 // If the old host is still here, setup failed before the restart.
-                let mut state = h.updates.lock().unwrap();
-                failed(
-                    &mut state,
-                    anyhow::anyhow!(
-                        "Installer exited before replacing this host: {result:?}. See the setup log."
-                    ),
-                );
+                let error = setup_failure(&h.directory, result);
+                failed(&mut h.updates.lock().unwrap(), error);
             });
             Ok(())
         })();
@@ -396,6 +391,29 @@ pub fn poll(h: &Shared) {
             Err(error) => failed(&mut state, error),
         }
     }
+}
+
+/// Why setup exited without replacing this host: what it recorded when it
+/// refused before changing anything, else only how it exited.
+fn setup_failure(
+    profile: &std::path::Path,
+    exit: std::io::Result<std::process::ExitStatus>,
+) -> anyhow::Error {
+    let record =
+        butterpollo_core::state::load_json(&profile.join("update-result.json"), Value::Null)
+            .unwrap_or(Value::Null);
+    if record["phase"] == "failed"
+        && let Some(error) = record["error"].as_str()
+    {
+        return anyhow::anyhow!("{error}");
+    }
+    let exit = match exit {
+        Ok(status) => status
+            .code()
+            .map_or_else(|| status.to_string(), |code| format!("exit code {code}")),
+        Err(error) => error.to_string(),
+    };
+    anyhow::anyhow!("Installer exited before replacing this host ({exit}). See the setup log.")
 }
 
 fn failed(state: &mut Value, error: anyhow::Error) {
@@ -722,6 +740,30 @@ mod tests {
         std::fs::write(&path, b"{")?;
         let error = check_recovery(&f.directory).unwrap_err().to_string();
         assert!(error.contains("Run the Rubylight installer"), "{error}");
+        Ok(())
+    }
+    #[test]
+    fn a_setup_that_stops_early_reports_its_recorded_reason() -> Result<()> {
+        use std::os::windows::process::ExitStatusExt;
+        let f = Fixture::new();
+        let path = f.directory.join("update-result.json");
+        let exited = || Ok(std::process::ExitStatus::from_raw(1));
+        // What this host writes before it starts setup.
+        butterpollo_core::state::write_json(
+            &path,
+            &json!({"version":"v2.2.22","phase":"installing","started_at":1}),
+        )?;
+        let error = setup_failure(&f.directory, exited()).to_string();
+        assert_eq!(
+            error,
+            "Installer exited before replacing this host (exit code 1). See the setup log."
+        );
+        let reason = "Rubylight cannot be updated in D:\\Games\\Rubylight: D:\\Games must be owned by Administrators, SYSTEM or TrustedInstaller.";
+        butterpollo_core::state::write_json(
+            &path,
+            &json!({"version":"2.2.22","phase":"failed","error":reason}),
+        )?;
+        assert_eq!(setup_failure(&f.directory, exited()).to_string(), reason);
         Ok(())
     }
     #[tokio::test]

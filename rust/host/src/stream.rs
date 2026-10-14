@@ -2477,7 +2477,6 @@ impl Media {
         let mut capture: Option<Loopback> = None;
         let mut sink = String::new();
         let mut audio_check = Instant::now();
-        let mut capture_failed = false;
         let mut audio_error: Option<String> = None;
         let directory = std::env::current_exe()?.parent().unwrap().to_owned();
         let layout = butterpollo_core::audio::OpusLayout::select(
@@ -2575,11 +2574,11 @@ impl Media {
                         }
                         capture = None;
                         sink = selected;
-                        capture_failed = false;
                     }
-                    if capture.is_none()
-                        && (!capture_failed || config.boolean("auto_capture_sink", true))
-                    {
+                    // Pinning the sink only disables following the Windows
+                    // default. Even a fixed endpoint must reopen after a
+                    // driver reset, format change or temporary disconnect.
+                    if capture.is_none() {
                         match route.set_channels(s.config.audio_channels as usize) {
                             Ok(()) => s.launch.warnings.clear("audio_surround"),
                             Err(error) => s.launch.warnings.set("audio_surround", format!("Virtual surround format could not be applied ({error:#}); channels may be downmixed. Select stereo or check the virtual audio driver.")),
@@ -2593,11 +2592,9 @@ impl Media {
                                 );
                                 capture = Some(value);
                                 s.launch.warnings.clear("audio_capture");
-                                capture_failed = false;
                                 audio_error = None;
                             }
                             Err(error) => {
-                                capture_failed = true;
                                 let detail = format!("{error:#}");
                                 if audio_error.as_ref() != Some(&detail) {
                                     s.launch.warnings.set("audio_capture", format!("Audio capture failed ({detail}); sending silence while retrying. Check that the playback device is available and reconnect if it does not recover."));
@@ -2634,7 +2631,6 @@ impl Media {
                             format!("Audio capture interrupted ({error:#}); {recovery}"),
                         );
                         capture = None;
-                        capture_failed = true;
                     }
                 }
             }

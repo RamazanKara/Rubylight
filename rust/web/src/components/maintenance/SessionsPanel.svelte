@@ -16,6 +16,9 @@
 
   let revoking = $state<string | null>(null);
 
+  /** Browsers listed before "Show all": this one first, then the most recently seen. */
+  const SHORT = 5;
+  let showAll = $state(false);
   const sorted = $derived(
     [...(sessions ?? [])].sort((a, b) => Number(b.current) - Number(a.current) || b.last_seen - a.last_seen),
   );
@@ -63,7 +66,7 @@
   {#if sessions}
     {#if sorted.length}
       <ul>
-        {#each sorted as session (session.id)}
+        {#each showAll ? sorted : sorted.slice(0, SHORT) as session (session.id)}
           <li>
             <div class="who">
               <div class="name">
@@ -82,6 +85,13 @@
           </li>
         {/each}
       </ul>
+      {#if sorted.length > SHORT}
+        <div class="more">
+          <Button size="sm" variant="ghost" onclick={() => (showAll = !showAll)}>
+            {showAll ? 'Show fewer' : `Show all ${sorted.length} browsers`}
+          </Button>
+        </div>
+      {/if}
     {:else}
       <p class="empty muted">No browsers are signed in.</p>
     {/if}
@@ -107,6 +117,10 @@
   }
   li:last-child {
     border-bottom: 0;
+  }
+  .more {
+    padding: var(--space-2) var(--space-4);
+    border-top: 1px solid var(--line);
   }
   .who {
     display: grid;

@@ -397,3 +397,20 @@ test('deleting an app with unsaved edits returns to the library without a second
   assert.equal(await page.getByRole('dialog').isVisible(), false);
   assert.equal(writes.filter(write => write.path.startsWith('/api/apps/') && write.path !== '/api/apps/reorder').length, 1);
 });
+
+test('a long list of signed-in browsers starts short, with this browser first', async t => {
+  const sessions = Array.from({ length: 7 }, (_, index) => ({ id: `s${index}`, current: index === 4, username: 'admin',
+    last_seen: 1000 - index, device_label: `Browser ${index}`, remote_address: '127.0.0.1' }));
+  const { page } = await fixture(t, async (route, url) => {
+    if (url.pathname !== '/api/auth/sessions') return false;
+    await route.fulfill({ json: { status: true, sessions } });
+    return true;
+  });
+  await page.goto(base + '/maintenance');
+  const list = page.locator('main').getByRole('list').filter({ hasText: 'Browser 4' });
+  await list.waitFor();
+  assert.equal(await list.getByRole('listitem').count(), 5);
+  assert.match(await list.getByRole('listitem').first().innerText(), /Browser 4\s*This browser/);
+  await page.getByRole('button', { name: 'Show all 7 browsers', exact: true }).click();
+  assert.equal(await list.getByRole('listitem').count(), 7);
+});

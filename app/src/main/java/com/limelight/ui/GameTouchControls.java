@@ -48,6 +48,7 @@ public final class GameTouchControls extends FrameLayout {
     private final View passthrough;
     private View.OnTouchListener streamTouch;
 
+    @SuppressLint("ClickableViewAccessibility") // The passthrough layer only forwards touches; it has no click.
     public GameTouchControls(Activity activity, String profile, HeldInputState.Sink sink,
                              java.util.function.BooleanSupplier canInput, Consumer<Dialog> showDialog) {
         super(activity);

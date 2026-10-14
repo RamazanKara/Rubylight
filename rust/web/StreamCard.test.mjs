@@ -43,3 +43,7 @@ test('PyroWave quality warning uses the current encoder bitrate', () => {
   assert.match(result, /PyroWave bitrate is too low/);
   assert.match(result, /severe detail loss/);
 });
+
+test('the disconnect button names the device whose stream it ends', () => {
+  assert.match(html(), /Disconnect(<!---->)?<span class="visually-hidden[^"]*">\s*Test client<\/span>/);
+});

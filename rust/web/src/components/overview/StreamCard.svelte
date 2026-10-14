@@ -50,7 +50,9 @@
         <Badge tone="live">Live</Badge>
       {/if}
     </div>
-    <Button size="sm" variant="danger" {busy} disabled={stopping} onclick={() => ondisconnect(stream)}>Disconnect</Button>
+    <Button size="sm" {busy} disabled={stopping} onclick={() => ondisconnect(stream)}>
+      Disconnect<span class="visually-hidden"> {stream.device_name}</span>
+    </Button>
   </header>
 
   <ul class="spec">
@@ -146,11 +148,12 @@
     font-size: var(--text-lg);
     overflow-wrap: anywhere;
   }
+  /* Spaced, not dotted: a separator left at the end of a wrapped line reads as noise. */
   .spec {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 4px 0;
+    gap: 2px var(--space-4);
     margin: 0;
     padding: 0;
     list-style: none;
@@ -160,11 +163,7 @@
   .spec li {
     display: flex;
     align-items: center;
-  }
-  .spec li:not(:last-child)::after {
-    content: '·';
-    margin: 0 8px;
-    color: var(--muted);
+    white-space: nowrap;
   }
   .metrics {
     display: grid;
@@ -200,6 +199,9 @@
     font-size: var(--text-xs);
     color: var(--muted);
   }
+  .sub .num {
+    white-space: nowrap;
+  }
   .note {
     font-size: var(--text-sm);
   }
@@ -229,6 +231,11 @@
   }
   .peak {
     white-space: nowrap;
+  }
+  @media (max-width: 520px) {
+    .stream {
+      padding: var(--space-4);
+    }
   }
   .collecting {
     height: 40px;

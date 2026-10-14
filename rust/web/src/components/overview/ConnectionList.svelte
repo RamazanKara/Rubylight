@@ -41,12 +41,11 @@
         <div class="action">
           <Button
             size="sm"
-            variant="ghost"
             busy={busy === session.uuid}
             disabled={session.state === 'STOPPING'}
             onclick={() => ondisconnect(session)}
           >
-            Disconnect
+            Disconnect<span class="visually-hidden"> {session.device_name || 'Unnamed device'}</span>
           </Button>
         </div>
       </li>
@@ -58,6 +57,11 @@
   section {
     border-top: 1px solid var(--line);
     padding: var(--space-3) var(--space-5) var(--space-2);
+  }
+  @media (max-width: 520px) {
+    section {
+      padding: var(--space-3) var(--space-4) var(--space-2);
+    }
   }
   h3 {
     font-size: var(--text-sm);

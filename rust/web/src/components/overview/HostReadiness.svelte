@@ -17,8 +17,11 @@
     title: string;
     tone: Tone;
     state: string;
+    /** One line: what the host found. */
     text: string;
-    /** The host's own error text, shown as is. */
+    /** What to do about a problem. */
+    help?: string;
+    /** The host's own text, shown as is behind Details. */
     detail?: string;
     href: string;
     settings: string;
@@ -40,7 +43,8 @@
     if (warning) {
       return {
         ...base, tone: 'danger', state: 'Retrying',
-        text: 'The video encoder could not start. Check the selected encoder and graphics adapter in Encoder settings. If they are correct, update or reinstall the graphics driver. Rubylight keeps retrying.',
+        text: 'The video encoder could not start. Rubylight keeps retrying.',
+        help: 'Check the selected encoder and graphics adapter in Encoder settings. If they are correct, update or reinstall the graphics driver.',
         detail: warning.message,
       };
     }
@@ -58,7 +62,8 @@
         ...base,
         tone: 'danger',
         state: 'Unavailable',
-        text: 'No video encoder available. Check the selected encoder and graphics adapter in Encoder settings, then check the graphics driver. Rubylight keeps retrying.',
+        text: 'No video encoder available. Rubylight keeps retrying.',
+        help: 'Check the selected encoder and graphics adapter in Encoder settings, then check the graphics driver.',
       };
     }
     if (!status.h264) {
@@ -90,7 +95,8 @@
         ...base,
         tone: 'danger',
         state: 'Unavailable',
-        text: "It's turned on, but the driver can't be opened. Check that the Rubylight service is running, or use a physical display.",
+        text: "It's turned on, but the driver can't be opened.",
+        help: 'Check that the Rubylight service is running, or turn off the virtual display to use a monitor.',
         detail,
       };
     }
@@ -107,7 +113,13 @@
     }
     const sinks = meta.audio_sinks ?? [];
     if (!sinks.length) {
-      return { ...base, tone: 'warn', state: 'No output', text: 'No audio output was found, so streams have no sound.' };
+      return {
+        ...base,
+        tone: 'warn',
+        state: 'No output',
+        text: 'No audio output was found, so streams have no sound.',
+        help: 'Connect speakers or headphones, or turn on an audio device in Windows sound settings.',
+      };
     }
     const fallback = sinks.find((sink) => sink.default);
     const name = fallback ? fallback.name || fallback.description : '';
@@ -139,7 +151,8 @@
       ...base,
       tone: 'warn',
       state: 'No display',
-      text: `${method} No active display was found. Turn on a monitor or set up a virtual display.`,
+      text: `${method} No active display was found.`,
+      help: 'Turn on a monitor or set up a virtual display.',
     };
   }
 
@@ -166,13 +179,21 @@
   {:else}
     <ul>
       {#each checks as check (check.title)}
+        {@const problem = check.tone === 'warn' || check.tone === 'danger'}
         <li>
           <div class="head">
             <h3>{check.title}</h3>
             <Badge tone={check.tone}>{check.state}</Badge>
           </div>
-          <p>{check.text}</p>
-          {#if check.detail}<p class="detail mono">{check.detail}</p>{/if}
+          <p class="text">{check.text}</p>
+          {#if check.help}<p class="help">{check.help}</p>{/if}
+          {#if check.detail}
+            <!-- The host's own words: open for a problem, a click away otherwise. -->
+            <details open={problem}>
+              <summary>Details</summary>
+              <p class="detail">{check.detail}</p>
+            </details>
+          {/if}
           <a href={check.href} use:link>{check.settings}</a>
         </li>
       {/each}
@@ -188,7 +209,7 @@
   }
   li {
     display: grid;
-    gap: 3px;
+    gap: 2px;
     padding: var(--space-3) var(--space-5);
     font-size: var(--text-sm);
   }
@@ -204,16 +225,35 @@
   h3 {
     font-size: var(--text);
   }
-  p {
+  .text {
     color: var(--ink-2);
   }
-  .detail {
-    color: var(--muted);
+  .help {
+    color: var(--ink);
+  }
+  details {
     font-size: var(--text-xs);
+    color: var(--muted);
+  }
+  summary {
+    cursor: pointer;
+    width: fit-content;
+  }
+  summary:hover {
+    color: var(--ink);
+  }
+  .detail {
+    margin-top: 2px;
+    padding: var(--space-2) var(--space-3);
+    border-left: 2px solid var(--line-strong);
+    background: var(--sunken);
+    color: var(--ink-2);
+    line-height: 1.45;
     overflow-wrap: anywhere;
   }
   a {
     justify-self: start;
+    margin-top: 2px;
     color: var(--muted);
     font-size: var(--text-xs);
   }
@@ -226,5 +266,10 @@
   }
   .error {
     margin: var(--space-3) var(--space-5);
+  }
+  @media (max-width: 520px) {
+    li {
+      padding: var(--space-3) var(--space-4);
+    }
   }
 </style>

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import Badge from '../components/Badge.svelte';
+  import CopyButton from '../components/CopyButton.svelte';
   import PageHeader from '../components/PageHeader.svelte';
   import Panel from '../components/Panel.svelte';
   import ConnectHelp from '../components/overview/ConnectHelp.svelte';
@@ -77,9 +78,8 @@
     const name = target.device_name || 'this device';
     const ok = await confirm({
       title: `Disconnect ${name}?`,
-      message: 'Every connection from this device ends. The running app stays open.',
+      message: 'Every connection from this device ends. The running app stays open, and the device can connect again.',
       confirm: 'Disconnect',
-      danger: true,
     });
     if (!ok) return;
     disconnecting = target.uuid;
@@ -142,21 +142,25 @@
     <div class="stack">
       <HostReadiness {metadata} error={metadataError} checking={rechecking} onrecheck={recheck} />
 
-      <Panel title="Host">
+      <Panel title="This PC">
         {#if metadata}
           <dl class="facts">
-            <dt>Name</dt>
-            <dd>{metadata.host_name}</dd>
             <dt>Address</dt>
-            <dd class="num">{metadata.pc_address}</dd>
-            {#if addresses.length}
-              <dt>Other addresses</dt>
-              <dd class="num">{addresses.join(', ')}</dd>
-            {/if}
+            <dd class="address">
+              <span class="num">{metadata.pc_address}</span>
+              <CopyButton value={metadata.pc_address} label="Copy address" what="the address" />
+            </dd>
+            {#each addresses as address, index (address)}
+              <dt>{index === 0 ? 'Other addresses' : ''}</dt>
+              <dd class="address">
+                <span class="num">{address}</span>
+                <CopyButton value={address} label="Copy address {address}" what={address} />
+              </dd>
+            {/each}
+            <dt>Paired devices</dt>
+            <dd><a href="/devices" use:link><span class="num">{metadata.paired_devices}</span>{metadata.paired_devices === 1 ? ' device' : ' devices'}</a></dd>
             <dt>Version</dt>
             <dd class="num">{metadata.version}</dd>
-            <dt>Paired devices</dt>
-            <dd><a class="num" href="/devices" use:link>{metadata.paired_devices}</a></dd>
           </dl>
         {:else}
           <p class="muted">{metadataError ? 'Host details are unavailable.' : 'Loading host details…'}</p>
@@ -190,5 +194,19 @@
   }
   .lost {
     margin: var(--space-3) var(--space-5);
+  }
+  .address {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    min-width: 0;
+  }
+  .address .num {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .facts {
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
   }
 </style>

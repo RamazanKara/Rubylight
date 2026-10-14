@@ -12,7 +12,7 @@ after(() => server.close());
 const { schema } = await server.ssrLoadModule('/src/lib/settings-schema.ts');
 const { default: SettingControl } = await server.ssrLoadModule('/src/components/settings/SettingControl.svelte');
 const { render } = await server.ssrLoadModule('svelte/server');
-const { describeDefault } = await server.ssrLoadModule('/src/components/settings/values.ts');
+const { describeDefault, numberError } = await server.ssrLoadModule('/src/components/settings/values.ts');
 const { session } = await server.ssrLoadModule('/src/lib/session.svelte.ts');
 
 const intel = 'Intel(R) HD Graphics 530';
@@ -95,4 +95,18 @@ test('hardware metrics are opt-in with a bounded interval and an optional select
   assert.equal(selection.control.kind, 'list');
   assert.equal(selection.visibleWhen({ hardware_metrics: false }), false);
   assert.equal(selection.visibleWhen({ hardware_metrics: 'enabled' }), true);
+});
+
+test('integer controls with larger increments accept any whole number and reject fractions', () => {
+  for (const [key, whole, fractional] of [
+    ['capture_poll_interval_us', 501, 500.5],
+    ['dd_config_revert_delay', 150, 150.5],
+  ]) {
+    const setting = schema.settings.find(setting => setting.key === key);
+    assert(setting, key);
+    assert.equal(numberError(setting, String(whole)), '', key);
+    assert.equal(numberError(setting, String(fractional)), 'Enter a whole number.', key);
+    const html = render(SettingControl, { props: { setting, id: key, value: fractional, onchange: () => {} } }).body;
+    assert.match(html, /aria-invalid="true"/);
+  }
 });

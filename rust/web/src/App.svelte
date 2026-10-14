@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, tick } from 'svelte';
   import Icon, { type IconName } from './components/Icon.svelte';
   import Button from './components/Button.svelte';
   import ConfirmHost from './components/ConfirmHost.svelte';
@@ -8,7 +8,7 @@
   import { api, setSignedOutHandler } from './lib/api';
   import { failed } from './lib/feedback.svelte';
   import { poll } from './lib/format';
-  import { link, match, route } from './lib/router.svelte';
+  import { link, match, mayLeave, route } from './lib/router.svelte';
   import { checkSession, refreshPending, session, signedOut } from './lib/session.svelte';
   import { applyTheme, storedTheme, type Theme } from './lib/theme';
   import Overview from './pages/Overview.svelte';
@@ -34,6 +34,10 @@
 
   let theme = $state<Theme>(storedTheme());
   let menuOpen = $state(false);
+  let signingOut = $state(false);
+  let menuButton = $state<HTMLButtonElement>();
+  let content = $state<HTMLElement>();
+  let lastPath = route.path;
 
   const current = (path: string) =>
     path === '/' ? route.path === '/' : route.path === path || route.path.startsWith(`${path}/`);
@@ -57,12 +61,23 @@
     applyTheme(theme);
   }
   async function signOut() {
+    if (signingOut) return;
+    signingOut = true;
     try {
+      if (!(await mayLeave('/login'))) return;
       await api.auth.logout();
+      signedOut();
     } catch (error) {
       failed('Signing out failed', error);
+    } finally {
+      signingOut = false;
     }
-    signedOut();
+  }
+
+  function closeMenu(event: KeyboardEvent) {
+    if (event.key !== 'Escape' || !menuOpen || event.defaultPrevented || document.querySelector('dialog[open]')) return;
+    menuOpen = false;
+    menuButton?.focus();
   }
 
   onMount(() => {
@@ -72,11 +87,16 @@
     return poll(() => session.state === 'unavailable' ? checkSession() : refreshPending(), 3000);
   });
   $effect(() => {
-    // Close the mobile menu after navigating.
-    void route.path;
+    const path = route.path;
+    if (path === lastPath) return;
+    lastPath = path;
     menuOpen = false;
+    // Navigation must not leave keyboard focus on a now-hidden mobile link.
+    void tick().then(() => content?.focus({ preventScroll: true }));
   });
 </script>
+
+<svelte:window onkeydown={closeMenu} />
 
 {#if session.state === 'checking'}
   <div class="loading" aria-busy="true"></div>
@@ -91,17 +111,18 @@
   <Page />
 {:else}
   <div class="shell">
+    <a class="skip-link" href="#main-content" onclick={(event) => { event.preventDefault(); content?.focus(); }}>Skip to content</a>
     <aside class:open={menuOpen}>
       <div class="brand-row">
         <a class="brand" href="/" use:link>
           <span class="mark" aria-hidden="true">R</span>
           <span>Rubylight</span>
         </a>
-        <button class="menu" aria-label="Menu" aria-expanded={menuOpen} onclick={() => (menuOpen = !menuOpen)}>
+        <button bind:this={menuButton} class="menu" aria-label="Menu" aria-controls="main-navigation" aria-expanded={menuOpen} onclick={() => (menuOpen = !menuOpen)}>
           <Icon name="menu" />
         </button>
       </div>
-      <nav aria-label="Main">
+      <nav id="main-navigation" aria-label="Main">
         {#each nav as item (item.path)}
           <a href={item.path} use:link aria-current={current(item.path) ? 'page' : undefined}>
             <Icon name={item.icon} />
@@ -121,14 +142,14 @@
             <Icon name={theme === 'dark' ? 'moon' : theme === 'light' ? 'sun' : 'monitor'} size={16} />
             <span class="cap">{theme}</span>
           </button>
-          <button class="foot-button" onclick={signOut}>
+          <button class="foot-button" disabled={signingOut} aria-busy={signingOut} onclick={signOut}>
             <Icon name="signout" size={16} />
-            Sign out
+            {signingOut ? 'Signing out…' : 'Sign out'}
           </button>
         </div>
       </div>
     </aside>
-    <main>
+    <main id="main-content" tabindex="-1" bind:this={content}>
       {#if session.pending.length && route.path !== '/devices'}
         <PairingBanner requests={session.pending} />
       {/if}
@@ -141,6 +162,23 @@
 <Toaster />
 
 <style>
+  .skip-link {
+    position: fixed;
+    z-index: 100;
+    top: 8px;
+    left: 8px;
+    padding: 10px 16px;
+    background: var(--panel);
+    border: 2px solid var(--focus);
+    border-radius: var(--radius);
+    transform: translateY(-150%);
+  }
+  .skip-link:focus {
+    transform: translateY(0);
+  }
+  main:focus {
+    outline: none;
+  }
   .loading {
     min-height: 100vh;
   }
@@ -160,6 +198,7 @@
     position: sticky;
     top: 0;
     height: 100vh;
+    overflow-y: auto;
     display: flex;
     flex-direction: column;
     gap: var(--space-5);
@@ -198,7 +237,9 @@
     display: none;
     border: 0;
     background: none;
-    padding: 4px;
+    padding: 10px;
+    min-width: 44px;
+    min-height: 44px;
     cursor: pointer;
   }
   nav {
@@ -276,6 +317,7 @@
     aside {
       position: sticky;
       height: auto;
+      max-height: 100dvh;
       z-index: 10;
       padding: var(--space-3) var(--space-3);
       gap: var(--space-3);

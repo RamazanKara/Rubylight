@@ -57,6 +57,9 @@
 </script>
 
 <Panel title="Signed-in browsers" description="Browsers that can use this console without signing in again." flush>
+  {#if sessions && error}
+    <div class="pad"><LoadState {error} what="signed-in browsers" stale onretry={onchange} /></div>
+  {/if}
   {#if sessions}
     {#if sorted.length}
       <ul>
@@ -83,7 +86,7 @@
       <p class="empty muted">No browsers are signed in.</p>
     {/if}
   {:else}
-    <div class="pad"><LoadState {error} what="signed-in browsers" /></div>
+    <div class="pad"><LoadState {error} what="signed-in browsers" onretry={onchange} /></div>
   {/if}
 </Panel>
 

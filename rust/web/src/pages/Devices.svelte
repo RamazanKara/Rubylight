@@ -17,8 +17,10 @@
   let loadError = $state('');
   let editing = $state<string | null>(null);
   let editorDirty = $state(false);
+  let editorSaving = $state(false);
   /** `action:uuid` of the request in flight. */
   let busy = $state('');
+  const acting = $derived(busy !== '' || editorSaving);
   let latestLoad = 0;
 
   async function load() {
@@ -58,6 +60,7 @@
   }
 
   async function toggleEditor(uuid: string) {
+    if (acting) return;
     if (
       editorDirty &&
       !(await confirm({
@@ -73,6 +76,7 @@
   }
 
   async function run(key: string, action: () => Promise<unknown>, success: string, failure: string) {
+    if (acting) return;
     busy = key;
     try {
       await action();
@@ -80,12 +84,13 @@
     } catch (error) {
       failed(failure, error);
     } finally {
+      await load();
       busy = '';
     }
-    await load();
   }
 
   async function disconnect(client: Client) {
+    if (acting) return;
     const ok = await confirm({
       title: `Disconnect ${client.name}?`,
       message: 'Its stream ends now. The device stays paired and can connect again.',
@@ -102,6 +107,7 @@
   }
 
   async function unpair(client: Client) {
+    if (acting) return;
     const ok = await confirm({
       title: `Unpair ${client.name}?`,
       message: 'It is disconnected and removed. The device must pair again before it can stream.',
@@ -114,6 +120,7 @@
   }
 
   async function unpairAll() {
+    if (acting) return;
     const count = clients?.length ?? 0;
     const ok = await confirm({
       title: 'Unpair all devices?',
@@ -138,7 +145,7 @@
   flush
 >
   {#snippet actions()}
-    <Button variant="danger" size="sm" disabled={!clients?.length} busy={busy === 'unpair-all'} onclick={unpairAll}>
+    <Button variant="danger" size="sm" disabled={!clients?.length || acting} busy={busy === 'unpair-all'} onclick={unpairAll}>
       Unpair all
     </Button>
   {/snippet}
@@ -174,16 +181,17 @@
             </div>
             <div class="actions">
               {#if client.connected}
-                <Button size="sm" busy={busy === `disconnect:${client.uuid}`} onclick={() => disconnect(client)}>
+                <Button size="sm" disabled={acting} busy={busy === `disconnect:${client.uuid}`} onclick={() => disconnect(client)}>
                   Disconnect<span class="visually-hidden"> {client.name}</span>
                 </Button>
               {/if}
-              <Button size="sm" icon={open ? 'x' : 'edit'} onclick={() => toggleEditor(client.uuid)}>
+              <Button size="sm" disabled={acting} icon={open ? 'x' : 'edit'} onclick={() => toggleEditor(client.uuid)}>
                 {open ? 'Close' : 'Edit'}<span class="visually-hidden"> {client.name}</span>
               </Button>
               <Button
                 size="sm"
                 variant="danger"
+                disabled={acting}
                 busy={busy === `unpair:${client.uuid}`}
                 onclick={() => unpair(client)}
               >
@@ -192,7 +200,7 @@
             </div>
           </div>
           {#if open}
-            <DeviceEditor {client} bind:dirty={editorDirty} onsaved={load} />
+            <DeviceEditor {client} bind:dirty={editorDirty} bind:saving={editorSaving} disabled={busy !== ''} onsaved={load} />
           {/if}
         </li>
       {/each}

@@ -6,6 +6,12 @@ Configure the current **Windows Rust host** in the Rubylight console, normally a
 
 Start with the defaults below. Settings imported from an older installation keep their saved values; upgrading does not reset them to these defaults.
 
+## Find and review settings
+
+Search includes settings hidden by another choice, advanced options and configuration keys. Each hidden result explains when it applies. For example, search `amd_quality` to change AMD quality while keeping **Encoder → Automatic**; the value applies whenever Automatic selects AMF. Changing the encoder is not required just to find its options.
+
+Use **Review changes** to see pending edits across all categories, including settings hidden after another edit. If saving is blocked by an invalid value, **Review errors** opens the fields to correct. Switching categories or clearing search keeps your edits. **Reset to default** removes the saved override when you save; **Undo** restores the value from before the edit.
+
 ## Defaults worth knowing
 
 | Setting / key | Default | What it means |
@@ -183,12 +189,20 @@ Resolution and refresh policies default to `auto` (`dd_resolution_option`, `dd_r
 
 A disconnect can leave the app and its display available for reconnection. Enable `dd_config_revert_on_disconnect` if you want the display configuration restored on disconnect; it defaults to `false`. Without it, a disconnected device's display is kept while its app runs for `dd_paused_virtual_display_timeout_secs` (default `7200` seconds; `0` keeps it until the app closes). A client that sends nothing for `ping_timeout` (default `10000` ms) ends its stream. **Maintenance** provides display restoration and saved-baseline controls.
 
+**Virtual display → Automatic (Windows default)** leaves the choice to the host: one virtual display per device on Windows 11, or a physical monitor on Windows 10. Selecting **One for each device** explicitly also enables that mode on Windows 10. For **Permanent virtual displays**, an empty field preserves the driver's current count; `0` explicitly removes permanent displays at the next host startup. Resetting this setting is therefore different from entering `0`.
+
 Under **Settings → Frame limiting**:
 
 - Keep **Limiter** on Automatic, or select RTSS. Set **RTSS folder** (`rtss_install_path`) only if detection fails; an empty value searches Program Files.
 - Rubylight starts RTSS when a limit is needed and restores the previous limit after disconnect. If RTSS requires administrator access, the installed service can use the signed-in administrator's token; otherwise start RTSS with the required access yourself.
 - **Frame limit** (`frame_limiter_fps_limit`) defaults to `0`, meaning the stream rate. RTSS preserves fractional rates such as 59.94 FPS.
 - **Virtual display refresh** offers 2× (`legacy`), 4× (`enabled`), 1000 Hz (`vrr`) or Off (`disabled`). Turning **Limit every stream** off does not disable the automatic virtual-display limit. Choose **Limiter → None** (`frame_limiter_provider = none`) to disable all limiting.
+
+## Playnite launch focus
+
+When launching a Playnite game or fullscreen menu, Rubylight can bring its window to the front so controller input reaches it. Under **Settings → Library → Advanced → Playnite launch focus**, **Confirm game focus** (`playnite_focus_attempts`, default `3`) sets the number of successful focus confirmations. Rubylight checks once a second, for at most **Stop focusing after** (`playnite_focus_timeout_secs`, default `15` seconds).
+
+If launch keeps interrupting a window you are using on the host, enable **Stop after the first focus confirmation** (`playnite_focus_exit_on_first`, default `false`) or set either numeric limit to `0` to disable focus management. Stopping early lets a launcher or splash screen take focus back; increase the timeout when a slow launch otherwise leaves the game behind another window. Save and launch again to apply these settings.
 
 ## Controllers
 

@@ -42,6 +42,9 @@ async function fixture(t, options = {}) {
     const reply = body => route.fulfill({ json: body });
     if (request.method() !== 'GET') {
       writes.push(url.pathname);
+      if (url.pathname === '/api/auth/logout' && options.logoutFailure) {
+        return route.fulfill({ status: 503, json: { error: 'Host temporarily unavailable' } });
+      }
       if (url.pathname === '/api/pin') pending = [];
       return reply({ status: true, uuid: 'saved-app' });
     }
@@ -212,4 +215,68 @@ test('Install now needs confirmation and disabled update checks disable automati
   await page.getByRole('dialog').getByRole('button', { name: 'Install now', exact: true }).click();
   await installed;
   assert.equal(writes.filter(value => value === '/api/updates/install_now').length, 1);
+});
+
+test('signing out respects unsaved settings and only logs out after confirmation', async t => {
+  const { page, writes } = await fixture(t);
+  await page.goto(base + '/settings/general');
+  await page.getByLabel('Host name', { exact: true }).fill('Keep this draft');
+  await page.getByRole('button', { name: 'Sign out', exact: true }).click();
+  await cancel(page);
+  assert(!writes.includes('/api/auth/logout'));
+  assert.equal(await page.getByLabel('Host name', { exact: true }).inputValue(), 'Keep this draft');
+  await page.getByRole('button', { name: 'Sign out', exact: true }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Leave', exact: true }).click();
+  await page.getByRole('heading', { name: 'Sign in', exact: true }).waitFor();
+  assert.equal(writes.filter(value => value === '/api/auth/logout').length, 1);
+});
+
+test('a failed sign out retains the draft and allows a retry', async t => {
+  const { page } = await fixture(t, { logoutFailure: true });
+  await page.goto(base + '/settings/general');
+  await page.getByLabel('Host name', { exact: true }).fill('Still editing');
+  await page.getByRole('button', { name: 'Sign out', exact: true }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Leave', exact: true }).click();
+  await page.getByText(/Signing out failed: Host temporarily unavailable/).waitFor();
+  assert.equal(await page.getByLabel('Host name', { exact: true }).inputValue(), 'Still editing');
+  assert.equal(await page.getByRole('button', { name: 'Sign out', exact: true }).isEnabled(), true);
+});
+
+test('small-screen navigation scrolls, supports Escape, and moves focus to the destination', async t => {
+  const { page } = await fixture(t);
+  await page.setViewportSize({ width: 640, height: 360 });
+  await page.goto(base + '/logs');
+  const menu = page.getByRole('button', { name: 'Menu', exact: true });
+  await menu.click();
+  const signOut = page.getByRole('button', { name: 'Sign out', exact: true });
+  await signOut.scrollIntoViewIfNeeded();
+  const bounds = await signOut.boundingBox();
+  assert(bounds && bounds.y >= 0 && bounds.y + bounds.height <= 360);
+  await page.keyboard.press('Escape');
+  assert.equal(await menu.getAttribute('aria-expanded'), 'false');
+  assert.equal(await menu.evaluate(element => element === document.activeElement), true);
+  await menu.click();
+  await nav(page, 'Settings');
+  await page.getByLabel('Host name', { exact: true }).waitFor();
+  assert.equal(await menu.getAttribute('aria-expanded'), 'false');
+  assert.equal(await page.locator('main').evaluate(element => element === document.activeElement), true);
+  assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+});
+
+test('keyboard users can skip navigation and malformed URLs keep the console usable', async t => {
+  const { page } = await fixture(t);
+  await page.goto(base + '/logs');
+  await page.getByRole('heading', { name: 'Logs', exact: true }).waitFor();
+  await page.keyboard.press('Tab');
+  assert.equal(await page.getByRole('link', { name: 'Skip to content', exact: true }).evaluate(element => element === document.activeElement), true);
+  await page.keyboard.press('Enter');
+  assert.equal(await page.locator('main').evaluate(element => element === document.activeElement), true);
+  // Vite rejects malformed escapes before serving the app; exercise client routing directly.
+  await page.evaluate(() => {
+    history.pushState({ rubylightIndex: 1 }, '', '/settings/%broken');
+    dispatchEvent(new PopStateEvent('popstate', { state: history.state }));
+  });
+  await page.getByRole('heading', { name: 'Page not found', exact: true }).waitFor();
+  await nav(page, 'Settings');
+  await page.getByLabel('Host name', { exact: true }).waitFor();
 });

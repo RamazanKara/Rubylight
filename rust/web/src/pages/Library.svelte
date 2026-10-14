@@ -16,6 +16,7 @@
   let apps = $state<App[] | null>(null);
   let loadError = $state('');
   let status = $state<SessionStatus | null>(null);
+  let reordering = $state(false);
   let latestLoad = 0;
 
   /** null on the grid, 'new' for a new app, otherwise the app's uuid. */
@@ -50,12 +51,16 @@
   });
 
   async function reorder(next: App[]) {
+    if (reordering) return;
+    reordering = true;
     apps = next;
     try {
       await api.apps.reorder(next.flatMap((app) => (app.uuid ? [app.uuid] : [])));
     } catch (error) {
       failed('Saving the order failed', error);
       await load();
+    } finally {
+      reordering = false;
     }
   }
 
@@ -116,7 +121,7 @@
       </EmptyState>
     </Panel>
   {:else}
-    <LibraryGrid {apps} {status} onreorder={reorder} onstatus={refreshStatus} />
+    <LibraryGrid {apps} {status} {reordering} onreorder={reorder} onstatus={refreshStatus} />
   {/if}
 {:else}
   {#key editing}
@@ -124,6 +129,7 @@
       <AppEditor
         position={null}
         {status}
+        {reordering}
         onsaved={saved}
         onmove={move}
         ondeleted={deleted}
@@ -134,6 +140,7 @@
         app={current}
         {position}
         {status}
+        {reordering}
         onsaved={saved}
         onmove={move}
         ondeleted={deleted}

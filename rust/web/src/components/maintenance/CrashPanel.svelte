@@ -48,8 +48,11 @@
   {#snippet actions()}
     {#if crash?.available && !crash.dismissed}<Badge tone="warn">New</Badge>{/if}
   {/snippet}
+  {#if crash && loadError}
+    <LoadState error={loadError} what="crash reports" stale onretry={load} />
+  {/if}
   {#if !crash}
-    <LoadState error={loadError} what="crash reports" />
+    <LoadState error={loadError} what="crash reports" onretry={load} />
   {:else if crash.available && !crash.dismissed}
     <div class="stack">
       <dl class="facts">

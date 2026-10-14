@@ -106,6 +106,7 @@ const video: Setting[] = [
     group: 'Capture',
     control: { kind: 'toggle' },
     default: false,
+    inactiveHint: "Applies to Desktop Duplication, including fallback from Automatic. Explicit Windows Graphics Capture ignores it.",
     visibleWhen: (values) => !['wgc', 'wgcc'].includes(capture(values)),
     advanced: true,
   },
@@ -118,6 +119,7 @@ const video: Setting[] = [
     group: 'Capture',
     control: { kind: 'toggle' },
     default: false,
+    inactiveHint: "Choose Automatic or Windows Graphics Capture to use this setting. Desktop Duplication and VRR streams ignore it.",
     visibleWhen: (values) => !['ddx', 'dxgi'].includes(capture(values)),
     advanced: true,
   },
@@ -227,6 +229,7 @@ const video: Setting[] = [
     group: 'Frame pacing',
     control: { kind: 'toggle' },
     default: true,
+    inactiveHint: "Choose Fixed grid under Frame pacing to use this setting. VRR streams ignore fixed-grid pacing.",
     visibleWhen: gridPacing,
   },
   {
@@ -307,6 +310,7 @@ const video: Setting[] = [
     group: 'Bitrate and network',
     control: { kind: 'number', min: 0, max: 255, step: 1, unit: '%' },
     default: 20,
+    inactiveHint: "Turn on PyroWave to use this setting. Only compatible PyroWave clients use this error correction.",
     visibleWhen: (values) => flag(values, 'pyrowave', true),
   },
   {
@@ -340,7 +344,7 @@ const video: Setting[] = [
     key: 'pacing_max_bitrate_kbps',
     label: 'Pacing rate',
     description:
-      'Spaces video packets without changing picture bitrate. 0 uses the route policy: up to 800 Mbps on wired or unknown routes, or twice the bitrate with FEC headroom on confirmed host Wi-Fi. A positive value fixes the rate, with a 1.1-times-bitrate floor; known Ethernet speed can lower it. PyroWave and Host adaptive bitrate keep their own policies. Reconnect after saving.',
+      'Spaces video packets without changing picture bitrate. 0 uses automatic pacing: conventional codecs allow up to 800 Mbps on wired routes or twice the bitrate with FEC headroom on host Wi-Fi; PyroWave has its own automatic policy. A positive value also applies to PyroWave, with a 1.1-times-bitrate floor and an Ethernet link ceiling. 120000 means 120 Mbps. Reconnect after saving.',
     category: 'video',
     group: 'Bitrate and network',
     control: { kind: 'number', min: 0, step: 1, unit: 'Kbps' },
@@ -365,7 +369,7 @@ const encoders: Setting[] = [
     key: 'encoder',
     label: 'Encoder',
     description:
-      'Automatic chooses an encoder when the stream starts: AMF on AMD GPUs or NVENC on NVIDIA GPUs. If that encoder cannot start, it uses another hardware encoder when one works and shows a warning on the stream card; it never falls back to software. Software encoding requires selecting Software explicitly. Select an encoder to edit its settings. The stream card and log show the encoder actually used; PyroWave streams always use their own encoder.',
+      'Automatic chooses an encoder when the stream starts: AMF on AMD GPUs or NVENC on NVIDIA GPUs. If that encoder cannot start, it tries another hardware encoder and shows a stream warning; it never falls back to software. Select an encoder to show its settings, or search for them while keeping Automatic. The stream card and log show the encoder actually used; PyroWave streams use their own encoder.',
     category: 'encoders',
     group: 'Encoder',
     control: {
@@ -427,6 +431,7 @@ const nvidia: Setting[] = [
       ],
     },
     default: 1,
+    inactiveHint: "Applies to NVIDIA NVENC streams, including when Automatic selects NVENC. Select NVIDIA NVENC to show this group outside search.",
     visibleWhen: nvenc,
   },
   {
@@ -445,6 +450,7 @@ const nvidia: Setting[] = [
       ],
     },
     default: 'quarter_res',
+    inactiveHint: "Applies to NVIDIA NVENC streams, including when Automatic selects NVENC. Select NVIDIA NVENC to show this group outside search.",
     visibleWhen: nvenc,
   },
   {
@@ -456,6 +462,7 @@ const nvidia: Setting[] = [
     group: 'NVIDIA NVENC',
     control: { kind: 'toggle' },
     default: false,
+    inactiveHint: "Applies to NVIDIA NVENC streams, including when Automatic selects NVENC. Select NVIDIA NVENC to show this group outside search.",
     visibleWhen: nvenc,
   },
   {
@@ -467,6 +474,7 @@ const nvidia: Setting[] = [
     group: 'NVIDIA NVENC',
     control: { kind: 'toggle' },
     default: false,
+    inactiveHint: "Applies to NVIDIA NVENC streams, including when Automatic selects NVENC. Select NVIDIA NVENC to show this group outside search.",
     visibleWhen: nvenc,
   },
   {
@@ -478,6 +486,7 @@ const nvidia: Setting[] = [
     group: 'NVIDIA NVENC',
     control: { kind: 'number', min: 0, max: 400, step: 1, unit: '%' },
     default: 0,
+    inactiveHint: "Applies to NVIDIA NVENC streams, including when Automatic selects NVENC. Select NVIDIA NVENC to show this group outside search.",
     visibleWhen: nvenc,
   },
   {
@@ -489,6 +498,7 @@ const nvidia: Setting[] = [
     group: 'NVIDIA NVENC',
     control: { kind: 'toggle' },
     default: false,
+    inactiveHint: "Applies to NVIDIA NVENC streams, including when Automatic selects NVENC. Select NVIDIA NVENC to show this group outside search.",
     visibleWhen: nvenc,
   },
   {
@@ -507,6 +517,7 @@ const nvidia: Setting[] = [
       ],
     },
     default: 'auto',
+    inactiveHint: "Applies to NVIDIA NVENC streams, including when Automatic selects NVENC. Select NVIDIA NVENC to show this group outside search.",
     visibleWhen: nvenc,
   },
   {
@@ -518,6 +529,7 @@ const nvidia: Setting[] = [
     group: 'NVIDIA NVENC',
     control: { kind: 'toggle' },
     default: true,
+    inactiveHint: "Applies to NVIDIA NVENC streams, including when Automatic selects NVENC. Select NVIDIA NVENC to show this group outside search.",
     visibleWhen: nvenc,
   },
   {
@@ -529,6 +541,7 @@ const nvidia: Setting[] = [
     group: 'NVIDIA NVENC',
     control: { kind: 'toggle' },
     default: true,
+    inactiveHint: "Applies to NVIDIA NVENC streams, including when Automatic selects NVENC. Select NVIDIA NVENC to show this group outside search.",
     visibleWhen: nvenc,
   },
   {
@@ -540,6 +553,7 @@ const nvidia: Setting[] = [
     group: 'NVIDIA NVENC',
     control: { kind: 'toggle' },
     default: true,
+    inactiveHint: "Applies to NVIDIA NVENC streams, including when Automatic selects NVENC. Select NVIDIA NVENC to show this group outside search.",
     visibleWhen: nvenc,
   },
   {
@@ -551,6 +565,7 @@ const nvidia: Setting[] = [
     group: 'NVIDIA NVENC',
     control: { kind: 'toggle' },
     default: false,
+    inactiveHint: "Applies to NVIDIA NVENC streams, including when Automatic selects NVENC. Select NVIDIA NVENC to show this group outside search.",
     visibleWhen: nvenc,
     advanced: true,
   },
@@ -563,6 +578,7 @@ const nvidia: Setting[] = [
     group: 'NVIDIA NVENC',
     control: { kind: 'toggle' },
     default: false,
+    inactiveHint: "Applies to NVIDIA NVENC streams, including when Automatic selects NVENC. Select NVIDIA NVENC to show this group outside search.",
     visibleWhen: nvenc,
     advanced: true,
   },
@@ -574,6 +590,7 @@ const nvidia: Setting[] = [
     group: 'NVIDIA NVENC',
     control: { kind: 'number', min: 0, max: 51, step: 1 },
     default: 19,
+    inactiveHint: "Applies to NVENC streams when Minimum quantizer is enabled, including when Automatic selects NVENC.",
     visibleWhen: (values) => nvenc(values) && flag(values, 'nvenc_enable_min_qp', false),
     advanced: true,
   },
@@ -585,6 +602,7 @@ const nvidia: Setting[] = [
     group: 'NVIDIA NVENC',
     control: { kind: 'number', min: 0, max: 51, step: 1 },
     default: 23,
+    inactiveHint: "Applies to NVENC streams when Minimum quantizer is enabled, including when Automatic selects NVENC.",
     visibleWhen: (values) => nvenc(values) && flag(values, 'nvenc_enable_min_qp', false),
     advanced: true,
   },
@@ -596,6 +614,7 @@ const nvidia: Setting[] = [
     group: 'NVIDIA NVENC',
     control: { kind: 'number', min: 0, max: 255, step: 1 },
     default: 23,
+    inactiveHint: "Applies to NVENC streams when Minimum quantizer is enabled, including when Automatic selects NVENC.",
     visibleWhen: (values) => nvenc(values) && flag(values, 'nvenc_enable_min_qp', false),
     advanced: true,
   },
@@ -608,6 +627,7 @@ const nvidia: Setting[] = [
     group: 'NVIDIA NVENC',
     control: { kind: 'toggle' },
     default: false,
+    inactiveHint: "Applies to NVIDIA NVENC streams, including when Automatic selects NVENC. Select NVIDIA NVENC to show this group outside search.",
     visibleWhen: nvenc,
     advanced: true,
   },
@@ -641,6 +661,7 @@ const amd: Setting[] = [
       ],
     },
     default: 'ultralowlatency',
+    inactiveHint: "Applies to AMD AMF streams, including when Automatic selects AMF. Select AMD AMF to show this group outside search.",
     visibleWhen: amf,
   },
   {
@@ -660,6 +681,7 @@ const amd: Setting[] = [
       ],
     },
     default: 'speed',
+    inactiveHint: "Applies to AMD AMF streams, including when Automatic selects AMF. Select AMD AMF to show this group outside search.",
     visibleWhen: amf,
   },
   {
@@ -683,6 +705,7 @@ const amd: Setting[] = [
       ],
     },
     default: 'vbr_latency',
+    inactiveHint: "Applies to AMD AMF streams, including when Automatic selects AMF. Select AMD AMF to show this group outside search.",
     visibleWhen: amf,
   },
   {
@@ -702,6 +725,7 @@ const amd: Setting[] = [
       ],
     },
     default: 0,
+    inactiveHint: "Applies to AMD AMF streams, including when Automatic selects AMF. Select AMD AMF to show this group outside search.",
     visibleWhen: amf,
     advanced: true,
   },
@@ -722,6 +746,7 @@ const amd: Setting[] = [
       ],
     },
     default: 0,
+    inactiveHint: "Applies to AMD AMF streams, including when Automatic selects AMF. Select AMD AMF to show this group outside search.",
     visibleWhen: amf,
     advanced: true,
   },
@@ -743,6 +768,7 @@ const amd: Setting[] = [
       ],
     },
     default: 0,
+    inactiveHint: "Applies to AMD AMF streams, including when Automatic selects AMF. Select AMD AMF to show this group outside search.",
     visibleWhen: amf,
     advanced: true,
   },
@@ -755,6 +781,7 @@ const amd: Setting[] = [
     group: 'AMD AMF',
     control: { kind: 'number', min: 0, max: 51, step: 1 },
     default: 0,
+    inactiveHint: "Applies to AMD AMF with Rate control set to Quality VBR. HDR streams use peak-constrained VBR instead.",
     visibleWhen: (values) => amf(values) && read(values, 'amd_rc', 'vbr_latency') === 'qvbr',
   },
   {
@@ -766,6 +793,7 @@ const amd: Setting[] = [
     group: 'AMD AMF',
     control: { kind: 'toggle' },
     default: false,
+    inactiveHint: "Applies to AMD AMF streams, including when Automatic selects AMF. Select AMD AMF to show this group outside search.",
     visibleWhen: amf,
   },
   {
@@ -780,6 +808,7 @@ const amd: Setting[] = [
       options: [{ value: '', label: 'Default (H.264 off; HEVC/AV1 on)' }, ...tristate],
     },
     default: '',
+    inactiveHint: "Applies to AMD AMF streams, including when Automatic selects AMF. Select AMD AMF to show this group outside search.",
     visibleWhen: amf,
   },
   {
@@ -791,6 +820,7 @@ const amd: Setting[] = [
     group: 'AMD AMF',
     control: { kind: 'toggle' },
     default: false,
+    inactiveHint: "Applies to AMD AMF streams, including when Automatic selects AMF. Select AMD AMF to show this group outside search.",
     visibleWhen: amf,
   },
   {
@@ -808,6 +838,7 @@ const amd: Setting[] = [
       ],
     },
     default: 'auto',
+    inactiveHint: "Applies to AMD AMF streams, including when Automatic selects AMF. Select AMD AMF to show this group outside search.",
     visibleWhen: amf,
   },
   {
@@ -819,6 +850,7 @@ const amd: Setting[] = [
     group: 'AMD AMF',
     control: { kind: 'number', min: 0, max: 32, step: 1, unit: 'frames' },
     default: 0,
+    inactiveHint: "Applies to AMD AMF streams, including when Automatic selects AMF. Select AMD AMF to show this group outside search.",
     visibleWhen: amf,
   },
   {
@@ -830,6 +862,7 @@ const amd: Setting[] = [
     group: 'AMD AMF',
     control: { kind: 'number', min: 0, max: 4, step: 1, unit: 'frames' },
     default: 4,
+    inactiveHint: "Applies to AMD AMF streams, including when Automatic selects AMF. Select AMD AMF to show this group outside search.",
     visibleWhen: amf,
   },
   {
@@ -841,6 +874,7 @@ const amd: Setting[] = [
     group: 'AMD AMF',
     control: { kind: 'select', options: tristate },
     default: 'auto',
+    inactiveHint: "Applies to AMD AMF streams, including when Automatic selects AMF. Select AMD AMF to show this group outside search.",
     visibleWhen: amf,
   },
   {
@@ -851,6 +885,7 @@ const amd: Setting[] = [
     group: 'AMD AMF',
     control: { kind: 'select', options: tristate },
     default: 'auto',
+    inactiveHint: "Applies to AMD AMF streams, including when Automatic selects AMF. Select AMD AMF to show this group outside search.",
     visibleWhen: amf,
   },
   {
@@ -862,13 +897,14 @@ const amd: Setting[] = [
     group: 'AMD AMF',
     control: { kind: 'select', options: tristate },
     default: 'auto',
+    inactiveHint: "Applies to AMD AMF streams, including when Automatic selects AMF. Select AMD AMF to show this group outside search.",
     visibleWhen: amf,
   },
   {
     key: 'amd_split_frame',
     label: 'Split-frame encoding',
     description:
-      "Lets the driver split each HEVC or AV1 frame across the GPU's two encoder engines; the driver still decides. Automatic asks for it only when the driver has it off. On an RX 7900 XT the driver already has it on, and On or Off made no difference up to 7680×2160. H.264 and GPUs with one engine, such as the RX 9070 XT, ignore it.",
+      "Lets the driver split HEVC or AV1 frames across two encoder engines. Automatic requests it only when the driver has it off; On requests it and Off disables the property. Leave Automatic unless comparing your own GPU: measured RX 7900 XT throughput was similar across these choices. H.264 and GPUs with one engine ignore it.",
     category: 'encoders',
     group: 'AMD AMF',
     control: {
@@ -880,6 +916,7 @@ const amd: Setting[] = [
       ],
     },
     default: 'auto',
+    inactiveHint: "Applies to AMD AMF streams, including when Automatic selects AMF. Select AMD AMF to show this group outside search.",
     visibleWhen: amf,
   },
   {
@@ -900,6 +937,7 @@ const amd: Setting[] = [
       ],
     },
     default: 'auto',
+    inactiveHint: "Applies to AMD AMF streams, including when Automatic selects AMF. Select AMD AMF to show this group outside search.",
     visibleWhen: amf,
   },
   {
@@ -911,6 +949,7 @@ const amd: Setting[] = [
     group: 'AMD AMF',
     control: { kind: 'select', options: tristate },
     default: 'auto',
+    inactiveHint: "Applies to AMD AMF streams, including when Automatic selects AMF. Select AMD AMF to show this group outside search.",
     visibleWhen: amf,
   },
   {
@@ -929,6 +968,7 @@ const amd: Setting[] = [
       ],
     },
     default: 0,
+    inactiveHint: "Applies to AMD AMF streams, including when Automatic selects AMF. Select AMD AMF to show this group outside search.",
     visibleWhen: amf,
     advanced: true,
   },
@@ -955,6 +995,7 @@ const intel: Setting[] = [
       ],
     },
     default: 'medium',
+    inactiveHint: "Applies to Intel Quick Sync streams, including automatic hardware fallback. Select Intel Quick Sync to show this group outside search.",
     visibleWhen: qsv,
   },
   {
@@ -972,6 +1013,7 @@ const intel: Setting[] = [
       ],
     },
     default: 'auto',
+    inactiveHint: "Applies to Intel Quick Sync streams, including automatic hardware fallback. Select Intel Quick Sync to show this group outside search.",
     visibleWhen: qsv,
   },
   {
@@ -983,6 +1025,7 @@ const intel: Setting[] = [
     group: 'Intel Quick Sync',
     control: { kind: 'toggle' },
     default: false,
+    inactiveHint: "Applies to Intel Quick Sync streams, including automatic hardware fallback. Select Intel Quick Sync to show this group outside search.",
     visibleWhen: qsv,
   },
 ];
@@ -1010,6 +1053,7 @@ const cpu: Setting[] = [
       ],
     },
     default: 'superfast',
+    inactiveHint: "Choose Software under Encoder to use this setting. Automatic never selects software encoding.",
     visibleWhen: software,
   },
   {
@@ -1031,6 +1075,7 @@ const cpu: Setting[] = [
       ],
     },
     default: 'zerolatency',
+    inactiveHint: "Choose Software under Encoder to use this setting. Automatic never selects software encoding.",
     visibleWhen: software,
   },
   {
@@ -1042,6 +1087,7 @@ const cpu: Setting[] = [
     group: 'Software',
     control: { kind: 'number', min: 1, max: 64, step: 1 },
     default: 2,
+    inactiveHint: "Choose Software under Encoder to use this setting. Automatic never selects software encoding.",
     visibleWhen: software,
   },
 ];

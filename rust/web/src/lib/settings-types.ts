@@ -60,6 +60,8 @@ export interface Setting {
   default: ConfigValue;
   /** Hide when not relevant, given the current (edited) values. */
   visibleWhen?: (values: Record<string, ConfigValue>) => boolean;
+  /** Explain a hidden setting when search or review reveals it. */
+  inactiveHint?: string;
   /** Takes effect only after the host restarts. */
   restart?: boolean;
   advanced?: boolean;

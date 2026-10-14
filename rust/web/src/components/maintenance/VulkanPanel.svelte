@@ -25,6 +25,7 @@
     busy = true;
     try {
       layer = await api.health.registerVulkanLayer();
+      loadError = '';
       notify(layer.installed ? 'Vulkan layer registered.' : 'Registration finished, but the layer is still not registered.', layer.installed ? 'ok' : 'warn');
     } catch (error) {
       failed('Registering the Vulkan layer failed', error);
@@ -63,7 +64,7 @@
       {/if}
     </div>
   {:else}
-    <LoadState error={loadError} what="the Vulkan layer status" />
+    <LoadState error={loadError} what="the Vulkan layer status" onretry={load} />
   {/if}
 </Panel>
 

@@ -99,6 +99,7 @@ const general: Setting[] = [
     group: 'Tray',
     control: { kind: 'toggle' },
     default: false,
+    inactiveHint: "Turn on Tray icon to use this setting.",
     visibleWhen: (values) => on(values, 'system_tray', true),
     restart: true,
   },
@@ -167,6 +168,7 @@ const general: Setting[] = [
     group: 'Hardware metrics',
     control: { kind: 'number', min: 500, max: 10000, step: 1, unit: 'ms' },
     default: 1000,
+    inactiveHint: "Turn on Send hardware metrics to client to use this setting.",
     visibleWhen: (values) => on(values, 'hardware_metrics', false),
   },
   {
@@ -177,6 +179,7 @@ const general: Setting[] = [
     group: 'Hardware metrics',
     control: { kind: 'list', placeholder: 'cpu_usage_percent' },
     default: [],
+    inactiveHint: "Turn on Send hardware metrics to client to use this setting.",
     visibleWhen: (values) => on(values, 'hardware_metrics', false),
   },
   {
@@ -382,6 +385,7 @@ const audio: Setting[] = [
       { value: 'game', label: 'Game only' },
     ] },
     default: 'system',
+    inactiveHint: "Turn on Stream audio to use this setting.",
     visibleWhen: streamsAudio,
   },
   {
@@ -393,6 +397,7 @@ const audio: Setting[] = [
     group: 'Devices',
     control: { kind: 'audio' },
     default: '',
+    inactiveHint: "Turn on Stream audio and choose System audio under Audio to stream to use this setting.",
     visibleWhen: systemAudio,
   },
   {
@@ -404,6 +409,7 @@ const audio: Setting[] = [
     group: 'Devices',
     control: { kind: 'audio' },
     default: '',
+    inactiveHint: "Turn on Stream audio and choose System audio under Audio to stream to use this setting.",
     visibleWhen: systemAudio,
   },
   {
@@ -415,6 +421,7 @@ const audio: Setting[] = [
     group: 'Devices',
     control: { kind: 'toggle' },
     default: false,
+    inactiveHint: "Choose System audio, set an Audio device and leave Virtual speakers empty to use this setting.",
     visibleWhen: (values) =>
       systemAudio(values) && text(values, 'audio_sink', '') !== '' && text(values, 'virtual_sink', '') === '',
   },
@@ -427,6 +434,7 @@ const audio: Setting[] = [
     group: 'Devices',
     control: { kind: 'toggle' },
     default: true,
+    inactiveHint: "Turn on Stream audio and choose System audio under Audio to stream to use this setting.",
     visibleWhen: systemAudio,
   },
   {
@@ -438,6 +446,7 @@ const audio: Setting[] = [
     group: 'Virtual speakers',
     control: { kind: 'toggle' },
     default: true,
+    inactiveHint: "Turn on Stream audio and choose System audio under Audio to stream to use this setting.",
     visibleWhen: systemAudio,
   },
   {
@@ -449,6 +458,7 @@ const audio: Setting[] = [
     group: 'Virtual speakers',
     control: { kind: 'toggle' },
     default: true,
+    inactiveHint: "Turn on Stream audio or Use the device microphone to install the corresponding Steam audio driver when needed.",
     visibleWhen: (values) => streamsAudio(values) || on(values, 'stream_mic', true),
   },
   {
@@ -501,6 +511,7 @@ function backGrip(key: string, name: string, where: string): Setting {
     group: 'Steam Deck and back grips',
     control: { kind: 'select', options: gripOptions },
     default: 'none',
+    inactiveHint: "Turn on Controllers under Input to use this setting. Paired devices also need the Controllers permission.",
     visibleWhen: controllerOn,
   };
 }
@@ -552,6 +563,7 @@ const input: Setting[] = [
     group: 'Keyboard',
     control: { kind: 'toggle' },
     default: true,
+    inactiveHint: "Turn on Keyboard under Input to use this setting. Paired devices also need the Keyboard permission.",
     visibleWhen: keyboardOn,
   },
   {
@@ -562,6 +574,7 @@ const input: Setting[] = [
     group: 'Keyboard',
     control: { kind: 'toggle' },
     default: false,
+    inactiveHint: "Turn on Keyboard under Input to use this setting. Paired devices also need the Keyboard permission.",
     visibleWhen: keyboardOn,
   },
   {
@@ -572,6 +585,7 @@ const input: Setting[] = [
     group: 'Keyboard',
     control: { kind: 'number', min: 0, max: 60000, step: 1, unit: 'ms' },
     default: 500,
+    inactiveHint: "Turn on Keyboard under Input to use this setting. Paired devices also need the Keyboard permission.",
     visibleWhen: keyboardOn,
   },
   {
@@ -582,6 +596,7 @@ const input: Setting[] = [
     group: 'Keyboard',
     control: { kind: 'number', min: 0, max: 1000, step: 0.1, unit: 'Hz' },
     default: 24.9,
+    inactiveHint: "Turn on Keyboard under Input to use this setting. Paired devices also need the Keyboard permission.",
     visibleWhen: keyboardOn,
   },
   {
@@ -593,6 +608,7 @@ const input: Setting[] = [
     group: 'Keyboard',
     control: { kind: 'json' },
     default: [],
+    inactiveHint: "Turn on Keyboard under Input to use this setting. Paired devices also need the Keyboard permission.",
     visibleWhen: keyboardOn,
   },
   {
@@ -604,6 +620,7 @@ const input: Setting[] = [
     group: 'Mouse, pen and touch',
     control: { kind: 'toggle' },
     default: true,
+    inactiveHint: "Turn on Mouse under Input to use this setting. Paired devices also need the Mouse permission.",
     visibleWhen: mouseOn,
   },
   {
@@ -615,6 +632,7 @@ const input: Setting[] = [
     group: 'Mouse, pen and touch',
     control: { kind: 'toggle' },
     default: true,
+    inactiveHint: "Turn on Mouse under Input to use this setting. Paired devices also need the Mouse permission.",
     visibleWhen: mouseOn,
   },
   {
@@ -637,6 +655,7 @@ const input: Setting[] = [
       ],
     },
     default: 'auto',
+    inactiveHint: "Turn on Controllers under Input to use this setting. Paired devices also need the Controllers permission.",
     visibleWhen: controllerOn,
   },
   {
@@ -648,6 +667,7 @@ const input: Setting[] = [
     group: 'Controllers',
     control: { kind: 'toggle' },
     default: true,
+    inactiveHint: "Turn on Controllers under Input to use this setting. Paired devices also need the Controllers permission.",
     visibleWhen: controllerOn,
   },
   {
@@ -659,6 +679,7 @@ const input: Setting[] = [
     group: 'Controllers',
     control: { kind: 'toggle' },
     default: true,
+    inactiveHint: "Turn on Controllers under Input to use this setting. Paired devices also need the Controllers permission.",
     visibleWhen: controllerOn,
   },
   {
@@ -669,6 +690,7 @@ const input: Setting[] = [
     group: 'Controllers',
     control: { kind: 'toggle' },
     default: true,
+    inactiveHint: "Turn on Controllers under Input to use this setting. Paired devices also need the Controllers permission.",
     visibleWhen: controllerOn,
   },
   {
@@ -680,6 +702,7 @@ const input: Setting[] = [
     group: 'Controllers',
     control: { kind: 'number', min: -1, max: 60000, step: 1, unit: 'ms' },
     default: -1,
+    inactiveHint: "Turn on Controllers under Input to use this setting. Paired devices also need the Controllers permission.",
     visibleWhen: controllerOn,
   },
   {
@@ -698,6 +721,7 @@ const input: Setting[] = [
       ],
     },
     default: 'auto',
+    inactiveHint: "Turn on Controllers under Input to use this setting. Paired devices also need the Controllers permission.",
     visibleWhen: controllerOn,
   },
   backGrip('back_grip_l4', 'L4', 'upper left'),

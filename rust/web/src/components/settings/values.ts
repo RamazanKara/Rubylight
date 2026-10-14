@@ -55,6 +55,27 @@ export function toNumber(value: unknown): number | null {
   return Number.isFinite(number) ? number : null;
 }
 
+/** Check an edited number before it can enter the settings PATCH. */
+export function numberError(setting: Setting, text: string, badInput = false): string {
+  if (setting.control.kind !== 'number') return '';
+  if (badInput) return 'Enter a valid number.';
+  // Clearing a number deliberately removes the override and uses the default.
+  if (text.trim() === '') return '';
+  const value = toNumber(text);
+  if (value === null) return 'Enter a valid number.';
+  if (setting.key === 'packetsize' && value > 0 && value < 256) return 'Enter 0 or a number from 256 to 1400.';
+  if (setting.key === 'update_check_interval' && value > 0 && value < 3600) return 'Enter 0 or at least 3600 seconds.';
+  const { min, max, step } = setting.control;
+  if ((min !== undefined && value < min) || (max !== undefined && value > max)) {
+    if (min !== undefined && max !== undefined) return `Enter a number from ${min} to ${max}.`;
+    return min !== undefined ? `Enter ${min} or more.` : `Enter ${max} or less.`;
+  }
+  // Integer controls may use larger spinner increments. The host still
+  // accepts any whole number, but discards fractions when parsing them.
+  if (step !== undefined && step > 0 && Number.isInteger(step) && !Number.isInteger(value)) return 'Enter a whole number.';
+  return '';
+}
+
 /** Strings as they are; numbers and booleans as written; anything else as JSON. */
 export function toText(value: unknown): string {
   if (value === null || value === undefined) return '';

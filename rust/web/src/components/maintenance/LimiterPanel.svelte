@@ -9,13 +9,16 @@
   let limiter = $state<LimiterStatus | null>(null);
   let loadError = $state('');
 
-  onMount(async () => {
+  async function load() {
     try {
       limiter = await api.health.limiter();
+      loadError = '';
     } catch (error) {
       loadError = reason(error);
     }
-  });
+  }
+
+  onMount(load);
 
   const providers: Record<string, string> = {
     auto: 'Automatic',
@@ -55,7 +58,7 @@
       {#if limiter.message}<p class="muted note">{limiter.message}</p>{/if}
     </div>
   {:else}
-    <LoadState error={loadError} what="the frame limiter status" />
+    <LoadState error={loadError} what="the frame limiter status" onretry={load} />
   {/if}
 </Panel>
 

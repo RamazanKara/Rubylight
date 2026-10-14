@@ -125,7 +125,7 @@
         {/if}
       </div>
     </div>
-  {:else}<LoadState error={loadError} what="the update status" />{/if}
+  {:else}<LoadState error={loadError} what="the update status" onretry={load} />{/if}
 </Panel>
 
 <style>

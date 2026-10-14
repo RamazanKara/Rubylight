@@ -9,6 +9,7 @@
   import { session } from '../../lib/session.svelte';
   import {
     jsonText,
+    numberError,
     parseJson,
     sameValue,
     toCommands,
@@ -33,9 +34,9 @@
     /** The effective value, normalised for this control. */
     value: ConfigValue;
     onchange: (value: ConfigValue) => void;
-    /** JSON text that does not parse yet. The page keeps it so it survives a remount. */
+    /** An invalid JSON or number draft, kept by the page across category changes. */
     invalidText?: string;
-    /** Called with the text while it is not valid JSON, and with null once it is. */
+    /** Called with an invalid draft, or null when the control is valid again. */
     oninvalid?: (text: string | null) => void;
   } = $props();
 
@@ -96,7 +97,7 @@
         return [];
     }
     if (!options.some((option) => option.value === current)) {
-      const missing = { value: current, label: current === '' ? 'Not set' : 'Saved custom choice' };
+      const missing = { value: current, label: current === '' ? 'Not set' : `Saved custom choice: ${current}` };
       options.splice(options[0]?.value === '' ? 1 : 0, 0, missing);
     }
     return options;
@@ -118,32 +119,36 @@
   // ---------- number ----------
 
   // What is typed, so a half-typed number is not replaced while editing.
-  let numberText = $state(untrack(() => (typeof value === 'number' ? String(value) : '')));
+  let numberText = $state(untrack(() => invalidText ?? (typeof value === 'number' ? String(value) : '')));
 
   $effect(() => {
     const next = control.kind === 'number' && typeof value === 'number' ? value : null;
+    const pending = invalidText;
     untrack(() => {
+      if (control.kind !== 'number') return;
+      if (pending !== undefined) {
+        numberText = pending;
+        return;
+      }
       const shown = numberText.trim() === '' ? null : toNumber(numberText);
       if (shown !== next) numberText = next === null ? '' : String(next);
     });
   });
 
-  function editNumber(text: string) {
+  function editNumber(input: HTMLInputElement) {
+    const text = input.value;
     numberText = text;
-    onchange(toNumber(text) ?? '');
+    // Browsers expose incomplete numbers (for example "1e") as an empty
+    // value with badInput. Keep that distinct from intentionally clearing it.
+    if (numberError(setting, text, input.validity.badInput)) {
+      oninvalid?.(text);
+    } else {
+      oninvalid?.(null);
+      onchange(toNumber(text) ?? '');
+    }
   }
 
-  const rangeError = $derived.by(() => {
-    if (control.kind !== 'number' || typeof value !== 'number') return '';
-    if (setting.key === 'packetsize' && value > 0 && value < 256) return 'Enter 0 or a number from 256 to 1400.';
-    if (setting.key === 'update_check_interval' && value > 0 && value < 3600) return 'Enter 0 or at least 3600 seconds.';
-    const { min, max } = control;
-    if ((min !== undefined && value < min) || (max !== undefined && value > max)) {
-      if (min !== undefined && max !== undefined) return `Enter a number from ${min} to ${max}.`;
-      return min !== undefined ? `Enter ${min} or more.` : `Enter ${max} or less.`;
-    }
-    return '';
-  });
+  const rangeError = $derived(numberError(setting, numberText, invalidText === ''));
 
   // ---------- rows: list, commands, server-commands ----------
 
@@ -238,13 +243,14 @@
       step={control.step ?? 'any'}
       placeholder={toNumber(setting.default)?.toString()}
       aria-invalid={rangeError ? 'true' : undefined}
-      aria-describedby={rangeError ? `${id}-range` : undefined}
+      aria-describedby={rangeError ? `${id}-range` : `${id}-number-hint`}
       value={numberText}
-      oninput={(event) => editNumber(event.currentTarget.value)}
+      oninput={(event) => editNumber(event.currentTarget)}
     />
     {#if control.unit}<span class="unit muted">{control.unit}</span>{/if}
   </div>
   {#if rangeError}<p class="error" id="{id}-range">{rangeError}</p>{/if}
+  <p class="note" id="{id}-number-hint">Leave blank to use the default.</p>
 {:else if control.kind === 'text'}
   {#snippet text()}
     <input

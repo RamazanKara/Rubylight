@@ -94,10 +94,15 @@
   {/snippet}
   {#if golden}
     <div class="stack">
+      {#if loadError}
+        <LoadState error={loadError} what="the display layout" stale onretry={load} />
+      {/if}
       <div class="group">
         <p class="text">
           {#if !golden.exists}
             No layout is saved. Arrange your displays the way you want them between streams, then save.
+          {:else if !golden.comparison_available}
+            A layout is saved. The host could not compare it with the current displays.
           {:else if golden.current_mismatch_reason}
             A layout is saved. The displays are arranged differently right now; restore it to go back.
           {:else}
@@ -139,7 +144,7 @@
       </div>
     </div>
   {:else}
-    <LoadState error={loadError} what="the display layout" />
+    <LoadState error={loadError} what="the display layout" onretry={load} />
   {/if}
 </Panel>
 

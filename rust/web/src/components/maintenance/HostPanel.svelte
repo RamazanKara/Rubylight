@@ -9,23 +9,29 @@
   import { sleep } from './util';
 
   let phase = $state<'running' | 'restarting' | 'late' | 'stopped'>('running');
+  let action = $state<'restart' | 'quit' | null>(null);
   let alive = true;
   onDestroy(() => (alive = false));
 
   async function restart() {
+    if (action || phase === 'stopped') return;
     const ok = await confirm({
       title: 'Restart Rubylight?',
       message: 'Streams in progress disconnect. This console reconnects by itself when the host is back.',
       confirm: 'Restart',
     });
-    if (!ok) return;
+    if (!ok || action) return;
+    const previous = phase;
+    action = 'restart';
+    phase = 'restarting';
     try {
       await api.host.restart();
     } catch (error) {
+      phase = previous;
+      action = null;
       failed('Restart failed', error);
       return;
     }
-    phase = 'restarting';
     // The host answers for a moment before it stops; wait until it has been away and is back.
     const started = Date.now();
     let away = false;
@@ -35,6 +41,7 @@
         await refreshMetadata();
         if (away || Date.now() - started > 10_000) {
           phase = 'running';
+          action = null;
           notify('Rubylight restarted.', 'ok');
           return;
         }
@@ -43,9 +50,11 @@
       }
     }
     if (alive) phase = 'late';
+    action = null;
   }
 
   async function quit() {
+    if (action || phase === 'stopped') return;
     const ok = await confirm({
       title: 'Quit Rubylight?',
       message:
@@ -53,12 +62,15 @@
       confirm: 'Quit',
       danger: true,
     });
-    if (!ok) return;
+    if (!ok || action) return;
+    action = 'quit';
     try {
       await api.host.quit();
       phase = 'stopped';
     } catch (error) {
       failed('Quit failed', error);
+    } finally {
+      action = null;
     }
   }
 </script>
@@ -90,8 +102,8 @@
       <p class="notice danger" role="status">Rubylight has stopped. This console is offline until the host starts again.</p>
     {/if}
     <div class="row">
-      <Button icon="refresh" busy={phase === 'restarting'} disabled={phase === 'stopped'} onclick={restart}>Restart</Button>
-      <Button variant="danger" icon="power" disabled={phase === 'stopped' || phase === 'restarting'} onclick={quit}>Quit</Button>
+      <Button icon="refresh" busy={action === 'restart'} disabled={phase === 'stopped' || action !== null} onclick={restart}>Restart</Button>
+      <Button variant="danger" icon="power" busy={action === 'quit'} disabled={phase === 'stopped' || action !== null} onclick={quit}>Quit</Button>
     </div>
     <p class="muted note">
       Restart disconnects streams and applies settings that need it. Quit stops the host; if it runs as a service, it

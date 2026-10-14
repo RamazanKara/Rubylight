@@ -54,12 +54,13 @@ export const settings: Setting[] = [
     control: {
       kind: 'select',
       options: [
+        { value: '', label: 'Automatic (Windows default)' },
         { value: 'disabled', label: 'Off, stream a monitor' },
         { value: 'per_client', label: 'One for each device' },
         { value: 'shared', label: 'One shared by all devices' },
       ],
     },
-    default: 'per_client',
+    default: '',
   },
   {
     key: 'virtual_display_layout',
@@ -112,11 +113,11 @@ export const settings: Setting[] = [
     key: 'dd_virtual_display_permanent_count',
     label: 'Permanent virtual displays',
     description:
-      'Virtual displays the driver keeps even when nothing streams, from 0 to 4. Applied when the host starts; while unset, the driver keeps its current count.',
+      'Virtual displays the driver keeps even when nothing streams, from 0 to 4. Leave empty to keep its current count; enter 0 to remove permanent displays. Applied when the host starts.',
     category: 'display',
     group: 'Streamed display',
     control: { kind: 'number', min: 0, max: 4, step: 1 },
-    default: 0,
+    default: '',
     restart: true,
     advanced: true,
   },
@@ -164,6 +165,7 @@ export const settings: Setting[] = [
     group: 'Resolution and refresh rate',
     control: { kind: 'text', placeholder: '2560x1440', mono: true },
     default: '',
+    inactiveHint: "Choose Use a fixed resolution under Resolution to apply this value.",
     visibleWhen: (values) => text(values, 'dd_resolution_option', 'auto') === 'manual',
   },
   {
@@ -193,6 +195,7 @@ export const settings: Setting[] = [
     group: 'Resolution and refresh rate',
     control: { kind: 'number', min: 1, max: 1000, step: 0.001, unit: 'Hz' },
     default: '',
+    inactiveHint: "Choose Use a fixed refresh rate under Refresh rate to apply this value.",
     visibleWhen: (values) => text(values, 'dd_refresh_rate_option', 'auto') === 'manual',
   },
   {
@@ -204,6 +207,7 @@ export const settings: Setting[] = [
     group: 'Resolution and refresh rate',
     control: { kind: 'json' },
     default: { mixed: [], resolution_only: [], refresh_rate_only: [] },
+    inactiveHint: "Choose Match the device for Resolution or Match the stream for Refresh rate to apply substitutions.",
     visibleWhen: (values) =>
       text(values, 'dd_resolution_option', 'auto') === 'auto' ||
       text(values, 'dd_refresh_rate_option', 'auto') === 'auto',
@@ -227,6 +231,7 @@ export const settings: Setting[] = [
     group: 'After a stream',
     control: { kind: 'number', min: 0, step: 100, unit: 'ms' },
     default: 3000,
+    inactiveHint: "Turn on Restore displays on disconnect to apply this delay.",
     visibleWhen: (values) => on(values, 'dd_config_revert_on_disconnect', false),
   },
   {
@@ -238,6 +243,7 @@ export const settings: Setting[] = [
     group: 'After a stream',
     control: { kind: 'number', min: 0, step: 1, unit: 's' },
     default: 7200,
+    inactiveHint: "Turn off Restore displays on disconnect to keep a disconnected display available for reconnection.",
     visibleWhen: (values) => !on(values, 'dd_config_revert_on_disconnect', false),
   },
   {
@@ -279,6 +285,7 @@ export const settings: Setting[] = [
     group: 'After a stream',
     control: { kind: 'text', placeholder: 'ctrl+alt+shift', mono: true },
     default: 'ctrl+alt+shift',
+    inactiveHint: "Set a Restore hotkey to use these modifiers.",
     visibleWhen: (values) => String(values.dd_snapshot_restore_hotkey ?? '').trim() !== '',
   },
   {
@@ -406,6 +413,7 @@ export const settings: Setting[] = [
     group: 'RTSS',
     control: { kind: 'text', placeholder: 'C:\\Program Files (x86)\\RivaTuner Statistics Server', mono: true, browse: 'directory' },
     default: '',
+    inactiveHint: "Choose Automatic or RTSS under Limiter to use RTSS settings. RTSS must be installed on the host.",
     visibleWhen: rtss,
   },
   {
@@ -425,6 +433,7 @@ export const settings: Setting[] = [
       ],
     },
     default: 'async',
+    inactiveHint: "Choose Automatic or RTSS under Limiter to use RTSS settings. RTSS must be installed on the host.",
     visibleWhen: rtss,
   },
   {
@@ -436,6 +445,7 @@ export const settings: Setting[] = [
     group: 'RTSS',
     control: { kind: 'toggle' },
     default: false,
+    inactiveHint: "Choose Automatic or RTSS under Limiter to use RTSS settings. RTSS must be installed on the host.",
     visibleWhen: rtss,
     advanced: true,
   },
@@ -473,6 +483,7 @@ export const settings: Setting[] = [
       ],
     },
     default: 'auto',
+    inactiveHint: "Choose Match the stream under Display HDR to apply the HDR request override.",
     visibleWhen: (values) => text(values, 'dd_hdr_option', 'auto') !== 'disabled',
   },
   {

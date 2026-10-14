@@ -27,7 +27,7 @@
     changed: boolean;
     /** Reset to default is waiting to be saved. */
     resetting: boolean;
-    /** Hidden by the current choices; only search shows it. */
+    /** Normally hidden by the current choices, but shown in search or while edited. */
     inactive?: boolean;
     invalidText?: string;
     onchange: (value: ConfigValue) => void;
@@ -40,7 +40,7 @@
   const id = `${uid}-control`;
   const kind = $derived(setting.control.kind);
   const grouped = $derived(kind === 'list' || kind === 'commands' || kind === 'server-commands');
-  /** Unsaved: a change, or JSON that does not parse yet. Either can be undone. */
+  /** An unsaved value or invalid draft. Either can be undone. */
   const marked = $derived(changed || invalidText !== undefined);
   const fallback = $derived(describeDefault(setting));
 </script>
@@ -52,7 +52,7 @@
   </div>
 {/snippet}
 
-<div class="setting" class:marked>
+<div class="setting" class:marked class:invalid={invalidText !== undefined} data-setting={setting.key}>
   {#if kind === 'toggle'}
     {@render control()}
   {:else if grouped}
@@ -68,11 +68,15 @@
     </Field>
   {/if}
 
+  {#if inactive}
+    <p class="dependency">{setting.inactiveHint ?? 'This setting is conditional. Review the related choices in this category.'}</p>
+  {/if}
+
   <div class="meta">
+    <code class="key">{setting.key}</code>
     <span>Default: <span class="default" class:mono={fallback.literal}>{fallback.text}</span></span>
     {#if setting.restart}<span>Applies after a restart</span>{/if}
-    {#if inactive}<span>Not used with the current settings</span>{/if}
-    {#if marked}<span class="changed">Changed</span>{/if}
+    {#if marked}<span class="changed">{invalidText !== undefined ? 'Needs correction' : 'Unsaved'}</span>{/if}
     {#if resetting}<span>Resets to the default when saved</span>{/if}
     {#if marked}
       <button type="button" class="link" onclick={onundo}>
@@ -96,6 +100,19 @@
   }
   .marked {
     box-shadow: inset 3px 0 0 var(--accent);
+  }
+  .invalid {
+    box-shadow: inset 3px 0 0 var(--danger);
+  }
+  .dependency {
+    color: var(--ink-2);
+    font-size: var(--text-xs);
+    line-height: 1.45;
+    padding-left: var(--space-2);
+    border-left: 2px solid var(--line-strong);
+  }
+  .key {
+    overflow-wrap: anywhere;
   }
   fieldset {
     display: grid;

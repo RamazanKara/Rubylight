@@ -27,6 +27,7 @@
     app,
     position,
     status,
+    reordering = false,
     onsaved,
     onmove,
     ondeleted,
@@ -37,6 +38,8 @@
     /** Where the app sits in the library; null when it cannot move. */
     position: { index: number; count: number } | null;
     status: SessionStatus | null;
+    /** An order change from the grid is still being saved. */
+    reordering?: boolean;
     onsaved: (uuid: string, created: boolean) => Promise<void>;
     onmove: (uuid: string, delta: -1 | 1) => Promise<void>;
     ondeleted: (uuid: string) => void;
@@ -154,7 +157,7 @@
 
   async function move(delta: -1 | 1) {
     const id = draft.saved.uuid;
-    if (!id) return;
+    if (!id || reordering || busy === 'move') return;
     busy = 'move';
     await onmove(id, delta);
     busy = '';
@@ -181,13 +184,13 @@
           {#if status?.paused}<Badge tone="warn">Paused</Badge>{:else}<Badge tone="live">Running</Badge>{/if}
         {/if}
         {#if position}
-          <span class="muted position num">{position.index + 1} of {position.count}</span>
-          <Button size="sm" disabled={position.index === 0 || busy === 'move'} onclick={() => move(-1)}>
+          <span class="muted position num" role="status">{reordering ? 'Saving the library order…' : `${position.index + 1} of ${position.count}`}</span>
+          <Button size="sm" disabled={position.index === 0 || busy === 'move' || reordering} onclick={() => move(-1)}>
             Move earlier
           </Button>
           <Button
             size="sm"
-            disabled={position.index >= position.count - 1 || busy === 'move'}
+            disabled={position.index >= position.count - 1 || busy === 'move' || reordering}
             onclick={() => move(1)}
           >
             Move later

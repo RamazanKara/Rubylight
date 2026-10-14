@@ -53,16 +53,25 @@ function go(to: string, replace: boolean) {
   window.scrollTo(0, 0);
 }
 
+/** Check the current draft before an action that leaves the page, such as signing out. */
+export async function mayLeave(to: string): Promise<boolean> {
+  if (deciding) return false;
+  if (!guard) return true;
+  deciding = true;
+  try {
+    return await guard(to);
+  } finally {
+    deciding = false;
+  }
+}
+
 export function navigate(to: string, options: { replace?: boolean; force?: boolean } = {}) {
   if (to === location.pathname + location.search) return;
   if (!guard || options.force) {
     go(to, options.replace ?? false);
     return;
   }
-  if (deciding) return;
-  deciding = true;
-  void Promise.resolve(guard(to)).then((leave) => {
-    deciding = false;
+  void mayLeave(to).then((leave) => {
     if (leave) go(to, options.replace ?? false);
   });
 }
@@ -75,7 +84,13 @@ export function match(pattern: string, path = route.path): Record<string, string
   const params: Record<string, string> = {};
   for (const [index, part] of want.entries()) {
     const value = have[index] ?? '';
-    if (part.startsWith(':')) params[part.slice(1)] = decodeURIComponent(value);
+    if (part.startsWith(':')) {
+      try {
+        params[part.slice(1)] = decodeURIComponent(value);
+      } catch {
+        return null;
+      }
+    }
     else if (part !== value) return null;
   }
   return params;

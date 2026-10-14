@@ -20,15 +20,16 @@
   let {
     client,
     dirty = $bindable(false),
+    saving = $bindable(false),
+    disabled = false,
     onsaved,
-  }: { client: Client; dirty?: boolean; onsaved?: () => void } = $props();
+  }: { client: Client; dirty?: boolean; saving?: boolean; disabled?: boolean; onsaved?: () => Promise<void> } = $props();
 
   const uid = $props.id();
 
   // `saved` is what the host has; `draft` is what the form shows.
   let saved = $state<Draft>(untrack(() => toDraft(client)));
   let draft = $state<Draft>(untrack(() => toDraft(client)));
-  let saving = $state(false);
 
   const pending = $derived(changes(saved, draft));
   const changed = $derived(Object.keys(pending).length > 0);
@@ -113,7 +114,7 @@
 
   async function save(event: SubmitEvent) {
     event.preventDefault();
-    if (!changed || nameMissing || modeInvalid) return;
+    if (!changed || nameMissing || modeInvalid || saving || disabled) return;
     saving = true;
     // Edits made while the request is out stay unsaved.
     const submitted = $state.snapshot(draft);
@@ -122,7 +123,7 @@
       await api.clients.update({ uuid: client.uuid, ...pending } as Partial<Client> & { uuid: string });
       saved = submitted;
       notify(`Saved ${submitted.name.trim()}.`, 'ok');
-      onsaved?.();
+      await onsaved?.();
     } catch (error) {
       failed('Saving the device failed', error);
     } finally {
@@ -293,7 +294,7 @@
   </section>
 
   <footer>
-    <Button type="submit" variant="primary" busy={saving} disabled={!changed || nameMissing || modeInvalid}>Save</Button>
+    <Button type="submit" variant="primary" busy={saving} disabled={!changed || nameMissing || modeInvalid || disabled}>Save</Button>
     <Button disabled={!changed || saving} onclick={discard}>Discard</Button>
     <span class="status muted">
       {#if client.connected}

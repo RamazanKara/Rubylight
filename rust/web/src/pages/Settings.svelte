@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, tick } from 'svelte';
   import Button from '../components/Button.svelte';
   import EmptyState from '../components/EmptyState.svelte';
   import Icon from '../components/Icon.svelte';
@@ -7,6 +7,7 @@
   import Panel from '../components/Panel.svelte';
   import SettingRow from '../components/settings/SettingRow.svelte';
   import UnknownKeys from '../components/settings/UnknownKeys.svelte';
+  import { matchesSetting, matchesWords, searchWords } from '../components/settings/search';
   import {
     applyChanges,
     computeChanges,
@@ -41,9 +42,13 @@
   let stored = $state<Config | null>(null);
   let loadError = $state('');
   let edits = $state<Edits>({});
-  /** JSON text that does not parse, by key. Saving waits until it does. */
+  /** Invalid number or JSON drafts by key. Saving waits for correction. */
   let invalid = $state<Record<string, string>>({});
   let query = $state('');
+  let review = $state<'all' | 'changed' | 'invalid'>('all');
+  // Keep reviewed rows mounted while they are corrected or reverted.
+  let reviewKeys = $state<string[]>([]);
+  let contentElement: HTMLDivElement;
   let saving = $state(false);
   let saved = $state(false);
   let restarting = $state(false);
@@ -101,31 +106,45 @@
   }
 
   const inCategory = $derived(schema.settings.filter((setting) => setting.category === active?.id));
-  const shown = $derived(inCategory.filter(visible));
+  // Keep a pending control reachable if editing its parent makes it inactive.
+  const shown = $derived(inCategory.filter((setting) => visible(setting) || pending.has(setting.key)));
   const basic = $derived(grouped(shown.filter((setting) => !setting.advanced)));
   const advanced = $derived(shown.filter((setting) => setting.advanced));
   const advancedChanged = $derived(advanced.filter((setting) => pending.has(setting.key)).length);
 
   // ---------- search ----------
 
-  const words = $derived(query.trim().toLowerCase().split(/\s+/).filter(Boolean));
+  const words = $derived(searchWords(query));
   const searching = $derived(words.length > 0);
-  const hits = (text: string) => words.every((word) => text.includes(word));
+  const browsingResults = $derived(searching || review !== 'all');
+  const inReview = (key: string) => review === 'all' || reviewKeys.includes(key);
 
   const results = $derived.by(() => {
-    if (!searching) return [];
+    if (!browsingResults) return [];
     return categories
       .map((category) => ({
         category,
         settings: schema.settings.filter(
           (setting) =>
             setting.category === category.id &&
-            hits(`${setting.label}\n${setting.key}\n${setting.description}`.toLowerCase()),
+            inReview(setting.key) && matchesSetting(setting, category, words),
         ),
-        unknown: category.id === 'advanced' ? unknownKeys.filter((key) => hits(key.toLowerCase())) : [],
+        unknown: category.id === 'advanced' ? unknownKeys.filter((key) => inReview(key) && matchesWords(key, words)) : [],
       }))
       .filter((result) => result.settings.length > 0 || result.unknown.length > 0);
   });
+  const resultCount = $derived(new Set(results.flatMap((result) => [
+    ...result.settings.map((setting) => setting.key), ...result.unknown,
+  ])).size);
+
+  async function reviewChanges(mode: 'changed' | 'invalid') {
+    query = '';
+    reviewKeys = mode === 'invalid' ? Object.keys(invalid) : [...pending];
+    review = mode;
+    await tick();
+    contentElement?.focus();
+    contentElement?.scrollIntoView({ block: 'start' });
+  }
 
   // ---------- loading and editing ----------
 
@@ -170,6 +189,7 @@
   function discard() {
     edits = {};
     invalid = {};
+    review = 'all';
   }
 
   function open(id: string, event?: MouseEvent) {
@@ -178,6 +198,7 @@
       event.preventDefault();
     }
     query = '';
+    review = 'all';
     navigate(`/settings/${id}`);
   }
 
@@ -270,7 +291,7 @@
       {#if group.name}<h3 class="group-title">{group.name}</h3>{/if}
       <!-- Keyed by object: a key may be listed in two categories. -->
       {#each group.settings as setting (setting)}
-        {@render row(setting, false)}
+        {@render row(setting, !visible(setting))}
       {/each}
     </section>
   {/each}
@@ -305,15 +326,17 @@
           autocomplete="off"
           spellcheck="false"
           bind:value={query}
+          oninput={() => (review = 'all')}
         />
       </div>
 
       <label class="picker">
         <span>Category</span>
         <select class="select" onchange={(event) => open(event.currentTarget.value)}>
+          {#if browsingResults}<option value="" disabled selected>All categories</option>{/if}
           {#each categories as category (category.id)}
             {@const count = changedIn[category.id] ?? 0}
-            <option value={category.id} selected={category.id === active?.id}>
+            <option value={category.id} selected={!browsingResults && category.id === active?.id}>
               {category.label}{count ? ` (${count} unsaved)` : ''}
             </option>
           {/each}
@@ -327,7 +350,7 @@
             <li>
               <a
                 href="/settings/{category.id}"
-                aria-current={!searching && category.id === active?.id ? 'page' : undefined}
+                aria-current={!browsingResults && category.id === active?.id ? 'page' : undefined}
                 onclick={(event) => open(category.id, event)}
               >
                 <span class="name">
@@ -345,7 +368,7 @@
       </nav>
     </div>
 
-    <div class="content">
+    <div class="content" bind:this={contentElement} tabindex="-1">
       {#if loadError}
         <div class="notice danger load-error" role="alert">
           <span>{stored ? 'Could not refresh the settings' : 'Could not load the settings'}: {loadError}</span>
@@ -355,11 +378,26 @@
 
       {#if stored === null}
         {#if !loadError}<p class="placeholder muted">Loading settings…</p>{/if}
-      {:else if searching}
+      {:else if browsingResults}
+        <div class="results-heading">
+          <div>
+            <h2>{review === 'invalid' ? 'Review errors' : review === 'changed' ? 'Review changes' : 'Search results'}</h2>
+            <p class="muted" role="status">
+              {#if review !== 'all' && pending.size === 0}
+                No unsaved changes.
+              {:else if review === 'invalid' && invalidCount === 0}
+                All errors corrected. Review your values, then save your changes.
+              {:else}
+                {resultCount} {resultCount === 1 ? 'setting' : 'settings'}{searching ? ` matching “${query.trim()}”` : ' across all categories'}
+              {/if}
+            </p>
+          </div>
+          <Button size="sm" variant="ghost" onclick={() => open(active?.id ?? 'general')}>All settings</Button>
+        </div>
         {#if results.length === 0}
           <Panel>
-            <EmptyState icon="search" title="No settings match">
-              <p>Search looks at names, keys and descriptions.</p>
+            <EmptyState icon="search" title={review === 'invalid' ? 'All corrections complete' : review === 'changed' ? 'No unsaved changes' : 'No settings match'}>
+              <p>{review === 'invalid' ? 'You can save your changes now.' : review === 'changed' ? 'Your settings are up to date.' : 'Search names, configuration keys, descriptions, categories and menu options.'}</p>
             </EmptyState>
           </Panel>
         {:else}
@@ -402,7 +440,7 @@
               {@render groups(basic)}
             </div>
             {#if advanced.length}
-              <details class="advanced">
+              <details class="advanced" open={advancedChanged > 0}>
                 <summary>
                   <Icon name="chevron" size={15} />
                   Advanced
@@ -432,9 +470,12 @@
       <p class="status" role="status">
         <span class="dot" aria-hidden="true"></span>
         {pending.size} unsaved {pending.size === 1 ? 'change' : 'changes'}
-        {#if invalidCount}<span class="problem">Correct the highlighted settings before saving.</span>{/if}
+        {#if invalidCount}<span class="problem">{invalidCount} {invalidCount === 1 ? 'setting needs' : 'settings need'} correction.</span>{/if}
       </p>
       <div class="actions">
+        <Button variant="ghost" onclick={() => reviewChanges(invalidCount ? 'invalid' : 'changed')}>
+          {invalidCount ? 'Review errors' : 'Review changes'}
+        </Button>
         <Button disabled={saving} onclick={discard}>Discard</Button>
         <Button variant="primary" busy={saving} disabled={invalidCount > 0} onclick={save}>Save changes</Button>
       </div>
@@ -539,6 +580,23 @@
     gap: var(--space-4);
     align-content: start;
     min-width: 0;
+    scroll-margin-top: var(--space-4);
+  }
+  .content:focus {
+    outline: none;
+  }
+  .results-heading {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+  }
+  .results-heading h2 {
+    font-size: var(--text-lg);
+  }
+  .results-heading p {
+    font-size: var(--text-sm);
   }
   .load-error {
     align-items: center;

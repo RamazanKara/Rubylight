@@ -10,11 +10,13 @@
   let {
     apps,
     status,
+    reordering,
     onreorder,
     onstatus,
   }: {
     apps: App[];
     status: SessionStatus | null;
+    reordering: boolean;
     /** The whole list in its new order. */
     onreorder: (next: App[]) => void;
     /** An app was started or closed. */
@@ -34,7 +36,7 @@
   const running = $derived(runningName(status));
   const needle = $derived(query.trim().toLowerCase());
   const missingIds = $derived(apps.some((app) => !app.uuid));
-  const canReorder = $derived(sort === 'order' && !needle && !missingIds && apps.length > 1);
+  const canReorder = $derived(!reordering && sort === 'order' && !needle && !missingIds && apps.length > 1);
 
   const shown = $derived.by(() => {
     let list = preview ?? apps;
@@ -46,9 +48,10 @@
   });
 
   const hint = $derived.by(() => {
+    if (reordering) return 'Saving the library order…';
     if (apps.length < 2) return '';
     if (missingIds) return 'Restart the host to enable reordering for all apps.';
-    if (canReorder) return 'Drag a cover to change the order.';
+    if (canReorder) return 'Drag a cover to reorder, or open an app and choose Move earlier or Move later.';
     return 'Clear the search and sort by library order to drag apps into place.';
   });
 
@@ -147,8 +150,8 @@
       </select>
     </div>
   </div>
-  <p class="muted summary">
-    <span>{apps.length} {apps.length === 1 ? 'app' : 'apps'}</span>
+  <p class="muted summary" role="status">
+    <span>{needle ? `${shown.length} of ${apps.length}` : apps.length} {apps.length === 1 ? 'app' : 'apps'}</span>
     {#if hint}<span aria-hidden="true">·</span> <span>{hint}</span>{/if}
   </p>
 

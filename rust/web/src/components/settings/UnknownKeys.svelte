@@ -64,7 +64,7 @@
 <section class="unknown" aria-labelledby="{uid}-title">
   <div class="intro">
     <h3 id="{uid}-title">Custom settings</h3>
-    <p>Settings without a built-in control. Use the configuration key from the host's settings file. Values are saved exactly as typed.</p>
+    <p>Settings without a built-in control. Use the configuration key from the host's settings file. Values are saved as text with surrounding whitespace removed. Clear a value to remove that key when you save.</p>
   </div>
 
   {#if keys.length}

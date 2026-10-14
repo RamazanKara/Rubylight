@@ -381,6 +381,12 @@ public class DualSenseController extends AbstractController {
         if (worker != null) {
             worker.interrupt();
         }
+        // The microphone worker publishes the host's mute only when it closes, which can be after
+        // the stream has read it for a reconnect. Keep it now.
+        com.limelight.nvstream.NvConnection conn = audioConnection;
+        if (conn != null && microphoneOwner != null && hostMicMuted) {
+            conn.setMicrophoneMuted(true);
+        }
         // Releasing the pad waits for a USB read in progress, so never on the caller's thread.
         runOnUsbWorker(this::release);
     }

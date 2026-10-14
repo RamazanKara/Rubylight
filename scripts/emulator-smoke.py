@@ -207,6 +207,51 @@ def scroll_to_end():
     raise AssertionError("Scrollable UI did not reach its end after 64 swipes")
 
 
+def system_bar_frames():
+    """Visible status and navigation bar frames from the window manager, in screen pixels."""
+    frames = {"statusBars": [], "navigationBars": []}
+    for kind, x1, y1, x2, y2 in re.findall(
+            r"InsetsSource id=\S+ type=(statusBars|navigationBars) frame=\[(-?\d+),(-?\d+)\]\[(-?\d+),(-?\d+)\] visible=true",
+            adb("shell", "dumpsys", "window")):
+        frame = tuple(map(int, (x1, y1, x2, y2)))
+        if frame[2] > frame[0] and frame[3] > frame[1] and frame not in frames[kind]:
+            frames[kind].append(frame)
+    return frames
+
+
+def assert_top_bar_clear(toolbar_id, action_id=None, root=None):
+    """The top app bar must start below the status bar and show its title and actions."""
+    root = root if root is not None else tree()
+    status_bottom = max((f[3] for f in system_bar_frames()["statusBars"] if f[1] == 0), default=0)
+    bar = next((n for n in root.iter("node") if n.get("resource-id") == f"{PACKAGE}:id/{toolbar_id}"), None)
+    assert bar is not None, f"Top app bar {toolbar_id} is missing"
+    x1, y1, x2, y2 = bounds(bar)
+    assert y1 >= status_bottom, f"Top app bar {toolbar_id} starts at {y1}, under the status bar ending at {status_bottom}"
+    assert any(n.get("text") for n in bar.iter("node")), f"Top app bar {toolbar_id} has no visible title"
+    if action_id is not None:
+        action = next((n for n in bar.iter("node") if n.get("resource-id") == f"{PACKAGE}:id/{action_id}"), None)
+        assert action is not None, f"Top app bar action {action_id} is missing"
+        ax1, ay1, ax2, ay2 = bounds(action)
+        assert ay1 >= status_bottom and ax2 > ax1 and ay2 > ay1, f"Top app bar action {action_id} is not visible: {action.attrib}"
+    return root
+
+
+def assert_cold_start_insets(runs=5):
+    """Force-stop and relaunch: the home bar must clear the status bar every time, not only after a config change."""
+    for run in range(runs):
+        adb("shell", "am", "force-stop", PACKAGE)
+        adb("shell", "am", "start", "-W", "-n", f"{PACKAGE}/com.limelight.PcView")
+        find(f"{PACKAGE}:id/home_toolbar")
+        root = assert_top_bar_clear("home_toolbar", "settingsButton")
+        content = next((n for n in root.iter("node") if n.get("resource-id") in
+                        (f"{PACKAGE}:id/no_pc_found_layout", f"{PACKAGE}:id/fragmentView")), None)
+        nav_top = min((f[1] for f in system_bar_frames()["navigationBars"] if f[1] > 0), default=None)
+        if content is not None and nav_top is not None:
+            assert bounds(content)[3] <= nav_top, \
+                f"Cold start {run + 1}: content ends at {bounds(content)[3]}, under the navigation bar at {nav_top}"
+    print(f"Cold start keeps the home bar clear of the system bars ({runs} launches)", flush=True)
+
+
 def host_menu(item=None):
     x1, y1, x2, y2 = bounds(find(HOST_NAME))
     x, y = str((x1+x2)//2), str((y1+y2)//2)
@@ -409,6 +454,18 @@ def library_regressions():
     set_rotation(0)
     find("Racing Game", scroll=True)
     screenshot("library-font-2")
+    # Rotating without a query changes the column count; the grid used to come back empty.
+    set_rotation(1)
+    cards = []
+    for _ in range(6):
+        cards = [n for n in tree().iter("node") if n.get("resource-id") == f"{PACKAGE}:id/grid_text"]
+        if cards:
+            break
+        time.sleep(0.5)
+    assert cards, "Library grid is blank in landscape without a search query"
+    screenshot("library-landscape-font-2")
+    set_rotation(0)
+    find("Racing Game", scroll=True)
     tap(f"{PACKAGE}:id/library_search_button")
     search = f"{PACKAGE}:id/search_src_text"
     enter_text(search, "zzznomatch")
@@ -634,6 +691,7 @@ def main():
             adb("shell", "am", "start", "-W", "-n", f"{PACKAGE}/com.limelight.PcView")
             set_rotation(0)
             find(f"{PACKAGE}:id/discovery_add")
+            assert_cold_start_insets()
             if args.debug_only:
                 if not DEBUGGABLE:
                     raise ValueError("--debug-only requires a debug APK with library and overlay fixtures")

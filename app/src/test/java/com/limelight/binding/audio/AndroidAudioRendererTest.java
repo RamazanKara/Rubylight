@@ -235,6 +235,52 @@ public class AndroidAudioRendererTest {
         assertFalse(renderer.dead);
     }
 
+    // A real renderer whose output can be made to refuse new tracks, as during a route change.
+    private static final class UnavailableOutput extends AndroidAudioRenderer {
+        int refusedTracks;
+
+        UnavailableOutput(Context context) {
+            super(context, true, null);
+        }
+
+        @Override AudioTrack createAudioTrack(int channelConfig, int sampleRate, int bufferSize, boolean lowLatency) {
+            if (refusedTracks > 0) {
+                refusedTracks--;
+                throw new UnsupportedOperationException("No audio output available");
+            }
+            return super.createAudioTrack(channelConfig, sampleRate, bufferSize, lowLatency);
+        }
+    }
+
+    @Test public void equalizersReattachAfterARecreationThatFirstFailed() {
+        List<String> effectSessions = new ArrayList<>();
+        Context context = new ContextWrapper(RuntimeEnvironment.getApplication()) {
+            @Override public void sendBroadcast(android.content.Intent intent) {
+                effectSessions.add(intent.getAction().endsWith("OPEN_AUDIO_EFFECT_CONTROL_SESSION") ? "open" : "close");
+            }
+        };
+        UnavailableOutput renderer = new UnavailableOutput(context);
+        assertEquals(0, renderer.setup(new com.limelight.nvstream.jni.MoonBridge.AudioConfiguration(2, 0x3), 48000, 240));
+        renderer.start();
+        assertEquals(List.of("open"), effectSessions);
+
+        // The output is gone: every attempt to build a new track fails, so audio stays down for now.
+        renderer.refusedTracks = Integer.MAX_VALUE;
+        assertFalse(renderer.recreateAudioTrack());
+        assertEquals(List.of("open", "close"), effectSessions);
+        // A second later the output is back.
+        renderer.refusedTracks = 0;
+        assertTrue(renderer.recreateAudioTrack());
+        assertEquals("The equalizer session must follow the replacement track",
+                List.of("open", "close", "open"), effectSessions);
+
+        // A stopped stream does not ask for effects again.
+        renderer.stop();
+        assertTrue(renderer.recreateAudioTrack());
+        assertEquals(List.of("open", "close", "open", "close"), effectSessions);
+        renderer.cleanup();
+    }
+
     @Test public void failedRecreationIsRetriedByALaterBuffer() {
         int dead = AudioTrack.ERROR_DEAD_OBJECT;
         ScriptedRenderer renderer = new ScriptedRenderer(dead, dead, 6);

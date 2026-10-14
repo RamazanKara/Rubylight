@@ -35,6 +35,8 @@ public class AndroidAudioRenderer implements AudioRenderer {
     private int channelConfig, sampleRate, samplesPerFrame, channels;
     private boolean stopped;
     private boolean audioFxSessionOpen;
+    // The stream wants equalizers on its track: from start() until stop(), across track rebuilds.
+    private boolean audioFxWanted;
     // A dead track is rebuilt at most this often; every other failure only drops one buffer.
     private static final long TRACK_RECREATE_INTERVAL_MS = 1000;
     // Before Android 7.0, write() returns the native status for a dead track (DEAD_OBJECT is -32)
@@ -58,7 +60,7 @@ public class AndroidAudioRenderer implements AudioRenderer {
         this.headphoneSink = headphoneSink;
     }
 
-    private AudioTrack createAudioTrack(int channelConfig, int sampleRate, int bufferSize, boolean lowLatency) {
+    AudioTrack createAudioTrack(int channelConfig, int sampleRate, int bufferSize, boolean lowLatency) {
         AudioAttributes.Builder attributesBuilder = new AudioAttributes.Builder()
                 .setUsage(AudioAttributes.USAGE_GAME);
         AudioFormat format = new AudioFormat.Builder()
@@ -324,12 +326,12 @@ public class AndroidAudioRenderer implements AudioRenderer {
     }
 
     boolean recreateAudioTrack() {
-        boolean reopenAudioFx = audioFxSessionOpen;
         releaseAudioTrack();
         if (setupAudioTrack() != 0) {
             return false;
         }
-        if (reopenAudioFx) {
+        // Also after an earlier attempt failed and closed the session with the old track.
+        if (audioFxWanted) {
             setAudioFxSession(true);
         }
         return true;
@@ -405,12 +407,14 @@ public class AndroidAudioRenderer implements AudioRenderer {
     @Override
     public synchronized void start() {
         // Allow equalizers to attach to this track, including a replacement after disconnect.
+        audioFxWanted = true;
         setAudioFxSession(true);
     }
 
     @Override
     public synchronized void stop() {
         stopped = true;
+        audioFxWanted = false;
         setAudioFxSession(false);
     }
 

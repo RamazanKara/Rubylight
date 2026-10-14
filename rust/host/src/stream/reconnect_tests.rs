@@ -697,6 +697,31 @@ impl Drop for Client {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn abandoned_rtsp_socket_releases_preparation_before_replacement() -> Result<()> {
+    let h = Harness::new(10_000, 1).await?;
+    let launch = h.launch(0, false).await?;
+    drop(launch);
+    h.fixture.hold_rtsp_cleanup.store(true, Ordering::Release);
+    let abandoned = tokio::net::TcpStream::connect(address(h.ports.rtsp)).await?;
+    until("abandoned RTSP connection authorized", WAIT, || {
+        h.fixture.rtsp_cleanup_waiting.load(Ordering::Acquire)
+    })
+    .await;
+
+    let replacement = h.launch(0, true).await?;
+    assert_eq!(
+        h.fixture.displays.load(Ordering::Acquire),
+        1,
+        "canceled preparation still owned while the replacement prepares its display"
+    );
+    h.fixture.resume_rtsp_cleanup.store(true, Ordering::Release);
+    let (session, client) = h.play(&replacement).await?;
+    drop(abandoned);
+    h.end(&session, client).await?;
+    h.finish().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn concurrent_rtsp_cleanup_preserves_a_new_launch_announcement() -> Result<()> {
     let h = Harness::new(10_000, 2).await?;
     let older_launch = h.launch(0, false).await?;

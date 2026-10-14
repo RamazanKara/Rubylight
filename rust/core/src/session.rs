@@ -361,6 +361,98 @@ mod tests {
         assert!(sessions.start(fresh, Negotiated::default()).is_err());
     }
     #[test]
+    fn rtsp_authorization_does_not_keep_canceled_preparations_alive() {
+        use std::sync::{Mutex, Weak};
+        struct Restore {
+            sessions: Weak<Mutex<Sessions>>,
+            restored: Arc<AtomicU32>,
+        }
+        impl Preparation<()> for Restore {
+            fn prepared(&self) -> &() {
+                &()
+            }
+            fn into_prepared(self: Box<Self>) {}
+        }
+        impl AudioPreparation<()> for Restore {
+            fn route(&self) -> Arc<()> {
+                Arc::new(())
+            }
+        }
+        impl Drop for Restore {
+            fn drop(&mut self) {
+                assert!(self.sessions.upgrade().unwrap().try_lock().is_ok());
+                self.restored.fetch_add(1, Ordering::Release);
+            }
+        }
+        for expires in [false, true] {
+            let sessions = Arc::new(Mutex::new(Sessions::default()));
+            let restored = Arc::new(AtomicU32::new(0));
+            let pending = launch("pending", Role::Stream);
+            *pending.preparation.lock().unwrap() = Some(Box::new(Restore {
+                sessions: Arc::downgrade(&sessions),
+                restored: restored.clone(),
+            }));
+            *pending.audio_preparation.lock().unwrap() = Some(Box::new(Restore {
+                sessions: Arc::downgrade(&sessions),
+                restored: restored.clone(),
+            }));
+            let (authorized, canceled) = {
+                let mut locked = sessions.lock().unwrap();
+                let peer = pending.peer;
+                locked.queue(pending).unwrap();
+                let authorized = locked.rtsp_for_peer(peer);
+                let canceled = if expires {
+                    locked.pending.get_mut("pending").unwrap().created =
+                        Instant::now() - Duration::from_secs(31);
+                    locked.expire()
+                } else {
+                    locked.request_stop(Some("pending"))
+                };
+                (authorized, canceled)
+            };
+            drop(canceled);
+            assert_eq!(
+                restored.load(Ordering::Acquire),
+                2,
+                "an RTSP socket must not retain canceled display and audio preparation"
+            );
+            assert_eq!(authorized[0].id, "pending");
+        }
+    }
+    #[test]
+    fn play_consumes_the_current_pending_launch_with_its_preparation() {
+        struct Prepared;
+        impl Preparation<()> for Prepared {
+            fn prepared(&self) -> &() {
+                &()
+            }
+            fn into_prepared(self: Box<Self>) {}
+        }
+        let mut sessions = Sessions::default();
+        let pending = launch("prepared", Role::Stream);
+        let peer = pending.peer;
+        *pending.preparation.lock().unwrap() = Some(Box::new(Prepared));
+        sessions.queue(pending).unwrap();
+        let authorized = sessions.rtsp_for_peer(peer).pop().unwrap();
+        sessions
+            .pending
+            .get_mut("prepared")
+            .unwrap()
+            .options
+            .insert("server_state".into(), "current".into());
+        let session = sessions.start(authorized, Negotiated::default()).unwrap();
+        assert_eq!(
+            session
+                .launch
+                .options
+                .get("server_state")
+                .map(String::as_str),
+            Some("current")
+        );
+        assert!(session.launch.preparation.lock().unwrap().is_some());
+        assert!(sessions.pending.is_empty());
+    }
+    #[test]
     fn expired_launches_restore_resources_after_unlocking_sessions() {
         use std::sync::{Mutex, Weak};
         struct Restore {
@@ -819,6 +911,15 @@ impl<P, A> Clone for Launch<P, A> {
     }
 }
 impl<P, A> Launch<P, A> {
+    /// RTSP may wait for network input after authorization. Its identity
+    /// snapshot must not keep a canceled launch's display, limiter or audio
+    /// route alive while a replacement launch prepares new resources.
+    fn rtsp_snapshot(&self) -> Self {
+        let mut snapshot = self.clone();
+        snapshot.preparation = Default::default();
+        snapshot.audio_preparation = Default::default();
+        snapshot
+    }
     /// Still waiting for its client: being prepared, or prepared under 30 s ago.
     fn live(&self) -> bool {
         self.preparing.load(Ordering::Acquire) || self.created.elapsed() < Duration::from_secs(30)
@@ -1224,6 +1325,8 @@ impl<P, A> Sessions<P, A> {
         }
         p.ok_or_else(|| anyhow::anyhow!("no authorized launch for RTSP peer"))
     }
+    /// Authentication and negotiation snapshots only. `start` consumes the
+    /// stored pending launch, including its platform preparation, at PLAY.
     pub fn rtsp_for_peer(&self, peer: IpAddr) -> Vec<Launch<P, A>> {
         self.pending
             .values()
@@ -1235,7 +1338,7 @@ impl<P, A> Sessions<P, A> {
                     .map(|s| &s.launch),
             )
             .filter(|p| p.peer == peer)
-            .cloned()
+            .map(Launch::rtsp_snapshot)
             .collect()
     }
     pub fn start(
@@ -1253,7 +1356,7 @@ impl<P, A> Sessions<P, A> {
         {
             bail!("launch expired or already consumed");
         }
-        self.pending.remove(&launch.id);
+        let launch = self.pending.remove(&launch.id).unwrap();
         let s = Session::new(launch, config);
         self.active.insert(s.launch.id.clone(), s.clone());
         Ok(s)

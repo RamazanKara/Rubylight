@@ -87,6 +87,17 @@ def bounds(node):
     return tuple(map(int, re.findall(r"-?\d+", node.attrib["bounds"])))
 
 
+def wait_for_system_process(root):
+    """On a busy host, System UI can miss its deadline and Android offers to close it; keep waiting."""
+    button = next((n for n in root.iter("node") if n.get("resource-id") == "android:id/aerr_wait"), None)
+    if button is None:
+        return False
+    x1, y1, x2, y2 = bounds(button)
+    adb("shell", "input", "tap", str((x1+x2)//2), str((y1+y2)//2))
+    time.sleep(1)
+    return True
+
+
 def find(label, scroll=False):
     previous_scroll_state = None
     unchanged_scrolls = 0
@@ -96,6 +107,8 @@ def find(label, scroll=False):
             button = next(n for n in root.iter("node") if n.get("resource-id") == "android:id/ok")
             x1, y1, x2, y2 = bounds(button)
             adb("shell", "input", "tap", str((x1+x2)//2), str((y1+y2)//2))
+            continue
+        if wait_for_system_process(root):
             continue
         for node in root.iter("node"):
             text = node.get("text") or ""
@@ -771,13 +784,8 @@ def main():
                                    "-a", "android.intent.action.MAIN", "-c", "android.intent.category.HOME",
                                    timeout=5).strip().split("\n")[-1]
                     ui = tree()
-                    # A loaded host can leave System UI's "isn't responding" dialog over the launcher; wait it out.
-                    wait = next((n for n in ui.iter("node") if n.get("resource-id") == "android:id/aerr_wait"), None)
-                    if wait is not None:
-                        x1, y1, x2, y2 = bounds(wait)
-                        adb("shell", "input", "tap", str((x1 + x2) // 2), str((y1 + y2) // 2))
+                    if wait_for_system_process(ui):
                         previous = None
-                        time.sleep(2)
                         continue
                     current = ET.tostring(ui)
                     # HOME can still resolve to a temporary boot screen after boot_completed.

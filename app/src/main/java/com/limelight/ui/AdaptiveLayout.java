@@ -33,6 +33,7 @@ public final class AdaptiveLayout {
     private final boolean handleSystemInsets;
     private final WindowInfoTrackerCallbackAdapter tracker;
     private final Consumer<WindowLayoutInfo> listener;
+    private final Runnable deferredUpdate = this::update;
     private WindowInsetsCompat windowInsets = WindowInsetsCompat.CONSUMED;
     private FoldingFeature fold;
 
@@ -77,12 +78,26 @@ public final class AdaptiveLayout {
             });
             if (ViewCompat.isAttachedToWindow(root)) start();
         }
+        // Insets are dispatched before the hierarchy is measured, so padding set here is laid out in
+        // the same traversal. This is the only place the safe area is applied synchronously.
         ViewCompat.setOnApplyWindowInsetsListener(root, (view, appliedInsets) -> {
             windowInsets = appliedInsets;
             update();
             return handleSystemInsets ? WindowInsetsCompat.CONSUMED : appliedInsets;
         });
-        root.addOnLayoutChangeListener((view, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> update());
+        // Padding changed from inside a layout pass is lost: View.layout() clears the forced-layout flag
+        // after it runs these listeners, so the children kept their old frames and the toolbar stayed
+        // under the status bar on cold start. Hinges and picture-in-picture depend on the laid-out
+        // frame, so re-evaluate on the next frame instead.
+        root.addOnLayoutChangeListener((view, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> {
+            if (left == oldLeft && top == oldTop && right == oldRight && bottom == oldBottom) return;
+            if (root.isInLayout()) root.post(deferredUpdate);
+            else update();
+        });
+        root.addOnAttachStateChangeListener(new View.OnAttachStateChangeListener() {
+            @Override public void onViewAttachedToWindow(View view) { ViewCompat.requestApplyInsets(view); }
+            @Override public void onViewDetachedFromWindow(View view) { root.removeCallbacks(deferredUpdate); }
+        });
     }
 
     public static AdaptiveLayout attach(Activity activity, View root) {
@@ -111,7 +126,6 @@ public final class AdaptiveLayout {
     }
 
     private void update() {
-        if (root.getWidth() == 0 || root.getHeight() == 0) return;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && activity.isInPictureInPictureMode()) {
             root.setPadding(0, 0, 0, 0);
             return;
@@ -141,26 +155,24 @@ public final class AdaptiveLayout {
                     Math.max(0, cutout.right - bars.right), Math.max(0, cutout.bottom - bars.bottom));
         }
         int margin = television && !streaming ? Math.round(24 * density) : 0;
+        int width = root.getWidth();
+        int height = root.getHeight();
+        if (fold == null || width == 0 || height == 0) {
+            // The safe area alone needs no frame, so the first inset dispatch already gets it right.
+            root.setPadding(insets.left + margin, insets.top + margin, insets.right + margin, insets.bottom + margin);
+            return;
+        }
         Rect available = new Rect(insets.left + margin, insets.top + margin,
-                root.getWidth() - insets.right - margin, root.getHeight() - insets.bottom - margin);
-        Rect hinge = null;
-        if (fold != null) {
-            int[] origin = new int[2];
-            int[] windowOrigin = new int[2];
-            root.getLocationOnScreen(origin);
-            activity.getWindow().getDecorView().getLocationOnScreen(windowOrigin);
-            hinge = new Rect(fold.getBounds());
-            hinge.offset(windowOrigin[0] - origin[0], windowOrigin[1] - origin[1]);
-        }
-        Rect pane = usablePane(available, hinge,
-                fold != null && fold.getOrientation() == FoldingFeature.Orientation.VERTICAL,
+                width - insets.right - margin, height - insets.bottom - margin);
+        int[] origin = new int[2];
+        int[] windowOrigin = new int[2];
+        root.getLocationOnScreen(origin);
+        activity.getWindow().getDecorView().getLocationOnScreen(windowOrigin);
+        Rect hinge = new Rect(fold.getBounds());
+        hinge.offset(windowOrigin[0] - origin[0], windowOrigin[1] - origin[1]);
+        Rect pane = usablePane(available, hinge, fold.getOrientation() == FoldingFeature.Orientation.VERTICAL,
                 ViewCompat.getLayoutDirection(root) == ViewCompat.LAYOUT_DIRECTION_RTL);
-        if (root.findViewById(R.id.stream_settings) != null || root.findViewById(R.id.host_profile_settings) != null ||
-                root.findViewById(R.id.hostTextView) != null) {
-            int gutter = Math.max(0, (pane.width() - Math.round(840 * density)) / 2);
-            pane.inset(gutter, 0);
-        }
-        root.setPadding(pane.left, pane.top, root.getWidth() - pane.right, root.getHeight() - pane.bottom);
+        root.setPadding(pane.left, pane.top, width - pane.right, height - pane.bottom);
     }
 
     static Rect usablePane(Rect available, Rect hinge, boolean vertical, boolean rtl) {

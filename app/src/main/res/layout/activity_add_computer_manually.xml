@@ -1,39 +1,42 @@
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<com.limelight.ui.ContentFrame xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools"
-    android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="vertical">
-    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
-        android:minHeight="64dp" android:padding="8dp" android:gravity="center_vertical">
-        <ImageButton android:id="@+id/add_pc_back" style="@style/ToolbarIcon"
-            android:nextFocusDown="@+id/hostTextView" android:nextFocusForward="@id/hostTextView"
-            android:src="@drawable/ic_close" android:contentDescription="@android:string/cancel" />
-        <TextView android:id="@+id/manuallyAddPcText"
-            android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
-            android:layout_marginStart="8dp" android:layout_marginEnd="8dp"
-            android:textAppearance="@style/ScreenTitle"
-            android:accessibilityHeading="true" tools:targetApi="p" android:text="@string/title_add_pc" />
-    </LinearLayout>
-    <ScrollView android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1"
-        android:fillViewport="true" android:clipToPadding="false">
+    android:layout_width="match_parent" android:layout_height="match_parent">
+    <LinearLayout
+        android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="vertical">
         <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
-            android:orientation="vertical" android:padding="24dp">
-            <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:text="@string/add_pc_hint" android:textColor="@color/on_surface_variant" android:textSize="16sp" />
-            <com.google.android.material.textfield.TextInputLayout android:id="@+id/host_input"
-                android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:layout_marginTop="24dp" android:hint="@string/ip_hint"
-                style="@style/Widget.Material3.TextInputLayout.OutlinedBox">
-                <com.google.android.material.textfield.TextInputEditText android:id="@+id/hostTextView"
-                    android:nextFocusUp="@id/add_pc_back" android:nextFocusDown="@+id/addPcButton"
-                    android:nextFocusForward="@id/addPcButton" android:accessibilityTraversalAfter="@id/add_pc_back"
-                    android:layout_width="match_parent" android:layout_height="wrap_content"
-                    android:minHeight="56dp" android:singleLine="true" android:inputType="textUri" android:textSize="16sp">
-                    <requestFocus />
-                </com.google.android.material.textfield.TextInputEditText>
-            </com.google.android.material.textfield.TextInputLayout>
-            <com.google.android.material.button.MaterialButton android:id="@+id/addPcButton"
-                android:nextFocusUp="@id/hostTextView" android:accessibilityTraversalAfter="@id/hostTextView"
-                android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="56dp"
-                android:layout_marginTop="16dp" android:text="@string/addpc_button" />
+            android:minHeight="64dp" android:padding="8dp" android:gravity="center_vertical">
+            <ImageButton android:id="@+id/add_pc_back" style="@style/ToolbarIcon"
+                android:nextFocusDown="@+id/hostTextView" android:nextFocusForward="@id/hostTextView"
+                android:src="@drawable/ic_close" android:contentDescription="@android:string/cancel" />
+            <TextView android:id="@+id/manuallyAddPcText"
+                android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
+                android:layout_marginStart="8dp" android:layout_marginEnd="8dp"
+                android:textAppearance="@style/ScreenTitle"
+                android:accessibilityHeading="true" tools:targetApi="p" android:text="@string/title_add_pc" />
         </LinearLayout>
-    </ScrollView>
-</LinearLayout>
+        <ScrollView android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1"
+            android:fillViewport="true" android:clipToPadding="false">
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:orientation="vertical" android:padding="24dp">
+                <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:text="@string/add_pc_hint" android:textColor="@color/on_surface_variant" android:textSize="16sp" />
+                <com.google.android.material.textfield.TextInputLayout android:id="@+id/host_input"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:layout_marginTop="24dp" android:hint="@string/ip_hint"
+                    style="@style/Widget.Material3.TextInputLayout.OutlinedBox">
+                    <com.google.android.material.textfield.TextInputEditText android:id="@+id/hostTextView"
+                        android:nextFocusUp="@id/add_pc_back" android:nextFocusDown="@+id/addPcButton"
+                        android:nextFocusForward="@id/addPcButton" android:accessibilityTraversalAfter="@id/add_pc_back"
+                        android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:minHeight="56dp" android:singleLine="true" android:inputType="textUri" android:textSize="16sp">
+                        <requestFocus />
+                    </com.google.android.material.textfield.TextInputEditText>
+                </com.google.android.material.textfield.TextInputLayout>
+                <com.google.android.material.button.MaterialButton android:id="@+id/addPcButton"
+                    android:nextFocusUp="@id/hostTextView" android:accessibilityTraversalAfter="@id/hostTextView"
+                    android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="56dp"
+                    android:layout_marginTop="16dp" android:text="@string/addpc_button" />
+            </LinearLayout>
+        </ScrollView>
+    </LinearLayout>
+</com.limelight.ui.ContentFrame>

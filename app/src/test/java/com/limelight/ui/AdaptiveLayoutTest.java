@@ -24,6 +24,7 @@ import org.junit.runner.RunWith;
 import org.robolectric.Robolectric;
 import org.robolectric.android.controller.ActivityController;
 import org.robolectric.annotation.Config;
+import org.robolectric.shadows.ShadowLooper;
 import org.robolectric.util.ReflectionHelpers;
 
 import java.util.Collections;
@@ -103,6 +104,48 @@ public class AdaptiveLayoutTest {
         } finally {
             first.pause().stop().destroy();
             second.pause().stop().destroy();
+        }
+    }
+
+    @Test
+    @Config(sdk = 30)
+    public void insetsDispatchedBeforeTheFirstLayoutAreAppliedImmediately() {
+        // Cold start: the window dispatches insets before the root has a frame. Deferring them to a
+        // layout listener lost the padding and left the toolbar under the status bar.
+        try (var controller = Robolectric.buildActivity(Screen.class).setup()) {
+            View root = new FrameLayout(controller.get());
+            AdaptiveLayout.attach(controller.get(), root);
+            assertEquals(0, root.getWidth());
+            ViewCompat.dispatchApplyWindowInsets(root, new WindowInsetsCompat.Builder()
+                    .setInsets(WindowInsetsCompat.Type.systemBars(), Insets.of(0, 63, 0, 48)).build());
+            assertEquals(63, root.getPaddingTop());
+            assertEquals(48, root.getPaddingBottom());
+            root.layout(0, 0, 786, 1704);
+            ShadowLooper.idleMainLooper();
+            assertEquals(63, root.getPaddingTop());
+            assertEquals(48, root.getPaddingBottom());
+        }
+    }
+
+    @Test
+    public void contentFrameCentresOneReadableColumnOnWideWindows() {
+        try (var controller = Robolectric.buildActivity(Screen.class).setup()) {
+            ContentFrame frame = new ContentFrame(controller.get());
+            View child = new View(controller.get());
+            frame.addView(child, new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.MATCH_PARENT));
+            frame.setMaxContentWidth(800);
+            frame.measure(View.MeasureSpec.makeMeasureSpec(1200, View.MeasureSpec.EXACTLY),
+                    View.MeasureSpec.makeMeasureSpec(600, View.MeasureSpec.EXACTLY));
+            frame.layout(0, 0, 1200, 600);
+            assertEquals(1200, frame.getWidth());
+            assertEquals(200, child.getLeft());
+            assertEquals(1000, child.getRight());
+            frame.measure(View.MeasureSpec.makeMeasureSpec(700, View.MeasureSpec.EXACTLY),
+                    View.MeasureSpec.makeMeasureSpec(600, View.MeasureSpec.EXACTLY));
+            frame.layout(0, 0, 700, 600);
+            assertEquals(0, child.getLeft());
+            assertEquals(700, child.getRight());
         }
     }
 

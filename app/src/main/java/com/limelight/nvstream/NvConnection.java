@@ -601,10 +601,15 @@ public class NvConnection {
                 currentApp = details.hasPermission(ComputerDetails.PERMISSION_LIST) ?
                         h.getAppByUuid(app.getAppUuid()) : null;
                 // Known UUIDs can still be launched without List permission; control tiles also
-                // appear and disappear with ownership. Zero leaves identity resolution to the host.
-                app.setAppId(currentApp == null ? 0 : currentApp.getAppId());
+                // appear and disappear with ownership. Zero leaves identity resolution to a host
+                // that looks the UUID up first. Apollo compares the ID with its running app's
+                // before it reads the UUID, so an idle Apollo would take zero as "resume" and
+                // stream without starting the app: it keeps the ID the tile was listed with.
                 if (currentApp != null) {
+                    app.setAppId(currentApp.getAppId());
                     app.setMonitorResume(currentApp.getRole() == NvApp.Role.REMOTE_MONITOR);
+                } else if (details.caps.has(HostCapabilities.Feature.LAUNCH_BY_UUID)) {
+                    app.setAppId(0);
                 }
             }
         }

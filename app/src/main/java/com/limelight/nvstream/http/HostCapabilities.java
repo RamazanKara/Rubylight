@@ -38,6 +38,7 @@ public final class HostCapabilities {
         CLIPBOARD(R.string.host_feature_clipboard),
         SERVER_COMMANDS(R.string.host_feature_server_commands),
         APP_UUIDS(0),
+        LAUNCH_BY_UUID(0),
         VIRTUAL_DISPLAY(R.string.host_feature_virtual_display),
         VIRTUAL_DISPLAY_HDR(R.string.host_feature_virtual_display_hdr),
         HOST_DISPLAY_MODES(R.string.host_feature_display_modes),
@@ -530,6 +531,10 @@ public final class HostCapabilities {
                     return serverCommands > 0 ? Availability.SUPPORTED : Availability.unsupported(Reason.NO_COMMANDS);
                 case APP_UUIDS:
                     return currentGameUuid ? Availability.SUPPORTED : absent(false);
+                case LAUNCH_BY_UUID:
+                    // Rubylight and Vibepollo look an appuuid up before the ID. Apollo compares the ID
+                    // with its running app's first, and Sunshine and GameStream read only the ID.
+                    return vibepolloExtensions() ? Availability.SUPPORTED : absent(false);
                 case VIRTUAL_DISPLAY:
                     return virtualDisplay();
                 case VIRTUAL_DISPLAY_HDR: {

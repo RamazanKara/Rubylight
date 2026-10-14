@@ -96,7 +96,8 @@ public class NvConnectionRoleTest {
                     return method.invoke(listener, args);
                 });
         try {
-            assertThrows(java.io.InterruptedIOException.class, () -> NvConnection.launchApp(http, context, "launch"));
+            assertEquals(499, assertThrows(NvConnection.LocalLaunchFailure.class,
+                    () -> NvConnection.launchApp(http, context, "launch")).getErrorCode());
             assertTrue(Thread.currentThread().isInterrupted());
             assertEquals(1, requests.get());
             assertEquals(1, finished.get());
@@ -212,7 +213,8 @@ public class NvConnectionRoleTest {
         ConnectionContext context = context(73, request -> Thread.currentThread().interrupt(), new AtomicInteger());
         NvHTTP http = http(context, "launch", requests, NvHTTPRoleTest.error("replace-confirm"));
         try {
-            assertThrows(java.io.InterruptedIOException.class, () -> NvConnection.launchApp(http, context, "launch"));
+            assertEquals(499, assertThrows(NvConnection.LocalLaunchFailure.class,
+                    () -> NvConnection.launchApp(http, context, "launch")).getErrorCode());
             assertTrue(Thread.currentThread().isInterrupted());
             assertEquals(1, requests.get());
         } finally {

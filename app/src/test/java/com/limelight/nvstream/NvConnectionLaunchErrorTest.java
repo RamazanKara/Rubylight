@@ -46,7 +46,7 @@ public class NvConnectionLaunchErrorTest {
 
     @Test public void theHostsOwnReasonIsShownWithItsCode() throws Exception {
         NvConnectionRecoveryTest.FakeHost.resumeFailure = new HostHttpResponseException(503, ENCODER_FAILURE);
-        Result result = launch(false);
+        Result result = launch(Confirmation.UNEXPECTED);
         assertEquals(List.of(503), result.failures);
         assertEquals(List.of(context.getString(R.string.startup_host_message, ENCODER_FAILURE, 503)), result.messages);
     }
@@ -54,24 +54,34 @@ public class NvConnectionLaunchErrorTest {
     @Test public void aHostThatGivesNoReasonGetsTheGenericText() throws Exception {
         for (String reason : new String[] {"", "  ", null}) {
             NvConnectionRecoveryTest.FakeHost.resumeFailure = new HostHttpResponseException(500, reason);
-            Result result = launch(false);
+            Result result = launch(Confirmation.UNEXPECTED);
             assertEquals(List.of(context.getString(R.string.startup_host_error, 500)), result.messages);
         }
     }
 
     @Test public void permissionErrorsKeepTheirGuidanceAndTheHostsReason() throws Exception {
         NvConnectionRecoveryTest.FakeHost.resumeFailure = new HostHttpResponseException(403, "Device disabled");
-        Result result = launch(false);
+        Result result = launch(Confirmation.UNEXPECTED);
         assertEquals(List.of(context.getString(R.string.startup_permission_denied) + "\n\nDevice disabled"),
                 result.messages);
     }
 
     @Test public void cancellingTheConfirmationIsNotAHostFailure() throws Exception {
         NvConnectionRecoveryTest.FakeHost.resumeFailure = new HostHttpResponseException(410, REPLACE);
-        Result result = launch(true);
+        Result result = launch(Confirmation.CANCEL);
         assertEquals(List.of("launch"), NvConnectionRecoveryTest.FakeHost.requests);
         assertEquals(List.of(context.getString(R.string.startup_launch_cancelled)), result.messages);
         assertFalse(result.messages.get(0).contains("499"));
+    }
+
+    @Test public void anInterruptedConfirmationIsACancelNotATransportFailure() throws Exception {
+        NvConnectionRecoveryTest.FakeHost.resumeFailure = new HostHttpResponseException(410, REPLACE);
+        Result result = launch(Confirmation.INTERRUPT);
+        assertEquals(List.of("launch"), NvConnectionRecoveryTest.FakeHost.requests);
+        assertEquals(List.of(context.getString(R.string.startup_launch_cancelled)), result.messages);
+        // No port flags: a cancelled launch never qualifies for automatic recovery.
+        assertEquals(List.of(0), result.portFlags);
+        assertEquals(List.of(499), result.failures);
     }
 
     @Test public void clientSideFailuresUseTheirOwnText() {
@@ -81,7 +91,9 @@ public class NvConnectionLaunchErrorTest {
         assertFalse(timedOut.contains(context.getString(R.string.startup_host_error, 408)));
     }
 
-    private Result launch(boolean cancelConfirmation) throws Exception {
+    private enum Confirmation { UNEXPECTED, CANCEL, INTERRUPT }
+
+    private Result launch(Confirmation confirmation) throws Exception {
         NvApp app = new NvApp("Game", 73, false);
         app.setAppUuid("game-a");
         NvConnection connection = new NvConnection(context,
@@ -94,10 +106,15 @@ public class NvConnectionLaunchErrorTest {
                 (proxy, method, args) -> {
                     switch (method.getName()) {
                         case "displayMessage": result.messages.add((String) args[0]); break;
-                        case "stageFailed": result.failures.add((Integer) args[2]); break;
+                        case "stageFailed":
+                            result.portFlags.add((Integer) args[1]);
+                            result.failures.add((Integer) args[2]);
+                            break;
                         case "launchConfirmationRequired":
                             // The person chooses Cancel on the confirmation dialog.
-                            if (cancelConfirmation) ((LaunchConfirmation) args[0]).cancel();
+                            if (confirmation == Confirmation.CANCEL) ((LaunchConfirmation) args[0]).cancel();
+                            // The launch thread is interrupted while it waits for the person.
+                            else if (confirmation == Confirmation.INTERRUPT) Thread.currentThread().interrupt();
                             else fail("Unexpected launch confirmation");
                             break;
                         default: break;
@@ -132,5 +149,6 @@ public class NvConnectionLaunchErrorTest {
     private static final class Result {
         final List<String> messages = new ArrayList<>();
         final List<Integer> failures = new ArrayList<>();
+        final List<Integer> portFlags = new ArrayList<>();
     }
 }

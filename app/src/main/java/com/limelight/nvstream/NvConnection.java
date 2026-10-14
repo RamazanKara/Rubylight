@@ -827,7 +827,8 @@ public class NvConnection {
                 } catch (InterruptedException interrupted) {
                     confirmation.cancel();
                     Thread.currentThread().interrupt();
-                    throw new java.io.InterruptedIOException("Launch cancelled.");
+                    // A cancel from this device, never a transport failure that recovery may retry.
+                    throw new LocalLaunchFailure(499, R.string.startup_launch_cancelled, "Launch cancelled.");
                 } finally {
                     context.connListener.launchConfirmationFinished();
                 }

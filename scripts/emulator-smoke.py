@@ -174,6 +174,19 @@ def navigate_up():
         tap("Navigate up")
 
 
+def show_developer_options():
+    """Tap the version in Settings > App > About seven times, then return to the overview."""
+    tap("App")
+    tap("About", scroll=True)
+    version = next(n for n in tree().iter("node") if n.get("resource-id") == "android:id/message")
+    x1, y1, x2, y2 = bounds(version)
+    for _ in range(7):
+        adb("shell", "input", "tap", str((x1+x2)//2), str((y1+y2)//2))
+    tap("android:id/button1")
+    navigate_up()
+    find("Developer options", scroll=True)
+
+
 def enter_text(label, text):
     field = find(label)
     tap(label)
@@ -408,12 +421,22 @@ def capture_ui_set(width, font, rotation=0):
     find("View details", scroll=True)
     screenshot(prefix + "-per-pc-host")
     navigate_up()
+    tap(f"{PACKAGE}:id/helpButton")
+    find("Connect a PC")
+    screenshot(prefix + "-help")
+    # Every topic links out, down to the last one.
+    find("What to include", scroll=True)
+    assert_touch_target("What to include")
+    navigate_up()
     tap(f"{PACKAGE}:id/settingsButton")
     find("Presets", scroll=True)
     screenshot(prefix + "-settings-root")
-    for title, name, setting in (("Stream", "stream", "Stream resolution"),
+    assert not any(n.get("text") == "Developer options" for n in tree().iter("node")), \
+        "Developer options are shown before they were turned on"
+    for title, name, setting in (("Video", "video", "Stream resolution"),
+                                 ("Display & image", "display", "Frame pacing"),
                                  ("Controls", "controls", "Controller buttons"),
-                                 ("Advanced", "advanced", "Frame pacing")):
+                                 ("Advanced", "advanced", "Low-latency decoding")):
         tap(title, scroll=True)
         find(setting, scroll=True)
         screenshot(prefix + "-" + name)
@@ -427,23 +450,25 @@ def capture_ui_set(width, font, rotation=0):
         tap(search)
         time.sleep(0.5)
         adb("shell", "input", "keyevent", "123", *("67" for _ in range(20)))
-        adb("shell", "input", "text", "compatibility")
-        if find(search).get("text") == "compatibility":
+        adb("shell", "input", "text", "sharpness")
+        if find(search).get("text") == "sharpness":
             break
     else:
         raise AssertionError("Settings search did not take the query")
     # Enter submits, which keeps the query and hides the keyboard; Back would clear the search if the keyboard was already gone.
     adb("shell", "input", "keyevent", "66")
-    find("Compatibility video view", scroll=True)
+    find("Upscaling sharpness", scroll=True)
+    # The group above a result names the section once, then its group.
+    find("Display & image · Image", scroll=True)
     screenshot(prefix + "-settings-search")
-    tap("Compatibility video view", scroll=True)
-    find("Advanced")
-    find("Compatibility video view", scroll=True)
+    tap("Upscaling sharpness", scroll=True)
+    find("Display & image")
+    find("Upscaling sharpness", scroll=True)
     navigate_up()
-    assert find(search).get("text") == "compatibility", "Back from a result lost its search query"
+    assert find(search).get("text") == "sharpness", "Back from a result lost its search query"
     find("Search results")
     navigate_up()
-    assert not any(n.get("resource-id") == search and n.get("text") == "compatibility" for n in tree().iter("node")),         "Back from search did not clear its query"
+    assert not any(n.get("resource-id") == search and n.get("text") == "sharpness" for n in tree().iter("node")),         "Back from search did not clear its query"
     find("Presets", scroll=True)
     navigate_up()
     # After a few minutes in settings the home screen times out the cached host state and polls again;
@@ -822,14 +847,20 @@ def main():
             screenshot("01-launch")
             native = native_resolution()
             latency_switches = ("checkbox_codec_low_latency", "checkbox_vendor_low_latency",
-                                "checkbox_phone_performance_hints", "checkbox_gpu_max_clocks",
-                                "checkbox_drop_late_frames", "checkbox_unbatched_input",
-                                "checkbox_network_priority")
+                                "checkbox_phone_performance_hints", "checkbox_drop_late_frames",
+                                "checkbox_unbatched_input", "checkbox_network_priority")
             prefs(f"{PACKAGE}_preferences", lambda root: pref_value(root, "prefs_version") == "4" and
                   pref_value(root, "list_resolution") == native and pref_value(root, "frame_pacing") == "latency" and
-                  all(pref_value(root, key) == "true" for key in latency_switches),
-                  f"Fresh install is not at native {native} with every latency setting on")
+                  all(pref_value(root, key) == "true" for key in latency_switches) and
+                  pref_value(root, "checkbox_gpu_max_clocks") in (None, "false"),
+                  f"Fresh install is not at native {native} with every latency setting on and GPU clocks left alone")
             tap("android:id/button1")
+            # The home Help button opens the bundled help, which needs no network.
+            tap(f"{PACKAGE}:id/helpButton")
+            find("Connect a PC")
+            find("Fixing common problems", scroll=True)
+            screenshot("23-help")
+            navigate_up()
             tap(f"{PACKAGE}:id/discovery_add")
             enter_text(f"{PACKAGE}:id/hostTextView", "https://example.com/path")
             adb("shell", "input", "keyevent", "66")
@@ -888,7 +919,7 @@ def main():
             prefs(f"{PACKAGE}_preferences", lambda root: pref_value(root, "list_resolution") == native and
                   pref_value(root, "list_fps") != "30" and pref_value(root, "checkbox_reduce_refresh_rate") == "false",
                   "Native was not applied")
-            tap("Stream")
+            tap("Video")
             find("Stream resolution")
             screenshot("05-video-settings")
             tap("Video bitrate")
@@ -914,7 +945,7 @@ def main():
             find("Presets")
             find_text(r"^(\d+×\d+|\d+p) · \d+ FPS · 81 Mbps · Automatic")
             find("Custom")
-            tap("Stream")
+            tap("Display & image")
             vrr = "Adaptive refresh (ARR / VRR)"
             tap(vrr, scroll=True)
             prefs(f"{PACKAGE}_preferences", lambda root: any(
@@ -925,7 +956,7 @@ def main():
             adb("shell", "am", "start", "-W", "-n", f"{PACKAGE}/com.limelight.PcView")
             find(HOST_NAME)
             tap(f"{PACKAGE}:id/settingsButton")
-            tap("Stream")
+            tap("Display & image")
             find(vrr, scroll=True)
             # The row is exposed either as a clickable container or, since the accessibility pass, as a checkable switch.
             row = next(n for n in tree().iter("node") if "true" in (n.get("clickable"), n.get("checkable")) and
@@ -941,22 +972,42 @@ def main():
                 "VRR preference could not be disabled")
             navigate_up()
             tap("Advanced")
-            find("Android low-latency mode", scroll=True)
+            decoding = "Low-latency decoding"
+            parts = ("checkbox_codec_low_latency", "checkbox_vendor_low_latency", "checkbox_phone_performance_hints")
+            tap(decoding, scroll=True)
+            prefs(f"{PACKAGE}_preferences", lambda root: all(pref_value(root, key) == "false" for key in parts),
+                  "Low-latency decoding was not on by default or did not turn its parts off")
+            screenshot("13-advanced-settings")
+            tap(decoding)
+            prefs(f"{PACKAGE}_preferences", lambda root: all(pref_value(root, key) == "true" for key in parts),
+                  "Low-latency decoding did not turn its parts back on")
+            navigate_up()
+            show_developer_options()
+            prefs(f"{PACKAGE}_preferences", lambda root: pref_value(root, "developer_options") == "true",
+                  "Seven taps on the version did not turn on Developer options")
+            tap("Developer options", scroll=True)
             hints = "Phone performance hints"
             tap(hints, scroll=True)
             prefs(f"{PACKAGE}_preferences", lambda root: any(
                 n.get("name") == "checkbox_phone_performance_hints" and n.get("value") == "false" for n in root),
                 "Phone performance hints were not on by default or could not be disabled")
+            screenshot("22-developer-options")
             tap(hints)
             prefs(f"{PACKAGE}_preferences", lambda root: any(
                 n.get("name") == "checkbox_phone_performance_hints" and n.get("value") == "true" for n in root),
                 "Phone performance hints could not be enabled")
-            screenshot("13-advanced-settings")
-            navigate_up()
-            tap("Overlay & audio")
+            # Hiding the section again returns to the overview and keeps every value.
+            tap("Show developer options", scroll="up")
+            find("Presets", scroll="up")
+            assert not any(n.get("text") == "Developer options" for n in tree().iter("node")), \
+                "Developer options stayed visible after hiding them"
+            prefs(f"{PACKAGE}_preferences", lambda root: pref_value(root, "developer_options") == "false" and
+                  pref_value(root, "checkbox_phone_performance_hints") == "true",
+                  "Hiding Developer options changed a value")
+            tap("Streaming")
             overlay = "Show performance overlay"
             tap(overlay, scroll=True)
-            screenshot("13-latency-settings")
+            screenshot("13-streaming-settings")
             prefs(f"{PACKAGE}_preferences", lambda root: any(
                 n.get("name") == "checkbox_enable_perf_overlay" and n.get("value") == "true" for n in root),
                 "Overlay preference was not enabled")

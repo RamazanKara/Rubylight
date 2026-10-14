@@ -108,4 +108,23 @@ public class CachedAppAssetLoaderTest {
             close(loader);
         }
     }
+
+    @Test public void artworkTakesTheTitlesPlace() throws Exception {
+        CachedAppAssetLoader loader = loader(new CountDownLatch(0), new CountDownLatch(0));
+        try {
+            ImageView image = new ImageView(RuntimeEnvironment.getApplication());
+            TextView name = new TextView(RuntimeEnvironment.getApplication());
+            loader.populateImageView(new NvApp("Cached game", 30, false), image, name);
+            assertEquals("The title waits for the disk cache", android.view.View.INVISIBLE, name.getVisibility());
+            assertFalse(CachedAppAssetLoader.hasArtwork(image));
+            for (int i = 0; i < 250 && name.getVisibility() != android.view.View.GONE; i++) {
+                org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle();
+                Thread.sleep(20);
+            }
+            assertEquals(android.view.View.GONE, name.getVisibility());
+            assertTrue(CachedAppAssetLoader.hasArtwork(image));
+        } finally {
+            close(loader);
+        }
+    }
 }

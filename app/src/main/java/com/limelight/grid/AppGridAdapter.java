@@ -1,12 +1,16 @@
 package com.limelight.grid;
 
 import android.content.Context;
-import android.graphics.BitmapFactory;
+import android.content.res.ColorStateList;
+import android.graphics.Bitmap;
 import android.view.View;
 import android.widget.ImageView;
 import android.widget.ProgressBar;
 import android.widget.TextView;
 
+import androidx.core.view.ViewCompat;
+
+import com.google.android.material.color.MaterialColors;
 import com.limelight.AppView;
 import com.limelight.LimeLog;
 import com.limelight.R;
@@ -126,7 +130,8 @@ public class AppGridAdapter extends GenericGridAdapter<AppView.AppObject> {
                 new NetworkAssetLoader(context, uniqueId),
                 new MemoryAssetLoader(),
                 new DiskAssetLoader(context),
-                BitmapFactory.decodeResource(context.getResources(), R.drawable.no_app_image));
+                // Without artwork the tile shows its title on the cover's own surface.
+                Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888));
 
         // This will trigger the view to reload with the new layout
         setLayoutId(getLayoutIdForPreferences(prefs));
@@ -138,13 +143,10 @@ public class AppGridAdapter extends GenericGridAdapter<AppView.AppObject> {
         loader.freeCacheMemory();
     }
 
+    /** The running game first, then the host's order. */
     private static void sortList(List<AppView.AppObject> list) {
-        Collections.sort(list, new Comparator<AppView.AppObject>() {
-            @Override
-            public int compare(AppView.AppObject lhs, AppView.AppObject rhs) {
-                return lhs.app.compareForDisplay(rhs.app);
-            }
-        });
+        Collections.sort(list, Comparator.comparing((AppView.AppObject app) -> !app.isRunning)
+                .thenComparing((lhs, rhs) -> lhs.app.compareForDisplay(rhs.app)));
     }
 
     public void addApp(AppView.AppObject app) {
@@ -209,12 +211,15 @@ public class AppGridAdapter extends GenericGridAdapter<AppView.AppObject> {
 
         parentView.setActivated(obj.isRunning);
         TextView status = parentView.findViewById(R.id.grid_status);
-        status.setText(obj.isRunning ? (obj.isHidden ? R.string.app_running_hidden : R.string.app_running) : R.string.app_hidden);
-        status.setVisibility(obj.isRunning || obj.isHidden ? View.VISIBLE : View.INVISIBLE);
-        TextView actions = parentView.findViewById(R.id.grid_actions);
-        actions.setText(obj.isRunning ? R.string.applist_menu_resume :
-                obj.app.getControl() != NvApp.Control.NONE ? R.string.library_action : R.string.library_play);
-        actions.setVisibility(View.VISIBLE);
+        status.setVisibility(obj.isRunning || obj.isHidden ? View.VISIBLE : View.GONE);
+        if (obj.isRunning || obj.isHidden) {
+            status.setText(obj.isRunning ? (obj.isHidden ? R.string.app_running_hidden : R.string.app_running) : R.string.app_hidden);
+            // A running game's chip takes the amber container; a hidden one stays neutral.
+            ViewCompat.setBackgroundTintList(status, ColorStateList.valueOf(MaterialColors.getColor(status, obj.isRunning ?
+                    com.google.android.material.R.attr.colorPrimaryContainer : com.google.android.material.R.attr.colorSurfaceContainerHigh)));
+            status.setTextColor(MaterialColors.getColor(status, obj.isRunning ?
+                    com.google.android.material.R.attr.colorOnPrimaryContainer : com.google.android.material.R.attr.colorOnSurface));
+        }
         String description = obj.app.getAppName();
         if (roleLabel != 0) {
             description = context.getString(R.string.library_item_description, description, roleView.getText());
@@ -222,14 +227,7 @@ public class AppGridAdapter extends GenericGridAdapter<AppView.AppObject> {
         if (obj.isRunning || obj.isHidden) {
             description = context.getString(R.string.library_item_description, description, status.getText());
         }
-        if (actions.getVisibility() == View.VISIBLE) {
-            description = context.getString(R.string.library_item_description, description, actions.getText());
-        }
         parentView.setContentDescription(description);
-    }
-
-    static int runningActionLabel(NvApp app) {
-        return app.getControl() == NvApp.Control.NONE ? R.string.app_resume_quit : R.string.applist_menu_resume;
     }
 
     static int roleLabel(NvApp app) {

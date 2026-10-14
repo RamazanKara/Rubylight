@@ -86,6 +86,18 @@ public final class ActionSheet extends BottomSheetDialog {
                 com.google.android.material.R.attr.colorOnSurfaceVariant);
     }
 
+    /** An action with a second, quieter line that says what will happen. */
+    public MaterialButton addAction(int icon, CharSequence label, CharSequence note) {
+        android.text.SpannableStringBuilder text = new android.text.SpannableStringBuilder(label).append('\n');
+        int start = text.length();
+        text.append(note);
+        text.setSpan(new android.text.style.TextAppearanceSpan(getContext(), R.style.TextAppearance_Nightjar_Supporting),
+                start, text.length(), 0);
+        text.setSpan(new android.text.style.ForegroundColorSpan(MaterialColors.getColor(getContext(),
+                com.google.android.material.R.attr.colorOnSurfaceVariant, 0)), start, text.length(), 0);
+        return addAction(icon, text);
+    }
+
     /** An action that removes something, in the error colour and kept last in the sheet. */
     public MaterialButton addDestructiveAction(int icon, CharSequence label) {
         return addAction(icon, label, androidx.appcompat.R.attr.colorError, androidx.appcompat.R.attr.colorError);

@@ -11,7 +11,9 @@ import com.limelight.computers.ComputerManagerListener;
 import com.limelight.computers.ComputerManagerService;
 import com.limelight.computers.HostCapabilityCache;
 import com.limelight.grid.AppGridAdapter;
+import com.limelight.grid.assets.CachedAppAssetLoader;
 import com.limelight.nvstream.http.ComputerDetails;
+import com.limelight.nvstream.http.HostCapabilities;
 import com.limelight.nvstream.http.NvApp;
 import com.limelight.nvstream.http.NvHTTP;
 import com.limelight.nvstream.http.PairingManager;
@@ -68,7 +70,8 @@ public class AppView extends AppCompatActivity implements AdapterFragmentCallbac
     private boolean runningPolling;
     private String lastRawApplist;
     private boolean lastAppListEmpty;
-    private int lastRunningAppId;
+    // The host reports a running game, possibly by its UUID alone (Apollo's input-only mode).
+    private boolean hostRunningGame;
     private boolean suspendGridUpdates;
     private volatile boolean inForeground;
     private boolean showHiddenApps;
@@ -76,7 +79,7 @@ public class AppView extends AppCompatActivity implements AdapterFragmentCallbac
 
     private final static int START_OR_RESUME_ID = 1;
     private final static int QUIT_ID = 2;
-    private final static int START_WITH_QUIT = 4;
+    private final static int START_INSTEAD_ID = 4;
     private final static int VIEW_DETAILS_ID = 5;
     private final static int CREATE_SHORTCUT_ID = 6;
     private final static int HIDE_APP_ID = 7;
@@ -261,13 +264,13 @@ public class AppView extends AppCompatActivity implements AdapterFragmentCallbac
                 if (rawAppList == null || rawAppList.equals(lastRawApplist)) {
 
                     // UUID changes and hidden/search-filtered apps also need their running state updated.
-                    lastRunningAppId = details.runningGameId;
+                    hostRunningGame = details.hasRunningGame();
                     updateUiWithServerinfo(details);
 
                     return;
                 }
 
-                lastRunningAppId = details.runningGameId;
+                hostRunningGame = details.hasRunningGame();
                 lastRawApplist = rawAppList;
 
                 try {
@@ -503,12 +506,12 @@ public class AppView extends AppCompatActivity implements AdapterFragmentCallbac
         if (libraryMenu != null) return;
         ActionSheet sheet = new ActionSheet(this, getString(R.string.library_options));
         libraryMenu = sheet;
-        sheet.addAction(R.drawable.ic_library, getString(R.string.library_refresh)).setOnClickListener(v -> {
+        sheet.addAction(R.drawable.ic_refresh, getString(R.string.library_refresh)).setOnClickListener(v -> {
             sheet.dismiss();
             refreshLibrary();
         });
-        sheet.addAction(R.drawable.ic_library, getString(showHiddenApps ? R.string.library_hide_hidden :
-                R.string.library_show_hidden)).setOnClickListener(v -> {
+        sheet.addAction(showHiddenApps ? R.drawable.ic_visibility_off : R.drawable.ic_visibility,
+                getString(showHiddenApps ? R.string.library_hide_hidden : R.string.library_show_hidden)).setOnClickListener(v -> {
             sheet.dismiss();
             setShowHiddenApps(!showHiddenApps);
         });
@@ -573,45 +576,66 @@ public class AppView extends AppCompatActivity implements AdapterFragmentCallbac
         stopComputerUpdates();
     }
 
+    /** The game the host reports as running, if the library lists it. */
+    private AppObject runningApp() {
+        if (appGridAdapter == null) return null;
+        for (AppObject app : appGridAdapter.getAllApps()) {
+            if (app.isRunning) return app;
+        }
+        return null;
+    }
+
+    /** True when the host itself asks before it replaces the running game, so the client does not quit first. */
+    private boolean hostConfirmsReplacement() {
+        return computer != null && computer.caps.has(HostCapabilities.Feature.HOST_CONFIRMS_REPLACEMENT);
+    }
+
     private void showAppMenu(AppObject selectedApp, View selectedView) {
         if (appMenu != null) return;
         ActionSheet sheet = new ActionSheet(this, selectedApp.app.getAppName());
         appMenu = sheet;
         suspendGridUpdates = true;
+        boolean canLaunch = computer.hasPermission(ComputerDetails.PERMISSION_LAUNCH);
         if (selectedApp.app.getControl() != NvApp.Control.NONE) {
             addAppAction(sheet, selectedApp, selectedView, START_OR_RESUME_ID,
                     R.drawable.ic_play, selectedApp.app.getAppName().trim());
-        } else if (lastRunningAppId != 0) {
-            if (selectedApp.isRunning) {
-                addAppAction(sheet, selectedApp, selectedView, START_OR_RESUME_ID,
-                        R.drawable.ic_play, getString(R.string.applist_menu_resume));
-                if (computer.hasPermission(ComputerDetails.PERMISSION_LAUNCH)) {
-                    addAppAction(sheet, selectedApp, selectedView, QUIT_ID,
-                            R.drawable.ic_stop, getString(R.string.applist_menu_quit));
-                }
-            } else if (computer.hasPermission(ComputerDetails.PERMISSION_LAUNCH)) {
-                addAppAction(sheet, selectedApp, selectedView, START_WITH_QUIT,
-                        R.drawable.ic_play, getString(R.string.applist_menu_quit_and_start));
+        } else if (selectedApp.isRunning) {
+            addAppAction(sheet, selectedApp, selectedView, START_OR_RESUME_ID,
+                    R.drawable.ic_play, getString(R.string.applist_menu_resume));
+            if (canLaunch) {
+                addAppAction(sheet, selectedApp, selectedView, QUIT_ID,
+                        R.drawable.ic_stop, getString(R.string.applist_menu_quit));
             }
-        }
-        else if (computer.hasPermission(ComputerDetails.PERMISSION_LAUNCH)) {
+        } else if (hostRunningGame && canLaunch) {
+            AppObject running = runningApp();
+            if (hostConfirmsReplacement()) {
+                // The host asks before it closes the running game; nothing is quit from here.
+                CharSequence note = running != null ? getString(R.string.library_host_asks_named, running.app.getAppName()) :
+                        getString(R.string.library_host_asks);
+                sheet.addAction(R.drawable.ic_play, getString(R.string.library_play), note).setOnClickListener(v -> {
+                    sheet.dismiss();
+                    onAppAction(selectedApp, selectedView, START_OR_RESUME_ID);
+                });
+            } else {
+                addAppAction(sheet, selectedApp, selectedView, START_INSTEAD_ID, R.drawable.ic_play, running != null ?
+                        getString(R.string.library_quit_named_and_play, running.app.getAppName()) :
+                        getString(R.string.library_quit_and_play));
+            }
+        } else if (canLaunch) {
             addAppAction(sheet, selectedApp, selectedView, START_OR_RESUME_ID,
                     R.drawable.ic_play, getString(R.string.library_play));
         }
         if (!selectedApp.isRunning || selectedApp.isHidden) {
-            addAppAction(sheet, selectedApp, selectedView, HIDE_APP_ID, R.drawable.ic_library,
+            addAppAction(sheet, selectedApp, selectedView, HIDE_APP_ID,
+                    selectedApp.isHidden ? R.drawable.ic_visibility : R.drawable.ic_visibility_off,
                     getString(selectedApp.isHidden ? R.string.applist_menu_show_app : R.string.applist_menu_hide_app));
         }
-        addAppAction(sheet, selectedApp, selectedView, VIEW_DETAILS_ID,
-                R.drawable.ic_help, getString(R.string.applist_menu_details));
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && selectedView != null) {
-            ImageView image = selectedView.findViewById(R.id.grid_image);
-            if (image != null && image.getDrawable() instanceof BitmapDrawable &&
-                    ((BitmapDrawable) image.getDrawable()).getBitmap() != null) {
-                addAppAction(sheet, selectedApp, selectedView, CREATE_SHORTCUT_ID,
-                        R.drawable.ic_add, getString(R.string.applist_menu_scut));
-            }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            addAppAction(sheet, selectedApp, selectedView, CREATE_SHORTCUT_ID,
+                    R.drawable.ic_add, getString(R.string.applist_menu_scut));
         }
+        addAppAction(sheet, selectedApp, selectedView, VIEW_DETAILS_ID,
+                R.drawable.ic_info, getString(R.string.applist_menu_details));
         sheet.setOnDismissListener(dialog -> {
             appMenu = null;
             suspendGridUpdates = false;
@@ -627,21 +651,34 @@ public class AppView extends AppCompatActivity implements AdapterFragmentCallbac
         });
     }
 
+    /**
+     * Starts a game while another runs. A host that confirms replacement asks the player itself;
+     * elsewhere the client quits the running game first, so it asks here.
+     */
+    private void startInsteadOfRunning(AppObject app) {
+        if (hostConfirmsReplacement() || !computer.hasPermission(ComputerDetails.PERMISSION_LAUNCH)) {
+            ServerHelper.doStart(this, app.app, computer, managerBinder);
+            return;
+        }
+        AppObject running = runningApp();
+        UiHelper.showDialog(this, new com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+                .setMessage(running != null ?
+                        getString(R.string.library_replace_message_named, running.app.getAppName(), app.app.getAppName()) :
+                        getString(R.string.library_replace_message, app.app.getAppName()))
+                .setPositiveButton(R.string.library_replace_confirm,
+                        (dialog, which) -> ServerHelper.doStart(this, app.app, computer, managerBinder))
+                .setNegativeButton(android.R.string.cancel, null).create());
+    }
+
     private boolean onAppAction(AppObject app, View view, int action) {
-        if ((action == START_OR_RESUME_ID || action == START_WITH_QUIT || action == QUIT_ID) &&
+        if ((action == START_OR_RESUME_ID || action == START_INSTEAD_ID || action == QUIT_ID) &&
                 (computer == null || managerBinder == null || computer.state == ComputerDetails.State.OFFLINE)) {
             showAppListStatus(R.string.library_offline);
             return true;
         }
         switch (action) {
-            case START_WITH_QUIT:
-                // Display a confirmation dialog first
-                UiHelper.displayQuitConfirmationDialog(this, new Runnable() {
-                    @Override
-                    public void run() {
-                        ServerHelper.doStart(AppView.this, app.app, computer, managerBinder);
-                    }
-                }, null);
+            case START_INSTEAD_ID:
+                startInsteadOfRunning(app);
                 return true;
 
             case START_OR_RESUME_ID:
@@ -698,10 +735,10 @@ public class AppView extends AppCompatActivity implements AdapterFragmentCallbac
                 return true;
 
             case CREATE_SHORTCUT_ID:
+                // The game's artwork when it has some; the PC icon otherwise.
                 ImageView appImageView = view == null ? null : view.findViewById(R.id.grid_image);
-                if (appImageView == null || !(appImageView.getDrawable() instanceof BitmapDrawable)) return true;
-                Bitmap appBits = ((BitmapDrawable)appImageView.getDrawable()).getBitmap();
-                if (appBits == null) return true;
+                Bitmap appBits = appImageView != null && CachedAppAssetLoader.hasArtwork(appImageView) ?
+                        ((BitmapDrawable) appImageView.getDrawable()).getBitmap() : null;
                 if (!shortcutHelper.createPinnedGameShortcut(computer, app.app, appBits)) {
                     Toast.makeText(AppView.this, getResources().getString(R.string.unable_to_pin_shortcut), Toast.LENGTH_LONG).show();
                 }
@@ -860,9 +897,9 @@ public class AppView extends AppCompatActivity implements AdapterFragmentCallbac
                     showAppListStatus(R.string.library_offline);
                     return;
                 }
-                // Only open the context menu if something is running, otherwise start it
-                if (lastRunningAppId != 0 && app.app.getControl() == NvApp.Control.NONE) {
-                    showAppMenu(app, arg1);
+                // A tap plays or resumes; another game running first needs the player's go-ahead.
+                if (hostRunningGame && !app.isRunning && app.app.getControl() == NvApp.Control.NONE) {
+                    startInsteadOfRunning(app);
                 } else {
                     ServerHelper.doStart(AppView.this, app.app, computer, managerBinder);
                 }

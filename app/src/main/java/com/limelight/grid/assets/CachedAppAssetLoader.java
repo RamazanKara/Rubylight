@@ -205,6 +205,7 @@ public class CachedAppAssetLoader {
                 imageView.setImageDrawable(asyncDrawable);
                 imageView.startAnimation(AnimationUtils.loadAnimation(imageView.getContext(), R.anim.boxart_fadein));
                 imageView.setVisibility(View.VISIBLE);
+                // Nothing on disk: the title stands in for the artwork unless the host sends some.
                 textView.setVisibility(View.VISIBLE);
                 task.executeOnExecutor(networkExecutor, tuple);
             }
@@ -220,9 +221,9 @@ public class CachedAppAssetLoader {
             final ImageView imageView = imageViewRef.get();
             final TextView textView = textViewRef.get();
             if (getLoaderTask(imageView) == this && textView != null) {
-                // Fade in the box art
+                // Fade in the box art, which shows the title itself
                 if (bitmap != null) {
-                    textView.setVisibility(View.VISIBLE);
+                    textView.setVisibility(View.GONE);
 
                     if (imageView.getVisibility() == View.VISIBLE) {
                         // Fade out the placeholder first
@@ -330,6 +331,13 @@ public class CachedAppAssetLoader {
         });
     }
 
+    /** True when the view shows a game's own artwork, not a placeholder or a load in progress. */
+    public static boolean hasArtwork(ImageView imageView) {
+        Drawable drawable = imageView.getDrawable();
+        return drawable instanceof BitmapDrawable && !(drawable instanceof AsyncDrawable) &&
+                ((BitmapDrawable) drawable).getBitmap() != null;
+    }
+
     public boolean populateImageView(NvApp app, ImageView imgView, TextView textView) {
         LoaderTuple tuple = new LoaderTuple(computer, app);
 
@@ -351,7 +359,7 @@ public class CachedAppAssetLoader {
             imgView.setVisibility(View.VISIBLE);
             imgView.setImageBitmap(bmp.bitmap);
 
-            textView.setVisibility(View.VISIBLE);
+            textView.setVisibility(View.GONE);
             return true;
         }
 
@@ -359,7 +367,8 @@ public class CachedAppAssetLoader {
         // via AsyncDrawable to this view.
         final LoaderTask task = new LoaderTask(imgView, textView, true);
         final AsyncDrawable asyncDrawable = new AsyncDrawable(imgView.getResources(), placeholderBitmap, task);
-        textView.setVisibility(View.VISIBLE);
+        // Hidden while the disk cache answers, so cached artwork does not flash the title first.
+        textView.setVisibility(View.INVISIBLE);
         imgView.setVisibility(View.INVISIBLE);
         imgView.setImageDrawable(asyncDrawable);
 

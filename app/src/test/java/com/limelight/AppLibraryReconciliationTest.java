@@ -274,8 +274,10 @@ public class AppLibraryReconciliationTest {
         ReflectionHelpers.callInstanceMethod(screen, "updateUiWithServerinfo",
                 ReflectionHelpers.ClassParameter.from(ComputerDetails.class, state));
         adapter.setSearchQuery("");
-        assertFalse(((AppView.AppObject) adapter.getItem(0)).isRunning);
-        assertTrue(((AppView.AppObject) adapter.getItem(1)).isRunning);
+        // The running game leads the library.
+        assertEquals("Second game", ((AppView.AppObject) adapter.getItem(0)).app.getAppName());
+        assertTrue(((AppView.AppObject) adapter.getItem(0)).isRunning);
+        assertFalse(((AppView.AppObject) adapter.getItem(1)).isRunning);
     }
 
 }

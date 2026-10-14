@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="library_host_asks_named">Dein PC fragt nach, bevor er %1$s beendet</string>
+    <string name="library_host_asks">Dein PC fragt nach, bevor er das laufende Spiel beendet</string>
+    <string name="library_quit_named_and_play">%1$s beenden und spielen</string>
+    <string name="library_quit_and_play">Laufendes Spiel beenden und spielen</string>
+    <string name="library_replace_message_named">%1$s beenden und %2$s starten?\nUngespeicherter Fortschritt geht verloren.</string>
+    <string name="library_replace_message">Laufendes Spiel beenden und %1$s starten?\nUngespeicherter Fortschritt geht verloren.</string>
+    <string name="library_replace_confirm">Beenden und spielen</string>
+</resources>

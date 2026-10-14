@@ -8,6 +8,7 @@ import com.google.android.material.progressindicator.LinearProgressIndicator;
 import com.limelight.R;
 import com.limelight.binding.PlatformBinding;
 import com.limelight.nvstream.http.ComputerDetails;
+import com.limelight.nvstream.http.HostCapabilities;
 import com.limelight.nvstream.http.NvHTTP;
 
 import org.xmlpull.v1.XmlPullParserException;
@@ -32,7 +33,7 @@ public final class PyroWaveBandwidthTest {
     public void show() {
         dialog = new MaterialAlertDialogBuilder(activity)
                 .setTitle(R.string.connection_test_title)
-                .setMessage(R.string.connection_test_intro)
+                .setMessage(measuresSpeed() ? R.string.connection_test_intro : R.string.connection_test_intro_delay)
                 .setPositiveButton(R.string.bandwidth_probe_start, (d, which) -> start())
                 .setNegativeButton(android.R.string.cancel, (d, which) -> cancel())
                 .setOnCancelListener(d -> cancel()).create();
@@ -98,7 +99,7 @@ public final class PyroWaveBandwidthTest {
             com.limelight.LimeLog.info("Connection test finished");
             final String message = activity.getString(R.string.connection_test_stats,
                     measurement(stats.latencyMs()), measurement(stats.jitterMs()), measurement(stats.lossPercent()))
-                    + " · " + bandwidth;
+                    + (measuresSpeed() ? " · " + bandwidth : "");
             activity.runOnUiThread(() -> {
                 if (cancelled || activity.isFinishing() || activity.isDestroyed()) {
                     return;
@@ -113,6 +114,11 @@ public final class PyroWaveBandwidthTest {
             });
         }, "Connection test");
         worker.start();
+    }
+
+    /** Only hosts with the download test measure speed; the others are tested for delay alone. */
+    private boolean measuresSpeed() {
+        return computer.caps.mayHave(HostCapabilities.Feature.PYROWAVE_BANDWIDTH_PROBE);
     }
 
     private String measurement(double value) {

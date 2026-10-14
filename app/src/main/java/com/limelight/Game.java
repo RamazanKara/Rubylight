@@ -217,6 +217,9 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     private boolean poorConnection;
     private long adaptiveBitrateRetryAt;
     private int adaptiveBitrateRetryTarget;
+    // Claims of the host's encoder bitrate that failed in a row. Some hosts report 0 for good.
+    private static final int MAX_BITRATE_CLAIM_FAILURES = 6;
+    private int adaptiveBitrateClaimFailures;
     // Automatic quality switched auto bitrate on for itself; the person's own choice was off.
     private boolean qualityAutoBitrate;
     private AdaptiveQualityController adaptiveQuality;
@@ -3080,6 +3083,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         adaptiveBitrate = null;
         pyroWaveBitrate = null;
         adaptiveBitrateRetryAt = 0;
+        adaptiveBitrateClaimFailures = 0;
         if (enabled) {
             healthOriginalBitrate = healthTrialBitrate = 0;
             if ((decoderRenderer.getActiveVideoFormat() & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0) {
@@ -3103,7 +3107,10 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             try {
                 ComputerDetails details = target == 0 ? conn.refreshHostDetails() : null;
                 if (details != null && (details.encoderBitrateKbps <= 0 || details.initialEncoderBitrateKbps <= 0)) {
-                    throw new IOException("Host did not report the stream's encoder bitrate");
+                    // A host without the bitrate fields will not start sending them on a retry.
+                    throw details.encoderBitrateSupported ?
+                            new IOException("Host did not report the stream's encoder bitrate") :
+                            new EncoderBitrateUnsupported();
                 }
                 // Claim bitrate ownership on hosts with their own controller, without probing a new rate.
                 int applied = conn.setBitrate(details == null ? target : details.encoderBitrateKbps);
@@ -3112,6 +3119,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                         if (adaptiveBitrate == controller && pyroWaveBitrate == pyroController) {
                             currentBitrate = applied;
                             adaptiveBitrateRetryAt = 0;
+                            adaptiveBitrateClaimFailures = 0;
                             long now = SystemClock.uptimeMillis();
                             if (details != null) {
                                 int ceiling = Math.max(details.initialEncoderBitrateKbps, applied);
@@ -3128,6 +3136,18 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 LimeLog.warning("Automatic bitrate update failed: " + e);
                 runOnUiThread(() -> {
                     if (adaptiveBitrate == controller && pyroWaveBitrate == pyroController) {
+                        if (target == 0 && (e instanceof EncoderBitrateUnsupported ||
+                                ++adaptiveBitrateClaimFailures >= MAX_BITRATE_CLAIM_FAILURES)) {
+                            // Without the encoder's bitrate there is nothing to adapt from: stop
+                            // retrying for this stream and leave the PC's saved choice alone.
+                            LimeLog.warning("Automatic bitrate: the host reports no encoder bitrate; off for this stream");
+                            qualityAutoBitrate = false;
+                            setAdaptiveBitrateEnabled(false, false);
+                            if (foreground && connected && !isFinishing()) {
+                                Toast.makeText(this, R.string.stream_auto_bitrate_unavailable, Toast.LENGTH_LONG).show();
+                            }
+                            return;
+                        }
                         boolean firstFailure = adaptiveBitrateRetryAt == 0;
                         adaptiveBitrateRetryTarget = target;
                         adaptiveBitrateRetryAt = SystemClock.uptimeMillis() + 5000;
@@ -3142,6 +3162,12 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 runOnUiThread(() -> hostActionInProgress = false);
             }
         }, "Automatic bitrate").start();
+    }
+
+    private static final class EncoderBitrateUnsupported extends IOException {
+        EncoderBitrateUnsupported() {
+            super("Host does not support runtime bitrate changes");
+        }
     }
 
     private void showHostActionError(Exception error, int generation) {

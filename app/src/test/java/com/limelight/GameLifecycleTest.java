@@ -257,6 +257,45 @@ public class GameLifecycleTest {
         }
     }
 
+    @Test
+    public void autoBitrateStopsClaimingWhenTheHostNeverReportsItsEncoderBudget() throws Exception {
+        for (boolean supported : new boolean[] {true, false}) {
+            Game activity = Robolectric.buildActivity(Game.class).get();
+            activity.setIntent(new Intent().putExtra(Game.EXTRA_PC_UUID, "pc"));
+            activity.getSharedPreferences("AdaptiveBitrate", Context.MODE_PRIVATE).edit().putBoolean("pc", true).commit();
+            RetryConnection connection = new RetryConnection();
+            connection.fail = false;
+            // The host answers, but reports encoder bitrate 0 (or no runtime bitrate support at all).
+            connection.details.encoderBitrateSupported = supported;
+            ReflectionHelpers.setField(activity, "adaptiveBitrate",
+                    new com.limelight.nvstream.AdaptiveBitrateController(0, 0, 60, 0));
+            ReflectionHelpers.setField(activity, "streamFps", 60);
+            ReflectionHelpers.setField(activity, "conn", connection);
+            ReflectionHelpers.setField(activity, "connected", true);
+            android.os.Handler handler = ReflectionHelpers.getField(activity, "bitrateHandler");
+            Runnable update = ReflectionHelpers.getField(activity, "updateBitrate");
+            try {
+                ReflectionHelpers.callInstanceMethod(activity, "applyAdaptiveBitrate",
+                        ReflectionHelpers.ClassParameter.from(int.class, 0));
+                awaitBitrateRequest(activity);
+                handler.postDelayed(update, 1000);
+                // Five minutes of the stream's 1 s bitrate timer.
+                for (int second = 0; second < 300; second++) {
+                    org.robolectric.Shadows.shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofSeconds(1));
+                    awaitBitrateRequest(activity);
+                }
+                assertNull("Auto bitrate gives up for this stream", ReflectionHelpers.getField(activity, "adaptiveBitrate"));
+                assertTrue("supported " + supported + ": " + connection.reads + " claims",
+                        supported ? connection.reads <= 10 : connection.reads == 1);
+                assertEquals("The host's bitrate is never changed", 0, connection.writes);
+                assertTrue("The PC's saved choice stays the person's own",
+                        activity.getSharedPreferences("AdaptiveBitrate", Context.MODE_PRIVATE).getBoolean("pc", false));
+            } finally {
+                handler.removeCallbacks(update);
+            }
+        }
+    }
+
     private static class RetryConnection extends com.limelight.nvstream.NvConnection {
         boolean fail = true;
         int writes;

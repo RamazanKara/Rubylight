@@ -5,6 +5,7 @@
     <string name="stream_auto_bitrate_help">Bitrate automatisch anpassen.\nGilt für diesen PC; manuelle Werte schalten sie aus.</string>
     <string name="stream_pyrowave_bitrate_help">PyroWave-Automatik für diesen PC.\nManuelle Bitrate schaltet sie aus.</string>
     <string name="stream_auto_bitrate_failed">Bitrate vorübergehend nicht aktualisierbar. Ein neuer Versuch erfolgt automatisch.</string>
+    <string name="stream_auto_bitrate_unavailable">Dieser PC meldet seine Stream-Bitrate nicht. Die automatische Bitrate ist für diesen Stream aus.</string>
     <string name="stream_auto_bitrate_status">Automatische Bitrate: %1$.1f Mbit/s</string>
     <string name="stream_bitrate_busy">Host beschäftigt. Versuch es gleich erneut.</string>
 </resources>

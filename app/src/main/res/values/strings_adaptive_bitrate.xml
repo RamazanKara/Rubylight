@@ -5,6 +5,7 @@
     <string name="stream_auto_bitrate_help">Adjust bitrate to your connection.\nSaved for this PC; manual changes turn it off.</string>
     <string name="stream_pyrowave_bitrate_help">Auto-adjust PyroWave for this PC.\nManual bitrate turns this off.</string>
     <string name="stream_auto_bitrate_failed">Temporary bitrate update failure. Retrying automatically.</string>
+    <string name="stream_auto_bitrate_unavailable">This PC does not report its stream bitrate. Automatic bitrate is off for this stream.</string>
     <string name="stream_auto_bitrate_status">Automatic bitrate: %1$.1f Mbps</string>
     <string name="stream_bitrate_busy">Host busy. Try again in a moment.</string>
 </resources>

@@ -15,7 +15,7 @@ ADVICE = {
     "list_resolution": "Raise for fine detail; lower when decode time or network load is high. Your screen's native size is added automatically.",
     "list_fps": "Raise for smoother motion on a fast screen. Your screen's native refresh rate is added automatically. Changing resolution or FPS preserves an explicitly chosen bitrate.",
     "seekbar_bitrate_kbps": "Raise for image quality on a stable link; lower for network loss. The slider is logarithmic; the buttons make fine adjustments.",
-    "video_format": "Start with Automatic. Choose a specific codec to compare decoder performance; PyroWave requires a host that supports it (currently Rubylight) and Vulkan capabilities.",
+    "video_format": "Start with Automatic. Choose a specific codec to compare decoder performance; PyroWave requires a host that supports it (Rubylight, or Vibepollo with PyroWave available) and Vulkan capabilities; on a PC whose host has none, that PC uses the setting for all PCs or Automatic instead.",
     "adaptive_quality_mode": "Off by default. Motion preserves FPS first, Detail preserves resolution first, and Battery also reduces work on healthy links. Requires the host's reconfigure capability and an adaptive decoder; PyroWave is unsupported. The stream menu can override the mode per PC.",
     "adaptive_quality_min_resolution": "Sets the smallest short edge for automatic quality, with the aspect ratio preserved. The selected starting resolution is the ceiling; a minimum above that ceiling is clamped down.",
     "adaptive_quality_min_fps": "Sets the lowest FPS automatic quality may request, including Battery mode. Recovery increases one step after 30 healthy seconds; reductions are at least 15 seconds apart.",

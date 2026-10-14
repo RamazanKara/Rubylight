@@ -24,7 +24,7 @@ Yes, when your Android device can reach the host's streaming services. Establish
 
 ## Where do I set device permissions?
 
-In your host's settings or web UI, if it has per-device permissions (e.g. Apollo or Rubylight). On hosts that support it (currently Rubylight), choose **Open host administration** from an online PC's menu and sign in with the web UI's account. Listing apps, viewing, launching, each input type, clipboard directions and commands have separate permissions. See [pairing](pairing.md#per-device-permissions).
+In your host's settings or web UI, if it has per-device permissions (e.g. Apollo, Rubylight or Vibepollo). Choose **Open host web UI** from an online PC's menu and sign in with the web UI's account. Listing apps, viewing, launching, each input type, clipboard directions and commands have separate permissions. See [pairing](pairing.md#per-device-permissions).
 
 ## Does Disconnect close my game?
 

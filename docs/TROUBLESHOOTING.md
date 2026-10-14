@@ -65,7 +65,7 @@ See [video and latency](video-and-latency.md#performance-overlay) for metric def
 
 Long-press a PC and choose **This PC → Test your connection**. The test makes ten timed server-info requests. Ping is their average round trip; jitter is the average change between consecutive successful requests. Failed probes are HTTP failures, not video packet loss.
 
-On a paired host that supports it (currently Rubylight), the optional 32 MiB HTTPS download reports throughput and the host adapter's reported link speed. It uses network data and may temporarily compete with other traffic. Cancel or leave the test to stop it. None of these measurements changes stream settings.
+On a paired host that supports it (Rubylight, or Vibepollo with PyroWave available), the optional 32 MiB HTTPS download reports throughput and the host adapter's reported link speed. Other hosts get the delay test only; the test's first screen says which. It uses network data and may temporarily compete with other traffic. Cancel or leave the test to stop it. None of these measurements changes stream settings.
 
 ## Export a problem report
 

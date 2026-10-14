@@ -169,10 +169,15 @@ pub struct Playout {
 }
 impl Playout {
     pub fn push(&mut self, samples: &[f32]) {
+        self.push_batch(samples, samples.len());
+    }
+    /// Queue a packet together with any preceding concealment. The queue
+    /// bound follows one packet's duration, not the loss burst's total PCM.
+    pub fn push_batch(&mut self, samples: &[f32], packet_frames: usize) {
         self.queue.extend(samples.iter().map(|s| s.clamp(-1., 1.)));
-        let limit = (3 * samples.len()).max(RATE * 60 / 1000);
+        let limit = (3 * packet_frames).max(RATE * 60 / 1000);
         if self.queue.len() > limit {
-            let keep = samples.len().max(RATE * 20 / 1000);
+            let keep = packet_frames.max(RATE * 20 / 1000);
             let drop = self.queue.len() - keep;
             self.queue.drain(..drop);
             self.trimmed += drop as u64;
@@ -345,6 +350,22 @@ mod tests {
         assert_eq!((p.len(), p.trimmed), (2880, 2880));
         assert_eq!(p.take(&mut out[..1]), 1);
         assert_eq!(out[0], 1., "samples are clamped");
+    }
+
+    #[test]
+    fn concealment_batches_keep_the_individual_packet_latency_bound() {
+        for packet_frames in [240, 960, 5760] {
+            let mut playout = Playout::default();
+            let count = (6 * packet_frames).max(RATE * 80 / 1000);
+            let batch: Vec<_> = (0..count).map(|i| i as f32 / count as f32).collect();
+            playout.push_batch(&batch, packet_frames);
+            let keep = packet_frames.max(RATE * 20 / 1000);
+            assert_eq!(playout.len(), keep);
+            assert_eq!(playout.trimmed, (count - keep) as u64);
+            let mut newest = vec![0.; keep];
+            assert_eq!(playout.take(&mut newest), keep);
+            assert_eq!(newest, batch[count - keep..]);
+        }
     }
 
     #[test]

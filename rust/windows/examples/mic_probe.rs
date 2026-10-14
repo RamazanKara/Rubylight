@@ -318,9 +318,13 @@ fn main() -> Result<()> {
             Arrival::Next => {}
         }
         decoder.decode(Some(&opus), false, &mut pcm)?;
-        // The burst starts with this packet's own samples, after any concealed ones.
-        let offset = (pcm.len() - PACKET) as i64 * 10_000_000 / 48000;
-        playout.lock().unwrap().push(&pcm);
+        // Only samples retained by the queue can delay this packet's onset.
+        // A loss burst may have trimmed most of its concealed prefix.
+        let offset = {
+            let mut playout = playout.lock().unwrap();
+            playout.push_batch(&pcm, PACKET);
+            playout.len().saturating_sub(PACKET) as i64 * 10_000_000 / 48000
+        };
         if tone && n % EVERY == 0 {
             onsets.push(at + offset);
         }

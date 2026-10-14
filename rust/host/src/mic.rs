@@ -205,25 +205,12 @@ impl Receiver {
         }
         let decoder = self.decoder.as_mut().unwrap();
         self.pcm.clear();
-        let mut decoded = Ok(0);
-        match arrival {
-            Arrival::Restart => decoder.reset(),
-            Arrival::AfterLoss { missing } => {
-                for _ in 1..missing {
-                    decoded = decoded.and_then(|_| decoder.decode(None, false, &mut self.pcm));
-                    speaker.stats.concealed += 1;
-                }
-                decoded = decoded.and_then(|_| decoder.decode(Some(&opus), true, &mut self.pcm));
-                speaker.stats.recovered += 1;
-            }
-            Arrival::Next | Arrival::Late => {}
-        }
-        decoded = decoded.and_then(|_| decoder.decode(Some(&opus), false, &mut self.pcm));
-        if decoded.is_err() {
-            // The decoder already conceals the frame on the next packet.
-            speaker.stats.damaged += 1;
-        }
-        self.playout.lock().unwrap().push(&self.pcm);
+        let packet_frames =
+            decode_packet(decoder, arrival, &opus, &mut self.pcm, &mut speaker.stats);
+        self.playout
+            .lock()
+            .unwrap()
+            .push_batch(&self.pcm, packet_frames);
         let session = speaker.session.clone();
         self.output.ensure(&self.h, &session, &self.playout);
     }
@@ -246,6 +233,48 @@ impl Receiver {
             trimmed_ms = trimmed * 1000 / mic::RATE as u64,
             "microphone stopped"
         );
+    }
+}
+
+fn decode_packet(
+    decoder: &mut OpusDecoder,
+    arrival: Arrival,
+    opus: &[u8],
+    pcm: &mut Vec<f32>,
+    stats: &mut Stats,
+) -> usize {
+    let conceal = |decoder: &mut OpusDecoder, pcm: &mut Vec<f32>, stats: &mut Stats| match decoder
+        .decode(None, false, pcm)
+    {
+        Ok(frames) => {
+            stats.concealed += 1;
+            frames
+        }
+        Err(_) => 0,
+    };
+    match arrival {
+        Arrival::Restart => decoder.reset(),
+        Arrival::AfterLoss { missing } => {
+            for _ in 1..missing {
+                conceal(decoder, pcm, stats);
+            }
+            if decoder.decode(Some(opus), true, pcm).is_ok() {
+                stats.recovered += 1;
+            } else {
+                conceal(decoder, pcm, stats);
+            }
+        }
+        Arrival::Next => {}
+        Arrival::Late => return 0,
+    }
+    match decoder.decode(Some(opus), false, pcm) {
+        Ok(frames) => frames,
+        Err(_) => {
+            // The sequencer has consumed this packet. The next packet will be
+            // in order, so conceal this one now to preserve the playout clock.
+            stats.damaged += 1;
+            conceal(decoder, pcm, stats)
+        }
     }
 }
 
@@ -367,6 +396,97 @@ fn endpoint(config: &Config) -> Result<String> {
 mod tests {
     use super::*;
     use crate::state::test_support::Fixture;
+
+    #[test]
+    #[ignore = "requires the packaged libopus DLL"]
+    fn damaged_microphone_packets_keep_the_playout_clock_running() -> Result<()> {
+        let root = PathBuf::from(
+            std::env::var_os("BUTTERPOLLO_TEST_OPUS_ROOT").expect("set BUTTERPOLLO_TEST_OPUS_ROOT"),
+        );
+        let mut encoder = butterpollo_windows::audio::Opus::new(&root, 2, false)?;
+        let valid = encoder.encode(&vec![0.25; 960 * 2])?;
+        // Code 3 requires a second framing byte. This cannot contain a valid
+        // Opus frame, even though its encrypted transport can be intact.
+        let damaged = [3];
+        for missing in [0, 1, 3] {
+            let mut decoder = OpusDecoder::new(&root)?;
+            let mut sequencer = Sequencer::default();
+            let mut stats = Stats::default();
+            let mut pcm = Vec::new();
+            decode_packet(
+                &mut decoder,
+                sequencer.arrive(10),
+                &valid,
+                &mut pcm,
+                &mut stats,
+            );
+            assert_eq!(pcm.len(), 960);
+            pcm.clear();
+            decode_packet(
+                &mut decoder,
+                sequencer.arrive(11 + missing),
+                &damaged,
+                &mut pcm,
+                &mut stats,
+            );
+            assert_eq!(pcm.len(), (usize::from(missing) + 1) * 960);
+            assert_eq!(stats.damaged, 1);
+            assert_eq!(stats.concealed, u64::from(missing) + 1);
+            pcm.clear();
+            decode_packet(
+                &mut decoder,
+                sequencer.arrive(12 + missing),
+                &valid,
+                &mut pcm,
+                &mut stats,
+            );
+            assert_eq!(pcm.len(), 960);
+            assert!(pcm.iter().all(|sample| sample.is_finite()));
+        }
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "requires the packaged libopus DLL"]
+    fn recovered_microphone_burst_does_not_expand_playout_delay() -> Result<()> {
+        let root = PathBuf::from(
+            std::env::var_os("BUTTERPOLLO_TEST_OPUS_ROOT").expect("set BUTTERPOLLO_TEST_OPUS_ROOT"),
+        );
+        let mut encoder = butterpollo_windows::audio::Opus::new(&root, 2, false)?;
+        let valid = encoder.encode(&vec![0.25; 960 * 2])?;
+        let mut decoder = OpusDecoder::new(&root)?;
+        let mut sequencer = Sequencer::default();
+        let mut stats = Stats::default();
+        let mut pcm = Vec::new();
+        decode_packet(
+            &mut decoder,
+            sequencer.arrive(10),
+            &valid,
+            &mut pcm,
+            &mut stats,
+        );
+        pcm.clear();
+        let frames = decode_packet(
+            &mut decoder,
+            sequencer.arrive(16),
+            &valid,
+            &mut pcm,
+            &mut stats,
+        );
+        // Five lost packets plus the current packet produce 120 ms of PCM.
+        // Recovery must retain only the newest sound within the normal queue
+        // bound; the loss burst does not make the client's packets longer.
+        assert_eq!(frames, 960);
+        assert_eq!(pcm.len(), 960 * 6);
+        let mut playout = Playout::default();
+        playout.push_batch(&pcm, frames);
+        assert_eq!(playout.len(), 960);
+        assert_eq!(playout.trimmed, 960 * 5);
+        let mut actual = vec![0.; 960];
+        assert_eq!(playout.take(&mut actual), 960);
+        assert_eq!(actual, pcm[pcm.len() - 960..]);
+        Ok(())
+    }
 
     #[test]
     fn idle_microphone_socket_waits_for_the_receive_timeout() -> Result<()> {

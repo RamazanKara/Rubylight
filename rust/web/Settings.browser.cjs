@@ -155,6 +155,19 @@ test('search finds menu choices and category context, and explains hidden depend
   }
 });
 
+test('undoing an advanced change keeps the Advanced section open', async t => {
+  const { page } = await fixture(t);
+  await page.goto(base + '/settings/video');
+  const advanced = page.locator('details.advanced');
+  await advanced.locator('summary').click();
+  const row = setting(page, 'wgc_direct_encoder_input');
+  await row.getByRole('switch').press('Space');
+  await row.getByRole('button', { name: /^Undo/ }).click();
+  assert.equal(await page.getByRole('button', { name: 'Save changes' }).count(), 0);
+  assert.equal(await advanced.evaluate(node => node.open), true, 'the section the user is working in must not collapse');
+  await row.getByRole('switch').waitFor();
+});
+
 test('editing a dependency does not hide unsaved child settings and review keeps them reachable', async t => {
   const { page } = await fixture(t);
   await page.goto(base + '/settings/general');

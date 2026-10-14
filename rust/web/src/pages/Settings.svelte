@@ -111,6 +111,10 @@
   const basic = $derived(grouped(shown.filter((setting) => !setting.advanced)));
   const advanced = $derived(shown.filter((setting) => setting.advanced));
   const advancedChanged = $derived(advanced.filter((setting) => pending.has(setting.key)).length);
+  // Opened by the user, per category. Unsaved advanced changes open it too, and
+  // undoing them must not collapse the section the user is working in.
+  let advancedOpen = $state<Partial<Record<CategoryId, boolean>>>({});
+  const showAdvanced = $derived(advancedChanged > 0 || (active ? advancedOpen[active.id] === true : false));
 
   // ---------- search ----------
 
@@ -440,7 +444,13 @@
               {@render groups(basic)}
             </div>
             {#if advanced.length}
-              <details class="advanced" open={advancedChanged > 0}>
+              <details
+                class="advanced"
+                open={showAdvanced}
+                ontoggle={(event) => {
+                  if (active) advancedOpen[active.id] = event.currentTarget.open;
+                }}
+              >
                 <summary>
                   <Icon name="chevron" size={15} />
                   Advanced

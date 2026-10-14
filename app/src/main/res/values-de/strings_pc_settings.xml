@@ -15,4 +15,11 @@
     <string name="pc_settings_export_summary">Spielverknüpfungen für ES-DE oder ein anderes Frontend</string>
     <string name="pc_settings_shortcut">Zum Startbildschirm hinzufügen</string>
     <string name="pc_settings_shortcut_summary">Öffnet die Bibliothek dieses PCs</string>
+
+    <string name="connection_test_ms">%1$s ms</string>
+    <string name="connection_test_percent">%1$s %%</string>
+    <string name="connection_test_speed">Tempo %1$.1f Mbit/s</string>
+    <string name="connection_test_speed_needs_pairing">Tempo nicht gemessen: Kopple den PC zuerst</string>
+    <string name="connection_test_speed_no_answer">Tempo nicht gemessen: Der PC hat nicht geantwortet</string>
+    <string name="connection_test_speed_unsupported">Tempo nicht gemessen: Dieser Host bietet keinen Tempotest</string>
 </resources>

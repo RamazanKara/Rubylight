@@ -54,12 +54,9 @@
     <string name="connection_test_title">Connection test</string>
     <string name="connection_test_intro">Test speed and delay to your PC.\nUses up to 32 MiB, including mobile data.</string>
     <string name="connection_test_running">Testing… Tap Cancel to stop.</string>
-    <string name="connection_test_stats">Ping %1$s · Jitter %2$s ms\nFailed %3$s%%</string>
+    <string name="connection_test_stats">Ping %1$s · Jitter %2$s · Loss %3$s</string>
     <string name="connection_test_unavailable">–</string>
-    <string name="connection_test_limits">These results measure test requests, not a live stream.</string>
-    <string name="connection_test_no_bandwidth">Speed unavailable</string>
-    <string name="connection_test_failed">Speed test failed</string>
-    <string name="connection_test_fix">Move closer to the router and pause downloads.</string>
+    <string name="connection_test_failed">Speed not measured: the test failed</string>
     <string name="pair_connection_fix">Use the same network and start the host.\nCheck its firewall, then retry.</string>
     <string name="pair_try_again">Try again</string>
     <string name="discovery_add">Add a PC manually</string>

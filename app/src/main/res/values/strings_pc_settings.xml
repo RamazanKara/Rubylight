@@ -16,4 +16,12 @@
     <string name="pc_settings_export_summary">Game shortcuts for ES-DE or another frontend</string>
     <string name="pc_settings_shortcut">Add to home screen</string>
     <string name="pc_settings_shortcut_summary">Opens this PC’s library</string>
+
+    <!-- Connection test result: "Ping 63 ms · Jitter 41 ms · Loss 0.0%", then the speed or why it was not measured. -->
+    <string name="connection_test_ms">%1$s ms</string>
+    <string name="connection_test_percent">%1$s%%</string>
+    <string name="connection_test_speed">Speed %1$.1f Mbps</string>
+    <string name="connection_test_speed_needs_pairing">Speed not measured: pair this PC first</string>
+    <string name="connection_test_speed_no_answer">Speed not measured: the PC didn’t answer</string>
+    <string name="connection_test_speed_unsupported">Speed not measured: this host has no speed test</string>
 </resources>

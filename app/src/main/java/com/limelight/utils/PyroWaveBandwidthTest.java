@@ -1,6 +1,7 @@
 package com.limelight.utils;
 
 import android.app.Activity;
+import android.content.Context;
 import androidx.appcompat.app.AlertDialog;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.google.android.material.progressindicator.LinearProgressIndicator;
@@ -56,7 +57,9 @@ public final class PyroWaveBandwidthTest {
         com.limelight.LimeLog.info("Connection test started");
         worker = new Thread(() -> {
             ConnectionTestStats stats = new ConnectionTestStats();
-            String bandwidth = activity.getString(R.string.connection_test_no_bandwidth);
+            // The second line of the result: the speed, or why it was not measured. Hosts that can
+            // never measure speed get no second line.
+            String speed = null;
             try {
                 http = new NvHTTP(ServerHelper.getCurrentAddressFromComputer(computer), computer.httpsPort,
                         uniqueId, computer.serverCert, PlatformBinding.getCryptoProvider(activity.getApplicationContext()));
@@ -75,7 +78,13 @@ public final class PyroWaveBandwidthTest {
                 if (cancelled) {
                     return;
                 }
-                if (computer.serverCert != null && !Double.isNaN(stats.latencyMs())) {
+                if (!measuresSpeed()) {
+                    speed = null;
+                } else if (computer.serverCert == null) {
+                    speed = activity.getString(R.string.connection_test_speed_needs_pairing);
+                } else if (Double.isNaN(stats.latencyMs())) {
+                    speed = activity.getString(R.string.connection_test_speed_no_answer);
+                } else {
                     ComputerDetails current = http.getComputerDetails(true);
                     if (current.supportsPyroWaveBandwidthProbe()) {
                         double mbps = http.probePyroWaveBandwidth(current, percent -> activity.runOnUiThread(() -> {
@@ -84,22 +93,19 @@ public final class PyroWaveBandwidthTest {
                                 progress.setProgressCompat(percent, true);
                             }
                         }));
-                        bandwidth = activity.getString(R.string.bandwidth_probe_result, mbps);
-                        if (current.pyroWaveHostLinkMbps > 0) {
-                            bandwidth += "\n" + activity.getString(R.string.bandwidth_probe_link, current.pyroWaveHostLinkMbps);
-                        }
+                        speed = speedText(activity, mbps, current.pyroWaveHostLinkMbps);
+                    } else {
+                        speed = activity.getString(R.string.connection_test_speed_unsupported);
                     }
                 }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 return;
             } catch (IOException | XmlPullParserException e) {
-                bandwidth = activity.getString(R.string.connection_test_failed);
+                speed = measuresSpeed() ? activity.getString(R.string.connection_test_failed) : null;
             }
             com.limelight.LimeLog.info("Connection test finished");
-            final String message = activity.getString(R.string.connection_test_stats,
-                    measurement(stats.latencyMs()), measurement(stats.jitterMs()), measurement(stats.lossPercent()))
-                    + (measuresSpeed() ? " · " + bandwidth : "");
+            final String message = result(activity, stats, speed);
             activity.runOnUiThread(() -> {
                 if (cancelled || activity.isFinishing() || activity.isDestroyed()) {
                     return;
@@ -121,9 +127,32 @@ public final class PyroWaveBandwidthTest {
         return computer.caps.mayHave(HostCapabilities.Feature.PYROWAVE_BANDWIDTH_PROBE);
     }
 
-    private String measurement(double value) {
-        return Double.isNaN(value) ? activity.getString(R.string.connection_test_unavailable) :
-                String.format(java.util.Locale.getDefault(), "%.1f", value);
+    /** "Ping 63 ms · Jitter 41 ms · Loss 0.0%", then the speed line when there is one. */
+    static String result(Context context, ConnectionTestStats stats, String speed) {
+        String delay = context.getString(R.string.connection_test_stats, milliseconds(context, stats.latencyMs()),
+                milliseconds(context, stats.jitterMs()), percent(context, stats.lossPercent()));
+        return speed == null ? delay : delay + "\n" + speed;
+    }
+
+    static String speedText(Context context, double mbps, long linkMbps) {
+        String speed = context.getString(R.string.connection_test_speed, mbps);
+        return linkMbps > 0 ? speed + " · " + context.getString(R.string.bandwidth_probe_link, linkMbps) : speed;
+    }
+
+    /** Whole milliseconds, with one decimal below 10 ms where the difference still matters. */
+    private static String milliseconds(Context context, double value) {
+        if (Double.isNaN(value)) {
+            return context.getString(R.string.connection_test_unavailable);
+        }
+        return context.getString(R.string.connection_test_ms,
+                String.format(java.util.Locale.getDefault(), value < 10 ? "%.1f" : "%.0f", value));
+    }
+
+    private static String percent(Context context, double value) {
+        if (Double.isNaN(value)) {
+            return context.getString(R.string.connection_test_unavailable);
+        }
+        return context.getString(R.string.connection_test_percent, String.format(java.util.Locale.getDefault(), "%.1f", value));
     }
 
     public void cancel() {

@@ -56,12 +56,9 @@
     <string name="connection_test_title">Verbindungstest</string>
     <string name="connection_test_intro">Teste Tempo und Latenz zum PC.\nVerbraucht bis zu 32 MiB, auch im Mobilfunk.</string>
     <string name="connection_test_running">Test läuft… Abbrechen beendet den Test.</string>
-    <string name="connection_test_stats">Ping %1$s · Jitter %2$s ms\nFehler %3$s%%</string>
+    <string name="connection_test_stats">Ping %1$s · Jitter %2$s · Verlust %3$s</string>
     <string name="connection_test_unavailable">–</string>
-    <string name="connection_test_limits">Der Test misst Anfragen, keinen laufenden Stream.</string>
-    <string name="connection_test_no_bandwidth">Tempo nicht verfügbar</string>
-    <string name="connection_test_failed">Tempotest fehlgeschlagen</string>
-    <string name="connection_test_fix">Geh näher an den Router und pausiere Downloads.</string>
+    <string name="connection_test_failed">Tempo nicht gemessen: Der Test ist fehlgeschlagen</string>
     <string name="pair_connection_fix">Starte den Host im selben Netz.\nPrüfe die Firewall und versuch es erneut.</string>
     <string name="pair_try_again">Erneut versuchen</string>
     <string name="discovery_add">PC manuell hinzufügen</string>

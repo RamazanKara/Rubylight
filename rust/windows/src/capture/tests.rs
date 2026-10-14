@@ -1,6 +1,98 @@
 use super::*;
 
 #[test]
+fn snapshot_backpressure_keeps_final_native_update_until_consumers_release_space() -> Result<()> {
+    use std::{collections::VecDeque, sync::Arc};
+    // Shared capture supports more consumers than the eight snapshot slots.
+    // Model consumers holding distinct earlier frames while their senders lag.
+    let textures: Vec<_> = (0..GPU_SNAPSHOT_CAPACITY).map(Arc::new).collect();
+    let mut consumers = textures.clone();
+    let mut native = VecDeque::from([GPU_SNAPSHOT_CAPACITY]);
+    let mut acquisitions = 0;
+    for _ in 0..3 {
+        let image = acquire_snapshot_frame(snapshot_capacity(&textures), || {
+            acquisitions += 1;
+            Ok(native.pop_front())
+        })?;
+        assert_eq!(image, None);
+    }
+    assert_eq!(acquisitions, 0);
+    assert_eq!(native.len(), 1);
+
+    // There is no subsequent desktop event to rescue a discarded final frame.
+    consumers.pop();
+    let image = acquire_snapshot_frame(snapshot_capacity(&textures), || {
+        acquisitions += 1;
+        Ok(native.pop_front())
+    })?;
+    assert_eq!(image, Some(GPU_SNAPSHOT_CAPACITY));
+    assert_eq!(acquisitions, 1);
+    assert!(native.is_empty());
+    assert_eq!(textures.len(), GPU_SNAPSHOT_CAPACITY);
+    assert_eq!(
+        consumers.iter().map(|image| **image).collect::<Vec<_>>(),
+        (0..GPU_SNAPSHOT_CAPACITY - 1).collect::<Vec<_>>()
+    );
+    Ok(())
+}
+
+#[test]
+fn pending_wgc_snapshot_keeps_only_the_newest_update_and_its_timestamp() -> Result<()> {
+    use std::sync::Arc;
+    let textures: Vec<_> = (0..GPU_SNAPSHOT_CAPACITY).map(Arc::new).collect();
+    let mut consumers = textures.clone();
+    let first = Instant::now();
+    let last = first + Duration::from_millis(8);
+    let mut held = Some((1, first));
+    assert!(acquire_snapshot_frame(snapshot_capacity(&textures), || Ok(held.take()))?.is_none());
+    assert_eq!(held.replace((2, last)), Some((1, first)));
+    assert!(acquire_snapshot_frame(snapshot_capacity(&textures), || Ok(held.take()))?.is_none());
+    consumers.pop();
+    assert_eq!(
+        acquire_snapshot_frame(snapshot_capacity(&textures), || Ok(held.take()))?,
+        Some((2, last))
+    );
+    assert!(held.is_none());
+    Ok(())
+}
+
+#[test]
+fn snapshot_capacity_can_reclaim_the_desktop_cache_without_overwriting_consumers() {
+    use std::sync::Arc;
+    let textures: Vec<_> = (0..GPU_SNAPSHOT_CAPACITY).map(Arc::new).collect();
+    let consumers = textures[..GPU_SNAPSHOT_CAPACITY - 1].to_vec();
+    let mut cached = Some(textures.last().unwrap().clone());
+    assert!(!snapshot_capacity(&textures));
+    // DDX may be the only remaining reader of its cached desktop.
+    cached.take();
+    assert!(snapshot_capacity(&textures));
+    assert!(consumers.iter().all(|image| Arc::strong_count(image) == 2));
+    assert!(snapshot_capacity(&textures[..GPU_SNAPSHOT_CAPACITY - 1]));
+}
+
+#[test]
+fn available_snapshot_does_not_swallow_native_acquisition_failures() {
+    let error = acquire_snapshot_frame::<()>(true, || bail!("capture access lost")).unwrap_err();
+    assert_eq!(error.to_string(), "capture access lost");
+}
+
+#[test]
+fn snapshot_backpressure_uses_the_normal_poll_instead_of_an_expired_deadline() {
+    let now = Instant::now();
+    let expired = now - Duration::from_millis(8);
+    let poll = now + Duration::from_micros(500);
+    // This is the capture worker's deadline selection. Holding the last WGC
+    // update must not turn bounded backpressure into a busy loop.
+    let blocked = snapshot_publication_deadline(false, Some(expired));
+    assert_eq!(blocked.unwrap_or(poll).min(poll), poll);
+    assert_eq!(
+        snapshot_publication_deadline(true, Some(expired)),
+        Some(expired)
+    );
+    assert_eq!(snapshot_publication_deadline(true, None), None);
+}
+
+#[test]
 fn basic_render_driver_is_not_hardware_even_without_the_software_flag() {
     for flags in [0, DXGI_ADAPTER_FLAG_SOFTWARE.0 as u32] {
         let basic = DXGI_ADAPTER_DESC1 {

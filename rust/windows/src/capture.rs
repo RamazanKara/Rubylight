@@ -590,7 +590,27 @@ impl Duplication {
         // lock, so another thread's D3D11 call took up to 42 ms meanwhile, and
         // beside a game it delivered fewer pictures, later, than polling
         // (`examples/ddx_arrival_probe.rs`).
-        let Some((info, resource)) = self.acquire_frame(0)? else {
+        if !self.owned.has_capacity()
+            && self
+                .last_desktop
+                .as_ref()
+                .is_some_and(|image| std::sync::Arc::strong_count(&image.texture) == 2)
+        {
+            // The cache can be the last reader of a snapshot. Let that slot
+            // return before deciding whether a new desktop can be acquired.
+            self.last_desktop = None;
+        }
+        let available = self.owned.has_capacity();
+        if !available {
+            // Acquisition normally reports loss. Backpressure must not hide a
+            // removed device/output while consumers still own its snapshots.
+            if let Some(loss) = crate::device_loss::DeviceLost::d3d11(&self.gpu.device) {
+                return Err(loss.into());
+            }
+            let _ = self.gpu.color_description()?;
+        }
+        let Some((info, resource)) = acquire_snapshot_frame(available, || self.acquire_frame(0))?
+        else {
             return Ok(None);
         };
         let shown = self.cursor.shown();
@@ -769,7 +789,35 @@ pub(crate) struct GpuPool {
     /// where they wait behind a game's rendering.
     pub(crate) compute: Option<crate::compute::Handoff>,
 }
+const GPU_SNAPSHOT_CAPACITY: usize = 8;
+
+fn snapshot_capacity<T>(textures: &[std::sync::Arc<T>]) -> bool {
+    textures.len() < GPU_SNAPSHOT_CAPACITY
+        || textures
+            .iter()
+            .any(|texture| std::sync::Arc::strong_count(texture) == 1)
+}
+
+/// Do not consume the last desktop update until it can be snapshotted. A
+/// static desktop may never send another frame after consumers release space.
+fn acquire_snapshot_frame<T>(
+    available: bool,
+    acquire: impl FnOnce() -> Result<Option<T>>,
+) -> Result<Option<T>> {
+    if available { acquire() } else { Ok(None) }
+}
+
+fn snapshot_publication_deadline(available: bool, deadline: Option<Instant>) -> Option<Instant> {
+    // An expired publication deadline cannot be served while every snapshot is
+    // owned. Let the capture worker wait for its normal poll instead of spinning.
+    if available { deadline } else { None }
+}
+
 impl GpuPool {
+    fn has_capacity(&self) -> bool {
+        snapshot_capacity(&self.textures)
+    }
+
     fn desktop_snapshot(
         &mut self,
         gpu: &Device,
@@ -824,8 +872,9 @@ impl GpuPool {
             let texture = if let Some(texture) = free {
                 texture
             } else {
-                // A slow consumer drops capture updates instead of growing a frame queue.
-                if self.textures.len() >= 8 {
+                // Capture retains only the newest native update while consumers
+                // own every snapshot, instead of growing a frame queue.
+                if self.textures.len() >= GPU_SNAPSHOT_CAPACITY {
                     return Ok(None);
                 }
                 desc.Usage = D3D11_USAGE_DEFAULT;
@@ -1274,7 +1323,11 @@ impl Wgc {
         {
             return Ok(None);
         }
-        let (frame, _, captured, stamp) = self.held.take().unwrap();
+        let Some((frame, _, captured, stamp)) =
+            acquire_snapshot_frame(self.owned.has_capacity(), || Ok(self.held.take()))?
+        else {
+            return Ok(None);
+        };
         let result = (|| {
             let surface = frame.Surface()?;
             let access: IDirect3DDxgiInterfaceAccess = surface.cast()?;
@@ -1473,7 +1526,10 @@ impl Capture {
     }
     pub fn publication_deadline(&self) -> Option<Instant> {
         match self {
-            Self::Wgc(wgc) => wgc.held.as_ref().map(|(_, deadline, _, _)| *deadline),
+            Self::Wgc(wgc) => snapshot_publication_deadline(
+                wgc.owned.has_capacity(),
+                wgc.held.as_ref().map(|(_, deadline, _, _)| *deadline),
+            ),
             Self::WgcWorker(worker) => worker.publication_deadline(),
             _ => None,
         }

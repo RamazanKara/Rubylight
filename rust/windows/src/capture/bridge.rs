@@ -535,6 +535,12 @@ impl Session {
         let mut newest = None;
         let mut attempted_copy = false;
         for index in (0..self.pending.len()).rev() {
+            if self.returns.is_none() && !self.owned.has_capacity() {
+                // Keep the helper's bounded slots until a snapshot is free.
+                // Its worker retains the newest unsent native frame, including
+                // the last update of a desktop that has since become static.
+                break;
+            }
             let (slot, sequence, captured, stamp) = self.pending[index];
             let texture = &self.textures[slot];
             if !acquire(&texture.mutex, 1)? {

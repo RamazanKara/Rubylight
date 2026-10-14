@@ -146,6 +146,25 @@ public class NvConnectionRecoveryTest {
         assertFalse(connection.hasEndedSession());
     }
 
+    @Test public void apolloInputOnlyModeIsNotAnEndedSession() throws Exception {
+        // Apollo reports game 0 and a free state while its input-only mode hides the game, but keeps its UUID.
+        NvConnection connection = connection(true);
+        ReflectionHelpers.setField(connection, "http", new NvHTTP(new ComputerDetails.AddressTuple("192.0.2.1", 47989),
+                47984, "device", null, crypto()));
+        FakeHost.probed = serverInfo("SUNSHINE_SERVER_FREE", 0, "game-a", true, -1);
+        assertFalse(connection.hasEndedSession());
+        FakeHost.probed = serverInfo("SUNSHINE_SERVER_FREE", 0, "", true, -1);
+        assertTrue(connection.hasEndedSession());
+    }
+
+    @Test public void recoveryIntoApolloInputOnlyModeDoesNotEndTheStream() throws Exception {
+        FakeHost.initial = serverInfo("SUNSHINE_SERVER_FREE", 0, "game-a", true, -1);
+        FakeHost.probed = FakeHost.initial;
+        Result result = start(true);
+        assertTrue(result.terminations.isEmpty());
+        assertEquals(1, result.failures.size());
+    }
+
     @Test public void onlyAnExplicitFreeHostStateConfirmsAnIdleSession() throws Exception {
         NvHTTP http = new NvHTTP(new ComputerDetails.AddressTuple("192.0.2.1", 47989), 47984,
                 "device", null, crypto());

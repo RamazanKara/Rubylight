@@ -776,7 +776,10 @@ public class NvHTTPParityTest {
         assertTrue(app.matchesRunningApp(43, app.getAppUuid()));
         assertFalse(app.matchesRunningApp(42, "different-app"));
         assertTrue(app.matchesRunningApp(42, null));
-        assertFalse(app.matchesRunningApp(0, app.getAppUuid()));
+        assertFalse(app.matchesRunningApp(0, null));
+        // Apollo's input-only mode reports only the running game's UUID.
+        assertTrue(app.matchesRunningApp(0, app.getAppUuid()));
+        assertFalse(app.matchesRunningApp(0, "different-app"));
     }
 
     @Test

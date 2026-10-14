@@ -595,7 +595,7 @@ public class NvConnection {
 
         if (!app.getAppUuid().isEmpty()) {
             // Resolve stale shortcut IDs before the host's ID-or-UUID lookup can select another app.
-            if (app.matchesRunningApp(details.runningGameId, details.runningGameUuid)) {
+            if (details.runningGameId != 0 && app.matchesRunningApp(details.runningGameId, details.runningGameUuid)) {
                 app.setAppId(details.runningGameId);
             } else {
                 currentApp = details.hasPermission(ComputerDetails.PERMISSION_LIST) ?
@@ -1113,7 +1113,7 @@ public class NvConnection {
             ComputerDetails details = connection.probePairedComputer();
             return !stopRequested && details.pairState == PairingManager.PairState.PAIRED &&
                     details.hasPermission(ComputerDetails.PERMISSION_VIEW | ComputerDetails.PERMISSION_LAUNCH) &&
-                    details.sessionIdle && details.runningGameId == 0;
+                    details.sessionIdle && !details.hasRunningGame();
         } catch (IOException | XmlPullParserException e) {
             return false;
         }

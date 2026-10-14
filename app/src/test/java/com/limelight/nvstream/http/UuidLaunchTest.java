@@ -37,6 +37,12 @@ public class UuidLaunchTest {
     private static final String UUID = "0F3C2B1A-1111-4222-8333-944455556666";
     // Every permission but List, so the client cannot look the UUID up in the app list.
     private static final String NO_LIST = Long.toString(0xFFFFFFFFL & ~ComputerDetails.PERMISSION_LIST);
+    private static final LimelightCryptoProvider CRYPTO = new LimelightCryptoProvider() {
+        @Override public java.security.cert.X509Certificate getClientCertificate() { return null; }
+        @Override public java.security.PrivateKey getClientPrivateKey() { return null; }
+        @Override public byte[] getPemEncodedClientCertificate() { return new byte[0]; }
+        @Override public String encodeBase64String(byte[] data) { return ""; }
+    };
 
     @Before public void resetHost() {
         FakeHost.listed = null;
@@ -66,12 +72,7 @@ public class UuidLaunchTest {
         NvConnection connection = new NvConnection(RuntimeEnvironment.getApplication(),
                 new ComputerDetails.AddressTuple("192.0.2.1", 47989), 47984, "device",
                 new StreamConfiguration.Builder().setApp(app).setResolution(1280, 720).setRefreshRate(60)
-                        .setSupportedVideoFormats(MoonBridge.VIDEO_FORMAT_H264).build(), new LimelightCryptoProvider() {
-                    @Override public java.security.cert.X509Certificate getClientCertificate() { return null; }
-                    @Override public java.security.PrivateKey getClientPrivateKey() { return null; }
-                    @Override public byte[] getPemEncodedClientCertificate() { return new byte[0]; }
-                    @Override public String encodeBase64String(byte[] data) { return ""; }
-                }, null);
+                        .setSupportedVideoFormats(MoonBridge.VIDEO_FORMAT_H264).build(), CRYPTO, null);
         NvConnectionListener listener = (NvConnectionListener) Proxy.newProxyInstance(
                 NvConnectionListener.class.getClassLoader(), new Class<?>[] {NvConnectionListener.class},
                 (proxy, method, args) -> null);
@@ -112,6 +113,33 @@ public class UuidLaunchTest {
         // on an idle host, where zero would again mean "resume".
         HttpUrl query = launch(serverInfo("apollo", false, true));
         assertEquals(List.of("cancel", "launch"), FakeHost.requests);
+        assertEquals("73", query.queryParameter("appid"));
+        assertEquals(UUID, query.queryParameter("appuuid"));
+    }
+
+    @Test
+    public void apolloInputOnlyModeCountsTheGameItHidesAsRunning() throws Exception {
+        String xml = TestHosts.serverInfo("apollo-input-only-serverinfo.xml");
+        ComputerDetails details = new NvHTTP(new ComputerDetails.AddressTuple("192.0.2.1", 47989), 47984,
+                "device", null, CRYPTO).getComputerDetails(xml);
+        assertEquals(0, details.runningGameId);
+        assertTrue(details.sessionIdle);
+        assertTrue(details.hasRunningGame());
+        NvApp game = new NvApp("Game", 73, false);
+        game.setAppUuid(UUID);
+        assertTrue(game.matchesRunningApp(details.runningGameId, details.runningGameUuid));
+        NvApp other = new NvApp("Other", 74, false);
+        other.setAppUuid("5A5A5A5A-0000-4000-8000-000000000005");
+        assertFalse(other.matchesRunningApp(details.runningGameId, details.runningGameUuid));
+    }
+
+    @Test
+    public void apolloInputOnlyLaunchKeepsTheTilesId() throws Exception {
+        // The running game matches by UUID alone; its ID from serverinfo is 0 and must not replace the tile's.
+        String xml = TestHosts.serverInfo("apollo-input-only-serverinfo.xml")
+                .replace("<Permission>4294967295</Permission>", "<Permission>" + NO_LIST + "</Permission>");
+        HttpUrl query = launch(xml);
+        assertEquals(List.of("launch"), FakeHost.requests);
         assertEquals("73", query.queryParameter("appid"));
         assertEquals(UUID, query.queryParameter("appuuid"));
     }

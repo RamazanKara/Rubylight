@@ -105,6 +105,14 @@ public class ComputerDetails {
     public long pyroWaveHostLinkMbps;
     public int pyroWaveBandwidthProbeBytes;
 
+    /**
+     * Whether the host reports a running game. Apollo hides the game while its input-only mode is
+     * on: it sends game ID 0 and a free state, but still the game's UUID.
+     */
+    public boolean hasRunningGame() {
+        return runningGameId != 0 || (runningGameUuid != null && !runningGameUuid.isEmpty());
+    }
+
     public boolean supportsHardwareMetrics() {
         return caps.has(HostCapabilities.Feature.HARDWARE_METRICS) && pairState == PairingManager.PairState.PAIRED &&
                 hasPermission(PERMISSION_VIEW | PERMISSION_LAUNCH);

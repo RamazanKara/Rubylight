@@ -157,12 +157,15 @@ public class NvApp {
                 (appUuid + "\0" + artVersion).getBytes(StandardCharsets.UTF_8));
     }
 
+    /**
+     * Whether this is the game the host reports as running. A UUID decides when both sides have
+     * one: Apollo's input-only mode reports the running game's UUID with game ID 0.
+     */
     public boolean matchesRunningApp(int runningId, String runningUuid) {
-        if (runningId == 0) {
-            return false;
+        if (!appUuid.isEmpty() && runningUuid != null && !runningUuid.isEmpty()) {
+            return appUuid.equals(runningUuid);
         }
-        return !appUuid.isEmpty() && runningUuid != null && !runningUuid.isEmpty() ?
-                appUuid.equals(runningUuid) : appId == runningId;
+        return runningId != 0 && appId == runningId;
     }
 
     public int compareForDisplay(NvApp other) {

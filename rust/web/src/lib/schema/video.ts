@@ -267,7 +267,8 @@ const video: Setting[] = [
     label: 'Use the launch frame rate',
     description:
       'Encodes at the frame rate the device asked for when it launched the app, not the rate in its stream request.',
-    details: 'If the stream request is twice that rate or more, the bitrate is raised to match.',
+    details:
+      "The device's bitrate is kept when its stream request is a multiple of that rate, as Artemis's Warp frame pacing sends.",
     category: 'video',
     group: 'Frame pacing',
     control: { kind: 'toggle' },

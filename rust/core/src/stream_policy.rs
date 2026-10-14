@@ -637,16 +637,13 @@ pub fn apply(stream: &mut Negotiated, launch_millihz: u32, config: &Config) {
     } else {
         u64::from(stream.bitrate_kbps)
     };
-    let mut budget = requested;
-    if configured > 0 && limit && stream.fps_millihz() > 0 {
-        let warp = (u64::from(stream.fps) * 1000 + u64::from(stream.fps_millihz()) / 2)
-            / u64::from(stream.fps_millihz());
-        if warp >= 2 {
-            budget = budget.saturating_mul(warp).min(i32::MAX as u64 / 1000);
-        }
-    }
+    // A stream request at a multiple of the launch rate (Artemis's Warp modes
+    // ask for 2x or 4x) keeps the client's bitrate. Vibepollo multiplies it
+    // back because its encoder is told the requested rate and spreads the
+    // budget over frames that never come; this encoder runs at the launch
+    // rate, so the multiplication sent two to four times the client's bitrate.
     let ceiling = config.integer("max_bitrate", 0);
-    budget = budget.min(if ceiling > 0 {
+    let mut budget = requested.min(if ceiling > 0 {
         ceiling as u64
     } else {
         i32::MAX as u64 / 1000

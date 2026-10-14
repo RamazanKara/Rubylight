@@ -1242,7 +1242,7 @@ fn without_reports_pacer_claims_match_an_untouched_pacer() {
     }
 }
 #[test]
-fn configured_wire_budget_deducts_fec_and_audio_after_warp_and_ceiling() {
+fn configured_wire_budget_deducts_fec_and_audio_after_the_ceiling() {
     let mut stream = Negotiated {
         fps: 120,
         configured_bitrate_kbps: 20000,
@@ -1251,15 +1251,19 @@ fn configured_wire_budget_deducts_fec_and_audio_after_warp_and_ceiling() {
     };
     apply(&mut stream, 59940, &Config::default());
     assert_eq!(stream.rate_millihz, 59940);
-    assert_eq!(stream.bitrate_kbps, 30924);
-    let config = Config::parse("max_bitrate=25000\n").unwrap();
+    assert_eq!(stream.bitrate_kbps, 14924);
+    let config = Config::parse("max_bitrate=15000\n").unwrap();
     apply(&mut stream, 59940, &config);
-    assert_eq!(stream.bitrate_kbps, 18924);
+    assert_eq!(stream.bitrate_kbps, 10924);
     let mut legacy = Negotiated {
         bitrate_kbps: 20000,
         ..Default::default()
     };
-    apply(&mut legacy, 0, &config);
+    apply(
+        &mut legacy,
+        0,
+        &Config::parse("max_bitrate=25000\n").unwrap(),
+    );
     assert_eq!(legacy.bitrate_kbps, 20000);
     let mut pyro = Negotiated {
         fps: 120,
@@ -1269,6 +1273,144 @@ fn configured_wire_budget_deducts_fec_and_audio_after_warp_and_ceiling() {
     };
     apply(&mut pyro, 120000, &Config::default());
     assert_eq!(pyro.bitrate_kbps, 799308); // audio/control, without generic 20% FEC
+}
+/// The ANNOUNCE Artemis sends with its 40 Mbps setting: Warp Drive and Warp 2
+/// frame pacing multiply the stream rate (maxFPS) by two and four but launch
+/// at 60 fps, and the TV's 60 Hz refresh does not match the request.
+fn artemis_announce(max_fps: u32) -> Negotiated {
+    Negotiated::from_sdp(
+        format!(
+            "a=x-nv-video[0].clientViewportWd:2560\na=x-nv-video[0].clientViewportHt:1440\n\
+             a=x-nv-video[0].maxFPS:{max_fps}\na=x-nv-video[0].clientRefreshRateX100:6000\n\
+             a=x-nv-vqos[0].bw.maximumBitrateKbps:31500\na=x-ml-video.configuredBitrateKbps:40000\n\
+             a=x-nv-vqos[0].bitStreamFormat:2\na=x-nv-video[0].packetSize:1392\n"
+        )
+        .as_bytes(),
+    )
+    .unwrap()
+}
+#[test]
+fn a_warp_stream_request_keeps_the_clients_bitrate() {
+    let config = Config::default();
+    let mut plain = artemis_announce(60);
+    apply(&mut plain, 60_000, &config);
+    assert_eq!(plain.bitrate_kbps, 31_308);
+    for warp in [2, 4] {
+        let mut warped = artemis_announce(60 * warp);
+        let uncapped = uncapped_bitrate_kbps(&warped, 60_000, &config);
+        apply(&mut warped, 60_000, &config);
+        // The encoder runs at the launch rate, so its bitrate is the wire rate.
+        assert_eq!(warped.fps_millihz(), 60_000);
+        assert_eq!(warped.bitrate_kbps, plain.bitrate_kbps, "warp {warp}");
+        assert_eq!(uncapped, plain.bitrate_kbps, "warp {warp}");
+    }
+    // A host ceiling still applies to the client's bitrate.
+    let mut capped = artemis_announce(240);
+    apply(
+        &mut capped,
+        60_000,
+        &Config::parse("max_bitrate=30000\n").unwrap(),
+    );
+    assert_eq!(capped.bitrate_kbps, 23_308);
+}
+#[derive(Debug)]
+struct ClientPort {
+    unrecoverable_frames: usize,
+    lost_packets: usize,
+    /// The queue left behind the last frame: what a control ping waits behind.
+    standing_queue: Duration,
+}
+/// A deterministic model, not a measurement: a 1 Gbps host feeding a client's
+/// 100 Mbps Ethernet port (the Onn 4K Pro's is 10/100) through a tail-drop
+/// queue of `queue_bytes`. Ten seconds of 60 fps frames at the encoder's
+/// per-frame budget, an 8x keyframe every five seconds, 20% FEC and
+/// encryption, packetized and paced as the host sends them.
+fn client_port(encoder_kbps: u32, pacing_kbps: i64, queue_bytes: usize) -> ClientPort {
+    use crate::network_pacing::{
+        Pacer, batch_payload_limit, overhead, rate_bps, video_wire_rate_bps,
+    };
+    let packetizer = crate::packet::VideoPacketizer {
+        sequence: 0,
+        iv_counter: 0,
+        frame: 1,
+        packet_size: 1392,
+        fec_percent: 20,
+        min_fec: 2,
+        key: Some([0; 16]),
+    };
+    let period = Duration::from_secs_f64(1. / 60.);
+    let needed = video_wire_rate_bps(&packetizer, encoder_kbps, period, false);
+    let bps = rate_bps(pacing_kbps, encoder_kbps, 1_000_000_000, false, needed);
+    let datagram = packetizer.packet_size + 16 + 32;
+    let per_batch = (batch_payload_limit(bps, datagram, false, 64 * 1024) / datagram).max(1);
+    let wire = |bps: f64| Duration::from_secs_f64((datagram + overhead(false)) as f64 * 8. / bps);
+    let (host_time, port_time) = (wire(1e9), wire(100e6));
+    let capacity = Duration::from_secs_f64(queue_bytes as f64 * 8. / 100e6);
+    let start = Instant::now();
+    let mut pacer = Pacer::new(start);
+    let (mut now, mut drained_at) = (start, start);
+    let mut result = ClientPort {
+        unrecoverable_frames: 0,
+        lost_packets: 0,
+        standing_queue: Duration::ZERO,
+    };
+    for frame in 0..600u32 {
+        now = now.max(start + period * frame);
+        let payload = (f64::from(encoder_kbps) * 125. * period.as_secs_f64()).ceil() as usize
+            * if frame % 300 == 0 { 8 } else { 1 };
+        let mut failed = false;
+        for (data, fec) in packetizer.block_layout(payload) {
+            let (mut lost_data, mut parity) = (0, 0);
+            let mut sent = 0;
+            while sent < data + fec {
+                now = now.max(pacer.due());
+                let count = (data + fec - sent).min(per_batch);
+                for index in sent..sent + count {
+                    now += host_time;
+                    let done = drained_at.max(now) + port_time;
+                    if done.saturating_duration_since(now) <= capacity {
+                        drained_at = done;
+                        parity += usize::from(index >= data);
+                    } else {
+                        result.lost_packets += 1;
+                        lost_data += usize::from(index < data);
+                    }
+                }
+                pacer.sent(now, count * datagram, count, false, bps);
+                sent += count;
+            }
+            failed |= lost_data > parity;
+        }
+        result.unrecoverable_frames += usize::from(failed);
+    }
+    result.standing_queue = drained_at.saturating_duration_since(now);
+    result
+}
+#[test]
+fn warp_requests_at_the_clients_bitrate_fit_a_100_mbps_client_port() {
+    // 1 MiB holds about 84 ms at 100 Mbps, near the 78-80 ms round trip an
+    // Onn client on Ethernet reported; 16 KiB is a shallow switch queue.
+    let deep = 1024 * 1024;
+    for warp in [1, 2, 4] {
+        let mut stream = artemis_announce(60 * warp);
+        apply(&mut stream, 60_000, &Config::default());
+        for queue in [deep, 16 * 1024] {
+            let capped = client_port(stream.bitrate_kbps, 80_000, queue);
+            assert_eq!(capped.lost_packets, 0, "warp {warp}, {queue} B: {capped:?}");
+            assert_eq!(capped.unrecoverable_frames, 0);
+            assert!(capped.standing_queue < Duration::from_millis(15));
+        }
+        // The default 800 Mbps bursts need the deep queue, but fit it.
+        let default = client_port(stream.bitrate_kbps, 0, deep);
+        assert_eq!(default.unrecoverable_frames, 0, "warp {warp}: {default:?}");
+    }
+    // Negative control, the previous policy: Warp 2 multiplied the 40 Mbps
+    // budget by four. About 165 Mbps cannot fit the port: the queue stays
+    // full, as an 80 ms round trip on a LAN shows, and nearly every frame dies.
+    let previous = 40_000 * 4 * 80 / 100 - 192 - 500;
+    let overloaded = client_port(previous, 0, deep);
+    assert!(overloaded.unrecoverable_frames > 540, "{overloaded:?}");
+    assert!(overloaded.standing_queue > Duration::from_millis(75));
 }
 /// Claims (ms, true present ms) for a source pacing on the given stamps, as
 /// the host paces WGC: `arrival` stamps each frame when it was detected, as

@@ -773,7 +773,10 @@ async fn a_session_change_during_launch_or_resume_releases_unaccepted_preparatio
                 .push(butterpollo_core::state::PrepCommand {
                     r#do: format!("echo prepared>\"{}\"", undo_marker.display()),
                     undo: format!("echo undone>>\"{}\"", undo_marker.display()),
-                    elevated: false,
+                    // CI administrators may have no linked non-elevated
+                    // token. Use the existing runner context, as the process
+                    // lifecycle fixtures do; never request UAC elevation.
+                    elevated: butterpollo_windows::process::user_environment().is_err(),
                     extra: Default::default(),
                 });
         }

@@ -5571,6 +5571,12 @@ Formatting, strict all-target Clippy and all five release-tooling checks also
 passed. Independent final code and documentation review found no actionable
 regressions; it did not perform a live Windows session transfer.
 
+The first combined Windows CI run failed the new undo-marker fixture before
+the session gate: its administrator runner had no linked non-elevated token
+(`0x80070520`). The fixture now uses the same existing-runner-context selection
+as the project's process lifecycle tests. The real prep/undo assertion remains,
+and no production permission policy or session check was relaxed.
+
 ## Hardware covered
 
 Measurements ran with AMD AMF on an RX 7900 XT host, with real-client Wi-Fi

@@ -2,6 +2,7 @@ package com.limelight.ui;
 
 import android.app.Application;
 import android.os.Bundle;
+import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.View;
 import android.widget.FrameLayout;
@@ -16,6 +17,7 @@ import org.robolectric.Robolectric;
 import org.robolectric.RobolectricTestRunner;
 import org.robolectric.android.controller.ActivityController;
 import org.robolectric.annotation.Config;
+import org.robolectric.shadows.ShadowLooper;
 import org.robolectric.util.ReflectionHelpers;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -23,6 +25,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 import static org.junit.Assert.*;
 
 @RunWith(RobolectricTestRunner.class)
@@ -212,18 +215,42 @@ public class GameTouchControlsTest {
         }
     }
 
-    @Test public void controlsCannotTakeKeyboardFocusFromTheStream() {
+    @Test public void enterAndSpaceReachTheStreamInsteadOfActivatingAControl() {
         try (ActivityController<Screen> controller = Robolectric.buildActivity(Screen.class).setup()) {
             Screen screen = controller.get();
             saveMouseLayout(screen, "keys", "Fire", 1, false);
             List<String> transitions = new ArrayList<>();
+            List<String> streamKeys = new ArrayList<>();
+            FrameLayout content = screen.findViewById(android.R.id.content);
+            // The stream view takes keys for the host the way Game sets it up.
+            StreamView stream = new StreamView(screen);
+            stream.setFocusable(true);
+            stream.setFocusableInTouchMode(true);
+            stream.setOnKeyListener((view, keyCode, event) -> {
+                streamKeys.add(keyCode + (event.getAction() == KeyEvent.ACTION_DOWN ? " down" : " up"));
+                return true;
+            });
+            content.addView(stream);
             GameTouchControls controls = controls(screen, "keys", transitions);
-            ((FrameLayout) screen.findViewById(android.R.id.content)).addView(controls);
-            View button = button(controls);
-            // Enter and Space must reach the host instead of activating a focused control.
-            assertFalse(button.isFocusable());
-            assertFalse(button.requestFocus());
-            assertTrue(transitions.isEmpty());
+            content.addView(controls);
+            ShadowLooper.idleMainLooper();
+            // A hardware keyboard takes the window out of touch mode, where focus can move by key.
+            assertTrue(stream.requestFocusFromTouch());
+
+            // Accessibility and keyboard navigation try to move focus onto the control.
+            button(controls).requestFocus();
+            View next = stream.focusSearch(View.FOCUS_FORWARD);
+            if (next != null) next.requestFocus();
+            for (int key : new int[] {KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_SPACE}) {
+                screen.dispatchKeyEvent(new KeyEvent(KeyEvent.ACTION_DOWN, key));
+                screen.dispatchKeyEvent(new KeyEvent(KeyEvent.ACTION_UP, key));
+            }
+            ShadowLooper.idleMainLooper(100, TimeUnit.MILLISECONDS);
+
+            int enter = KeyEvent.KEYCODE_ENTER, space = KeyEvent.KEYCODE_SPACE;
+            assertEquals(Arrays.asList(enter + " down", enter + " up", space + " down", space + " up"), streamKeys);
+            assertEquals("A control took the keys meant for the host", Collections.emptyList(), transitions);
+            assertTrue(stream.isFocused());
         }
     }
 

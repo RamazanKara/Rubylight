@@ -164,6 +164,41 @@ public class ControllerInputReleaseTest {
     }
 
     @Test
+    public void usbMotionStopsWhileTheMenuHasFocus() {
+        try (ActivityController<Activity> activity = Robolectric.buildActivity(Activity.class).create()) {
+            RecordingConnection connection = new RecordingConnection();
+            PreferenceConfiguration prefs = new PreferenceConfiguration();
+            prefs.gamepadMotionSensors = true;
+            ControllerHandler handler = new ControllerHandler(activity.get(), connection, null, prefs);
+            Map<Integer, ControllerHandler.UsbDeviceContext> usb = ReflectionHelpers.getField(handler, "usbDeviceContexts");
+            ControllerHandler.UsbDeviceContext context = handler.new UsbDeviceContext();
+            context.assignedControllerNumber = true;
+            context.buttonMap = new ControllerButtonMap();
+            UsbController pad = new UsbController();
+            pad.motion();
+            context.device = pad;
+            usb.put(3, context);
+            try {
+                handler.reportControllerMotion(3, MoonBridge.LI_MOTION_TYPE_GYRO, 10, 20, 30);
+                assertEquals(1, connection.motions.size());
+                handler.setInputEnabled(false);
+                assertEquals("Opening the menu stops the turning camera", 2, connection.motions.size());
+                assertArrayEquals(new float[] {MoonBridge.LI_MOTION_TYPE_GYRO, 0, 0, 0}, connection.motions.get(1), 0);
+                handler.reportControllerMotion(3, MoonBridge.LI_MOTION_TYPE_GYRO, 10, 20, 30);
+                handler.reportControllerMotion(3, MoonBridge.LI_MOTION_TYPE_ACCEL, 1, 2, 3);
+                assertEquals("Motion must not reach the host behind the menu", 2, connection.motions.size());
+                handler.setInputEnabled(true);
+                handler.reportControllerMotion(3, MoonBridge.LI_MOTION_TYPE_GYRO, 10, 20, 30);
+                assertEquals(3, connection.motions.size());
+                assertArrayEquals(new float[] {MoonBridge.LI_MOTION_TYPE_GYRO, 10, 20, 30}, connection.motions.get(2), 0);
+            } finally {
+                usb.clear();
+                handler.destroy();
+            }
+        }
+    }
+
+    @Test
     public void usbReportsCannotRestoreHeldInputWhileTheMenuHasFocus() {
         try (ActivityController<Activity> activity = Robolectric.buildActivity(Activity.class).create()) {
             RecordingConnection connection = new RecordingConnection();
@@ -250,6 +285,10 @@ public class ControllerInputReleaseTest {
             capabilities = MoonBridge.LI_CCAP_TOUCHPAD;
         }
 
+        void motion() {
+            capabilities |= MoonBridge.LI_CCAP_ACCEL | MoonBridge.LI_CCAP_GYRO;
+        }
+
         @Override public boolean start() { return true; }
         @Override public void stop() { }
         @Override public void rumble(short low, short high) { }
@@ -260,6 +299,7 @@ public class ControllerInputReleaseTest {
         final List<int[]> states = new ArrayList<>();
         final List<Byte> mouseUps = new ArrayList<>();
         final List<Byte> touches = new ArrayList<>();
+        final List<float[]> motions = new ArrayList<>();
 
         RecordingConnection() {
             super(null, new ComputerDetails.AddressTuple("127.0.0.1", 47989), 47984, "test",
@@ -278,6 +318,11 @@ public class ControllerInputReleaseTest {
         @Override public int sendControllerTouchEvent(byte number, byte event, int pointer,
                                                      float x, float y, float pressure) {
             touches.add(event);
+            return 0;
+        }
+
+        @Override public int sendControllerMotionEvent(byte number, byte type, float x, float y, float z) {
+            motions.add(new float[] {type, x, y, z});
             return 0;
         }
     }

@@ -133,7 +133,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
     private boolean hasGameController;
     private volatile boolean stopped = false;
     private volatile boolean sensorsEnabled = true;
-    private boolean inputEnabled = true;
+    private volatile boolean inputEnabled = true;
 
     private final PreferenceConfiguration prefConfig;
     private short currentControllers, initialControllers;
@@ -327,6 +327,10 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         }
         for (InputDeviceContext context : inputDeviceContexts.values()) {
             releaseInput(context);
+            if (context.assignedControllerNumber && context.gyroListener != null) {
+                // Motion stops with the rest of the input; a held angular velocity keeps turning the camera.
+                conn.sendControllerMotionEvent((byte) context.controllerNumber, MoonBridge.LI_MOTION_TYPE_GYRO, 0, 0, 0);
+            }
         }
         for (UsbDeviceContext context : usbDeviceContexts.values()) {
             releaseInput(context);
@@ -337,6 +341,9 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
             if ((context.device.getCapabilities() & MoonBridge.LI_CCAP_TOUCHPAD) != 0) {
                 conn.sendControllerTouchEvent((byte) context.controllerNumber, MoonBridge.LI_TOUCH_EVENT_CANCEL_ALL,
                         0, 0, 0, 0);
+            }
+            if (prefConfig.gamepadMotionSensors && (context.device.getCapabilities() & MoonBridge.LI_CCAP_GYRO) != 0) {
+                conn.sendControllerMotionEvent((byte) context.controllerNumber, MoonBridge.LI_MOTION_TYPE_GYRO, 0, 0, 0);
             }
         }
         releaseInput(defaultContext);
@@ -2360,7 +2367,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
 
             @Override
             public void onSensorChanged(SensorEvent sensorEvent) {
-                if (stopped || !sensorsEnabled) {
+                if (stopped || !sensorsEnabled || !inputEnabled) {
                     return;
                 }
                 // Android will invoke our callback any time we get a new reading,
@@ -3102,7 +3109,8 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
     @Override
     public void reportControllerMotion(int controllerId, byte motionType, float x, float y, float z) {
         UsbDeviceContext context = usbDeviceContexts.get(controllerId);
-        if (!stopped && sensorsEnabled && prefConfig.gamepadMotionSensors && context != null && context.assignedControllerNumber) {
+        if (!stopped && inputEnabled && sensorsEnabled && prefConfig.gamepadMotionSensors && context != null &&
+                context.assignedControllerNumber) {
             conn.sendControllerMotionEvent((byte)context.controllerNumber, motionType, x, y, z);
         }
     }

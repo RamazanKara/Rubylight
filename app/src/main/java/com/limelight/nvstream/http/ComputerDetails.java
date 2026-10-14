@@ -88,6 +88,7 @@ public class ComputerDetails {
     public int externalPort;
     public PairingManager.PairState pairState;
     public int runningGameId;
+    public boolean sessionIdle;
     public String runningGameUuid;
     public String rawAppList;
     public boolean nvidiaServer;
@@ -213,6 +214,7 @@ public class ComputerDetails {
         this.httpsPort = details.httpsPort;
         this.pairState = details.pairState;
         this.runningGameId = details.runningGameId;
+        this.sessionIdle = details.sessionIdle;
         this.runningGameUuid = details.runningGameUuid;
         this.nvidiaServer = details.nvidiaServer;
         this.rawAppList = details.rawAppList;

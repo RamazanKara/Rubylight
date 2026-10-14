@@ -453,6 +453,8 @@ public class NvHTTP {
 
         details.pairState = getPairState(serverInfo);
         details.runningGameId = getCurrentGame(serverInfo);
+        // An unknown state also produces game ID 0, but does not confirm an exit.
+        details.sessionIdle = getXmlString(serverInfo, "state", true).endsWith("_SERVER_FREE");
         details.runningGameUuid = getXmlString(serverInfo, "currentgameuuid", false);
         readClientCapabilities(details, serverInfo);
 

@@ -229,6 +229,129 @@ public class GameRecoveryTest {
         @Implementation public static String stringifyPortFlags(int portFlags, String separator) {
             return Integer.toString(portFlags);
         }
+        @Implementation public static int getPortFlagsFromTerminationErrorCode(int errorCode) { return 0; }
+    }
+
+    @Test
+    @Config(shadows = RecoveryBridge.class, instrumentedPackages = "com.limelight.nvstream.jni")
+    public void confirmedHostExitFinishesWithoutAnErrorOrRetryWithRecoveryOnOrOff() {
+        for (boolean recoveryEnabled : new boolean[] {false, true}) {
+            Game game = establishedGame();
+            PreferenceConfiguration prefs = ReflectionHelpers.getField(game, "prefConfig");
+            prefs.autoReconnect = recoveryEnabled;
+            AtomicInteger probes = new AtomicInteger();
+            ReflectionHelpers.setField(game, "conn", new MuteConnection() {
+                @Override public boolean hasEndedSession() { probes.incrementAndGet(); return true; }
+            });
+            RecoveryBridge.connectivityTests = 0;
+            try {
+                game.connectionTerminated(-1);
+                assertEquals(1, probes.get());
+                assertTrue(game.isFinishing());
+                assertNull(ReflectionHelpers.getField(game, "pendingRecovery"));
+                assertNull(ReflectionHelpers.getField(game, "streamMenu"));
+                assertEquals(0, RecoveryBridge.connectivityTests);
+                assertNull(org.robolectric.Shadows.shadowOf(game).getNextStartedActivity());
+            } finally {
+                cleanupRecovery(game);
+            }
+        }
+    }
+
+    @Test
+    @Config(shadows = RecoveryBridge.class, instrumentedPackages = "com.limelight.nvstream.jni")
+    public void unconfirmedDisconnectStillRetriesOrShowsTheOriginalErrorAndKeepsItsReason() {
+        for (boolean recoveryEnabled : new boolean[] {false, true}) {
+            Game game = establishedGame();
+            PreferenceConfiguration prefs = ReflectionHelpers.getField(game, "prefConfig");
+            prefs.autoReconnect = recoveryEnabled;
+            ReflectionHelpers.setField(game, "conn", new MuteConnection() {
+                @Override public boolean hasEndedSession() { return false; }
+            });
+            try {
+                game.connectionTerminated(-1);
+                assertFalse(game.isFinishing());
+                assertEquals(recoveryEnabled, ReflectionHelpers.getField(game, "pendingRecovery") != null);
+                assertEquals(!recoveryEnabled, ReflectionHelpers.getField(game, "streamMenu") != null);
+                assertTrue(LimeLog.getRedactedLog().contains("Connection terminated: -1"));
+            } finally {
+                cleanupRecovery(game);
+            }
+        }
+    }
+
+    @Test
+    @Config(shadows = RecoveryBridge.class, instrumentedPackages = "com.limelight.nvstream.jni")
+    public void explicitHostFailuresNeverBecomeGracefulExitsEvenWhenTheHostIsIdle() {
+        for (int error : new int[] {MoonBridge.ML_ERROR_PROTECTED_CONTENT, MoonBridge.ML_ERROR_FRAME_CONVERSION, 503}) {
+            Game game = establishedGame();
+            ReflectionHelpers.setField(game, "conn", new MuteConnection() {
+                @Override public boolean hasEndedSession() { throw new AssertionError("Explicit failure probed the host"); }
+            });
+            try {
+                game.connectionTerminated(error);
+                assertFalse(game.isFinishing());
+                assertNotNull(ReflectionHelpers.getField(game, "streamMenu"));
+                assertNull(ReflectionHelpers.getField(game, "pendingRecovery"));
+            } finally {
+                cleanupRecovery(game);
+            }
+        }
+    }
+
+    @Test
+    @Config(shadows = RecoveryBridge.class, instrumentedPackages = "com.limelight.nvstream.jni")
+    public void mediaFailuresKeepTheirRecoveryBehaviorWithoutBeingReclassifiedAsHostExits() throws Exception {
+        for (int error : new int[] {MoonBridge.ML_ERROR_NO_VIDEO_TRAFFIC, MoonBridge.ML_ERROR_NO_VIDEO_FRAME,
+                MoonBridge.ML_ERROR_UNEXPECTED_EARLY_TERMINATION}) {
+            Game game = establishedGame();
+            ReflectionHelpers.setField(game, "conn", new MuteConnection() {
+                @Override public boolean hasEndedSession() { throw new AssertionError("Media failure probed the host"); }
+            });
+            try {
+                game.connectionTerminated(error);
+                assertFalse(game.isFinishing());
+                assertNull(ReflectionHelpers.getField(game, "streamMenu"));
+                assertNotNull(ReflectionHelpers.getField(game, "pendingRecovery"));
+                assertTrue(awaitRecoveryLaunch(game, 1).getBooleanExtra("RecoveryMediaFailure", false));
+            } finally {
+                cleanupRecovery(game);
+            }
+        }
+    }
+
+    @Test
+    @Config(shadows = RecoveryBridge.class, instrumentedPackages = "com.limelight.nvstream.jni")
+    public void mediaFailureProvenanceSurvivesStartupRetriesUntilAManualReconnect() throws Exception {
+        Game game = recoveryGame();
+        game.setIntent(new Intent().putExtra("RecoveryAttempts", 1).putExtra("RecoveryMediaFailure", true));
+        ReflectionHelpers.setField(game, "connected", false);
+        ReflectionHelpers.setField(game, "connecting", true);
+        try {
+            game.stageFailed("Game", MoonBridge.ML_PORT_FLAG_TCP_47984 | MoonBridge.ML_PORT_FLAG_TCP_47989, 0);
+            assertTrue(awaitRecoveryLaunch(game, 1).getBooleanExtra("RecoveryMediaFailure", false));
+            Intent manual = ReflectionHelpers.callInstanceMethod(game, "createReconnectIntent");
+            assertFalse(manual.hasExtra("RecoveryMediaFailure"));
+        } finally {
+            cleanupRecovery(game);
+        }
+    }
+
+    @Test
+    @Config(shadows = RecoveryBridge.class, instrumentedPackages = "com.limelight.nvstream.jni")
+    public void anEndedSessionDuringRecoveryStartupFinishesWithoutAnotherAttempt() {
+        Game game = recoveryGame();
+        game.setIntent(new Intent().putExtra("RecoveryAttempts", 1));
+        ReflectionHelpers.setField(game, "connected", false);
+        ReflectionHelpers.setField(game, "connecting", true);
+        try {
+            game.connectionTerminated(MoonBridge.ML_ERROR_GRACEFUL_TERMINATION);
+            assertTrue(game.isFinishing());
+            assertNull(ReflectionHelpers.getField(game, "pendingRecovery"));
+            assertNull(ReflectionHelpers.getField(game, "streamMenu"));
+        } finally {
+            cleanupRecovery(game);
+        }
     }
 
     @Test public void lockResumePreservesCapturedIdentityOutputAndExistingRetryBudget() throws Exception {

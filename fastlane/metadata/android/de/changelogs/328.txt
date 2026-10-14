@@ -1,0 +1,2 @@
+Kehrt ohne falschen Verbindungsfehler zur Bibliothek zurück, wenn der PC bestätigt, dass das Spiel beendet wurde – auch während der automatischen Wiederverbindung.
+Die Bildschirmtastatur öffnet sich beim Streamstart auf Tablets nicht mehr automatisch. Sie kann weiterhin wie gewohnt manuell geöffnet werden.

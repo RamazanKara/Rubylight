@@ -36,6 +36,7 @@ public class StreamConfiguration {
     private int colorSpace;
     private boolean persistGamepadsAfterDisconnect;
     private boolean resumeOnly;
+    private boolean allowIdleSessionEnd = true;
 
     public static class Builder {
         private StreamConfiguration config = new StreamConfiguration();
@@ -48,6 +49,12 @@ public class StreamConfiguration {
         /** Recovery must never launch, replace or terminate an application. */
         public StreamConfiguration.Builder setResumeOnly(boolean resumeOnly) {
             config.resumeOnly = resumeOnly;
+            return this;
+        }
+
+        /** A retry after an explicit media failure must still report that the session was lost. */
+        public StreamConfiguration.Builder setAllowIdleSessionEnd(boolean allow) {
+            config.allowIdleSessionEnd = allow;
             return this;
         }
         
@@ -219,6 +226,10 @@ public class StreamConfiguration {
 
     public boolean isResumeOnly() {
         return resumeOnly;
+    }
+
+    public boolean isIdleSessionEndAllowed() {
+        return allowIdleSessionEnd;
     }
     
     public boolean getSops() {

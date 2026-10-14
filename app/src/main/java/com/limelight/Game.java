@@ -462,6 +462,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     public static final String EXTRA_SERVER_CERT = "ServerCert";
     private static final String EXTRA_RECOVERY_ATTEMPTS = "RecoveryAttempts";
     private static final String EXTRA_RECOVERY_STARTED = "RecoveryStarted";
+    private static final String EXTRA_RECOVERY_MEDIA_FAILURE = "RecoveryMediaFailure";
     private static final String EXTRA_MICROPHONE_MUTED = "rubylight.microphoneMuted";
 
     @Override
@@ -814,6 +815,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 .setRefreshRate(chosenFrameRate)
                 .setApp(app)
                 .setResumeOnly(isResumeOnlyStream())
+                .setAllowIdleSessionEnd(!getIntent().getBooleanExtra(EXTRA_RECOVERY_MEDIA_FAILURE, false))
                 .setBitrate(prefConfig.bitrate)
                 .setEnableSops(prefConfig.enableSops)
                 .enableLocalAudioPlayback(prefConfig.playHostAudio)
@@ -2560,6 +2562,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         Intent retry = createStreamHandoffIntent();
         retry.removeExtra(EXTRA_RECOVERY_ATTEMPTS);
         retry.removeExtra(EXTRA_RECOVERY_STARTED);
+        retry.removeExtra(EXTRA_RECOVERY_MEDIA_FAILURE);
         retry.removeExtra(EXTRA_OUTPUT_RESUME_ONLY);
         if (outputSwitchPending) {
             if (app == null || app.isControlAction()) return null;
@@ -4444,12 +4447,23 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     }
 
     @Override
-    public void connectionTerminated(final int errorCode) {
+    public void connectionTerminated(final int reportedErrorCode) {
         LimeLog.info("Stream disconnected");
-        // Retry promptly; a diagnostic network probe would delay teardown and reconnect.
+        if (reportedErrorCode == MoonBridge.ML_ERROR_GRACEFUL_TERMINATION) {
+            LimeLog.info("Connection terminated: the PC ended the stream");
+        } else {
+            LimeLog.severe("Connection terminated: " + terminationDescription(reportedErrorCode));
+        }
+        // Some hosts close the transport before their graceful termination packet arrives.
+        // Verify an idle host before either retrying or showing an error, even with recovery off.
+        final boolean endedSession = connected && StreamRecoveryPolicy.transportTermination(reportedErrorCode) &&
+                conn != null && conn.hasEndedSession();
+        final int errorCode = endedSession ? MoonBridge.ML_ERROR_GRACEFUL_TERMINATION : reportedErrorCode;
+        if (endedSession) LimeLog.info("Connection terminated: the PC ended the previous session");
         final int portFlags = MoonBridge.getPortFlagsFromTerminationErrorCode(errorCode);
         final boolean transientFailure = StreamRecoveryPolicy.transientTermination(errorCode);
-        final int portTestResult = transientFailure && prefConfig != null && prefConfig.autoReconnect ?
+        final int portTestResult = errorCode == MoonBridge.ML_ERROR_GRACEFUL_TERMINATION ||
+                (transientFailure && prefConfig != null && prefConfig.autoReconnect) ?
                 MoonBridge.ML_TEST_RESULT_INCONCLUSIVE :
                 MoonBridge.testClientConnectivity(ServerHelper.CONNECTION_TEST_SERVER,443, portFlags);
 
@@ -4458,6 +4472,11 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             public void run() {
                 if (isFinishing() || isDestroyed()) {
                     return;
+                }
+                if (transientFailure && !StreamRecoveryPolicy.transportTermination(errorCode)) {
+                    // Keep explicit media/early failures visible if a later recovery attempt
+                    // finds the host idle. Transport startup retries carry this same flag.
+                    getIntent().putExtra(EXTRA_RECOVERY_MEDIA_FAILURE, true);
                 }
                 if (transientFailure && tryAutomaticRecovery()) return;
                 if (!foreground && transientFailure) rememberStreamForResume();
@@ -4472,11 +4491,6 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
 
                 if (!displayedFailureDialog) {
                     displayedFailureDialog = true;
-                    if (errorCode == MoonBridge.ML_ERROR_GRACEFUL_TERMINATION) {
-                        LimeLog.info("Connection terminated: the PC ended the stream");
-                    } else {
-                        LimeLog.severe("Connection terminated: " + terminationDescription(errorCode));
-                    }
                     stopConnection();
 
                     // Display the error dialog if it was an unexpected termination.
@@ -4596,6 +4610,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 }
 
                 connected = true;
+                getIntent().removeExtra(EXTRA_RECOVERY_MEDIA_FAILURE);
                 bitrateHandler.removeCallbacks(sampleStreamHealth);
                 bitrateHandler.postDelayed(sampleStreamHealth, 1000);
                 connectedAt = SystemClock.elapsedRealtime();

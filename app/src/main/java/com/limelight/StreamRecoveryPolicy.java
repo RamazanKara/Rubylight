@@ -38,6 +38,12 @@ final class StreamRecoveryPolicy {
         // Native media timeouts and explicit transport errors. In particular, graceful (0),
         // protected content (-103), conversion (-104) and unrecognized host errors never retry.
         if (code == -100 || code == -101 || code == -102) return true;
+        return transportTermination(code);
+    }
+
+    static boolean transportTermination(int code) {
+        // Only ambiguous transport failures can stand in for a lost host-exit packet.
+        // Media timeouts and an early host exit must retain their original meaning.
         switch (code) {
             case -1: // An ENet transport failure has no platform errno.
             case 32: case 54: case 57: case 60: case 64:

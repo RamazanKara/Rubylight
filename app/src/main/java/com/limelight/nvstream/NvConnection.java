@@ -58,6 +58,7 @@ import com.limelight.preferences.HostDisplayChoice;
 import com.limelight.preferences.PreferenceConfiguration;
 
 public class NvConnection {
+    private static final class SessionEndedException extends IOException {}
     // Context parameters
     private LimelightCryptoProvider cryptoProvider;
     private String uniqueId;
@@ -562,6 +563,9 @@ public class NvConnection {
         if (context.streamConfig.isResumeOnly() &&
                 (app.getControl() != NvApp.Control.NONE ||
                         !app.matchesRunningApp(details.runningGameId, details.runningGameUuid))) {
+            if (details.runningGameId == 0 && context.streamConfig.isIdleSessionEndAllowed() && hasEndedSession(h)) {
+                throw new SessionEndedException();
+            }
             context.connListener.displayMessage(appContext.getString(R.string.stream_recovery_session_changed));
             return false;
         }
@@ -687,6 +691,10 @@ public class NvConnection {
             try {
                 if (app.matchesRunningApp(details.runningGameId, details.runningGameUuid)) {
                     if (!launchApp(h, context, "resume")) {
+                        if (context.streamConfig.isResumeOnly() && context.streamConfig.isIdleSessionEndAllowed() &&
+                                hasEndedSession(h)) {
+                            throw new SessionEndedException();
+                        }
                         context.connListener.displayMessage(appContext.getString(R.string.startup_resume_failed));
                         return false;
                     }
@@ -698,6 +706,12 @@ public class NvConnection {
                     return quitAndLaunch(h, context);
                 }
             } catch (HostHttpResponseException e) {
+                // The app can exit between serverinfo and /resume. A 503 alone is not
+                // evidence of an exit; encoder failures and a busy host remain errors.
+                if (context.streamConfig.isResumeOnly() && context.streamConfig.isIdleSessionEndAllowed() &&
+                        e.getErrorCode() == 503 && hasEndedSession(h)) {
+                    throw new SessionEndedException();
+                }
                 if (e.getErrorCode() == 470) {
                     // This is the error you get when you try to resume a session that's not yours.
                     // Because this is fairly common, we'll display a more detailed message.
@@ -879,6 +893,10 @@ public class NvConnection {
                     }
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
+                } catch (SessionEndedException e) {
+                    if (!stopRequested) {
+                        context.connListener.connectionTerminated(MoonBridge.ML_ERROR_GRACEFUL_TERMINATION);
+                    }
                 } catch (HostHttpResponseException e) {
                     if (!stopRequested) {
                         e.printStackTrace();
@@ -1014,6 +1032,31 @@ public class NvConnection {
         }
         hostDetails = details;
         return details;
+    }
+
+    /** Confirm an intentional host exit without mistaking an unreachable host for an idle one. */
+    public boolean hasEndedSession() {
+        NvHTTP connection;
+        synchronized (this) {
+            if (stopRequested || http == null) return false;
+            connection = http;
+        }
+        return hasEndedSession(connection);
+    }
+
+    private boolean hasEndedSession(NvHTTP connection) {
+        NvApp app = context.streamConfig.getApp();
+        if (stopRequested || app.getRole() != NvApp.Role.STREAM || app.isControlAction()) return false;
+        try {
+            // Pinned HTTPS, no HTTP fallback, and a three-second deadline. stop() also
+            // cancels this request so leaving the activity cannot strand teardown.
+            ComputerDetails details = connection.probePairedComputer();
+            return !stopRequested && details.pairState == PairingManager.PairState.PAIRED &&
+                    details.hasPermission(ComputerDetails.PERMISSION_VIEW | ComputerDetails.PERMISSION_LAUNCH) &&
+                    details.sessionIdle && details.runningGameId == 0;
+        } catch (IOException | XmlPullParserException e) {
+            return false;
+        }
     }
 
     public String getClipboard() throws IOException, XmlPullParserException {

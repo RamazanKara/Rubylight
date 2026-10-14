@@ -1,7 +1,13 @@
 package com.limelight;
 
 import android.app.Application;
+import android.content.ComponentName;
+import android.content.Context;
 import android.view.KeyEvent;
+import android.view.WindowManager;
+import android.view.inputmethod.EditorInfo;
+import android.view.inputmethod.InputConnection;
+import android.view.inputmethod.InputMethodManager;
 import android.widget.FrameLayout;
 
 import com.limelight.binding.input.KeyboardTranslator;
@@ -24,12 +30,48 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.Assert.*;
+import static org.robolectric.Shadows.shadowOf;
 
 @RunWith(RobolectricTestRunner.class)
 @Config(sdk = 29, application = Application.class,
         shadows = PcViewLifecycleTest.NoNativeMoonBridge.class,
         instrumentedPackages = "com.limelight.nvstream.jni")
 public class GameKeyboardOverlayTest {
+    @Test
+    @Config(sdk = {29, 36}, qualifiers = "sw800dp-land")
+    public void tabletStreamDoesNotAutomaticallyOpenSoftwareKeyboard() throws Exception {
+        Game game = game(new RecordingConnection());
+        int softInputMode = game.getPackageManager().getActivityInfo(
+                new ComponentName(game, Game.class), 0).softInputMode;
+        // StreamView must retain text-editor support for the explicit keyboard action, but
+        // its initial focus must not trigger Android's large-screen automatic IME policy.
+        assertEquals(WindowManager.LayoutParams.SOFT_INPUT_STATE_HIDDEN,
+                softInputMode & WindowManager.LayoutParams.SOFT_INPUT_MASK_STATE);
+        assertTrue(new StreamView(game).onCheckIsTextEditor());
+    }
+
+    @Test
+    public void softwareKeyboardCanStillBeOpenedAndSendTextOnRequest() {
+        RecordingConnection connection = new RecordingConnection();
+        Game game = game(connection);
+        StreamView stream = new StreamView(game);
+        stream.setFocusableInTouchMode(true);
+        stream.setInputCallbacks(game);
+        game.setContentView(stream);
+        ReflectionHelpers.setField(game, "streamView", stream);
+        InputMethodManager input = (InputMethodManager) game.getSystemService(Context.INPUT_METHOD_SERVICE);
+        assertFalse(shadowOf(input).isSoftInputVisible());
+
+        game.toggleKeyboard();
+
+        assertTrue(shadowOf(input).isSoftInputVisible());
+        assertTrue(stream.hasFocus());
+        InputConnection editor = stream.onCreateInputConnection(new EditorInfo());
+        assertNotNull(editor);
+        assertTrue(editor.commitText("Hello, world!", 1));
+        assertEquals(java.util.Collections.singletonList("Hello, world!"), connection.text);
+    }
+
     @Test
     public void taskManagerShortcutReleasesKeysInReverseOrder() {
         RecordingConnection connection = new RecordingConnection();
@@ -122,6 +164,7 @@ public class GameKeyboardOverlayTest {
 
     private static class RecordingConnection extends NvConnection {
         final List<int[]> keys = new ArrayList<>();
+        final List<String> text = new ArrayList<>();
         boolean inputAllowed = true;
 
         RecordingConnection() {
@@ -130,6 +173,7 @@ public class GameKeyboardOverlayTest {
         }
 
         @Override public boolean canSendInput() { return inputAllowed; }
+        @Override public void sendUtf8Text(String value) { text.add(value); }
         @Override public void sendKeyboardInput(short key, byte direction, byte modifiers, byte flags) {
             keys.add(new int[] {key & 0xffff, direction, modifiers});
         }

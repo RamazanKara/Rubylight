@@ -16,6 +16,7 @@ The stream card shows the active encoder and warnings for the current session. E
 - **Physical display, refresh, HDR or limiter:** the requested setup is unavailable, unsupported or owned by another stream. Check the actual display mode and RTSS. A 60 Hz source cannot supply 116 fresh pictures per second.
 - **Audio:** a missing virtual sink can send sound to the host's speakers. Device changes and capture failures can pause sound. The host-loss warning names what was lost: sound Windows dropped because the host's audio sender read too late (a busy CPU or a host problem, not bitrate), or audio packets the network adapter refused (lower the video bitrate or check the adapter).
 - **Bitrate, pacing or FEC:** the encoder/wire budget was limited, packets were dropped, or large frames lost FEC protection. Check Maximum bitrate and the client bitrate. Runtime bitrate updates have a 500 Mbps cap. Leave headroom for audio, packet headers and FEC.
+- **AMF rate-control limit rejected:** the driver accepted the target bitrate but refused a peak-rate, buffer or frame-size limit. Later bitrate changes retry using that limit's last accepted scaling basis; an unreadable property does not clear its warning. If it persists, reconnect at the desired bitrate or update the AMD driver.
 - **Input:** the selected driver or Windows input API is unavailable. Video continues; repair the named driver or choose a supported profile.
 - **PyroWave:** the client negotiated another codec, or bitrate/recovery protection is insufficient. Use a PyroWave-capable client and a fast wired network, or choose HEVC/AV1.
 
@@ -62,6 +63,8 @@ Separate the host's HDR source, the negotiated stream and the client's display o
 
 Version 2.2.16 and earlier can retain stale display colour information after a mode change. The [2.2.17 HDR refresh fix](../rust/RELEASE_NOTES.md#new-in-2217) updates that information and reopens capture when its colour space changes. On older versions, if HDR was enabled after the stream started, reconnect once with HDR already enabled on the selected host display and compare the same scene. Include the log from stream startup, especially `stream configured`, `source_pixel`, `hdr`, `full_range`, and any AMF range or HDR-metadata warnings; a timing-only excerpt cannot establish the negotiated colour path.
 
+[2.2.18](../rust/RELEASE_NOTES.md#new-in-2218) also fixes missing or incorrectly scaled HDR metadata on native and FFmpeg NVENC paths, delivers changed metadata with a keyframe, and retries transient AMD metadata failures. An `AMF output range mismatch` or `AMF full-range output cannot be established` error now prevents an encoder from silently producing the wrong range. If no configured fallback works, reconnect with limited range, choose another supported encoder or update the AMD driver. Optional input-range properties rejected by older drivers remain nonfatal.
+
 If HDR looks washed out with no HDR badge on the TV, update the host: since 2.0.1 every client gets the HDR state once per stream ([#11](https://github.com/RamazanKara/Rubylight/issues/11)). Rubylight's native HEVC and AV1 HDR path is checked down to reference pixels; see the [native HDR record](../rust/PERFORMANCE.md#final-native-virtual-hdr-pixels-excluding-physical-panel-calibration).
 
 ## Audio cuts out or lags
@@ -99,6 +102,10 @@ None of the host timings measures the complete input-to-screen delay. Smoothness
 If the problem starts when the GPU is fully occupied, compare with a lower game frame cap or lighter graphics settings. If client network loss rises, reduce bitrate or compare a wired connection. If decoder time rises, reduce resolution/rate or select another hardware-decoded codec. Keep WGC and compute defaults for the baseline; use capture/compute overrides only for a recorded comparison. The published local tests do not establish results for every Radeon model or Wi-Fi connection.
 
 ## The picture freezes while audio and input continue
+
+Update to [2.2.18](../rust/RELEASE_NOTES.md#new-in-2218) if a busy shared capture gets stuck on an old picture after the desktop stops changing. Earlier versions could consume the final desktop update while every snapshot buffer was occupied. The host now retains the pending update until consumers release space. This specific fix does not diagnose an encoder or GPU-driver hang.
+
+If you explicitly use **Software** with HEVC, 2.2.18 also fixes recovery requests that produced ordinary intra pictures instead of decoder-resetting IDRs. This can leave a client unable to recover after reference loss on earlier versions.
 
 **Try AV1 first** when the client can decode it in hardware, then HEVC.
 

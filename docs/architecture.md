@@ -51,6 +51,8 @@ A captured texture can arrive before its producer has finished writing it. Rubyl
 
 Texture pools and native encoder queues are bounded. Texture ownership and per-frame HDR metadata survive until native codec references release them. Capture textures that cannot be shared use the D3D11 fallback. The [compute implementation](../rust/windows/src/compute.rs) and [synchronization measurements](../rust/PERFORMANCE.md#october-4-capture-copies-and-conversion-beside-a-game) contain the details.
 
+The capture snapshot pool holds at most eight textures. If consumers own them all, capture preserves a pending native update until space returns instead of consuming and losing it. WGC retains the newest pending frame, and Desktop Duplication waits before acquiring another frame. A blocked WGC publication uses normal polling rather than repeatedly waking on an expired deadline. This preserves the final update of a desktop that becomes static without growing a queue.
+
 ## WGC through the Windows service
 
 The service starts a hidden capture worker as the signed-in user, giving WGC access to the user's Windows capture broker. Three shared GPU textures transfer frames to the host; a local pipe carries bounded metadata and checks the participating process identities. The worker belongs to the capture session and closes with it.
@@ -64,6 +66,8 @@ WGC requests an explicit zero minimum update interval where Windows supports it.
 The native HDR path captures FP16 scRGB, resizes in linear light and converts to ten-bit BT.2020/PQ. Shader math preserves absolute ST.2084 luminance. Windows HDR detection distinguishes an active HDR output from wide-gamut SDR colour management. [Independent decoding and reference-pixel checks](performance.md#hdr-and-pyrowave-validation) verify the tested pixel path.
 
 Capture and HDR metadata share a cached description of the selected display. The cache checks the DXGI factory at most once per second and resolves the same output from a fresh factory when Windows invalidates it. Matching uses the display's owning adapter and monitor identity, independently of the encoder's GPU. An SDR/HDR colour-space change uses capture recovery to reopen the frame pool; a luminance-only change updates metadata without a capture restart. A missing output is never replaced by another monitor's description. This refresh is available in [2.2.17](../rust/RELEASE_NOTES.md#new-in-2217); live transition measurements remain pending.
+
+HDR mastering and content-light metadata use each codec's bitstream units. Native NVENC enables both messages on supported driver APIs; FFmpeg's NVENC backend receives initial side data before opening its codec. Encoded metadata changes request a keyframe, retained until the encoder accepts input. AMF separately tracks accepted properties and retries transient metadata failures with bounded backoff. After initialization, an observed AMF output-range mismatch fails encoder creation so the configured fallback can run; older drivers with unavailable range properties retain the documented limited-range default.
 
 **PyroWave provides full 10-bit HDR 4:4:4** through a separate encoder and shared D3D11/Vulkan path. D3D12 compute prepares its three planar textures; a shared fence orders conversion and Vulkan access, and the encoded bitstream returns to the CPU. If compute conversion is unavailable, PyroWave uses graphics-queue conversion. The [PyroWave integration](../rust/windows/src/pyrowave.rs) owns this handoff independently of AMF.
 

@@ -6,6 +6,7 @@ This is the dated measurement record. For a guided comparison, start with the [p
 
 | Find a result | Recorded evidence |
 | --- | --- |
+| HDR and recovery fixes | [October 14, 2.2.17 against 2.2.18](#october-14-hdr-and-recovery-fixes-2218) |
 | Rubylight 2.2.9 refresh | [October 12 released-package encoder probes](#october-12-rubylight-229-released-package-refresh) |
 | Radeon compute off/on | [1080p60 comparison](#1080p-at-60-fps) |
 | D3D11 4:2:0 fallback | [October 12 single-pass conversion](#october-12-single-pass-d3d11-420-conversion) |
@@ -5200,6 +5201,82 @@ reports through `BUTTERPOLLO_TEST_GPU_REPORT`. Run these serially and keep
 the explicitly loaded GPU pass separate from idle measurements. These
 source-built tests supplement the published-package probes; they are not
 additional downloaded release executables.
+
+## October 14 HDR and recovery fixes, 2.2.18
+
+Compared the published 2.2.17 portable executable with the 2.2.18 source-built
+release example on 2026-10-14: Ryzen 7 5800X3D, Radeon RX 7900 XT, AMD driver
+32.0.32015.2008, Windows 11 build 26200 and pinned Rust 1.98.1 GNU. These were
+component probes on an idle host, not streams through the installed service.
+The baseline ZIP SHA-256 was
+`80e3b7b6feec4bd2a252d76e203ff220a4ca776c60f4b0d95698f19e0cc63302`.
+
+Each row has three six-second measurements per build after a two-second
+warmup. Values below are the median of each run's mean, p95 and p99; they are
+not percentiles pooled across runs. Native AMF used 1920×1080, 120 FPS and
+20 Mbps with 16 synthetic pictures, SDR for H.264 and HDR output for HEVC/AV1.
+WGC used AV1 HDR output at the same settings, with both builds explicitly
+capturing the same 1092×984 desktop. This static-source check does not establish
+fresh-picture delivery or native HDR capture performance.
+
+| Native AMF workload | 2.2.17 mean / p95 / p99 (ms) | 2.2.18 mean / p95 / p99 (ms) | Encoded FPS before / after |
+| --- | ---: | ---: | ---: |
+| Synthetic H.264 SDR | 2.213 / 2.587 / 2.645 | 2.208 / 2.625 / 2.678 | 120.15 / 120.14 |
+| Synthetic HEVC HDR | 2.176 / 2.597 / 2.644 | 2.201 / 2.635 / 2.792 | 120.14 / 120.14 |
+| Synthetic AV1 HDR | 1.801 / 1.909 / 5.089 | 1.835 / 2.105 / 2.586 | 120.13 / 120.14 |
+| WGC to AV1 HDR | 1.870 / 2.289 / 2.684 | 1.889 / 2.593 / 2.662 | 120.13 / 120.14 |
+
+Native timings run from the encode request, including capacity checks and
+colour conversion, to observed output. They exclude capture age, network,
+decoding and display latency. The requested cadence was
+maintained; short-run tail timings were mixed, including higher HEVC p99 and
+WGC p95. These results do not establish a latency improvement or a universal
+non-regression result. Earlier WGC runs used different active display sizes
+(5120×1440 versus 1092×984); they were retained separately and excluded from
+this comparison. The replacement WGC runs alternated the two builds and
+checked source dimensions after every run.
+
+Software HEVC used 1280×720 SDR, 60 FPS, 10 Mbps, CPU input and a recovery
+request every 60 measured submissions. Its reported metric is the duration
+of the **encode call**, not the native request-to-output metric above:
+
+| Software workload | 2.2.17 mean / p95 / p99 (ms) | 2.2.18 mean / p95 / p99 (ms) | Encoded FPS before / after |
+| --- | ---: | ---: | ---: |
+| x265 with periodic recovery | 2.869 / 2.897 / 12.685 | 2.960 / 2.945 / 13.159 | 60.14 / 60.14 |
+
+The separate real x265 regression exposed missing recovery keyframes when
+requests arrived only a few frames apart. With explicit IDR output enabled,
+the unchanged expected sequence `[true, false, true, false, false, true, false]`
+passes, including metadata changes, unchanged/control-only metadata and an
+explicit recovery request. Its eight-bit fixture verifies encoded keyframe
+flags, not HDR pixels or NVENC behavior. The six-second performance runs have
+more widely spaced requests and are not the proof of that regression fix.
+
+Native AMD validation independently parsed HEVC/AV1 mastering and content-light
+metadata, BT.2020/PQ and full/limited range with FFprobe over 40 encoder
+configurations. Metadata updates alone produced the expected keyframes at
+frames 4 and 8, with no extra keyframe on unchanged frames. The earlier native
+HDR test also passed on the baseline. Seven additional native checks covered
+headless hardware encoding, WGC update intervals and reconnects, DDX snapshot
+immutability, full snapshot pools, D3D11 fallback and compute texture ownership.
+Ordinary tests exercise driver rejection/retry, per-property bitrate scaling,
+snapshot backpressure and NVENC API/metadata bookkeeping. NVIDIA hardware,
+live SDR/HDR switching, client presentation and physical TV calibration were
+not tested for this release.
+
+Reproduce the native synthetic probe with
+`butterpollo-performance.exe --encoder amf --codec av1 --hdr --width 1920 --height 1080 --fps 120 --bitrate 20000 --seconds 6 --synthetic 16 --paced`.
+Use `--codec h264` without `--hdr` or `--codec hevc` for the other codecs.
+For WGC replace `--synthetic 16` with `--live-capture --capture wgc --display NAME`
+and pin the same active output on both builds. For software use
+`--encoder software --codec hevc --width 1280 --height 720 --fps 60 --bitrate 10000 --seconds 6 --synthetic 16 --cpu --paced --idr-interval 60`.
+
+Raw JSON, stderr, executable hashes, hardware inventory and test logs are
+retained under
+`C:\Users\ramaz\Documents\Codex\2026-10-13\on-ruby-lite-or-ruby-lite\outputs\release-2.2.18`.
+`performance-summary.json` records the aggregates; `unmatched-display-*`
+contains the excluded WGC runs. `bench.ps1`, `bench-software.ps1`, `compare.py`
+and `native-tests.ps1` record the component commands.
 
 ## Hardware covered
 

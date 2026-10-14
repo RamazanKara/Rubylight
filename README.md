@@ -9,7 +9,7 @@
 
 <div align="center">
 
-**[Download 2.2.17](https://github.com/RamazanKara/Rubylight/releases/tag/v2.2.17)** · **[Get started](docs/getting-started.md)** · [Website](https://ramazankara.github.io/Rubylight/) · [Docs](docs/README.md) · [Android client](https://github.com/RamazanKara/rubylight-android)
+**[Download 2.2.18](https://github.com/RamazanKara/Rubylight/releases/tag/v2.2.18)** · **[Get started](docs/getting-started.md)** · [Website](https://ramazankara.github.io/Rubylight/) · [Docs](docs/README.md) · [Android client](https://github.com/RamazanKara/rubylight-android)
 
 <sub>Windows x64 · Free and open source · Formerly Butterpollo</sub>
 
@@ -33,7 +33,7 @@
 
 Rubylight works with Moonlight and other Sunshine-compatible clients across PCs, phones, tablets, TVs, consoles and handhelds. Available codecs, HDR and extra controls depend on your hardware and client. NVIDIA NVENC, Intel Quick Sync and software encoding are also included but Rubylight's tuning and measurements focus on Radeon.
 
-**New in 2.2.17:** refresh capture's HDR state when Windows changes the selected display, and update luminance metadata without restarting capture. [Release notes](rust/RELEASE_NOTES.md#new-in-2217) describe validation and remaining hardware checks.
+**New in 2.2.18:** correct HDR metadata delivery, recover transient AMD metadata failures, verify encoder colour range and retain the final desktop update when capture buffers are busy. [Release notes](rust/RELEASE_NOTES.md#new-in-2218) describe validation and hardware coverage.
 
 **New in 2.2.16:** optional [host bitrate adaptation](docs/configuration.md#host-bitrate-adaptation) for H.264, HEVC and AV1, [game-only audio](docs/configuration.md#game-only-audio) on Windows build 20348 or newer, and [paired Tailscale route diagnostics](docs/network-path.md). Host bitrate adaptation is experimental and off by default; System audio remains the default. [DualSense USB audio and controller continuity](docs/dualsense-haptics.md) work with matching clients such as Rubylight Android 0.4.9.
 
@@ -56,7 +56,7 @@ Encoder controls are under **Settings → Encoders → AMD AMF**. Native AMF sup
 
 ## Install. Pair. Play.
 
-1. **Install on your PC.** Run **`rubylight-setup-2.2.17.exe`** from the [release](https://github.com/RamazanKara/Rubylight/releases/tag/v2.2.17).
+1. **Install on your PC.** Run **`rubylight-setup-2.2.18.exe`** from the [release](https://github.com/RamazanKara/Rubylight/releases/tag/v2.2.18).
 2. **Open your console.** Visit **`https://localhost:47990`** on the host PC and create your local account.
 3. **Pair and play.** Open Moonlight on a device on the same network, select your PC, enter its PIN in Rubylight's **Devices** page, then launch **Desktop**.
 

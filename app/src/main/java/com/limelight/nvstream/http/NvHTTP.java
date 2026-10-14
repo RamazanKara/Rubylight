@@ -1169,9 +1169,14 @@ public class NvHTTP {
             throw new IllegalArgumentException("Not a remote role");
         }
         NvApp action = new NvApp("", role == NvApp.Role.REMOTE_MONITOR ? 2147483502 : 2147483503, false);
+        // Vibepollo answers a launch without a stream key or audio mode with 400 before it reads
+        // the tile (nvhttp.cpp launch). This one starts no stream, so a throwaway key does.
+        byte[] key = new byte[16];
+        new SecureRandom().nextBytes(key);
         try {
             getXmlString(openHttpConnectionToString(httpClientLongConnectTimeout, getHttpsUrl(true),
-                    "launch", "appid=" + action.getAppId()), "gamesession", true);
+                    "launch", "appid=" + action.getAppId() + "&rikey=" + bytesToHex(key) +
+                            "&rikeyid=0&localAudioPlayMode=0"), "gamesession", true);
         } catch (HostHttpResponseException e) {
             if (LaunchConfirmation.isCompleted(action, e)) {
                 return true;

@@ -280,8 +280,14 @@ public class NvHTTPRoleTest {
                             "Remote Input disconnected successfully.", true)}) {
                 client.set(http, new OkHttpClient.Builder().addInterceptor(chain -> {
                     requests.incrementAndGet();
-                    assertEquals("/launch", chain.request().url().encodedPath());
-                    assertEquals(monitor ? "2147483502" : "2147483503", chain.request().url().queryParameter("appid"));
+                    HttpUrl url = chain.request().url();
+                    assertEquals("/launch", url.encodedPath());
+                    assertEquals(monitor ? "2147483502" : "2147483503", url.queryParameter("appid"));
+                    // Vibepollo rejects a launch without these before it reads the tile.
+                    assertTrue(url.queryParameter("rikey").matches("[0-9A-F]{32}"));
+                    assertEquals("0", url.queryParameter("rikeyid"));
+                    assertEquals("0", url.queryParameter("localAudioPlayMode"));
+                    assertNull(url.queryParameter("appuuid"));
                     return new Response.Builder().request(chain.request()).protocol(Protocol.HTTP_1_1)
                             .code(200).message("OK").body(ResponseBody.create(xml, MediaType.get("application/xml"))).build();
                 }).build());

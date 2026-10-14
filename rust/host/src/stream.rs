@@ -1400,6 +1400,7 @@ impl Media {
                     // bitrate adaptation keep their own policies.
                     let automatic_pacing = c.adaptive_packet_pacing(s.config.codec);
                     s.configure_automatic_pacing(automatic_pacing);
+                    s.configure_keyframe_loss(c.keyframe_loss_pacing());
                     let mut packetizer = VideoPacketizer {
                         sequence: 0,
                         iv_counter: 0,
@@ -1597,6 +1598,8 @@ impl Media {
                                 needed,
                             );
                             let bps = s.video_pacing_bps(bps, needed);
+                            let safe = butterpollo_core::network_pacing::rate_bps(0, bitrate, route.bps, true, needed);
+                            let bps = s.keyframe_loss_bps(bps, safe, wire_frame, frame.idr);
                             if Instant::now() >= link_due {
                                 butterpollo_core::network_pacing::report_rate(&s.launch.warnings, bps, needed, c.integer("pacing_max_bitrate_kbps", 0));
                                 if reported_pacing != Some(bps) {
@@ -2221,7 +2224,7 @@ impl Media {
                             let invalidation = s.invalidation.lock().unwrap().take();
                             if let Some((first, last)) = invalidation {
                                 if !active.invalidate_ref_frames(first, last) {
-                                    s.request_idr();
+                                    s.request_recovery_keyframe();
                                 } else if active.needs_recovery_confirmation() {
                                     // A decoder that cannot follow the long-term
                                     // reference stays frozen, and Moonlight does not
@@ -2965,7 +2968,7 @@ impl Media {
                                 );
                             }
                             0x0301 => s.request_invalidation(0, 0),
-                            0x0302 => s.request_idr(),
+                            0x0302 => s.request_recovery_keyframe(),
                             // This dispatch receives only client-to-host packets;
                             // 0x5502 in the other direction is controller feedback.
                             0x5502 => s.record_fec_status(&payload),

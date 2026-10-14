@@ -229,6 +229,14 @@ impl Config {
             && !self.boolean("host_adaptive_bitrate", false)
             && codec < 3
     }
+    /// Pace like Wi-Fi once the client loses a keyframe (on by default). A
+    /// manual pacing limit and the opt-in adaptations keep their own policies.
+    pub fn keyframe_loss_pacing(&self) -> bool {
+        self.boolean("keyframe_loss_pacing", true)
+            && self.integer("pacing_max_bitrate_kbps", 0) <= 0
+            && !self.boolean("host_adaptive_pacing", false)
+            && !self.boolean("host_adaptive_bitrate", false)
+    }
     /// An integer setting; Vibepollo also writes quoted (`"756"`) and
     /// hexadecimal (`0x2a`) values.
     pub fn integer(&self, key: &str, default: i64) -> i64 {
@@ -663,6 +671,7 @@ pub fn override_allowed(key: &str) -> bool {
         "adaptive_fec",
         "host_adaptive_bitrate",
         "host_adaptive_pacing",
+        "keyframe_loss_pacing",
         "video_max_batch_size_kb",
         "pyrowave_critical_fec_percentage",
         "qp",
@@ -923,6 +932,24 @@ mod tests {
             }
             assert!(!config.adaptive_packet_pacing(u8::MAX));
         }
+    }
+
+    #[test]
+    fn keyframe_loss_pacing_is_on_unless_a_manual_limit_or_adaptation_owns_pacing() {
+        for (text, enabled) in [
+            ("", true),
+            ("keyframe_loss_pacing=true", true),
+            ("keyframe_loss_pacing=invalid", true),
+            ("keyframe_loss_pacing=false", false),
+            ("pacing_max_bitrate_kbps=0", true),
+            ("pacing_max_bitrate_kbps=80000", false),
+            ("host_adaptive_pacing=true", false),
+            ("host_adaptive_bitrate=true", false),
+        ] {
+            let config = super::Config::parse(text).unwrap();
+            assert_eq!(config.keyframe_loss_pacing(), enabled, "{text}");
+        }
+        assert!(super::override_allowed("keyframe_loss_pacing"));
     }
 
     #[test]

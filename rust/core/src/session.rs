@@ -930,6 +930,56 @@ mod tests {
         }
     }
     #[test]
+    fn a_lost_keyframe_paces_the_rest_of_the_stream_like_wifi() {
+        const FAST: u64 = 800_000_000;
+        const SAFE: u64 = 62_000_000;
+        let s = Session::new(launch("onn", Role::Stream), Negotiated::default());
+        s.configure_keyframe_loss(true);
+        assert_eq!(s.keyframe_loss_bps(FAST, SAFE, 1, true), FAST);
+        for frame in 2..=8 {
+            assert_eq!(s.keyframe_loss_bps(FAST, SAFE, frame, false), FAST);
+        }
+        s.stats.video_frame.store(9, Ordering::Release);
+        // A lost ordinary frame is left to recovery frames.
+        s.record_fec_status(&fec_report(5, 7, 1));
+        assert_eq!(s.keyframe_loss_bps(FAST, SAFE, 9, false), FAST);
+        assert!(s.info()["warnings"].as_array().unwrap().is_empty());
+        // The keyframe arrived short of what FEC repairs.
+        s.record_fec_status(&fec_report(1, 7, 1));
+        assert_eq!(s.keyframe_loss_bps(FAST, SAFE, 10, false), SAFE);
+        assert_eq!(s.keyframe_loss_bps(FAST, SAFE, 11, true), SAFE);
+        assert_eq!(s.info()["warnings"][0]["code"], "network_keyframe_loss");
+
+        // Without reports: the client asks again for the keyframe it was sent.
+        let s = Session::new(launch("old", Role::Stream), Negotiated::default());
+        s.configure_keyframe_loss(true);
+        s.keyframe_loss_bps(FAST, SAFE, 1, true);
+        s.request_recovery_keyframe();
+        assert_eq!(s.keyframe_loss_bps(FAST, SAFE, 2, true), FAST);
+        s.request_recovery_keyframe();
+        assert_eq!(s.keyframe_loss_bps(FAST, SAFE, 3, true), SAFE);
+        assert_eq!(s.stats.idr_requests.load(Ordering::Relaxed), 2);
+
+        // Off, and for PyroWave's intra-only frames, nothing changes.
+        for (enabled, codec) in [(false, 1), (true, 3)] {
+            let s = Session::new(
+                launch("off", Role::Stream),
+                Negotiated {
+                    codec,
+                    ..Default::default()
+                },
+            );
+            s.configure_keyframe_loss(enabled);
+            s.keyframe_loss_bps(FAST, SAFE, 1, true);
+            s.stats.video_frame.store(2, Ordering::Release);
+            s.record_fec_status(&fec_report(1, 0, 0));
+            s.request_recovery_keyframe();
+            s.keyframe_loss_bps(FAST, SAFE, 2, true);
+            s.request_recovery_keyframe();
+            assert_eq!(s.keyframe_loss_bps(FAST, SAFE, 3, false), FAST);
+        }
+    }
+    #[test]
     fn pyrowave_feedback_cannot_force_frames_or_turn_invalidation_into_idr() {
         let session = Session::new(
             launch("pyrowave", Role::Stream),
@@ -1171,6 +1221,8 @@ pub struct Session<P = (), A = ()> {
     pub adaptive_bitrate: std::sync::Mutex<crate::adaptive_bitrate::AdaptiveBitrate>,
     pub adaptive_video_pacing_bps: AtomicU64,
     pub automatic_pacing: std::sync::Mutex<crate::adaptive_pacing::AdaptivePacing>,
+    /// Slower pacing once the client's link has dropped a keyframe.
+    pub keyframe_loss: std::sync::Mutex<crate::keyframe_loss::KeyframeLoss>,
     /// FEC percentage for the next video frame; the video sender reads it per
     /// frame, and `adaptive_fec` moves it from the client's 0x5502 reports.
     pub fec_percent: AtomicU32,
@@ -1206,6 +1258,7 @@ impl<P, A> Session<P, A> {
             adaptive_bitrate: Default::default(),
             adaptive_video_pacing_bps: AtomicU64::new(0),
             automatic_pacing: Default::default(),
+            keyframe_loss: Default::default(),
             fec_percent: AtomicU32::new(
                 crate::adaptive_fec::AdaptiveFec::default().percent() as u32
             ),
@@ -1255,6 +1308,13 @@ impl<P, A> Session<P, A> {
             self.wake_recovery();
         }
     }
+    /// A keyframe the client needs after losing frames: its request (0x0302),
+    /// or an invalidation the encoder cannot repair with a reference frame.
+    pub fn request_recovery_keyframe(&self) {
+        let latched = self.keyframe_loss.lock().unwrap().requested(Instant::now());
+        self.report_keyframe_loss(latched);
+        self.request_idr();
+    }
     /// The host could not send enough of a frame for the client to rebuild
     /// it, so the next frame is a keyframe. Moonlight, waiting for one,
     /// then recovers on that frame and sends no request of its own.
@@ -1274,7 +1334,7 @@ impl<P, A> Session<P, A> {
             return;
         }
         if first == 0 || first > last {
-            self.request_idr();
+            self.request_recovery_keyframe();
             return;
         }
         let mut pending = self.invalidation.lock().unwrap();
@@ -1304,6 +1364,10 @@ impl<P, A> Session<P, A> {
             // Parsing and sent-frame/block validation above succeeded. The
             // additional controller fence rejects feedback from an older rate.
             let frame = u32::from_be_bytes(payload[..4].try_into().unwrap());
+            if matches!(block, crate::adaptive_fec::Block::Unrecoverable) {
+                let latched = self.keyframe_loss.lock().unwrap().unrecoverable(frame);
+                self.report_keyframe_loss(latched);
+            }
             let period = self.stream_mode().period();
             self.automatic_pacing.lock().unwrap().on_block(
                 frame,
@@ -1368,6 +1432,27 @@ impl<P, A> Session<P, A> {
             self.bitrate.load(Ordering::Acquire),
         );
         self.adaptive_pacing_bps(paced)
+    }
+    /// Pacing slows for the session once the client loses a keyframe
+    /// (`keyframe_loss_pacing`). PyroWave sends only intra frames, paced on
+    /// their own.
+    pub fn configure_keyframe_loss(&self, enabled: bool) {
+        *self.keyframe_loss.lock().unwrap() =
+            crate::keyframe_loss::KeyframeLoss::new(enabled && self.config.codec != 3);
+    }
+    fn report_keyframe_loss(&self, latched: Option<&'static str>) {
+        if let Some(reason) = latched {
+            tracing::warn!(stream_id = %self.launch.id, reason, "keyframes are not arriving; pacing video like a Wi-Fi route for the rest of the stream");
+            self.launch.warnings.set("network_keyframe_loss", format!("Keyframes were lost on the way to this device ({reason}), so video is now paced at twice the bitrate, as on Wi-Fi. A port slower than the host or a shallow switch queue is the usual cause; a pacing limit below the device's link speed avoids the first losses."));
+        }
+    }
+    /// The pacing rate for the frame about to be sent as `wire_frame`: the
+    /// route policy's `base`, or after a lost keyframe at most `safe`, the
+    /// Wi-Fi route's rate for this stream.
+    pub fn keyframe_loss_bps(&self, base: u64, safe: u64, wire_frame: u32, keyframe: bool) -> u64 {
+        let mut loss = self.keyframe_loss.lock().unwrap();
+        loss.sending(wire_frame, keyframe);
+        loss.bps(base, safe)
     }
     pub fn record_control_ping(&self, now: Instant, payload: &[u8]) {
         self.adaptive_bitrate.lock().unwrap().on_ping(now, payload);

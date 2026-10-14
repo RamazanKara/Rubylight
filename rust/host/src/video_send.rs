@@ -185,6 +185,8 @@ impl Sender {
                     needed,
                 );
                 let bps = s.video_pacing_bps(bps, needed);
+                let safe = butterpollo_core::network_pacing::rate_bps(0, bitrate, route.bps, true, needed);
+                let bps = s.keyframe_loss_bps(bps, safe, wire_frame, frame.idr);
                 if Instant::now() >= link_due {
                     butterpollo_core::network_pacing::report_rate(&s.launch.warnings, bps, needed, c.integer("pacing_max_bitrate_kbps", 0));
                     if reported_pacing != Some(bps) {

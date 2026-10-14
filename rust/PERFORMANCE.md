@@ -6,6 +6,7 @@ This is the dated measurement record. For a guided comparison, start with the [p
 
 | Find a result | Recorded evidence |
 | --- | --- |
+| A port slower than the host | [October 14, keyframe loss through a 100 Mbps bottleneck](#october-14-keyframe-loss-on-a-slow-port) |
 | HDR and recovery fixes | [October 14, 2.2.17 against 2.2.18](#october-14-hdr-and-recovery-fixes-2218) |
 | Rubylight 2.2.9 refresh | [October 12 released-package encoder probes](#october-12-rubylight-229-released-package-refresh) |
 | Radeon compute off/on | [1080p60 comparison](#1080p-at-60-fps) |
@@ -5576,6 +5577,121 @@ the session gate: its administrator runner had no linked non-elevated token
 (`0x80070520`). The fixture now uses the same existing-runner-context selection
 as the project's process lifecycle tests. The real prep/undo assertion remains,
 and no production permission policy or session check was relaxed.
+
+## October 14: keyframe loss on a slow port
+
+An Artemis client on an Onn 4K Pro (100 Mbps Ethernet) lost 94-99% of its
+frames. Besides the Warp bitrate multiplication fixed before this, a lost
+keyframe was answered with another full keyframe at the same burst rate.
+
+**Bottleneck.** `udp_shaper` (`rust/windows/examples/udp_shaper.rs`) relays
+RTSP, control and audio from 127.0.0.2 to the isolated host on 127.0.0.1
+unchanged, and drains the video port toward the client at 100 Mbps through a
+drop-tail queue of 16, 64 or 256 KiB, counting 66 bytes of Ethernet, IP and
+UDP framing per datagram. `rust/release/bottleneck.py` streams through it
+like `e2e.py`. The shaper's self-test (`udp_shaper --selftest`) feeds paced
+80 and 200 Mbps and 250 KB bursts through each queue size over loopback and
+replays the sender's own send times through the same queue model. On an idle
+machine 80 Mbps passed without a drop and 200 Mbps came out at 99.86-99.97
+Mbps with a median spacing of 120.1-120.4 us (120.5 us expected). With the
+link thread at game priority and other builds holding the CPU at 97-99%,
+three runs forwarded within 1% of the model in every case (exactly, in most),
+spacing 119.2-120.2 us; no datagram was lost outside the model. The stream
+runs below used the shaper before that priority; the six repeated at the end
+of this section used it.
+
+**Streams.** RX 7900 XT, AMF, 2560x1440 at 60 fps with `motion_probe`'s
+128-pixel strip, 20 seconds, client bitrate 40 or 60 Mbps (31 or 47 Mbps
+encoded), AV1 and HEVC. The moonlight-common-c receiver declares reference
+frame invalidation, as Moonlight's hardware decoders do, and decodes in
+software unless noted. "Whole" counts the frames the receiver got complete;
+Moonlight passes no frame to its decoder while it waits for a keyframe. The
+host's frame count is its last API sample, half a second before the end, so
+the share can exceed 100%. Picture age runs from the strip's QPC stamp to
+decode on the same machine. The candidate policies ran in a build of this
+branch with the mode selectable; "released" is the policy 2.3.0 ships.
+
+Each cell is the range over the four codec and bitrate combinations, with
+the keyframe requests the host counted:
+
+| Policy | 16 KiB | 64 KiB | 256 KiB | No bottleneck |
+| --- | --- | --- | --- | --- |
+| Released (800 Mbps wired pacing) | 0% (297-308 req) | 0% (305-308 req) | 100% (1 req) | 95-100% (1-2 req) |
+| 2.2.1 | 0% (303-305 req) | 0% (303-307 req) | 100% (1 req) | – |
+| (a) forced keyframes at most every 500 ms | 0% (65-99 req) | 0% (27-30 req) | 81-100% (1-80 req) | – |
+| (b) keyframes alone at the Wi-Fi rate | 2-66% (7-162 req) | 95-100% (1-3 req) | 99-100% (1 req) | – |
+| (c) `amd_max_frame_size = 2` | 0% (307-308 req) | 0% (299-305 req) | 84-100% (1-3 req) | – |
+| (d) `host_adaptive_pacing` (opt-in) | 100% (1-4 req) | 100% (1 req) | 100% (1 req) | 100% (1 req) |
+| `pacing_max_bitrate_kbps = 80000` | 100% (1 req) | 100% (1 req) | 100% (1 req) | 100% (1 req) |
+| Wi-Fi rate after a lost keyframe (this change) | 100% (3 req) | 100% (3 req) | 100% (1 req) | 100% (1 req) |
+
+With the released policy every frame was a keyframe: the host sent about 600
+frames in 20 seconds, the receiver asked for a new keyframe after each, and
+the shaper dropped 53-82% of all video packets. Limiting how often keyframes
+are forced (a) spaced the requests out but every keyframe was still lost. A
+smaller keyframe (c) still left at 800 Mbps. Pacing keyframes alone (b) let
+them through the 64 KiB queue, but ordinary frames overflowed 16 KiB. The
+256 KiB queue held these keyframes. The 95% control and the 84% cell of (c)
+are HEVC runs where the receiver's software decoder fell behind (10-13 ms a
+frame) and lost frames with no shaper drop; in the 81% run of (a) the 256 KiB
+queue overflowed (836 packets) and deferred keyframes stretched each recovery.
+
+**This change** keeps 800 Mbps until a keyframe is lost: the client reports
+it could not repair a keyframe (FEC status), or asks again for the keyframe
+it was just sent. From then on the stream is paced like a confirmed Wi-Fi
+route: twice the encoder bitrate, at least 1.25 times packetized demand
+(62 Mbps for the 31 Mbps streams, 94 for 47). In the final build, with
+the setting at its default, pacing slowed 38-49 ms after each stream started,
+by either signal, and the next paced keyframe arrived; the host counted three
+keyframe requests in all (its own first one included):
+
+| Stream | Queue | Whole / sent | IDR requests | Shaper drops | Steady fps | Picture age p95 / max ms | Pacing Mbps |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| AV1 40 Mbps | 16 KiB | 1162 / 1164 | 3 | 223 of 12197 | 60.0 | 17.6 / 32.5 | 800, then 62 |
+| AV1 40 Mbps | 64 KiB | 1172 / 1172 | 3 | 185 of 15055 | 60.0 | 29.7 / 46.7 | 800, then 62 |
+| HEVC 60 Mbps | 16 KiB | 1179 / 1176 | 3 | 365 of 30924 | 60.0 | 21.6 / 37.7 | 800, then 94 |
+| HEVC 60 Mbps | 64 KiB | 1179 / 1178 | 3 | 277 of 34210 | 60.0 | 278.6 / 408.8 | 800, then 94 |
+| HEVC 40 Mbps, no RFI | 64 KiB | 1174 / 1172 | 3 | 227 of 39079 | 60.0 | 34.8 / 39.8 | 800, then 62 |
+| AV1 40 Mbps, no RFI | 16 KiB | 1181 / 1175 | 3 | 222 of 11876 | 60.0 | 15.1 / 27.8 | 800, then 62 |
+| AV1 60 Mbps at 120 fps, D3D11VA | 64 KiB | 1600 / 1585 | 3 | 150 of 23902 | 120.2 | 32.2 / 131.6 | 800, then 94 |
+| AV1 80 Mbps | 64 KiB | 1169 / 1174 | 3 | 210 of 18497 | 60.0 | 43.9 / 114.6 | 800, then 125 |
+| AV1 40 Mbps, setting off | 64 KiB | 0 / 601 | 302 | 28215 of 52983 | – | – | 800 |
+
+(The 279 ms HEVC picture age is the software decoder again; it decoded every frame.)
+
+**Game-sized frames.** A 512-pixel noise strip made the encoder spend its
+budget (100,000 packets in 20 s for AV1 40 Mbps instead of 15,000). HEVC
+60 Mbps through 64 KiB: 1185 of 1184 frames whole with the change (2 requests),
+0 of 596 with it off (300 requests). AV1 40 Mbps through 256 KiB: whole with
+the setting on or off; the keyframe still fit.
+
+**Healthy path.** Without a bottleneck the change never engaged (one
+request, 800 Mbps throughout). Receiver decoding on D3D11VA, picture age p95:
+
+| Stream | Released policy / this change | `pacing_max_bitrate_kbps = 80000` | `host_adaptive_pacing` |
+| --- | ---: | ---: | ---: |
+| AV1 40 Mbps | 19.5 ms (this change) | 40.1 ms | 79.1 ms |
+| HEVC 60 Mbps | 21.3 and 22.8 ms (2.3.0), 20.1 and 25.9 ms (this change) | 53.6 ms | 20.3 ms |
+
+One more HEVC run of this change measured 141.7 ms; it sent at 800 Mbps
+like the released host, and the repeats above did not reproduce it.
+
+**Repeat with the released package**, the prioritized shaper and D3D11VA
+decoding:
+
+| Stream | Queue | 2.3.0: whole / sent, IDR requests | This change: whole / sent, IDR requests, picture age p95 |
+| --- | ---: | --- | --- |
+| AV1 40 Mbps | 16 KiB | 0 / 602, 304 | 1183 / 1175, 3, 23.9 ms |
+| AV1 40 Mbps | 64 KiB | 0 / 590, 294 | 1187 / 1175, 2, 23.2 ms |
+| HEVC 60 Mbps | 64 KiB | 0 / 595, 299 | 1192 / 1198, 3, 26.0 ms |
+
+**2.2.1** behaved as 2.3.0 on every case (first table): the same 800 Mbps
+wired policy and keyframe recovery.
+
+**Not measured:** the Onn 4K Pro and Artemis themselves, a real switch's
+queue with other traffic, and Wi-Fi. A client whose bitrate is close to its
+port's speed (80 Mbps on 100) is paced above the port after the change (125
+Mbps); it recovered here, with the strip's small frames.
 
 ## Hardware covered
 

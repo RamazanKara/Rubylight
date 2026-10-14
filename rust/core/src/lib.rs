@@ -42,6 +42,7 @@ pub mod hdr;
 pub mod hotkey;
 pub mod input;
 pub mod input_policy;
+pub mod keyframe_loss;
 pub mod logfile;
 pub mod lossless;
 pub mod ltr;

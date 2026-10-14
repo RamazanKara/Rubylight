@@ -6,6 +6,10 @@
 
 Rubylight, called Butterpollo until rc.29, is written in Rust: host, native helpers, service and setup, with a Svelte web console. The 2.3.0 installer is named `rubylight-setup-2.3.0.exe` and upgrades an existing Vibepollo or Butterpollo installation in place, keeping settings, paired devices, the app library and covers. Codec SDKs and Windows drivers remain external components; the setup installs the drivers.
 
+## Unreleased
+
+- **Send Artemis's Warp streams at the bitrate you set.** With Artemis's Frame pacing set to Warp Drive or Warp 2, the host multiplied the client's bitrate by 2 or 4 but still encoded at the launch frame rate, so a 40 Mbps setting sent about 84 or 168 Mbps. On a TV box with a 100 Mbps Ethernet port, such as the Onn 4K Pro, nearly every frame was lost. The bitrate you set is now the stream's budget whatever the frame pacing. The log's stream lines also show the requested frame rate, the configured and encoder bitrates and the rate actually sent.
+
 ## New in 2.3.0
 
 A fresh start. The 2.2.x line shipped 21 updates in four days. 2.3.0 replaces them with one reviewed release: every change since 2.2.1 was audited, the regressions found are fixed with regression tests, and the web console was reworked. Upgrading from any 2.x keeps settings, paired devices and the app library.

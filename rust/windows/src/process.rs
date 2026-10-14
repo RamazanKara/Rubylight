@@ -2134,6 +2134,13 @@ mod tests {
             }
         };
         let current = token()?;
+        // With User Account Control off the desktop shell is elevated too and
+        // no standard-rights token exists: the program gets the desktop's
+        // rights, never more than the user's own desktop has.
+        if token_elevated(&current)? && shell_token(&current)?.is_none() {
+            assert!(selected.is_none());
+            return Ok(());
+        }
         let mut info = TOKEN_ELEVATION::default();
         let mut bytes = 0;
         // SAFETY: the selected/current token and TOKEN_ELEVATION output live through the call.

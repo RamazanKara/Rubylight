@@ -29,6 +29,13 @@ LOGS = ROOT / "app/build/emulator-smoke"
 HOST_NAME = "Gaming PC"
 ADDRESS_REQUIRED = "Enter the host's IP address or name"
 DEBUGGABLE = True
+UI_CASES = {
+    "393dp-font-1": (393, 1.0, 0),
+    "412dp-font-1": (412, 1.0, 0),
+    "393dp-font-1.3": (393, 1.3, 0),
+    "393dp-font-2": (393, 2.0, 0),
+    "393dp-font-2-landscape": (393, 2.0, 1),
+}
 
 
 def adb(*args, timeout=30, binary=False):
@@ -53,7 +60,9 @@ def bounds(node):
 
 
 def find(label, scroll=False):
-    for attempt in range(16 if scroll else 8):
+    previous_scroll_state = None
+    unchanged_scrolls = 0
+    for attempt in range(64 if scroll else 8):
         root = tree()
         if any(n.get("resource-id") == "android:id/immersive_cling_title" for n in root.iter("node")):
             button = next(n for n in root.iter("node") if n.get("resource-id") == "android:id/ok")
@@ -69,6 +78,11 @@ def find(label, scroll=False):
                 for bar in root.iter("node"):
                     if bar.get("resource-id") in ("android:id/navigationBarBackground", "android:id/statusBarBackground"):
                         bx1, by1, bx2, by2 = bounds(bar)
+                        if by1 <= y1 and by2 >= y2:
+                            if bx1 <= x1 < bx2:
+                                x1 = bx2
+                            elif bx1 < x2 <= bx2:
+                                x2 = bx1
                         if bx1 <= x1 and bx2 >= x2:
                             if by1 <= y1 < by2:
                                 y1 = by2
@@ -78,6 +92,11 @@ def find(label, scroll=False):
                     node.set("bounds", f"[{x1},{y1}][{x2},{y2}]")
                     return node
         if scroll:
+            state = ET.tostring(root)
+            unchanged_scrolls = unchanged_scrolls + 1 if state == previous_scroll_state else 0
+            if unchanged_scrolls >= 3:
+                break
+            previous_scroll_state = state
             area = next((n for n in root.iter("node") if n.get("scrollable") == "true"), None)
             if area is not None:
                 x1, y1, x2, y2 = bounds(area)
@@ -140,6 +159,27 @@ def assert_touch_target(label, minimum_dp=48):
     assert min(x2 - x1, y2 - y1) >= minimum_dp * 2, f"Small touch target: {node.attrib}"
 
 
+def scroll_to_end():
+    """Scroll a visible UI-tree container until its children stop moving."""
+    previous = None
+    unchanged = 0
+    for _ in range(64):
+        root = tree()
+        state = ET.tostring(root)
+        unchanged = unchanged + 1 if state == previous else 0
+        if unchanged >= 2:
+            return
+        previous = state
+        area = next((n for n in root.iter("node") if n.get("scrollable") == "true"), None)
+        if area is None:
+            return
+        x1, y1, x2, y2 = bounds(area)
+        x = str((x1 + x2) // 2)
+        adb("shell", "input", "swipe", x, str(y1 + (y2 - y1) * 9 // 10),
+            x, str(y1 + (y2 - y1) // 10), "300")
+    raise AssertionError("Scrollable UI did not reach its end after 64 swipes")
+
+
 def host_menu(item=None):
     x1, y1, x2, y2 = bounds(find(HOST_NAME))
     x, y = str((x1+x2)//2), str((y1+y2)//2)
@@ -153,7 +193,7 @@ PROFILE_RESET = "Same as all PCs for everything"
 
 def open_host_profile():
     host_menu("Stream settings")
-    find("Stream resolution")
+    find("Stream resolution", scroll=True)
 
 
 def uncheck(predicate):
@@ -255,6 +295,9 @@ def capture_ui_set(width, font, rotation=0):
     screenshot(prefix + "-pc-sheet")
     # A long sheet must scroll through its final action without dragging it closed.
     find("Delete PC", scroll=True)
+    scroll_to_end()
+    assert_touch_target("Delete PC")
+    assert_touch_target(close)
     screenshot(prefix + "-pc-sheet-bottom")
     tap(close)
     open_host_profile()
@@ -263,7 +306,7 @@ def capture_ui_set(width, font, rotation=0):
     screenshot(prefix + "-per-pc")
     navigate_up()
     tap(f"{PACKAGE}:id/settingsButton")
-    find("Presets")
+    find("Presets", scroll=True)
     screenshot(prefix + "-settings-root")
     for title, name, setting in (("Stream", "stream", "Stream resolution"),
                                  ("Controls", "controls", "Controller buttons"),
@@ -285,9 +328,9 @@ def capture_ui_set(width, font, rotation=0):
         raise AssertionError("Settings search did not take the query")
     # Enter submits, which keeps the query and hides the keyboard; Back would clear the search if the keyboard was already gone.
     adb("shell", "input", "keyevent", "66")
-    find("Compatibility video view")
+    find("Compatibility video view", scroll=True)
     screenshot(prefix + "-settings-search")
-    tap("Compatibility video view")
+    tap("Compatibility video view", scroll=True)
     find("Advanced")
     find("Compatibility video view", scroll=True)
     navigate_up()
@@ -304,14 +347,14 @@ def capture_ui_set(width, font, rotation=0):
     find(HOST_NAME)
     host_menu("Delete PC")
     tap("android:id/button1")
-    find(f"{PACKAGE}:id/discovery_add")
+    find(f"{PACKAGE}:id/discovery_add", scroll=True)
     screenshot(prefix + "-home-empty")
-    tap(f"{PACKAGE}:id/discovery_add")
+    tap(f"{PACKAGE}:id/discovery_add", scroll=True)
     tap(f"{PACKAGE}:id/addPcButton", scroll=True)
     # A field-level error persists after the transient toast would have disappeared.
     time.sleep(2)
-    find(ADDRESS_REQUIRED)
-    tap(f"{PACKAGE}:id/hostTextView")
+    find(ADDRESS_REQUIRED, scroll="up")
+    tap(f"{PACKAGE}:id/hostTextView", scroll="up")
     adb("shell", "input", "text", "127.0.0.1:47989")
     assert not any(n.get("text") == ADDRESS_REQUIRED for n in tree().iter("node")), \
         "Editing a valid host address did not clear the inline error"
@@ -361,11 +404,10 @@ def library_regressions():
     adb("shell", "settings", "put", "system", "font_scale", "1.0")
 
 
-def capture_ui_sweep():
+def capture_ui_sweep(cases=None):
     """Run identical responsive/navigation checks in full and focused UI runs."""
-    for width, font, rotation in ((393, 1.0, 0), (412, 1.0, 0), (393, 1.3, 0),
-                                  (393, 2.0, 0), (393, 2.0, 1)):
-        capture_ui_set(width, font, rotation)
+    for case in cases or UI_CASES:
+        capture_ui_set(*UI_CASES[case])
     adb("shell", "settings", "put", "system", "font_scale", "1.0")
     if DEBUGGABLE:
         library_regressions()
@@ -457,6 +499,8 @@ def main():
                         help="Write screenshots and logs under this directory instead of the repository")
     parser.add_argument("--ui-only", action="store_true",
                         help="Fresh install and PC fixture setup, then only responsive/navigation/overlay checks")
+    parser.add_argument("--ui-case", action="append", choices=tuple(UI_CASES),
+                        help="Run a selected UI viewport (repeatable); defaults to every viewport")
     args = parser.parse_args()
     if args.port < 5554 or args.port > 5682 or args.port % 2:
         parser.error("--port must be an even number from 5554 to 5682")
@@ -554,9 +598,9 @@ def main():
                 enter_text(f"{PACKAGE}:id/hostTextView", "127.0.0.1:47989")
                 tap(f"{PACKAGE}:id/addPcButton")
                 find(HOST_NAME)
-                capture_ui_sweep()
+                capture_ui_sweep(args.ui_case)
                 assert_no_app_crashes()
-                print(f"PASS: UI-only fresh install and PC setup; sheet scrolling/close, settings search/back restoration at 393/412 dp through font scale 2.0 and landscape, pairing and manual discovery, library search/rotation and live overlay rendering (debug only); screenshots: {SHOTS}", flush=True)
+                print(f"PASS: UI-only fresh install and PC setup; sheet scrolling/close, settings search/back restoration, pairing and manual discovery for {', '.join(args.ui_case or UI_CASES)}; library search/rotation and live overlay rendering (debug only); screenshots: {SHOTS}", flush=True)
                 return
             screenshot("01-home-empty")
             tap(f"{PACKAGE}:id/discovery_help")
@@ -764,10 +808,10 @@ def main():
                 screenshot(shot)
                 tap("android:id/button1")
                 find(HOST_NAME)
-            capture_ui_sweep()
+            capture_ui_sweep(args.ui_case)
             assert_no_app_crashes()
             overlay_result = "overlay rendering" if DEBUGGABLE else "overlay settings (live rendering needs a paired host)"
-            print(f"PASS: native {native} and latency defaults on a fresh install, pairing guide and PIN prompt, manual discovery and inline validation, OTP and details dialogs, host profile validation/save/reset, sheet scrolling/close, settings search/back restoration at 393/412 dp through font scale 2.0 and landscape, VRR toggle/persistence, PyroWave readiness, bitrate, controller mapping, reset, frontend entries, unpaired export menu, {overlay_result} and rotation; screenshots: {SHOTS}", flush=True)
+            print(f"PASS: native {native} and latency defaults on a fresh install, pairing guide and PIN prompt, manual discovery and inline validation, OTP and details dialogs, host profile validation/save/reset, sheet scrolling/close, settings search/back restoration for {', '.join(args.ui_case or UI_CASES)}, VRR toggle/persistence, PyroWave readiness, bitrate, controller mapping, reset, frontend entries, unpaired export menu, {overlay_result} and rotation; screenshots: {SHOTS}", flush=True)
         finally:
             try:
                 LOGS.joinpath("logcat.txt").write_text(adb("logcat", "-d"), encoding="utf-8")

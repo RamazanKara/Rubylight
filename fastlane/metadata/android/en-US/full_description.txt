@@ -1,9 +1,11 @@
-Stream your PC with low latency. Rubylight connects to Rubylight hosts and other stream hosts.
+Stream your PC with low latency. Nightjar works with Moonlight-compatible hosts such as Apollo, Rubylight, Sunshine and Vibepollo.
 
 Bring your desktop and apps to your Android phone, tablet or TV. Pair your PC, open your library and start a stream. Use touch controls, a controller, or a keyboard and mouse.
 
 Choose Native for your screen's resolution and maximum refresh rate, or Battery saver for lower-power streaming. Save separate settings for each PC. Check latency and frame rate in the Statistics or Debug overlay. Open the stream menu to adjust controls and settings while you stream.
 
-Rubylight is free and open source. No ads or in-app purchases.
+Extras such as the PyroWave codec, PC display modes and host performance readings work on hosts that support them (currently Rubylight).
+
+Nightjar is free and open source. No ads or in-app purchases.
 
 Licensed under GPL-3.0. Based on Moonlight, with thanks to its contributors.

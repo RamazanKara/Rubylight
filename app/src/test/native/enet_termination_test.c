@@ -2,7 +2,8 @@
 // Vibepollo ends a session by sending its end message reliably, flushing it, and calling
 // enet_peer_disconnect_now() a few milliseconds later. That disconnect must not erase the
 // queued end message, or every normal game exit is reported as a transport failure (-1).
-// The intercept must also not make stopControlStream() linger for a host that is gone.
+// The intercept must also ignore disconnects that ENet itself would drop, and must not make
+// stopControlStream() linger for a host that is gone.
 #include "Limelight-internal.h"
 #include <arpa/inet.h>
 #include <netinet/in.h>
@@ -159,6 +160,76 @@ static void run(const char* name, enum HostExit hostExit, bool otherSenderDrains
     enet_host_destroy(host);
 }
 
+enum Forged {
+    FORGED_FOR_THIS_SESSION,     // the control: a disconnect ENet itself would act on
+    FORGED_STALE_SESSION,        // an old server peer's, after this client reused its port
+    FORGED_OTHER_PEER,           // addressed to a peer this client does not have
+    FORGED_NO_PEER,              // ENET_PROTOCOL_MAXIMUM_PEER_ID, which ENet takes only for a connect
+};
+
+static ENetHost* exitingHost;
+static ENetPeer* exitingHostPeer;
+
+static void* exitAfterTheDrain(void* context) {
+    usleep(300000);
+    sendEndMessage(exitingHost, exitingHostPeer);
+    enet_peer_disconnect_now(exitingHostPeer, 0);
+    return NULL;
+}
+
+// A disconnect datagram that ENet would drop must not end a healthy stream: the host's real
+// exit 300 ms later, well after the 100 ms drain, must still be reported as graceful.
+static void forged(const char* name, enum Forged forged, int expectedReason) {
+    ENetAddress address;
+    ENetHost* host = createHost(&address);
+    ENetPeer* hostPeer = connectClient(host, &address);
+    enet_uint16 peerID = hostPeer->outgoingPeerID;
+    enet_uint8 sessionID = hostPeer->outgoingSessionID;
+    CHECK(peerID == 0 && sessionID == peer->incomingSessionID && peer->outgoingPeerID < ENET_PROTOCOL_MAXIMUM_PEER_ID);
+    if (forged == FORGED_STALE_SESSION) {
+        sessionID = (sessionID + 1) & (ENET_PROTOCOL_HEADER_SESSION_MASK >> ENET_PROTOCOL_HEADER_SESSION_SHIFT);
+    }
+    else if (forged == FORGED_OTHER_PEER) {
+        peerID = (enet_uint16)client->peerCount;
+    }
+    else if (forged == FORGED_NO_PEER) {
+        peerID = ENET_PROTOCOL_MAXIMUM_PEER_ID;
+    }
+
+    // The 10-byte unsequenced disconnect that enet_peer_disconnect_now() sends, sent from
+    // the host's own address and port.
+    uint8_t datagram[sizeof(enet_uint16) + sizeof(ENetProtocolDisconnect)] = {0};
+    enet_uint16 header = ENET_HOST_TO_NET_16(peerID | (sessionID << ENET_PROTOCOL_HEADER_SESSION_SHIFT));
+    memcpy(datagram, &header, sizeof(header));
+    datagram[2] = ENET_PROTOCOL_COMMAND_DISCONNECT | ENET_PROTOCOL_COMMAND_FLAG_UNSEQUENCED;
+    datagram[3] = 0xFF;
+    ENetBuffer buffer = {datagram, sizeof(datagram)};
+    disconnectPending = false;
+    CHECK(enet_socket_send(host->socket, &hostPeer->address, NULL, &buffer, 1) == (int)sizeof(datagram));
+    usleep(20000);
+
+    exitingHost = host;
+    exitingHostPeer = hostPeer;
+    pthread_t thread;
+    CHECK(pthread_create(&thread, NULL, exitAfterTheDrain, NULL) == 0);
+    reports = 0;
+    reportedReason = 12345;
+    uint64_t started = nowMs();
+    controlReceiveThreadFunc(NULL);
+    uint64_t elapsed = nowMs() - started;
+    CHECK(pthread_join(thread, NULL) == 0);
+
+    bool passed = reports == 1 && reportedReason == expectedReason && elapsed < 1000;
+    printf("%s %s: expected %d, received %d (%d reports) after %llu ms\n", passed ? "PASS" : "FAIL",
+           name, expectedReason, reportedReason, reports, (unsigned long long)elapsed);
+    failures += !passed;
+
+    enet_host_destroy(client);
+    client = NULL;
+    peer = NULL;
+    enet_host_destroy(host);
+}
+
 enum StopRace {
     HOST_GONE_DURING_DRAIN,      // the receiver holds the host's disconnect_now back for 100 ms
     HOST_GONE_DURING_LINGER,     // the client stops first; the host's disconnect_now follows
@@ -265,6 +336,10 @@ int main(void) {
         ML_ERROR_GRACEFUL_TERMINATION);
     run("disconnect_now without an end message", DISCONNECT_NOW_WITHOUT_END, false, -1);
     run("disconnect_now without an end message, drained", DISCONNECT_NOW_WITHOUT_END, true, -1);
+    forged("disconnect for this session", FORGED_FOR_THIS_SESSION, -1);
+    forged("stale disconnect from another session", FORGED_STALE_SESSION, ML_ERROR_GRACEFUL_TERMINATION);
+    forged("disconnect for another peer", FORGED_OTHER_PEER, ML_ERROR_GRACEFUL_TERMINATION);
+    forged("disconnect for no peer", FORGED_NO_PEER, ML_ERROR_GRACEFUL_TERMINATION);
 
     // Stopping closes the control stream for good, so these run last.
     stop("stop while the host's disconnect_now drains", HOST_GONE_DURING_DRAIN);

@@ -249,6 +249,10 @@ public class AppView extends AppCompatActivity implements AdapterFragmentCallbac
                 if (!details.hasPermission(ComputerDetails.PERMISSION_LIST)) {
                     showAppListStatus(R.string.applist_permission_required);
                 }
+                else if (details.state == ComputerDetails.State.ONLINE) {
+                    // The PC answered: an offline notice must not wait for the next app list poll.
+                    clearOfflineStatus();
+                }
 
                 // App list is the same or empty
                 if (rawAppList == null || rawAppList.equals(lastRawApplist)) {
@@ -419,6 +423,14 @@ public class AppView extends AppCompatActivity implements AdapterFragmentCallbac
             loadingApps = false;
             libraryStatus = message;
             updateLibraryState();
+        });
+    }
+
+    private void clearOfflineStatus() {
+        runOnUiThread(() -> {
+            if (libraryStatus == R.string.library_offline) {
+                showAppListStatus(lastAppListEmpty ? R.string.applist_empty : 0);
+            }
         });
     }
 

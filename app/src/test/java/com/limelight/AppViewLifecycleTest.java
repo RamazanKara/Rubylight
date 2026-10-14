@@ -157,6 +157,47 @@ public class AppViewLifecycleTest {
         }
     }
 
+    @Test public void aHostAnsweringAgainClearsTheOfflineNoticeWithoutWaitingForTheAppList() {
+        Intent intent = new Intent(RuntimeEnvironment.getApplication(), Library.class)
+                .putExtra(AppView.UUID_EXTRA, "returning-host").putExtra(AppView.NAME_EXTRA, "PC");
+        ActivityController<Library> controller = Robolectric.buildActivity(Library.class, intent).setup();
+        try {
+            Library screen = controller.get();
+            ComputerDetails computer = new ComputerDetails();
+            computer.uuid = "returning-host";
+            computer.state = ComputerDetails.State.OFFLINE;
+            computer.rawAppList = "cached-list";
+            ReflectionHelpers.setField(screen, "computer", computer);
+            ReflectionHelpers.setField(screen, "lastRawApplist", computer.rawAppList);
+            ComputerManagerListener[] listener = new ComputerManagerListener[1];
+            ComputerManagerService manager = new ComputerManagerService();
+            ReflectionHelpers.setField(screen, "managerBinder", manager.new ComputerManagerBinder() {
+                @Override public void startPolling(ComputerManagerListener callback) { listener[0] = callback; }
+                @Override public void stopPolling() { }
+                @Override public ComputerManagerService.ApplistPoller createAppListPoller(ComputerDetails details) {
+                    return manager.new ApplistPoller(details) {
+                        @Override public void start() { }
+                        @Override public void stop() { }
+                    };
+                }
+            });
+            ReflectionHelpers.callInstanceMethod(screen, "startComputerUpdates");
+            listener[0].notifyComputerUpdated(computer);
+            TextView status = screen.findViewById(R.id.app_list_status);
+            assertEquals(screen.getString(R.string.library_offline), status.getText().toString());
+
+            // The serverinfo poll succeeds; the cached app list is unchanged, so no app list update follows.
+            computer.state = ComputerDetails.State.ONLINE;
+            computer.pairState = com.limelight.nvstream.http.PairingManager.PairState.PAIRED;
+            listener[0].notifyComputerUpdated(computer);
+            assertEquals(View.GONE, status.getVisibility());
+            assertEquals(View.GONE, screen.findViewById(R.id.library_status_panel).getVisibility());
+            assertFalse(screen.isFinishing());
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
     @Test public void systemBackDispatcherClosesSearchBeforeLeavingTheLibrary() {
         Intent intent = new Intent(RuntimeEnvironment.getApplication(), Library.class)
                 .putExtra(AppView.UUID_EXTRA, "search-host").putExtra(AppView.NAME_EXTRA, "PC");

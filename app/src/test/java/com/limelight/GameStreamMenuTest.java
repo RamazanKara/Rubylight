@@ -105,6 +105,25 @@ public class GameStreamMenuTest {
     }
 
     @Test
+    public void aUsbDriverPadStepsBackAndChoosesInTheMenu() {
+        Game game = streamingGame("rubylight-serverinfo.xml");
+        StreamMenu menu = open(game);
+        menu.row(StreamMenu.Item.OVERLAY_PAGE).performClick();
+        game.steerStreamMenu(android.view.KeyEvent.KEYCODE_BUTTON_B);
+        assertEquals("B returns from the page", StreamMenu.Page.MAIN, menu.page());
+        assertTrue(menu.sheet().isShowing());
+        View disconnect = menu.row(StreamMenu.Item.DISCONNECT);
+        disconnect.setFocusableInTouchMode(true);
+        assertTrue(disconnect.requestFocus());
+        game.steerStreamMenu(android.view.KeyEvent.KEYCODE_DPAD_CENTER);
+        assertFalse("A chooses the focused row", menu.sheet().isShowing());
+        idle();
+        assertNull(ReflectionHelpers.getField(game, "streamMenu"));
+        game.steerStreamMenu(android.view.KeyEvent.KEYCODE_BUTTON_B);
+        assertFalse(game.isFinishing());
+    }
+
+    @Test
     public void quitGameAsksFirstInTheErrorColour() {
         Game game = streamingGame("rubylight-serverinfo.xml");
         StreamMenu menu = open(game);

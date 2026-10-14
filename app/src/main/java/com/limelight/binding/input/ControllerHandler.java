@@ -3121,9 +3121,23 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
                                       float rightStickX, float rightStickY,
                                       float leftTrigger, float rightTrigger) {
         UsbDeviceContext context = usbDeviceContexts.get(controllerId);
-        if (stopped || !inputEnabled || context == null) {
+        if (stopped || context == null) {
             return;
         }
+        int buttons = context.buttonMap.mapButtonFlags(buttonFlags, prefConfig.flipFaceButtons);
+        if (!inputEnabled) {
+            // Android sees no key events from a pad this driver owns: it steers the menu from here.
+            steerMenu(context, buttons);
+            return;
+        }
+        if (context.steeringMenu) {
+            // Buttons still held from the menu reach the host only after they were let go.
+            context.steeringMenu = false;
+            context.heldFromMenu = context.menuButtons;
+        }
+        context.heldFromMenu &= buttons;
+        buttons &= ~context.heldFromMenu;
+        context.lastButtons = buttons;
 
         Vector2d leftStickVector = populateCachedVector(leftStickX, leftStickY);
 
@@ -3149,9 +3163,49 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         context.leftTrigger = (byte)(leftTrigger * 0xFF);
         context.rightTrigger = (byte)(rightTrigger * 0xFF);
 
-        context.inputMap = context.buttonMap.mapButtonFlags(buttonFlags, prefConfig.flipFaceButtons);
+        context.inputMap = buttons;
+
+        // The same menu combination as on an Android-mapped pad, opened once all four are let go so
+        // it cannot activate a menu item.
+        if (buttons == (ControllerPacket.BACK_FLAG | ControllerPacket.PLAY_FLAG |
+                ControllerPacket.LB_FLAG | ControllerPacket.RB_FLAG)) {
+            context.menuComboPending = true;
+        }
 
         sendControllerInputPacket(context);
+
+        if (context.menuComboPending && buttons == 0) {
+            context.menuComboPending = false;
+            if (activityContext instanceof Game) {
+                ((Game) activityContext).showStreamMenu();
+            }
+        }
+    }
+
+    // While the stream menu or one of its dialogs has focus, a newly pressed D-pad direction, A or B
+    // of a USB-driver pad moves, chooses or goes back there.
+    private void steerMenu(UsbDeviceContext context, int buttons) {
+        if (!context.steeringMenu) {
+            context.steeringMenu = true;
+            context.menuButtons = context.lastButtons;
+            context.menuComboPending = false;
+        }
+        int pressed = buttons & ~context.menuButtons;
+        context.menuButtons = buttons;
+        if (pressed == 0 || !(activityContext instanceof Game)) {
+            return;
+        }
+        Game game = (Game) activityContext;
+        int[][] keys = {
+                {ControllerPacket.UP_FLAG, KeyEvent.KEYCODE_DPAD_UP},
+                {ControllerPacket.DOWN_FLAG, KeyEvent.KEYCODE_DPAD_DOWN},
+                {ControllerPacket.LEFT_FLAG, KeyEvent.KEYCODE_DPAD_LEFT},
+                {ControllerPacket.RIGHT_FLAG, KeyEvent.KEYCODE_DPAD_RIGHT},
+                {ControllerPacket.A_FLAG, KeyEvent.KEYCODE_DPAD_CENTER},
+                {ControllerPacket.B_FLAG, KeyEvent.KEYCODE_BUTTON_B}};
+        for (int[] key : keys) {
+            if ((pressed & key[0]) != 0) game.steerStreamMenu(key[1]);
+        }
     }
 
     @Override
@@ -3702,6 +3756,11 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         public ControllerButtonMap buttonMap;
         private boolean arrivalPending;
         private long arrivalRetryAt;
+        // Start+Back+LB+RB was held; the stream menu opens once every button is up.
+        boolean menuComboPending;
+        // The pad steers the stream menu while the stream has no input focus.
+        boolean steeringMenu;
+        int menuButtons, heldFromMenu, lastButtons;
 
         boolean ensureControllerArrival() {
             if (arrivalPending && android.os.SystemClock.uptimeMillis() >= arrivalRetryAt) {

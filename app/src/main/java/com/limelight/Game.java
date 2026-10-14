@@ -2257,6 +2257,43 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         if (streamMenuSheet != null) streamMenuSheet.sheet().dismiss();
     }
 
+    /**
+     * A USB-driver controller produces no Android key events, so its D-pad, A and B reach the open
+     * stream menu or dialog from here: B goes back, A chooses, the D-pad moves the focus.
+     */
+    public void steerStreamMenu(int keyCode) {
+        android.app.Dialog dialog = streamMenu;
+        if (dialog == null || !dialog.isShowing() || dialog.getWindow() == null) return;
+        if (keyCode == KeyEvent.KEYCODE_BUTTON_B) {
+            dialog.onBackPressed();
+            return;
+        }
+        View decor = dialog.getWindow().getDecorView();
+        View focused = decor.findFocus();
+        if (focused == null) {
+            // After touch nothing has focus: the first press shows it, as a D-pad would, and chooses nothing.
+            decor.requestFocusFromTouch();
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) decor.restoreDefaultFocus();
+            return;
+        }
+        if (keyCode == KeyEvent.KEYCODE_DPAD_CENTER && focused.isClickable() && !(focused instanceof android.widget.AdapterView)) {
+            focused.performClick();
+            return;
+        }
+        long now = SystemClock.uptimeMillis();
+        KeyEvent down = new KeyEvent(now, now, KeyEvent.ACTION_DOWN, keyCode, 0);
+        // Lists and buttons handle their own keys; plain rows need the focus search the window would do.
+        boolean handled = dialog.dispatchKeyEvent(down);
+        dialog.dispatchKeyEvent(KeyEvent.changeAction(down, KeyEvent.ACTION_UP));
+        int direction = keyCode == KeyEvent.KEYCODE_DPAD_UP ? View.FOCUS_UP : keyCode == KeyEvent.KEYCODE_DPAD_DOWN ?
+                View.FOCUS_DOWN : keyCode == KeyEvent.KEYCODE_DPAD_LEFT ? View.FOCUS_LEFT :
+                keyCode == KeyEvent.KEYCODE_DPAD_RIGHT ? View.FOCUS_RIGHT : 0;
+        if (!handled && direction != 0) {
+            View next = focused.focusSearch(direction);
+            if (next != null) next.requestFocus(direction);
+        }
+    }
+
     private void showPerformanceOverlay(String mode) {
         setPerformanceOverlayMode(mode);
         if (!prefConfig.enablePerfOverlay) togglePerformanceOverlay();

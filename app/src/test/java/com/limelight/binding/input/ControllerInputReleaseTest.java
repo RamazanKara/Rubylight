@@ -67,7 +67,79 @@ public class ControllerInputReleaseTest {
 
     public static class MenuGame extends Game {
         int menuCount;
+        final List<Integer> steered = new ArrayList<>();
         @Override public void showStreamMenu() { menuCount++; }
+        @Override public void steerStreamMenu(int keyCode) { steered.add(keyCode); }
+    }
+
+    private static ControllerHandler.UsbDeviceContext usbPad(ControllerHandler handler) {
+        Map<Integer, ControllerHandler.UsbDeviceContext> usb = ReflectionHelpers.getField(handler, "usbDeviceContexts");
+        ControllerHandler.UsbDeviceContext context = handler.new UsbDeviceContext();
+        context.assignedControllerNumber = true;
+        context.buttonMap = new ControllerButtonMap();
+        context.device = new UsbController();
+        usb.put(3, context);
+        return context;
+    }
+
+    private static void usb(ControllerHandler handler, int buttons) {
+        handler.reportControllerState(3, buttons, 0, 0, 0, 0, 0, 0);
+    }
+
+    @Test
+    public void usbDriverMenuComboOpensTheMenuOnceEveryButtonIsUp() {
+        MenuGame activity = Robolectric.buildActivity(MenuGame.class).get();
+        RecordingConnection connection = new RecordingConnection();
+        ControllerHandler handler = new ControllerHandler(activity, connection, null, new PreferenceConfiguration());
+        ControllerHandler.UsbDeviceContext pad = usbPad(handler);
+        int combo = ControllerPacket.BACK_FLAG | ControllerPacket.PLAY_FLAG | ControllerPacket.LB_FLAG | ControllerPacket.RB_FLAG;
+        try {
+            usb(handler, ControllerPacket.LB_FLAG | ControllerPacket.RB_FLAG);
+            usb(handler, combo);
+            assertTrue(pad.menuComboPending);
+            usb(handler, ControllerPacket.PLAY_FLAG | ControllerPacket.LB_FLAG);
+            assertEquals("Not while a button of the combination is still held", 0, activity.menuCount);
+            usb(handler, 0);
+            assertEquals(1, activity.menuCount);
+            assertFalse(activity.isFinishing());
+            // Releasing again, or Start with the bumpers alone, opens nothing.
+            usb(handler, 0);
+            usb(handler, ControllerPacket.PLAY_FLAG | ControllerPacket.LB_FLAG | ControllerPacket.RB_FLAG);
+            usb(handler, 0);
+            assertEquals(1, activity.menuCount);
+        } finally {
+            handler.destroy();
+        }
+    }
+
+    @Test
+    public void usbDriverPadSteersTheOpenMenuAndItsChoiceDoesNotReachTheGame() {
+        MenuGame activity = Robolectric.buildActivity(MenuGame.class).get();
+        RecordingConnection connection = new RecordingConnection();
+        ControllerHandler handler = new ControllerHandler(activity, connection, null, new PreferenceConfiguration());
+        usbPad(handler);
+        try {
+            usb(handler, ControllerPacket.X_FLAG);
+            handler.setInputEnabled(false);
+            int sent = connection.states.size();
+            // X was held when the menu opened: it is no new press.
+            usb(handler, ControllerPacket.X_FLAG | ControllerPacket.DOWN_FLAG);
+            usb(handler, ControllerPacket.X_FLAG);
+            usb(handler, ControllerPacket.A_FLAG);
+            usb(handler, ControllerPacket.A_FLAG | ControllerPacket.B_FLAG);
+            assertEquals(java.util.Arrays.asList(KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_DPAD_CENTER,
+                    KeyEvent.KEYCODE_BUTTON_B), activity.steered);
+            assertEquals("Nothing reaches the host behind the menu", sent, connection.states.size());
+            // The menu closed with A still held: the game sees A only after a new press.
+            handler.setInputEnabled(true);
+            usb(handler, ControllerPacket.A_FLAG);
+            assertEquals(0, connection.states.get(connection.states.size() - 1)[0] & ControllerPacket.A_FLAG);
+            usb(handler, 0);
+            usb(handler, ControllerPacket.A_FLAG);
+            assertEquals(ControllerPacket.A_FLAG, connection.states.get(connection.states.size() - 1)[0] & ControllerPacket.A_FLAG);
+        } finally {
+            handler.destroy();
+        }
     }
 
     @Test
@@ -221,10 +293,15 @@ public class ControllerInputReleaseTest {
                 assertTrue(connection.states.isEmpty());
                 assertEquals(0, context.leftStickX);
                 handler.setInputEnabled(true);
+                // A was pressed in the menu, as an Android-mapped pad's press goes to the menu: the game
+                // gets the sticks at once and A only once it is pressed again.
                 handler.reportControllerState(3, ControllerPacket.A_FLAG, 1, 1, 1, 1, 1, 1);
                 assertEquals(1, connection.states.size());
-                assertEquals(ControllerPacket.A_FLAG, connection.states.get(0)[0]);
+                assertEquals(0, connection.states.get(0)[0]);
                 assertTrue(context.leftStickX != 0);
+                handler.reportControllerState(3, 0, 1, 1, 1, 1, 1, 1);
+                handler.reportControllerState(3, ControllerPacket.A_FLAG, 1, 1, 1, 1, 1, 1);
+                assertEquals(ControllerPacket.A_FLAG, connection.states.get(connection.states.size() - 1)[0]);
                 handler.reportControllerTouch(3, MoonBridge.LI_TOUCH_EVENT_DOWN, 2, 0.5f, 0.5f, 1);
                 assertEquals(3, connection.touches.size());
             } finally {

@@ -439,7 +439,9 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     private View performanceOverlayScroll;
     private CharSequence debugPerformanceText = "";
     private CharSequence statisticsPerformanceText = "";
-    private boolean debugPerformanceOverlay;
+    private CharSequence compactPerformanceText = "";
+    // PerformanceOverlay.MODE_COMPACT, MODE_STATISTICS or MODE_DEBUG
+    private String overlayMode = PerformanceOverlay.MODE_COMPACT;
     private HardwareMetrics hardwareMetrics;
     private boolean hardwareMetricsPolling;
     private int hardwareMetricsGeneration;
@@ -617,9 +619,11 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
 
         performanceOverlayView = findViewById(R.id.performanceOverlay);
         performanceOverlayScroll = findViewById(R.id.performanceOverlayScroll);
-        performanceOverlayScroll.setOnTouchListener((view, event) -> !debugPerformanceOverlay && onOverlayTouch(view, event));
-        debugPerformanceOverlay = "debug".equals(PerformanceOverlay.normalizeMode(PreferenceManager.getDefaultSharedPreferences(this)
-                .getString("performance_overlay_mode", "statistics")));
+        performanceOverlayScroll.setOnTouchListener((view, event) -> !isDebugOverlay() && onOverlayTouch(view, event));
+        overlayMode = PerformanceOverlay.normalizeMode(PreferenceManager.getDefaultSharedPreferences(this)
+                .getString("performance_overlay_mode", PerformanceOverlay.MODE_COMPACT));
+        com.limelight.ui.OverlayPlacement.attach(performanceOverlayScroll, (android.view.ViewGroup) streamView.getParent(),
+                this::collectOverlayObstacles);
         updatePerformanceOverlay();
 
         inputCaptureProvider = InputCaptureManager.getInputCaptureProvider(this, this);
@@ -2215,16 +2219,16 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         ActionSheet sheet = new ActionSheet(this, getString(R.string.stream_overlay_menu));
         addStreamAction(sheet, R.drawable.ic_remote_monitor, prefConfig.enablePerfOverlay ?
                 R.string.stream_overlay_hide : R.string.stream_overlay_show, this::togglePerformanceOverlay);
-        addStreamAction(sheet, !debugPerformanceOverlay ? R.drawable.ic_check : R.drawable.ic_remote_monitor,
-                R.string.overlay_statistics, () -> {
-                    if (debugPerformanceOverlay) togglePerformanceOverlayMode();
-                    if (!prefConfig.enablePerfOverlay) togglePerformanceOverlay();
-                });
-        addStreamAction(sheet, debugPerformanceOverlay ? R.drawable.ic_check : R.drawable.ic_remote_monitor,
-                R.string.overlay_debug, () -> {
-                    if (!debugPerformanceOverlay) togglePerformanceOverlayMode();
-                    if (!prefConfig.enablePerfOverlay) togglePerformanceOverlay();
-                });
+        String[] modes = {PerformanceOverlay.MODE_COMPACT, PerformanceOverlay.MODE_STATISTICS, PerformanceOverlay.MODE_DEBUG};
+        int[] labels = {R.string.overlay_compact, R.string.overlay_statistics, R.string.overlay_debug};
+        for (int i = 0; i < modes.length; i++) {
+            String mode = modes[i];
+            addStreamAction(sheet, mode.equals(overlayMode) ? R.drawable.ic_check : R.drawable.ic_remote_monitor,
+                    labels[i], () -> {
+                        setPerformanceOverlayMode(mode);
+                        if (!prefConfig.enablePerfOverlay) togglePerformanceOverlay();
+                    });
+        }
         addStreamAction(sheet, R.drawable.ic_clipboard, R.string.overlay_copy, this::copyPerformanceStats);
         addStreamAction(sheet, R.drawable.ic_help, R.string.health_title, this::showStreamHealth);
         if (conn.canSendInput()) {
@@ -2486,18 +2490,38 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         updateHardwareMetricsPolling();
     }
 
-    private void togglePerformanceOverlayMode() {
-        debugPerformanceOverlay = !debugPerformanceOverlay;
+    private boolean isDebugOverlay() {
+        return PerformanceOverlay.MODE_DEBUG.equals(overlayMode);
+    }
+
+    private void setPerformanceOverlayMode(String mode) {
+        overlayMode = PerformanceOverlay.normalizeMode(mode);
         PreferenceManager.getDefaultSharedPreferences(this).edit()
-                .putString("performance_overlay_mode", debugPerformanceOverlay ? "debug" : "statistics").apply();
+                .putString("performance_overlay_mode", overlayMode).apply();
         performanceOverlayScroll.scrollTo(0, 0);
         updatePerformanceOverlay();
+        // The compact line leaves the host's hardware readings out; the other modes poll them.
+        updateHardwareMetricsPolling();
     }
 
     private void updatePerformanceOverlay() {
-        performanceOverlayView.setTextSize(debugPerformanceOverlay ? 11 : 12);
-        CharSequence text = hardwarePerformanceText(debugPerformanceOverlay);
-        performanceOverlayView.setText(text.length() == 0 ? getString(R.string.stats_waiting) : text);
+        boolean compact = PerformanceOverlay.MODE_COMPACT.equals(overlayMode);
+        performanceOverlayView.setTextSize(compact ? 13 : isDebugOverlay() ? 11 : 12);
+        CharSequence text = compact ? compactPerformanceText : hardwarePerformanceText(isDebugOverlay());
+        if (text.length() == 0) {
+            text = compact ? "● " + getString(R.string.overlay_compact_waiting) : getString(R.string.stats_waiting);
+        }
+        performanceOverlayView.setText(text);
+        performanceOverlayView.setContentDescription(compact ?
+                PerformanceOverlay.describeCompact(this, compactPerformanceText) : null);
+    }
+
+    // The on-screen gamepad, its layout button, per-game buttons and the key toolbar stay uncovered.
+    private void collectOverlayObstacles(java.util.List<Rect> out) {
+        View parent = (View) streamView.getParent();
+        if (virtualController != null && prefConfig.onscreenController) virtualController.collectVisibleBounds(out);
+        if (gameTouchControls != null) gameTouchControls.collectVisibleBounds(parent, out);
+        if (isKeyboardOverlayVisible()) com.limelight.ui.OverlayPlacement.addVisible(keyboardOverlay, parent, out);
     }
 
     private CharSequence hardwarePerformanceText(boolean debug) {
@@ -2507,7 +2531,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
 
     private void updateHardwareMetricsPolling() {
         if (!foreground || !connected || conn == null || isFinishing() || isDestroyed() || isHidingOverlays ||
-                performanceOverlayScroll == null || performanceOverlayScroll.getVisibility() != View.VISIBLE) {
+                performanceOverlayScroll == null || performanceOverlayScroll.getVisibility() != View.VISIBLE ||
+                PerformanceOverlay.MODE_COMPACT.equals(overlayMode)) {
             stopHardwareMetricsPolling();
             return;
         }
@@ -2619,6 +2644,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         }
         PreferenceManager.getDefaultSharedPreferences(this).edit()
                 .putBoolean("checkbox_show_onscreen_controls", enabled).apply();
+        // Hiding controls changes no layout by itself; ask for one so the overlay can move back.
+        performanceOverlayScroll.requestLayout();
     }
 
     private void showControllerLayoutDialog() {
@@ -4423,7 +4450,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
 
     // Fingers beside the per-game touch controls reach the stream as one gesture of their own.
     private boolean onTouchControlsPassthrough(View view, MotionEvent event) {
-        if (event.getActionMasked() == MotionEvent.ACTION_DOWN && debugPerformanceOverlay &&
+        if (event.getActionMasked() == MotionEvent.ACTION_DOWN && isDebugOverlay() &&
                 performanceOverlayScroll.getVisibility() == View.VISIBLE) {
             float x = event.getX() + gameTouchControls.getX(), y = event.getY() + gameTouchControls.getY();
             if (x >= performanceOverlayScroll.getX() && x < performanceOverlayScroll.getX() + performanceOverlayScroll.getWidth() &&
@@ -5301,7 +5328,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     }
 
     @Override
-    public void onPerfUpdate(final String video, final String network, final String decode, final CharSequence statisticsText) {
+    public void onPerfUpdate(final String video, final String network, final String decode, final CharSequence statisticsText,
+                             final CharSequence compactText) {
         runOnUiThread(new Runnable() {
             @Override
             public void run() {
@@ -5330,6 +5358,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 }
                 debugPerformanceText = PerformanceOverlay.debugText(Game.this, video + displayLine, networkText, decode);
                 statisticsPerformanceText = statisticsText;
+                compactPerformanceText = compactText;
                 updatePerformanceOverlay();
             }
         });

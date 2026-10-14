@@ -30,20 +30,40 @@ public class GamePerformanceOverlayTest {
         return game;
     }
 
+    private static void setMode(Game game, String mode) {
+        ReflectionHelpers.callInstanceMethod(game, "setPerformanceOverlayMode",
+                ReflectionHelpers.ClassParameter.from(String.class, mode));
+    }
+
+    @Test
+    public void compactIsTheDefaultOneLineWithItsDotInWords() {
+        Game game = game();
+        TextView overlay = game.findViewById(R.id.performanceOverlay);
+        ReflectionHelpers.callInstanceMethod(game, "updatePerformanceOverlay");
+        assertEquals("● Waiting for video", overlay.getText().toString());
+        ReflectionHelpers.setField(game, "compactPerformanceText", com.limelight.binding.video.PerformanceOverlay
+                .compactText(game, 119.94f, 120, 8, 0.14f, 4.6f));
+        ReflectionHelpers.callInstanceMethod(game, "updatePerformanceOverlay");
+        assertEquals("● 119.9 FPS · 8 ms RTT · 0.1% loss", overlay.getText().toString());
+        assertEquals("Stream good: 119.9 FPS · 8 ms RTT · 0.1% loss", overlay.getContentDescription().toString());
+    }
+
     @Test
     public void switchingModesKeepsAllLinesAndPersistsTheNamedMode() {
         Game game = game();
         TextView overlay = game.findViewById(R.id.performanceOverlay);
-        ReflectionHelpers.callInstanceMethod(game, "updatePerformanceOverlay");
+        setMode(game, "statistics");
         assertEquals(6, overlay.getText().toString().split("\n").length);
         assertNotEquals(1, overlay.getMaxLines());
         assertNull(overlay.getEllipsize());
-        ReflectionHelpers.callInstanceMethod(game, "togglePerformanceOverlayMode");
+        assertNull(overlay.getContentDescription());
+        assertEquals("statistics", PreferenceManager.getDefaultSharedPreferences(game).getString("performance_overlay_mode", ""));
+        setMode(game, "debug");
         assertTrue(overlay.getText().toString().contains("Driver fallback"));
         assertEquals("debug", PreferenceManager.getDefaultSharedPreferences(game).getString("performance_overlay_mode", ""));
-        ReflectionHelpers.callInstanceMethod(game, "togglePerformanceOverlayMode");
-        assertTrue(overlay.getText().toString().startsWith("1920×1080"));
-        assertEquals("statistics", PreferenceManager.getDefaultSharedPreferences(game).getString("performance_overlay_mode", ""));
+        setMode(game, "compact");
+        assertEquals("compact", PreferenceManager.getDefaultSharedPreferences(game).getString("performance_overlay_mode", ""));
+        assertFalse(overlay.getText().toString().contains("\n"));
     }
 
     @Test

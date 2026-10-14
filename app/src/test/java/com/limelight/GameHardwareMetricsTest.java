@@ -108,6 +108,21 @@ public class GameHardwareMetricsTest {
         ReflectionHelpers.callInstanceMethod(game, "stopHardwareMetricsPolling");
     }
 
+    @Test
+    public void theCompactOverlayNeverPollsTheHostsHardware() {
+        Connection connection = new Connection();
+        Game game = game(connection);
+        ReflectionHelpers.setField(game, "overlayMode", "compact");
+        update(game);
+        assertEquals(0, connection.starts);
+        ReflectionHelpers.callInstanceMethod(game, "setPerformanceOverlayMode",
+                ReflectionHelpers.ClassParameter.from(String.class, "statistics"));
+        assertEquals(1, connection.starts);
+        ReflectionHelpers.callInstanceMethod(game, "setPerformanceOverlayMode",
+                ReflectionHelpers.ClassParameter.from(String.class, "compact"));
+        assertEquals(1, connection.stops);
+    }
+
     private static HardwareMetrics sample(long timestamp) {
         return new HardwareMetrics(timestamp, 1000, Map.of("cpu_usage_percent", 18.0),
                 List.of(new HardwareMetrics.Gpu(0, "AMD test GPU", Map.of("gpu_usage_percent", 25.0))));
@@ -135,6 +150,8 @@ public class GameHardwareMetricsTest {
         ReflectionHelpers.setField(game, "performanceOverlayScroll", overlay);
         ReflectionHelpers.setField(game, "statisticsPerformanceText", "Client statistics");
         ReflectionHelpers.setField(game, "debugPerformanceText", "Client debug");
+        // Host hardware readings belong to the Statistics and Debug overlays.
+        ReflectionHelpers.setField(game, "overlayMode", "statistics");
         ReflectionHelpers.setField(game, "foreground", true);
         ReflectionHelpers.setField(game, "connected", true);
         ReflectionHelpers.setField(game, "conn", connection);

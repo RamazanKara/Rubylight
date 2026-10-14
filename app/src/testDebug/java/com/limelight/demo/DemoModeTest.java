@@ -130,13 +130,14 @@ public class DemoModeTest {
     @Test public void metricsUseTheProductionListenerAndChangeBetweenSamples() {
         Context context = RuntimeEnvironment.getApplication();
         String[] samples = new String[2];
-        DemoMetrics.update(context, (video, network, decode, compact) -> {
+        DemoMetrics.update(context, (video, network, decode, statistics, compact) -> {
             assertTrue(video.contains("AV1"));
             assertTrue(video.contains("FSR 1"));
-            assertTrue(compact.toString().contains("119.9 FPS"));
+            assertTrue(statistics.toString().contains("119.9 FPS"));
+            assertTrue(compact.toString().startsWith("● 119.9 FPS · 8 ms RTT · 0.1% loss"));
             samples[0] = decode;
         }, 0);
-        DemoMetrics.update(context, (video, network, decode, compact) -> samples[1] = decode, 2);
+        DemoMetrics.update(context, (video, network, decode, statistics, compact) -> samples[1] = decode, 2);
         assertNotEquals(samples[0], samples[1]);
     }
 
@@ -155,6 +156,10 @@ public class DemoModeTest {
             overlay = restored.get().findViewById(R.id.performanceOverlay);
             assertEquals(Integer.MAX_VALUE, overlay.getMaxLines());
             assertTrue(overlay.getText().toString().contains("p95"));
+            // Debug, then the compact line, then the six statistics lines.
+            overlay.performLongClick();
+            assertTrue(overlay.getText().toString().startsWith("● 119.9 FPS"));
+            assertFalse(overlay.getText().toString().contains("\n"));
             overlay.performLongClick();
             assertEquals(Integer.MAX_VALUE, overlay.getMaxLines());
             assertEquals(6, overlay.getText().toString().split("\n").length);

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Compact performance overlay: "● 119.9 FPS · 8 ms RTT · 0.1% loss" -->
+    <string name="overlay_compact">Compact</string>
+    <string name="overlay_compact_fps">%1$s FPS</string>
+    <string name="overlay_compact_rtt">%1$s ms RTT</string>
+    <string name="overlay_compact_loss">%1$s%% loss</string>
+    <string name="overlay_compact_waiting">Waiting for video</string>
+    <string name="overlay_health_good">Stream good</string>
+    <string name="overlay_health_fair">Stream struggling</string>
+    <string name="overlay_health_poor">Stream poor</string>
+    <string name="overlay_health_unknown">Stream starting</string>
+</resources>

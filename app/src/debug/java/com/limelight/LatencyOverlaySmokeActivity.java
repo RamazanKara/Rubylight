@@ -15,9 +15,14 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 
-/** Debug-only rendering check using the stream layout and production overlay formatters. */
+/**
+ * Debug-only rendering check using the stream layout and production overlay formatters and placement.
+ * "--es mode compact|statistics|debug" picks the first mode (default statistics), "--ez controls true"
+ * shows the on-screen controls the overlay must keep clear of. Long-press cycles the modes.
+ */
 public class LatencyOverlaySmokeActivity extends Activity {
-    private boolean debug;
+    private String mode;
+    private com.limelight.binding.input.virtual_controller.VirtualController controls;
     private final HardwareMetrics hardwareMetrics = previewHardwareMetrics();
 
     private static HardwareMetrics previewHardwareMetrics() {
@@ -45,29 +50,49 @@ public class LatencyOverlaySmokeActivity extends Activity {
         // This rendering fixture has no text input.
         stream.setFocusable(false);
         stream.initializeSurface(false);
-        if (savedInstanceState != null) debug = savedInstanceState.getBoolean("debug", false);
+        mode = savedInstanceState != null ? savedInstanceState.getString("mode") : getIntent().getStringExtra("mode");
+        mode = mode == null ? PerformanceOverlay.MODE_STATISTICS : PerformanceOverlay.normalizeMode(mode);
         TextView message = findViewById(R.id.inputOnlyStatus);
         message.setText(R.string.smoke_overlay_message);
         message.setVisibility(View.VISIBLE);
         findViewById(R.id.performanceOverlayScroll).setVisibility(View.VISIBLE);
         findViewById(R.id.performanceOverlay).setOnLongClickListener(view -> {
-            debug = !debug;
+            // Statistics, Debug, Compact, then Statistics again.
+            mode = PerformanceOverlay.MODE_STATISTICS.equals(mode) ? PerformanceOverlay.MODE_DEBUG :
+                    PerformanceOverlay.MODE_DEBUG.equals(mode) ? PerformanceOverlay.MODE_COMPACT : PerformanceOverlay.MODE_STATISTICS;
             findViewById(R.id.performanceOverlayScroll).scrollTo(0, 0);
             updateOverlay();
             return true;
+        });
+        android.widget.FrameLayout container = (android.widget.FrameLayout) stream.getParent();
+        if (getIntent().getBooleanExtra("controls", false)) {
+            controls = new com.limelight.binding.input.virtual_controller.VirtualController(null, container, this);
+            controls.refreshLayout();
+            controls.show();
+        }
+        com.limelight.ui.OverlayPlacement.attach(findViewById(R.id.performanceOverlayScroll), container, out -> {
+            if (controls != null) controls.collectVisibleBounds(out);
         });
         updateOverlay();
     }
 
     @Override
     protected void onSaveInstanceState(Bundle outState) {
-        outState.putBoolean("debug", debug);
+        outState.putString("mode", mode);
         super.onSaveInstanceState(outState);
     }
 
     private void updateOverlay() {
         TextView overlay = findViewById(R.id.performanceOverlay);
-        overlay.setTextSize(debug ? 11 : 12);
+        boolean debug = PerformanceOverlay.MODE_DEBUG.equals(mode);
+        overlay.setTextSize(PerformanceOverlay.MODE_COMPACT.equals(mode) ? 13 : debug ? 11 : 12);
+        overlay.setContentDescription(null);
+        if (PerformanceOverlay.MODE_COMPACT.equals(mode)) {
+            CharSequence compact = PerformanceOverlay.compactText(this, 119.94f, 120, 8, 0.14f, 4.6f);
+            overlay.setText(compact);
+            overlay.setContentDescription(PerformanceOverlay.describeCompact(this, compact));
+            return;
+        }
         if (!debug) {
             overlay.setText(PerformanceOverlay.withHardwareMetrics(this,
                     PerformanceOverlay.statisticsText(this, "1280×720 · AV1 · HDR",

@@ -476,7 +476,7 @@
             android:dialogMessage="@string/overlay_mode_help"
             android:entries="@array/overlay_mode_names"
             android:entryValues="@array/overlay_mode_values"
-            android:defaultValue="statistics" />
+            android:defaultValue="compact" />
         <com.limelight.preferences.MaterialSwitchPreference
             android:key="checkbox_enable_post_stream_toast"
             android:title="@string/title_enable_post_stream_toast"

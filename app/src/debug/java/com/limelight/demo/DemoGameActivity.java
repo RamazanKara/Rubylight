@@ -42,7 +42,8 @@ public final class DemoGameActivity extends Activity implements SurfaceHolder.Ca
     private TextView overlay, label;
     private VirtualController controls;
     private MediaPlayer player;
-    private boolean debug, showControls, prepared, started, fallback;
+    private String mode;
+    private boolean showControls, prepared, started, fallback;
     private int position;
     private long tick;
     private ActionSheet menu;
@@ -66,7 +67,7 @@ public final class DemoGameActivity extends Activity implements SurfaceHolder.Ca
         // The sample has no text input; keep the soft keyboard (and its navigation-bar buttons) off the stream.
         getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN);
         setContentView(R.layout.activity_game);
-        debug = state == null ? "debug".equals(PerformanceOverlay.normalizeMode(getIntent().getStringExtra("state"))) : state.getBoolean("debug");
+        mode = PerformanceOverlay.normalizeMode(state == null ? getIntent().getStringExtra("state") : state.getString("mode"));
         showControls = state == null ? "touch".equals(getIntent().getStringExtra("state")) : state.getBoolean("controls");
         position = state == null ? 0 : state.getInt("position");
         stream = findViewById(R.id.surfaceView);
@@ -87,13 +88,17 @@ public final class DemoGameActivity extends Activity implements SurfaceHolder.Ca
         findViewById(R.id.performanceOverlayScroll).setVisibility(View.VISIBLE);
         placeOverlay();
         overlay.setOnLongClickListener(view -> {
-            setDebug(!debug);
+            // Compact, Statistics, Debug, then Compact again.
+            setMode(PerformanceOverlay.MODE_COMPACT.equals(mode) ? PerformanceOverlay.MODE_STATISTICS :
+                    PerformanceOverlay.MODE_STATISTICS.equals(mode) ? PerformanceOverlay.MODE_DEBUG : PerformanceOverlay.MODE_COMPACT);
             return true;
         });
         findViewById(R.id.backgroundTouchView).setOnClickListener(view -> showMenu());
         stream.setOnClickListener(view -> showMenu());
         FrameLayout container = (FrameLayout) stream.getParent();
         controls = new VirtualController(null, container, this);
+        com.limelight.ui.OverlayPlacement.attach(findViewById(R.id.performanceOverlayScroll), container,
+                out -> controls.collectVisibleBounds(out));
         controls.refreshLayout();
         controls.setOpacity(65);
         if (showControls) controls.show(); else controls.hide();
@@ -107,36 +112,42 @@ public final class DemoGameActivity extends Activity implements SurfaceHolder.Ca
         DemoMetrics.update(this, this, 0);
     }
 
-    private void setDebug(boolean value) {
-        debug = value;
+    private void setMode(String value) {
+        mode = value;
         placeOverlay();
         findViewById(R.id.performanceOverlayScroll).scrollTo(0, 0);
         DemoMetrics.update(this, this, tick);
     }
 
+    // The same sizes as a real stream; OverlayPlacement picks the corner.
     private void placeOverlay() {
-        View scroll = findViewById(R.id.performanceOverlayScroll);
-        FrameLayout.LayoutParams params = (FrameLayout.LayoutParams) scroll.getLayoutParams();
-        params.gravity = Gravity.TOP | Gravity.START;
-        scroll.setLayoutParams(params);
-        overlay.setTextSize(TypedValue.COMPLEX_UNIT_SP, debug ? 11 : 12);
+        overlay.setTextSize(TypedValue.COMPLEX_UNIT_SP, PerformanceOverlay.MODE_COMPACT.equals(mode) ? 13 :
+                PerformanceOverlay.MODE_DEBUG.equals(mode) ? 11 : 12);
     }
 
-    @Override public void onPerfUpdate(String video, String network, String decode, CharSequence statisticsText) {
-        overlay.setText(debug ? PerformanceOverlay.debugText(this, video, network, decode) : statisticsText);
+    @Override public void onPerfUpdate(String video, String network, String decode, CharSequence statisticsText,
+                                       CharSequence compactText) {
+        overlay.setText(PerformanceOverlay.MODE_DEBUG.equals(mode) ? PerformanceOverlay.debugText(this, video, network, decode) :
+                PerformanceOverlay.MODE_STATISTICS.equals(mode) ? statisticsText : compactText);
+        overlay.setContentDescription(PerformanceOverlay.MODE_COMPACT.equals(mode) ?
+                PerformanceOverlay.describeCompact(this, compactText) : null);
     }
 
     private void showMenu() {
         if (menu != null) return;
         menu = new ActionSheet(this, getString(R.string.stream_overlay_menu));
+        menu.addAction(R.drawable.ic_remote_monitor, getString(R.string.overlay_compact))
+                .setOnClickListener(view -> { setMode(PerformanceOverlay.MODE_COMPACT); menu.dismiss(); });
         menu.addAction(R.drawable.ic_remote_monitor, getString(R.string.overlay_statistics))
-                .setOnClickListener(view -> { setDebug(false); menu.dismiss(); });
+                .setOnClickListener(view -> { setMode(PerformanceOverlay.MODE_STATISTICS); menu.dismiss(); });
         menu.addAction(R.drawable.ic_remote_monitor, getString(R.string.overlay_debug))
-                .setOnClickListener(view -> { setDebug(true); menu.dismiss(); });
+                .setOnClickListener(view -> { setMode(PerformanceOverlay.MODE_DEBUG); menu.dismiss(); });
         menu.addAction(R.drawable.ic_settings, getString(showControls ? R.string.stream_controls_hide : R.string.stream_controls_show))
                 .setOnClickListener(view -> {
                     showControls = !showControls;
                     if (showControls) controls.show(); else controls.hide();
+                    // Showing controls changes no layout; ask for one so the overlay moves clear of them.
+                    findViewById(R.id.performanceOverlayScroll).requestLayout();
                     menu.dismiss();
                 });
         menu.setOnDismissListener(dialog -> menu = null);
@@ -239,7 +250,7 @@ public final class DemoGameActivity extends Activity implements SurfaceHolder.Ca
     }
 
     @Override protected void onSaveInstanceState(Bundle state) {
-        state.putBoolean("debug", debug);
+        state.putString("mode", mode);
         state.putBoolean("controls", showControls);
         state.putInt("position", prepared ? player.getCurrentPosition() : position);
         super.onSaveInstanceState(state);

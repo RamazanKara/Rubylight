@@ -136,6 +136,14 @@ public class VirtualController {
         return elements;
     }
 
+    /** The visible controls and their layout button, in the coordinates of the layout they are in. */
+    public void collectVisibleBounds(List<android.graphics.Rect> out) {
+        for (VirtualControllerElement element : elements) {
+            com.limelight.ui.OverlayPlacement.addVisible(element, frame_layout, out);
+        }
+        com.limelight.ui.OverlayPlacement.addVisible(buttonConfigure, frame_layout, out);
+    }
+
     private static final void _DBG(String text) {
         if (_PRINT_DEBUG_INFORMATION) {
             LimeLog.info("VirtualController: " + text);

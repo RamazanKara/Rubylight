@@ -113,12 +113,69 @@ public class PerformanceOverlayTest {
     }
 
     @Test
-    public void modeMigrationPreservesDetailedChoiceAndDefaultsToStatistics() {
-        for (String value : new String[] {null, "compact", "statistics", "unknown"}) {
-            assertEquals("statistics", PerformanceOverlay.normalizeMode(value));
+    public void modeNamesKeepDetailedChoicesAndDefaultToCompact() {
+        for (String value : new String[] {null, "compact", "unknown", ""}) {
+            assertEquals("compact", PerformanceOverlay.normalizeMode(value));
         }
+        assertEquals("statistics", PerformanceOverlay.normalizeMode("statistics"));
+        assertEquals("statistics", PerformanceOverlay.normalizeMode("expanded"));
         assertEquals("debug", PerformanceOverlay.normalizeMode("advanced"));
         assertEquals("debug", PerformanceOverlay.normalizeMode("debug"));
+    }
+
+    @Test
+    public void compactIsOneLineOfShownFpsRoundTripAndLoss() {
+        CharSequence text = PerformanceOverlay.compactText(context(Locale.US), 119.94f, 120, 8, 0.14f, 4.6f);
+        assertEquals("● 119.9 FPS · 8 ms RTT · 0.1% loss", text.toString());
+        assertFalse(text.toString().contains("\n"));
+        // The figure is the measured network round trip, labelled as one: never a sum passed off as latency.
+        assertFalse(text.toString().contains("13 ms"));
+        assertEquals(0xff69db7c, dotColor(text));
+        assertEquals("Stream good: 119.9 FPS · 8 ms RTT · 0.1% loss",
+                PerformanceOverlay.describeCompact(context(Locale.US), text));
+    }
+
+    @Test
+    public void compactLeavesOutUnmeasuredValuesAndWaitsWithoutAnyReading() {
+        for (float missing : new float[] {-1, Float.NaN, Float.POSITIVE_INFINITY}) {
+            assertEquals("● 60.0 FPS · 0.0% loss",
+                    PerformanceOverlay.compactText(context(Locale.US), 60, 60, missing, 0, 4).toString());
+            assertEquals("● 12 ms RTT",
+                    PerformanceOverlay.compactText(context(Locale.US), missing, missing, 12, missing, missing).toString());
+            assertEquals("", PerformanceOverlay.compactText(context(Locale.US), missing, 60, missing, missing, 4).toString());
+        }
+        assertNull(PerformanceOverlay.describeCompact(context(Locale.US), ""));
+    }
+
+    @Test
+    public void compactDotShowsHealthFromLossRoundTripAndShownFrames() {
+        assertEquals(PerformanceOverlay.Health.GOOD, PerformanceOverlay.health(119.9f, 120, 8, 0.1f, 4));
+        assertEquals(PerformanceOverlay.Health.FAIR, PerformanceOverlay.health(119.9f, 120, 8, 1.2f, 4));
+        assertEquals(PerformanceOverlay.Health.FAIR, PerformanceOverlay.health(119.9f, 120, 45, 0, 4));
+        assertEquals(PerformanceOverlay.Health.FAIR, PerformanceOverlay.health(100, 120, 8, 0, 4));
+        // Decoding slower than one frame of the received rate cannot keep up.
+        assertEquals(PerformanceOverlay.Health.FAIR, PerformanceOverlay.health(119.9f, 120, 8, 0, 9));
+        assertEquals(PerformanceOverlay.Health.POOR, PerformanceOverlay.health(119.9f, 120, 8, 6, 4));
+        assertEquals(PerformanceOverlay.Health.POOR, PerformanceOverlay.health(119.9f, 120, 90, 0, 4));
+        assertEquals(PerformanceOverlay.Health.POOR, PerformanceOverlay.health(80, 120, 8, 0, 4));
+        assertEquals(PerformanceOverlay.Health.UNKNOWN, PerformanceOverlay.health(-1, 60, -1, -1, 4));
+        CharSequence poor = PerformanceOverlay.compactText(context(Locale.US), 30, 60, 120, 7, 4);
+        assertEquals(0xffff6b6b, dotColor(poor));
+        assertTrue(PerformanceOverlay.describeCompact(context(Locale.US), poor).startsWith("Stream poor: "));
+    }
+
+    @Test
+    public void germanCompactUsesLocalizedNumbersAndWords() {
+        CharSequence text = PerformanceOverlay.compactText(context(Locale.GERMANY), 59.94f, 60, 8, 0.14f, 4.6f);
+        assertEquals("● 59,9 FPS · 8 ms RTT · 0,1% Verlust", text.toString());
+        assertTrue(PerformanceOverlay.describeCompact(context(Locale.GERMANY), text).startsWith("Stream läuft gut: "));
+    }
+
+    private static int dotColor(CharSequence text) {
+        android.text.style.ForegroundColorSpan[] spans = ((android.text.Spanned) text).getSpans(0, 1,
+                android.text.style.ForegroundColorSpan.class);
+        assertEquals(1, spans.length);
+        return spans[0].getForegroundColor();
     }
 
     @Test

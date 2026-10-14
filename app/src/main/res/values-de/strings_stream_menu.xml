@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="overlay_compact">Kompakt</string>
+    <string name="overlay_compact_fps">%1$s FPS</string>
+    <string name="overlay_compact_rtt">%1$s ms RTT</string>
+    <string name="overlay_compact_loss">%1$s%% Verlust</string>
+    <string name="overlay_compact_waiting">Warte auf Video</string>
+    <string name="overlay_health_good">Stream läuft gut</string>
+    <string name="overlay_health_fair">Stream hakt</string>
+    <string name="overlay_health_poor">Stream läuft schlecht</string>
+    <string name="overlay_health_unknown">Stream startet</string>
+</resources>

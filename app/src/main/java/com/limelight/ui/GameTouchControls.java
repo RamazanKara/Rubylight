@@ -133,6 +133,12 @@ public final class GameTouchControls extends FrameLayout {
     }
     public boolean isEditing() { return editing; }
 
+    /** The visible game buttons, in the coordinates of {@code parent}, for overlays to keep clear of. */
+    public void collectVisibleBounds(View parent, List<android.graphics.Rect> out) {
+        if (getVisibility() != VISIBLE) return;
+        for (int i = 0; i < buttonCount(); i++) OverlayPlacement.addVisible(buttonAt(i), parent, out);
+    }
+
     public void showMenu() {
         releaseInput();
         List<String> names = new ArrayList<>();

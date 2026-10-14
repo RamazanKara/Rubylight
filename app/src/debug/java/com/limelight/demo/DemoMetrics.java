@@ -29,6 +29,7 @@ final class DemoMetrics {
                         {600, 7.6, 9.4, 11.1}, {600, 3.1, 3.8, 4.2}
                 });
         listener.onPerfUpdate(video, network, decoder, PerformanceOverlay.statisticsText(context, "1920×1080 · AV1 · HDR",
-                fps, 120, 38.6f, 0.1f, 8, 1, 3.1f, decode, 1.2f));
+                fps, 120, 38.6f, 0.1f, 8, 1, 3.1f, decode, 1.2f),
+                PerformanceOverlay.compactText(context, fps, 120, 8, 0.1f, decode));
     }
 }

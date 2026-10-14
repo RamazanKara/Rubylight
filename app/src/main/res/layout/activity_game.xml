@@ -40,7 +40,7 @@
         android:layout_height="wrap_content"
         android:layout_margin="8dp"
         android:layout_gravity="top|start"
-        android:background="#80000000"
+        android:background="@drawable/bg_stream_overlay"
         android:focusable="false"
         android:descendantFocusability="blocksDescendants"
         android:preferKeepClear="true"
@@ -57,7 +57,8 @@
             android:shadowRadius="2"
             android:lineSpacingExtra="1dp"
             android:maxWidth="440dp"
-            android:padding="8dp" />
+            android:paddingHorizontal="8dp"
+            android:paddingVertical="4dp" />
     </ScrollView>
 
     <TextView

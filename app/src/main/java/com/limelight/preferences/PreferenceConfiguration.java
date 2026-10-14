@@ -725,6 +725,31 @@ public class PreferenceConfiguration {
                 (fromPcProfile ? "fixed, PC profile" : "fixed in settings");
     }
 
+    static final String OVERLAY_MODE_PREF_STRING = "performance_overlay_mode";
+    // Set once the compact overlay became the default, so a later choice of Statistics is kept.
+    static final String OVERLAY_COMPACT_DEFAULT_PREF_STRING = "performance_overlay_compact_default";
+
+    /**
+     * Compact is the overlay's default. Statistics was the default every install stored, even untouched,
+     * so a stored Statistics cannot be told from a choice: it becomes compact once, like no value at all.
+     * Debug and older names keep their meaning.
+     */
+    static void migrateOverlayMode(SharedPreferences prefs) {
+        String stored = prefs.getString(OVERLAY_MODE_PREF_STRING, null);
+        String mode = PerformanceOverlay.normalizeMode(stored);
+        SharedPreferences.Editor editor = null;
+        if (!prefs.getBoolean(OVERLAY_COMPACT_DEFAULT_PREF_STRING, false)) {
+            if (stored == null || PerformanceOverlay.MODE_STATISTICS.equals(stored)) {
+                mode = PerformanceOverlay.MODE_COMPACT;
+            }
+            editor = prefs.edit().putBoolean(OVERLAY_COMPACT_DEFAULT_PREF_STRING, true);
+        }
+        if (!mode.equals(stored)) {
+            editor = (editor != null ? editor : prefs.edit()).putString(OVERLAY_MODE_PREF_STRING, mode);
+        }
+        if (editor != null) editor.apply();
+    }
+
     public static PreferenceConfiguration readPreferences(Context context) {
         SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
         migrateToNativeDefaults(context);
@@ -735,11 +760,7 @@ public class PreferenceConfiguration {
         String savedResolution = null;
 
         // Migrate legacy preferences to the new locations
-        String overlayMode = prefs.getString("performance_overlay_mode", "statistics");
-        String normalizedOverlayMode = PerformanceOverlay.normalizeMode(overlayMode);
-        if (!normalizedOverlayMode.equals(overlayMode)) {
-            prefs.edit().putString("performance_overlay_mode", normalizedOverlayMode).apply();
-        }
+        migrateOverlayMode(prefs);
         if (prefs.contains(LEGACY_ENABLE_51_SURROUND_PREF_STRING)) {
             if (prefs.getBoolean(LEGACY_ENABLE_51_SURROUND_PREF_STRING, false)) {
                 prefs.edit()

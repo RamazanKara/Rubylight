@@ -22,15 +22,35 @@ import static org.junit.Assert.*;
         instrumentedPackages = "com.limelight.nvstream.jni")
 public class SettingsInteractionTest {
     @Test
-    public void oldOverlayChoicesMigrateToStatisticsOrDebug() {
+    public void untouchedOverlaysBecomeCompactOnceAndChoicesSurvive() {
         Application app = RuntimeEnvironment.getApplication();
         SharedPreferences prefs = android.preference.PreferenceManager.getDefaultSharedPreferences(app);
-        for (String old : new String[] {"compact", "expanded", "advanced", "statistics", "debug"}) {
-            prefs.edit().putString("performance_overlay_mode", old).commit();
+        String[][] upgrades = {
+                // Stored before compact was the default: what it becomes on the first read.
+                {null, "compact"}, {"statistics", "compact"}, {"compact", "compact"},
+                {"expanded", "statistics"}, {"advanced", "debug"}, {"debug", "debug"}};
+        for (String[] upgrade : upgrades) {
+            SharedPreferences.Editor editor = prefs.edit().clear();
+            if (upgrade[0] != null) editor.putString("performance_overlay_mode", upgrade[0]);
+            editor.commit();
             PreferenceConfiguration.readPreferences(app);
-            assertEquals("advanced".equals(old) || "debug".equals(old) ? "debug" : "statistics",
-                    prefs.getString("performance_overlay_mode", null));
+            assertEquals(upgrade[0], upgrade[1], prefs.getString("performance_overlay_mode", null));
+            // A later choice of Statistics, in settings or the stream menu, stays.
+            prefs.edit().putString("performance_overlay_mode", "statistics").commit();
+            PreferenceConfiguration.readPreferences(app);
+            assertEquals("statistics", prefs.getString("performance_overlay_mode", null));
         }
+    }
+
+    @Test
+    public void aNewInstallDefaultsToTheCompactOverlay() {
+        Application app = RuntimeEnvironment.getApplication();
+        SharedPreferences prefs = android.preference.PreferenceManager.getDefaultSharedPreferences(app);
+        prefs.edit().clear().commit();
+        android.preference.PreferenceManager.setDefaultValues(app, R.xml.preferences, true);
+        assertEquals("compact", prefs.getString("performance_overlay_mode", null));
+        PreferenceConfiguration.readPreferences(app);
+        assertEquals("compact", prefs.getString("performance_overlay_mode", null));
     }
 
     @Test

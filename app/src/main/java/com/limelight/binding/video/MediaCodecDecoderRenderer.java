@@ -2361,7 +2361,9 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                     PerformanceOverlay.statisticsText(context, stream, frameRates[2],
                             frameRates[0], receivedVideoMbps, fps.lossPercent,
                             networkMs, varianceMs, PerformanceOverlay.average(timings, 4), decodeTimeMs,
-                            frameRates[2] < 0 ? -1 : PerformanceOverlay.average(timings, 2)));
+                            frameRates[2] < 0 ? -1 : PerformanceOverlay.average(timings, 2)),
+                    PerformanceOverlay.compactText(context, frameRates[2], frameRates[0], networkMs,
+                            fps.lossPercent, decodeTimeMs));
         }
     }
 

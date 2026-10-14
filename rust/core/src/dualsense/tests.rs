@@ -7,11 +7,16 @@ fn controller_audio_separates_speaker_and_haptics_and_gates_microphone() {
     pad.audio(controller_audio::CONTROL, &[1, 1, 2, 0, 7, 0, 0, 0]);
     assert_eq!(pad.input_report()[54], 9);
     let data = [1, 2, 3, 4, 5, 6, 7, 8].repeat(48);
+    // Drain as of before the frames were made: a loaded test machine must
+    // not age them past the queues' 20 ms limit.
+    let start = Instant::now();
     for _ in 0..5 {
         pad.iso(1, false, &data, data.len()).unwrap();
     }
-    assert_eq!(pad.take_speaker()[0].samples, [1, 2, 3, 4].repeat(240));
-    assert_eq!(pad.take_pcm()[0].samples, [5, 6, 7, 8].repeat(240));
+    let speaker: Vec<_> = pad.speaker.drain(start).collect();
+    let pcm: Vec<_> = pad.pcm.drain(start).collect();
+    assert_eq!(speaker[0].samples, [1, 2, 3, 4].repeat(240));
+    assert_eq!(pcm[0].samples, [5, 6, 7, 8].repeat(240));
     let mic = haptics::Frame {
         id: 2,
         sequence: 1,

@@ -328,37 +328,56 @@ impl Arrangement {
         retained: &[String],
         before: &[Node],
     ) -> Result<Vec<Node>> {
+        let mut current = nodes.to_vec();
+        self.preserve_primary(&mut current, before)?;
+        self.compose(&current, target, retained)
+    }
+    /// Keep the first owner's primary when another stream joins or an owned
+    /// virtual display is recreated. Owner order still decides which stream
+    /// is primary for the deliberate primary/exclusive layouts.
+    pub fn compose_all_after_hotplug(
+        self,
+        nodes: &[Node],
+        targets: &[String],
+        retained: &[String],
+        before: &[Node],
+    ) -> Result<Vec<Node>> {
+        let mut current = nodes.to_vec();
+        self.preserve_primary(&mut current, before)?;
+        self.compose_all(&current, targets, retained)
+    }
+    fn preserve_primary(self, nodes: &mut [Node], before: &[Node]) -> Result<()> {
         if !matches!(self, Self::Extended | Self::Isolated) {
-            return self.compose(nodes, target, retained);
+            return Ok(());
         }
         let primary = before
             .iter()
-            .find(|node| node.active && node.primary && node.device_id != target)
+            .find(|node| node.active && node.primary)
             .and_then(|original| {
                 nodes
                     .iter()
                     .find(|node| node.active && node.device_id == original.device_id)
-            });
-        let Some(primary) = primary else {
+            })
+            .map(|node| (node.device_id.clone(), node.desired_position));
+        let Some((primary_id, origin)) = primary else {
             // Headless, disconnected or unreadable original layout: don't
             // invent a primary or activate a display the user switched off.
-            return self.compose(nodes, target, retained);
+            return Ok(());
         };
-        let mut current = nodes.to_vec();
-        for node in &mut current {
-            node.primary = node.device_id == primary.device_id;
+        for node in nodes {
+            node.primary = node.device_id == primary_id;
             node.desired_position.x = node
                 .desired_position
                 .x
-                .checked_sub(primary.desired_position.x)
+                .checked_sub(origin.x)
                 .ok_or_else(|| anyhow::anyhow!("display position overflow"))?;
             node.desired_position.y = node
                 .desired_position
                 .y
-                .checked_sub(primary.desired_position.y)
+                .checked_sub(origin.y)
                 .ok_or_else(|| anyhow::anyhow!("display position overflow"))?;
         }
-        self.compose(&current, target, retained)
+        Ok(())
     }
     pub fn compose(self, nodes: &[Node], target: &str, retained: &[String]) -> Result<Vec<Node>> {
         let target_node = nodes
@@ -1062,6 +1081,95 @@ mod tests {
             .unwrap(),
             serde_json::to_value(&current).unwrap()
         );
+    }
+    #[test]
+    fn shared_and_recreated_displays_keep_the_first_owners_original_primary() {
+        let before = [node("physical", 0)];
+        for arrangement in [Arrangement::Extended, Arrangement::Isolated] {
+            // A second display arrives as primary while the first still owns
+            // the layout. Both streamed displays must remain active.
+            let targets = ["first".to_owned(), "second".to_owned()];
+            let current = [
+                node("physical", -3840),
+                node("first", -1920),
+                node("second", 0),
+            ];
+            let result = arrangement
+                .compose_all_after_hotplug(&current, &targets, &[], &before)
+                .unwrap();
+            assert!(result[0].active && result[0].primary);
+            assert_eq!(result[0].desired_position, Position { x: 0, y: 0 });
+            assert!(result[1].active && !result[1].primary);
+            assert!(result[2].active && !result[2].primary);
+            let first = if arrangement == Arrangement::Isolated {
+                Position { x: 64000, y: 64000 }
+            } else {
+                Position { x: 1920, y: 0 }
+            };
+            assert_eq!(result[1].desired_position, first);
+            assert_eq!(
+                result[2].desired_position,
+                Position {
+                    x: first.x + 1920,
+                    y: first.y
+                }
+            );
+            // Recovery can replace the first display's identity. The saved
+            // physical primary, not the old target identity, is the anchor.
+            let current = [node("physical", -1920), node("recreated", 0)];
+            let result = arrangement
+                .compose_all_after_hotplug(&current, &["recreated".into()], &[], &before)
+                .unwrap();
+            assert!(result[0].active && result[0].primary);
+            assert_eq!(result[0].desired_position, Position { x: 0, y: 0 });
+            assert!(result[1].active && !result[1].primary);
+            assert_eq!(result[1].desired_position, first);
+        }
+    }
+    #[test]
+    fn shared_hotplug_keeps_deliberate_primary_modes_and_missing_baseline_fallbacks() {
+        let before = [node("physical", 0)];
+        let targets = ["first".to_owned(), "second".to_owned()];
+        let current = [
+            node("physical", -3840),
+            node("first", -1920),
+            node("second", 0),
+        ];
+        for arrangement in [
+            Arrangement::Primary,
+            Arrangement::Exclusive,
+            Arrangement::PrimaryIsolated,
+        ] {
+            let result = arrangement
+                .compose_all_after_hotplug(&current, &targets, &[], &before)
+                .unwrap();
+            assert!(result[1].active && result[1].primary);
+            assert_eq!(
+                serde_json::to_value(result).unwrap(),
+                serde_json::to_value(arrangement.compose_all(&current, &targets, &[]).unwrap())
+                    .unwrap()
+            );
+        }
+        let mut off = current.clone();
+        off[0].active = false;
+        for arrangement in [Arrangement::Extended, Arrangement::Isolated] {
+            for (current, before) in [
+                (&current[..], &[][..]),
+                (&current[1..], &before[..]),
+                (&off[..], &before[..]),
+            ] {
+                assert_eq!(
+                    serde_json::to_value(
+                        arrangement
+                            .compose_all_after_hotplug(current, &targets, &[], before)
+                            .unwrap()
+                    )
+                    .unwrap(),
+                    serde_json::to_value(arrangement.compose_all(current, &targets, &[]).unwrap())
+                        .unwrap()
+                );
+            }
+        }
     }
     #[test]
     fn several_streams_share_one_layout_without_overlapping() {

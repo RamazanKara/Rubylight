@@ -161,7 +161,12 @@ fn active_ids(nodes: &[Node]) -> std::collections::BTreeSet<String> {
 fn apply(state: &mut State, arrangement: Arrangement, leaving: Option<&str>) -> Result<()> {
     let current = Snapshot::capture()?;
     let targets: Vec<_> = state.owners.iter().map(|(t, _)| t.clone()).collect();
-    let mut desired = arrangement.compose_all(&current.nodes, &targets, &state.retained)?;
+    let mut desired = arrangement.compose_all_after_hotplug(
+        &current.nodes,
+        &targets,
+        &state.retained,
+        state.before.as_ref().map_or(&[], |before| &before.nodes),
+    )?;
     if let Some(leaving) = leaving {
         let was_active = state.before.as_ref().is_some_and(|before| {
             before

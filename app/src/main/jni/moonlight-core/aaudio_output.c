@@ -8,6 +8,8 @@
 #include <string.h>
 #include <time.h>
 
+#include "aaudio_queue.h"
+
 #define AUDIO_FUNCTIONS(X) \
     X(AAudio_createStreamBuilder) \
     X(AAudioStreamBuilder_delete) \
@@ -59,30 +61,14 @@ typedef struct {
     aaudio_result_t (*AAudioStream_requestStart)(AAudioStream*);
     aaudio_result_t (*AAudioStream_requestStop)(AAudioStream*);
     aaudio_result_t (*AAudioStream_close)(AAudioStream*);
-    int16_t* ring;
-    uint32_t capacity;
-    atomic_uint readFrames, writtenFrames, targetFrames, underruns;
+    AudioQueue queue;
     atomic_bool stopped;
-    bool primed;
 } AudioOutput;
 
 static aaudio_data_callback_result_t audioData(AAudioStream* stream, void* data, void* buffer, int32_t frames) {
     AudioOutput* output = data;
     if (atomic_load(&output->stopped)) return AAUDIO_CALLBACK_RESULT_STOP;
-    uint32_t read = atomic_load_explicit(&output->readFrames, memory_order_relaxed);
-    uint32_t written = atomic_load_explicit(&output->writtenFrames, memory_order_acquire);
-    uint32_t available = written - read;
-    uint32_t count = available < (uint32_t)frames ? available : (uint32_t)frames;
-    if (count) output->primed = true;
-    uint32_t offset = read % output->capacity;
-    uint32_t first = count < output->capacity - offset ? count : output->capacity - offset;
-    memcpy(buffer, output->ring + offset * 2, first * 2 * sizeof(int16_t));
-    memcpy((int16_t*)buffer + first * 2, output->ring, (count - first) * 2 * sizeof(int16_t));
-    if (count < (uint32_t)frames) {
-        memset((int16_t*)buffer + count * 2, 0, (frames - count) * 2 * sizeof(int16_t));
-        if (output->primed) atomic_fetch_add_explicit(&output->underruns, 1, memory_order_relaxed);
-    }
-    atomic_store_explicit(&output->readFrames, read + count, memory_order_release);
+    audioQueueRead(&output->queue, buffer, (uint32_t)frames);
     return AAUDIO_CALLBACK_RESULT_CONTINUE;
 }
 
@@ -97,7 +83,7 @@ static void closeAudio(AudioOutput* output) {
         output->AAudioStream_requestStop(output->stream);
         output->AAudioStream_close(output->stream);
     }
-    free(output->ring);
+    free(output->queue.samples);
     if (output->library) dlclose(output->library);
     free(output);
 }
@@ -106,10 +92,6 @@ JNIEXPORT jlong JNICALL
 Java_com_limelight_binding_audio_AndroidAudioRenderer_nativeOpenAudio(JNIEnv* env, jclass clazz, jint rate) {
     AudioOutput* output = calloc(1, sizeof(*output));
     if (!output) return 0;
-    atomic_init(&output->readFrames, 0);
-    atomic_init(&output->writtenFrames, 0);
-    atomic_init(&output->targetFrames, 0);
-    atomic_init(&output->underruns, 0);
     atomic_init(&output->stopped, false);
     // Loading at runtime keeps API 21-26 installations independent of libaaudio.
     output->library = dlopen("libaaudio.so", RTLD_NOW | RTLD_LOCAL);
@@ -147,13 +129,13 @@ Java_com_limelight_binding_audio_AndroidAudioRenderer_nativeOpenAudio(JNIEnv* en
     int capacity = output->AAudioStream_getBufferCapacityInFrames(output->stream);
     if (burst <= 0 || burst > rate / 10 || capacity < burst) goto failed;
     // A power-of-two ring also preserves the index when the 32-bit counters wrap.
-    output->capacity = 1;
-    while (output->capacity < (uint32_t)burst * 16) output->capacity *= 2;
-    output->ring = calloc(output->capacity * 2, sizeof(int16_t));
-    if (!output->ring) goto failed;
+    uint32_t ringCapacity = 1;
+    while (ringCapacity < (uint32_t)burst * 16) ringCapacity *= 2;
+    output->queue.samples = calloc(ringCapacity * 2, sizeof(int16_t));
+    if (!output->queue.samples) goto failed;
     int target = output->AAudioStream_setBufferSizeInFrames(output->stream, burst * 2);
     if (target <= 0) goto failed;
-    atomic_store(&output->targetFrames, (unsigned int)burst * 2);
+    audioQueueInit(&output->queue, output->queue.samples, ringCapacity, (uint32_t)target);
     if (output->AAudioStream_requestStart(output->stream) != AAUDIO_OK) goto failed;
     return (jlong)(intptr_t)output;
 failed:
@@ -172,23 +154,13 @@ Java_com_limelight_binding_audio_AndroidAudioRenderer_nativeWriteAudio(JNIEnv* e
     uint32_t position = 0;
     int waits = 0;
     while (remaining && !atomic_load(&output->stopped)) {
-        uint32_t written = atomic_load_explicit(&output->writtenFrames, memory_order_relaxed);
-        uint32_t read = atomic_load_explicit(&output->readFrames, memory_order_acquire);
-        uint32_t queued = written - read;
-        uint32_t target = atomic_load(&output->targetFrames);
-        uint32_t freeFrames = queued < target ? target - queued : 0;
-        if (!freeFrames) {
+        uint32_t count = audioQueueWrite(&output->queue, pcm + position * 2, remaining);
+        if (!count) {
             if (++waits >= 100) break;
             struct timespec pause = {0, 1000000};
             nanosleep(&pause, NULL);
             continue;
         }
-        uint32_t count = remaining < freeFrames ? remaining : freeFrames;
-        uint32_t offset = written % output->capacity;
-        uint32_t first = count < output->capacity - offset ? count : output->capacity - offset;
-        memcpy(output->ring + offset * 2, pcm + position * 2, first * 2 * sizeof(int16_t));
-        memcpy(output->ring, pcm + (position + first) * 2, (count - first) * 2 * sizeof(int16_t));
-        atomic_store_explicit(&output->writtenFrames, written + count, memory_order_release);
         remaining -= count;
         position += count;
     }
@@ -200,10 +172,11 @@ JNIEXPORT jintArray JNICALL
 Java_com_limelight_binding_audio_AndroidAudioRenderer_nativeAudioStats(JNIEnv* env, jclass clazz, jlong handle) {
     AudioOutput* output = (AudioOutput*)(intptr_t)handle;
     int xruns = output->AAudioStream_getXRunCount(output->stream);
+    // The software starvation count is still valid if hardware xruns are unsupported.
     jint stats[] = {output->AAudioStream_getFramesPerBurst(output->stream),
             output->AAudioStream_getBufferCapacityInFrames(output->stream),
             output->AAudioStream_getBufferSizeInFrames(output->stream),
-            xruns < 0 ? -1 : xruns + (int)atomic_load(&output->underruns)};
+            (xruns < 0 ? 0 : xruns) + (int)atomic_load(&output->queue.underruns)};
     jintArray result = (*env)->NewIntArray(env, 4);
     if (result) (*env)->SetIntArrayRegion(env, result, 0, 4, stats);
     return result;
@@ -213,7 +186,8 @@ JNIEXPORT jint JNICALL
 Java_com_limelight_binding_audio_AndroidAudioRenderer_nativeAudioBuffer(JNIEnv* env, jclass clazz, jlong handle, jint frames) {
     AudioOutput* output = (AudioOutput*)(intptr_t)handle;
     int actual = output->AAudioStream_setBufferSizeInFrames(output->stream, frames);
-    if (actual > 0) atomic_store(&output->targetFrames, (unsigned int)actual < output->capacity ? (unsigned int)actual : output->capacity);
+    if (actual > 0) atomic_store(&output->queue.targetFrames,
+            (unsigned int)actual < output->queue.capacity ? (unsigned int)actual : output->queue.capacity);
     return actual;
 }
 

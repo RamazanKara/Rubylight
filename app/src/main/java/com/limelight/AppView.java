@@ -504,10 +504,6 @@ public class AppView extends AppCompatActivity implements AdapterFragmentCallbac
         state.putBoolean("librarySearchVisible", librarySearch != null && librarySearch.getVisibility() == View.VISIBLE);
     }
 
-    @Override public void onBackPressed() {
-        navigateBack();
-    }
-
     private void navigateBack() {
         if (librarySearch != null && librarySearch.getVisibility() == View.VISIBLE) {
             librarySearch.setQuery("", false);

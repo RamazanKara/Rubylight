@@ -8,15 +8,23 @@ tests=app/src/test/native
 out=app/build/native-tests
 mkdir -p "$out"
 
+# Same list, order and stamp as prepareNativePatches in app/build.gradle: when the patches change,
+# reset moonlight-common-c/src to the pinned commit and apply them all again.
+patches=()
 for name in bughunt-stream.patch bughunt-input.patch controller-haptics.patch host-termination.patch \
     disconnect-intercept.patch control-payload.patch control-teardown.patch; do
-    patch="$core/patches/$name"
-    patch="$(pwd)/$patch"
-    if ! git -C "$common" apply --reverse --check "$patch" 2>/dev/null; then
-        git -C "$common" apply --check "$patch"
-        git -C "$common" apply "$patch"
-    fi
+    patches+=("$(pwd)/$core/patches/$name")
 done
+stamp_file=app/build/native-patches.stamp
+stamp="$(cat "${patches[@]}" | sha256sum | cut -d' ' -f1)"
+if [ "$(cat "$stamp_file" 2>/dev/null || true)" != "$stamp" ]; then
+    git -C "$common" checkout -- src
+    for patch in "${patches[@]}"; do
+        git -C "$common" apply "$patch"
+    done
+    mkdir -p "$(dirname "$stamp_file")"
+    echo "$stamp" > "$stamp_file"
+fi
 
 flags=(-std=gnu11 -O2 -ffunction-sections -fdata-sections -DHAS_SOCKLEN_T=1 -DHAVE_CLOCK_GETTIME=1
     -I "$core" -I "$common/src" -I "$common/enet/include" -I "$common/nanors"

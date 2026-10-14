@@ -179,31 +179,46 @@ def verifyReleaseSigning = tasks.register('verifyReleaseSigning') {
     }
 }
 
+// The patches only touch moonlight-common-c/src. When the set of patches changes (or the stamp is
+// missing), src is reset to the pinned commit and every patch is applied again in order, so an
+// edited patch never meets a tree that still carries its old version. scripts/test-native.sh uses
+// the same list and stamp. Change the patches, not the submodule: local edits to src are discarded.
+def nativePatchNames = ['bughunt-stream.patch', 'bughunt-input.patch', 'controller-haptics.patch', 'host-termination.patch',
+                        'disconnect-intercept.patch', 'control-payload.patch', 'control-teardown.patch']
+
 def prepareNativePatches = tasks.register('prepareNativePatches') {
     doLast {
         def core = file('src/main/jni/moonlight-core')
-        ['bughunt-stream.patch', 'bughunt-input.patch', 'controller-haptics.patch', 'host-termination.patch',
-         'disconnect-intercept.patch', 'control-payload.patch', 'control-teardown.patch'].each { name ->
-            def patch = new File(core, "patches/$name").absolutePath
-            def runGit = { List<String> arguments ->
-                def result = providers.exec {
-                    workingDir new File(core, 'moonlight-common-c')
-                    commandLine(['git', 'apply'] + arguments + [patch])
-                    ignoreExitValue = true
-                }
-                [result.result.get().exitValue, result.standardError.asText.get()]
+        def common = new File(core, 'moonlight-common-c')
+        def patches = nativePatchNames.collect { new File(core, "patches/$it") }
+        def digest = java.security.MessageDigest.getInstance('SHA-256')
+        patches.each { digest.update(it.bytes) }
+        def stamp = digest.digest().encodeHex().toString()
+        def stampFile = file('build/native-patches.stamp')
+        if (stampFile.exists() && stampFile.text.trim() == stamp) {
+            return
+        }
+
+        def runGit = { List<String> arguments ->
+            def result = providers.exec {
+                workingDir common
+                commandLine(['git'] + arguments)
+                ignoreExitValue = true
             }
-            if (runGit(['--reverse', '--check'])[0] != 0) {
-                def check = runGit(['--check'])
-                if (check[0] != 0) {
-                    throw new GradleException("Native patch $name does not apply: ${check[1]}")
-                }
-                def applied = runGit([])
-                if (applied[0] != 0) {
-                    throw new GradleException("Native patch $name failed: ${applied[1]}")
-                }
+            [result.result.get().exitValue, result.standardError.asText.get()]
+        }
+        def reset = runGit(['checkout', '--', 'src'])
+        if (reset[0] != 0) {
+            throw new GradleException("Could not reset moonlight-common-c/src before patching: ${reset[1]}")
+        }
+        patches.each { patch ->
+            def applied = runGit(['apply', patch.absolutePath])
+            if (applied[0] != 0) {
+                throw new GradleException("Native patch ${patch.name} does not apply: ${applied[1]}")
             }
         }
+        stampFile.parentFile.mkdirs()
+        stampFile.text = stamp + '\n'
     }
 }
 

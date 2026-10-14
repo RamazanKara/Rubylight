@@ -73,6 +73,9 @@ public class StreamSettings extends AppCompatActivity {
     private static final int EXPORT_LATENCY_REQUEST = 1;
     private static final String STATE_SECTION = "section";
     static final String DEVELOPER_SECTION = "developer";
+    // Shows the Developer options section; About's version turns it on after DEVELOPER_TAPS taps.
+    static final String DEVELOPER_OPTIONS_PREF_STRING = "developer_options";
+    static final int DEVELOPER_TAPS = 7;
     static final String LOW_LATENCY_DECODING_KEY = "low_latency_decoding";
     // Top-level screen keys (preferences_root.xml) and the preference categories each one shows
     static final Map<String, String[]> SECTIONS = new LinkedHashMap<>();
@@ -85,7 +88,7 @@ public class StreamSettings extends AppCompatActivity {
         SECTIONS.put("streaming", new String[] {"category_streaming"});
         SECTIONS.put("app", new String[] {"category_ui_settings"});
         SECTIONS.put("advanced", new String[] {"category_advanced_settings"});
-        SECTIONS.put(DEVELOPER_SECTION, new String[] {"category_developer_decoder",
+        SECTIONS.put(DEVELOPER_SECTION, new String[] {"category_developer", "category_developer_decoder",
                 "category_developer_input", "category_developer_diagnostics"});
     }
     // Kept by a reset: the language is applied by the OS, the others are actions
@@ -106,8 +109,14 @@ public class StreamSettings extends AppCompatActivity {
     private boolean stateSaved;
     private boolean renderPending;
     private boolean searchPending;
+    private int versionTaps;
+    private Toast versionToast;
     private final Handler navigationHandler = new Handler();
     private final Runnable searchUpdate = this::renderSearch;
+
+    static boolean developerOptionsShown(Context context) {
+        return PreferenceManager.getDefaultSharedPreferences(context).getBoolean(DEVELOPER_OPTIONS_PREF_STRING, false);
+    }
 
     void reloadSettings() {
         navigationHandler.removeCallbacks(searchUpdate);
@@ -116,6 +125,9 @@ public class StreamSettings extends AppCompatActivity {
         if (stateSaved) {
             renderPending = true;
             return;
+        }
+        if (DEVELOPER_SECTION.equals(section) && !developerOptionsShown(this)) {
+            section = null;
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             Display.Mode mode = getWindowManager().getDefaultDisplay().getMode();
@@ -210,6 +222,29 @@ public class StreamSettings extends AppCompatActivity {
     void showSection(String newSection) {
         section = newSection;
         reloadSettings();
+    }
+
+    /** One tap on the version in About. Seven turn Developer options on; the last three count down. */
+    void countVersionTap() {
+        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
+        CharSequence message;
+        if (prefs.getBoolean(DEVELOPER_OPTIONS_PREF_STRING, false)) {
+            message = getString(R.string.developer_options_already_on);
+        } else if (++versionTaps >= DEVELOPER_TAPS) {
+            versionTaps = 0;
+            prefs.edit().putBoolean(DEVELOPER_OPTIONS_PREF_STRING, true).apply();
+            message = getString(R.string.developer_options_on);
+        } else if (DEVELOPER_TAPS - versionTaps <= 3) {
+            int left = DEVELOPER_TAPS - versionTaps;
+            message = getResources().getQuantityString(R.plurals.developer_options_taps_left, left, left);
+        } else {
+            return;
+        }
+        if (versionToast != null) {
+            versionToast.cancel();
+        }
+        versionToast = Toast.makeText(this, message, Toast.LENGTH_SHORT);
+        versionToast.show();
     }
 
     private void navigateBack() {
@@ -536,6 +571,9 @@ public class StreamSettings extends AppCompatActivity {
                     == Configuration.UI_MODE_TYPE_TELEVISION) {
                 findPreference("input").setOrder(-1);
             }
+            if (!developerOptionsShown(getActivity())) {
+                getPreferenceScreen().removePreference(findPreference(DEVELOPER_SECTION));
+            }
             stylePreferences(getPreferenceScreen());
             for (String key : SECTIONS.keySet()) {
                 Preference row = findPreference(key);
@@ -598,6 +636,7 @@ public class StreamSettings extends AppCompatActivity {
             String query = ((StreamSettings) getActivity()).searchQuery;
             String section = getArguments() == null ? null : getArguments().getString(ARG_SECTION);
             String[] categories = section == null ? null : SECTIONS.get(section);
+            boolean developerOptions = developerOptionsShown(getActivity());
             int resultCount = 0;
             if (!query.isEmpty() && SettingsSearch.matches(query, getString(R.string.stream_presets),
                     getString(R.string.stream_presets_help), String.join(" ", getResources().getStringArray(R.array.stream_preset_names)))) {
@@ -618,6 +657,8 @@ public class StreamSettings extends AppCompatActivity {
                     continue;
                 }
                 final String resultSection = sectionOf(category.getKey());
+                // Hidden Developer options keep their values but stay out of search.
+                if (DEVELOPER_SECTION.equals(resultSection) && !developerOptions) continue;
                 PreferenceCategory results = new PreferenceCategory(getActivity());
                 CharSequence sectionTitle = resultSection == null ? null : getString(sectionTitle(resultSection));
                 results.setTitle(sectionTitle == null ? category.getTitle() :
@@ -990,6 +1031,11 @@ public class StreamSettings extends AppCompatActivity {
                             HelpLauncher.launchUrl(getActivity(), "https://github.com/RamazanKara/nightjar-android"))
                     .create();
             UiHelper.showDialog(getActivity(), about);
+            // The message starts with the version: tapping it seven times shows Developer options.
+            TextView version = about.findViewById(android.R.id.message);
+            if (version != null) {
+                version.setOnClickListener(v -> ((StreamSettings) getActivity()).countVersionTap());
+            }
         }
 
         @Override
@@ -1027,6 +1073,16 @@ public class StreamSettings extends AppCompatActivity {
             }
             findPreference(LOW_LATENCY_DECODING_KEY).setOnPreferenceChangeListener((preference, value) -> {
                 PreferenceConfiguration.setLowLatencyDecoding(getPreferenceManager().getSharedPreferences(), (Boolean) value);
+                return true;
+            });
+            findPreference(DEVELOPER_OPTIONS_PREF_STRING).setOnPreferenceChangeListener((preference, value) -> {
+                if (!Boolean.TRUE.equals(value)) {
+                    Toast.makeText(getActivity(), R.string.developer_options_hidden, Toast.LENGTH_SHORT).show();
+                    // Leave the section once the switch has been saved.
+                    new Handler().post(() -> {
+                        if (isAdded()) ((StreamSettings) getActivity()).showSection(null);
+                    });
+                }
                 return true;
             });
             ListPreference pacing = (ListPreference) findPreference("frame_pacing");

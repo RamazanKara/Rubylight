@@ -405,7 +405,15 @@
         <Preference android:key="gpu_driver" android:title="@string/gpu_driver_title" />
     </PreferenceCategory>
 
-    <!-- Developer options: test switches and diagnostics -->
+    <!-- Developer options: hidden until About's version is tapped seven times. Their values apply
+         whether or not the section is shown. -->
+    <PreferenceCategory android:key="category_developer">
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="developer_options"
+            android:title="@string/title_developer_options"
+            android:dialogMessage="@string/summary_developer_options"
+            android:defaultValue="false" />
+    </PreferenceCategory>
     <PreferenceCategory android:key="category_developer_decoder" android:title="@string/settings_category_decoder">
         <com.limelight.preferences.MaterialSwitchPreference
             android:key="checkbox_codec_low_latency"

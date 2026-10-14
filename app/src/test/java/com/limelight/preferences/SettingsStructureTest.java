@@ -100,13 +100,13 @@ public class SettingsStructureTest {
     }
 
     @Test
-    public void overviewListsTheSectionsInOrder() {
+    public void overviewListsTheSectionsInOrderWithDeveloperOptionsHidden() {
         try (ActivityController<StreamSettings> controller = Robolectric.buildActivity(StreamSettings.class).setup()) {
             StreamSettings screen = controller.get();
             settle(screen);
             PreferenceScreen root = ((StreamSettings.RootFragment) shown(screen)).getPreferenceScreen();
-            assertEquals(Arrays.asList("stream_presets", "video", "display", "input", "audio", "streaming", "app", "advanced",
-                    StreamSettings.DEVELOPER_SECTION), keys(root));
+            assertEquals(Arrays.asList("stream_presets", "video", "display", "input", "audio", "streaming", "app", "advanced"),
+                    keys(root));
             assertEquals(screen.getString(R.string.settings_section_display), root.findPreference("display").getTitle());
             assertNotNull(root.findPreference("display").getSummary());
             assertNotNull(root.findPreference("audio").getSummary());
@@ -115,6 +115,7 @@ public class SettingsStructureTest {
 
     @Test
     public void groupsNeverRepeatTheirSectionTitle() {
+        prefs().edit().putBoolean(StreamSettings.DEVELOPER_OPTIONS_PREF_STRING, true).commit();
         try (ActivityController<StreamSettings> controller = Robolectric.buildActivity(StreamSettings.class).setup()) {
             StreamSettings screen = controller.get();
             for (String section : StreamSettings.SECTIONS.keySet()) {

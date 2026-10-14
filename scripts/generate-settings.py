@@ -66,8 +66,8 @@ ADVICE = {
     "help": "Open the bundled help: connecting a PC, pairing, controls and the stream menu, common fixes and problem reports. Works offline; each topic links to these documents for detail.",
     "latency_benchmark": "Run a 10-second local frame-callback, timer and input-dispatch benchmark without a host. Use Measure input latency in the stream menu for end-to-end timing.",
     "report_problem": "Preview the explanation and share a redacted event/crash report through Android's share sheet.",
-    "about_app": "View the installed app version and open Source and licenses.",
-    "reset_all": "Confirm to reset global preferences. Keeps pairing, PC profiles, controller mappings, control layout and language.",
+    "about_app": "View the installed app version and open Source and licenses. Tapping the version seven times shows Developer options.",
+    "reset_all": "Confirm to reset global preferences, which also hides Developer options again. Keeps pairing, PC profiles, controller mappings, control layout and language.",
     "frame_pacing": "Use Lowest latency for response, Balanced for cadence, Balanced with FPS limit to cap pacing, or Smoothest video to retain frames at the cost of delay.",
     "checkbox_codec_low_latency": "Leave on for supported Android 11+ decoders. Disable when comparing a decoder freeze or artifact.",
     "checkbox_vendor_low_latency": "Leave on for supported chipset decoder keys. Disable to isolate vendor-specific instability.",
@@ -89,6 +89,7 @@ ADVICE = {
     "checkbox_disable_warnings": "Enable to hide stream connection warnings once your connection is tuned.",
     "export_latency_csv": "Choose a destination for the latest local frame-timing CSV. Each row holds the measured stage timings.",
     "low_latency_decoding": "Leave on. Sets Android low-latency mode, Chipset low-latency mode and Phone performance hints together; turn off only to test a decoding problem. When one of them is off in Developer options, the row says so.",
+    "developer_options": "Turn off to hide Developer options again. Values changed there stay in effect while hidden.",
 }
 
 
@@ -210,6 +211,8 @@ def generate():
              "These tables include every preference, including actions, grouped as the Settings screens show them. On/Off choices have no units; action rows have no stored default. Device capability checks can hide or disable a row.", ""]
     for section, members in sections.items():
         lines += ["### " + section_titles[section], ""]
+        if section == developer:
+            lines += ["Hidden until the version in **App → About** is tapped seven times. Values changed here stay in effect while the section is hidden.", ""]
         for member in members:
             category = categories[member]
             if category.get(ANDROID + "title"):

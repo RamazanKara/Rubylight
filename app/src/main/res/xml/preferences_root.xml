@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- The settings overview. Each row opens the section of the same key in StreamSettings.SECTIONS;
-     Developer options holds test switches and diagnostics. -->
+     Developer options is removed until it is turned on from About. -->
 <PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android">
     <com.limelight.preferences.PresetPreference android:key="stream_presets" android:title="@string/stream_presets" />
     <Preference android:key="video" android:title="@string/settings_section_video" />

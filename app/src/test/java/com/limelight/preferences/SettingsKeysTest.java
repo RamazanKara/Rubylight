@@ -61,7 +61,8 @@ public class SettingsKeysTest {
             StreamSettings.LOW_LATENCY_DECODING_KEY));
     // Stored settings that are read outside PreferenceConfiguration.
     private static final Set<String> READ_ELSEWHERE = new HashSet<>(Arrays.asList(
-            "performance_overlay_mode")); // Game and the overlay
+            "performance_overlay_mode", // Game and the overlay
+            StreamSettings.DEVELOPER_OPTIONS_PREF_STRING)); // StreamSettings
 
     private static SharedPreferences prefs() {
         return PreferenceManager.getDefaultSharedPreferences(RuntimeEnvironment.getApplication());

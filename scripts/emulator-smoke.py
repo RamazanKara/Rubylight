@@ -27,7 +27,8 @@ PACKAGE = "com.butterpollo.client"
 SHOTS = ROOT / "docs/screenshots/ui-v2"
 LOGS = ROOT / "app/build/emulator-smoke"
 HOST_NAME = "Gaming PC"
-ADDRESS_REQUIRED = "Enter the host's IP address or name"
+ADDRESS_REQUIRED = "Enter an IP address or PC name"
+PC_SETTINGS = "PC settings\u2026"
 DEBUGGABLE = True
 EXPECTED_ROTATION = 0
 UI_CASES = {
@@ -98,7 +99,9 @@ def find(label, scroll=False):
             continue
         for node in root.iter("node"):
             text = node.get("text") or ""
-            if label in (text, text.split("\n")[0], node.get("content-desc"), node.get("resource-id")):
+            description = node.get("content-desc") or ""
+            if label in (text, text.split("\n")[0], description, node.get("resource-id")) or \
+                    description.startswith(label + ", "):
                 x1, y1, x2, y2 = bounds(node)
                 x1, y1 = max(0, x1), max(0, y1)
                 # UIAutomator can expose rows behind a system bar; tap only their visible part.
@@ -285,7 +288,7 @@ PROFILE_RESET = "Same as all PCs for everything"
 
 
 def open_host_profile():
-    host_menu("Stream settings")
+    host_menu(PC_SETTINGS)
     find("Stream resolution", scroll=True)
 
 
@@ -389,7 +392,7 @@ def capture_ui_set(width, font, rotation=0):
     close = f"{PACKAGE}:id/action_sheet_close"
     assert find(close).get("content-desc") == "Close menu", "Sheet close button has no accessible name"
     assert_touch_target(close)
-    find("Pairing")
+    find("Pair with one-time PIN")
     screenshot(prefix + "-pc-sheet")
     # A long sheet must scroll through its final action without dragging it closed.
     find("Delete PC", scroll=True)
@@ -402,6 +405,8 @@ def capture_ui_set(width, font, rotation=0):
     assert find(PROFILE_RESET, scroll=True).get("enabled") == "false", "A new PC should follow the settings for all PCs"
     find("Stream resolution", scroll="up")
     screenshot(prefix + "-per-pc")
+    find("View details", scroll=True)
+    screenshot(prefix + "-per-pc-host")
     navigate_up()
     tap(f"{PACKAGE}:id/settingsButton")
     find("Presets", scroll=True)
@@ -485,7 +490,7 @@ def library_regressions():
     set_rotation(1)
     cards = []
     for _ in range(6):
-        cards = [n for n in tree().iter("node") if n.get("resource-id") == f"{PACKAGE}:id/grid_text"]
+        cards = [n for n in tree().iter("node") if n.get("resource-id") == f"{PACKAGE}:id/grid_image"]
         if cards:
             break
         time.sleep(0.5)
@@ -507,17 +512,81 @@ def library_regressions():
     enter_text(search, "Racing")
     adb("shell", "input", "keyevent", "66")
     find("Racing Game")
-    assert not any(n.get("text") == "Desktop" for n in tree().iter("node")), "Library query was not applied"
+    assert not any("Desktop" in (n.get("text"), (n.get("content-desc") or "").split(", ")[0])
+                   for n in tree().iter("node")), "Library query was not applied"
     set_rotation(1)
     find("Racing Game")
     assert find(search).get("text") == "Racing", "Rotation lost the library query"
     screenshot("library-search-landscape-font-2")
     tap("More options for Racing Game", scroll=True)
     find(f"{PACKAGE}:id/action_sheet_close")
+    find("Resume")
     screenshot("library-app-sheet-landscape-font-2")
     tap(f"{PACKAGE}:id/action_sheet_close")
     adb("shell", "am", "force-stop", PACKAGE)
     adb("shell", "settings", "put", "system", "font_scale", "1.0")
+
+
+def library_covers():
+    """The running game leads the cover grid with its chip; a tile's menu matches the game's state."""
+    adb("shell", "am", "force-stop", PACKAGE)
+    adb("shell", "wm", "size", "786x1704")
+    adb("shell", "settings", "put", "system", "font_scale", "1.0")
+    adb("shell", "am", "start", "-W", "-n", f"{PACKAGE}/com.limelight.demo.DemoLauncherActivity",
+        "--es", "state", "library", "--es", "codec", "h264")
+    set_rotation(0)
+    find("Racing Game")
+    root = tree()
+    tiles = [n for n in root.iter("node") if (n.get("content-desc") or "") and
+             n.get("resource-id") != f"{PACKAGE}:id/grid_more" and n.get("class") != "android.widget.ImageButton" and
+             any(c.get("resource-id") == f"{PACKAGE}:id/grid_image" for c in n.iter("node"))]
+    assert tiles and tiles[0].get("content-desc") == "Racing Game, Running", \
+        f"The running game is not pinned first: {[t.get('content-desc') for t in tiles[:3]]}"
+    assert any(n.get("text") == "Running" for n in root.iter("node")), "The running game has no Running chip"
+    assert not any(n.get("text") in ("Play", "Resume") for n in root.iter("node")), "Tiles still repeat their action"
+    screenshot("library-covers")
+    tap("More options for Puzzle Night", scroll=True)
+    find("Quit Racing Game and play")
+    screenshot("library-app-sheet-other-game")
+    tap(f"{PACKAGE}:id/action_sheet_close")
+    adb("shell", "am", "force-stop", PACKAGE)
+
+
+def home_states():
+    """The demo PCs cover every row state: running, unpaired and offline, each with its own short menu."""
+    adb("shell", "am", "force-stop", PACKAGE)
+    adb("shell", "wm", "size", "786x1704")
+    adb("shell", "settings", "put", "system", "font_scale", "1.0")
+    adb("shell", "am", "start", "-W", "-n", f"{PACKAGE}/com.limelight.demo.DemoLauncherActivity")
+    set_rotation(0)
+    find("Playing Racing Game")
+    root = tree()
+    names = [n.get("text") for n in root.iter("node") if n.get("resource-id") == f"{PACKAGE}:id/grid_text"]
+    assert names == ["Living-room PC", "Studio PC", "Laptop"], f"Rows are not running, unpaired, offline: {names}"
+    statuses = [n.get("text") for n in root.iter("node") if n.get("resource-id") == f"{PACKAGE}:id/grid_status"]
+    assert statuses == ["Playing Racing Game", "Not paired", "Offline"], f"Unexpected row status lines: {statuses}"
+    screenshot("home-states")
+    for name, action, shot in (("Living-room PC", "Resume Racing Game", "pc-sheet-running"),
+                               ("Studio PC", "Pairing help", "pc-sheet-unpaired"),
+                               ("Laptop", "Wake PC", "pc-sheet-offline")):
+        tap(f"More options for {name}")
+        find(action)
+        actions = [n.get("text") for n in tree().iter("node") if n.get("class") == "android.widget.Button"]
+        assert len(actions) <= 7 and actions[-1] == "Delete PC", f"{name} menu: {actions}"
+        screenshot(shot)
+        tap(f"{PACKAGE}:id/action_sheet_close")
+    # D-pad: down onto the first row, right onto its options button, Enter opens the menu.
+    adb("shell", "input", "keyevent", "KEYCODE_DPAD_DOWN")
+    for _ in range(3):
+        if focused_id() == f"{PACKAGE}:id/fragmentView":
+            break
+        adb("shell", "input", "keyevent", "KEYCODE_DPAD_DOWN")
+    assert focused_id() == f"{PACKAGE}:id/fragmentView", f"D-pad did not reach the PC rows: {focused_id()}"
+    adb("shell", "input", "keyevent", "KEYCODE_DPAD_RIGHT", "KEYCODE_ENTER")
+    find(f"{PACKAGE}:id/action_sheet_close")
+    tap(f"{PACKAGE}:id/action_sheet_close")
+    print("D-pad opens a PC row's menu from its options button", flush=True)
+    adb("shell", "am", "force-stop", PACKAGE)
 
 
 def capture_ui_sweep(cases=None):
@@ -531,6 +600,8 @@ def capture_ui_sweep(cases=None):
 
 def capture_debug_checks():
     """Debug fixtures exercise real library cards and overlay renderers without a paired PC."""
+    home_states()
+    library_covers()
     library_regressions()
     # 786 px at 320 dpi gives a 393 dp phone viewport.
     adb("shell", "wm", "size", "786x1704")
@@ -675,6 +746,14 @@ def main():
                                    "-a", "android.intent.action.MAIN", "-c", "android.intent.category.HOME",
                                    timeout=5).strip().split("\n")[-1]
                     ui = tree()
+                    # A loaded host can leave System UI's "isn't responding" dialog over the launcher; wait it out.
+                    wait = next((n for n in ui.iter("node") if n.get("resource-id") == "android:id/aerr_wait"), None)
+                    if wait is not None:
+                        x1, y1, x2, y2 = bounds(wait)
+                        adb("shell", "input", "tap", str((x1 + x2) // 2), str((y1 + y2) // 2))
+                        previous = None
+                        time.sleep(2)
+                        continue
                     current = ET.tostring(ui)
                     # HOME can still resolve to a temporary boot screen after boot_completed.
                     if ("/" in launcher and not launcher.startswith(("com.android.settings/", "com.google.android.googlesdksetup/")) and
@@ -726,7 +805,7 @@ def main():
                     raise ValueError("--debug-only requires a debug APK with library and overlay fixtures")
                 capture_debug_checks()
                 assert_no_app_crashes()
-                print(f"PASS: debug library search, clear action, query persistence across actual rotation, app action sheet, statistics/debug overlay contents and bounds in portrait and landscape; screenshots: {SHOTS}", flush=True)
+                print(f"PASS: debug home row states and menus, D-pad to a row's menu, library covers with the running game first, library search, clear action, query persistence across actual rotation, app action sheets, statistics/debug overlay contents and bounds in portrait and landscape; screenshots: {SHOTS}", flush=True)
                 return
             if args.ui_only:
                 tap(f"{PACKAGE}:id/discovery_add")
@@ -754,7 +833,7 @@ def main():
             tap(f"{PACKAGE}:id/discovery_add")
             enter_text(f"{PACKAGE}:id/hostTextView", "https://example.com/path")
             adb("shell", "input", "keyevent", "66")
-            find("Enter a PC name or IP address, optionally followed by a port (for example, 192.168.1.10:47989).")
+            find("Enter an IP address or PC name, optionally followed by a port (for example, 192.168.1.10:47989).")
             screenshot("02-manual-host-invalid")
             enter_text(f"{PACKAGE}:id/hostTextView", "127.0.0.1:47989")
             screenshot("02-manual-host")
@@ -770,11 +849,14 @@ def main():
             find("One-time PIN")
             screenshot("16-otp-pairing")
             tap("android:id/button2")
-            host_menu("View details")
+            open_host_profile()
+            # The PC's details moved from its menu to its settings screen.
+            tap("View details", scroll=True)
+            find("Copy debug info")
             find("Rubylight 2.0.0")
             screenshot("15-host-details")
             tap("android:id/button1")
-            open_host_profile()
+            find("Stream resolution", scroll="up")
             profile_number("Width", "0")
             find("Enter a whole number from 64 to 16384")
             profile_number("Width", "1920")
@@ -946,7 +1028,7 @@ def main():
             capture_ui_sweep(args.ui_case)
             assert_no_app_crashes()
             overlay_result = "overlay rendering" if DEBUGGABLE else "overlay settings (live rendering needs a paired host)"
-            print(f"PASS: native {native} and latency defaults on a fresh install, pairing guide and PIN prompt, manual discovery and inline validation, OTP and details dialogs, host profile validation/save/reset, sheet scrolling/close, settings search/back restoration for {', '.join(args.ui_case or UI_CASES)}, VRR toggle/persistence, PyroWave readiness, bitrate, controller mapping, reset, frontend entries, unpaired export menu, {overlay_result} and rotation; screenshots: {SHOTS}", flush=True)
+            print(f"PASS: native {native} and latency defaults on a fresh install, pairing guide and PIN prompt, manual discovery and inline validation, OTP and details dialogs, PC settings and host profile validation/save/reset, PC menu close, settings search/back restoration for {', '.join(args.ui_case or UI_CASES)}, VRR toggle/persistence, PyroWave readiness, bitrate, controller mapping, reset, frontend entries, unpaired export menu, {overlay_result}, demo home row states and menus, cover library and rotation; screenshots: {SHOTS}", flush=True)
         finally:
             try:
                 LOGS.joinpath("logcat.txt").write_text(adb("logcat", "-d"), encoding="utf-8")

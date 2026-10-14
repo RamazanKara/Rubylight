@@ -375,12 +375,18 @@ pub fn process_session(pid: u32) -> Result<u32> {
     Ok(session)
 }
 pub fn ensure_streaming_session() -> Result<()> {
-    ensure_streaming_session_with(current_session, console_session, session_connection)
+    ensure_streaming_session_with(
+        current_session,
+        console_session,
+        session_connection,
+        disconnected_user_sessions,
+    )
 }
 fn ensure_streaming_session_with(
     current: impl FnOnce() -> Result<u32>,
     console: impl FnOnce() -> u32,
     connection: impl FnOnce(u32) -> Result<(WTS_CONNECTSTATE_CLASS, u16)>,
+    disconnected: impl FnOnce(u32) -> Result<Vec<u32>>,
 ) -> Result<()> {
     let session = current()?;
     let (state, protocol) = match connection(session) {
@@ -400,17 +406,83 @@ fn ensure_streaming_session_with(
     } else {
         "disconnected_or_changing"
     };
-    tracing::info!(
-        session_id = session,
-        console_session_id = console,
-        state = state.0,
-        protocol,
-        console_exception,
-        allowed = result.is_ok(),
-        decision,
-        "Windows session streaming check"
-    );
+    if result.is_ok() {
+        tracing::info!(
+            session_id = session,
+            console_session_id = console,
+            state = state.0,
+            protocol,
+            console_exception,
+            allowed = true,
+            decision,
+            "Windows session streaming check"
+        );
+    } else {
+        // A refused launch must be visible in a default log, with the
+        // session it actually checked.
+        tracing::warn!(
+            session_id = session,
+            console_session_id = console,
+            state = state.0,
+            protocol,
+            console_exception,
+            allowed = false,
+            decision,
+            "Windows session streaming check refused the launch"
+        );
+    }
+    if console_exception {
+        // Diagnostic only; it never blocks a launch. The installed service
+        // runs on the console, so after Remote Desktop the host streams the
+        // sign-in screen while the user's desktop waits in another session.
+        match disconnected(session) {
+            Ok(sessions) if !sessions.is_empty() => tracing::warn!(
+                session_id = session,
+                state = state.0,
+                disconnected_session_ids = ?sessions,
+                "Streaming the Windows sign-in or lock screen while another desktop session is disconnected. Signing in as that desktop's user makes Windows reconnect it to the console, which ends this stream; reconnect Moonlight afterwards"
+            ),
+            Ok(_) => {}
+            Err(error) => {
+                tracing::debug!(session_id = session, %error, "Cannot list disconnected Windows sessions")
+            }
+        }
+    }
     result
+}
+/// Other sessions that are disconnected but still have a signed-in user.
+/// Session 0 and the host's own session are never candidates.
+fn disconnected_desktops(
+    host: u32,
+    sessions: &[(u32, WTS_CONNECTSTATE_CLASS)],
+    mut has_user: impl FnMut(u32) -> Result<bool>,
+) -> Vec<u32> {
+    sessions
+        .iter()
+        .filter(|(id, state)| *id != 0 && *id != host && *state == WTSDisconnected)
+        .filter(|(id, _)| has_user(*id).unwrap_or(false))
+        .map(|(id, _)| *id)
+        .collect()
+}
+fn disconnected_user_sessions(host: u32) -> Result<Vec<u32>> {
+    let mut info: *mut WTS_SESSION_INFOW = std::ptr::null_mut();
+    let mut count = 0;
+    // SAFETY: WTS allocates `info` with `count` entries. Only the ID and state
+    // are copied out, and the buffer is freed exactly once afterwards.
+    let sessions = unsafe {
+        WTSEnumerateSessionsW(None, 0, 1, &mut info, &mut count)?;
+        let sessions = if info.is_null() {
+            Vec::new()
+        } else {
+            std::slice::from_raw_parts(info, count as usize)
+                .iter()
+                .map(|session| (session.SessionId, session.State))
+                .collect::<Vec<_>>()
+        };
+        WTSFreeMemory(info.cast());
+        sessions
+    };
+    Ok(disconnected_desktops(host, &sessions, session_has_user))
 }
 fn session_connection(session: u32) -> Result<(WTS_CONNECTSTATE_CLASS, u16)> {
     let mut buffer = PWSTR::null();
@@ -532,7 +604,13 @@ fn reattach_blocker(
     console_has_user: bool,
     same_disconnected_user: bool,
 ) -> Option<&'static str> {
-    if session == console && protocol == 0 {
+    if session == console && protocol == 0 && !host_has_user {
+        // The installed service always runs on the console, so after Remote
+        // Desktop it sits at the sign-in screen and this action cannot apply.
+        Some(
+            "This host runs in the PC's console session, which is at the Windows sign-in screen. Return to console only moves a host that was started inside a Remote Desktop session. Sign in through Moonlight or at the PC. If your desktop is in a disconnected Remote Desktop session, Windows reconnects it after sign-in, which ends that stream; then reconnect Moonlight.",
+        )
+    } else if session == console && protocol == 0 {
         Some("This host is already attached to the physical console.")
     } else if console == u32::MAX || console == 0 || session == 0 || session == console {
         Some(
@@ -1552,6 +1630,25 @@ mod tests {
         }
     }
     #[test]
+    fn console_sign_in_host_explains_why_return_to_console_is_unavailable() {
+        use super::*;
+        // The installed service follows the console: after Remote Desktop it
+        // runs at the sign-in screen, and the reason must say what to do.
+        let reason = reattach_blocker(4, 4, WTSConnected, 0, false, false, false).unwrap();
+        for text in [
+            "sign-in screen",
+            "started inside a Remote Desktop session",
+            "reconnect Moonlight",
+        ] {
+            assert!(reason.contains(text), "missing {text} in {reason}");
+        }
+        // A signed-in console host keeps the existing explanation.
+        assert_eq!(
+            reattach_blocker(1, 1, WTSActive, 0, true, true, false),
+            Some("This host is already attached to the physical console.")
+        );
+    }
+    #[test]
     fn occupied_console_requires_a_disconnected_verified_matching_owner() {
         use super::*;
         const OWNER: &str = "S-1-5-21-100-200-300-1001";
@@ -1719,13 +1816,132 @@ mod tests {
                     assert_eq!(session, 4, "query the host's own RDP session");
                     Ok((state, 2))
                 },
+                |_| panic!("only the console exception lists other sessions"),
             );
             assert_eq!(result.is_ok(), allowed);
         }
         for state in [WTSConnected, WTSDisconnected] {
-            assert!(ensure_streaming_session_with(|| Ok(1), || 1, |_| Ok((state, 0))).is_ok());
-            assert!(ensure_streaming_session_with(|| Ok(1), || 1, |_| Ok((state, 2))).is_err());
+            assert!(
+                ensure_streaming_session_with(|| Ok(1), || 1, |_| Ok((state, 0)), |_| Ok(vec![]))
+                    .is_ok()
+            );
+            assert!(
+                ensure_streaming_session_with(
+                    || Ok(1),
+                    || 1,
+                    |_| Ok((state, 2)),
+                    |_| panic!("a refused session needs no session list")
+                )
+                .is_err()
+            );
         }
+    }
+    fn warnings(check: impl FnOnce()) -> String {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("session.log");
+        let file = std::fs::File::create(&path).unwrap();
+        let subscriber = tracing_subscriber::fmt()
+            .without_time()
+            .with_ansi(false)
+            .with_target(false)
+            .with_max_level(tracing::Level::WARN)
+            .with_writer(move || file.try_clone().unwrap())
+            .finish();
+        tracing::subscriber::with_default(subscriber, check);
+        std::fs::read_to_string(path).unwrap()
+    }
+    #[test]
+    fn refused_streaming_session_is_logged_at_warn_with_the_checked_session() {
+        use super::*;
+        let log = warnings(|| {
+            let error = ensure_streaming_session_with(
+                || Ok(4),
+                || 1,
+                |_| Ok((WTSDisconnected, 2)),
+                |_| panic!("a refused session needs no session list"),
+            )
+            .unwrap_err();
+            assert!(error.to_string().contains("disconnected or changing"));
+        });
+        for field in [
+            "WARN",
+            "session_id=4",
+            "console_session_id=1",
+            "state=4",
+            "protocol=2",
+            "allowed=false",
+            "decision=\"disconnected_or_changing\"",
+        ] {
+            assert!(log.contains(field), "missing {field} in {log}");
+        }
+        // Accepted active sessions stay out of the warning log.
+        let log = warnings(|| {
+            ensure_streaming_session_with(
+                || Ok(1),
+                || 1,
+                |_| Ok((WTSActive, 0)),
+                |_| panic!("an active session needs no session list"),
+            )
+            .unwrap();
+        });
+        assert!(log.is_empty(), "{log}");
+    }
+    #[test]
+    fn sign_in_screen_launch_warns_about_a_disconnected_desktop_without_blocking() {
+        use super::*;
+        // Reporter's host: the service runs on console session 4 at the
+        // sign-in screen while the RDP desktop waits as disconnected session 1.
+        let log = warnings(|| {
+            ensure_streaming_session_with(
+                || Ok(4),
+                || 4,
+                |_| Ok((WTSConnected, 0)),
+                |host| {
+                    assert_eq!(host, 4);
+                    Ok(vec![1])
+                },
+            )
+            .unwrap();
+        });
+        for field in [
+            "WARN",
+            "session_id=4",
+            "state=1",
+            "disconnected_session_ids=[1]",
+            "reconnect Moonlight",
+        ] {
+            assert!(log.contains(field), "missing {field} in {log}");
+        }
+        // No disconnected desktop, or no session list, keeps the existing
+        // sign-in support silent and allowed.
+        for list in [Ok(vec![]), Err(anyhow::anyhow!("enumeration failed"))] {
+            let log = warnings(|| {
+                ensure_streaming_session_with(|| Ok(4), || 4, |_| Ok((WTSConnected, 0)), |_| list)
+                    .unwrap();
+            });
+            assert!(log.is_empty(), "{log}");
+        }
+    }
+    #[test]
+    fn disconnected_desktops_exclude_services_the_host_and_sessions_without_a_user() {
+        use super::*;
+        let sessions = [
+            (0, WTSDisconnected),
+            (1, WTSDisconnected),
+            (2, WTSDisconnected),
+            (3, WTSActive),
+            (4, WTSConnected),
+            (5, WTSDisconnected),
+            (6, WTSDisconnected),
+        ];
+        let found = disconnected_desktops(6, &sessions, |session| match session {
+            1 => Ok(true),
+            2 => Ok(false),
+            5 => anyhow::bail!("user name unavailable"),
+            0 | 6 => panic!("session {session} is never a candidate"),
+            _ => panic!("only disconnected sessions are checked, not {session}"),
+        });
+        assert_eq!(found, vec![1]);
     }
     #[test]
     fn streaming_gate_fails_closed_when_the_host_session_cannot_be_queried() {
@@ -1734,6 +1950,7 @@ mod tests {
             || anyhow::bail!("process session unavailable"),
             || panic!("do not fall back to the console session"),
             |_| panic!("do not query a substitute session"),
+            |_| panic!("do not list sessions without the host session"),
         )
         .unwrap_err();
         assert!(error.to_string().contains("process session unavailable"));
@@ -1744,6 +1961,7 @@ mod tests {
                 assert_eq!(session, 4);
                 anyhow::bail!("connection state unavailable")
             },
+            |_| panic!("do not list sessions without a connection state"),
         )
         .unwrap_err();
         assert!(error.to_string().contains("connection state unavailable"));

@@ -1,8 +1,6 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="vertical">
-    <com.google.android.material.appbar.MaterialToolbar android:id="@+id/home_toolbar"
-        android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="64dp"
-        app:title="@string/library_computers" app:menu="@menu/home" />
+    <include android:id="@+id/home_toolbar" layout="@layout/view_top_app_bar" />
     <TextView android:id="@+id/pc_intro" android:layout_width="match_parent" android:layout_height="wrap_content"
         android:paddingStart="24dp" android:paddingEnd="24dp" android:paddingBottom="8dp"
         android:text="@string/library_pc_intro" android:textAppearance="?attr/textAppearanceBodyMedium" android:textColor="@color/on_surface_variant" />

@@ -42,7 +42,7 @@ public class SettingsNavigationTest {
             settle(screen);
             assertEquals("", search.getQuery().toString());
             assertEquals(screen.getString(R.string.settings_section_video),
-                    ((android.widget.TextView) screen.findViewById(R.id.settings_title)).getText().toString());
+                    ((com.google.android.material.appbar.MaterialToolbar) screen.findViewById(R.id.settings_toolbar)).getTitle().toString());
             screen.getOnBackPressedDispatcher().onBackPressed();
             settle(screen);
             assertEquals("bitrate", search.getQuery().toString());
@@ -50,7 +50,7 @@ public class SettingsNavigationTest {
             settle(screen);
             assertEquals("", search.getQuery().toString());
             assertEquals(screen.getString(R.string.settings_section_input),
-                    ((android.widget.TextView) screen.findViewById(R.id.settings_title)).getText().toString());
+                    ((com.google.android.material.appbar.MaterialToolbar) screen.findViewById(R.id.settings_toolbar)).getTitle().toString());
             assertFalse(screen.isFinishing());
         } finally {
             controller.pause().stop().destroy();

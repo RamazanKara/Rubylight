@@ -3,10 +3,7 @@
     android:layout_width="match_parent" android:layout_height="match_parent">
     <LinearLayout
         android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="vertical">
-        <com.google.android.material.appbar.MaterialToolbar android:id="@+id/host_profile_toolbar"
-            android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="64dp"
-            app:title="@string/host_profile_menu" app:navigationIcon="@drawable/ic_arrow_back"
-            app:navigationContentDescription="@string/settings_navigate_up" />
+        <include android:id="@+id/host_profile_toolbar" layout="@layout/view_top_app_bar" />
         <TextView android:id="@+id/host_profile_name" android:layout_width="match_parent" android:layout_height="wrap_content"
             android:paddingStart="24dp" android:paddingEnd="24dp" android:paddingBottom="8dp"
             android:maxLines="2" android:ellipsize="end"

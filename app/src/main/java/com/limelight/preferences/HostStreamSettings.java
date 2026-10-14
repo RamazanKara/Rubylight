@@ -24,6 +24,7 @@ import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.activity.OnBackPressedCallback;
 import com.google.android.material.appbar.MaterialToolbar;
+import com.limelight.ui.TopAppBar;
 import com.google.android.material.checkbox.MaterialCheckBox;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.google.android.material.textfield.TextInputEditText;
@@ -83,16 +84,16 @@ public final class HostStreamSettings extends AppCompatActivity {
             restoredEditor = state.getBundle("editor_state");
         }
         setContentView(R.layout.activity_host_stream_settings);
-        MaterialToolbar toolbar = findViewById(R.id.host_profile_toolbar);
+        MaterialToolbar toolbar = TopAppBar.configure(this, R.id.host_profile_toolbar,
+                getString(R.string.host_profile_menu), R.menu.host_profile);
         ((TextView) findViewById(R.id.host_profile_name)).setText(getIntent().getStringExtra("host_name"));
-        toolbar.setNavigationOnClickListener(v -> leaveSettings());
+        TopAppBar.setUpNavigation(toolbar, R.id.host_profile_back, v -> leaveSettings());
         getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
             @Override
             public void handleOnBackPressed() {
                 leaveSettings();
             }
         });
-        toolbar.inflateMenu(R.menu.host_profile);
         toolbar.setOnMenuItemClickListener(item -> {
             new MaterialAlertDialogBuilder(this).setTitle(R.string.host_profile_menu)
                     .setMessage(R.string.host_profile_explanation).setPositiveButton(android.R.string.ok, null).show();

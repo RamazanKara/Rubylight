@@ -69,6 +69,19 @@
         <item name="navigationIconTint">?attr/colorOnSurface</item>
         <item name="titleTextAppearance">@style/ScreenTitle</item>
         <item name="subtitleTextColor">@color/on_surface_variant</item>
+        <item name="android:minHeight">@dimen/top_app_bar_height</item>
+        <!-- The 48dp navigation and action buttons centre their 24dp icons on the screen gutter;
+             the title starts on the gutter, or 56dp in (phones) after a navigation icon. -->
+        <item name="android:paddingStart">@dimen/top_app_bar_padding</item>
+        <item name="android:paddingEnd">@dimen/top_app_bar_padding</item>
+        <item name="contentInsetStart">@dimen/screen_gutter</item>
+        <item name="contentInsetStartWithNavigation">56dp</item>
+        <item name="contentInsetEnd">0dp</item>
+        <item name="titleMarginStart">0dp</item>
+        <item name="titleMarginEnd">@dimen/space_s</item>
+        <!-- AppCompat's toolbar blocks focus on touchscreen devices, which kept D-pad and Tab focus
+             out of Settings and Help and, once inside, trapped it in the bar. -->
+        <item name="android:touchscreenBlocksFocus">false</item>
     </style>
 
     <style name="AddPcTheme" parent="AppTheme">

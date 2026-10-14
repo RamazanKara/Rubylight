@@ -393,6 +393,9 @@ def capture_ui_set(width, font, rotation=0):
         screenshot(prefix + "-" + name)
         navigate_up()
     search = f"{PACKAGE}:id/search_src_text"
+    # Search sits behind a top app bar action until it is used.
+    assert not any(n.get("resource-id") == search for n in tree().iter("node")), "Settings search is open before it was asked for"
+    tap(f"{PACKAGE}:id/settings_search_button")
     for _ in range(5):
         # Typing can race the field getting focus right after the tap; retry until the query is in the field.
         tap(search)
@@ -414,7 +417,7 @@ def capture_ui_set(width, font, rotation=0):
     assert find(search).get("text") == "compatibility", "Back from a result lost its search query"
     find("Search results")
     navigate_up()
-    assert find(search).get("text") != "compatibility", "Back from search did not clear its query"
+    assert not any(n.get("resource-id") == search and n.get("text") == "compatibility" for n in tree().iter("node")),         "Back from search did not clear its query"
     find("Presets", scroll=True)
     navigate_up()
     tap(HOST_NAME)
@@ -463,6 +466,7 @@ def library_regressions():
             break
         time.sleep(0.5)
     assert cards, "Library grid is blank in landscape without a search query"
+    assert_top_bar_clear("library_toolbar", "library_search_button")
     screenshot("library-landscape-font-2")
     set_rotation(0)
     find("Racing Game", scroll=True)

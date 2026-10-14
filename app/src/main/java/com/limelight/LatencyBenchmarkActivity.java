@@ -17,6 +17,7 @@ import android.widget.TextView;
 import androidx.appcompat.app.AppCompatActivity;
 
 import com.limelight.utils.LatencyBenchmarkStats;
+import com.limelight.ui.TopAppBar;
 import com.limelight.utils.UiHelper;
 
 public class LatencyBenchmarkActivity extends AppCompatActivity implements Choreographer.FrameCallback {
@@ -45,10 +46,7 @@ public class LatencyBenchmarkActivity extends AppCompatActivity implements Chore
     @Override protected void onCreate(Bundle savedInstanceState) {
         UiHelper.setLocale(this);
         super.onCreate(savedInstanceState);
-        setContentView(R.layout.activity_stream_settings);
-        ((TextView) findViewById(R.id.settings_title)).setText(R.string.latency_benchmark_title);
-        findViewById(R.id.settings_back).setOnClickListener(v -> finish());
-        FrameLayout content = findViewById(R.id.stream_settings);
+        FrameLayout content = TopAppBar.setUpPage(this, R.string.latency_benchmark_title, this::finish);
         android.view.View benchmark = getLayoutInflater().inflate(R.layout.latency_benchmark, content, false);
         content.addView(benchmark);
         results = benchmark.findViewById(R.id.benchmark_results);

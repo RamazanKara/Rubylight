@@ -18,6 +18,8 @@ import com.limelight.nvstream.http.PairingManager;
 import com.limelight.preferences.PreferenceConfiguration;
 import com.limelight.ui.AdapterFragment;
 import com.limelight.ui.AdapterFragmentCallbacks;
+import com.limelight.ui.TopAppBar;
+import com.google.android.material.appbar.MaterialToolbar;
 import com.limelight.utils.CacheHelper;
 import com.limelight.utils.Dialog;
 import com.limelight.utils.ServerHelper;
@@ -313,13 +315,18 @@ public class AppView extends AppCompatActivity implements AdapterFragmentCallbac
         UiHelper.setLocale(this);
 
         setContentView(R.layout.activity_app_view);
-        findViewById(R.id.library_back).setOnClickListener(v -> finish());
+        MaterialToolbar toolbar = TopAppBar.configure(this, R.id.library_toolbar,
+                getIntent().getStringExtra(NAME_EXTRA), R.menu.library);
+        TopAppBar.setUpNavigation(toolbar, R.id.library_back, v -> finish());
+        toolbar.setOnMenuItemClickListener(item -> {
+            if (item.getItemId() == R.id.library_search_button) openLibrarySearch();
+            else if (item.getItemId() == R.id.library_options) showLibraryOptions();
+            return true;
+        });
         librarySearch = findViewById(R.id.library_search);
         getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
             @Override public void handleOnBackPressed() { navigateBack(); }
         });
-        findViewById(R.id.library_search_button).setOnClickListener(v -> openLibrarySearch());
-        findViewById(R.id.library_options).setOnClickListener(v -> showLibraryOptions());
         librarySearch.setOnQueryTextListener(new SearchView.OnQueryTextListener() {
             @Override public boolean onQueryTextSubmit(String query) {
                 librarySearch.clearFocus();
@@ -367,9 +374,7 @@ public class AppView extends AppCompatActivity implements AdapterFragmentCallbac
 
         String computerName = getIntent().getStringExtra(NAME_EXTRA);
 
-        TextView label = findViewById(R.id.appListText);
         setTitle(computerName);
-        label.setText(computerName);
 
         // Bind to the computer manager service
         managerServiceBound = bindService(new Intent(this, ComputerManagerService.class), serviceConnection,

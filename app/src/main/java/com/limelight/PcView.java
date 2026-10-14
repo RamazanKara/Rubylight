@@ -26,6 +26,7 @@ import com.limelight.preferences.StreamSettings;
 import com.limelight.ui.AdapterFragment;
 import com.limelight.ui.AdapterFragmentCallbacks;
 import com.limelight.ui.HostFeatureGate;
+import com.limelight.ui.TopAppBar;
 import com.limelight.utils.Dialog;
 import com.limelight.utils.FrontendExporter;
 import com.limelight.utils.HelpLauncher;
@@ -166,7 +167,8 @@ public class PcView extends AppCompatActivity implements AdapterFragmentCallback
         // Set the correct layout for the PC grid
         pcGridAdapter.updateLayoutWithPreferences(this, PreferenceConfiguration.readPreferences(this));
 
-        MaterialToolbar toolbar = findViewById(R.id.home_toolbar);
+        MaterialToolbar toolbar = TopAppBar.configure(this, R.id.home_toolbar,
+                getString(R.string.library_computers), R.menu.home);
         toolbar.setOnMenuItemClickListener(item -> {
             if (item.getItemId() == R.id.settingsButton) {
                 startActivity(new Intent(this, StreamSettings.class));

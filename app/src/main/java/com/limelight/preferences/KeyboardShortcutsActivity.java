@@ -8,7 +8,6 @@ import android.os.Bundle;
 import android.text.InputType;
 import android.widget.EditText;
 import android.widget.LinearLayout;
-import android.widget.ScrollView;
 import android.widget.TextView;
 
 import androidx.appcompat.app.AlertDialog;
@@ -22,6 +21,7 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.limelight.R;
 import com.limelight.binding.input.KeyboardShortcuts;
 import com.limelight.binding.input.KeyboardShortcuts.Shortcut;
+import com.limelight.ui.TopAppBar;
 import com.limelight.utils.UiHelper;
 
 import java.io.IOException;
@@ -48,17 +48,10 @@ public final class KeyboardShortcutsActivity extends AppCompatActivity {
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
         UiHelper.setLocale(this);
-        setTitle(R.string.keyboard_shortcuts_title);
-        setContentView(R.layout.activity_stream_settings);
-        ((TextView) findViewById(R.id.settings_title)).setText(R.string.keyboard_shortcuts_title);
-        findViewById(R.id.settings_back).setOnClickListener(view -> finish());
+        android.widget.FrameLayout page = TopAppBar.setUpPage(this, R.string.keyboard_shortcuts_title, this::finish);
         content = new LinearLayout(this);
         content.setOrientation(LinearLayout.VERTICAL);
-        int padding = Math.round(16 * getResources().getDisplayMetrics().density);
-        content.setPadding(padding, padding, padding, padding);
-        ScrollView scroll = new ScrollView(this);
-        scroll.addView(content);
-        ((android.widget.FrameLayout) findViewById(R.id.stream_settings)).addView(scroll);
+        TopAppBar.addScrollingBody(page, content);
         work = new ViewModelProvider(this).get(ShortcutWork.class);
         work.busy.observe(this, ignored -> refresh());
         work.message.observe(this, ignored -> refresh());

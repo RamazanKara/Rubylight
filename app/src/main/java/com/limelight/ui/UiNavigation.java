@@ -7,7 +7,6 @@ import android.view.View;
 import android.widget.GridView;
 import android.widget.ListView;
 
-import androidx.appcompat.widget.SearchView;
 import androidx.core.view.ViewCompat;
 
 import com.limelight.R;
@@ -26,9 +25,8 @@ public final class UiNavigation {
         boolean control = event.hasModifiers(KeyEvent.META_CTRL_ON);
         boolean back = event.hasNoModifiers() && (key == KeyEvent.KEYCODE_ESCAPE || key == KeyEvent.KEYCODE_BUTTON_B);
         boolean help = event.hasNoModifiers() && key == KeyEvent.KEYCODE_F1;
-        SearchView search = activity.findViewById(R.id.settings_search);
         boolean findLibrary = control && key == KeyEvent.KEYCODE_F && activity instanceof AppView;
-        boolean find = findLibrary || (control && key == KeyEvent.KEYCODE_F && search != null && search.getVisibility() == View.VISIBLE);
+        boolean find = findLibrary || (control && key == KeyEvent.KEYCODE_F && activity instanceof StreamSettings);
         if (!back && !help && !find && !(control && (key == KeyEvent.KEYCODE_N || key == KeyEvent.KEYCODE_COMMA))) {
             return false;
         }
@@ -37,10 +35,7 @@ public final class UiNavigation {
             else if (help) HelpLauncher.launchTroubleshooting(activity);
             else if (find) {
                 if (findLibrary) ((AppView) activity).openLibrarySearch();
-                else {
-                    search.setIconified(false);
-                    search.requestFocus();
-                }
+                else ((StreamSettings) activity).openSearch();
             } else if (key == KeyEvent.KEYCODE_N && !(activity instanceof AddComputerManually)) {
                 activity.startActivity(new Intent(activity, AddComputerManually.class));
             } else if (key == KeyEvent.KEYCODE_COMMA && !(activity instanceof StreamSettings)) {

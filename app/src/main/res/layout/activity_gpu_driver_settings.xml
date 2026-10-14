@@ -2,10 +2,7 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:id="@+id/gpu_driver_root"
     android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="vertical">
-    <com.google.android.material.appbar.MaterialToolbar android:id="@+id/gpu_driver_toolbar"
-        android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="64dp"
-        app:title="@string/gpu_driver_title" app:navigationIcon="@drawable/ic_arrow_back"
-        app:navigationContentDescription="@string/settings_navigate_up" />
+    <include android:id="@+id/gpu_driver_toolbar" layout="@layout/view_top_app_bar" />
     <ScrollView android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1">
         <LinearLayout android:id="@+id/gpu_driver_content" android:orientation="vertical"
             android:layout_width="match_parent" android:layout_height="wrap_content" android:padding="16dp" />

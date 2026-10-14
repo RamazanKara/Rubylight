@@ -2,7 +2,7 @@ package com.limelight;
 
 import androidx.appcompat.app.AppCompatActivity;
 import android.widget.FrameLayout;
-import android.widget.TextView;
+import com.limelight.ui.TopAppBar;
 import com.limelight.utils.UiHelper;
 import android.graphics.Bitmap;
 import android.os.Build;
@@ -39,11 +39,9 @@ public class HelpActivity extends AppCompatActivity {
             };
         }
 
-        setContentView(R.layout.activity_stream_settings);
-        ((TextView) findViewById(R.id.settings_title)).setText(R.string.help);
-        findViewById(R.id.settings_back).setOnClickListener(v -> onBackPressed());
+        FrameLayout page = TopAppBar.setUpPage(this, R.string.help, this::onBackPressed);
         webView = new WebView(this);
-        ((FrameLayout) findViewById(R.id.stream_settings)).addView(webView);
+        page.addView(webView);
         UiHelper.notifyNewRootView(this);
 
         // These allow the user to zoom the page
@@ -106,7 +104,7 @@ public class HelpActivity extends AppCompatActivity {
         SpinnerDialog.closeDialogs(this);
         webView.stopLoading();
         webView.setWebViewClient(null);
-        ((FrameLayout) findViewById(R.id.stream_settings)).removeView(webView);
+        ((FrameLayout) findViewById(R.id.page_content)).removeView(webView);
         webView.destroy();
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (backCallbackRegistered) {

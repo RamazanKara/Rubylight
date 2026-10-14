@@ -12,12 +12,12 @@ import android.view.KeyEvent;
 import android.view.View;
 import android.widget.Button;
 import android.widget.LinearLayout;
-import android.widget.ScrollView;
 import android.widget.TextView;
 
 import com.limelight.R;
 import com.limelight.binding.input.ControllerButtonMap;
 import com.limelight.binding.input.ControllerAxisMap;
+import com.limelight.ui.TopAppBar;
 import com.limelight.utils.UiHelper;
 
 import java.util.Map;
@@ -38,16 +38,12 @@ public class ControllerMappingActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         UiHelper.setLocale(this);
-        setTitle(R.string.controller_mapping_title);
-        setContentView(R.layout.activity_stream_settings);
-        ((TextView) findViewById(R.id.settings_title)).setText(R.string.controller_mapping_title);
-        findViewById(R.id.settings_back).setOnClickListener(v -> finish());
+        android.widget.FrameLayout page = TopAppBar.setUpPage(this, R.string.controller_mapping_title, this::finish);
 
         float density = getResources().getDisplayMetrics().density;
         int padding = Math.round(16 * density);
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(padding, padding, padding, padding);
 
         TextView intro = new TextView(this);
         intro.setText(R.string.controller_mapping_intro);
@@ -90,9 +86,7 @@ public class ControllerMappingActivity extends AppCompatActivity {
         });
         root.addView(resetButton);
 
-        ScrollView scroll = new ScrollView(this);
-        scroll.addView(root);
-        ((android.widget.FrameLayout) findViewById(R.id.stream_settings)).addView(scroll);
+        TopAppBar.addScrollingBody(page, root);
         UiHelper.notifyNewRootView(this);
 
         selectSingleConnectedController();

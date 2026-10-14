@@ -54,6 +54,8 @@ import com.limelight.binding.video.DecoderBenchmark;
 import com.limelight.binding.video.PyroWaveDecoderRenderer;
 import com.limelight.utils.Dialog;
 import com.limelight.utils.UiHelper;
+import com.limelight.ui.TopAppBar;
+import com.google.android.material.appbar.MaterialToolbar;
 
 import java.lang.reflect.Method;
 import java.io.File;
@@ -84,7 +86,7 @@ public class StreamSettings extends AppCompatActivity {
     private PreferenceConfiguration previousPrefs;
     private int previousDisplayPixelCount;
     private String section;
-    private TextView title;
+    private MaterialToolbar toolbar;
     private String searchQuery = "";
     private SearchView searchView;
     private String searchResultKey;
@@ -118,7 +120,7 @@ public class StreamSettings extends AppCompatActivity {
     }
 
     private void updateHeader() {
-        title.setText(!searchQuery.isEmpty() ? R.string.settings_search_results :
+        toolbar.setTitle(!searchQuery.isEmpty() ? R.string.settings_search_results :
                 section == null ? R.string.settings : sectionTitle(section));
         if (searchQuery.isEmpty()) {
             contextLabel.setText(section == null ? R.string.settings_global_context : R.string.settings_changes_saved);
@@ -129,8 +131,8 @@ public class StreamSettings extends AppCompatActivity {
                 contextLabel.setText(getResources().getQuantityString(R.plurals.settings_search_count, count, count));
             }
         }
-        findViewById(R.id.settings_back).setContentDescription(getString(returnSearchQuery != null ? R.string.settings_back_to_search :
-                section == null ? R.string.settings_navigate_up : R.string.settings_back_to_overview));
+        toolbar.setNavigationContentDescription(returnSearchQuery != null ? R.string.settings_back_to_search :
+                section == null ? R.string.settings_navigate_up : R.string.settings_back_to_overview);
     }
 
     private void renderSearch() {
@@ -155,7 +157,15 @@ public class StreamSettings extends AppCompatActivity {
         searchView.setQuery(query, false);
         changingQuery = false;
         searchView.clearFocus();
+        searchView.setVisibility(query.isEmpty() ? View.GONE : View.VISIBLE);
         reloadSettings();
+    }
+
+    /** Shows the search field under the top app bar and focuses it; search stays out of the way until asked for. */
+    public void openSearch() {
+        searchView.setVisibility(View.VISIBLE);
+        searchView.setIconified(false);
+        searchView.requestFocus();
     }
 
     private void openSearchResult(String targetSection, String key) {
@@ -182,7 +192,11 @@ public class StreamSettings extends AppCompatActivity {
     }
 
     private void navigateBack() {
-        if (!searchQuery.isEmpty()) {
+        if (searchQuery.isEmpty() && searchView.getVisibility() == View.VISIBLE) {
+            searchView.clearFocus();
+            searchView.setVisibility(View.GONE);
+        }
+        else if (!searchQuery.isEmpty()) {
             setSearchQuery("");
         }
         else if (returnSearchQuery != null) {
@@ -243,11 +257,15 @@ public class StreamSettings extends AppCompatActivity {
         UiHelper.setLocale(this);
 
         setContentView(R.layout.activity_stream_settings);
-        title = findViewById(R.id.settings_title);
+        toolbar = TopAppBar.configure(this, R.id.settings_toolbar, getString(R.string.settings), R.menu.settings);
+        TopAppBar.setUpNavigation(toolbar, R.id.settings_back, v -> navigateBack());
+        toolbar.setOnMenuItemClickListener(item -> {
+            openSearch();
+            return true;
+        });
         contextLabel = findViewById(R.id.settings_context);
-        findViewById(R.id.settings_back).setOnClickListener(v -> navigateBack());
         searchView = findViewById(R.id.settings_search);
-        searchView.setVisibility(View.VISIBLE);
+        searchView.setVisibility(searchQuery.isEmpty() ? View.GONE : View.VISIBLE);
         searchView.setIconifiedByDefault(false);
         searchView.setQueryHint(getString(R.string.settings_search_hint));
         searchView.setQuery(searchQuery, false);

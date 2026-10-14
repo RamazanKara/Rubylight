@@ -72,6 +72,8 @@ public class UiNavigationTest {
         try {
             Screen screen = controller.get();
             screen.setContentView(R.layout.activity_add_computer_manually);
+            TopAppBar.setNavigation(TopAppBar.configure(screen, R.id.add_pc_toolbar, "Add PC", 0),
+                    R.drawable.ic_close, android.R.string.cancel, R.id.add_pc_back, v -> { });
             layout(screen);
             View back = screen.findViewById(R.id.add_pc_back);
             View address = screen.findViewById(R.id.hostTextView);
@@ -100,6 +102,8 @@ public class UiNavigationTest {
             assertEquals(add.getId(), help.getAccessibilityTraversalAfter());
 
             screen.setContentView(R.layout.activity_app_view);
+            TopAppBar.setUpNavigation(TopAppBar.configure(screen, R.id.library_toolbar, "PC", R.menu.library),
+                    R.id.library_back, v -> { });
             FrameLayout container = screen.findViewById(R.id.appFragmentContainer);
             screen.getLayoutInflater().inflate(R.layout.app_grid_view, container);
             GridView grid = screen.findViewById(R.id.fragmentView);

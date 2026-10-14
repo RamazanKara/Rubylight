@@ -65,7 +65,7 @@ public class ToolbarIconTintTest {
         try {
             Screen screen = controller.get();
             screen.setContentView(R.layout.activity_pc_view);
-            MaterialToolbar toolbar = screen.findViewById(R.id.home_toolbar);
+            MaterialToolbar toolbar = TopAppBar.configure(screen, R.id.home_toolbar, "Computers", R.menu.home);
             assertIconsFollowTheTheme(screen, toolbar.getMenu(), R.id.settingsButton, R.id.helpButton);
         } finally {
             controller.pause().stop().destroy();

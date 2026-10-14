@@ -22,6 +22,7 @@ import com.limelight.utils.Dialog;
 import com.limelight.utils.ServerHelper;
 import com.limelight.utils.SpinnerDialog;
 import com.limelight.utils.UiHelper;
+import com.limelight.ui.TopAppBar;
 
 import androidx.appcompat.app.AppCompatActivity;
 import android.app.Service;
@@ -292,7 +293,8 @@ public class AddComputerManually extends AppCompatActivity {
 
         setContentView(R.layout.activity_add_computer_manually);
         View content = findViewById(android.R.id.content);
-        content.findViewById(R.id.add_pc_back).setOnClickListener(v -> finish());
+        TopAppBar.setNavigation(TopAppBar.configure(this, R.id.add_pc_toolbar, getString(R.string.title_add_pc), 0),
+                R.drawable.ic_close, android.R.string.cancel, R.id.add_pc_back, v -> finish());
 
         UiHelper.notifyNewRootView(this);
 

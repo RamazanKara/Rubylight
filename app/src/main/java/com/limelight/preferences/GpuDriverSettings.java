@@ -18,6 +18,7 @@ import androidx.lifecycle.MutableLiveData;
 import androidx.lifecycle.ViewModelProvider;
 
 import com.google.android.material.appbar.MaterialToolbar;
+import com.limelight.ui.TopAppBar;
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.google.android.material.radiobutton.MaterialRadioButton;
@@ -42,8 +43,8 @@ public final class GpuDriverSettings extends AppCompatActivity {
         super.onCreate(state);
         UiHelper.setLocale(this);
         setContentView(R.layout.activity_gpu_driver_settings);
-        MaterialToolbar toolbar = findViewById(R.id.gpu_driver_toolbar);
-        toolbar.setNavigationOnClickListener(view -> finish());
+        MaterialToolbar toolbar = TopAppBar.configure(this, R.id.gpu_driver_toolbar, getString(R.string.gpu_driver_title), 0);
+        TopAppBar.setUpNavigation(toolbar, R.id.gpu_driver_back, view -> finish());
         work = new ViewModelProvider(this).get(DriverWork.class);
         work.busy.observe(this, ignored -> refresh());
         work.message.observe(this, ignored -> refresh());

@@ -67,6 +67,8 @@ async function fixture(t, options = {}) {
       install_supported: true, update_available: true, phase: 'idle',
     });
     if (url.pathname === '/api/auth/sessions') return reply({ sessions: [] });
+    if (url.pathname === '/api/tokens') return reply({ tokens: [] });
+    if (url.pathname === '/api/token/routes') return reply({ routes: [] });
     return reply({ status: true, available: false, enabled: false });
   });
   return { page, writes };
@@ -279,4 +281,34 @@ test('keyboard users can skip navigation and malformed URLs keep the console usa
   await page.getByRole('heading', { name: 'Page not found', exact: true }).waitFor();
   await nav(page, 'Settings');
   await page.getByLabel('Host name', { exact: true }).waitFor();
+});
+
+test('the sidebar groups tools, names each theme choice and copies the host address', async t => {
+  const { page } = await fixture(t);
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin: base });
+  await page.goto(base + '/maintenance');
+  const sidebar = page.locator('aside');
+  const tools = page.getByRole('navigation', { name: 'Main' }).getByRole('group', { name: 'Tools', exact: true });
+  assert.deepEqual((await tools.getByRole('link').allInnerTexts()).map(text => text.trim()), ['Logs', 'Maintenance', 'API tokens']);
+  await sidebar.getByText('Version 2.2.2', { exact: true }).waitFor();
+  const dark = page.getByRole('group', { name: 'Theme', exact: true }).getByRole('button', { name: 'Dark theme', exact: true });
+  assert.equal(await dark.getAttribute('title'), 'Theme: Dark');
+  assert.equal(await dark.getAttribute('aria-pressed'), 'false');
+  await dark.click();
+  assert.equal(await dark.getAttribute('aria-pressed'), 'true');
+  assert.equal(await page.locator('html').getAttribute('data-theme'), 'dark');
+  await sidebar.getByRole('button', { name: 'Copy address', exact: true }).click();
+  await page.getByText('Copied the address.', { exact: true }).waitFor();
+  assert.equal(await page.evaluate(() => navigator.clipboard.readText()), '127.0.0.1');
+  // The sidebar's background runs to the bottom of a long page.
+  const heights = await page.evaluate(() => [document.querySelector('aside').getBoundingClientRect().height, document.documentElement.scrollHeight]);
+  assert(heights[0] >= heights[1] - 1, `sidebar ${heights[0]}px on a ${heights[1]}px page`);
+  // A short page still has the page colour down to the bottom of the window.
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByRole('button', { name: 'Menu', exact: true }).click();
+  await nav(page, 'API tokens');
+  await page.getByRole('heading', { name: 'API tokens', exact: true }).waitFor();
+  const colours = await page.evaluate(() => [getComputedStyle(document.documentElement).backgroundColor, getComputedStyle(document.body).backgroundColor]);
+  assert.notEqual(colours[0], 'rgba(0, 0, 0, 0)');
+  assert.equal(colours[0], colours[1]);
 });

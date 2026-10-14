@@ -2,6 +2,7 @@
   import { onMount, tick } from 'svelte';
   import Icon, { type IconName } from './components/Icon.svelte';
   import Button from './components/Button.svelte';
+  import CopyButton from './components/CopyButton.svelte';
   import ConfirmHost from './components/ConfirmHost.svelte';
   import Toaster from './components/Toaster.svelte';
   import PairingBanner from './components/PairingBanner.svelte';
@@ -22,14 +23,23 @@
   import Setup from './pages/Setup.svelte';
   import NotFound from './pages/NotFound.svelte';
 
-  const nav: { path: string; label: string; icon: IconName }[] = [
+  type NavItem = { path: string; label: string; icon: IconName };
+  // Everyday pages first; tools for troubleshooting and scripts below a divider.
+  const primary: NavItem[] = [
     { path: '/', label: 'Overview', icon: 'overview' },
     { path: '/library', label: 'Library', icon: 'library' },
     { path: '/devices', label: 'Devices', icon: 'devices' },
     { path: '/settings', label: 'Settings', icon: 'settings' },
+  ];
+  const tools: NavItem[] = [
     { path: '/logs', label: 'Logs', icon: 'logs' },
     { path: '/maintenance', label: 'Maintenance', icon: 'maintenance' },
     { path: '/tokens', label: 'API tokens', icon: 'key' },
+  ];
+  const themes: { value: Theme; label: string; icon: IconName }[] = [
+    { value: 'system', label: 'System', icon: 'monitor' },
+    { value: 'light', label: 'Light', icon: 'sun' },
+    { value: 'dark', label: 'Dark', icon: 'moon' },
   ];
 
   let theme = $state<Theme>(storedTheme());
@@ -56,8 +66,8 @@
   });
   const bare = $derived(route.path === '/login' || route.path === '/setup' || session.state !== 'signed-in');
 
-  function cycleTheme() {
-    theme = theme === 'system' ? 'light' : theme === 'light' ? 'dark' : 'system';
+  function setTheme(next: Theme) {
+    theme = next;
     applyTheme(theme);
   }
   async function signOut() {
@@ -113,39 +123,61 @@
   <div class="shell">
     <a class="skip-link" href="#main-content" onclick={(event) => { event.preventDefault(); content?.focus(); }}>Skip to content</a>
     <aside class:open={menuOpen}>
-      <div class="brand-row">
-        <a class="brand" href="/" use:link>
-          <span class="mark" aria-hidden="true">R</span>
-          <span>Rubylight</span>
-        </a>
-        <button bind:this={menuButton} class="menu" aria-label="Menu" aria-controls="main-navigation" aria-expanded={menuOpen} onclick={() => (menuOpen = !menuOpen)}>
-          <Icon name="menu" />
-        </button>
-      </div>
-      <nav id="main-navigation" aria-label="Main">
-        {#each nav as item (item.path)}
-          <a href={item.path} use:link aria-current={current(item.path) ? 'page' : undefined}>
-            <Icon name={item.icon} />
-            {item.label}
+      <div class="side">
+        <div class="brand-row">
+          <a class="brand" href="/" use:link>
+            <span class="mark" aria-hidden="true">R</span>
+            <span>Rubylight</span>
           </a>
-        {/each}
-      </nav>
-      <div class="foot">
-        {#if session.metadata}
-          <div class="host">
-            <span class="name">{session.metadata.host_name}</span>
-            <span class="muted num">{session.metadata.pc_address} · {session.metadata.version}</span>
+          <button bind:this={menuButton} class="menu" aria-label="Menu" aria-controls="main-navigation" aria-expanded={menuOpen} onclick={() => (menuOpen = !menuOpen)}>
+            <Icon name="menu" />
+          </button>
+        </div>
+        <nav id="main-navigation" aria-label="Main">
+          {#snippet links(items: NavItem[])}
+            {#each items as item (item.path)}
+              <a href={item.path} use:link aria-current={current(item.path) ? 'page' : undefined}>
+                <Icon name={item.icon} />
+                {item.label}
+              </a>
+            {/each}
+          {/snippet}
+          <div class="nav-group">{@render links(primary)}</div>
+          <div class="nav-group tools" role="group" aria-labelledby="nav-tools">
+            <span class="nav-heading" id="nav-tools">Tools</span>
+            {@render links(tools)}
           </div>
-        {/if}
-        <div class="row">
-          <button class="foot-button" onclick={cycleTheme} title="Theme: {theme}">
-            <Icon name={theme === 'dark' ? 'moon' : theme === 'light' ? 'sun' : 'monitor'} size={16} />
-            <span class="cap">{theme}</span>
-          </button>
-          <button class="foot-button" disabled={signingOut} aria-busy={signingOut} onclick={signOut}>
-            <Icon name="signout" size={16} />
-            {signingOut ? 'Signing out…' : 'Sign out'}
-          </button>
+        </nav>
+        <div class="foot">
+          {#if session.metadata}
+            <div class="host">
+              <span class="name">{session.metadata.host_name}</span>
+              <span class="muted">Version <span class="num">{session.metadata.version}</span></span>
+              <span class="address">
+                <span class="num" title={session.metadata.pc_address}>{session.metadata.pc_address}</span>
+                <CopyButton value={session.metadata.pc_address} label="Copy address" what="the address" />
+              </span>
+            </div>
+          {/if}
+          <div class="foot-actions">
+            <div class="theme" role="group" aria-label="Theme">
+              {#each themes as option (option.value)}
+                <button
+                  type="button"
+                  aria-pressed={theme === option.value}
+                  aria-label="{option.label} theme"
+                  title="Theme: {option.label}"
+                  onclick={() => setTheme(option.value)}
+                >
+                  <Icon name={option.icon} size={16} />
+                </button>
+              {/each}
+            </div>
+            <button class="foot-button" disabled={signingOut} aria-busy={signingOut} onclick={signOut}>
+              <Icon name="signout" size={16} />
+              {signingOut ? 'Signing out…' : 'Sign out'}
+            </button>
+          </div>
         </div>
       </div>
     </aside>
@@ -193,18 +225,23 @@
     display: grid;
     grid-template-columns: var(--nav-width) minmax(0, 1fr);
     min-height: 100vh;
+    min-height: 100dvh;
   }
+  /* The sidebar's background runs the full page height; its content stays in view. */
   aside {
+    border-right: 1px solid var(--line);
+    background: var(--panel);
+  }
+  .side {
     position: sticky;
     top: 0;
     height: 100vh;
+    height: 100dvh;
     overflow-y: auto;
     display: flex;
     flex-direction: column;
     gap: var(--space-5);
     padding: var(--space-5) var(--space-3) var(--space-4);
-    border-right: 1px solid var(--line);
-    background: var(--panel);
   }
   .brand-row {
     display: flex;
@@ -244,7 +281,21 @@
   }
   nav {
     display: grid;
+    gap: var(--space-3);
+  }
+  .nav-group {
+    display: grid;
     gap: 2px;
+  }
+  .tools {
+    padding-top: var(--space-3);
+    border-top: 1px solid var(--line);
+  }
+  .nav-heading {
+    padding: 0 10px 4px;
+    font-size: var(--text-xs);
+    font-weight: 600;
+    color: var(--muted);
   }
   nav a {
     display: flex;
@@ -269,19 +320,71 @@
     margin-top: auto;
     display: grid;
     gap: var(--space-3);
-    padding: 0 var(--space-2);
+    padding: var(--space-3) var(--space-2) 0;
+    border-top: 1px solid var(--line);
   }
   .host {
     display: grid;
-    gap: 2px;
+    gap: 1px;
     font-size: var(--text-sm);
+    min-width: 0;
   }
   .host .name {
     font-weight: 600;
+    overflow-wrap: anywhere;
   }
   .host .muted {
     font-size: var(--text-xs);
-    overflow-wrap: anywhere;
+  }
+  .address {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    min-width: 0;
+    font-size: var(--text-xs);
+    color: var(--ink-2);
+  }
+  /* One address, never broken across lines; the tooltip has it in full. */
+  .address .num {
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+  .foot-actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+    flex-wrap: wrap;
+  }
+  .theme {
+    display: inline-flex;
+    padding: 2px;
+    gap: 1px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+  }
+  .theme button {
+    display: grid;
+    place-items: center;
+    width: 26px;
+    height: 24px;
+    padding: 0;
+    border: 0;
+    border-radius: 4px;
+    background: none;
+    color: var(--muted);
+    cursor: pointer;
+  }
+  .theme button:hover {
+    color: var(--ink);
+    background: var(--sunken);
+  }
+  .theme button[aria-pressed='true'] {
+    background: var(--sunken);
+    color: var(--ink);
+    box-shadow: inset 0 0 0 1px var(--line-strong);
   }
   .foot-button {
     display: inline-flex;
@@ -290,16 +393,13 @@
     border: 1px solid var(--line);
     border-radius: var(--radius);
     background: none;
-    padding: 6px 9px;
+    padding: 5px 8px;
     font-size: var(--text-xs);
     color: var(--ink-2);
     cursor: pointer;
   }
   .foot-button:hover {
     background: var(--sunken);
-  }
-  .cap {
-    text-transform: capitalize;
   }
   main {
     padding: var(--space-6) var(--space-6) var(--space-7);
@@ -316,13 +416,18 @@
     }
     aside {
       position: sticky;
-      height: auto;
-      max-height: 100dvh;
+      top: 0;
       z-index: 10;
-      padding: var(--space-3) var(--space-3);
-      gap: var(--space-3);
       border-right: 0;
       border-bottom: 1px solid var(--line);
+    }
+    .side {
+      position: static;
+      height: auto;
+      max-height: 100vh;
+      max-height: 100dvh;
+      padding: var(--space-3);
+      gap: var(--space-3);
     }
     .menu {
       display: block;
@@ -334,6 +439,17 @@
     aside.open nav,
     aside.open .foot {
       display: grid;
+    }
+    nav a {
+      min-height: 44px;
+    }
+    .theme button {
+      width: 44px;
+      height: 40px;
+    }
+    .foot-button {
+      min-height: 44px;
+      padding: 6px 14px;
     }
     main {
       padding: var(--space-5) var(--space-4) var(--space-6);

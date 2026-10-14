@@ -9,7 +9,7 @@
 use std::{
     collections::VecDeque,
     io::{self, Read, Write},
-    net::{Ipv4Addr, Shutdown, SocketAddr, TcpListener, TcpStream},
+    net::{Ipv4Addr, Shutdown, TcpListener, TcpStream},
     sync::{
         Arc, Condvar, Mutex,
         atomic::{AtomicBool, Ordering},
@@ -241,6 +241,7 @@ impl<D: Device> Export<D> {
     /// [`Export::changed`].
     pub fn listen(device: D, period: Duration) -> io::Result<Self> {
         let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0))?;
+        listener.set_nonblocking(true)?;
         let port = listener.local_addr()?.port();
         let shared = Arc::new(Shared {
             device: Mutex::new(device),
@@ -296,11 +297,11 @@ impl<D: Device> Drop for Export<D> {
             link.imported = false;
         }
         self.shared.wake.notify_all();
-        // Wake the accept loop.
-        let _ = TcpStream::connect_timeout(
-            &SocketAddr::from((Ipv4Addr::LOCALHOST, self.port)),
-            Duration::from_secs(1),
-        );
+        // Shutdown must not depend on another loopback connection succeeding.
+        // An unpark token also wakes an accept worker that has not parked yet.
+        for thread in &self.threads {
+            thread.thread().unpark();
+        }
         for thread in self.threads.drain(..) {
             let _ = thread.join();
         }
@@ -308,11 +309,20 @@ impl<D: Device> Drop for Export<D> {
 }
 
 fn accept_clients<D: Device>(shared: &Shared<D>, listener: &TcpListener) {
-    for stream in listener.incoming() {
-        if shared.stop.load(Ordering::Acquire) {
-            return;
-        }
-        let Ok(stream) = stream else { continue };
+    while !shared.stop.load(Ordering::Acquire) {
+        let stream = match listener.accept() {
+            Ok((stream, _)) => stream,
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+            Err(error) => {
+                if error.kind() != io::ErrorKind::WouldBlock {
+                    tracing::debug!(%error, "USB/IP accept failed");
+                }
+                // Only idle attachment waits here; connected input and audio
+                // retain their own report deadlines and blocking socket I/O.
+                std::thread::park_timeout(READ_SLICE);
+                continue;
+            }
+        };
         if !stream.peer_addr().is_ok_and(|a| a.ip().is_loopback()) {
             continue;
         }
@@ -392,6 +402,8 @@ fn read_full<D: Device>(
 }
 
 fn serve<D: Device>(shared: &Shared<D>, stream: TcpStream) -> io::Result<()> {
+    // Accepted sockets may inherit the nonblocking listener's mode.
+    stream.set_nonblocking(false)?;
     stream.set_nodelay(true)?;
     stream.set_write_timeout(Some(WRITE_WAIT))?;
     stream.set_read_timeout(Some(READ_SLICE))?;
@@ -731,6 +743,24 @@ fn report<D: Device>(shared: &Shared<D>) {
 mod tests {
     use super::*;
     use crate::steam_deck::{REPORT_PERIOD, SteamDeck};
+
+    #[test]
+    fn dropping_an_idle_export_does_not_need_a_loopback_connection() {
+        for idle in [Duration::ZERO, READ_SLICE * 2] {
+            let mut export = Export::listen(SteamDeck::new("TEST"), REPORT_PERIOD).unwrap();
+            // An unreachable advertised port makes the old self-connect wake-up
+            // fail on unrestricted machines too. Shutdown must use no connection.
+            export.port = 0;
+            std::thread::sleep(idle);
+            let (done, finished) = std::sync::mpsc::channel();
+            let worker = std::thread::spawn(move || {
+                drop(export);
+                done.send(()).unwrap();
+            });
+            finished.recv_timeout(Duration::from_secs(2)).unwrap();
+            worker.join().unwrap();
+        }
+    }
 
     #[test]
     fn composite_audio_round_trips_packet_descriptors_and_actuator_pcm() {

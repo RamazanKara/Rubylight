@@ -87,6 +87,8 @@ launch_args={'appid':app.findtext('ID'),'rikey':bytes(range(16)).hex(),'rikeyid'
 if os.environ.get('BUTTERPOLLO_TEST_VRR')=='1': launch_args['clientVrrRequested']='1'
 if os.environ.get('BUTTERPOLLO_TEST_MATCH_DISPLAY')=='1':
     launch_args.update(mode='x'.join(sys.argv[3:6]),hdrMode='1' if '-hdr' in codec else '0')
+# Artemis's Warp frame pacing launches at its display rate and asks for a multiple in RTSP.
+if os.environ.get('BUTTERPOLLO_TEST_LAUNCH_FPS'): launch_args['mode']='x'.join(sys.argv[3:5]+[os.environ['BUTTERPOLLO_TEST_LAUNCH_FPS']])
 limiter_lifecycle = None
 if os.environ.get('BUTTERPOLLO_TEST_RTSS_PROFILE'):
     from rtss_lifecycle import Lifecycle

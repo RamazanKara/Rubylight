@@ -359,7 +359,10 @@ export interface StreamSession {
   device_name: string;
   width: number;
   height: number;
+  /** The rate the stream is encoded at. */
   fps: number;
+  /** The rate in the device's stream request; differs when Use the launch frame rate applies. */
+  requested_fps?: number;
   video_format: 0 | 1 | 2 | 3;
   hdr: boolean;
   vrr: boolean;

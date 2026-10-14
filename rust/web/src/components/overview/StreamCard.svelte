@@ -85,7 +85,12 @@
     <div>
       <dt>Frame rate</dt>
       <dd class="value num">{measured ? `${Math.round(perf.fps)} fps` : '–'}</dd>
-      <dd class="sub">Target <span class="num">{stream.fps}</span></dd>
+      <dd class="sub">
+        Target <span class="num">{stream.fps}</span>
+        {#if stream.requested_fps && stream.requested_fps !== stream.fps}
+          (the device asked for <span class="num">{stream.requested_fps}</span>; Use the launch frame rate is on)
+        {/if}
+      </dd>
     </div>
     <div>
       <dt>Encoding time</dt>

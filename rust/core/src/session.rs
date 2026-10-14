@@ -980,6 +980,53 @@ mod tests {
         }
     }
     #[test]
+    fn the_console_shows_the_encoded_rate_beside_the_requested_one() {
+        // Artemis's Warp launches at 60 fps and asks for 120 in the stream
+        // request; the launch frame rate (the default) encodes 60. The
+        // console showed 120 as the stream's rate and target.
+        let mut config = Negotiated {
+            fps: 120,
+            rate_millihz: 120_000,
+            ..Default::default()
+        };
+        crate::stream_policy::apply(&mut config, 60_000, &crate::config::Config::default());
+        let session = Session::new(launch("warp", Role::Stream), config.clone());
+        let info = session.info();
+        assert_eq!(
+            (info["fps"].clone(), info["requested_fps"].clone()),
+            (60.into(), 120.into())
+        );
+        // A client's own mode switch is what it asked for.
+        let switch = crate::reconfigure::Mode {
+            width: config.width,
+            height: config.height,
+            fps_millihz: 90_000,
+        };
+        let mut reconfigure = session.reconfigure.lock().unwrap();
+        let now = Instant::now();
+        reconfigure.on_request(now, switch);
+        assert_eq!(
+            reconfigure.take_due(now + Duration::from_secs(1)),
+            Some(switch)
+        );
+        drop(reconfigure);
+        let info = session.info();
+        assert_eq!(
+            (info["fps"].clone(), info["requested_fps"].clone()),
+            (90.into(), 90.into())
+        );
+        let unlimited = Negotiated {
+            fps: 120,
+            rate_millihz: 119_880,
+            ..Default::default()
+        };
+        let info = Session::new(launch("plain", Role::Stream), unlimited).info();
+        assert_eq!(
+            (info["fps"].clone(), info["requested_fps"].clone()),
+            (120.into(), 120.into())
+        );
+    }
+    #[test]
     fn pyrowave_feedback_cannot_force_frames_or_turn_invalidation_into_idr() {
         let session = Session::new(
             launch("pyrowave", Role::Stream),
@@ -1539,18 +1586,19 @@ impl<P, A> Session<P, A> {
     pub fn info(&self) -> serde_json::Value {
         let mut warnings = self.launch.warnings.snapshot();
         warnings.extend(self.capture_warnings.read().unwrap().snapshot());
-        // The negotiated values until the client switches modes (0x5532).
+        // The size and rate the stream runs at: the negotiated ones until the
+        // client switches modes (0x5532). The rate is the one encoded, which
+        // `limit_framerate` takes from the launch request; the stream
+        // request's own rate is `requested_fps`.
         let mode = self.stream_mode();
-        let (width, height, fps) = if mode == crate::reconfigure::Mode::of(&self.config) {
-            (self.config.width, self.config.height, self.config.fps)
+        let fps = mode.fps_millihz.saturating_add(500) / 1000;
+        let (width, height) = (mode.width, mode.height);
+        let requested_fps = if mode == crate::reconfigure::Mode::of(&self.config) {
+            self.config.fps
         } else {
-            (
-                mode.width,
-                mode.height,
-                mode.fps_millihz.saturating_add(500) / 1000,
-            )
+            fps
         };
-        serde_json::json!({"warnings":warnings,"encoder":*self.encoder.read().unwrap(),"uuid":self.launch.client.uuid,"device_name":self.launch.client.name,"width":width,"height":height,"fps":fps,"video_format":self.config.codec,"hdr":self.config.hdr,"vrr":self.config.vrr_low_latency,"encoder_bitrate_kbps":self.bitrate.load(Ordering::Relaxed),"adaptive_bitrate":self.adaptive_bitrate.lock().unwrap().snapshot(),"packet_pacing":self.automatic_pacing.lock().unwrap().snapshot(),"fec_percent":(self.config.codec != 3).then(|| self.fec_percent()),"pyrowave_minimum_kbps":(self.config.codec == 3).then(|| crate::pyrowave::minimum_kbps(self.config.width, self.config.height, self.config.fps_millihz())),"pyrowave_recommended_kbps":(self.config.codec == 3).then(|| crate::pyrowave::recommended_kbps(self.config.width, self.config.height, self.config.fps_millihz())),"audio_channels":self.config.audio_channels,"state":if self.stopping(){"STOPPING"}else{"RUNNING"},"frames_sent":self.stats.frames.load(Ordering::Relaxed),"frames_replaced":self.stats.frames_replaced.load(Ordering::Relaxed),"packets_sent":self.stats.packets.load(Ordering::Relaxed),"bytes_sent":self.stats.bytes.load(Ordering::Relaxed),"idr_requests":self.stats.idr_requests.load(Ordering::Relaxed),"reference_invalidations":self.stats.reference_invalidations.load(Ordering::Relaxed),"send_loss_recoveries":self.stats.send_loss_recoveries.load(Ordering::Relaxed),"encode_latency_ms":self.stats.latency_us.load(Ordering::Relaxed) as f64/1000.,"performance":self.stats.performance.lock().unwrap().snapshot(Instant::now()),"uptime_seconds":self.started.elapsed().as_secs_f64(),"role":self.launch.role})
+        serde_json::json!({"warnings":warnings,"encoder":*self.encoder.read().unwrap(),"uuid":self.launch.client.uuid,"device_name":self.launch.client.name,"width":width,"height":height,"fps":fps,"requested_fps":requested_fps,"video_format":self.config.codec,"hdr":self.config.hdr,"vrr":self.config.vrr_low_latency,"encoder_bitrate_kbps":self.bitrate.load(Ordering::Relaxed),"adaptive_bitrate":self.adaptive_bitrate.lock().unwrap().snapshot(),"packet_pacing":self.automatic_pacing.lock().unwrap().snapshot(),"fec_percent":(self.config.codec != 3).then(|| self.fec_percent()),"pyrowave_minimum_kbps":(self.config.codec == 3).then(|| crate::pyrowave::minimum_kbps(self.config.width, self.config.height, self.config.fps_millihz())),"pyrowave_recommended_kbps":(self.config.codec == 3).then(|| crate::pyrowave::recommended_kbps(self.config.width, self.config.height, self.config.fps_millihz())),"audio_channels":self.config.audio_channels,"state":if self.stopping(){"STOPPING"}else{"RUNNING"},"frames_sent":self.stats.frames.load(Ordering::Relaxed),"frames_replaced":self.stats.frames_replaced.load(Ordering::Relaxed),"packets_sent":self.stats.packets.load(Ordering::Relaxed),"bytes_sent":self.stats.bytes.load(Ordering::Relaxed),"idr_requests":self.stats.idr_requests.load(Ordering::Relaxed),"reference_invalidations":self.stats.reference_invalidations.load(Ordering::Relaxed),"send_loss_recoveries":self.stats.send_loss_recoveries.load(Ordering::Relaxed),"encode_latency_ms":self.stats.latency_us.load(Ordering::Relaxed) as f64/1000.,"performance":self.stats.performance.lock().unwrap().snapshot(Instant::now()),"uptime_seconds":self.started.elapsed().as_secs_f64(),"role":self.launch.role})
     }
 }
 pub struct Sessions<P = (), A = ()> {

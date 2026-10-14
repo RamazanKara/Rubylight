@@ -216,7 +216,7 @@
     <string name="title_reset_osc">Reset controls layout</string>
     <string name="summary_reset_osc">Restore the default size and position of all on-screen controls</string>
     <string name="dialog_title_reset_osc">Reset layout</string>
-    <string name="dialog_text_reset_osc">Reset your on-screen controls layout to the default?</string>
+    <string name="dialog_text_reset_osc">Put every on-screen button back to its default size and position?</string>
     <string name="toast_reset_osc_success">On-screen controls reset to default</string>
     <string name="title_osc_opacity">Opacity</string>
     <string name="summary_osc_opacity">How visible the on-screen controls are</string>
@@ -412,7 +412,7 @@
     <string name="title_reset_settings">Reset all settings</string>
     <string name="summary_reset_settings">Restore defaults for these settings</string>
     <string name="dialog_reset_settings_title">Reset all settings?</string>
-    <string name="dialog_reset_settings_text">Reset global settings?\nKeep PCs, profiles, button mappings, layout and language.</string>
+    <string name="dialog_reset_settings_text">All settings on these screens go back to their defaults. Paired PCs, PC stream settings, button mappings, the on-screen controls layout and the language stay as they are.</string>
     <string name="dialog_reset_settings_confirm">Reset</string>
     <string name="toast_reset_settings">Settings reset to defaults</string>
     <string name="addpc_button">Add</string>

@@ -307,8 +307,8 @@
             android:title="@string/title_reset_osc"
             android:dialogTitle="@string/dialog_title_reset_osc"
             android:dialogMessage="@string/dialog_text_reset_osc"
-            android:positiveButtonText="@string/yes"
-            android:negativeButtonText="@string/no" />
+            android:positiveButtonText="@string/dialog_reset_settings_confirm"
+            android:negativeButtonText="@android:string/cancel" />
     </PreferenceCategory>
     <PreferenceCategory android:key="category_keyboard_shortcuts" android:title="@string/settings_category_keyboard">
         <Preference android:key="keyboard_shortcuts_editor"

@@ -1064,6 +1064,19 @@ public class StreamSettings extends AppCompatActivity {
             }
         }
 
+        private void confirmReset() {
+            AlertDialog confirm = new MaterialAlertDialogBuilder(getActivity()).setTitle(R.string.dialog_reset_settings_title)
+                    .setMessage(R.string.dialog_reset_settings_text)
+                    .setNegativeButton(android.R.string.cancel, null)
+                    .setPositiveButton(R.string.dialog_reset_settings_confirm, (dialog, which) -> {
+                        resetAllSettings(getActivity());
+                        ((StreamSettings) getActivity()).reloadSettings();
+                        Toast.makeText(getActivity(), R.string.toast_reset_settings, Toast.LENGTH_SHORT).show();
+                    }).create();
+            UiHelper.showDialog(getActivity(), confirm);
+            UiHelper.markDestructive(confirm);
+        }
+
         @Override
         public View onCreateView(LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState) {
             View view = super.onCreateView(inflater, container, savedInstanceState);
@@ -1167,14 +1180,7 @@ public class StreamSettings extends AppCompatActivity {
                 return true;
             });
             findPreference("reset_all").setOnPreferenceClickListener(preference -> {
-                new MaterialAlertDialogBuilder(getActivity()).setTitle(R.string.dialog_reset_settings_title)
-                        .setMessage(R.string.dialog_reset_settings_text)
-                        .setNegativeButton(android.R.string.cancel, null)
-                        .setPositiveButton(R.string.dialog_reset_settings_confirm, (dialog, which) -> {
-                            resetAllSettings(getActivity());
-                            ((StreamSettings) getActivity()).reloadSettings();
-                            Toast.makeText(getActivity(), R.string.toast_reset_settings, Toast.LENGTH_SHORT).show();
-                        }).show();
+                confirmReset();
                 return true;
             });
             findPreference("checkbox_touchscreen_trackpad").setOnPreferenceClickListener(preference -> {

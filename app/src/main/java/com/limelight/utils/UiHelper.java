@@ -240,8 +240,20 @@ public class UiHelper {
                 .setPositiveButton(parent.getResources().getString(R.string.pcview_menu_delete_pc), dialogClickListener)
                 .setNegativeButton(android.R.string.cancel, dialogClickListener)
                 .show();
-        // Removing a PC is the destructive choice, so it takes the error colour.
-        dialog.getButton(DialogInterface.BUTTON_POSITIVE).setTextColor(com.google.android.material.color.MaterialColors.getColor(
+        markDestructive(dialog);
+    }
+
+    /**
+     * Gives a shown confirmation's positive button the destructive style (Widget.Nightjar.Button.Destructive):
+     * the error colour for choices that remove or reset something.
+     */
+    public static void markDestructive(AlertDialog dialog) {
+        android.widget.Button confirm = dialog.getButton(DialogInterface.BUTTON_POSITIVE);
+        confirm.setTextColor(com.google.android.material.color.MaterialColors.getColor(
                 dialog.getContext(), androidx.appcompat.R.attr.colorError, 0));
+        if (confirm instanceof com.google.android.material.button.MaterialButton) {
+            ((com.google.android.material.button.MaterialButton) confirm).setRippleColor(
+                    androidx.core.content.ContextCompat.getColorStateList(dialog.getContext(), R.color.error_ripple));
+        }
     }
 }

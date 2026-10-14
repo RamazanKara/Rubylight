@@ -33,9 +33,11 @@ public class ConfirmDeleteOscPreference extends DialogPreference {
 
     @Override
     protected void showDialog(Bundle state) {
-        UiHelper.showDialog(getContext(), new MaterialAlertDialogBuilder(getContext()).setTitle(getDialogTitle())
+        androidx.appcompat.app.AlertDialog dialog = new MaterialAlertDialogBuilder(getContext()).setTitle(getDialogTitle())
                 .setMessage(getDialogMessage()).setPositiveButton(getPositiveButtonText(), this)
-                .setNegativeButton(getNegativeButtonText(), null).create());
+                .setNegativeButton(getNegativeButtonText(), null).create();
+        UiHelper.showDialog(getContext(), dialog);
+        UiHelper.markDestructive(dialog);
     }
 
     public void onClick(DialogInterface dialog, int which) {

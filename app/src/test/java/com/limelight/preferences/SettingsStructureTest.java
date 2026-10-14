@@ -296,6 +296,20 @@ public class SettingsStructureTest {
     }
 
     @Test
+    public void resetAsksWithADestructiveConfirmation() {
+        try (ActivityController<StreamSettings> controller = Robolectric.buildActivity(StreamSettings.class).setup()) {
+            StreamSettings screen = controller.get();
+            Preference reset = open(screen, "app").findPreference("reset_all");
+            reset.getOnPreferenceClickListener().onPreferenceClick(reset);
+            AlertDialog confirm = (AlertDialog) ShadowDialog.getLatestDialog();
+            assertTrue(confirm.isShowing());
+            assertEquals(MaterialColors.getColor(confirm.getContext(), androidx.appcompat.R.attr.colorError, 0),
+                    confirm.getButton(AlertDialog.BUTTON_POSITIVE).getCurrentTextColor());
+            confirm.getButton(AlertDialog.BUTTON_NEGATIVE).performClick();
+        }
+    }
+
+    @Test
     public void helpOpensTheBundledPage() {
         try (ActivityController<StreamSettings> controller = Robolectric.buildActivity(StreamSettings.class).setup()) {
             StreamSettings screen = controller.get();

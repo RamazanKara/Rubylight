@@ -187,7 +187,7 @@
     <string name="title_reset_osc">Tastenlayout zurücksetzen</string>
     <string name="summary_reset_osc">Setze Größe und Position der Bildschirmtasten zurück.</string>
     <string name="dialog_title_reset_osc">Layout zurücksetzen</string>
-    <string name="dialog_text_reset_osc">Bildschirmtasten auf das Standardlayout zurücksetzen?</string>
+    <string name="dialog_text_reset_osc">Alle Bildschirmtasten auf Standardgröße und -position zurücksetzen?</string>
     <string name="toast_reset_osc_success">Bildschirmtasten zurückgesetzt</string>
     <string name="title_osc_opacity">Deckkraft</string>
     <string name="summary_osc_opacity">Passe die Sichtbarkeit der Bildschirmtasten an.</string>
@@ -368,7 +368,7 @@
     <string name="title_reset_settings">Einstellungen zurücksetzen</string>
     <string name="summary_reset_settings">Stelle die globalen Standardwerte wieder her.</string>
     <string name="dialog_reset_settings_title">Alles zurücksetzen?</string>
-    <string name="dialog_reset_settings_text">Globale Einstellungen zurücksetzen?\nPCs, Profile, Tasten, Layout und Sprache bleiben.</string>
+    <string name="dialog_reset_settings_text">Alle Einstellungen in diesen Bereichen werden auf die Standardwerte gesetzt. Gekoppelte PCs, PC-Stream-Einstellungen, Tastenbelegungen, das Layout der Bildschirmtasten und die Sprache bleiben erhalten.</string>
     <string name="dialog_reset_settings_confirm">Zurücksetzen</string>
     <string name="toast_reset_settings">Einstellungen zurückgesetzt</string>
     <string name="addpc_button">Hinzufügen</string>

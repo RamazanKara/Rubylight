@@ -441,6 +441,9 @@ def capture_ui_set(width, font, rotation=0):
     assert not any(n.get("resource-id") == search and n.get("text") == "compatibility" for n in tree().iter("node")),         "Back from search did not clear its query"
     find("Presets", scroll=True)
     navigate_up()
+    # After a few minutes in settings the home screen times out the cached host state and polls again;
+    # an unknown host opens its menu instead of pairing, so wait for the fixture to report back.
+    find("Not paired")
     tap(HOST_NAME)
     find("Pair with PC")
     screenshot(prefix + "-pairing-pin")

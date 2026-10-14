@@ -1,6 +1,6 @@
 // The real JNI control senders and encrypted ENet send path against fake ENet and JNI:
-// DualSense microphone packets larger than the old 256-byte plaintext buffer and Java-thread
-// sends racing stream teardown.
+// DualSense microphone packets larger than the old 256-byte plaintext buffer, Java-thread
+// sends racing stream teardown, and phase-lock reports that need the host's announcement.
 #include <pthread.h>
 #include <unistd.h>
 #include "android_control.c"
@@ -254,9 +254,34 @@ static void teardownWaitsForJavaSendersAndLaterSendsNeverReachENet(void) {
     ConnectionInterrupted = false;
 }
 
+static void phaseLockReportsNeedTheHostsAnnouncement(void) {
+    reset();
+    // A host that announces other Rubylight messages but not phase lock.
+    const uint16_t display[] = {0x5531};
+    announce(display, 1);
+    for (int i = 0; i < 3; i++) {
+        Java_com_limelight_nvstream_jni_MoonBridge_reportFrameSlack(&env, NULL, 2000000, 16666666);
+        fakeNowMs += 600;
+    }
+    CHECK(sentCount == 0);
+
+    reset();
+    const uint16_t phase[] = {RP_PHASE_REPORT_MESSAGE_TYPE};
+    announce(phase, 1);
+    Java_com_limelight_nvstream_jni_MoonBridge_reportFrameSlack(&env, NULL, 2000000, 16666666);
+    fakeNowMs += 600;
+    Java_com_limelight_nvstream_jni_MoonBridge_reportFrameSlack(&env, NULL, 2000000, 16666666);
+    CHECK(sentCount == 1 && sentChannels[0] == CTRL_CHANNEL_GENERIC && sent[0]->flags == 0);
+    uint16_t type, length;
+    plaintext(sent[0], &type, &length);
+    CHECK(type == RP_PHASE_REPORT_MESSAGE_TYPE && length == RP_PHASE_REPORT_BYTES);
+    freeSent();
+}
+
 static const struct { const char* name; void (*run)(void); } scenarios[] = {
     {"microphone", microphonePacketsLargerThanTheStackBufferArriveIntact},
     {"boundary", oversizeOrMalformedControllerAudioStopsAtTheBoundary},
+    {"phase-lock", phaseLockReportsNeedTheHostsAnnouncement},
     {"teardown", teardownWaitsForJavaSendersAndLaterSendsNeverReachENet},
 };
 

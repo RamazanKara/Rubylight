@@ -21,12 +21,12 @@ Java_com_limelight_nvstream_jni_MoonBridge_sendServerCommand(JNIEnv *env, jclass
 
 // Phase lock (protocol/core/src/phase_lock.rs): every half second, tell a Rubylight host how
 // early frames were ready before this display's latch, so it can time frames to land just
-// before it. Hosts that don't know the message ignore it.
+// before it. Only hosts that announce the message in a=x-rl-control receive it.
 #include <pthread.h>
 #include "rubylight_protocol.h"
 #include "phase_lock.h"
+#include "control_negotiation.h"
 
-atomic_bool PhaseLockReportsEnabled;
 static pthread_mutex_t phaseLockMutex = PTHREAD_MUTEX_INITIALIZER;
 static RpSlackWindow* phaseLockWindow;
 static uint64_t phaseLockLastReportMs;
@@ -47,7 +47,7 @@ void resetPhaseLockReports(void) {
 JNIEXPORT void JNICALL
 Java_com_limelight_nvstream_jni_MoonBridge_reportFrameSlack(JNIEnv *env, jclass clazz, jlong slackNs, jlong periodNs) {
     (void)env; (void)clazz;
-    if (!atomic_load(&PhaseLockReportsEnabled)) return;
+    if (!hostSupportsControlMessage(RP_PHASE_REPORT_MESSAGE_TYPE)) return;
     uint8_t report[RP_PHASE_REPORT_BYTES];
     bool send = false;
     pthread_mutex_lock(&phaseLockMutex);

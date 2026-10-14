@@ -573,9 +573,8 @@ Java_com_limelight_nvstream_jni_MoonBridge_startConnection(JNIEnv *env, jclass c
     AndroidMicRequested = enableMic;
     const char* rustVersion = rustHostVersion ? (*env)->GetStringUTFChars(env, rustHostVersion, NULL) : NULL;
     PyroWaveRecordsSupported = supportsPyroWaveRecords(rustVersion);
-    // Only Rubylight hosts can use phase-lock reports; they cost others a packet a half-second.
+    // Phase-lock reports go only to hosts that announce them in this connection's DESCRIBE answer.
     resetPhaseLockReports();
-    atomic_store(&PhaseLockReportsEnabled, rustVersion != NULL);
     // Filled from this connection's DESCRIBE answer (a=x-rl-control).
     resetHostControlMessages();
     PyroWaveRecordsEnabled = 0;

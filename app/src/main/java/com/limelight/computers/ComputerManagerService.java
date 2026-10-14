@@ -544,6 +544,12 @@ public class ComputerManagerService extends Service {
                     }
                 }
             }
+
+            // Discovery skips hosts that already answered, so the deleted PC would never return.
+            DiscoveryService.DiscoveryBinder discovery = discoveryBinder;
+            if (discovery != null) {
+                discovery.forgetAnsweredComputers();
+            }
         } finally {
             releaseLocalDatabaseReference();
         }

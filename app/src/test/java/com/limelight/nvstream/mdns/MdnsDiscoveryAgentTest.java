@@ -5,6 +5,9 @@ import org.junit.Test;
 import java.net.Inet4Address;
 import java.net.Inet6Address;
 import java.net.InetAddress;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -42,6 +45,39 @@ public class MdnsDiscoveryAgentTest {
             finish.countDown();
             workers.shutdownNow();
         }
+    }
+
+    @Test
+    public void aHostThatMovesBackToAnEarlierAddressIsProbedThere() throws Exception {
+        List<String> probes = new ArrayList<>();
+        MdnsDiscoveryAgent agent = new MdnsDiscoveryAgent(new MdnsDiscoveryListener() {
+            public boolean notifyComputerAdded(MdnsComputer computer) {
+                probes.add(computer.getName() + " " + computer.getLocalAddress().getHostAddress());
+                return true;
+            }
+            public void notifyDiscoveryFailure(Exception e) { throw new AssertionError(e); }
+        }) {
+            public void startDiscovery(int interval) { resetDiscovery(); }
+            public void stopDiscovery() { resetDiscovery(); }
+        };
+        String[][] sessions = {
+                {"PC", "192.0.2.10"}, // answers at A
+                {"PC", "192.0.2.20"}, // moves to B; the probe there points polling at B
+                {"PC", "192.0.2.10"}, // back at A, which polling no longer tries
+                {"PC", "192.0.2.10"}, // answered at A again, no new probe
+        };
+        for (String[] session : sessions) {
+            agent.startDiscovery(1000);
+            announce(agent, session[0], session[1]);
+            announce(agent, "Other", "192.0.2.30");
+            agent.stopDiscovery();
+        }
+        assertEquals(Arrays.asList("PC 192.0.2.10", "Other 192.0.2.30", "PC 192.0.2.20", "PC 192.0.2.10"), probes);
+    }
+
+    private static void announce(MdnsDiscoveryAgent agent, String name, String address) throws Exception {
+        agent.reportNewComputer(name, 47989, new Inet4Address[] {(Inet4Address) InetAddress.getByName(address)},
+                new Inet6Address[0]);
     }
 
     @Test

@@ -5,7 +5,11 @@ import android.content.Intent;
 import android.content.ServiceConnection;
 
 import com.limelight.AppView;
+import com.limelight.discovery.DiscoveryService;
 import com.limelight.nvstream.http.ComputerDetails;
+import com.limelight.nvstream.mdns.MdnsComputer;
+import com.limelight.nvstream.mdns.MdnsDiscoveryAgent;
+import com.limelight.nvstream.mdns.MdnsDiscoveryListener;
 import com.limelight.utils.CacheHelper;
 
 import org.junit.Test;
@@ -17,8 +21,14 @@ import org.robolectric.util.ReflectionHelpers;
 
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.net.Inet4Address;
+import java.net.Inet6Address;
+import java.net.InetAddress;
 import java.nio.file.Files;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.Assert.*;
@@ -77,6 +87,57 @@ public class ComputerManagerLifecycleTest {
                 assertEquals("retained", service.getSharedPreferences(file, 0).getString("another-host", null));
             }
         } finally {
+            controller.destroy();
+        }
+    }
+
+    // Stands in for the platform resolver so the test can announce a host at an address.
+    private static final class Announcer extends MdnsDiscoveryAgent {
+        Announcer(MdnsDiscoveryListener listener) { super(listener); }
+        @Override public void startDiscovery(int interval) { resetDiscovery(); }
+        @Override public void stopDiscovery() { resetDiscovery(); }
+        void announce(String name, String address) throws Exception {
+            reportNewComputer(name, 47989, new Inet4Address[] {(Inet4Address) InetAddress.getByName(address)},
+                    new Inet6Address[0]);
+        }
+    }
+
+    @Test
+    public void aDeletedComputerIsProbedAgainWhenDiscoveryFindsIt() throws Exception {
+        ServiceController<Manager> controller = Robolectric.buildService(Manager.class).create();
+        ServiceController<DiscoveryService> discoveryController = Robolectric.buildService(DiscoveryService.class).create();
+        ComputerManagerService service = controller.get();
+        DiscoveryService discovery = discoveryController.get();
+        MdnsDiscoveryAgent platformAgent = ReflectionHelpers.getField(discovery, "discoveryAgent");
+        Announcer agent = new Announcer(ReflectionHelpers.getField(platformAgent, "listener"));
+        ReflectionHelpers.setField(discovery, "discoveryAgent", agent);
+        DiscoveryService.DiscoveryBinder binder = (DiscoveryService.DiscoveryBinder) discovery.onBind(new Intent());
+        List<String> probes = new ArrayList<>();
+        binder.setListener(new MdnsDiscoveryListener() {
+            @Override public boolean notifyComputerAdded(MdnsComputer computer) {
+                probes.add(computer.getName());
+                return true;
+            }
+            @Override public void notifyDiscoveryFailure(Exception e) { throw new AssertionError(e); }
+        });
+        ReflectionHelpers.setField(service, "discoveryBinder", binder);
+        ComputerDetails computer = new ComputerDetails();
+        computer.uuid = "removed-host";
+        try {
+            for (int session = 0; session < 2; session++) {
+                binder.startDiscovery(1000);
+                agent.announce("PC", "192.0.2.10");
+                binder.stopDiscovery();
+            }
+            assertEquals("An answered host is not probed on every restart", Collections.singletonList("PC"), probes);
+
+            service.removeComputer(computer);
+            binder.startDiscovery(1000);
+            agent.announce("PC", "192.0.2.10");
+            assertEquals("The deleted PC must be able to come back through mDNS",
+                    Arrays.asList("PC", "PC"), probes);
+        } finally {
+            discoveryController.destroy();
             controller.destroy();
         }
     }

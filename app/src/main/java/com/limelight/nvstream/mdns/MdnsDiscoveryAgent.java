@@ -14,6 +14,7 @@ public abstract class MdnsDiscoveryAgent {
     protected final HashSet<MdnsComputer> computers = new HashSet<>();
     // Hosts that answered in an earlier session. Discovery restarts on every PC list resume and
     // menu, which must not repeat their STUN and serverinfo probes; unanswered hosts are retried.
+    // Each host keeps only the address of its latest answer, which is the one polling uses.
     private final HashSet<MdnsComputer> answeredComputers = new HashSet<>();
     private long discoveryGeneration;
 
@@ -76,10 +77,20 @@ public abstract class MdnsDiscoveryAgent {
         // The probe can block on the network, so it runs without the cache lock.
         if (probe && listener.notifyComputerAdded(computer)) {
             synchronized (computers) {
+                // Polling now uses this address. An earlier one of the same host must be probed
+                // again if the host returns to it, or polling would keep trying this one.
+                answeredComputers.removeIf(answered -> answered.getName().equals(computer.getName()));
                 answeredComputers.add(computer);
             }
         }
         return true;
+    }
+
+    // A deleted PC must be able to return the next time discovery finds it.
+    public void forgetAnsweredComputers() {
+        synchronized (computers) {
+            answeredComputers.clear();
+        }
     }
 
     public List<MdnsComputer> getComputerSet() {

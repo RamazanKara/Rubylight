@@ -35,6 +35,10 @@ public class DiscoveryService extends Service {
         public List<MdnsComputer> getComputerSet() {
             return discoveryAgent.getComputerSet();
         }
+
+        public void forgetAnsweredComputers() {
+            discoveryAgent.forgetAnsweredComputers();
+        }
     }
 
     @Override

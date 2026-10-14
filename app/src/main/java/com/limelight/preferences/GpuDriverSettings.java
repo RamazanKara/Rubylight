@@ -1,6 +1,7 @@
 package com.limelight.preferences;
 
 import android.app.Application;
+import android.content.ActivityNotFoundException;
 import android.content.Context;
 import android.content.Intent;
 import android.net.Uri;
@@ -9,6 +10,7 @@ import android.view.View;
 import android.widget.LinearLayout;
 import android.widget.RadioGroup;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.lifecycle.AndroidViewModel;
@@ -88,9 +90,15 @@ public final class GpuDriverSettings extends AppCompatActivity {
 
         MaterialButton importButton = button(content, R.string.gpu_driver_import);
         importButton.setEnabled(supported && !busy);
-        importButton.setOnClickListener(view -> startActivityForResult(new Intent(Intent.ACTION_OPEN_DOCUMENT)
-                .addCategory(Intent.CATEGORY_OPENABLE).setType("application/zip")
-                .putExtra(Intent.EXTRA_MIME_TYPES, new String[] {"application/zip", "application/x-zip-compressed", "application/octet-stream"}), IMPORT_DRIVER));
+        importButton.setOnClickListener(view -> {
+            try {
+                startActivityForResult(new Intent(Intent.ACTION_OPEN_DOCUMENT)
+                        .addCategory(Intent.CATEGORY_OPENABLE).setType("application/zip")
+                        .putExtra(Intent.EXTRA_MIME_TYPES, new String[] {"application/zip", "application/x-zip-compressed", "application/octet-stream"}), IMPORT_DRIVER);
+            } catch (ActivityNotFoundException e) {
+                Toast.makeText(this, R.string.gpu_driver_no_picker, Toast.LENGTH_LONG).show();
+            }
+        });
         MaterialButton removeButton = button(content, R.string.gpu_driver_remove);
         removeButton.setEnabled(!drivers.isEmpty() && !busy);
         removeButton.setOnClickListener(view -> new MaterialAlertDialogBuilder(this)

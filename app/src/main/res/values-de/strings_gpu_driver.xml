@@ -6,6 +6,7 @@
     <string name="gpu_driver_unsupported">Eigene Treiber benötigen Android 10 oder neuer, eine 64-Bit-arm64-App und eine Adreno-GPU. Dieses Gerät verwendet den System-GPU-Treiber.</string>
     <string name="gpu_driver_system_fallback">Nach einem Fehler mit einem eigenen Treiber wird der System-GPU-Treiber verwendet.</string>
     <string name="gpu_driver_import">Treiber-ZIP importieren</string>
+    <string name="gpu_driver_no_picker">Installiere eine Dateiauswahl, um ein Treiber-ZIP zu importieren.</string>
     <string name="gpu_driver_remove">Treiber entfernen</string>
     <string name="gpu_driver_removed">Treiber entfernt.</string>
     <string name="gpu_driver_imported">Importiert und ausgewählt: %1$s</string>

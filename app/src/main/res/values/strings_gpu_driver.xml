@@ -6,6 +6,7 @@
     <string name="gpu_driver_unsupported">Custom drivers require Android 10 or newer, a 64-bit arm64 app and an Adreno GPU. This device uses the system GPU driver.</string>
     <string name="gpu_driver_system_fallback">Using the system GPU driver after a custom-driver failure.</string>
     <string name="gpu_driver_import">Import driver ZIP</string>
+    <string name="gpu_driver_no_picker">Install a file picker to import a driver ZIP.</string>
     <string name="gpu_driver_remove">Remove a driver</string>
     <string name="gpu_driver_removed">Driver removed.</string>
     <string name="gpu_driver_imported">Imported and selected: %1$s</string>

@@ -1,21 +1,29 @@
 package com.limelight.preferences;
 
 import android.app.Application;
+import android.content.Intent;
 import android.os.Looper;
 import android.view.View;
+import android.widget.LinearLayout;
 
 import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
 
 import com.google.android.material.appbar.MaterialToolbar;
+import com.google.android.material.button.MaterialButton;
 import com.limelight.R;
+import com.limelight.binding.video.GpuDriverStore;
 
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.robolectric.Robolectric;
 import org.robolectric.RobolectricTestRunner;
+import org.robolectric.RuntimeEnvironment;
 import org.robolectric.annotation.Config;
+import org.robolectric.annotation.Implementation;
+import org.robolectric.annotation.Implements;
+import org.robolectric.shadows.ShadowToast;
 
 import static org.junit.Assert.*;
 import static org.robolectric.Shadows.shadowOf;
@@ -25,6 +33,61 @@ import static org.robolectric.Shadows.shadowOf;
         shadows = com.limelight.PcViewLifecycleTest.NoNativeMoonBridge.class,
         instrumentedPackages = "com.limelight.nvstream.jni")
 public class GpuDriverSettingsTest {
+    @Implements(value = GpuDriverStore.class, isInAndroidSdk = false)
+    public static class SupportedDriverStore {
+        @Implementation
+        protected static boolean isSupported() {
+            return true;
+        }
+    }
+
+    @Test
+    @Config(shadows = {com.limelight.PcViewLifecycleTest.NoNativeMoonBridge.class, SupportedDriverStore.class},
+            instrumentedPackages = {"com.limelight.nvstream.jni", "com.limelight.binding.video"})
+    public void missingDocumentPickerKeepsSettingsOpenAndExplainsHowToImport() {
+        var controller = Robolectric.buildActivity(GpuDriverSettings.class).setup();
+        shadowOf(RuntimeEnvironment.getApplication()).checkActivities(true);
+        try {
+            MaterialButton button = importButton(controller.get());
+            assertTrue(button.isEnabled());
+            button.performClick();
+            assertFalse(controller.get().isFinishing());
+            assertEquals(controller.get().getString(R.string.gpu_driver_no_picker), ShadowToast.getTextOfLatestToast());
+            assertNull(shadowOf(controller.get()).getNextStartedActivityForResult());
+        } finally {
+            shadowOf(RuntimeEnvironment.getApplication()).checkActivities(false);
+            controller.pause().stop().destroy();
+        }
+    }
+
+    @Test
+    @Config(shadows = {com.limelight.PcViewLifecycleTest.NoNativeMoonBridge.class, SupportedDriverStore.class},
+            instrumentedPackages = {"com.limelight.nvstream.jni", "com.limelight.binding.video"})
+    public void importOpensTheZipDocumentPickerWhenAvailable() {
+        var controller = Robolectric.buildActivity(GpuDriverSettings.class).setup();
+        try {
+            importButton(controller.get()).performClick();
+            Intent picker = shadowOf(controller.get()).getNextStartedActivityForResult().intent;
+            assertEquals(Intent.ACTION_OPEN_DOCUMENT, picker.getAction());
+            assertTrue(picker.hasCategory(Intent.CATEGORY_OPENABLE));
+            assertEquals("application/zip", picker.getType());
+            assertArrayEquals(new String[] {"application/zip", "application/x-zip-compressed", "application/octet-stream"},
+                    picker.getStringArrayExtra(Intent.EXTRA_MIME_TYPES));
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    private static MaterialButton importButton(GpuDriverSettings screen) {
+        LinearLayout content = screen.findViewById(R.id.gpu_driver_content);
+        for (int i = 0; i < content.getChildCount(); i++) {
+            View child = content.getChildAt(i);
+            if (child instanceof MaterialButton && screen.getString(R.string.gpu_driver_import)
+                    .contentEquals(((MaterialButton) child).getText())) return (MaterialButton) child;
+        }
+        throw new AssertionError("Import driver button is missing");
+    }
+
     @Test
     public void lateInsetsRelayoutToolbarAndContentAcrossRotation() {
         var controller = Robolectric.buildActivity(GpuDriverSettings.class).setup();

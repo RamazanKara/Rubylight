@@ -168,6 +168,9 @@ pub struct Host {
     pub codecs: std::sync::atomic::AtomicU32,
     pub probing_codecs: std::sync::atomic::AtomicBool,
     codec_probe_requested: std::sync::atomic::AtomicBool,
+    /// True once the startup probe has published its standard codecs, or
+    /// found none. Later probes never hold requests back.
+    pub(crate) startup_codecs: tokio::sync::watch::Sender<bool>,
     pub warnings: Warnings,
     pub current_app: Mutex<Option<crate::process::RunningApp>>,
     pub live_rtx: Mutex<Option<(String, serde_json::Map<String, Value>)>>,
@@ -368,6 +371,7 @@ impl Host {
             codecs: std::sync::atomic::AtomicU32::new(0),
             probing_codecs: std::sync::atomic::AtomicBool::new(true),
             codec_probe_requested: std::sync::atomic::AtomicBool::new(false),
+            startup_codecs: tokio::sync::watch::channel(false).0,
             warnings: Warnings::default(),
             current_app: Mutex::new(None),
             live_rtx: Default::default(),
@@ -432,6 +436,23 @@ impl Host {
                 .store(true, std::sync::atomic::Ordering::Release);
         }
     }
+    /// Wait up to `limit` for the startup probe's standard codecs. A client
+    /// that wakes or starts the host and connects at once otherwise caches no
+    /// HEVC, AV1 or HDR, or has its first launch refused. Once that probe has
+    /// finished, even without finding an encoder, nothing waits again: a
+    /// probe retried while no user is signed in or a driver fails holds back
+    /// no request.
+    pub async fn wait_for_startup_codecs(&self, limit: Duration) {
+        let mut ready = self.startup_codecs.subscribe();
+        let _ = tokio::time::timeout(limit, ready.wait_for(|ready| *ready)).await;
+    }
+    /// `wait_for_startup_codecs` for a launch, which runs on a blocking thread.
+    pub fn wait_for_startup_codecs_blocking(&self, limit: Duration) {
+        let deadline = Instant::now() + limit;
+        while !*self.startup_codecs.borrow() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(25));
+        }
+    }
     pub fn probe_codecs(self: &Arc<Self>) {
         let h = self.clone();
         std::thread::spawn(move || {
@@ -458,6 +479,7 @@ impl Host {
                     // A stream is starting: leave the encoder to it and probe
                     // again once it has ended, without judging this attempt.
                     h.probing_codecs.store(false, Ordering::Release);
+                    h.startup_codecs.send_replace(true);
                     h.metadata.lock().unwrap().take();
                     tracing::debug!("encoder capability probe paused for a stream");
                     if !h.wait_for_codec_retry(&retry) {
@@ -467,6 +489,7 @@ impl Host {
                 };
                 h.codecs.store(flags, Ordering::Release);
                 h.probing_codecs.store(false, Ordering::Release);
+                h.startup_codecs.send_replace(true);
                 if h.stop.load(Ordering::Acquire) {
                     return;
                 }
@@ -616,6 +639,7 @@ impl Host {
         // probe. A driver/overlay failure in that child cannot kill them.
         self.codecs
             .store(flags | pyrowave, std::sync::atomic::Ordering::Release);
+        self.startup_codecs.send_replace(true);
         let mut retry_pyrowave = false;
         if busy() {
             return Ok(None);

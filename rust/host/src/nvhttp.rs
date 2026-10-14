@@ -37,6 +37,11 @@ use std::{
     time::{Duration, Instant},
 };
 type Args = HashMap<String, String>;
+/// How long discovery and launches wait for the startup encoder probe. Its
+/// standard codecs took 0.6–1.3 s to publish on test PCs; five seconds also
+/// cover a driver still starting with Windows. A probe stuck longer keeps
+/// each request for no more than that, where 2.2.1 waited ten seconds.
+const STARTUP_CODEC_WAIT: Duration = Duration::from_secs(5);
 type ServerInfoRoute = Option<(std::net::IpAddr, std::net::SocketAddr)>;
 type ServerInfoFacts = (String, u64, bool);
 
@@ -274,6 +279,7 @@ async fn serverinfo(
     Extension(connection): Extension<Connection>,
 ) -> Response {
     h.request_codec_probe();
+    h.wait_for_startup_codecs(STARTUP_CODEC_WAIT).await;
     let config = h.config.read().unwrap().clone();
     let client = authenticated(&h, &connection, 0).ok();
     let paired = client.is_some();
@@ -857,6 +863,7 @@ async fn applist(
         return ([(header::CONTENT_TYPE, "application/xml")], "<?xml version=\"1.0\"?><root status_code=\"200\"><App><IsHdrSupported>0</IsHdrSupported><AppTitle>Permission denied - enable &quot;List applications&quot; for this device in the host's Web UI</AppTitle><UUID></UUID><IDX>0</IDX><ID>114514</ID></App></root>").into_response();
     }
     h.request_codec_probe();
+    h.wait_for_startup_codecs(STARTUP_CODEC_WAIT).await;
     let configured = h
         .apps
         .read()
@@ -1014,6 +1021,9 @@ fn start(h: Shared, connection: Connection, args: Args, resume: bool) -> Respons
         let key_id = stream_key_id(args.get("rikeyid").context("missing stream key ID")?)?;
         let (role, app, app_id) =
             resolve_launch_app(&h, &args, &client, requested, control, owner, resume)?;
+        if role != Role::InputOnly {
+            h.wait_for_startup_codecs_blocking(STARTUP_CODEC_WAIT);
+        }
         if role != Role::InputOnly
             && h.codecs.load(std::sync::atomic::Ordering::Acquire) & 0x0783_0301 == 0
         {

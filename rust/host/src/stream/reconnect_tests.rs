@@ -297,6 +297,7 @@ impl Harness {
         let fixture = Arc::new(Fixture::default());
         Arc::get_mut(&mut h).unwrap().reconnect_fixture = Some(fixture.clone());
         h.codecs.store(1, Ordering::Release);
+        h.startup_codecs.send_replace(true);
         let app = App::desktop();
         *h.apps.write().unwrap() = vec![app.clone()];
         *h.current_app.lock().unwrap() = Some(crate::process::RunningApp::with_environment(

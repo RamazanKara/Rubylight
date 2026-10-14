@@ -747,6 +747,8 @@ async fn an_unavailable_encoder_does_not_queue_a_launch_or_start_an_app() {
 async fn discovery_does_not_wait_for_a_stuck_encoder_probe() {
     let f = Fixture::new();
     f.client(1 << 24);
+    // The startup probe found nothing; a retry (no signed-in user, a driver
+    // failure) must not hold discovery back.
     f.host.codecs.store(0, Ordering::Release);
     f.host.probing_codecs.store(true, Ordering::Release);
     let response = tokio::time::timeout(
@@ -758,6 +760,85 @@ async fn discovery_does_not_wait_for_a_stuck_encoder_probe() {
     let root = document(response).await;
     assert_eq!(root.attributes["status_code"], "200");
     assert_eq!(field(root.get_child("App").unwrap(), "IsHdrSupported"), "0");
+}
+
+/// The startup probe publishes `codecs` after a moment, as on a host that
+/// Windows or Wake-on-LAN has just started.
+fn finish_startup_probe_later(f: &Fixture, codecs: u32) -> std::thread::JoinHandle<()> {
+    f.host.codecs.store(0, Ordering::Release);
+    f.host.probing_codecs.store(true, Ordering::Release);
+    f.host.startup_codecs.send_replace(false);
+    let h = f.host.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(300));
+        h.codecs.store(codecs, Ordering::Release);
+        h.probing_codecs.store(false, Ordering::Release);
+        h.startup_codecs.send_replace(true);
+    })
+}
+
+#[tokio::test]
+async fn discovery_during_the_startup_probe_reports_its_codecs() {
+    let f = Fixture::new();
+    let probe = finish_startup_probe_later(&f, 0x1 | 0x100 | 0x200);
+    let root = document(request(&f, false, "GET", "/serverinfo").await).await;
+    probe.join().unwrap();
+    // Not 0, which a client caches as a host without HEVC or HDR.
+    assert_eq!(field(&root, "ServerCodecModeSupport"), "769");
+}
+
+#[tokio::test]
+async fn a_launch_during_the_startup_probe_waits_for_its_result() {
+    let f = Fixture::new();
+    f.client(1 << 26);
+    // Stop the launch at a later step, before any display is prepared.
+    f.host
+        .config
+        .write()
+        .unwrap()
+        .values
+        .insert("lan_encryption_mode".into(), "2".into());
+    let app_id = f.host.apps.read().unwrap()[0].id();
+    let args = Args::from([
+        ("appid".into(), app_id.to_string()),
+        ("rikey".into(), "00000000000000000000000000000000".into()),
+        ("rikeyid".into(), "1".into()),
+    ]);
+    let probe = finish_startup_probe_later(&f, 0x1 | 0x100);
+    let launch = {
+        let (h, connection) = (f.host.clone(), f.connection(true));
+        tokio::task::spawn_blocking(move || start(h, connection, args, false))
+            .await
+            .unwrap()
+    };
+    probe.join().unwrap();
+    let root = document(launch).await;
+    let message = &root.attributes["status_message"];
+    assert!(!message.contains("No video encoder is ready"), "{message}");
+    assert!(message.contains("encrypted RTSP is required"), "{message}");
+    assert!(f.host.sessions.lock().unwrap().pending.is_empty());
+}
+
+#[tokio::test]
+async fn a_stuck_startup_probe_holds_requests_only_for_the_limit() {
+    let f = Fixture::new();
+    f.host.startup_codecs.send_replace(false);
+    let limit = Duration::from_millis(100);
+    let started = Instant::now();
+    f.host.wait_for_startup_codecs(limit).await;
+    f.host.wait_for_startup_codecs_blocking(limit);
+    let waited = started.elapsed();
+    assert!(
+        waited >= 2 * limit && waited < Duration::from_secs(2),
+        "{waited:?}"
+    );
+    // Once the startup probe has finished, nothing waits again.
+    f.host.startup_codecs.send_replace(true);
+    let started = Instant::now();
+    f.host.wait_for_startup_codecs(Duration::from_secs(5)).await;
+    f.host
+        .wait_for_startup_codecs_blocking(Duration::from_secs(5));
+    assert!(started.elapsed() < Duration::from_secs(1));
 }
 
 #[tokio::test]

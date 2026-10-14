@@ -563,41 +563,42 @@ const nvidia: Setting[] = [
     key: 'nvenc_realtime_hags',
     label: 'Real-time graphics priority',
     description:
-      'With Windows GPU scheduling (HAGS) on, gives the host real-time GPU priority. Turn off if the encoder freezes when video memory is nearly full.',
+      'On NVIDIA GPUs with Windows GPU scheduling (HAGS) on, gives the host real-time GPU priority. Turn off if the encoder freezes when video memory is nearly full.',
     details:
-      'HAGS is hardware-accelerated GPU scheduling, a Windows setting. When this setting is off, the host uses high priority instead.',
+      'Applies whenever an NVIDIA GPU captures the stream, whatever the encoder. HAGS is hardware-accelerated GPU scheduling, a Windows setting. When this setting is off, the host uses high priority instead.',
     category: 'encoders',
-    group: 'NVIDIA NVENC',
+    // Not tied to the NVENC encoder: gpu_priority.rs checks the capture GPU's vendor.
+    group: 'NVIDIA driver',
     control: { kind: 'toggle' },
     default: true,
-    inactiveHint: "Applies to NVIDIA NVENC streams, including when Automatic selects NVENC. Shown when an NVENC encoder is selected, or with Automatic when this PC has an NVIDIA GPU.",
-    visibleWhen: nvenc,
+    advanced: true,
   },
   {
     key: 'nvenc_latency_over_power',
     label: 'Prefer latency over power saving',
     description:
       'Sets the NVIDIA driver to prefer maximum performance for the host while streaming, so power saving does not slow encoding.',
-    details: 'The driver setting is restored after the last stream.',
+    details:
+      'Applies on every stream while an NVIDIA driver is installed, whatever the encoder. The driver setting is restored after the last stream.',
     category: 'encoders',
-    group: 'NVIDIA NVENC',
+    // limiter.rs applies the driver preferences on every stream.
+    group: 'NVIDIA driver',
     control: { kind: 'toggle' },
     default: true,
-    inactiveHint: "Applies to NVIDIA NVENC streams, including when Automatic selects NVENC. Shown when an NVENC encoder is selected, or with Automatic when this PC has an NVIDIA GPU.",
-    visibleWhen: nvenc,
+    advanced: true,
   },
   {
     key: 'nvenc_opengl_vulkan_on_dxgi',
     label: 'Present OpenGL and Vulkan through DXGI',
     description:
       'Sets the NVIDIA driver to present OpenGL and Vulkan games through DXGI while streaming, so full-screen games can be captured at full frame rate.',
-    details: 'The driver setting is restored after the last stream.',
+    details:
+      'Applies on every stream while an NVIDIA driver is installed, whatever the encoder. The driver setting is restored after the last stream.',
     category: 'encoders',
-    group: 'NVIDIA NVENC',
+    group: 'NVIDIA driver',
     control: { kind: 'toggle' },
     default: true,
-    inactiveHint: "Applies to NVIDIA NVENC streams, including when Automatic selects NVENC. Shown when an NVENC encoder is selected, or with Automatic when this PC has an NVIDIA GPU.",
-    visibleWhen: nvenc,
+    advanced: true,
   },
   {
     key: 'nvenc_weighted_prediction',

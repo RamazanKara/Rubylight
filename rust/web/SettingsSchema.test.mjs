@@ -56,6 +56,18 @@ test('the default is shown only when the saved value would differ from it', () =
   assert.equal(differsFromDefault(permanent, {}, {}), false);
 });
 
+test('NVIDIA driver preferences stay visible whatever encoder streams', () => {
+  // limiter.rs applies the first two on every stream with an NVIDIA driver;
+  // gpu_priority.rs checks the capture GPU, not the encoder.
+  for (const key of ['nvenc_realtime_hags', 'nvenc_latency_over_power', 'nvenc_opengl_vulkan_on_dxgi']) {
+    const setting = settings.get(key);
+    for (const encoder of ['auto', 'amf', 'quicksync', 'software', 'nvenc']) {
+      assert.equal(setting.visibleWhen?.({ encoder }) ?? true, true, `${key} with ${encoder}`);
+    }
+    assert.doesNotMatch(`${setting.inactiveHint ?? ''} ${setting.group}`, /NVENC/, key);
+  }
+});
+
 test('Automatic shows the encoder settings for the GPUs this PC has', () => {
   const { NATIVE_ENCODERS } = types;
   const gpu = (name, vendor) => ({ name, vendor, dedicated_memory: 0, luid: [1, 0], pnp_id: null });

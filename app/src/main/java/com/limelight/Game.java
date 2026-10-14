@@ -196,6 +196,9 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     private LaunchConfirmation pendingConfirmation;
     private String connectionErrorMessage;
     private boolean hostActionInProgress;
+    // Set while this device asks the host to end the session. Hosts drop the stream while
+    // handling that request, often without an end message, so any termination is expected.
+    private volatile boolean hostExitRequested;
     private boolean foreground;
     private int foregroundGeneration;
     private boolean restoreInputAfterMenu;
@@ -2361,11 +2364,13 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         if (hostActionInProgress || !foreground || !connected) return;
         int generation = foregroundGeneration;
         hostActionInProgress = true;
+        hostExitRequested = true;
         new Thread(() -> {
             try {
                 conn.quitApp();
                 runOnUiThread(this::finish);
             } catch (IOException | XmlPullParserException e) {
+                hostExitRequested = false;
                 showHostActionError(e, generation);
             } finally {
                 runOnUiThread(() -> hostActionInProgress = false);
@@ -2379,11 +2384,13 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         }
         final int generation = foregroundGeneration;
         hostActionInProgress = true;
+        hostExitRequested = true;
         new Thread(() -> {
             try {
                 conn.disconnectRemoteSession();
                 runOnUiThread(this::finish);
             } catch (IOException | XmlPullParserException e) {
+                hostExitRequested = false;
                 showHostActionError(e, generation);
             } finally {
                 runOnUiThread(() -> hostActionInProgress = false);
@@ -4495,16 +4502,22 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     @Override
     public void connectionTerminated(final int reportedErrorCode) {
         LimeLog.info("Stream disconnected");
+        final boolean exitRequested = hostExitRequested;
         if (reportedErrorCode == MoonBridge.ML_ERROR_GRACEFUL_TERMINATION) {
             LimeLog.info("Connection terminated: the PC ended the stream");
+        } else if (exitRequested) {
+            LimeLog.info("Connection terminated after this device ended the session: " +
+                    terminationDescription(reportedErrorCode));
         } else {
             LimeLog.severe("Connection terminated: " + terminationDescription(reportedErrorCode));
         }
         // Some hosts close the transport before their graceful termination packet arrives.
         // Verify an idle host before either retrying or showing an error, even with recovery off.
-        final boolean endedSession = connected && StreamRecoveryPolicy.transportTermination(reportedErrorCode) &&
+        final boolean endedSession = !exitRequested && connected &&
+                StreamRecoveryPolicy.transportTermination(reportedErrorCode) &&
                 conn != null && conn.hasEndedSession();
-        final int errorCode = endedSession ? MoonBridge.ML_ERROR_GRACEFUL_TERMINATION : reportedErrorCode;
+        final int errorCode = exitRequested || endedSession ?
+                MoonBridge.ML_ERROR_GRACEFUL_TERMINATION : reportedErrorCode;
         if (endedSession) LimeLog.info("Connection terminated: the PC ended the previous session");
         final int portFlags = MoonBridge.getPortFlagsFromTerminationErrorCode(errorCode);
         final boolean transientFailure = StreamRecoveryPolicy.transientTermination(errorCode);

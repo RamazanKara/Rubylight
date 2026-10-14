@@ -282,6 +282,71 @@ public class GameRecoveryTest {
 
     @Test
     @Config(shadows = RecoveryBridge.class, instrumentedPackages = "com.limelight.nvstream.jni")
+    public void quittingFromTheStreamMenuEndsQuietlyWhenTheHostDropsTheStream() throws Exception {
+        for (boolean recoveryEnabled : new boolean[] {false, true}) {
+            Game game = establishedGame();
+            PreferenceConfiguration prefs = ReflectionHelpers.getField(game, "prefConfig");
+            prefs.autoReconnect = recoveryEnabled;
+            java.util.concurrent.CountDownLatch quitting = new java.util.concurrent.CountDownLatch(1);
+            java.util.concurrent.CountDownLatch answered = new java.util.concurrent.CountDownLatch(1);
+            ReflectionHelpers.setField(game, "conn", new MuteConnection() {
+                @Override public void quitApp() {
+                    quitting.countDown();
+                    // The host tears the stream down before /cancel answers.
+                    try { answered.await(2, java.util.concurrent.TimeUnit.SECONDS); }
+                    catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+                }
+                // The game is still exiting, so the host does not look idle yet.
+                @Override public boolean hasEndedSession() { return false; }
+            });
+            RecoveryBridge.connectivityTests = 0;
+            try {
+                ReflectionHelpers.callInstanceMethod(game, "quitStreamApp");
+                assertTrue(quitting.await(1, java.util.concurrent.TimeUnit.SECONDS));
+                game.connectionTerminated(-1);
+                assertTrue(game.isFinishing());
+                assertNull(ReflectionHelpers.getField(game, "pendingRecovery"));
+                assertNull(ReflectionHelpers.getField(game, "streamMenu"));
+                assertEquals(0, RecoveryBridge.connectivityTests);
+                assertNull(org.robolectric.Shadows.shadowOf(game).getNextStartedActivity());
+            } finally {
+                answered.countDown();
+                cleanupRecovery(game);
+            }
+        }
+    }
+
+    @Test
+    @Config(shadows = RecoveryBridge.class, instrumentedPackages = "com.limelight.nvstream.jni")
+    public void aFailedQuitRequestLeavesLaterFailuresVisible() throws Exception {
+        Game game = establishedGame();
+        PreferenceConfiguration prefs = ReflectionHelpers.getField(game, "prefConfig");
+        prefs.autoReconnect = false;
+        java.util.concurrent.CountDownLatch refused = new java.util.concurrent.CountDownLatch(1);
+        ReflectionHelpers.setField(game, "conn", new MuteConnection() {
+            @Override public void quitApp() throws java.io.IOException {
+                refused.countDown();
+                throw new java.io.IOException("The host did not quit the app.");
+            }
+            @Override public boolean hasEndedSession() { return false; }
+        });
+        try {
+            ReflectionHelpers.callInstanceMethod(game, "quitStreamApp");
+            assertTrue(refused.await(1, java.util.concurrent.TimeUnit.SECONDS));
+            for (int i = 0; i < 100 && Boolean.TRUE.equals(ReflectionHelpers.getField(game, "hostActionInProgress")); i++) {
+                Thread.sleep(5);
+                org.robolectric.shadows.ShadowLooper.idleMainLooper();
+            }
+            game.connectionTerminated(-1);
+            assertFalse(game.isFinishing());
+            assertNotNull(ReflectionHelpers.getField(game, "streamMenu"));
+        } finally {
+            cleanupRecovery(game);
+        }
+    }
+
+    @Test
+    @Config(shadows = RecoveryBridge.class, instrumentedPackages = "com.limelight.nvstream.jni")
     public void explicitHostFailuresNeverBecomeGracefulExitsEvenWhenTheHostIsIdle() {
         for (int error : new int[] {MoonBridge.ML_ERROR_PROTECTED_CONTENT, MoonBridge.ML_ERROR_FRAME_CONVERSION, 503}) {
             Game game = establishedGame();

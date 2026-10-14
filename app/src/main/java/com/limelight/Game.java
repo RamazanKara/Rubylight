@@ -2314,7 +2314,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                     R.string.stream_auto_bitrate_disable : R.string.stream_auto_bitrate_enable, () -> {
                 boolean enable = !isAdaptiveBitrateEnabled();
                 if (!enable || !hostActionInProgress) {
-                    setAdaptiveBitrateEnabled(enable);
+                    setAdaptiveBitrateEnabled(enable, true);
                     if (enable) {
                         Toast.makeText(this, pyroWaveBitrate != null ? R.string.stream_pyrowave_bitrate_help :
                                 R.string.stream_auto_bitrate_help, Toast.LENGTH_LONG).show();
@@ -2916,7 +2916,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             if (!foreground || !connected || hostActionInProgress) {
                 return;
             }
-            setAdaptiveBitrateEnabled(false);
+            setAdaptiveBitrateEnabled(false, true);
             bitrateDialog.dismiss();
             hostActionInProgress = true;
             final int generation = foregroundGeneration;
@@ -2977,7 +2977,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         int[] shown = decoderRenderer.getStreamSize();
         if (!adaptiveQuality.current().matches(shown[0], shown[1], streamFps) &&
                 !applyAdaptiveQuality(adaptiveQuality.current(), SystemClock.uptimeMillis())) return;
-        if (supportsAdaptiveBitrate() && !isAdaptiveBitrateEnabled()) setAdaptiveBitrateEnabled(true);
+        // Automatic quality needs it for this session only; the saved choice stays the user's own.
+        if (supportsAdaptiveBitrate() && !isAdaptiveBitrateEnabled()) setAdaptiveBitrateEnabled(true, false);
         bitrateHandler.postDelayed(updateQuality, 1000);
     }
 
@@ -3036,9 +3037,11 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 "PyroWaveBitrate" : "AdaptiveBitrate";
     }
 
-    private void setAdaptiveBitrateEnabled(boolean enabled) {
-        getSharedPreferences(adaptiveBitratePreferences(), MODE_PRIVATE).edit()
-                .putBoolean(getIntent().getStringExtra(EXTRA_PC_UUID), enabled).apply();
+    private void setAdaptiveBitrateEnabled(boolean enabled, boolean remember) {
+        if (remember) {
+            getSharedPreferences(adaptiveBitratePreferences(), MODE_PRIVATE).edit()
+                    .putBoolean(getIntent().getStringExtra(EXTRA_PC_UUID), enabled).apply();
+        }
         bitrateHandler.removeCallbacks(updateBitrate);
         adaptiveBitrate = null;
         pyroWaveBitrate = null;
@@ -4668,7 +4671,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 currentBitrate = prefConfig.bitrate;
                 if (supportsAdaptiveBitrate() && getSharedPreferences(adaptiveBitratePreferences(), MODE_PRIVATE)
                         .getBoolean(getIntent().getStringExtra(EXTRA_PC_UUID), false)) {
-                    setAdaptiveBitrateEnabled(true);
+                    setAdaptiveBitrateEnabled(true, false);
                 }
                 startAdaptiveQuality();
                 updatePipAutoEnter();

@@ -202,6 +202,28 @@ public class GameQualityTest {
         }
     }
 
+    @Test
+    @Config(shadows = QualityBridge.class, instrumentedPackages = "com.limelight.nvstream.jni")
+    public void automaticQualityUsesAutoBitrateForThisSessionWithoutSavingIt() {
+        Game game = reconfigurableGame();
+        NvConnection connection = ReflectionHelpers.getField(game, "conn");
+        ComputerDetails host = new ComputerDetails();
+        host.rustHostVersion = "1.0";
+        host.encoderBitrateSupported = true;
+        ReflectionHelpers.setField(connection, "hostDetails", host);
+        PreferenceConfiguration config = ReflectionHelpers.getField(game, "prefConfig");
+        config.adaptiveQualityMode = AdaptiveQualityController.Mode.DETAIL;
+        try {
+            ReflectionHelpers.callInstanceMethod(game, "startAdaptiveQuality");
+            assertNotNull("Automatic quality adapts the bitrate during this stream",
+                    ReflectionHelpers.getField(game, "adaptiveBitrate"));
+            assertFalse("The user's own auto-bitrate choice for this PC must not change",
+                    game.getSharedPreferences("AdaptiveBitrate", 0).contains("display-quality-pc"));
+        } finally {
+            clearQualityCallbacks(game);
+        }
+    }
+
     private static AdaptiveQualityController.Target pressuredTarget(AdaptiveQualityController quality, long now) {
         AdaptiveQualityController.Target target = null;
         for (int i = 0; i < 4; i++) target = quality.sample(now + i * 1000, true, false, 0, 2, 0, 0, 2, true);

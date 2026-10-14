@@ -34,7 +34,7 @@ public class SettingsInteractionTest {
     }
 
     @Test
-    public void explicitDisplayModeIsVisibleFirstAndControlsVirtualDisplay() {
+    public void explicitDisplayModeLeadsTheDisplayGroupAndControlsVirtualDisplay() {
         Application app = RuntimeEnvironment.getApplication();
         HostDisplayChoice.save(app, "exclusive-host", HostDisplayChoice.EXCLUSIVE);
         Intent intent = new Intent(app, HostStreamSettings.class)
@@ -43,9 +43,11 @@ public class SettingsInteractionTest {
         try {
             HostStreamSettings.SettingsFragment fragment = (HostStreamSettings.SettingsFragment)
                     controller.get().getFragmentManager().findFragmentById(R.id.host_profile_settings);
-            android.preference.PreferenceGroup first = (android.preference.PreferenceGroup)
-                    fragment.getPreferenceScreen().getPreference(0);
-            assertEquals("host_display", first.getPreference(0).getKey());
+            // The PC's own stream values come first; the display on the PC follows as its own group.
+            android.preference.PreferenceGroup display = (android.preference.PreferenceGroup)
+                    fragment.getPreferenceScreen().getPreference(1);
+            assertEquals(app.getString(R.string.pc_settings_display), display.getTitle().toString());
+            assertEquals("host_display", display.getPreference(0).getKey());
             assertTrue(fragment.findPreference("host_display").getSummary().toString()
                     .startsWith(app.getString(R.string.host_display_exclusive)));
             assertFalse(fragment.findPreference("virtual").isEnabled());

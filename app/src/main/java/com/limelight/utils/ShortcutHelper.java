@@ -143,6 +143,20 @@ public class ShortcutHelper {
         createAppViewShortcut(details, false, false);
     }
 
+    /** Asks the launcher to pin a shortcut that opens this PC's library. */
+    public boolean createPinnedPcShortcut(ComputerDetails computer) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || !sm.isRequestPinShortcutSupported()) {
+            return false;
+        }
+        ShortcutInfo info = new ShortcutInfo.Builder(context, computer.uuid)
+                .setIntent(ServerHelper.createPcShortcutIntent(context, computer))
+                .setShortLabel(computer.name)
+                .setLongLabel(computer.name)
+                .setIcon(Icon.createWithResource(context, R.mipmap.ic_pc_scut))
+                .build();
+        return sm.requestPinShortcut(info, null);
+    }
+
     static String getShortcutIdForGame(ComputerDetails computer, NvApp app) {
         return app.getAppUuid().isEmpty() ? computer.uuid + app.getAppId() :
                 computer.uuid + ":app:" + app.getAppUuid();

@@ -89,8 +89,10 @@ public final class HostDetailsDialog {
         row(R.string.host_details_pairing, activity.getString(details.pairState == PairingManager.PairState.PAIRED ?
                 R.string.host_details_paired : R.string.host_details_not_paired));
         if (details.state == ComputerDetails.State.ONLINE) {
+            // Apollo's input-only mode reports a running game by its UUID alone.
             row(R.string.host_details_running, details.runningGameId != 0 ?
                     activity.getString(R.string.host_details_running_app, details.runningGameId) :
+                    details.hasRunningGame() ? details.runningGameUuid :
                     activity.getString(R.string.host_details_running_none));
         }
 

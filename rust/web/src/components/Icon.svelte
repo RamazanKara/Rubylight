@@ -10,6 +10,7 @@
     key: 'M14 10a4 4 0 1 0-3.5 4L9 15.5V18H6.5v2.5H4V18l6-6M15.5 8.5h.01',
     play: 'M8 5l11 7-11 7z',
     stop: 'M7 7h10v10H7z',
+    pause: 'M9 5v14M15 5v14',
     plus: 'M12 5v14M5 12h14',
     trash: 'M5 7h14M10 7V4h4v3M7 7l1 13h8l1-13',
     edit: 'M4 20h4L19 9l-4-4L4 16zM13 7l4 4',

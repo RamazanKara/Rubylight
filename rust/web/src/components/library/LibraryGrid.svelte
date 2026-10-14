@@ -152,7 +152,7 @@
   </div>
   <p class="muted summary" role="status">
     <span>{needle ? `${shown.length} of ${apps.length}` : apps.length} {apps.length === 1 ? 'app' : 'apps'}</span>
-    {#if hint}<span aria-hidden="true">·</span> <span>{hint}</span>{/if}
+    {#if hint}<span class="dot" aria-hidden="true">·</span> <span>{hint}</span>{/if}
   </p>
 
   {#if shown.length === 0}
@@ -254,6 +254,15 @@
     flex-wrap: wrap;
     gap: 0 6px;
     font-size: var(--text-xs);
+  }
+  /* On a phone the hint gets its own line rather than a separator left hanging. */
+  @media (max-width: 520px) {
+    .summary {
+      flex-direction: column;
+    }
+    .dot {
+      display: none;
+    }
   }
   .none {
     font-size: var(--text-sm);

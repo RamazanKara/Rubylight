@@ -36,7 +36,6 @@
     display: grid;
     gap: var(--space-5);
     min-width: 0;
-    max-width: 1040px;
   }
   .stack {
     gap: var(--space-5);

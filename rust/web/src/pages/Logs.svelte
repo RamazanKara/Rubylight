@@ -145,7 +145,7 @@
 </script>
 
 <div class="page">
-  <PageHeader title="Logs" subtitle="Troubleshooting messages from the host, updated every second. The viewer keeps the latest {MAX_LINES} lines.">
+  <PageHeader title="Logs" subtitle="Messages from the host, updated every second. The latest {MAX_LINES} lines are kept.">
     {#snippet actions()}
       <Button href={api.logs.downloadUrl} icon="download">Download log</Button>
       <Button href={api.logs.supportBundleUrl} icon="download">Download support bundle</Button>
@@ -153,41 +153,41 @@
   </PageHeader>
 
   <div class="toolbar">
-    <div class="filters">
+    <div class="find">
+      <div class="search">
+        <label class="visually-hidden" for="log-search">Search the log</label>
+        <span class="search-icon" aria-hidden="true"><Icon name="search" size={15} /></span>
+        <input
+          id="log-search"
+          class="input"
+          type="search"
+          placeholder="Search the log"
+          autocomplete="off"
+          spellcheck="false"
+          bind:value={query}
+          oninput={() => (current = null)}
+          onkeydown={searchKeys}
+        />
+      </div>
+      <span class="count num" aria-live="polite">{matchLabel}</span>
+      <div class="steps">
+        <button class="step" aria-label="Previous match" title="Previous match (Shift+Enter)" disabled={!hits.total} onclick={() => go(-1)}>
+          <span class="up"><Icon name="chevron" size={15} /></span>
+        </button>
+        <button class="step" aria-label="Next match" title="Next match (Enter)" disabled={!hits.total} onclick={() => go(1)}>
+          <span class="down"><Icon name="chevron" size={15} /></span>
+        </button>
+      </div>
+    </div>
+    <div class="level">
       <label class="visually-hidden" for="log-level">Level</label>
-      <select id="log-level" class="select level" bind:value={filter} onchange={() => (current = null)}>
-        <option value="all">All</option>
+      <select id="log-level" class="select" bind:value={filter} onchange={() => (current = null)}>
+        <option value="all">All levels</option>
         <option value="warn">Warnings and errors</option>
         <option value="error">Errors</option>
       </select>
-      <div class="find">
-        <div class="search">
-          <label class="visually-hidden" for="log-search">Search the log</label>
-          <span class="search-icon" aria-hidden="true"><Icon name="search" size={15} /></span>
-          <input
-            id="log-search"
-            class="input"
-            type="search"
-            placeholder="Search the log"
-            autocomplete="off"
-            spellcheck="false"
-            bind:value={query}
-            oninput={() => (current = null)}
-            onkeydown={searchKeys}
-          />
-        </div>
-        <span class="count num" aria-live="polite">{matchLabel}</span>
-        <div class="steps">
-          <button class="step" aria-label="Previous match" title="Previous match (Shift+Enter)" disabled={!hits.total} onclick={() => go(-1)}>
-            <span class="up"><Icon name="chevron" size={15} /></span>
-          </button>
-          <button class="step" aria-label="Next match" title="Next match (Enter)" disabled={!hits.total} onclick={() => go(1)}>
-            <span class="down"><Icon name="chevron" size={15} /></span>
-          </button>
-        </div>
-      </div>
     </div>
-    <div class="controls">
+    <div class="live">
       {#if paused}
         <Badge>Paused</Badge>
       {:else if error}
@@ -196,8 +196,10 @@
         <Badge tone="live">Live</Badge>
       {/if}
       <Toggle label="Follow latest" bind:checked={follow} />
-      <Button size="sm" onclick={() => (paused = !paused)}>{paused ? 'Resume' : 'Pause'}</Button>
-      <Button size="sm" icon="copy" disabled={!visible.length} onclick={copy}>Copy visible lines</Button>
+    </div>
+    <div class="controls">
+      <Button size="sm" icon={paused ? 'play' : 'pause'} onclick={() => (paused = !paused)}>{paused ? 'Resume' : 'Pause'}</Button>
+      <Button size="sm" icon="copy" disabled={!visible.length} onclick={copy}>Copy <span class="extra">visible lines</span></Button>
     </div>
   </div>
 
@@ -211,40 +213,32 @@
 <style>
   .page {
     display: grid;
-    gap: var(--space-5);
+    gap: var(--space-4);
     min-width: 0;
   }
+  /* One line on wide screens: find and level on the left, live state and actions on the right.
+     On a phone: search first, then level with the actions, then live state. */
   .toolbar {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    justify-content: space-between;
-    gap: var(--space-2) var(--space-4);
+    gap: var(--space-2) var(--space-3);
   }
-  .filters,
-  .controls,
-  .find {
+  .find,
+  .live,
+  .controls {
     display: flex;
     align-items: center;
     gap: var(--space-2);
     min-width: 0;
   }
-  .filters,
-  .controls {
-    flex-wrap: wrap;
-  }
-  .filters {
-    flex: 1 1 420px;
-  }
-  .level {
-    width: auto;
-    padding-top: 6px;
-    padding-bottom: 6px;
-    font-size: var(--text-sm);
-  }
   .find {
-    flex: 1 1 240px;
-    max-width: 460px;
+    flex: 1 1 260px;
+    max-width: 440px;
+  }
+  .live {
+    margin-left: auto;
+    gap: var(--space-3);
   }
   .search {
     position: relative;
@@ -263,6 +257,12 @@
     color: var(--muted);
     pointer-events: none;
   }
+  .level .select {
+    width: auto;
+    padding-top: 6px;
+    padding-bottom: 6px;
+    font-size: var(--text-sm);
+  }
   .count {
     font-size: var(--text-xs);
     color: var(--muted);
@@ -275,8 +275,8 @@
   .step {
     display: grid;
     place-items: center;
-    width: 28px;
-    height: 28px;
+    width: 30px;
+    height: 30px;
     border: 1px solid var(--line-strong);
     border-radius: var(--radius);
     background: var(--panel);
@@ -296,7 +296,37 @@
   .down {
     transform: rotate(90deg);
   }
-  .controls {
-    gap: var(--space-3);
+  @media (max-width: 860px) {
+    .find {
+      flex-basis: 100%;
+      max-width: none;
+    }
+    .level {
+      order: 1;
+    }
+    .controls {
+      order: 2;
+    }
+    .live {
+      order: 3;
+      margin-left: 0;
+    }
+    .step {
+      width: 44px;
+      height: 44px;
+    }
+    .search .input,
+    .level .select {
+      min-height: 44px;
+    }
+    /* Read out in full, shown short so the level and both actions share a line. */
+    .extra {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip: rect(0 0 0 0);
+      white-space: nowrap;
+    }
   }
 </style>

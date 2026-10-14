@@ -332,3 +332,10 @@ test('pairing methods are labelled tabs that keep waiting devices in sight', asy
   await page.keyboard.press('ArrowLeft');
   await page.getByLabel('PIN shown on New device', { exact: true }).waitFor();
 });
+
+test('an empty library has one Add app button', async t => {
+  const { page } = await fixture(t);
+  await page.goto(base + '/library');
+  await page.getByText('No apps yet', { exact: true }).waitFor();
+  assert.equal(await page.getByRole('link', { name: 'Add app', exact: true }).count(), 1);
+});

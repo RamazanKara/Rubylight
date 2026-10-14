@@ -94,12 +94,13 @@
   }
 </script>
 
+{#snippet addApp()}
+  <Button variant="primary" icon="plus" href="/library/new">Add app</Button>
+{/snippet}
+
 {#if editing === null}
-  <PageHeader title="Library" subtitle="Games and programs that paired devices can start.">
-    {#snippet actions()}
-      <Button variant="primary" icon="plus" href="/library/new">Add app</Button>
-    {/snippet}
-  </PageHeader>
+  <!-- With no apps yet, the empty state carries the one Add app button. -->
+  <PageHeader title="Library" subtitle="Games and programs that paired devices can start." actions={apps?.length === 0 ? undefined : addApp} />
 
   {#if loadError}
     <div class="notice danger load-error" role="alert">

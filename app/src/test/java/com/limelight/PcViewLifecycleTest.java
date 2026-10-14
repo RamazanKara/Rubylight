@@ -3,9 +3,7 @@ package com.limelight;
 import android.app.Application;
 import android.content.Intent;
 import android.content.ServiceConnection;
-import android.net.Uri;
 import android.os.Build;
-import android.os.Bundle;
 import android.os.Looper;
 import android.widget.GridView;
 import android.widget.TextView;
@@ -49,10 +47,19 @@ public class PcViewLifecycleTest {
     }
 
     public static class Library extends PcView {
+        final java.util.List<ComputerDetails> woken = new java.util.ArrayList<>();
+
         @Override public boolean bindService(Intent intent, ServiceConnection connection, int flags) {
             return false;
         }
+
+        // Tests record the wake instead of broadcasting a magic packet.
+        @Override protected void doWakeOnLan(ComputerDetails computer) {
+            woken.add(computer);
+        }
     }
+
+    private final ComputerManagerListener[] polling = new ComputerManagerListener[1];
 
     private ActivityController<Library> pairingScreen(CountDownLatch pollingStopped, int port) {
         Application application = RuntimeEnvironment.getApplication();
@@ -64,7 +71,8 @@ public class PcViewLifecycleTest {
         ActivityController<Library> controller = Robolectric.buildActivity(Library.class).setup().visible();
         ComputerManagerService manager = new ComputerManagerService();
         ReflectionHelpers.setField(controller.get(), "managerBinder", manager.new ComputerManagerBinder() {
-            @Override public void startPolling(ComputerManagerListener listener) { }
+            @Override public boolean isPersistent() { return false; }
+            @Override public void startPolling(ComputerManagerListener listener) { polling[0] = listener; }
             @Override public void stopPolling() { }
             @Override public String getUniqueId() { return "client"; }
             @Override public void waitForPollingStopped() {
@@ -87,23 +95,39 @@ public class PcViewLifecycleTest {
         return controller;
     }
 
-    /** The PC sheet's actions as "label" or "label (disabled)", for one PC with these capabilities. */
-    private java.util.List<String> pcSheet(com.limelight.nvstream.http.HostCapabilities caps) {
-        ActivityController<Library> controller = pairingScreen(new CountDownLatch(0), 47989);
-        try {
-            com.limelight.grid.PcGridAdapter adapter = ReflectionHelpers.getField(controller.get(), "pcGridAdapter");
-            PcView.ComputerObject computer = (PcView.ComputerObject) adapter.getItem(0);
-            computer.details.caps = caps;
-            ReflectionHelpers.callInstanceMethod(controller.get(), "showComputerMenu",
-                    ReflectionHelpers.ClassParameter.from(PcView.ComputerObject.class, computer));
-            com.limelight.ui.ActionSheet sheet = ReflectionHelpers.getField(controller.get(), "pcMenu");
-            java.util.List<String> actions = new java.util.ArrayList<>();
-            collectActions(sheet.findViewById(android.R.id.content), actions);
-            sheet.dismiss();
-            return actions;
-        } finally {
-            controller.pause().stop().destroy();
+    private static ComputerDetails pc(String uuid, String name, ComputerDetails.State state, PairingManager.PairState pairing) {
+        ComputerDetails computer = new ComputerDetails();
+        computer.uuid = uuid;
+        computer.name = name;
+        computer.state = state;
+        computer.pairState = pairing;
+        computer.activeAddress = state == ComputerDetails.State.ONLINE ?
+                new ComputerDetails.AddressTuple("127.0.0.1", 47989) : null;
+        return computer;
+    }
+
+    /** Reports a PC the way the computer manager does and waits for the home screen to show it. */
+    private void report(ComputerDetails computer) {
+        polling[0].notifyComputerUpdated(computer);
+        Shadows.shadowOf(Looper.getMainLooper()).idle();
+    }
+
+    /** The sheet's actions, top to bottom, for the PC named {@code name}. */
+    private static java.util.List<String> sheetFor(Library screen, String name) {
+        GridView grid = screen.findViewById(R.id.fragmentView);
+        for (int i = 0; i < grid.getCount(); i++) {
+            PcView.ComputerObject computer = (PcView.ComputerObject) grid.getItemAtPosition(i);
+            if (computer.details.name.equals(name)) {
+                screen.showComputerMenu(computer);
+                com.limelight.ui.ActionSheet sheet = (com.limelight.ui.ActionSheet) ShadowDialog.getLatestDialog();
+                java.util.List<String> actions = new java.util.ArrayList<>();
+                collectActions(sheet.findViewById(android.R.id.content), actions);
+                sheet.dismiss();
+                Shadows.shadowOf(Looper.getMainLooper()).idle();
+                return actions;
+            }
         }
+        throw new AssertionError("No row for " + name);
     }
 
     private static void collectActions(android.view.View view, java.util.List<String> actions) {
@@ -118,52 +142,117 @@ public class PcViewLifecycleTest {
         }
     }
 
-    @Test
-    public void pcSheetOffersHostFeaturesOnlyWhereThePcHasThem() {
-        android.content.Context context = RuntimeEnvironment.getApplication();
-        String display = context.getString(R.string.host_display_menu);
-        String otp = context.getString(R.string.pair_otp_title);
-        String webUi = context.getString(R.string.host_administration_menu);
-        java.util.List<String> sunshine = pcSheet(com.limelight.nvstream.http.TestHosts.fixture("sunshine-serverinfo.xml"));
-        assertFalse(sunshine.toString(), sunshine.stream().anyMatch(action -> action.startsWith(display)));
-        assertFalse(sunshine.contains(otp));
-        assertTrue(sunshine.toString(), sunshine.contains(webUi));
-        java.util.List<String> apollo = pcSheet(com.limelight.nvstream.http.TestHosts.fixture("apollo-http-serverinfo.xml"));
-        assertTrue(apollo.toString(), apollo.contains(otp));
-        assertFalse(apollo.stream().anyMatch(action -> action.startsWith(display)));
-        java.util.List<String> gameStream = pcSheet(com.limelight.nvstream.http.TestHosts.fixture("gamestream-serverinfo.xml"));
-        assertFalse(gameStream.stream().anyMatch(action -> action.startsWith(display)));
-        assertFalse(gameStream.contains(webUi));
-        assertTrue(pcSheet(com.limelight.nvstream.http.TestHosts.rubylight()).contains(display));
-        java.util.List<String> older = pcSheet(com.limelight.nvstream.http.TestHosts.fixture("butterpollo-serverinfo.xml"));
-        assertTrue(older.toString(), older.contains(
-                display + "\n" + context.getString(R.string.host_feature_reason_update) + " (disabled)"));
-        assertTrue(pcSheet(com.limelight.nvstream.http.HostCapabilities.UNKNOWN).contains(
-                display + "\n" + context.getString(R.string.host_feature_unknown)));
+    private static java.util.List<String> labels(Library screen, int... ids) {
+        java.util.List<String> labels = new java.util.ArrayList<>();
+        for (int id : ids) labels.add(screen.getString(id));
+        return labels;
     }
 
     @Test
-    public void hostAdministrationExplainsLoginThenOpensTheCurrentHostsConsole() {
+    public void eachPcStateOffersItsOwnShortMenu() {
         ActivityController<Library> controller = pairingScreen(new CountDownLatch(0), 47989);
         try {
-            ComputerDetails computer = new ComputerDetails();
-            computer.state = ComputerDetails.State.ONLINE;
-            computer.caps = com.limelight.nvstream.http.TestHosts.rubylight();
-            computer.activeAddress = new ComputerDetails.AddressTuple("2001:db8::1", 50000);
-            computer.httpsPort = 49995;
-            ReflectionHelpers.callInstanceMethod(controller.get(), "showHostAdministration",
-                    ReflectionHelpers.ClassParameter.from(ComputerDetails.class, computer));
-            AlertDialog dialog = (AlertDialog) ShadowDialog.getLatestDialog();
-            TextView message = dialog.findViewById(android.R.id.message);
-            assertEquals(controller.get().getString(R.string.host_administration_help,
-                    "https://[2001:db8::1]:50001/"), message.getText().toString());
-            assertTrue(message.isTextSelectable());
-            assertNull(Shadows.shadowOf(controller.get()).getNextStartedActivity());
-            dialog.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
-            Shadows.shadowOf(Looper.getMainLooper()).idle();
-            Intent browser = Shadows.shadowOf(controller.get()).getNextStartedActivity();
-            assertEquals(Intent.ACTION_VIEW, browser.getAction());
-            assertEquals("https://[2001:db8::1]:50001/", browser.getDataString());
+            Library screen = controller.get();
+            ComputerDetails running = pc("running", "Den", ComputerDetails.State.ONLINE, PairingManager.PairState.PAIRED);
+            running.runningGameId = 7;
+            report(running);
+            ComputerDetails ready = pc("ready", "Office", ComputerDetails.State.ONLINE, PairingManager.PairState.PAIRED);
+            report(ready);
+            ComputerDetails apollo = pc("apollo", "Apollo", ComputerDetails.State.ONLINE, PairingManager.PairState.NOT_PAIRED);
+            apollo.caps = com.limelight.nvstream.http.TestHosts.fixture("apollo-http-serverinfo.xml");
+            report(apollo);
+            ComputerDetails asleep = pc("asleep", "Attic", ComputerDetails.State.OFFLINE, PairingManager.PairState.PAIRED);
+            asleep.macAddress = "02:00:00:00:00:01";
+            report(asleep);
+
+            assertEquals(labels(screen, R.string.library_open, R.string.applist_menu_resume, R.string.applist_menu_quit,
+                    R.string.pc_menu_settings, R.string.pcview_menu_delete_pc), sheetFor(screen, "Den"));
+            assertEquals(labels(screen, R.string.library_open, R.string.pc_menu_settings, R.string.pcview_menu_delete_pc),
+                    sheetFor(screen, "Office"));
+            assertEquals(labels(screen, R.string.pcview_menu_pair_pc, R.string.pair_otp_title, R.string.pc_menu_settings,
+                    R.string.discovery_help, R.string.pcview_menu_delete_pc), sheetFor(screen, "Apollo"));
+            // A PC this device has never read offers no one-time PIN.
+            assertEquals(labels(screen, R.string.pcview_menu_pair_pc, R.string.pc_menu_settings,
+                    R.string.discovery_help, R.string.pcview_menu_delete_pc), sheetFor(screen, "PC"));
+            assertEquals(labels(screen, R.string.pcview_menu_send_wol, R.string.pc_menu_settings,
+                    R.string.pcview_menu_delete_pc), sheetFor(screen, "Attic"));
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    @Test
+    public void rowsListRunningThenReadyThenUnpairedThenOfflinePcs() {
+        ActivityController<Library> controller = pairingScreen(new CountDownLatch(0), 47989);
+        try {
+            Library screen = controller.get();
+            report(pc("b-off", "Basement", ComputerDetails.State.OFFLINE, PairingManager.PairState.PAIRED));
+            report(pc("a-off", "Attic", ComputerDetails.State.OFFLINE, PairingManager.PairState.PAIRED));
+            report(pc("ready", "Office", ComputerDetails.State.ONLINE, PairingManager.PairState.PAIRED));
+            ComputerDetails running = pc("running", "Zen", ComputerDetails.State.ONLINE, PairingManager.PairState.PAIRED);
+            running.runningGameUuid = "apollo-input-only";
+            report(running);
+            GridView grid = screen.findViewById(R.id.fragmentView);
+            java.util.List<String> order = new java.util.ArrayList<>();
+            java.util.List<String> status = new java.util.ArrayList<>();
+            for (int i = 0; i < grid.getCount(); i++) {
+                PcView.ComputerObject computer = (PcView.ComputerObject) grid.getItemAtPosition(i);
+                order.add(computer.details.name);
+                status.add(com.limelight.grid.PcGridAdapter.statusText(screen, computer));
+            }
+            assertEquals(java.util.List.of("Zen", "Office", "PC", "Attic", "Basement"), order);
+            assertEquals(java.util.List.of(screen.getString(R.string.pc_status_playing_unknown),
+                    screen.getString(R.string.pc_status_ready), screen.getString(R.string.pc_needs_pairing),
+                    screen.getString(R.string.pc_offline), screen.getString(R.string.pc_offline)), status);
+
+            // The running game is named once the PC's app list has it.
+            running.rawAppList = "<root status_code=\"200\"><App><AppTitle>Racing Game</AppTitle><ID>2</ID>" +
+                    "<UUID>apollo-input-only</UUID></App></root>";
+            running.runningGameUuid = "apollo-input-only";
+            ComputerDetails update = new ComputerDetails(running);
+            update.runningGameId = 2;
+            report(update);
+            for (int i = 0; i < 50 && ((PcView.ComputerObject) grid.getItemAtPosition(0)).runningGame == null; i++) {
+                Shadows.shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(20));
+                try { Thread.sleep(20); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+            }
+            assertEquals(screen.getString(R.string.pc_status_playing, "Racing Game"),
+                    com.limelight.grid.PcGridAdapter.statusText(screen, (PcView.ComputerObject) grid.getItemAtPosition(0)));
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    @Test
+    public void tappingAnOfflinePcWithAMacWakesItAndTheRowSaysSo() {
+        ActivityController<Library> controller = pairingScreen(new CountDownLatch(0), 47989);
+        try {
+            Library screen = controller.get();
+            ComputerDetails asleep = pc("asleep", "Attic", ComputerDetails.State.OFFLINE, PairingManager.PairState.PAIRED);
+            asleep.macAddress = "02:00:00:00:00:01";
+            report(asleep);
+            GridView grid = screen.findViewById(R.id.fragmentView);
+            int row = grid.getCount() - 1;
+            PcView.ComputerObject computer = (PcView.ComputerObject) grid.getItemAtPosition(row);
+            assertSame(asleep, computer.details);
+            assertEquals(screen.getString(R.string.pcview_menu_send_wol),
+                    screen.getString(com.limelight.grid.PcGridAdapter.mainActionLabel(computer)));
+            grid.performItemClick(null, row, row);
+            assertEquals(java.util.List.of(asleep), screen.woken);
+            assertNull("Waking is the tap's action, not a menu", ShadowDialog.getLatestDialog());
+
+            computer.wakeSentAt = android.os.SystemClock.elapsedRealtime();
+            assertEquals(screen.getString(R.string.pc_status_waking),
+                    com.limelight.grid.PcGridAdapter.statusText(screen, computer));
+            // The PC answers, then sleeps again: it is offline, no longer waking.
+            ComputerDetails awake = new ComputerDetails(asleep);
+            awake.state = ComputerDetails.State.ONLINE;
+            report(awake);
+            assertEquals(screen.getString(R.string.pc_status_ready),
+                    com.limelight.grid.PcGridAdapter.statusText(screen, computer));
+            report(asleep);
+            assertEquals(screen.getString(R.string.pc_offline),
+                    com.limelight.grid.PcGridAdapter.statusText(screen, computer));
         } finally {
             controller.pause().stop().destroy();
         }
@@ -253,36 +342,6 @@ public class PcViewLifecycleTest {
                 if (controller != null) controller.pause().stop().destroy();
                 if (worker != null) worker.join(5000);
             }
-        }
-    }
-
-    @Test
-    public void frontendExportRetainsItsHostAndFirstFolderAcrossRecreation() {
-        Application application = RuntimeEnvironment.getApplication();
-        GlPreferences gl = GlPreferences.readPreferences(application);
-        gl.savedFingerprint = Build.FINGERPRINT;
-        gl.glRenderer = "Test renderer";
-        gl.writePreferences();
-        application.getSharedPreferences("FirstRun", 0).edit().putBoolean("pairing_guide_shown", true).commit();
-        ActivityController<Library> first = Robolectric.buildActivity(Library.class).create().start().resume();
-        ComputerDetails computer = new ComputerDetails();
-        computer.uuid = "host-uuid";
-        computer.name = "PC";
-        Uri folder = Uri.parse("content://documents/tree/roms");
-        ReflectionHelpers.setField(first.get(), "exportComputer", computer);
-        ReflectionHelpers.setField(first.get(), "exportRomsTree", folder);
-        Bundle saved = new Bundle();
-        first.pause().saveInstanceState(saved).stop().destroy();
-
-        ActivityController<Library> restored = Robolectric.buildActivity(Library.class).create(saved).start().resume();
-        try {
-            ComputerDetails restoredComputer = ReflectionHelpers.getField(restored.get(), "exportComputer");
-            assertNotNull(restoredComputer);
-            assertEquals(computer.uuid, restoredComputer.uuid);
-            assertEquals(computer.name, restoredComputer.name);
-            assertEquals(folder, ReflectionHelpers.getField(restored.get(), "exportRomsTree"));
-        } finally {
-            restored.pause().stop().destroy();
         }
     }
 

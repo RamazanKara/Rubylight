@@ -110,7 +110,7 @@
     <!-- AppList activity -->
     <string name="applist_connect_msg">Connecting to PC…</string>
     <string name="applist_menu_resume">Resume</string>
-    <string name="applist_menu_quit">Quit app</string>
+    <string name="applist_menu_quit">Quit game</string>
     <string name="applist_menu_quit_and_start">Quit and start</string>
     <string name="applist_menu_cancel">Cancel</string>
     <string name="applist_menu_details">View details</string>

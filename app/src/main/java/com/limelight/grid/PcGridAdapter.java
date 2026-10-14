@@ -1,34 +1,45 @@
 package com.limelight.grid;
 
 import android.content.Context;
+import android.content.res.ColorStateList;
 import android.view.View;
+import android.widget.AdapterView;
 import android.widget.ImageView;
 import android.widget.ProgressBar;
 import android.widget.TextView;
-import androidx.core.view.ViewCompat;
 
+import androidx.core.view.ViewCompat;
+import androidx.core.view.accessibility.AccessibilityNodeInfoCompat.AccessibilityActionCompat;
+
+import com.google.android.material.color.MaterialColors;
 import com.limelight.PcView;
 import com.limelight.R;
 import com.limelight.nvstream.http.ComputerDetails;
+import com.limelight.nvstream.http.NvApp;
 import com.limelight.nvstream.http.PairingManager;
 import com.limelight.preferences.PreferenceConfiguration;
 
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.List;
 
 public class PcGridAdapter extends GenericGridAdapter<PcView.ComputerObject> {
+    /** What a PC row says, in the order rows are listed. */
+    public enum RowState {
+        RUNNING, READY, NOT_PAIRED, CHECKING, WAKING, OFFLINE;
 
-    public PcGridAdapter(Context context, PreferenceConfiguration prefs) {
-        super(context, getLayoutIdForPreferences(prefs));
+        /** Rows sort in groups: running, online and paired, unpaired, then the PCs that don't answer. */
+        int group() {
+            return this == WAKING ? OFFLINE.ordinal() : ordinal();
+        }
     }
 
-    private static int getLayoutIdForPreferences(PreferenceConfiguration prefs) {
-        return R.layout.pc_grid_item;
+    public PcGridAdapter(Context context, PreferenceConfiguration prefs) {
+        super(context, R.layout.pc_grid_item);
     }
 
     public void updateLayoutWithPreferences(Context context, PreferenceConfiguration prefs) {
-        // This will trigger the view to reload with the new layout
-        setLayoutId(getLayoutIdForPreferences(prefs));
+        setLayoutId(R.layout.pc_grid_item);
     }
 
     public void addComputer(PcView.ComputerObject computer) {
@@ -37,12 +48,8 @@ public class PcGridAdapter extends GenericGridAdapter<PcView.ComputerObject> {
     }
 
     private void sortList() {
-        Collections.sort(itemList, new Comparator<PcView.ComputerObject>() {
-            @Override
-            public int compare(PcView.ComputerObject lhs, PcView.ComputerObject rhs) {
-                return lhs.details.name.compareToIgnoreCase(rhs.details.name);
-            }
-        });
+        Collections.sort(itemList, Comparator.comparingInt((PcView.ComputerObject computer) -> computer.rowState().group())
+                .thenComparing(computer -> computer.details.name, String.CASE_INSENSITIVE_ORDER));
     }
 
     public boolean removeComputer(PcView.ComputerObject computer) {
@@ -50,54 +57,115 @@ public class PcGridAdapter extends GenericGridAdapter<PcView.ComputerObject> {
     }
 
     @Override
-    public void populateView(View parentView, ImageView imgView, ProgressBar prgView, TextView txtView, ImageView overlayView, PcView.ComputerObject obj) {
-        imgView.setImageResource(R.drawable.ic_computer);
-        boolean checking = obj.details.state == ComputerDetails.State.UNKNOWN;
+    public void notifyDataSetChanged() {
+        // A PC changes group when it starts a game, pairs or stops answering.
+        sortList();
+        super.notifyDataSetChanged();
+    }
+
+    public static RowState rowState(ComputerDetails details, boolean waking) {
+        if (details.state == ComputerDetails.State.ONLINE) {
+            if (details.pairState != PairingManager.PairState.PAIRED) {
+                return RowState.NOT_PAIRED;
+            }
+            return details.hasRunningGame() ? RowState.RUNNING : RowState.READY;
+        }
+        if (waking) {
+            return RowState.WAKING;
+        }
+        return details.state == ComputerDetails.State.OFFLINE ? RowState.OFFLINE : RowState.CHECKING;
+    }
+
+    /** The game the host reports as running, from its app list, or null when the list doesn't have it. */
+    public static NvApp runningApp(List<NvApp> apps, ComputerDetails details) {
+        if (apps == null || !details.hasRunningGame()) {
+            return null;
+        }
+        for (NvApp app : apps) {
+            if (app.getControl() == NvApp.Control.NONE &&
+                    app.matchesRunningApp(details.runningGameId, details.runningGameUuid)) {
+                return app;
+            }
+        }
+        return null;
+    }
+
+    /** The row's one status line, such as "Playing Racing Game" or "Offline". */
+    public static String statusText(Context context, PcView.ComputerObject computer) {
+        switch (computer.rowState()) {
+            case RUNNING:
+                return computer.runningGame != null ?
+                        context.getString(R.string.pc_status_playing, computer.runningGame.getAppName()) :
+                        context.getString(R.string.pc_status_playing_unknown);
+            case READY:
+                return context.getString(R.string.pc_status_ready);
+            case NOT_PAIRED:
+                return context.getString(R.string.pc_needs_pairing);
+            case WAKING:
+                return context.getString(R.string.pc_status_waking);
+            case OFFLINE:
+                return context.getString(R.string.pc_offline);
+            default:
+                return context.getString(R.string.pc_checking);
+        }
+    }
+
+    /** What tapping the row does, named for screen readers. */
+    public static int mainActionLabel(PcView.ComputerObject computer) {
+        switch (computer.rowState()) {
+            case RUNNING:
+            case READY:
+                return R.string.library_open;
+            case NOT_PAIRED:
+                return R.string.pcview_menu_pair_pc;
+            case WAKING:
+            case OFFLINE:
+                return computer.details.macAddress != null ? R.string.pcview_menu_send_wol : R.string.pc_accessibility_actions;
+            default:
+                return R.string.pc_accessibility_actions;
+        }
+    }
+
+    @Override
+    public void populateView(View parentView, ImageView imgView, ProgressBar prgView, TextView txtView, PcView.ComputerObject obj) {
+        RowState state = obj.rowState();
+        boolean checking = state == RowState.CHECKING;
+        boolean away = state == RowState.OFFLINE || state == RowState.WAKING;
         imgView.setVisibility(checking ? View.INVISIBLE : View.VISIBLE);
         prgView.setVisibility(checking ? View.VISIBLE : View.GONE);
+        // A PC that doesn't answer steps back: its icon and name take the quieter colours.
+        imgView.setImageTintList(ColorStateList.valueOf(MaterialColors.getColor(imgView, away ?
+                com.google.android.material.R.attr.colorOutline : com.google.android.material.R.attr.colorOnSurfaceVariant)));
         txtView.setText(obj.details.name);
+        txtView.setTextColor(MaterialColors.getColor(txtView, away ?
+                com.google.android.material.R.attr.colorOnSurfaceVariant : com.google.android.material.R.attr.colorOnSurface));
 
-        int status;
-        if (obj.details.state == ComputerDetails.State.OFFLINE) {
-            status = R.string.pc_offline;
-            overlayView.setImageResource(R.drawable.ic_pc_offline);
-        }
-        else if (checking) {
-            status = R.string.pc_checking;
-            overlayView.setImageResource(R.drawable.ic_computer);
-        }
-        else if (obj.details.pairState == PairingManager.PairState.NOT_PAIRED) {
-            status = R.string.pc_needs_pairing;
-            overlayView.setImageResource(R.drawable.ic_lock);
-        }
-        else if (obj.details.pairState == PairingManager.PairState.PAIRED) {
-            status = R.string.pc_online_paired;
-            overlayView.setImageResource(R.drawable.ic_check);
-        }
-        else {
-            status = R.string.pc_online;
-            overlayView.setImageResource(R.drawable.ic_computer);
-        }
+        String status = statusText(context, obj);
         TextView statusView = parentView.findViewById(R.id.grid_status);
         statusView.setText(status);
-        TextView action = parentView.findViewById(R.id.grid_actions);
-        action.setText(checking || obj.details.state == ComputerDetails.State.OFFLINE ?
-                R.string.library_pc_options : obj.details.pairState == PairingManager.PairState.PAIRED ?
-                R.string.library_open : R.string.pcview_menu_pair_pc);
-        parentView.setContentDescription(context.getString(R.string.library_item_description,
-                obj.details.name, action.getText()));
-        ViewCompat.setStateDescription(parentView, context.getString(status));
-        ViewCompat.replaceAccessibilityAction(parentView,
-                androidx.core.view.accessibility.AccessibilityNodeInfoCompat.AccessibilityActionCompat.ACTION_LONG_CLICK,
-                context.getString(R.string.pc_accessibility_actions), (view, arguments) -> {
-                    if (view.getParent() instanceof android.widget.AdapterView) {
-                        android.widget.AdapterView<?> parent = (android.widget.AdapterView<?>) view.getParent();
-                        int position = parent.getPositionForView(view);
-                        android.widget.AdapterView.OnItemLongClickListener listener = parent.getOnItemLongClickListener();
-                        return position != android.widget.AdapterView.INVALID_POSITION && listener != null &&
-                                listener.onItemLongClick(parent, view, position, parent.getItemIdAtPosition(position));
-                    }
-                    return false;
+        statusView.setTextColor(MaterialColors.getColor(statusView, state == RowState.RUNNING ?
+                androidx.appcompat.R.attr.colorPrimary : com.google.android.material.R.attr.colorOnSurfaceVariant));
+
+        parentView.setContentDescription(context.getString(R.string.library_item_description, obj.details.name, status));
+        // The grid owns taps and long presses; name both for screen readers and route them back to it.
+        ViewCompat.replaceAccessibilityAction(parentView, AccessibilityActionCompat.ACTION_CLICK,
+                context.getString(mainActionLabel(obj)), (view, arguments) -> {
+                    AdapterView<?> grid = grid(view);
+                    int position = grid == null ? AdapterView.INVALID_POSITION : grid.getPositionForView(view);
+                    return position != AdapterView.INVALID_POSITION &&
+                            grid.performItemClick(view, position, grid.getItemIdAtPosition(position));
                 });
+        ViewCompat.replaceAccessibilityAction(parentView, AccessibilityActionCompat.ACTION_LONG_CLICK,
+                context.getString(R.string.pc_accessibility_actions), (view, arguments) -> {
+                    AdapterView<?> grid = grid(view);
+                    int position = grid == null ? AdapterView.INVALID_POSITION : grid.getPositionForView(view);
+                    AdapterView.OnItemLongClickListener listener = grid == null ? null : grid.getOnItemLongClickListener();
+                    return position != AdapterView.INVALID_POSITION && listener != null &&
+                            listener.onItemLongClick(grid, view, position, grid.getItemIdAtPosition(position));
+                });
+    }
+
+    private static AdapterView<?> grid(View card) {
+        return card.getParent() instanceof AdapterView ? (AdapterView<?>) card.getParent() : null;
     }
 }

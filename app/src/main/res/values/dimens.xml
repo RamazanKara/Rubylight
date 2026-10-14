@@ -12,6 +12,8 @@
     <!-- List screens keep one readable column; see com.limelight.ui.ContentFrame. -->
     <dimen name="content_max_width">840dp</dimen>
     <dimen name="touch_target">48dp</dimen>
+    <!-- Material's icon size, for icons that lead a row. -->
+    <dimen name="icon_size">24dp</dimen>
     <!-- Bottom padding that keeps a list's last row clear of an extended FAB and its margin. -->
     <dimen name="fab_clearance">96dp</dimen>
     <!-- The top app bar's own start/end padding; its 48dp icon buttons then line up with the gutter. -->

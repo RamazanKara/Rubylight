@@ -89,7 +89,7 @@
     <string name="perf_overlay_dectime">Dekodierzeit: %1$.2f ms</string>
     <string name="applist_connect_msg">Verbinde mit PC…</string>
     <string name="applist_menu_resume">Fortsetzen</string>
-    <string name="applist_menu_quit">App beenden</string>
+    <string name="applist_menu_quit">Spiel beenden</string>
     <string name="applist_menu_quit_and_start">Beenden und starten</string>
     <string name="applist_menu_cancel">Abbrechen</string>
     <string name="applist_menu_details">Details anzeigen</string>

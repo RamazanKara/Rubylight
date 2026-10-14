@@ -11,7 +11,6 @@ import com.limelight.PcView;
 import com.limelight.R;
 import com.limelight.nvstream.http.ComputerDetails;
 import com.limelight.preferences.StreamSettings;
-import com.limelight.ui.ActionSheet;
 
 public final class DemoPcView extends PcView {
     @Override protected void attachBaseContext(Context base) {
@@ -28,11 +27,12 @@ public final class DemoPcView extends PcView {
 
     @Override public void receiveAbsListView(AbsListView list) {
         super.receiveAbsListView(list);
+        // Long presses and the options button open the real PC menu; taps stay offline.
         list.setOnItemClickListener((parent, view, position, id) -> open((ComputerObject) parent.getItemAtPosition(position)));
-        list.setOnItemLongClickListener((parent, view, position, id) -> {
-            open((ComputerObject) parent.getItemAtPosition(position));
-            return true;
-        });
+    }
+
+    @Override protected void doWakeOnLan(ComputerDetails computer) {
+        Toast.makeText(this, R.string.demo_offline, Toast.LENGTH_SHORT).show();
     }
 
     private void open(ComputerObject computer) {
@@ -42,13 +42,6 @@ public final class DemoPcView extends PcView {
                     .putExtra(AppView.NAME_EXTRA, computer.details.name), -1, null);
             return;
         }
-        ActionSheet sheet = new ActionSheet(this, computer.details.name);
-        int label = computer.details.state == ComputerDetails.State.OFFLINE ?
-                R.string.pcview_menu_send_wol : R.string.pcview_menu_pair_pc;
-        sheet.addAction(R.drawable.ic_power, getString(label)).setOnClickListener(view -> {
-            sheet.dismiss();
-            Toast.makeText(this, R.string.demo_offline, Toast.LENGTH_SHORT).show();
-        });
-        sheet.show();
+        Toast.makeText(this, R.string.demo_offline, Toast.LENGTH_SHORT).show();
     }
 }

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Home: one status line per PC row. -->
+    <string name="pc_status_ready">Ready</string>
+    <string name="pc_status_playing">Playing %1$s</string>
+    <string name="pc_status_playing_unknown">Playing a game</string>
+    <string name="pc_status_waking">Waking…</string>
+    <string name="discovery_connect_help">How to connect</string>
+
+    <!-- The PC's menu. -->
+    <string name="pc_menu_settings">PC settings…</string>
+    <string name="pc_menu_resume_game">Resume %1$s</string>
+    <string name="pc_menu_quit_game">Quit %1$s</string>
+</resources>

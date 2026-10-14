@@ -317,6 +317,49 @@ impl Arrangement {
             Self::Extended | Self::Isolated => None,
         }
     }
+    /// Apply the first stream's virtual-display layout after hotplug. Windows
+    /// can recall this virtual display as primary even though the user's
+    /// physical displays stay on. Extended layouts keep the primary from
+    /// before hotplug; deliberate primary/exclusive layouts still replace it.
+    pub fn compose_after_hotplug(
+        self,
+        nodes: &[Node],
+        target: &str,
+        retained: &[String],
+        before: &[Node],
+    ) -> Result<Vec<Node>> {
+        if !matches!(self, Self::Extended | Self::Isolated) {
+            return self.compose(nodes, target, retained);
+        }
+        let primary = before
+            .iter()
+            .find(|node| node.active && node.primary && node.device_id != target)
+            .and_then(|original| {
+                nodes
+                    .iter()
+                    .find(|node| node.active && node.device_id == original.device_id)
+            });
+        let Some(primary) = primary else {
+            // Headless, disconnected or unreadable original layout: don't
+            // invent a primary or activate a display the user switched off.
+            return self.compose(nodes, target, retained);
+        };
+        let mut current = nodes.to_vec();
+        for node in &mut current {
+            node.primary = node.device_id == primary.device_id;
+            node.desired_position.x = node
+                .desired_position
+                .x
+                .checked_sub(primary.desired_position.x)
+                .ok_or_else(|| anyhow::anyhow!("display position overflow"))?;
+            node.desired_position.y = node
+                .desired_position
+                .y
+                .checked_sub(primary.desired_position.y)
+                .ok_or_else(|| anyhow::anyhow!("display position overflow"))?;
+        }
+        self.compose(&current, target, retained)
+    }
     pub fn compose(self, nodes: &[Node], target: &str, retained: &[String]) -> Result<Vec<Node>> {
         let target_node = nodes
             .iter()
@@ -925,6 +968,100 @@ mod tests {
                 refresh_hz: 60.,
             },
         }
+    }
+    #[test]
+    fn extended_hotplug_keeps_the_original_primary_when_windows_remembers_the_virtual_one() {
+        let before = [node("physical", 0), node("other", 1920)];
+        // Windows recalls the virtual screen at the origin and moves the
+        // physical screens left. All displays remain active, so off-screen
+        // recovery does not detect this change.
+        let current = [
+            node("physical", -1920),
+            node("other", 1920),
+            node("virtual", 0),
+        ];
+        for arrangement in [Arrangement::Extended, Arrangement::Isolated] {
+            let result = arrangement
+                .compose_after_hotplug(&current, "virtual", &[], &before)
+                .unwrap();
+            assert!(result[0].active && result[0].primary);
+            assert_eq!(result[0].desired_position, Position { x: 0, y: 0 });
+            assert!(result[1].active && !result[1].primary);
+            assert_eq!(result[1].desired_position.x, 3840);
+            assert!(result[2].active && !result[2].primary);
+            assert_eq!(
+                result[2].desired_position,
+                if arrangement == Arrangement::Isolated {
+                    Position { x: 64000, y: 64000 }
+                } else {
+                    Position { x: 1920, y: 0 }
+                }
+            );
+            assert_eq!(
+                serde_json::to_value(&result[0].mode).unwrap(),
+                serde_json::to_value(&current[0].mode).unwrap()
+            );
+            assert_eq!(
+                serde_json::to_value(&result[1].mode).unwrap(),
+                serde_json::to_value(&current[1].mode).unwrap()
+            );
+        }
+    }
+    #[test]
+    fn deliberate_virtual_primary_layouts_still_promote_the_stream_display() {
+        let before = [node("physical", 0)];
+        let current = [node("physical", 0), node("virtual", 1920)];
+        for arrangement in [
+            Arrangement::Primary,
+            Arrangement::Exclusive,
+            Arrangement::PrimaryIsolated,
+        ] {
+            let result = arrangement
+                .compose_after_hotplug(&current, "virtual", &[], &before)
+                .unwrap();
+            assert_eq!(
+                serde_json::to_value(&result).unwrap(),
+                serde_json::to_value(arrangement.compose(&current, "virtual", &[]).unwrap())
+                    .unwrap()
+            );
+            assert!(result[1].active && result[1].primary);
+            assert_eq!(result[1].desired_position, Position { x: 0, y: 0 });
+        }
+    }
+    #[test]
+    fn extended_hotplug_does_not_choose_a_missing_or_inactive_original_primary() {
+        let before = [node("physical", 0)];
+        let current = [node("virtual", 0)];
+        assert_eq!(
+            serde_json::to_value(
+                Arrangement::Extended
+                    .compose_after_hotplug(&current, "virtual", &[], &before)
+                    .unwrap()
+            )
+            .unwrap(),
+            serde_json::to_value(&current).unwrap()
+        );
+        assert_eq!(
+            serde_json::to_value(
+                Arrangement::Extended
+                    .compose_after_hotplug(&current, "virtual", &[], &[])
+                    .unwrap()
+            )
+            .unwrap(),
+            serde_json::to_value(&current).unwrap()
+        );
+        let mut physical = node("physical", -1920);
+        physical.active = false;
+        let current = [physical, node("virtual", 0)];
+        assert_eq!(
+            serde_json::to_value(
+                Arrangement::Extended
+                    .compose_after_hotplug(&current, "virtual", &[], &before)
+                    .unwrap()
+            )
+            .unwrap(),
+            serde_json::to_value(&current).unwrap()
+        );
     }
     #[test]
     fn several_streams_share_one_layout_without_overlapping() {

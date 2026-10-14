@@ -345,7 +345,16 @@ impl Lease {
                 }
             }
         }
-        let desired = arrangement.compose(&current.nodes, &target_id, &retained)?;
+        let desired = if virtual_target {
+            arrangement.compose_after_hotplug(
+                &current.nodes,
+                &target_id,
+                &retained,
+                &before.nodes,
+            )?
+        } else {
+            arrangement.compose(&current.nodes, &target_id, &retained)?
+        };
         crate::display_recovery::arrangement(Some((before.clone(), desired.clone())))?;
         let apply = (|| -> Result<()> {
             let ids = active_ids(&desired);

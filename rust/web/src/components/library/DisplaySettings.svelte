@@ -17,17 +17,17 @@
 
   const LAYOUTS: Choice[] = [
     { value: 'exclusive', label: 'Exclusive', hint: 'Turns the other monitors off while streaming.' },
-    { value: 'extended', label: 'Extended', hint: 'Adds the virtual display next to the monitors.' },
-    { value: 'extended_primary', label: 'Extended, primary', hint: 'Adds it and makes it the main display.' },
+    { value: 'extended', label: 'Extend — keep PC display primary', hint: 'Adds the virtual display beside your monitors and keeps the PC display as the main screen.' },
+    { value: 'extended_primary', label: 'Extend — make virtual display primary', hint: 'The virtual display becomes the main screen, including the desktop and taskbar.' },
     {
       value: 'extended_isolated',
-      label: 'Extended, isolated',
-      hint: 'Adds it far from the monitors so the mouse can’t wander onto it.',
+      label: 'Isolate — keep PC display primary',
+      hint: 'Keeps the PC display primary and places the virtual display far away so the mouse cannot wander onto it.',
     },
     {
       value: 'extended_primary_isolated',
-      label: 'Extended, primary and isolated',
-      hint: 'Main display, placed far from the other monitors.',
+      label: 'Isolate — make virtual display primary',
+      hint: 'The virtual display becomes the main screen, placed far from your other monitors.',
     },
   ];
 
@@ -51,7 +51,7 @@
       'Use a virtual display',
       'Streams a virtual display sized for the device, even when the host streams a monitor.',
     )}
-    {@render flag('virtual-display-primary', 'Make the virtual display primary', 'Uses the Extended, primary layout.')}
+    {@render flag('virtual-display-primary', 'Make the virtual display primary', 'Used when this app inherits its layout. Device and client display choices take precedence.')}
     {@render flag(
       'use-app-identity',
       'Keep one display identity for this app',

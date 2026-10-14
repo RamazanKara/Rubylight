@@ -306,10 +306,10 @@ pub fn render(prefix: &str, schema: &[Setting], values: &Value) -> String {
                             "auto" => "Automatic",
                             "none" => "None",
                             "exclusive" => "Turn off other monitors",
-                            "extended" => "Extend the desktop",
-                            "extended_primary" => "Extend and make primary",
-                            "extended_isolated" => "Extend away from other monitors",
-                            "extended_primary_isolated" => "Extend, make primary and isolate",
+                            "extended" => "Extend — keep PC display primary",
+                            "extended_primary" => "Extend — make virtual display primary",
+                            "extended_isolated" => "Isolate — keep PC display primary",
+                            "extended_primary_isolated" => "Isolate — make virtual display primary",
                             "verify_only" => "Only check that it is on",
                             "ensure_active" => "Turn it on",
                             "ensure_primary" => "Turn it on and make it primary",
@@ -469,7 +469,12 @@ mod tests {
     fn choice_labels_preserve_the_saved_values() {
         let html = i18n::render(&render("cfg_", GLOBAL, &serde_json::json!({})), "en");
         assert!(html.contains("value=\"vhf_ds5\">DualSense</option>"));
-        assert!(html.contains("value=\"extended_primary\">Extend and make primary</option>"));
+        assert!(html.contains("value=\"extended\">Extend — keep PC display primary</option>"));
+        assert!(
+            html.contains(
+                "value=\"extended_primary\">Extend — make virtual display primary</option>"
+            )
+        );
         assert!(html.contains("value=\"enabled\">Four times the stream frame rate</option>"));
         assert!(!html.contains(">vhf_ds5</option>"));
     }

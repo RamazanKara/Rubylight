@@ -66,17 +66,17 @@ export const settings: Setting[] = [
     key: 'virtual_display_layout',
     label: 'Virtual display layout',
     description:
-      'How the virtual display joins the desktop. Exclusive turns the other monitors off while streaming; isolated places it far from them so the mouse cannot wander onto it. A Remote Monitor follows exclusive and primary; choose Extended to use it beside your monitors.',
+      'Extended keeps your PC display primary. Making the virtual display primary moves the main desktop and taskbar to the stream. Exclusive turns the other monitors off while streaming; isolated places the virtual display far from them so the mouse cannot wander onto it. A Remote Monitor follows exclusive and primary; choose Extended to keep its saved placement.',
     category: 'display',
     group: 'Streamed display',
     control: {
       kind: 'select',
       options: [
         { value: 'exclusive', label: 'Exclusive' },
-        { value: 'extended', label: 'Extended' },
-        { value: 'extended_primary', label: 'Extended, primary' },
-        { value: 'extended_isolated', label: 'Extended, isolated' },
-        { value: 'extended_primary_isolated', label: 'Extended, primary and isolated' },
+        { value: 'extended', label: 'Extend — keep PC display primary' },
+        { value: 'extended_primary', label: 'Extend — make virtual display primary' },
+        { value: 'extended_isolated', label: 'Isolate — keep PC display primary' },
+        { value: 'extended_primary_isolated', label: 'Isolate — make virtual display primary' },
       ],
     },
     default: 'exclusive',

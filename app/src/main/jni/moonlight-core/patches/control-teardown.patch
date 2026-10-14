@@ -1,0 +1,176 @@
+Let teardown wait for control senders. Java threads send controller audio, display and
+reconfigure messages without being joined; once teardown closes sending no new send starts,
+and the peer and host are destroyed only after every sender in flight has left.
+Applies after control-payload.patch.
+
+diff --git a/src/ControlStream.c b/src/ControlStream.c
+index 90130d0..6459743 100644
+--- a/src/ControlStream.c
++++ b/src/ControlStream.c
+@@ -3,6 +3,7 @@
+ 
+ // This is a private header, but it just contains some time macros
+ #include <enet/time.h>
++#include <stdatomic.h>
+ 
+ #ifndef MIN
+ #define MIN(x, y) ((x) < (y) ? (x) : (y))
+@@ -303,6 +304,11 @@ static bool supportsIdrFrameRequest;
+ #define LOSS_REPORT_INTERVAL_MS 50
+ #define PERIODIC_PING_INTERVAL_MS 100
+ 
++// Senders inside sendMessageEnet(), including Java threads the stream never joins, and
++// whether teardown has closed sending.
++static atomic_int enetSendersInFlight;
++static atomic_bool enetSendsClosed;
++
+ // Initializes the control stream
+ int initializeControlStream(void) {
+     stopping = false;
+@@ -311,6 +317,8 @@ int initializeControlStream(void) {
+     LbqInitializeLinkedBlockingQueue(&frameFecStatusQueue, 8); // Limits number of frame status reports per periodic ping interval
+     LbqInitializeLinkedBlockingQueue(&asyncCallbackQueue, 30);
+     PltCreateMutex(&enetMutex);
++    // Senders may only reach the mutex once it exists again.
++    atomic_store(&enetSendsClosed, false);
+ 
+     encryptedControlStream = APP_VERSION_AT_LEAST(7, 1, 431);
+ 
+@@ -695,7 +703,7 @@ static bool isPacketSentWaitingForAck(ENetPacket* packet) {
+     return false;
+ }
+ 
+-static bool sendMessageEnet(short ptype, short paylen, const void* payload, uint8_t channelId, uint32_t flags, bool moreData) {
++static bool sendMessageEnetInternal(short ptype, short paylen, const void* payload, uint8_t channelId, uint32_t flags, bool moreData) {
+     ENetPacket* enetPacket;
+     int err;
+ 
+@@ -777,6 +785,14 @@ static bool sendMessageEnet(short ptype, short paylen, const void* payload, uint
+         PltLockMutex(&enetMutex);
+     }
+ 
++    // Teardown may have started while this thread waited for the lock. It waits for this
++    // sender, so the peer is still valid, but the message would only delay it.
++    if (stopping || peer == NULL) {
++        PltUnlockMutex(&enetMutex);
++        enet_packet_destroy(enetPacket);
++        return false;
++    }
++
+     volatile bool packetFreed = false;
+ 
+     // Set a callback to use to let us know if the packet has been freed.
+@@ -802,8 +818,8 @@ static bool sendMessageEnet(short ptype, short paylen, const void* payload, uint
+         if (flags & ENET_PACKET_FLAG_RELIABLE) {
+             // Don't wait longer than 10 milliseconds to avoid blocking callers for too long
+             for (int i = 0; err >= 0 && i < 10; i++) {
+-                // Break on disconnected, acked/freed, or sent (pending ack).
+-                if (peer->state != ENET_PEER_STATE_CONNECTED || packetFreed || isPacketSentWaitingForAck(enetPacket)) {
++                // Break on stopping, disconnected, acked/freed, or sent (pending ack).
++                if (stopping || peer->state != ENET_PEER_STATE_CONNECTED || packetFreed || isPacketSentWaitingForAck(enetPacket)) {
+                     break;
+                 }
+ 
+@@ -842,6 +858,28 @@ static bool sendMessageEnet(short ptype, short paylen, const void* payload, uint
+     return true;
+ }
+ 
++static bool sendMessageEnet(short ptype, short paylen, const void* payload, uint8_t channelId, uint32_t flags, bool moreData) {
++    bool ret = false;
++
++    // Controller audio, display and reconfigure messages come from Java threads that the
++    // stream never joins. Count every sender so teardown can wait for it before destroying
++    // the peer, and start none once teardown has closed sending.
++    atomic_fetch_add(&enetSendersInFlight, 1);
++    if (!atomic_load(&enetSendsClosed)) {
++        ret = sendMessageEnetInternal(ptype, paylen, payload, channelId, flags, moreData);
++    }
++    atomic_fetch_sub(&enetSendersInFlight, 1);
++    return ret;
++}
++
++// Stops new sends and waits for the ones already in flight, before the peer is destroyed.
++static void closeEnetSends(void) {
++    atomic_store(&enetSendsClosed, true);
++    while (atomic_load(&enetSendersInFlight) != 0) {
++        PltSleepMs(1);
++    }
++}
++
+ static bool sendMessageTcp(short ptype, short paylen, const void* payload) {
+     PNVCTL_TCP_PACKET_HEADER packet;
+     SOCK_RET err;
+@@ -1753,6 +1791,9 @@ int stopControlStream(void) {
+         PltJoinThread(&invalidateRefFramesThread);
+     }
+ 
++    // Java threads that send controller audio or display messages are not joined above.
++    closeEnetSends();
++
+     if (peer != NULL) {
+         // Gracefully disconnect to ensure the remote host receives all of our final
+         // outbound traffic, including any key up events that might be sent.
+@@ -1890,6 +1931,7 @@ int startControlStream(void) {
+             }
+ 
+             stopping = true;
++            closeEnetSends();
+             enet_peer_reset(peer);
+             peer = NULL;
+             enet_host_destroy(client);
+@@ -1941,6 +1983,7 @@ int startControlStream(void) {
+             ctlSock = INVALID_SOCKET;
+         }
+         else {
++            closeEnetSends();
+             enet_peer_disconnect_now(peer, 0);
+             peer = NULL;
+             enet_host_destroy(client);
+@@ -1975,6 +2018,7 @@ int startControlStream(void) {
+             ctlSock = INVALID_SOCKET;
+         }
+         else {
++            closeEnetSends();
+             enet_peer_disconnect_now(peer, 0);
+             peer = NULL;
+             enet_host_destroy(client);
+@@ -2009,6 +2053,7 @@ int startControlStream(void) {
+             ctlSock = INVALID_SOCKET;
+         }
+         else {
++            closeEnetSends();
+             enet_peer_disconnect_now(peer, 0);
+             peer = NULL;
+             enet_host_destroy(client);
+@@ -2036,6 +2081,7 @@ int startControlStream(void) {
+             ctlSock = INVALID_SOCKET;
+         }
+         else {
++            closeEnetSends();
+             enet_peer_disconnect_now(peer, 0);
+             peer = NULL;
+             enet_host_destroy(client);
+@@ -2066,6 +2112,7 @@ int startControlStream(void) {
+             ctlSock = INVALID_SOCKET;
+         }
+         else {
++            closeEnetSends();
+             enet_peer_disconnect_now(peer, 0);
+             peer = NULL;
+             enet_host_destroy(client);
+@@ -2101,6 +2148,7 @@ int startControlStream(void) {
+             ctlSock = INVALID_SOCKET;
+         }
+         else {
++            closeEnetSends();
+             enet_peer_disconnect_now(peer, 0);
+             peer = NULL;
+             enet_host_destroy(client);
+@@ -2142,6 +2190,7 @@ int startControlStream(void) {
+                 ctlSock = INVALID_SOCKET;
+             }
+             else {
++                closeEnetSends();
+                 enet_peer_disconnect_now(peer, 0);
+                 peer = NULL;
+                 enet_host_destroy(client);

@@ -9,7 +9,7 @@ out=app/build/native-tests
 mkdir -p "$out"
 
 for name in bughunt-stream.patch bughunt-input.patch controller-haptics.patch host-termination.patch \
-    disconnect-intercept.patch control-payload.patch; do
+    disconnect-intercept.patch control-payload.patch control-teardown.patch; do
     patch="$core/patches/$name"
     patch="$(pwd)/$patch"
     if ! git -C "$common" apply --reverse --check "$patch" 2>/dev/null; then

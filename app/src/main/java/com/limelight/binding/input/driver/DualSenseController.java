@@ -367,6 +367,15 @@ public class DualSenseController extends AbstractController {
             }
         }
         // The worker may be updating HID state, so join without holding outputLock.
+        Thread worker = inputThread;
+        if (worker != null && worker != Thread.currentThread()) {
+            try {
+                // An interrupt cannot end a USB read; it returns within its 1 s timeout.
+                worker.join(1500);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }
         DualSenseHaptics playback = haptics;
         if (playback != null) playback.close();
         synchronized (outputLock) {

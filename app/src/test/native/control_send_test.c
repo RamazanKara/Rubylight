@@ -1,5 +1,6 @@
 // The real JNI control senders and encrypted ENet send path against fake ENet and JNI:
-// DualSense microphone packets larger than the old 256-byte plaintext buffer.
+// DualSense microphone packets larger than the old 256-byte plaintext buffer and Java-thread
+// sends racing stream teardown.
 #include <pthread.h>
 #include <unistd.h>
 #include "android_control.c"
@@ -202,13 +203,65 @@ static void oversizeOrMalformedControllerAudioStopsAtTheBoundary(void) {
     CHECK(sentCount == 0);
 }
 
+static jboolean senderResult;
+
+static void* sendStatusFromAJavaThread(void* context) {
+    static const uint8_t status[8] = {1, 1, 0, 0, 0, 0, 0, 0};
+    senderResult = sendAudio(0x5535, status, sizeof(status));
+    return NULL;
+}
+
+static void* stopTheStream(void* context) {
+    stopControlStream();
+    return NULL;
+}
+
+static void teardownWaitsForJavaSendersAndLaterSendsNeverReachENet(void) {
+    reset();
+    const uint16_t audio[] = {0x5534, 0x5535};
+    announce(audio, 2);
+    pthread_mutex_lock(&gate);
+    holdNextService = true;
+    pthread_mutex_unlock(&gate);
+
+    pthread_t sender, stopper;
+    CHECK(pthread_create(&sender, NULL, sendStatusFromAJavaThread, NULL) == 0);
+    pthread_mutex_lock(&gate);
+    while (!atomic_load(&senderInside)) pthread_cond_wait(&gateChanged, &gate);
+    pthread_mutex_unlock(&gate);
+
+    // The stream stops while the controller's status message is still being sent.
+    ConnectionInterrupted = true;
+    CHECK(pthread_create(&stopper, NULL, stopTheStream, NULL) == 0);
+    usleep(50000);
+    CHECK(teardowns == 0 && !atomic_load(&tornDown));
+
+    pthread_mutex_lock(&gate);
+    serviceReleased = true;
+    pthread_cond_broadcast(&gateChanged);
+    pthread_mutex_unlock(&gate);
+    CHECK(pthread_join(sender, NULL) == 0);
+    CHECK(pthread_join(stopper, NULL) == 0);
+    CHECK(teardowns == 1 && atomic_load(&tornDown) && peer == NULL && client == NULL);
+    CHECK(senderResult == JNI_TRUE || senderResult == JNI_FALSE);
+    freeSent();
+
+    // A Java thread that passed its checks just before teardown reaches the core afterwards.
+    static const uint8_t status[8] = {1, 1, 0, 0, 0, 0, 0, 0};
+    CHECK(!sendMessageAndForget(0x5535, sizeof(status), status, 8, ENET_PACKET_FLAG_RELIABLE, false));
+    CHECK(sendAudio(0x5535, status, sizeof(status)) == JNI_FALSE);
+    CHECK(sentCount == 0);
+    ConnectionInterrupted = false;
+}
 
 static const struct { const char* name; void (*run)(void); } scenarios[] = {
     {"microphone", microphonePacketsLargerThanTheStackBufferArriveIntact},
     {"boundary", oversizeOrMalformedControllerAudioStopsAtTheBoundary},
+    {"teardown", teardownWaitsForJavaSendersAndLaterSendsNeverReachENet},
 };
 
-// With an argument, only the named scenario runs.
+// With an argument, only the named scenario runs. Teardown runs last: the stopped control
+// stream stays closed until a new stream initializes it.
 int main(int argc, char** argv) {
     CHECK(pthread_mutex_init(&enetMutex, NULL) == 0);
     for (size_t i = 0; i < sizeof(scenarios) / sizeof(scenarios[0]); i++) {

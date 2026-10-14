@@ -185,8 +185,8 @@
   </section>
 
   <section>
-    <h3>Device preferences</h3>
-    <p class="note">"Use the host setting" follows the value in Settings.</p>
+    <h3>Display</h3>
+    <p class="note">“Use the host setting” follows the value in Settings.</p>
     <div class="form-grid">
       <Field
         label="Display"
@@ -207,7 +207,7 @@
       <Field
         label="Display mode"
         id="{uid}-display-mode"
-        hint="Width, height and refresh rate for this device's display, such as 2560x1600x120. Empty uses the mode the device asks for. The stream keeps the device's frame rate."
+        hint="Width × height × refresh rate, such as 2560x1600x120. Empty uses the mode the device asks for; the stream keeps the device's frame rate."
         error={modeInvalid ? 'Enter width × height × refresh rate, such as 1920x1080x59.94.' : undefined}
       >
         <input
@@ -219,13 +219,6 @@
           bind:value={draft.display_mode}
         />
       </Field>
-      <div class="toggle-cell">
-        <Toggle
-          label="Always use a virtual display"
-          hint="Creates a virtual display for this device even when the host streams a monitor."
-          bind:checked={draft.always_use_virtual_display}
-        />
-      </div>
       <Field
         label="Virtual display mode"
         id="{uid}-mode"
@@ -246,10 +239,21 @@
           {/each}
         </select>
       </Field>
+    </div>
+    <Toggle
+      label="Always use a virtual display"
+      hint="Creates a virtual display for this device even when the host streams a monitor."
+      bind:checked={draft.always_use_virtual_display}
+    />
+  </section>
+
+  <section>
+    <h3>HDR</h3>
+    <div class="form-grid">
       <Field
         label="Prefer 10-bit SDR"
         id="{uid}-sdr"
-        hint="When on, high dynamic range (HDR) requests from this device stream as 10-bit standard dynamic range (SDR) and the display stays in SDR. Needs HEVC or AV1."
+        hint="HDR requests from this device stream as 10-bit SDR and the display stays in SDR. Needs HEVC or AV1."
       >
         <select id="{uid}-sdr" class="select" bind:value={draft.prefer_10bit_sdr}>
           <option value="">Use the host setting</option>

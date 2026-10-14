@@ -42,27 +42,25 @@
 </script>
 
 <div class="otp">
-  <div>
-    <h3>Pair with a one-time PIN</h3>
-    <p class="muted intro">For Artemis. Create a PIN here, then enter it with the passphrase in Artemis.</p>
-  </div>
   <form class="form" onsubmit={create}>
-    <Field label="Passphrase" id="{uid}-passphrase" hint="At least 4 characters. You type it in Artemis too.">
-      <input
-        id="{uid}-passphrase"
-        class="input"
-        autocomplete="off"
-        spellcheck="false"
-        minlength="4"
-        required
-        bind:value={passphrase}
-      />
-    </Field>
-    <Field label="Device name" id="{uid}-name" hint="Optional. Leave empty to use the name from Artemis.">
-      <input id="{uid}-name" class="input" autocomplete="off" bind:value={deviceName} />
-    </Field>
+    <div class="form-grid">
+      <Field label="Passphrase" id="{uid}-passphrase" hint="At least 4 characters. You type it in Artemis too.">
+        <input
+          id="{uid}-passphrase"
+          class="input"
+          autocomplete="off"
+          spellcheck="false"
+          minlength="4"
+          required
+          bind:value={passphrase}
+        />
+      </Field>
+      <Field label="Device name" id="{uid}-name" hint="Optional. Leave empty to use the name from Artemis.">
+        <input id="{uid}-name" class="input" autocomplete="off" bind:value={deviceName} />
+      </Field>
+    </div>
     <div>
-      <Button type="submit" {busy} disabled={tooShort}>{otp ? 'Create a new PIN' : 'Create PIN'}</Button>
+      <Button type="submit" variant="primary" {busy} disabled={tooShort}>{otp ? 'Create a new PIN' : 'Create PIN'}</Button>
     </div>
   </form>
 
@@ -91,10 +89,7 @@
     display: grid;
     gap: var(--space-4);
     align-content: start;
-  }
-  .intro {
-    margin-top: 3px;
-    font-size: var(--text-sm);
+    max-width: 720px;
   }
   .form {
     display: grid;

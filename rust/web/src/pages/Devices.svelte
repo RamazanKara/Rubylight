@@ -135,20 +135,20 @@
   }
 </script>
 
+{#snippet unpairAllAction()}
+  <Button variant="danger" size="sm" disabled={acting} busy={busy === 'unpair-all'} onclick={unpairAll}>Unpair all</Button>
+{/snippet}
+
 <PageHeader title="Devices" subtitle="Pair Moonlight and Artemis devices and choose what each one can do." />
 
 <PairPanel />
 
 <Panel
   title="Paired devices"
-  description={clients ? `${clients.length} ${clients.length === 1 ? 'device' : 'devices'}` : undefined}
+  description={clients?.length ? `${clients.length} ${clients.length === 1 ? 'device' : 'devices'}` : undefined}
+  actions={clients?.length ? unpairAllAction : undefined}
   flush
 >
-  {#snippet actions()}
-    <Button variant="danger" size="sm" disabled={!clients?.length || acting} busy={busy === 'unpair-all'} onclick={unpairAll}>
-      Unpair all
-    </Button>
-  {/snippet}
 
   {#if loadError}
     <div class="load-error notice danger" role="alert">

@@ -312,3 +312,23 @@ test('the sidebar groups tools, names each theme choice and copies the host addr
   assert.notEqual(colours[0], 'rgba(0, 0, 0, 0)');
   assert.equal(colours[0], colours[1]);
 });
+
+test('pairing methods are labelled tabs that keep waiting devices in sight', async t => {
+  const { page } = await fixture(t, { pending: [{ uniqueid: 'new-device', name: 'New device', age_seconds: 0 }] });
+  await page.goto(base + '/devices');
+  const methods = page.getByRole('tablist', { name: 'Pairing method', exact: true });
+  const pin = methods.getByRole('tab', { name: /^PIN from the device/ });
+  const otp = methods.getByRole('tab', { name: /^One-time PIN/ });
+  assert.equal(await pin.getAttribute('aria-selected'), 'true');
+  await pin.getByText('1 waiting', { exact: true }).waitFor();
+  await otp.getByText('Artemis only', { exact: false }).waitFor();
+  await page.getByLabel('PIN shown on New device', { exact: true }).waitFor();
+  await pin.focus();
+  await page.keyboard.press('ArrowRight');
+  assert.equal(await otp.getAttribute('aria-selected'), 'true');
+  assert.equal(await otp.evaluate(element => element === document.activeElement), true);
+  await page.getByLabel('Passphrase', { exact: true }).waitFor();
+  assert.equal(await page.getByLabel('PIN shown on New device', { exact: true }).isVisible(), false);
+  await page.keyboard.press('ArrowLeft');
+  await page.getByLabel('PIN shown on New device', { exact: true }).waitFor();
+});

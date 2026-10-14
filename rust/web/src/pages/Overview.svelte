@@ -147,13 +147,13 @@
           <dl class="facts">
             <dt>Address</dt>
             <dd class="address">
-              <span class="num">{metadata.pc_address}</span>
+              <span class="num" title={metadata.pc_address}>{metadata.pc_address}</span>
               <CopyButton value={metadata.pc_address} label="Copy address" what="the address" />
             </dd>
             {#each addresses as address, index (address)}
               <dt>{index === 0 ? 'Other addresses' : ''}</dt>
               <dd class="address">
-                <span class="num">{address}</span>
+                <span class="num" title={address}>{address}</span>
                 <CopyButton value={address} label="Copy address {address}" what={address} />
               </dd>
             {/each}
@@ -203,7 +203,9 @@
   }
   .address .num {
     min-width: 0;
-    overflow-wrap: anywhere;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .facts {
     grid-template-columns: auto minmax(0, 1fr);

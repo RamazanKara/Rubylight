@@ -212,6 +212,18 @@ test('library reordering cannot overlap writes and restores the server order aft
   assert.equal(writes.filter(write => write.path === '/api/apps/reorder').length, 1);
 });
 
+test('Unpair all only appears when there is a device to unpair', async t => {
+  const { page } = await fixture(t, async (route, url) => {
+    if (url.pathname !== '/api/clients/list') return false;
+    await route.fulfill({ json: { status: true, clients: [] } });
+    return true;
+  });
+  await page.goto(base + '/devices');
+  await page.getByText('No paired devices', { exact: true }).waitFor();
+  assert.equal(await page.getByRole('button', { name: 'Unpair all' }).count(), 0);
+  assert.equal(await page.getByText('0 devices', { exact: true }).count(), 0);
+});
+
 test('a PIN typed for one waiting device is never sent to the next one', async t => {
   let pending = [{ uniqueid: 'a', name: 'Phone A', age_seconds: 1 }];
   const { page, writes } = await fixture(t, async (route, url) => {

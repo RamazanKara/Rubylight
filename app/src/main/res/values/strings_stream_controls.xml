@@ -11,7 +11,7 @@
     <string name="stream_reconnect">Reconnect stream</string>
     <string name="stream_reconnecting">Reconnecting to the running app…</string>
     <string name="stream_native_touch_help">Touch controls the PC directly.\nOpen the stream menu for the keyboard.</string>
-    <string name="stream_native_touch_fallback">Multi-touch unavailable; using the mouse.</string>
+    <string name="stream_native_touch_fallback">The PC doesn’t take multi-touch, so touch moves the mouse.</string>
     <string-array name="stream_touch_modes">
         <item>Trackpad</item>
         <item>Direct mouse</item>

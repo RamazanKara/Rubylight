@@ -33,8 +33,8 @@
     <string name="desktop_output">Videoausgabe (verbindet Stream neu)</string>
     <string name="desktop_output_device">Dieses Gerät</string>
     <string name="desktop_touchpad_help">Das Video läuft auf der externen Anzeige. Nutze diesen Bildschirm als Touchpad. Tastatur, Spieltasten und Stream-Menü bleiben hier verfügbar.</string>
-    <string name="desktop_pacing_fallback">Externes Video nutzt für diese Sitzung geringste Latenz statt ausgewogenem Frame-Pacing. Deine gespeicherte Einstellung bleibt unverändert.</string>
-    <string name="desktop_display_unavailable">Keine nutzbare externe Anzeige verfügbar. Verbinde eine von Android unterstützte HDMI-/USB-C- oder drahtlose Anzeige. Das Video bleibt auf diesem Gerät.</string>
+    <string name="desktop_pacing_fallback">Externer Bildschirm: Bilder erscheinen, sobald sie ankommen.</string>
+    <string name="desktop_display_unavailable">Kein externer Bildschirm kann den Stream zeigen, daher bleibt er auf diesem Gerät.</string>
     <string name="controller_axes_title">Sticks, Trigger und Steuerkreuz</string>
     <string name="controller_axes_configured">Eigene Achsen- oder Steuerkreuzbelegung; gilt ab dem nächsten Stream</string>
     <string name="controller_axes_source">Eingabe für %1$s</string>

@@ -52,7 +52,7 @@
     <string name="check_ports_msg">Prüfe Firewall und Weiterleitung für Ports:</string>
     <string name="conn_establishing_title">Verbindung wird aufgebaut</string>
     <string name="conn_establishing_msg">Verbindung wird gestartet</string>
-    <string name="conn_metered">Dieses Netzwerk hat ein Datenlimit.</string>
+    <string name="conn_metered">Dieses Netz kann Daten berechnen, und Streaming verbraucht viele.</string>
     <string name="conn_client_latency">Mittlere Dekodierzeit:</string>
     <string name="conn_client_latency_hw">Hardware-Dekodierzeit:</string>
     <string name="conn_hardware_latency">Mittlere Hardware-Dekodierzeit:</string>
@@ -306,7 +306,7 @@
     <string name="stream_permission_allowed">Erlaubt</string>
     <string name="stream_permission_denied">Gesperrt</string>
     <string name="stream_permissions_help">Ändere Rechte in den Einstellungen oder der Web-UI deines Hosts.</string>
-    <string name="stream_input_denied">Eingaben sind gesperrt. Erlaube diesem Gerät Tastatur-, Maus- oder Controller-Eingaben in den Einstellungen oder der Web-UI deines Hosts.</string>
+    <string name="stream_input_denied">Der PC blockiert Eingaben dieses Geräts. Erlaube sie in den Host-Einstellungen oder der Web-UI.</string>
     <string name="stream_bitrate">Bitrate</string>
     <string name="stream_bitrate_help">Mbit/s für diese Sitzung festlegen.\nDie automatische Bitrate wird deaktiviert.</string>
     <string name="stream_bitrate_invalid">Gib eine Bitrate von 0,5 bis 500 Mbit/s ein.</string>

@@ -13,7 +13,7 @@
     <string name="quality_use_settings">App-Einstellungen verwenden</string>
     <string name="quality_about">Funktionsweise</string>
     <string name="quality_stream_help">Wird für diesen PC gespeichert. Bewegung reduziert zuerst die Auflösung, Details zuerst die Bildrate. Der Akkumodus begrenzt schrittweise auf höchstens 60 FPS und 1080 Pixel an der kurzen Kante, unter Beachtung deiner Mindestwerte. Codec, HDR und Bildschirmauswahl bleiben erhalten.</string>
-    <string name="quality_unavailable">Automatische Auflösung und Bildrate sind für diesen Host oder Decoder nicht verfügbar. Die aktuellen Einstellungen bleiben erhalten; automatische Bitrate ist auf unterstützten Hosts separat verfügbar.</string>
-    <string name="quality_request_failed">Die automatische Qualität wurde angehalten, da die gewünschte Größe nicht übernommen werden konnte. Der Stream bleibt verbunden. Wähle im Streammenü einen anderen Modus.</string>
+    <string name="quality_unavailable">Automatische Qualität ist aus: Dieser PC oder dieses Gerät kann Auflösung und Bildrate nicht während des Streams ändern.</string>
+    <string name="quality_request_failed">Automatische Qualität angehalten: Der PC hat die neue Größe nicht übernommen. Der Stream läuft weiter; wähle im Streammenü einen anderen Modus.</string>
     <string name="quality_status">Automatische Qualität: %1$s · %2$d × %3$d · Ziel %4$d FPS</string>
 </resources>

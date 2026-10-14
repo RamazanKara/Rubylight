@@ -11,7 +11,7 @@
     <string name="stream_reconnect">Stream neu verbinden</string>
     <string name="stream_reconnecting">Verbinde erneut mit der laufenden App…</string>
     <string name="stream_native_touch_help">Touch steuert den PC direkt.\nDie Tastatur findest du im Stream-Menü.</string>
-    <string name="stream_native_touch_fallback">Kein Multitouch; nutze Maussteuerung.</string>
+    <string name="stream_native_touch_fallback">Der PC nimmt kein Multitouch an, daher bewegt Berührung die Maus.</string>
     <string-array name="stream_touch_modes">
         <item>Trackpad</item>
         <item>Direkte Maussteuerung</item>

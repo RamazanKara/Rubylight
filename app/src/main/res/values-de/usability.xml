@@ -3,14 +3,14 @@
     <string name="startup_permission_denied">Der Host hat die Anfrage abgelehnt. Aktiviere dieses Gerät in den Einstellungen oder der Web-UI deines Hosts und erlaube das Anzeigen oder Starten von Apps.</string>
     <string name="startup_host_error">Der Host konnte den Stream nicht starten (Fehler %1$d). Prüfe seinen Status in der Web-UI des Hosts, aktualisiere die App-Liste und versuche es erneut.</string>
     <string name="startup_invalid_host">Der PC hat eine ungültige Serverversion gemeldet. Aktualisiere den Host oder starte ihn neu und versuche es erneut.</string>
-    <string name="startup_virtual_display_unavailable">Am PC ist kein virtuelles Display verfügbar. Seine aktuelle Display-Konfiguration wird verwendet.</string>
+    <string name="startup_virtual_display_unavailable">Dieser PC hat keinen virtuellen Bildschirm, daher streamt er seinen eigenen.</string>
     <string name="startup_not_paired">Dieses Gerät ist nicht mehr gekoppelt. Kehre zur PC-Liste zurück und kopple es erneut.</string>
     <string name="startup_app_missing">Diese App ist nicht mehr in der PC-Bibliothek. Aktualisiere die App-Liste und wähle eine andere App.</string>
     <string name="startup_resume_missing">Diese Sitzung ist nicht mehr verfügbar. Aktualisiere die App-Liste und wähle eine Sitzung.</string>
     <string name="startup_host_resolution_unsupported">Der PC unterstützt keine Auflösungen über 4K. Wähle in den Stream-Einstellungen 4K oder weniger.</string>
     <string name="startup_device_resolution_unsupported">Auflösungen über 4K benötigen HEVC oder AV1 auf diesem Gerät. Wähle eine niedrigere Auflösung oder einen anderen Codec.</string>
-    <string name="startup_host_update_4k">Aktualisiere GeForce Experience am PC für 4K-Streaming. Dieser Stream verwendet 1080p.</string>
-    <string name="startup_hdr_unavailable">Auf beiden Geräten ist kein kompatibler HDR-Codec verfügbar. Dieser Stream verwendet SDR.</string>
+    <string name="startup_host_update_4k">Aktualisiere GeForce Experience am PC, um in 4K zu streamen. Dieser Stream läuft in 1080p.</string>
+    <string name="startup_hdr_unavailable">PC und Gerät haben keinen gemeinsamen HDR-Codec, daher läuft der Stream in SDR.</string>
     <string name="startup_resume_failed">Die Sitzung konnte nicht fortgesetzt werden. Prüfe die App am PC und versuche es erneut.</string>
     <string name="startup_session_owner">Die Sitzung gehört einem anderen Gerät. Beende sie dort oder am PC und versuche es erneut.</string>
     <string name="startup_app_minimized">Die App ist minimiert. Stelle sie am PC wieder her oder beende und starte die Sitzung erneut.</string>

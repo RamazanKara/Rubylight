@@ -37,6 +37,6 @@
     <string name="host_details_features_unknown">Verbinde dich einmal mit diesem PC, um zu sehen, was er unterstützt.</string>
     <string name="host_details_features_none">Keine zusätzlichen Funktionen gemeldet</string>
 
-    <string name="host_pyrowave_unavailable">Dieser Host hat kein PyroWave; %1$s wird verwendet</string>
+    <string name="host_pyrowave_unavailable">Dieser PC kann kein PyroWave streamen, daher wird %1$s verwendet.</string>
     <string name="connection_test_intro_delay">Teste die Latenz zum PC.</string>
 </resources>

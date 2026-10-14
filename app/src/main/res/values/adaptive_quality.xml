@@ -13,8 +13,8 @@
     <string name="quality_use_settings">Use app settings</string>
     <string name="quality_about">How it works</string>
     <string name="quality_stream_help">Saved for this PC. Motion lowers resolution first; Detail lowers FPS first. Battery gradually limits work to at most 60 FPS and a 1080-pixel short edge, within your minimum limits. Codec, HDR and the display choice stay as negotiated.</string>
-    <string name="quality_unavailable">Automatic resolution and FPS are unavailable for this host or decoder. The current stream settings stay in use; automatic bitrate is available separately on supported hosts.</string>
-    <string name="quality_request_failed">Automatic quality stopped because the requested size could not be applied. The stream remains connected. You can choose another mode from the stream menu.</string>
+    <string name="quality_unavailable">Automatic quality is off: this PC or device can’t change resolution and frame rate during a stream.</string>
+    <string name="quality_request_failed">Automatic quality stopped: the PC didn’t apply the new size. The stream goes on; pick another mode in the stream menu.</string>
     <string name="quality_status">Automatic quality: %1$s · %2$d × %3$d · target %4$d FPS</string>
     <string-array name="adaptive_quality_names">
         <item>@string/quality_off</item><item>@string/quality_motion</item><item>@string/quality_detail</item><item>@string/quality_battery</item>

@@ -39,6 +39,6 @@
     <string name="host_details_features_unknown">Connect to this PC once to see what it supports.</string>
     <string name="host_details_features_none">No extra features reported</string>
 
-    <string name="host_pyrowave_unavailable">This host has no PyroWave; using %1$s</string>
+    <string name="host_pyrowave_unavailable">This PC can’t stream PyroWave, so it uses %1$s.</string>
     <string name="connection_test_intro_delay">Test the delay to your PC.</string>
 </resources>

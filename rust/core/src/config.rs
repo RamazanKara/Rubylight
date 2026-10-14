@@ -50,17 +50,6 @@ pub fn current_name(key: &str) -> &str {
         .find(|(old, _)| *old == key)
         .map_or(key, |(_, new)| new)
 }
-/// A setting found under its earlier name and moved to its current one.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Renamed {
-    pub old: &'static str,
-    pub new: &'static str,
-    /// What the earlier name held.
-    pub value: String,
-    /// The current name was set too; its value, which the host used, stays
-    /// and `value` is dropped.
-    pub superseded: bool,
-}
 /// The current value for a retired `value` of `key`, if it is one.
 pub fn replacement(key: &str, value: &str) -> Option<&'static str> {
     RETIRED_VALUES
@@ -192,25 +181,17 @@ impl Config {
     }
     /// Move settings found under an earlier name to their current one. When
     /// both names are set the current one is what the host has read, so it
-    /// stays and the earlier one is dropped.
-    fn rename_keys(&mut self) -> Vec<Renamed> {
-        let mut renamed = Vec::new();
+    /// stays and the earlier one is dropped. The file keeps the earlier name
+    /// until the console next saves, which writes every setting under the
+    /// name it is held under here.
+    fn rename_keys(&mut self) {
         for &(old, new) in RENAMED_KEYS {
-            let Some(value) = self.values.remove(old) else {
-                continue;
-            };
-            let superseded = self.values.contains_key(new);
-            if !superseded {
-                self.values.insert(new.to_owned(), value.clone());
+            if let Some(value) = self.values.remove(old)
+                && !self.values.contains_key(new)
+            {
+                self.values.insert(new.to_owned(), value);
             }
-            renamed.push(Renamed {
-                old,
-                new,
-                value,
-                superseded,
-            });
         }
-        renamed
     }
     pub fn load(path: &Path) -> Result<Self> {
         match std::fs::read(path) {
@@ -220,34 +201,6 @@ impl Config {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Self::default()),
             Err(e) => Err(e.into()),
         }
-    }
-    /// Save settings that the file at `path` holds under an earlier name
-    /// under their current one, so the console shows and edits what the
-    /// host uses. The file is replaced atomically, as the console saves it:
-    /// every setting, known or not, keeps its value. Nothing is written
-    /// when no earlier name is found, or when the rewritten file would not
-    /// read back as the same settings. Returns what was moved.
-    pub fn rename_in_file(path: &Path) -> Result<Vec<Renamed>> {
-        let bytes = match std::fs::read(path) {
-            Ok(bytes) => bytes,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
-            Err(e) => return Err(e.into()),
-        };
-        let mut config = Self::parse_names_as_written(&decode(&bytes))
-            .with_context(|| format!("reading {}", path.display()))?;
-        let renamed = config.rename_keys();
-        if renamed.is_empty() {
-            return Ok(renamed);
-        }
-        let text = config.text();
-        if Self::parse(&text)?.values != config.values {
-            bail!(
-                "{} would not read back unchanged after renaming settings",
-                path.display()
-            );
-        }
-        crate::state::atomic_write(path, text.as_bytes())?;
-        Ok(renamed)
     }
     /// The value of `key`, or `default` when it is unset or empty.
     pub fn get<'a>(&'a self, key: &str, default: &'a str) -> &'a str {
@@ -1261,87 +1214,17 @@ mod tests {
         assert_eq!(current_name("port"), "port");
     }
     #[test]
-    fn a_file_with_earlier_names_is_rewritten_once_under_the_current_ones() {
-        let d = tempfile::tempdir().unwrap();
-        let path = d.path().join("sunshine.conf");
-        std::fs::write(&path, EARLIER_NAMES).unwrap();
-        let before = Config::load(&path).unwrap();
-        let renamed = Config::rename_in_file(&path).unwrap();
-        assert_eq!(
-            renamed
-                .iter()
-                .map(|r| (r.old, r.new, r.value.as_str(), r.superseded))
-                .collect::<Vec<_>>(),
-            [
-                ("rtss_path", "rtss_install_path", "D:\\Tools\\RTSS", false),
-                (
-                    "rtss_disable_vsync_ullm",
-                    "frame_limiter_disable_vsync",
-                    "enabled",
-                    false
-                ),
-                (
-                    "nvenc_force_split_encode",
-                    "nvenc_split_encode",
-                    "driver_decides",
-                    false
-                ),
-                (
-                    "dd_vdd_static_monitor_count",
-                    "dd_virtual_display_permanent_count",
-                    "\"2\"",
-                    false
-                ),
-            ]
-        );
-        let text = std::fs::read_to_string(&path).unwrap();
+    fn a_saved_configuration_holds_settings_under_their_current_names() {
+        // The console saves every setting as held after parsing, so the
+        // first save after an upgrade retires the earlier names.
+        let before = Config::parse(EARLIER_NAMES).unwrap();
+        let text = before.text();
         for (old, new) in RENAMED_KEYS {
             assert!(!text.contains(&format!("{old} =")), "{text}");
             assert!(text.contains(&format!("{new} =")), "{text}");
         }
         assert!(text.contains("future_setting = kept"), "{text}");
-        let after = Config::load(&path).unwrap();
-        assert_eq!(after.values, before.values);
-        // Once: the file is left alone from then on.
-        assert!(Config::rename_in_file(&path).unwrap().is_empty());
-        assert_eq!(std::fs::read_to_string(&path).unwrap(), text);
-        // Nothing else in the directory: the write was atomic.
-        assert_eq!(std::fs::read_dir(d.path()).unwrap().count(), 1);
-    }
-    #[test]
-    fn with_both_names_in_the_file_the_current_one_stays_and_the_earlier_one_goes() {
-        let d = tempfile::tempdir().unwrap();
-        let path = d.path().join("sunshine.conf");
-        std::fs::write(
-            &path,
-            "frame_limiter_disable_vsync = false\nrtss_disable_vsync_ullm = true\nencoder = amf\n",
-        )
-        .unwrap();
-        let renamed = Config::rename_in_file(&path).unwrap();
-        assert_eq!(
-            renamed,
-            [Renamed {
-                old: "rtss_disable_vsync_ullm",
-                new: "frame_limiter_disable_vsync",
-                value: "true".into(),
-                superseded: true,
-            }]
-        );
-        assert_eq!(
-            std::fs::read_to_string(&path).unwrap(),
-            "encoder = amf\nframe_limiter_disable_vsync = false\n"
-        );
-    }
-    #[test]
-    fn a_file_without_earlier_names_is_not_rewritten() {
-        let d = tempfile::tempdir().unwrap();
-        let path = d.path().join("sunshine.conf");
-        assert!(Config::rename_in_file(&path).unwrap().is_empty());
-        assert!(!path.exists());
-        let text = "# my settings\nrtss_install_path = C:\\RTSS # mine\nencoder=amf\n";
-        std::fs::write(&path, text).unwrap();
-        assert!(Config::rename_in_file(&path).unwrap().is_empty());
-        assert_eq!(std::fs::read_to_string(&path).unwrap(), text);
+        assert_eq!(Config::parse(&text).unwrap().values, before.values);
     }
     #[test]
     fn a_setting_sent_under_an_earlier_name_is_saved_under_the_current_one() {

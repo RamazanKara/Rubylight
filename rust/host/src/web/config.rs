@@ -275,10 +275,11 @@ mod tests {
         ] {
             assert!(shown.get(old).is_none(), "{old}");
         }
-        // The file was moved to the current names, so turning the setting
-        // off in the console turns it off.
+        // Loading leaves the file alone; the console's first save writes the
+        // current names, so turning the setting off in the console turns it
+        // off, and a later reset cannot bring back the earlier value.
         let saved = std::fs::read_to_string(&host.config_path).unwrap();
-        assert!(!saved.contains("rtss_disable_vsync_ullm"), "{saved}");
+        assert!(saved.contains("rtss_disable_vsync_ullm"), "{saved}");
         handle(
             &host,
             "PATCH",
@@ -286,9 +287,20 @@ mod tests {
             &json!({"frame_limiter_disable_vsync": false}),
         )
         .unwrap();
+        let saved = std::fs::read_to_string(&host.config_path).unwrap();
+        assert!(!saved.contains("rtss_disable_vsync_ullm"), "{saved}");
         let reloaded = Config::load(&host.config_path).unwrap();
         assert!(!reloaded.boolean("frame_limiter_disable_vsync", true));
         assert_eq!(reloaded.get("nvenc_split_encode", ""), "forced");
+        handle(
+            &host,
+            "PATCH",
+            "/api/config",
+            &json!({"frame_limiter_disable_vsync": null}),
+        )
+        .unwrap();
+        let reset = Config::load(&host.config_path).unwrap();
+        assert!(!reset.values.contains_key("frame_limiter_disable_vsync"));
     }
 
     #[test]

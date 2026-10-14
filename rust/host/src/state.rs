@@ -250,7 +250,6 @@ impl Host {
     pub fn load(directory: PathBuf, assets: PathBuf, port: Option<u16>) -> Result<Shared> {
         std::fs::create_dir_all(&directory)?;
         let config_path = directory.join("sunshine.conf");
-        rename_settings(&config_path);
         let mut config = Config::load(&config_path)?;
         if let Some(port) = port {
             config.values.insert("port".into(), port.to_string());
@@ -923,38 +922,6 @@ fn amf_only_probe(preference: &str, vendors: &[u32]) -> bool {
         || (matches!(preference, "" | "auto")
             && !vendors.is_empty()
             && vendors.iter().all(|vendor| *vendor == 0x1002))
-}
-/// Save settings that sunshine.conf holds under an earlier name (from
-/// Vibepollo, Apollo or Rubylight 2.0) under their current one, so the
-/// console shows and edits the value the host uses. The host reads them
-/// under the current name either way, so a file it cannot rewrite only
-/// costs a warning.
-fn rename_settings(path: &std::path::Path) {
-    match Config::rename_in_file(path) {
-        Ok(renamed) => {
-            for setting in renamed {
-                if setting.superseded {
-                    tracing::info!(
-                        old = setting.old,
-                        new = setting.new,
-                        dropped = %setting.value,
-                        "removed a setting's earlier name from sunshine.conf; its current name was also set and keeps its value"
-                    );
-                } else {
-                    tracing::info!(
-                        old = setting.old,
-                        new = setting.new,
-                        value = %setting.value,
-                        "moved a setting in sunshine.conf to its current name"
-                    );
-                }
-            }
-        }
-        Err(error) => tracing::warn!(
-            error = %format!("{error:#}"),
-            "could not save settings under their current names; they are still read under them"
-        ),
-    }
 }
 /// The app library. One that cannot be read as a library starts the host
 /// with no apps, as in Vibepollo, rather than keeping the host and its web

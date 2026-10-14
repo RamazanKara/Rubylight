@@ -12,6 +12,7 @@
     numberError,
     parseJson,
     sameValue,
+    textError,
     toCommands,
     toList,
     toNumber,
@@ -35,7 +36,7 @@
     /** The effective value, normalised for this control. */
     value: ConfigValue;
     onchange: (value: ConfigValue) => void;
-    /** An invalid JSON or number draft, kept by the page across category changes. */
+    /** An invalid JSON, number or text draft, kept by the page across category changes. */
     invalidText?: string;
     /** Called with an invalid draft, or null when the control is valid again. */
     oninvalid?: (text: string | null) => void;
@@ -158,6 +159,20 @@
   const numberDefault = $derived(toNumber(setting.default));
   const numberPlaceholder = $derived(numberDefault === null ? 'Not set' : `Default: ${numberDefault}`);
 
+  // ---------- text ----------
+
+  const textShown = $derived(invalidText ?? current);
+  const textProblem = $derived(control.kind === 'text' ? textError(setting, textShown) : '');
+
+  function editText(text: string) {
+    if (textError(setting, text)) {
+      oninvalid?.(text);
+    } else {
+      oninvalid?.(null);
+      onchange(text);
+    }
+  }
+
   // ---------- rows: list, commands, server-commands ----------
 
   const items = $derived(control.kind === 'list' ? toList(value) : []);
@@ -268,9 +283,10 @@
       autocomplete="off"
       spellcheck={control.mono ? 'false' : undefined}
       placeholder={control.placeholder ?? (toText(setting.default) || undefined)}
-      aria-describedby={describedby}
-      value={current}
-      oninput={(event) => onchange(event.currentTarget.value)}
+      aria-invalid={textProblem ? 'true' : undefined}
+      aria-describedby={describe(!!textProblem && `${id}-text`)}
+      value={textShown}
+      oninput={(event) => editText(event.currentTarget.value)}
     />
   {/snippet}
   {#if control.browse}
@@ -278,6 +294,7 @@
   {:else}
     {@render text()}
   {/if}
+  {#if textProblem}<p class="error" id="{id}-text">{textProblem}</p>{/if}
 {:else if control.kind === 'list'}
   <div class="rows" {id} bind:this={rowsElement}>
     {#each items as item, index}

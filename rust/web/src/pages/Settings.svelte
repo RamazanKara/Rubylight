@@ -114,6 +114,17 @@
     }
   }
 
+  /** Empty although the current choices make the host need a value. */
+  function missing(setting: Setting): boolean {
+    const value = values[setting.key];
+    if (value !== null && value !== undefined && String(value).trim() !== '') return false;
+    try {
+      return setting.requiredWhen?.(values) ?? false;
+    } catch {
+      return false;
+    }
+  }
+
   interface Group {
     name: string;
     settings: Setting[];
@@ -312,6 +323,7 @@
     differs={differsFromDefault(setting, edits, config)}
     showKey={showKeys || (searching && matchesWords(setting.key, words))}
     {inactive}
+    missing={missing(setting)}
     invalidText={invalid[setting.key]}
     onchange={(value) => edit(setting.key, value)}
     onreset={() => reset(setting.key)}

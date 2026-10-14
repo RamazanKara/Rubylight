@@ -19,6 +19,9 @@ export interface ServerCommand {
   elevated: boolean;
 }
 
+/** Read with the host's frame-rate parser: digits with at most three decimals. */
+const RATES: ReadonlySet<string> = new Set(['frame_limiter_fps_limit', 'dd_manual_refresh_rate']);
+
 export function settingsOnly(config: Config): Config {
   return Object.fromEntries(Object.entries(config).filter(([key]) => !NOT_SETTINGS.has(key)));
 }
@@ -73,6 +76,21 @@ export function numberError(setting: Setting, text: string, badInput = false): s
   // Integer controls may use larger spinner increments. The host still
   // accepts any whole number, but discards fractions when parsing them.
   if (step !== undefined && step > 0 && Number.isInteger(step) && !Number.isInteger(value)) return 'Enter a whole number.';
+  // The host rejects a fourth decimal (a fixed refresh rate then fails every stream).
+  if (RATES.has(setting.key) && !/^\d+(\.\d{1,3})?$/.test(String(value))) return 'Enter at most three decimal places.';
+  return '';
+}
+
+/** Check edited text the host parses strictly, before it can enter the PATCH. */
+export function textError(setting: Setting, text: string): string {
+  if (setting.key !== 'dd_manual_resolution' || text.trim() === '') return '';
+  // config.rs splits on a lowercase x and checks the limits when a stream starts.
+  const match = /^\s*(\d+)\s*x\s*(\d+)\s*$/.exec(text);
+  if (!match) return 'Enter WIDTHxHEIGHT, for example 2560x1440.';
+  const [width, height] = [Number(match[1]), Number(match[2])];
+  if (width < 320 || width > 7680 || height < 200 || height > 4320) {
+    return 'Enter a width from 320 to 7680 and a height from 200 to 4320.';
+  }
   return '';
 }
 

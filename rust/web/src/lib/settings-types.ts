@@ -64,6 +64,8 @@ export interface Setting {
   visibleWhen?: (values: Record<string, ConfigValue>) => boolean;
   /** Explain a hidden setting when search or review reveals it. */
   inactiveHint?: string;
+  /** Streams fail without a value while this holds, given the current (edited) values. */
+  requiredWhen?: (values: Record<string, ConfigValue>) => boolean;
   /** Takes effect only after the host restarts. */
   restart?: boolean;
   advanced?: boolean;

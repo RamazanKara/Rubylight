@@ -87,6 +87,34 @@ test('Automatic shows the encoder settings for the GPUs this PC has', () => {
   assert.equal(settings.get('amd_qvbr_quality_level').visibleWhen({ encoder: 'auto', amd_rc: 'qvbr', [NATIVE_ENCODERS]: ['amf'] }), true);
 });
 
+test('frame rates the host parses reject a fourth decimal place', () => {
+  // framegen.rs Rate::parse: a fixed refresh rate with four decimals fails every stream.
+  for (const key of ['dd_manual_refresh_rate', 'frame_limiter_fps_limit']) {
+    const setting = settings.get(key);
+    assert.equal(numberError(setting, '59.9401'), 'Enter at most three decimal places.', key);
+    assert.equal(numberError(setting, '59.94'), '', key);
+    assert.equal(numberError(setting, '119.880'), '', key);
+    assert.equal(numberError(setting, '120'), '', key);
+  }
+  assert.equal(numberError(settings.get('key_repeat_frequency'), '24.95'), '');
+});
+
+test('a fixed resolution must be WIDTHxHEIGHT within the host limits', () => {
+  assert.equal(typeof values.textError, 'function');
+  const setting = settings.get('dd_manual_resolution');
+  for (const ok of ['', '2560x1440', ' 1920 x 1080 ', '320x200', '7680x4320']) assert.equal(values.textError(setting, ok), '', ok);
+  for (const bad of ['2560*1440', '2560X1440', '2560x', 'x1440', '2560x1440x60']) {
+    assert.equal(values.textError(setting, bad), 'Enter WIDTHxHEIGHT, for example 2560x1440.', bad);
+  }
+  for (const bad of ['319x200', '7681x1080', '1920x199', '1920x4321']) {
+    assert.match(values.textError(setting, bad), /width from 320 to 7680/, bad);
+  }
+  assert.equal(values.textError(settings.get('fallback_mode'), 'anything'), '');
+  assert.equal(setting.requiredWhen({ dd_resolution_option: 'manual' }), true);
+  assert.equal(setting.requiredWhen({ dd_resolution_option: 'auto' }), false);
+  assert.equal(settings.get('dd_manual_refresh_rate').requiredWhen({ dd_refresh_rate_option: 'manual' }), true);
+});
+
 test('an unset virtual display mode keeps the OS-dependent default without hiding an explicit per-device choice', () => {
   const key = 'virtual_display_mode';
   const setting = settings.get(key);

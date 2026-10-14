@@ -224,6 +224,23 @@ test('controls share a right-hand column on wide screens and stack under the tex
   assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
 });
 
+test('a malformed fixed resolution blocks saving and an empty one warns', async t => {
+  const { page, writes } = await fixture(t);
+  await page.goto(base + '/settings/display');
+  await setting(page, 'dd_resolution_option').getByRole('combobox').selectOption('manual');
+  const row = setting(page, 'dd_manual_resolution');
+  await row.getByText(/Required: streams fail until this has a value/).waitFor();
+  const input = row.getByRole('textbox');
+  await input.fill('2560*1440');
+  assert.equal(await input.getAttribute('aria-invalid'), 'true');
+  await row.getByText('Enter WIDTHxHEIGHT, for example 2560x1440.', { exact: true }).waitFor();
+  assert.equal(await page.getByRole('button', { name: 'Save changes' }).isDisabled(), true);
+  await input.fill('2560x1440');
+  assert.equal(await row.getByText(/Required/).count(), 0);
+  await save(page);
+  assert.deepEqual(writes, [{ dd_resolution_option: 'manual', dd_manual_resolution: '2560x1440' }]);
+});
+
 test('with Automatic, the encoder settings of this PC\'s GPU are shown', async t => {
   const gpu = (name, vendor) => ({ name, vendor, dedicated_memory: 0, luid: [1, 0], pnp_id: null });
   const { page } = await fixture(t, {}, { gpus: [gpu('AMD Radeon RX 7900 XT', 0x1002)] });

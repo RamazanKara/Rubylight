@@ -13,6 +13,7 @@
     differs,
     showKey = false,
     inactive = false,
+    missing = false,
     invalidText,
     onchange,
     onreset,
@@ -34,6 +35,8 @@
     showKey?: boolean;
     /** Normally hidden by the current choices, but shown in search or while edited. */
     inactive?: boolean;
+    /** Empty although the current choices need a value. */
+    missing?: boolean;
     invalidText?: string;
     onchange: (value: ConfigValue) => void;
     onreset: () => void;
@@ -102,6 +105,9 @@
         {oninvalid}
         describedby={setting.description ? `${uid}-description` : undefined}
       />
+      {#if missing && invalidText === undefined}
+        <p class="required">Required: streams fail until this has a value.</p>
+      {/if}
     </div>
 
     {#if hasMeta}
@@ -292,6 +298,12 @@
   .switch-row .control {
     justify-self: end;
     padding-top: 1px;
+  }
+  .required {
+    font-size: var(--text-xs);
+    line-height: 1.45;
+    color: var(--warn);
+    font-weight: 560;
   }
   /* Lists, commands and JSON: the control spans the row under the text. */
   .full .layout {

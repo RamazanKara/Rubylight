@@ -171,6 +171,7 @@ export const settings: Setting[] = [
     default: '',
     inactiveHint: "Choose Use a fixed resolution under Resolution to apply this value.",
     visibleWhen: (values) => text(values, 'dd_resolution_option', 'auto') === 'manual',
+    requiredWhen: (values) => text(values, 'dd_resolution_option', 'auto') === 'manual',
   },
   {
     key: 'dd_refresh_rate_option',
@@ -202,6 +203,7 @@ export const settings: Setting[] = [
     default: '',
     inactiveHint: "Choose Use a fixed refresh rate under Refresh rate to apply this value.",
     visibleWhen: (values) => text(values, 'dd_refresh_rate_option', 'auto') === 'manual',
+    requiredWhen: (values) => text(values, 'dd_refresh_rate_option', 'auto') === 'manual',
   },
   {
     key: 'dd_mode_remapping',

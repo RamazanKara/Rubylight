@@ -113,7 +113,7 @@ public class NvHTTPParityTest {
     @Test
     public void hardwareMetricsRequireSupportedDiscoveryAndPairedViewingPermission() throws Exception {
         ComputerDetails details = capabilities("<root status_code=\"200\"><RustHostVersion>2.2.5</RustHostVersion>" +
-                "<HardwareMetricsVersion>1</HardwareMetricsVersion><Permission>" +
+                "<PairStatus>1</PairStatus><HardwareMetricsVersion>1</HardwareMetricsVersion><Permission>" +
                 ComputerDetails.PERMISSION_VIEW + "</Permission></root>");
         assertFalse(details.supportsHardwareMetrics());
         details.pairState = PairingManager.PairState.PAIRED;
@@ -124,16 +124,19 @@ public class NvHTTPParityTest {
         assertFalse(copy.supportsHardwareMetrics());
         copy.permission = ComputerDetails.PERMISSION_LAUNCH;
         assertTrue(copy.supportsHardwareMetrics());
-        copy.rustHostVersion = null;
+        // The field decides, not the host's brand: without it there are no metrics.
+        copy.caps = HostCapabilities.fromServerInfo("<root status_code=\"200\"><RustHostVersion>2.2.5</RustHostVersion>" +
+                "<PairStatus>1</PairStatus></root>");
         assertFalse(copy.supportsHardwareMetrics());
         for (String version : new String[] {"0", "2", "-1", "invalid", ""}) {
-            assertEquals(0, NvHTTP.getHardwareMetricsVersion("<root status_code=\"200\"><HardwareMetricsVersion>" +
-                    version + "</HardwareMetricsVersion></root>"));
+            assertFalse(version, HostCapabilities.fromServerInfo("<root status_code=\"200\"><PairStatus>1</PairStatus>" +
+                    "<RustHostVersion>2.2.5</RustHostVersion><HardwareMetricsVersion>" + version +
+                    "</HardwareMetricsVersion></root>").has(HostCapabilities.Feature.HARDWARE_METRICS));
         }
         NvHTTP.readClientCapabilities(details, "<root status_code=\"200\" />");
-        assertEquals(0, details.hardwareMetricsVersion);
+        assertFalse(details.supportsHardwareMetrics());
         copy.update(details);
-        assertEquals(0, copy.hardwareMetricsVersion);
+        assertFalse(copy.caps.has(HostCapabilities.Feature.HARDWARE_METRICS));
         assertFalse(copy.supportsHardwareMetrics());
     }
 
@@ -172,7 +175,7 @@ public class NvHTTPParityTest {
         assertEquals(0xFFFFFFFFL, details.permission);
         assertTrue(details.canReadClipboard());
         assertTrue(details.canWriteClipboard());
-        assertTrue(details.frameLimiterSupported);
+        assertTrue(details.caps.has(HostCapabilities.Feature.FRAME_LIMITER_STATUS));
         assertTrue(details.frameLimiterEnabled);
         assertTrue(details.virtualDisplayFrameLimiterEnabled);
         assertEquals(59940, details.frameLimiterFpsLimitMilliHz);
@@ -239,7 +242,7 @@ public class NvHTTPParityTest {
         assertFalse(details.canReadClipboard());
         assertFalse(details.canWriteClipboard());
         assertFalse(details.canRunServerCommand(0));
-        assertFalse(details.frameLimiterSupported);
+        assertFalse(details.caps.has(HostCapabilities.Feature.FRAME_LIMITER_STATUS));
     }
 
     @Test
@@ -300,8 +303,8 @@ public class NvHTTPParityTest {
         assertFalse(copy.canWriteClipboard());
         NvHTTP.readClientCapabilities(copy, fixture("sunshine-serverinfo.xml"));
         assertEquals(-1, copy.permission);
-        assertNull(copy.rustHostVersion);
-        assertFalse(copy.frameLimiterSupported);
+        assertEquals(HostCapabilities.Family.SUNSHINE, copy.caps.family());
+        assertFalse(copy.caps.has(HostCapabilities.Feature.FRAME_LIMITER_STATUS));
     }
 
     @Test
@@ -353,7 +356,7 @@ public class NvHTTPParityTest {
         ComputerDetails details = new ComputerDetails();
         for (String bytes : new String[] {"0", "-1", "33554433", "bad", "33554432"}) {
             NvHTTP.readClientCapabilities(details, "<root status_code=\"200\"><RustHostVersion>test</RustHostVersion>" +
-                    "<PyroWaveHostLinkMbps>2500</PyroWaveHostLinkMbps><PyroWaveBandwidthProbeBytes>" +
+                    "<PairStatus>1</PairStatus><PyroWaveHostLinkMbps>2500</PyroWaveHostLinkMbps><PyroWaveBandwidthProbeBytes>" +
                     bytes + "</PyroWaveBandwidthProbeBytes></root>");
             details.pairState = PairingManager.PairState.NOT_PAIRED;
             assertFalse(details.supportsPyroWaveBandwidthProbe());
@@ -565,7 +568,7 @@ public class NvHTTPParityTest {
         context.negotiatedHeight = 2184;
         context.riKey = new SecretKeySpec(new byte[16], "AES");
         context.riKeyId = -123;
-        NvHTTP.readDisplayCapabilities(context, fixture(server));
+        context.hostCaps = TestHosts.fixture(server);
         return context;
     }
 
@@ -603,13 +606,15 @@ public class NvHTTPParityTest {
     }
 
     @Test
-    public void customFractionalRateOverridesPanelMatchingOnlyOnRubylight() throws Exception {
-        for (String host : new String[] {"butterpollo-serverinfo.xml", "apollo-serverinfo.xml", "sunshine-serverinfo.xml"}) {
+    public void customFractionalRateReachesHostsThatReadIt() throws Exception {
+        // Sunshine reads the rate with atoi and would turn 59.94 into 59.
+        for (String host : new String[] {"butterpollo-serverinfo.xml", "rubylight-serverinfo.xml", "apollo-serverinfo.xml",
+                "vibepollo-serverinfo.xml", "sunshine-serverinfo.xml", "gamestream-serverinfo.xml"}) {
             ConnectionContext context = context(host);
             context.streamConfig = new StreamConfiguration.Builder().setLaunchRefreshRate(60)
                     .setLaunchRefreshRateX100(5994).setClientRefreshRateX100(12000).build();
-            assertEquals(host.startsWith("butterpollo") ? "1968x2184x59.94" : "1968x2184x60",
-                    query(context, false).queryParameter("mode"));
+            assertEquals(host, host.startsWith("sunshine") || host.startsWith("gamestream") ?
+                    "1968x2184x60" : "1968x2184x59.94", query(context, false).queryParameter("mode"));
         }
     }
 
@@ -622,19 +627,20 @@ public class NvHTTPParityTest {
     }
 
     @Test
-    public void apolloKeepsIntegerRateAndSupportsDisplayRequest() throws Exception {
+    public void apolloGetsThePanelRateAndItsVirtualDisplay() throws Exception {
         HttpUrl query = query(context("apollo-serverinfo.xml"), false);
-        assertEquals("1968x2184x120", query.queryParameter("mode"));
+        assertEquals("1968x2184x119.88", query.queryParameter("mode"));
         assertEquals("1", query.queryParameter("virtualDisplay"));
+        assertEquals("100", query.queryParameter("scaleFactor"));
     }
 
     @Test
     public void unavailableDriverAndDisabledPreferencePreserveHostPolicy() throws Exception {
         ConnectionContext context = context("butterpollo-serverinfo.xml");
-        NvHTTP.readDisplayCapabilities(context, fixture("butterpollo-serverinfo.xml")
+        context.hostCaps = HostCapabilities.fromServerInfo(fixture("butterpollo-serverinfo.xml")
                 .replace("<VirtualDisplayDriverReady>true", "<VirtualDisplayDriverReady>false"));
         assertNull(query(context, false).queryParameter("virtualDisplay"));
-        NvHTTP.readDisplayCapabilities(context, fixture("butterpollo-serverinfo.xml"));
+        context.hostCaps = TestHosts.fixture("butterpollo-serverinfo.xml");
         context.streamConfig = new StreamConfiguration.Builder().build();
         assertNull(query(context, false).queryParameter("virtualDisplay"));
         assertNull(query(context, false).queryParameter("scaleFactor"));
@@ -645,9 +651,8 @@ public class NvHTTPParityTest {
         for (HostDisplayChoice choice : new HostDisplayChoice[] {HostDisplayChoice.EXCLUSIVE,
                 HostDisplayChoice.EXTENDED_PRIMARY, HostDisplayChoice.EXTENDED,
                 HostDisplayChoice.EXTENDED_ISOLATED, HostDisplayChoice.EXTENDED_PRIMARY_ISOLATED}) {
-            ConnectionContext context = context("butterpollo-serverinfo.xml");
-            // The choice asks for a virtual display even with the setting off, so hosts that
-            // don't know hostDisplay still give one.
+            ConnectionContext context = context("rubylight-serverinfo.xml");
+            // The choice asks for a virtual display even with the setting off.
             context.streamConfig = new StreamConfiguration.Builder().setLaunchRefreshRate(120)
                     .setVirtualDisplay(false, 125).build();
             context.hostDisplay = choice;
@@ -660,7 +665,7 @@ public class NvHTTPParityTest {
 
     @Test
     public void physicalChoiceOverridesTheVirtualDisplaySetting() throws Exception {
-        ConnectionContext context = context("butterpollo-serverinfo.xml");
+        ConnectionContext context = context("rubylight-serverinfo.xml");
         context.hostDisplay = HostDisplayChoice.PHYSICAL;
         HttpUrl query = query(context, false);
         assertEquals("physical", query.queryParameter("hostDisplay"));
@@ -670,7 +675,7 @@ public class NvHTTPParityTest {
 
     @Test
     public void hostDefaultSendsNoChoiceAndKeepsTheVirtualDisplaySetting() throws Exception {
-        ConnectionContext context = context("butterpollo-serverinfo.xml");
+        ConnectionContext context = context("rubylight-serverinfo.xml");
         assertEquals(HostDisplayChoice.HOST_DEFAULT, context.hostDisplay);
         HttpUrl query = query(context, false);
         assertNull(query.queryParameter("hostDisplay"));
@@ -680,43 +685,49 @@ public class NvHTTPParityTest {
     }
 
     @Test
-    public void otherHostsGetTheChoiceBesideTheirOwnVirtualDisplayRequest() throws Exception {
-        ConnectionContext context = context("apollo-serverinfo.xml");
-        context.hostDisplay = HostDisplayChoice.EXCLUSIVE;
-        HttpUrl query = query(context, false);
-        assertEquals("exclusive", query.queryParameter("hostDisplay"));
-        assertEquals("1", query.queryParameter("virtualDisplay"));
-        context = context("sunshine-serverinfo.xml");
-        context.hostDisplay = HostDisplayChoice.EXCLUSIVE;
-        query = query(context, false);
-        assertEquals("exclusive", query.queryParameter("hostDisplay"));
-        assertNull(query.queryParameter("virtualDisplay"));
+    public void hostsWithoutDisplayModesIgnoreASavedChoiceAndFollowTheSwitch() throws Exception {
+        // A choice saved before the picker was limited to such hosts must not become virtualDisplay=1.
+        for (String host : new String[] {"apollo-serverinfo.xml", "vibepollo-serverinfo.xml", "butterpollo-serverinfo.xml",
+                "sunshine-serverinfo.xml", "gamestream-serverinfo.xml"}) {
+            for (boolean virtualDisplay : new boolean[] {false, true}) {
+                ConnectionContext context = context(host);
+                context.streamConfig = new StreamConfiguration.Builder().setLaunchRefreshRate(120)
+                        .setVirtualDisplay(virtualDisplay, 100).build();
+                context.hostDisplay = HostDisplayChoice.EXCLUSIVE;
+                HttpUrl query = query(context, false);
+                assertNull(host, query.queryParameter("hostDisplay"));
+                boolean hostHasOne = context.hostCaps.has(HostCapabilities.Feature.VIRTUAL_DISPLAY);
+                assertEquals(host, virtualDisplay && hostHasOne ? "1" : null, query.queryParameter("virtualDisplay"));
+                assertEquals(host, virtualDisplay, NvHTTP.wantsVirtualDisplay(context, NvApp.Role.STREAM));
+            }
+        }
     }
 
     @Test
-    public void vrrLaunchAndResumeSendCanonicalAndLegacyParametersOnlyWhenEnabledOutsideGfe() throws Exception {
-        for (String server : new String[] {"butterpollo-serverinfo.xml", "apollo-serverinfo.xml", "sunshine-serverinfo.xml"}) {
+    public void vrrIsRequestedOnlyFromHostsThatReadIt() throws Exception {
+        // Vibepollo reads clientVrrRequested and switches its virtual display for it; Rubylight
+        // also reads the older vrr; Apollo, Sunshine and GameStream read neither.
+        String[][] hosts = {{"butterpollo-serverinfo.xml", "1", "1"}, {"rubylight-serverinfo.xml", "1", "1"},
+                {"vibepollo-serverinfo.xml", "1", null}, {"apollo-serverinfo.xml", null, null},
+                {"sunshine-serverinfo.xml", null, null}, {"gamestream-serverinfo.xml", null, null}};
+        for (String[] host : hosts) {
             for (String verb : new String[] {"launch", "resume"}) {
-                ConnectionContext context = context(server);
+                ConnectionContext context = context(host[0]);
                 HttpUrl query = HttpUrl.get("https://host/" + verb + "?" + NvHTTP.getLaunchQuery(context, 42, false));
                 assertNull(query.queryParameter("clientVrrRequested"));
                 assertNull(query.queryParameter("vrr"));
                 context.streamConfig = new StreamConfiguration.Builder().setLaunchRefreshRate(120)
                         .setClientRefreshRateX100(12000).setVrr(true).build();
                 query = HttpUrl.get("https://host/" + verb + "?" + NvHTTP.getLaunchQuery(context, 42, false));
-                assertEquals("1", query.queryParameter("clientVrrRequested"));
-                assertEquals("1", query.queryParameter("vrr"));
-                context.isNvidiaServerSoftware = true;
-                query = HttpUrl.get("https://host/" + verb + "?" + NvHTTP.getLaunchQuery(context, 42, false));
-                assertNull(query.queryParameter("clientVrrRequested"));
-                assertNull(query.queryParameter("vrr"));
+                assertEquals(host[0], host[1], query.queryParameter("clientVrrRequested"));
+                assertEquals(host[0], host[2], query.queryParameter("vrr"));
             }
         }
     }
 
     @Test
     public void legacyNvidiaRetainsSopsWorkarounds() throws Exception {
-        ConnectionContext context = context("sunshine-serverinfo.xml");
+        ConnectionContext context = context("gamestream-serverinfo.xml");
         context.isNvidiaServerSoftware = true;
         HttpUrl query = query(context, false);
         assertEquals("1968x2184x0", query.queryParameter("mode"));
@@ -799,6 +810,53 @@ public class NvHTTPParityTest {
         assertTrue(updated.matches("42-[0-9a-f-]{36}"));
         app.setAppUuid("b");
         assertNotEquals(updated, app.getAssetCacheKey());
+    }
+
+    @Test
+    public void launchQueryCarriesOnlyWhatEachHostReads() throws Exception {
+        // host, mode, virtualDisplay, scaleFactor, hostDisplay, clientVrrRequested, vrr
+        String[][] hosts = {
+                {"sunshine-serverinfo.xml", "1968x2184x60", null, null, null, null, null},
+                {"apollo-serverinfo.xml", "1968x2184x59.94", "1", "125", null, null, null},
+                {"apollo-http-serverinfo.xml", "1968x2184x59.94", null, null, null, null, null},
+                {"vibepollo-serverinfo.xml", "1968x2184x59.94", "1", "125", null, "1", null},
+                {"gamestream-serverinfo.xml", "1968x2184x60", null, null, null, null, null},
+                {"butterpollo-serverinfo.xml", "1968x2184x59.94", "1", "125", null, "1", "1"},
+                {"rubylight-serverinfo.xml", "1968x2184x59.94", "1", "125", "exclusive", "1", "1"},
+        };
+        for (String[] host : hosts) {
+            ConnectionContext context = context(host[0]);
+            context.isNvidiaServerSoftware = context.hostCaps.family() == HostCapabilities.Family.GAMESTREAM;
+            context.streamConfig = new StreamConfiguration.Builder().setLaunchRefreshRate(60)
+                    .setLaunchRefreshRateX100(5994).setClientRefreshRateX100(12000)
+                    .setVirtualDisplay(true, 125).setVrr(true).build();
+            context.hostDisplay = HostDisplayChoice.EXCLUSIVE;
+            HttpUrl query = query(context, false);
+            assertEquals(host[0], host[1], query.queryParameter("mode"));
+            assertEquals(host[0], host[2], query.queryParameter("virtualDisplay"));
+            assertEquals(host[0], host[3], query.queryParameter("scaleFactor"));
+            assertEquals(host[0], host[4], query.queryParameter("hostDisplay"));
+            assertEquals(host[0], host[5], query.queryParameter("clientVrrRequested"));
+            assertEquals(host[0], host[6], query.queryParameter("vrr"));
+            assertEquals(host[0], "42", query.queryParameter("appid"));
+        }
+    }
+
+    @Test
+    public void computerDetailsCarryTheHostsCapabilities() throws Exception {
+        assertTrue(http().getComputerDetails(fixture("gamestream-serverinfo.xml")).nvidiaServer);
+        for (String host : new String[] {"sunshine", "apollo", "vibepollo", "rubylight"}) {
+            ComputerDetails details = http().getComputerDetails(fixture(host + "-serverinfo.xml"));
+            assertFalse(host, details.nvidiaServer);
+            assertEquals(host, TestHosts.fixture(host + "-serverinfo.xml"), details.caps);
+            assertEquals(host, details.caps, new ComputerDetails(details).caps);
+        }
+        // Details that never reached the host (mDNS, a manual address) keep what is known.
+        ComputerDetails known = http().getComputerDetails(fixture("rubylight-serverinfo.xml"));
+        known.update(new ComputerDetails());
+        assertEquals(HostCapabilities.Family.RUBYLIGHT, known.caps.family());
+        known.update(http().getComputerDetails(fixture("sunshine-serverinfo.xml")));
+        assertEquals(HostCapabilities.Family.SUNSHINE, known.caps.family());
     }
 
     @Test

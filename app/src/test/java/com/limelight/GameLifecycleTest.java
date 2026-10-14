@@ -136,7 +136,7 @@ public class GameLifecycleTest {
         Game activity = Robolectric.buildActivity(Game.class).get();
         RetryConnection connection = new RetryConnection();
         com.limelight.nvstream.http.ComputerDetails details = connection.getHostDetails();
-        details.rustHostVersion = "2.2.4";
+        details.caps = com.limelight.nvstream.http.TestHosts.rubylight();
         details.permission = com.limelight.nvstream.http.ComputerDetails.PERMISSION_VIEW;
         ReflectionHelpers.setField(activity, "app", new com.limelight.nvstream.http.NvApp());
         ReflectionHelpers.setField(activity, "conn", connection);

@@ -93,28 +93,26 @@ public class ComputerDetails {
     public String rawAppList;
     public boolean nvidiaServer;
     public long permission = -1;
-    public String rustHostVersion;
+    // What the host can do, from its last serverinfo reply; offline PCs keep their cached copy.
+    public HostCapabilities caps = HostCapabilities.UNKNOWN;
     public boolean encoderBitrateSupported;
     public int encoderBitrateKbps;
     public int initialEncoderBitrateKbps;
     public ArrayList<String> serverCommands = new ArrayList<>();
-    public boolean frameLimiterSupported;
     public boolean frameLimiterEnabled;
     public boolean virtualDisplayFrameLimiterEnabled;
     public long frameLimiterFpsLimitMilliHz;
     public long pyroWaveHostLinkMbps;
     public int pyroWaveBandwidthProbeBytes;
-    public int hardwareMetricsVersion;
-    public int networkPathVersion;
 
     public boolean supportsHardwareMetrics() {
-        return hardwareMetricsVersion == 1 && rustHostVersion != null &&
-                pairState == PairingManager.PairState.PAIRED &&
+        return caps.has(HostCapabilities.Feature.HARDWARE_METRICS) && pairState == PairingManager.PairState.PAIRED &&
                 hasPermission(PERMISSION_VIEW | PERMISSION_LAUNCH);
     }
 
     public boolean supportsPyroWaveBandwidthProbe() {
-        return rustHostVersion != null && pairState == PairingManager.PairState.PAIRED &&
+        return caps.has(HostCapabilities.Feature.PYROWAVE_BANDWIDTH_PROBE) &&
+                pairState == PairingManager.PairState.PAIRED &&
                 pyroWaveBandwidthProbeBytes == NvHTTP.PYROWAVE_BANDWIDTH_PROBE_BYTES;
     }
 
@@ -143,7 +141,8 @@ public class ComputerDetails {
             throw new IllegalArgumentException("Server command unavailable or permission denied");
         }
         // Rubylight accepts one byte; Apollo/Artemis uses three reserved trailing bytes.
-        return rustHostVersion != null ? new byte[] {(byte) index} : new byte[] {(byte) index, 0, 0, 0};
+        return caps.family() == HostCapabilities.Family.RUBYLIGHT ? new byte[] {(byte) index} :
+                new byte[] {(byte) index, 0, 0, 0};
     }
 
     public ComputerDetails() {
@@ -178,7 +177,6 @@ public class ComputerDetails {
     }
 
     public void update(ComputerDetails details) {
-        this.networkPathVersion = details.networkPathVersion;
         this.state = details.state;
         this.name = details.name;
         this.uuid = details.uuid;
@@ -219,18 +217,19 @@ public class ComputerDetails {
         this.nvidiaServer = details.nvidiaServer;
         this.rawAppList = details.rawAppList;
         this.permission = details.permission;
-        this.rustHostVersion = details.rustHostVersion;
+        // Details that never reached the host (mDNS, a manual address) keep what is known.
+        if (details.caps.isKnown() || !this.caps.isKnown()) {
+            this.caps = details.caps;
+        }
         this.encoderBitrateSupported = details.encoderBitrateSupported;
         this.encoderBitrateKbps = details.encoderBitrateKbps;
         this.initialEncoderBitrateKbps = details.initialEncoderBitrateKbps;
         this.serverCommands = new ArrayList<>(details.serverCommands);
-        this.frameLimiterSupported = details.frameLimiterSupported;
         this.frameLimiterEnabled = details.frameLimiterEnabled;
         this.virtualDisplayFrameLimiterEnabled = details.virtualDisplayFrameLimiterEnabled;
         this.frameLimiterFpsLimitMilliHz = details.frameLimiterFpsLimitMilliHz;
         this.pyroWaveHostLinkMbps = details.pyroWaveHostLinkMbps;
         this.pyroWaveBandwidthProbeBytes = details.pyroWaveBandwidthProbeBytes;
-        this.hardwareMetricsVersion = details.hardwareMetricsVersion;
     }
 
     private static void appendIfKnown(StringBuilder str, String label, Object value) {
@@ -255,6 +254,7 @@ public class ComputerDetails {
         str.append("Pair State: ").append(pairState).append("\n");
         str.append("Running Game ID: ").append(runningGameId).append("\n");
         str.append("HTTPS Port: ").append(httpsPort).append("\n");
+        str.append("Host: ").append(caps).append("\n");
         str.append("Permissions: ").append(permission == -1 ? "Not advertised" : "0x" + Long.toHexString(permission)).append("\n");
         if (permission != -1) {
             str.append("List applications: ").append(hasPermission(PERMISSION_LIST)).append("\n");

@@ -398,7 +398,7 @@ public class MoonBridge {
                                               byte[] riAesKey, byte[] riAesIv,
                                               int videoCapabilities,
                                               int colorSpace, int colorRange,
-                                              boolean unbatchedInput, boolean networkPriority, String rustHostVersion,
+                                              boolean unbatchedInput, boolean networkPriority, int hostFeatures,
                                               boolean inputOnly, boolean remoteMonitor, boolean enableMic,
                                               boolean hapticsPcm);
 

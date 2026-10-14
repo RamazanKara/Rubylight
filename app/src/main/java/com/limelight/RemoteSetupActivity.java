@@ -17,6 +17,7 @@ import androidx.appcompat.app.AppCompatActivity;
 import com.limelight.binding.PlatformBinding;
 import com.limelight.computers.ComputerManagerService;
 import com.limelight.nvstream.http.ComputerDetails;
+import com.limelight.nvstream.http.HostCapabilities;
 import com.limelight.nvstream.http.NetworkPathInfo;
 import com.limelight.nvstream.http.NvHTTP;
 import com.limelight.nvstream.http.PairingManager;
@@ -149,7 +150,7 @@ public class RemoteSetupActivity extends AppCompatActivity {
                 }
                 if (verified != null) {
                     message = R.string.remote_verified;
-                    if (verified.networkPathVersion == 1) {
+                    if (verified.caps.has(HostCapabilities.Feature.NETWORK_PATH)) {
                         try { route = http.getNetworkPath().kind; } catch (IOException ignored) { /* Keep route explicitly unknown. */ }
                     }
                 }

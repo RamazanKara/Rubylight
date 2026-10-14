@@ -21,7 +21,7 @@ public class NetworkPathInfoTest {
         }
     }
     @Test public void copyPreservesCapability() {
-        ComputerDetails computer = new ComputerDetails(); computer.networkPathVersion = 1;
-        assertEquals(1, new ComputerDetails(computer).networkPathVersion);
+        ComputerDetails computer = new ComputerDetails(); computer.caps = TestHosts.rubylight();
+        assertTrue(new ComputerDetails(computer).caps.has(HostCapabilities.Feature.NETWORK_PATH));
     }
 }

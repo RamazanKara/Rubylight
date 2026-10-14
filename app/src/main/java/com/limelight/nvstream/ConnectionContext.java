@@ -1,6 +1,7 @@
 package com.limelight.nvstream;
 
 import com.limelight.nvstream.http.ComputerDetails;
+import com.limelight.nvstream.http.HostCapabilities;
 import com.limelight.preferences.HostDisplayChoice;
 
 import java.security.cert.X509Certificate;
@@ -21,8 +22,8 @@ public class ConnectionContext {
     public String serverAppVersion;
     public String serverGfeVersion;
     public int serverCodecModeSupport;
-    public boolean serverSupportsVirtualDisplay;
-    public boolean serverSupportsFractionalRefreshRate;
+    // What the host can do, from this connection's serverinfo reply
+    public HostCapabilities hostCaps = HostCapabilities.UNKNOWN;
     // This device's "Display on the PC" choice for this host, read once the host is known
     public HostDisplayChoice hostDisplay = HostDisplayChoice.HOST_DEFAULT;
 

@@ -140,7 +140,7 @@ public class GameHealthTest {
             super(null, new ComputerDetails.AddressTuple("192.0.2.1", 47989), 47984, "test",
                     new StreamConfiguration.Builder().build(), null, null);
             ComputerDetails details = getHostDetails();
-            details.rustHostVersion = "2.2.4";
+            details.caps = com.limelight.nvstream.http.TestHosts.rubylight();
             details.encoderBitrateSupported = true;
             details.permission = ComputerDetails.PERMISSION_VIEW;
             details.encoderBitrateKbps = bitrate;

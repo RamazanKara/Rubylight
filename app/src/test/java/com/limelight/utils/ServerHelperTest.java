@@ -1,6 +1,8 @@
 package com.limelight.utils;
 
 import com.limelight.nvstream.http.ComputerDetails;
+import com.limelight.nvstream.http.HostCapabilities;
+import com.limelight.nvstream.http.TestHosts;
 
 import org.junit.Test;
 
@@ -10,7 +12,7 @@ public class ServerHelperTest {
     private ComputerDetails computer(String address, int httpPort, int httpsPort) {
         ComputerDetails computer = new ComputerDetails();
         computer.state = ComputerDetails.State.ONLINE;
-        computer.rustHostVersion = "2.2.5";
+        computer.caps = TestHosts.rubylight();
         computer.activeAddress = new ComputerDetails.AddressTuple(address, httpPort);
         computer.httpsPort = httpsPort;
         return computer;
@@ -38,16 +40,22 @@ public class ServerHelperTest {
     }
 
     @Test
-    public void hostConsoleIsOnlyAvailableForOnlineRubylightWithAnActiveAddress() {
+    public void hostWebUiIsOfferedForEveryOnlineHostButGameStream() {
         ComputerDetails computer = computer("host.example", 47989, 47984);
         computer.state = ComputerDetails.State.OFFLINE;
         assertNull(ServerHelper.getHostSettingsUrl(computer));
         computer.state = ComputerDetails.State.UNKNOWN;
         assertNull(ServerHelper.getHostSettingsUrl(computer));
         computer.state = ComputerDetails.State.ONLINE;
-        computer.rustHostVersion = null;
+        for (String host : new String[] {"sunshine", "apollo", "apollo-http", "vibepollo", "rubylight"}) {
+            computer.caps = TestHosts.fixture(host + "-serverinfo.xml");
+            assertEquals(host, "https://host.example:47990/", ServerHelper.getHostSettingsUrl(computer).toString());
+        }
+        computer.caps = HostCapabilities.UNKNOWN;
+        assertNotNull(ServerHelper.getHostSettingsUrl(computer));
+        computer.caps = TestHosts.fixture("gamestream-serverinfo.xml");
         assertNull(ServerHelper.getHostSettingsUrl(computer));
-        computer.rustHostVersion = "2.2.5";
+        computer.caps = TestHosts.rubylight();
         computer.activeAddress = null;
         assertNull(ServerHelper.getHostSettingsUrl(computer));
     }

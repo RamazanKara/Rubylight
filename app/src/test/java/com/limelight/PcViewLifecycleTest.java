@@ -93,7 +93,7 @@ public class PcViewLifecycleTest {
         try {
             ComputerDetails computer = new ComputerDetails();
             computer.state = ComputerDetails.State.ONLINE;
-            computer.rustHostVersion = "2.2.5";
+            computer.caps = com.limelight.nvstream.http.TestHosts.rubylight();
             computer.activeAddress = new ComputerDetails.AddressTuple("2001:db8::1", 50000);
             computer.httpsPort = 49995;
             ReflectionHelpers.callInstanceMethod(controller.get(), "showHostAdministration",

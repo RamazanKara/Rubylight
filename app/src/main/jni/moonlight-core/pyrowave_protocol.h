@@ -15,35 +15,9 @@
 extern int PyroWaveRecordsSupported;
 extern int PyroWaveRecordsEnabled;
 
-// Records shipped with Rubylight 2.0.0-rc.1 (331b1bfaa1a0).
-static inline int supportsPyroWaveRecords(const char* version) {
-    if (!version) return 0;
-    unsigned int parts[3];
-    for (int i = 0; i < 3; i++) {
-        const char* start = version;
-        unsigned int value = 0;
-        while (*version >= '0' && *version <= '9') {
-            if (value > 100000) return 0;
-            value = value * 10 + (unsigned int)(*version++ - '0');
-        }
-        if (version == start || (version - start > 1 && *start == '0')) return 0;
-        parts[i] = value;
-        if (i < 2 && *version++ != '.') return 0;
-    }
-    if (!strncmp(version, "-rc.", 4)) {
-        version += 4;
-        if (*version < '1' || *version > '9') return 0;
-        while (*version >= '0' && *version <= '9') version++;
-    }
-    if (*version == '+') {
-        const char* start = ++version;
-        while ((*version >= '0' && *version <= '9') || (*version >= 'a' && *version <= 'z') ||
-               (*version >= 'A' && *version <= 'Z') || *version == '.' || *version == '-') version++;
-        if (version == start) return 0;
-    }
-    if (*version) return 0;
-    return parts[0] >= 2;
-}
+// startConnection's host feature bits, decided by the Java side from the host's serverinfo
+// (HostCapabilities.nativeFeatures()).
+#define HOST_FEATURE_PYROWAVE_RECORDS 0x1
 
 static inline int selectPyroWaveFormat(int formats, unsigned int serverFormats, const char* sdp) {
     // Match a complete attribute: a future bitstream revision must use the ordinary codecs.

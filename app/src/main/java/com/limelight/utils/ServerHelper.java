@@ -11,6 +11,7 @@ import com.limelight.ShortcutTrampoline;
 import com.limelight.binding.PlatformBinding;
 import com.limelight.computers.ComputerManagerService;
 import com.limelight.nvstream.http.ComputerDetails;
+import com.limelight.nvstream.http.HostCapabilities;
 import com.limelight.nvstream.http.HostHttpResponseException;
 import com.limelight.nvstream.http.NvApp;
 import com.limelight.nvstream.http.NvHTTP;
@@ -35,11 +36,12 @@ public class ServerHelper {
     }
 
     public static HttpUrl getHostSettingsUrl(ComputerDetails computer) {
-        if (computer.state != ComputerDetails.State.ONLINE || computer.rustHostVersion == null ||
+        if (computer.state != ComputerDetails.State.ONLINE || !computer.caps.mayHave(HostCapabilities.Feature.WEB_UI) ||
                 computer.activeAddress == null || computer.httpsPort < 0 || computer.httpsPort > 65529) {
             return null;
         }
-        // Rubylight's console is six ports above NvHTTP HTTPS (HTTP base + 1).
+        // Sunshine, Apollo, Vibepollo and Rubylight serve their web UI six ports above the
+        // HTTPS port (the HTTP base port + 1) unless the user moved it.
         int port = computer.httpsPort == 0 ? computer.activeAddress.port + 1 : computer.httpsPort + 6;
         if (port <= 0 || port > 65535) {
             return null;

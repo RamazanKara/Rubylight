@@ -565,21 +565,20 @@ Java_com_limelight_nvstream_jni_MoonBridge_startConnection(JNIEnv *env, jclass c
                                                            jint videoCapabilities,
                                                            jint colorSpace, jint colorRange,
                                                            jboolean unbatchedInput, jboolean networkPriority,
-                                                           jstring rustHostVersion,
+                                                           jint hostFeatures,
                                                            jboolean inputOnly, jboolean remoteMonitor,
                                                            jboolean enableMic, jboolean hapticsPcm) {
     AndroidInputOnly = inputOnly;
     AndroidRemoteMonitor = remoteMonitor;
     AndroidMicRequested = enableMic;
     AndroidHapticsPcmRequested = hapticsPcm;
-    const char* rustVersion = rustHostVersion ? (*env)->GetStringUTFChars(env, rustHostVersion, NULL) : NULL;
-    PyroWaveRecordsSupported = supportsPyroWaveRecords(rustVersion);
+    // The Java side decides from the host's serverinfo which extensions this stream may use.
+    PyroWaveRecordsSupported = (hostFeatures & HOST_FEATURE_PYROWAVE_RECORDS) != 0;
     // Phase-lock reports go only to hosts that announce them in this connection's DESCRIBE answer.
     resetPhaseLockReports();
     // Filled from this connection's DESCRIBE answer (a=x-rl-control).
     resetHostControlMessages();
     PyroWaveRecordsEnabled = 0;
-    if (rustVersion) (*env)->ReleaseStringUTFChars(env, rustHostVersion, rustVersion);
     atomic_store(&AndroidUnbatchedInput, unbatchedInput);
     atomic_store(&AndroidNetworkPriority, networkPriority);
     __android_log_print(ANDROID_LOG_INFO, "moonlight-core", "Latency options: unbatched input=%d, network priority=%d",

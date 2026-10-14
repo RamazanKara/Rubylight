@@ -13,6 +13,7 @@ import com.limelight.computers.ComputerDatabaseManager;
 import com.limelight.computers.ComputerManagerListener;
 import com.limelight.computers.ComputerManagerService;
 import com.limelight.nvstream.http.ComputerDetails;
+import com.limelight.nvstream.http.HostCapabilities;
 import com.limelight.nvstream.http.NvApp;
 import com.limelight.nvstream.http.NvHTTP;
 import com.limelight.nvstream.http.PairingManager;
@@ -147,7 +148,8 @@ public class ShortcutTrampoline extends Activity {
                                             // Launch game if provided app ID, otherwise launch app view
                                             if (app != null) {
                                                 if (details.runningGameId == 0 || app.getControl() != NvApp.Control.NONE ||
-                                                        details.rustHostVersion != null || app.matchesRunningApp(details.runningGameId, details.runningGameUuid)) {
+                                                        details.caps.has(HostCapabilities.Feature.HOST_CONFIRMS_REPLACEMENT) ||
+                                                        app.matchesRunningApp(details.runningGameId, details.runningGameUuid)) {
                                                     intentStack.add(ServerHelper.createStartIntent(ShortcutTrampoline.this, app, details, managerBinder));
 
                                                     // Close this activity

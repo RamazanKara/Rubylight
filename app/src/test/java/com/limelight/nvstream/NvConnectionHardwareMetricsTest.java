@@ -142,8 +142,7 @@ public class NvConnectionHardwareMetricsTest {
     private static NvConnection supportedConnection() {
         NvConnection connection = connection();
         ComputerDetails details = connection.getHostDetails();
-        details.hardwareMetricsVersion = 1;
-        details.rustHostVersion = "0.4.3";
+        details.caps = com.limelight.nvstream.http.TestHosts.rubylight();
         details.pairState = PairingManager.PairState.PAIRED;
         details.httpsPort = 47984;
         return connection;

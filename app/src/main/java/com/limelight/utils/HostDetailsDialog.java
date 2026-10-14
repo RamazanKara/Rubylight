@@ -14,6 +14,7 @@ import android.widget.Toast;
 
 import com.limelight.R;
 import com.limelight.nvstream.http.ComputerDetails;
+import com.limelight.nvstream.http.HostCapabilities;
 import com.limelight.nvstream.http.PairingManager;
 
 /** Readable host details, with the raw dump kept behind "Copy debug info" for support reports. */
@@ -94,18 +95,9 @@ public final class HostDetailsDialog {
         }
 
         section(R.string.host_details_host);
-        String software;
-        if (details.rustHostVersion != null) {
-            software = activity.getString(R.string.host_details_software_butterpollo, details.rustHostVersion);
-        }
-        else if (details.nvidiaServer) {
-            software = activity.getString(R.string.host_details_software_gamestream);
-        }
-        else {
-            software = activity.getString(R.string.host_details_software_other);
-        }
-        row(R.string.host_details_software, software);
+        row(R.string.host_details_software, details.caps.familyLabel(activity));
         row(R.string.host_details_id, details.uuid);
+        row(R.string.host_details_features, features(details.caps));
 
         section(R.string.host_details_network);
         row(R.string.host_details_active_address, text(details.activeAddress));
@@ -133,5 +125,19 @@ public final class HostDetailsDialog {
             row(R.string.stream_permission_allowed, allowed);
             row(R.string.stream_permission_denied, denied);
         }
+    }
+
+    /** The supported features the user would recognize, one per line. */
+    private CharSequence features(HostCapabilities caps) {
+        if (!caps.isKnown()) {
+            return activity.getString(R.string.host_details_features_unknown);
+        }
+        StringBuilder list = new StringBuilder();
+        for (HostCapabilities.Feature feature : caps.supported()) {
+            if (feature.label != 0) {
+                list.append(list.length() == 0 ? "" : "\n").append(activity.getString(feature.label));
+            }
+        }
+        return list.length() == 0 ? activity.getString(R.string.host_details_features_none) : list;
     }
 }

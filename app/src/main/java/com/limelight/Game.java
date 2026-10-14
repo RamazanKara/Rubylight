@@ -31,6 +31,7 @@ import com.limelight.nvstream.PyroWaveBitrateController;
 import com.limelight.nvstream.NvConnectionListener;
 import com.limelight.nvstream.StreamConfiguration;
 import com.limelight.nvstream.http.ComputerDetails;
+import com.limelight.nvstream.http.HostCapabilities;
 import com.limelight.nvstream.http.HardwareMetrics;
 import com.limelight.nvstream.http.LaunchConfirmation;
 import com.limelight.nvstream.http.NvApp;
@@ -2123,7 +2124,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         if (app.getRole() != NvApp.Role.INPUT_ONLY) {
             addStreamAction(sheet, R.drawable.ic_remote_monitor, R.string.desktop_title, this::showDesktopMenu);
             addStreamAction(sheet, R.drawable.ic_remote_monitor, R.string.stream_overlay_menu, this::showOverlayMenu);
-            if (details.rustHostVersion != null &&
+            if (details.caps.has(HostCapabilities.Feature.RUNTIME_BITRATE) &&
                     details.hasPermission(ComputerDetails.PERMISSION_VIEW | ComputerDetails.PERMISSION_LAUNCH)) {
                 addStreamAction(sheet, R.drawable.ic_network, R.string.stream_bitrate, this::showBitrateMenu);
             }
@@ -2898,7 +2899,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         if (details.permission != -1) {
             status.append("\n\n").append(getString(R.string.stream_permissions_help));
         }
-        if (details.frameLimiterSupported) {
+        if (details.caps.has(HostCapabilities.Feature.FRAME_LIMITER_STATUS)) {
             status.append("\n\n").append(getString(R.string.stream_limiter_status,
                     getString(details.frameLimiterEnabled ? R.string.stream_enabled : R.string.stream_disabled),
                     getString(details.virtualDisplayFrameLimiterEnabled ? R.string.stream_enabled : R.string.stream_disabled),
@@ -2974,7 +2975,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
 
     private boolean supportsAdaptiveBitrate() {
         ComputerDetails details = conn.getHostDetails();
-        return app.getRole() != NvApp.Role.INPUT_ONLY && details.rustHostVersion != null && details.encoderBitrateSupported &&
+        return app.getRole() != NvApp.Role.INPUT_ONLY && details.caps.has(HostCapabilities.Feature.RUNTIME_BITRATE) &&
+                details.encoderBitrateSupported &&
                 details.hasPermission(ComputerDetails.PERMISSION_VIEW | ComputerDetails.PERMISSION_LAUNCH);
     }
 

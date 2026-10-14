@@ -97,7 +97,7 @@ public class NvHTTPRoleTest {
         context.streamConfig = new StreamConfiguration.Builder().setApp(app)
                 .setLaunchRefreshRate(60).setAttachedGamepadMask(3)
                 .setPersistGamepadsAfterDisconnect(true).setVirtualDisplay(true, 150).setVrr(true).build();
-        context.serverSupportsVirtualDisplay = true;
+        context.hostCaps = TestHosts.rubylight();
         context.negotiatedWidth = 1920;
         context.negotiatedHeight = 1080;
         context.riKey = new SecretKeySpec(new byte[16], "AES");
@@ -146,7 +146,8 @@ public class NvHTTPRoleTest {
             assertEquals("extended", query.queryParameter("hostDisplay"));
             assertEquals("1", query.queryParameter("virtualDisplay"));
         }
-        context.isNvidiaServerSoftware = true;
+        // GameStream has no display modes, so it never receives the choice.
+        context.hostCaps = TestHosts.fixture("gamestream-serverinfo.xml");
         assertNull(query(context, "launch").queryParameter("hostDisplay"));
     }
 

@@ -243,12 +243,5 @@ int main() {
         "a=rtpmap:99 PYROWAVE/900001\na=x-ss-pyrowave.bitstream:186f0393\n") == 0);
     assert(selectPyroWaveFormat(0xf0000, 0x07800000,
         "a=rtpmap: PYROWAVE/90000\na=x-ss-pyrowave.bitstream:186f0393\n") == 0);
-    for (const char *version : {"2.0.0-rc.1", "2.0.0-rc.25", "2.0.0", "2.1.0", "3.0.0", "2.0.0-rc.2+build.7"}) {
-        assert(supportsPyroWaveRecords(version));
-    }
-    for (const char *version : {static_cast<const char *>(nullptr), "", "1.9.9", "2.0.0-rc.0", "2.0.0-beta.9", "test",
-                               "2.0", "2.0.0-rc.1junk", "2.0.0-rc.01", "2.0.0+", "02.0.0", "999999999.0.0"}) {
-        assert(!supportsPyroWaveRecords(version));
-    }
     std::puts("PyroWave ordinary framing and negotiation: passed");
 }

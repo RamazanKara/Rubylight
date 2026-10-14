@@ -46,6 +46,7 @@ import com.limelight.nvstream.av.audio.AudioRenderer;
 import com.limelight.nvstream.av.video.VideoDecoderRenderer;
 import com.limelight.nvstream.http.ComputerDetails;
 import com.limelight.nvstream.http.HardwareMetrics;
+import com.limelight.nvstream.http.HostCapabilities;
 import com.limelight.nvstream.http.HostHttpResponseException;
 import com.limelight.nvstream.http.LimelightCryptoProvider;
 import com.limelight.nvstream.http.LaunchConfirmation;
@@ -546,19 +547,22 @@ public class NvConnection {
         ComputerDetails details = h.getComputerDetails(serverInfo);
         hostDetails = details;
         context.isNvidiaServerSoftware = details.nvidiaServer;
-        if (canSendControllerInput() && NvHTTP.supportsControllerPreparation(serverInfo) && controllerPreparation != null) {
+        context.hostCaps = details.caps;
+        LimeLog.info("Host: " + details.caps);
+        if (canSendControllerInput() && details.caps.has(HostCapabilities.Feature.CONTROLLER_PREPARATION) &&
+                controllerPreparation != null) {
             context.preparedControllers = controllerPreparation.get();
         }
-        NvHTTP.readDisplayCapabilities(context, serverInfo);
         // The choice saved for the PC this stream was started from (its stored ID); the ID in this
         // serverinfo reply is only the fallback.
         context.hostDisplay = context.streamConfig.getHostDisplay() != null ?
                 context.streamConfig.getHostDisplay() : HostDisplayChoice.load(appContext, details.uuid);
-        LimeLog.info("Display on the PC: " + context.hostDisplay.forRole(context.streamConfig.getApp().getRole()).name() +
+        NvApp.Role role = context.streamConfig.getApp().getRole();
+        boolean virtualDisplay = details.caps.has(HostCapabilities.Feature.VIRTUAL_DISPLAY);
+        LimeLog.info("Display on the PC: " + NvHTTP.launchDisplayChoice(context, role).name() +
                 ", host virtual display " + (context.streamConfig.getVirtualDisplay() ? "on" : "off") +
-                (context.serverSupportsVirtualDisplay ? "" : " (the PC reports no virtual display)"));
-        if (context.hostDisplay.forRole(context.streamConfig.getApp().getRole())
-                .requestsVirtualDisplay(context.streamConfig.getVirtualDisplay()) && !context.serverSupportsVirtualDisplay) {
+                (virtualDisplay ? "" : " (the PC reports no virtual display)"));
+        if (NvHTTP.wantsVirtualDisplay(context, role) && !virtualDisplay) {
             context.connListener.displayTransientMessage(appContext.getString(R.string.startup_virtual_display_unavailable));
         }
 
@@ -624,7 +628,9 @@ public class NvConnection {
             app.setMonitorResume(currentApp.getRole() == NvApp.Role.REMOTE_MONITOR);
         }
 
-        context.serverCodecModeSupport = (int)h.getServerCodecModeSupport(serverInfo);
+        // PyroWave's bits are only trusted from a host that also shows PyroWave; the stream
+        // description then still has to offer it.
+        context.serverCodecModeSupport = details.caps.trustedCodecModeSupport((int) h.getServerCodecModeSupport(serverInfo));
 
         //
         // Decide on negotiated stream parameters now
@@ -711,8 +717,8 @@ public class NvConnection {
                         context.connListener.displayMessage(appContext.getString(R.string.startup_resume_failed));
                         return false;
                     }
-                } else if (details.rustHostVersion != null) {
-                    // The Rust host resolves control tiles and confirms replacement itself. Cancelling
+                } else if (details.caps.has(HostCapabilities.Feature.HOST_CONFIRMS_REPLACEMENT)) {
+                    // The host resolves control tiles and confirms replacement itself. Cancelling
                     // first would terminate the game when selecting its Resume or Remote Input tile.
                     return launchNotRunningApp(h, context);
                 } else {
@@ -925,7 +931,7 @@ public class NvConnection {
                                 context.videoCapabilities,
                                 context.streamConfig.getColorSpace(),
                                 context.streamConfig.getColorRange(), prefs.unbatchedInput, prefs.networkPriority,
-                                hostDetails.rustHostVersion,
+                                hostDetails.caps.nativeFeatures(),
                                 context.streamConfig.getApp().getRole() == NvApp.Role.INPUT_ONLY,
                                 context.streamConfig.getApp().getRole() == NvApp.Role.REMOTE_MONITOR,
                                 micPermitted, prefs.usbDualSenseHaptics);
@@ -1130,7 +1136,8 @@ public class NvConnection {
 
     public int setBitrate(int kbps) throws IOException, XmlPullParserException {
         ComputerDetails details = refreshHostDetails();
-        if (isMonkey || context.streamConfig.getApp().getRole() == NvApp.Role.INPUT_ONLY || details.rustHostVersion == null ||
+        if (isMonkey || context.streamConfig.getApp().getRole() == NvApp.Role.INPUT_ONLY ||
+                !details.caps.has(HostCapabilities.Feature.RUNTIME_BITRATE) ||
                 !details.hasPermission(ComputerDetails.PERMISSION_VIEW | ComputerDetails.PERMISSION_LAUNCH)) {
             throw new IOException("Host does not allow runtime bitrate changes");
         }

@@ -11,6 +11,7 @@ import com.limelight.computers.ComputerManagerListener;
 import com.limelight.computers.ComputerManagerService;
 import com.limelight.grid.PcGridAdapter;
 import com.limelight.nvstream.http.ComputerDetails;
+import com.limelight.nvstream.http.HostCapabilities;
 import com.limelight.nvstream.http.NvApp;
 import com.limelight.nvstream.http.NvHTTP;
 import com.limelight.nvstream.http.PairingManager;
@@ -475,7 +476,7 @@ public class PcView extends AppCompatActivity implements AdapterFragmentCallback
         sheet.addSection(R.string.pc_sheet_pairing);
         if (online && !paired) {
             addPcAction(sheet, computer, PAIR_ID, R.drawable.ic_lock, R.string.pcview_menu_pair_pc);
-            if (computer.details.rustHostVersion != null || computer.details.permission != -1) {
+            if (computer.details.caps.has(HostCapabilities.Feature.OTP_PAIRING)) {
                 addPcAction(sheet, computer, OTP_PAIR_ID, R.drawable.ic_keyboard, R.string.pair_otp_title);
             }
         }

@@ -335,10 +335,6 @@ public class NvHTTP {
         return getXmlString(new StringReader(str), tagname, throwIfMissing);
     }
 
-    public static boolean supportsControllerPreparation(String serverInfo) throws XmlPullParserException, IOException {
-        return "1".equals(getXmlString(serverInfo, "ControllerPreparation", false));
-    }
-    
     private static void verifyResponseStatus(XmlPullParser xpp) throws HostHttpResponseException, XmlPullParserException {
         // We use Long.parseLong() because in rare cases GFE can send back a status code of
         // 0xFFFFFFFF, which will cause Integer.parseInt() to throw a NumberFormatException due
@@ -459,9 +455,7 @@ public class NvHTTP {
         details.sessionIdle = getXmlString(serverInfo, "state", true).endsWith("_SERVER_FREE");
         details.runningGameUuid = getXmlString(serverInfo, "currentgameuuid", false);
         readClientCapabilities(details, serverInfo);
-
-        // The MJOLNIR codename was used by GFE but never by any third-party server
-        details.nvidiaServer = getXmlString(serverInfo, "state", true).contains("MJOLNIR");
+        details.nvidiaServer = details.caps.family() == HostCapabilities.Family.GAMESTREAM;
 
         // We could reach it so it's online
         details.state = ComputerDetails.State.ONLINE;
@@ -470,10 +464,9 @@ public class NvHTTP {
     }
 
     static void readClientCapabilities(ComputerDetails details, String serverInfo) throws IOException, XmlPullParserException {
+        details.caps = HostCapabilities.fromServerInfo(serverInfo);
         details.permission = -1;
-        details.rustHostVersion = getXmlString(serverInfo, "RustHostVersion", false);
         details.encoderBitrateKbps = details.initialEncoderBitrateKbps = 0;
-        details.frameLimiterSupported = "1".equals(getXmlString(serverInfo, "FrameLimiterSupported", false));
         details.frameLimiterEnabled = "1".equals(getXmlString(serverInfo, "FrameLimiterEnabled", false));
         details.virtualDisplayFrameLimiterEnabled = "1".equals(getXmlString(serverInfo, "VirtualDisplayFrameLimiterEnabled", false));
         details.frameLimiterFpsLimitMilliHz = readUnsignedValue(
@@ -482,8 +475,6 @@ public class NvHTTP {
                 getXmlString(serverInfo, "PyroWaveHostLinkMbps", false), Integer.MAX_VALUE);
         details.pyroWaveBandwidthProbeBytes = (int) readUnsignedValue(
                 getXmlString(serverInfo, "PyroWaveBandwidthProbeBytes", false), PYROWAVE_BANDWIDTH_PROBE_BYTES);
-        details.hardwareMetricsVersion = getHardwareMetricsVersion(serverInfo);
-        details.networkPathVersion = "1".equals(getXmlString(serverInfo, "NetworkPathVersion", false)) ? 1 : 0;
 
         XmlPullParser parser = XmlPullParserFactory.newInstance().newPullParser();
         parser.setInput(new StringReader(serverInfo));
@@ -516,10 +507,6 @@ public class NvHTTP {
         } catch (NumberFormatException e) {
             return 0;
         }
-    }
-
-    public static int getHardwareMetricsVersion(String serverInfo) throws IOException, XmlPullParserException {
-        return "1".equals(getXmlString(serverInfo, "HardwareMetricsVersion", false)) ? 1 : 0;
     }
 
     public HardwareMetrics getHardwareMetrics() throws IOException {
@@ -1066,15 +1053,24 @@ public class NvHTTP {
         return new String(hexChars);
     }
     
-    public static void readDisplayCapabilities(ConnectionContext context, String serverInfo) throws IOException, XmlPullParserException {
-        String capable = getXmlString(serverInfo, "VirtualDisplayCapable", false);
-        String ready = getXmlString(serverInfo, "VirtualDisplayDriverReady", false);
-        context.serverSupportsVirtualDisplay = ("true".equalsIgnoreCase(capable) || "1".equals(capable)) &&
-                !"false".equalsIgnoreCase(ready) && !"0".equals(ready);
-        context.serverSupportsFractionalRefreshRate = getXmlString(serverInfo, "RustHostVersion", false) != null;
+    /** The PC display choice a launch carries: only hosts with display modes receive one. */
+    public static HostDisplayChoice launchDisplayChoice(ConnectionContext context, NvApp.Role role) {
+        return context.hostDisplay == null || !context.hostCaps.has(HostCapabilities.Feature.HOST_DISPLAY_MODES) ?
+                HostDisplayChoice.HOST_DEFAULT : context.hostDisplay.forRole(role);
     }
 
+    /**
+     * Whether this stream asks for a virtual display, whether or not the host has one: the PC
+     * display choice where the host has display modes, otherwise the on/off setting.
+     */
+    public static boolean wantsVirtualDisplay(ConnectionContext context, NvApp.Role role) {
+        return role != NvApp.Role.INPUT_ONLY &&
+                launchDisplayChoice(context, role).requestsVirtualDisplay(context.streamConfig.getVirtualDisplay());
+    }
+
+    /** The launch and resume query, with each extension only for a host that shows it. */
     static String getLaunchQuery(ConnectionContext context, int appId, boolean enableHdr) {
+        HostCapabilities caps = context.hostCaps;
         NvApp.Role role = context.streamConfig.getApp().getRole();
         boolean inputOnly = role == NvApp.Role.INPUT_ONLY;
         int gamepads = role == NvApp.Role.REMOTE_MONITOR ? 0 : context.streamConfig.getAttachedGamepadMask();
@@ -1086,17 +1082,21 @@ public class NvHTTP {
                 0 : context.streamConfig.getLaunchRefreshRate();
         String launchRate = Integer.toString(fps);
         int refreshX100 = context.streamConfig.getClientRefreshRateX100();
-        if (context.serverSupportsFractionalRefreshRate && context.streamConfig.getLaunchRefreshRateX100() > 0) {
+        // Sunshine reads the rate as an integer and would truncate 59.94 to 59.
+        boolean fractional = caps.has(HostCapabilities.Feature.FRACTIONAL_REFRESH);
+        if (fractional && context.streamConfig.getLaunchRefreshRateX100() > 0) {
             launchRate = String.format(java.util.Locale.ROOT, "%.2f",
                     context.streamConfig.getLaunchRefreshRateX100() / 100.0);
-        } else if (context.serverSupportsFractionalRefreshRate && refreshX100 > 0 &&
-                (refreshX100 + 50) / 100 == fps) {
+        } else if (fractional && refreshX100 > 0 && (refreshX100 + 50) / 100 == fps) {
             launchRate = String.format(java.util.Locale.ROOT, "%.2f", refreshX100 / 100.0);
         }
 
-        // GFE never receives the display choice; other hosts ignore a parameter they don't know.
-        HostDisplayChoice hostDisplay = context.isNvidiaServerSoftware || context.hostDisplay == null ?
-                HostDisplayChoice.HOST_DEFAULT : context.hostDisplay.forRole(role);
+        HostDisplayChoice hostDisplay = launchDisplayChoice(context, role);
+        boolean virtualDisplay = caps.has(HostCapabilities.Feature.VIRTUAL_DISPLAY) && wantsVirtualDisplay(context, role);
+        // Vibepollo reads clientVrrRequested and switches its virtual display for it; older
+        // Rubylight versions read only vrr.
+        String vrr = inputOnly || !context.streamConfig.getVrr() || !caps.has(HostCapabilities.Feature.HOST_VRR) ? "" :
+                caps.family() == HostCapabilities.Family.RUBYLIGHT ? "&clientVrrRequested=1&vrr=1" : "&clientVrrRequested=1";
 
         boolean enableSops = context.streamConfig.getSops();
         if (context.isNvidiaServerSoftware) {
@@ -1120,14 +1120,10 @@ public class NvHTTP {
                             .build().encodedQuery()) +
             (role == NvApp.Role.REMOTE_MONITOR ? "&remote_monitor=1" : inputOnly ? "&input_only=1" : "") +
             "&mode=" + context.negotiatedWidth + "x" + context.negotiatedHeight + "x" + launchRate +
-            (!inputOnly && hostDisplay.requestsVirtualDisplay(context.streamConfig.getVirtualDisplay()) &&
-                    context.serverSupportsVirtualDisplay ?
-                    "&virtualDisplay=1&scaleFactor=" + context.streamConfig.getVirtualDisplayScale() : "") +
+            (virtualDisplay ? "&virtualDisplay=1&scaleFactor=" + context.streamConfig.getVirtualDisplayScale() : "") +
             (hostDisplay.wireValue == null ? "" :
                     "&" + HostDisplayChoice.LAUNCH_PARAMETER + "=" + hostDisplay.wireValue) +
-            // Vibepollo recognizes clientVrrRequested; older Rubylight hosts use vrr.
-            (!inputOnly && context.streamConfig.getVrr() && !context.isNvidiaServerSoftware ?
-                    "&clientVrrRequested=1&vrr=1" : "") +
+            vrr +
             "&additionalStates=1&sops=" + (enableSops ? 1 : 0) +
             "&rikey="+bytesToHex(context.riKey.getEncoded()) +
             "&rikeyid="+context.riKeyId +

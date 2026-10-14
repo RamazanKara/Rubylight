@@ -84,6 +84,7 @@ public class NvConnectionHapticsFlagTest {
     @Implements(value = MoonBridge.class, isInAndroidSdk = false)
     public static class CapturingBridge {
         static Boolean hapticsPcm;
+        static int serverCodecModeSupport, hostFeatures;
 
         @Implementation protected static void __staticInitializer__() {}
 
@@ -101,6 +102,8 @@ public class NvConnectionHapticsFlagTest {
                                           boolean inputOnly, boolean remoteMonitor, boolean enableMic,
                                           boolean hapticsPcm) {
             CapturingBridge.hapticsPcm = hapticsPcm;
+            CapturingBridge.serverCodecModeSupport = serverCodecModeSupport;
+            CapturingBridge.hostFeatures = hostFeatures;
             // Stop here: no native stream exists in this test.
             return -1;
         }

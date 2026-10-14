@@ -76,7 +76,7 @@ public class ComputerManagerLifecycleTest {
         ComputerDetails computer = new ComputerDetails();
         computer.uuid = "removed-host";
         String[] files = {"HostStreamProfiles", "HostDisplayChoices", "AdaptiveBitrate", "PyroWaveBitrate",
-                HostCapabilityCache.PREFERENCES};
+                HostCapabilityCache.PREFERENCES, HostNotices.PREFERENCES};
         try {
             for (String file : files) {
                 service.getSharedPreferences(file, 0).edit()

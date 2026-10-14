@@ -524,6 +524,7 @@ public class ComputerManagerService extends Service {
             HostStreamProfile.reset(this, computer.uuid);
             HostDisplayChoice.save(this, computer.uuid, HostDisplayChoice.HOST_DEFAULT);
             HostCapabilityCache.forget(this, computer.uuid);
+            HostNotices.forget(this, computer.uuid);
             for (String preferences : new String[] {"AdaptiveBitrate", "PyroWaveBitrate"}) {
                 getSharedPreferences(preferences, MODE_PRIVATE).edit().remove(computer.uuid).apply();
             }

@@ -42,6 +42,7 @@ import com.limelight.R;
 import com.limelight.binding.audio.MicrophoneCapture;
 import com.limelight.binding.audio.MicrophoneStatus;
 import com.limelight.binding.input.InputBatcher;
+import com.limelight.computers.HostNotices;
 import com.limelight.nvstream.av.audio.AudioRenderer;
 import com.limelight.nvstream.av.video.VideoDecoderRenderer;
 import com.limelight.nvstream.http.ComputerDetails;
@@ -563,7 +564,11 @@ public class NvConnection {
         LimeLog.info("Display on the PC: " + NvHTTP.launchDisplayChoice(context, role).name() +
                 ", host virtual display " + (context.streamConfig.getVirtualDisplay() ? "on" : "off") +
                 (virtualDisplay ? "" : " (the PC reports no virtual display)"));
-        if (NvHTTP.wantsVirtualDisplay(context, role) && !virtualDisplay) {
+        // A PC without a virtual display stays without one: say so once for it, not every stream.
+        if (virtualDisplay) {
+            HostNotices.reset(appContext, details.uuid, HostNotices.Notice.VIRTUAL_DISPLAY_UNAVAILABLE);
+        } else if (NvHTTP.wantsVirtualDisplay(context, role) &&
+                HostNotices.claim(appContext, details.uuid, HostNotices.Notice.VIRTUAL_DISPLAY_UNAVAILABLE)) {
             context.connListener.displayTransientMessage(appContext.getString(R.string.startup_virtual_display_unavailable));
         }
 

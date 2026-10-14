@@ -25,6 +25,7 @@ import com.limelight.binding.video.PerformanceOverlay;
 import com.limelight.binding.video.StreamResizePolicy;
 import com.limelight.binding.video.UpscalingPolicy;
 import com.limelight.computers.HostCapabilityCache;
+import com.limelight.computers.HostNotices;
 import com.limelight.nvstream.NvConnection;
 import com.limelight.nvstream.AdaptiveBitrateController;
 import com.limelight.nvstream.AdaptiveQualityController;
@@ -3006,12 +3007,17 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             releaseQualityAutoBitrate();
             return;
         }
+        String pcUuid = getIntent().getStringExtra(EXTRA_PC_UUID);
         if (!supportsAdaptiveQuality()) {
             releaseQualityAutoBitrate();
             qualityStatus = getString(R.string.quality_unavailable);
-            if (foreground) Toast.makeText(this, qualityStatus, Toast.LENGTH_LONG).show();
+            // Said once per PC; the performance overlay keeps showing it.
+            if (foreground && HostNotices.claim(this, pcUuid, HostNotices.Notice.AUTOMATIC_QUALITY_UNAVAILABLE)) {
+                Toast.makeText(this, qualityStatus, Toast.LENGTH_LONG).show();
+            }
             return;
         }
+        HostNotices.reset(this, pcUuid, HostNotices.Notice.AUTOMATIC_QUALITY_UNAVAILABLE);
         healthOriginalBitrate = healthTrialBitrate = 0;
         int[] limits = decoderRenderer.getReconfigureLimits();
         adaptiveQuality = new AdaptiveQualityController(mode, qualityMaxWidth, qualityMaxHeight, qualityMaxFps,

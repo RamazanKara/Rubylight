@@ -217,6 +217,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     private boolean poorConnection;
     private long adaptiveBitrateRetryAt;
     private int adaptiveBitrateRetryTarget;
+    // Automatic quality switched auto bitrate on for itself; the person's own choice was off.
+    private boolean qualityAutoBitrate;
     private AdaptiveQualityController adaptiveQuality;
     private AdaptiveQualityController.Target pendingQualityTarget;
     private long qualityRequestSentAt;
@@ -2978,8 +2980,12 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         pendingQualityTarget = null;
         qualityStatus = null;
         AdaptiveQualityController.Mode mode = qualityMode();
-        if (mode == AdaptiveQualityController.Mode.OFF) return;
+        if (mode == AdaptiveQualityController.Mode.OFF) {
+            releaseQualityAutoBitrate();
+            return;
+        }
         if (!supportsAdaptiveQuality()) {
+            releaseQualityAutoBitrate();
             qualityStatus = getString(R.string.quality_unavailable);
             if (foreground) Toast.makeText(this, qualityStatus, Toast.LENGTH_LONG).show();
             return;
@@ -2993,7 +2999,10 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         if (!adaptiveQuality.current().matches(shown[0], shown[1], streamFps) &&
                 !applyAdaptiveQuality(adaptiveQuality.current(), SystemClock.uptimeMillis())) return;
         // Automatic quality needs it for this session only; the saved choice stays the user's own.
-        if (supportsAdaptiveBitrate() && !isAdaptiveBitrateEnabled()) setAdaptiveBitrateEnabled(true, false);
+        if (supportsAdaptiveBitrate() && !isAdaptiveBitrateEnabled()) {
+            setAdaptiveBitrateEnabled(true, false);
+            qualityAutoBitrate = true;
+        }
         bitrateHandler.postDelayed(updateQuality, 1000);
     }
 
@@ -3013,6 +3022,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         adaptiveQuality = null;
         pendingQualityTarget = null;
         bitrateHandler.removeCallbacks(updateQuality);
+        releaseQualityAutoBitrate();
         qualityStatus = getString(R.string.quality_request_failed);
         LimeLog.warning("Automatic quality: requested size was not confirmed; adaptation stopped");
         if (foreground) Toast.makeText(this, qualityStatus, Toast.LENGTH_LONG).show();
@@ -3043,6 +3053,13 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 .setNegativeButton(android.R.string.cancel, null).create());
     }
 
+    // Automatic quality is off now: auto bitrate goes back to the person's choice, which was off.
+    private void releaseQualityAutoBitrate() {
+        if (!qualityAutoBitrate) return;
+        qualityAutoBitrate = false;
+        if (isAdaptiveBitrateEnabled()) setAdaptiveBitrateEnabled(false, false);
+    }
+
     private boolean isAdaptiveBitrateEnabled() {
         return adaptiveBitrate != null || pyroWaveBitrate != null;
     }
@@ -3056,6 +3073,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         if (remember) {
             getSharedPreferences(adaptiveBitratePreferences(), MODE_PRIVATE).edit()
                     .putBoolean(getIntent().getStringExtra(EXTRA_PC_UUID), enabled).apply();
+            // The person chose it themselves; Automatic quality no longer owns it.
+            qualityAutoBitrate = false;
         }
         bitrateHandler.removeCallbacks(updateBitrate);
         adaptiveBitrate = null;
@@ -4404,6 +4423,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         adaptiveQuality = null;
         pendingQualityTarget = null;
         adaptiveBitrate = null;
+        qualityAutoBitrate = false;
         bitrateHandler.removeCallbacks(sampleStreamHealth);
         pyroWaveBitrate = null;
         displayCapsReporter = null;

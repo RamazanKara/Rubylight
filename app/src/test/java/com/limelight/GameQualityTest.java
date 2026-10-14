@@ -224,6 +224,75 @@ public class GameQualityTest {
         }
     }
 
+    @Test
+    @Config(shadows = QualityBridge.class, instrumentedPackages = "com.limelight.nvstream.jni")
+    public void turningAutomaticQualityOffRestoresTheAutoBitrateTheUserHad() {
+        // {auto bitrate before quality started, the person toggles it from the menu meanwhile}
+        boolean[][] cases = {{false, false}, {true, false}, {false, true}};
+        for (boolean[] c : cases) {
+            Game game = reconfigurableGame();
+            NvConnection connection = ReflectionHelpers.getField(game, "conn");
+            ComputerDetails host = new ComputerDetails();
+            host.rustHostVersion = "1.0";
+            host.encoderBitrateSupported = true;
+            ReflectionHelpers.setField(connection, "hostDetails", host);
+            PreferenceConfiguration config = ReflectionHelpers.getField(game, "prefConfig");
+            config.adaptiveQualityMode = AdaptiveQualityController.Mode.DETAIL;
+            try {
+                // At stream start, auto bitrate is on only if the person saved it for this PC.
+                if (c[0]) setAutoBitrate(game, true, false);
+                ReflectionHelpers.callInstanceMethod(game, "startAdaptiveQuality");
+                assertNotNull(ReflectionHelpers.getField(game, "adaptiveBitrate"));
+                if (c[1]) {
+                    // Disable, then enable again from the stream's bitrate menu: now it is the person's choice.
+                    setAutoBitrate(game, false, true);
+                    setAutoBitrate(game, true, true);
+                }
+                // The person turns Automatic quality off for this PC from the stream menu.
+                game.getSharedPreferences("AdaptiveQuality", 0).edit().putString("display-quality-pc", "off").commit();
+                ReflectionHelpers.callInstanceMethod(game, "startAdaptiveQuality");
+                assertNull(ReflectionHelpers.getField(game, "adaptiveQuality"));
+                assertEquals("before " + c[0] + ", menu " + c[1], c[0] || c[1],
+                        ReflectionHelpers.getField(game, "adaptiveBitrate") != null);
+            } finally {
+                clearQualityCallbacks(game);
+                game.getSharedPreferences("AdaptiveQuality", 0).edit().clear().commit();
+                game.getSharedPreferences("AdaptiveBitrate", 0).edit().clear().commit();
+            }
+        }
+    }
+
+    @Test
+    @Config(shadows = QualityBridge.class, instrumentedPackages = "com.limelight.nvstream.jni")
+    public void automaticQualityStoppedByAnErrorAlsoReturnsItsAutoBitrate() {
+        Game game = reconfigurableGame();
+        NvConnection connection = ReflectionHelpers.getField(game, "conn");
+        ComputerDetails host = new ComputerDetails();
+        host.rustHostVersion = "1.0";
+        host.encoderBitrateSupported = true;
+        ReflectionHelpers.setField(connection, "hostDetails", host);
+        PreferenceConfiguration config = ReflectionHelpers.getField(game, "prefConfig");
+        config.adaptiveQualityMode = AdaptiveQualityController.Mode.DETAIL;
+        try {
+            ReflectionHelpers.callInstanceMethod(game, "startAdaptiveQuality");
+            assertNotNull(ReflectionHelpers.getField(game, "adaptiveBitrate"));
+            // The host rejects a display change: Automatic quality stops for this stream.
+            ReflectionHelpers.setField(game, "panelMaxRefreshRate", 60f);
+            QualityBridge.send = false;
+            ReflectionHelpers.callInstanceMethod(game, "checkStreamReconfigure");
+            assertNull(ReflectionHelpers.getField(game, "adaptiveQuality"));
+            assertNull(ReflectionHelpers.getField(game, "adaptiveBitrate"));
+        } finally {
+            clearQualityCallbacks(game);
+        }
+    }
+
+    private static void setAutoBitrate(Game game, boolean enabled, boolean remember) {
+        ReflectionHelpers.callInstanceMethod(game, "setAdaptiveBitrateEnabled",
+                ReflectionHelpers.ClassParameter.from(boolean.class, enabled),
+                ReflectionHelpers.ClassParameter.from(boolean.class, remember));
+    }
+
     private static AdaptiveQualityController.Target pressuredTarget(AdaptiveQualityController quality, long now) {
         AdaptiveQualityController.Target target = null;
         for (int i = 0; i < 4; i++) target = quality.sample(now + i * 1000, true, false, 0, 2, 0, 0, 2, true);

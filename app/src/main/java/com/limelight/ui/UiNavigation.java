@@ -68,7 +68,8 @@ public final class UiNavigation {
             if (key != helpDirection && key != KeyEvent.KEYCODE_F1) return false;
             View row = list.getSelectedView();
             Object explanation = row == null ? null : row.getTag(R.id.preference_help);
-            if (!(explanation instanceof Runnable) || !row.isEnabled()) return false;
+            // A disabled row's explanation says why it is unavailable, so it opens there too.
+            if (!(explanation instanceof Runnable)) return false;
             if (event.getAction() == KeyEvent.ACTION_UP && !event.isCanceled()) ((Runnable) explanation).run();
             return true;
         });

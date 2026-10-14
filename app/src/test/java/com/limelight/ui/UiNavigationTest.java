@@ -183,6 +183,11 @@ public class UiNavigationTest {
             list.dispatchKeyEvent(new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_CENTER));
             list.dispatchKeyEvent(new KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_DPAD_CENTER));
             assertEquals(1, toggles.get());
+            // A disabled row still explains itself, which says why it is unavailable.
+            row.setEnabled(false);
+            assertTrue(list.dispatchKeyEvent(new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_F1)));
+            assertTrue(list.dispatchKeyEvent(new KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_F1)));
+            assertEquals(2, helpCount.get());
         } finally {
             controller.pause().stop().destroy();
         }

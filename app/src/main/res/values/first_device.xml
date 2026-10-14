@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="report_problem">Report a problem</string>
-    <string name="report_problem_summary">Share a report with personal details removed.</string>
+    <string name="report_problem_summary">Share a report with personal details removed</string>
     <string name="report_problem_details">Share a report with personal details removed.\nYou choose where to send it.</string>
     <string name="report_problem_share">Share problem report</string>
     <string name="report_problem_failed">Could not share the report.\nCheck storage and install a file-sharing app.</string>

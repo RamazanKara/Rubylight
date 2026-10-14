@@ -681,6 +681,28 @@ public class PreferenceConfiguration {
         }
     }
 
+    // Settings › Advanced › Low-latency decoding sets these together; Developer options shows each one.
+    static final String[] LOW_LATENCY_DECODING_KEYS = {
+            CODEC_LOW_LATENCY_PREF_STRING, VENDOR_LOW_LATENCY_PREF_STRING, PHONE_PERFORMANCE_HINTS_PREF_STRING,
+    };
+
+    /** How many of the low-latency decoding switches are on; each one defaults to on. */
+    static int lowLatencyDecodingCount(SharedPreferences prefs) {
+        int on = 0;
+        for (String key : LOW_LATENCY_DECODING_KEYS) {
+            if (prefs.getBoolean(key, true)) on++;
+        }
+        return on;
+    }
+
+    static void setLowLatencyDecoding(SharedPreferences prefs, boolean enabled) {
+        SharedPreferences.Editor editor = prefs.edit();
+        for (String key : LOW_LATENCY_DECODING_KEYS) {
+            editor.putBoolean(key, enabled);
+        }
+        editor.apply();
+    }
+
     // Stream recovery used to start on, and first launch stored that default like a choice. It now
     // starts off; a stored "on" is switched off once because it cannot be told apart from the old
     // default. Turning it back on afterwards is kept.

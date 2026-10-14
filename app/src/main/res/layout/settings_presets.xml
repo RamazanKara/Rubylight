@@ -13,7 +13,7 @@
         </LinearLayout>
         <ImageButton android:id="@+id/preset_help" style="@style/ToolbarIcon"
             android:layout_marginEnd="-12dp"
-            android:src="@drawable/ic_help" android:contentDescription="@string/stream_presets_help_title" />
+            android:src="@drawable/ic_info" android:contentDescription="@string/stream_presets_help_title" />
     </LinearLayout>
     <com.google.android.material.chip.ChipGroup android:id="@+id/preset_chips"
         android:layout_width="match_parent" android:layout_height="wrap_content"

@@ -159,7 +159,7 @@
     <string name="title_audio_config_list">Surround sound</string>
     <string name="summary_audio_config_list">Use 5.1 or 7.1 sound with your home theater.</string>
     <string name="title_checkbox_enable_audiofx">Allow system audio effects</string>
-    <string name="summary_checkbox_enable_audiofx">Allow equalizers, with possible audio delay.</string>
+    <string name="summary_checkbox_enable_audiofx">Lets Android equalizers and effects process the sound. Can add audio delay.</string>
 
     <string name="category_gamepad_settings">Controllers</string>
     <string name="title_checkbox_multi_controller">Detect controllers</string>
@@ -173,18 +173,18 @@
     <string name="summary_seekbar_deadzone">Some games use a larger deadzone.</string>
     <string name="suffix_seekbar_deadzone">%</string>
     <string name="title_checkbox_xb1_driver">USB controller driver</string>
-    <string name="summary_checkbox_xb1_driver">Xbox USB drivers, without root.</string>
+    <string name="summary_checkbox_xb1_driver">Built-in driver for Xbox controllers over USB. No root needed.</string>
     <string name="title_usb_dualsense_haptics">USB DualSense audio and haptics</string>
-    <string name="summary_usb_dualsense_haptics">Detailed vibration with hosts that support DualSense haptics, such as Rubylight or Vibepollo. Some hosts (currently Rubylight) also carry controller speaker, headset and microphone audio. Microphone streaming requires permission and its separate setting. Reconnect the controller after changing this setting.</string>
+    <string name="summary_usb_dualsense_haptics">Detailed vibration from hosts that support DualSense haptics. Some hosts also carry the controller’s speaker, headset and microphone audio; the microphone also needs its own setting and permission. Reconnect the controller after changing this.</string>
     <string name="title_usb_dualsense">USB DualSense driver</string>
     <string name="summary_usb_dualsense">Use adaptive triggers, rumble and more over USB.</string>
     <string name="usb_dualsense_permission_info">Allow USB access when you start a stream.\nWithout it, adaptive triggers stay off.</string>
     <string name="usb_dualsense_enable">Enable USB driver</string>
     <string name="usb_dualsense_denied">No USB access; adaptive triggers are off.\nReconnect the cable to retry.</string>
     <string name="title_checkbox_usb_bind_all">Always use the USB driver</string>
-    <string name="summary_checkbox_usb_bind_all">Use the app’s built-in Xbox USB driver.</string>
+    <string name="summary_checkbox_usb_bind_all">Use the built-in driver even for controllers that Android already supports.</string>
     <string name="title_checkbox_mouse_emulation">Controller mouse mode</string>
-    <string name="summary_checkbox_mouse_emulation">Hold Start to switch to mouse mode. Press Start + Back + LB + RB together to open the stream menu.</string>
+    <string name="summary_checkbox_mouse_emulation">Hold Start to switch the controller between gamepad and mouse.</string>
     <string name="title_checkbox_flip_face_buttons">Flip face buttons</string>
     <string name="summary_checkbox_flip_face_buttons">Swap A/B and X/Y on gamepads and on-screen controls</string>
     <string name="title_checkbox_gamepad_touchpad_as_mouse">Touchpad always moves mouse</string>
@@ -200,7 +200,7 @@
     <string name="title_mouse_speed">Mouse speed</string>
     <string name="summary_checkbox_touchscreen_trackpad">Drag to move the cursor, or turn off to tap directly.</string>
     <string name="title_checkbox_absolute_mouse_mode">Desktop mouse mode</string>
-    <string name="summary_checkbox_absolute_mouse_mode">Use desktop mouse control, which may disrupt games.</string>
+    <string name="summary_checkbox_absolute_mouse_mode">Moves the PC’s pointer like a desktop mouse, with acceleration. Games that steer the camera with the mouse may not work.</string>
     <string name="title_checkbox_mouse_nav_buttons">Mouse back/forward buttons</string>
     <string name="summary_checkbox_mouse_nav_buttons">May break right-click on some devices</string>
 
@@ -225,14 +225,14 @@
 
     <string name="category_ui_settings">App</string>
     <string name="title_checkbox_enable_pip">Picture in picture</string>
-    <string name="summary_checkbox_enable_pip">Watch in a small window without controls.</string>
+    <string name="summary_checkbox_enable_pip">Keep watching in a small window when you leave the app. Controls don’t work there.</string>
     <string name="title_language_list">Language</string>
     <string name="title_checkbox_small_icon_mode">Use small box art</string>
-    <string name="summary_checkbox_small_icon_mode">Fit more apps on screen in the app grid</string>
+    <string name="summary_checkbox_small_icon_mode">Fit more games on screen in the library.</string>
 
     <string name="category_host_settings">Host PC</string>
     <string name="title_checkbox_enable_sops">Optimize game settings</string>
-    <string name="summary_checkbox_enable_sops">Let supported hosts adjust game settings for streaming.</string>
+    <string name="summary_checkbox_enable_sops">Lets the host adjust a game’s settings for the stream. The host decides what changes.</string>
     <string name="title_checkbox_host_audio">Play audio on the host PC</string>
     <string name="summary_checkbox_host_audio">Play sound on the host PC as well as this device</string>
 
@@ -242,7 +242,7 @@
     <string name="title_checkbox_reduce_refresh_rate">Allow lower refresh rate</string>
     <string name="summary_checkbox_reduce_refresh_rate">Save power at the cost of some delay.</string>
     <string name="title_checkbox_disable_warnings">Hide connection warnings</string>
-    <string name="summary_checkbox_disable_warnings">Hide connection warnings during streaming.</string>
+    <string name="summary_checkbox_disable_warnings">Don’t show warnings about a poor connection during streams.</string>
     <string name="title_disable_frame_drop">Never drop frames</string>
     <string name="summary_disable_frame_drop">Reduce stutter at the cost of some delay.</string>
     <string name="title_video_format">Video codec</string>
@@ -262,11 +262,11 @@
     <string name="pyrowave_missing_hdr">Not supported: HDR unavailable</string>
     <string name="pyrowave_check_failed">Not supported: GPU check failed</string>
     <string name="title_enable_hdr">HDR</string>
-    <string name="summary_enable_hdr">Use HDR on supported screens and PCs.</string>
+    <string name="summary_enable_hdr">Needs an HDR screen on this device and HDR turned on for the PC’s display.</string>
     <string name="title_full_range">Force full-range video</string>
-    <string name="summary_full_range">May lose detail in bright or dark areas.</string>
+    <string name="summary_full_range">Use only when the PC and this screen both use full-range color. Otherwise dark and bright areas lose detail.</string>
     <string name="title_enable_perf_overlay">Show performance overlay</string>
-    <string name="summary_enable_perf_overlay">Show stream speed, delay and frame loss.</string>
+    <string name="summary_enable_perf_overlay">Shows stream speed, delay and frame loss live. You can also show it from the stream menu.</string>
     <string name="title_enable_post_stream_toast">Show latency after streaming</string>
     <string name="summary_enable_post_stream_toast">Show average decode time after each stream.</string>
 
@@ -312,7 +312,7 @@
     <string name="pacing_smoothness">Smoothest video (more delay)</string>
 
     <string name="title_analog_scrolling">Scroll with an analog stick</string>
-    <string name="summary_analog_scrolling">Used in gamepad mouse mode</string>
+    <string name="summary_analog_scrolling">Used in controller mouse mode.</string>
     <string name="analogscroll_none">Both sticks move the mouse</string>
     <string name="analogscroll_right">Right analog stick</string>
     <string name="analogscroll_left">Left analog stick</string>
@@ -323,12 +323,12 @@
     <string name="latency_receive_render">Client latency</string>
     <string name="latency_host_processing">Host processing</string>
     <string name="title_yuv444">Prefer YUV 4:4:4</string>
-    <string name="summary_yuv444">Sharpen colored text when supported.</string>
+    <string name="summary_yuv444">Sharper colored text when the PC and this device support it. HDR takes priority.</string>
     <string name="yuv444_fallback">YUV 4:4:4 unavailable; using 4:2:0.</string>
     <string name="title_virtual_display">Host virtual display</string>
-    <string name="summary_virtual_display">Ask the PC for a display that matches the stream. Off: the PC’s own display settings decide. Needs host support.</string>
+    <string name="summary_virtual_display">Ask the PC for a display that matches the stream. Off: the PC’s own display settings decide.</string>
     <string name="title_vrr">Adaptive refresh (ARR / VRR)</string>
-    <string name="summary_vrr">Lets Android manage refresh rate automatically with any compatible host. Requires Android 16 and an ARR display; otherwise requests maximum refresh. Also requests host-side VRR from hosts that support it; activation depends on host settings and is not confirmed.</string>
+    <string name="summary_vrr">On Android 16 screens with adaptive refresh, Android matches the refresh rate to the stream; other screens run at their highest rate. Hosts that support VRR are asked to use it too, depending on their settings. While this is on, frame pacing and a lower refresh rate don’t apply.</string>
     <string name="title_virtual_display_scale">Host render scale</string>
     <string name="summary_virtual_display_scale">Changes the PC’s render resolution, not the transmitted video size. To send fewer pixels and upscale on this device, lower Stream resolution.</string>
     <string name="latency_values">%1$.2f / %2$.2f / %3$.2f (n=%4$d)</string>
@@ -351,9 +351,9 @@
     <string name="title_gpu_max_clocks">Max GPU clocks for PyroWave</string>
     <string name="summary_gpu_max_clocks">Keep the Adreno GPU at full speed while streaming PyroWave. Uses more battery.</string>
     <string name="title_drop_late_frames">Keep only the newest frame</string>
-    <string name="summary_drop_late_frames">Skip frames the screen can no longer show in time.</string>
+    <string name="summary_drop_late_frames">Skip frames the screen can no longer show in time. Applies with Balanced frame pacing.</string>
     <string name="title_texture_view">Compatibility video view</string>
-    <string name="summary_texture_view">Try this for black or flickering video.</string>
+    <string name="summary_texture_view">Try this for black or flickering video. Not used with HDR or PyroWave.</string>
     <string name="title_unbatched_input">Instant mouse and pen input</string>
     <string name="summary_unbatched_input">Send mouse and pen movements immediately.</string>
     <string name="title_network_priority">Prioritize stream traffic</string>
@@ -398,12 +398,12 @@
     <string name="videoformat_pyrowave">PyroWave (host support required)</string>
     <string name="settings">Settings</string>
     <string name="settings_navigate_up">Navigate up</string>
-    <string name="settings_section_video">Stream</string>
+    <string name="settings_section_video">Video</string>
     <string name="settings_section_video_summary">%1$s · %2$s · %3$s · %4$s</string>
     <string name="settings_section_latency">Latency and diagnostics</string>
     <string name="settings_section_latency_summary">%1$s · Performance overlay %2$s</string>
     <string name="settings_section_input">Controls</string>
-    <string name="settings_section_input_summary">Controller, touch and mouse settings</string>
+    <string name="settings_section_input_summary">Controllers, touch, mouse and keyboard</string>
     <string name="settings_section_host">Overlay &amp; audio</string>
     <string name="settings_section_host_summary">Adjust the overlay and sound.</string>
     <string name="settings_section_app">App</string>
@@ -459,7 +459,7 @@
     <string name="upscaling_timing_estimate">Estimate includes texture handoff, GPU completion and swap wait (1 ms polling). Display presentation timing is unavailable.</string>
     <string name="upscaling_last_timing">Last GPU path estimate: %1$s</string>
     <string name="keyboard_shortcuts_title">Keyboard shortcuts</string>
-    <string name="keyboard_shortcuts_summary">Create, edit, import or export buttons for the extra keyboard toolbar</string>
+    <string name="keyboard_shortcuts_summary">Buttons for the extra keyboard toolbar</string>
     <string name="keyboard_shortcuts_help">Create up to 32 shortcuts for Extra keyboard keys in the stream menu. Enter keys separated by +, for example CTRL + SHIFT + ESC or WIN + D. Each button presses the keys in order and releases them in reverse order.</string>
     <string name="keyboard_shortcuts_add">Add shortcut</string>
     <string name="keyboard_shortcuts_edit">Edit shortcut</string>

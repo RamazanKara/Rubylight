@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="controller_mapping_title">Controller-Tasten</string>
-    <string name="controller_mapping_summary">Belege die Tasten je Controllermodell.</string>
+    <string name="controller_mapping_summary">Tasten je Controllermodell belegen</string>
     <string name="controller_mapping_intro">Tippe auf „Taste zuordnen“ und drücke dann die Controller-Taste.\nGilt ab dem nächsten Stream.</string>
     <string name="controller_mapping_waiting">Verbinde einen Controller und tippe auf „Taste zuordnen“.</string>
     <string name="controller_mapping_unnamed">Controller</string>

@@ -11,6 +11,7 @@ import android.content.res.Configuration;
 import android.media.MediaCodecInfo;
 import android.os.Build;
 import android.os.Bundle;
+import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.widget.SearchView;
 import androidx.activity.OnBackPressedCallback;
@@ -24,6 +25,7 @@ import android.preference.PreferenceFragment;
 import android.preference.PreferenceGroup;
 import android.preference.PreferenceManager;
 import android.preference.PreferenceScreen;
+import android.text.TextUtils;
 import android.util.DisplayMetrics;
 import android.util.Range;
 import android.view.Display;
@@ -48,6 +50,7 @@ import com.limelight.BuildConfig;
 import com.limelight.LimeLog;
 import com.limelight.PcView;
 import com.limelight.R;
+import com.limelight.binding.video.GpuDriverStore;
 import com.limelight.binding.video.MediaCodecHelper;
 import com.limelight.binding.video.MediaCodecDecoderRenderer;
 import com.limelight.binding.video.DecoderBenchmark;
@@ -57,7 +60,6 @@ import com.limelight.utils.UiHelper;
 import com.limelight.ui.TopAppBar;
 import com.google.android.material.appbar.MaterialToolbar;
 
-import java.lang.reflect.Method;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
@@ -70,14 +72,21 @@ import java.util.Map;
 public class StreamSettings extends AppCompatActivity {
     private static final int EXPORT_LATENCY_REQUEST = 1;
     private static final String STATE_SECTION = "section";
-    // Top-level screen keys and the preference categories each sub-screen shows
+    static final String DEVELOPER_SECTION = "developer";
+    static final String LOW_LATENCY_DECODING_KEY = "low_latency_decoding";
+    // Top-level screen keys (preferences_root.xml) and the preference categories each one shows
     static final Map<String, String[]> SECTIONS = new LinkedHashMap<>();
     static {
-        SECTIONS.put("video", new String[] {"category_basic_settings", "category_upscaling", "category_host_display"});
-        SECTIONS.put("input", new String[] {"category_gamepad_settings", "category_input_settings", "category_keyboard_shortcuts", "category_onscreen_controls"});
-        SECTIONS.put("host", new String[] {"category_audio_settings"});
+        SECTIONS.put("video", new String[] {"category_basic_settings"});
+        SECTIONS.put("display", new String[] {"category_display_refresh", "category_upscaling", "category_host_display"});
+        SECTIONS.put("input", new String[] {"category_gamepad_settings", "category_usb_controllers", "category_input_settings",
+                "category_onscreen_controls", "category_keyboard_shortcuts"});
+        SECTIONS.put("audio", new String[] {"category_audio_settings"});
+        SECTIONS.put("streaming", new String[] {"category_streaming"});
         SECTIONS.put("app", new String[] {"category_ui_settings"});
         SECTIONS.put("advanced", new String[] {"category_advanced_settings"});
+        SECTIONS.put(DEVELOPER_SECTION, new String[] {"category_developer_decoder",
+                "category_developer_input", "category_developer_diagnostics"});
     }
     // Kept by a reset: the language is applied by the OS, the others are actions
     private static final List<String> RESET_EXCLUDED_KEYS = Arrays.asList(
@@ -179,11 +188,23 @@ public class StreamSettings extends AppCompatActivity {
     static int sectionTitle(String section) {
         switch (section) {
             case "video": return R.string.settings_section_video;
-            case "advanced": return R.string.settings_section_advanced;
+            case "display": return R.string.settings_section_display;
             case "input": return R.string.settings_section_input;
-            case "host": return R.string.settings_section_host;
+            case "audio": return R.string.settings_section_audio;
+            case "streaming": return R.string.settings_section_streaming;
+            case "advanced": return R.string.settings_section_advanced;
+            case DEVELOPER_SECTION: return R.string.settings_section_developer;
             default: return R.string.settings_section_app;
         }
+    }
+
+    static String sectionOf(String category) {
+        for (Map.Entry<String, String[]> item : SECTIONS.entrySet()) {
+            if (Arrays.asList(item.getValue()).contains(category)) {
+                return item.getKey();
+            }
+        }
+        return null;
     }
 
     void showSection(String newSection) {
@@ -437,8 +458,13 @@ public class StreamSettings extends AppCompatActivity {
         for (int i = 0; i < group.getPreferenceCount(); i++) {
             Preference preference = group.getPreference(i);
             if (preference instanceof PresetPreference) continue;
-            preference.setLayoutResource(preference instanceof PreferenceCategory ?
-                    R.layout.settings_category : R.layout.settings_preference);
+            if (preference instanceof PreferenceCategory) {
+                // A group without a title continues the section heading above it.
+                preference.setLayoutResource(TextUtils.isEmpty(preference.getTitle()) ?
+                        R.layout.settings_category_spacer : R.layout.settings_category);
+            } else {
+                preference.setLayoutResource(R.layout.settings_preference);
+            }
             if (preference instanceof PreferenceGroup) {
                 stylePreferences((PreferenceGroup) preference);
             }
@@ -462,18 +488,19 @@ public class StreamSettings extends AppCompatActivity {
         list.setClipToPadding(false);
     }
 
+    // "Automatic (recommended)" reads as "Automatic" in a one-line summary
+    static CharSequence entryFor(Context context, int names, int values, String value) {
+        String[] valueArray = context.getResources().getStringArray(values);
+        for (int i = 0; i < valueArray.length; i++) {
+            if (valueArray[i].equals(value)) {
+                return context.getResources().getStringArray(names)[i].replaceFirst(" \\(.*\\)$", "");
+            }
+        }
+        return value;
+    }
+
     public static class RootFragment extends PreferenceFragment {
         private final SharedPreferences.OnSharedPreferenceChangeListener summaryUpdater = (prefs, key) -> updateSummaries();
-        private static CharSequence entryFor(Context context, int names, int values, String value) {
-            String[] valueArray = context.getResources().getStringArray(values);
-            for (int i = 0; i < valueArray.length; i++) {
-                if (valueArray[i].equals(value)) {
-                    // "Automatic (recommended)" reads as "Automatic" in a one-line summary
-                    return context.getResources().getStringArray(names)[i].replaceFirst(" \\(.*\\)$", "");
-                }
-            }
-            return value;
-        }
 
         private void updateSummaries() {
             Context context = getActivity();
@@ -488,10 +515,16 @@ public class StreamSettings extends AppCompatActivity {
                     entryFor(context, R.array.video_format_names, R.array.video_format_values,
                             prefs.getString(PreferenceConfiguration.VIDEO_FORMAT_PREF_STRING,
                                     PreferenceConfiguration.DEFAULT_VIDEO_FORMAT))));
-            findPreference("host").setSummary(getString(R.string.settings_overlay_audio_summary,
-                    getString(config.enablePerfOverlay ? R.string.stream_enabled : R.string.stream_disabled),
-                    entryFor(context, R.array.audio_config_names, R.array.audio_config_values,
-                            prefs.getString("list_audio_config", "2"))));
+            String upscaling = prefs.getString(PreferenceConfiguration.UPSCALING_PREF_STRING, "off");
+            findPreference("display").setSummary(getString(R.string.settings_joined,
+                    config.vrr ? getString(R.string.settings_display_adaptive) :
+                            entryFor(context, R.array.video_frame_pacing_names, R.array.video_frame_pacing_values,
+                                    prefs.getString(PreferenceConfiguration.FRAME_PACING_PREF_STRING,
+                                            PreferenceConfiguration.DEFAULT_FRAME_PACING)),
+                    "off".equals(upscaling) ? getString(R.string.settings_display_no_upscaling) :
+                            entryFor(context, R.array.upscaling_names, R.array.upscaling_values, upscaling)));
+            findPreference("audio").setSummary(entryFor(context, R.array.audio_config_names, R.array.audio_config_values,
+                    prefs.getString(PreferenceConfiguration.AUDIO_CONFIG_PREF_STRING, "2")));
             findPreference("app").setSummary(getString(R.string.settings_section_app_summary, BuildConfig.VERSION_NAME));
         }
 
@@ -505,8 +538,10 @@ public class StreamSettings extends AppCompatActivity {
             }
             stylePreferences(getPreferenceScreen());
             for (String key : SECTIONS.keySet()) {
-                findPreference(key).setLayoutResource(R.layout.settings_section);
-                findPreference(key).setOnPreferenceClickListener(preference -> {
+                Preference row = findPreference(key);
+                if (row == null) continue;
+                row.setLayoutResource(R.layout.settings_section);
+                row.setOnPreferenceClickListener(preference -> {
                     ((StreamSettings) getActivity()).showSection(key);
                     return true;
                 });
@@ -582,21 +617,16 @@ public class StreamSettings extends AppCompatActivity {
                     if (categories == null || Arrays.asList(categories).contains(category.getKey())) screen.addPreference(category);
                     continue;
                 }
+                final String resultSection = sectionOf(category.getKey());
                 PreferenceCategory results = new PreferenceCategory(getActivity());
-                String targetSection = null;
-                for (Map.Entry<String, String[]> item : SECTIONS.entrySet()) {
-                    if (Arrays.asList(item.getValue()).contains(category.getKey())) {
-                        targetSection = item.getKey();
-                        break;
-                    }
-                }
-                final String resultSection = targetSection;
-                results.setTitle(targetSection == null ? category.getTitle() :
-                        getString(R.string.settings_search_breadcrumb, getString(sectionTitle(targetSection)), category.getTitle()));
+                CharSequence sectionTitle = resultSection == null ? null : getString(sectionTitle(resultSection));
+                results.setTitle(sectionTitle == null ? category.getTitle() :
+                        TextUtils.isEmpty(category.getTitle()) ? sectionTitle :
+                        getString(R.string.settings_search_breadcrumb, sectionTitle, category.getTitle()));
                 screen.addPreference(results);
                 for (Preference pref : entry.getValue()) {
                     if (SettingsSearch.matches(query, pref.getTitle(), pref.getSummary(),
-                            category.getTitle() + " " + java.util.Objects.toString(descriptions.get(pref.getKey()), ""))) {
+                            results.getTitle() + " " + java.util.Objects.toString(descriptions.get(pref.getKey()), ""))) {
                         // Search rows navigate to the original setting so dependency and dialog behavior stay intact.
                         Preference result = new Preference(getActivity());
                         result.setKey("search_result_" + pref.getKey());
@@ -631,20 +661,19 @@ public class StreamSettings extends AppCompatActivity {
             }
         }
 
+        // Explanations that search matches besides the visible title and value
         private final Map<String, CharSequence> descriptions = new HashMap<>();
         private int codecSummaryGeneration;
         private final SharedPreferences.OnSharedPreferenceChangeListener summaryUpdater =
                 (prefs, key) -> updateValueSummaries(getPreferenceScreen());
 
         private void updateValueSummaries(PreferenceGroup group) {
+            SharedPreferences prefs = getPreferenceManager().getSharedPreferences();
             for (int i = 0; i < group.getPreferenceCount(); i++) {
                 Preference pref = group.getPreference(i);
                 if (pref instanceof PreferenceGroup) {
                     updateValueSummaries((PreferenceGroup) pref);
                     continue;
-                }
-                if (!descriptions.containsKey(pref.getKey())) {
-                    descriptions.put(pref.getKey(), pref.getSummary());
                 }
                 CharSequence value;
                 if (pref instanceof ListPreference) {
@@ -655,36 +684,38 @@ public class StreamSettings extends AppCompatActivity {
                     }
                 } else if (pref instanceof SeekBarPreference) {
                     value = ((SeekBarPreference) pref).getValueText();
-                } else if (pref instanceof SwitchPreference) {
-                    value = getString(((SwitchPreference) pref).isChecked() ? R.string.stream_enabled : R.string.stream_disabled);
                 } else if ("checkbox_touchscreen_trackpad".equals(pref.getKey())) {
-                    SharedPreferences prefs = getPreferenceManager().getSharedPreferences();
                     int mode = prefs.getBoolean("checkbox_touchscreen_trackpad", true) ? 0 :
                             prefs.getBoolean("checkbox_native_touch", false) ? 2 : 1;
                     value = getResources().getStringArray(R.array.stream_touch_modes)[mode];
+                } else if (LOW_LATENCY_DECODING_KEY.equals(pref.getKey())) {
+                    // On only when every part is on; a part turned off in Developer options says so here.
+                    int on = PreferenceConfiguration.lowLatencyDecodingCount(prefs);
+                    ((SwitchPreference) pref).setChecked(on == PreferenceConfiguration.LOW_LATENCY_DECODING_KEYS.length);
+                    pref.setSummary(on == 0 || on == PreferenceConfiguration.LOW_LATENCY_DECODING_KEYS.length ? null :
+                            getString(R.string.settings_low_latency_partial));
+                    continue;
+                } else if ("gpu_driver".equals(pref.getKey())) {
+                    GpuDriverStore.Driver driver = GpuDriverStore.selected(getActivity());
+                    value = driver == null ? getString(R.string.gpu_driver_system) : driver.name;
                 } else {
                     continue;
                 }
                 if (PreferenceConfiguration.UPSCALING_SHARPNESS_PREF_STRING.equals(pref.getKey())) {
-                    String mode = getPreferenceManager().getSharedPreferences()
-                            .getString(PreferenceConfiguration.UPSCALING_PREF_STRING, "off");
+                    String mode = prefs.getString(PreferenceConfiguration.UPSCALING_PREF_STRING, "off");
                     pref.setEnabled("fsr1".equals(mode) || "sgsr1".equals(mode));
                 }
                 if (PreferenceConfiguration.UPSCALING_PREF_STRING.equals(pref.getKey()) &&
                         !"off".equals(((ListPreference) pref).getValue())) {
-                    value = value + "\n" + getString(R.string.summary_resolution_list);
-                    SharedPreferences settings = getPreferenceManager().getSharedPreferences();
-                    if (settings.getBoolean("checkbox_enable_hdr", false)) {
-                        value = value + "\n" + getString(R.string.upscaling_hdr);
-                    } else if ("forcepyrowave".equals(settings.getString("video_format", "auto"))) {
-                        value = value + "\n" + getString(R.string.upscaling_pyrowave);
+                    // Say in the value line when the chosen upscaler is not the one used.
+                    if (prefs.getBoolean("checkbox_enable_hdr", false)) {
+                        value = getString(R.string.settings_joined, value, getString(R.string.upscaling_hdr_short));
+                    } else if ("forcepyrowave".equals(prefs.getString("video_format", "auto"))) {
+                        value = getString(R.string.settings_joined, value, getString(R.string.upscaling_pyrowave_short));
                     }
                 }
-                if (PreferenceConfiguration.RESOLUTION_PREF_STRING.equals(pref.getKey())) {
-                    value = value + "\n" + getString(R.string.summary_resolution_list);
-                }
-                if ("seekbar_virtual_display_scale".equals(pref.getKey())) {
-                    value = value + "\n" + getString(R.string.summary_virtual_display_scale);
+                if ("adaptive_quality_min_resolution".equals(pref.getKey()) || "adaptive_quality_min_fps".equals(pref.getKey())) {
+                    pref.setEnabled(!"off".equals(prefs.getString("adaptive_quality_mode", "off")));
                 }
                 if (value != null) {
                     pref.setSummary(pref instanceof ListPreference ? value.toString().replace("%", "%%") : value);
@@ -887,6 +918,17 @@ public class StreamSettings extends AppCompatActivity {
             pref.setEntryValues(entryValues);
         }
 
+        // Removes a setting this device cannot use from whichever group holds it.
+        private void removeSetting(String key) {
+            Preference preference = findPreference(key);
+            PreferenceScreen screen = getPreferenceScreen();
+            for (int i = 0; preference != null && i < screen.getPreferenceCount(); i++) {
+                if (((PreferenceGroup) screen.getPreference(i)).removePreference(preference)) {
+                    return;
+                }
+            }
+        }
+
         private void resetBitrateToDefault(SharedPreferences prefs, String res, String fps) {
             // A bitrate the user picked stays; a default one follows the new resolution and frame rate.
             if (PreferenceConfiguration.isBitrateUserSet(prefs)) {
@@ -935,6 +977,21 @@ public class StreamSettings extends AppCompatActivity {
             codec.setDialogMessage(help);
         }
 
+        private void showInfo(int title, int message) {
+            UiHelper.showDialog(getActivity(), new MaterialAlertDialogBuilder(getActivity()).setTitle(title)
+                    .setMessage(message).setPositiveButton(android.R.string.ok, null).create());
+        }
+
+        private void showAbout() {
+            AlertDialog about = new MaterialAlertDialogBuilder(getActivity()).setTitle(R.string.title_about)
+                    .setMessage(getString(R.string.summary_about, BuildConfig.VERSION_NAME))
+                    .setPositiveButton(android.R.string.ok, null)
+                    .setNeutralButton(R.string.settings_source, (dialog, which) ->
+                            HelpLauncher.launchUrl(getActivity(), "https://github.com/RamazanKara/nightjar-android"))
+                    .create();
+            UiHelper.showDialog(getActivity(), about);
+        }
+
         @Override
         public View onCreateView(LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState) {
             View view = super.onCreateView(inflater, container, savedInstanceState);
@@ -962,13 +1019,27 @@ public class StreamSettings extends AppCompatActivity {
             findPreference("checkbox_codec_performance").setEnabled(Build.VERSION.SDK_INT >= Build.VERSION_CODES.M);
             findPreference("checkbox_phone_performance_hints").setEnabled(Build.VERSION.SDK_INT >= Build.VERSION_CODES.S);
             if (!PyroWaveDecoderRenderer.hasAdrenoGpu()) {
-                ((PreferenceCategory) findPreference("category_advanced_settings"))
-                        .removePreference(findPreference("checkbox_gpu_max_clocks"));
+                removeSetting(PreferenceConfiguration.GPU_MAX_CLOCKS_PREF_STRING);
             }
+            // The same check as the driver screen: custom drivers load on arm64 Adreno devices only.
+            if (!GpuDriverStore.isSupported()) {
+                removeSetting("gpu_driver");
+            }
+            findPreference(LOW_LATENCY_DECODING_KEY).setOnPreferenceChangeListener((preference, value) -> {
+                PreferenceConfiguration.setLowLatencyDecoding(getPreferenceManager().getSharedPreferences(), (Boolean) value);
+                return true;
+            });
             ListPreference pacing = (ListPreference) findPreference("frame_pacing");
             findPreference("checkbox_drop_late_frames").setEnabled("balanced".equals(pacing.getValue()));
             pacing.setOnPreferenceChangeListener((preference, value) -> {
                 findPreference("checkbox_drop_late_frames").setEnabled("balanced".equals(value));
+                return true;
+            });
+            ListPreference quality = (ListPreference) findPreference("adaptive_quality_mode");
+            quality.setOnPreferenceChangeListener((preference, value) -> {
+                // The minimums only apply while automatic quality runs.
+                findPreference("adaptive_quality_min_resolution").setEnabled(!"off".equals(value));
+                findPreference("adaptive_quality_min_fps").setEnabled(!"off".equals(value));
                 return true;
             });
             ListPreference codec = (ListPreference) findPreference("video_format");
@@ -987,26 +1058,28 @@ public class StreamSettings extends AppCompatActivity {
             });
             findPreference("about_app").setSummary(getString(R.string.settings_version, BuildConfig.VERSION_NAME));
             findPreference("about_app").setOnPreferenceClickListener(preference -> {
-                new MaterialAlertDialogBuilder(getActivity()).setTitle(R.string.title_about)
-                        .setMessage(getString(R.string.summary_about, BuildConfig.VERSION_NAME))
-                        .setPositiveButton(android.R.string.ok, null)
-                        .setNeutralButton(R.string.settings_source, (dialog, which) ->
-                                HelpLauncher.launchUrl(getActivity(), "https://github.com/RamazanKara/nightjar-android"))
-                        .show();
+                showAbout();
                 return true;
             });
             findPreference("help").setOnPreferenceClickListener(preference -> {
                 HelpLauncher.showHelp(getActivity());
                 return true;
             });
+            findPreference("host_display_location").setOnPreferenceClickListener(preference -> {
+                showInfo(R.string.host_display_menu, R.string.host_display_location);
+                return true;
+            });
             findPreference("latency_benchmark").setOnPreferenceClickListener(preference -> {
                 startActivity(new Intent(getActivity(), com.limelight.LatencyBenchmarkActivity.class));
                 return true;
             });
-            findPreference("gpu_driver").setOnPreferenceClickListener(preference -> {
-                startActivity(new Intent(getActivity(), GpuDriverSettings.class));
-                return true;
-            });
+            Preference gpuDriver = findPreference("gpu_driver");
+            if (gpuDriver != null) {
+                gpuDriver.setOnPreferenceClickListener(preference -> {
+                    startActivity(new Intent(getActivity(), GpuDriverSettings.class));
+                    return true;
+                });
+            }
             findPreference("report_problem").setOnPreferenceClickListener(preference -> {
                 com.limelight.utils.ProblemReport.show(getActivity());
                 return true;
@@ -1065,25 +1138,19 @@ public class StreamSettings extends AppCompatActivity {
             // and NVIDIA SHIELD devices (which support raw mouse input in pointer capture mode)
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O ||
                     getActivity().getPackageManager().hasSystemFeature("com.nvidia.feature.shield")) {
-                PreferenceCategory category =
-                        (PreferenceCategory) findPreference("category_input_settings");
-                category.removePreference(findPreference("checkbox_absolute_mouse_mode"));
+                removeSetting("checkbox_absolute_mouse_mode");
             }
 
             // Hide gamepad motion sensor option when running on OSes before Android 12.
             // Support for motion, LED, battery, and other extensions were introduced in S.
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
-                PreferenceCategory category =
-                        (PreferenceCategory) findPreference("category_gamepad_settings");
-                category.removePreference(findPreference("checkbox_gamepad_motion_sensors"));
+                removeSetting("checkbox_gamepad_motion_sensors");
             }
 
             // Hide gamepad motion sensor fallback option if the device has no gyro or accelerometer
             if (!getActivity().getPackageManager().hasSystemFeature(PackageManager.FEATURE_SENSOR_ACCELEROMETER) &&
                     !getActivity().getPackageManager().hasSystemFeature(PackageManager.FEATURE_SENSOR_GYROSCOPE)) {
-                PreferenceCategory category =
-                        (PreferenceCategory) findPreference("category_gamepad_settings");
-                category.removePreference(findPreference("checkbox_gamepad_motion_fallback"));
+                removeSetting("checkbox_gamepad_motion_fallback");
             }
 
             // The microphone switch turns on only once microphone access is allowed.
@@ -1114,12 +1181,7 @@ public class StreamSettings extends AppCompatActivity {
 
             // Hide USB driver options on devices without USB host support
             if (!getActivity().getPackageManager().hasSystemFeature(PackageManager.FEATURE_USB_HOST)) {
-                PreferenceCategory category =
-                        (PreferenceCategory) findPreference("category_advanced_settings");
-                category.removePreference(findPreference("checkbox_usb_bind_all"));
-                category.removePreference(findPreference("checkbox_usb_driver"));
-                category.removePreference(findPreference("checkbox_usb_dualsense_haptics"));
-                category.removePreference(dualSense);
+                screen.removePreference(findPreference("category_usb_controllers"));
             }
 
             // Remove PiP mode on devices pre-Oreo, where the feature is not available (some low RAM devices),
@@ -1127,33 +1189,20 @@ public class StreamSettings extends AppCompatActivity {
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O ||
                     !getActivity().getPackageManager().hasSystemFeature("android.software.picture_in_picture") ||
                     getActivity().getPackageManager().hasSystemFeature("com.amazon.software.fireos")) {
-                PreferenceCategory category =
-                        (PreferenceCategory) findPreference("category_ui_settings");
-                category.removePreference(findPreference("checkbox_enable_pip"));
+                removeSetting("checkbox_enable_pip");
             }
 
-            // Fire TV apps are not allowed to use WebViews or browsers, so hide the Help category
-            /*if (getActivity().getPackageManager().hasSystemFeature("amazon.hardware.fire_tv")) {
-                PreferenceCategory category =
-                        (PreferenceCategory) findPreference("category_help");
-                screen.removePreference(category);
-            }*/
-            PreferenceCategory category_gamepad_settings =
-                    (PreferenceCategory) findPreference("category_gamepad_settings");
             // Remove the vibration options if the device can't vibrate
             if (!((Vibrator)getActivity().getSystemService(Context.VIBRATOR_SERVICE)).hasVibrator()) {
-                category_gamepad_settings.removePreference(findPreference("checkbox_vibrate_fallback"));
-                category_gamepad_settings.removePreference(findPreference("seekbar_vibrate_fallback_strength"));
+                removeSetting("checkbox_vibrate_fallback");
+                removeSetting("seekbar_vibrate_fallback_strength");
                 // The entire OSC category may have already been removed by the touchscreen check above
-                PreferenceCategory category = (PreferenceCategory) findPreference("category_onscreen_controls");
-                if (category != null) {
-                    category.removePreference(findPreference("checkbox_vibrate_osc"));
-                }
+                removeSetting("checkbox_vibrate_osc");
             }
             else if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O ||
                     !((Vibrator)getActivity().getSystemService(Context.VIBRATOR_SERVICE)).hasAmplitudeControl() ) {
                 // Remove the vibration strength selector of the device doesn't have amplitude control
-                category_gamepad_settings.removePreference(findPreference("seekbar_vibrate_fallback_strength"));
+                removeSetting("seekbar_vibrate_fallback_strength");
             }
 
             Display display = getActivity().getWindowManager().getDefaultDisplay();
@@ -1381,9 +1430,7 @@ public class StreamSettings extends AppCompatActivity {
             // Remove HDR preference for devices below Nougat
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) {
                 LimeLog.info("Excluding HDR toggle based on OS");
-                PreferenceCategory category =
-                        (PreferenceCategory) findPreference("category_basic_settings");
-                category.removePreference(findPreference("checkbox_enable_hdr"));
+                removeSetting("checkbox_enable_hdr");
             }
             else {
                 Display.HdrCapabilities hdrCaps = display.getHdrCapabilities();
@@ -1402,18 +1449,13 @@ public class StreamSettings extends AppCompatActivity {
 
                 if (!foundHdr10) {
                     LimeLog.info("Excluding HDR toggle based on display capabilities");
-                    PreferenceCategory category =
-                            (PreferenceCategory) findPreference("category_basic_settings");
-                    category.removePreference(findPreference("checkbox_enable_hdr"));
+                    removeSetting("checkbox_enable_hdr");
                 }
                 else if (PreferenceConfiguration.isShieldAtvFirmwareWithBrokenHdr()) {
                     LimeLog.info("Disabling HDR toggle on old broken SHIELD TV firmware");
-                    PreferenceCategory category =
-                            (PreferenceCategory) findPreference("category_basic_settings");
-                    SwitchPreference hdrPref = (SwitchPreference) category.findPreference("checkbox_enable_hdr");
-                    hdrPref.setEnabled(false);
-                    hdrPref.setChecked(false);
-                    hdrPref.setSummary("Update the firmware on your NVIDIA SHIELD Android TV to enable HDR");
+                    hdr.setEnabled(false);
+                    hdr.setChecked(false);
+                    hdr.setSummary("Update the firmware on your NVIDIA SHIELD Android TV to enable HDR");
                 }
             }
 
@@ -1455,13 +1497,11 @@ public class StreamSettings extends AppCompatActivity {
                 for (int j = 0; j < group.getPreferenceCount(); j++) {
                     Preference pref = group.getPreference(j);
                     descriptions.put(pref.getKey(), pref instanceof MaterialSwitchPreference ?
-                            ((MaterialSwitchPreference) pref).getExplanation() : pref.getSummary());
+                            ((MaterialSwitchPreference) pref).getExplanation() :
+                            pref instanceof android.preference.DialogPreference ?
+                                    ((android.preference.DialogPreference) pref).getDialogMessage() : pref.getSummary());
                 }
             }
-            findPreference("controller_button_mapping").setSummary(null);
-            Preference resetOsc = findPreference("reset_osc");
-            if (resetOsc != null) resetOsc.setSummary(null);
-            findPreference("export_latency_csv").setSummary(R.string.settings_csv_summary);
             updateCodecSummary(codec, codec.getValue(), hdr.isChecked());
             stylePreferences(screen);
             updateValueSummaries(screen);
@@ -1474,7 +1514,10 @@ public class StreamSettings extends AppCompatActivity {
                     preferences.add(pref);
                     allPreferences.put(pref.getKey(), pref);
                 }
-                searchCategories.put(category, preferences);
+                // A group whose settings this device cannot use is left out entirely.
+                if (!preferences.isEmpty()) {
+                    searchCategories.put(category, preferences);
+                }
             }
             screen.removeAll();
             filterPreferences();

@@ -67,7 +67,8 @@ public class PresetPreference extends Preference {
             }
             chip.setOnClickListener(v -> confirmPreset(preset));
         }
-        ((TextView) view.findViewById(R.id.preset_value)).setText(selected);
+        // A one-line value like every other row: "Native (recommended)" reads as "Native"; the chip keeps the tag.
+        ((TextView) view.findViewById(R.id.preset_value)).setText(selected.replaceFirst(" \\(.*\\)$", ""));
         view.findViewById(R.id.preset_help).setOnClickListener(v ->
                 UiHelper.showDialog(getContext(), new MaterialAlertDialogBuilder(getContext()).setTitle(R.string.stream_presets)
                         .setMessage(R.string.stream_presets_help).setPositiveButton(android.R.string.ok, null).create()));

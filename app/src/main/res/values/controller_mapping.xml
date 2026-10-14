@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="controller_mapping_title">Controller buttons</string>
-    <string name="controller_mapping_summary">Assign buttons for each controller model.</string>
+    <string name="controller_mapping_summary">Remap buttons for each controller model</string>
     <string name="controller_mapping_intro">Tap “Map a button”, then press the controller button to remap.\nChanges apply to the next stream.</string>
     <string name="controller_mapping_waiting">Connect a controller, then tap “Map a button”.</string>
     <string name="controller_mapping_unnamed">Controller</string>

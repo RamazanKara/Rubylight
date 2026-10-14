@@ -13,7 +13,10 @@ import com.limelight.utils.UiHelper;
 public class MaterialListPreference extends ListPreference {
     public MaterialListPreference(Context context, AttributeSet attrs) {
         super(context, attrs);
-        setDialogMessage(getSummary());
+        // The row shows the chosen value; the explanation opens from the picker's Help button.
+        if (getDialogMessage() == null) {
+            setDialogMessage(getSummary());
+        }
     }
 
     @Override

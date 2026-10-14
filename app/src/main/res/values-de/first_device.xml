@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="report_problem">Problem melden</string>
-    <string name="report_problem_summary">Teile einen Bericht ohne persönliche Angaben.</string>
+    <string name="report_problem_summary">Bericht ohne persönliche Angaben teilen</string>
     <string name="report_problem_details">Teile einen Bericht ohne persönliche Angaben.\nDu wählst, wohin du ihn sendest.</string>
     <string name="report_problem_share">Problembericht teilen</string>
     <string name="report_problem_failed">Bericht konnte nicht geteilt werden.\nPrüfe Speicherplatz und eine App zum Teilen.</string>

@@ -147,4 +147,12 @@
   .more:hover {
     color: var(--ink);
   }
+  /* Lists reach the panel's edges, so they follow its narrower padding on a phone. */
+  @media (max-width: 520px) {
+    li,
+    .pad {
+      padding-left: var(--space-4);
+      padding-right: var(--space-4);
+    }
+  }
 </style>

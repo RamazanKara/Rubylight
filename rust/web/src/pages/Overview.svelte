@@ -210,4 +210,12 @@
   .facts {
     align-items: center;
   }
+  @media (max-width: 520px) {
+    .placeholder {
+      padding: var(--space-4);
+    }
+    .lost {
+      margin: var(--space-3) var(--space-4);
+    }
+  }
 </style>

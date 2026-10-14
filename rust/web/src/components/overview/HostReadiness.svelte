@@ -271,5 +271,11 @@
     li {
       padding: var(--space-3) var(--space-4);
     }
+    .placeholder {
+      padding: var(--space-4);
+    }
+    .error {
+      margin: var(--space-3) var(--space-4);
+    }
   }
 </style>

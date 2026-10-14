@@ -249,8 +249,8 @@
     <string name="title_disable_frame_drop">Never drop frames</string>
     <string name="summary_disable_frame_drop">Reduce stutter at the cost of some delay.</string>
     <string name="title_video_format">Video codec</string>
-    <string name="summary_video_format">Choose a codec supported by your PC and device. PyroWave needs a host that supports it (e.g. Rubylight).</string>
-    <string name="pyrowave_ready">Ready on this phone. Needs a host that supports PyroWave (e.g. Rubylight).</string>
+    <string name="summary_video_format">Choose a codec supported by your PC and device. PyroWave needs host support.</string>
+    <string name="pyrowave_ready">Ready on this phone. Needs host support.</string>
     <string name="pyrowave_checking">Checking GPU support…</string>
     <string name="pyrowave_needs_android">Not supported: needs Android 10</string>
     <string name="pyrowave_needs_64_bit">Not supported: needs a 64-bit app</string>
@@ -329,9 +329,9 @@
     <string name="summary_yuv444">Sharpen colored text when supported.</string>
     <string name="yuv444_fallback">YUV 4:4:4 unavailable; using 4:2:0.</string>
     <string name="title_virtual_display">Host virtual display</string>
-    <string name="summary_virtual_display">Ask the PC for a display that matches the stream. Off: the PC’s own display settings decide.</string>
+    <string name="summary_virtual_display">Ask the PC for a display that matches the stream. Off: the PC’s own display settings decide. Needs host support.</string>
     <string name="title_vrr">Adaptive refresh (ARR / VRR)</string>
-    <string name="summary_vrr">Lets Android manage refresh rate automatically with any compatible host. Requires Android 16 and an ARR display; otherwise requests maximum refresh. Also requests host-side VRR from supporting hosts such as Rubylight or Vibepollo; activation depends on host settings and is not confirmed.</string>
+    <string name="summary_vrr">Lets Android manage refresh rate automatically with any compatible host. Requires Android 16 and an ARR display; otherwise requests maximum refresh. Also requests host-side VRR from hosts that support it; activation depends on host settings and is not confirmed.</string>
     <string name="title_virtual_display_scale">Host render scale</string>
     <string name="summary_virtual_display_scale">Changes the PC’s render resolution, not the transmitted video size. To send fewer pixels and upscale on this device, lower Stream resolution.</string>
     <string name="latency_values">%1$.2f / %2$.2f / %3$.2f (n=%4$d)</string>

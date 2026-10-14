@@ -30,6 +30,9 @@ import com.google.android.material.textfield.TextInputEditText;
 import com.google.android.material.textfield.TextInputLayout;
 import com.limelight.R;
 import com.limelight.binding.video.UpscalingPolicy;
+import com.limelight.computers.HostCapabilityCache;
+import com.limelight.nvstream.http.HostCapabilities;
+import com.limelight.ui.HostFeatureGate;
 import com.google.android.material.slider.Slider;
 import com.limelight.utils.UiHelper;
 
@@ -42,6 +45,8 @@ public final class HostStreamSettings extends AppCompatActivity {
     private PreferenceConfiguration global;
     private HostStreamProfile overrides;
     private String hostUuid;
+    // What this PC last showed it can do; rows it can never use are left out.
+    private HostCapabilities caps = HostCapabilities.UNKNOWN;
     private String savedProfile;
     private String editorKey;
     private AlertDialog editorDialog;
@@ -62,6 +67,7 @@ public final class HostStreamSettings extends AppCompatActivity {
             finish();
             return;
         }
+        caps = HostCapabilityCache.load(this, hostUuid);
         global = PreferenceConfiguration.readPreferences(this);
         PreferenceConfiguration.migratePcProfilesToOverrides(this);
         HostStreamProfile saved = HostStreamProfile.load(this, hostUuid);
@@ -162,24 +168,34 @@ public final class HostStreamSettings extends AppCompatActivity {
             activity = (HostStreamSettings) getActivity();
             PreferenceScreen screen = getPreferenceManager().createPreferenceScreen(activity);
             setPreferenceScreen(screen);
-            // Saved separately, so the display choice also applies when profile edits are discarded.
+            // The picker for hosts with display modes, a virtual display switch for hosts with one;
+            // neither for hosts that can never use them.
+            boolean displayModes = gate(HostCapabilities.Feature.HOST_DISPLAY_MODES).isVisible();
+            boolean virtualDisplay = gate(HostCapabilities.Feature.VIRTUAL_DISPLAY).isVisible();
             PreferenceCategory displayCategory = new PreferenceCategory(activity);
             displayCategory.setTitle(R.string.host_display_menu);
             displayCategory.setLayoutResource(R.layout.settings_category);
-            screen.addPreference(displayCategory);
-            Preference display = new Preference(activity);
-            display.setKey("host_display");
-            display.setTitle(R.string.host_display_menu);
-            display.setLayoutResource(R.layout.settings_preference);
-            display.setPersistent(false);
-            displayCategory.addPreference(display);
-            display.setOnPreferenceClickListener(pref -> {
-                showDisplay();
-                return true;
-            });
+            if (displayModes || virtualDisplay) {
+                screen.addPreference(displayCategory);
+            }
+            if (displayModes) {
+                // Saved separately, so the display choice also applies when profile edits are discarded.
+                Preference display = new Preference(activity);
+                display.setKey("host_display");
+                display.setTitle(R.string.host_display_menu);
+                display.setLayoutResource(R.layout.settings_preference);
+                display.setPersistent(false);
+                displayCategory.addPreference(display);
+                display.setOnPreferenceClickListener(pref -> {
+                    showDisplay();
+                    return true;
+                });
+            }
             stream = displayCategory;
-            row("virtual", R.string.title_virtual_display, () -> showSwitch("virtual", R.string.title_virtual_display));
-            row("scale", R.string.title_virtual_display_scale, () -> showNumber("scale", R.string.host_profile_scale));
+            if (virtualDisplay) {
+                row("virtual", R.string.title_virtual_display, () -> showSwitch("virtual", R.string.title_virtual_display));
+                row("scale", R.string.title_virtual_display_scale, () -> showNumber("scale", R.string.host_profile_scale));
+            }
             stream = new PreferenceCategory(activity);
             stream.setTitle(R.string.settings_section_video);
             stream.setLayoutResource(R.layout.settings_category);
@@ -292,34 +308,64 @@ public final class HostStreamSettings extends AppCompatActivity {
             findPreference("refresh").setSummary(summary(own.refreshRateX100 != null, refreshText(config)));
             findPreference("bitrate").setSummary(summary(own.bitrate != null,
                     HostStreamProfile.formatBitrateMbps(config.bitrate) + " Mbps"));
-            findPreference("codec").setSummary(summary(own.codec != null,
-                    getResources().getStringArray(R.array.host_profile_codecs)[config.videoFormat.ordinal()]));
+            String[] codecs = getResources().getStringArray(R.array.host_profile_codecs);
+            String codec = summary(own.codec != null, codecs[config.videoFormat.ordinal()]);
+            if (config.videoFormat == PreferenceConfiguration.FormatOption.FORCE_PYROWAVE &&
+                    !activity.caps.mayHave(HostCapabilities.Feature.PYROWAVE)) {
+                codec += "\n" + getString(R.string.host_pyrowave_unavailable,
+                        codecs[PreferenceConfiguration.codecWithoutPyroWave(activity.global.videoFormat).ordinal()]);
+            }
+            findPreference("codec").setSummary(codec);
             findPreference("upscaling").setSummary(summary(own.upscalingMode != null, upscalingText(config)));
             findPreference("sharpness").setSummary(summary(own.upscalingSharpness != null,
                     getString(R.string.upscaling_sharpness_value, config.upscalingSharpness)));
             findPreference("sharpness").setEnabled(config.upscalingMode == UpscalingPolicy.Mode.FSR1 ||
                     config.upscalingMode == UpscalingPolicy.Mode.SGSR1);
-            for (String key : new String[] {"hdr", "vrr", "virtual", "yuv444", "full_range"}) {
+            for (String key : new String[] {"hdr", "vrr", "yuv444", "full_range"}) {
                 findPreference(key).setSummary(summary(switchOverride(key) != null, onOff(switchValue(config, key))));
             }
             findPreference("vrr").setSummary(findPreference("vrr").getSummary() +
                     "\n" + getString(R.string.summary_vrr));
-            findPreference("scale").setSummary(summary(own.renderScale != null, config.virtualDisplayScale + "%") +
-                    "\n" + getString(R.string.summary_virtual_display_scale));
+            Preference virtual = findPreference("virtual");
+            Preference scale = findPreference("scale");
+            if (virtual != null) {
+                virtual.setSummary(summary(switchOverride("virtual") != null, onOff(switchValue(config, "virtual"))));
+                scale.setSummary(summary(own.renderScale != null, config.virtualDisplayScale + "%") +
+                        "\n" + getString(R.string.summary_virtual_display_scale));
+            }
             findPreference("reset").setEnabled(!own.isEmpty());
             findPreference("reset").setSummary(own.isEmpty() ? getString(R.string.host_profile_status_global) :
                     getString(R.string.host_profile_status_custom));
             Preference display = findPreference("host_display");
-            HostDisplayChoice displayChoice = HostDisplayChoice.load(activity, activity.hostUuid);
-            findPreference("virtual").setEnabled(displayChoice == HostDisplayChoice.HOST_DEFAULT);
-            if (displayChoice != HostDisplayChoice.HOST_DEFAULT) {
-                findPreference("virtual").setSummary(getString(R.string.host_display_controls_virtual,
-                        getString(displayChoice.label)));
+            // Only a host with display modes receives the choice; elsewhere the switch decides.
+            HostDisplayChoice displayChoice = activity.caps.mayHave(HostCapabilities.Feature.HOST_DISPLAY_MODES) ?
+                    HostDisplayChoice.load(activity, activity.hostUuid) : HostDisplayChoice.HOST_DEFAULT;
+            if (virtual != null) {
+                virtual.setEnabled(displayChoice == HostDisplayChoice.HOST_DEFAULT);
+                if (displayChoice != HostDisplayChoice.HOST_DEFAULT) {
+                    virtual.setSummary(getString(R.string.host_display_controls_virtual, getString(displayChoice.label)));
+                }
+                applyGate(virtual, HostCapabilities.Feature.VIRTUAL_DISPLAY);
+                applyGate(scale, HostCapabilities.Feature.VIRTUAL_DISPLAY);
             }
             if (display != null) {
                 display.setSummary(getString(displayChoice.label) + "\n" + getString(R.string.settings_profile_display_immediate));
+                applyGate(display, HostCapabilities.Feature.HOST_DISPLAY_MODES);
             }
             activity.updateSaveState();
+        }
+
+        private HostFeatureGate gate(HostCapabilities.Feature feature) {
+            return HostFeatureGate.of(activity.caps, feature);
+        }
+
+        /** Disables a row the host can't use yet and adds why, or notes that it applies if supported. */
+        private void applyGate(Preference row, HostCapabilities.Feature feature) {
+            HostFeatureGate gate = gate(feature);
+            if (!gate.isEnabled()) {
+                row.setEnabled(false);
+            }
+            row.setSummary(gate.withNote(activity, row.getSummary()));
         }
 
         private void showSwitch(String key, int title) {
@@ -340,12 +386,16 @@ public final class HostStreamSettings extends AppCompatActivity {
 
         private void showCodec() {
             String[] codecs = getResources().getStringArray(R.array.host_profile_codecs);
-            CharSequence[] items = new CharSequence[codecs.length + 1];
+            // PyroWave is the last codec; a host that can never stream it doesn't offer it.
+            int offered = gate(HostCapabilities.Feature.PYROWAVE).isVisible() ? codecs.length :
+                    PreferenceConfiguration.FormatOption.FORCE_PYROWAVE.ordinal();
+            CharSequence[] items = new CharSequence[offered + 1];
             items[0] = getString(R.string.host_profile_same_as_all_value, codecs[activity.global.videoFormat.ordinal()]);
-            System.arraycopy(codecs, 0, items, 1, codecs.length);
+            System.arraycopy(codecs, 0, items, 1, offered);
             PreferenceConfiguration.FormatOption own = activity.overrides.codec;
+            int checked = own == null ? 0 : own.ordinal() < offered ? own.ordinal() + 1 : -1;
             new MaterialAlertDialogBuilder(activity).setTitle(R.string.title_video_format)
-                    .setSingleChoiceItems(items, own == null ? 0 : own.ordinal() + 1, (dialog, which) -> {
+                    .setSingleChoiceItems(items, checked, (dialog, which) -> {
                         activity.overrides.codec = which == 0 ? null :
                                 PreferenceConfiguration.FormatOption.values()[which - 1];
                         updateSummaries();

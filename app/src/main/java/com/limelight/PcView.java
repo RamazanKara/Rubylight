@@ -25,6 +25,7 @@ import com.limelight.preferences.PreferenceConfiguration;
 import com.limelight.preferences.StreamSettings;
 import com.limelight.ui.AdapterFragment;
 import com.limelight.ui.AdapterFragmentCallbacks;
+import com.limelight.ui.HostFeatureGate;
 import com.limelight.utils.Dialog;
 import com.limelight.utils.FrontendExporter;
 import com.limelight.utils.HelpLauncher;
@@ -486,9 +487,8 @@ public class PcView extends AppCompatActivity implements AdapterFragmentCallback
         });
         sheet.addSection(R.string.pc_sheet_this_pc);
         addPcAction(sheet, computer, HOST_SETTINGS_ID, R.drawable.ic_settings, R.string.host_profile_menu);
-        if (!computer.details.nvidiaServer) {
-            addPcAction(sheet, computer, HOST_DISPLAY_ID, R.drawable.ic_computer, R.string.host_display_menu);
-        }
+        addPcAction(sheet, computer, HOST_DISPLAY_ID, R.drawable.ic_computer, R.string.host_display_menu,
+                HostFeatureGate.of(computer.details.caps, HostCapabilities.Feature.HOST_DISPLAY_MODES));
         if (ServerHelper.getHostSettingsUrl(computer.details) != null) {
             addPcAction(sheet, computer, HOST_ADMINISTRATION_ID, R.drawable.ic_settings, R.string.host_administration_menu);
         }
@@ -521,6 +521,27 @@ public class PcView extends AppCompatActivity implements AdapterFragmentCallback
             sheet.dismiss();
             onComputerAction(computer, action);
         });
+    }
+
+    /** An action for a host feature: hidden, disabled with its reason, or noted, as the PC allows. */
+    private void addPcAction(ActionSheet sheet, ComputerObject computer, int action, int icon, int label,
+                             HostFeatureGate gate) {
+        if (!gate.isVisible()) return;
+        android.text.SpannableString text = new android.text.SpannableString(gate.withNote(this, getString(label)));
+        if (gate.note != 0) {
+            int noteStart = getString(label).length() + 1;
+            text.setSpan(new android.text.style.RelativeSizeSpan(0.85f), noteStart, text.length(), 0);
+        }
+        com.google.android.material.button.MaterialButton button = sheet.addAction(icon, text);
+        if (gate.isEnabled()) {
+            button.setOnClickListener(v -> {
+                sheet.dismiss();
+                onComputerAction(computer, action);
+            });
+        } else {
+            button.setEnabled(false);
+            button.setAlpha(0.6f);
+        }
     }
 
     private void showHostAdministration(ComputerDetails computer) {

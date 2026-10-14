@@ -87,6 +87,61 @@ public class PcViewLifecycleTest {
         return controller;
     }
 
+    /** The PC sheet's actions as "label" or "label (disabled)", for one PC with these capabilities. */
+    private java.util.List<String> pcSheet(com.limelight.nvstream.http.HostCapabilities caps) {
+        ActivityController<Library> controller = pairingScreen(new CountDownLatch(0), 47989);
+        try {
+            com.limelight.grid.PcGridAdapter adapter = ReflectionHelpers.getField(controller.get(), "pcGridAdapter");
+            PcView.ComputerObject computer = (PcView.ComputerObject) adapter.getItem(0);
+            computer.details.caps = caps;
+            ReflectionHelpers.callInstanceMethod(controller.get(), "showComputerMenu",
+                    ReflectionHelpers.ClassParameter.from(PcView.ComputerObject.class, computer));
+            com.limelight.ui.ActionSheet sheet = ReflectionHelpers.getField(controller.get(), "pcMenu");
+            java.util.List<String> actions = new java.util.ArrayList<>();
+            collectActions(sheet.findViewById(android.R.id.content), actions);
+            sheet.dismiss();
+            return actions;
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    private static void collectActions(android.view.View view, java.util.List<String> actions) {
+        if (view instanceof com.google.android.material.button.MaterialButton) {
+            com.google.android.material.button.MaterialButton button = (com.google.android.material.button.MaterialButton) view;
+            actions.add(button.getText() + (button.isEnabled() ? "" : " (disabled)"));
+        } else if (view instanceof android.view.ViewGroup) {
+            android.view.ViewGroup group = (android.view.ViewGroup) view;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                collectActions(group.getChildAt(i), actions);
+            }
+        }
+    }
+
+    @Test
+    public void pcSheetOffersHostFeaturesOnlyWhereThePcHasThem() {
+        android.content.Context context = RuntimeEnvironment.getApplication();
+        String display = context.getString(R.string.host_display_menu);
+        String otp = context.getString(R.string.pair_otp_title);
+        String webUi = context.getString(R.string.host_administration_menu);
+        java.util.List<String> sunshine = pcSheet(com.limelight.nvstream.http.TestHosts.fixture("sunshine-serverinfo.xml"));
+        assertFalse(sunshine.toString(), sunshine.stream().anyMatch(action -> action.startsWith(display)));
+        assertFalse(sunshine.contains(otp));
+        assertTrue(sunshine.toString(), sunshine.contains(webUi));
+        java.util.List<String> apollo = pcSheet(com.limelight.nvstream.http.TestHosts.fixture("apollo-http-serverinfo.xml"));
+        assertTrue(apollo.toString(), apollo.contains(otp));
+        assertFalse(apollo.stream().anyMatch(action -> action.startsWith(display)));
+        java.util.List<String> gameStream = pcSheet(com.limelight.nvstream.http.TestHosts.fixture("gamestream-serverinfo.xml"));
+        assertFalse(gameStream.stream().anyMatch(action -> action.startsWith(display)));
+        assertFalse(gameStream.contains(webUi));
+        assertTrue(pcSheet(com.limelight.nvstream.http.TestHosts.rubylight()).contains(display));
+        java.util.List<String> older = pcSheet(com.limelight.nvstream.http.TestHosts.fixture("butterpollo-serverinfo.xml"));
+        assertTrue(older.toString(), older.contains(
+                display + "\n" + context.getString(R.string.host_feature_reason_update) + " (disabled)"));
+        assertTrue(pcSheet(com.limelight.nvstream.http.HostCapabilities.UNKNOWN).contains(
+                display + "\n" + context.getString(R.string.host_feature_unknown)));
+    }
+
     @Test
     public void hostAdministrationExplainsLoginThenOpensTheCurrentHostsConsole() {
         ActivityController<Library> controller = pairingScreen(new CountDownLatch(0), 47989);

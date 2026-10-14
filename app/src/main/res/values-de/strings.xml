@@ -217,8 +217,8 @@
     <string name="title_disable_frame_drop">Keine Frames verwerfen</string>
     <string name="summary_disable_frame_drop">Verringere Ruckeln auf Kosten einer höheren Latenz.</string>
     <string name="title_video_format">Videocodec</string>
-    <string name="summary_video_format">Wähle einen Codec, den PC und Gerät unterstützen. PyroWave benötigt einen Host mit PyroWave-Unterstützung (z. B. Rubylight).</string>
-    <string name="pyrowave_ready">Auf diesem Gerät verfügbar. Benötigt einen Host mit PyroWave-Unterstützung (z. B. Rubylight).</string>
+    <string name="summary_video_format">Wähle einen Codec, den PC und Gerät unterstützen. PyroWave braucht Unterstützung durch den Host.</string>
+    <string name="pyrowave_ready">Auf diesem Gerät verfügbar. Braucht Unterstützung durch den Host.</string>
     <string name="pyrowave_checking">GPU-Unterstützung wird geprüft…</string>
     <string name="pyrowave_needs_android">Benötigt Android 10</string>
     <string name="pyrowave_needs_64_bit">Benötigt eine 64-Bit-App</string>
@@ -285,9 +285,9 @@
     <string name="summary_yuv444">Stelle farbigen Text schärfer dar, falls unterstützt.</string>
     <string name="yuv444_fallback">YUV 4:4:4 nicht verfügbar; nutze 4:2:0.</string>
     <string name="title_virtual_display">Virtuelles Host-Display</string>
-    <string name="summary_virtual_display">Fordert am PC ein Display passend zum Stream an. Aus: Die Display-Einstellungen des PCs entscheiden.</string>
+    <string name="summary_virtual_display">Fordert am PC ein Display passend zum Stream an. Aus: Die Display-Einstellungen des PCs entscheiden. Braucht Unterstützung durch den Host.</string>
     <string name="title_vrr">Adaptive Bildwiederholrate (ARR / VRR)</string>
-    <string name="summary_vrr">Android steuert die Bildwiederholrate automatisch mit jedem kompatiblen Host. Benötigt Android 16 und ein ARR-Display; sonst wird die maximale Bildwiederholrate angefordert. Fordert auch VRR am Host an, falls unterstützt, etwa bei Rubylight oder Vibepollo; die Aktivierung hängt von den Host-Einstellungen ab und wird nicht bestätigt.</string>
+    <string name="summary_vrr">Android steuert die Bildwiederholrate automatisch mit jedem kompatiblen Host. Benötigt Android 16 und ein ARR-Display; sonst wird die maximale Bildwiederholrate angefordert. Fordert auch VRR am Host an, wenn der Host es unterstützt; die Aktivierung hängt von den Host-Einstellungen ab und wird nicht bestätigt.</string>
     <string name="title_virtual_display_scale">Host-Skalierung</string>
     <string name="summary_virtual_display_scale">Ändert die Renderauflösung des PCs, nicht die übertragene Videogröße. Senke die Stream-Auflösung, um weniger Pixel zu übertragen und auf diesem Gerät hochzuskalieren.</string>
     <string name="latency_values">%1$.2f / %2$.2f / %3$.2f (n=%4$d)</string>

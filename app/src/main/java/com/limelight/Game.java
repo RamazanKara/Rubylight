@@ -767,6 +767,17 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         }
         streamHdr = willStreamHdr;
 
+        // PyroWave was chosen but this PC showed it has none; say once for the PC what is used instead.
+        if (mediaStream && prefConfig.pyroWaveUnavailable) {
+            if (HostNotices.claim(this, getIntent().getStringExtra(EXTRA_PC_UUID), HostNotices.Notice.PYROWAVE_UNAVAILABLE)) {
+                Toast.makeText(this, getString(R.string.host_pyrowave_unavailable,
+                        getResources().getStringArray(R.array.host_profile_codecs)[prefConfig.videoFormat.ordinal()]),
+                        Toast.LENGTH_LONG).show();
+            }
+        } else if (prefConfig.videoFormat == PreferenceConfiguration.FormatOption.FORCE_PYROWAVE) {
+            HostNotices.reset(this, getIntent().getStringExtra(EXTRA_PC_UUID), HostNotices.Notice.PYROWAVE_UNAVAILABLE);
+        }
+
         // Display a message to the user if HEVC was forced on but we still didn't find a decoder
         if (mediaStream && prefConfig.videoFormat == PreferenceConfiguration.FormatOption.FORCE_HEVC && !decoderRenderer.isHevcSupported()) {
             Toast.makeText(this, R.string.stream_hevc_decoder_missing, Toast.LENGTH_LONG).show();

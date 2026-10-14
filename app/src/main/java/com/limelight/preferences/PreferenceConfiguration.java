@@ -8,6 +8,8 @@ import android.preference.PreferenceManager;
 import android.hardware.display.DisplayManager;
 import android.view.Display;
 
+import com.limelight.computers.HostCapabilityCache;
+import com.limelight.nvstream.http.HostCapabilities;
 import com.limelight.nvstream.jni.MoonBridge;
 import com.limelight.binding.video.DisplayFrameRatePolicy;
 import com.limelight.binding.video.PerformanceOverlay;
@@ -212,6 +214,8 @@ public class PreferenceConfiguration {
     // What this PC's displays do during the stream, and the PC's own stream values (for the log).
     public HostDisplayChoice hostDisplay;
     public String pcSettings;
+    // PyroWave was chosen, but this PC has shown it has none; videoFormat holds the codec used instead.
+    public boolean pyroWaveUnavailable;
     public UpscalingPolicy.Mode upscalingMode = UpscalingPolicy.Mode.OFF;
     public int upscalingSharpness = 50;
 
@@ -529,7 +533,13 @@ public class PreferenceConfiguration {
     private static final String PC_PROFILES_OVERRIDES_PREF_STRING = "pc_profiles_overrides";
 
     public static PreferenceConfiguration readPreferences(Context context, String hostUuid) {
+        return readPreferences(context, hostUuid, HostCapabilityCache.load(context, hostUuid));
+    }
+
+    /** The settings for a stream from this PC, given what the PC last showed it can do. */
+    public static PreferenceConfiguration readPreferences(Context context, String hostUuid, HostCapabilities caps) {
         PreferenceConfiguration config = readPreferences(context);
+        FormatOption allPcsFormat = config.videoFormat;
         migratePcProfilesToOverrides(context);
         config.hostDisplay = hostUuid == null ? null : HostDisplayChoice.load(context, hostUuid);
         HostStreamProfile profile = HostStreamProfile.load(context, hostUuid);
@@ -552,7 +562,21 @@ public class PreferenceConfiguration {
             config.useTextureView = prefs.getBoolean(TEXTURE_VIEW_PREF_STRING, false) && !config.enableHdr &&
                     config.videoFormat != FormatOption.FORCE_PYROWAVE;
         }
+        // Forcing PyroWave on a PC without it would still cost TextureView and keep HDR looking
+        // available. Use the setting for all PCs instead, or let the device choose. A PC never
+        // seen yet keeps PyroWave, and the stream negotiation decides.
+        if (config.videoFormat == FormatOption.FORCE_PYROWAVE && !caps.mayHave(HostCapabilities.Feature.PYROWAVE)) {
+            config.pyroWaveUnavailable = true;
+            config.videoFormat = codecWithoutPyroWave(allPcsFormat);
+            config.useTextureView = PreferenceManager.getDefaultSharedPreferences(context)
+                    .getBoolean(TEXTURE_VIEW_PREF_STRING, false) && !config.enableHdr;
+        }
         return config;
+    }
+
+    /** The codec for all PCs, or the device's own choice when that is PyroWave too. */
+    public static FormatOption codecWithoutPyroWave(FormatOption allPcsFormat) {
+        return allPcsFormat == FormatOption.FORCE_PYROWAVE ? FormatOption.AUTO : allPcsFormat;
     }
 
     // PC profiles saved before test.11 copied every global setting, so later changes to the global

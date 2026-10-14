@@ -292,6 +292,9 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
     private LinkedBlockingQueue<Integer> outputBufferQueue = new LinkedBlockingQueue<>();
     private int outputBufferQueueLimit = 1;
+    // Why the pending restart was requested. Problem reports keep warnings and "Decoder" lines,
+    // so they show HDR, size and upscaler restarts as such instead of as a CodecException.
+    private volatile String restartReason = "CodecException";
     private long nextFrameTimeNanos;
     private HandlerThread choreographerHandlerThread;
     private Handler choreographerHandler;
@@ -593,9 +596,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             if (restart) {
                 // An expected "recovery", like an HDR change.
                 codecRecoveryAttempts = 0;
-                if (!codecRecoveryType.compareAndSet(CR_RECOVERY_TYPE_NONE, CR_RECOVERY_TYPE_RESTART)) {
-                    codecRecoveryType.compareAndSet(CR_RECOVERY_TYPE_FLUSH, CR_RECOVERY_TYPE_RESTART);
-                }
+                requestRestart("size change");
             }
             expectedWidth = width;
             expectedHeight = height;
@@ -759,9 +760,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             synchronized (codecRecoveryMonitor) {
                 if (stopping) return;
                 codecRecoveryAttempts = 0;
-                if (!codecRecoveryType.compareAndSet(CR_RECOVERY_TYPE_NONE, CR_RECOVERY_TYPE_RESTART)) {
-                    codecRecoveryType.compareAndSet(CR_RECOVERY_TYPE_FLUSH, CR_RECOVERY_TYPE_RESTART);
-                }
+                requestRestart("upscaler failure");
             }
         }
     }
@@ -1491,7 +1490,9 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                 if (upscaler != null) {
                     // A flush can strand frames in the texture queue. Restart onto direct output.
                     upscalingPolicy.fail(UpscalingPolicy.Reason.GPU_ERROR);
-                    codecRecoveryType.compareAndSet(CR_RECOVERY_TYPE_FLUSH, CR_RECOVERY_TYPE_RESTART);
+                    if (codecRecoveryType.compareAndSet(CR_RECOVERY_TYPE_FLUSH, CR_RECOVERY_TYPE_RESTART)) {
+                        restartReason = "flush with the upscaler";
+                    }
                 }
                 // Input and output buffers are invalidated by stop() and reset().
                 nextInputBuffer = null;
@@ -1512,6 +1513,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
                         // Something went wrong during the restart, let's use a bigger hammer
                         // and try a reset instead.
+                        restartReason = "failed flush";
                         codecRecoveryType.set(CR_RECOVERY_TYPE_RESTART);
                     }
                 }
@@ -1524,7 +1526,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
                 // For "recoverable" exceptions, we can just stop, reconfigure, and restart.
                 if (codecRecoveryType.get() == CR_RECOVERY_TYPE_RESTART) {
-                    LimeLog.warning("Trying to restart decoder after CodecException");
+                    LimeLog.warning("Trying to restart decoder after " + restartReason);
                     try {
                         videoDecoder.stop();
                         configureAndStartDecoder(configuredFormat);
@@ -1646,10 +1648,12 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                 // If we have no prior unrecoverable failure, we will try a restart instead.
                 if (codecExc.isRecoverable()) {
                     if (codecRecoveryType.compareAndSet(CR_RECOVERY_TYPE_NONE, CR_RECOVERY_TYPE_RESTART)) {
+                        restartReason = "CodecException";
                         LimeLog.info("Decoder requires restart for recoverable CodecException");
                         e.printStackTrace();
                     }
                     else if (codecRecoveryType.compareAndSet(CR_RECOVERY_TYPE_FLUSH, CR_RECOVERY_TYPE_RESTART)) {
+                        restartReason = "CodecException";
                         LimeLog.info("Decoder flush promoted to restart for recoverable CodecException");
                         e.printStackTrace();
                     }
@@ -2202,11 +2206,18 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                 // HACK: Reset codec recovery attempt counter, since this is an expected "recovery"
                 codecRecoveryAttempts = 0;
 
-                // Promote None/Flush to Restart and leave Reset alone
-                if (!codecRecoveryType.compareAndSet(CR_RECOVERY_TYPE_NONE, CR_RECOVERY_TYPE_RESTART)) {
-                    codecRecoveryType.compareAndSet(CR_RECOVERY_TYPE_FLUSH, CR_RECOVERY_TYPE_RESTART);
-                }
+                // The host's first HDR report restarts a 10-bit stream once: it adds metadata or turns HDR off.
+                requestRestart(enabled ? (metadata != null ? "HDR metadata" : "HDR on") : "HDR off");
             }
+        }
+    }
+
+    // Promotes None/Flush to Restart and leaves Reset alone.
+    private void requestRestart(String reason) {
+        restartReason = reason;
+        LimeLog.info("Decoder restart requested: " + reason);
+        if (!codecRecoveryType.compareAndSet(CR_RECOVERY_TYPE_NONE, CR_RECOVERY_TYPE_RESTART)) {
+            codecRecoveryType.compareAndSet(CR_RECOVERY_TYPE_FLUSH, CR_RECOVERY_TYPE_RESTART);
         }
     }
 

@@ -88,4 +88,25 @@ public class MediaCodecDiagnosticsTest {
             }
         }
     }
+
+    @Test
+    public void hdrRestartsReachProblemReportsAsSuchNotAsCodecFailures() {
+        try (ActivityController<Activity> activity = Robolectric.buildActivity(Activity.class).create()) {
+            ReflectionHelpers.setStaticField(MediaCodecHelper.class, "initialized", true);
+            PreferenceConfiguration prefs = new PreferenceConfiguration();
+            prefs.videoFormat = PreferenceConfiguration.FormatOption.AUTO;
+            MediaCodecDecoderRenderer renderer = new MediaCodecDecoderRenderer(activity.get(), prefs,
+                    null, 0, false, true, "", null);
+            ReflectionHelpers.setField(renderer, "videoFormat", com.limelight.nvstream.jni.MoonBridge.VIDEO_FORMAT_H265_MAIN10);
+            java.util.concurrent.atomic.AtomicInteger recovery = ReflectionHelpers.getField(renderer, "codecRecoveryType");
+            byte[] metadata = new byte[26];
+            // The host reports HDR as soon as the 10-bit stream starts; the decoder restarts once for it.
+            renderer.setHdrMode(true, metadata);
+            assertEquals("restart", 2, recovery.get());
+            assertTrue(com.limelight.LimeLog.getRedactedLog().contains("Decoder restart requested: HDR metadata"));
+            recovery.set(0);
+            renderer.setHdrMode(true, metadata);
+            assertEquals("The same report again needs no restart", 0, recovery.get());
+        }
+    }
 }

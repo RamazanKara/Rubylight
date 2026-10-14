@@ -15,7 +15,6 @@
     <string name="pcview_menu_header_online">Online</string>
     <string name="pcview_menu_header_offline">Offline</string>
     <string name="pcview_menu_header_unknown">Refreshing</string>
-    <string name="pcview_menu_app_list">View all apps</string>
     <string name="pcview_menu_pair_pc">Pair</string>
     <string name="pcview_menu_unpair_pc">Unpair</string>
     <string name="pcview_menu_send_wol">Wake PC</string>
@@ -82,7 +81,7 @@
     <string name="error_code_prefix">Error code:</string>
 
     <!-- General strings -->
-    <string name="ip_hint">IP address or hostname</string>
+    <string name="ip_hint">IP address or PC name</string>
     <string name="searching_pc">Searching for PCs…</string>
     <string name="yes">Yes</string>
     <string name="no">No</string>
@@ -111,12 +110,11 @@
     <string name="applist_connect_msg">Connecting to PC…</string>
     <string name="applist_menu_resume">Resume</string>
     <string name="applist_menu_quit">Quit game</string>
-    <string name="applist_menu_quit_and_start">Quit and start</string>
     <string name="applist_menu_cancel">Cancel</string>
     <string name="applist_menu_details">View details</string>
     <string name="applist_menu_scut">Create shortcut</string>
     <string name="applist_menu_tv_channel">Add to channel</string>
-    <string name="applist_menu_hide_app">Hide app</string>
+    <string name="applist_menu_hide_app">Hide game</string>
     <string name="applist_refresh_title">App list</string>
     <string name="applist_refresh_msg">Refreshing apps…</string>
     <string name="applist_refresh_error_title">Error</string>
@@ -131,9 +129,9 @@
     <string name="title_add_pc">Add PC</string>
     <string name="msg_add_pc">Connecting to the PC…</string>
     <string name="addpc_fail">Start a Moonlight-compatible streaming host, such as Apollo, Rubylight, Sunshine or Vibepollo, on the PC and allow it through the firewall.</string>
-    <string name="addpc_success">Host added</string>
+    <string name="addpc_success">PC added</string>
     <string name="addpc_unknown_host">PC not found. Check the address.</string>
-    <string name="addpc_enter_ip">Enter the host\'s IP address or name</string>
+    <string name="addpc_enter_ip">Enter an IP address or PC name</string>
     <string name="addpc_wrong_sitelocal">For Internet streaming, use your router’s public IP address.</string>
 
     <!-- Preferences -->

@@ -9,8 +9,6 @@
     <string name="settings_source">Source and licenses</string>
     <string name="settings_csv_summary">Save the latest latency measurements</string>
     <string name="host_profile_footer">Save stream settings before leaving. Display mode saves separately with Save display mode in its dialog. Changes apply to the next stream.</string>
-    <string name="pc_sheet_pairing">Pairing</string>
-    <string name="pc_sheet_this_pc">This PC</string>
     <string name="stream_input_menu">Input mode</string>
     <string name="stream_overlay_menu">Overlay</string>
     <string name="stream_clipboard_menu">Clipboard</string>
@@ -21,5 +19,5 @@
         <item>Native (recommended)</item>
         <item>Battery saver</item>
     </string-array>
-    <string name="applist_menu_show_app">Show app</string>
+    <string name="applist_menu_show_app">Show game</string>
 </resources>

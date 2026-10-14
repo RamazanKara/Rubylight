@@ -1,6 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="host_profile_menu">Stream-Einstellungen</string>
     <string name="host_profile_title">Stream-Einstellungen: %1$s</string>
     <string name="host_profile_status_global">Alle Werte folgen den Einstellungen für alle PCs.</string>
     <string name="host_profile_status_custom">Setzt alle Werte auf die Einstellungen für alle PCs zurück.</string>

@@ -1,15 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="library_computers">Computer</string>
-    <string name="pc_online_paired">Online</string>
+    <string name="library_computers">PCs</string>
     <string name="pc_needs_pairing">Nicht gekoppelt</string>
-    <string name="pc_online">Online</string>
     <string name="pc_offline">Offline</string>
     <string name="pc_checking">Verbindung wird geprüft…</string>
     <string name="app_running">Läuft</string>
     <string name="app_hidden">Ausgeblendet</string>
     <string name="app_running_hidden">Läuft · Ausgeblendet</string>
-    <string name="app_resume_quit">Fortsetzen / beenden</string>
     <string name="library_item_description">%1$s, %2$s</string>
-    <string name="add_pc_hint">Gib IP-Adresse oder PC-Namen ein, bei Bedarf mit Port.</string>
+    <string name="add_pc_hint">Gib eine IP-Adresse oder einen PC-Namen ein, bei Bedarf mit Port.</string>
 </resources>

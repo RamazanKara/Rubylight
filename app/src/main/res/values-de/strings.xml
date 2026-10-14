@@ -10,7 +10,6 @@
     <string name="pcview_menu_header_online">Online</string>
     <string name="pcview_menu_header_offline">Offline</string>
     <string name="pcview_menu_header_unknown">Wird aktualisiert</string>
-    <string name="pcview_menu_app_list">Alle Apps anzeigen</string>
     <string name="pcview_menu_pair_pc">Koppeln</string>
     <string name="pcview_menu_unpair_pc">Kopplung aufheben</string>
     <string name="pcview_menu_send_wol">PC aufwecken</string>
@@ -90,12 +89,11 @@
     <string name="applist_connect_msg">Verbinde mit PC…</string>
     <string name="applist_menu_resume">Fortsetzen</string>
     <string name="applist_menu_quit">Spiel beenden</string>
-    <string name="applist_menu_quit_and_start">Beenden und starten</string>
     <string name="applist_menu_cancel">Abbrechen</string>
     <string name="applist_menu_details">Details anzeigen</string>
     <string name="applist_menu_scut">Verknüpfung erstellen</string>
     <string name="applist_menu_tv_channel">Zum Kanal hinzufügen</string>
-    <string name="applist_menu_hide_app">App ausblenden</string>
+    <string name="applist_menu_hide_app">Spiel ausblenden</string>
     <string name="applist_refresh_title">Apps</string>
     <string name="applist_refresh_msg">Apps werden aktualisiert…</string>
     <string name="applist_refresh_error_title">Fehler</string>
@@ -110,7 +108,7 @@
     <string name="addpc_fail">Starte einen Moonlight-kompatiblen Streaming-Host wie Apollo, Rubylight, Sunshine oder Vibepollo am PC und erlaube ihn in der Firewall.</string>
     <string name="addpc_success">PC hinzugefügt</string>
     <string name="addpc_unknown_host">PC nicht gefunden. Prüfe die Adresse.</string>
-    <string name="addpc_enter_ip">Gib die IP-Adresse oder den PC-Namen ein.</string>
+    <string name="addpc_enter_ip">Gib eine IP-Adresse oder einen PC-Namen ein</string>
     <string name="addpc_wrong_sitelocal">Nutze für Internet-Streaming die öffentliche IP deines Routers.</string>
     <string name="category_basic_settings">Grundeinstellungen</string>
     <string name="title_resolution_list">Stream-Auflösung</string>

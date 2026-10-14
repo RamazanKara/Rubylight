@@ -10,8 +10,6 @@
     <string name="settings_source">Quellcode und Lizenzen</string>
     <string name="settings_csv_summary">Speichere die letzten Latenzmesswerte.</string>
     <string name="host_profile_footer">Speichere die Stream-Einstellungen vor dem Verlassen. Den Displaymodus speicherst du separat mit Displaymodus speichern in seinem Dialog. Änderungen gelten ab dem nächsten Stream.</string>
-    <string name="pc_sheet_pairing">Kopplung</string>
-    <string name="pc_sheet_this_pc">Dieser PC</string>
     <string name="stream_input_menu">Eingabe</string>
     <string name="stream_overlay_menu">Leistungsanzeige</string>
     <string name="stream_clipboard_menu">Zwischenablage</string>
@@ -22,5 +20,5 @@
         <item>Nativ (empfohlen)</item>
         <item>Akku sparen</item>
     </string-array>
-    <string name="applist_menu_show_app">App anzeigen</string>
+    <string name="applist_menu_show_app">Spiel einblenden</string>
 </resources>

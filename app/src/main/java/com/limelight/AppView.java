@@ -450,8 +450,8 @@ public class AppView extends AppCompatActivity implements AdapterFragmentCallbac
         int total = appGridAdapter == null ? 0 : appGridAdapter.getLibraryCount();
         TextView summary = findViewById(R.id.library_summary);
         summary.setVisibility(appGridAdapter != null && !appGridAdapter.getAllApps().isEmpty() ? View.VISIBLE : View.GONE);
-        summary.setText(!searchQuery.trim().isEmpty() ? getString(R.string.library_results, visible, total) :
-                showHiddenApps ? getString(R.string.library_showing_hidden, visible) :
+        summary.setText(!searchQuery.trim().isEmpty() ? getResources().getQuantityString(R.plurals.library_results, total, visible, total) :
+                showHiddenApps ? getResources().getQuantityString(R.plurals.library_showing_hidden, visible, visible) :
                         getResources().getQuantityString(R.plurals.library_app_count, visible, visible));
         findViewById(R.id.library_loading).setVisibility(loadingApps ? View.VISIBLE : View.GONE);
 

@@ -225,47 +225,70 @@ fn colors(config: &Negotiated) -> (u32, u32, u32) {
     };
     (primaries, if config.hdr { 16 } else { transfer }, matrix)
 }
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct EncodedMetadata {
+    primaries: [[u16; 2]; 3],
+    white: [u16; 2],
+    maximum: u32,
+    minimum: u32,
+    max_cll: u16,
+    max_fall: u16,
+}
+#[derive(Default)]
 struct Metadata {
     mastering: Box<MASTERING_DISPLAY_INFO>,
     light: Box<CONTENT_LIGHT_LEVEL>,
 }
 impl Metadata {
-    fn update(&mut self, metadata: butterpollo_core::hdr::Metadata) {
-        self.mastering.r = CHROMA_POINTS {
-            x: metadata.primaries[0][0],
-            y: metadata.primaries[0][1],
+    fn new(codec: u8) -> Self {
+        let mut metadata = Self::default();
+        metadata.update(butterpollo_core::hdr::Metadata::default(), codec);
+        metadata
+    }
+    fn update(&mut self, metadata: butterpollo_core::hdr::Metadata, codec: u8) {
+        // NVENC takes each codec's syntax units, not a common HDR10 unit.
+        // AV1 uses 0.16 chromaticities, 24.8 maximum and 18.14 minimum nits;
+        // HEVC uses 1/50000 chromaticities and 1/10000 nit luminance.
+        let point = |[x, y]: [u16; 2]| {
+            let scale = |value| {
+                if codec == 2 {
+                    ((u32::from(value) * 65536 + 25000) / 50000).min(u32::from(u16::MAX)) as u16
+                } else {
+                    value
+                }
+            };
+            CHROMA_POINTS {
+                x: scale(x),
+                y: scale(y),
+            }
         };
-        self.mastering.g = CHROMA_POINTS {
-            x: metadata.primaries[1][0],
-            y: metadata.primaries[1][1],
+        self.mastering.r = point(metadata.primaries[0]);
+        self.mastering.g = point(metadata.primaries[1]);
+        self.mastering.b = point(metadata.primaries[2]);
+        self.mastering.whitePoint = point(metadata.white);
+        self.mastering.maxLuma =
+            u32::from(metadata.maximum_nits) * if codec == 2 { 256 } else { 10000 };
+        self.mastering.minLuma = if codec == 2 {
+            (u32::from(metadata.minimum) * 16384 + 5000) / 10000
+        } else {
+            u32::from(metadata.minimum)
         };
-        self.mastering.b = CHROMA_POINTS {
-            x: metadata.primaries[2][0],
-            y: metadata.primaries[2][1],
-        };
-        self.mastering.whitePoint = CHROMA_POINTS {
-            x: metadata.white[0],
-            y: metadata.white[1],
-        };
-        self.mastering.maxLuma = u32::from(metadata.maximum_nits) * 10000;
-        self.mastering.minLuma = u32::from(metadata.minimum);
         self.light.maxContentLightLevel = metadata.max_cll;
         self.light.maxPicAverageLightLevel = metadata.max_fall;
     }
-}
-impl Default for Metadata {
-    fn default() -> Self {
-        // Same mastering defaults as the Moonlight HDR control message.
-        Self {
-            mastering: Box::new(MASTERING_DISPLAY_INFO {
-                r: CHROMA_POINTS { x: 35400, y: 14600 },
-                g: CHROMA_POINTS { x: 8500, y: 39850 },
-                b: CHROMA_POINTS { x: 6550, y: 2300 },
-                whitePoint: CHROMA_POINTS { x: 15635, y: 16450 },
-                maxLuma: 1000 * 10000,
-                minLuma: 1,
-            }),
-            light: Box::default(),
+    fn encoded(&self) -> EncodedMetadata {
+        let point = |p: CHROMA_POINTS| [p.x, p.y];
+        EncodedMetadata {
+            primaries: [
+                point(self.mastering.r),
+                point(self.mastering.g),
+                point(self.mastering.b),
+            ],
+            white: point(self.mastering.whitePoint),
+            maximum: self.mastering.maxLuma,
+            minimum: self.mastering.minLuma,
+            max_cll: self.light.maxContentLightLevel,
+            max_fall: self.light.maxPicAverageLightLevel,
         }
     }
 }
@@ -313,6 +336,7 @@ struct Session {
     initialize: Box<NV_ENC_INITIALIZE_PARAMS>,
     stream: Negotiated,
     metadata: Metadata,
+    submitted_metadata: Option<EncodedMetadata>,
     slots: Vec<Slot>,
     pending: VecDeque<Pending>,
     ready: VecDeque<Encoded>,
@@ -325,6 +349,9 @@ struct Session {
     force_idr: bool,
 }
 impl Session {
+    fn set_hdr_metadata(&mut self, metadata: butterpollo_core::hdr::Metadata) {
+        self.metadata.update(metadata, self.stream.codec);
+    }
     fn open(
         runtime: Arc<Runtime>,
         device: *mut c_void,
@@ -389,7 +416,8 @@ impl Session {
             config: Box::default(),
             initialize: Box::default(),
             stream: stream.clone(),
-            metadata: Metadata::default(),
+            metadata: Metadata::new(stream.codec),
+            submitted_metadata: None,
             slots: Vec::new(),
             pending: VecDeque::new(),
             ready: VecDeque::new(),
@@ -675,8 +703,9 @@ impl Session {
                     codec.intraRefreshCnt = 299;
                     codec.set_outputRecoveryPointSEI(1);
                 }
-                if metadata {
-                    codec.set_outputMasteringDisplay(1);
+                if self.api >= ApiVersion(13, 0) {
+                    codec.set_outputMasteringDisplay(u32::from(metadata));
+                    codec.set_outputMaxCll(u32::from(metadata));
                 }
             }
             2 => {
@@ -708,8 +737,9 @@ impl Session {
                     codec.numTileRows = 1 << (power / 2.).ceil() as u32;
                     codec.numTileColumns = 1 << (power / 2.).floor() as u32;
                 }
-                if metadata {
-                    codec.set_outputMasteringDisplay(1);
+                if self.api >= ApiVersion(13, 0) {
+                    codec.set_outputMasteringDisplay(u32::from(metadata));
+                    codec.set_outputMaxCll(u32::from(metadata));
                 }
             }
             _ => unreachable!(),
@@ -769,7 +799,7 @@ impl Session {
         let index = self.slots.len();
         self.slots.push(Slot {
             input,
-            metadata: Metadata::default(),
+            metadata: Metadata::new(self.stream.codec),
             registered: ptr::null_mut(),
             mapped: ptr::null_mut(),
             output: ptr::null_mut(),
@@ -884,7 +914,12 @@ impl Session {
         if map.mappedResource.is_null() || map.mappedBufferFmt != buffer_format(&self.stream) {
             bail!("NVENC mapped an incompatible input");
         }
-        let idr = idr || std::mem::take(&mut self.force_idr);
+        let metadata = (self.stream.hdr && self.stream.codec != 0 && self.api >= ApiVersion(13, 0))
+            .then(|| self.metadata.encoded());
+        // The driver emits HDR metadata on IDR/keyframes. Compare only values
+        // actually encoded, and keep the old snapshot until a submission is
+        // accepted so a failed attempt cannot consume a metadata update.
+        let idr = idr || self.force_idr || metadata != self.submitted_metadata;
         let mut picture = NV_ENC_PIC_PARAMS {
             version: self.api.picture(),
             inputWidth: self.stream.width,
@@ -931,6 +966,8 @@ impl Session {
             self.force_idr |= idr;
             self.check(status, "submit picture")?;
         }
+        self.force_idr = false;
+        self.submitted_metadata = metadata;
         let after_invalidation = self.references.confirmation(idr);
         self.slots[slot].signaled = false;
         self.pending.push_back(Pending {
@@ -1259,7 +1296,7 @@ impl Encoder {
                 _NV_ENC_DEVICE_TYPE_NV_ENC_DEVICE_TYPE_DIRECTX,
             ));
         let mut session = Session::open(runtime, device, kind, cuda, config, &tuning)?;
-        session.metadata.update(gpu.hdr_metadata());
+        session.set_hdr_metadata(gpu.hdr_metadata());
         Ok(Self {
             session,
             gpu,
@@ -1272,7 +1309,7 @@ impl Encoder {
         self.luminance = luminance;
     }
     pub fn set_hdr_metadata(&mut self, metadata: butterpollo_core::hdr::Metadata) {
-        self.session.metadata.update(metadata);
+        self.session.set_hdr_metadata(metadata);
     }
     pub fn set_next_frame(&mut self, frame: u64) {
         debug_assert!(self.session.pending.is_empty() && self.session.ready.is_empty());

@@ -4534,6 +4534,12 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 if (isFinishing() || isDestroyed()) {
                     return;
                 }
+                if (errorCode == MoonBridge.ML_ERROR_GRACEFUL_TERMINATION && stoppedStreamResumeIntent != null) {
+                    // The PC ended a session that leaving the stream kept for resuming.
+                    stoppedStreamResumeIntent = null;
+                    finish();
+                    return;
+                }
                 if (transientFailure && !StreamRecoveryPolicy.transportTermination(errorCode)) {
                     // Keep explicit media/early failures visible if a later recovery attempt
                     // finds the host idle. Transport startup retries carry this same flag.

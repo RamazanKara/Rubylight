@@ -353,6 +353,26 @@ public class GameRecoveryTest {
 
     @Test
     @Config(shadows = RecoveryBridge.class, instrumentedPackages = "com.limelight.nvstream.jni")
+    public void aSessionThePcEndsAfterLeavingIsNeverResumed() throws Exception {
+        Game game = establishedGame();
+        try {
+            game.onPause();
+            game.onStop();
+            assertNotNull(ReflectionHelpers.getField(game, "stoppedStreamResumeIntent"));
+            // The termination callback was already on its way when the stream stopped.
+            game.connectionTerminated(MoonBridge.ML_ERROR_GRACEFUL_TERMINATION);
+            assertTrue(game.isFinishing());
+            game.onResume();
+            assertNull(ReflectionHelpers.getField(game, "pendingRecovery"));
+            org.robolectric.shadows.ShadowLooper.idleMainLooper(15, java.util.concurrent.TimeUnit.SECONDS);
+            assertNull(org.robolectric.Shadows.shadowOf(game).getNextStartedActivity());
+        } finally {
+            cleanupRecovery(game);
+        }
+    }
+
+    @Test
+    @Config(shadows = RecoveryBridge.class, instrumentedPackages = "com.limelight.nvstream.jni")
     public void explicitHostFailuresNeverBecomeGracefulExitsEvenWhenTheHostIsIdle() {
         for (int error : new int[] {MoonBridge.ML_ERROR_PROTECTED_CONTENT, MoonBridge.ML_ERROR_FRAME_CONVERSION, 503}) {
             Game game = establishedGame();

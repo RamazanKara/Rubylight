@@ -339,3 +339,20 @@ test('an empty library has one Add app button', async t => {
   await page.getByText('No apps yet', { exact: true }).waitFor();
   assert.equal(await page.getByRole('link', { name: 'Add app', exact: true }).count(), 1);
 });
+
+test('a squeezed Browse button keeps its label on one line', async t => {
+  const { page } = await fixture(t);
+  await page.goto(base + '/library/new');
+  const browse = page.getByRole('button', { name: 'Browse', exact: true }).first();
+  await browse.waitFor();
+  const box = await browse.boundingBox();
+  assert(box.height < 44, `Browse wrapped onto ${box.height}px`);
+});
+
+test('a device already waiting for a PIN shows as soon as the console loads', async t => {
+  const { page } = await fixture(t, { pending: [{ uniqueid: 'waiting', name: 'Waiting phone', age_seconds: 5 }] });
+  await page.goto(base + '/logs');
+  await page.getByRole('navigation', { name: 'Main' }).waitFor();
+  // The shell polls every 3 s; the request must not wait for that.
+  await page.getByLabel('PIN for Waiting phone', { exact: true }).waitFor({ timeout: 2000 });
+});

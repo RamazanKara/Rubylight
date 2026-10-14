@@ -161,6 +161,7 @@
   }
   .line > div {
     display: flex;
+    flex: none;
   }
   .browser {
     display: grid;

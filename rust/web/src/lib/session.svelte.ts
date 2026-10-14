@@ -28,6 +28,8 @@ export async function checkSession() {
     session.state = 'signed-in';
     if (PUBLIC.includes(route.path)) navigate('/', { replace: true });
     refreshMetadata().catch(() => {});
+    // A device waiting for a PIN shows at once, not on the shell's next poll.
+    refreshPending().catch(() => {});
   } catch (error) {
     session.error = error instanceof Error ? error.message : String(error);
     session.state = 'unavailable';

@@ -61,6 +61,9 @@
     text-decoration: none;
     max-width: 100%;
     white-space: normal;
+    /* Wrap between words only: the page-wide "anywhere" would let a squeezed
+       button break its label mid-word ("Brow se"). */
+    overflow-wrap: break-word;
     text-align: center;
     transition: background 0.12s, border-color 0.12s;
   }

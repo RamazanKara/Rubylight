@@ -566,6 +566,9 @@ pub fn ffmpeg(config: &Config, stream: &Negotiated, name: &str) -> Result<Vec<(S
                 },
             );
         } else {
+            // x265 otherwise turns a requested I-picture into an ordinary
+            // intra picture that cannot reset a decoder after reference loss.
+            add("forced-idr", "1");
             add("x265-params", "repeat-headers=1:annexb=1:log-level=error");
         }
     } else if name == "libsvtav1" {

@@ -178,6 +178,7 @@ public class GameLifecycleTest {
             ReflectionHelpers.setField(activity, "connected", true);
             try {
                 ReflectionHelpers.callInstanceMethod(activity, "setAdaptiveBitrateEnabled",
+                        ReflectionHelpers.ClassParameter.from(boolean.class, true),
                         ReflectionHelpers.ClassParameter.from(boolean.class, true));
                 awaitBitrateRequest(activity);
                 assertEquals(1, connection.writes);
@@ -206,7 +207,8 @@ public class GameLifecycleTest {
                 assertEquals(38988, current);
             } finally {
                 ReflectionHelpers.callInstanceMethod(activity, "setAdaptiveBitrateEnabled",
-                        ReflectionHelpers.ClassParameter.from(boolean.class, false));
+                        ReflectionHelpers.ClassParameter.from(boolean.class, false),
+                        ReflectionHelpers.ClassParameter.from(boolean.class, true));
             }
         }
     }

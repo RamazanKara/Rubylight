@@ -330,7 +330,11 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         }
         for (UsbDeviceContext context : usbDeviceContexts.values()) {
             releaseInput(context);
-            if (context.assignedControllerNumber && (context.device.getCapabilities() & MoonBridge.LI_CCAP_TOUCHPAD) != 0) {
+            // A pad whose capabilities have not reached the host yet has nothing to release there.
+            if (!context.assignedControllerNumber || context.arrivalPending) {
+                continue;
+            }
+            if ((context.device.getCapabilities() & MoonBridge.LI_CCAP_TOUCHPAD) != 0) {
                 conn.sendControllerTouchEvent((byte) context.controllerNumber, MoonBridge.LI_TOUCH_EVENT_CANCEL_ALL,
                         0, 0, 0, 0);
             }
@@ -350,10 +354,11 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
             inputContext.emulatingButtonFlags = 0;
             inputContext.pendingExit = false;
         }
-        if (context.assignedControllerNumber && (controllerSlotsWithInput.get(context.controllerNumber) != 0 ||
-                !hasPendingControllerArrival(context.controllerNumber))) {
+        if (context.assignedControllerNumber && controllerSlotsWithInput.get(context.controllerNumber) != 0) {
             // Bypass fusion while the other contexts sharing this number are being cleared.
-            // A neutral report must not create a USB pad before its pending capabilities.
+            // Only a slot the host has seen input on can hold anything: a neutral report for
+            // any other slot makes the host create a default pad there, which then ignores
+            // the real controller's arrival (type, touchpad and motion) for the session.
             conn.sendControllerInput(context.controllerNumber, getActiveControllerMask(),
                     0, (byte) 0, (byte) 0, (short) 0, (short) 0, (short) 0, (short) 0);
         }

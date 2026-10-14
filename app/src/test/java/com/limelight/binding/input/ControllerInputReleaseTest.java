@@ -82,6 +82,11 @@ public class ControllerInputReleaseTest {
             ControllerHandler.UsbDeviceContext directUsb = handler.new UsbDeviceContext();
             directUsb.device = new UsbController();
             ControllerHandler.InputDeviceContext defaults = ReflectionHelpers.getField(handler, "defaultContext");
+            // The host has seen player 1: the on-screen pad pressed a button there.
+            handler.reportOscState(ControllerPacket.A_FLAG, (short) 0, (short) 0, (short) 0, (short) 0,
+                    (byte) 0, (byte) 0);
+            assertEquals(1, connection.states.size());
+            connection.states.clear();
             devices.put(1, first);
             devices.put(2, second);
             usb.put(3, directUsb);
@@ -118,6 +123,41 @@ public class ControllerInputReleaseTest {
                 assertTrue(ControllerHandler.updateMappedButton(first.pressedButtons, 304, KeyEvent.KEYCODE_BUTTON_A, true));
             } finally {
                 usb.clear();
+                handler.destroy();
+            }
+        }
+    }
+
+    @Test
+    public void menuFocusBeforeAnyControllerInputDoesNotAnnounceAPadToTheHost() {
+        try (ActivityController<Activity> activity = Robolectric.buildActivity(Activity.class).create()) {
+            RecordingConnection connection = new RecordingConnection();
+            ControllerHandler handler = new ControllerHandler(activity.get(), connection, null, new PreferenceConfiguration());
+            Map<Integer, ControllerHandler.InputDeviceContext> devices = ReflectionHelpers.getField(handler, "inputDeviceContexts");
+            // A Bluetooth pad that has a slot but has not pressed anything yet: its arrival
+            // (type, touchpad, motion) is still to come with its first input.
+            ControllerHandler.InputDeviceContext idlePad = handler.new InputDeviceContext();
+            idlePad.assignedControllerNumber = true;
+            idlePad.controllerNumber = 0;
+            devices.put(7, idlePad);
+            try {
+                // Opening the stream menu and losing window focus both release input.
+                handler.setInputEnabled(false);
+                handler.setInputEnabled(true);
+                handler.setInputEnabled(false);
+                assertTrue("A neutral report would make the host create a default pad in slot 0",
+                        connection.states.isEmpty());
+
+                handler.setInputEnabled(true);
+                handler.reportOscState(ControllerPacket.A_FLAG, (short) 0, (short) 0, (short) 0, (short) 0,
+                        (byte) 0, (byte) 0);
+                assertEquals(1, connection.states.size());
+                handler.setInputEnabled(false);
+                assertTrue("A slot that received input must still be released", connection.states.size() > 1);
+                for (int[] state : connection.states.subList(1, connection.states.size())) {
+                    assertArrayEquals(new int[7], state);
+                }
+            } finally {
                 handler.destroy();
             }
         }

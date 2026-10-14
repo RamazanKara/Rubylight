@@ -835,6 +835,7 @@ public class ComputerManagerService extends Service {
         private final ComputerDetails computer;
         private final Object pollEvent = new Object();
         private boolean receivedAppList = false;
+        private NvHTTP activeRequest;
 
         public ApplistPoller(ComputerDetails computer) {
             this.computer = computer;
@@ -847,6 +848,7 @@ public class ComputerManagerService extends Service {
         }
 
         private boolean waitPollingDelay() {
+            if (!isCurrentWorker()) return false;
             try {
                 synchronized (pollEvent) {
                     if (receivedAppList) {
@@ -863,7 +865,26 @@ public class ComputerManagerService extends Service {
                 return false;
             }
 
+            return isCurrentWorker();
+        }
+
+        private boolean isCurrentWorker() {
             return thread == Thread.currentThread() && !Thread.currentThread().isInterrupted();
+        }
+
+        private synchronized boolean saveAppList(String appList) {
+            // stop()/start() may replace the worker while its HTTP response is in flight.
+            // Commit the cache and current library together before releasing this generation.
+            if (!isCurrentWorker()) return false;
+            try (OutputStream cacheOut = CacheHelper.openCacheFileForOutput(
+                    getCacheDir(), "applist", computer.uuid)) {
+                CacheHelper.writeStringToOutputStream(cacheOut, appList);
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+            computer.rawAppList = appList;
+            receivedAppList = true;
+            return true;
         }
 
         private PollingTuple getPollingTuple(ComputerDetails details) {
@@ -887,6 +908,7 @@ public class ComputerManagerService extends Service {
                 public void run() {
                     int emptyAppListResponses = 0;
                     do {
+                        if (!isCurrentWorker()) return;
                         // Can't poll if it's not online or paired
                         if (computer.state != ComputerDetails.State.ONLINE ||
                                 computer.pairState != PairingManager.PairState.PAIRED) {
@@ -907,20 +929,29 @@ public class ComputerManagerService extends Service {
                         try {
                             NvHTTP http = new NvHTTP(ServerHelper.getCurrentAddressFromComputer(computer), computer.httpsPort, idManager.getUniqueId(),
                                     computer.serverCert, PlatformBinding.getCryptoProvider(ComputerManagerService.this));
+                            synchronized (ApplistPoller.this) {
+                                if (!isCurrentWorker()) return;
+                                activeRequest = http;
+                            }
 
                             String appList;
-                            if (tuple != null) {
-                                // If we're polling this machine too, grab the network lock
-                                // while doing the app list request to prevent other requests
-                                // from being issued in the meantime.
-                                synchronized (tuple.networkLock) {
+                            try {
+                                if (tuple != null) {
+                                    // Never hold the poller's lifecycle lock across network I/O.
+                                    synchronized (tuple.networkLock) {
+                                        if (!isCurrentWorker()) return;
+                                        appList = http.getAppListRaw();
+                                    }
+                                } else {
+                                    if (!isCurrentWorker()) return;
                                     appList = http.getAppListRaw();
                                 }
+                            } finally {
+                                synchronized (ApplistPoller.this) {
+                                    if (activeRequest == http) activeRequest = null;
+                                }
                             }
-                            else {
-                                // No polling is happening now, so we just call it directly
-                                appList = http.getAppListRaw();
-                            }
+                            if (!isCurrentWorker()) return;
 
                             List<NvApp> list = NvHTTP.getAppListByReader(new StringReader(appList));
                             if (list.isEmpty()) {
@@ -932,42 +963,32 @@ public class ComputerManagerService extends Service {
                             }
                             if (!appList.isEmpty() &&
                                     (!list.isEmpty() || emptyAppListResponses >= EMPTY_LIST_THRESHOLD)) {
-                                // Open the cache file
-                                try (final OutputStream cacheOut = CacheHelper.openCacheFileForOutput(
-                                        getCacheDir(), "applist", computer.uuid)
-                                ) {
-                                    CacheHelper.writeStringToOutputStream(cacheOut, appList);
-                                } catch (IOException e) {
-                                    e.printStackTrace();
-                                }
+                                if (!saveAppList(appList)) return;
 
                                 // Reset empty count if it wasn't empty this time
                                 if (!list.isEmpty()) {
                                     emptyAppListResponses = 0;
                                 }
 
-                                // Update the computer
-                                computer.rawAppList = appList;
-                                receivedAppList = true;
-
                                 // Notify that the app list has been updated
-                                // and ensure that the thread is still active
+                                // outside the lifecycle lock, and only for the current worker.
                                 ComputerManagerListener currentListener = listener;
-                                if (currentListener != null && thread != null) {
+                                if (currentListener != null && isCurrentWorker()) {
                                     currentListener.notifyAppListUpdated(computer, true);
                                 }
                             }
                             else if (appList.isEmpty()) {
                                 LimeLog.warning("Null app list received from "+computer.uuid);
                                 ComputerManagerListener currentListener = listener;
-                                if (currentListener != null && thread == Thread.currentThread()) {
+                                if (currentListener != null && isCurrentWorker()) {
                                     currentListener.notifyAppListUpdated(computer, false);
                                 }
                             }
                         } catch (IOException | XmlPullParserException e) {
+                            if (!isCurrentWorker()) return;
                             e.printStackTrace();
                             ComputerManagerListener currentListener = listener;
-                            if (currentListener != null && thread == Thread.currentThread()) {
+                            if (currentListener != null && isCurrentWorker()) {
                                 currentListener.notifyAppListUpdated(computer, false);
                             }
                         }
@@ -980,11 +1001,14 @@ public class ComputerManagerService extends Service {
 
         public synchronized void stop() {
             if (thread != null) {
-                thread.interrupt();
-
-                // Don't join here because we might be blocked on network I/O
-
+                Thread stopping = thread;
                 thread = null;
+                if (activeRequest != null) {
+                    activeRequest.cancelPendingRequests();
+                    activeRequest = null;
+                }
+                // Cancel without joining the network worker on the UI thread.
+                stopping.interrupt();
             }
         }
     }

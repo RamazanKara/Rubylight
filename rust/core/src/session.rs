@@ -498,48 +498,44 @@ mod tests {
         assert!(pyrowave.info()["fec_percent"].is_null());
     }
     #[test]
-    fn client_display_luminance_reaches_hdr_metadata_once_known_and_allowed() {
+    fn client_luminance_changes_never_relabel_hdr_content() {
         use rubylight_protocol::control::DisplayCaps;
-        let caps = DisplayCaps {
-            hdr: true,
-            max_centinits: 80_000,
-            max_average_centinits: 40_000,
-            min_decimillinits: 5,
+        let display = crate::hdr::Metadata::display(1000., 0.01, 600.);
+        for hdr in [false, true] {
+            let s = Session::new(
+                launch("hdr", Role::Stream),
+                Negotiated {
+                    hdr,
+                    ..Default::default()
+                },
+            );
+            let mut caps = DisplayCaps {
+                hdr: true,
+                max_centinits: 260_000,
+                max_average_centinits: 120_000,
+                min_decimillinits: 5,
+            };
+            // Early reports must not start HDR with the receiver's luminance.
+            assert!(s.record_display_caps(&caps.encode()).unwrap().changed);
+            assert!(s.hdr_metadata.read().unwrap().is_none());
+            assert_eq!(s.set_display_hdr_metadata(display), display);
+            // Brighter, dimmer, unknown and SDR receiver reports all preserve
+            // the source metadata, preventing HDR control updates/codec restarts.
+            for peak in [40_000, 100_000, 260_000, 0] {
+                caps.max_centinits = peak;
+                caps.max_average_centinits = 0;
+                caps.hdr = peak != 0;
+                s.record_display_caps(&caps.encode()).unwrap();
+                assert_eq!(*s.hdr_metadata.read().unwrap(), Some(display));
+                assert_eq!(s.set_display_hdr_metadata(display), display);
+            }
+            assert!(s.record_display_caps(&caps.encode()[..8]).is_none());
+            assert_eq!(*s.hdr_metadata.read().unwrap(), Some(display));
+            // A real source change must still reach the encoder and client.
+            let new_source = crate::hdr::Metadata::display(1500., 0.001, 800.);
+            assert_eq!(s.set_display_hdr_metadata(new_source), new_source);
+            assert_eq!(*s.hdr_metadata.read().unwrap(), Some(new_source));
         }
-        .encode();
-        // A 600-nit host display: the client's 800 nits are not below it.
-        let display = crate::hdr::Metadata::display(600., 0.01, 300.);
-        let hdr = Negotiated {
-            hdr: true,
-            ..Default::default()
-        };
-        let s = Session::new(launch("hdr", Role::Stream), hdr.clone());
-        // Early report: kept, nothing to send before the encoder has metadata.
-        let update = s.record_display_caps(&caps).unwrap();
-        assert_eq!(update.metadata, None);
-        assert_eq!(update.applied, crate::display_caps::Applied::Pending);
-        assert!(s.hdr_metadata.read().unwrap().is_none());
-        // Not yet allowed: the display's values.
-        assert_eq!(s.set_display_hdr_metadata(display), display);
-        assert_eq!(
-            s.allow_display_caps(true).map(|(_, applied)| applied),
-            Some(crate::display_caps::Applied::Metadata)
-        );
-        assert_eq!(s.hdr_metadata.read().unwrap().unwrap().maximum_nits, 800);
-        assert_eq!(s.set_display_hdr_metadata(display).max_fall, 400);
-        // Malformed reports change nothing.
-        assert!(s.record_display_caps(&caps[..8]).is_none());
-        assert_eq!(s.hdr_metadata.read().unwrap().unwrap().maximum_nits, 800);
-        // A host override keeps the display's values.
-        let overridden = Session::new(launch("profile", Role::Stream), hdr);
-        assert_eq!(overridden.allow_display_caps(false), None);
-        overridden.record_display_caps(&caps);
-        assert_eq!(overridden.set_display_hdr_metadata(display), display);
-        // SDR streams keep the display's values.
-        let sdr = Session::new(launch("sdr", Role::Stream), Negotiated::default());
-        sdr.allow_display_caps(true);
-        sdr.record_display_caps(&caps);
-        assert_eq!(sdr.set_display_hdr_metadata(display), display);
     }
     #[test]
     fn a_launch_still_being_prepared_does_not_expire() {
@@ -1189,8 +1185,7 @@ pub struct Session<P = (), A = ()> {
     /// The display's HDR metadata, once the encoder has it. Clients are told
     /// the HDR state only then, so they hear it once with the real values.
     pub hdr_metadata: std::sync::RwLock<Option<crate::hdr::Metadata>>,
-    /// The display's HDR metadata and the client's display luminance (0x5531)
-    /// that `hdr_metadata` is made from.
+    /// Source HDR metadata and diagnostic client display luminance (0x5531).
     pub hdr_source: std::sync::Mutex<crate::display_caps::HdrSource>,
 }
 impl<P, A> Session<P, A> {
@@ -1445,59 +1440,16 @@ impl<P, A> Session<P, A> {
             .store(fec.percent() as u32, Ordering::Release);
         fec.log_due(now)
     }
-    /// Records the display's HDR metadata and returns the stream's: the
-    /// display's, or with the client's display luminance when that applies.
+    /// Records the captured source's HDR metadata for the encoder and client.
     pub fn set_display_hdr_metadata(&self, display: crate::hdr::Metadata) -> crate::hdr::Metadata {
-        let mut source = self.hdr_source.lock().unwrap();
-        let first = source.display.is_none();
-        source.display = Some(display);
-        let metadata = source.effective(self.config.hdr).unwrap_or(display);
-        *self.hdr_metadata.write().unwrap() = Some(metadata);
-        // A report that came before the display's metadata is only now weighed
-        // against the display's peak; say what became of it.
-        if first && let Some(applied) = source.applied(self.config.hdr) {
-            let display_peak = display.maximum_nits;
-            tracing::info!(
-                client = %self.launch.client.name,
-                applied = applied.as_str(),
-                display_peak_nits = display_peak,
-                maximum_nits = metadata.maximum_nits,
-                max_cll = metadata.max_cll,
-                max_fall = metadata.max_fall,
-                "display caps"
-            );
-        }
-        metadata
+        self.hdr_source.lock().unwrap().display = Some(display);
+        *self.hdr_metadata.write().unwrap() = Some(display);
+        display
     }
-    /// Whether the client's display luminance may replace the display's: not when
-    /// the host user set this client's HDR profile or peak brightness. Until this is
-    /// called, it does not. Returns the luminance already reported, if any, and
-    /// what now happens with it.
-    pub fn allow_display_caps(
-        &self,
-        allowed: bool,
-    ) -> Option<(
-        rubylight_protocol::control::DisplayCaps,
-        crate::display_caps::Applied,
-    )> {
-        let mut source = self.hdr_source.lock().unwrap();
-        source.allowed = Some(allowed);
-        if let Some(metadata) = source.effective(self.config.hdr) {
-            *self.hdr_metadata.write().unwrap() = Some(metadata);
-        }
-        source.caps.zip(source.applied(self.config.hdr))
-    }
-    /// Takes the client's display luminance (0x5531). `None` for a malformed
-    /// payload, which changes nothing. The control stream sends the client the
-    /// new metadata when it differs; the encoder takes it with the display's
-    /// next refresh.
+    /// Record receiver capabilities for diagnostics. They describe the output
+    /// panel, not the source pixels, so must not update stream HDR metadata.
     pub fn record_display_caps(&self, payload: &[u8]) -> Option<crate::display_caps::Update> {
-        let mut source = self.hdr_source.lock().unwrap();
-        let update = source.on_payload(payload, self.config.hdr)?;
-        if let Some(metadata) = update.metadata {
-            *self.hdr_metadata.write().unwrap() = Some(metadata);
-        }
-        Some(update)
+        self.hdr_source.lock().unwrap().on_payload(payload)
     }
     pub fn info(&self) -> serde_json::Value {
         let mut warnings = self.launch.warnings.snapshot();

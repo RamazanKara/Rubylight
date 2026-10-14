@@ -21,12 +21,12 @@ Each message travels on the control stream like Moonlight's client-to-host contr
 | Id | Name | Crate type | Host behaviour |
 | --- | --- | --- | --- |
 | `0x5530` | Phase lock report | `phase_lock::Report` | Times captures to the client's display latch while reports arrive about every 500 ms; after 3 s without one the host returns to its own pacing. |
-| `0x5531` | Display luminance | `control::DisplayCaps` | Describes the client's screen in the HDR metadata ([below](#0x5531-display-luminance)). |
+| `0x5531` | Display luminance | `control::DisplayCaps` | Records the client's screen capabilities for diagnostics ([below](#0x5531-display-luminance)). |
 | `0x5532` | Reconfigure | `control::Reconfigure` | Changes the stream's resolution or frame rate without reconnecting ([below](#0x5532-reconfigure)). |
 
 ## 0x5531 display luminance
 
-Send it once the control stream is connected and again whenever the display changes, for example when a foldable switches screens or the window moves to another display. Sending the same values again is harmless; the host acts only on a change.
+Send it once the control stream is connected and again whenever the display changes, for example when a foldable switches screens or the window moves to another display. Sending the same values again is harmless; the host logs only changes. Brightness changes on the same screen do not need another report.
 
 | Bytes | Field | Value |
 | --- | --- | --- |
@@ -39,14 +39,9 @@ Send it once the control stream is connected and again whenever the display chan
 
 The host ignores a message whose peak is outside 1–10,000 nits, whose average is above the peak, or whose black level is 1 nit or more.
 
-What the host does with it:
+The host records the reported values for diagnostics. They do **not** replace HDR10 mastering luminance, MaxCLL, MaxFALL or black level, change the virtual display, or trigger an HDR mode update.
 
-- **In an HDR stream with a known peak at or above the host display's**, the HDR metadata describes the client's screen: the peak becomes the mastering display maximum and MaxCLL, the frame-average MaxFALL and the full-frame luminance, and the black level the mastering display minimum. An unknown average or black level keeps the host display's value. The colour primaries and white point stay BT.2020 with D65, as before.
-- **A peak below the host display's is not applied**: the game renders for the host display, so metadata claiming less would have the client clip every highlight above the reported peak. The display's metadata stays. Android's desired luminance (`HdrCapabilities.getDesiredMaxLuminance`) is such a value on many phones; a Galaxy Z Fold 7 with a 2600-nit panel reports 400 to 450 nits.
-- **An HDR profile selected for the device on the host, or a peak brightness set for the device or app, takes precedence**: the host keeps describing its own display, because the user calibrated it for this client. SDR streams are unchanged.
-- The host sends this metadata in Moonlight's HDR mode message (`0x010e`) and writes it into the video bitstream's HDR10 metadata. The first `0x010e` of a stream goes out once the encoder has the display's values, with the client's luminance if it has arrived by then. A later change sends `0x010e` once more, and only if the resulting values differ; the encoder is given the new values with its next metadata refresh, about once a second.
-- The game itself renders for the host display. With a virtual display that display is created before the client connects, so its peak does not follow this message; select an HDR profile or peak brightness for the device on the host for that.
-- The host log records `display caps` with the reported values and what was applied.
+HDR10 metadata describes the captured source and the light levels of its pixels. Receiver capabilities are not content light levels. Earlier versions substituted the client's luminance without tone-mapping the pixels, which could change Android tone mapping and restart its decoder when brightness reports changed. The stream now keeps the source metadata; genuine source HDR changes still update the control message and encoded bitstream. An HDR profile or peak brightness selected on the host continues to configure the source display before capture.
 
 ## 0x5532 reconfigure
 

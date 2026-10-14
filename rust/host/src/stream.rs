@@ -1222,7 +1222,7 @@ impl Media {
                 "PyroWave bitrate is below recommended: text and textures may lose detail. Quality depends on the picture; raise the bitrate in Moonlight with network headroom, or use HEVC or AV1"
             );
         }
-        // The client's display luminance (0x5531) replaces the display's when it applies.
+        // HDR metadata describes the captured source, independent of receiver brightness.
         let metadata = self.set_display_hdr_metadata(s, first.gpu.hdr_metadata());
         if let Some(encoder) = encoder.as_mut() {
             encoder.set_hdr_metadata(metadata);
@@ -1302,11 +1302,6 @@ impl Media {
                     let _streaming = butterpollo_windows::timing::StreamingScope::enter();
                     let mut config_version = h.config_version.load(Ordering::Acquire);
                     let mut c = effective_config(&h, &s.launch)?;
-                    // A per-client HDR profile or peak chosen on the host wins over
-                    // the luminance the client reports.
-                    if let Some((caps, applied)) = s.allow_display_caps(!butterpollo_core::display_caps::host_override(&c, &s.launch.client)) {
-                        tracing::info!(client = %s.launch.client.name, peak_nits = caps.max_nits().unwrap_or(0), applied = applied.as_str(), "display caps");
-                    }
                     if s.config.vrr_low_latency {
                         c.values.insert("wgc_slot_aligned_publish".into(), "false".into());
                     }
@@ -2996,21 +2991,13 @@ impl Media {
                             butterpollo_core::display_caps::DISPLAY_CAPS_MESSAGE_TYPE => {
                                 match s.record_display_caps(&payload) {
                                     Some(update) if update.changed => {
-                                        let metadata = update.metadata.filter(|_| {
-                                            update.applied
-                                                == butterpollo_core::display_caps::Applied::Metadata
-                                        });
                                         tracing::info!(
                                             client = %s.launch.client.name,
                                             hdr = update.caps.hdr,
                                             peak_nits = update.caps.max_nits().unwrap_or(0),
                                             average_nits = update.caps.max_average_nits().unwrap_or(0),
                                             black_decimillinits = update.caps.min_decimillinits,
-                                            applied = update.applied.as_str(),
-                                            maximum_nits = metadata.map(|m| m.maximum_nits),
-                                            minimum = metadata.map(|m| m.minimum),
-                                            max_cll = metadata.map(|m| m.max_cll),
-                                            max_fall = metadata.map(|m| m.max_fall),
+                                            applied = "diagnostic only; source HDR metadata retained",
                                             "display caps"
                                         );
                                     }

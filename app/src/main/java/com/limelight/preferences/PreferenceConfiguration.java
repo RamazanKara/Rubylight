@@ -65,6 +65,7 @@ public class PreferenceConfiguration {
     private static final String ENABLE_HDR_PREF_STRING = "checkbox_enable_hdr";
     private static final String ENABLE_PIP_PREF_STRING = "checkbox_enable_pip";
     private static final String AUTO_RECONNECT_PREF_STRING = "checkbox_auto_reconnect";
+    private static final String AUTO_RECONNECT_DEFAULT_OFF_PREF_STRING = "auto_reconnect_default_off";
     private static final String ENABLE_PERF_OVERLAY_STRING = "checkbox_enable_perf_overlay";
     private static final String BIND_ALL_USB_STRING = "checkbox_usb_bind_all";
     private static final String MOUSE_EMULATION_STRING = "checkbox_mouse_emulation";
@@ -654,6 +655,22 @@ public class PreferenceConfiguration {
         }
     }
 
+    // Stream recovery used to start on, and first launch stored that default like a choice. It now
+    // starts off; a stored "on" is switched off once because it cannot be told apart from the old
+    // default. Turning it back on afterwards is kept.
+    static boolean migrateAutoReconnectDefault(SharedPreferences prefs) {
+        if (prefs.getBoolean(AUTO_RECONNECT_DEFAULT_OFF_PREF_STRING, false)) {
+            return false;
+        }
+        boolean wasOn = prefs.getBoolean(AUTO_RECONNECT_PREF_STRING, false);
+        SharedPreferences.Editor editor = prefs.edit().putBoolean(AUTO_RECONNECT_DEFAULT_OFF_PREF_STRING, true);
+        if (wasOn) {
+            editor.putBoolean(AUTO_RECONNECT_PREF_STRING, false);
+        }
+        editor.apply();
+        return wasOn;
+    }
+
     // For the overlay and the log: where this stream's resolution comes from.
     public String resolutionSource() {
         return resolutionFollowsScreen ? (fromPcProfile ? "native, PC profile" : "native") :
@@ -663,6 +680,9 @@ public class PreferenceConfiguration {
     public static PreferenceConfiguration readPreferences(Context context) {
         SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
         migrateToNativeDefaults(context);
+        if (migrateAutoReconnectDefault(prefs)) {
+            com.limelight.LimeLog.info("Stream recovery switched to its new default: off");
+        }
         PreferenceConfiguration config = new PreferenceConfiguration();
         String savedResolution = null;
 
@@ -821,7 +841,7 @@ public class PreferenceConfiguration {
         config.showGuideButton = prefs.getBoolean(SHOW_GUIDE_BUTTON_PREF_STRING, SHOW_GUIDE_BUTTON_DEFAULT);
         config.enableHdr = prefs.getBoolean(ENABLE_HDR_PREF_STRING, DEFAULT_ENABLE_HDR) && !isShieldAtvFirmwareWithBrokenHdr();
         config.enablePip = prefs.getBoolean(ENABLE_PIP_PREF_STRING, DEFAULT_ENABLE_PIP);
-        config.autoReconnect = prefs.getBoolean(AUTO_RECONNECT_PREF_STRING, true);
+        config.autoReconnect = prefs.getBoolean(AUTO_RECONNECT_PREF_STRING, false);
         config.adaptiveQualityMode = com.limelight.nvstream.AdaptiveQualityController.Mode.parse(
                 prefs.getString("adaptive_quality_mode", "off"));
         String qualityFloor = prefs.getString("adaptive_quality_min_resolution", "720");

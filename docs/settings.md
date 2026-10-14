@@ -105,7 +105,7 @@ These tables include every preference, including actions. On/Off choices have no
 
 | Setting / preference key | Default | Choices and units | When to change or use |
 | --- | --- | --- | --- |
-| Recover interrupted streams<br>`checkbox_auto_reconnect` | On | On; Off | Resume the same running game after transport failures or returning from screen lock, up to five attempts within one minute. Back or leaving during a retry cancels it. Graceful termination, pairing, permissions and decoder failures stay manual; recovery never launches or replaces a game. |
+| Recover interrupted streams<br>`checkbox_auto_reconnect` | Off | On; Off | Resume the same running game after transport failures or returning from screen lock, up to five attempts within one minute. Back or leaving during a retry cancels it. Graceful termination, pairing, permissions and decoder failures stay manual; recovery never launches or replaces a game. |
 | Picture in picture<br>`checkbox_enable_pip` | Off | On; Off | Enable to keep a small video window when leaving the app. Input and overlay are hidden there; requires device support. |
 | Language<br>`list_languages` | System default | System default; English; Deutsch | Choose the interface language. Android 13+ uses the system per-app language setting. |
 | Use small box art<br>`checkbox_small_icon_mode` | On below 500 dp smallest screen width; Off on TVs and larger screens | On; Off | Enable to fit more games in the library grid. |

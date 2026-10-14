@@ -571,6 +571,40 @@ public class GameRecoveryTest {
         }
     }
 
+    @Test public void withRecoveryOffLeavingDuringAReconnectEndsTheStream() throws Exception {
+        Game game = establishedGame();
+        PreferenceConfiguration prefs = ReflectionHelpers.getField(game, "prefConfig");
+        prefs.autoReconnect = false;
+        java.util.concurrent.CountDownLatch stopEntered = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.CountDownLatch stopReleased = new java.util.concurrent.CountDownLatch(1);
+        ReflectionHelpers.setField(game, "conn", new MuteConnection() {
+            @Override public void stop() {
+                stopEntered.countDown();
+                try { stopReleased.await(2, java.util.concurrent.TimeUnit.SECONDS); }
+                catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); }
+            }
+        });
+        try {
+            ReflectionHelpers.callInstanceMethod(game, "reconnectStream");
+            assertTrue(stopEntered.await(1, java.util.concurrent.TimeUnit.SECONDS));
+            // Home while the old connection is still closing: the stream ends, as before recovery.
+            game.onPause();
+            game.onStop();
+            assertTrue(game.isFinishing());
+            stopReleased.countDown();
+            Thread stopping = ReflectionHelpers.getField(game, "connectionStopThread");
+            stopping.join(1000);
+            for (int i = 0; i < 10; i++) {
+                Thread.sleep(5);
+                org.robolectric.Shadows.shadowOf(Looper.getMainLooper()).idle();
+            }
+            assertNull(org.robolectric.Shadows.shadowOf(game).getNextStartedActivity());
+        } finally {
+            stopReleased.countDown();
+            cleanupRecovery(game);
+        }
+    }
+
     @Test public void destroyingAnEstablishedSurfaceWaitsForForegroundBeforeResuming() {
         Game game = establishedGame();
         ReflectionHelpers.setField(game, "surfaceCreated", true);

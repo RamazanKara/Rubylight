@@ -2044,7 +2044,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             }
         }
 
-        if (stoppedStreamResumeIntent == null && !recoveryCancelledOnPause) finish();
+        if (finishesWhenStopped()) finish();
     }
 
     @Override
@@ -2683,6 +2683,13 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         connectedAt = -1;
         stoppedStreamResumeIntent = createStreamHandoffIntent()
                 .putExtra(EXTRA_APP_ID, recoveryAppId).putExtra(EXTRA_APP_UUID, recoveryAppUuid);
+    }
+
+    // Without stream recovery, leaving the stream (Home, closing PiP) ends it, as it always did.
+    // With recovery on, the activity may stay to resume the same game or to offer Reconnect.
+    private boolean finishesWhenStopped() {
+        return prefConfig == null || !prefConfig.autoReconnect ||
+                (stoppedStreamResumeIntent == null && !recoveryCancelledOnPause);
     }
 
     private boolean resumeStoppedStreamIfNeeded() {
@@ -5004,7 +5011,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             stopConnection();
             // The stopped decoder cannot be reused. Resume the captured game in a fresh
             // activity when foreground returns, with the existing recovery budget.
-            if (stoppedStreamResumeIntent == null && !recoveryCancelledOnPause) finish();
+            if (finishesWhenStopped()) finish();
         }
     }
 

@@ -56,11 +56,17 @@ def set_rotation(rotation):
     # Wait for the window transition without connecting UIAutomation, or it can
     # save the portrait launcher's old rotation and undo the requested landscape.
     deadline = time.monotonic() + 15
+    matched_since = None
     while time.monotonic() < deadline:
         png = adb("exec-out", "screencap", "-p", binary=True)
         width, height = struct.unpack(">II", png[16:24])
         if (width > height) == (rotation in (1, 3)):
-            return
+            if matched_since is None:
+                matched_since = time.monotonic()
+            elif time.monotonic() - matched_since >= 0.5:
+                return
+        else:
+            matched_since = None
         time.sleep(0.25)
     raise AssertionError(f"Display did not reach rotation {rotation}: {width}x{height}")
 
@@ -398,9 +404,9 @@ def library_regressions():
     adb("shell", "am", "force-stop", PACKAGE)
     adb("shell", "wm", "size", "786x1704")
     adb("shell", "settings", "put", "system", "font_scale", "2.0")
-    set_rotation(0)
     adb("shell", "am", "start", "-W", "-n", f"{PACKAGE}/com.limelight.demo.DemoLauncherActivity",
         "--es", "state", "library", "--es", "codec", "h264")
+    set_rotation(0)
     find("Racing Game", scroll=True)
     screenshot("library-font-2")
     tap(f"{PACKAGE}:id/library_search_button")
@@ -427,7 +433,6 @@ def library_regressions():
     tap(f"{PACKAGE}:id/action_sheet_close")
     adb("shell", "am", "force-stop", PACKAGE)
     adb("shell", "settings", "put", "system", "font_scale", "1.0")
-    set_rotation(0)
 
 
 def capture_ui_sweep(cases=None):
@@ -436,39 +441,43 @@ def capture_ui_sweep(cases=None):
         capture_ui_set(*UI_CASES[case])
     adb("shell", "settings", "put", "system", "font_scale", "1.0")
     if DEBUGGABLE:
-        library_regressions()
-        # 786 px at 320 dpi gives a 393 dp phone viewport.
-        adb("shell", "wm", "size", "786x1704")
-        adb("shell", "wm", "density", "320")
-        set_rotation(0)
-        adb("shell", "am", "start", "-W", "-n", f"{PACKAGE}/com.limelight.LatencyOverlaySmokeActivity")
-        for rotation, suffix in ((0, ""), (1, "-landscape")):
-            set_rotation(rotation)
-            time.sleep(1)
-            node = find(f"{PACKAGE}:id/performanceOverlay")
-            text = node.get("text", "")
-            assert "Displayed: 119.9 FPS" in text and "Video payload: 14.2 Mbps" in text, node.attrib
-            assert "Host processing: 2.10 ms" in text and "Display wait: 1.20 ms" in text, node.attrib
-            assert "Host CPU: 41.6%" in text and "Host GPU 11520: 42.0%" in text, node.attrib
-            width, height = screenshot("overlay-statistics" + suffix)
-            assert (width < height) == (rotation == 0), "Overlay did not rotate"
-            x1, y1, x2, y2 = bounds(node)
-            assert 0 <= x1 < x2 <= width and 0 <= y1 < y2 <= height, node.attrib
-            assert 80 < y2 - y1 < height, "Statistics should be a readable multiline panel"
-            x, y = str((x1 + x2) // 2), str((y1 + y2) // 2)
-            adb("shell", "input", "swipe", x, y, x, y, "1000")
-            node = find(f"{PACKAGE}:id/performanceOverlay")
-            text = node.get("text", "")
-            for section in ("Video\n", "\n\nNetwork\n", "\n\nDecode\n", "\n\nHost\n"):
-                assert section in text, node.attrib
-            assert "Low latency mode: " in text, node.attrib
-            assert "Queue wait: " in text, node.attrib
-            assert "Host hardware (all GPUs)" in text and "GPU 11520 · AMD Radeon (preview)" in text, node.attrib
-            assert "GPU power: 28.0 W · Board power: 40.0 W" in text, node.attrib
-            screenshot("overlay-debug" + suffix)
-            x1, y1, x2, y2 = bounds(node)
-            x, y = str(x1 + 20), str(y1 + 20)
-            adb("shell", "input", "swipe", x, y, x, y, "1000")
+        capture_debug_checks()
+
+
+def capture_debug_checks():
+    """Debug fixtures exercise real library cards and overlay renderers without a paired PC."""
+    library_regressions()
+    # 786 px at 320 dpi gives a 393 dp phone viewport.
+    adb("shell", "wm", "size", "786x1704")
+    adb("shell", "wm", "density", "320")
+    adb("shell", "am", "start", "-W", "-n", f"{PACKAGE}/com.limelight.LatencyOverlaySmokeActivity")
+    for rotation, suffix in ((0, ""), (1, "-landscape")):
+        set_rotation(rotation)
+        time.sleep(1)
+        node = find(f"{PACKAGE}:id/performanceOverlay")
+        text = node.get("text", "")
+        assert "Displayed: 119.9 FPS" in text and "Video payload: 14.2 Mbps" in text, node.attrib
+        assert "Host processing: 2.10 ms" in text and "Display wait: 1.20 ms" in text, node.attrib
+        assert "Host CPU: 41.6%" in text and "Host GPU 11520: 42.0%" in text, node.attrib
+        width, height = screenshot("overlay-statistics" + suffix)
+        assert (width < height) == (rotation == 0), "Overlay did not rotate"
+        x1, y1, x2, y2 = bounds(node)
+        assert 0 <= x1 < x2 <= width and 0 <= y1 < y2 <= height, node.attrib
+        assert 80 < y2 - y1 < height, "Statistics should be a readable multiline panel"
+        x, y = str((x1 + x2) // 2), str((y1 + y2) // 2)
+        adb("shell", "input", "swipe", x, y, x, y, "1000")
+        node = find(f"{PACKAGE}:id/performanceOverlay")
+        text = node.get("text", "")
+        for section in ("Video\n", "\n\nNetwork\n", "\n\nDecode\n", "\n\nHost\n"):
+            assert section in text, node.attrib
+        assert "Low latency mode: " in text, node.attrib
+        assert "Queue wait: " in text, node.attrib
+        assert "Host hardware (all GPUs)" in text and "GPU 11520 · AMD Radeon (preview)" in text, node.attrib
+        assert "GPU power: 28.0 W · Board power: 40.0 W" in text, node.attrib
+        screenshot("overlay-debug" + suffix)
+        x1, y1, x2, y2 = bounds(node)
+        x, y = str(x1 + 20), str(y1 + 20)
+        adb("shell", "input", "swipe", x, y, x, y, "1000")
 
 
 def assert_no_app_crashes():
@@ -523,11 +532,16 @@ def main():
                         help="Even emulator console port from 5554 to 5682")
     parser.add_argument("--output-dir", type=Path,
                         help="Write screenshots and logs under this directory instead of the repository")
-    parser.add_argument("--ui-only", action="store_true",
+    scope = parser.add_mutually_exclusive_group()
+    scope.add_argument("--ui-only", action="store_true",
                         help="Fresh install and PC fixture setup, then only responsive/navigation/overlay checks")
+    scope.add_argument("--debug-only", action="store_true",
+                       help="Fresh install, then only debug library and overlay fixture checks")
     parser.add_argument("--ui-case", action="append", choices=tuple(UI_CASES),
                         help="Run a selected UI viewport (repeatable); defaults to every viewport")
     args = parser.parse_args()
+    if args.debug_only and args.ui_case:
+        parser.error("--debug-only cannot be combined with --ui-case")
     if args.port < 5554 or args.port > 5682 or args.port % 2:
         parser.error("--port must be an even number from 5554 to 5682")
     SERIAL = f"emulator-{args.port}"
@@ -611,7 +625,6 @@ def main():
             adb("shell", "wm", "size", "786x1704")
             adb("shell", "wm", "density", "320")
             adb("shell", "settings", "put", "system", "font_scale", "1.0")
-            set_rotation(0)
             adb("shell", "settings", "put", "secure", "show_ime_with_hard_keyboard", "1")
             adb("shell", "svc", "wifi", "disable")
             adb("shell", "svc", "data", "disable")
@@ -619,7 +632,15 @@ def main():
             adb("logcat", "-c")
             adb("shell", "input", "keyevent", "82")
             adb("shell", "am", "start", "-W", "-n", f"{PACKAGE}/com.limelight.PcView")
+            set_rotation(0)
             find(f"{PACKAGE}:id/discovery_add")
+            if args.debug_only:
+                if not DEBUGGABLE:
+                    raise ValueError("--debug-only requires a debug APK with library and overlay fixtures")
+                capture_debug_checks()
+                assert_no_app_crashes()
+                print(f"PASS: debug library search, clear action, query persistence across actual rotation, app action sheet, statistics/debug overlay contents and bounds in portrait and landscape; screenshots: {SHOTS}", flush=True)
+                return
             if args.ui_only:
                 tap(f"{PACKAGE}:id/discovery_add")
                 enter_text(f"{PACKAGE}:id/hostTextView", "127.0.0.1:47989")

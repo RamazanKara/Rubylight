@@ -56,7 +56,7 @@
   }
 </script>
 
-<Panel title="Signed-in browsers" description="Browsers that can use this console without signing in again." flush>
+<Panel title="Signed-in browsers" level={3} description="Browsers that can use this console without signing in again." flush>
   {#if sessions && error}
     <div class="pad"><LoadState {error} what="signed-in browsers" stale onretry={onchange} /></div>
   {/if}

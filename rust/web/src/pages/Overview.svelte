@@ -208,7 +208,6 @@
     text-overflow: ellipsis;
   }
   .facts {
-    grid-template-columns: auto minmax(0, 1fr);
     align-items: center;
   }
 </style>

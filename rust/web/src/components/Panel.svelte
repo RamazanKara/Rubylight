@@ -6,6 +6,7 @@
     description,
     actions,
     flush = false,
+    level = 2,
     children,
   }: {
     title?: string;
@@ -13,6 +14,8 @@
     actions?: Snippet;
     /** Content reaches the panel's edges (tables, lists). */
     flush?: boolean;
+    /** Heading level of the title: 3 inside a titled page section. It looks the same. */
+    level?: 2 | 3;
     children: Snippet;
   } = $props();
 </script>
@@ -21,7 +24,7 @@
   {#if title || actions}
     <header>
       <div>
-        {#if title}<h2>{title}</h2>{/if}
+        {#if title}<svelte:element this={level === 3 ? 'h3' : 'h2'} class="title">{title}</svelte:element>{/if}
         {#if description}<p class="muted">{description}</p>{/if}
       </div>
       {#if actions}<div class="actions">{@render actions()}</div>{/if}
@@ -51,6 +54,9 @@
   }
   header > div {
     min-width: 0;
+  }
+  .title {
+    font-size: var(--text-lg);
   }
   header p {
     font-size: var(--text-sm);

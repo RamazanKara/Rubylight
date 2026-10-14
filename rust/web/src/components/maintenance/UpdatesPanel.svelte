@@ -8,12 +8,15 @@
   import { api, type UpdatesState } from '../../lib/api';
   import { confirm, failed } from '../../lib/feedback.svelte';
   import { ago } from '../../lib/format';
-  import { session } from '../../lib/session.svelte';
+  import { link } from '../../lib/router.svelte';
+  import { refreshMetadata, session } from '../../lib/session.svelte';
   import { localTime, reason } from './util';
 
   let updates = $state<UpdatesState | null>(null);
   let loadError = $state('');
-  let acting = $state(false);
+  type Action = 'check' | 'install' | 'installNow' | 'cancel';
+  /** The request in flight, so only its own button spins. */
+  let acting = $state<Action | null>(null);
   let reconnecting = $state(false);
   let timer: ReturnType<typeof setTimeout>;
   let alive = true;
@@ -33,7 +36,8 @@
       updates = await api.updates.state();
       loadError = '';
       reconnecting = false;
-      if (previous === 'installing' && updates.phase !== 'installing') session.metadata = await api.metadata();
+      // Back from an install: the sidebar should show the new version. A failure here is not an update error.
+      if (previous === 'installing' && updates.phase !== 'installing') refreshMetadata().catch(() => {});
     } catch (error) {
       if (updates?.phase === 'installing') reconnecting = true;
       else loadError = reason(error);
@@ -44,17 +48,18 @@
       }
     }
   }
-  async function act(action: 'check' | 'install' | 'installNow' | 'cancel') {
+  async function act(action: Action) {
+    if (acting) return;
     if (action === 'installNow' && !(await confirm({
       title: 'Install now and end streams?',
       message: 'Active streams will disconnect and games started from Moonlight will close. Save your game progress before continuing. Rubylight will restart after installation.',
       confirm: 'Install now',
       danger: true,
     }))) return;
-    acting = true;
+    acting = action;
     try { await api.updates[action](); await load(); }
     catch (error) { failed('Update request failed', error); }
-    finally { acting = false; }
+    finally { acting = null; }
   }
   onMount(() => {
     const visibility = () => {
@@ -67,7 +72,7 @@
   });
 </script>
 
-<Panel title="Updates">
+<Panel title="Updates" level={3}>
   {#snippet actions()}
     {#if available}<Badge tone="accent">Update available</Badge>
     {:else if latest && !updates?.check_failed}<Badge tone="ok">Up to date</Badge>{/if}
@@ -86,8 +91,6 @@
         <dt>Last checked</dt><dd>{updates.checked_at ? ago(updates.checked_at) : 'Never'}</dd>
         <dt>Automatic installation</dt><dd>{!updates.install_supported ? 'Unavailable — requires the Windows service' : updates.update_check_interval <= 0 ? 'Off — automatic update checks are disabled' : updates.auto_update ? 'On — installs when idle' : 'Off — notify me first'}</dd>
       </dl>
-      <p class="muted"><strong>Install when idle</strong> waits for streams, pending connections and host apps to stop, then installs after one minute of idle time. <strong>Install now</strong> installs right away, even from inside a stream: the stream ends and games started from Moonlight close, and you can connect again once Rubylight has restarted. Settings and paired devices stay in place.</p>
-      <a href="/settings/general">Change update settings</a>
       {#if !updates.install_supported}<p class="notice">In-app installation requires the installed Windows service. Use the release page for portable builds.</p>{/if}
       {#if updates.check_failed}<p class="notice warn" role="alert">The last check failed. {updates.check_error || 'Check that this PC can reach GitHub.'}</p>{/if}
       {#if loadError}<p class="notice warn" role="alert">Could not refresh update status: {loadError}</p>{/if}
@@ -110,25 +113,36 @@
           {:else}The previous update did not report completion. Check the setup log before retrying.{/if}
         </p>
       {/if}
-      {#if latest}
-        {#if notes}<details><summary>Release notes for {latest.name || latest.tag_name}</summary><pre class="notes">{notes}</pre></details>{/if}
-        <a class="release" href={latest.html_url} target="_blank" rel="noreferrer">Open the release page<Icon name="external" size={14} /></a>
-      {/if}
       <div class="row">
-        <Button icon="refresh" busy={acting || updates.checking} disabled={queued} onclick={() => act('check')}>Check now</Button>
+        <Button icon="refresh" busy={acting === 'check' || updates.checking} disabled={queued || acting !== null} onclick={() => act('check')}>Check now</Button>
         {#if queued && updates.phase !== 'installing'}
-          {#if !updates.now}<Button disabled={acting} onclick={() => act('installNow')}>Install now</Button>{/if}
-          <Button disabled={acting} onclick={() => act('cancel')}>Cancel update</Button>
+          {#if !updates.now}<Button variant="danger" busy={acting === 'installNow'} disabled={acting !== null} onclick={() => act('installNow')}>Install now</Button>{/if}
+          <Button busy={acting === 'cancel'} disabled={acting !== null} onclick={() => act('cancel')}>Cancel update</Button>
         {:else if available && updates.install_supported && !queued}
-          <Button disabled={acting} onclick={() => act('install')}>Install when idle</Button>
-          <Button disabled={acting} onclick={() => act('installNow')}>Install now</Button>
+          <Button variant="primary" busy={acting === 'install'} disabled={acting !== null} onclick={() => act('install')}>Install when idle</Button>
+          <Button variant="danger" busy={acting === 'installNow'} disabled={acting !== null} onclick={() => act('installNow')}>Install now</Button>
         {/if}
+      </div>
+      <div class="links">
+        <details>
+          <summary>How installing works</summary>
+          <p><strong>Install when idle</strong> waits for streams, pending connections and host apps to stop, then installs after one minute of idle time. <strong>Install now</strong> installs right away: the stream ends, games started from Moonlight close, and you can connect again once Rubylight has restarted. Settings and paired devices stay in place.</p>
+        </details>
+        {#if latest && notes}<details><summary>Release notes for {latest.name || latest.tag_name}</summary><pre class="notes">{notes}</pre></details>{/if}
+        <div class="row small">
+          <a href="/settings/general" use:link>Change update settings</a>
+          {#if latest}<a class="release" href={latest.html_url} target="_blank" rel="noreferrer">Open the release page<Icon name="external" size={14} /></a>{/if}
+        </div>
       </div>
     </div>
   {:else}<LoadState error={loadError} what="the update status" onretry={load} />{/if}
 </Panel>
 
 <style>
+  .links {
+    display: grid;
+    gap: var(--space-2);
+  }
   details {
     border: 1px solid var(--line);
     border-radius: var(--radius);
@@ -138,6 +152,10 @@
     padding: var(--space-2) var(--space-3);
     cursor: pointer;
     font-weight: 560;
+  }
+  details p {
+    padding: 0 var(--space-3) var(--space-3);
+    color: var(--ink-2);
   }
   .notes {
     margin: 0;
@@ -151,11 +169,13 @@
     font-size: var(--text-xs);
     line-height: 1.55;
   }
+  .small {
+    gap: var(--space-2) var(--space-4);
+    font-size: var(--text-sm);
+  }
   .release {
     display: inline-flex;
     align-items: center;
     gap: 5px;
-    font-size: var(--text-sm);
-    justify-self: start;
   }
 </style>

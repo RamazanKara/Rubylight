@@ -197,7 +197,6 @@
     padding-top: 1px;
   }
   .facts {
-    grid-template-columns: auto minmax(0, 1fr);
     align-items: center;
   }
   .address {

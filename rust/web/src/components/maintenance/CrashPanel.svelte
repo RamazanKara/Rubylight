@@ -44,17 +44,17 @@
   onMount(load);
 </script>
 
-<Panel title="Crash report">
+<Panel title="Crash reports and support bundle" level={3} description="The support bundle has the host logs and the latest crash report. Attach it to a bug report.">
   {#snippet actions()}
-    {#if crash?.available && !crash.dismissed}<Badge tone="warn">New</Badge>{/if}
+    {#if crash?.available && !crash.dismissed}<Badge tone="warn">New crash report</Badge>{/if}
   {/snippet}
-  {#if crash && loadError}
-    <LoadState error={loadError} what="crash reports" stale onretry={load} />
-  {/if}
-  {#if !crash}
-    <LoadState error={loadError} what="crash reports" onretry={load} />
-  {:else if crash.available && !crash.dismissed}
-    <div class="stack">
+  <div class="stack">
+    {#if crash && loadError}
+      <LoadState error={loadError} what="crash reports" stale onretry={load} />
+    {/if}
+    {#if !crash}
+      <LoadState error={loadError} what="crash reports" onretry={load} />
+    {:else if crash.available && !crash.dismissed}
       <dl class="facts">
         <dt>File</dt>
         <dd class="mono">{crash.filename}</dd>
@@ -65,17 +65,17 @@
         <dt>Size</dt>
         <dd class="num">{bytes(crash.size_bytes)}</dd>
       </dl>
-      <p class="muted note">The support bundle contains this crash report and the host logs. Attach it to a bug report.</p>
-      <div class="row">
-        <Button href={api.logs.supportBundleUrl} icon="download">Download support bundle</Button>
-        <Button {busy} onclick={dismiss}>Dismiss</Button>
-      </div>
+    {:else if crash.available}
+      <p class="muted note">No new crash reports. You dismissed the last one, from {localTime(crash.captured_at)}.</p>
+    {:else}
+      <p class="muted note">No crash reports from the last 7 days.</p>
+    {/if}
+    <div class="row">
+      <Button href={api.logs.supportBundleUrl} icon="download">Download support bundle</Button>
+      {#if crash?.available && !crash.dismissed}<Button {busy} onclick={dismiss}>Dismiss crash report</Button>{/if}
+      <Button href="/logs" variant="ghost" icon="logs">Open logs</Button>
     </div>
-  {:else if crash.available}
-    <p class="muted note">No new crash reports. You dismissed the last one, from {localTime(crash.captured_at)}.</p>
-  {:else}
-    <p class="muted note">No crash reports from the last 7 days.</p>
-  {/if}
+  </div>
 </Panel>
 
 <style>

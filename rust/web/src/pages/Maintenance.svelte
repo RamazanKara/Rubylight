@@ -6,6 +6,7 @@
   import HostPanel from '../components/maintenance/HostPanel.svelte';
   import LimiterPanel from '../components/maintenance/LimiterPanel.svelte';
   import PasswordPanel from '../components/maintenance/PasswordPanel.svelte';
+  import Section from '../components/maintenance/Section.svelte';
   import SessionsPanel from '../components/maintenance/SessionsPanel.svelte';
   import UpdatesPanel from '../components/maintenance/UpdatesPanel.svelte';
   import VulkanPanel from '../components/maintenance/VulkanPanel.svelte';
@@ -32,42 +33,31 @@
 
 <div class="page">
   <PageHeader title="Maintenance" subtitle="Restart or update the host, recover displays, and manage who can sign in." />
-  <div class="columns">
-    <div class="stack">
-      <HostPanel />
-      <WindowsSessionPanel />
-      <UpdatesPanel />
-      <CrashPanel />
-      <DisplaysPanel />
-    </div>
-    <div class="stack">
-      <VulkanPanel />
-      <LimiterPanel />
-      <SessionsPanel {sessions} error={sessionsError} onchange={loadSessions} />
-      <PasswordPanel {username} />
-    </div>
-  </div>
+  <Section title="Host">
+    <HostPanel />
+    <UpdatesPanel />
+  </Section>
+  <Section title="Displays and Windows session">
+    <DisplaysPanel />
+    <WindowsSessionPanel />
+  </Section>
+  <Section title="Troubleshooting">
+    <CrashPanel />
+  </Section>
+  <Section title="Integrations" columns={2}>
+    <VulkanPanel />
+    <LimiterPanel />
+  </Section>
+  <Section title="Security" columns={2}>
+    <SessionsPanel {sessions} error={sessionsError} onchange={loadSessions} />
+    <PasswordPanel {username} />
+  </Section>
 </div>
 
 <style>
   .page {
     display: grid;
-    gap: var(--space-5);
+    gap: var(--space-6);
     min-width: 0;
-  }
-  .columns {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: var(--space-5);
-    align-items: start;
-  }
-  .stack {
-    gap: var(--space-5);
-  }
-  @media (max-width: 1100px) {
-    .columns {
-      grid-template-columns: minmax(0, 1fr);
-      gap: var(--space-5);
-    }
   }
 </style>

@@ -5,7 +5,7 @@
   import Panel from '../Panel.svelte';
   import { api } from '../../lib/api';
   import { confirm, failed, notify } from '../../lib/feedback.svelte';
-  import { refreshMetadata, session } from '../../lib/session.svelte';
+  import { refreshMetadata } from '../../lib/session.svelte';
   import { sleep } from './util';
 
   let phase = $state<'running' | 'restarting' | 'late' | 'stopped'>('running');
@@ -75,7 +75,7 @@
   }
 </script>
 
-<Panel title="Host">
+<Panel title="Rubylight" level={3}>
   {#snippet actions()}
     {#if phase === 'stopped'}
       <Badge tone="danger">Stopped</Badge>
@@ -88,12 +88,6 @@
     {/if}
   {/snippet}
   <div class="stack">
-    <dl class="facts">
-      <dt>Version</dt>
-      <dd class="num">{session.metadata?.version ?? '…'}</dd>
-      <dt>Host name</dt>
-      <dd>{session.metadata?.host_name ?? '…'}</dd>
-    </dl>
     {#if phase === 'restarting'}
       <p class="notice" role="status">Restarting. This console reconnects when the host is back.</p>
     {:else if phase === 'late'}
@@ -101,19 +95,26 @@
     {:else if phase === 'stopped'}
       <p class="notice danger" role="status">Rubylight has stopped. This console is offline until the host starts again.</p>
     {/if}
-    <div class="row">
-      <Button icon="refresh" busy={action === 'restart'} disabled={phase === 'stopped' || action !== null} onclick={restart}>Restart</Button>
-      <Button variant="danger" icon="power" busy={action === 'quit'} disabled={phase === 'stopped' || action !== null} onclick={quit}>Quit</Button>
+    <div class="line">
+      <p class="muted note">Restart ends streams and applies settings that need it. Quit stops the host until it is started again.</p>
+      <div class="row">
+        <Button icon="refresh" busy={action === 'restart'} disabled={phase === 'stopped' || action !== null} onclick={restart}>Restart</Button>
+        <Button variant="danger" icon="power" busy={action === 'quit'} disabled={phase === 'stopped' || action !== null} onclick={quit}>Quit</Button>
+      </div>
     </div>
-    <p class="muted note">
-      Restart disconnects streams and applies settings that need it. Quit stops the host; if it runs as a service, it
-      stays stopped until the service is started again or the PC restarts.
-    </p>
   </div>
 </Panel>
 
 <style>
+  .line {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: var(--space-3) var(--space-5);
+  }
   .note {
+    flex: 1 1 280px;
     font-size: var(--text-sm);
   }
 </style>

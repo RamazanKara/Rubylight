@@ -274,3 +274,81 @@ test('a rejected PIN removes the expired request at once instead of on the next 
   await page.getByText('Pairing failed: pairing request no longer exists', { exact: true }).waitFor();
   await pin.waitFor({ state: 'detached' });
 });
+
+test('maintenance is grouped into sections and every destructive action looks and confirms the same', async t => {
+  const { page, writes } = await fixture(t);
+  await page.goto(base + '/maintenance');
+  await page.getByRole('button', { name: 'Restore saved layout', exact: true }).waitFor();
+  assert.deepEqual(await page.locator('main').getByRole('heading', { level: 2 }).allInnerTexts(),
+    ['Host', 'Displays and Windows session', 'Troubleshooting', 'Integrations', 'Security']);
+  for (const [name, title, confirmName] of [
+    ['Quit', 'Quit Rubylight?', 'Quit'],
+    ['Delete saved layout', 'Delete the saved layout?', 'Delete'],
+    ['Disconnect', 'Disconnect virtual displays?', 'Disconnect'],
+    ['Reset', 'Reset display settings memory?', 'Reset'],
+  ]) {
+    const button = page.locator('main').getByRole('button', { name, exact: true });
+    assert.match(await button.getAttribute('class'), /\bdanger\b/, `${name} looks destructive`);
+    await button.click();
+    const dialog = page.getByRole('dialog');
+    await dialog.getByRole('heading', { name: title, exact: true }).waitFor();
+    assert.match(await dialog.getByRole('button', { name: confirmName, exact: true }).getAttribute('class'), /\bdanger\b/);
+    await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await dialog.waitFor({ state: 'hidden' });
+  }
+  assert.deepEqual(writes, []);
+});
+
+test('refreshing the Windows session status spins only its own button', async t => {
+  const held = deferred();
+  t.after(() => held.resolve());
+  let calls = 0;
+  const { page } = await fixture(t, async (route, url) => {
+    if (url.pathname !== '/api/session/console') return false;
+    if (++calls === 2) await held.promise;
+    await route.fulfill({ json: { status: true, recovery: { session_id: 2, console_session_id: 1, can_reattach: true,
+      reason: 'The desktop is in a Remote Desktop session.' } } });
+    return true;
+  });
+  await page.goto(base + '/maintenance');
+  await page.getByText('The desktop is in a Remote Desktop session.', { exact: true }).waitFor();
+  const refresh = page.getByRole('button', { name: 'Refresh status', exact: true });
+  const back = page.getByRole('button', { name: 'Return to console', exact: true });
+  await refresh.click();
+  assert.equal(await refresh.getAttribute('aria-busy'), 'true');
+  assert.equal(await back.getAttribute('aria-busy'), 'false');
+  assert.equal(await back.isDisabled(), true);
+  held.resolve();
+  await page.waitForFunction(() => [...document.querySelectorAll('button')].find(button => button.textContent.includes('Refresh status'))?.getAttribute('aria-busy') === 'false');
+  assert.equal(await back.isDisabled(), false);
+});
+
+test('an update action spins only its own button, and update settings open inside the console', async t => {
+  const held = deferred(), started = deferred();
+  t.after(() => held.resolve());
+  const { page } = await fixture(t, async (route, url, request) => {
+    if (url.pathname === '/api/updates' && request.method() === 'GET') {
+      await route.fulfill({ json: { releases: [{ tag_name: 'v2.2.3', html_url: 'https://example.invalid/release', body: '' }],
+        latest_version: 'v2.2.3', checked_at: 1, update_check_interval: 6, auto_update: false,
+        install_supported: true, update_available: true, phase: 'idle' } });
+      return true;
+    }
+    if (url.pathname !== '/api/updates/install') return false;
+    started.resolve();
+    await held.promise;
+    await route.fulfill({ json: { status: true } });
+    return true;
+  });
+  await page.goto(base + '/maintenance');
+  const install = page.getByRole('button', { name: 'Install when idle', exact: true });
+  await install.click();
+  await started.promise;
+  assert.equal(await install.getAttribute('aria-busy'), 'true');
+  assert.equal(await page.getByRole('button', { name: 'Check now', exact: true }).getAttribute('aria-busy'), 'false');
+  held.resolve();
+  await page.waitForFunction(() => [...document.querySelectorAll('button')].every(button => button.getAttribute('aria-busy') !== 'true'));
+  await page.evaluate(() => { window.consoleStayedLoaded = true; });
+  await page.getByRole('link', { name: 'Change update settings', exact: true }).click();
+  await page.waitForURL(base + '/settings/general');
+  assert.equal(await page.evaluate(() => window.consoleStayedLoaded), true);
+});

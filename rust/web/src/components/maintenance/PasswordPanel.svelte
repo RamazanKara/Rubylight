@@ -56,7 +56,7 @@
   }
 </script>
 
-<Panel title="Change password" description="Saving signs out every browser, including this one.">
+<Panel title="Change password" level={3} description="Saving signs out every browser, including this one.">
   <form class="stack" onsubmit={submit}>
     <div class="form-grid">
       <Field label="Current username" id="pw-current-username">
@@ -96,7 +96,7 @@
       </Field>
     </div>
     <div class="row">
-      <Button type="submit" variant="primary" {busy} disabled={!ready}>Change password</Button>
+      <Button type="submit" {busy} disabled={!ready}>Change password</Button>
     </div>
   </form>
 </Panel>

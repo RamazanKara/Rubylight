@@ -51,8 +51,16 @@
 
   const restore = () =>
     run('restore', api.displays.restoreGolden, 'Saved layout restored.', 'Restoring the layout failed');
-  const reset = () =>
-    run('reset', api.displays.resetPersistence, 'Display settings memory reset.', 'Resetting display settings failed');
+  async function reset() {
+    const ok = await confirm({
+      title: 'Reset display settings memory?',
+      message: 'Rubylight forgets the display changes it would undo after a stream. Displays stay as they are now.',
+      confirm: 'Reset',
+      danger: true,
+    });
+    if (ok)
+      await run('reset', api.displays.resetPersistence, 'Display settings memory reset.', 'Resetting display settings failed');
+  }
 
   async function remove() {
     const ok = await confirm({
@@ -78,7 +86,7 @@
   onMount(load);
 </script>
 
-<Panel title="Displays" description="Rubylight restores the saved layout after each stream, if all of its displays are connected.">
+<Panel title="Displays" level={3} description="After each stream, Rubylight restores the saved layout if all of its displays are connected.">
   {#snippet actions()}
     {#if golden?.exists}
       {#if golden.comparison_available && golden.current_mismatch_reason}
@@ -93,55 +101,55 @@
     {/if}
   {/snippet}
   {#if golden}
-    <div class="stack">
+    <div class="stack body">
       {#if loadError}
         <LoadState error={loadError} what="the display layout" stale onretry={load} />
       {/if}
-      <div class="group">
-        <p class="text">
-          {#if !golden.exists}
-            No layout is saved. Arrange your displays the way you want them between streams, then save.
-          {:else if !golden.comparison_available}
-            A layout is saved. The host could not compare it with the current displays.
-          {:else if golden.current_mismatch_reason}
-            A layout is saved. The displays are arranged differently right now; restore it to go back.
-          {:else}
-            A layout is saved and matches the displays as they are now.
-          {/if}
-        </p>
-        <div class="row">
-          <Button disabled={running !== null} busy={running === 'save'} onclick={save}>Save current layout</Button>
-          <Button disabled={!golden.exists || running !== null} busy={running === 'restore'} onclick={restore}>
-            Restore saved layout
-          </Button>
-          <Button variant="danger" disabled={!golden.exists || running !== null} busy={running === 'delete'} onclick={remove}>
-            Delete saved layout
-          </Button>
+      <div class="columns">
+        <div class="group">
+          <h4>Saved layout</h4>
+          <p class="text">
+            {#if !golden.exists}
+              No layout is saved. Arrange your displays the way you want them between streams, then save.
+            {:else if !golden.comparison_available}
+              A layout is saved. The host could not compare it with the current displays.
+            {:else if golden.current_mismatch_reason}
+              A layout is saved. The displays are arranged differently right now; restore it to go back.
+            {:else}
+              A layout is saved and matches the displays as they are now.
+            {/if}
+          </p>
+          <div class="row">
+            <Button disabled={running !== null} busy={running === 'save'} onclick={save}>Save current layout</Button>
+            <Button disabled={!golden.exists || running !== null} busy={running === 'restore'} onclick={restore}>
+              Restore saved layout
+            </Button>
+            <Button variant="danger" disabled={!golden.exists || running !== null} busy={running === 'delete'} onclick={remove}>
+              Delete saved layout
+            </Button>
+          </div>
+        </div>
+        <div class="group recovery">
+          <h4>Recovery</h4>
+          <div class="action">
+            <div>
+              <p class="text">Disconnect virtual displays</p>
+              <p class="muted hint">Stops every stream and removes the virtual displays Rubylight created.</p>
+            </div>
+            <Button variant="danger" disabled={running !== null} busy={running === 'disconnect'} onclick={disconnect}>
+              Disconnect
+            </Button>
+          </div>
+          <div class="action">
+            <div>
+              <p class="text">Reset display settings memory</p>
+              <p class="muted hint">Use it when displays keep returning to an old setup after streams.</p>
+            </div>
+            <Button variant="danger" disabled={running !== null} busy={running === 'reset'} onclick={reset}>Reset</Button>
+          </div>
         </div>
       </div>
-      <div class="group recovery">
-        <h3>Recovery</h3>
-        <div class="action">
-          <div>
-            <p class="text">Disconnect virtual displays</p>
-            <p class="muted hint">Stops every stream and removes the virtual displays Rubylight created.</p>
-          </div>
-          <Button variant="danger" disabled={running !== null} busy={running === 'disconnect'} onclick={disconnect}>
-            Disconnect
-          </Button>
-        </div>
-        <div class="action">
-          <div>
-            <p class="text">Reset display settings memory</p>
-            <p class="muted hint">
-              Forgets the display changes Rubylight would undo after a stream. Use it when displays keep returning to an
-              old setup.
-            </p>
-          </div>
-          <Button disabled={running !== null} busy={running === 'reset'} onclick={reset}>Reset</Button>
-        </div>
-        <p class="muted hint">Saving, restoring and resetting fail while a stream is running.</p>
-      </div>
+      <p class="muted hint">Saving, restoring and resetting fail while a stream is running.</p>
     </div>
   {:else}
     <LoadState error={loadError} what="the display layout" onretry={load} />
@@ -149,16 +157,39 @@
 </Panel>
 
 <style>
+  .body {
+    container-type: inline-size;
+  }
+  .columns {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-5);
+  }
   .group {
     display: grid;
     gap: var(--space-3);
+    align-content: start;
   }
   .recovery {
     padding-top: var(--space-4);
     border-top: 1px solid var(--line);
   }
-  h3 {
+  @container (min-width: 760px) {
+    .columns {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: var(--space-6);
+    }
+    .recovery {
+      padding-top: 0;
+      padding-left: var(--space-6);
+      border-top: 0;
+      border-left: 1px solid var(--line);
+    }
+  }
+  h4 {
+    margin: 0;
     font-size: var(--text-sm);
+    font-weight: 600;
   }
   .text {
     font-size: var(--text-sm);

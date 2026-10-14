@@ -41,7 +41,7 @@
   <Badge tone={value ? 'ok' : offTone}>{value ? on : off}</Badge>
 {/snippet}
 
-<Panel title="Vulkan HDR support" description="The Vulkan layer lets games using Vulkan graphics show high dynamic range (HDR) on virtual displays.">
+<Panel title="Vulkan HDR layer" level={3} description="Lets Vulkan games show HDR on virtual displays.">
   {#if layer}
     <div class="stack">
       <dl class="facts">

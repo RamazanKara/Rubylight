@@ -86,10 +86,11 @@
   border-bottom: 0;
 }
 
-/* A label and its value on one line (details lists). */
+/* A label and its value on one line (details lists). Labels take the room
+   they need, up to a limit, so values line up close to them in wide panels. */
 .facts {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+  grid-template-columns: fit-content(16em) minmax(0, 1fr);
   gap: 8px var(--space-5);
   margin: 0;
   font-size: var(--text-sm);

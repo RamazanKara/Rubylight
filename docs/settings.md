@@ -124,7 +124,7 @@ These tables include every preference, including actions. On/Off choices have no
 | Chipset low-latency mode<br>`checkbox_vendor_low_latency` | On | On; Off | Leave on for supported chipset decoder keys. Disable to isolate vendor-specific instability. |
 | Decoder performance hints<br>`checkbox_codec_performance` | On | On; Off | Leave on for decoder priority/rate hints on Android 6+. Disable to compare heat or battery use. |
 | Phone performance hints<br>`checkbox_phone_performance_hints` | On | On; Off | Enable for a measured comparison on Android 12+; compare decode time with it on and off. |
-| Max GPU clocks for PyroWave<br>`checkbox_gpu_max_clocks` | On | On; Off | Enable to hold the Adreno GPU at full speed for the steadiest PyroWave decode time; uses more battery. |
+| Max GPU clocks for PyroWave<br>`checkbox_gpu_max_clocks` | Off | On; Off | Opt-in: enable to hold the Adreno GPU at full speed for the steadiest PyroWave decode time; uses more battery. Installs that already stored a choice keep it. Shown on Adreno devices only. |
 | Keep only the newest frame<br>`checkbox_drop_late_frames` | On | On; Off | Enable with Balanced pacing to discard older queued outputs. Favors response over smoothness. |
 | Instant mouse and pen input<br>`checkbox_unbatched_input` | On | On; Off | Enable to bypass display-rate input batching. High-rate input can increase CPU and network load. |
 | Prioritize stream traffic<br>`checkbox_network_priority` | On | On; Off | Enable to compare scheduling under load. Requests streaming thread priority on this device. |
@@ -154,9 +154,9 @@ Both presets stream at this screen's own resolution and keep the selected codec,
 | Frame pacing | Lowest latency | Balanced with FPS limit |
 | Allow lower refresh rate | Off | On |
 | Decoder performance hints | On | Off |
-| Max GPU clocks for PyroWave | On | Off |
+| Max GPU clocks for PyroWave | Unchanged | Off |
 
-Native also turns these back on: Android low-latency mode, Chipset low-latency mode, Phone performance hints, Max GPU clocks for PyroWave, Keep only the newest frame, Instant mouse and pen input, Prioritize stream traffic.
+Native also turns these back on: Android low-latency mode, Chipset low-latency mode, Phone performance hints, Keep only the newest frame, Instant mouse and pen input, Prioritize stream traffic.
 
 <!-- END GENERATED SETTINGS -->
 

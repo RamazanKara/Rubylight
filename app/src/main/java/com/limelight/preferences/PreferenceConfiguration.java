@@ -95,6 +95,8 @@ public class PreferenceConfiguration {
     private static final String CODEC_PERFORMANCE_PREF_STRING = "checkbox_codec_performance";
     private static final String PHONE_PERFORMANCE_HINTS_PREF_STRING = "checkbox_phone_performance_hints";
     static final String GPU_MAX_CLOCKS_PREF_STRING = "checkbox_gpu_max_clocks";
+    // Opt-in: holding the GPU at full speed costs battery. Installs that stored a value keep it.
+    static final boolean DEFAULT_GPU_MAX_CLOCKS = false;
     private static final String DROP_LATE_FRAMES_PREF_STRING = "checkbox_drop_late_frames";
     private static final String TEXTURE_VIEW_PREF_STRING = "checkbox_texture_view";
     private static final String UNBATCHED_INPUT_PREF_STRING = "checkbox_unbatched_input";
@@ -896,7 +898,7 @@ public class PreferenceConfiguration {
         config.vendorLowLatency = prefs.getBoolean(VENDOR_LOW_LATENCY_PREF_STRING, true);
         config.codecPerformance = prefs.getBoolean(CODEC_PERFORMANCE_PREF_STRING, true);
         config.phonePerformanceHints = prefs.getBoolean(PHONE_PERFORMANCE_HINTS_PREF_STRING, true);
-        config.gpuMaxClocks = prefs.getBoolean(GPU_MAX_CLOCKS_PREF_STRING, true);
+        config.gpuMaxClocks = prefs.getBoolean(GPU_MAX_CLOCKS_PREF_STRING, DEFAULT_GPU_MAX_CLOCKS);
         if (prefs.contains("checkbox_pyrowave_front_buffer")) {
             // Front-buffer rendering tore too much to play and is gone; drop its old switch.
             prefs.edit().remove("checkbox_pyrowave_front_buffer").apply();

@@ -73,7 +73,7 @@ ADVICE = {
     "checkbox_vendor_low_latency": "Leave on for supported chipset decoder keys. Disable to isolate vendor-specific instability.",
     "checkbox_codec_performance": "Leave on for decoder priority/rate hints on Android 6+. Disable to compare heat or battery use.",
     "checkbox_phone_performance_hints": "Enable for a measured comparison on Android 12+; compare decode time with it on and off.",
-    "checkbox_gpu_max_clocks": "Enable to hold the Adreno GPU at full speed for the steadiest PyroWave decode time; uses more battery.",
+    "checkbox_gpu_max_clocks": "Opt-in: enable to hold the Adreno GPU at full speed for the steadiest PyroWave decode time; uses more battery. Installs that already stored a choice keep it. Shown on Adreno devices only.",
     "checkbox_drop_late_frames": "Enable with Balanced pacing to discard older queued outputs. Favors response over smoothness.",
     "checkbox_unbatched_input": "Enable to bypass display-rate input batching. High-rate input can increase CPU and network load.",
     "checkbox_network_priority": "Enable to compare scheduling under load. Requests streaming thread priority on this device.",
@@ -199,6 +199,8 @@ def generate():
     block = source.split("LATENCY_SWITCHES = {", 1)[1].split("};", 1)[0]
     switches = re.findall(r'^\s+(?:"([a-z_]+)"|PreferenceConfiguration\.([A-Z_]+)),$', block, re.M)
     switch_titles = [resolve(nodes[literal or constants[constant]].get(ANDROID + "title")) for literal, constant in switches]
+    if constants["GPU_MAX_CLOCKS_PREF_STRING"] in [literal or constants[constant] for literal, constant in switches]:
+        raise ValueError("Review the presets table: Native now changes Max GPU clocks")
     lines += ["## Presets", "",
               "Both presets stream at this screen's own resolution and keep the selected codec, HDR and 4:4:4 choices. Saved PC profiles take priority. The selected chip says Custom when values do not match a preset.", "",
               "| Setting | " + " | ".join(names) + " |",
@@ -211,7 +213,7 @@ def generate():
               "| Frame pacing | Lowest latency | Balanced with FPS limit |",
               "| Allow lower refresh rate | Off | On |",
               "| Decoder performance hints | On | Off |",
-              "| Max GPU clocks for PyroWave | On | Off |",
+              "| Max GPU clocks for PyroWave | Unchanged | Off |",
               "", "Native also turns these back on: " + ", ".join(switch_titles) + ".", ""]
     return "\n".join(lines)
 

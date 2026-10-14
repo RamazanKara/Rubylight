@@ -359,11 +359,12 @@
             android:title="@string/title_phone_performance_hints"
             android:summary="@string/summary_phone_performance_hints"
             android:defaultValue="true" />
+        <!-- Opt-in: holding the GPU at full speed costs battery. -->
         <com.limelight.preferences.MaterialSwitchPreference
             android:key="checkbox_gpu_max_clocks"
             android:title="@string/title_gpu_max_clocks"
             android:summary="@string/summary_gpu_max_clocks"
-            android:defaultValue="true" />
+            android:defaultValue="false" />
         <com.limelight.preferences.MaterialSwitchPreference
             android:key="checkbox_drop_late_frames"
             android:title="@string/title_drop_late_frames"

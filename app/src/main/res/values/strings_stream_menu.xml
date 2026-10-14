@@ -40,4 +40,9 @@
     <string name="stream_menu_hint_or">%1$s or %2$s</string>
     <string name="stream_menu_hint_list">%1$s, %2$s</string>
     <string name="stream_menu_hint_close">Tap to close</string>
+
+    <!-- Messages a stream used to show in English only. -->
+    <string name="stream_h264_decoder_missing">This device can’t decode H.264 video in hardware, which streaming needs.</string>
+    <string name="perf_overlay_vrr">Panel: %1$.2f Hz · render: %2$.2f Hz · VRR: %3$s</string>
+    <string name="perf_overlay_vrr_max_hz">max Hz</string>
 </resources>

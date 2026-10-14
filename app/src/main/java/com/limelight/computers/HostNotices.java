@@ -12,7 +12,17 @@ import java.util.List;
  * A notice is shown again only after the PC gained the feature and then lost it.
  */
 public final class HostNotices {
-    public enum Notice { VIRTUAL_DISPLAY_UNAVAILABLE, AUTOMATIC_QUALITY_UNAVAILABLE, PYROWAVE_UNAVAILABLE }
+    public enum Notice {
+        VIRTUAL_DISPLAY_UNAVAILABLE, AUTOMATIC_QUALITY_UNAVAILABLE, PYROWAVE_UNAVAILABLE,
+        // HDR on this PC: the screen, Android, the decoder or the PC lacks it.
+        HDR_UNAVAILABLE,
+        // A codec forced in settings that this device cannot decode.
+        CODEC_UNAVAILABLE,
+        // GeForce Experience too old for 4K.
+        HOST_4K_UNAVAILABLE,
+        // Multi-touch the host does not take, so touch drives the mouse.
+        NATIVE_TOUCH_UNAVAILABLE
+    }
 
     static final String PREFERENCES = "HostNotices";
 

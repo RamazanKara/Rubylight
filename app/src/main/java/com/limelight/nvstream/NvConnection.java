@@ -665,8 +665,10 @@ public class NvConnection {
                 return false;
             }
             else if (context.streamConfig.getHeight() >= 2160 && !h.supports4K(serverInfo)) {
-                // Client wants 4K but the server can't do it
-                context.connListener.displayTransientMessage(appContext.getString(R.string.startup_host_update_4k));
+                // Client wants 4K but the server can't do it: said once for the PC.
+                if (HostNotices.claim(appContext, details.uuid, HostNotices.Notice.HOST_4K_UNAVAILABLE)) {
+                    context.connListener.displayTransientMessage(appContext.getString(R.string.startup_host_update_4k));
+                }
             
                 // Lower resolution to 1080p
                 context.negotiatedWidth = 1920;
@@ -685,7 +687,12 @@ public class NvConnection {
             context.negotiatedVideoFormats = negotiateVideoFormats(preparedFormats, context.serverCodecModeSupport);
             context.negotiatedHdr = (context.negotiatedVideoFormats & MoonBridge.VIDEO_FORMAT_MASK_10BIT) != 0;
             if (!context.negotiatedHdr && (offeredFormats & MoonBridge.VIDEO_FORMAT_MASK_10BIT) != 0) {
-                context.connListener.displayTransientMessage(appContext.getString(R.string.startup_hdr_unavailable));
+                if (HostNotices.claim(appContext, details.uuid, HostNotices.Notice.HDR_UNAVAILABLE)) {
+                    context.connListener.displayTransientMessage(appContext.getString(R.string.startup_hdr_unavailable));
+                }
+            } else if (context.negotiatedHdr) {
+                // HDR works with this PC now; if it stops, say so again.
+                HostNotices.reset(appContext, details.uuid, HostNotices.Notice.HDR_UNAVAILABLE);
             }
 
         }

@@ -73,4 +73,18 @@ public class GamePerformanceOverlayTest {
         ClipboardManager clipboard = (ClipboardManager) game.getSystemService(Context.CLIPBOARD_SERVICE);
         assertEquals("Video\nAV1\n\nDecode\nDriver fallback\np95/p99: 5/6 ms", clipboard.getPrimaryClip().getItemAt(0).getText().toString());
     }
+
+    @Test
+    public void statisticsKeepTheStreamsLastingFactsInAStatusLine() {
+        Game game = game();
+        TextView overlay = game.findViewById(R.id.performanceOverlay);
+        com.limelight.ui.StreamMessages messages = ReflectionHelpers.getField(game, "messages");
+        messages.note("This screen can’t show HDR, so the stream is in SDR.");
+        setMode(game, "statistics");
+        String text = overlay.getText().toString();
+        assertTrue(text.startsWith("1920×1080"));
+        assertTrue(text.endsWith("\nThis screen can’t show HDR, so the stream is in SDR."));
+        setMode(game, "compact");
+        assertFalse("The compact line stays one line", overlay.getText().toString().contains("HDR"));
+    }
 }

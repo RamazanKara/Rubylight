@@ -445,6 +445,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     // PerformanceOverlay.MODE_COMPACT, MODE_STATISTICS or MODE_DEBUG
     private String overlayMode = PerformanceOverlay.MODE_COMPACT;
     private TextView streamMenuHint;
+    // Every message of the stream goes through here: one at a time, lasting facts once per PC.
+    private final com.limelight.ui.StreamMessages messages = new com.limelight.ui.StreamMessages(this);
     private final Runnable showStreamMenuHint = this::showStreamMenuHint;
     private final Runnable expireStreamMenuHint = () -> dismissStreamMenuHint(true);
     private HardwareMetrics hardwareMetrics;
@@ -507,7 +509,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
 
         if (savedInstanceState != null) {
             LimeLog.info("Stream restored after process death");
-            Toast.makeText(this, R.string.stream_restore_help, Toast.LENGTH_LONG).show();
+            messages.alert(R.string.stream_restore_help, Toast.LENGTH_LONG);
             finish();
             return;
         }
@@ -651,8 +653,9 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
 
         // Warn the user if they're on a metered connection
         ConnectivityManager connMgr = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
-        if (connMgr.isActiveNetworkMetered()) {
-            displayTransientMessage(getResources().getString(R.string.conn_metered));
+        if (connMgr.isActiveNetworkMetered() && !prefConfig.disableWarnings) {
+            // Streaming can use a lot of mobile data: worth acting on before it does.
+            messages.alert(R.string.conn_metered, Toast.LENGTH_LONG);
         }
 
         // Make sure Wi-Fi is fully powered up
@@ -732,12 +735,11 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 }
 
                 if (!willStreamHdr) {
-                    // Nope, no HDR for us :(
-                    Toast.makeText(this, R.string.stream_hdr_display_unsupported, Toast.LENGTH_LONG).show();
+                    hostNotice(HostNotices.Notice.HDR_UNAVAILABLE, R.string.stream_hdr_display_unsupported);
                 }
             }
             else {
-                Toast.makeText(this, R.string.stream_hdr_android_unsupported, Toast.LENGTH_LONG).show();
+                hostNotice(HostNotices.Notice.HDR_UNAVAILABLE, R.string.stream_hdr_android_unsupported);
             }
         }
 
@@ -779,29 +781,27 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         if (willStreamHdr && !decoderRenderer.isHevcMain10Hdr10Supported() && !decoderRenderer.isAv1Main10Supported() &&
                 !decoderRenderer.isPyroWaveSupported()) {
             willStreamHdr = false;
-            Toast.makeText(this, R.string.stream_hdr_decoder_unsupported, Toast.LENGTH_LONG).show();
+            hostNotice(HostNotices.Notice.HDR_UNAVAILABLE, R.string.stream_hdr_decoder_unsupported);
         }
         streamHdr = willStreamHdr;
 
         // PyroWave was chosen but this PC showed it has none; say once for the PC what is used instead.
         if (mediaStream && prefConfig.pyroWaveUnavailable) {
-            if (HostNotices.claim(this, getIntent().getStringExtra(EXTRA_PC_UUID), HostNotices.Notice.PYROWAVE_UNAVAILABLE)) {
-                Toast.makeText(this, getString(R.string.host_pyrowave_unavailable,
-                        getResources().getStringArray(R.array.host_profile_codecs)[prefConfig.videoFormat.ordinal()]),
-                        Toast.LENGTH_LONG).show();
-            }
+            messages.notice(getIntent().getStringExtra(EXTRA_PC_UUID), HostNotices.Notice.PYROWAVE_UNAVAILABLE,
+                    getString(R.string.host_pyrowave_unavailable,
+                            getResources().getStringArray(R.array.host_profile_codecs)[prefConfig.videoFormat.ordinal()]));
         } else if (prefConfig.videoFormat == PreferenceConfiguration.FormatOption.FORCE_PYROWAVE) {
             HostNotices.reset(this, getIntent().getStringExtra(EXTRA_PC_UUID), HostNotices.Notice.PYROWAVE_UNAVAILABLE);
         }
 
         // Display a message to the user if HEVC was forced on but we still didn't find a decoder
         if (mediaStream && prefConfig.videoFormat == PreferenceConfiguration.FormatOption.FORCE_HEVC && !decoderRenderer.isHevcSupported()) {
-            Toast.makeText(this, R.string.stream_hevc_decoder_missing, Toast.LENGTH_LONG).show();
+            hostNotice(HostNotices.Notice.CODEC_UNAVAILABLE, R.string.stream_hevc_decoder_missing);
         }
 
         // Display a message to the user if AV1 was forced on but we still didn't find a decoder
         if (mediaStream && prefConfig.videoFormat == PreferenceConfiguration.FormatOption.FORCE_AV1 && !decoderRenderer.isAv1Supported()) {
-            Toast.makeText(this, R.string.stream_av1_decoder_missing, Toast.LENGTH_LONG).show();
+            hostNotice(HostNotices.Notice.CODEC_UNAVAILABLE, R.string.stream_av1_decoder_missing);
         }
 
         int supportedVideoFormats = mediaStream ? decoderRenderer.getSupportedVideoFormats(willStreamHdr) : MoonBridge.VIDEO_FORMAT_H264;
@@ -849,7 +849,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         // output fallback after that decision so it cannot reintroduce phone-vsync pacing.
         if (mediaStream && decoderRenderer.applyOutputPacingFallback() &&
                 prefConfig.videoFormat != PreferenceConfiguration.FormatOption.FORCE_PYROWAVE) {
-            Toast.makeText(this, R.string.desktop_pacing_fallback, Toast.LENGTH_LONG).show();
+            // The session's own setup, not a choice to make: the overlay's status line says it.
+            messages.note(getString(R.string.desktop_pacing_fallback));
         }
 
         streamFps = chosenFrameRate;
@@ -937,7 +938,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
 
             // If we can't find an AVC decoder, we can't proceed
             Dialog.displayDialog(this, getResources().getString(R.string.conn_error_title),
-                    "This device or ROM doesn't support hardware accelerated H.264 playback.", true);
+                    getString(R.string.stream_h264_decoder_missing), true);
             return;
         }
 
@@ -1004,7 +1005,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 }
                 externalPresentation = null; renderView = streamView;
                 getIntent().removeExtra(EXTRA_OUTPUT_DISPLAY);
-                Toast.makeText(this, R.string.desktop_display_unavailable, Toast.LENGTH_LONG).show();
+                messages.alert(R.string.desktop_display_unavailable, Toast.LENGTH_LONG);
             }
         }
         getIntent().removeExtra(EXTRA_OUTPUT_DISPLAY);
@@ -1042,7 +1043,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             return;
         }
         desktopGestures.setEnabled(!desktopGestures.enabled());
-        if (desktopGestures.enabled()) Toast.makeText(this, R.string.desktop_zoom_help, Toast.LENGTH_LONG).show();
+        if (desktopGestures.enabled()) messages.alert(R.string.desktop_zoom_help, Toast.LENGTH_LONG);
     }
 
     private boolean hasPresentationDisplays() {
@@ -1100,7 +1101,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                         reconnectStream();
                     };
                 }).setNegativeButton(android.R.string.cancel, null).create());
-        if (displays.length == 0) Toast.makeText(this, R.string.desktop_display_unavailable, Toast.LENGTH_LONG).show();
+        if (displays.length == 0) messages.alert(R.string.desktop_display_unavailable, Toast.LENGTH_LONG);
     }
 
     private void setPreferredOrientationForCurrentDisplay() {
@@ -2126,7 +2127,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 }
 
                 if (message != null) {
-                    Toast.makeText(this, message, Toast.LENGTH_LONG).show();
+                    messages.alert(message, Toast.LENGTH_LONG);
                 }
             }
 
@@ -2319,11 +2320,11 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         if (!enable || !hostActionInProgress) {
             setAdaptiveBitrateEnabled(enable, true);
             if (enable) {
-                Toast.makeText(this, pyroWaveBitrate != null ? R.string.stream_pyrowave_bitrate_help :
-                        R.string.stream_auto_bitrate_help, Toast.LENGTH_LONG).show();
+                messages.alert(pyroWaveBitrate != null ? R.string.stream_pyrowave_bitrate_help :
+                        R.string.stream_auto_bitrate_help, Toast.LENGTH_LONG);
             }
         } else {
-            Toast.makeText(this, R.string.stream_bitrate_busy, Toast.LENGTH_SHORT).show();
+            messages.alert(R.string.stream_bitrate_busy, Toast.LENGTH_SHORT);
         }
     }
 
@@ -2377,7 +2378,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                     try {
                         startActivity(new Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url.toString())));
                     } catch (android.content.ActivityNotFoundException | SecurityException e) {
-                        Toast.makeText(this, R.string.host_administration_no_browser, Toast.LENGTH_LONG).show();
+                        messages.alert(R.string.host_administration_no_browser, Toast.LENGTH_LONG);
                     }
                 }).create();
         showStreamDialog(dialog);
@@ -2473,8 +2474,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                         currentBitrate = previous;
                         healthOriginalBitrate = healthTrialBitrate = 0;
                         if (foreground && generation == foregroundGeneration) {
-                            Toast.makeText(this, undo ? R.string.health_trial_replaced : R.string.health_bitrate_minimum,
-                                    Toast.LENGTH_LONG).show();
+                            messages.alert(undo ? R.string.health_trial_replaced : R.string.health_bitrate_minimum, Toast.LENGTH_LONG);
                         }
                     });
                     return;
@@ -2488,7 +2488,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                     healthOriginalBitrate = undo ? 0 : previous;
                     healthTrialBitrate = undo ? 0 : applied;
                     if (foreground && generation == foregroundGeneration) {
-                        Toast.makeText(this, getString(R.string.stream_bitrate_applied, applied / 1000.0), Toast.LENGTH_LONG).show();
+                        messages.alert(getString(R.string.stream_bitrate_applied, applied / 1000.0), Toast.LENGTH_LONG);
                     }
                 });
             } catch (IOException | XmlPullParserException e) {
@@ -2503,7 +2503,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     private void runLatencyTest() {
         if (latencyTestRunning || !connected) return;
         latencyTestRunning = true;
-        Toast.makeText(this, R.string.latency_test_running, Toast.LENGTH_LONG).show();
+        messages.alert(R.string.latency_test_running, Toast.LENGTH_LONG);
         LatencyProbe probe = decoderRenderer.getLatencyProbe();
         NvConnection connection = conn;
         new Thread(() -> {
@@ -2648,6 +2648,9 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         boolean compact = PerformanceOverlay.MODE_COMPACT.equals(overlayMode);
         performanceOverlayView.setTextSize(compact ? 13 : isDebugOverlay() ? 11 : 12);
         CharSequence text = compact ? compactPerformanceText : hardwarePerformanceText(isDebugOverlay());
+        if (PerformanceOverlay.MODE_STATISTICS.equals(overlayMode) && text.length() != 0) {
+            text = PerformanceOverlay.withStatusLine(text, messages.notes());
+        }
         if (text.length() == 0) {
             text = compact ? "● " + getString(R.string.overlay_compact_waiting) : getString(R.string.stats_waiting);
         }
@@ -2712,13 +2715,13 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     private void copyPerformanceStats() {
         CharSequence text = hardwarePerformanceText(true);
         if (text.length() == 0) {
-            Toast.makeText(this, R.string.overlay_empty, Toast.LENGTH_LONG).show();
+            messages.alert(R.string.overlay_empty, Toast.LENGTH_LONG);
             return;
         }
         ClipboardManager clipboard = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
         clipboard.setPrimaryClip(ClipData.newPlainText(getString(R.string.overlay_copy),
                 text));
-        Toast.makeText(this, R.string.overlay_copied, Toast.LENGTH_SHORT).show();
+        messages.alert(R.string.overlay_copied, Toast.LENGTH_SHORT);
     }
 
     private void initializeTouchContexts() {
@@ -2745,7 +2748,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
 
     private void showTouchModeDialog() {
         if (externalPresentation != null) {
-            Toast.makeText(this, R.string.desktop_touchpad_help, Toast.LENGTH_LONG).show();
+            messages.alert(R.string.desktop_touchpad_help, Toast.LENGTH_LONG);
             return;
         }
         String[] modes = getResources().getStringArray(R.array.stream_touch_modes);
@@ -2762,7 +2765,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                             .putBoolean("checkbox_native_touch", nativeTouchEnabled).apply();
                     dialog.dismiss();
                     if (nativeTouchEnabled) {
-                        Toast.makeText(this, R.string.stream_native_touch_help, Toast.LENGTH_LONG).show();
+                        messages.alert(R.string.stream_native_touch_help, Toast.LENGTH_LONG);
                     }
                 }).setNegativeButton(android.R.string.cancel, null).create());
     }
@@ -3010,7 +3013,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 return;
             }
             if (clip == null || clip.getItemCount() == 0 || clip.getItemAt(0).getText() == null) {
-                Toast.makeText(this, R.string.stream_clipboard_empty, Toast.LENGTH_SHORT).show();
+                messages.alert(R.string.stream_clipboard_empty, Toast.LENGTH_SHORT);
                 return;
             }
             text = clip.getItemAt(0).getText().toString();
@@ -3042,8 +3045,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                             return;
                         }
                     }
-                    Toast.makeText(this, send ? R.string.stream_clipboard_sent : R.string.stream_clipboard_received,
-                            Toast.LENGTH_SHORT).show();
+                    messages.alert(send ? R.string.stream_clipboard_sent : R.string.stream_clipboard_received, Toast.LENGTH_SHORT);
                 });
             } catch (IOException | XmlPullParserException e) {
                 showHostActionError(e, generation);
@@ -3072,8 +3074,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                                         boolean sent = conn.sendServerCommand(index, names[index]);
                                         runOnUiThread(() -> {
                                             if (foreground && generation == foregroundGeneration && connected && !isFinishing()) {
-                                                Toast.makeText(this, sent ? R.string.stream_command_sent : R.string.stream_command_failed,
-                                                        Toast.LENGTH_LONG).show();
+                                                messages.alert(sent ? R.string.stream_command_sent : R.string.stream_command_failed, Toast.LENGTH_LONG);
                                             }
                                         });
                                     } catch (IOException | XmlPullParserException e) {
@@ -3146,7 +3147,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 return;
             }
             if (hostActionInProgress) {
-                Toast.makeText(this, R.string.stream_bitrate_busy, Toast.LENGTH_SHORT).show();
+                messages.alert(R.string.stream_bitrate_busy, Toast.LENGTH_SHORT);
                 return;
             }
             if (!foreground || !connected || hostActionInProgress) {
@@ -3163,7 +3164,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                         currentBitrate = applied;
                         healthOriginalBitrate = healthTrialBitrate = 0;
                         if (foreground && generation == foregroundGeneration && connected && !isFinishing()) {
-                            Toast.makeText(this, getString(R.string.stream_bitrate_applied, applied / 1000.0), Toast.LENGTH_LONG).show();
+                            messages.alert(getString(R.string.stream_bitrate_applied, applied / 1000.0), Toast.LENGTH_LONG);
                         }
                     });
                 } catch (IOException | XmlPullParserException e) {
@@ -3209,9 +3210,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             releaseQualityAutoBitrate();
             qualityStatus = getString(R.string.quality_unavailable);
             // Said once per PC; the performance overlay keeps showing it.
-            if (foreground && HostNotices.claim(this, pcUuid, HostNotices.Notice.AUTOMATIC_QUALITY_UNAVAILABLE)) {
-                Toast.makeText(this, qualityStatus, Toast.LENGTH_LONG).show();
-            }
+            if (foreground) messages.notice(pcUuid, HostNotices.Notice.AUTOMATIC_QUALITY_UNAVAILABLE, qualityStatus);
             return;
         }
         HostNotices.reset(this, pcUuid, HostNotices.Notice.AUTOMATIC_QUALITY_UNAVAILABLE);
@@ -3250,7 +3249,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         releaseQualityAutoBitrate();
         qualityStatus = getString(R.string.quality_request_failed);
         LimeLog.warning("Automatic quality: requested size was not confirmed; adaptation stopped");
-        if (foreground) Toast.makeText(this, qualityStatus, Toast.LENGTH_LONG).show();
+        if (foreground) messages.alert(qualityStatus, Toast.LENGTH_LONG);
     }
 
     private void showAdaptiveQualityDialog() {
@@ -3366,7 +3365,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                             qualityAutoBitrate = false;
                             setAdaptiveBitrateEnabled(false, false);
                             if (foreground && connected && !isFinishing()) {
-                                Toast.makeText(this, R.string.stream_auto_bitrate_unavailable, Toast.LENGTH_LONG).show();
+                                messages.alert(R.string.stream_auto_bitrate_unavailable, Toast.LENGTH_LONG);
                             }
                             return;
                         }
@@ -3376,7 +3375,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                         if (controller != null) controller.suspend();
                         if (pyroController != null) pyroController.suspend();
                         if (firstFailure && foreground && connected && !isFinishing()) {
-                            Toast.makeText(this, R.string.stream_auto_bitrate_failed, Toast.LENGTH_LONG).show();
+                            messages.alert(R.string.stream_auto_bitrate_failed, Toast.LENGTH_LONG);
                         }
                     }
                 });
@@ -3395,7 +3394,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     private void showHostActionError(Exception error, int generation) {
         runOnUiThread(() -> {
             if (foreground && generation == foregroundGeneration && connected && !isFinishing()) {
-                Toast.makeText(this, getString(R.string.stream_host_action_failed, error.getMessage()), Toast.LENGTH_LONG).show();
+                messages.alert(getString(R.string.stream_host_action_failed, error.getMessage()), Toast.LENGTH_LONG);
             }
         });
     }
@@ -4402,7 +4401,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                     }
                     nativeTouchGestureActive = false;
                     nativeTouchUnsupported = true;
-                    Toast.makeText(this, R.string.stream_native_touch_fallback, Toast.LENGTH_LONG).show();
+                    hostNotice(HostNotices.Notice.NATIVE_TOUCH_UNAVAILABLE, R.string.stream_native_touch_fallback);
                 }
 
                 // If this is the parent view, we'll offset our coordinates to appear as if they
@@ -4731,7 +4730,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
 
                     // If video initialization failed and the surface is still valid, display extra information for the user
                     if (stage.contains("video") && videoSurface != null && videoSurface.isValid()) {
-                        Toast.makeText(Game.this, getResources().getText(R.string.video_decoder_init_failed), Toast.LENGTH_LONG).show();
+                        messages.alert(getResources().getText(R.string.video_decoder_init_failed), Toast.LENGTH_LONG);
                     }
 
                     String dialogText = connectionErrorMessage != null ? connectionErrorMessage :
@@ -4980,7 +4979,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 updatePipAutoEnter();
 
                 if (!conn.getHostDetails().hasPermission(ComputerDetails.PERMISSION_INPUT)) {
-                    Toast.makeText(Game.this, R.string.stream_input_denied, Toast.LENGTH_LONG).show();
+                    messages.alert(R.string.stream_input_denied, Toast.LENGTH_LONG);
                 }
 
                 // Hide the mouse cursor now after a short delay.
@@ -5032,7 +5031,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             public void run() {
                 connectionErrorMessage = message;
                 if (connected) {
-                    Toast.makeText(Game.this, message, Toast.LENGTH_LONG).show();
+                    messages.alert(message, Toast.LENGTH_LONG);
                 }
             }
         });
@@ -5087,22 +5086,24 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     public void launchActionCompleted(String message) {
         runOnUiThread(() -> {
             if (!isFinishing()) {
-                Toast.makeText(this, message, Toast.LENGTH_LONG).show();
+                messages.alert(message, Toast.LENGTH_LONG);
                 finish();
             }
         });
     }
 
+    // The connection's own once-per-PC facts: a virtual display, 4K or HDR the PC cannot offer.
     @Override
     public void displayTransientMessage(final String message) {
-        if (!prefConfig.disableWarnings) {
-            runOnUiThread(new Runnable() {
-                @Override
-                public void run() {
-                    Toast.makeText(Game.this, message, Toast.LENGTH_LONG).show();
-                }
-            });
-        }
+        runOnUiThread(() -> {
+            if (prefConfig.disableWarnings) messages.note(message);
+            else messages.countedNotice(message);
+        });
+    }
+
+    // A lasting fact about this PC or device: the status line, and a message once per PC.
+    private void hostNotice(HostNotices.Notice notice, int text) {
+        messages.notice(getIntent().getStringExtra(EXTRA_PC_UUID), notice, getString(text));
     }
 
     @Override
@@ -5477,9 +5478,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 Display display = getWindowManager().getDefaultDisplay();
                 float physicalRefreshRate = Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ?
                         display.getMode().getRefreshRate() : display.getRefreshRate();
-                String displayLine = prefConfig.vrr ? String.format(java.util.Locale.ROOT,
-                        "\nPanel: %.2f Hz · render: %.2f Hz · VRR: %s", physicalRefreshRate, display.getRefreshRate(),
-                        useArr ? "ARR" : "max Hz") : "";
+                String displayLine = prefConfig.vrr ? "\n" + getString(R.string.perf_overlay_vrr, physicalRefreshRate,
+                        display.getRefreshRate(), useArr ? "ARR" : getString(R.string.perf_overlay_vrr_max_hz)) : "";
                 String networkText = !isAdaptiveBitrateEnabled() ? network : network + "\n" +
                         getString(R.string.stream_auto_bitrate_status, currentBitrate / 1000.0);
                 if (adaptiveQuality != null) {
@@ -5493,6 +5493,9 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 MicrophoneStatus micStatus = conn.getMicrophoneStatus();
                 if (micStatus.label != 0) {
                     networkText += "\n" + getString(micStatus.label);
+                }
+                for (String note : messages.notes()) {
+                    if (!note.equals(qualityStatus)) networkText += "\n" + note;
                 }
                 debugPerformanceText = PerformanceOverlay.debugText(Game.this, video + displayLine, networkText, decode);
                 statisticsPerformanceText = statisticsText;

@@ -152,6 +152,19 @@ public final class PerformanceOverlay {
         return text;
     }
 
+    /**
+     * The status line under the statistics: lasting facts about this stream, such as HDR or a codec the
+     * PC or device lacks, in a quieter colour, so the messages that said them once are not needed again.
+     */
+    public static CharSequence withStatusLine(CharSequence base, java.util.List<String> notes) {
+        if (notes.isEmpty()) return base;
+        SpannableStringBuilder text = new SpannableStringBuilder(base);
+        int start = text.length();
+        for (String note : notes) text.append('\n').append(note);
+        text.setSpan(new ForegroundColorSpan(0xffc1c4d2), start, text.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        return text;
+    }
+
     @SuppressWarnings("deprecation")
     public static CharSequence withHardwareMetrics(Context context, CharSequence base,
                                                     HardwareMetrics metrics, boolean debug) {

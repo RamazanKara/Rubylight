@@ -298,7 +298,7 @@ def capture_ui_set(width, font, rotation=0):
     find("Presets", scroll=True)
     navigate_up()
     tap(HOST_NAME)
-    find("Pair Rubylight")
+    find("Pair with PC")
     screenshot(prefix + "-pairing-pin")
     tap("android:id/button2")
     find(HOST_NAME)

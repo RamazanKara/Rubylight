@@ -105,27 +105,40 @@ public class NvConnection {
         long now = android.os.SystemClock.uptimeMillis();
         if (microphoneAccessAt != 0 && now - microphoneAccessAt < 100) return microphoneAccess;
         android.media.AudioManager audio = (android.media.AudioManager)appContext.getSystemService(Context.AUDIO_SERVICE);
-        android.app.AppOpsManager ops = (android.app.AppOpsManager)appContext.getSystemService(Context.APP_OPS_SERVICE);
-        int mode = ops == null ? android.app.AppOpsManager.MODE_ERRORED : ops.checkOpNoThrow(
-                android.app.AppOpsManager.OPSTR_RECORD_AUDIO, android.os.Process.myUid(), appContext.getPackageName());
+        int mode = recordAudioOp(RECORD_AUDIO_CHECK);
         microphoneAccess = hasMicrophonePermission() && audio != null && !audio.isMicrophoneMute() &&
                 (mode == android.app.AppOpsManager.MODE_ALLOWED || mode == android.app.AppOpsManager.MODE_DEFAULT);
         microphoneAccessAt = now;
         return microphoneAccess;
+    }
+    private static final int RECORD_AUDIO_CHECK = 0, RECORD_AUDIO_START = 1, RECORD_AUDIO_FINISH = 2;
+    // The record-audio op string only exists from Android 6.0; looking it up on 5.x throws
+    // IllegalArgumentException. Those releases grant RECORD_AUDIO at install, so there is nothing to ask.
+    private int recordAudioOp(int action) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return android.app.AppOpsManager.MODE_ALLOWED;
+        android.app.AppOpsManager ops = (android.app.AppOpsManager)appContext.getSystemService(Context.APP_OPS_SERVICE);
+        if (ops == null) return android.app.AppOpsManager.MODE_ERRORED;
+        int uid = android.os.Process.myUid();
+        String op = android.app.AppOpsManager.OPSTR_RECORD_AUDIO, packageName = appContext.getPackageName();
+        try {
+            if (action == RECORD_AUDIO_CHECK) return ops.checkOpNoThrow(op, uid, packageName);
+            if (action == RECORD_AUDIO_START) return ops.startOpNoThrow(op, uid, packageName);
+            ops.finishOp(op, uid, packageName);
+            return android.app.AppOpsManager.MODE_ALLOWED;
+        } catch (IllegalArgumentException | SecurityException e) {
+            LimeLog.warning("Microphone app-op unavailable: " + e);
+            return android.app.AppOpsManager.MODE_ERRORED;
+        }
     }
     public boolean controllerMicrophonePermitted() {
         return canSendControllerInput() && microphoneCapturePermitted();
     }
     public boolean beginControllerMicrophone() {
         if (!controllerMicrophoneEnabled()) return false;
-        android.app.AppOpsManager ops = (android.app.AppOpsManager)appContext.getSystemService(Context.APP_OPS_SERVICE);
-        return ops != null && ops.startOpNoThrow(android.app.AppOpsManager.OPSTR_RECORD_AUDIO,
-                android.os.Process.myUid(), appContext.getPackageName()) == android.app.AppOpsManager.MODE_ALLOWED;
+        return recordAudioOp(RECORD_AUDIO_START) == android.app.AppOpsManager.MODE_ALLOWED;
     }
     public void endControllerMicrophone() {
-        android.app.AppOpsManager ops = (android.app.AppOpsManager)appContext.getSystemService(Context.APP_OPS_SERVICE);
-        if (ops != null) ops.finishOp(android.app.AppOpsManager.OPSTR_RECORD_AUDIO,
-                android.os.Process.myUid(), appContext.getPackageName());
+        recordAudioOp(RECORD_AUDIO_FINISH);
     }
     public boolean controllerMicrophoneEnabled() { return controllerMicrophonePermitted() && !micMuted; }
     public void controllerMicrophoneState(Object owner, boolean allowed, boolean ready, boolean hostMuted) {

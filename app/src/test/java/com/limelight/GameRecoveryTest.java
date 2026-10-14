@@ -345,6 +345,12 @@ public class GameRecoveryTest {
         }
     }
 
+    @Test public void aReasonlessDisconnectIsNotAttributedToThePc() {
+        assertFalse(Game.terminationDescription(-1).contains("reported by the PC"));
+        assertTrue(Game.terminationDescription(-1).startsWith("-1 ("));
+        assertTrue(Game.terminationDescription(0x80030042).contains("reported by the PC"));
+    }
+
     @Test
     @Config(shadows = RecoveryBridge.class, instrumentedPackages = "com.limelight.nvstream.jni")
     public void explicitHostFailuresNeverBecomeGracefulExitsEvenWhenTheHostIsIdle() {

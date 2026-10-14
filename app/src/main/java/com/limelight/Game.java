@@ -4495,6 +4495,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             case MoonBridge.ML_ERROR_UNEXPECTED_EARLY_TERMINATION: return code + " (ended right after starting)";
             case MoonBridge.ML_ERROR_PROTECTED_CONTENT: return code + " (protected content)";
             case MoonBridge.ML_ERROR_FRAME_CONVERSION: return code + " (frame conversion failed on the PC)";
+            // This device's own code for a connection that ended without any reason from the PC.
+            case -1: return code + " (connection lost, no reason from the PC)";
             default: return code + " (reported by the PC)";
         }
     }

@@ -1,6 +1,6 @@
 """Run after assembleNonRootDebug, or select an APK with --apk.
 
-Needs Python 3 and the android-35 sunset AVD (Google APIs, not Google Play).
+Needs Python 3 and an Android 35+ AVD (Google APIs, not Google Play).
 Uses a disposable, read-only AVD session and a loopback serverinfo fixture.
 This checks UI rendering, navigation, manual discovery and the pairing prompt.
 Pairing completion and the stream menu require a real host and phone.
@@ -27,6 +27,7 @@ PACKAGE = "com.butterpollo.client"
 SHOTS = ROOT / "docs/screenshots/ui-v2"
 LOGS = ROOT / "app/build/emulator-smoke"
 HOST_NAME = "Gaming PC"
+ADDRESS_REQUIRED = "Enter the host's IP address or name"
 DEBUGGABLE = True
 
 
@@ -41,14 +42,14 @@ def tree():
         try:
             adb("shell", "uiautomator", "dump", "/sdcard/butterpollo-smoke.xml")
             return ET.fromstring(adb("shell", "cat", "/sdcard/butterpollo-smoke.xml"))
-        except subprocess.CalledProcessError:
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, ET.ParseError):
             if attempt == 4:
                 raise
             time.sleep(2)
 
 
 def bounds(node):
-    return tuple(map(int, re.findall(r"\d+", node.attrib["bounds"])))
+    return tuple(map(int, re.findall(r"-?\d+", node.attrib["bounds"])))
 
 
 def find(label, scroll=False):
@@ -63,6 +64,7 @@ def find(label, scroll=False):
             text = node.get("text") or ""
             if label in (text, text.split("\n")[0], node.get("content-desc"), node.get("resource-id")):
                 x1, y1, x2, y2 = bounds(node)
+                x1, y1 = max(0, x1), max(0, y1)
                 # UIAutomator can expose rows behind a system bar; tap only their visible part.
                 for bar in root.iter("node"):
                     if bar.get("resource-id") in ("android:id/navigationBarBackground", "android:id/statusBarBackground"):
@@ -113,6 +115,29 @@ def pref_value(root, name):
 def tap(label, scroll=False):
     x1, y1, x2, y2 = bounds(find(label, scroll))
     adb("shell", "input", "tap", str((x1+x2)//2), str((y1+y2)//2))
+
+
+def navigate_up():
+    """Settings names its back action for the destination; other screens use Navigate up."""
+    if any(n.get("resource-id") == f"{PACKAGE}:id/settings_back" for n in tree().iter("node")):
+        tap(f"{PACKAGE}:id/settings_back")
+    else:
+        tap("Navigate up")
+
+
+def enter_text(label, text):
+    field = find(label)
+    tap(label)
+    adb("shell", "input", "keyevent", "123", *("67" for _ in range(len(field.get("text", "")) + 1)))
+    if text:
+        adb("shell", "input", "text", text)
+
+
+def assert_touch_target(label, minimum_dp=48):
+    node = find(label)
+    x1, y1, x2, y2 = bounds(node)
+    # Every configured smoke viewport uses 320 dpi (2 physical pixels per dp).
+    assert min(x2 - x1, y2 - y1) >= minimum_dp * 2, f"Small touch target: {node.attrib}"
 
 
 def host_menu(item=None):
@@ -188,6 +213,7 @@ def screenshot(name):
     except ImportError:
         SHOTS.joinpath(name + ".png").write_bytes(png)
     LOGS.joinpath(name + ".xml").write_bytes(ET.tostring(ui))
+    print(f"Captured {name}", flush=True)
     return struct.unpack(">II", png[16:24])
 
 
@@ -211,26 +237,31 @@ def frontend_entry(name, contents):
     raise AssertionError(f"MediaStore did not index {remote}: {rows}")
 
 
-def capture_ui_set(width, font):
-    prefix = f"{width}dp-font-{font:g}"
+def capture_ui_set(width, font, rotation=0):
+    prefix = f"{width}dp-font-{font:g}" + ("-landscape" if rotation else "")
     adb("shell", "am", "force-stop", PACKAGE)
     adb("shell", "wm", "size", f"{width * 2}x1704")
     adb("shell", "wm", "density", "320")
-    adb("shell", "wm", "user-rotation", "lock", "0")
+    adb("shell", "wm", "user-rotation", "lock", str(rotation))
     adb("shell", "settings", "put", "system", "font_scale", str(font))
     adb("shell", "am", "start", "-W", "-n", f"{PACKAGE}/com.limelight.PcView")
     find(HOST_NAME)
     screenshot(prefix + "-home-host")
-    host_menu()
+    tap(f"More options for {HOST_NAME}")
+    close = f"{PACKAGE}:id/action_sheet_close"
+    assert find(close).get("content-desc") == "Close menu", "Sheet close button has no accessible name"
+    assert_touch_target(close)
     find("Pairing")
-    find("This PC")
     screenshot(prefix + "-pc-sheet")
-    adb("shell", "input", "keyevent", "4")
+    # A long sheet must scroll through its final action without dragging it closed.
+    find("Delete PC", scroll=True)
+    screenshot(prefix + "-pc-sheet-bottom")
+    tap(close)
     open_host_profile()
     assert find(PROFILE_RESET, scroll=True).get("enabled") == "false", "A new PC should follow the settings for all PCs"
     find("Stream resolution", scroll="up")
     screenshot(prefix + "-per-pc")
-    tap("Navigate up")
+    navigate_up()
     tap(f"{PACKAGE}:id/settingsButton")
     find("Presets")
     screenshot(prefix + "-settings-root")
@@ -238,9 +269,9 @@ def capture_ui_set(width, font):
                                  ("Controls", "controls", "Controller buttons"),
                                  ("Advanced", "advanced", "Frame pacing")):
         tap(title, scroll=True)
-        find(setting)
+        find(setting, scroll=True)
         screenshot(prefix + "-" + name)
-        tap("Navigate up")
+        navigate_up()
     search = f"{PACKAGE}:id/search_src_text"
     for _ in range(5):
         # Typing can race the field getting focus right after the tap; retry until the query is in the field.
@@ -259,8 +290,13 @@ def capture_ui_set(width, font):
     tap("Compatibility video view")
     find("Advanced")
     find("Compatibility video view", scroll=True)
-    tap("Navigate up")
-    tap("Navigate up")
+    navigate_up()
+    assert find(search).get("text") == "compatibility", "Back from a result lost its search query"
+    find("Search results")
+    navigate_up()
+    assert find(search).get("text") != "compatibility", "Back from search did not clear its query"
+    find("Presets", scroll=True)
+    navigate_up()
     tap(HOST_NAME)
     find("Pair Rubylight")
     screenshot(prefix + "-pairing-pin")
@@ -271,15 +307,58 @@ def capture_ui_set(width, font):
     find("Searching for PCs…")
     screenshot(prefix + "-home-empty")
     tap(f"{PACKAGE}:id/discovery_add")
+    tap(f"{PACKAGE}:id/addPcButton", scroll=True)
+    # A field-level error persists after the transient toast would have disappeared.
+    time.sleep(2)
+    find(ADDRESS_REQUIRED)
     tap(f"{PACKAGE}:id/hostTextView")
     adb("shell", "input", "text", "127.0.0.1:47989")
-    tap(f"{PACKAGE}:id/addPcButton")
+    assert not any(n.get("text") == ADDRESS_REQUIRED for n in tree().iter("node")), \
+        "Editing a valid host address did not clear the inline error"
+    adb("shell", "input", "keyevent", "66")
     find(HOST_NAME)
     if DEBUGGABLE:
         adb("shell", "am", "start", "-W", "-n", f"{PACKAGE}/com.limelight.LatencyOverlaySmokeActivity")
         find(f"{PACKAGE}:id/performanceOverlay")
         screenshot(prefix + "-overlay-statistics")
         adb("shell", "input", "keyevent", "4")
+
+
+def library_regressions():
+    """The debug fixture supplies real AppView cards without pairing a synthetic host."""
+    adb("shell", "am", "force-stop", PACKAGE)
+    adb("shell", "wm", "size", "786x1704")
+    adb("shell", "wm", "user-rotation", "lock", "0")
+    adb("shell", "settings", "put", "system", "font_scale", "2.0")
+    adb("shell", "am", "start", "-W", "-n", f"{PACKAGE}/com.limelight.demo.DemoLauncherActivity",
+        "--es", "state", "library", "--es", "codec", "h264")
+    find("Racing Game", scroll=True)
+    screenshot("library-font-2")
+    tap(f"{PACKAGE}:id/library_search_button")
+    search = f"{PACKAGE}:id/search_src_text"
+    enter_text(search, "zzznomatch")
+    adb("shell", "input", "keyevent", "66")
+    find("Clear search")
+    screenshot("library-no-results-font-2")
+    tap("Clear search")
+    find("Racing Game", scroll=True)
+    if not any(n.get("resource-id") == search for n in tree().iter("node")):
+        tap(f"{PACKAGE}:id/library_search_button")
+    enter_text(search, "Racing")
+    adb("shell", "input", "keyevent", "66")
+    find("Racing Game")
+    assert not any(n.get("text") == "Desktop" for n in tree().iter("node")), "Library query was not applied"
+    adb("shell", "wm", "user-rotation", "lock", "1")
+    find("Racing Game")
+    assert find(search).get("text") == "Racing", "Rotation lost the library query"
+    screenshot("library-search-landscape-font-2")
+    tap("More options for Racing Game")
+    find(f"{PACKAGE}:id/action_sheet_close")
+    screenshot("library-app-sheet-landscape-font-2")
+    tap(f"{PACKAGE}:id/action_sheet_close")
+    adb("shell", "am", "force-stop", PACKAGE)
+    adb("shell", "wm", "user-rotation", "lock", "0")
+    adb("shell", "settings", "put", "system", "font_scale", "1.0")
 
 
 class HostFixture(http.server.BaseHTTPRequestHandler):
@@ -311,39 +390,49 @@ class HostFixture(http.server.BaseHTTPRequestHandler):
 
 
 def main():
-    global DEBUGGABLE, SHOTS, LOGS, PACKAGE
+    global DEBUGGABLE, SHOTS, LOGS, PACKAGE, SERIAL
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--apk", type=Path,
                         default=ROOT / "app/build/outputs/apk/nonRoot/debug/app-nonRoot-debug.apk",
                         help="APK to install; defaults to the nonRoot debug build")
-    apk = parser.parse_args().apk.resolve()
+    parser.add_argument("--avd", default=os.environ.get("RUBYLIGHT_AVD", "sunset"),
+                        help="Existing rootable AVD name (default: RUBYLIGHT_AVD or sunset)")
+    parser.add_argument("--port", type=int, default=5554,
+                        help="Even emulator console port from 5554 to 5682")
+    parser.add_argument("--output-dir", type=Path,
+                        help="Write screenshots and logs under this directory instead of the repository")
+    args = parser.parse_args()
+    if args.port < 5554 or args.port > 5682 or args.port % 2:
+        parser.error("--port must be an even number from 5554 to 5682")
+    SERIAL = f"emulator-{args.port}"
+    if args.output_dir:
+        SHOTS = args.output_dir.resolve() / "screenshots"
+        LOGS = args.output_dir.resolve() / "logs"
+    apk = args.apk.resolve()
     if not apk.is_file():
         raise FileNotFoundError(f"Build the selected APK before running the smoke test: {apk}")
     aapt = max((SDK / 'build-tools').glob('*/' + ('aapt.exe' if os.name == 'nt' else 'aapt')))
     badging = subprocess.check_output([str(aapt), 'dump', 'badging', str(apk)], text=True)
     PACKAGE = re.search(r"package: name='([^']+)'", badging).group(1)
-    deadline = time.monotonic() + 30 * 60
-    while "emulator-" in subprocess.check_output([str(ADB), "devices"], text=True, timeout=30):
-        if time.monotonic() >= deadline:
-            raise TimeoutError("Existing emulator is still in use after 30 minutes")
-        print("Waiting for the existing emulator to stop", flush=True)
-        time.sleep(30)
+    devices = subprocess.check_output([str(ADB), "devices"], text=True, timeout=30)
+    if re.search(rf"^{re.escape(SERIAL)}\s", devices, re.MULTILINE):
+        raise RuntimeError(f"{SERIAL} is already in use; choose another --port")
     SHOTS.mkdir(parents=True, exist_ok=True)
     LOGS.mkdir(parents=True, exist_ok=True)
     fixture = http.server.ThreadingHTTPServer(("127.0.0.1", 0), HostFixture)
     fixture.pairing_wait = threading.Event()
     threading.Thread(target=fixture.serve_forever, daemon=True).start()
     with LOGS.joinpath("emulator.log").open("w") as log:
-        process = subprocess.Popen([str(EMULATOR), "-avd", "sunset", "-read-only",
+        process = subprocess.Popen([str(EMULATOR), "-avd", args.avd, "-read-only",
                                     "-no-snapshot", "-no-window", "-no-audio", "-no-boot-anim",
                                     "-gpu", os.environ.get("BUTTERPOLLO_EMULATOR_GPU", "swiftshader"), "-cores", "2", "-memory", "4096",
-                                    "-port", "5554"], stdout=log, stderr=subprocess.STDOUT,
+                                    "-port", str(args.port)], stdout=log, stderr=subprocess.STDOUT,
                                    creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
         try:
             deadline = time.monotonic() + int(os.environ.get("BUTTERPOLLO_BOOT_TIMEOUT", "180"))
             while time.monotonic() < deadline:
                 if process.poll() is not None:
-                    raise RuntimeError("Emulator exited; see app/build/emulator-smoke/emulator.log")
+                    raise RuntimeError(f"Emulator exited; see {LOGS / 'emulator.log'}")
                 try:
                     if (adb("shell", "getprop", "sys.boot_completed", timeout=5).strip() == "1" and
                             adb("shell", "pm", "path", "android", timeout=5).startswith("package:")):
@@ -403,6 +492,9 @@ def main():
             adb("logcat", "-c")
             adb("shell", "input", "keyevent", "82")
             adb("shell", "am", "start", "-W", "-n", f"{PACKAGE}/com.limelight.PcView")
+            find(f"{PACKAGE}:id/discovery_add")
+            screenshot("01-home-empty")
+            tap(f"{PACKAGE}:id/discovery_help")
             find("Connect to your PC")
             screenshot("01-launch")
             native = native_resolution()
@@ -416,8 +508,11 @@ def main():
                   f"Fresh install is not at native {native} with every latency setting on")
             tap("android:id/button1")
             tap(f"{PACKAGE}:id/discovery_add")
-            tap(f"{PACKAGE}:id/hostTextView")
-            adb("shell", "input", "text", "127.0.0.1:47989")
+            enter_text(f"{PACKAGE}:id/hostTextView", "https://example.com/path")
+            adb("shell", "input", "keyevent", "66")
+            find("Enter a PC name or IP address, optionally followed by a port (for example, 192.168.1.10:47989).")
+            screenshot("02-manual-host-invalid")
+            enter_text(f"{PACKAGE}:id/hostTextView", "127.0.0.1:47989")
             screenshot("02-manual-host")
             tap(f"{PACKAGE}:id/addPcButton")
             find(HOST_NAME)
@@ -448,10 +543,11 @@ def main():
                 n.get("name") == "00000000-0000-4000-8000-000000000006" and
                 (n.text or "") == "v2;res=1920x1080;refresh=5994;bitrate=45500" for n in root), "Host profile was not saved")
             open_host_profile()
-            find("59.94 FPS", scroll="up")
+            find("59.94 FPS", scroll=True)
             find("Prefer YUV 4:4:4", scroll=True)
             screenshot("10-host-codec-profile")
             tap(PROFILE_RESET, scroll=True)
+            tap("android:id/button1")
             tap(f"{PACKAGE}:id/host_profile_save")
             prefs("HostStreamProfiles", lambda root: not list(root), "Host profile reset did not clear overrides")
             tap(f"{PACKAGE}:id/settingsButton")
@@ -479,22 +575,21 @@ def main():
                 n.get("name") == "seekbar_bitrate_kbps" and n.get("value") == "81000" for n in root),
                 "Bitrate was not stored in kbps")
             tap("Video codec", scroll=True)
-            tap("PyroWave")
+            tap("PyroWave (host support required)")
             tap("Video codec")
             tap("android:id/button3")
             help_text = " ".join(n.get("text", "") for n in tree().iter("node"))
             assert any(s in help_text for s in ("Not supported: ", "Ready on this phone", "GPU does not support PyroWave")), help_text
             screenshot("20-pyrowave-readiness")
             tap("android:id/button1")
-            tap("Video codec")
             tap("Automatic (recommended)")
             find("Stream resolution")
-            tap("Navigate up")
+            navigate_up()
             find("Presets")
             find_text(r"^(\d+×\d+|\d+p) · \d+ FPS · 81 Mbps · Automatic")
             find("Custom")
             tap("Stream")
-            vrr = "Variable refresh (VRR)"
+            vrr = "Adaptive refresh (ARR / VRR)"
             tap(vrr, scroll=True)
             prefs(f"{PACKAGE}_preferences", lambda root: any(
                 n.get("name") == "checkbox_vrr" and n.get("value") == "true" for n in root),
@@ -518,7 +613,7 @@ def main():
             prefs(f"{PACKAGE}_preferences", lambda root: any(
                 n.get("name") == "checkbox_vrr" and n.get("value") == "false" for n in root),
                 "VRR preference could not be disabled")
-            tap("Navigate up")
+            navigate_up()
             tap("Advanced")
             find("Android low-latency mode", scroll=True)
             hints = "Phone performance hints"
@@ -531,7 +626,7 @@ def main():
                 n.get("name") == "checkbox_phone_performance_hints" and n.get("value") == "true" for n in root),
                 "Phone performance hints could not be enabled")
             screenshot("13-advanced-settings")
-            tap("Navigate up")
+            navigate_up()
             tap("Overlay & audio")
             overlay = "Show performance overlay"
             tap(overlay, scroll=True)
@@ -542,7 +637,7 @@ def main():
             adb("shell", "input", "keyevent", "3")
             adb("shell", "am", "start", "-W", "-n", f"{PACKAGE}/com.limelight.PcView")
             find(overlay)
-            tap("Navigate up")
+            navigate_up()
             tap("App")
             tap("About", scroll=True)
             screenshot("14-settings-about")
@@ -551,7 +646,7 @@ def main():
             assert "GPL-3.0" in summary, "About entry lost the Moonlight attribution"
             assert f"Version {version}" in summary, "About entry does not show the installed app version"
             tap("android:id/button1")
-            tap("Navigate up")
+            navigate_up()
             tap("Controls")
             tap("Controller buttons", scroll=True)
             find("Connect a controller, then tap “Map a button”.")
@@ -567,11 +662,11 @@ def main():
                   "Controller mapping was not saved")
             adb("shell", "input", "keyevent", "4")
             find("Controller buttons")
-            tap("Navigate up")
+            navigate_up()
             tap("App")
             tap("Reset all settings", scroll=True)
             tap("android:id/button1")
-            tap("Navigate up")
+            navigate_up()
             find_text(r"^(\d+×\d+|\d+p) · \d+ FPS · \d+ Mbps · Automatic")
             prefs(f"{PACKAGE}_preferences", lambda root: pref_value(root, "list_resolution") == native and
                   pref_value(root, "checkbox_network_priority") == "true",
@@ -604,10 +699,12 @@ def main():
                 screenshot(shot)
                 tap("android:id/button1")
                 find(HOST_NAME)
-            for width, font in ((393, 1.0), (412, 1.0), (393, 1.3)):
-                capture_ui_set(width, font)
+            for width, font, rotation in ((393, 1.0, 0), (412, 1.0, 0), (393, 1.3, 0),
+                                          (393, 2.0, 0), (393, 2.0, 1)):
+                capture_ui_set(width, font, rotation)
             adb("shell", "settings", "put", "system", "font_scale", "1.0")
             if DEBUGGABLE:
+                library_regressions()
                 # 786 px at 320 dpi gives a 393 dp phone viewport.
                 adb("shell", "wm", "size", "786x1704")
                 adb("shell", "wm", "density", "320")
@@ -650,7 +747,7 @@ def main():
             if app_crashes:
                 raise AssertionError("Emulator crash buffer is not clean")
             overlay_result = "overlay rendering" if DEBUGGABLE else "overlay settings (live rendering needs a paired host)"
-            print(f"PASS: native {native} and latency defaults on a fresh install, pairing guide and PIN prompt, manual discovery, OTP and details dialogs, host profile validation/save/reset, grouped sheets, settings screens and search at 393/412 dp and font scale 1.3, VRR toggle/persistence, PyroWave readiness, bitrate, controller mapping, reset, frontend entries, unpaired export menu, {overlay_result} and rotation; screenshots: {SHOTS}", flush=True)
+            print(f"PASS: native {native} and latency defaults on a fresh install, pairing guide and PIN prompt, manual discovery and inline validation, OTP and details dialogs, host profile validation/save/reset, sheet scrolling/close, settings search/back restoration at 393/412 dp through font scale 2.0 and landscape, VRR toggle/persistence, PyroWave readiness, bitrate, controller mapping, reset, frontend entries, unpaired export menu, {overlay_result} and rotation; screenshots: {SHOTS}", flush=True)
         finally:
             try:
                 LOGS.joinpath("logcat.txt").write_text(adb("logcat", "-d"), encoding="utf-8")

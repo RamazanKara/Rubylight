@@ -3302,10 +3302,9 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 eventSource == InputDevice.SOURCE_MOUSE_RELATIVE) &&
                 event.getKeyCode() == KeyEvent.KEYCODE_BACK) {
 
-            // Send the right mouse button event if mouse back and forward
-            // are disabled. If they are enabled, handleMotionEvent() will take
-            // care of this.
-            if (!prefConfig.mouseNavButtons) {
+            // Like other mouse input, synthetic Back must respect capture. If mouse
+            // navigation buttons are enabled, handleMotionEvent() handles the click.
+            if (grabbedInput && !prefConfig.mouseNavButtons) {
                 conn.sendMouseButtonDown(MouseButtonPacket.BUTTON_RIGHT);
             }
 
@@ -3384,10 +3383,9 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 eventSource == InputDevice.SOURCE_MOUSE_RELATIVE) &&
                 event.getKeyCode() == KeyEvent.KEYCODE_BACK) {
 
-            // Send the right mouse button event if mouse back and forward
-            // are disabled. If they are enabled, handleMotionEvent() will take
-            // care of this.
-            if (!prefConfig.mouseNavButtons) {
+            // Releasing capture already releases held mouse buttons. Ignore any
+            // late synthetic Back release, while still consuming Android navigation.
+            if (grabbedInput && !prefConfig.mouseNavButtons) {
                 conn.sendMouseButtonUp(MouseButtonPacket.BUTTON_RIGHT);
             }
 

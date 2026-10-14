@@ -130,11 +130,17 @@ public final class ActionSheet extends BottomSheetDialog {
      */
     public static void keepSystemBarsHidden(android.app.Dialog dialog, android.app.Activity owner) {
         android.view.Window window = dialog.getWindow();
-        WindowInsetsCompat ownerInsets = ViewCompat.getRootWindowInsets(owner.getWindow().getDecorView());
-        if (window == null || ownerInsets == null || ownerInsets.isVisible(WindowInsetsCompat.Type.systemBars())) return;
+        if (window == null || !hidesSystemBars(ViewCompat.getRootWindowInsets(owner.getWindow().getDecorView()))) return;
         WindowInsetsControllerCompat controller = WindowCompat.getInsetsController(window, window.getDecorView());
         controller.setSystemBarsBehavior(WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
         controller.hide(WindowInsetsCompat.Type.systemBars());
+    }
+
+    /** True only when both bars are hidden, as over an immersive stream. */
+    static boolean hidesSystemBars(WindowInsetsCompat insets) {
+        // systemBars() also covers the caption bar, which phones never show, so test the two bars separately.
+        return insets != null && !insets.isVisible(WindowInsetsCompat.Type.statusBars())
+                && !insets.isVisible(WindowInsetsCompat.Type.navigationBars());
     }
 
     @Override

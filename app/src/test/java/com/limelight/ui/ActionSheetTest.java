@@ -65,4 +65,19 @@ public class ActionSheetTest {
             assertFalse(sheet.isShowing());
         }
     }
+
+    @Test @Config(sdk = 30)
+    public void sheetsHideTheSystemBarsOnlyOverAnImmersiveStream() {
+        androidx.core.view.WindowInsetsCompat shown = new androidx.core.view.WindowInsetsCompat.Builder()
+                .setVisible(androidx.core.view.WindowInsetsCompat.Type.statusBars(), true)
+                .setVisible(androidx.core.view.WindowInsetsCompat.Type.navigationBars(), true)
+                .setVisible(androidx.core.view.WindowInsetsCompat.Type.captionBar(), false).build();
+        androidx.core.view.WindowInsetsCompat immersive = new androidx.core.view.WindowInsetsCompat.Builder()
+                .setVisible(androidx.core.view.WindowInsetsCompat.Type.statusBars(), false)
+                .setVisible(androidx.core.view.WindowInsetsCompat.Type.navigationBars(), false).build();
+        // A phone never shows a caption bar; that must not read as "bars hidden" on the home screen.
+        assertFalse(ActionSheet.hidesSystemBars(shown));
+        assertTrue(ActionSheet.hidesSystemBars(immersive));
+        assertFalse(ActionSheet.hidesSystemBars(null));
+    }
 }

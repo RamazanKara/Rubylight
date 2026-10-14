@@ -9,7 +9,7 @@ out=app/build/native-tests
 mkdir -p "$out"
 
 for name in bughunt-stream.patch bughunt-input.patch controller-haptics.patch host-termination.patch \
-    disconnect-intercept.patch; do
+    disconnect-intercept.patch control-payload.patch; do
     patch="$core/patches/$name"
     patch="$(pwd)/$patch"
     if ! git -C "$common" apply --reverse --check "$patch" 2>/dev/null; then
@@ -39,11 +39,13 @@ for mode in plain sanitized; do
     cc "${flags[@]}" "${extra[@]}" "$tests/enet_termination_test.c" "$common/src/ByteBuffer.c" \
         "$common/src/Misc.c" "$common/src/Platform.c" "$common"/enet/{callbacks,compress,host,list,packet,peer,protocol,unix}.c \
         -lpthread -o "$out/enet_termination-$mode"
+    cc "${flags[@]}" "${extra[@]}" -I "$tests/fake_jni" -I protocol/ffi/include "$tests/control_send_test.c" \
+        "$common/enet/list.c" -lpthread -o "$out/control_send-$mode"
     cc "${flags[@]}" "${extra[@]}" "$tests/microphone_packet_test.c" "$common/src/PlatformCrypto.c" \
         -lcrypto -o "$out/microphone_packet-$mode"
     cc "${flags[@]}" "${extra[@]}" "$tests/input_queue_test.c" "$common/src/LinkedBlockingQueue.c" \
         "$common/src/Platform.c" "$common/src/PlatformCrypto.c" -lcrypto -lpthread -o "$out/input_queue-$mode"
-    for test in aaudio_queue control_negotiation controller_haptics dualsense_usb_audio networking rtsp_parser rtsp_receive evdev_ipc stun rtsp_duplicate audio_reorder video_shutdown control_termination enet_termination microphone_packet input_queue; do
+    for test in aaudio_queue control_negotiation controller_haptics dualsense_usb_audio networking rtsp_parser rtsp_receive evdev_ipc stun rtsp_duplicate audio_reorder video_shutdown control_termination enet_termination control_send microphone_packet input_queue; do
         "$out/$test-$mode"
         echo "$test ($mode): passed"
     done

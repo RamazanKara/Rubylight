@@ -183,7 +183,7 @@ def prepareNativePatches = tasks.register('prepareNativePatches') {
     doLast {
         def core = file('src/main/jni/moonlight-core')
         ['bughunt-stream.patch', 'bughunt-input.patch', 'controller-haptics.patch', 'host-termination.patch',
-         'disconnect-intercept.patch'].each { name ->
+         'disconnect-intercept.patch', 'control-payload.patch'].each { name ->
             def patch = new File(core, "patches/$name").absolutePath
             def runGit = { List<String> arguments ->
                 def result = providers.exec {

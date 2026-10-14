@@ -1,0 +1,66 @@
+Encrypt control messages longer than the 256-byte stack buffer from the heap. DualSense
+microphone packets carry up to 972 bytes and overflowed it; LC_ASSERT is off in release.
+Applies after disconnect-intercept.patch.
+
+diff --git a/src/ControlStream.c b/src/ControlStream.c
+index 28e47bd..90130d0 100644
+--- a/src/ControlStream.c
++++ b/src/ControlStream.c
+@@ -701,6 +701,10 @@ static bool sendMessageEnet(short ptype, short paylen, const void* payload, uint
+ 
+     LC_ASSERT(AppVersionQuad[0] >= 5);
+ 
++    if (paylen < 0) {
++        return false;
++    }
++
+     // Only send reliable packets to GFE
+     if (!IS_SUNSHINE()) {
+         flags = ENET_PACKET_FLAG_RELIABLE;
+@@ -709,7 +713,9 @@ static bool sendMessageEnet(short ptype, short paylen, const void* payload, uint
+     if (encryptedControlStream) {
+         PNVCTL_ENCRYPTED_PACKET_HEADER encPacket;
+         PNVCTL_ENET_PACKET_HEADER_V2 packet;
+-        char tempBuffer[256];
++        char stackBuffer[256];
++        char* tempBuffer = stackBuffer;
++        bool encrypted;
+ 
+         enetPacket = enet_packet_create(NULL,
+                                         sizeof(*encPacket) + AES_GCM_TAG_LENGTH + sizeof(*packet) + paylen,
+@@ -718,6 +724,15 @@ static bool sendMessageEnet(short ptype, short paylen, const void* payload, uint
+             return false;
+         }
+ 
++        // DualSense microphone packets carry up to 972 bytes, more than the stack buffer.
++        if (sizeof(*packet) + (size_t)paylen > sizeof(stackBuffer)) {
++            tempBuffer = malloc(sizeof(*packet) + (size_t)paylen);
++            if (tempBuffer == NULL) {
++                enet_packet_destroy(enetPacket);
++                return false;
++            }
++        }
++
+         // We (ab)use the enetMutex to protect currentEnetSequenceNumber and the cipherContext
+         // used inside encryptControlMessage().
+         PltLockMutex(&enetMutex);
+@@ -728,14 +743,17 @@ static bool sendMessageEnet(short ptype, short paylen, const void* payload, uint
+         encPacket->seq = currentEnetSequenceNumber++;
+ 
+         // Construct the plaintext data for encryption
+-        LC_ASSERT(sizeof(*packet) + paylen < sizeof(tempBuffer));
+         packet = (PNVCTL_ENET_PACKET_HEADER_V2)tempBuffer;
+         packet->type = ptype;
+         packet->payloadLength = paylen;
+         memcpy(&packet[1], payload, paylen);
+ 
+         // Encrypt the data into the final packet (and byteswap for BE machines)
+-        if (!encryptControlMessage(encPacket, packet)) {
++        encrypted = encryptControlMessage(encPacket, packet);
++        if (tempBuffer != stackBuffer) {
++            free(tempBuffer);
++        }
++        if (!encrypted) {
+             Limelog("Failed to encrypt control stream message\n");
+             enet_packet_destroy(enetPacket);
+             PltUnlockMutex(&enetMutex);

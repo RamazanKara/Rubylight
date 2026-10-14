@@ -161,9 +161,11 @@ Java_com_limelight_nvstream_jni_MoonBridge_sendControllerAudio(JNIEnv* env, jcla
     (void)clazz;
     if ((kind != 0x5534 && kind != 0x5535) || !hostSupportsControlMessage((uint16_t)kind) ||
         !encryptedControlStream || stopping || peer == NULL || !payload) return JNI_FALSE;
+    // A microphone packet is at most ML_HAPTICS_MAX_PAYLOAD (972) bytes; reject anything larger
+    // before it reaches the stack buffer or the control stream.
     jsize length = (*env)->GetArrayLength(env, payload);
-    if (length < 8 || length > 972) return JNI_FALSE;
-    uint8_t bytes[972];
+    if (length < 8 || length > ML_HAPTICS_MAX_PAYLOAD) return JNI_FALSE;
+    uint8_t bytes[ML_HAPTICS_MAX_PAYLOAD];
     (*env)->GetByteArrayRegion(env, payload, 0, length, (jbyte*)bytes);
     if ((*env)->ExceptionCheck(env)) return JNI_FALSE;
     if (kind == 0x5534 && !MlHapticsValidate(bytes, length)) return JNI_FALSE;

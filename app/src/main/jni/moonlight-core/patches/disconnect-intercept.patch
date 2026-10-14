@@ -1,0 +1,75 @@
+Hold back enet_peer_disconnect_now() like GFE's reliable disconnect so a queued termination
+message is still delivered. Sunshine forks send their end message and disconnect at once.
+Applies after host-termination.patch.
+
+diff --git a/src/ControlStream.c b/src/ControlStream.c
+index efad638..28e47bd 100644
+--- a/src/ControlStream.c
++++ b/src/ControlStream.c
+@@ -103,6 +103,7 @@ static uint32_t lastGoodFrame;
+ static uint32_t lastSeenFrame;
+ static bool stopping;
+ static bool disconnectPending;
++static bool disconnectPendingUnsequenced;
+ static bool encryptedControlStream;
+ static bool hdrEnabled;
+ static SS_HDR_METADATA hdrMetadata;
+@@ -892,13 +893,36 @@ static bool sendMessageAndDiscardReply(short ptype, short paylen, const void* pa
+ // pending receives first. It works around what appears to be a bug in ENet
+ // where pending disconnects can cause loss of unprocessed received data.
+ static int ignoreDisconnectIntercept(ENetHost* host, ENetEvent* event) {
+-    if (host->receivedDataLength == sizeof(ENetProtocolHeader) + sizeof(ENetProtocolDisconnect)) {
+-        ENetProtocolHeader* protoHeader = (ENetProtocolHeader*)host->receivedData;
+-        ENetProtocolDisconnect* disconnect = (ENetProtocolDisconnect*)(protoHeader + 1);
++    ENetProtocolHeader* protoHeader;
++    enet_uint16 headerFlags;
++    size_t headerSize;
++
++    if (host->receivedDataLength < (size_t)&((ENetProtocolHeader*)0)->sentTime) {
++        return 0;
++    }
++
++    // Size the header as ENet does. GFE's reliable disconnect carries a sent time, but
++    // enet_peer_disconnect_now() (Sunshine forks, right after their termination message)
++    // sends an unsequenced disconnect without one.
++    protoHeader = (ENetProtocolHeader*)host->receivedData;
++    headerFlags = ENET_NET_TO_HOST_16(protoHeader->peerID) & ENET_PROTOCOL_HEADER_FLAG_MASK;
++    if (headerFlags & ENET_PROTOCOL_HEADER_FLAG_COMPRESSED) {
++        return 0;
++    }
++    headerSize = (headerFlags & ENET_PROTOCOL_HEADER_FLAG_SENT_TIME) ?
++        sizeof(ENetProtocolHeader) : (size_t)&((ENetProtocolHeader*)0)->sentTime;
++    if (host->checksum != NULL) {
++        headerSize += sizeof(enet_uint32);
++    }
++
++    if (host->receivedDataLength == headerSize + sizeof(ENetProtocolDisconnect)) {
++        ENetProtocolDisconnect* disconnect = (ENetProtocolDisconnect*)(host->receivedData + headerSize);
+ 
+         if ((disconnect->header.command & ENET_PROTOCOL_COMMAND_MASK) == ENET_PROTOCOL_COMMAND_DISCONNECT) {
+             Limelog("ENet disconnect event pending\n");
+             disconnectPending = true;
++            // An unsequenced disconnect is never retransmitted once it is dropped here.
++            disconnectPendingUnsequenced = (disconnect->header.command & ENET_PROTOCOL_COMMAND_FLAG_UNSEQUENCED) != 0;
+             if (event) {
+                 event->type = ENET_EVENT_TYPE_NONE;
+             }
+@@ -1166,7 +1190,17 @@ static void controlReceiveThreadFunc(void* context) {
+                 // removing the intercept callback.
+                 err = serviceEnetHost(client, &event, client->intercept ? 100 : 1000);
+                 if (err == 0) {
+-                    if (client->intercept) {
++                    if (client->intercept && disconnectPendingUnsequenced) {
++                        // The server called enet_peer_disconnect_now() without sending a
++                        // termination message. That disconnect is never retransmitted, so
++                        // release the peer now instead of waiting for it to come again.
++                        Limelog("Server disconnected without a termination reason\n");
++                        ListenerCallbacks.connectionTerminated(-1);
++                        enet_peer_disconnect_now(peer, 0);
++                        PltUnlockMutex(&enetMutex);
++                        return;
++                    }
++                    else if (client->intercept) {
+                         // Now that no pending receive events remain, we can
+                         // remove our intercept hook and allow the server's
+                         // disconnect to be processed as expected. We will wait

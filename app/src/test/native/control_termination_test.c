@@ -124,7 +124,8 @@ void enet_peer_disconnect_now(ENetPeer* target, enet_uint32 data) {
 }
 
 int serviceEnetHost(ENetHost* host, ENetEvent* event, enet_uint32 timeout) {
-    CHECK(enetLocked && host == client && timeout == 0);
+    // A held-back host disconnect first waits 100 ms for receives still in flight.
+    CHECK(enetLocked && host == client && (timeout == 0 || (timeout == 100 && disconnectPending)));
     event->type = receivedEvent;
     event->packet = receivedPacket;
     receivedPacket = NULL;
@@ -175,6 +176,7 @@ static void reset(void) {
     receivedEvent = ENET_EVENT_TYPE_RECEIVE;
     serviceResult = 1;
     receivedPacket = NULL;
+    disconnectPending = disconnectPendingUnsequenced = false;
 }
 
 static void drainCallback(int expectedReason) {
@@ -252,14 +254,27 @@ int main(void) {
     hostTermination(0x80030042, true, true, (int)0x80030042);
     hostTermination(0x0123, false, true, 0x0123);
 
-    // Transport failures with no host reason must retain their error behavior.
+    // Transport failures with no host reason must retain their error behavior. A host's own
+    // disconnect never reaches the receiver as an event ahead of its queued end message; the
+    // real ENet exchange is covered by enet_termination_test.c.
     reset();
     peer->state = ENET_PEER_STATE_DISCONNECTED;
     sendControllerPacket();
     drainCallback(-1);
+    // ENet reports a peer that stopped answering as a DISCONNECT event.
     reset();
     receivedEvent = ENET_EVENT_TYPE_DISCONNECT;
     controlReceiveThreadFunc(NULL);
+    drainCallback(-1);
+    // A host that calls enet_peer_disconnect_now() without an end message: once no receive
+    // is left, -1 is reserved before the peer is released, so queued input cannot replace it.
+    reset();
+    client->intercept = ignoreDisconnectIntercept;
+    disconnectPending = disconnectPendingUnsequenced = true;
+    serviceResult = 0;
+    sendAtDisconnect = true;
+    controlReceiveThreadFunc(NULL);
+    CHECK(disconnects == 1 && sends == 1 && !sendAtDisconnect);
     drainCallback(-1);
     reset();
     serviceResult = -1;

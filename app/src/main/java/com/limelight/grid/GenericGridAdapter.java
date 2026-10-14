@@ -10,6 +10,7 @@ import android.widget.ProgressBar;
 import android.widget.TextView;
 
 import com.limelight.R;
+import com.limelight.ui.AdaptiveGridView;
 
 import java.util.ArrayList;
 
@@ -73,9 +74,14 @@ public abstract class GenericGridAdapter<T> extends BaseAdapter {
 
         if (layoutId == R.layout.app_grid_item) {
             View artwork = (View) imgView.getParent();
-            float density = context.getResources().getDisplayMetrics().density;
-            artwork.getLayoutParams().height = Math.round((viewGroup.getHeight() > 0 &&
-                    viewGroup.getHeight() / density < 400 ? 112 : 224) * density);
+            boolean compact = viewGroup instanceof AdaptiveGridView && ((AdaptiveGridView) viewGroup).hasShortViewport();
+            int height = Math.round((compact ? 112 : 224) * context.getResources().getDisplayMetrics().density);
+            ViewGroup.LayoutParams params = artwork.getLayoutParams();
+            if (params.height != height) {
+                params.height = height;
+                // A recycled card is only re-measured when it asks for a layout.
+                artwork.setLayoutParams(params);
+            }
         }
 
         populateView(convertView, imgView, prgView, txtView, overlayView, itemList.get(i));

@@ -240,6 +240,42 @@ fn application_executable_paths_preserve_shell_environment_expansion() {
 }
 
 #[test]
+fn programs_on_drives_the_host_cannot_see_start_with_the_users_token() {
+    // As the service, the host runs as SYSTEM and does not see a drive the
+    // signed-in user mapped; the app itself starts with the user's token.
+    let elevated = butterpollo_windows::process::user_environment().is_err();
+    let drives = butterpollo_windows::files::drives();
+    let unused = (b'D'..=b'Z')
+        .map(char::from)
+        .find(|letter| !drives.contains(&format!("{letter}:\\")))
+        .expect("a free drive letter");
+    let app: App = serde_json::from_value(json!({
+        "name":"Mapped drive",
+        "cmd":format!("\"{unused}:\\Games\\game.exe\""),
+        "elevated":elevated
+    }))
+    .unwrap();
+    // The launch goes ahead; cmd.exe reports the program missing when the
+    // user cannot see it either. Starting a user-token process can still fail
+    // in an elevated non-SYSTEM test process, which is not what this checks.
+    match RunningApp::with_environment(&app, BTreeMap::new()) {
+        Ok(running) => assert_ne!(
+            running
+                .child
+                .as_ref()
+                .unwrap()
+                .wait(Duration::from_secs(10))
+                .unwrap(),
+            0
+        ),
+        Err(error) => assert!(
+            !format!("{error:#}").contains("application executable not found"),
+            "{error:#}"
+        ),
+    }
+}
+
+#[test]
 fn working_directory_inference_uses_only_absolute_programs_with_existing_parents() {
     let f = Fixture::new();
     let folder = f.host.directory.join("A game");

@@ -470,9 +470,12 @@ impl RunningApp {
         }
         if !app.cmd.is_empty() {
             let target = butterpollo_windows::process::command_target(&app.cmd);
+            // The app starts with the user's token; a SYSTEM host cannot
+            // judge a mapped drive or network share the user can open.
             if target.to_ascii_lowercase().ends_with(".exe")
                 && !target.contains(['%', '!', '^'])
                 && Path::new(target).is_absolute()
+                && butterpollo_windows::files::local_volume(Path::new(target))
                 && !Path::new(target).is_file()
             {
                 bail!("application executable not found: {target}");

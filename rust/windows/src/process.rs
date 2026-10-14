@@ -196,46 +196,85 @@ pub enum Target {
     User { elevated: bool },
     SystemSession(u32),
 }
+fn token_elevated(token: &OwnedHandle) -> Result<bool> {
+    let mut info = TOKEN_ELEVATION::default();
+    let mut bytes = 0;
+    // SAFETY: `info` is a writable TOKEN_ELEVATION and the size passed is its size.
+    unsafe {
+        GetTokenInformation(
+            raw(token),
+            TokenElevation,
+            Some((&mut info as *mut TOKEN_ELEVATION).cast()),
+            size_of::<TOKEN_ELEVATION>() as u32,
+            &mut bytes,
+        )?;
+    }
+    Ok(info.TokenIsElevated != 0)
+}
+/// The desktop shell's primary token, for starting a non-elevated program
+/// from an elevated administrator process that is not SYSTEM. It must belong
+/// to the same user and must not be elevated itself.
+fn shell_token(own: &OwnedHandle) -> Result<OwnedHandle> {
+    use windows::Win32::UI::WindowsAndMessaging::{GetShellWindow, GetWindowThreadProcessId};
+    const NO_SHELL: &str = "Cannot start a non-elevated program from this administrator host: the Windows desktop shell is not running. Start Rubylight without administrator rights, or use the installed Windows service";
+    // SAFETY: the shell window is only used to read its process ID. The
+    // process and token handles are owned once and closed on drop, and the
+    // out-pointers are live locals.
+    let primary = unsafe {
+        let shell = GetShellWindow();
+        anyhow::ensure!(!shell.is_invalid(), NO_SHELL);
+        let mut pid = 0;
+        GetWindowThreadProcessId(shell, Some(&mut pid));
+        anyhow::ensure!(pid != 0, NO_SHELL);
+        let process = owned(
+            OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid)
+                .context("Cannot open the Windows desktop shell")?,
+        );
+        let mut token = HANDLE::default();
+        OpenProcessToken(raw(&process), TOKEN_DUPLICATE, &mut token)
+            .context("Cannot read the Windows desktop shell's user token")?;
+        let token = owned(token);
+        let mut primary = HANDLE::default();
+        DuplicateTokenEx(
+            raw(&token),
+            TOKEN_QUERY
+                | TOKEN_DUPLICATE
+                | TOKEN_IMPERSONATE
+                | TOKEN_ASSIGN_PRIMARY
+                | TOKEN_ADJUST_DEFAULT
+                | TOKEN_ADJUST_SESSIONID,
+            None,
+            SecurityImpersonation,
+            TokenPrimary,
+            &mut primary,
+        )?;
+        owned(primary)
+    };
+    anyhow::ensure!(
+        token_user_sid(&primary)? == token_user_sid(own)?,
+        "Cannot start a non-elevated program: the Windows desktop shell belongs to another user"
+    );
+    anyhow::ensure!(
+        !token_elevated(&primary)?,
+        "Cannot start a non-elevated program: the Windows desktop shell is elevated, so User Account Control provides no standard-rights token"
+    );
+    Ok(primary)
+}
 fn target_token(target: &Target) -> Result<Option<OwnedHandle>> {
     if !is_system() {
         if matches!(target, Target::SystemSession(_)) {
             bail!("SYSTEM session creation requires the Windows service");
         }
         let token = token()?;
-        let mut info = TOKEN_ELEVATION::default();
-        let mut bytes = 0;
-        // SAFETY: `info` is a writable TOKEN_ELEVATION and the size passed is its size.
-        unsafe {
-            GetTokenInformation(
-                raw(&token),
-                TokenElevation,
-                Some((&mut info as *mut TOKEN_ELEVATION).cast()),
-                size_of::<TOKEN_ELEVATION>() as u32,
-                &mut bytes,
-            )?;
-        }
-        if matches!(target, Target::User { elevated: true }) && info.TokenIsElevated == 0 {
+        let elevated = token_elevated(&token)?;
+        if matches!(target, Target::User { elevated: true }) && !elevated {
             bail!("this elevated command requires the installed Windows service");
         }
-        if matches!(target, Target::User { elevated: false }) && info.TokenIsElevated != 0 {
-            let mut linked = TOKEN_LINKED_TOKEN::default();
-            // SAFETY: `linked` is a writable TOKEN_LINKED_TOKEN; its handle is owned once.
-            unsafe {
-                GetTokenInformation(
-                    raw(&token),
-                    TokenLinkedToken,
-                    Some((&mut linked as *mut TOKEN_LINKED_TOKEN).cast()),
-                    size_of::<TOKEN_LINKED_TOKEN>() as u32,
-                    &mut bytes,
-                )
-                .context(
-                    "cannot start a non-elevated application from this administrator session",
-                )?;
-            }
-            if linked.LinkedToken.is_invalid() {
-                bail!("no non-elevated user token is available");
-            }
-            return Ok(Some(owned(linked.LinkedToken)));
+        if matches!(target, Target::User { elevated: false }) && elevated {
+            // The elevation-linked token is only an identification token for
+            // a caller without SeTcbPrivilege, which Windows refuses for
+            // process creation. The desktop shell holds the usable one.
+            return shell_token(&token).map(Some);
         }
         return Ok(None);
     }
@@ -921,6 +960,9 @@ impl Process {
         detached: bool,
     ) -> Result<Self> {
         let token = target_token(&target)?;
+        // Only SYSTEM assigns primary tokens; an elevated administrator gets
+        // the desktop shell's token for non-elevated programs.
+        let shell_token = token.is_some() && !is_system();
         let program = wide(program.as_os_str())?;
         let directory = directory.map(|p| wide(p.as_os_str())).transpose()?;
         let mut line = wide(std::ffi::OsStr::new(line))?;
@@ -1013,8 +1055,25 @@ impl Process {
             let current = directory
                 .as_ref()
                 .map_or(PCWSTR::null(), |d| PCWSTR(d.as_ptr()));
-            let mut create = |flags| -> windows::core::Result<()> {
-                if let Some(token) = &token {
+            let mut create = |flags: PROCESS_CREATION_FLAGS| -> windows::core::Result<()> {
+                if let Some(token) = &token
+                    && shell_token
+                {
+                    // Administrators lack SeAssignPrimaryTokenPrivilege, so
+                    // the secondary logon service starts the program. It is
+                    // never created inside this job; breakaway cannot apply.
+                    CreateProcessWithTokenW(
+                        raw(token),
+                        CREATE_PROCESS_LOGON_FLAGS(0),
+                        PCWSTR(program.as_ptr()),
+                        Some(PWSTR(line.as_mut_ptr())),
+                        PROCESS_CREATION_FLAGS(flags.0 & !CREATE_BREAKAWAY_FROM_JOB.0),
+                        Some(env.as_ptr().cast()),
+                        current,
+                        &startup,
+                        &mut info,
+                    )?;
+                } else if let Some(token) = &token {
                     CreateProcessAsUserW(
                         Some(raw(token)),
                         PCWSTR(program.as_ptr()),
@@ -2091,6 +2150,31 @@ mod tests {
         }
         assert_eq!(info.TokenIsElevated, 0);
         Ok(())
+    }
+    #[test]
+    fn administrator_hosts_start_non_elevated_programs_with_standard_rights() {
+        if is_system() {
+            return;
+        }
+        // An elevated portable host previously failed every non-elevated
+        // program with ERROR_BAD_IMPERSONATION_LEVEL.
+        let environment = user_environment().unwrap();
+        assert!(environment.contains_key("USERPROFILE"));
+        let directory = tempfile::tempdir().unwrap();
+        let output = directory.path().join("groups.txt");
+        let child = Process::shell(
+            &format!("whoami /groups 1>\"{}\" 2>&1", output.display()),
+            None,
+            false,
+            &BTreeMap::new(),
+        )
+        .unwrap();
+        assert_eq!(child.wait(Duration::from_secs(10)).unwrap(), 0);
+        // Localized output uses the OEM code page; the SIDs are ASCII.
+        let groups = String::from_utf8_lossy(&std::fs::read(output).unwrap()).into_owned();
+        // Medium mandatory level, never High.
+        assert!(groups.contains("S-1-16-8192"), "{groups}");
+        assert!(!groups.contains("S-1-16-12288"), "{groups}");
     }
     #[test]
     fn portable_user_identity_does_not_require_a_non_elevated_token() {

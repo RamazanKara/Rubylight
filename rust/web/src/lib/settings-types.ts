@@ -47,6 +47,20 @@ export type Control =
   /** A GPU, chosen by name from the host's adapters (empty = automatic). */
   | { kind: 'adapter' };
 
+/**
+ * Other spellings the host reads as one of a select's options, so a value
+ * saved by an older host, the host's own fallback console or a hand edit
+ * shows as that option. `match` is how the host compares text: exactly (the
+ * default); ignoring letter case and surrounding spaces ('case'); that, and
+ * reading - as _ ('dash'); or by its letters and digits alone, in any case
+ * ('letters'). `spellings` maps other spellings, compared the same way, to
+ * the option each means.
+ */
+export interface Aliases {
+  match?: 'exact' | 'case' | 'dash' | 'letters';
+  spellings?: Readonly<Record<string, string>>;
+}
+
 export interface Setting {
   key: string;
   label: string;
@@ -58,6 +72,8 @@ export interface Setting {
   /** A heading within the category, for grouping related settings. */
   group?: string;
   control: Control;
+  /** For a select: other spellings the host reads as one of its options. */
+  aliases?: Aliases;
   /** The value the Rust host uses when the key is not set. */
   default: ConfigValue;
   /** Hide when not relevant, given the current (edited) values. */

@@ -1,6 +1,6 @@
 // Settings for the categories named in settings-schema.ts: video and encoders.
 import type { ConfigValue } from '../api';
-import { NATIVE_ENCODERS, type Setting } from '../settings-types';
+import { NATIVE_ENCODERS, type Aliases, type Setting } from '../settings-types';
 
 type Values = Record<string, ConfigValue>;
 
@@ -89,6 +89,8 @@ const video: Setting[] = [
         { value: 'wgc', label: 'Windows Graphics Capture' },
       ],
     },
+    // framegen.rs: any case; Vibepollo's wgcc, and dxgi, which the fallback console writes.
+    aliases: { match: 'case', spellings: { wgcc: 'wgc', dxgi: 'ddx' } },
     default: 'auto',
   },
   {
@@ -233,6 +235,7 @@ const video: Setting[] = [
         { value: 'grid', label: 'Fixed grid' },
       ],
     },
+    aliases: { match: 'case', spellings: { fixed: 'grid' } },
     default: 'arrival',
   },
   {
@@ -419,6 +422,17 @@ const encoders: Setting[] = [
         { value: 'pyrowave', label: 'PyroWave (automatic for other codecs)' },
       ],
     },
+    // encoder_policy.rs canonical_name, and qsv, which the fallback console writes.
+    aliases: {
+      spellings: {
+        qsv: 'quicksync',
+        amdvce: 'amf',
+        amdvce_experimental: 'amf',
+        amdvce_ffmpeg: 'amf',
+        amdvce_legacy: 'amf',
+        nvenc_experimental: 'nvenc',
+      },
+    },
     default: 'auto',
     restart: true,
   },
@@ -555,6 +569,8 @@ const nvidia: Setting[] = [
         { value: 'disabled', label: 'Off' },
       ],
     },
+    // nvenc.rs: Vibepollo's nvenc_force_split_encode values and the fallback console's forced.
+    aliases: { spellings: { true: 'enabled', forced: 'enabled', false: 'disabled', driver_decides: 'auto' } },
     default: 'auto',
     inactiveHint: "Applies to NVIDIA NVENC streams, including when Automatic selects NVENC. Shown when an NVENC encoder is selected, or with Automatic when this PC has an NVIDIA GPU.",
     visibleWhen: nvenc,
@@ -683,6 +699,24 @@ const tristate = [
   { value: 'enabled', label: 'On' },
   { value: 'disabled', label: 'Off' },
 ];
+/** encoder_policy.rs tristate: the on and off words, in any case; the fallback console writes true and false. */
+const switchWords: Aliases = {
+  match: 'case',
+  spellings: {
+    '1': 'enabled',
+    true: 'enabled',
+    yes: 'enabled',
+    enable: 'enabled',
+    on: 'enabled',
+    '0': 'disabled',
+    false: 'disabled',
+    no: 'disabled',
+    disable: 'disabled',
+    off: 'disabled',
+  },
+};
+/** encoder_policy.rs: FFmpeg's names for the entropy coders. */
+const coderWords: Aliases = { spellings: { ac: 'cabac', vlc: 'cavlc' } };
 
 const amd: Setting[] = [
   {
@@ -858,6 +892,7 @@ const amd: Setting[] = [
       kind: 'select',
       options: [{ value: '', label: 'Default (H.264 off; HEVC/AV1 on)' }, ...tristate],
     },
+    aliases: switchWords,
     default: '',
     inactiveHint: "Applies to AMD AMF streams, including when Automatic selects AMF. Shown when AMD AMF is selected, or with Automatic when this PC has an AMD GPU.",
     visibleWhen: amf,
@@ -888,6 +923,7 @@ const amd: Setting[] = [
         { value: 'cavlc', label: 'CAVLC' },
       ],
     },
+    aliases: coderWords,
     default: 'auto',
     inactiveHint: "Applies to AMD AMF streams, including when Automatic selects AMF. Shown when AMD AMF is selected, or with Automatic when this PC has an AMD GPU.",
     visibleWhen: amf,
@@ -929,6 +965,7 @@ const amd: Setting[] = [
     category: 'encoders',
     group: 'AMD AMF',
     control: { kind: 'select', options: tristate },
+    aliases: switchWords,
     default: 'auto',
     inactiveHint: "Applies to AMD AMF streams, including when Automatic selects AMF. Shown when AMD AMF is selected, or with Automatic when this PC has an AMD GPU.",
     visibleWhen: amf,
@@ -940,6 +977,7 @@ const amd: Setting[] = [
     category: 'encoders',
     group: 'AMD AMF',
     control: { kind: 'select', options: tristate },
+    aliases: switchWords,
     default: 'auto',
     inactiveHint: "Applies to AMD AMF streams, including when Automatic selects AMF. Shown when AMD AMF is selected, or with Automatic when this PC has an AMD GPU.",
     visibleWhen: amf,
@@ -952,6 +990,7 @@ const amd: Setting[] = [
     category: 'encoders',
     group: 'AMD AMF',
     control: { kind: 'select', options: tristate },
+    aliases: switchWords,
     default: 'auto',
     inactiveHint: "Applies to AMD AMF streams, including when Automatic selects AMF. Shown when AMD AMF is selected, or with Automatic when this PC has an AMD GPU.",
     visibleWhen: amf,
@@ -973,6 +1012,7 @@ const amd: Setting[] = [
         { value: 'disabled', label: 'Off' },
       ],
     },
+    aliases: switchWords,
     default: 'auto',
     inactiveHint: "Applies to AMD AMF streams, including when Automatic selects AMF. Shown when AMD AMF is selected, or with Automatic when this PC has an AMD GPU.",
     visibleWhen: amf,
@@ -1008,6 +1048,7 @@ const amd: Setting[] = [
     category: 'encoders',
     group: 'AMD AMF',
     control: { kind: 'select', options: tristate },
+    aliases: switchWords,
     default: 'auto',
     inactiveHint: "Applies to AMD AMF streams, including when Automatic selects AMF. Shown when AMD AMF is selected, or with Automatic when this PC has an AMD GPU.",
     visibleWhen: amf,
@@ -1072,6 +1113,7 @@ const intel: Setting[] = [
         { value: 'cavlc', label: 'CAVLC' },
       ],
     },
+    aliases: coderWords,
     default: 'auto',
     inactiveHint: "Applies to Intel Quick Sync streams, including automatic hardware fallback. Select Intel Quick Sync to show this group outside search.",
     visibleWhen: qsv,

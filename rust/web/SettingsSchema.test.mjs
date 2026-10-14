@@ -56,6 +56,110 @@ test('the default is shown only when the saved value would differ from it', () =
   assert.equal(differsFromDefault(permanent, {}, {}), false);
 });
 
+test('spellings the host reads as an option show as that option', () => {
+  const shown = (key, stored) => values.normalise(settings.get(key), stored);
+  for (const [key, stored, option] of [
+    // encoder_policy.rs tristate; the fallback console writes true and false.
+    ['amd_vbaq', true, 'enabled'],
+    ['amd_vbaq', 'false', 'disabled'],
+    ['amd_vbaq', ' ON ', 'enabled'],
+    ['amd_vbaq', 0, 'disabled'],
+    ['amd_lowlatency_mode', 'true', 'enabled'],
+    ['amd_high_motion_quality_boost', false, 'disabled'],
+    ['amd_smart_access_video', 'off', 'disabled'],
+    ['amd_split_frame', 'Yes', 'enabled'],
+    ['amd_av1_screen_content', 1, 'enabled'],
+    // framegen.rs reads letters and digits only.
+    ['frame_limiter_auto_virtual_framegen', 'fixed-1000hz', 'vrr'],
+    ['frame_limiter_auto_virtual_framegen', 'fixed-1000-hz', 'vrr'],
+    ['frame_limiter_auto_virtual_framegen', 1000, 'vrr'],
+    ['frame_limiter_auto_virtual_framegen', 'fixed_2x', 'legacy'],
+    ['frame_limiter_auto_virtual_framegen', 'Smooth', 'enabled'],
+    ['frame_limiter_auto_virtual_framegen', false, 'disabled'],
+    ['rtss_frame_limit_type', 'front-edge-sync', 'front edge sync'],
+    ['rtss_frame_limit_type', 'back_edge_sync', 'back edge sync'],
+    ['rtss_frame_limit_type', 'nvidia-reflex', 'nvidia reflex'],
+    ['rtss_frame_limit_type', 'reflex', 'nvidia reflex'],
+    ['frame_limiter_provider', 'nvcp', 'nvidia-control-panel'],
+    ['frame_limiter_provider', 'NVIDIA Control Panel', 'nvidia-control-panel'],
+    ['frame_limiter_provider', 'disabled', 'none'],
+    // config.rs log_level; the fallback console writes numbers.
+    ['min_log_level', 0, 'verbose'],
+    ['min_log_level', 'trace', 'verbose'],
+    ['min_log_level', 2, 'info'],
+    ['min_log_level', '3', 'warning'],
+    ['min_log_level', 'WARN', 'warning'],
+    ['min_log_level', 5, 'error'],
+    ['min_log_level', 6, 'none'],
+    ['min_log_level', 'Debug', 'debug'],
+    // nvenc.rs; Vibepollo saved these as nvenc_force_split_encode.
+    ['nvenc_split_encode', 'forced', 'enabled'],
+    ['nvenc_split_encode', true, 'enabled'],
+    ['nvenc_split_encode', 'false', 'disabled'],
+    ['nvenc_split_encode', 'driver_decides', 'auto'],
+    ['encoder', 'qsv', 'quicksync'],
+    ['encoder', 'amdvce', 'amf'],
+    ['encoder', 'nvenc_experimental', 'nvenc'],
+    ['capture', 'dxgi', 'ddx'],
+    ['capture', 'WGCC', 'wgc'],
+    ['capture', 'DDX', 'ddx'],
+    ['frame_pacing', 'fixed', 'grid'],
+    ['virtual_display_layout', 'Extended-Primary', 'extended_primary'],
+    ['virtual_display_layout', 'ensure_only_display', 'exclusive'],
+    ['gamepad', 'ds5', 'vhf_ds5'],
+    ['gamepad', 'x360', 'vhf_xbox_one'],
+    ['amd_coder', 'vlc', 'cavlc'],
+    ['qsv_coder', 'ac', 'cabac'],
+    ['locale', 'pt-br', 'pt_BR'],
+    ['locale', 'DE', 'de'],
+  ]) {
+    assert.equal(shown(key, stored), option, `${key} = ${JSON.stringify(stored)}`);
+  }
+  // Where the host compares exactly, or does not read a spelling, it stays as saved.
+  for (const [key, stored] of [
+    ['encoder', 'QSV'],
+    ['amd_coder', 'CABAC'],
+    ['gamepad', 'DS5'],
+    ['nvenc_split_encode', 'Forced'],
+    ['amd_vbaq', 'maybe'],
+    ['min_log_level', '7'],
+    ['frame_limiter_auto_virtual_framegen', '4x'],
+    ['amd_usage', 'ULTRALOWLATENCY'],
+  ]) {
+    assert.equal(shown(key, stored), stored, `${key} = ${stored}`);
+  }
+  assert.equal(shown('amd_vbaq', ''), '');
+});
+
+test('every alias names one of its setting\'s options', () => {
+  for (const setting of schema.settings) {
+    if (!setting.aliases) continue;
+    assert.equal(setting.control.kind, 'select', setting.key);
+    const options = new Set(setting.control.options.map(option => option.value));
+    for (const [spelling, option] of Object.entries(setting.aliases.spellings ?? {})) {
+      assert(options.has(option), `${setting.key}: ${spelling} -> ${option}`);
+      assert(!options.has(spelling), `${setting.key}: ${spelling} is an option`);
+    }
+  }
+});
+
+test('a saved alias is written back only when the edit means something else', () => {
+  const vbaq = settings.get('amd_vbaq');
+  // Choosing the option the alias already means sends nothing.
+  assert.deepEqual(computeChanges(settings, { amd_vbaq: 'enabled' }, { amd_vbaq: 'true' }), {});
+  assert.deepEqual(computeChanges(settings, { min_log_level: 'info' }, { min_log_level: 2 }), {});
+  assert.deepEqual(computeChanges(settings, { amd_vbaq: 'disabled' }, { amd_vbaq: 'true' }), { amd_vbaq: 'disabled' });
+  assert.deepEqual(computeChanges(settings, { amd_vbaq: null }, { amd_vbaq: 'true' }), { amd_vbaq: null });
+  // An alias of the default is the default.
+  assert.equal(differsFromDefault(settings.get('frame_limiter_auto_virtual_framegen'), {}, { frame_limiter_auto_virtual_framegen: '2x' }), false);
+  assert.equal(differsFromDefault(settings.get('min_log_level'), {}, { min_log_level: 2 }), false);
+  assert.equal(differsFromDefault(vbaq, {}, { amd_vbaq: 'true' }), true);
+  // Visibility follows what the host reads.
+  const current = values.currentValues(schema.settings, {}, { encoder: 'qsv' });
+  assert.equal(current.encoder, 'quicksync');
+  assert.equal(settings.get('qsv_preset').visibleWhen(current), true);
+});
+
 test('NVIDIA driver preferences stay visible whatever encoder streams', () => {
   // limiter.rs applies the first two on every stream with an NVIDIA driver;
   // gpu_priority.rs checks the capture GPU, not the encoder.

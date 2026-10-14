@@ -5,7 +5,7 @@
 // and a number as 20 or "20". Values are normalised for their control before
 // they are shown or compared.
 import type { Config, ConfigValue, Gpu, PrepCommand } from '../../lib/api';
-import type { Setting } from '../../lib/settings-types';
+import type { Aliases, Setting } from '../../lib/settings-types';
 
 /** Keys GET /api/config adds that are not settings. They are never sent back. */
 export const NOT_SETTINGS: ReadonlySet<string> = new Set(['status', 'platform', 'version']);
@@ -161,11 +161,44 @@ export function toServerCommands(value: unknown): ServerCommand[] {
   }));
 }
 
+const COMPARE: Record<NonNullable<Aliases['match']>, (text: string) => string> = {
+  exact: (text) => text,
+  case: (text) => text.trim().toLowerCase(),
+  dash: (text) => text.trim().toLowerCase().replaceAll('-', '_'),
+  letters: (text) => text.replace(/[^a-z0-9]/gi, '').toLowerCase(),
+};
+
+/**
+ * The select option the host reads `text` as: the option itself, or the one
+ * an alias means. Anything else is returned as it is, and shows as a saved
+ * custom choice.
+ */
+export function choice(setting: Setting, text: string): string {
+  const { control, aliases } = setting;
+  if (control.kind !== 'select' || !aliases || text.trim() === '') return text;
+  if (control.options.some((option) => option.value === text)) return text;
+  const compare = COMPARE[aliases.match ?? 'exact'];
+  const wanted = compare(text);
+  const option = control.options.find((candidate) => candidate.value !== '' && compare(candidate.value) === wanted);
+  if (option) return option.value;
+  for (const [spelling, value] of Object.entries(aliases.spellings ?? {})) {
+    if (compare(spelling) === wanted) return value;
+  }
+  return text;
+}
+
+/** A PATCH value as the host reads it, for comparing: a select's alias is its option. */
+function meaning(setting: Setting | undefined, value: ConfigValue): ConfigValue {
+  return setting && typeof value === 'string' ? choice(setting, value) : value;
+}
+
 /** The value in the form its control edits. */
 export function normalise(setting: Setting, value: ConfigValue | undefined): ConfigValue {
   switch (setting.control.kind) {
     case 'toggle':
       return toBoolean(value) ?? toBoolean(setting.default) ?? false;
+    case 'select':
+      return choice(setting, toText(value));
     case 'number':
       return toNumber(value);
     case 'list':
@@ -345,7 +378,8 @@ export function sameValue(a: unknown, b: unknown): boolean {
 
 /**
  * The PATCH body: only keys whose stored value would change, null for keys
- * to remove. An edit equal to what the host already uses is not a change.
+ * to remove. An edit equal to what the host already uses is not a change,
+ * so a stored alias is rewritten only when the edit means something else.
  */
 export function computeChanges(settings: ReadonlyMap<string, Setting>, edits: Edits, stored: Config): Config {
   const changes: Config = {};
@@ -359,7 +393,7 @@ export function computeChanges(settings: ReadonlyMap<string, Setting>, edits: Ed
       continue;
     }
     const current = isStored ? patchValue(setting, stored[key]) : setting ? patchValue(setting, setting.default) : null;
-    if (!sameValue(next, current)) changes[key] = next;
+    if (!sameValue(meaning(setting, next), meaning(setting, current))) changes[key] = next;
   }
   return changes;
 }
@@ -371,7 +405,7 @@ export function computeChanges(settings: ReadonlyMap<string, Setting>, edits: Ed
 export function differsFromDefault(setting: Setting, edits: Edits, stored: Config): boolean {
   const value = has(edits, setting.key) ? edits[setting.key] : stored[setting.key];
   const next = patchValue(setting, value);
-  return next !== null && !sameValue(next, patchValue(setting, setting.default));
+  return next !== null && !sameValue(meaning(setting, next), meaning(setting, patchValue(setting, setting.default)));
 }
 
 /** The stored values after the host accepted `changes`. */

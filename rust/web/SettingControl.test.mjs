@@ -12,7 +12,7 @@ after(() => server.close());
 const { schema } = await server.ssrLoadModule('/src/lib/settings-schema.ts');
 const { default: SettingControl } = await server.ssrLoadModule('/src/components/settings/SettingControl.svelte');
 const { render } = await server.ssrLoadModule('svelte/server');
-const { describeDefault, numberError } = await server.ssrLoadModule('/src/components/settings/values.ts');
+const { describeDefault, normalise, numberError } = await server.ssrLoadModule('/src/components/settings/values.ts');
 const { session } = await server.ssrLoadModule('/src/lib/session.svelte.ts');
 
 const intel = 'Intel(R) HD Graphics 530';
@@ -63,6 +63,25 @@ test('a temporarily unavailable saved GPU is preserved', () => {
   const html = graphicsControl({ gpus: [] }, radeon);
   assert.match(html, /value="AMD Radeon R7 M370"/);
   assert.match(html, /Saved custom choice/);
+});
+
+test('values the fallback console saves select the option the host reads them as', () => {
+  for (const [key, saved, option] of [
+    ['frame_limiter_auto_virtual_framegen', 'fixed-1000hz', 'vrr'],
+    ['rtss_frame_limit_type', 'front-edge-sync', 'front edge sync'],
+    ['amd_vbaq', 'true', 'enabled'],
+    ['min_log_level', 3, 'warning'],
+  ]) {
+    const setting = schema.settings.find((setting) => setting.key === key);
+    const value = normalise(setting, saved);
+    const html = render(SettingControl, { props: { setting, id: key, value, onchange: () => {} } }).body;
+    assert.doesNotMatch(html, /Saved custom choice/, key);
+    assert.match(html, new RegExp(`<option value="${option}"[^>]*selected`), key);
+  }
+  // A value the host does not read is still shown as saved.
+  const setting = schema.settings.find((setting) => setting.key === 'rtss_frame_limit_type');
+  const html = render(SettingControl, { props: { setting, id: setting.key, value: normalise(setting, 'sync'), onchange: () => {} } }).body;
+  assert.match(html, /Saved custom choice: sync/);
 });
 
 for (const [key, valid, invalid] of [

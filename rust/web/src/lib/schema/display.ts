@@ -82,6 +82,11 @@ export const settings: Setting[] = [
         { value: 'extended_primary_isolated', label: 'Isolate — make virtual display primary' },
       ],
     },
+    // display_policy.rs Arrangement::parse: any case, - for _, and the display activation names.
+    aliases: {
+      match: 'dash',
+      spellings: { ensure_active: 'extended', ensure_primary: 'extended_primary', ensure_only_display: 'exclusive' },
+    },
     default: 'exclusive',
   },
   {
@@ -381,6 +386,11 @@ export const settings: Setting[] = [
         { value: 'none', label: 'None' },
       ],
     },
+    // framegen.rs Provider::parse reads letters and digits only.
+    aliases: {
+      match: 'letters',
+      spellings: { disabled: 'none', nvidia: 'nvidia-control-panel', nvcp: 'nvidia-control-panel' },
+    },
     default: 'auto',
   },
   {
@@ -409,6 +419,29 @@ export const settings: Setting[] = [
         { value: 'vrr', label: '1000 Hz' },
         { value: 'disabled', label: 'Off' },
       ],
+    },
+    // framegen.rs virtual_refresh: Vibepollo's spellings and the fallback console's fixed-1000hz.
+    aliases: {
+      match: 'letters',
+      spellings: {
+        '2x': 'legacy',
+        'fixed-2x': 'legacy',
+        enable: 'enabled',
+        true: 'enabled',
+        yes: 'enabled',
+        on: 'enabled',
+        '1': 'enabled',
+        smooth: 'enabled',
+        smoother: 'enabled',
+        'fixed-1000hz': 'vrr',
+        '1000hz': 'vrr',
+        '1000': 'vrr',
+        disable: 'disabled',
+        false: 'disabled',
+        no: 'disabled',
+        off: 'disabled',
+        '0': 'disabled',
+      },
     },
     default: 'legacy',
   },
@@ -450,6 +483,8 @@ export const settings: Setting[] = [
         { value: 'nvidia reflex', label: 'NVIDIA Reflex' },
       ],
     },
+    // framegen.rs reads letters and digits only, so the fallback console's front-edge-sync is front edge sync.
+    aliases: { match: 'letters', spellings: { reflex: 'nvidia reflex' } },
     default: 'async',
     inactiveHint: "Choose Automatic or RTSS under Limiter to use RTSS settings. RTSS must be installed on the host.",
     visibleWhen: rtss,

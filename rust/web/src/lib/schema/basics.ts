@@ -68,6 +68,8 @@ const general: Setting[] = [
     category: 'general',
     group: 'Host',
     control: { kind: 'select', options: locales },
+    // console/i18n.rs locale: any case, - for _.
+    aliases: { match: 'dash' },
     default: 'en',
   },
   {
@@ -153,6 +155,23 @@ const general: Setting[] = [
         { value: 'error', label: 'Error' },
         { value: 'none', label: 'None' },
       ],
+    },
+    // config.rs log_level, and the numbers the fallback console writes.
+    aliases: {
+      match: 'case',
+      spellings: {
+        '0': 'verbose',
+        trace: 'verbose',
+        '1': 'debug',
+        '2': 'info',
+        '3': 'warning',
+        warn: 'warning',
+        '4': 'error',
+        '5': 'error',
+        fatal: 'error',
+        '6': 'none',
+        off: 'none',
+      },
     },
     default: 'info',
   },
@@ -682,6 +701,8 @@ const input: Setting[] = [
         { value: 'vhf_switch', label: 'Switch Pro' },
       ],
     },
+    // input_policy.rs gamepad_profile: Sunshine, Apollo and Vibepollo names.
+    aliases: { spellings: { x360: 'vhf_xbox_one', ds4: 'vhf_ds4', ds5: 'vhf_ds5', vhf: 'auto' } },
     default: 'auto',
     inactiveHint: "Turn on Controllers under Input to use this setting. Paired devices also need the Controllers permission.",
     visibleWhen: controllerOn,

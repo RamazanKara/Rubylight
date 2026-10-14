@@ -174,7 +174,9 @@ impl Rates {
     /// repeat.
     pub fn new(stream: &Negotiated, minimum_fps_target: &str) -> Self {
         let fps = f64::from(stream.fps_millihz()) / 1000.;
-        let minimum = minimum_fps_target.parse::<f64>().unwrap_or(20.);
+        let minimum = crate::config::number_text(minimum_fps_target)
+            .parse::<f64>()
+            .unwrap_or(20.);
         let minimum = if minimum > 0. {
             minimum.clamp(1., fps.max(1.))
         } else if stream.codec == 3 {
@@ -448,6 +450,15 @@ mod tests {
         assert_eq!(
             Rates::new(&at(60_000, 1), "fast").static_period,
             Duration::from_millis(50)
+        );
+        // A quoted one is read as the console shows it.
+        assert_eq!(
+            Rates::new(&at(60_000, 1), "\"30\"").static_period,
+            Duration::from_secs_f64(1. / 30.)
+        );
+        assert_eq!(
+            Rates::new(&at(120_000, 1), " \"12.5\" ").static_period,
+            Duration::from_millis(80)
         );
     }
 }

@@ -174,8 +174,7 @@ impl Policy {
         if config.boolean("key_rightalt_to_key_win", false) {
             keybindings.entry(0xa5).or_insert(0x5b);
         }
-        let repeat_period = config
-            .get("key_repeat_frequency", "24.9")
+        let repeat_period = crate::config::number_text(config.get("key_repeat_frequency", "24.9"))
             .parse::<f64>()
             .ok()
             .filter(|f| f.is_finite() && (0.0..=1000.0).contains(f))
@@ -536,6 +535,19 @@ mod tests {
         }
         assert_eq!(period("0.5"), Duration::from_secs(2));
         assert_eq!(period("1000"), Duration::from_millis(1));
+    }
+    #[test]
+    fn a_quoted_key_repeat_frequency_is_read_like_the_console_shows_it() {
+        let config = Config::parse("key_repeat_frequency=\"30\"\n").unwrap();
+        assert_eq!(
+            Policy::resolve(&config).unwrap().repeat_period,
+            Duration::from_secs_f64(1.0 / 30.0)
+        );
+        let config = Config::parse("key_repeat_frequency=\" 12.5 \"\n").unwrap();
+        assert_eq!(
+            Policy::resolve(&config).unwrap().repeat_period,
+            Duration::from_millis(80)
+        );
     }
     #[test]
     fn held_back_emits_one_home_pulse_and_requires_release_before_rearming() {

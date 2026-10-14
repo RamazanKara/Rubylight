@@ -798,8 +798,13 @@ fn unquote(value: &str) -> &str {
         .and_then(|v| v.strip_suffix('"'))
         .unwrap_or(value)
 }
+/// A number setting's text as the host parses it: Vibepollo also writes
+/// numbers in quotes (`"30"`), and the console shows them as numbers.
+pub fn number_text(value: &str) -> &str {
+    unquote(value.trim()).trim()
+}
 pub fn parse_integer(value: &str) -> Option<i64> {
-    let value = unquote(value.trim()).trim();
+    let value = number_text(value);
     if let Some(hex) = value
         .strip_prefix("0x")
         .or_else(|| value.strip_prefix("0X"))

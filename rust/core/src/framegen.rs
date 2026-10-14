@@ -17,7 +17,7 @@ impl std::fmt::Display for Rate {
 }
 impl Rate {
     pub fn parse(value: &str) -> Result<Self> {
-        let value = value.trim();
+        let value = crate::config::number_text(value);
         let (whole, fraction) = value.split_once('.').unwrap_or((value, ""));
         if whole.is_empty()
             || !whole.bytes().all(|c| c.is_ascii_digit())
@@ -431,6 +431,28 @@ mod tests {
                 }
             }
         }
+    }
+    #[test]
+    fn quoted_frame_rates_are_read_like_the_console_shows_them() {
+        assert_eq!(Rate::parse("\"59.94\"").unwrap(), Rate(59940));
+        assert_eq!(Rate::parse(" \" 120 \" ").unwrap(), Rate(120_000));
+        assert!(Rate::parse("\"59.9400\"").is_err());
+        let c = Config::parse(
+            "frame_limiter_enable=true\nframe_limiter_provider=rtss\nframe_limiter_fps_limit=\"30\"",
+        )
+        .unwrap();
+        assert_eq!(advertised(&c, false), (true, true, 30_000));
+        let p =
+            Policy::resolve(&c, Rate(60_000), false, "none", false, false, true, false).unwrap();
+        assert_eq!(p.rate, Rate(30_000));
+        let c = Config::parse("dd_refresh_rate_option=manual\ndd_manual_refresh_rate=\"119.88\"")
+            .unwrap();
+        assert_eq!(
+            c.display_request_rate(1920, 1080, Rate(60_000), false, false)
+                .unwrap()
+                .refresh,
+            Some(119_880)
+        );
     }
     #[test]
     fn fractional_rate_round_trip_and_bounds() {

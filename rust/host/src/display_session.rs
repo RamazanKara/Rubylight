@@ -844,6 +844,11 @@ impl Prepared {
             peak_nits: config
                 .integer("rtx_hdr_peak_brightness", 1000)
                 .clamp(400, 2000) as u32,
+            render_adapter: if virtual_mode {
+                butterpollo_windows::display::configured_render_adapter(config)
+            } else {
+                None
+            },
         };
         // The layout to return to after the stream, taken before the virtual
         // display exists: Windows can switch other displays on or off, change

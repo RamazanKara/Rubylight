@@ -27,8 +27,9 @@ pub use recovery::{
 };
 pub use topology::{Monitor, Topology, edid_refresh, monitors};
 pub use virtual_display::{
-    VirtualDisplay, VirtualOptions, configure_permanent, permanent_display_count,
-    set_permanent_display_count, virtual_display_available, virtual_display_status, windows_11,
+    RenderAdapter, VirtualDisplay, VirtualOptions, configure_permanent, configured_render_adapter,
+    permanent_display_count, set_permanent_display_count, virtual_display_available,
+    virtual_display_status, windows_11,
 };
 
 fn check(code: i32) -> Result<()> {

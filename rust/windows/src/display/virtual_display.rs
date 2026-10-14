@@ -171,12 +171,85 @@ fn display_label(name: &str) -> [u8; 32] {
 pub struct VirtualOptions {
     pub label: String,
     pub peak_nits: u32,
+    /// The GPU to render the display on; None leaves the choice to Windows.
+    pub render_adapter: Option<RenderAdapter>,
 }
 impl Default for VirtualOptions {
     fn default() -> Self {
         Self {
             label: "Butterpollo".into(),
             peak_nits: 1000,
+            render_adapter: None,
+        }
+    }
+}
+/// The GPU that renders the driver's displays: IddCx's preferred render
+/// adapter. Windows otherwise picks one, on a hybrid PC often the integrated
+/// GPU, and only that GPU can then duplicate the display.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RenderAdapter {
+    pub name: String,
+    pub luid: (u32, i32),
+}
+/// The GPU the Graphics card setting names, for virtual displays to render on
+/// as Apollo and Vibepollo do. Automatic leaves the choice to Windows.
+pub fn configured_render_adapter(
+    config: &butterpollo_core::config::Config,
+) -> Option<RenderAdapter> {
+    let (name, pnp_id) = (
+        config.get("adapter_name", ""),
+        config.get("adapter_pnp_id", ""),
+    );
+    if name.is_empty() && pnp_id.is_empty() {
+        return None;
+    }
+    let selected = crate::capture::gpus().and_then(|gpus| {
+        Ok(
+            crate::capture::select_gpu(&gpus, name, pnp_id)?.map(|gpu| RenderAdapter {
+                name: gpu.name.clone(),
+                luid: gpu.luid,
+            }),
+        )
+    });
+    selected
+        .inspect_err(|error| {
+        tracing::warn!(error = %format!("{error:#}"), "the selected GPU was not found; Windows picks the GPU that renders the virtual display")
+    })
+    .ok()
+    .flatten()
+}
+/// libvirtualdisplay's SetRenderAdapter IOCTL: function 0x90b, write access.
+const SET_RENDER_ADAPTER: (u32, u32) = (0x90b, 2);
+/// libvirtualdisplay's SetRenderAdapterRequest: namespace, LUID, flags, reserved.
+fn render_adapter_request(luid: (u32, i32)) -> Vec<u8> {
+    let mut request = NAMESPACE.to_vec();
+    request.extend_from_slice(&luid.0.to_le_bytes());
+    request.extend_from_slice(&luid.1.to_le_bytes());
+    request.extend_from_slice(&0u32.to_le_bytes()); // Flags.
+    request.extend_from_slice(&0u32.to_le_bytes()); // Reserved.
+    request
+}
+/// The IOCTL to send before a display is created or recreated, if any.
+fn render_adapter_call(options: &VirtualOptions) -> Option<(u32, u32, Vec<u8>)> {
+    let adapter = options.render_adapter.as_ref()?;
+    let (function, access) = SET_RENDER_ADAPTER;
+    Some((function, access, render_adapter_request(adapter.luid)))
+}
+/// Best effort: a driver that refuses leaves the display on the GPU Windows
+/// picks, and capture then says it encodes there.
+fn apply_render_adapter(driver: &Driver, options: &VirtualOptions) {
+    let (Some(adapter), Some((function, access, request))) =
+        (&options.render_adapter, render_adapter_call(options))
+    else {
+        return;
+    };
+    match retry_busy(
+        || driver.ioctl(function, access, &request, 0),
+        Duration::from_secs(1),
+    ) {
+        Ok(_) => tracing::info!(gpu = %adapter.name, "virtual display renders on the selected GPU"),
+        Err(error) => {
+            tracing::warn!(gpu = %adapter.name, error = %format!("{error:#}"), "the virtual display driver did not accept the selected GPU as its render adapter; Windows picks the GPU that renders the virtual display, and Desktop Duplication then captures and encodes there")
         }
     }
 }
@@ -454,6 +527,7 @@ impl VirtualDisplay {
             driver.protocol,
             &capability,
         );
+        apply_render_adapter(&driver, &options);
         // A previous host's lease can survive a session handover until its
         // removal completes or its heartbeat expires. Keep the same identity.
         let (result, startup_protection) = retry_busy(
@@ -742,6 +816,8 @@ impl VirtualDisplay {
             // Only a confirmed missing lease permits creation. Retain the
             // stream's descriptor and identity, never a recalled desktop mode.
             self.driver = Driver::open()?;
+            // A restarted driver has forgotten the render adapter.
+            apply_render_adapter(&self.driver, &self.options);
             let request = temporary_request(
                 self.lease,
                 self.id,
@@ -984,6 +1060,7 @@ mod tests {
         let options = VirtualOptions {
             label: "Living Room\0\n😀   ".into(),
             peak_nits: 1500,
+            ..Default::default()
         };
         let request = temporary_request(
             17,
@@ -1346,6 +1423,33 @@ mod tests {
             butterpollo_core::framegen::Rate(59_940).rational(),
             (2997, 50)
         );
+    }
+    #[test]
+    fn a_selected_gpu_renders_the_virtual_display_and_automatic_leaves_it_to_windows() {
+        // Issue #28: an Intel iGPU rendered the virtual display while the
+        // selected Radeon R7 M370 was asked to duplicate it.
+        assert!(render_adapter_call(&VirtualOptions::default()).is_none());
+        use butterpollo_core::config::Config;
+        assert_eq!(configured_render_adapter(&Config::default()), None);
+        // A GPU that is gone leaves the choice to Windows, never another GPU.
+        let missing = Config::parse("adapter_name = No Such GPU\n").unwrap();
+        assert_eq!(configured_render_adapter(&missing), None);
+        let options = VirtualOptions {
+            render_adapter: Some(RenderAdapter {
+                name: "AMD Radeon R7 M370".into(),
+                luid: (0x0001_2345, -2),
+            }),
+            ..Default::default()
+        };
+        let (function, access, request) = render_adapter_call(&options).unwrap();
+        // libvirtualdisplay's kIoctlSetRenderAdapter.
+        assert_eq!((0x22 << 16) | (access << 14) | (function << 2), 0x0022_A42C);
+        // SetRenderAdapterRequest: namespace, LUID low and high, flags, reserved.
+        assert_eq!(request.len(), 32);
+        assert_eq!(&request[..16], &NAMESPACE);
+        assert_eq!(&request[16..20], &0x0001_2345u32.to_le_bytes());
+        assert_eq!(&request[20..24], &(-2i32).to_le_bytes());
+        assert_eq!(&request[24..], &[0; 8]);
     }
     #[test]
     fn permanent_monitor_payload_matches_driver_v3_contract() {

@@ -158,6 +158,32 @@ fn adapter_pnp_id(luid: windows::Win32::Foundation::LUID) -> Option<String> {
     }
     Some(format!("{bus}\\{hardware}\\{instance}"))
 }
+/// The GPU the Graphics card setting names, matched as capture and the
+/// encoders match it: by the stored PnP identity when there is one, otherwise
+/// by name. None on Automatic.
+pub fn select_gpu<'a>(
+    gpus: &'a [Gpu],
+    adapter_name: &str,
+    pnp_id: &str,
+) -> Result<Option<&'a Gpu>> {
+    if adapter_name.is_empty() && pnp_id.is_empty() {
+        return Ok(None);
+    }
+    let mut matches = gpus.iter().filter(|gpu| {
+        if pnp_id.is_empty() {
+            gpu.name == adapter_name
+        } else {
+            gpu.pnp_id
+                .as_deref()
+                .is_some_and(|id| id.eq_ignore_ascii_case(pnp_id))
+        }
+    });
+    let gpu = matches.next();
+    if gpu.is_none() || (!pnp_id.is_empty() && matches.next().is_some()) {
+        bail!("configured GPU adapter was not resolved uniquely: {adapter_name} {pnp_id}");
+    }
+    Ok(gpu)
+}
 pub fn gpus() -> Result<Vec<Gpu>> {
     // SAFETY: The factory and adapters are live COM objects returned by these calls, and GetDesc1
     // returns an owned struct.

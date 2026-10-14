@@ -7,12 +7,16 @@ fn helper(args: &[&OsStr]) -> u32 {
     // CI has an administrator service session without a linked user token;
     // this test exercises the worker's file operations in its temporary folder.
     let elevated = butterpollo_windows::process::user_environment().is_err();
+    // A non-elevated helper gets the user's default environment. A dev build
+    // finds its MinGW runtime DLLs only through this build's PATH; a package
+    // ships them beside the executable.
+    let path = std::env::var("PATH").unwrap_or_default();
     Process::spawn(
         program,
         &args,
         program.parent(),
         Target::User { elevated },
-        &BTreeMap::new(),
+        &BTreeMap::from([("PATH".to_owned(), path)]),
         true,
     )
     .unwrap()

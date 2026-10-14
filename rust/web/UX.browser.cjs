@@ -385,3 +385,15 @@ test('API tokens say when a refresh fails, and both lists can be retried', async
   await page.getByRole('button', { name: 'Retry the tokens', exact: true }).click();
   await page.getByText('No API tokens', { exact: true }).waitFor();
 });
+
+test('deleting an app with unsaved edits returns to the library without a second question', async t => {
+  const { page, writes } = await fixture(t);
+  await page.goto(base + '/library/one');
+  await page.getByLabel('Name', { exact: true }).fill('Edited, then deleted');
+  await page.getByRole('button', { name: 'Delete', exact: true }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Delete', exact: true }).click();
+  await page.waitForURL(base + '/library');
+  await page.getByText('Deleted One.', { exact: true }).waitFor();
+  assert.equal(await page.getByRole('dialog').isVisible(), false);
+  assert.equal(writes.filter(write => write.path.startsWith('/api/apps/') && write.path !== '/api/apps/reorder').length, 1);
+});

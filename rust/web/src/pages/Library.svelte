@@ -88,7 +88,8 @@
   }
 
   function deleted(uuid: string) {
-    navigate('/library');
+    // The app is gone, so its unsaved edits are too: no "Discard changes?" on the way out.
+    navigate('/library', { force: true });
     if (apps) apps = apps.filter((app) => app.uuid !== uuid);
     void load();
   }

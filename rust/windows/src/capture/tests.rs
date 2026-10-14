@@ -469,6 +469,69 @@ fn working_wgc_and_explicit_ddx_do_not_open_another_backend() {
     }
 }
 
+fn intel_renders_the_display() -> GpuMismatch {
+    GpuMismatch {
+        display: r"\\.\DISPLAY24".into(),
+        owner: "Intel(R) HD Graphics 530".into(),
+        selected: "AMD Radeon R7 M370".into(),
+    }
+}
+#[test]
+fn desktop_duplication_moves_to_the_gpu_that_renders_the_display() {
+    // Issue #28: Windows 10 refused WGC, and Desktop Duplication on the
+    // selected Radeon was refused because the Intel iGPU renders the virtual
+    // display. The stream ended with no picture; it now captures and encodes
+    // on the Intel GPU and says so.
+    let warnings = butterpollo_core::session::Warnings::default();
+    let capture = open_stream_capture("wgc", &warnings, |kind| match kind {
+        "wgc" => bail!("The parameter is incorrect. (0x80070057)"),
+        _ => duplication_device(
+            "device on AMD Radeon R7 M370",
+            |_| Some(intel_renders_the_display()),
+            || Ok("device on Intel(R) HD Graphics 530"),
+            &warnings,
+        ),
+    })
+    .unwrap();
+    assert_eq!(capture, "device on Intel(R) HD Graphics 530");
+    let snapshot = warnings.snapshot();
+    let adapter = snapshot
+        .iter()
+        .find(|w| w.code == "capture_adapter")
+        .expect("the GPU fallback is reported");
+    assert!(adapter.message.starts_with(
+        "Capturing and encoding on Intel(R) HD Graphics 530, not on the selected AMD Radeon R7 M370"
+    ));
+    assert!(adapter.message.contains(r"\\.\DISPLAY24"));
+    assert!(snapshot.iter().any(|w| w.code == "capture_backend"));
+
+    // On the display's own GPU nothing is reopened or reported.
+    let warnings = butterpollo_core::session::Warnings::default();
+    let device = duplication_device(
+        "device on Intel(R) HD Graphics 530",
+        |_| None,
+        || unreachable!("the selected GPU renders the display"),
+        &warnings,
+    )
+    .unwrap();
+    assert_eq!(device, "device on Intel(R) HD Graphics 530");
+    assert!(warnings.snapshot().is_empty());
+
+    // A display GPU that cannot be opened fails loudly with both GPUs named.
+    let error = duplication_device::<&str>(
+        "device on AMD Radeon R7 M370",
+        |_| Some(intel_renders_the_display()),
+        || bail!("selected capture display is unavailable"),
+        &warnings,
+    )
+    .unwrap_err();
+    let detail = format!("{error:#}");
+    assert!(detail.contains("only on the GPU it is connected to (Intel(R) HD Graphics 530)"));
+    assert!(detail.contains("not on AMD Radeon R7 M370"));
+    assert!(detail.contains("selected capture display is unavailable"));
+    assert!(warnings.snapshot().is_empty());
+}
+
 #[test]
 fn wgc_device_removal_reaches_recovery_without_a_backend_fallback() {
     let loss = crate::device_loss::DeviceLost(DXGI_ERROR_DEVICE_REMOVED.0);

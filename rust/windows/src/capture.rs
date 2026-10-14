@@ -480,6 +480,77 @@ impl Device {
         }
     }
 }
+/// A capture device opened on another GPU than the one that renders its
+/// display, as the Graphics card setting can ask on a hybrid PC.
+#[derive(Debug)]
+struct GpuMismatch {
+    display: String,
+    owner: String,
+    selected: String,
+}
+impl GpuMismatch {
+    /// None when the device is on the display's GPU, or the GPUs cannot be
+    /// compared.
+    fn of(gpu: &Device) -> Option<Self> {
+        let output = gpu.output.as_ref()?;
+        // SAFETY: The device and output are live COM objects; GetAdapter, GetParent and GetDesc
+        // return owned values.
+        let (device, owner) = unsafe {
+            (
+                gpu.device
+                    .cast::<IDXGIDevice>()
+                    .and_then(|d| d.GetAdapter())
+                    .and_then(|a| a.GetDesc())
+                    .ok()?,
+                output
+                    .GetParent::<IDXGIAdapter>()
+                    .and_then(|a| a.GetDesc())
+                    .ok()?,
+            )
+        };
+        ((device.AdapterLuid.LowPart, device.AdapterLuid.HighPart)
+            != (owner.AdapterLuid.LowPart, owner.AdapterLuid.HighPart))
+            .then(|| Self {
+                display: gpu.display.display_name.clone(),
+                owner: from_wide(&owner.Description),
+                selected: from_wide(&device.Description),
+            })
+    }
+    fn refusal(&self) -> String {
+        format!(
+            "Desktop Duplication captures {} only on the GPU it is connected to ({}), not on {}; use WGC capture to encode on another GPU",
+            self.display, self.owner, self.selected
+        )
+    }
+    fn fallback(&self) -> String {
+        format!(
+            "Capturing and encoding on {owner}, not on the selected {selected}: Desktop Duplication captures {display} only on {owner}, the GPU that renders it. WGC capture can encode on another GPU; otherwise select Automatic or {owner} under Encoders > Graphics card.",
+            owner = self.owner,
+            selected = self.selected,
+            display = self.display
+        )
+    }
+}
+/// Desktop Duplication duplicates a display only on the GPU that renders it.
+/// A device on the selected GPU is replaced by one on that GPU: the encoder
+/// follows the captured frames, so the stream encodes there and says so
+/// instead of ending without a picture.
+fn duplication_device<D>(
+    selected: D,
+    mismatch: impl FnOnce(&D) -> Option<GpuMismatch>,
+    owner: impl FnOnce() -> Result<D>,
+    warnings: &butterpollo_core::session::Warnings,
+) -> Result<D> {
+    let Some(mismatch) = mismatch(&selected) else {
+        return Ok(selected);
+    };
+    drop(selected);
+    let device = owner().with_context(|| mismatch.refusal())?;
+    let message = mismatch.fallback();
+    tracing::warn!("{message}");
+    warnings.set("capture_adapter", message);
+    Ok(device)
+}
 pub struct Duplication {
     gpu: Device,
     duplicate: IDXGIOutputDuplication,
@@ -500,25 +571,8 @@ impl Duplication {
         let output = gpu.output()?.clone();
         // Desktop Duplication works only on the GPU the display is connected
         // to; WGC also captures it for a device on another GPU.
-        if let (Ok(device), Ok(owner)) = (
-            gpu.device
-                .cast::<IDXGIDevice>()
-                // SAFETY: `d` is the device's live IDXGIDevice, and GetAdapter returns an owned
-                // adapter.
-                .and_then(|d| unsafe { d.GetAdapter() }),
-            // SAFETY: `output` is a live IDXGIOutput1, and GetParent returns an owned reference.
-            unsafe { output.GetParent::<IDXGIAdapter>() },
-            // SAFETY: Both adapters are live COM objects, and GetDesc returns owned structs.
-        ) && let (Ok(device), Ok(owner)) = unsafe { (device.GetDesc(), owner.GetDesc()) }
-            && (device.AdapterLuid.LowPart, device.AdapterLuid.HighPart)
-                != (owner.AdapterLuid.LowPart, owner.AdapterLuid.HighPart)
-        {
-            bail!(
-                "Desktop Duplication captures {} only on the GPU it is connected to ({}), not on {}; use WGC capture to encode on another GPU",
-                gpu.display.display_name,
-                from_wide(&owner.Description),
-                from_wide(&device.Description)
-            );
+        if let Some(mismatch) = GpuMismatch::of(&gpu) {
+            bail!("{}", mismatch.refusal());
         }
         let native_hdr = hdr
             && gpu
@@ -1573,6 +1627,7 @@ impl Capture {
     ) -> Result<Self> {
         warnings.clear("capture_compute");
         warnings.clear("capture_helper_compute");
+        warnings.clear("capture_adapter");
         open_stream_capture(kind, &warnings, |backend| {
             Self::new_options_reported(name, backend, hdr, config, warnings.clone())
         })
@@ -1616,6 +1671,18 @@ impl Capture {
         // Desktop Duplication copies each frame out of the shared desktop
         // surface; on a compute queue that copy keeps pace beside a game.
         let duplication = |gpu: Device| -> Result<Duplication> {
+            let gpu = duplication_device(
+                gpu,
+                GpuMismatch::of,
+                || {
+                    let owner = Device::for_display(name, "", "")?;
+                    if let Err(error) = crate::gpu_priority::configure(&owner, config) {
+                        tracing::debug!(%error, "GPU priority remains at the process default");
+                    }
+                    Ok(owner)
+                },
+                &warnings,
+            )?;
             let mut duplication = Duplication::new_device(gpu, hdr)?;
             duplication.owned.warnings = warnings.clone();
             if crate::compute::enabled(config) && crate::compute::copies_on(&duplication.gpu.device)

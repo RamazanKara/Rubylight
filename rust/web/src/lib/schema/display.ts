@@ -48,7 +48,8 @@ export const settings: Setting[] = [
     key: 'virtual_display_mode',
     label: 'Virtual display',
     description:
-      'Whether streams use a virtual display sized for the device instead of a monitor. Unset, it is one for each device on Windows 11 and off on Windows 10; a device’s or app’s own choice wins.',
+      'Whether streams use a virtual display sized for the device instead of a monitor. A device’s or app’s own choice wins.',
+    details: 'Unset, it is one for each device on Windows 11 and off on Windows 10.',
     category: 'display',
     group: 'Streamed display',
     control: {
@@ -66,7 +67,9 @@ export const settings: Setting[] = [
     key: 'virtual_display_layout',
     label: 'Virtual display layout',
     description:
-      'Extended keeps your PC display primary. Making the virtual display primary moves the main desktop and taskbar to the stream. Exclusive turns the other monitors off while streaming; isolated places the virtual display far from them so the mouse cannot wander onto it. A Remote Monitor follows exclusive and primary; choose Extended to keep its saved placement.',
+      'How the virtual display fits with your other monitors while streaming. Exclusive turns the other monitors off.',
+    details:
+      'Extended keeps your PC display primary. Making the virtual display primary moves the main desktop and taskbar to the stream. Isolated places the virtual display far from the other monitors so the mouse cannot wander onto it. A Remote Monitor follows exclusive and primary; choose Extended to keep its saved placement.',
     category: 'display',
     group: 'Streamed display',
     control: {
@@ -113,7 +116,8 @@ export const settings: Setting[] = [
     key: 'dd_virtual_display_permanent_count',
     label: 'Permanent virtual displays',
     description:
-      'Virtual displays the driver keeps even when nothing streams, from 0 to 4. Leave empty to keep its current count; enter 0 to remove permanent displays. Applied when the host starts.',
+      'Virtual displays the driver keeps even when nothing streams, from 0 to 4. Leave empty to keep its current count.',
+    details: 'Enter 0 to remove permanent displays. Applied when the host starts.',
     category: 'display',
     group: 'Streamed display',
     control: { kind: 'number', min: 0, max: 4, step: 1 },
@@ -171,8 +175,9 @@ export const settings: Setting[] = [
   {
     key: 'dd_refresh_rate_option',
     label: 'Refresh rate',
-    description:
-      'The refresh rate set on the streamed display. On a virtual display, matching follows Virtual display refresh under Frame limiting, and the highest and current choices apply to monitors only.',
+    description: 'The refresh rate set on the streamed display.',
+    details:
+      'On a virtual display, matching follows Virtual display refresh under Frame limiting, and the highest and current choices apply to monitors only.',
     category: 'display',
     group: 'Resolution and refresh rate',
     control: {
@@ -202,7 +207,9 @@ export const settings: Setting[] = [
     key: 'dd_mode_remapping',
     label: 'Mode substitutions',
     description:
-      'Changes a requested mode before it is applied: the first entry whose requested_resolution and requested_fps match sets final_resolution and final_refresh_rate. The mixed list is used when resolution and refresh rate both match the device, resolution_only or refresh_rate_only when only that one does.',
+      'Changes a requested mode before it is applied. Each entry matches requested_resolution and requested_fps and sets final_resolution and final_refresh_rate.',
+    details:
+      'The first matching entry is used. The mixed list is used when resolution and refresh rate both match the device, resolution_only or refresh_rate_only when only that one does.',
     category: 'display',
     group: 'Resolution and refresh rate',
     control: { kind: 'json' },
@@ -250,7 +257,8 @@ export const settings: Setting[] = [
     key: 'dd_always_restore_from_golden',
     label: 'Restore the saved layout',
     description:
-      'After a stream, return the displays to the layout saved under Maintenance instead of the layout from before the stream. The saved layout is used only while every display it names is connected.',
+      'After a stream, return the displays to the layout saved under Maintenance instead of the layout from before the stream.',
+    details: 'The saved layout is used only while every display it names is connected.',
     category: 'display',
     group: 'After a stream',
     control: { kind: 'toggle' },
@@ -271,7 +279,8 @@ export const settings: Setting[] = [
     key: 'dd_snapshot_restore_hotkey',
     label: 'Restore hotkey',
     description:
-      'A key on this PC that ends every stream, removes the virtual displays and restores the display layout, for when a stream leaves the screens unusable. F1 to F24, a letter, a digit or a virtual-key code such as 0x2E. Empty turns it off.',
+      'A key on this PC that ends every stream and restores the display layout, for when a stream leaves the screens unusable. F1 to F24, a letter or a digit.',
+    details: 'It also removes the virtual displays. A virtual-key code such as 0x2E works too. Empty turns it off.',
     category: 'display',
     group: 'After a stream',
     control: { kind: 'text', placeholder: 'Off', mono: true },
@@ -331,7 +340,9 @@ export const settings: Setting[] = [
     key: 'remote_monitor_confirm_app_replacement',
     label: 'Confirm before replacing a running app',
     description:
-      'Refuses the first request to start a different app while one runs, so Moonlight can warn first; starting it again within 60 seconds replaces the app. Remote monitors and remote input still connect without asking.',
+      'Makes a device ask twice before replacing a running app with a different one, so Moonlight can warn first.',
+    details:
+      'The first request to start a different app while one runs is refused; starting it again within 60 seconds replaces the app. Remote monitors and remote input still connect without asking.',
     category: 'display',
     group: 'Remote monitors',
     control: { kind: 'toggle' },
@@ -381,7 +392,8 @@ export const settings: Setting[] = [
     key: 'frame_limiter_auto_virtual_framegen',
     label: 'Virtual display refresh',
     description:
-      'How fast a virtual display refreshes; a faster display captures each game frame sooner after it is drawn. Every choice but Off also caps games at the frame limit and uses 1000 Hz when the device asks for VRR.',
+      'How fast a virtual display refreshes. A faster display captures each game frame sooner after it is drawn.',
+    details: 'Every choice but Off also caps games at the frame limit and uses 1000 Hz when the device asks for VRR.',
     category: 'frame-limiting',
     group: 'Frame limiter',
     control: {
@@ -419,8 +431,9 @@ export const settings: Setting[] = [
   {
     key: 'rtss_frame_limit_type',
     label: 'RTSS limit mode',
-    description:
-      'How RTSS paces frames. Virtual-display streams, unless Virtual display refresh is off, and frame-generation games on a monitor use NVIDIA Reflex instead, or front edge sync where Reflex is unavailable.',
+    description: 'How RTSS paces frames. Some streams use NVIDIA Reflex instead.',
+    details:
+      'Virtual-display streams, unless Virtual display refresh is off, and frame-generation games on a monitor use NVIDIA Reflex instead, or front edge sync where Reflex is unavailable.',
     category: 'frame-limiting',
     group: 'RTSS',
     control: {
@@ -439,8 +452,9 @@ export const settings: Setting[] = [
   {
     key: 'rtss_allow_virtual_display_override',
     label: 'Use this mode on virtual displays',
-    description:
-      'Applies the RTSS limit mode to virtual-display streams instead of NVIDIA Reflex. Apps set to game-provided frame generation keep Reflex, because other modes can add a lot of latency there.',
+    description: 'Applies the RTSS limit mode to virtual-display streams instead of NVIDIA Reflex.',
+    details:
+      'Apps set to game-provided frame generation keep Reflex, because other modes can add a lot of latency there.',
     category: 'frame-limiting',
     group: 'RTSS',
     control: { kind: 'toggle' },
@@ -550,7 +564,8 @@ export const settings: Setting[] = [
     key: 'rtx_hdr_peak_brightness',
     label: 'Peak brightness',
     description:
-      'The brightest the device’s screen can show, used for the conversion and as the peak a virtual display reports. A device’s HDR color profile or the game’s NVIDIA driver profile can replace it.',
+      'The brightest the device’s screen can show, used for the RTX HDR conversion and as the peak a virtual display reports.',
+    details: 'A device’s HDR color profile or the game’s NVIDIA driver profile can replace it.',
     category: 'hdr',
     group: 'RTX HDR',
     control: { kind: 'number', min: 400, max: 2000, step: 1, unit: 'nits' },

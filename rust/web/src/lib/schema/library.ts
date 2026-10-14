@@ -25,7 +25,9 @@ const playniteSettings: Setting[] = [
     key: 'playnite_enabled',
     label: 'Playnite',
     description:
-      'Starts apps linked to a Playnite game through Playnite, with the stream’s settings, and ends the stream when Playnite reports the game closed. Needs the Rubylight plugin in Playnite (Library › Install plugin).',
+      'Starts apps linked to a Playnite game through Playnite and ends the stream when the game closes. Needs the Rubylight plugin in Playnite.',
+    details:
+      'Games start with the stream’s settings, and the stream ends when Playnite reports the game closed. Install the plugin from Library › Install plugin.',
     category: 'library',
     group: 'Playnite',
     control: { kind: 'toggle' },
@@ -183,7 +185,9 @@ const playniteSettings: Setting[] = [
     key: 'playnite_focus_attempts',
     label: 'Confirm game focus',
     description:
-      'After launch, checks once a second and brings the game or Playnite fullscreen menu to the front until it has been confirmed this many times. 0 leaves focus alone; lower it if Rubylight keeps interrupting another window.',
+      'How many times the game or Playnite fullscreen menu must be confirmed in front after launch. Lower it if Rubylight keeps interrupting another window.',
+    details:
+      'After launch, Rubylight checks once a second and brings the game or menu to the front until it has been confirmed this many times. 0 leaves focus alone.',
     category: 'library',
     group: 'Playnite launch focus',
     control: { kind: 'number', min: 0, step: 1 },
@@ -209,7 +213,8 @@ const playniteSettings: Setting[] = [
     key: 'playnite_focus_exit_on_first',
     label: 'Stop after the first focus confirmation',
     description:
-      'Stop as soon as the game or Playnite menu is confirmed in front. Prevents later focus changes, but a launcher or splash screen may then take focus back. Has no effect when either focus limit is 0.',
+      'Stop as soon as the game or Playnite menu is confirmed in front. Prevents later focus changes, but a launcher or splash screen may then take focus back.',
+    details: 'Has no effect when either focus limit is 0.',
     category: 'library',
     group: 'Playnite launch focus',
     control: { kind: 'toggle' },

@@ -188,6 +188,20 @@ test('rows show the default only when it differs, and config keys only on reques
   assert.equal(await page.locator('[data-setting] code').count(), 0);
 });
 
+test('search shows the key it matched and finds facts behind More', async t => {
+  const { page } = await fixture(t);
+  await page.goto(base + '/settings/general');
+  await search(page, 'fec_percentage');
+  await setting(page, 'fec_percentage').locator('code', { hasText: 'fec_percentage' }).waitFor();
+  await search(page, '1593 Mbps');
+  const pyrowave = setting(page, 'pyrowave');
+  await pyrowave.waitFor();
+  const fact = pyrowave.getByText(/1593 Mbps for 4K60/);
+  assert.equal(await fact.isVisible(), false);
+  await pyrowave.locator('summary', { hasText: 'More' }).click();
+  assert.equal(await fact.isVisible(), true);
+});
+
 test('controls share a right-hand column on wide screens and stack under the text on phones', async t => {
   const { page } = await fixture(t);
   await page.goto(base + '/settings/video');

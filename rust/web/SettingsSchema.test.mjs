@@ -16,6 +16,26 @@ const { matchesSetting, searchWords } = await server.ssrLoadModule('/src/compone
 const settings = new Map(schema.settings.map(setting => [setting.key, setting]));
 const categoryOf = setting => schema.categories.find(category => category.id === setting.category);
 
+test('descriptions stay to two short sentences and keep the finer points behind More', () => {
+  for (const setting of schema.settings) {
+    assert(setting.description.length <= 180, `${setting.key}: ${setting.description.length} characters`);
+    assert((setting.description.match(/[.!?](\s|$)/g) ?? []).length <= 2, setting.key);
+    if (setting.details !== undefined) assert(setting.details.trim().length > 20, setting.key);
+  }
+  for (const category of schema.categories) assert(category.description.length <= 48, category.id);
+  // Moved, not dropped: the measured PyroWave rates are still there.
+  assert.match(settings.get('pyrowave').details, /277 Mbps for 720p60, 399 Mbps for 1080p60 or 1593 Mbps for 4K60/);
+});
+
+test('search finds words that moved behind More, and configuration keys', () => {
+  const find = (query, key) => matchesSetting(settings.get(key), categoryOf(settings.get(key)), searchWords(query));
+  assert.equal(find('1593 Mbps', 'pyrowave'), true);
+  assert.equal(find('usbip-win2', 'gamepad'), true);
+  assert.equal(find('fec_percentage', 'fec_percentage'), true);
+  assert.equal(find('fec percentage', 'fec_percentage'), true);
+  assert.equal(find('amd quality', 'nvenc_enable_min_qp'), false);
+});
+
 test('the default is shown only when the saved value would differ from it', () => {
   const fec = settings.get('fec_percentage');
   assert.equal(differsFromDefault(fec, {}, {}), false);

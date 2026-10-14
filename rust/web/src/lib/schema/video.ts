@@ -101,7 +101,8 @@ const video: Setting[] = [
     key: 'capture_predictive_poll',
     label: 'Predictive polling',
     description:
-      'With Desktop Duplication, checks for frames more often around the time the next one is expected, based on the recent frame rhythm. Can pick up frames sooner from games with a steady frame rate.',
+      'With Desktop Duplication, checks for frames more often when the next one is due. Can catch frames sooner in games with a steady frame rate.',
+    details: 'The expected time of the next frame comes from the recent frame rhythm.',
     category: 'video',
     group: 'Capture',
     control: { kind: 'toggle' },
@@ -114,7 +115,8 @@ const video: Setting[] = [
     key: 'wgc_slot_aligned_publish',
     label: 'Align capture with encoding',
     description:
-      'With Windows Graphics Capture, holds a new frame until just before the next frame is due to be encoded when a newer frame could arrive first. Helps when the display refreshes much faster than the stream; variable refresh rate (VRR) streams ignore it.',
+      'Holds a new frame until just before the next encode if a newer one could arrive first. Helps when the display refreshes much faster than the stream.',
+    details: 'Applies to Windows Graphics Capture. Variable refresh rate (VRR) streams ignore it.',
     category: 'video',
     group: 'Capture',
     control: { kind: 'toggle' },
@@ -127,7 +129,8 @@ const video: Setting[] = [
     key: 'wgc_direct_encoder_input',
     label: 'Encode from GPU memory',
     description:
-      'Hands captured frames straight to the encoder on the GPU. Turn off only to troubleshoot an encoder: frames are then copied through system memory, which adds latency and CPU load.',
+      'Hands captured frames straight to the encoder on the GPU. Turn off only to troubleshoot an encoder.',
+    details: 'When off, frames are copied through system memory, which adds latency and CPU load.',
     category: 'video',
     group: 'Capture',
     control: { kind: 'toggle' },
@@ -138,7 +141,9 @@ const video: Setting[] = [
     key: 'gpu_compute_conversion',
     label: 'Copy and convert on a compute queue',
     description:
-      'On supported AMD GPUs, copies Desktop Duplication and Windows Graphics Capture frames and converts their colors on compute queues beside a game. Unsupported capture textures fall back to the graphics queue. Turn off to compare or troubleshoot.',
+      'On supported AMD GPUs, copies captured frames and converts their colors on compute queues beside a game. Turn off to compare or troubleshoot.',
+    details:
+      'Covers frames from both Desktop Duplication and Windows Graphics Capture. Unsupported capture textures fall back to the graphics queue.',
     category: 'video',
     group: 'Capture',
     control: { kind: 'toggle' },
@@ -187,7 +192,9 @@ const video: Setting[] = [
     key: 'pyrowave',
     label: 'PyroWave',
     description:
-      'Lets compatible devices request PyroWave, a GPU codec that encodes each frame on its own with very low latency. Synthetic desktop and game tests suggest 277 Mbps for 720p60, 399 Mbps for 1080p60 or 1593 Mbps for 4K60 for clean pictures. Severe detail loss is likely below 139, 187 or 747 Mbps respectively. Quality depends on the picture. Use a fast wired network with headroom for packet overhead and recovery data; 4K60 needs more than gigabit Ethernet. If the device or network cannot carry the rate, use HEVC or AV1.',
+      'Lets compatible devices request PyroWave, a very low-latency GPU codec. It needs hundreds of Mbps and a fast wired network.',
+    details:
+      'PyroWave encodes each frame on its own. Synthetic desktop and game tests suggest 277 Mbps for 720p60, 399 Mbps for 1080p60 or 1593 Mbps for 4K60 for clean pictures. Severe detail loss is likely below 139, 187 or 747 Mbps respectively. Quality depends on the picture. Leave network headroom for packet overhead and recovery data; 4K60 needs more than gigabit Ethernet. If the device or network cannot carry the rate, use HEVC or AV1.',
     category: 'video',
     group: 'Codecs',
     control: { kind: 'toggle' },
@@ -198,7 +205,8 @@ const video: Setting[] = [
     key: 'prefer_sdr_10bit',
     label: 'Prefer 10-bit SDR',
     description:
-      'When a device asks for HDR, keeps the display in standard dynamic range (SDR) and sends 10-bit SDR video, which reduces banding without switching the screen to HDR. Not applied while RTX HDR converts the stream; devices and apps can override it.',
+      'When a device asks for HDR, keeps the display in standard dynamic range (SDR) and sends 10-bit SDR video. Reduces banding without switching to HDR.',
+    details: 'Not applied while RTX HDR converts the stream. Devices and apps can override it.',
     category: 'video',
     group: 'Codecs',
     control: { kind: 'toggle' },
@@ -208,7 +216,9 @@ const video: Setting[] = [
     key: 'frame_pacing',
     label: 'Frame pacing',
     description:
-      'On arrival encodes each new frame as soon as it is captured, never faster than the stream rate. Fixed grid encodes the newest frame at fixed intervals; variable refresh rate (VRR) streams ignore this setting.',
+      'On arrival encodes each new frame as soon as it is captured. Fixed grid encodes the newest frame at fixed intervals.',
+    details:
+      'On arrival never encodes faster than the stream rate. Variable refresh rate (VRR) streams ignore this setting.',
     category: 'video',
     group: 'Frame pacing',
     control: {
@@ -236,7 +246,9 @@ const video: Setting[] = [
     key: 'minimum_fps_target',
     label: 'Minimum frame rate',
     description:
-      'How often an unchanged picture is sent again; lower values save bandwidth on a still desktop. Each resend counts toward the stream frame rate, so a value close to it makes late game frames wait. 0 uses a fifth of the stream rate, at least 10; with PyroWave, 0 resends at the full stream rate.',
+      'How often an unchanged picture is sent again. Lower values save bandwidth on a still desktop.',
+    details:
+      'Each resend counts toward the stream frame rate, so a value close to it makes late game frames wait. 0 uses a fifth of the stream rate, at least 10; with PyroWave, 0 resends at the full stream rate.',
     category: 'video',
     group: 'Frame pacing',
     control: { kind: 'number', min: 0, max: 1000, step: 0.1, unit: 'fps' },
@@ -246,7 +258,8 @@ const video: Setting[] = [
     key: 'limit_framerate',
     label: 'Use the launch frame rate',
     description:
-      'Encodes at the frame rate the device asked for when it launched the app rather than the rate in its stream request. If the stream request is twice that rate or more, the bitrate is raised to match.',
+      'Encodes at the frame rate the device asked for when it launched the app, not the rate in its stream request.',
+    details: 'If the stream request is twice that rate or more, the bitrate is raised to match.',
     category: 'video',
     group: 'Frame pacing',
     control: { kind: 'toggle' },
@@ -256,7 +269,9 @@ const video: Setting[] = [
     key: 'stream_reconfigure',
     label: 'Follow client size and frame rate changes',
     description:
-      'Lets a Rubylight client change the stream resolution and frame rate without reconnecting, for example when a foldable phone opens its inner screen. The encoder restarts at the new size with a keyframe; the host display keeps its mode and the picture is scaled to fit. Clients that never ask see no change.',
+      'Lets a Rubylight client change the stream resolution and frame rate without reconnecting, for example when a foldable phone opens its inner screen.',
+    details:
+      'The encoder restarts at the new size with a keyframe. The host display keeps its mode and the picture is scaled to fit. Clients that never ask see no change.',
     category: 'video',
     group: 'Frame pacing',
     control: { kind: 'toggle' },
@@ -275,7 +290,8 @@ const video: Setting[] = [
     key: 'fec_percentage',
     label: 'Error correction',
     description:
-      'Recovery packets sent with each video frame, as a share of its data packets. Higher values survive more packet loss but leave less of the bitrate for the picture; PyroWave does not use it.',
+      'Recovery packets sent with each video frame. Higher values survive more packet loss but leave less of the bitrate for the picture.',
+    details: "Set as a share of each frame's data packets. PyroWave does not use it.",
     category: 'video',
     group: 'Bitrate and network',
     control: { kind: 'number', min: 0, max: 100, step: 1, unit: '%' },
@@ -285,7 +301,9 @@ const video: Setting[] = [
     key: 'host_adaptive_bitrate',
     label: 'Adapt bitrate on the host (experimental)',
     description:
-      'Reduce bitrate when a Moonlight device reports video loss, then recover slowly during sustained traffic with stable latency. Includes error correction and audio in the network budget. Requires observed client feedback; a device that adjusts its own bitrate takes control. H.264, HEVC and AV1 only. Changes apply on the next connection.',
+      'Lowers the bitrate when a Moonlight device reports video loss, then slowly raises it again while traffic is sustained and latency is stable.',
+    details:
+      'Includes error correction and audio in the network budget. Requires observed client feedback; a device that adjusts its own bitrate takes control. H.264, HEVC and AV1 only. Changes apply on the next connection.',
     category: 'video',
     group: 'Bitrate and network',
     control: { kind: 'toggle' },
@@ -295,7 +313,9 @@ const video: Setting[] = [
     key: 'adaptive_fec',
     label: 'Adapt error correction',
     description:
-      'Uses less error correction while the device reports a clean link and returns to the percentage above as soon as it reports loss. Devices that send no error-correction reports always get the percentage above; PyroWave does not use it.',
+      'Uses less error correction while the device reports a clean link, and returns to the percentage above as soon as it reports loss.',
+    details:
+      'Devices that send no error-correction reports always get the percentage above. PyroWave does not use it.',
     category: 'video',
     group: 'Bitrate and network',
     control: { kind: 'toggle' },
@@ -305,7 +325,9 @@ const video: Setting[] = [
     key: 'pyrowave_critical_fec_percentage',
     label: 'PyroWave error correction',
     description:
-      'Recovery packets for the start of each PyroWave frame, which holds its coarsest detail; losing it drops the whole frame. 0 turns it off, and only devices that support it use it.',
+      'Recovery packets for the start of each PyroWave frame. Losing that part drops the whole frame.',
+    details:
+      'The start of a frame holds its coarsest detail. 0 turns it off, and only devices that support it use it.',
     category: 'video',
     group: 'Bitrate and network',
     control: { kind: 'number', min: 0, max: 255, step: 1, unit: '%' },
@@ -327,7 +349,9 @@ const video: Setting[] = [
     key: 'video_max_batch_size_kb',
     label: 'Send batch size',
     description:
-      'Largest burst of video packets sent at once. Conventional codecs also limit each batch to about one millisecond of traffic at the pacing rate. Smaller batches can help devices that drop bursts, but require more send calls. PyroWave uses its own batching policy.',
+      'Largest burst of video packets sent at once. Smaller batches can help devices that drop bursts.',
+    details:
+      'Smaller batches require more send calls. Conventional codecs also limit each batch to about one millisecond of traffic at the pacing rate. PyroWave uses its own batching policy.',
     category: 'video',
     group: 'Bitrate and network',
     control: {
@@ -344,7 +368,9 @@ const video: Setting[] = [
     key: 'pacing_max_bitrate_kbps',
     label: 'Pacing rate',
     description:
-      'Spaces video packets without changing picture bitrate. 0 uses automatic pacing: conventional codecs allow up to 800 Mbps on wired routes or twice the bitrate with FEC headroom on host Wi-Fi; PyroWave has its own automatic policy. A positive value also applies to PyroWave, with a 1.1-times-bitrate floor and an Ethernet link ceiling. 120000 means 120 Mbps. Reconnect after saving.',
+      'Spaces out video packets without changing the picture bitrate. 0 paces automatically; reconnect after saving.',
+    details:
+      'Automatic pacing lets conventional codecs send up to 800 Mbps on wired routes, or twice the bitrate with FEC headroom on host Wi-Fi; PyroWave has its own automatic policy. A positive value also applies to PyroWave, with a 1.1-times-bitrate floor and an Ethernet link ceiling. 120000 means 120 Mbps.',
     category: 'video',
     group: 'Bitrate and network',
     control: { kind: 'number', min: 0, step: 1, unit: 'Kbps' },
@@ -355,7 +381,9 @@ const video: Setting[] = [
     key: 'host_adaptive_pacing',
     label: 'Adaptive packet pacing (experimental)',
     description:
-      'Starts with slower packet delivery, then probes faster rates and backs off when the device reports loss. Adds startup delay without changing picture bitrate or FPS; probing can still lose packets. Off by default. A manual pacing rate, Host adaptive bitrate or PyroWave disables it. Changes apply on the next connection.',
+      'Starts with slower packet delivery, then tries faster rates and backs off when the device reports loss.',
+    details:
+      'Adds startup delay without changing picture bitrate or FPS; probing can still lose packets. Off by default. A manual pacing rate, Host adaptive bitrate or PyroWave disables it. Changes apply on the next connection.',
     category: 'video',
     group: 'Bitrate and network',
     control: { kind: 'toggle' },
@@ -369,7 +397,9 @@ const encoders: Setting[] = [
     key: 'encoder',
     label: 'Encoder',
     description:
-      'Automatic chooses an encoder when the stream starts: AMF on AMD GPUs or NVENC on NVIDIA GPUs. If that encoder cannot start, it tries another hardware encoder and shows a stream warning; it never falls back to software. Select an encoder to show its settings, or search for them while keeping Automatic. The stream card and log show the encoder actually used; PyroWave streams use their own encoder.',
+      'Automatic picks AMF on AMD GPUs or NVENC on NVIDIA GPUs when the stream starts. Select an encoder to show its settings.',
+    details:
+      "If that encoder cannot start, Automatic tries another hardware encoder and shows a stream warning; it never falls back to software. To see an encoder's settings while keeping Automatic, search for them. The stream card and log show the encoder actually used; PyroWave streams use their own encoder.",
     category: 'encoders',
     group: 'Encoder',
     control: {
@@ -391,7 +421,9 @@ const encoders: Setting[] = [
     key: 'adapter_name',
     label: 'Graphics card',
     description:
-      'The graphics processing unit (GPU) that captures and compresses the video. Lists hardware GPUs even without a connected display; available codecs depend on the GPU and driver. Automatic uses the card connected to the streamed display.',
+      'The graphics processing unit (GPU) that captures and compresses the video. Automatic uses the card connected to the streamed display.',
+    details:
+      'Lists hardware GPUs even without a connected display. Available codecs depend on the GPU and driver.',
     category: 'encoders',
     group: 'Encoder',
     control: { kind: 'adapter' },
@@ -481,7 +513,9 @@ const nvidia: Setting[] = [
     key: 'nvenc_vbv_increase',
     label: 'Frame size headroom',
     description:
-      'Lets a single frame exceed the average frame size by this much, which helps busy scenes. Can cause packet loss on networks without buffer headroom; 400 allows frames five times the average.',
+      'Lets a single frame exceed the average frame size by this much. Helps busy scenes but can cause packet loss.',
+    details:
+      'Packet loss is a risk on networks without buffer headroom. 400 allows frames five times the average.',
     category: 'encoders',
     group: 'NVIDIA NVENC',
     control: { kind: 'number', min: 0, max: 400, step: 1, unit: '%' },
@@ -524,7 +558,9 @@ const nvidia: Setting[] = [
     key: 'nvenc_realtime_hags',
     label: 'Real-time graphics priority',
     description:
-      'With hardware-accelerated GPU scheduling (HAGS) on in Windows, the host gets real-time priority on the graphics card. Turn off if the encoder freezes when video memory is nearly full; the host then uses high priority.',
+      'With Windows GPU scheduling (HAGS) on, gives the host real-time GPU priority. Turn off if the encoder freezes when video memory is nearly full.',
+    details:
+      'HAGS is hardware-accelerated GPU scheduling, a Windows setting. When this setting is off, the host uses high priority instead.',
     category: 'encoders',
     group: 'NVIDIA NVENC',
     control: { kind: 'toggle' },
@@ -536,7 +572,8 @@ const nvidia: Setting[] = [
     key: 'nvenc_latency_over_power',
     label: 'Prefer latency over power saving',
     description:
-      'Sets the NVIDIA driver to prefer maximum performance for the host while streaming, so power saving does not slow encoding. The driver setting is restored after the last stream.',
+      'Sets the NVIDIA driver to prefer maximum performance for the host while streaming, so power saving does not slow encoding.',
+    details: 'The driver setting is restored after the last stream.',
     category: 'encoders',
     group: 'NVIDIA NVENC',
     control: { kind: 'toggle' },
@@ -548,7 +585,8 @@ const nvidia: Setting[] = [
     key: 'nvenc_opengl_vulkan_on_dxgi',
     label: 'Present OpenGL and Vulkan through DXGI',
     description:
-      'Sets the NVIDIA driver to present OpenGL and Vulkan games through DXGI while streaming, so full-screen games can be captured at their full frame rate. The driver setting is restored after the last stream.',
+      'Sets the NVIDIA driver to present OpenGL and Vulkan games through DXGI while streaming, so full-screen games can be captured at full frame rate.',
+    details: 'The driver setting is restored after the last stream.',
     category: 'encoders',
     group: 'NVIDIA NVENC',
     control: { kind: 'toggle' },
@@ -688,7 +726,9 @@ const amd: Setting[] = [
     key: 'amd_rc',
     label: 'Rate control',
     description:
-      'How the encoder keeps to the stream bitrate; constant QP ignores it. The quality modes turn on pre-analysis, and HDR streams use peak-constrained VBR instead of them.',
+      'How the encoder keeps to the stream bitrate. Constant QP ignores the bitrate.',
+    details:
+      'The quality modes turn on pre-analysis, and HDR streams use peak-constrained VBR instead of them.',
     category: 'encoders',
     group: 'AMD AMF',
     control: {
@@ -712,7 +752,8 @@ const amd: Setting[] = [
     key: 'amd_peak_bitrate_ratio',
     label: 'Peak bitrate',
     description:
-      'Peak bitrate as a multiple of the requested stream bitrate. 0 keeps the driver default. This controls rate allocation; it does not cap individual keyframes.',
+      'Peak bitrate as a multiple of the requested stream bitrate. 0 keeps the driver default.',
+    details: 'This controls rate allocation; it does not cap individual keyframes.',
     category: 'encoders',
     group: 'AMD AMF',
     control: {
@@ -733,7 +774,8 @@ const amd: Setting[] = [
     key: 'amd_vbv_buffer_frames',
     label: 'Rate-control buffer',
     description:
-      'Buffer budget in frames at the requested bitrate and frame rate. 0 keeps the driver default. Smaller budgets can reduce bursts at the cost of picture quality.',
+      'Rate-control buffer budget, in frames. Smaller budgets can reduce bursts at the cost of picture quality.',
+    details: 'Frames are counted at the requested bitrate and frame rate. 0 keeps the driver default.',
     category: 'encoders',
     group: 'AMD AMF',
     control: {
@@ -754,7 +796,9 @@ const amd: Setting[] = [
     key: 'amd_max_frame_size',
     label: 'Maximum frame size',
     description:
-      'Requests a size limit for every frame, including recovery keyframes, in multiples of one frame’s bitrate budget. 0 keeps the driver default. Driver support and enforcement vary; tight limits can reduce picture quality.',
+      'Requests a size limit for every frame, including recovery keyframes. Tight limits can reduce picture quality.',
+    details:
+      'Set in multiples of one frame’s bitrate budget. 0 keeps the driver default. Driver support and enforcement vary.',
     category: 'encoders',
     group: 'AMD AMF',
     control: {
@@ -800,7 +844,8 @@ const amd: Setting[] = [
     key: 'amd_vbaq',
     label: 'Variance-based adaptive quantization',
     description:
-      'Gives more bits to smooth areas, where artifacts are easiest to see, and fewer to busy textures. When unset, off for H.264 and on for HEVC/AV1; not used with constant QP.',
+      'Gives more bits to smooth areas, where artifacts are easiest to see, and fewer to busy textures.',
+    details: 'When unset, off for H.264 and on for HEVC/AV1. Not used with constant QP.',
     category: 'encoders',
     group: 'AMD AMF',
     control: {
@@ -857,7 +902,8 @@ const amd: Setting[] = [
     key: 'amd_ltr_frames',
     label: 'Long-term reference frames',
     description:
-      'Frames the encoder keeps as long-term references, so a client that lost packets recovers with a small frame instead of a full keyframe. AV1 only; H.264 and HEVC always recover with a keyframe. 0 turns it off.',
+      'Frames the encoder keeps as long-term references, so a client that lost packets recovers with a small frame instead of a full keyframe. AV1 only.',
+    details: 'H.264 and HEVC always recover with a keyframe. 0 turns it off.',
     category: 'encoders',
     group: 'AMD AMF',
     control: { kind: 'number', min: 0, max: 4, step: 1, unit: 'frames' },
@@ -869,7 +915,9 @@ const amd: Setting[] = [
     key: 'amd_lowlatency_mode',
     label: 'Low-latency mode',
     description:
-      "Turns the encoder's internal low-latency mode on or off for H.264 and HEVC. The driver already turns it on for the Ultra low latency usage (the default) and Low latency, high quality; On changes only the other usages.",
+      "Turns the encoder's internal low-latency mode on or off for H.264 and HEVC.",
+    details:
+      'The driver already turns it on for the Ultra low latency usage (the default) and Low latency, high quality; On changes only the other usages.',
     category: 'encoders',
     group: 'AMD AMF',
     control: { kind: 'select', options: tristate },
@@ -904,7 +952,9 @@ const amd: Setting[] = [
     key: 'amd_split_frame',
     label: 'Split-frame encoding',
     description:
-      "Lets the driver split HEVC or AV1 frames across two encoder engines. Automatic requests it only when the driver has it off; On requests it and Off disables the property. Leave Automatic unless comparing your own GPU: measured RX 7900 XT throughput was similar across these choices. H.264 and GPUs with one engine ignore it.",
+      'Lets the driver split HEVC or AV1 frames across two encoder engines. Leave Automatic unless comparing your own GPU.',
+    details:
+      'Automatic requests it only when the driver has it off; On requests it and Off disables the property. Measured RX 7900 XT throughput was similar across these choices. H.264 and GPUs with one engine ignore it.',
     category: 'encoders',
     group: 'AMD AMF',
     control: {
@@ -923,7 +973,9 @@ const amd: Setting[] = [
     key: 'amd_av1_latency_mode',
     label: 'AV1 latency mode',
     description:
-      'How quickly each AV1 frame is finished. Lower latency uses more power. The driver already picks the lowest latency for the Ultra low latency usage (the default) and Low latency, high quality.',
+      'How quickly each AV1 frame is finished. Lower latency uses more power.',
+    details:
+      'The driver already picks the lowest latency for the Ultra low latency usage (the default) and Low latency, high quality.',
     category: 'encoders',
     group: 'AMD AMF',
     control: {

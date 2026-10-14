@@ -107,7 +107,9 @@ const general: Setting[] = [
     key: 'update_check_interval',
     label: 'Update check interval',
     description:
-      'How often the host looks for a new Rubylight release, at least 3600 seconds (one hour). 0 turns off automatic checks and automatic installation; you can still check and install from Maintenance.',
+      'How often the host looks for a new Rubylight release. Set it to 0 to turn off automatic checks.',
+    details:
+      'The minimum is 3600 seconds (one hour). 0 also turns off automatic installation; you can still check and install from Maintenance.',
     category: 'general',
     group: 'Updates',
     control: { kind: 'number', min: 0, step: 1, unit: 's' },
@@ -116,7 +118,8 @@ const general: Setting[] = [
   {
     key: 'auto_update',
     label: 'Install updates automatically',
-    description: 'Download verified releases and install after one minute without streams, pending connections or running host apps. Requires the Windows service and an update check interval above 0. Off by default.',
+    description: 'Download and install new releases on their own while nothing is streaming.',
+    details: 'Only verified releases are downloaded. They install after one minute without streams, pending connections or running host apps. Requires the Windows service and an update check interval above 0. Off by default.',
     category: 'general',
     group: 'Updates',
     control: { kind: 'toggle' },
@@ -135,7 +138,9 @@ const general: Setting[] = [
     key: 'min_log_level',
     label: 'Log level',
     description:
-      'How much detail the host writes to its log. Information includes encoder settings, display setup and timing lines every 5 seconds. Debug adds GPU scheduling, discovery and probe details for a problem report; Verbose adds everything. Applies right away.',
+      'How much detail the host writes to its log; changes apply right away. Use Debug when you are preparing a problem report.',
+    details:
+      'Information includes encoder settings, display setup and timing lines every 5 seconds. Debug adds GPU scheduling, discovery and probe details; Verbose adds everything.',
     category: 'general',
     group: 'Logging',
     control: {
@@ -174,7 +179,8 @@ const general: Setting[] = [
   {
     key: 'hardware_metrics_selection',
     label: 'Hardware metrics selection',
-    description: 'Leave empty for all supported readings, or add identifiers: cpu_usage_percent, gpu_usage_percent, gpu_clock_mhz, gpu_memory_clock_mhz, gpu_temperature_c, gpu_hotspot_temperature_c, gpu_memory_temperature_c, gpu_voltage_mv, gpu_fan_rpm, gpu_fan_percent, gpu_power_w, gpu_board_power_w, gpu_vram_used_mb, gpu_vram_usage_percent.',
+    description: 'Which readings to send. Leave it empty to send every supported reading.',
+    details: 'To send only some readings, add their identifiers: cpu_usage_percent, gpu_usage_percent, gpu_clock_mhz, gpu_memory_clock_mhz, gpu_temperature_c, gpu_hotspot_temperature_c, gpu_memory_temperature_c, gpu_voltage_mv, gpu_fan_rpm, gpu_fan_percent, gpu_power_w, gpu_board_power_w, gpu_vram_used_mb, gpu_vram_usage_percent.',
     category: 'general',
     group: 'Hardware metrics',
     control: { kind: 'list', placeholder: 'cpu_usage_percent' },
@@ -225,7 +231,9 @@ const network: Setting[] = [
     key: 'port',
     label: 'Base port',
     description:
-      'Moonlight connects on this port and the one 5 below it, this console uses the next port up, and streams use ports 9, 10, 11 and 21 above it. Change it only if another program needs these ports.',
+      "Moonlight connects on this port, and the host's other ports are counted from it. Change it only if another program needs these ports.",
+    details:
+      'Moonlight also connects on the port 5 below it, this console uses the next port up, and streams use ports 9, 10, 11 and 21 above it.',
     category: 'network',
     group: 'Ports and addresses',
     control: { kind: 'number', min: 1029, max: 65514, step: 1 },
@@ -284,7 +292,8 @@ const network: Setting[] = [
     key: 'lan_encryption_mode',
     label: 'Local network encryption',
     description:
-      'Whether streams to devices on the local network, including Tailscale, are encrypted. Required turns away devices that cannot encrypt; encryption costs some performance on slower devices.',
+      'Whether streams to devices on the local network, including Tailscale, are encrypted. Encryption costs some performance on slower devices.',
+    details: 'Required turns away devices that cannot encrypt.',
     category: 'network',
     group: 'Streams',
     control: { kind: 'select', options: encryption },
@@ -314,7 +323,9 @@ const network: Setting[] = [
     key: 'origin_web_ui_allowed',
     label: 'Console access',
     description:
-      'Which addresses may open this console and use its API. Local network includes private addresses and Tailscale (100.64.0.0/10); with Any network and UPnP on, the console port is forwarded too.',
+      'Which addresses may open this console and use its API.',
+    details:
+      'Local network includes private addresses and Tailscale (100.64.0.0/10). With Any network and UPnP on, the console port is forwarded too.',
     category: 'network',
     group: 'Console',
     control: {
@@ -331,7 +342,8 @@ const network: Setting[] = [
     key: 'csrf_allowed_origins',
     label: 'Trusted origins',
     description:
-      'Other web addresses allowed to make changes through this console, written as scheme and host, such as https://stream.example.com. Add one only when you reach the console through a reverse proxy.',
+      'Other web addresses allowed to make changes through this console. Add one only when you reach the console through a reverse proxy.',
+    details: 'Write each one as scheme and host, such as https://stream.example.com.',
     category: 'network',
     group: 'Console',
     control: { kind: 'list', placeholder: 'https://stream.example.com' },
@@ -341,7 +353,9 @@ const network: Setting[] = [
     key: 'session_token_ttl_seconds',
     label: 'Sign-in token lifetime',
     description:
-      'How long a console sign-in lasts before the browser must renew it (60 to 604800 seconds). Without "Keep me signed in", a sign-in ends after this time or one day, whichever is longer.',
+      'How long a console sign-in lasts before the browser must renew it.',
+    details:
+      'From 60 to 604800 seconds. Without "Keep me signed in", a sign-in ends after this time or one day, whichever is longer.',
     category: 'network',
     group: 'Console',
     control: { kind: 'number', min: 60, max: 604800, step: 1, unit: 's' },
@@ -377,7 +391,9 @@ const audio: Setting[] = [
     key: 'audio_capture_mode',
     label: 'Audio to stream',
     description:
-      'Game only captures the launched game and its children, keeping browsers and notifications out. Requires Windows build 20348 or newer and a verified game process. Unavailable capture sends silence with a session warning. Game only currently uses stereo and leaves local playback devices unchanged. Reconnect to apply.',
+      'Choose Game only to stream just the game, keeping browsers and notifications out. Reconnect to apply.',
+    details:
+      'Game only captures the launched game and its children. It requires Windows build 20348 or newer and a verified game process; when capture is unavailable, the stream sends silence with a session warning. Game only currently uses stereo and leaves local playback devices unchanged.',
     category: 'audio',
     group: 'Sound',
     control: { kind: 'select', options: [
@@ -404,7 +420,9 @@ const audio: Setting[] = [
     key: 'virtual_sink',
     label: 'Virtual speakers',
     description:
-      "The audio output made the Windows default during a stream, so sound goes to the streaming device instead of the PC's speakers. Leave it empty to use Steam Streaming Speakers when installed; an output chosen here is used even when the streaming device keeps sound on the host.",
+      "The audio output made the Windows default during a stream, so sound goes to the streaming device instead of the PC's speakers.",
+    details:
+      'Leave it empty to use Steam Streaming Speakers when installed. An output chosen here is used even when the streaming device keeps sound on the host.',
     category: 'audio',
     group: 'Devices',
     control: { kind: 'audio' },
@@ -416,7 +434,8 @@ const audio: Setting[] = [
     key: 'audio_sink_capture_only',
     label: 'Capture without switching',
     description:
-      'Capture the audio device without changing the Windows default output; send the apps you want to hear to that device yourself. Applies only when an audio device is set and virtual speakers are not.',
+      'Capture the audio device without changing the Windows default output. You then send the apps you want to hear to that device yourself.',
+    details: 'Applies only when an audio device is set and virtual speakers are not.',
     category: 'audio',
     group: 'Devices',
     control: { kind: 'toggle' },
@@ -429,7 +448,8 @@ const audio: Setting[] = [
     key: 'auto_capture_sink',
     label: 'Follow the default device',
     description:
-      'Without virtual speakers, capture whichever device is the Windows default, even if it changes during a stream, and retry when capture fails. Turn it off to stay on the device chosen when the stream started.',
+      'Capture whichever device is the Windows default, even if it changes during a stream. Turn it off to stay on the device chosen when the stream started.',
+    details: 'Applies only without virtual speakers. When on, capture is also retried when it fails.',
     category: 'audio',
     group: 'Devices',
     control: { kind: 'toggle' },
@@ -453,7 +473,9 @@ const audio: Setting[] = [
     key: 'install_steam_audio_drivers',
     label: 'Install Steam audio drivers',
     description:
-      'When Steam is installed, install its Streaming Speakers at the start of a stream if no virtual speakers exist, and its Streaming Microphone the first time a device sends its microphone. The speakers keep the PC silent and support 5.1 and 7.1 surround.',
+      'When Steam is installed, install its streaming speakers and microphone when a stream needs them.',
+    details:
+      'Steam Streaming Speakers are installed at the start of a stream if no virtual speakers exist, and Steam Streaming Microphone the first time a device sends its microphone. The speakers keep the PC silent and support 5.1 and 7.1 surround.',
     category: 'audio',
     group: 'Virtual speakers',
     control: { kind: 'toggle' },
@@ -465,7 +487,8 @@ const audio: Setting[] = [
     key: 'stream_mic',
     label: 'Use the device microphone',
     description:
-      "Let a streaming device that sends its microphone talk through the PC. Games and chat apps hear it on Microphone (Steam Streaming Microphone). Only clients with microphone support send one.",
+      'Let a streaming device that sends its microphone talk through the PC. Only clients with microphone support send one.',
+    details: 'Games and chat apps hear it on Microphone (Steam Streaming Microphone).',
     category: 'audio',
     group: 'Microphone',
     control: { kind: 'toggle' },
@@ -506,7 +529,8 @@ function backGrip(key: string, name: string, where: string): Setting {
   return {
     key,
     label: `Back grip ${name}`,
-    description: `What the ${where} back button presses: a Steam Deck's ${name}, or the matching paddle on an Xbox Elite or DualSense Edge. The virtual controllers have no back buttons, so they do nothing until mapped here. A Steam Deck passed through as a Steam Deck keeps its own.`,
+    description: `What the ${where} back button presses: a Steam Deck's ${name}, or the matching paddle on an Xbox Elite or DualSense Edge.`,
+    details: `The virtual controllers have no back buttons, so they do nothing until mapped here. A Steam Deck passed through as a Steam Deck keeps its own.`,
     category: 'input',
     group: 'Steam Deck and back grips',
     control: { kind: 'select', options: gripOptions },
@@ -603,7 +627,9 @@ const input: Setting[] = [
     key: 'keybindings',
     label: 'Key remapping',
     description:
-      'Pairs of Windows virtual-key codes in one list, each key from the device followed by the key the host presses instead, such as ["0x10", "0xA0"]. Shift, Ctrl and Alt already map to their left-hand keys.',
+      'Make a key from the device press a different key on the host, as pairs of Windows virtual-key codes such as ["0x10", "0xA0"].',
+    details:
+      'All pairs go in one list, each key from the device followed by the key the host presses instead. Shift, Ctrl and Alt already map to their left-hand keys.',
     category: 'input',
     group: 'Keyboard',
     control: { kind: 'json' },
@@ -639,7 +665,9 @@ const input: Setting[] = [
     key: 'gamepad',
     label: 'Controller type',
     description:
-      "Automatic picks the virtual controller that matches each device's controller: DualSense, with adaptive triggers, for PlayStation, Switch Pro for Nintendo, and Xbox Series otherwise, or DualSense when the motion or touchpad options below select it. Waveform-capable DualSense clients use native USB audio haptics when usbip-win2 is installed on the host. The USB/IP option requires that driver and exposes a DualSense audio device. Choosing a type here uses it for all connected controllers. Steam stable can list a virtual Xbox controller twice; the Steam beta lists it once.",
+      "The virtual controller the host uses. Automatic matches each device's controller; choosing a type here uses it for all connected controllers.",
+    details:
+      'Automatic picks DualSense, with adaptive triggers, for PlayStation, Switch Pro for Nintendo, and Xbox Series otherwise, or DualSense when the motion or touchpad options below select it. Waveform-capable DualSense clients use native USB audio haptics when usbip-win2 is installed on the host. The USB/IP option requires that driver and exposes a DualSense audio device. Steam stable can list a virtual Xbox controller twice; the Steam beta lists it once.',
     category: 'input',
     group: 'Controllers',
     control: {
@@ -662,7 +690,8 @@ const input: Setting[] = [
     key: 'motion_as_ds4',
     label: 'PlayStation controller for motion controls',
     description:
-      "With Automatic, motion sensors select DualSense, including for Xbox-type devices such as Steam Deck. Nintendo devices stay Switch Pro. Turn it off to ignore motion sensors when choosing.",
+      'With Automatic, motion sensors select DualSense. Turn it off to ignore motion sensors when choosing.',
+    details: 'This includes Xbox-type devices such as Steam Deck. Nintendo devices stay Switch Pro.',
     category: 'input',
     group: 'Controllers',
     control: { kind: 'toggle' },
@@ -674,7 +703,8 @@ const input: Setting[] = [
     key: 'touchpad_as_ds4',
     label: 'PlayStation controller for touchpads',
     description:
-      "With Automatic, a touchpad selects DualSense. Nintendo devices stay Switch Pro. Turn it off to ignore the touchpad when choosing.",
+      'With Automatic, a touchpad selects DualSense. Turn it off to ignore the touchpad when choosing.',
+    details: 'Nintendo devices stay Switch Pro.',
     category: 'input',
     group: 'Controllers',
     control: { kind: 'toggle' },
@@ -709,7 +739,9 @@ const input: Setting[] = [
     key: 'steam_deck_controller',
     label: 'Steam Deck controller',
     description:
-      "How a Steam Deck's controls reach the host. Steam Deck attaches a real Steam Deck controller through usbip-win2, so Steam on the host sees a Steam Deck with its trackpads, motion sensors and back grips and applies its Steam Input layout; it needs usbip-win2 installed. Automatic does that while Steam is running on the host. Virtual controller always uses the virtual DualSense or Xbox controller.",
+      "How a Steam Deck's controls reach the host. Steam Deck lets Steam on the host see a real Steam Deck and apply its Steam Input layout.",
+    details:
+      'Steam Deck attaches a real Steam Deck controller through usbip-win2, with its trackpads, motion sensors and back grips; it needs usbip-win2 installed. Automatic does that while Steam is running on the host. Virtual controller always uses the virtual DualSense or Xbox controller.',
     category: 'input',
     group: 'Steam Deck and back grips',
     control: {

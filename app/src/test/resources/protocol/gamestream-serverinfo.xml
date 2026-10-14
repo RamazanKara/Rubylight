@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<root protocol_version="0.1" query="serverinfo" status_code="200" status_message="OK">
+  <hostname>GameStream fixture</hostname><appversion>7.1.431.0</appversion><GfeVersion>3.23.0.74</GfeVersion>
+  <uniqueid>0123456789ABCDEF</uniqueid><HttpsPort>47984</HttpsPort><mac>00:00:00:00:00:00</mac>
+  <MaxLumaPixelsH264>1869449984</MaxLumaPixelsH264><MaxLumaPixelsHEVC>1869449984</MaxLumaPixelsHEVC>
+  <LocalIP>192.0.2.13</LocalIP><ServerCodecModeSupport>259</ServerCodecModeSupport><gputype>GeForce fixture</gputype>
+  <PairStatus>1</PairStatus><currentgame>0</currentgame><state>MJOLNIR_SERVER_FREE</state>
+</root>

@@ -1,0 +1,308 @@
+package com.limelight.nvstream.http;
+
+import android.app.Application;
+import android.content.Context;
+import android.content.res.Configuration;
+
+import com.limelight.R;
+import com.limelight.nvstream.http.HostCapabilities.Availability;
+import com.limelight.nvstream.http.HostCapabilities.Family;
+import com.limelight.nvstream.http.HostCapabilities.Feature;
+import com.limelight.nvstream.http.HostCapabilities.Reason;
+
+import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.robolectric.RobolectricTestRunner;
+import org.robolectric.RuntimeEnvironment;
+import org.robolectric.annotation.Config;
+
+import java.util.EnumSet;
+import java.util.Locale;
+import java.util.Set;
+
+import static com.limelight.nvstream.http.HostCapabilities.Feature.*;
+import static org.junit.Assert.*;
+
+@RunWith(RobolectricTestRunner.class)
+@Config(sdk = 29, application = Application.class)
+public class HostCapabilitiesTest {
+    private static final String[] FIXTURES = {"sunshine-serverinfo.xml", "apollo-serverinfo.xml",
+            "apollo-http-serverinfo.xml", "vibepollo-serverinfo.xml", "vibepollo-http-serverinfo.xml",
+            "gamestream-serverinfo.xml", "rubylight-serverinfo.xml", "butterpollo-serverinfo.xml",
+            "butterpollo-viewer-serverinfo.xml"};
+
+    private static HostCapabilities caps(String xml) {
+        return TestHosts.caps("<root status_code=\"200\">" + xml + "</root>");
+    }
+
+    private static void assertSupported(HostCapabilities caps, Feature... expected) {
+        Set<Feature> features = expected.length == 0 ? EnumSet.noneOf(Feature.class) : EnumSet.of(expected[0], expected);
+        assertEquals(caps.toString(), features, caps.supported());
+    }
+
+    private static void assertNever(HostCapabilities caps, Feature... features) {
+        for (Feature feature : features) {
+            assertTrue(feature + " " + caps.availability(feature), caps.availability(feature).isNever());
+        }
+    }
+
+    private static void assertReason(HostCapabilities caps, Feature feature, Reason reason) {
+        Availability availability = caps.availability(feature);
+        assertEquals(feature.name(), Availability.State.UNSUPPORTED, availability.state);
+        assertEquals(feature.name(), reason, availability.reason);
+    }
+
+    private static void assertUnknown(HostCapabilities caps, Feature... features) {
+        for (Feature feature : features) {
+            assertTrue(feature + " " + caps.availability(feature), caps.availability(feature).isUnknown());
+        }
+    }
+
+    @Test
+    public void sunshineOffersOnlyItsWebUi() {
+        HostCapabilities caps = TestHosts.fixture("sunshine-serverinfo.xml");
+        assertEquals(Family.SUNSHINE, caps.family());
+        assertNull(caps.hostVersion());
+        assertSupported(caps, WEB_UI);
+        // Apollo-family hosts announce permissions even to unpaired clients, so their absence is final.
+        assertNever(caps, PERMISSIONS, OTP_PAIRING, CLIPBOARD, VIRTUAL_DISPLAY, HOST_DISPLAY_MODES, FRACTIONAL_REFRESH,
+                HOST_VRR, RUNTIME_BITRATE, PYROWAVE, REMOTE_SESSION_TILES, HOST_CONFIRMS_REPLACEMENT);
+    }
+
+    @Test
+    public void pairedApolloHasPermissionsVirtualDisplayAndFractionalRatesButNoDisplayModes() {
+        HostCapabilities caps = TestHosts.fixture("apollo-serverinfo.xml");
+        assertEquals(Family.APOLLO, caps.family());
+        assertSupported(caps, PERMISSIONS, OTP_PAIRING, CLIPBOARD, SERVER_COMMANDS, APP_UUIDS, VIRTUAL_DISPLAY,
+                FRACTIONAL_REFRESH, WEB_UI);
+        assertNever(caps, HOST_DISPLAY_MODES, VIRTUAL_DISPLAY_HDR, HOST_VRR, RUNTIME_BITRATE, PYROWAVE,
+                REMOTE_SESSION_TILES, HOST_CONFIRMS_REPLACEMENT, HARDWARE_METRICS, NETWORK_PATH);
+    }
+
+    @Test
+    public void unpairedApolloIsRecognizedButKeepsHttpsOnlyFeaturesOpen() {
+        HostCapabilities caps = TestHosts.fixture("apollo-http-serverinfo.xml");
+        assertEquals(Family.APOLLO, caps.family());
+        assertSupported(caps, PERMISSIONS, OTP_PAIRING, APP_UUIDS, FRACTIONAL_REFRESH, WEB_UI);
+        assertUnknown(caps, VIRTUAL_DISPLAY, PYROWAVE);
+        assertReason(caps, CLIPBOARD, Reason.PAIR);
+        assertReason(caps, SERVER_COMMANDS, Reason.PAIR);
+    }
+
+    @Test
+    public void vibepolloGetsEveryFeatureItsExtensionsShowWithoutRubylightOnes() {
+        HostCapabilities caps = TestHosts.fixture("vibepollo-serverinfo.xml");
+        assertEquals(Family.VIBEPOLLO, caps.family());
+        assertSupported(caps, PERMISSIONS, OTP_PAIRING, CLIPBOARD, SERVER_COMMANDS, APP_UUIDS, VIRTUAL_DISPLAY,
+                VIRTUAL_DISPLAY_HDR, FRACTIONAL_REFRESH, HOST_VRR, RUNTIME_BITRATE, PYROWAVE, PYROWAVE_RECORDS,
+                PYROWAVE_BANDWIDTH_PROBE, FRAME_LIMITER_STATUS, REMOTE_SESSION_TILES, HOST_CONFIRMS_REPLACEMENT, WEB_UI);
+        assertNever(caps, HOST_DISPLAY_MODES, HARDWARE_METRICS, NETWORK_PATH, CONTROLLER_PREPARATION);
+        assertEquals(HostCapabilities.NATIVE_PYROWAVE_RECORDS, caps.nativeFeatures());
+    }
+
+    @Test
+    public void unpairedVibepolloHidesPyroWaveUntilPaired() {
+        HostCapabilities caps = TestHosts.fixture("vibepollo-http-serverinfo.xml");
+        assertEquals(Family.VIBEPOLLO, caps.family());
+        assertUnknown(caps, PYROWAVE, PYROWAVE_RECORDS, PYROWAVE_BANDWIDTH_PROBE);
+        assertTrue(caps.has(VIRTUAL_DISPLAY));
+        assertReason(caps, RUNTIME_BITRATE, Reason.PAIR);
+        assertEquals(0, caps.nativeFeatures());
+    }
+
+    @Test
+    public void gameStreamOffersNoExtensions() {
+        HostCapabilities caps = TestHosts.fixture("gamestream-serverinfo.xml");
+        assertEquals(Family.GAMESTREAM, caps.family());
+        assertSupported(caps);
+        for (Feature feature : Feature.values()) {
+            assertTrue(feature.name(), caps.availability(feature).isNever());
+        }
+    }
+
+    @Test
+    public void currentRubylightSupportsEverything() {
+        HostCapabilities caps = TestHosts.rubylight();
+        assertEquals(Family.RUBYLIGHT, caps.family());
+        assertEquals("2.2.21", caps.hostVersion());
+        assertEquals(EnumSet.allOf(Feature.class), caps.supported());
+    }
+
+    @Test
+    public void olderRubylightNeedsAnUpdateForNewerFeatures() {
+        HostCapabilities caps = TestHosts.fixture("butterpollo-serverinfo.xml");
+        assertEquals(Family.RUBYLIGHT, caps.family());
+        assertEquals("2.0.0-rc.19", caps.hostVersion());
+        for (Feature feature : new Feature[] {HOST_DISPLAY_MODES, RUNTIME_BITRATE, HARDWARE_METRICS, NETWORK_PATH,
+                CONTROLLER_PREPARATION}) {
+            assertReason(caps, feature, Reason.UPDATE_HOST);
+        }
+        assertTrue(caps.has(PYROWAVE_RECORDS));
+        assertTrue(caps.has(FRACTIONAL_REFRESH));
+        assertTrue(caps.has(VIRTUAL_DISPLAY));
+    }
+
+    @Test
+    public void viewOnlyDeviceSeesWhichPermissionsToAllow() {
+        HostCapabilities caps = TestHosts.fixture("butterpollo-viewer-serverinfo.xml");
+        assertReason(caps, CLIPBOARD, Reason.CLIPBOARD_PERMISSION);
+        assertReason(caps, SERVER_COMMANDS, Reason.COMMAND_PERMISSION);
+        HostCapabilities noView = caps("<RustHostVersion>2.2.21</RustHostVersion><PairStatus>1</PairStatus>" +
+                "<Permission>" + ComputerDetails.PERMISSION_LIST + "</Permission><NetworkPathVersion>0</NetworkPathVersion>" +
+                "<HardwareMetricsVersion>0</HardwareMetricsVersion><RustHostEncoderBitrateKbps>0</RustHostEncoderBitrateKbps>" +
+                "<RustHostInitialEncoderBitrateKbps>0</RustHostInitialEncoderBitrateKbps>");
+        assertReason(noView, RUNTIME_BITRATE, Reason.VIEW_PERMISSION);
+        assertReason(noView, HARDWARE_METRICS, Reason.VIEW_PERMISSION);
+        assertReason(noView, NETWORK_PATH, Reason.VIEW_PERMISSION);
+        HostCapabilities metricsOff = caps("<RustHostVersion>2.2.21</RustHostVersion><PairStatus>1</PairStatus>" +
+                "<Permission>4294967295</Permission><HardwareMetricsVersion>0</HardwareMetricsVersion>");
+        assertReason(metricsOff, HARDWARE_METRICS, Reason.HARDWARE_METRICS_OFF);
+        HostCapabilities noCommands = caps("<Permission>4294967295</Permission><PairStatus>1</PairStatus>" +
+                "<appversion>7.1.431.-1</appversion>");
+        assertReason(noCommands, SERVER_COMMANDS, Reason.NO_COMMANDS);
+    }
+
+    @Test
+    public void familyFollowsTheDocumentedOrder() {
+        assertEquals(Family.GAMESTREAM, caps("<state>MJOLNIR_SERVER_FREE</state><RustHostVersion>2.2.21</RustHostVersion>").family());
+        assertEquals(Family.RUBYLIGHT, caps("<RustHostVersion>2.2.21</RustHostVersion><FrameLimiterSupported>1</FrameLimiterSupported>").family());
+        // The tag marks Vibepollo even when its value says the limiter is off.
+        assertEquals(Family.VIBEPOLLO, caps("<FrameLimiterSupported>0</FrameLimiterSupported><Permission>0</Permission>").family());
+        assertEquals(Family.VIBEPOLLO, caps("<PyroWaveHostLinkMbps>0</PyroWaveHostLinkMbps>").family());
+        assertEquals(Family.APOLLO, caps("<Permission>0</Permission>").family());
+        assertEquals(Family.APOLLO, caps("<ServerCommand>Sleep</ServerCommand>").family());
+        assertEquals(Family.APOLLO, caps("<VirtualDisplayCapable>true</VirtualDisplayCapable>").family());
+        assertEquals(Family.SUNSHINE, caps("<appversion>7.1.431.-1</appversion>").family());
+        assertEquals(Family.UNKNOWN, caps("<appversion>7.1.431.0</appversion><state>SUNSHINE_SERVER_FREE</state>").family());
+        assertEquals(Family.RUBYLIGHT, caps("<RustHostVersion> 2.2.21 </RustHostVersion>").family());
+        assertEquals(Family.SUNSHINE, caps("<appversion>7.1.431.-1</appversion><RustHostVersion></RustHostVersion>").family());
+    }
+
+    @Test
+    public void unrecognizedHostsRuleNothingOutAndNeverSeenHostsKnowNothing() {
+        HostCapabilities other = caps("<appversion>7.1.431.0</appversion><PairStatus>1</PairStatus>");
+        for (Feature feature : Feature.values()) {
+            assertTrue(feature.name(), other.availability(feature).isUnknown());
+            assertTrue(other.mayHave(feature));
+            assertFalse(other.has(feature));
+            assertTrue(HostCapabilities.UNKNOWN.availability(feature).isUnknown());
+        }
+        assertFalse(HostCapabilities.UNKNOWN.isKnown());
+        assertTrue(other.isKnown());
+        assertEquals(Family.UNKNOWN, HostCapabilities.UNKNOWN.family());
+    }
+
+    @Test
+    public void pyroWaveCodecBitsAreTrustedOnlyFromHostsThatShowPyroWave() {
+        int codecs = 0x07800000 | 0x30301;
+        // Sunshine has no PyroWave; a future use of these bits must not become PyroWave.
+        assertEquals(0x30301, caps("<appversion>7.1.431.-1</appversion><ServerCodecModeSupport>" + codecs +
+                "</ServerCodecModeSupport>").trustedCodecModeSupport(codecs));
+        assertEquals(0x30301, caps("<Permission>4294967295</Permission><PairStatus>1</PairStatus><ServerCodecModeSupport>" +
+                codecs + "</ServerCodecModeSupport>").trustedCodecModeSupport(codecs));
+        assertEquals(codecs, TestHosts.fixture("vibepollo-serverinfo.xml").trustedCodecModeSupport(codecs));
+        assertEquals(codecs, TestHosts.rubylight().trustedCodecModeSupport(codecs));
+        assertEquals(0x30301, HostCapabilities.UNKNOWN.trustedCodecModeSupport(codecs));
+        // PyroWave fields without codec bits: the host has PyroWave off or no encoder for it.
+        assertNever(caps("<RustHostVersion>2.2.21</RustHostVersion><ServerCodecModeSupport>197377</ServerCodecModeSupport>"),
+                PYROWAVE, PYROWAVE_RECORDS);
+    }
+
+    @Test
+    public void pyroWaveRecordsKeepTheNativeVersionRule() {
+        for (String version : new String[] {"2.0.0-rc.1", "2.0.0-rc.25", "2.0.0", "2.1.0", "3.0.0", "2.0.0-rc.2+build.7"}) {
+            assertEquals(version, HostCapabilities.NATIVE_PYROWAVE_RECORDS, rubylightWithPyroWave(version).nativeFeatures());
+        }
+        for (String version : new String[] {"1.9.9", "2.0.0-rc.0", "2.0.0-beta.9", "test", "2.0", "2.0.0-rc.1junk",
+                "2.0.0-rc.01", "2.0.0+", "02.0.0", "999999999.0.0"}) {
+            assertEquals(version, 0, rubylightWithPyroWave(version).nativeFeatures());
+            assertTrue(rubylightWithPyroWave(version).has(PYROWAVE));
+        }
+    }
+
+    private static HostCapabilities rubylightWithPyroWave(String version) {
+        return caps("<RustHostVersion>" + version + "</RustHostVersion><ServerCodecModeSupport>" + 0x07800001 +
+                "</ServerCodecModeSupport>");
+    }
+
+    @Test
+    public void displayModesNeedRubylight221AndAWorkingVirtualDisplay() {
+        String fields = "<VirtualDisplayCapable>true</VirtualDisplayCapable><VirtualDisplayDriverReady>true</VirtualDisplayDriverReady>";
+        for (String version : new String[] {"2.2.0", "2.2.1-rc.3", "2.0.0-rc.19", "1.0", "test"}) {
+            assertReason(caps("<RustHostVersion>" + version + "</RustHostVersion>" + fields), HOST_DISPLAY_MODES, Reason.UPDATE_HOST);
+        }
+        for (String version : new String[] {"2.2.1", "2.2.21", "2.10.0", "3.0.0-rc.1"}) {
+            assertTrue(version, caps("<RustHostVersion>" + version + "</RustHostVersion>" + fields).has(HOST_DISPLAY_MODES));
+        }
+        HostCapabilities off = caps("<RustHostVersion>2.2.21</RustHostVersion><VirtualDisplayCapable>false</VirtualDisplayCapable>");
+        assertReason(off, HOST_DISPLAY_MODES, Reason.VIRTUAL_DISPLAY_OFF);
+        assertReason(off, VIRTUAL_DISPLAY, Reason.VIRTUAL_DISPLAY_OFF);
+        HostCapabilities driver = caps("<RustHostVersion>2.2.21</RustHostVersion><VirtualDisplayCapable>1</VirtualDisplayCapable>" +
+                "<VirtualDisplayDriverReady>0</VirtualDisplayDriverReady>");
+        assertReason(driver, HOST_DISPLAY_MODES, Reason.VIRTUAL_DISPLAY_DRIVER);
+        assertReason(driver, VIRTUAL_DISPLAY_HDR, Reason.VIRTUAL_DISPLAY_DRIVER);
+        // A platform without one (Vibepollo on Linux) can never use it.
+        assertNever(caps("<FrameLimiterSupported>1</FrameLimiterSupported><VirtualDisplayCapable>false</VirtualDisplayCapable>"),
+                VIRTUAL_DISPLAY);
+    }
+
+    @Test
+    public void bandwidthProbeNeedsPairingAndTheExactAdvertisedSize() {
+        assertReason(caps("<RustHostVersion>2.2.21</RustHostVersion><PyroWaveBandwidthProbeBytes>0</PyroWaveBandwidthProbeBytes>"),
+                PYROWAVE_BANDWIDTH_PROBE, Reason.PAIR);
+        for (String bytes : new String[] {"0", "-1", "33554433", "bad"}) {
+            assertNever(caps("<FrameLimiterSupported>1</FrameLimiterSupported><PairStatus>1</PairStatus>" +
+                    "<PyroWaveBandwidthProbeBytes>" + bytes + "</PyroWaveBandwidthProbeBytes>"), PYROWAVE_BANDWIDTH_PROBE);
+        }
+        assertReason(caps("<RustHostVersion>2.0.0-rc.1</RustHostVersion><PairStatus>1</PairStatus>"),
+                PYROWAVE_BANDWIDTH_PROBE, Reason.UPDATE_HOST);
+    }
+
+    @Test
+    public void storedCapabilitiesRoundTripWithoutIdentifyingDetails() {
+        for (String fixture : FIXTURES) {
+            HostCapabilities caps = TestHosts.fixture(fixture);
+            String json = caps.toJson();
+            HostCapabilities restored = HostCapabilities.fromJson(json);
+            assertEquals(fixture, caps, restored);
+            assertEquals(fixture, caps.family(), restored.family());
+            for (Feature feature : Feature.values()) {
+                assertEquals(fixture + " " + feature, caps.availability(feature), restored.availability(feature));
+            }
+            for (String secret : new String[] {"fixture", "192.0.2", "00:00:00", "ef95b248", "6f2d5a1c", "Sleep", "Fixture command"}) {
+                assertFalse(fixture + " stores " + secret, json.contains(secret));
+            }
+        }
+        assertNull(HostCapabilities.UNKNOWN.toJson());
+        for (String damaged : new String[] {null, "", "{", "[]", "{\"v\":2}", "{\"v\":1}",
+                TestHosts.rubylight().toJson().replace("\"v\":1", "\"v\":99"),
+                TestHosts.rubylight().toJson().replace("4294967295", "4294967296")}) {
+            assertSame(String.valueOf(damaged), HostCapabilities.UNKNOWN, HostCapabilities.fromJson(damaged));
+        }
+    }
+
+    @Test
+    public void familyLabelsNameTheHostOnlyForIdentification() {
+        Context context = RuntimeEnvironment.getApplication();
+        assertEquals("Rubylight 2.2.21", TestHosts.rubylight().familyLabel(context));
+        assertEquals("Apollo-compatible host", TestHosts.fixture("apollo-serverinfo.xml").familyLabel(context));
+        assertEquals("Vibepollo-compatible host", TestHosts.fixture("vibepollo-serverinfo.xml").familyLabel(context));
+        assertEquals("Sunshine-compatible host", TestHosts.fixture("sunshine-serverinfo.xml").familyLabel(context));
+        assertEquals("NVIDIA GameStream", TestHosts.fixture("gamestream-serverinfo.xml").familyLabel(context));
+        assertEquals("Moonlight-compatible host", HostCapabilities.UNKNOWN.familyLabel(context));
+    }
+
+    @Test
+    public void reasonsFitSixtyCharactersInEveryLanguage() {
+        for (Locale locale : new Locale[] {Locale.ENGLISH, Locale.GERMAN}) {
+            Configuration configuration = new Configuration(RuntimeEnvironment.getApplication().getResources().getConfiguration());
+            configuration.setLocale(locale);
+            Context context = RuntimeEnvironment.getApplication().createConfigurationContext(configuration);
+            for (Reason reason : Reason.values()) {
+                String text = context.getString(reason.text);
+                assertTrue(locale + " " + reason + ": " + text, text.length() <= 60);
+            }
+            assertTrue(context.getString(R.string.host_feature_unknown).length() <= 60);
+        }
+    }
+}

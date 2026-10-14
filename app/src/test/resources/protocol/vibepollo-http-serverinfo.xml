@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Vibepollo over HTTP to an unpaired client: no PyroWave fields or codec bits, Permission 0. -->
+<root status_code="200">
+  <hostname>Vibepollo fixture</hostname><appversion>7.1.431.-1</appversion><GfeVersion>3.23.0.74</GfeVersion>
+  <uniqueid>9b8a7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d</uniqueid><HttpsPort>47984</HttpsPort><ExternalPort>47989</ExternalPort>
+  <MaxLumaPixelsHEVC>1869449984</MaxLumaPixelsHEVC><mac>00:00:00:00:00:00</mac><LocalIP>192.0.2.12</LocalIP>
+  <ServerCodecModeSupport>197377</ServerCodecModeSupport><PairStatus>0</PairStatus>
+  <currentgame>0</currentgame><currentgameuuid></currentgameuuid><state>SUNSHINE_SERVER_FREE</state>
+  <FrameLimiterSupported>1</FrameLimiterSupported><FrameLimiterEnabled>0</FrameLimiterEnabled>
+  <VirtualDisplayFrameLimiterEnabled>1</VirtualDisplayFrameLimiterEnabled><FrameLimiterFpsLimitMilliHz>0</FrameLimiterFpsLimitMilliHz>
+  <VirtualDisplayCapable>true</VirtualDisplayCapable><VirtualDisplayDriverReady>true</VirtualDisplayDriverReady>
+  <VirtualDisplayHDRCapable>true</VirtualDisplayHDRCapable>
+  <Permission>0</Permission>
+</root>

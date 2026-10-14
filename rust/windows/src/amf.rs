@@ -4,6 +4,8 @@
 //! textures from capture and Radeon compute without a copy, and applies the
 //! per-codec settings from `butterpollo_core::encoder_policy`.
 pub(crate) mod gpu;
+mod metadata;
+mod rate_control;
 
 use crate::text::to_wide;
 use crate::{
@@ -54,6 +56,57 @@ pub(crate) fn int(n: i64) -> AMFVariantStruct {
         __bindgen_anon_1: AMFVariantStruct__bindgen_ty_1 { int64Value: n },
     }
 }
+struct OutputRange {
+    name: &'static str,
+    full: bool,
+    accepted: bool,
+}
+impl OutputRange {
+    fn configure(codec: u8, full: bool, mut set: impl FnMut(&str, bool) -> Result<()>) -> Self {
+        let (input, output) = match codec {
+            0 => ("InputFullRangeColor", "FullRangeColor"),
+            1 => ("HevcInputFullRangeColor", "HevcNominalRange"),
+            _ => ("Av1InputFullRangeColor", "Av1NominalRange"),
+        };
+        // Input hints only inform AMF's own converter. In particular, rejecting
+        // HevcInputFullRangeColor must not break the RX 6800 XT (issue #5).
+        if let Err(error) = set(input, full) {
+            tracing::debug!(error = %format!("{error:#}"), property = input, "AMF input range property unavailable");
+        }
+        let accepted = match set(output, full) {
+            Ok(()) => true,
+            Err(error) => {
+                tracing::debug!(error = %format!("{error:#}"), property = output, "AMF output range setter unavailable; checking initialized driver state");
+                false
+            }
+        };
+        Self {
+            name: output,
+            full,
+            accepted,
+        }
+    }
+
+    fn validate(&self, actual: Option<i64>) -> Result<()> {
+        // Read after Init: a preset may change properties during initialization.
+        // Successful SetProperty is sufficient when GetProperty is unavailable,
+        // but an observed mismatch overrides that success. All three codecs
+        // document limited range as their default, preserving older drivers.
+        match actual {
+            Some(value) if value == i64::from(self.full) => Ok(()),
+            Some(value) => bail!(
+                "AMF output range mismatch: {} requested {}, driver reports {value}; use another codec/backend or update the AMD driver",
+                self.name,
+                i64::from(self.full),
+            ),
+            None if self.accepted || !self.full => Ok(()),
+            None => bail!(
+                "AMF full-range output cannot be established: {} was rejected and cannot be read back; select limited range, another codec/backend, or update the AMD driver",
+                self.name,
+            ),
+        }
+    }
+}
 fn guard_smart_access_video(properties: &mut [butterpollo_core::encoder_policy::Property]) {
     use butterpollo_core::encoder_policy::Value;
     // The C++ backend also excluded this combination after HEVC HDR runs
@@ -83,6 +136,19 @@ struct Submission {
     _capture: Option<GpuImage>,
     _converted: Option<std::sync::Arc<windows::Win32::Graphics::Direct3D11::ID3D11Texture2D>>,
 }
+fn acknowledge_keyframe(
+    idr: bool,
+    result: AMF_RESULT,
+    recover: &mut bool,
+    metadata: &mut metadata::State,
+) {
+    // All reasons are satisfied by the same accepted keyframe. A non-IDR
+    // must retain a recovery request raised by poll() during backpressure.
+    if idr && result == AMF_RESULT_AMF_OK {
+        *recover = false;
+        metadata.submitted(result);
+    }
+}
 pub struct Encoder {
     pub(crate) warnings: std::sync::Arc<butterpollo_core::session::Warnings>,
     component: *mut AMFComponent,
@@ -99,13 +165,12 @@ pub struct Encoder {
     /// A frame AMF never returned may have been a reference: the next frame
     /// is a keyframe, or the client decodes damaged pictures until one comes.
     recover: bool,
-    bitrate: u32,
-    requested_bitrate: u32,
+    rate_control: rate_control::State,
     references: butterpollo_core::ltr::References,
     ownership: Box<gpu::Ownership>,
     pub(crate) luminance: [f32; 2],
-    /// The HDR10 metadata last written into the bitstream.
-    hdr_metadata: Option<butterpollo_core::hdr::Metadata>,
+    /// Successfully applied metadata and any pending retry/keyframe.
+    hdr_metadata: metadata::State,
     /// Conversion on a D3D12 compute queue, with AMF on D3D12.
     compute: Option<Box<ComputeInput>>,
     last_query: Option<AMF_RESULT>,
@@ -286,12 +351,11 @@ impl Encoder {
                 in_flight: std::collections::VecDeque::new(),
                 backlog: AmfBacklog::new(None),
                 recover: false,
-                bitrate: config.bitrate_kbps,
-                requested_bitrate: config.bitrate_kbps,
+                rate_control: rate_control::State::new(config.bitrate_kbps),
                 references: Default::default(),
                 ownership: gpu::Ownership::new(),
                 luminance: [100., 1.],
-                hdr_metadata: None,
+                hdr_metadata: metadata::State::default(),
                 compute,
                 last_query: None,
                 last_submit: None,
@@ -430,32 +494,8 @@ impl Encoder {
                     tracing::warn!(error = %format!("{error:#}"), property = name, "AMF output colour property unavailable; driver colour defaults remain. Update the AMD driver or use another codec if colours look wrong");
                 }
             }
-            let full = AMFVariantStruct {
-                type_: AMF_VARIANT_TYPE_AMF_VARIANT_BOOL,
-                __bindgen_anon_1: AMFVariantStruct__bindgen_ty_1 {
-                    boolValue: u8::from(config.full_range()),
-                },
-            };
-            // Not every driver has the range properties: the RX 6800 XT's HEVC
-            // encoder rejects the input range (AMF_INVALID_ARG), and the stream
-            // got no encoder at all (issue #5). Limited range is AMF's default,
-            // so only a full-range stream depends on them.
-            let mut range = |name: &str| {
-                if let Err(error) = e.property_raw(name, full) {
-                    if config.full_range() {
-                        tracing::warn!(error = %format!("{error:#}"), property = name, "AMF range property unavailable; full-range colours may be off. Select limited range or update the AMD driver");
-                    } else {
-                        tracing::debug!(error = %format!("{error:#}"), property = name, "AMF range property unavailable");
-                    }
-                }
-            };
-            range(&format!("{prefix}InputFullRangeColor"));
-            // The range written into the bitstream. HEVC and AV1 default to
-            // limited, which a full-range stream must not claim.
-            range(match config.codec {
-                0 => "FullRangeColor",
-                1 => "HevcNominalRange",
-                _ => "Av1NominalRange",
+            let range = OutputRange::configure(config.codec, config.full_range(), |name, full| {
+                e.property_raw(name, gpu::boolean(full))
             });
             // Only for a value the user set: the default asks for long-term
             // references in AV1 alone, and every H.264 and HEVC probe at
@@ -495,6 +535,7 @@ impl Encoder {
                 )
             }))
             .context("AMF encoder Init")?;
+            range.validate(e.read(range.name))?;
             // Learn only when the initialized driver reports its buffering
             // requirements. A preset can change these during Init.
             let preanalysis = match config.codec {
@@ -862,80 +903,78 @@ impl Encoder {
     /// data. Clients that size HDR from the stream rather than from the
     /// control channel's copy otherwise get no mastering metadata at all.
     pub fn set_hdr_metadata(&mut self, metadata: butterpollo_core::hdr::Metadata) {
-        if !self.config.hdr || self.codec == 0 || self.hdr_metadata == Some(metadata) {
+        if !self.config.hdr || self.codec == 0 {
             return;
         }
-        // Not retried every second when the driver refuses it.
-        self.hdr_metadata = Some(metadata);
-        match self.write_hdr_metadata(&metadata) {
-            Ok(()) => tracing::info!(
+        let (context, component, codec) = (self.context, self.component, self.codec);
+        let update = self.hdr_metadata.update(
+            metadata::EncodedMetadata::new(codec, metadata),
+            Instant::now(),
+            |value| Self::write_hdr_metadata(context, component, codec, value),
+        );
+        match update {
+            metadata::Update::Applied => tracing::info!(
                 maximum_nits = metadata.maximum_nits,
                 minimum = metadata.minimum,
                 max_cll = metadata.max_cll,
                 max_fall = metadata.max_fall,
-                "AMF HDR metadata in the bitstream"
+                "AMF HDR metadata accepted; requesting a keyframe to deliver it"
             ),
-            Err(error) => {
-                tracing::warn!(error = %format!("{error:#}"), "AMF HDR metadata not written; HDR tone mapping may be incorrect. Update the AMD driver or reconnect with HDR disabled")
+            metadata::Update::Failed {
+                error,
+                retry,
+                report: true,
+            } => {
+                tracing::warn!(%error, ?retry, "AMF HDR metadata not written; HDR tone mapping may be incorrect. Transient errors are retried with backoff; unsupported properties require another codec or an AMD driver update")
             }
+            _ => {}
         }
     }
-    fn write_hdr_metadata(&mut self, metadata: &butterpollo_core::hdr::Metadata) -> Result<()> {
+    fn write_hdr_metadata(
+        context: *mut AMFContext,
+        component: *mut AMFComponent,
+        codec: u8,
+        metadata: &metadata::EncodedMetadata,
+    ) -> Result<(), metadata::WriteError> {
+        use metadata::{WriteError, WriteStage};
         // SAFETY: The live context allocates owned host memory with room/alignment for
         // AMFHDRMetadata. GetNative remains writable until Release; SetProperty retains
         // its own interface reference before our buffer reference is released once.
         unsafe {
             let mut buffer = ptr::null_mut();
-            check(((*(*self.context).pVtbl).AllocBuffer.unwrap())(
-                self.context,
-                AMF_MEMORY_TYPE_AMF_MEMORY_HOST,
-                std::mem::size_of::<AMFHDRMetadata>(),
-                &mut buffer,
-            ))
-            .context("AMF HDR metadata buffer")?;
+            WriteError::check(
+                WriteStage::Buffer,
+                ((*(*context).pVtbl).AllocBuffer.unwrap())(
+                    context,
+                    AMF_MEMORY_TYPE_AMF_MEMORY_HOST,
+                    std::mem::size_of::<AMFHDRMetadata>(),
+                    &mut buffer,
+                ),
+            )?;
             if buffer.is_null() {
-                bail!("AMF returned no HDR metadata buffer");
-            }
-            // HEVC takes primaries and white in 1/50000 and luminance in
-            // 1/10000 nit, as AMF documents. For AV1, AMF copies the values
-            // into the metadata OBU unscaled, so they must already be in
-            // AV1's units: 0.16 chromaticity, 24.8 and 18.14 fixed-point
-            // luminance (the documented units read back as 39,062 nits).
-            let av1 = self.codec == 2;
-            let chroma = |[x, y]: [u16; 2]| {
-                if av1 {
-                    [x, y].map(|v| (u32::from(v) * 65536 / 50000).min(65535) as u16)
-                } else {
-                    [x, y]
-                }
-            };
-            let (maximum, minimum) = if av1 {
-                (
-                    u32::from(metadata.maximum_nits) * 256,
-                    u32::from(metadata.minimum) * 16384 / 10000,
-                )
-            } else {
-                (
-                    u32::from(metadata.maximum_nits) * 10000,
-                    u32::from(metadata.minimum),
-                )
-            };
-            let [red, green, blue] = metadata.primaries;
-            ((*(*buffer).pVtbl).GetNative.unwrap())(buffer)
-                .cast::<AMFHDRMetadata>()
-                .write(AMFHDRMetadata {
-                    redPrimary: chroma(red),
-                    greenPrimary: chroma(green),
-                    bluePrimary: chroma(blue),
-                    whitePoint: chroma(metadata.white),
-                    maxMasteringLuminance: maximum,
-                    minMasteringLuminance: minimum,
-                    maxContentLightLevel: metadata.max_cll,
-                    maxFrameAverageLightLevel: metadata.max_fall,
+                return Err(WriteError {
+                    stage: WriteStage::Buffer,
+                    code: AMF_RESULT_AMF_INVALID_POINTER,
                 });
+            }
+            let native = ((*(*buffer).pVtbl).GetNative.unwrap())(buffer).cast::<AMFHDRMetadata>();
+            if native.is_null() {
+                ((*(*buffer).pVtbl).Release.unwrap())(buffer);
+                return Err(WriteError {
+                    stage: WriteStage::Buffer,
+                    code: AMF_RESULT_AMF_INVALID_POINTER,
+                });
+            }
+            native.write(metadata.value());
             // SetProperty keeps its own reference to the buffer.
-            let result = self.property(
-                "InHDRMetadata",
+            let name = if codec == 2 {
+                "Av1InHDRMetadata"
+            } else {
+                "HevcInHDRMetadata"
+            };
+            let result = ((*(*component).pVtbl).SetProperty.unwrap())(
+                component,
+                to_wide(name).as_ptr(),
                 AMFVariantStruct {
                     type_: AMF_VARIANT_TYPE_AMF_VARIANT_INTERFACE,
                     __bindgen_anon_1: AMFVariantStruct__bindgen_ty_1 {
@@ -944,7 +983,7 @@ impl Encoder {
                 },
             );
             ((*(*buffer).pVtbl).Release.unwrap())(buffer);
-            result
+            WriteError::check(WriteStage::Property, result)
         }
     }
     fn property_raw(&mut self, name: &str, value: AMFVariantStruct) -> Result<()> {
@@ -1251,7 +1290,7 @@ impl Encoder {
     }
     pub fn encode(&mut self, image: &Image, idr: bool, bitrate: u32) -> Result<Vec<Encoded>> {
         let started = Instant::now();
-        let idr = idr || std::mem::take(&mut self.recover);
+        let idr = idr || self.hdr_metadata.needs_idr() || self.recover;
         self.set_bitrate(bitrate)?;
         if self.convert.is_none() {
             // Native GPU sessions never allocate a CPU YUV frame or swscale
@@ -1348,6 +1387,7 @@ impl Encoder {
                     surface as *mut AMFData,
                 );
                 self.last_submit = Some(result);
+                acknowledge_keyframe(idr, result, &mut self.recover, &mut self.hdr_metadata);
                 if result == AMF_RESULT_AMF_INPUT_FULL {
                     self.input_full += 1;
                     match self.poll() {
@@ -1387,79 +1427,58 @@ impl Encoder {
     }
 }
 fn scale_rate_control(value: i64, applied_kbps: u32, requested_kbps: u32) -> i64 {
-    value.saturating_mul(i64::from(requested_kbps)) / i64::from(applied_kbps.max(1))
+    let scaled = i128::from(value) * i128::from(requested_kbps) / i128::from(applied_kbps.max(1));
+    scaled.clamp(i128::from(i64::MIN), i128::from(i64::MAX)) as i64
 }
 impl Encoder {
     fn set_bitrate(&mut self, bitrate: u32) -> Result<()> {
-        if bitrate != self.requested_bitrate {
-            self.requested_bitrate = bitrate;
-            if let Err(error) = self.property("TargetBitrate", int(i64::from(bitrate) * 1000)) {
-                // A rate the driver refuses keeps the current one: every frame
-                // failed on it until the stream ended.
-                self.warnings.set("encoder_bitrate", format!("AMF rejected the requested bitrate {bitrate} Kbps ({error:#}); the driver kept its previous rate, so the displayed target is not the applied bitrate. Reconnect at the desired bitrate or update the AMD driver."));
-                return Ok(());
-            }
-            self.warnings.clear("encoder_bitrate");
-            let mut buffer_applied = true;
-            for suffix in [
-                "PeakBitrate",
-                "VBVBufferSize",
-                if self.codec == 2 {
-                    "MaxCompressedFrameSize"
-                } else {
-                    "MaxAUSize"
-                },
-            ] {
-                let prefix = match self.codec {
-                    0 => "",
-                    1 => "Hevc",
-                    _ => "Av1",
-                };
-                let name = format!("{prefix}{suffix}");
-                // SAFETY: Self retains the component/runtime and its borrowed property
-                // info; outputs and terminated names live through each call, and null
-                // checks and INT64 tags precede all pointer/union reads.
+        let component = self.component;
+        self.rate_control.update(
+            self.codec,
+            bitrate,
+            &self.warnings,
+            |name| {
+                // SAFETY: Self retains the component/runtime and its borrowed
+                // property info. Null checks and INT64 tags precede all reads;
+                // only copied integers escape this call.
                 unsafe {
                     let mut current = int(0);
                     let mut info = ptr::null();
-                    let table = &*(*self.component).pVtbl;
-                    if (table.GetProperty.unwrap())(
-                        self.component,
-                        to_wide(&name).as_ptr(),
-                        &mut current,
-                    ) == AMF_RESULT_AMF_OK
-                        && current.type_ == AMF_VARIANT_TYPE_AMF_VARIANT_INT64
-                        && current.__bindgen_anon_1.int64Value > 0
-                        && (table.GetPropertyInfo.unwrap())(
-                            self.component,
-                            to_wide(&name).as_ptr(),
+                    let table = &*(*component).pVtbl;
+                    if (table.GetProperty.unwrap())(component, to_wide(name).as_ptr(), &mut current)
+                        != AMF_RESULT_AMF_OK
+                        || current.type_ != AMF_VARIANT_TYPE_AMF_VARIANT_INT64
+                        || (table.GetPropertyInfo.unwrap())(
+                            component,
+                            to_wide(name).as_ptr(),
                             &mut info,
-                        ) == AMF_RESULT_AMF_OK
-                        && !info.is_null()
+                        ) != AMF_RESULT_AMF_OK
+                        || info.is_null()
                     {
-                        let mut scaled = scale_rate_control(
-                            current.__bindgen_anon_1.int64Value,
-                            self.bitrate,
-                            bitrate,
-                        );
-                        if (*info).minValue.type_ == AMF_VARIANT_TYPE_AMF_VARIANT_INT64 {
-                            scaled = scaled.max((*info).minValue.__bindgen_anon_1.int64Value);
-                        }
-                        if (*info).maxValue.type_ == AMF_VARIANT_TYPE_AMF_VARIANT_INT64 {
-                            scaled = scaled.min((*info).maxValue.__bindgen_anon_1.int64Value);
-                        }
-                        if let Err(error) = self.property_raw(&name, int(scaled)) {
-                            buffer_applied = false;
-                            self.warnings.set("encoder_buffer", format!("AMF rate-control buffer update rejected ({error:#}); the driver retained its old buffer and may exceed the expected frame budget. Reconnect at the desired bitrate or update the AMD driver."));
-                        }
+                        return None;
                     }
+                    Some(rate_control::Limit {
+                        value: current.__bindgen_anon_1.int64Value,
+                        minimum: ((*info).minValue.type_ == AMF_VARIANT_TYPE_AMF_VARIANT_INT64)
+                            .then(|| (*info).minValue.__bindgen_anon_1.int64Value),
+                        maximum: ((*info).maxValue.type_ == AMF_VARIANT_TYPE_AMF_VARIANT_INT64)
+                            .then(|| (*info).maxValue.__bindgen_anon_1.int64Value),
+                    })
                 }
-            }
-            if buffer_applied {
-                self.warnings.clear("encoder_buffer");
-            }
-            self.bitrate = bitrate;
-        }
+            },
+            |name, value| {
+                // SAFETY: The live component copies the terminated name and
+                // the correctly tagged integer during SetProperty.
+                unsafe {
+                    check(((*(*component).pVtbl).SetProperty.unwrap())(
+                        component,
+                        to_wide(name).as_ptr(),
+                        int(value),
+                    ))
+                    .with_context(|| format!("AMF property {name}"))
+                }
+            },
+        );
         Ok(())
     }
     pub fn accepts_gpu_device(&self, image: &GpuImage) -> bool {
@@ -1490,7 +1509,7 @@ impl Encoder {
     ) -> Result<Vec<Encoded>> {
         let started = Instant::now();
         let mut output = self.wait_capacity()?;
-        let idr = idr || std::mem::take(&mut self.recover);
+        let idr = idr || self.hdr_metadata.needs_idr() || self.recover;
         if self._device.device.as_raw() != image.gpu.device.as_raw() {
             bail!("GPU frame and encoder must use the same D3D11 device");
         }
@@ -1575,6 +1594,7 @@ impl Encoder {
                     )
                 });
                 self.last_submit = Some(result);
+                acknowledge_keyframe(idr, result, &mut self.recover, &mut self.hdr_metadata);
                 if result != AMF_RESULT_AMF_INPUT_FULL {
                     check(result)?;
                     break;

@@ -1,10 +1,419 @@
 use super::*;
 
 #[test]
+fn output_range_preserves_optional_input_and_limited_driver_defaults() -> Result<()> {
+    for (codec, input, output) in [
+        (0, "InputFullRangeColor", "FullRangeColor"),
+        (1, "HevcInputFullRangeColor", "HevcNominalRange"),
+        (2, "Av1InputFullRangeColor", "Av1NominalRange"),
+    ] {
+        let mut calls = Vec::new();
+        let range = OutputRange::configure(codec, false, |name, full| {
+            calls.push((name.to_string(), full));
+            // Older drivers can reject either property. Limited remains the
+            // documented default, including the RX 6800 XT issue #5 case.
+            bail!("mock AMF_INVALID_ARG")
+        });
+        assert_eq!(
+            calls,
+            [(input.to_string(), false), (output.to_string(), false)]
+        );
+        assert_eq!(range.name, output);
+        range.validate(None)?;
+        range.validate(Some(0))?;
+        assert!(range.validate(Some(1)).is_err());
+
+        let range = OutputRange::configure(codec, true, |name, full| {
+            assert!(full);
+            if name == input {
+                bail!("optional input property unavailable");
+            }
+            Ok(())
+        });
+        range.validate(Some(1))?;
+        // A successful output setter remains sufficient if this driver
+        // cannot read back a supported property.
+        range.validate(None)?;
+    }
+    Ok(())
+}
+
+#[test]
+fn output_range_verifies_rejected_setters_and_initialized_readback() -> Result<()> {
+    for codec in 0..=2 {
+        let rejected =
+            OutputRange::configure(codec, true, |_, _| bail!("output setter unavailable"));
+        // A preset or the colour profile can still have selected full range.
+        rejected.validate(Some(1))?;
+        assert!(rejected.validate(Some(0)).is_err());
+        assert!(rejected.validate(None).is_err());
+
+        let accepted = OutputRange::configure(codec, true, |_, _| Ok(()));
+        accepted.validate(Some(1))?;
+        // If Init reverted the setting, its current value wins over setter
+        // success. Unknown values must not be interpreted as full range.
+        assert!(accepted.validate(Some(0)).is_err());
+        assert!(accepted.validate(Some(2)).is_err());
+    }
+    Ok(())
+}
+
+fn hdr_request(maximum_nits: u16) -> metadata::EncodedMetadata {
+    metadata::EncodedMetadata::new(
+        1,
+        butterpollo_core::hdr::Metadata {
+            maximum_nits,
+            ..Default::default()
+        },
+    )
+}
+
+#[test]
+fn hdr_same_value_retries_after_failure_and_stops_after_success() {
+    use metadata::{Retry, State, Update, WriteError, WriteStage};
+    let mut state = State::default();
+    let now = Instant::now();
+    let request = hdr_request(1000);
+    let error = WriteError {
+        stage: WriteStage::Buffer,
+        code: AMF_RESULT_AMF_OUT_OF_MEMORY,
+    };
+    let mut writes = Vec::new();
+    assert_eq!(
+        state.update(request, now, |value| {
+            writes.push(*value);
+            Err(error)
+        }),
+        Update::Failed {
+            error,
+            retry: Retry::After(Duration::from_secs(1)),
+            report: true
+        }
+    );
+    assert!(!state.needs_idr());
+    assert_eq!(
+        state.update(request, now + Duration::from_millis(999), |_| {
+            panic!("backoff must avoid calling AMF")
+        }),
+        Update::Deferred
+    );
+    assert_eq!(
+        state.update(request, now + Duration::from_secs(1), |value| {
+            writes.push(*value);
+            Ok(())
+        }),
+        Update::Applied
+    );
+    assert_eq!(writes, [request, request]);
+    assert!(state.needs_idr());
+    state.submitted(AMF_RESULT_AMF_OK);
+    assert!(!state.needs_idr());
+    assert_eq!(
+        state.update(request, now + Duration::from_secs(2), |_| {
+            panic!("successful metadata must not be rewritten every second")
+        }),
+        Update::Unchanged
+    );
+    assert!(!state.needs_idr());
+}
+
+#[test]
+fn hdr_transient_retries_are_capped_and_logs_rate_limited() {
+    use metadata::{Retry, State, Update, WriteError, WriteStage};
+    let mut state = State::default();
+    let start = Instant::now();
+    let mut elapsed = 0;
+    let mut reports = Vec::new();
+    let error = WriteError {
+        stage: WriteStage::Property,
+        code: AMF_RESULT_AMF_FAIL,
+    };
+    for delay in [1, 2, 4, 8, 16, 30, 30, 30] {
+        let now = start + Duration::from_secs(elapsed);
+        let Update::Failed { retry, report, .. } =
+            state.update(hdr_request(1000), now, |_| Err(error))
+        else {
+            panic!("the failed request must remain eligible for retry");
+        };
+        assert_eq!(retry, Retry::After(Duration::from_secs(delay)));
+        if report {
+            reports.push(elapsed);
+        }
+        assert_eq!(
+            state.update(hdr_request(1000), now + Duration::from_millis(1), |_| {
+                panic!("no spin retry")
+            }),
+            Update::Deferred
+        );
+        elapsed += delay;
+    }
+    assert_eq!(reports, [0, 31, 61, 91]);
+}
+
+#[test]
+fn hdr_retries_latest_request_and_keeps_last_successful_value() {
+    use metadata::{State, Update, WriteError, WriteStage};
+    let mut state = State::default();
+    let now = Instant::now();
+    let original = hdr_request(1000);
+    assert_eq!(state.update(original, now, |_| Ok(())), Update::Applied);
+    state.submitted(AMF_RESULT_AMF_OK);
+    let error = WriteError {
+        stage: WriteStage::Property,
+        code: AMF_RESULT_AMF_FAIL,
+    };
+    assert!(matches!(
+        state.update(hdr_request(600), now, |_| Err(error)),
+        Update::Failed { .. }
+    ));
+    assert!(!state.needs_idr());
+    assert_eq!(
+        state.update(original, now, |_| {
+            panic!("a failed write must not replace the last applied value")
+        }),
+        Update::Unchanged
+    );
+    assert!(matches!(
+        state.update(hdr_request(600), now, |_| Err(error)),
+        Update::Failed { .. }
+    ));
+    let latest = hdr_request(1400);
+    assert_eq!(
+        state.update(latest, now + Duration::from_millis(500), |_| {
+            panic!("changing requests must not bypass the driver's backoff")
+        }),
+        Update::Deferred
+    );
+    assert_eq!(
+        state.update(latest, now + Duration::from_secs(1), |value| {
+            assert_eq!(*value, latest);
+            Ok(())
+        }),
+        Update::Applied
+    );
+    assert!(state.needs_idr());
+}
+
+#[test]
+fn hdr_unsupported_property_is_not_retried_but_bad_values_can_change() {
+    use metadata::{Retry, State, Update, WriteError, WriteStage};
+    let now = Instant::now();
+    for code in [
+        AMF_RESULT_AMF_NOT_SUPPORTED,
+        AMF_RESULT_AMF_NOT_IMPLEMENTED,
+        AMF_RESULT_AMF_NOT_FOUND,
+    ] {
+        let mut state = State::default();
+        let error = WriteError {
+            stage: WriteStage::Property,
+            code,
+        };
+        assert_eq!(
+            state.update(hdr_request(1000), now, |_| Err(error)),
+            Update::Failed {
+                error,
+                retry: Retry::Unsupported,
+                report: true
+            }
+        );
+        for value in [1000, 600] {
+            assert_eq!(
+                state.update(hdr_request(value), now + Duration::from_secs(60), |_| {
+                    panic!("an unsupported property requires a new encoder/driver")
+                }),
+                Update::Deferred
+            );
+        }
+    }
+    for code in [
+        AMF_RESULT_AMF_INVALID_ARG,
+        AMF_RESULT_AMF_OUT_OF_RANGE,
+        AMF_RESULT_AMF_INVALID_FORMAT,
+        AMF_RESULT_AMF_INVALID_DATA_TYPE,
+    ] {
+        let mut state = State::default();
+        let error = WriteError {
+            stage: WriteStage::Property,
+            code,
+        };
+        assert_eq!(
+            state.update(hdr_request(1000), now, |_| Err(error)),
+            Update::Failed {
+                error,
+                retry: Retry::ChangedValue,
+                report: true
+            }
+        );
+        assert_eq!(
+            state.update(hdr_request(1000), now + Duration::from_secs(60), |_| {
+                panic!("retrying an invalid value cannot repair it")
+            }),
+            Update::Deferred
+        );
+        assert_eq!(
+            state.update(hdr_request(600), now, |_| Ok(())),
+            Update::Applied
+        );
+    }
+    // A buffer failure does not establish that the metadata property is
+    // unsupported, even if it happens to return the same numeric error.
+    let mut state = State::default();
+    let error = WriteError {
+        stage: WriteStage::Buffer,
+        code: AMF_RESULT_AMF_NOT_SUPPORTED,
+    };
+    assert_eq!(
+        state.update(hdr_request(1000), now, |_| Err(error)),
+        Update::Failed {
+            error,
+            retry: Retry::After(Duration::from_secs(1)),
+            report: true
+        }
+    );
+    assert_eq!(
+        state.update(hdr_request(1000), now + Duration::from_secs(1), |_| Ok(())),
+        Update::Applied
+    );
+}
+
+#[test]
+fn hdr_changed_metadata_requests_one_idr_until_submission_succeeds() {
+    use metadata::{State, Update};
+    let mut state = State::default();
+    let now = Instant::now();
+    assert_eq!(
+        state.update(hdr_request(1000), now, |_| Ok(())),
+        Update::Applied
+    );
+    for result in [
+        AMF_RESULT_AMF_INPUT_FULL,
+        AMF_RESULT_AMF_FAIL,
+        AMF_RESULT_AMF_INPUT_FULL,
+    ] {
+        assert!(state.needs_idr());
+        state.submitted(result);
+        assert!(
+            state.needs_idr(),
+            "failed submission must keep the header/keyframe request"
+        );
+    }
+    // Coalesce another successful update before the first accepted frame.
+    assert_eq!(
+        state.update(hdr_request(600), now, |_| Ok(())),
+        Update::Applied
+    );
+    assert!(state.needs_idr());
+    state.submitted(AMF_RESULT_AMF_OK);
+    assert!(!state.needs_idr());
+    assert_eq!(
+        state.update(hdr_request(600), now, |_| panic!("duplicate")),
+        Update::Unchanged
+    );
+    assert!(!state.needs_idr());
+    assert_eq!(
+        state.update(hdr_request(1400), now, |_| Ok(())),
+        Update::Applied
+    );
+    assert!(state.needs_idr());
+}
+
+#[test]
+fn keyframe_acknowledges_all_reasons_only_on_successful_idr_submission() {
+    use metadata::State;
+    for explicit in [false, true] {
+        for changed_metadata in [false, true] {
+            for recovery in [false, true] {
+                let mut state = State::default();
+                let mut recover = recovery;
+                if changed_metadata {
+                    state.update(hdr_request(1000), Instant::now(), |_| Ok(()));
+                }
+                let idr = explicit || state.needs_idr() || recover;
+                for result in [AMF_RESULT_AMF_INPUT_FULL, AMF_RESULT_AMF_FAIL] {
+                    acknowledge_keyframe(idr, result, &mut recover, &mut state);
+                    assert_eq!(recover, recovery);
+                    assert_eq!(state.needs_idr(), changed_metadata);
+                }
+                acknowledge_keyframe(idr, AMF_RESULT_AMF_OK, &mut recover, &mut state);
+                assert!(!recover);
+                assert!(!state.needs_idr());
+            }
+        }
+    }
+    // An old frame can time out in poll() after this non-IDR was prepared.
+    // Its successful submission does not satisfy that newly requested IDR.
+    let mut recover = true;
+    let mut state = State::default();
+    acknowledge_keyframe(false, AMF_RESULT_AMF_OK, &mut recover, &mut state);
+    assert!(recover);
+    acknowledge_keyframe(true, AMF_RESULT_AMF_OK, &mut recover, &mut state);
+    assert!(!recover);
+}
+
+#[test]
+fn hdr_effective_metadata_ignores_control_only_values_and_preserves_codec_units() {
+    use metadata::{EncodedMetadata, State, Update};
+    let metadata = butterpollo_core::hdr::Metadata::display(1000., 0.005, 400.);
+    for codec in [1, 2] {
+        let encoded = EncodedMetadata::new(codec, metadata);
+        let value = encoded.value();
+        assert_eq!(
+            value.redPrimary,
+            if codec == 1 {
+                [35400, 14600]
+            } else {
+                [46399, 19136]
+            }
+        );
+        assert_eq!(
+            value.maxMasteringLuminance,
+            if codec == 1 { 10_000_000 } else { 256_000 }
+        );
+        assert_eq!(
+            value.minMasteringLuminance,
+            if codec == 1 { 50 } else { 81 }
+        );
+        let mut state = State::default();
+        let now = Instant::now();
+        assert_eq!(state.update(encoded, now, |_| Ok(())), Update::Applied);
+        state.submitted(AMF_RESULT_AMF_OK);
+        assert_eq!(
+            state.update(
+                EncodedMetadata::new(
+                    codec,
+                    butterpollo_core::hdr::Metadata {
+                        full_frame_nits: 600,
+                        ..metadata
+                    }
+                ),
+                now,
+                |_| panic!("full_frame_nits is only on the control channel")
+            ),
+            Update::Unchanged
+        );
+        assert!(!state.needs_idr());
+    }
+    let extreme = EncodedMetadata::new(
+        2,
+        butterpollo_core::hdr::Metadata {
+            primaries: [[u16::MAX; 2]; 3],
+            white: [u16::MAX; 2],
+            maximum_nits: u16::MAX,
+            minimum: u16::MAX,
+            ..metadata
+        },
+    )
+    .value();
+    assert_eq!(extreme.redPrimary, [u16::MAX; 2]);
+    assert_eq!(extreme.whitePoint, [u16::MAX; 2]);
+    assert_eq!(extreme.maxMasteringLuminance, 16_776_960);
+    assert_eq!(extreme.minMasteringLuminance, 107_372);
+}
+
+#[test]
 fn rate_limits_scale_by_the_requested_over_the_last_applied_bitrate() {
     // The arithmetic set_bitrate uses after 80 applied, 40 rejected and 20
     // accepted: the divisor is the applied 80, so the limits are quartered.
-    // The applied/requested bookkeeping itself needs an AMF component.
     for (current, expected) in [
         (96_000_000, 24_000_000),
         (666_667, 166_666),
@@ -15,6 +424,200 @@ fn rate_limits_scale_by_the_requested_over_the_last_applied_bitrate() {
     }
     assert_eq!(scale_rate_control(0, 80_000, 20_000), 0);
     assert_eq!(scale_rate_control(i64::MAX, 1, u32::MAX), i64::MAX);
+    // Clamp only the final value, not the multiplication before division.
+    assert_eq!(scale_rate_control(i64::MAX, 80_000, 80_000), i64::MAX);
+    assert_eq!(scale_rate_control(i64::MAX, 80_000, 40_000), i64::MAX / 2);
+}
+
+struct FakeRateProperties {
+    values: std::collections::BTreeMap<String, rate_control::Limit>,
+    rejected: std::collections::BTreeSet<String>,
+    unreadable: std::collections::BTreeSet<String>,
+    writes: Vec<(String, i64)>,
+    reads: usize,
+}
+
+impl FakeRateProperties {
+    fn new(codec: u8) -> Self {
+        let prefix = match codec {
+            0 => "",
+            1 => "Hevc",
+            _ => "Av1",
+        };
+        let values = [
+            ("PeakBitrate", 96_000_000),
+            ("VBVBufferSize", 2_666_668),
+            (
+                if codec == 2 {
+                    "MaxCompressedFrameSize"
+                } else {
+                    "MaxAUSize"
+                },
+                666_668,
+            ),
+        ]
+        .into_iter()
+        .map(|(suffix, value)| {
+            (
+                format!("{prefix}{suffix}"),
+                rate_control::Limit {
+                    value,
+                    minimum: None,
+                    maximum: None,
+                },
+            )
+        })
+        .collect();
+        Self {
+            values,
+            rejected: Default::default(),
+            unreadable: Default::default(),
+            writes: vec![],
+            reads: 0,
+        }
+    }
+
+    fn apply(
+        &mut self,
+        state: &mut rate_control::State,
+        codec: u8,
+        bitrate: u32,
+        warnings: &butterpollo_core::session::Warnings,
+    ) {
+        let driver = std::cell::RefCell::new(self);
+        state.update(
+            codec,
+            bitrate,
+            warnings,
+            |name| {
+                let mut driver = driver.borrow_mut();
+                driver.reads += 1;
+                if driver.unreadable.contains(name) {
+                    None
+                } else {
+                    driver.values.get(name).copied()
+                }
+            },
+            |name, value| {
+                let mut driver = driver.borrow_mut();
+                driver.writes.push((name.to_string(), value));
+                if driver.rejected.contains(name) {
+                    bail!("mock rejected {name}");
+                }
+                if let Some(limit) = driver.values.get_mut(name) {
+                    limit.value = value;
+                }
+                Ok(())
+            },
+        );
+    }
+}
+
+#[test]
+fn rate_control_keeps_each_failed_property_on_its_own_applied_bitrate() {
+    for codec in 0..=2 {
+        let initial = FakeRateProperties::new(codec).values;
+        for failed in initial.keys() {
+            let mut driver = FakeRateProperties::new(codec);
+            let mut state = rate_control::State::new(80_000);
+            let warnings = butterpollo_core::session::Warnings::default();
+            driver.rejected.insert(failed.clone());
+            driver.apply(&mut state, codec, 40_000, &warnings);
+            assert_eq!(driver.values[failed].value, initial[failed].value);
+            assert!(warnings.snapshot().iter().any(
+                |warning| warning.code == "encoder_buffer" && warning.message.contains(failed)
+            ));
+            driver.rejected.clear();
+            driver.apply(&mut state, codec, 20_000, &warnings);
+            for (name, original) in &initial {
+                assert_eq!(
+                    driver.values[name].value,
+                    original.value / 4,
+                    "{name}, previously rejected {failed}"
+                );
+            }
+            assert!(warnings.snapshot().is_empty());
+        }
+    }
+}
+
+#[test]
+fn rate_control_retains_failed_basis_and_warning_across_read_failures_and_clamps() {
+    let mut driver = FakeRateProperties::new(1);
+    let mut state = rate_control::State::new(80_000);
+    let warnings = butterpollo_core::session::Warnings::default();
+    let peak = "HevcPeakBitrate";
+    driver.rejected.insert(peak.into());
+    driver.apply(&mut state, 1, 40_000, &warnings);
+    driver.rejected.clear();
+    driver.unreadable.insert(peak.into());
+    driver.apply(&mut state, 1, 20_000, &warnings);
+    assert_eq!(driver.values[peak].value, 96_000_000);
+    assert!(
+        warnings
+            .snapshot()
+            .iter()
+            .any(|warning| warning.code == "encoder_buffer"
+                && warning.message.contains("cannot be verified"))
+    );
+    driver.unreadable.clear();
+    let limit = driver.values.get_mut(peak).unwrap();
+    limit.minimum = Some(22_000_000);
+    limit.maximum = Some(30_000_000);
+    driver.apply(&mut state, 1, 10_000, &warnings);
+    // 96 * 10 / 80 = 12, clamped to 22. Using the unrelated target20
+    // as denominator would produce 48, incorrectly clamped to 30.
+    assert_eq!(driver.values[peak].value, 22_000_000);
+    assert!(warnings.snapshot().is_empty());
+    driver.apply(&mut state, 1, 40_000, &warnings);
+    assert_eq!(driver.values[peak].value, 30_000_000);
+    let limit = driver.values.get_mut(peak).unwrap();
+    limit.minimum = None;
+    limit.maximum = None;
+    driver.apply(&mut state, 1, 20_000, &warnings);
+    // Both clamped writes succeeded: the basis is now target40, not target80.
+    assert_eq!(driver.values[peak].value, 15_000_000);
+}
+
+#[test]
+fn rate_control_target_rejection_preserves_limits_and_existing_buffer_warning() {
+    let mut driver = FakeRateProperties::new(2);
+    let mut state = rate_control::State::new(80_000);
+    let warnings = butterpollo_core::session::Warnings::default();
+    driver.rejected.insert("Av1PeakBitrate".into());
+    driver.apply(&mut state, 2, 40_000, &warnings);
+    let reads = driver.reads;
+    driver.rejected.insert("Av1TargetBitrate".into());
+    driver.apply(&mut state, 2, 20_000, &warnings);
+    assert_eq!(
+        driver.reads, reads,
+        "no limit updates after a target rejection"
+    );
+    assert!(
+        warnings
+            .snapshot()
+            .iter()
+            .any(|warning| warning.code == "encoder_bitrate")
+    );
+    assert!(
+        warnings
+            .snapshot()
+            .iter()
+            .any(|warning| warning.code == "encoder_buffer")
+    );
+    let writes = driver.writes.len();
+    driver.apply(&mut state, 2, 20_000, &warnings);
+    assert_eq!(
+        driver.writes.len(),
+        writes,
+        "do not retry a rejected target every frame"
+    );
+    driver.rejected.clear();
+    driver.apply(&mut state, 2, 10_000, &warnings);
+    assert_eq!(driver.values["Av1PeakBitrate"].value, 12_000_000);
+    assert_eq!(driver.values["Av1VBVBufferSize"].value, 333_333);
+    assert_eq!(driver.values["Av1MaxCompressedFrameSize"].value, 83_333);
+    assert!(warnings.snapshot().is_empty());
 }
 
 #[test]
@@ -163,12 +766,13 @@ fn hdr10_metadata_and_range_reach_the_bitstream() -> Result<()> {
                     ];
                     let mut output = vec![];
                     for frame in 0..12 {
-                        if frame % 4 == 0 {
-                            encoder.set_hdr_metadata(changes[frame / 4]);
-                        }
+                        // Repeated refreshes must not keep inserting keyframes.
+                        encoder.set_hdr_metadata(changes[frame / 4]);
                         output.extend(encoder.encode_gpu(
                             &source,
-                            frame % 4 == 0,
+                            // Later keyframes must come from changed metadata,
+                            // even with no unrelated recovery/client request.
+                            frame == 0,
                             config.bitrate_kbps,
                         )?);
                         // Drain before changing a component-wide metadata property.
@@ -185,6 +789,13 @@ fn hdr10_metadata_and_range_reach_the_bitstream() -> Result<()> {
                         }
                     }
                     assert_eq!(output.len(), 12);
+                    for (frame, encoded) in output.iter().enumerate() {
+                        assert_eq!(
+                            encoded.idr,
+                            frame % 4 == 0,
+                            "unexpected keyframe at {frame}"
+                        );
+                    }
                     for frame in [0, 4, 8] {
                         let metadata = changes[frame / 4];
                         assert!(output[frame].idr);

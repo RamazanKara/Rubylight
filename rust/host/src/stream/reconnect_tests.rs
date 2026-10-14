@@ -1065,13 +1065,12 @@ async fn microphone_packets_reach_only_the_session_that_set_them_up() -> Result<
             &[0xf8, 0xff, 0xfe],
         ))?;
     }
-    send(mic::seal(
-        &[0; 16],
-        launch.key_id,
-        5,
-        0,
-        &[0xf8, 0xff, 0xfe],
-    ))?;
+    let mut damaged = mic::seal(&launch.key, launch.key_id, 5, 0, &[0xf8, 0xff, 0xfe]);
+    // CBC has no authentication tag: a wrong key can randomly produce valid
+    // padding. Keep the microphone header but truncate the ciphertext so this
+    // rejection is deterministic for every randomly generated launch key.
+    damaged.pop();
+    send(damaged)?;
     until("microphone packets accepted and refused", WAIT, || {
         counters.accepted.load(Ordering::Acquire) == 5
             && counters.refused.load(Ordering::Acquire) == 1

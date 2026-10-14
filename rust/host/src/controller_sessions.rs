@@ -28,6 +28,16 @@ impl Pool {
         let profile = gamepad_profile(config.get("gamepad", "auto"));
         let policy = Policy::resolve(config)?;
         let mut entries = self.0.lock().unwrap();
+        // Parked controllers wait for their own client's reconnect. Another
+        // client's stay plugged beside this client's while a game runs, and
+        // can hold the game's first player slot.
+        entries.retain(|other, entry| {
+            if *other == key || Arc::strong_count(&entry.pads) > 1 {
+                return true;
+            }
+            drop(entry.pads.stop());
+            false
+        });
         if let Some(entry) = entries.get_mut(&key) {
             if Arc::strong_count(&entry.pads) > 1 {
                 bail!("previous controller transport is closing");
@@ -150,6 +160,42 @@ pub fn prepare(h: &Shared, launch: &Launch, value: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use butterpollo_core::session::Role;
+
+    #[test]
+    fn another_clients_parked_controllers_are_released_when_a_client_connects() {
+        let f = crate::state::test_support::Fixture::new();
+        let paired = f.client(0);
+        let launch = |uuid: &str, role| {
+            let mut client = paired.clone();
+            client.uuid = uuid.into();
+            f.launch(client, role)
+        };
+        let (phone, tv, laptop) = (
+            launch("phone", Role::Stream),
+            launch("tv", Role::Stream),
+            launch("laptop", Role::Stream),
+        );
+        let config = Config::default();
+        let pool = Pool::default();
+        let keys = |pool: &Pool| pool.0.lock().unwrap().keys().cloned().collect::<Vec<_>>();
+        // The phone's stream ends while its game keeps running: its controllers park.
+        let parked = pool.acquire(&phone, &config).unwrap();
+        drop(parked);
+        // The TV's controllers are still in use when the laptop connects.
+        let tv_pads = pool.acquire(&tv, &config).unwrap();
+        assert_eq!(keys(&pool), ["tv:Stream"]);
+        let laptop_pads = pool.acquire(&laptop, &config).unwrap();
+        assert_eq!(keys(&pool), ["laptop:Stream", "tv:Stream"]);
+        // A client reconnecting still gets its own parked controllers back.
+        let retained = Arc::as_ptr(&laptop_pads);
+        drop(laptop_pads);
+        let again = pool.acquire(&laptop, &config).unwrap();
+        assert_eq!(Arc::as_ptr(&again), retained);
+        assert_eq!(keys(&pool), ["laptop:Stream", "tv:Stream"]);
+        drop((tv_pads, again));
+    }
+
     #[test]
     fn preparation_accepts_only_bounded_unique_neutral_arrivals() {
         assert_eq!(arrivals("0:2:33023:65535,1:4:256:1").unwrap().len(), 2);

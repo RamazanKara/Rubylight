@@ -10,6 +10,38 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * How long a request waits for the host's whole answer before it fails.
+ * The host finishes the work anyway, so actions that wait on the PC get more.
+ */
+export const REQUEST_TIMEOUT_MS = 20_000;
+/** Ending streams, tearing down displays, Playnite, a network share or a cover download. */
+const ACTION_TIMEOUT_MS = 60_000;
+/** An app's preparation and undo commands (up to two minutes each), or a library sync. */
+const SLOW_TIMEOUT_MS = 10 * 60_000;
+
+/** The host did not answer in time, so the request was abandoned (status 0). */
+export class TimeoutError extends ApiError {
+  constructor(milliseconds: number) {
+    super(0, `The host did not answer within ${Math.round(milliseconds / 1000)} seconds. Check that Rubylight is running, then try again.`);
+  }
+}
+
+/** A response and its body, both within `timeout` ms. */
+async function exchange(path: string, init: RequestInit, timeout: number): Promise<{ response: Response; text: string }> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeout);
+  try {
+    const response = await fetch(path, { ...init, credentials: 'same-origin', signal: controller.signal });
+    return { response, text: await response.text() };
+  } catch (error) {
+    if (controller.signal.aborted) throw new TimeoutError(timeout);
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 let csrfToken = '';
 let onSignedOut: (() => void) | null = null;
 
@@ -22,9 +54,9 @@ export function setCsrfToken(token: string) {
 }
 
 async function refreshCsrf(): Promise<void> {
-  const response = await fetch('/api/csrf-token', { credentials: 'same-origin' });
+  const { response, text } = await exchange('/api/csrf-token', {}, REQUEST_TIMEOUT_MS);
   if (response.ok) {
-    const body = (await response.json()) as { csrf_token: string };
+    const body = JSON.parse(text) as { csrf_token: string };
     csrfToken = body.csrf_token;
   }
 }
@@ -34,9 +66,9 @@ async function refreshCsrf(): Promise<void> {
 let refreshing: Promise<boolean> | null = null;
 function refreshSession(): Promise<boolean> {
   refreshing ??= (async () => {
-    const response = await fetch('/api/auth/refresh', { method: 'POST', credentials: 'same-origin' });
+    const { response, text } = await exchange('/api/auth/refresh', { method: 'POST' }, REQUEST_TIMEOUT_MS);
     if (!response.ok) return false;
-    const body = (await response.json()) as IssuedSession;
+    const body = JSON.parse(text) as IssuedSession;
     csrfToken = body.csrf_token;
     return true;
   })().finally(() => {
@@ -47,39 +79,40 @@ function refreshSession(): Promise<boolean> {
 
 type Method = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 
-async function send(method: Method, path: string, body?: unknown, retried = false): Promise<Response> {
+async function send(
+  method: Method,
+  path: string,
+  body: unknown,
+  timeout: number,
+  retried = false,
+): Promise<{ response: Response; text: string }> {
   const headers: Record<string, string> = {};
   if (method !== 'GET') {
     if (!csrfToken) await refreshCsrf();
     headers['X-CSRF-Token'] = csrfToken;
   }
   if (body !== undefined) headers['Content-Type'] = 'application/json';
-  const response = await fetch(path, {
-    method,
-    headers,
-    credentials: 'same-origin',
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  if (retried || path.startsWith('/api/auth/')) return response;
-  if (response.status === 401) {
-    if (await refreshSession()) return send(method, path, body, true);
+  const reply = await exchange(
+    path,
+    { method, headers, body: body === undefined ? undefined : JSON.stringify(body) },
+    timeout,
+  );
+  if (retried || path.startsWith('/api/auth/')) return reply;
+  if (reply.response.status === 401) {
+    if (await refreshSession()) return send(method, path, body, timeout, true);
     onSignedOut?.();
-    return response;
+    return reply;
   }
-  if (response.status === 400 && method !== 'GET') {
-    // CSRF tokens are regenerated when the host restarts.
-    const text = await response.clone().text();
-    if (text.includes('CSRF token required')) {
-      await refreshCsrf();
-      return send(method, path, body, true);
-    }
+  // CSRF tokens are regenerated when the host restarts.
+  if (reply.response.status === 400 && method !== 'GET' && reply.text.includes('CSRF token required')) {
+    await refreshCsrf();
+    return send(method, path, body, timeout, true);
   }
-  return response;
+  return reply;
 }
 
-async function json<T>(method: Method, path: string, body?: unknown): Promise<T> {
-  const response = await send(method, path, body);
-  const text = await response.text();
+async function json<T>(method: Method, path: string, body?: unknown, timeout = REQUEST_TIMEOUT_MS): Promise<T> {
+  const { response, text } = await send(method, path, body, timeout);
   let parsed: unknown = undefined;
   try {
     parsed = text ? JSON.parse(text) : undefined;
@@ -94,8 +127,8 @@ async function json<T>(method: Method, path: string, body?: unknown): Promise<T>
   return parsed as T;
 }
 
-const get = <T>(path: string) => json<T>('GET', path);
-const post = <T>(path: string, body: unknown = {}) => json<T>('POST', path, body);
+const get = <T>(path: string, timeout = REQUEST_TIMEOUT_MS) => json<T>('GET', path, undefined, timeout);
+const post = <T>(path: string, body: unknown = {}, timeout = REQUEST_TIMEOUT_MS) => json<T>('POST', path, body, timeout);
 
 // ---------- types ----------
 
@@ -487,7 +520,7 @@ export const api = {
   metadata: () => get<Metadata>('/api/metadata'),
   /** List a folder of the host; an empty path lists the drives. */
   browse: (path: string, type: BrowseType) =>
-    get<BrowseListing>(`/api/browse?path=${encodeURIComponent(path)}&type=${type}`),
+    get<BrowseListing>(`/api/browse?path=${encodeURIComponent(path)}&type=${type}`, ACTION_TIMEOUT_MS),
   config: {
     get: () => get<Config>('/api/config'),
     /** Merge keys; null or "" resets a key to its default. */
@@ -499,12 +532,12 @@ export const api = {
     save: (app: App) => post<{ status: true; uuid: string }>('/api/apps', app),
     remove: (uuid: string) => json<Ok>('DELETE', `/api/apps/${encodeURIComponent(uuid)}`),
     reorder: (order: string[]) => post<Ok>('/api/apps/reorder', { order }),
-    launch: (uuid: string) => post<Ok>('/api/apps/launch', { uuid }),
-    close: () => post<Ok>('/api/apps/close'),
+    launch: (uuid: string) => post<Ok>('/api/apps/launch', { uuid }, SLOW_TIMEOUT_MS),
+    close: () => post<Ok>('/api/apps/close', {}, SLOW_TIMEOUT_MS),
     coverUrl: (uuid: string, version = '') => `/api/apps/${encodeURIComponent(uuid)}/cover${version ? `?v=${version}` : ''}`,
     /** Store a cover from an https PNG URL (IGDB) or a PNG as base64. */
     uploadCover: (key: string, source: { url: string } | { data: string }) =>
-      post<{ status: true; path: string }>('/api/covers/upload', { key, ...source }),
+      post<{ status: true; path: string }>('/api/covers/upload', { key, ...source }, ACTION_TIMEOUT_MS),
     rtxLive: (uuid: string, overrides: Record<string, string | number | boolean>) =>
       post<{ status: true; applied: boolean }>('/api/apps/rtx_hdr/live', { uuid, 'config-overrides': overrides }),
   },
@@ -514,27 +547,28 @@ export const api = {
       post<{ status: true; changed: boolean; game_count: number; importable_game_count: number }>(
         '/api/steam/force_sync',
         {},
+        SLOW_TIMEOUT_MS,
       ),
   },
   playnite: {
     status: () => get<PlayniteStatus>('/api/playnite/status'),
-    sync: () => post<{ status: true; changed: boolean; game_count: number }>('/api/playnite/force_sync', {}),
-    install: () => post<{ status: true; path: string; restart_required: boolean }>('/api/playnite/install', {}),
+    sync: () => post<{ status: true; changed: boolean; game_count: number }>('/api/playnite/force_sync', {}, SLOW_TIMEOUT_MS),
+    install: () => post<{ status: true; path: string; restart_required: boolean }>('/api/playnite/install', {}, ACTION_TIMEOUT_MS),
     /** Make a saved cover (by its key) the game's cover in Playnite. */
     setCover: (playniteId: string, coverKey: string) =>
-      post<{ status: true; path: string }>('/api/playnite/cover', { playnite_id: playniteId, cover_key: coverKey }),
-    launch: () => post<Ok>('/api/playnite/launch'),
+      post<{ status: true; path: string }>('/api/playnite/cover', { playnite_id: playniteId, cover_key: coverKey }, SLOW_TIMEOUT_MS),
+    launch: () => post<Ok>('/api/playnite/launch', {}, ACTION_TIMEOUT_MS),
   },
   clients: {
     list: () => get<{ status: true; clients: Client[] }>('/api/clients/list'),
     pending: () => get<{ status: true; requests: PendingPairing[] }>('/api/clients/pending'),
     update: (client: Partial<Client> & { uuid: string }) => {
       const { connected: _connected, ...rest } = client;
-      return post<Ok>('/api/clients/update', rest);
+      return post<Ok>('/api/clients/update', rest, ACTION_TIMEOUT_MS);
     },
-    unpair: (uuid: string) => post<Ok>('/api/clients/unpair', { uuid }),
-    unpairAll: () => post<Ok>('/api/clients/unpair-all'),
-    disconnect: (uuid: string) => post<Ok>('/api/clients/disconnect', { uuid }),
+    unpair: (uuid: string) => post<Ok>('/api/clients/unpair', { uuid }, ACTION_TIMEOUT_MS),
+    unpairAll: () => post<Ok>('/api/clients/unpair-all', {}, ACTION_TIMEOUT_MS),
+    disconnect: (uuid: string) => post<Ok>('/api/clients/disconnect', { uuid }, ACTION_TIMEOUT_MS),
     pin: (pin: string, uniqueid?: string, name?: string) => post<Ok>('/api/pin', { pin, uniqueid, name }),
     otp: (passphrase: string, deviceName: string) =>
       post<{ status: true; otp: string; ip: string; name: string }>('/api/otp', { passphrase, deviceName }),
@@ -547,16 +581,16 @@ export const api = {
     returnToConsole: (recovery: ConsoleRecovery) => post<Ok>('/api/session/console', {
       session_id: recovery.session_id,
       console_session_id: recovery.console_session_id,
-    }),
+    }, ACTION_TIMEOUT_MS),
   },
   displays: {
     devices: () => get<DisplayDevice[]>('/api/display-devices'),
     goldenStatus: () => get<GoldenStatus>('/api/display/golden_status?compare_current=1'),
     exportGolden: () => post<Ok>('/api/display/export_golden'),
-    restoreGolden: () => post<Ok>('/api/display/restore_golden'),
+    restoreGolden: () => post<Ok>('/api/display/restore_golden', {}, ACTION_TIMEOUT_MS),
     deleteGolden: () => json<Ok>('DELETE', '/api/display/golden'),
-    disconnectVirtual: () => post<Ok>('/api/display/terminate_virtual'),
-    resetPersistence: () => post<Ok>('/api/reset-display-device-persistence'),
+    disconnectVirtual: () => post<Ok>('/api/display/terminate_virtual', {}, ACTION_TIMEOUT_MS),
+    resetPersistence: () => post<Ok>('/api/reset-display-device-persistence', {}, ACTION_TIMEOUT_MS),
   },
   health: {
     limiter: () => get<LimiterStatus>('/api/frame-limiter/status'),

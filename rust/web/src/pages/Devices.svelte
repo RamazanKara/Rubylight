@@ -84,8 +84,13 @@
     } catch (error) {
       failed(failure, error);
     } finally {
-      await load();
-      busy = '';
+      // The list catches up before the actions unlock; the request timeout
+      // bounds that wait, so a host that stops answering cannot keep them locked.
+      try {
+        await load();
+      } finally {
+        busy = '';
+      }
     }
   }
 

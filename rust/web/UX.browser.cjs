@@ -152,6 +152,51 @@ test('a device action locks other device actions until completion', async t => {
   assert.equal(writes.filter(write => write.path === '/api/clients/disconnect').length, 1);
 });
 
+test('a host that stops answering cannot keep the device actions locked', async t => {
+  const held = deferred();
+  t.after(() => held.resolve());
+  let disconnected = false;
+  const { page } = await fixture(t, async (route, url) => {
+    if (url.pathname === '/api/clients/disconnect') disconnected = true;
+    if (url.pathname !== '/api/clients/list' || !disconnected) return false;
+    // The refresh after the action never gets an answer.
+    await held.promise;
+    await route.fulfill({ json: { status: true, clients: [] } }).catch(() => {});
+    return true;
+  });
+  await page.clock.install();
+  await page.goto(base + '/devices');
+  await page.getByRole('button', { name: 'Disconnect First device', exact: true }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Disconnect', exact: true }).click();
+  await page.getByText('Disconnected First device.', { exact: true }).waitFor();
+  const unpair = page.getByRole('button', { name: 'Unpair Second device', exact: true });
+  assert.equal(await unpair.isDisabled(), true);
+  await page.clock.runFor(21_000);
+  await page.getByText(/Could not refresh the list: The host did not answer within 20 seconds/).waitFor();
+  assert.equal(await unpair.isDisabled(), false);
+  assert.equal(await page.getByRole('button', { name: 'Edit Second device', exact: true }).isDisabled(), false);
+});
+
+test('an app launch that waits on preparation commands is not cut short by the request timeout', async t => {
+  const held = deferred(), started = deferred();
+  t.after(() => held.resolve());
+  const { page } = await fixture(t, async (route, url) => {
+    if (url.pathname !== '/api/apps/launch') return false;
+    started.resolve();
+    await held.promise;
+    await route.fulfill({ json: { status: true } });
+    return true;
+  });
+  await page.clock.install();
+  await page.goto(base + '/library/one');
+  await page.getByRole('button', { name: 'Launch', exact: true }).click();
+  await started.promise;
+  // Each preparation command may run for two minutes.
+  await page.clock.runFor(3 * 60_000);
+  held.resolve();
+  await page.getByText('Started One.', { exact: true }).waitFor();
+});
+
 test('saving a device keeps its editor open and blocks conflicting actions', async t => {
   const held = deferred(), started = deferred();
   t.after(() => held.resolve());

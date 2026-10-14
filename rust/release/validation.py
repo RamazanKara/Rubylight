@@ -27,6 +27,9 @@ def sha(path):
 
 results = sorted(work.glob('e2e-*/result.json'))
 streams = [json.loads(p.read_text()) for p in results if not p.parent.name.endswith('-failed')]
+# A case faster than the captured display refreshes (hevc-120 on a 60 Hz monitor).
+display_skips = [s for s in streams if s.get('skipped')]
+streams = [s for s in streams if not s.get('skipped')]
 assert streams and all(s['passed'] for s in streams), 'an end-to-end stream failed'
 skipped = set(args.skipped)
 # (codec, VRR, keyframe requests while the picture moves)
@@ -36,11 +39,13 @@ required = {('h264', False, False), ('hevc', False, False), ('av1', False, False
 required -= {(case.removesuffix('-vrr').removesuffix('-recovery'), case.endswith('-vrr'), case.endswith('-recovery'))
              for case in skipped}
 assert required <= {key(s) for s in streams}, 'the fixed-rate, VRR, keyframe-request or PyroWave release matrix is incomplete'
+assert 'hevc-120' in skipped or 'hevc-120' in {s.get('case') for s in streams + display_skips}, 'the 120 FPS stream is missing'
 assert ({'pyrowave', 'pyrowave-hdr-444'} - skipped) <= {s['codec'] for s in streams if s.get('mode') == '1920x1080x60' and not s.get('vrr', False)}, '1080p60 SDR and HDR PyroWave results are required'
 assert all(s.get('audio_continuous') == 1 and s.get('motion_coverage', 0) >= .95 for s in streams), 'real audio and motion measurements are required'
 # A stream that failed once and passed when run again is recorded with both runs.
 for failed in (json.loads(p.read_text()) for p in results if p.parent.name.endswith('-failed')):
-    next(s for s in streams if key(s) == key(failed))['first_attempt_failed'] = failed
+    case = lambda s: s.get('case') or key(s)
+    next(s for s in streams if case(s) == case(failed))['first_attempt_failed'] = failed
 protocol = json.loads((work / 'protocol' / 'result.json').read_text())
 assert protocol['passed'], 'a protocol check failed'
 
@@ -52,7 +57,8 @@ validation = dict(
         scope='Packaged host with an isolated profile; the independent moonlight-common-c client pairs over loopback '
               'with a PIN, launches over encrypted RTSP and decodes video and audio. WGC capture of the physical '
               'desktop; no virtual display, display-mode or HDR change.',
-        streams=streams, protocol_checks=protocol['checks'], skipped_streams=sorted(skipped)),
+        streams=streams, protocol_checks=protocol['checks'], skipped_streams=sorted(skipped),
+        skipped_for_display=[dict(case=s['case'], reason=s['skipped']) for s in display_skips]),
     installed=args.installed, check_seconds=args.seconds,
     real_client=json.loads(args.real_client.read_text(encoding='utf-8-sig')) if args.real_client else 'skipped')
 if args.installed:

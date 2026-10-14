@@ -119,10 +119,26 @@ class ReleaseMeasurements(unittest.TestCase):
                 text = RECOVERY if recovery else text
                 (case / 'result.json').write_text(json.dumps(
                     evaluate(text, 0, codec, '1920x1080x60', vrr, recovery=recovery, host_log=CLAIMS)))
+            # The 120 FPS case on a 60 Hz release monitor: recorded, not failed.
+            fast = work / 'e2e-hevc-120'
+            fast.mkdir()
+            (fast / 'result.json').write_text(json.dumps(dict(
+                case='hevc-120', codec='hevc', mode='2560x1440x120', vrr=False, passed=True,
+                skipped='the display refreshes at 60 Hz, below the requested 120 FPS')))
             command = [sys.executable, str(pathlib.Path(__file__).with_name('validation.py')), '--version', 'test',
                        '--package', str(package), '--work', str(work), '--out', str(root / 'VALIDATION.json')]
             result = subprocess.run(command, capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stderr)
+            validation = json.loads((root / 'VALIDATION.json').read_text())['end_to_end']
+            self.assertEqual([s['case'] for s in validation['skipped_for_display']], ['hevc-120'])
+            self.assertNotIn('hevc-120', [s.get('case') for s in validation['streams']])
+            fast.rename(work / 'held-120')
+            run = subprocess.run(command, capture_output=True, text=True)
+            self.assertNotEqual(run.returncode, 0)
+            self.assertIn('120 FPS', run.stderr)
+            run = subprocess.run(command + ['--skipped', 'hevc-120'], capture_output=True, text=True)
+            self.assertEqual(run.returncode, 0, run.stderr)
+            (work / 'held-120').rename(fast)
             # The keyframe-request stream is required unless skipped on purpose.
             recovery = work / 'e2e-hevc-False-16'
             recovery.rename(work / 'held')

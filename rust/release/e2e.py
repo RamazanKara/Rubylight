@@ -7,8 +7,9 @@ and stops. A narrow moving strip and a virtual-speaker tone exercise capture.
 No display-mode, HDR or default-audio change; the installed host must be idle.
 
 usage: e2e.py --package DIR --work DIR --client EXE --codec CODEC [--mode 1280x720x60] [--seconds 12]
-              [--vrr] [--recovery N] [--motion-at-rate] [--noise-height PIXELS]
-Writes WORK/e2e-CODEC[-vrr][-recovery|-at-rate]/result.json.
+              [--vrr] [--recovery N] [--motion-at-rate] [--name NAME] [--noise-height PIXELS]
+Writes WORK/e2e-NAME/result.json, NAME defaulting to CODEC[-vrr][-recovery|-at-rate].
+A mode faster than the captured display refreshes is recorded as skipped.
 
 --recovery N: the receiver asks for a keyframe N times, every
 RECOVERY_INTERVAL_MS, as a client losing packets does, while the moving
@@ -44,6 +45,7 @@ parser.add_argument('--vrr', action='store_true', help='launch as a client askin
 parser.add_argument('--config', action='append', default=[], metavar='KEY=VALUE', help='an extra sunshine.conf line for the host, e.g. wgc_user_helper=true')
 parser.add_argument('--recovery', type=int, default=0, metavar='N', help='keyframe requests during the stream, with the motion strip at the stream rate')
 parser.add_argument('--motion-at-rate', action='store_true', help='the strip at the stream rate without requests: the control for --recovery')
+parser.add_argument('--name', help='the case name, e.g. hevc-120; defaults to the codec and options')
 parser.add_argument('--noise-height', type=int, default=0, metavar='PIXELS',
                     help='a taller strip with fresh per-pixel noise above its bottom 128 rows, for high bitrates')
 args = parser.parse_args()
@@ -58,8 +60,9 @@ interop = pathlib.Path(__file__).resolve().parents[1] / 'tests' / 'interop.py'
 installed_idle()
 plain = requests.Session(); plain.trust_env = False
 
-case = args.work / (f'e2e-{args.codec}' + ('-vrr' if args.vrr else '')
-                    + ('-recovery' if args.recovery else '-at-rate' if args.motion_at_rate else ''))
+name = args.name or (args.codec + ('-vrr' if args.vrr else '')
+                     + ('-recovery' if args.recovery else '-at-rate' if args.motion_at_rate else ''))
+case = args.work / f'e2e-{name}'
 assert case.resolve().parent == args.work.resolve(), 'test output must stay inside the work directory'
 if case.exists():
     import shutil; shutil.rmtree(case)
@@ -70,6 +73,14 @@ host_exe = args.package / 'butterpollo.exe'
 audio_probe = args.client.parent / 'audio_probe.exe'
 motion_probe = args.client.parent / 'motion_probe.exe'
 width, height, fps = args.mode.split('x')
+# Fresh pictures cannot outpace the captured display: a faster stream case
+# is recorded as skipped on a slower monitor instead of failing.
+if display['refresh_hz'] < float(fps) * .97:
+    result = dict(case=name, codec=args.codec, mode=args.mode, vrr=args.vrr, passed=True,
+                  skipped=f"the display refreshes at {display['refresh_hz']} Hz, below the requested {fps} FPS")
+    (case / 'result.json').write_text(json.dumps(result, indent=2))
+    print(json.dumps(result))
+    sys.exit(0)
 
 owned = []
 def spawn(command, name, **kw):
@@ -120,6 +131,7 @@ result = evaluate(client, rc, args.codec, args.mode, args.vrr, recovery=args.rec
                   tone_log=(case / 'tone.log').read_text(errors='replace'),
                   host_frames=host_frames(case / 'receiver'),
                   claim_trace='pacing=trace' in env.get('RUST_LOG', ''))
+result = dict(case=name, **result)
 (case / 'result.json').write_text(json.dumps(result, indent=2))
 print(json.dumps(result))
 sys.exit(0 if result['passed'] else 1)

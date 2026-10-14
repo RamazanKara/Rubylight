@@ -5,7 +5,7 @@ import { extname, join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = fileURLToPath(new URL('.', import.meta.url));
-const prefix = '/rubylight-android';
+const prefix = '/nightjar-android';
 const types = {
   '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8', '.svg': 'image/svg+xml',
@@ -80,7 +80,7 @@ const server = createServer(async (request, response) => {
 });
 
 server.listen(4317, '127.0.0.1', () => {
-  console.log('RUBYLIGHT preview: http://127.0.0.1:4317/rubylight-android/');
+  console.log('Nightjar preview: http://127.0.0.1:4317/nightjar-android/');
 });
 server.on('error', error => {
   console.error(error.message);

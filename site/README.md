@@ -1,8 +1,8 @@
-# RUBYLIGHT site
+# Nightjar site
 
 Plain HTML, CSS and JavaScript. No build step or package installation.
 All site navigation and assets use relative paths. External links point to
-the release, source documentation and RUBYLIGHT host.
+the release, source documentation and supported streaming hosts.
 
 ## Preview and check
 
@@ -12,7 +12,7 @@ From the repository worktree:
 & C:\nodejs\node.exe site/preview.mjs
 ```
 
-Open http://127.0.0.1:4317/rubylight-android/. The project prefix mirrors
+Open http://127.0.0.1:4317/nightjar-android/. The project prefix mirrors
 GitHub Pages. Stop the server with Ctrl+C. Unknown paths serve the custom
 404 page, including nested paths.
 
@@ -35,8 +35,9 @@ It also fails when the assets, excluding video, exceed 6 MB.
   `upscaling-options.png`), resized to 720 px wide.
 - `assets/shot-stream.webp`: `docs/screenshots/demo/landscape-compact.png`
   with the side bars cropped to 16:9 and resized to 1600 × 900.
-- `assets/launcher.png` and `assets/favicon.png`: the launcher icon from
-  `app/src/main/res/mipmap-xxxhdpi/ic_launcher.png`.
+- `assets/launcher.png` (192 × 192) and `assets/favicon.png` (32 × 32): the
+  launcher icon `app/src/main/res/mipmap-anydpi/ic_launcher.xml` (night circle,
+  amber moon, bird), rendered as SVG with a transparent background outside the circle.
 - `assets/og.png`: the 1200 × 630 raster export of `assets/og.svg`.
 - `assets/demo-16x9.mp4` and `assets/demo-9x16.mp4`: the silent 47 s tour,
   H.264 with the metadata at the start of the file. They are also attached to
@@ -75,8 +76,8 @@ No custom Actions workflow is used.
 
 ```powershell
 $siteSource = (Resolve-Path ./site).Path
-$pagesFolder = Join-Path $env:TEMP ('rubylight-pages-' + [guid]::NewGuid().ToString('N'))
-$pagesRemote = 'https://github.com/RamazanKara/rubylight-android.git'
+$pagesFolder = Join-Path $env:TEMP ('nightjar-pages-' + [guid]::NewGuid().ToString('N'))
+$pagesRemote = 'https://github.com/RamazanKara/nightjar-android.git'
 
 git init --initial-branch=gh-pages $pagesFolder
 Get-ChildItem -LiteralPath $siteSource -Force |
@@ -84,7 +85,7 @@ Get-ChildItem -LiteralPath $siteSource -Force |
     Copy-Item -Destination $pagesFolder -Recurse
 
 git -C $pagesFolder add .
-git -C $pagesFolder commit -m "docs(site): publish RUBYLIGHT site"
+git -C $pagesFolder commit -m "docs(site): publish Nightjar site"
 git -C $pagesFolder remote add origin $pagesRemote
 git -C $pagesFolder push -u origin gh-pages
 ```
@@ -98,17 +99,17 @@ Enable branch-based Pages using an authenticated repository administrator
 account:
 
 ```powershell
-gh api --method POST repos/RamazanKara/rubylight-android/pages -f build_type=legacy -f "source[branch]=gh-pages" -f "source[path]=/"
+gh api --method POST repos/RamazanKara/nightjar-android/pages -f build_type=legacy -f "source[branch]=gh-pages" -f "source[path]=/"
 ```
 
 When Pages already exists, update its source:
 
 ```powershell
-gh api --method PUT repos/RamazanKara/rubylight-android/pages -f build_type=legacy -f "source[branch]=gh-pages" -f "source[path]=/"
-gh api repos/RamazanKara/rubylight-android/pages --jq .html_url
+gh api --method PUT repos/RamazanKara/nightjar-android/pages -f build_type=legacy -f "source[branch]=gh-pages" -f "source[path]=/"
+gh api repos/RamazanKara/nightjar-android/pages --jq .html_url
 ```
 
-The published site is https://ramazankara.github.io/rubylight-android/.
+The published site is https://ramazankara.github.io/nightjar-android/.
 `.nojekyll` keeps the published directory static. The Pages API source and
 `legacy` build type are documented in the
 [GitHub Pages REST API](https://docs.github.com/en/rest/pages/pages#create-a-github-pages-site).

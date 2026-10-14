@@ -2,9 +2,11 @@
 // Vibepollo ends a session by sending its end message reliably, flushing it, and calling
 // enet_peer_disconnect_now() a few milliseconds later. That disconnect must not erase the
 // queued end message, or every normal game exit is reported as a transport failure (-1).
+// The intercept must also not make stopControlStream() linger for a host that is gone.
 #include "Limelight-internal.h"
 #include <arpa/inet.h>
 #include <netinet/in.h>
+#include <pthread.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -38,6 +40,15 @@ bool PltEncryptMessage(PPLT_CRYPTO_CONTEXT ctx, int algorithm, int flags,
 int LbqOfferQueueItem(PLINKED_BLOCKING_QUEUE queue, void* data, PLINKED_BLOCKING_QUEUE_ENTRY entry) { CHECK(false); return -1; }
 void BridgeClControllerHaptics(uint16_t controller, uint32_t sequence, const uint8_t* pcm, uint16_t frames) { CHECK(false); }
 void BridgeClControllerAudio(uint16_t kind, const uint8_t* payload, int length) { CHECK(false); }
+
+// stopControlStream() also reaches into streams and sockets this test does not run.
+bool ReferenceFrameInvalidationSupported;
+int NegotiatedVideoFormat;
+DECODER_RENDERER_CALLBACKS VideoCallbacks;
+void LbqSignalQueueShutdown(PLINKED_BLOCKING_QUEUE queue) { }
+void LbqSignalQueueDrain(PLINKED_BLOCKING_QUEUE queue) { }
+void shutdownTcpSocket(SOCKET s) { CHECK(false); }
+void closeSocket(SOCKET s) { CHECK(false); }
 
 enum HostExit {
     END_THEN_DISCONNECT_NOW,     // Vibepollo: unsequenced 10-byte disconnect right after the end message
@@ -148,9 +159,94 @@ static void run(const char* name, enum HostExit hostExit, bool otherSenderDrains
     enet_host_destroy(host);
 }
 
+enum StopRace {
+    HOST_GONE_DURING_DRAIN,      // the receiver holds the host's disconnect_now back for 100 ms
+    HOST_GONE_DURING_LINGER,     // the client stops first; the host's disconnect_now follows
+    HOST_STAYS,                  // the host acknowledges the client's graceful disconnect
+};
+
+struct HostDuringStop {
+    ENetHost* host;
+    ENetPeer* peer;
+    enum StopRace race;
+    bool sawFinalMessage, sawDisconnect;
+};
+
+static void* hostDuringStop(void* context) {
+    struct HostDuringStop* helper = context;
+    if (helper->race == HOST_GONE_DURING_LINGER) {
+        usleep(5000);
+        enet_peer_disconnect_now(helper->peer, 0);
+        return NULL;
+    }
+    ENetEvent event;
+    uint64_t started = nowMs();
+    while (!helper->sawDisconnect && nowMs() - started < 3000) {
+        if (enet_host_service(helper->host, &event, 10) > 0) {
+            if (event.type == ENET_EVENT_TYPE_RECEIVE) {
+                helper->sawFinalMessage = event.packet->dataLength == 3;
+                enet_packet_destroy(event.packet);
+            }
+            else if (event.type == ENET_EVENT_TYPE_DISCONNECT) {
+                helper->sawDisconnect = true;
+            }
+        }
+    }
+    return NULL;
+}
+
+static void finished(void* context) { }
+
+static void stop(const char* name, enum StopRace race) {
+    ENetAddress address;
+    ENetHost* host = createHost(&address);
+    ENetPeer* hostPeer = connectClient(host, &address);
+    struct HostDuringStop helper = {host, hostPeer, race, false, false};
+    pthread_t thread;
+
+    disconnectPending = false;
+    if (race == HOST_GONE_DURING_DRAIN) {
+        enet_peer_disconnect_now(hostPeer, 0);
+        usleep(20000);
+        // The poll that holds the disconnect back; the stop lands before the drain ends.
+        drainFromAnotherSender();
+        CHECK(disconnectPending && peer->state == ENET_PEER_STATE_CONNECTED);
+    }
+    else {
+        // Final outbound traffic queued just before the stop, like a key up.
+        static const uint8_t keyUp[3] = {1, 2, 3};
+        CHECK(enet_peer_send(peer, 0, enet_packet_create(keyUp, sizeof(keyUp), ENET_PACKET_FLAG_RELIABLE)) == 0);
+        CHECK(pthread_create(&thread, NULL, hostDuringStop, &helper) == 0);
+    }
+
+    // stopControlStream() joins the stream threads; these have already finished.
+    CHECK(PltCreateThread("LossStats", finished, NULL, &lossStatsThread) == 0);
+    CHECK(PltCreateThread("ReqIdrFrame", finished, NULL, &requestIdrFrameThread) == 0);
+    CHECK(PltCreateThread("ControlRecv", finished, NULL, &controlReceiveThread) == 0);
+    CHECK(PltCreateThread("AsyncCallback", finished, NULL, &asyncCallbackThread) == 0);
+    ConnectionInterrupted = true;
+    uint64_t started = nowMs();
+    stopControlStream();
+    uint64_t elapsed = nowMs() - started;
+    ConnectionInterrupted = false;
+    if (race != HOST_GONE_DURING_DRAIN) {
+        CHECK(pthread_join(thread, NULL) == 0);
+    }
+
+    // The linger is two seconds; a host that is gone must not make the stop wait it out,
+    // and a host that stays must still get the final traffic before the disconnect.
+    bool passed = elapsed < 600 && client == NULL && peer == NULL &&
+        (race != HOST_STAYS || (helper.sawFinalMessage && helper.sawDisconnect));
+    printf("%s %s: stopped after %llu ms\n", passed ? "PASS" : "FAIL", name, (unsigned long long)elapsed);
+    failures += !passed;
+
+    enet_host_destroy(host);
+}
+
 int main(void) {
     CHECK(enet_initialize() == 0);
     CHECK(PltCreateMutex(&enetMutex) == 0);
+    CHECK(PltCreateEvent(&idrFrameRequiredEvent) == 0);
     memset(&ListenerCallbacks, 0, sizeof(ListenerCallbacks));
     ListenerCallbacks.connectionTerminated = reportTermination;
     AppVersionQuad[0] = 7;
@@ -170,6 +266,12 @@ int main(void) {
     run("disconnect_now without an end message", DISCONNECT_NOW_WITHOUT_END, false, -1);
     run("disconnect_now without an end message, drained", DISCONNECT_NOW_WITHOUT_END, true, -1);
 
+    // Stopping closes the control stream for good, so these run last.
+    stop("stop while the host's disconnect_now drains", HOST_GONE_DURING_DRAIN);
+    stop("host disconnect_now during the stop's linger", HOST_GONE_DURING_LINGER);
+    stop("stop with the host still connected", HOST_STAYS);
+
+    PltCloseEvent(&idrFrameRequiredEvent);
     PltDeleteMutex(&enetMutex);
     enet_deinitialize();
     if (failures) {

@@ -1,9 +1,12 @@
 Hold back enet_peer_disconnect_now() like GFE's reliable disconnect so a queued termination
 message is still delivered. Sunshine forks send their end message and disconnect at once.
+On stop, a host whose disconnect was held back is released at once instead of lingering for
+an acknowledgement it never sends, and the intercept is removed before a graceful linger so
+a host disconnect that arrives during it ends the linger.
 Applies after host-termination.patch.
 
 diff --git a/src/ControlStream.c b/src/ControlStream.c
-index efad638..28e47bd 100644
+index efad638..c5f8a7a 100644
 --- a/src/ControlStream.c
 +++ b/src/ControlStream.c
 @@ -103,6 +103,7 @@ static uint32_t lastGoodFrame;
@@ -73,3 +76,22 @@ index efad638..28e47bd 100644
                          // Now that no pending receive events remain, we can
                          // remove our intercept hook and allow the server's
                          // disconnect to be processed as expected. We will wait
+@@ -1704,7 +1738,17 @@ int stopControlStream(void) {
+     if (peer != NULL) {
+         // Gracefully disconnect to ensure the remote host receives all of our final
+         // outbound traffic, including any key up events that might be sent.
+-        gracefullyDisconnectEnetPeer(client, peer, CONTROL_STREAM_LINGER_TIMEOUT_SEC * 1000);
++        if (disconnectPending) {
++            // The intercept held back a disconnect the host has already sent. That host
++            // will never acknowledge ours, so a graceful disconnect would wait out the
++            // whole linger.
++            enet_peer_disconnect_now(peer, 0);
++        }
++        else {
++            // A host disconnect that arrives during the linger must end it, not be held back.
++            client->intercept = NULL;
++            gracefullyDisconnectEnetPeer(client, peer, CONTROL_STREAM_LINGER_TIMEOUT_SEC * 1000);
++        }
+         peer = NULL;
+     }
+     if (client != NULL) {

@@ -101,6 +101,9 @@ int gracefullyDisconnectEnetPeer(ENetHost* host, ENetPeer* target, enet_uint32 l
     return 0;
 }
 
+// No host disconnect is held back here, so a stop always disconnects gracefully.
+void enet_peer_disconnect_now(ENetPeer* target, enet_uint32 data) { CHECK(false); }
+
 void enet_host_destroy(ENetHost* host) {
     CHECK(!atomic_load(&senderInside) && host == &fakeHost);
     atomic_store(&tornDown, true);

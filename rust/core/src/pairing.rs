@@ -8,23 +8,41 @@ use std::{
 };
 use zeroize::Zeroize;
 
+/// Device names come from the client (Android sends its model, such as
+/// "moto g(60)") or from the console. They are shown escaped and reach
+/// commands only through `command_device_name`, so ordinary punctuation is
+/// fine; refuse what could still mislead in a log line or markup.
 pub fn validate_device_name(name: &str) -> Result<()> {
     if name.trim().is_empty()
         || name.chars().count() > 128
         || !name.chars().all(device_name_character)
     {
         bail!(
-            "device name must contain 1–128 letters, numbers, spaces, hyphens, underscores, periods or apostrophes"
+            "device name must be 1–128 characters without control characters or any of < > \" ` % $ \\ | ; ^"
         );
     }
     Ok(())
 }
 fn device_name_character(c: char) -> bool {
+    !c.is_control()
+        && !is_noncharacter(c)
+        && !matches!(
+            c,
+            '<' | '>' | '"' | '`' | '%' | '$' | '\\' | '|' | ';' | '^'
+        )
+}
+fn is_noncharacter(c: char) -> bool {
+    let c = c as u32;
+    (0xfdd0..=0xfdef).contains(&c) || c & 0xfffe == 0xfffe
+}
+/// The characters a device name keeps in a command's environment; any
+/// other becomes an underscore, so names cannot expand into shell syntax.
+fn command_character(c: char) -> bool {
     c.is_alphanumeric() || matches!(c, ' ' | '-' | '_' | '.' | '\'')
 }
 pub fn command_device_name(name: &str) -> String {
     name.chars()
-        .map(|c| if device_name_character(c) { c } else { '_' })
+        .map(|c| if command_character(c) { c } else { '_' })
         .collect()
 }
 
@@ -171,6 +189,19 @@ mod tests {
         for name in ["Living room", "Çağrı's Phone", "日本語", "Phone-2.1_Pro"] {
             assert!(validate_device_name(name).is_ok(), "{name}");
         }
+        // Since 2.2.2 these were refused, so pairing failed for Android
+        // models with parentheses and for names typed on iOS.
+        for name in [
+            "moto g(60)",
+            "Galaxy S24+",
+            "Ramazan’s iPhone",
+            "Steam Deck (OLED)",
+            "AT&T phone, #2",
+        ] {
+            assert!(validate_device_name(name).is_ok(), "{name}");
+        }
+        assert_eq!(command_device_name("moto g(60)"), "moto g_60_");
+        assert_eq!(command_device_name("AT&T phone"), "AT_T phone");
         for name in [
             "",
             " ",

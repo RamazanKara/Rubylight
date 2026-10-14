@@ -35,16 +35,18 @@ adb shell am start -n com.butterpollo.client/com.limelight.demo.DemoLauncherActi
 | --- | --- |
 | `hosts` (default) | Real PcView cards: Living-room PC online/paired, Studio PC online/unpaired, Laptop offline with Wake PC action |
 | `library` | Real AppView, ten original 3:4 covers, Racing Game marked running |
-| `stream`, `compact` | Looping sample in the Game layout's StreamView with compact performance overlay |
-| `advanced` | Same sample with advanced overlay |
+| `stream`, `compact` | Looping sample in the Game layout's StreamView with the compact performance overlay |
+| `statistics` | Same sample with the Statistics overlay |
+| `advanced`, `debug` | Same sample with the Debug overlay |
 | `touch` | Same sample with the real on-screen controller and its layout editor |
 | `pip` | Sample ready for PiP; press Home to enter it |
 | `settings` | Real settings and presets, with isolated demo preferences |
 | `controller` | Real controller mapping screen, populated with a demo controller |
 
 Tap Living-room PC to enter its library; tap any title to play the sample.
-Long-press the performance overlay to switch compact/advanced. Tap the stream
-or its background for overlay and touch-control actions. Studio pairing and
+Long-press the performance overlay to cycle Compact, Statistics and Debug. Tap the
+stream, its background or Back for the real stream menu; Disconnect leaves. Add
+`--ez hint true` to keep the first-stream hint up until it is tapped. Studio pairing and
 Laptop Wake PC are offline demonstration actions; no pairing request or magic
 packet is sent. The fixture binder never discovers or polls hosts and creates
 no launcher shortcuts. Preferences use `demo_` names and cached art stays under

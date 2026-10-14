@@ -3,7 +3,8 @@
 Needs Python 3 and an Android 35+ AVD (Google APIs, not Google Play).
 Uses a disposable, read-only AVD session and a loopback serverinfo fixture.
 This checks UI rendering, navigation, manual discovery and the pairing prompt.
-Pairing completion and the stream menu require a real host and phone.
+Debug builds also drive the demo stream's real stream menu, hint and overlay.
+Pairing completion and a live stream require a real host and phone.
 """
 import argparse
 import http.server
@@ -672,6 +673,186 @@ def capture_debug_checks():
         x1, y1, x2, y2 = bounds(node)
         x, y = str(x1 + 20), str(y1 + 20)
         adb("shell", "input", "swipe", x, y, x, y, "1000")
+        # Debug, then the compact line, then Statistics again for the next rotation.
+        node = find(f"{PACKAGE}:id/performanceOverlay")
+        assert node.get("text") == COMPACT_TEXT, node.attrib
+        x1, y1, x2, y2 = bounds(node)
+        x, y = str((x1 + x2) // 2), str((y1 + y2) // 2)
+        adb("shell", "input", "swipe", x, y, x, y, "1000")
+    stream_ui_checks()
+
+
+COMPACT_TEXT = "● 119.9 FPS · 8 ms RTT · 0.1% loss"
+
+
+def cutout_insets(width, height):
+    """The panel's camera cutout as (left, top, right, bottom) insets of the screen as captured.
+
+    The window manager stops reporting the cutout under the smoke's wm size override, so this reads the
+    panel's own cutout in its natural orientation, scales it to the capture and turns it with the
+    rotation the smoke locked.
+    """
+    for line in adb("shell", "dumpsys", "display").splitlines():
+        cutout = re.search(r"DisplayCutout\{insets=Rect\((\d+), (\d+) - (\d+), (\d+)\)", line)
+        real = re.search(r"real (\d+) x (\d+)", line)
+        if not cutout or not real or not any(map(int, cutout.groups())):
+            continue
+        left, top, right, bottom = map(int, cutout.groups())
+        natural = min(map(int, real.groups()))
+        scale = min(width, height) / natural
+        turned = {0: (left, top, right, bottom), 1: (top, right, bottom, left),
+                  2: (right, bottom, left, top), 3: (bottom, left, top, right)}[EXPECTED_ROTATION]
+        return tuple(round(value * scale) for value in turned)
+    return (0, 0, 0, 0)
+
+
+def overlaps(a, b):
+    return a[0] < b[2] and b[0] < a[2] and a[1] < b[3] and b[1] < a[3]
+
+
+def assert_clear_of_cutout(rect, width, height, what):
+    left, top, right, bottom = cutout_insets(width, height)
+    for band in ((0, 0, left, height), (0, 0, width, top), (width - right, 0, width, height), (0, height - bottom, width, height)):
+        if band[2] > band[0] and band[3] > band[1]:
+            assert not overlaps(rect, band), f"{what} {rect} reaches into the camera cutout {band}"
+
+
+def onscreen_controls(root, overlay, width, height):
+    """The on-screen gamepad's elements and layout button: small app views without an id of their own."""
+    controls = []
+    for node in root.iter("node"):
+        if node.get("package") != PACKAGE or node.get("resource-id") or node is overlay:
+            continue
+        if node.get("class") not in ("android.view.View", "android.widget.Button"):
+            continue
+        x1, y1, x2, y2 = bounds(node)
+        if 0 < (x2 - x1) * (y2 - y1) < width * height // 4:
+            controls.append((x1, y1, x2, y2))
+    return controls
+
+
+def assert_compact_overlay(name, controls_shown):
+    """One line, out of the cutout, and in landscape off every on-screen control."""
+    width, height = screenshot(name)
+    root = ET.fromstring(LOGS.joinpath(name + ".xml").read_bytes())
+    node = next(n for n in root.iter("node") if n.get("resource-id") == f"{PACKAGE}:id/performanceOverlay")
+    assert node.get("text") == COMPACT_TEXT, node.attrib
+    rect = bounds(node)
+    assert rect[3] - rect[1] < 120, f"The compact overlay is more than one line: {rect}"
+    assert_clear_of_cutout(rect, width, height, "The compact overlay")
+    controls = onscreen_controls(root, node, width, height)
+    if controls_shown:
+        gear = next((n for n in root.iter("node") if n.get("content-desc") == "Edit controller layout"), None)
+        assert gear is not None and controls, f"{name}: the on-screen controls did not show"
+        # Phones stream controller layouts in landscape; portrait has no free spot to promise.
+        if width > height:
+            for control in controls:
+                assert not overlaps(rect, control), f"{name}: the compact overlay {rect} covers an on-screen control {control}"
+    return rect
+
+
+def stream_ui_checks():
+    """The real stream menu, first-stream hint and compact overlay, without a host."""
+    adb("shell", "wm", "size", "786x1704")
+    adb("shell", "wm", "density", "320")
+    # The compact overlay alone stays top-start; beside the on-screen gamepad it moves to a free spot.
+    for controls in (False, True):
+        adb("shell", "am", "force-stop", PACKAGE)
+        extra = ("--ez", "controls", "true") if controls else ()
+        adb("shell", "am", "start", "-W", "-n", f"{PACKAGE}/com.limelight.LatencyOverlaySmokeActivity",
+            "--es", "mode", "compact", *extra)
+        for rotation, suffix in ((0, ""), (1, "-landscape"), (3, "-landscape-reverse")):
+            set_rotation(rotation)
+            time.sleep(1)
+            find(f"{PACKAGE}:id/performanceOverlay")
+            rect = assert_compact_overlay("overlay-compact" + ("-controls" if controls else "") + suffix, controls)
+            if not controls:
+                assert rect[0] < 200 and rect[1] < 200, f"Without controls the compact overlay left top-start: {rect}"
+    adb("shell", "input", "keyevent", "4")
+
+    # The demo stream runs the production menu, hint and overlay, with the on-screen gamepad shown.
+    adb("shell", "am", "force-stop", PACKAGE)
+    adb("shell", "am", "start", "-W", "-n", f"{PACKAGE}/com.limelight.demo.DemoLauncherActivity",
+        "--es", "state", "touch", "--es", "codec", "h264", "--ez", "hint", "true")
+    hint_id = f"{PACKAGE}:id/streamMenuHint"
+    close = f"{PACKAGE}:id/action_sheet_close"
+    for rotation, suffix in ((0, ""), (1, "-landscape")):
+        set_rotation(rotation)
+        time.sleep(1)
+        hint = find(hint_id)
+        assert (hint.get("text") or "").startswith("To open the stream menu, "), hint.attrib
+        width, height = screenshot("stream-hint" + suffix)
+        root = ET.fromstring(LOGS.joinpath("stream-hint" + suffix + ".xml").read_bytes())
+        hint = next(n for n in root.iter("node") if n.get("resource-id") == hint_id)
+        overlay = next(n for n in root.iter("node") if n.get("resource-id") == f"{PACKAGE}:id/performanceOverlay")
+        assert not overlaps(bounds(hint), bounds(overlay)), "The hint covers the performance overlay"
+        assert_clear_of_cutout(bounds(hint), width, height, "The hint")
+        assert_compact_overlay("stream-compact-controls" + suffix, True)
+
+    for rotation, suffix in ((1, "-landscape"), (3, "-landscape-reverse"), (0, "")):
+        set_rotation(rotation)
+        time.sleep(1)
+        # Back opens the menu, and the hint has done its job.
+        adb("shell", "input", "keyevent", "4")
+        find(close)
+        # Let the sheet finish sliding in before it is measured and captured.
+        time.sleep(0.8)
+        assert not any(n.get("resource-id") == hint_id for n in tree().iter("node")), "The hint stayed over the menu"
+        for label in ("Stream", "Keyboard", "Overlay", "Input", "Touch mode", "Display", "Overlay and diagnostics"):
+            find(label, scroll=True)
+        # Capture the menu from its top: the quick row and the first section. Swipe only while the
+        # quick row is cut off, so a sheet already at its top is never dragged closed.
+        for _ in range(10):
+            root = tree()
+            area = next((n for n in root.iter("node") if n.get("scrollable") == "true"), None)
+            keyboard = next((n for n in root.iter("node") if n.get("text") == "Keyboard"), None)
+            if area is None or (keyboard is not None and bounds(keyboard)[1] > bounds(area)[1]):
+                break
+            x1, y1, x2, y2 = bounds(area)
+            adb("shell", "input", "swipe", str((x1 + x2) // 2), str(y1 + (y2 - y1) // 4),
+                str((x1 + x2) // 2), str(y1 + (y2 - y1) * 3 // 4), "500")
+        find("Keyboard")
+        width, height = screenshot("stream-menu" + suffix)
+        root = ET.fromstring(LOGS.joinpath("stream-menu" + suffix + ".xml").read_bytes())
+        sheet = next(n for n in root.iter("node") if n.get("resource-id") == f"{PACKAGE}:id/design_bottom_sheet")
+        assert_clear_of_cutout(bounds(sheet), width, height, "The stream menu")
+        for label in ("Quality", "Host", "Server commands", "Open host web UI", "Reconnect stream", "Disconnect", "Quit game"):
+            find(label, scroll=True)
+        scroll_to_end()
+        assert_touch_target("Quit game")
+        screenshot("stream-menu-bottom" + suffix)
+        # The overlay page opens in the same sheet; Back returns to the menu, and Back again closes it.
+        tap("Overlay and diagnostics", scroll="up")
+        for label in ("Compact", "Statistics", "Debug", "Copy stats", "Why did my stream stutter?"):
+            find(label, scroll=True)
+        find("Compact", scroll="up")
+        find(f"{PACKAGE}:id/action_sheet_back")
+        screenshot("stream-menu-overlay-page" + suffix)
+        adb("shell", "input", "keyevent", "4")
+        find("Keyboard", scroll="up")
+        find("Input", scroll=True)
+        adb("shell", "input", "keyevent", "4")
+        for _ in range(8):
+            if not any(n.get("resource-id") == close for n in tree().iter("node")):
+                break
+            time.sleep(0.5)
+        else:
+            raise AssertionError("Back on the first page did not close the stream menu")
+
+    # D-pad: the focus starts in the menu and moves down through its rows.
+    adb("shell", "input", "keyevent", "4")
+    find(close)
+    seen = set()
+    for _ in range(6):
+        adb("shell", "input", "keyevent", "KEYCODE_DPAD_DOWN")
+        node = next((n for n in tree().iter("node") if n.get("focused") == "true"), None)
+        assert node is not None and node.get("package") == PACKAGE, "D-pad focus left the stream menu"
+        seen.add(bounds(node))
+    assert len(seen) >= 4, f"D-pad down did not move through the menu rows: {seen}"
+    adb("shell", "input", "keyevent", "4")
+    adb("shell", "am", "force-stop", PACKAGE)
+    set_rotation(0)
+    print("Stream menu sections, page Back, D-pad focus, hint and compact overlay placement checked", flush=True)
 
 
 def assert_no_app_crashes():
@@ -838,7 +1019,7 @@ def main():
                     raise ValueError("--debug-only requires a debug APK with library and overlay fixtures")
                 capture_debug_checks()
                 assert_no_app_crashes()
-                print(f"PASS: debug home row states and menus, D-pad to a row's menu, library covers with the running game first, library search, clear action, query persistence across actual rotation, app action sheets, statistics/debug overlay contents and bounds in portrait and landscape; screenshots: {SHOTS}", flush=True)
+                print(f"PASS: debug home row states and menus, D-pad to a row's menu, library covers with the running game first, library search, clear action, query persistence across actual rotation, app action sheets, statistics/debug/compact overlay contents and bounds in portrait and landscape, compact overlay clear of on-screen controls and the cutout, first-stream hint, stream menu sections, page Back and D-pad focus; screenshots: {SHOTS}", flush=True)
                 return
             if args.ui_only:
                 tap(f"{PACKAGE}:id/discovery_add")

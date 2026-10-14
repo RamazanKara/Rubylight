@@ -4,7 +4,7 @@
 
 What Nightjar does for each capability and which hosts provide it. **Any host** means any Moonlight-compatible host: Apollo, NVIDIA GameStream, Rubylight, Sunshine, Vibepollo and others. Named hosts are the ones known to provide a feature; forks that implement the same extension can work too.
 
-Nightjar decides from what each host reports about itself, not from its name. A PC's menu and its stream settings hide what its host can never do, disable with a short reason what needs a host setting, permission or update, and keep everything for a PC never reached yet ("Applies if the host supports it"). Offline PCs keep the features they last reported. A message about something a PC lacks appears once for that PC, not on every stream.
+Nightjar decides from what each host reports about itself, not from its name. A PC's settings hide what its host can never do, disable with a short reason what needs a host setting, permission or update, and keep everything for a PC never reached yet ("Applies if the host supports it"). Offline PCs keep the features they last reported. A message about something a PC lacks appears once for that PC, not on every stream.
 
 | Capability | What Nightjar does | Host support |
 | --- | --- | --- |
@@ -49,7 +49,7 @@ Nightjar decides from what each host reports about itself, not from its name. A 
 | Problem reports | Redacted local events, decoder details and the last crash record, shared when you choose. | Any host |
 | PiP / shortcuts / frontends | Picture-in-picture, pinned app shortcuts and launcher entries for ES-DE, Daijisho and Pegasus. | Any host |
 | Settings / accessibility | Five sections, search, presets, PC profiles, a control layout editor, TalkBack and D-pad navigation, in English and German. | Any host |
-| Host web UI | Open the host's web UI from an online PC's menu, at its default port (six above the HTTPS port). Devices, apps and host settings remain in the host's web UI, with its own login and network access requirements. | Any host except NVIDIA GameStream |
+| Host web UI | Open the host's web UI from an online PC's settings, at its default port (six above the HTTPS port). Devices, apps and host settings remain in the host's web UI, with its own login and network access requirements. | Any host except NVIDIA GameStream |
 
 See [building](building.md) for reproducible checks.
 

@@ -86,7 +86,7 @@ The importer also accepts this format without `version`, common Windows names su
 
 ## PC display mode and administration
 
-Open your PC's menu → **Stream settings → PC display mode**, or choose **PC display mode** directly from its menu. The choice is saved per PC and applies from the next stream. The entry appears only for PCs whose host supports display modes (Rubylight 2.2.1 or later); an older Rubylight shows it disabled with the reason. Other PCs with a virtual display get a plain **Host virtual display** switch in their stream settings.
+Open your PC's menu → **PC settings… → PC display mode**. The choice is saved per PC and applies from the next stream. The entry appears only for PCs whose host supports display modes (Rubylight 2.2.1 or later); an older Rubylight shows it disabled with the reason. Other PCs with a virtual display get a plain **Host virtual display** switch in their settings.
 
 | Choice | What happens on the PC |
 | --- | --- |
@@ -98,7 +98,7 @@ Open your PC's menu → **Stream settings → PC display mode**, or choose **PC 
 
 The host restores the display layout when the stream ends. These choices apply to normal streaming; Remote Monitor and Input-only retain their host-controlled behavior. A saved choice is sent only to a host with display modes.
 
-On every host except NVIDIA GameStream, **Open host web UI** in an online PC's menu opens the host's web UI in your browser, at its default port six above the PC's HTTPS port. Manage applications, paired devices and host settings there. The web UI uses its own login; pairing does not sign you in. Remote access needs a reachable web UI port, which is separate from the streaming ports. The dialog's address can be selected and copied if no browser is available.
+On every host except NVIDIA GameStream, **Open host web UI** in an online PC's settings opens the host's web UI in your browser, at its default port six above the PC's HTTPS port. Manage applications, paired devices and host settings there. The web UI uses its own login; pairing does not sign you in. Remote access needs a reachable web UI port, which is separate from the streaming ports. The dialog's address can be selected and copied if no browser is available.
 
 ## On-screen controls
 

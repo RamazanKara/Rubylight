@@ -162,7 +162,7 @@ Native also turns these back on: Android low-latency mode, Chipset low-latency m
 
 ## Per-PC stream profiles
 
-Long-press a PC and choose **This PC → Stream settings**. Every value starts as **Same as all PCs**, which follows the main stream settings, including later changes. Pick a value to give this PC its own; pick **Same as all PCs** again to follow the main settings. **Same as all PCs for everything** clears every value of this PC. Choose **Save** to keep the changes; leaving without saving discards them.
+Long-press a PC and choose **PC settings…**; the screen is titled with the PC name. Every value under **Stream** starts as **Same as all PCs**, which follows the main stream settings, including later changes. Pick a value to give this PC its own; pick **Same as all PCs** again to follow the main settings. **Same as all PCs for everything** clears every value of this PC. Choose **Save** to keep the changes; leaving without saving discards them.
 
 These controls are created in [HostStreamSettings.java](../app/src/main/java/com/limelight/preferences/HostStreamSettings.java), with validation in [HostStreamProfile.java](../app/src/main/java/com/limelight/preferences/HostStreamProfile.java).
 
@@ -183,7 +183,7 @@ Profiles saved by builds up to test.10 copied every main setting. They now keep 
 
 ## Display on the PC
 
-Open a PC's menu and choose **PC display mode**, or open it inside that PC's **Stream settings**. Select a mode and confirm **Save display mode** to apply it from the next stream. **Cancel** leaves the saved mode unchanged. The display choice is saved separately from the stream profile. It is created in [HostDisplaySettings.java](../app/src/main/java/com/limelight/preferences/HostDisplaySettings.java) and stored by [HostDisplayChoice.java](../app/src/main/java/com/limelight/preferences/HostDisplayChoice.java).
+Open a PC's menu, choose **PC settings…**, then **PC display mode** under **Display on the PC**. Select a mode and confirm **Save display mode** to apply it from the next stream. **Cancel** leaves the saved mode unchanged. The display choice is saved separately from the stream profile. It is created in [HostDisplaySettings.java](../app/src/main/java/com/limelight/preferences/HostDisplaySettings.java) and stored by [HostDisplayChoice.java](../app/src/main/java/com/limelight/preferences/HostDisplayChoice.java).
 
 | Choice | Sent to the PC | What the PC does |
 | --- | --- | --- |

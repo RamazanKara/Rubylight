@@ -18,7 +18,7 @@ The skippable first-launch pairing guide is also available from the **?** button
 
 ## Your PC library
 
-Material 3 PC cards show connection status, with **Add PC** and grouped action sheets. Long-press a PC or app for its actions. The library follows the host's app order, uses app UUIDs for shortcuts and refreshes artwork when the host changes its artwork version.
+Each PC is one row with one status line; tapping it opens the library, pairs or wakes the PC. Long-press a PC or game, or use its options button, for its actions; everything else about a PC is in **PC settings…**. The library shows covers with the running game first and follows the host's app order, uses app UUIDs for shortcuts and refreshes artwork when the host changes its artwork version.
 
 Tablet, foldable, TV and desktop layouts adapt to the current window, preserving library focus on resize and keeping content clear of separating hinges, system bars and cutouts. Wide windows show more columns; short landscape windows use shorter artwork. See [navigation and shortcuts](controls.md#app-navigation).
 

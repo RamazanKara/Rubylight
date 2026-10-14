@@ -1,6 +1,6 @@
 # Play away from home
 
-Long-press a saved PC and choose **Play away from home**. The guide works with any already paired Moonlight-compatible host.
+Long-press a saved PC, choose **PC settings…**, then **Play away from home**. The guide works with any already paired Moonlight-compatible host.
 
 1. Pair on your home network first, check that an ordinary stream works, and keep the PC awake. Waking a sleeping PC from outside the home usually needs a router or another always-on device; this guide does not promise remote Wake-on-LAN.
 2. Follow the linked Tailscale installation guide to join the PC and Android device to your own network. The app does not install software, change router settings, request public ports or create an account. Save the PC's VPN address using **Add address** if discovery does not find it.

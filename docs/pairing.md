@@ -22,7 +22,7 @@ Cancel a pairing attempt before starting another. If a PIN is rejected, retry wi
 
 ## Host-generated one-time PIN
 
-This needs a host that supports one-time PINs (e.g. Apollo or Rubylight). Create a one-time PIN and passphrase in the host's settings or web UI. On Android, long-press the PC and choose **Pairing → Pair with one-time PIN**. Enter the four-digit PIN and its passphrase, then pair. The PIN expires after three minutes; the passphrase must contain at least four characters.
+This needs a host that supports one-time PINs (e.g. Apollo or Rubylight). Create a one-time PIN and passphrase in the host's settings or web UI. On Android, long-press the PC and choose **Pair with one-time PIN**. Enter the four-digit PIN and its passphrase, then pair. The PIN expires after three minutes; the passphrase must contain at least four characters.
 
 This reverses the ordinary flow: you enter the host's PIN on Android. Generate a new one after expiry.
 
@@ -56,4 +56,4 @@ Remove an unwanted PC from Android to clear its saved-host entry, per-PC setting
 
 ## Wake a sleeping PC
 
-Pair once while the PC is awake so Nightjar can learn its network adapter's MAC address. Enable Wake-on-LAN in the PC firmware and adapter settings, then long-press the offline PC and choose **Wake PC**. Waking from sleep, shutdown or another subnet depends on the PC and network. A sent wake packet is not a wake confirmation.
+Pair once while the PC is awake so Nightjar can learn its network adapter's MAC address. Enable Wake-on-LAN in the PC firmware and adapter settings, then tap the offline PC, or choose **Wake PC** from its menu. Waking from sleep, shutdown or another subnet depends on the PC and network. A sent wake packet is not a wake confirmation.

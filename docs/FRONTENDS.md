@@ -7,7 +7,7 @@ Nightjar can stream a game opened from ES-DE, Daijisho, Pegasus or another Andro
 ## ES-DE
 
 1. Pair the PC in Nightjar and open its library once to refresh the cached app list.
-2. Long-press the PC and choose **Add games to ES-DE**.
+2. Long-press the PC, choose **PC settings…**, then **Add games to ES-DE**.
 3. Select the ROMs folder used by ES-DE. The exporter creates a `butterpollo` subfolder containing a game entry for each visible app.
 4. Select the ES-DE folder to merge the custom system and copy cached covers. Skip this step when exporting only game files for another frontend.
 5. Restart ES-DE and open its **Nightjar** system.

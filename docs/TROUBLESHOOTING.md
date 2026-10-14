@@ -55,7 +55,7 @@ See [video and latency](video-and-latency.md#performance-overlay) for metric def
 | Mouse look behaves like a desktop cursor | Desktop mouse mode or capture state. | Turn Desktop mouse mode off and use Ctrl+Alt+Shift+Z to recapture input. |
 | Controller stick drifts | Deadzone too small for that pad/game. | Increase Analog stick deadzone slightly and compare. |
 | Touch behaves like a mouse | Trackpad/Direct mouse selected, or native touch unavailable. | Select Multi-touch and grant Touch input on the host. A host without native touch falls back to Direct mouse. |
-| Preset or global change seems ignored | This PC has its own value for that setting. | Long-press the PC, open **This PC → Stream settings**, set the value to **Same as all PCs**, and save. |
+| Preset or global change seems ignored | This PC has its own value for that setting. | Long-press the PC, open **PC settings…**, set the value to **Same as all PCs**, and save. |
 | Reset did not remove a controller mapping or layout | Global reset intentionally preserves them. | Reset the controller in Controller buttons or use Reset controls layout. |
 | APK update is rejected | Different signing key or incompatible build. | Use an update signed by the installed app's key. Uninstalling permits a different key but removes local app data and pairing identity. |
 | PC will not wake | Missing MAC, NIC/firmware policy, Wi-Fi or routing limitation. | Pair once while awake; enable Wake-on-LAN; test Ethernet and sleep on the same subnet. |
@@ -63,7 +63,7 @@ See [video and latency](video-and-latency.md#performance-overlay) for metric def
 
 ## Connection test
 
-Long-press a PC and choose **This PC → Test your connection**. The test makes ten timed server-info requests. Ping is their average round trip; jitter is the average change between consecutive successful requests. Failed probes are HTTP failures, not video packet loss.
+Long-press a PC and choose **PC settings… → Connection test**. The test makes ten timed server-info requests. Ping is their average round trip; jitter is the average change between consecutive successful requests. Loss is the share of requests that failed, not video packet loss. When the speed is not measured, the result says why.
 
 On a paired host that supports it (Rubylight, or Vibepollo with PyroWave available), the optional 32 MiB HTTPS download reports throughput and the host adapter's reported link speed. Other hosts get the delay test only; the test's first screen says which. It uses network data and may temporarily compete with other traffic. Cancel or leave the test to stop it. None of these measurements changes stream settings.
 
@@ -72,7 +72,7 @@ On a paired host that supports it (Rubylight, or Vibepollo with PyroWave availab
 1. Reproduce the problem and note the app version, device/Android version, host version and time.
 2. Open **Settings → App → Report a problem**, select **Share** and choose a receiving app in Android's share sheet.
 3. Attach **Overlay → Copy stats** and **Settings → Advanced → Export latency CSV** when relevant. Copy stats includes all Debug details.
-4. For pairing/host issues, long-press the PC, use **This PC → View details → Copy debug info**, and add the relevant host log.
+4. For pairing/host issues, long-press the PC, use **PC settings… → View details → Copy debug info**, and add the relevant host log.
 5. Describe what you did, what you expected and what occurred in a [Nightjar issue](https://github.com/RamazanKara/nightjar-android/issues).
 
 The report is a text file named `nightjar-problem.txt`. It contains up to 200 redacted events from the current app process, the last decoder configuration and the last saved crash record. Addresses, user-assigned host/device names, PINs, credentials and free-text diagnostic details are omitted. Nothing is uploaded automatically; sharing begins only when you choose a receiving app. Review separately copied host details/logs before sharing them.

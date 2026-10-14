@@ -24,7 +24,7 @@ Yes, when your Android device can reach the host's streaming services. Establish
 
 ## Where do I set device permissions?
 
-In your host's settings or web UI, if it has per-device permissions (e.g. Apollo, Rubylight or Vibepollo). Choose **Open host web UI** from an online PC's menu and sign in with the web UI's account. Listing apps, viewing, launching, each input type, clipboard directions and commands have separate permissions. See [pairing](pairing.md#per-device-permissions).
+In your host's settings or web UI, if it has per-device permissions (e.g. Apollo, Rubylight or Vibepollo). Choose **Open host web UI** in an online PC's settings and sign in with the web UI's account. Listing apps, viewing, launching, each input type, clipboard directions and commands have separate permissions. See [pairing](pairing.md#per-device-permissions).
 
 ## Does Disconnect close my game?
 
@@ -32,7 +32,7 @@ Disconnect ends the local stream and leaves the host app running. Select it agai
 
 ## Why did changing a preset do nothing?
 
-A PC's own values override the preset for that PC. In that PC's Stream settings, set them to Same as all PCs and save, then start a new stream. [Settings](settings.md) lists every preset write and reset scope.
+A PC's own values override the preset for that PC. In that PC's settings, set them to Same as all PCs and save, then start a new stream. [Settings](settings.md) lists every preset write and reset scope.
 
 ## Which codec or upscaler should I choose?
 

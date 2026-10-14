@@ -5,7 +5,6 @@ import android.content.res.Configuration;
 import android.graphics.Rect;
 import android.os.Build;
 import android.view.View;
-import android.view.WindowManager;
 
 import androidx.core.content.ContextCompat;
 import androidx.core.graphics.Insets;
@@ -33,7 +32,7 @@ public final class AdaptiveLayout {
     private final boolean streaming;
     private final WindowInfoTrackerCallbackAdapter tracker;
     private final Consumer<WindowLayoutInfo> listener;
-    private Insets insets = Insets.NONE;
+    private WindowInsetsCompat windowInsets = WindowInsetsCompat.CONSUMED;
     private FoldingFeature fold;
 
     private AdaptiveLayout(Activity activity, View root) {
@@ -76,15 +75,8 @@ public final class AdaptiveLayout {
             });
             if (ViewCompat.isAttachedToWindow(root)) start();
         }
-        ViewCompat.setOnApplyWindowInsetsListener(root, (view, windowInsets) -> {
-            int types = WindowInsetsCompat.Type.systemBars();
-            if (!streaming) types |= WindowInsetsCompat.Type.ime();
-            if (!streaming || Build.VERSION.SDK_INT < Build.VERSION_CODES.P ||
-                    activity.getWindow().getAttributes().layoutInDisplayCutoutMode ==
-                            WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_DEFAULT) {
-                types |= WindowInsetsCompat.Type.displayCutout();
-            }
-            insets = windowInsets.getInsets(types);
+        ViewCompat.setOnApplyWindowInsetsListener(root, (view, appliedInsets) -> {
+            windowInsets = appliedInsets;
             update();
             return WindowInsetsCompat.CONSUMED;
         });
@@ -116,6 +108,18 @@ public final class AdaptiveLayout {
         float density = root.getResources().getDisplayMetrics().density;
         boolean television = (root.getResources().getConfiguration().uiMode & Configuration.UI_MODE_TYPE_MASK)
                 == Configuration.UI_MODE_TYPE_TELEVISION;
+        int types;
+        if (!streaming) {
+            types = WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout() |
+                    WindowInsetsCompat.Type.ime();
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && activity.isInMultiWindowMode()) {
+            types = WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout();
+        } else {
+            // Transient bars overlay fullscreen video instead of resizing its aspect-ratio box.
+            // Native/fill video extends beneath the cutout after either landscape rotation.
+            types = ((Game) activity).usesFullDisplayForVideo() ? 0 : WindowInsetsCompat.Type.displayCutout();
+        }
+        Insets insets = windowInsets.getInsets(types);
         int margin = television && !streaming ? Math.round(24 * density) : 0;
         Rect available = new Rect(insets.left + margin, insets.top + margin,
                 root.getWidth() - insets.right - margin, root.getHeight() - insets.bottom - margin);

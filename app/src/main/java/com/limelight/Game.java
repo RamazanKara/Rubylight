@@ -55,7 +55,9 @@ import android.annotation.TargetApi;
 import android.app.Activity;
 import androidx.appcompat.app.AlertDialog;
 import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;
+import androidx.core.view.WindowInsetsControllerCompat;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import android.app.PictureInPictureParams;
 import android.app.PendingIntent;
@@ -550,18 +552,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         // Enter landscape unless we're on a square screen
         setPreferredOrientationForCurrentDisplay();
 
-        if (prefConfig.stretchVideo || shouldIgnoreInsetsForResolution(prefConfig.width, prefConfig.height)) {
-            // Allow the activity to layout under notches if the fill-screen option
-            // was turned on by the user or it's a full-screen native resolution
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                getWindow().getAttributes().layoutInDisplayCutoutMode =
-                        WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS;
-            }
-            else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                getWindow().getAttributes().layoutInDisplayCutoutMode =
-                        WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
-            }
-        }
+        configureStreamWindow();
 
         // Listen for non-touch events on the game surface
         streamView = findViewById(R.id.surfaceView);
@@ -1086,6 +1077,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     @Override
     public void onConfigurationChanged(Configuration newConfig) {
         super.onConfigurationChanged(newConfig);
+        configureStreamWindow();
         if (controllerHandler == null || isFinishing()) {
             return;
         }
@@ -1326,11 +1318,6 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     }
 
     private boolean shouldIgnoreInsetsForResolution(int width, int height) {
-        // Never ignore insets for non-native resolutions
-        if (!PreferenceConfiguration.isNativeResolution(width, height)) {
-            return false;
-        }
-
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             Display display = getWindowManager().getDefaultDisplay();
             for (Display.Mode candidate : display.getSupportedModes()) {
@@ -1343,6 +1330,30 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         }
 
         return false;
+    }
+
+    /** Fullscreen native/fill video uses the complete panel; fixed presets retain a cutout-safe area. */
+    public boolean usesFullDisplayForVideo() {
+        // nativeResolutionStream also includes custom sizes and the explicit cutout-safe
+        // Native entry. Only the user's fill/follow choice or an exact panel size spans a notch.
+        return prefConfig != null && (prefConfig.stretchVideo ||
+                prefConfig.resolutionFollowsScreen || shouldIgnoreInsetsForResolution(prefConfig.width, prefConfig.height));
+    }
+
+    private void configureStreamWindow() {
+        // Let AdaptiveLayout own the safe area. Combining framework cutout avoidance with
+        // root padding cropped the video twice on older Android versions, and DEFAULT is
+        // treated as ALWAYS on Android 15+ regardless of the raw layout attribute.
+        WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            WindowManager.LayoutParams attributes = getWindow().getAttributes();
+            attributes.layoutInDisplayCutoutMode = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R ?
+                    WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS :
+                    WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
+            getWindow().setAttributes(attributes);
+        }
+        View root = findViewById(android.R.id.content);
+        if (root != null) ViewCompat.requestApplyInsets(root);
     }
 
     private boolean mayReduceRefreshRate() {
@@ -1550,14 +1561,18 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     private final Runnable hideSystemUi = new Runnable() {
             @Override
             public void run() {
-                // TODO: Do we want to use WindowInsetsController here on R+ instead of
-                // SYSTEM_UI_FLAG_IMMERSIVE_STICKY? They seem to do the same thing as of S...
+                View decor = getWindow().getDecorView();
+                WindowInsetsControllerCompat controller = WindowCompat.getInsetsController(getWindow(), decor);
 
-                // In multi-window mode on N+, we need to drop our layout flags or we'll
-                // be drawing underneath the system UI.
+                // Keep one edge-to-edge coordinate space. AdaptiveLayout applies the
+                // visible system-bar insets while windowed; fitting here as well would
+                // subtract them twice, particularly after leaving fullscreen on API 29.
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && isInMultiWindowMode()) {
                     Game.this.getWindow().getDecorView().setSystemUiVisibility(
-                            View.SYSTEM_UI_FLAG_LAYOUT_STABLE);
+                            View.SYSTEM_UI_FLAG_LAYOUT_STABLE |
+                            View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION |
+                            View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN);
+                    controller.show(WindowInsetsCompat.Type.systemBars());
                 }
                 else {
                     // Use immersive mode
@@ -1568,6 +1583,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                             View.SYSTEM_UI_FLAG_HIDE_NAVIGATION |
                             View.SYSTEM_UI_FLAG_FULLSCREEN |
                             View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY);
+                    controller.setSystemBarsBehavior(WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+                    controller.hide(WindowInsetsCompat.Type.systemBars());
                 }
             }
     };
@@ -1584,6 +1601,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     @TargetApi(Build.VERSION_CODES.N)
     public void onMultiWindowModeChanged(boolean isInMultiWindowMode) {
         super.onMultiWindowModeChanged(isInMultiWindowMode);
+        configureStreamWindow();
         if (decoderRenderer == null) {
             return;
         }
@@ -1775,6 +1793,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         }
         LimeLog.info("Display modes changed: " + displaySignature + " -> " + signature);
         displaySignature = signature;
+        configureStreamWindow();
         panelMaxRefreshRate = com.limelight.binding.video.DisplayFrameRatePolicy.maxRefreshRate(
                 getVideoDisplay());
         scheduleReconfigureCheck();
@@ -1804,6 +1823,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         LimeLog.info("Stream now " + width + "x" + height + " (was " + prefConfig.width + "x" + prefConfig.height + ")");
         prefConfig.width = width;
         prefConfig.height = height;
+        configureStreamWindow();
         if (prefConfig.upscalingMode == UpscalingPolicy.Mode.OFF) {
             if (prefConfig.useTextureView) {
                 SurfaceTexture texture = renderView.getTextureView().getSurfaceTexture();

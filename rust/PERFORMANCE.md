@@ -5278,6 +5278,118 @@ retained under
 contains the excluded WGC runs. `bench.ps1`, `bench-software.ps1`, `compare.py`
 and `native-tests.ps1` record the component commands.
 
+## October 14 conventional video pacing
+
+The first candidate applied roughly 2× encoder-bitrate pacing to every
+conventional-codec route. It was **rejected before release**: a valid Windows
+loopback comparison measured mean frame-send time of 0.527 ms at the released
+800 Mbps rate versus 10.439 ms at the candidate's 80 Mbps rate. A modeled
+slow egress benefited, but that did not justify the delay on healthy paths.
+
+The replacement preserves the fast starting rate on wired/unknown routes
+and reduces bursts only after repeated validated client FEC loss reports.
+It never writes encoder bitrate. It reserves the ordered sender at startup
+so later pacing waits do not block capture. A live wire-demand floor,
+distinct-frame accounting, stale/pre-change feedback fences and cautious
+recovery keep FEC changes or delayed reports from creating an artificial
+quality cap. Explicit pacing, PyroWave and opt-in host bitrate adaptation
+keep their separate policies; see [configuration](../docs/configuration.md#capture-and-video).
+
+### Isolated Windows UDP comparison
+
+Three alternating runs per case used the released 2.2.18 source
+`0721060028dfff6cb710a9264e3938e0f9d85d56` and the replacement candidate.
+Both probes omit `StreamingScope::enter`, which changes desktop/Wi-Fi/GPU
+policy, and run at ordinary process priority. No capture, installed service,
+display changes or game were used. The fixture is 50 Mbps of 1400-byte UDP
+payload at 60 FPS, 600 frames including two 8× keyframes. It approximates
+40 Mbps encoded video plus FEC/framing; it does not encode pictures or
+generate actual parity. The automatic case exercises the production rate
+and controller under the per-frame mutex, with no loss reports injected.
+
+| Case | Mean send time | Per-run p99 range | Maximum range | Send calls/run |
+| --- | ---: | ---: | ---: | ---: |
+| Released 800 Mbps | 0.473 ms | 0.536–0.700 ms | 8.089–8.294 ms | 1,222 |
+| Replacement automatic, healthy | 0.494 ms | 0.544–0.856 ms | 8.080–8.125 ms | 1,222 |
+| Fixed 80 Mbps comparison | 10.429 ms | 11.002–11.005 ms | 86.833–87.477 ms | 7,974 |
+
+Every run delivered all 46,042 datagrams and all 600 frames to an independent
+receiver: zero missing packets across 414,378 datagrams. The replacement
+stayed at 800 Mbps throughout the healthy runs. The small mean difference
+(0.021 ms) and overlapping ranges are not an end-to-end latency claim or a
+speedup. This measures host sender timing and loopback delivery only.
+
+Build `udp_pacing_probe` at both revisions with
+`cargo +1.98.1-x86_64-pc-windows-gnu build --release --locked -p butterpollo-windows --example udp_pacing_probe`,
+retain the two executables, and run:
+
+```powershell
+python rust/tests/udp_pacing.py --before PATH/TO/before.exe --after PATH/TO/after.exe --output PATH/TO/results --runs 3
+```
+
+Use `--after-mode paced --after-rate 80 --comparison-rate 800` to reproduce
+the rejected candidate's fixed-rate comparison. The harness rejects
+incomplete delivery and retains executable hashes, arguments, statistics and
+compressed receiver timestamps. Automatic probe SHA256:
+`0c838526a3abaddf46c2d7ccaea9e412a5bc9eba2903e87b3de8fe0a0caae933`.
+
+### Ordered sender handoff
+
+The CPU-only, release-mode `sender_handoff_benchmark` compares identical
+encrypted packetization with 20% FEC inline and through the actual
+`Sender::spawn/submit/Slot::run` queue. Two alternating runs per path at each
+rate measured 5,040 frames after 384 warmup frames. All packet counts,
+digests and ordering matched; no submissions were a full frame period late.
+
+| Rate | Inline mean | Sender mean | Difference | Sender queue p99 |
+| --- | ---: | ---: | ---: | ---: |
+| 60 FPS | 0.1862 ms | 0.2053 ms | 0.0191 ms | 0.0393 ms |
+| 120 FPS | 0.0732 ms | 0.0931 ms | 0.0198 ms | 0.0352 ms |
+| 240 FPS | 0.0303 ms | 0.0393 ms | 0.0090 ms | 0.0305 ms |
+
+This separate measurement excludes sockets, capture, GPU work, thread
+priority changes and client decoding. Do not add its difference to the UDP
+result as though they were one end-to-end experiment. Run with:
+
+```powershell
+cargo test --release -p butterpollo --bin butterpollo sender_handoff_benchmark -- --ignored --nocapture --test-threads=1
+```
+
+### Regression models and earlier failures
+
+The deterministic model keeps encoded bitrate at 40 Mbps/60 FPS with 20%
+FEC, encryption, IPv4/IPv6 and two 8× keyframes. A 1 Gbps host feeding a
+100 Mbps egress with a 16 KiB queue initially loses packets, then the
+controller converges and the final three seconds have no losses. A 1 Gbps
+egress keeps 800 Mbps pacing with no losses and normal frames below 2 ms.
+This is **a queue model**, not a measurement of the reported Onn client,
+its Ethernet speed or its decoder. Physical bottlenecks, competing traffic
+and affected-client/end-to-end behavior remain unverified.
+
+The first test attempt was blocked by sandbox networking (independent TCP
+and UDP controls also failed). Granted network access made those controls
+and the host/socket tests pass. Two real defects uncovered during follow-up
+were fixed separately: Windows atomic replacement failed beyond legacy
+path lengths, and USB/IP teardown could hang when its self-wake connection
+was refused. Before/after regressions reproduce both and pass after fixing.
+The integrated pre-controller workspace run passed 939 tests; only the
+unchanged private-pipe and firewall-query tests still failed with
+`E_ACCESSDENIED`. The independent firewall COM query also fails, and the
+pipe trace points to `CreateFileW`, not a media test. These checks remain
+enabled; their failure is not converted into a pass or an ignored test.
+
+After integrating main `1af70632`, the final local workspace run passed
+967 tests, with the same two access-denied failures and 58 existing/manual
+checks ignored (including the separately run handoff benchmark). All 423
+core tests and 222 ordinary host tests passed. Strict all-target Clippy,
+formatting and the Svelte check passed. Four subcases of the release-helper
+reuse test could not start Git Bash: `NtCreateDirectoryObject` failed with
+`0xC0000022` while creating its MSYS named object. The other four release
+test methods passed. No test was weakened to accommodate these restrictions.
+
+Raw timing, benchmark hashes, test logs and controls are retained under
+`C:\Users\ramaz\Documents\Codex\2026-10-13\on-ruby-lite-or-ruby-lite\outputs\pacing-followup`.
+
 ## Hardware covered
 
 Measurements ran with AMD AMF on an RX 7900 XT host, with real-client Wi-Fi

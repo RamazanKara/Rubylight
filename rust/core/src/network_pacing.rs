@@ -1,16 +1,25 @@
 //! Bound packet bursts without accumulating a catch-up burst after a late send.
 use std::time::{Duration, Instant};
 
-/// Confirmed wireless routes leave headroom at twice the encoded bitrate.
-/// Other routes retain the 800 Mbps ceiling; known Ethernet has 20% headroom.
+/// The starting rate, before loss-responsive pacing. Healthy wired/unknown
+/// routes retain the 800 Mbps ceiling. Confirmed Wi-Fi retains twice the
+/// encoder bitrate, allowing at least 25% headroom above packetized demand.
 /// Explicit limits retain the stream-bitrate floor, subject to the physical link.
-pub fn rate_bps(configured_kbps: i64, stream_kbps: u32, link_bps: u64, wireless: bool) -> u64 {
+pub fn rate_bps(
+    configured_kbps: i64,
+    stream_kbps: u32,
+    link_bps: u64,
+    wireless: bool,
+    needed_bps: u64,
+) -> u64 {
     let requested = if configured_kbps > 0 {
         (configured_kbps as u64)
             .saturating_mul(1000)
             .max(u64::from(stream_kbps) * 1100)
     } else if wireless {
-        (u64::from(stream_kbps) * 2000).clamp(1_000_000, 800_000_000)
+        (u64::from(stream_kbps) * 2000)
+            .max(needed_bps.saturating_add(needed_bps / 4))
+            .clamp(1_000_000, 800_000_000)
     } else {
         800_000_000
     };
@@ -33,7 +42,7 @@ pub fn pyrowave_rate_bps(
     demand_bps: u64,
 ) -> u64 {
     if configured_kbps > 0 {
-        rate_bps(configured_kbps, stream_kbps, link_bps, false)
+        rate_bps(configured_kbps, stream_kbps, link_bps, false, 0)
     } else if link_bps > 0 {
         link_bps.saturating_mul(95) / 100
     } else {
@@ -42,12 +51,11 @@ pub fn pyrowave_rate_bps(
     }
 }
 
-/// Whether video is paced near the stream bitrate: at most four times it,
-/// as on a confirmed wireless route (twice), a `pacing_max_bitrate_kbps`
-/// cap or a slow wired link. A frame then takes a quarter of a period or
-/// more on the wire, and a keyframe several periods.
-pub fn paced(bps: u64, stream_kbps: u32) -> bool {
-    bps <= u64::from(stream_kbps).saturating_mul(4000)
+/// Whether an average packetized frame occupies at least a quarter-period
+/// on the wire. Use wire demand, since FEC/minimum parity can dominate small
+/// frames. Such streams need the dedicated sender to keep capture moving.
+pub fn paced(bps: u64, needed_bps: u64) -> bool {
+    bps <= needed_bps.saturating_mul(4)
 }
 
 pub fn report_rate(
@@ -71,6 +79,18 @@ pub fn report_rate(
 /// Ethernet framing, inter-packet gap, IP and UDP, beyond the UDP payload.
 pub fn overhead(ipv6: bool) -> usize {
     if ipv6 { 86 } else { 66 }
+}
+
+/// At most one millisecond of wire traffic per conventional-video batch,
+/// further bounded by the user's payload limit. Always allow one datagram.
+/// Small batches protect downstream queues even when the host NIC is fast.
+pub fn batch_payload_limit(bps: u64, datagram: usize, ipv6: bool, maximum: usize) -> usize {
+    let wire_packet = datagram.saturating_add(overhead(ipv6)) as u64;
+    let packets = (bps / 8000 / wire_packet).max(1);
+    packets
+        .saturating_mul(datagram as u64)
+        .min(maximum as u64)
+        .max(datagram as u64) as usize
 }
 
 pub fn video_wire_rate_bps(
@@ -160,28 +180,28 @@ mod tests {
         let warnings = crate::session::Warnings::default();
         report_rate(
             &warnings,
-            rate_bps(0, 100_000, 100_000_000, false),
+            rate_bps(0, 100_000, 100_000_000, false, 120_000_000),
             120_000_000,
             0,
         );
         assert!(warnings.snapshot()[0].message.contains("80.0 Mbps"));
         report_rate(
             &warnings,
-            rate_bps(0, 100_000, 1_000_000_000, false),
+            rate_bps(0, 100_000, 1_000_000_000, false, 120_000_000),
             120_000_000,
             0,
         );
         assert!(warnings.snapshot().is_empty());
         report_rate(
             &warnings,
-            rate_bps(50_000, 100_000, 0, false),
+            rate_bps(50_000, 100_000, 0, false, 120_000_000),
             100_000_000,
             50_000,
         );
         assert_eq!(warnings.snapshot()[0].code, "network_pacing_floor");
         report_rate(
             &warnings,
-            rate_bps(200_000, 100_000, 0, false),
+            rate_bps(200_000, 100_000, 0, false, 120_000_000),
             100_000_000,
             200_000,
         );
@@ -189,16 +209,33 @@ mod tests {
     }
 
     #[test]
-    fn only_rates_near_the_bitrate_count_as_paced() {
-        // Default wired ceiling at the owner's 80 Mb/s: not paced.
-        assert!(!paced(rate_bps(0, 80_000, 0, false), 80_000));
-        assert!(!paced(rate_bps(0, 80_000, 2_500_000_000, false), 80_000));
-        // A 160 Mb/s cap, a wireless route, a 100 Mb/s link: paced.
-        assert!(paced(rate_bps(160_000, 80_000, 0, false), 80_000));
-        assert!(paced(rate_bps(0, 50_000, 0, true), 50_000));
-        assert!(paced(rate_bps(0, 50_000, 100_000_000, false), 50_000));
-        assert!(paced(320_000_000, 80_000));
-        assert!(!paced(320_000_001, 80_000));
+    fn sender_selection_includes_fec_and_minimum_parity_in_frame_send_time() {
+        // Dynamic automatic pacing reserves the sender independently of this
+        // near-budget check; a healthy wired stream still starts fast.
+        assert!(!paced(
+            rate_bps(0, 80_000, 0, false, 100_000_000),
+            100_000_000
+        ));
+        assert!(!paced(
+            rate_bps(0, 80_000, 2_500_000_000, false, 100_000_000),
+            100_000_000
+        ));
+        assert!(paced(
+            rate_bps(160_000, 80_000, 0, false, 100_000_000),
+            100_000_000
+        ));
+        assert!(paced(
+            rate_bps(0, 50_000, 100_000_000, false, 65_000_000),
+            65_000_000
+        ));
+        assert!(!paced(
+            rate_bps(800_000, 80_000, 0, false, 100_000_000),
+            100_000_000
+        ));
+        // Parity dominates a low-bitrate, high-refresh stream's wire demand.
+        assert!(paced(rate_bps(0, 2_000, 0, true, 15_000_000), 15_000_000));
+        assert!(paced(400_000_000, 100_000_000));
+        assert!(!paced(400_000_001, 100_000_000));
         assert!(!paced(1, 0));
     }
 
@@ -221,29 +258,43 @@ mod tests {
     }
 
     #[test]
-    fn slow_routes_bound_default_and_explicit_rates_without_changing_fast_routes() {
-        assert_eq!(rate_bps(0, 50_000, 0, true), 100_000_000);
-        assert_eq!(rate_bps(0, 50_000, 0, false), 800_000_000);
-        assert_eq!(rate_bps(0, 50_000, 2_500_000_000, false), 800_000_000);
-        assert_eq!(rate_bps(0, 50_000, 100_000_000, false), 80_000_000);
-        for wireless in [false, true] {
-            assert_eq!(rate_bps(30_000, 50_000, 0, wireless), 55_000_000);
-            assert_eq!(rate_bps(800_000, 50_000, 0, wireless), 800_000_000);
+    fn host_link_speed_is_a_ceiling_not_a_measurement_of_the_client_path() {
+        assert_eq!(rate_bps(0, 50_000, 0, false, 65_000_000), 800_000_000);
+        assert_eq!(
+            rate_bps(0, 50_000, 2_500_000_000, false, 65_000_000),
+            800_000_000
+        );
+        assert_eq!(
+            rate_bps(0, 50_000, 100_000_000, false, 65_000_000),
+            80_000_000
+        );
+        for needed in [0, 65_000_000, 150_000_000] {
+            assert_eq!(rate_bps(30_000, 50_000, 0, false, needed), 55_000_000);
+            assert_eq!(rate_bps(800_000, 50_000, 0, false, needed), 800_000_000);
             assert_eq!(
-                rate_bps(100_000, 100_000, 100_000_000, wireless),
+                rate_bps(100_000, 100_000, 100_000_000, false, needed),
                 80_000_000
             );
         }
-        assert_eq!(rate_bps(0, 1, 0, true), 1_000_000);
-        assert_eq!(rate_bps(0, u32::MAX, 0, true), 800_000_000);
-        assert!(rate_bps(i64::MAX, u32::MAX, u64::MAX, false) > 0);
+        assert_eq!(rate_bps(0, 1, 0, true, 0), 1_000_000);
+        assert_eq!(rate_bps(0, 1, 0, false, 0), 800_000_000);
+        assert_eq!(rate_bps(0, u32::MAX, 0, true, u64::MAX), 800_000_000);
+        assert!(rate_bps(i64::MAX, u32::MAX, u64::MAX, false, u64::MAX) > 0);
     }
 
     #[test]
-    fn wireless_defaults_follow_bitrate_without_capping_pyrowave_demand() {
+    fn only_wireless_starting_rates_follow_bitrate_without_capping_pyrowave_demand() {
         for kbps in [9_300, 19_000, 60_000, 149_000] {
-            assert_eq!(rate_bps(0, kbps, 0, true), u64::from(kbps) * 2000);
-            assert_eq!(rate_bps(0, kbps, 0, false), 800_000_000);
+            for link in [0, 1_000_000_000, 2_500_000_000] {
+                assert_eq!(
+                    rate_bps(0, kbps, link, true, u64::from(kbps) * 1300),
+                    u64::from(kbps) * 2000
+                );
+                assert_eq!(
+                    rate_bps(0, kbps, link, false, u64::from(kbps) * 1300),
+                    800_000_000
+                );
+            }
         }
         for kbps in [200_000, 800_000, 2_000_000] {
             let demand = u64::from(kbps) * 1400;
@@ -252,6 +303,126 @@ mod tests {
                 pyrowave_rate_bps(0, kbps, 1_000_000_000, demand),
                 950_000_000
             );
+        }
+    }
+
+    #[test]
+    fn automatic_pacing_leaves_room_for_parity_small_packets_and_high_refresh() {
+        for kbps in [1, 2_000, 40_000, 200_000] {
+            for fps in [30, 60, 120, 240] {
+                for fec in [0, 20, 100] {
+                    for packet_size in [512, 1392] {
+                        for ipv6 in [false, true] {
+                            let packetizer = crate::packet::VideoPacketizer {
+                                sequence: 0,
+                                iv_counter: 0,
+                                frame: 1,
+                                packet_size,
+                                fec_percent: fec,
+                                min_fec: 4,
+                                key: Some([0; 16]),
+                            };
+                            let period = Duration::from_secs_f64(1. / f64::from(fps));
+                            let needed = video_wire_rate_bps(&packetizer, kbps, period, ipv6);
+                            let bps = rate_bps(0, kbps, 1_000_000_000, true, needed);
+                            assert!(
+                                bps >= needed + needed / 4,
+                                "{kbps} Kbps, {fps} fps, {fec}% FEC, {packet_size} bytes: {needed} > {bps}"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn batches_fit_one_millisecond_on_the_wire_or_one_datagram() {
+        for ipv6 in [false, true] {
+            for datagram in [528, 1408, 1440] {
+                for bps in [1, 1_000_000, 80_000_000, 800_000_000, u64::MAX] {
+                    for maximum in [16 * 1024, 32 * 1024, 64 * 1024] {
+                        let limit = batch_payload_limit(bps, datagram, ipv6, maximum);
+                        let count = limit / datagram;
+                        assert!(count >= 1 && limit <= maximum);
+                        if count > 1 {
+                            assert!((count * (datagram + overhead(ipv6))) as u64 * 8000 <= bps);
+                        }
+                    }
+                }
+            }
+        }
+        assert_eq!(batch_payload_limit(1, 1408, false, 1024), 1408);
+    }
+
+    /// Model a 1 Gbps host feeding a 100 Mbps egress queue of just 16 KiB.
+    /// It is an explicit test topology, not a claim about any client's NIC.
+    fn downstream_losses(previous_policy: bool, ipv6: bool, keyframes: bool) -> usize {
+        let packetizer = crate::packet::VideoPacketizer {
+            sequence: 0,
+            iv_counter: 0,
+            frame: 1,
+            packet_size: 1392,
+            fec_percent: 20,
+            min_fec: 2,
+            key: Some([0; 16]),
+        };
+        let period = Duration::from_secs_f64(1. / 60.);
+        let needed = video_wire_rate_bps(&packetizer, 40_000, period, ipv6);
+        let bps = if previous_policy {
+            800_000_000
+        } else {
+            rate_bps(80_000, 40_000, 1_000_000_000, false, needed)
+        };
+        let datagram = packetizer.packet_size + 16 + 32;
+        let wire_packet = datagram + overhead(ipv6);
+        let limit = if previous_policy {
+            64 * 1024
+        } else {
+            batch_payload_limit(bps, datagram, ipv6, 64 * 1024)
+        };
+        let per_batch = (limit.min(65507) / datagram).clamp(1, 64);
+        let start = Instant::now();
+        let mut pacer = Pacer::new(start);
+        let mut now = start;
+        let mut drained_at = start;
+        let mut lost = 0;
+        let wire_time = Duration::from_secs_f64(wire_packet as f64 * 8. / 100_000_000.);
+        let host_time = Duration::from_secs_f64(wire_packet as f64 * 8. / 1_000_000_000.);
+        let capacity = Duration::from_secs_f64(16. * 1024. * 8. / 100_000_000.);
+        for frame in 0..600 {
+            now = now.max(start + period * frame);
+            let payload = (40_000. * 125. * period.as_secs_f64()).ceil() as usize
+                * if keyframes && frame % 300 == 0 { 8 } else { 1 };
+            for (data, fec) in packetizer.block_layout(payload) {
+                let mut remaining = data + fec;
+                while remaining > 0 {
+                    now = now.max(pacer.due());
+                    let count = remaining.min(per_batch);
+                    for _ in 0..count {
+                        now += host_time;
+                        let done = drained_at.max(now) + wire_time;
+                        if done.saturating_duration_since(now) <= capacity {
+                            drained_at = done;
+                        } else {
+                            lost += 1;
+                        }
+                    }
+                    pacer.sent(now, count * datagram, count, ipv6, bps);
+                    remaining -= count;
+                }
+            }
+        }
+        lost
+    }
+
+    #[test]
+    fn an_explicit_eighty_mbps_cap_can_protect_a_slower_downstream_queue() {
+        for ipv6 in [false, true] {
+            for keyframes in [false, true] {
+                assert!(downstream_losses(true, ipv6, keyframes) > 10_000);
+                assert_eq!(downstream_losses(false, ipv6, keyframes), 0);
+            }
         }
     }
 

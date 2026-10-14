@@ -770,7 +770,7 @@ mod tests {
     }
 
     #[test]
-    fn only_confirmed_wireless_interfaces_get_bitrate_pacing() {
+    fn interface_detection_keeps_physical_link_limits_separate_from_pacing_demand() {
         for kind in [
             IF_TYPE_IEEE80211,
             IF_TYPE_IEEE80216_WMAN,
@@ -782,7 +782,13 @@ mod tests {
                 assert!(link.wireless);
                 assert_eq!(link.bps, 0);
                 assert_eq!(
-                    butterpollo_core::network_pacing::rate_bps(0, 50_000, link.bps, link.wireless),
+                    butterpollo_core::network_pacing::rate_bps(
+                        0,
+                        50_000,
+                        link.bps,
+                        link.wireless,
+                        65_000_000
+                    ),
                     100_000_000
                 );
             }
@@ -799,7 +805,13 @@ mod tests {
             let link = interface_link(&interface(kind, false));
             assert_eq!(link, Link::default());
             assert_eq!(
-                butterpollo_core::network_pacing::rate_bps(0, 50_000, link.bps, link.wireless),
+                butterpollo_core::network_pacing::rate_bps(
+                    0,
+                    50_000,
+                    link.bps,
+                    link.wireless,
+                    65_000_000
+                ),
                 800_000_000
             );
         }
@@ -878,12 +890,18 @@ mod tests {
     }
 
     #[test]
-    fn loopback_including_mapped_ipv4_keeps_the_fast_default() {
+    fn loopback_including_mapped_ipv4_keeps_fast_pacing_without_a_link_cap() {
         for peer in ["127.0.0.1:9", "[::1]:9", "[::ffff:127.0.0.1]:9"] {
             let link = routed_link(peer.parse().unwrap());
             assert_eq!(link, Link::default());
             assert_eq!(
-                butterpollo_core::network_pacing::rate_bps(0, 50_000, link.bps, link.wireless),
+                butterpollo_core::network_pacing::rate_bps(
+                    0,
+                    50_000,
+                    link.bps,
+                    link.wireless,
+                    65_000_000
+                ),
                 800_000_000
             );
         }

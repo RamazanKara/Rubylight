@@ -175,18 +175,20 @@ impl Sender {
                 let fec_limited = packetizer.fec_limited(frame.bytes.len());
                 let packet_bytes = packetizer.packet_size + 16 + if packetizer.key.is_some() { 32 } else { 0 };
                 let route = *link.get_or_insert_with(|| butterpollo_windows::net::routed_link(peer));
+                let bitrate = s.bitrate.load(Ordering::Relaxed);
+                let needed = butterpollo_core::network_pacing::video_wire_rate_bps(&packetizer, bitrate, period, peer.is_ipv6());
                 let bps = butterpollo_core::network_pacing::rate_bps(
                     c.integer("pacing_max_bitrate_kbps", 0),
-                    s.bitrate.load(Ordering::Relaxed),
+                    bitrate,
                     route.bps,
                     route.wireless,
+                    needed,
                 );
-                let bps = s.adaptive_pacing_bps(bps);
+                let bps = s.video_pacing_bps(bps, needed);
                 if Instant::now() >= link_due {
-                    let needed = butterpollo_core::network_pacing::video_wire_rate_bps(&packetizer, s.bitrate.load(Ordering::Relaxed), period, peer.is_ipv6());
                     butterpollo_core::network_pacing::report_rate(&s.launch.warnings, bps, needed, c.integer("pacing_max_bitrate_kbps", 0));
                     if reported_pacing != Some(bps) {
-                        tracing::info!(pacing_bps=bps, link_bps=route.bps, configured_kbps=c.integer("pacing_max_bitrate_kbps", 0), "network pacing selected; defaults use twice encoder bitrate for confirmed wireless routes, or the wired fallback ceiling");
+                        tracing::info!(pacing_bps=bps, wire_budget_bps=needed, link_bps=route.bps, configured_kbps=c.integer("pacing_max_bitrate_kbps", 0), "network pacing selected");
                         reported_pacing = Some(bps);
                     }
                 }
@@ -245,9 +247,9 @@ impl Sender {
                             timer.until_precise(network_pacer.due());
                             if trace_send { pacing_wait += now.elapsed(); }
                         }
-                        let budget = (bps / 4000)
-                            .clamp(remaining[0].len() as u64, batch_kb * 1024)
-                            as usize;
+                        let budget = butterpollo_core::network_pacing::batch_payload_limit(
+                            bps, remaining[0].len(), peer.is_ipv6(), batch_kb * 1024,
+                        );
                         let count =
                             butterpollo_windows::net::Batch::count(remaining, budget);
                         let send_started = trace_send.then(Instant::now);

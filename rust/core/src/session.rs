@@ -233,6 +233,187 @@ mod tests {
         assert_eq!(s.adaptive_pacing_bps(800_000_000), 800_000_000);
         assert_eq!(s.info()["adaptive_bitrate"]["owner"], "client");
     }
+    fn pacing_traffic(s: &Session, frames: u64) {
+        s.stats.frames.store(frames, Ordering::Relaxed);
+        s.stats.packets.store(frames * 70, Ordering::Relaxed);
+        s.stats.bytes.store(frames * 83_334, Ordering::Relaxed);
+        // The wire frame marker stores last_sent + 1, not last_sent.
+        s.stats.video_frame.store(frames + 1, Ordering::Release);
+    }
+    #[test]
+    fn automatic_pacing_uses_validated_new_losses_without_changing_stream_quality() {
+        let s = Session::new(
+            launch("automatic-pacing", Role::Stream),
+            Negotiated {
+                bitrate_kbps: 40_000,
+                ..Default::default()
+            },
+        );
+        s.configure_automatic_pacing(true);
+        s.idr.store(false, Ordering::Relaxed);
+        let mode = s.stream_mode();
+        let start = Instant::now();
+        assert_eq!(s.video_pacing_bps(800_000_000, 50_000_000), 800_000_000);
+        s.tick_automatic_pacing(start, Duration::from_millis(2));
+        s.record_fec_status(&fec_report(1, 7, 1)); // No sent frames yet.
+        s.record_fec_status(&fec_report(2, 7, 1));
+        pacing_traffic(&s, 30);
+        s.record_fec_status(&fec_report(29, 7, 1)[..20]); // Bad length.
+        s.record_fec_status(&fec_report(30, 11, 1)); // Impossible count.
+        s.record_fec_status(&fec_report(31, 7, 1)); // Future frames.
+        s.record_fec_status(&fec_report(32, 7, 1));
+        s.record_fec_status(&fec_report(29, 7, 1));
+        s.record_fec_status(&fec_report(29, 7, 1)); // Duplicate block.
+        assert_eq!(
+            s.tick_automatic_pacing(start + Duration::from_millis(500), Duration::from_millis(2)),
+            None
+        );
+        // The invalid reports did not reserve these frame/block identities.
+        pacing_traffic(&s, 60);
+        s.record_fec_status(&fec_report(30, 7, 1));
+        s.record_fec_status(&fec_report(31, 7, 1));
+        assert_eq!(
+            s.tick_automatic_pacing(start + Duration::from_secs(1), Duration::from_millis(2)),
+            Some((800_000_000, 400_000_000))
+        );
+        pacing_traffic(&s, 90);
+        // These unseen blocks are valid telemetry, but describe the old rate.
+        s.record_fec_status(&fec_report(58, 7, 1));
+        s.record_fec_status(&fec_report(60, 7, 1));
+        assert_eq!(
+            s.tick_automatic_pacing(
+                start + Duration::from_millis(1500),
+                Duration::from_millis(2)
+            ),
+            None
+        );
+        pacing_traffic(&s, 120);
+        s.record_fec_status(&fec_report(119, 7, 1));
+        s.record_fec_status(&fec_report(120, 7, 1));
+        assert_eq!(
+            s.tick_automatic_pacing(start + Duration::from_secs(2), Duration::from_millis(2)),
+            Some((400_000_000, 200_000_000))
+        );
+        assert_eq!(s.video_pacing_bps(800_000_000, 50_000_000), 200_000_000);
+        assert_eq!(s.bitrate.load(Ordering::Acquire), 40_000);
+        assert_eq!(s.stream_mode(), mode);
+        assert!(!s.idr.load(Ordering::Relaxed));
+        assert!(s.invalidation.lock().unwrap().is_none());
+        assert_eq!(s.stats.idr_requests.load(Ordering::Relaxed), 0);
+        assert_eq!(s.stats.send_loss_recoveries.load(Ordering::Relaxed), 0);
+        assert!(!s.stopping());
+        let performance = &s.info()["performance"];
+        assert_eq!(performance["fec_invalid_reports"], 6);
+        assert_eq!(performance["fec_duplicate_reports"], 1);
+    }
+    #[test]
+    fn automatic_pacing_respects_client_bitrate_changes_and_updated_fec_wire_demand() {
+        let s = Session::new(
+            launch("pacing-client-bitrate", Role::Stream),
+            Negotiated {
+                bitrate_kbps: 40_000,
+                configured_bitrate_kbps: 60_000,
+                packet_size: 1392,
+                min_fec: 2,
+                ..Default::default()
+            },
+        );
+        s.configure_automatic_pacing(true);
+        s.configure_adaptive_bitrate(true, 0);
+        s.configure_fec(false, 20);
+        s.set_client_bitrate(40_000);
+        s.idr.store(false, Ordering::Relaxed);
+        let mode = s.stream_mode();
+        let start = Instant::now();
+        let mut packetizer = crate::packet::VideoPacketizer {
+            sequence: 0,
+            iv_counter: 0,
+            frame: 1,
+            packet_size: s.config.packet_size,
+            fec_percent: s.fec_percent(),
+            min_fec: s.config.min_fec,
+            key: Some([0; 16]),
+        };
+        let needed = crate::network_pacing::video_wire_rate_bps(
+            &packetizer,
+            s.bitrate.load(Ordering::Acquire),
+            mode.period(),
+            false,
+        );
+        s.video_pacing_bps(800_000_000, needed);
+        s.tick_automatic_pacing(start, Duration::from_millis(2));
+        for interval in 1..=4 {
+            let frame = interval * 30;
+            pacing_traffic(&s, frame);
+            s.record_fec_status(&fec_report(frame as u32 - 1, 7, 1));
+            s.record_fec_status(&fec_report(frame as u32, 7, 1));
+            let now = start + Duration::from_millis(interval * 500);
+            assert!(
+                s.tick_automatic_pacing(now, Duration::from_millis(2))
+                    .is_some()
+            );
+            assert_eq!(s.tick_adaptive_bitrate(now, Duration::from_millis(2)), None);
+            assert_eq!(s.bitrate.load(Ordering::Acquire), 40_000);
+        }
+        let previous = s.video_pacing_bps(800_000_000, needed);
+        assert_eq!(previous, needed + needed / 4);
+        // The real /bitrate writer retains ownership. The sender supplies a
+        // refreshed wire budget when bitrate or FEC changes between frames.
+        s.set_client_bitrate(80_000);
+        packetizer.fec_percent = s.configure_fec(false, 50);
+        let needed = crate::network_pacing::video_wire_rate_bps(
+            &packetizer,
+            s.bitrate.load(Ordering::Acquire),
+            mode.period(),
+            false,
+        );
+        let raised = s.video_pacing_bps(800_000_000, needed);
+        assert!(raised > previous);
+        assert_eq!(raised, needed + needed / 4);
+        pacing_traffic(&s, 150);
+        s.record_fec_status(&fec_report(149, 7, 1));
+        s.record_fec_status(&fec_report(150, 7, 1));
+        let now = start + Duration::from_millis(2500);
+        assert_eq!(
+            s.tick_automatic_pacing(now, Duration::from_millis(200)),
+            None
+        );
+        assert_eq!(
+            s.tick_adaptive_bitrate(now, Duration::from_millis(200)),
+            None
+        );
+        assert_eq!(s.bitrate.load(Ordering::Acquire), 80_000);
+        assert_eq!(s.info()["adaptive_bitrate"]["owner"], "client");
+        assert_eq!(s.stream_mode(), mode);
+        assert!(!s.idr.load(Ordering::Relaxed));
+    }
+    #[test]
+    fn automatic_pacing_configuration_and_pyrowave_bypass_preserve_the_base_rate() {
+        for (enabled, codec) in [(false, 0), (false, 1), (true, 3)] {
+            let s = Session::new(
+                launch("pacing-bypass", Role::Stream),
+                Negotiated {
+                    codec,
+                    ..Default::default()
+                },
+            );
+            s.configure_automatic_pacing(enabled);
+            assert_eq!(s.video_pacing_bps(950_000_000, 50_000_000), 950_000_000);
+            let start = Instant::now();
+            s.tick_automatic_pacing(start, Duration::from_millis(2));
+            pacing_traffic(&s, 30);
+            s.record_fec_status(&fec_report(29, 7, 1));
+            s.record_fec_status(&fec_report(30, 7, 1));
+            assert_eq!(
+                s.tick_automatic_pacing(start + Duration::from_secs(1), Duration::from_millis(2)),
+                None
+            );
+            assert_eq!(s.video_pacing_bps(950_000_000, 50_000_000), 950_000_000);
+            let info = s.info();
+            assert_eq!(info["packet_pacing"]["automatic"], false);
+            assert_eq!(info["performance"]["fec_unrecoverable_frames"], 2);
+        }
+    }
     #[test]
     fn adaptive_fec_follows_reports_and_stays_fixed_without_them_or_when_off() {
         let start = Instant::now();
@@ -957,6 +1138,7 @@ pub struct Session<P = (), A = ()> {
     /// All bitrate writers take this lock, including client ownership handoff.
     pub adaptive_bitrate: std::sync::Mutex<crate::adaptive_bitrate::AdaptiveBitrate>,
     pub adaptive_video_pacing_bps: AtomicU64,
+    pub automatic_pacing: std::sync::Mutex<crate::adaptive_pacing::AdaptivePacing>,
     /// FEC percentage for the next video frame; the video sender reads it per
     /// frame, and `adaptive_fec` moves it from the client's 0x5502 reports.
     pub fec_percent: AtomicU32,
@@ -992,6 +1174,7 @@ impl<P, A> Session<P, A> {
             bitrate: AtomicU32::new(bitrate),
             adaptive_bitrate: Default::default(),
             adaptive_video_pacing_bps: AtomicU64::new(0),
+            automatic_pacing: Default::default(),
             fec_percent: AtomicU32::new(
                 crate::adaptive_fec::AdaptiveFec::default().percent() as u32
             ),
@@ -1087,6 +1270,16 @@ impl<P, A> Session<P, A> {
             .unwrap()
             .record_fec_status(payload, last_sent);
         if let Some(block) = block {
+            // Parsing and sent-frame/block validation above succeeded. The
+            // additional controller fence rejects feedback from an older rate.
+            let frame = u32::from_be_bytes(payload[..4].try_into().unwrap());
+            let period = self.stream_mode().period();
+            self.automatic_pacing.lock().unwrap().on_block(
+                frame,
+                last_sent.unwrap(),
+                period,
+                block,
+            );
             self.adaptive_bitrate.lock().unwrap().on_block(block);
             let mut fec = self.adaptive_fec.lock().unwrap();
             if fec.enabled() {
@@ -1132,6 +1325,38 @@ impl<P, A> Session<P, A> {
         } else {
             configured_bps.min(limit)
         }
+    }
+    pub fn configure_automatic_pacing(&self, enabled: bool) {
+        *self.automatic_pacing.lock().unwrap() =
+            crate::adaptive_pacing::AdaptivePacing::new(enabled && self.config.codec != 3);
+    }
+    pub fn video_pacing_bps(&self, base: u64, needed: u64) -> u64 {
+        let paced = self.automatic_pacing.lock().unwrap().rate(base, needed);
+        self.adaptive_pacing_bps(paced)
+    }
+    pub fn record_control_ping(&self, now: Instant, payload: &[u8]) {
+        self.adaptive_bitrate.lock().unwrap().on_ping(now, payload);
+        self.automatic_pacing.lock().unwrap().on_ping(now, payload);
+    }
+    pub fn tick_automatic_pacing(&self, now: Instant, rtt: Duration) -> Option<(u64, u64)> {
+        let period = self.stream_mode().period();
+        self.automatic_pacing.lock().unwrap().tick(
+            now,
+            crate::adaptive_pacing::Traffic {
+                frames: self.stats.frames.load(Ordering::Relaxed),
+                bytes: self.stats.bytes.load(Ordering::Relaxed),
+                packets: self.stats.packets.load(Ordering::Relaxed),
+                send_losses: self.stats.send_loss_recoveries.load(Ordering::Relaxed),
+            },
+            self.stats
+                .video_frame
+                .load(Ordering::Acquire)
+                .checked_sub(1)
+                .map(|v| v as u32),
+            period,
+            self.bitrate.load(Ordering::Acquire),
+            rtt,
+        )
     }
     pub fn reserve_controller_pcm(&self, streams: usize) {
         let mut controller = self.adaptive_bitrate.lock().unwrap();
@@ -1248,7 +1473,7 @@ impl<P, A> Session<P, A> {
                 mode.fps_millihz.saturating_add(500) / 1000,
             )
         };
-        serde_json::json!({"warnings":warnings,"encoder":*self.encoder.read().unwrap(),"uuid":self.launch.client.uuid,"device_name":self.launch.client.name,"width":width,"height":height,"fps":fps,"video_format":self.config.codec,"hdr":self.config.hdr,"vrr":self.config.vrr_low_latency,"encoder_bitrate_kbps":self.bitrate.load(Ordering::Relaxed),"adaptive_bitrate":self.adaptive_bitrate.lock().unwrap().snapshot(),"fec_percent":(self.config.codec != 3).then(|| self.fec_percent()),"pyrowave_minimum_kbps":(self.config.codec == 3).then(|| crate::pyrowave::minimum_kbps(self.config.width, self.config.height, self.config.fps_millihz())),"pyrowave_recommended_kbps":(self.config.codec == 3).then(|| crate::pyrowave::recommended_kbps(self.config.width, self.config.height, self.config.fps_millihz())),"audio_channels":self.config.audio_channels,"state":if self.stopping(){"STOPPING"}else{"RUNNING"},"frames_sent":self.stats.frames.load(Ordering::Relaxed),"frames_replaced":self.stats.frames_replaced.load(Ordering::Relaxed),"packets_sent":self.stats.packets.load(Ordering::Relaxed),"bytes_sent":self.stats.bytes.load(Ordering::Relaxed),"idr_requests":self.stats.idr_requests.load(Ordering::Relaxed),"reference_invalidations":self.stats.reference_invalidations.load(Ordering::Relaxed),"send_loss_recoveries":self.stats.send_loss_recoveries.load(Ordering::Relaxed),"encode_latency_ms":self.stats.latency_us.load(Ordering::Relaxed) as f64/1000.,"performance":self.stats.performance.lock().unwrap().snapshot(Instant::now()),"uptime_seconds":self.started.elapsed().as_secs_f64(),"role":self.launch.role})
+        serde_json::json!({"warnings":warnings,"encoder":*self.encoder.read().unwrap(),"uuid":self.launch.client.uuid,"device_name":self.launch.client.name,"width":width,"height":height,"fps":fps,"video_format":self.config.codec,"hdr":self.config.hdr,"vrr":self.config.vrr_low_latency,"encoder_bitrate_kbps":self.bitrate.load(Ordering::Relaxed),"adaptive_bitrate":self.adaptive_bitrate.lock().unwrap().snapshot(),"packet_pacing":self.automatic_pacing.lock().unwrap().snapshot(),"fec_percent":(self.config.codec != 3).then(|| self.fec_percent()),"pyrowave_minimum_kbps":(self.config.codec == 3).then(|| crate::pyrowave::minimum_kbps(self.config.width, self.config.height, self.config.fps_millihz())),"pyrowave_recommended_kbps":(self.config.codec == 3).then(|| crate::pyrowave::recommended_kbps(self.config.width, self.config.height, self.config.fps_millihz())),"audio_channels":self.config.audio_channels,"state":if self.stopping(){"STOPPING"}else{"RUNNING"},"frames_sent":self.stats.frames.load(Ordering::Relaxed),"frames_replaced":self.stats.frames_replaced.load(Ordering::Relaxed),"packets_sent":self.stats.packets.load(Ordering::Relaxed),"bytes_sent":self.stats.bytes.load(Ordering::Relaxed),"idr_requests":self.stats.idr_requests.load(Ordering::Relaxed),"reference_invalidations":self.stats.reference_invalidations.load(Ordering::Relaxed),"send_loss_recoveries":self.stats.send_loss_recoveries.load(Ordering::Relaxed),"encode_latency_ms":self.stats.latency_us.load(Ordering::Relaxed) as f64/1000.,"performance":self.stats.performance.lock().unwrap().snapshot(Instant::now()),"uptime_seconds":self.started.elapsed().as_secs_f64(),"role":self.launch.role})
     }
 }
 pub struct Sessions<P = (), A = ()> {

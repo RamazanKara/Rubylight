@@ -6,6 +6,16 @@
 
 Rubylight, called Butterpollo until rc.29, is written in Rust: host, native helpers, service and setup, with a Svelte web console. The 2.2.18 installer is named `rubylight-setup-2.2.18.exe` and upgrades an existing Vibepollo or Butterpollo installation in place, keeping settings, paired devices, the app library and covers. Codec SDKs and Windows drivers remain external components; the setup installs the drivers.
 
+## Unreleased
+
+- **Stop USB/IP exports when loopback connections are blocked.** Controller shutdown wakes the accept worker directly instead of opening another TCP connection. A rejected connection can no longer leave teardown waiting forever; connected controller and audio transfers keep their existing I/O deadlines.
+
+- **Support long Windows paths when saving or updating files.** State writes, Playnite plugin installation and package replacement use extended Windows paths for the final atomic rename. Deep folders no longer fail with a misleading path-not-found error once a temporary filename exceeds the legacy path limit. Failed copies still preserve the previous file.
+
+- **Respond to packet loss without slowing every wired stream.** Automatic H.264, HEVC and AV1 pacing keeps the fast starting rate on healthy wired connections, then reduces bursts after repeated, validated client loss reports. Picture bitrate and FPS stay unchanged. Live FEC headroom, delayed-report checks and cautious recovery avoid an artificial quality cap. Explicit pacing, PyroWave and opt-in host bitrate adaptation keep their own policies. The earlier universal 2× pacing candidate was rejected after measurement showed about 10 ms of extra send time on a fast path. [Configuration](../docs/configuration.md#capture-and-video).
+
+Local verification passed 967 workspace tests, strict Clippy, formatting and the console check. Two unchanged native Windows checks still fail with access denied, and the release-helper shell check is blocked before Git Bash starts. Nine isolated UDP runs delivered every packet; healthy automatic pacing averaged 0.494 ms per frame versus 0.473 ms at the released rate. Separate ordered-sender tests measured 0.009–0.020 ms of additional mean handoff cost. The affected client and a physical bottleneck have not been tested. This remains unreleased. [Verification record](PERFORMANCE.md#october-14-conventional-video-pacing).
+
 ## New in 2.2.18
 
 - **Deliver HDR metadata reliably.** Native NVENC uses the correct AV1 mastering-display units and explicitly enables content-light metadata on supported driver APIs (13.0 or newer). FFmpeg's NVENC backend receives initial HDR metadata before opening. Changed metadata requests a keyframe, and failed submissions keep that update pending.

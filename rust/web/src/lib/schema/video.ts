@@ -323,7 +323,7 @@ const video: Setting[] = [
     key: 'video_max_batch_size_kb',
     label: 'Send batch size',
     description:
-      'Largest burst of video packets sent at once. Smaller batches can help switches, routers or Wi-Fi that drop bursts, at the cost of under a millisecond of delay.',
+      'Largest burst of video packets sent at once. Conventional codecs also limit each batch to about one millisecond of traffic at the pacing rate. Smaller batches can help devices that drop bursts, but require more send calls. PyroWave uses its own batching policy.',
     category: 'video',
     group: 'Bitrate and network',
     control: {
@@ -340,7 +340,7 @@ const video: Setting[] = [
     key: 'pacing_max_bitrate_kbps',
     label: 'Pacing rate',
     description:
-      "Spreads each frame's packets so they leave no faster than this rate. 0 uses up to 800 Mbps. A known Ethernet link limits pacing to 80% of its speed. A set rate is raised to at least 1.1 times the stream bitrate, within that link limit.",
+      "Spaces video packets without changing picture bitrate. 0 keeps wired sessions fast and reduces bursts after repeated reported loss. Confirmed Wi-Fi starts at twice the bitrate with FEC headroom. A positive value fixes the rate, with a 1.1-times-bitrate floor; known Ethernet speed can lower it. PyroWave and Host adaptive bitrate keep their own policies. Reconnect after saving.",
     category: 'video',
     group: 'Bitrate and network',
     control: { kind: 'number', min: 0, step: 1, unit: 'Kbps' },

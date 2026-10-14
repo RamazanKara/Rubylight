@@ -1401,6 +1401,11 @@ impl Media {
                     // is used for every frame as before.
                     s.configure_fec(c.boolean("adaptive_fec", true) && s.config.codec != 3, requested_fec.clamp(0, 100) as usize);
                     s.configure_adaptive_bitrate(c.boolean("host_adaptive_bitrate", false), c.integer("max_bitrate", 0).clamp(0, 500_000) as u32);
+                    // Explicit pacing and the opt-in bitrate controller own
+                    // their limits. Automatic burst control never owns quality.
+                    let automatic_pacing = c.integer("pacing_max_bitrate_kbps", 0) <= 0
+                        && !c.boolean("host_adaptive_bitrate", false) && s.config.codec != 3;
+                    s.configure_automatic_pacing(automatic_pacing);
                     let mut packetizer = VideoPacketizer {
                         sequence: 0,
                         iv_counter: 0,
@@ -1536,21 +1541,25 @@ impl Media {
                         if !sender_decided {
                             sender_decided = true;
                             let route = *link.get_or_insert_with(|| butterpollo_windows::net::routed_link(peer));
+                            packetizer.fec_percent = s.fec_percent();
+                            let bitrate = s.bitrate.load(Ordering::Relaxed);
+                            let needed = butterpollo_core::network_pacing::video_wire_rate_bps(&packetizer, bitrate, stream_period.get(), peer.is_ipv6());
                             let bps = butterpollo_core::network_pacing::rate_bps(
                                 c.integer("pacing_max_bitrate_kbps", 0),
-                                s.bitrate.load(Ordering::Relaxed),
+                                bitrate,
                                 route.bps,
                                 route.wireless,
+                                needed,
                             );
-                            let bps = s.adaptive_pacing_bps(bps);
+                            let bps = s.video_pacing_bps(bps, needed);
                             // Only before the first frame: the sender numbers
                             // frames and packets from the start.
                             if packetizer.frame == 1
                                 && c.boolean("video_send_thread", true)
-                                && (c.boolean("host_adaptive_bitrate", false) || butterpollo_core::network_pacing::paced(bps, s.bitrate.load(Ordering::Relaxed)))
+                                && (automatic_pacing || c.boolean("host_adaptive_bitrate", false) || butterpollo_core::network_pacing::paced(bps, needed))
                             {
                                 let _ = video_sender.set(crate::video_send::Sender::new(m.video.clone(), s.clone(), c.clone(), h.clone(), start, prepared.capture() == "wgc")?);
-                                tracing::info!(pacing_bps = bps, bitrate_kbps = s.bitrate.load(Ordering::Relaxed), "video frames are sent on their own thread: pacing is near the stream bitrate");
+                                tracing::info!(pacing_bps = bps, bitrate_kbps = bitrate, wire_budget_bps = needed, automatic_pacing, "video frames are sent on their own thread for current or adaptive pacing");
                             }
                         }
                         if let Some(sender) = video_sender.get() { return sender.submit(output, peer, call_latency); }
@@ -1584,18 +1593,20 @@ impl Media {
                             let fec_limited = packetizer.fec_limited(frame.bytes.len());
                             let packet_bytes = packetizer.packet_size + 16 + if packetizer.key.is_some() { 32 } else { 0 };
                             let route = *link.get_or_insert_with(|| butterpollo_windows::net::routed_link(peer));
+                            let bitrate = s.bitrate.load(Ordering::Relaxed);
+                            let needed = butterpollo_core::network_pacing::video_wire_rate_bps(&packetizer, bitrate, stream_period.get(), peer.is_ipv6());
                             let bps = butterpollo_core::network_pacing::rate_bps(
                                 c.integer("pacing_max_bitrate_kbps", 0),
-                                s.bitrate.load(Ordering::Relaxed),
+                                bitrate,
                                 route.bps,
                                 route.wireless,
+                                needed,
                             );
-                            let bps = s.adaptive_pacing_bps(bps);
+                            let bps = s.video_pacing_bps(bps, needed);
                             if Instant::now() >= link_due {
-                                let needed = butterpollo_core::network_pacing::video_wire_rate_bps(&packetizer, s.bitrate.load(Ordering::Relaxed), stream_period.get(), peer.is_ipv6());
                                 butterpollo_core::network_pacing::report_rate(&s.launch.warnings, bps, needed, c.integer("pacing_max_bitrate_kbps", 0));
                                 if reported_pacing != Some(bps) {
-                                    tracing::info!(pacing_bps=bps, link_bps=route.bps, configured_kbps=c.integer("pacing_max_bitrate_kbps", 0), "network pacing selected; defaults use twice encoder bitrate for confirmed wireless routes, or the wired fallback ceiling");
+                                    tracing::info!(pacing_bps=bps, wire_budget_bps=needed, link_bps=route.bps, configured_kbps=c.integer("pacing_max_bitrate_kbps", 0), "network pacing selected");
                                     reported_pacing = Some(bps);
                                 }
                             }
@@ -1659,9 +1670,9 @@ impl Media {
                                         timer.until_precise(network_pacer.due());
                                         pacing_wait += now.elapsed();
                                     }
-                                    let budget = (bps / 4000)
-                                        .clamp(remaining[0].len() as u64, batch_kb * 1024)
-                                        as usize;
+                                    let budget = butterpollo_core::network_pacing::batch_payload_limit(
+                                        bps, remaining[0].len(), peer.is_ipv6(), batch_kb * 1024,
+                                    );
                                     let count =
                                         butterpollo_windows::net::Batch::count(remaining, budget);
                                     let send_started = Instant::now();
@@ -2876,11 +2887,7 @@ impl Media {
                         p.seen = Instant::now();
                         p.input_released = false;
                         match kind {
-                            0x0200 => s
-                                .adaptive_bitrate
-                                .lock()
-                                .unwrap()
-                                .on_ping(Instant::now(), &payload),
+                            0x0200 => s.record_control_ping(Instant::now(), &payload),
                             controller_audio::CONTROL | controller_audio::MICROPHONE
                                 if encrypted
                                     && haptics_negotiated(&s.config, peer.channel_count()) =>
@@ -3160,6 +3167,14 @@ impl Media {
                             new_percent = new,
                             "adaptive fec"
                         );
+                    }
+                    if poll_feedback
+                        && let Some((old, new)) = s.tick_automatic_pacing(
+                            Instant::now(),
+                            host.peer(*peer_id).round_trip_time(),
+                        )
+                    {
+                        tracing::info!(client = %s.launch.client.name, old_bps = old, new_bps = new, "automatic video burst pacing; encoder bitrate unchanged");
                     }
                     if poll_feedback
                         && let Some((old, new)) = s.tick_adaptive_bitrate(

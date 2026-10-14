@@ -1,7 +1,7 @@
 // The real JNI control senders and encrypted ENet send path against fake ENet and JNI:
 // DualSense microphone packets larger than the old 256-byte plaintext buffer, Java-thread
-// sends racing stream teardown or the next stream's initialization, and phase-lock reports
-// that need the host's announcement.
+// sends and RTT reads racing stream teardown or the next stream's initialization, and
+// phase-lock reports that need the host's announcement.
 #include <pthread.h>
 #include <unistd.h>
 #include "android_control.c"
@@ -25,10 +25,29 @@ static int sentCount, teardowns;
 static atomic_bool tornDown, senderInside;
 static uint64_t fakeNowMs;
 
-// One enet_host_service() call can be held to keep a sender inside the send path.
+// One enet_host_service() call can be held to keep a sender inside the send path, a thread
+// can be held just after it takes enetMutex, and teardown can be held inside its linger.
 static pthread_mutex_t gate = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t gateChanged = PTHREAD_COND_INITIALIZER;
-static bool holdNextService, serviceReleased;
+static bool holdNextService, serviceReleased, lockReleased, holdLinger, lingerReleased;
+static _Thread_local bool holdThisThreadInLock;
+static atomic_bool readerInside, readerDone, lingerInside;
+
+static void holdUntil(atomic_bool* inside, bool* released) {
+    pthread_mutex_lock(&gate);
+    atomic_store(inside, true);
+    pthread_cond_broadcast(&gateChanged);
+    while (!*released) pthread_cond_wait(&gateChanged, &gate);
+    atomic_store(inside, false);
+    pthread_mutex_unlock(&gate);
+}
+
+static void release(bool* released) {
+    pthread_mutex_lock(&gate);
+    *released = true;
+    pthread_cond_broadcast(&gateChanged);
+    pthread_mutex_unlock(&gate);
+}
 
 // Each stream creates and destroys its own mutex and crypto contexts.
 static atomic_bool enetMutexExists;
@@ -49,6 +68,10 @@ void PltLockMutex(PLT_MUTEX* mutex) {
     // No sender may reach the mutex of a stream that has been destroyed.
     CHECK(mutex != &enetMutex || atomic_load(&enetMutexExists));
     CHECK(pthread_mutex_lock(mutex) == 0);
+    if (holdThisThreadInLock) {
+        holdThisThreadInLock = false;
+        holdUntil(&readerInside, &lockReleased);
+    }
 }
 
 void PltUnlockMutex(PLT_MUTEX* mutex) { CHECK(pthread_mutex_unlock(mutex) == 0); }
@@ -149,9 +172,13 @@ int enet_host_service(ENetHost* host, ENetEvent* event, enet_uint32 timeout) {
 }
 
 int gracefullyDisconnectEnetPeer(ENetHost* host, ENetPeer* target, enet_uint32 lingerTimeoutMs) {
-    // Teardown must never run while a Java thread is still inside the send path.
-    CHECK(!atomic_load(&senderInside));
+    // Teardown must never run while a Java thread is still inside the send path or an RTT read.
+    CHECK(!atomic_load(&senderInside) && !atomic_load(&readerInside));
     CHECK(host == &fakeHost && target == &fakePeer);
+    if (holdLinger) {
+        holdLinger = false;
+        holdUntil(&lingerInside, &lingerReleased);
+    }
     teardowns++;
     return 0;
 }
@@ -160,7 +187,7 @@ int gracefullyDisconnectEnetPeer(ENetHost* host, ENetPeer* target, enet_uint32 l
 void enet_peer_disconnect_now(ENetPeer* target, enet_uint32 data) { CHECK(false); }
 
 void enet_host_destroy(ENetHost* host) {
-    CHECK(!atomic_load(&senderInside) && host == &fakeHost);
+    CHECK(!atomic_load(&senderInside) && !atomic_load(&readerInside) && host == &fakeHost);
     atomic_store(&tornDown, true);
 }
 
@@ -193,6 +220,10 @@ static void reset(void) {
     atomic_store(&senderInside, false);
     teardowns = 0;
     holdNextService = serviceReleased = false;
+    lockReleased = holdLinger = lingerReleased = false;
+    atomic_store(&readerInside, false);
+    atomic_store(&readerDone, false);
+    atomic_store(&lingerInside, false);
     // A stream that has finished initializing: its own mutex and crypto contexts, sending open.
     if (!atomic_load(&enetMutexExists)) CHECK(PltCreateMutex(&enetMutex) == 0);
     sendWhileCreatingContexts = false;
@@ -319,6 +350,71 @@ static void teardownWaitsForJavaSendersAndLaterSendsNeverReachENet(void) {
     ConnectionInterrupted = false;
 }
 
+static void waitFor(atomic_bool* inside, atomic_bool* done) {
+    pthread_mutex_lock(&gate);
+    while (!atomic_load(inside) && (done == NULL || !atomic_load(done))) pthread_cond_wait(&gateChanged, &gate);
+    pthread_mutex_unlock(&gate);
+}
+
+static bool rttResult;
+static uint32_t rttRead, rttVarianceRead;
+
+static void* readRttFromJava(void* context) {
+    holdThisThreadInLock = true;
+    rttResult = LiGetEstimatedRttInfo(&rttRead, &rttVarianceRead);
+    holdThisThreadInLock = false;
+    pthread_mutex_lock(&gate);
+    atomic_store(&readerDone, true);
+    pthread_cond_broadcast(&gateChanged);
+    pthread_mutex_unlock(&gate);
+    return NULL;
+}
+
+static void teardownWaitsForAnRttReadInFlight(void) {
+    reset();
+    fakePeer.roundTripTime = 7;
+    fakePeer.roundTripTimeVariance = 3;
+
+    // A quality timer's RTT read is inside enetMutex when the stream stops.
+    pthread_t reader, stopper;
+    CHECK(pthread_create(&reader, NULL, readRttFromJava, NULL) == 0);
+    waitFor(&readerInside, &readerDone);
+    CHECK(atomic_load(&readerInside));
+    ConnectionInterrupted = true;
+    CHECK(pthread_create(&stopper, NULL, stopTheStream, NULL) == 0);
+    usleep(50000);
+    CHECK(teardowns == 0 && !atomic_load(&tornDown));
+
+    release(&lockReleased);
+    CHECK(pthread_join(reader, NULL) == 0);
+    CHECK(pthread_join(stopper, NULL) == 0);
+    CHECK(rttResult && rttRead == 7 && rttVarianceRead == 3);
+    CHECK(teardowns == 1 && atomic_load(&tornDown) && peer == NULL && client == NULL);
+    ConnectionInterrupted = false;
+}
+
+static void rttReadsStopOnceTeardownStarts(void) {
+    reset();
+    fakePeer.roundTripTime = 7;
+    fakePeer.roundTripTimeVariance = 3;
+    uint32_t rtt = 0, variance = 0;
+    CHECK(LiGetEstimatedRttInfo(&rtt, &variance) && rtt == 7 && variance == 3);
+
+    // Teardown lingers for up to two seconds with the peer still set; an RTT read from the
+    // overlay or a quality timer in that time must leave the peer alone.
+    holdLinger = true;
+    ConnectionInterrupted = true;
+    pthread_t stopper;
+    CHECK(pthread_create(&stopper, NULL, stopTheStream, NULL) == 0);
+    waitFor(&lingerInside, NULL);
+    CHECK(!LiGetEstimatedRttInfo(&rtt, &variance));
+    release(&lingerReleased);
+    CHECK(pthread_join(stopper, NULL) == 0);
+    CHECK(teardowns == 1 && atomic_load(&tornDown) && peer == NULL && client == NULL);
+    CHECK(!LiGetEstimatedRttInfo(&rtt, &variance));
+    ConnectionInterrupted = false;
+}
+
 static const uint8_t controllerStatus[8] = {1, 1, 0, 0, 0, 0, 0, 0};
 
 static void sendFromAJavaThreadDuringInitialization(void) {
@@ -334,8 +430,10 @@ static void sendingStaysClosedFromAFailedStartUntilTheNextStreamIsReady(void) {
     stopping = true;
     destroyControlStream();
     CHECK(!atomic_load(&enetMutexExists));
-    // A Java thread that passed its own checks earlier reaches the core afterwards.
+    // A Java thread that passed its own checks earlier reaches the core afterwards, and the
+    // quality timers keep reading the RTT.
     CHECK(!sendMessageAndForget(0x5535, sizeof(controllerStatus), controllerStatus, 8, ENET_PACKET_FLAG_RELIABLE, false));
+    CHECK(!LiGetEstimatedRttInfo(NULL, NULL));
 
     // The next stream: a Java send that arrives while it is still creating its crypto
     // contexts must not encrypt with the destroyed stream's.
@@ -382,6 +480,8 @@ static const struct { const char* name; void (*run)(void); } scenarios[] = {
     {"phase-lock", phaseLockReportsNeedTheHostsAnnouncement},
     {"teardown", teardownWaitsForJavaSendersAndLaterSendsNeverReachENet},
     {"lifecycle", sendingStaysClosedFromAFailedStartUntilTheNextStreamIsReady},
+    {"rtt-in-flight", teardownWaitsForAnRttReadInFlight},
+    {"rtt-linger", rttReadsStopOnceTeardownStarts},
 };
 
 // With an argument, only the named scenario runs. Each scenario starts from a freshly

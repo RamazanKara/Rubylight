@@ -4,10 +4,16 @@ and the peer and host are destroyed only after every sender in flight has left.
 Sending reopens only at the end of initializeControlStream(), once the mutex, crypto contexts
 and sequence number belong to the new stream, and destroyControlStream() closes it as well,
 since a stream whose start failed before it had a peer is never stopped.
+LiGetEstimatedRttInfo() is also called from Java threads the stream never joins (the stats
+overlay, and Game's 1 s bitrate, quality and health timers on the main thread), and it read
+the peer with no lock while teardown could destroy the host that holds it. It now counts as a sender, returns false once
+sending is closed, and reads the peer under enetMutex. That lock is normally held briefly,
+but the control receive thread holds it for up to about a second while it waits for a
+held-back host disconnect, so an RTT read in that window can block its caller that long.
 Applies after control-payload.patch.
 
 diff --git a/src/ControlStream.c b/src/ControlStream.c
-index f75e37a..fe5f736 100644
+index f75e37a..d7acbc7 100644
 --- a/src/ControlStream.c
 +++ b/src/ControlStream.c
 @@ -3,6 +3,7 @@
@@ -127,7 +133,47 @@ index f75e37a..fe5f736 100644
      if (peer != NULL) {
          // Gracefully disconnect to ensure the remote host receives all of our final
          // outbound traffic, including any key up events that might be sent.
-@@ -1924,6 +1972,7 @@ int startControlStream(void) {
+@@ -1844,21 +1892,27 @@ bool isControlDataInTransit(void) {
+ bool LiGetEstimatedRttInfo(uint32_t* estimatedRtt, uint32_t* estimatedRttVariance) {
+     bool ret = false;
+ 
+-    // We do not acquire enetMutex here because we're just reading metrics
+-    // and observing a torn write every once in a while is totally fine.
+-    // The peer pointer points to memory reserved inside the client object,
+-    // so it's guaranteed that it will never go away underneath us.
+-    if (peer != NULL && peer->state == ENET_PEER_STATE_CONNECTED) {
+-        if (estimatedRtt != NULL) {
+-            *estimatedRtt = peer->roundTripTime;
+-        }
++    // The stats overlay and the quality timers call this from Java threads the stream never
++    // joins, and the peer lives inside the client host that teardown destroys. Count the
++    // read like a sender, so teardown waits for it before destroying the host, read nothing
++    // once teardown has closed sending, and read the peer under enetMutex.
++    atomic_fetch_add(&enetSendersInFlight, 1);
++    if (!atomic_load(&enetSendsClosed)) {
++        PltLockMutex(&enetMutex);
++        if (peer != NULL && peer->state == ENET_PEER_STATE_CONNECTED) {
++            if (estimatedRtt != NULL) {
++                *estimatedRtt = peer->roundTripTime;
++            }
+ 
+-        if (estimatedRttVariance != NULL) {
+-            *estimatedRttVariance = peer->roundTripTimeVariance;
+-        }
++            if (estimatedRttVariance != NULL) {
++                *estimatedRttVariance = peer->roundTripTimeVariance;
++            }
+ 
+-        ret = true;
++            ret = true;
++        }
++        PltUnlockMutex(&enetMutex);
+     }
++    atomic_fetch_sub(&enetSendersInFlight, 1);
+ 
+     return ret;
+ }
+@@ -1924,6 +1978,7 @@ int startControlStream(void) {
              }
  
              stopping = true;
@@ -135,7 +181,7 @@ index f75e37a..fe5f736 100644
              enet_peer_reset(peer);
              peer = NULL;
              enet_host_destroy(client);
-@@ -1975,6 +2024,7 @@ int startControlStream(void) {
+@@ -1975,6 +2030,7 @@ int startControlStream(void) {
              ctlSock = INVALID_SOCKET;
          }
          else {
@@ -143,7 +189,7 @@ index f75e37a..fe5f736 100644
              enet_peer_disconnect_now(peer, 0);
              peer = NULL;
              enet_host_destroy(client);
-@@ -2009,6 +2059,7 @@ int startControlStream(void) {
+@@ -2009,6 +2065,7 @@ int startControlStream(void) {
              ctlSock = INVALID_SOCKET;
          }
          else {
@@ -151,7 +197,7 @@ index f75e37a..fe5f736 100644
              enet_peer_disconnect_now(peer, 0);
              peer = NULL;
              enet_host_destroy(client);
-@@ -2043,6 +2094,7 @@ int startControlStream(void) {
+@@ -2043,6 +2100,7 @@ int startControlStream(void) {
              ctlSock = INVALID_SOCKET;
          }
          else {
@@ -159,7 +205,7 @@ index f75e37a..fe5f736 100644
              enet_peer_disconnect_now(peer, 0);
              peer = NULL;
              enet_host_destroy(client);
-@@ -2070,6 +2122,7 @@ int startControlStream(void) {
+@@ -2070,6 +2128,7 @@ int startControlStream(void) {
              ctlSock = INVALID_SOCKET;
          }
          else {
@@ -167,7 +213,7 @@ index f75e37a..fe5f736 100644
              enet_peer_disconnect_now(peer, 0);
              peer = NULL;
              enet_host_destroy(client);
-@@ -2100,6 +2153,7 @@ int startControlStream(void) {
+@@ -2100,6 +2159,7 @@ int startControlStream(void) {
              ctlSock = INVALID_SOCKET;
          }
          else {
@@ -175,7 +221,7 @@ index f75e37a..fe5f736 100644
              enet_peer_disconnect_now(peer, 0);
              peer = NULL;
              enet_host_destroy(client);
-@@ -2135,6 +2189,7 @@ int startControlStream(void) {
+@@ -2135,6 +2195,7 @@ int startControlStream(void) {
              ctlSock = INVALID_SOCKET;
          }
          else {
@@ -183,7 +229,7 @@ index f75e37a..fe5f736 100644
              enet_peer_disconnect_now(peer, 0);
              peer = NULL;
              enet_host_destroy(client);
-@@ -2176,6 +2231,7 @@ int startControlStream(void) {
+@@ -2176,6 +2237,7 @@ int startControlStream(void) {
                  ctlSock = INVALID_SOCKET;
              }
              else {

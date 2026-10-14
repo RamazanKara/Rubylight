@@ -5387,6 +5387,17 @@ reuse test could not start Git Bash: `NtCreateDirectoryObject` failed with
 `0xC0000022` while creating its MSYS named object. The other four release
 test methods passed. No test was weakened to accommodate these restrictions.
 
+The first [GitHub Windows run](https://github.com/RamazanKara/Rubylight/actions/runs/38534394016)
+passed the release-tooling checks but failed the reconnect fixture's requirement
+to receive more than ten synthetic frames in 750 ms. This fixture bypasses the
+pacing controller and sends directly; the log does not establish why that
+throughput assertion failed. The test now records a successful live-session
+video send after the production control worker's one-second inactivity
+checkpoint, waits for teardown, then verifies the unchanged two-second control
+timeout, failure reason and reconnect. It still requires received video to
+advance. The final local host suite passes all 222 ordinary tests, five extra
+focused repetitions pass, and formatting and strict Clippy pass.
+
 Raw timing, benchmark hashes, test logs and controls are retained under
 `C:\Users\ramaz\Documents\Codex\2026-10-13\on-ruby-lite-or-ruby-lite\outputs\pacing-followup`.
 

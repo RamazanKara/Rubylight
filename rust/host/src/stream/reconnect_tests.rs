@@ -24,6 +24,7 @@ pub(crate) struct Fixture {
     displays: Arc<AtomicUsize>,
     inputs: Arc<AtomicUsize>,
     pub(super) input_releases: AtomicUsize,
+    video_after_input_release: AtomicUsize,
     hold_teardown: AtomicBool,
     in_teardown: AtomicBool,
     reset: Mutex<Option<String>>,
@@ -148,6 +149,7 @@ impl Fixture {
                 .get(&(s.launch.id.clone(), false))
                 .copied();
             if let Some(peer) = peer {
+                let released = self.input_releases.load(Ordering::Acquire);
                 // A synthetic encoded access unit still uses the production
                 // packetizer and video socket. No decoder or GPU is involved.
                 for packet in
@@ -157,6 +159,13 @@ impl Fixture {
                     s.stats.packets.fetch_add(1, Ordering::Relaxed);
                 }
                 s.stats.frames.fetch_add(1, Ordering::Relaxed);
+                // Record progress after the real control worker's loss
+                // checkpoint, while the session is still live. The test can
+                // inspect it even if its async task wakes after timeout.
+                if !s.stopping() {
+                    self.video_after_input_release
+                        .store(released, Ordering::Release);
+                }
             }
             thread::sleep(Duration::from_millis(10));
         }
@@ -1106,10 +1115,9 @@ async fn control_lost_while_video_continues_times_out() -> Result<()> {
     let h = Harness::new(2000, 1).await?;
     let launch = h.launch(0, false).await?;
     let (session, client) = h.play(&launch).await?;
-    client.control_down.store(true, Ordering::Release);
     let before = client.frames.load(Ordering::Acquire);
-    tokio::time::sleep(Duration::from_millis(750)).await;
-    assert!(client.frames.load(Ordering::Acquire) > before + 10);
+    let released = h.fixture.input_releases.load(Ordering::Acquire);
+    client.control_down.store(true, Ordering::Release);
     assert!(!session.stopping());
     until(
         "video traffic cannot keep a lost control stream alive",
@@ -1117,9 +1125,24 @@ async fn control_lost_while_video_continues_times_out() -> Result<()> {
         || session.stopping(),
     )
     .await;
+    h.empty().await?;
+    let released_after = h.fixture.input_releases.load(Ordering::Acquire);
+    let video_after_release = h.fixture.video_after_input_release.load(Ordering::Acquire);
+    let frames_after = client.frames.load(Ordering::Acquire);
+    assert!(
+        released_after > released,
+        "control loss must release input: {released} -> {released_after}"
+    );
+    assert!(
+        video_after_release > released,
+        "video must continue after control loss and before timeout: input {released} -> {released_after}, video checkpoint {video_after_release}, frames {before} -> {frames_after}"
+    );
+    assert!(
+        frames_after > before,
+        "client must still receive video while control is blocked: {before} -> {frames_after}"
+    );
     assert_eq!(session.termination_reason(), FAILED);
     drop(client);
-    h.empty().await?;
     let launch = h.launch(0, true).await?;
     let (session, client) = h.play(&launch).await?;
     h.end(&session, client).await?;

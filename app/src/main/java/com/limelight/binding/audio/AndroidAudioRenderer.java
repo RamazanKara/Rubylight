@@ -18,7 +18,11 @@ public class AndroidAudioRenderer implements AudioRenderer {
 
     private final Context context;
     private final boolean enableAudioFx;
-    public interface HeadphoneSink { boolean write(short[] pcm, int length, float volume); }
+    public interface HeadphoneSink {
+        boolean write(short[] pcm, int length, float volume);
+        // Lets the audio thread skip AudioService volume reads while no headset route exists.
+        default boolean active() { return true; }
+    }
     private final HeadphoneSink headphoneSink;
     private long volumeReadAt;
     private float streamVolume = 1;
@@ -236,15 +240,22 @@ public class AndroidAudioRenderer implements AudioRenderer {
     }
 
     @Override
-    public synchronized void playDecodedAudio(short[] audioData, int length) {
+    public void playDecodedAudio(short[] audioData, int length) {
+        // AudioService calls run only for a live headset route, and never under the renderer
+        // lock that stop() and cleanup() take from other threads.
+        boolean headphones = headphoneSink != null && headphoneSink.active();
+        if (headphones && uptimeMillis() - volumeReadAt >= 500) {
+            AudioManager manager = (AudioManager)context.getSystemService(Context.AUDIO_SERVICE);
+            streamVolume = manager.getStreamVolume(AudioManager.STREAM_MUSIC) /
+                    (float)Math.max(1, manager.getStreamMaxVolume(AudioManager.STREAM_MUSIC));
+            volumeReadAt = uptimeMillis();
+        }
+        playDecodedAudio(audioData, length, headphones);
+    }
+
+    private synchronized void playDecodedAudio(short[] audioData, int length, boolean headphones) {
         if (stopped) return;
-        if (headphoneSink != null && sampleRate == 48000 && channels >= 2) {
-            if (SystemClock.uptimeMillis() - volumeReadAt >= 500) {
-                AudioManager manager = (AudioManager)context.getSystemService(Context.AUDIO_SERVICE);
-                streamVolume = manager.getStreamVolume(AudioManager.STREAM_MUSIC) /
-                        (float)Math.max(1, manager.getStreamMaxVolume(AudioManager.STREAM_MUSIC));
-                volumeReadAt = SystemClock.uptimeMillis();
-            }
+        if (headphones && sampleRate == 48000 && channels >= 2) {
             short[] sound = audioData;
             int count = length;
             if (channels != 2) {

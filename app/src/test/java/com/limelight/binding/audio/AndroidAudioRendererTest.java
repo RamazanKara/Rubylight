@@ -1,15 +1,20 @@
 package com.limelight.binding.audio;
 
 import android.app.Application;
+import android.content.Context;
+import android.content.ContextWrapper;
 import android.media.AudioTrack;
 
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.robolectric.RobolectricTestRunner;
+import org.robolectric.RuntimeEnvironment;
 import org.robolectric.annotation.Config;
+import org.robolectric.util.ReflectionHelpers;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.Assert.*;
 
@@ -42,7 +47,11 @@ public class AndroidAudioRendererTest {
         private final List<Integer> lengths = new ArrayList<>();
 
         ScriptedRenderer(int... results) {
-            super(null, false);
+            this(null, null, results);
+        }
+
+        ScriptedRenderer(Context context, HeadphoneSink headphones, int... results) {
+            super(context, false, headphones);
             this.results = results;
         }
 
@@ -128,6 +137,49 @@ public class AndroidAudioRendererTest {
         renderer.play();
         assertEquals(2, renderer.recreations);
         assertEquals("The recreated track plays the buffer", 5, renderer.nextResult);
+    }
+
+    @Test public void headsetVolumeIsReadOnlyForALiveRouteAndOffTheRendererLock() {
+        AtomicInteger volumeReads = new AtomicInteger();
+        AndroidAudioRenderer[] renderer = new AndroidAudioRenderer[1];
+        Context context = new ContextWrapper(RuntimeEnvironment.getApplication()) {
+            @Override public Object getSystemService(String name) {
+                if (Context.AUDIO_SERVICE.equals(name)) {
+                    volumeReads.incrementAndGet();
+                    assertFalse("stop() and cleanup() must not wait for AudioService", Thread.holdsLock(renderer[0]));
+                }
+                return super.getSystemService(name);
+            }
+        };
+        boolean[] headsetRoute = {false};
+        List<Float> headset = new ArrayList<>();
+        AndroidAudioRenderer.HeadphoneSink sink = new AndroidAudioRenderer.HeadphoneSink() {
+            @Override public boolean write(short[] pcm, int length, float volume) {
+                if (!headsetRoute[0]) return false;
+                headset.add(volume);
+                return true;
+            }
+            @Override public boolean active() { return headsetRoute[0]; }
+        };
+        ScriptedRenderer scripted = new ScriptedRenderer(context, sink, 6, 6);
+        renderer[0] = scripted;
+        // A 48 kHz stereo stream, as negotiated in setup().
+        ReflectionHelpers.setField(scripted, "sampleRate", 48000);
+        ReflectionHelpers.setField(scripted, "channels", 2);
+
+        scripted.play();
+        scripted.now += 1000;
+        scripted.play();
+        assertEquals("No DualSense headset: no AudioService calls", 0, volumeReads.get());
+        assertEquals(2, scripted.nextResult);
+
+        headsetRoute[0] = true;
+        scripted.play();
+        scripted.now += 100;
+        scripted.play();
+        assertEquals("The volume is read at most twice a second", 1, volumeReads.get());
+        assertEquals(2, headset.size());
+        assertEquals("The headset took the audio", 2, scripted.nextResult);
     }
 
     @Test public void failedRecreationIsRetriedByALaterBuffer() {

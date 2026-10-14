@@ -159,7 +159,10 @@ public class ControllerPreparationTest {
             ControllerHandler.UsbDeviceContext context = handler.new UsbDeviceContext();
             context.device = pad; context.assignedControllerNumber = true;
             try {
+                assertFalse("No DualSense audio yet: the renderer skips its volume lookups",
+                        handler.headphoneAudioSink().active());
                 context.sendControllerArrival();
+                assertTrue(handler.headphoneAudioSink().active());
                 byte[] control = {1, 3, 0, 0, 3, 0, 0, 0};
                 handler.handleControllerAudio(0x5535, control);
                 handler.handleControllerHaptics((short) 0, 0, new byte[4]);
@@ -174,6 +177,7 @@ public class ControllerPreparationTest {
                 handler.handleControllerAudio(0x5535, control);
                 handler.handleControllerHaptics((short) 0, 1, new byte[4]);
                 assertFalse(handler.routeHeadphoneAudio(new short[2], 2, 1));
+                assertFalse(handler.headphoneAudioSink().active());
                 assertEquals(1, connection.arrivals);
                 assertEquals(1, pad.audioBindings);
                 assertEquals(1, pad.audioPackets);

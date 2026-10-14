@@ -36,6 +36,7 @@ import android.widget.Toast;
 import com.limelight.LimeLog;
 import com.limelight.Game;
 import com.limelight.R;
+import com.limelight.binding.audio.AndroidAudioRenderer;
 import com.limelight.binding.input.driver.AbstractController;
 import com.limelight.binding.input.driver.DualSenseController;
 import com.limelight.binding.input.driver.UsbDriverListener;
@@ -2362,6 +2363,20 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         AbstractController controller = waveformControllers.get(id);
         if (controller != null) controller.controllerAudio(kind, payload);
     }
+    // The audio renderer's headset route; it reports itself inactive until a DualSense with USB
+    // audio is announced, so ordinary streams skip the volume lookups entirely.
+    public AndroidAudioRenderer.HeadphoneSink headphoneAudioSink() {
+        return new AndroidAudioRenderer.HeadphoneSink() {
+            @Override public boolean write(short[] pcm, int length, float volume) {
+                return routeHeadphoneAudio(pcm, length, volume);
+            }
+
+            @Override public boolean active() {
+                return !stopped && !waveformControllers.isEmpty() && conn.canSendControllerInput();
+            }
+        };
+    }
+
     public boolean routeHeadphoneAudio(short[] samples, int length, float volume) {
         if (stopped || !conn.canSendControllerInput()) return false;
         // A single headset owns normal game sound; controller-specific effects remain per-pad.

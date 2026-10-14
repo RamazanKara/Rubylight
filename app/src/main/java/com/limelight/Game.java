@@ -4884,7 +4884,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             UiHelper.notifyStreamConnecting(Game.this);
 
             decoderRenderer.setRenderTarget(videoSurface, renderView.getWidth(), renderView.getHeight());
-            conn.start(new AndroidAudioRenderer(Game.this, prefConfig.enableAudioFx, controllerHandler::routeHeadphoneAudio),
+            conn.start(new AndroidAudioRenderer(Game.this, prefConfig.enableAudioFx,
+                            prefConfig.usbDualSenseHaptics ? controllerHandler.headphoneAudioSink() : null),
                     decoderRenderer, Game.this);
         }
     }

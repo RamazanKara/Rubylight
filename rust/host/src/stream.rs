@@ -2812,7 +2812,11 @@ impl Media {
                                     legacy: butterpollo_core::packet::LegacyInput::new(l.key_id),
                                     seen: Instant::now(),
                                     input_released: false,
-                                    session: None,
+                                    // The session can finish before the first
+                                    // control sweep. Retain it while the active
+                                    // map is locked so its termination reason
+                                    // survives the worker moving to teardown.
+                                    session: sessions.active.get(&l.id).cloned(),
                                     inputs: vec![],
                                     denied: 0,
                                     controller_audio: [0; 16],
@@ -2822,6 +2826,14 @@ impl Media {
                             );
                         } else {
                             peer.disconnect_now(0);
+                        }
+                        #[cfg(test)]
+                        if let Some(fixture) = &h.reconnect_fixture
+                            && let Some(connected) = peers.get(&peer.id())
+                        {
+                            let id = connected.id.clone();
+                            drop(sessions);
+                            fixture.control_connected(&h, &id);
                         }
                     }
                     Event::Disconnect { peer, .. } => {

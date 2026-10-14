@@ -28,6 +28,7 @@ pub(crate) struct Fixture {
     in_teardown: AtomicBool,
     reset: Mutex<Option<String>>,
     reset_done: AtomicBool,
+    fail_on_control_connect: AtomicBool,
 }
 
 pub(crate) struct Slot(Arc<AtomicUsize>);
@@ -68,6 +69,24 @@ impl Drop for Display {
 }
 
 impl Fixture {
+    pub(super) fn control_connected(&self, h: &Shared, id: &str) {
+        if !self.fail_on_control_connect.swap(false, Ordering::AcqRel) {
+            return;
+        }
+        let session = h.sessions.lock().unwrap().active[id].clone();
+        session.fail();
+        // Model the session worker finishing between the ENet Connect event
+        // and the control worker's first sweep. This can happen when capture
+        // or encoder startup fails before the first input packet arrives.
+        let deadline = Instant::now() + WAIT;
+        while h.sessions.lock().unwrap().active.contains_key(id) {
+            assert!(
+                Instant::now() < deadline,
+                "failed session did not tear down"
+            );
+            thread::sleep(Duration::from_millis(1));
+        }
+    }
     pub(crate) fn prepare(self: &Arc<Self>, launch: &Launch) {
         // The normal pending-launch slot and session worker own this lease.
         // Counting it verifies custody and teardown without creating a monitor.
@@ -660,6 +679,31 @@ impl Drop for Client {
             }
         }
     }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn failure_during_control_connect_preserves_the_host_termination_reason() -> Result<()> {
+    let h = Harness::new(10_000, 1).await?;
+    let launch = h.launch(0, false).await?;
+    h.rtsp(
+        &launch,
+        1,
+        "ANNOUNCE",
+        "a=x-nv-video[0].clientViewportWd:640\r\na=x-nv-video[0].clientViewportHt:480\r\n",
+    )
+    .await?;
+    h.rtsp(&launch, 2, "PLAY", "").await?;
+    h.fixture
+        .fail_on_control_connect
+        .store(true, Ordering::Release);
+    let client = Client::new(h.ports, launch)?;
+    until("early failure reason delivered", WAIT, || {
+        client.reason.load(Ordering::Acquire) != 0
+    })
+    .await;
+    assert_eq!(client.reason.load(Ordering::Acquire), FAILED);
+    drop(client);
+    h.finish().await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

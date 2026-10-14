@@ -347,20 +347,17 @@ pub fn mix_matrix(
             .take(output_channels)
             .enumerate()
         {
-            let alternate = if bit == 16 {
-                512
-            } else if bit == 32 {
-                1024
-            } else {
-                bit
-            };
-            if let Some(i) = index(bit).or_else(|| {
-                if output_channels == 6 {
-                    index(alternate)
-                } else {
-                    None
+            if output_channels == 6 && matches!(bit, 16 | 32) {
+                // A 5.1 client has one surround pair. A shared virtual
+                // sink may be 7.1 for another client, so fold both its back
+                // and side channels into that pair instead of losing sides.
+                let side = if bit == 16 { 512 } else { 1024 };
+                let sources: Vec<_> = [index(bit), index(side)].into_iter().flatten().collect();
+                let gain = 1. / sources.len().max(1) as f32;
+                for i in sources {
+                    matrix[ch][i] = gain;
                 }
-            }) {
+            } else if let Some(i) = index(bit) {
                 matrix[ch][i] = 1.;
             }
         }
@@ -533,5 +530,28 @@ mod tests {
                 .iter()
                 .all(|r| r.iter().sum::<f32>() <= 1.00001)
         );
+    }
+    #[test]
+    fn seven_point_one_downmix_preserves_every_channel_for_a_five_point_one_client() {
+        let matrix = mix_matrix(8, 0x63f, 6).unwrap();
+        // Isolate each input speaker, as a speaker-test tone would. Fronts,
+        // center and LFE stay discrete; each back/side pair shares one
+        // surround output, without crossing left and right.
+        for (source, destination) in [0, 1, 2, 3, 4, 5, 4, 5].into_iter().enumerate() {
+            let gain = if source < 4 { 1. } else { 0.5 };
+            for (output, row) in matrix.iter().enumerate() {
+                assert_eq!(row[source], if output == destination { gain } else { 0. });
+            }
+        }
+        // Correlated full-scale surround channels retain headroom.
+        assert!(matrix.iter().all(|row| row.iter().sum::<f32>() == 1.));
+        // Native 5.1 endpoints keep unity gain with either speaker mask.
+        for mask in [0x3f, 0x60f] {
+            let matrix = mix_matrix(6, mask, 6).unwrap();
+            for (channel, row) in matrix.iter().enumerate() {
+                assert_eq!(row[channel], 1.);
+                assert_eq!(row.iter().sum::<f32>(), 1.);
+            }
+        }
     }
 }

@@ -34,6 +34,8 @@ public class PreferenceConfiguration {
     static final String RESOLUTION_PREF_STRING = "list_resolution";
     static final String FPS_PREF_STRING = "list_fps";
     static final String BITRATE_PREF_STRING = "seekbar_bitrate_kbps";
+    // Set only when the user picks a bitrate; defaults keep following resolution and frame rate.
+    static final String BITRATE_USER_SET_PREF_STRING = "bitrate_user_set";
     static final String PREFS_VERSION_PREF_STRING = "prefs_version";
     static final int NATIVE_DEFAULTS_VERSION = 2;
     // From version 3 "native" is the screen a stream starts on, not a size saved earlier.
@@ -399,6 +401,17 @@ public class PreferenceConfiguration {
         return context.getResources().getConfiguration().smallestScreenWidthDp < 500;
     }
 
+    // Defaults written by the native-defaults migration, a preset or a resolution change are not
+    // the user's choice. Installs from before the flag count as user-set only when their saved
+    // bitrate differs from the default for their saved resolution and frame rate.
+    static boolean isBitrateUserSet(SharedPreferences prefs) {
+        if (prefs.contains(BITRATE_USER_SET_PREF_STRING)) {
+            return prefs.getBoolean(BITRATE_USER_SET_PREF_STRING, false);
+        }
+        return prefs.contains(BITRATE_PREF_STRING) && prefs.getInt(BITRATE_PREF_STRING, 0) != getDefaultBitrate(
+                prefs.getString(RESOLUTION_PREF_STRING, DEFAULT_RESOLUTION), prefs.getString(FPS_PREF_STRING, DEFAULT_FPS));
+    }
+
     public static int getDefaultBitrate(Context context) {
         SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
         return getDefaultBitrate(
@@ -487,6 +500,7 @@ public class PreferenceConfiguration {
         SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
         prefs.edit()
                 .remove(BITRATE_PREF_STRING)
+                .remove(BITRATE_USER_SET_PREF_STRING)
                 .remove(BITRATE_PREF_OLD_STRING)
                 .remove(LEGACY_RES_FPS_PREF_STRING)
                 .remove(RESOLUTION_PREF_STRING)
@@ -605,6 +619,7 @@ public class PreferenceConfiguration {
             editor.putString(RESOLUTION_PREF_STRING, nativeResolution)
                     .putString(FPS_PREF_STRING, fps)
                     .putInt(BITRATE_PREF_STRING, getDefaultBitrate(nativeResolution, fps))
+                    .putBoolean(BITRATE_USER_SET_PREF_STRING, false)
                     .remove(BITRATE_PREF_OLD_STRING)
                     .putString(FRAME_PACING_PREF_STRING, DEFAULT_FRAME_PACING)
                     .putString(UPSCALING_PREF_STRING, "off");

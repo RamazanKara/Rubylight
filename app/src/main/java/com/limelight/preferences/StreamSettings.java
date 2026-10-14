@@ -218,6 +218,7 @@ public class StreamSettings extends AppCompatActivity {
             return;
         }
         editor.remove("checkbox_native_touch")
+                .remove(PreferenceConfiguration.BITRATE_USER_SET_PREF_STRING)
                 .remove(PreferenceConfiguration.BITRATE_PREF_OLD_STRING)
                 .remove(PreferenceConfiguration.PREFS_VERSION_PREF_STRING)
                 .commit();
@@ -868,7 +869,8 @@ public class StreamSettings extends AppCompatActivity {
         }
 
         private void resetBitrateToDefault(SharedPreferences prefs, String res, String fps) {
-            if (prefs.contains(PreferenceConfiguration.BITRATE_PREF_STRING)) {
+            // A bitrate the user picked stays; a default one follows the new resolution and frame rate.
+            if (PreferenceConfiguration.isBitrateUserSet(prefs)) {
                 return;
             }
             if (res == null) {
@@ -881,6 +883,7 @@ public class StreamSettings extends AppCompatActivity {
             prefs.edit()
                     .putInt(PreferenceConfiguration.BITRATE_PREF_STRING,
                             PreferenceConfiguration.getDefaultBitrate(res, fps))
+                    .putBoolean(PreferenceConfiguration.BITRATE_USER_SET_PREF_STRING, false)
                     .apply();
         }
 
@@ -926,6 +929,16 @@ public class StreamSettings extends AppCompatActivity {
 
             addPreferencesFromResource(R.xml.preferences);
             PreferenceScreen screen = getPreferenceScreen();
+            SharedPreferences settings = PreferenceManager.getDefaultSharedPreferences(getActivity());
+            if (!settings.contains(PreferenceConfiguration.BITRATE_USER_SET_PREF_STRING)) {
+                // Decide for older installs before a removed resolution or frame rate is replaced below.
+                settings.edit().putBoolean(PreferenceConfiguration.BITRATE_USER_SET_PREF_STRING,
+                        PreferenceConfiguration.isBitrateUserSet(settings)).apply();
+            }
+            findPreference(PreferenceConfiguration.BITRATE_PREF_STRING).setOnPreferenceChangeListener((preference, value) -> {
+                settings.edit().putBoolean(PreferenceConfiguration.BITRATE_USER_SET_PREF_STRING, true).apply();
+                return true;
+            });
             findPreference("checkbox_codec_low_latency").setEnabled(Build.VERSION.SDK_INT >= Build.VERSION_CODES.R);
             findPreference("checkbox_codec_performance").setEnabled(Build.VERSION.SDK_INT >= Build.VERSION_CODES.M);
             findPreference("checkbox_phone_performance_hints").setEnabled(Build.VERSION.SDK_INT >= Build.VERSION_CODES.S);

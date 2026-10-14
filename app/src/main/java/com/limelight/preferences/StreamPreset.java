@@ -64,6 +64,7 @@ public enum StreamPreset {
                 .putString(PreferenceConfiguration.FPS_PREF_STRING, fps)
                 .putInt(PreferenceConfiguration.BITRATE_PREF_STRING,
                         PreferenceConfiguration.getDefaultBitrate(nativeResolution, fps))
+                .putBoolean(PreferenceConfiguration.BITRATE_USER_SET_PREF_STRING, false)
                 .putBoolean("checkbox_vrr", false)
                 .putString(PreferenceConfiguration.UPSCALING_PREF_STRING, "off")
                 .putString(PreferenceConfiguration.FRAME_PACING_PREF_STRING, pacing())

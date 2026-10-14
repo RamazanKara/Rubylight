@@ -129,19 +129,66 @@ public class SettingsInteractionTest {
     }
 
     @Test
-    public void resolutionAndFrameRateChangesPreserveExplicitBitrateIncludingTheOldDefault() {
-        SharedPreferences prefs = RuntimeEnvironment.getApplication().getSharedPreferences("bitrate-test", 0);
-        StreamSettings.SettingsFragment fragment = new StreamSettings.SettingsFragment();
-        for (int bitrate : new int[] {45500, PreferenceConfiguration.getDefaultBitrate("1280x720", "60")}) {
-            prefs.edit().putString(PreferenceConfiguration.RESOLUTION_PREF_STRING, "1280x720")
-                    .putString(PreferenceConfiguration.FPS_PREF_STRING, "60")
-                    .putInt(PreferenceConfiguration.BITRATE_PREF_STRING, bitrate).commit();
-            ReflectionHelpers.callInstanceMethod(fragment, "resetBitrateToDefault",
-                    ReflectionHelpers.ClassParameter.from(SharedPreferences.class, prefs),
-                    ReflectionHelpers.ClassParameter.from(String.class, "1920x1080"),
-                    ReflectionHelpers.ClassParameter.from(String.class, "120"));
-            assertEquals(bitrate, prefs.getInt(PreferenceConfiguration.BITRATE_PREF_STRING, 0));
+    public void resolutionAndFrameRateChangesMoveADefaultBitrateButKeepAChosenOne() {
+        Application app = RuntimeEnvironment.getApplication();
+        SharedPreferences prefs = android.preference.PreferenceManager.getDefaultSharedPreferences(app);
+        // An install upgraded by an earlier version: its native-defaults migration stored the
+        // default bitrate, with no record of whether the user ever chose one.
+        prefs.edit().clear().putString(PreferenceConfiguration.RESOLUTION_PREF_STRING, "1280x720")
+                .putString(PreferenceConfiguration.FPS_PREF_STRING, "60")
+                .putInt(PreferenceConfiguration.BITRATE_PREF_STRING, PreferenceConfiguration.getDefaultBitrate("1280x720", "60"))
+                .putInt(PreferenceConfiguration.PREFS_VERSION_PREF_STRING, PreferenceConfiguration.PROFILE_NATIVE_VERSION)
+                .commit();
+        ActivityController<StreamSettings> controller = Robolectric.buildActivity(StreamSettings.class).setup();
+        try {
+            StreamSettings screen = controller.get();
+            screen.showSection("video");
+            org.robolectric.shadows.ShadowLooper.idleMainLooper(150, java.util.concurrent.TimeUnit.MILLISECONDS);
+            screen.getFragmentManager().executePendingTransactions();
+            StreamSettings.SettingsFragment fragment = (StreamSettings.SettingsFragment)
+                    screen.getFragmentManager().findFragmentById(R.id.stream_settings);
+
+            choose(fragment, PreferenceConfiguration.RESOLUTION_PREF_STRING, "1920x1080");
+            assertEquals(PreferenceConfiguration.getDefaultBitrate("1920x1080", "60"),
+                    prefs.getInt(PreferenceConfiguration.BITRATE_PREF_STRING, 0));
+            choose(fragment, PreferenceConfiguration.FPS_PREF_STRING, "120");
+            assertEquals(PreferenceConfiguration.getDefaultBitrate("1920x1080", "120"),
+                    prefs.getInt(PreferenceConfiguration.BITRATE_PREF_STRING, 0));
+
+            // A bitrate the user picks stays, even when it equals the current size's default.
+            for (int chosen : new int[] {45500, PreferenceConfiguration.getDefaultBitrate("1920x1080", "120")}) {
+                android.preference.Preference bitrate = fragment.findPreference(PreferenceConfiguration.BITRATE_PREF_STRING);
+                assertTrue(bitrate.getOnPreferenceChangeListener().onPreferenceChange(bitrate, chosen));
+                prefs.edit().putInt(PreferenceConfiguration.BITRATE_PREF_STRING, chosen).commit();
+                choose(fragment, PreferenceConfiguration.RESOLUTION_PREF_STRING, "1280x720");
+                choose(fragment, PreferenceConfiguration.FPS_PREF_STRING, "60");
+                assertEquals(chosen, prefs.getInt(PreferenceConfiguration.BITRATE_PREF_STRING, 0));
+                choose(fragment, PreferenceConfiguration.RESOLUTION_PREF_STRING, "1920x1080");
+                choose(fragment, PreferenceConfiguration.FPS_PREF_STRING, "120");
+            }
+        } finally {
+            controller.pause().stop().destroy();
+            prefs.edit().clear().commit();
         }
+    }
+
+    @Test
+    public void olderInstallsKeepACustomBitrateAndFollowTheDefaultOne() {
+        SharedPreferences prefs = RuntimeEnvironment.getApplication().getSharedPreferences("bitrate-test", 0);
+        for (int stored : new int[] {45500, PreferenceConfiguration.getDefaultBitrate("1280x720", "60")}) {
+            prefs.edit().clear().putString(PreferenceConfiguration.RESOLUTION_PREF_STRING, "1280x720")
+                    .putString(PreferenceConfiguration.FPS_PREF_STRING, "60")
+                    .putInt(PreferenceConfiguration.BITRATE_PREF_STRING, stored).commit();
+            assertEquals(stored == 45500, PreferenceConfiguration.isBitrateUserSet(prefs));
+        }
+        prefs.edit().clear().commit();
+        assertFalse(PreferenceConfiguration.isBitrateUserSet(prefs));
+    }
+
+    private static void choose(StreamSettings.SettingsFragment fragment, String key, String value) {
+        android.preference.ListPreference list = (android.preference.ListPreference) fragment.findPreference(key);
+        // What ListPreference does when the user picks an entry.
+        if (list.getOnPreferenceChangeListener().onPreferenceChange(list, value)) list.setValue(value);
     }
 
     @Test

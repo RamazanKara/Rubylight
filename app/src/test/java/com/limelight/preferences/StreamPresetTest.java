@@ -127,6 +127,8 @@ public class StreamPresetTest {
         assertEquals(PHONE, values.get("list_resolution"));
         assertEquals("120", values.get("list_fps"));
         assertEquals(PreferenceConfiguration.getDefaultBitrate(PHONE, "120"), values.get("seekbar_bitrate_kbps"));
+        // The migrated bitrate is a default, so it keeps following resolution and frame rate.
+        assertEquals(false, values.get(PreferenceConfiguration.BITRATE_USER_SET_PREF_STRING));
         assertEquals("latency", values.get("frame_pacing"));
         for (String key : StreamPreset.LATENCY_SWITCHES) assertEquals(key, true, values.get(key));
         assertEquals("forceav1", values.get("video_format"));

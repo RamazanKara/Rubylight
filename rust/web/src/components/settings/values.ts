@@ -13,10 +13,14 @@ export const NOT_SETTINGS: ReadonlySet<string> = new Set(['status', 'platform', 
 /** Edited values by key. null asks for the key to be removed (back to the default). */
 export type Edits = Record<string, ConfigValue>;
 
+/** Fields the console does not edit are kept: the host stores them too. */
+export type Command = PrepCommand & { [field: string]: unknown };
+
 export interface ServerCommand {
   name: string;
   cmd: string;
   elevated: boolean;
+  [field: string]: unknown;
 }
 
 /** Read with the host's frame-rate parser: digits with at most three decimals. */
@@ -138,8 +142,9 @@ function objects(value: unknown): Record<string, unknown>[] {
   );
 }
 
-export function toCommands(value: unknown): PrepCommand[] {
+export function toCommands(value: unknown): Command[] {
   return objects(value).map((entry) => ({
+    ...entry,
     do: toText(entry.do),
     undo: toText(entry.undo),
     elevated: toBoolean(entry.elevated) === true,
@@ -148,9 +153,11 @@ export function toCommands(value: unknown): PrepCommand[] {
 
 export function toServerCommands(value: unknown): ServerCommand[] {
   return objects(value).map((entry) => ({
+    ...entry,
     name: toText(entry.name),
     cmd: toText(entry.cmd),
-    elevated: toBoolean(entry.elevated) === true,
+    // stream.rs runs a host command elevated only for a JSON true.
+    elevated: entry.elevated === true,
   }));
 }
 
@@ -297,14 +304,14 @@ export function patchValue(setting: Setting | undefined, value: ConfigValue | un
     case 'commands':
       return listValue(
         toCommands(value)
-          .map((command) => ({ do: command.do.trim(), undo: command.undo.trim(), elevated: command.elevated }))
+          .map((command) => ({ ...command, do: command.do.trim(), undo: command.undo.trim() }))
           .filter((command) => command.do || command.undo),
         setting.default,
       );
     case 'server-commands':
       return listValue(
         toServerCommands(value)
-          .map((command) => ({ name: command.name.trim(), cmd: command.cmd.trim(), elevated: command.elevated }))
+          .map((command) => ({ ...command, name: command.name.trim(), cmd: command.cmd.trim() }))
           .filter((command) => command.name || command.cmd),
         setting.default,
       );

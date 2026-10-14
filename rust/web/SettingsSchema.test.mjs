@@ -115,6 +115,22 @@ test('a fixed resolution must be WIDTHxHEIGHT within the host limits', () => {
   assert.equal(settings.get('dd_manual_refresh_rate').requiredWhen({ dd_refresh_rate_option: 'manual' }), true);
 });
 
+test('editing commands keeps fields the console does not show', () => {
+  const prep = { do: 'a.cmd', undo: 'b.cmd', elevated: false, timeout_ms: 500 };
+  const changes = computeChanges(settings, { global_prep_cmd: [{ ...prep, do: ' c.cmd ' }] }, { global_prep_cmd: [prep] });
+  assert.deepEqual(changes, { global_prep_cmd: [{ ...prep, do: 'c.cmd' }] });
+  const host = { name: 'Lock', cmd: 'lock.cmd', elevated: false, icon: 'lock' };
+  assert.deepEqual(computeChanges(settings, { server_cmd: [{ ...host, name: 'Lock PC' }] }, { server_cmd: [host] }), {
+    server_cmd: [{ ...host, name: 'Lock PC' }],
+  });
+});
+
+test('host commands are shown as elevated only when the host would elevate them', () => {
+  // stream.rs reads elevated with as_bool: the text "true" is not elevated.
+  assert.equal(toServerCommands([{ name: 'a', cmd: 'a', elevated: 'true' }])[0].elevated, false);
+  assert.equal(toServerCommands([{ name: 'a', cmd: 'a', elevated: true }])[0].elevated, true);
+});
+
 test('an unset virtual display mode keeps the OS-dependent default without hiding an explicit per-device choice', () => {
   const key = 'virtual_display_mode';
   const setting = settings.get(key);

@@ -6,6 +6,7 @@ import android.widget.LinearLayout;
 import android.widget.ImageButton;
 import android.widget.TextView;
 
+import androidx.activity.OnBackPressedCallback;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;
@@ -18,16 +19,26 @@ import com.google.android.material.button.MaterialButton;
 import com.limelight.R;
 
 public final class ActionSheet extends BottomSheetDialog {
+    private final LinearLayout body;
     private final LinearLayout content;
+    private final TextView heading;
+    private final NestedScrollView scroll;
     private final int spacing;
     private MaterialButton firstAction;
+    private Runnable backHandler;
+    // Enabled only while a page is shown, so Back returns to the page before instead of closing.
+    private final OnBackPressedCallback pageBack = new OnBackPressedCallback(false) {
+        @Override public void handleOnBackPressed() {
+            if (backHandler != null) backHandler.run();
+        }
+    };
 
     public ActionSheet(Context context, CharSequence title) {
         super(context);
         if (context instanceof android.app.Activity) setOwnerActivity((android.app.Activity) context);
         context = getContext();
         spacing = Math.round(8 * context.getResources().getDisplayMetrics().density);
-        LinearLayout body = new LinearLayout(context);
+        body = new LinearLayout(context);
         body.setOrientation(LinearLayout.VERTICAL);
         ViewCompat.setAccessibilityPaneTitle(body, title);
         LinearLayout header = new LinearLayout(context);
@@ -36,7 +47,7 @@ public final class ActionSheet extends BottomSheetDialog {
         content = new LinearLayout(context);
         content.setOrientation(LinearLayout.VERTICAL);
         content.setPadding(spacing * 2, 0, spacing * 2, spacing * 2);
-        TextView heading = new TextView(context);
+        heading = new TextView(context);
         heading.setTextAppearance(context, R.style.TextAppearance_Nightjar_ScreenTitle);
         heading.setText(title);
         heading.setMaxLines(2);
@@ -57,7 +68,7 @@ public final class ActionSheet extends BottomSheetDialog {
         close.setOnClickListener(view -> dismiss());
         header.addView(close, new LinearLayout.LayoutParams(spacing * 6, spacing * 6));
         body.addView(header);
-        NestedScrollView scroll = new NestedScrollView(context);
+        scroll = new NestedScrollView(context);
         scroll.setClipToPadding(false);
         scroll.addView(content);
         body.addView(scroll, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,
@@ -66,9 +77,109 @@ public final class ActionSheet extends BottomSheetDialog {
         setOnKeyListener((dialog, key, event) -> {
             if (!event.hasNoModifiers() || (key != android.view.KeyEvent.KEYCODE_ESCAPE &&
                     key != android.view.KeyEvent.KEYCODE_BUTTON_B)) return false;
-            if (event.getAction() == android.view.KeyEvent.ACTION_UP && !event.isCanceled()) dismiss();
+            if (event.getAction() == android.view.KeyEvent.ACTION_UP && !event.isCanceled()) {
+                if (pageBack.isEnabled()) pageBack.handleOnBackPressed();
+                else dismiss();
+            }
             return true;
         });
+        getOnBackPressedDispatcher().addCallback(pageBack);
+    }
+
+    /**
+     * While set, Back, Escape and controller B run {@code handler} instead of closing the sheet, so a
+     * page shown in the sheet returns to the one before it. Clear it on the first page.
+     */
+    public void setBackHandler(Runnable handler) {
+        backHandler = handler;
+        pageBack.setEnabled(handler != null);
+    }
+
+    /** The sheet's title, for a page shown in place of the first one. */
+    public void setHeading(CharSequence title) {
+        heading.setText(title);
+        ViewCompat.setAccessibilityPaneTitle(body, title);
+    }
+
+    /** Removes every row so another page can be shown in the same sheet, scrolled back to its top. */
+    public void clearActions() {
+        content.removeAllViews();
+        firstAction = null;
+        scroll.scrollTo(0, 0);
+    }
+
+    /** Moves D-pad and keyboard focus to the first row, as when the sheet opens. */
+    public void focusFirstAction() {
+        if (!content.isInTouchMode() && firstAction != null) firstAction.requestFocus();
+    }
+
+    /** A row of equal toggle buttons above the actions, for settings changed without leaving the sheet. */
+    public LinearLayout addToggleRow() {
+        LinearLayout row = new LinearLayout(getContext());
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setPadding(spacing, spacing, spacing, spacing);
+        content.addView(row, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT));
+        return row;
+    }
+
+    /** A toggle in {@code row}, filled while on. A click flips {@code isChecked()} before its listener runs. */
+    public MaterialButton addToggle(LinearLayout row, int icon, CharSequence label, boolean checked) {
+        Context context = getContext();
+        MaterialButton button = new MaterialButton(context, null,
+                com.google.android.material.R.attr.materialButtonOutlinedStyle);
+        button.setCheckable(true);
+        button.setChecked(checked);
+        button.setText(label);
+        button.setAllCaps(false);
+        button.setTextAppearance(context, R.style.TextAppearance_Nightjar_Label);
+        button.setSingleLine(false);
+        button.setMaxLines(2);
+        button.setIconResource(icon);
+        button.setIconGravity(MaterialButton.ICON_GRAVITY_TOP);
+        button.setIconPadding(spacing / 2);
+        button.setMinHeight(spacing * 9);
+        int[][] states = {new int[] {android.R.attr.state_checked}, new int[] {}};
+        android.content.res.ColorStateList foreground = new android.content.res.ColorStateList(states, new int[] {
+                MaterialColors.getColor(context, com.google.android.material.R.attr.colorOnPrimaryContainer, 0),
+                MaterialColors.getColor(context, com.google.android.material.R.attr.colorOnSurface, 0)});
+        button.setTextColor(foreground);
+        button.setIconTint(foreground);
+        button.setBackgroundTintList(new android.content.res.ColorStateList(states, new int[] {
+                MaterialColors.getColor(context, com.google.android.material.R.attr.colorPrimaryContainer, 0),
+                android.graphics.Color.TRANSPARENT}));
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1);
+        if (row.getChildCount() > 0) params.setMarginStart(spacing);
+        row.addView(button, params);
+        claimFirstAction(button);
+        return button;
+    }
+
+    /** An action that opens another page of this sheet, marked with a chevron at its end. */
+    public MaterialButton addPageAction(int icon, CharSequence label) {
+        MaterialButton button = addAction(icon, label);
+        content.removeView(button);
+        android.widget.FrameLayout frame = new android.widget.FrameLayout(getContext());
+        frame.addView(button, new android.widget.FrameLayout.LayoutParams(
+                android.widget.FrameLayout.LayoutParams.MATCH_PARENT, android.widget.FrameLayout.LayoutParams.WRAP_CONTENT));
+        android.widget.ImageView chevron = new android.widget.ImageView(getContext());
+        chevron.setImageResource(R.drawable.settings_chevron);
+        chevron.setImportantForAccessibility(android.view.View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        android.widget.FrameLayout.LayoutParams chevronParams = new android.widget.FrameLayout.LayoutParams(
+                spacing * 3, spacing * 3, Gravity.END | Gravity.CENTER_VERTICAL);
+        chevronParams.setMarginEnd(spacing);
+        frame.addView(chevron, chevronParams);
+        button.setPaddingRelative(button.getPaddingStart(), button.getPaddingTop(), spacing * 5, button.getPaddingBottom());
+        content.addView(frame, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT));
+        return button;
+    }
+
+    private void claimFirstAction(MaterialButton button) {
+        if (firstAction == null) {
+            firstAction = button;
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) button.setFocusedByDefault(true);
+        }
     }
 
     public void addSection(int title) {
@@ -120,10 +231,7 @@ public final class ActionSheet extends BottomSheetDialog {
         button.setIconSize(spacing * 3);
         content.addView(button, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT));
-        if (firstAction == null) {
-            firstAction = button;
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) button.setFocusedByDefault(true);
-        }
+        claimFirstAction(button);
         return button;
     }
 

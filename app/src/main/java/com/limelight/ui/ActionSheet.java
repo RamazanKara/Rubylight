@@ -45,12 +45,14 @@ public final class ActionSheet extends BottomSheetDialog {
         heading.setPadding(0, spacing, spacing, spacing);
         ViewCompat.setAccessibilityHeading(heading, true);
         header.addView(heading, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
-        ImageButton close = new androidx.appcompat.widget.AppCompatImageButton(context, null, androidx.appcompat.R.attr.borderlessButtonStyle);
+        ImageButton close = new androidx.appcompat.widget.AppCompatImageButton(context, null, 0);
         close.setId(R.id.action_sheet_close);
         close.setImageResource(R.drawable.ic_close);
         close.setImageTintList(android.content.res.ColorStateList.valueOf(
                 MaterialColors.getColor(context, com.google.android.material.R.attr.colorOnSurfaceVariant, 0)));
         close.setPadding(spacing * 3 / 2, spacing * 3 / 2, spacing * 3 / 2, spacing * 3 / 2);
+        // The same round focus ring as the other icon buttons instead of a grey square.
+        close.setBackgroundResource(R.drawable.bg_icon_button);
         close.setContentDescription(context.getString(R.string.sheet_close));
         close.setOnClickListener(view -> dismiss());
         header.addView(close, new LinearLayout.LayoutParams(spacing * 6, spacing * 6));
@@ -106,7 +108,10 @@ public final class ActionSheet extends BottomSheetDialog {
         button.setIconSize(spacing * 3);
         content.addView(button, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT));
-        if (firstAction == null) firstAction = button;
+        if (firstAction == null) {
+            firstAction = button;
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) button.setFocusedByDefault(true);
+        }
         return button;
     }
 
@@ -145,5 +150,15 @@ public final class ActionSheet extends BottomSheetDialog {
         }
         getBehavior().setMaxWidth(spacing * 75);
         if (!content.isInTouchMode() && firstAction != null) firstAction.requestFocus();
+    }
+
+    @Override
+    public void onAttachedToWindow() {
+        super.onAttachedToWindow();
+        // The window hands focus to its first focusable, the close button, once the sheet is laid out.
+        // D-pad users should start on the first action instead.
+        content.post(() -> {
+            if (!content.isInTouchMode() && firstAction != null && isShowing()) firstAction.requestFocus();
+        });
     }
 }

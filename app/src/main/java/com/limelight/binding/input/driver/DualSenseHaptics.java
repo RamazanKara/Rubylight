@@ -130,12 +130,22 @@ final class DualSenseHaptics implements AutoCloseable {
         }
     }
 
+    // Controller teardown runs on the main thread. A worker stuck in USB audio cleanup (its microphone
+    // join, interface restore or mode switch) must not hold it; the worker finishes that on its own.
+    static final long CLOSE_WAIT_MS = 500;
+
     @Override
     public void close() {
         stopped = true;
+        long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.MILLISECONDS.toNanos(CLOSE_WAIT_MS);
         boolean interrupted = false;
         while (worker.isAlive()) {
-            try { worker.join(); }
+            long remainingMs = java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(deadline - System.nanoTime());
+            if (remainingMs <= 0) {
+                LimeLog.warning("DualSense waveform output is still closing; continuing without waiting");
+                break;
+            }
+            try { worker.join(remainingMs); }
             catch (InterruptedException e) { interrupted = true; }
         }
         if (interrupted) Thread.currentThread().interrupt();

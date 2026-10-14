@@ -333,16 +333,65 @@ public class GameRecoveryTest {
         try {
             ReflectionHelpers.callInstanceMethod(game, "quitStreamApp");
             assertTrue(refused.await(1, java.util.concurrent.TimeUnit.SECONDS));
-            for (int i = 0; i < 100 && Boolean.TRUE.equals(ReflectionHelpers.getField(game, "hostActionInProgress")); i++) {
-                Thread.sleep(5);
-                org.robolectric.shadows.ShadowLooper.idleMainLooper();
-            }
+            awaitHostAction(game);
+            // The stream outlived the time a dropped stream takes to report.
+            org.robolectric.shadows.ShadowLooper.idleMainLooper(16, java.util.concurrent.TimeUnit.SECONDS);
             game.connectionTerminated(-1);
             assertFalse(game.isFinishing());
             assertNotNull(ReflectionHelpers.getField(game, "streamMenu"));
         } finally {
             cleanupRecovery(game);
         }
+    }
+
+    @Test
+    @Config(shadows = RecoveryBridge.class, instrumentedPackages = "com.limelight.nvstream.jni")
+    public void aRequestThatFailsAfterTheHostDroppedTheStreamStillEndsQuietly() throws Exception {
+        for (String request : new String[] {"quitStreamApp", "endRemoteSession"}) {
+            for (boolean recoveryEnabled : new boolean[] {false, true}) {
+                Game game = establishedGame();
+                PreferenceConfiguration prefs = ReflectionHelpers.getField(game, "prefConfig");
+                prefs.autoReconnect = recoveryEnabled;
+                java.util.concurrent.CountDownLatch failed = new java.util.concurrent.CountDownLatch(1);
+                ReflectionHelpers.setField(game, "conn", new MuteConnection() {
+                    // The host ended the session and dropped the stream, then the reply was lost.
+                    @Override public void quitApp() throws java.io.IOException {
+                        failed.countDown();
+                        throw new java.net.SocketException("Connection reset");
+                    }
+                    @Override public void disconnectRemoteSession() throws java.io.IOException {
+                        failed.countDown();
+                        throw new java.net.SocketException("Connection reset");
+                    }
+                    // The game is still exiting, so the host does not look idle yet.
+                    @Override public boolean hasEndedSession() { return false; }
+                });
+                RecoveryBridge.connectivityTests = 0;
+                try {
+                    ReflectionHelpers.callInstanceMethod(game, request);
+                    assertTrue(failed.await(1, java.util.concurrent.TimeUnit.SECONDS));
+                    awaitHostAction(game);
+                    // The lost transport reports only after its timeout, well after the failure.
+                    org.robolectric.shadows.ShadowLooper.idleMainLooper(9, java.util.concurrent.TimeUnit.SECONDS);
+                    game.connectionTerminated(-1);
+                    assertTrue(request + " ended in an error or a reconnect instead of closing", game.isFinishing());
+                    assertNull(request, ReflectionHelpers.getField(game, "pendingRecovery"));
+                    assertNull(request, ReflectionHelpers.getField(game, "streamMenu"));
+                    assertEquals(0, RecoveryBridge.connectivityTests);
+                    assertNull(org.robolectric.Shadows.shadowOf(game).getNextStartedActivity());
+                } finally {
+                    cleanupRecovery(game);
+                }
+            }
+        }
+    }
+
+    private static void awaitHostAction(Game game) throws InterruptedException {
+        for (int i = 0; i < 100 && Boolean.TRUE.equals(ReflectionHelpers.getField(game, "hostActionInProgress")); i++) {
+            Thread.sleep(5);
+            org.robolectric.shadows.ShadowLooper.idleMainLooper();
+        }
+        assertFalse(ReflectionHelpers.getField(game, "hostActionInProgress"));
     }
 
     @Test public void aReasonlessDisconnectIsNotAttributedToThePc() {

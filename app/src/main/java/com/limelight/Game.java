@@ -199,6 +199,13 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     // Set while this device asks the host to end the session. Hosts drop the stream while
     // handling that request, often without an end message, so any termination is expected.
     private volatile boolean hostExitRequested;
+    // A failed request may still have ended the session: the host can drop the stream before the
+    // request fails, and the lost transport then takes up to its 10 s timeout to report. The
+    // request has only failed once the stream is still connected after that.
+    private static final long HOST_EXIT_CONFIRM_MS = 15000;
+    private final Runnable hostExitFailed = () -> {
+        if (connected && !hostActionInProgress) hostExitRequested = false;
+    };
     private boolean foreground;
     private int foregroundGeneration;
     private boolean restoreInputAfterMenu;
@@ -2376,7 +2383,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 conn.quitApp();
                 runOnUiThread(this::finish);
             } catch (IOException | XmlPullParserException e) {
-                hostExitRequested = false;
+                runOnUiThread(this::confirmHostExitFailedLater);
                 showHostActionError(e, generation);
             } finally {
                 runOnUiThread(() -> hostActionInProgress = false);
@@ -2396,12 +2403,17 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 conn.disconnectRemoteSession();
                 runOnUiThread(this::finish);
             } catch (IOException | XmlPullParserException e) {
-                hostExitRequested = false;
+                runOnUiThread(this::confirmHostExitFailedLater);
                 showHostActionError(e, generation);
             } finally {
                 runOnUiThread(() -> hostActionInProgress = false);
             }
         }, "End remote session").start();
+    }
+
+    private void confirmHostExitFailedLater() {
+        bitrateHandler.removeCallbacks(hostExitFailed);
+        bitrateHandler.postDelayed(hostExitFailed, HOST_EXIT_CONFIRM_MS);
     }
 
     private void refreshHostStatus() {

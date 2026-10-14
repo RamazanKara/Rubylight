@@ -20,7 +20,7 @@ before(async () => {
 });
 after(async () => { await browser?.close(); await server?.close(); });
 
-async function fixture(t, initial = {}) {
+async function fixture(t, initial = {}, metadata = {}) {
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   page.setDefaultTimeout(10000);
   const errors = [], writes = [];
@@ -43,7 +43,7 @@ async function fixture(t, initial = {}) {
     if (url.pathname === '/api/clients/pending') return reply({ requests: [] });
     if (url.pathname === '/api/metadata') return reply({
       version: 'test', host_name: 'Settings fixture', pc_address: '127.0.0.1',
-      capture_status: { displays: [], error: null }, audio_sinks: [], gpus: [],
+      capture_status: { displays: [], error: null }, audio_sinks: [], gpus: [], ...metadata,
     });
     if (url.pathname === '/api/config') {
       if (request.method() === 'GET') return reply(config);
@@ -155,11 +155,66 @@ test('search finds menu choices and category context, and explains hidden depend
   }
 });
 
+test('rows show the default only when it differs, and config keys only on request', async t => {
+  const { page, writes } = await fixture(t, { fec_percentage: 30, adaptive_fec: 'enabled' });
+  await page.goto(base + '/settings/video');
+  const fec = setting(page, 'fec_percentage');
+  assert.match(await fec.innerText(), /Default: 20%/);
+  await fec.getByRole('button', { name: 'Reset to default for Error correction', exact: true }).waitFor();
+  // Stored, but the same as the default: nothing to reset.
+  assert.doesNotMatch(await setting(page, 'adaptive_fec').innerText(), /Default|Reset/);
+  assert.doesNotMatch(await setting(page, 'max_bitrate').innerText(), /Default|Reset/);
+  // No developer noise by default; the key is in the label's tooltip.
+  assert.equal(await page.locator('[data-setting] code').count(), 0);
+  assert.equal(await page.getByText('Leave blank to use the default.').count(), 0);
+  assert.equal(await fec.locator('[title="Config key: fec_percentage"]').count(), 1);
+  assert.match(await setting(page, 'pyrowave').innerText(), /Applies after a restart/);
+  assert.doesNotMatch(await setting(page, 'frame_pacing').innerText(), /Applies after a restart/);
+  // An empty number field uses the default, and says so.
+  const input = fec.getByRole('spinbutton');
+  await input.fill('');
+  assert.equal(await input.getAttribute('placeholder'), 'Default: 20');
+  await save(page);
+  assert.deepEqual(writes, [{ fec_percentage: null }]);
+  assert.equal(await input.inputValue(), '20');
+  assert.doesNotMatch(await fec.innerText(), /Default|Reset/);
+  // The keys switch shows every key and is remembered in this browser.
+  await page.getByRole('switch', { name: 'Show config keys', exact: true }).check();
+  await fec.locator('code', { hasText: 'fec_percentage' }).waitFor();
+  await page.reload();
+  await setting(page, 'fec_percentage').locator('code', { hasText: 'fec_percentage' }).waitFor();
+  assert.equal(await page.getByRole('switch', { name: 'Show config keys', exact: true }).isChecked(), true);
+  await page.getByRole('switch', { name: 'Show config keys', exact: true }).uncheck();
+  assert.equal(await page.locator('[data-setting] code').count(), 0);
+});
+
+test('controls share a right-hand column on wide screens and stack under the text on phones', async t => {
+  const { page } = await fixture(t);
+  await page.goto(base + '/settings/video');
+  const box = (row, locator) => setting(page, row).locator(locator).first().boundingBox();
+  const label = await box('capture', 'label');
+  const select = await box('capture', 'select');
+  const number = await box('fec_percentage', 'input');
+  const toggle = await box('pyrowave', '.switch');
+  assert(select.x > label.x + 300, 'the select sits to the right of its label');
+  assert(Math.abs(select.width - 320) <= 1 && Math.abs(number.width - 320) <= 1, 'selects and numbers share one width');
+  assert(Math.abs(select.x - number.x) <= 1, 'selects and numbers line up');
+  assert(Math.abs(toggle.x + toggle.width - (select.x + select.width)) <= 1, 'switches are right-aligned in the column');
+  await page.setViewportSize({ width: 390, height: 844 });
+  const narrowLabel = await box('capture', 'label');
+  const narrowSelect = await box('capture', 'select');
+  assert(narrowSelect.y > narrowLabel.y + narrowLabel.height, 'the select moves under its label');
+  const switchLabel = await box('pyrowave', 'label');
+  const narrowToggle = await box('pyrowave', '.switch');
+  assert(narrowToggle.y < switchLabel.y + switchLabel.height, 'a switch stays beside its label');
+  assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+});
+
 test('undoing an advanced change keeps the Advanced section open', async t => {
   const { page } = await fixture(t);
   await page.goto(base + '/settings/video');
   const advanced = page.locator('details.advanced');
-  await advanced.locator('summary').click();
+  await advanced.locator(':scope > summary').click();
   const row = setting(page, 'wgc_direct_encoder_input');
   await row.getByRole('switch').press('Space');
   await row.getByRole('button', { name: /^Undo/ }).click();

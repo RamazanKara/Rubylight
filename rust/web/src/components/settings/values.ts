@@ -182,6 +182,9 @@ export interface DefaultText {
   literal: boolean;
 }
 
+/** 20%, 1000 ms. */
+export const withUnit = (number: number, unit?: string) => (!unit ? String(number) : unit === '%' ? `${number}%` : `${number} ${unit}`);
+
 const word = (text: string): DefaultText => ({ text, literal: false });
 const literal = (text: string, otherwise: string): DefaultText =>
   text ? { text: clip(text), literal: true } : word(otherwise);
@@ -201,7 +204,7 @@ export function describeDefault(setting: Setting): DefaultText {
     case 'number': {
       const number = toNumber(value);
       if (number === null) return word('Not set');
-      return literal(control.unit ? `${number} ${control.unit}` : String(number), 'Not set');
+      return literal(withUnit(number, control.unit), 'Not set');
     }
     case 'text':
       return literal(toText(value), 'Not set');
@@ -310,6 +313,16 @@ export function computeChanges(settings: ReadonlyMap<string, Setting>, edits: Ed
     if (!sameValue(next, current)) changes[key] = next;
   }
   return changes;
+}
+
+/**
+ * Whether the host would use something other than the default once the
+ * edits are saved. A cleared or unreadable value falls back to the default.
+ */
+export function differsFromDefault(setting: Setting, edits: Edits, stored: Config): boolean {
+  const value = has(edits, setting.key) ? edits[setting.key] : stored[setting.key];
+  const next = patchValue(setting, value);
+  return next !== null && !sameValue(next, patchValue(setting, setting.default));
 }
 
 /** The stored values after the host accepted `changes`. */

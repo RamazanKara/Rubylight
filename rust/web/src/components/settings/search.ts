@@ -15,7 +15,7 @@ export function matchesSetting(setting: Setting, category: Category, words: read
     ? setting.control.options.flatMap((option) => [option.label, option.value])
     : [];
   return matchesWords([
-    setting.label, setting.key, setting.key.replaceAll('_', ' '), setting.description,
+    setting.label, setting.key, setting.key.replaceAll('_', ' '), setting.description, setting.details,
     // Broad category descriptions mention unrelated choices (for example all
     // GPU vendors under Encoders), so use the category name and group instead.
     setting.group, setting.inactiveHint, category.label, category.id, ...options,

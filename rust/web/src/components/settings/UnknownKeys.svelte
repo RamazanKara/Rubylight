@@ -64,7 +64,7 @@
 <section class="unknown" aria-labelledby="{uid}-title">
   <div class="intro">
     <h3 id="{uid}-title">Custom settings</h3>
-    <p>Settings without a built-in control. Use the configuration key from the host's settings file. Values are saved as text with surrounding whitespace removed. Clear a value to remove that key when you save.</p>
+    <p>Keys from the host's settings file that have no control here. Values are saved as text without surrounding spaces; clear one to remove its key when you save.</p>
   </div>
 
   {#if keys.length}
@@ -134,7 +134,7 @@
   .unknown {
     display: grid;
     gap: var(--space-3);
-    padding: var(--space-4) var(--space-5);
+    padding: var(--space-5);
     border-top: 1px solid var(--line);
     min-width: 0;
   }
@@ -143,12 +143,19 @@
   }
   .intro {
     display: grid;
-    gap: 2px;
+    gap: 3px;
   }
+  /* Matches the section headings above it. */
   h3 {
-    font-size: var(--text-sm);
+    font-size: var(--text);
+    font-weight: 600;
   }
-  .intro p,
+  .intro p {
+    font-size: var(--text-sm);
+    color: var(--muted);
+    line-height: 1.45;
+    max-width: 68ch;
+  }
   .none,
   .state {
     font-size: var(--text-xs);

@@ -1,5 +1,4 @@
 <script lang="ts">
-  import Field from '../Field.svelte';
   import SettingControl from './SettingControl.svelte';
   import type { ConfigValue } from '../../lib/api';
   import type { Setting } from '../../lib/settings-types';
@@ -11,6 +10,8 @@
     stored,
     changed,
     resetting,
+    differs,
+    showKey = false,
     inactive = false,
     invalidText,
     onchange,
@@ -27,6 +28,10 @@
     changed: boolean;
     /** Reset to default is waiting to be saved. */
     resetting: boolean;
+    /** After saving, the host would use something other than the default. */
+    differs: boolean;
+    /** Show the configuration key (otherwise it is in the label's tooltip). */
+    showKey?: boolean;
     /** Normally hidden by the current choices, but shown in search or while edited. */
     inactive?: boolean;
     invalidText?: string;
@@ -39,131 +44,231 @@
   const uid = $props.id();
   const id = `${uid}-control`;
   const kind = $derived(setting.control.kind);
+  /** Controls with several fields get a group named by the label instead of a label element. */
   const grouped = $derived(kind === 'list' || kind === 'commands' || kind === 'server-commands');
+  /** Wide controls (and paths with their folder browser) go under the text instead of in the control column. */
+  const full = $derived(grouped || kind === 'json' || (setting.control.kind === 'text' && !!setting.control.browse));
   /** An unsaved value or invalid draft. Either can be undone. */
   const marked = $derived(changed || invalidText !== undefined);
   const fallback = $derived(describeDefault(setting));
+  /** Reset only when it does something Undo does not. */
+  const canReset = $derived(differs && !resetting && (stored || !marked));
+  const hasMeta = $derived(showKey || marked || resetting || differs);
 </script>
 
-{#snippet control()}
-  <!-- Not class={kind}: "select" would pick up the global form style. -->
-  <div class="control" data-kind={kind}>
-    <SettingControl {setting} {id} {value} {onchange} {invalidText} {oninvalid} />
-  </div>
-{/snippet}
+<div
+  class="setting"
+  class:marked
+  class:invalid={invalidText !== undefined}
+  class:full
+  class:switch-row={kind === 'toggle'}
+  data-setting={setting.key}
+>
+  <div class="layout" class:has-meta={hasMeta}>
+    <div class="text">
+      <div class="head" title={showKey ? undefined : `Config key: ${setting.key}`}>
+        {#if grouped}
+          <span class="label" id="{uid}-label">{setting.label}</span>
+        {:else}
+          <label class="label" for={id}>{setting.label}</label>
+        {/if}
+        {#if setting.restart}<span class="tag">Applies after a restart</span>{/if}
+      </div>
+      {#if setting.description}<p class="description" id="{uid}-description">{setting.description}</p>{/if}
+      {#if setting.details}
+        <details class="more">
+          <summary>More<span class="visually-hidden">{` about ${setting.label}`}</span></summary>
+          <p>{setting.details}</p>
+        </details>
+      {/if}
+      {#if inactive}
+        <p class="dependency">{setting.inactiveHint ?? 'This setting is conditional. Review the related choices in this category.'}</p>
+      {/if}
+    </div>
 
-<div class="setting" class:marked class:invalid={invalidText !== undefined} data-setting={setting.key}>
-  {#if kind === 'toggle'}
-    {@render control()}
-  {:else if grouped}
-    <fieldset>
-      <legend>{setting.label}</legend>
-      {#if setting.description}<p class="description">{setting.description}</p>{/if}
-      {@render control()}
-    </fieldset>
-  {:else}
-    <Field label={setting.label} {id}>
-      {#if setting.description}<p class="description">{setting.description}</p>{/if}
-      {@render control()}
-    </Field>
-  {/if}
+    <!-- Not class={kind}: "select" would pick up the global form style. -->
+    <div
+      class="control"
+      data-kind={kind}
+      role={grouped ? 'group' : undefined}
+      aria-labelledby={grouped ? `${uid}-label` : undefined}
+    >
+      <SettingControl
+        {setting}
+        {id}
+        {value}
+        {onchange}
+        {invalidText}
+        {oninvalid}
+        describedby={setting.description ? `${uid}-description` : undefined}
+      />
+    </div>
 
-  {#if inactive}
-    <p class="dependency">{setting.inactiveHint ?? 'This setting is conditional. Review the related choices in this category.'}</p>
-  {/if}
-
-  <div class="meta">
-    <code class="key">{setting.key}</code>
-    <span>Default: <span class="default" class:mono={fallback.literal}>{fallback.text}</span></span>
-    {#if setting.restart}<span>Applies after a restart</span>{/if}
-    {#if marked}<span class="changed">{invalidText !== undefined ? 'Needs correction' : 'Unsaved'}</span>{/if}
-    {#if resetting}<span>Resets to the default when saved</span>{/if}
-    {#if marked}
-      <button type="button" class="link" onclick={onundo}>
-        Undo<span class="visually-hidden">{` ${setting.label}`}</span>
-      </button>
-    {/if}
-    {#if stored && !resetting}
-      <button type="button" class="link" onclick={onreset}>
-        Reset to default<span class="visually-hidden">{` for ${setting.label}`}</span>
-      </button>
+    {#if hasMeta}
+      <div class="meta">
+        {#if showKey}<code class="key">{setting.key}</code>{/if}
+        {#if resetting}
+          <span class="state">Resets to the default when saved</span>
+        {:else if marked}
+          <span class="state">{invalidText !== undefined ? 'Needs correction' : 'Unsaved change'}</span>
+        {/if}
+        {#if marked || resetting}
+          <button type="button" class="link" onclick={onundo}>
+            Undo<span class="visually-hidden">{` ${setting.label}`}</span>
+          </button>
+        {/if}
+        {#if differs && !resetting}
+          <span>Default: <span class="default" class:mono={fallback.literal}>{fallback.text}</span></span>
+        {/if}
+        {#if canReset}
+          <button type="button" class="link" onclick={onreset}>
+            Reset to default<span class="visually-hidden">{` for ${setting.label}`}</span>
+          </button>
+        {/if}
+      </div>
     {/if}
   </div>
 </div>
 
 <style>
   .setting {
-    display: grid;
-    gap: var(--space-2);
-    padding: var(--space-3) var(--space-5);
+    container: setting / inline-size;
     min-width: 0;
   }
-  .marked {
+  .layout {
+    /* Windows Settings: words on the left, the control in a fixed column on the right. */
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 320px;
+    grid-template-areas: 'text control';
+    align-items: start;
+    gap: 6px var(--space-6);
+    padding: 14px var(--space-5);
+  }
+  .has-meta {
+    grid-template-rows: auto 1fr;
+    grid-template-areas:
+      'text control'
+      'meta control';
+  }
+  .marked .layout {
     box-shadow: inset 3px 0 0 var(--accent);
   }
-  .invalid {
+  .invalid .layout {
     box-shadow: inset 3px 0 0 var(--danger);
   }
+  .text {
+    grid-area: text;
+    display: grid;
+    gap: 3px;
+    min-width: 0;
+    align-content: start;
+  }
+  .head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px var(--space-2);
+    min-height: 22px;
+  }
+  .label {
+    font-weight: 560;
+    font-size: var(--text);
+    line-height: 1.35;
+  }
+  label.label {
+    cursor: pointer;
+  }
+  .tag {
+    padding: 0 7px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    font-size: var(--text-xs);
+    line-height: 18px;
+    color: var(--muted);
+    white-space: nowrap;
+  }
+  .description {
+    font-size: var(--text-sm);
+    color: var(--muted);
+    line-height: 1.45;
+    max-width: 68ch;
+  }
+  .more {
+    font-size: var(--text-sm);
+    color: var(--muted);
+    max-width: 68ch;
+  }
+  .more summary {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    width: fit-content;
+    padding: 2px 0;
+    color: var(--ink-2);
+    font-size: var(--text-xs);
+    font-weight: 560;
+    cursor: pointer;
+    list-style: none;
+  }
+  .more summary::-webkit-details-marker {
+    display: none;
+  }
+  .more summary::after {
+    content: '';
+    width: 5px;
+    height: 5px;
+    margin-left: 2px;
+    border-right: 1.5px solid currentColor;
+    border-bottom: 1.5px solid currentColor;
+    transform: translateY(-2px) rotate(45deg);
+    transition: transform 0.12s;
+  }
+  .more[open] summary::after {
+    transform: translateY(1px) rotate(225deg);
+  }
+  .more summary:hover {
+    color: var(--ink);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+  .more p {
+    margin-top: 4px;
+    padding-left: var(--space-3);
+    border-left: 2px solid var(--line);
+    line-height: 1.5;
+  }
   .dependency {
+    margin-top: 2px;
     color: var(--ink-2);
     font-size: var(--text-xs);
     line-height: 1.45;
     padding-left: var(--space-2);
     border-left: 2px solid var(--line-strong);
   }
-  .key {
-    overflow-wrap: anywhere;
-  }
-  fieldset {
-    display: grid;
-    gap: 6px;
-    margin: 0;
-    padding: 0;
-    border: 0;
-    min-width: 0;
-  }
-  legend {
-    padding: 0;
-    margin-bottom: 6px;
-    font-weight: 560;
-    font-size: var(--text-sm);
-  }
-  .description {
-    font-size: var(--text-sm);
-    color: var(--muted);
-    line-height: 1.45;
-    max-width: 75ch;
-  }
-  .control {
-    display: grid;
-    gap: 6px;
-    min-width: 0;
-    max-width: 440px;
-  }
-  .control[data-kind='list'] {
-    max-width: 560px;
-  }
-  .control[data-kind='commands'],
-  .control[data-kind='server-commands'],
-  .control[data-kind='json'],
-  .control[data-kind='toggle'] {
-    max-width: 760px;
-  }
   .meta {
+    grid-area: meta;
     display: flex;
     flex-wrap: wrap;
     align-items: baseline;
     gap: 2px var(--space-3);
+    min-width: 0;
     font-size: var(--text-xs);
     color: var(--muted);
+  }
+  .key {
+    color: var(--ink-2);
+    overflow-wrap: anywhere;
+  }
+  .state {
+    color: var(--ink);
+    font-weight: 600;
+  }
+  .invalid .state {
+    color: var(--danger);
   }
   .default {
     color: var(--ink-2);
     overflow-wrap: anywhere;
-  }
-  .changed {
-    color: var(--ink);
-    font-weight: 600;
   }
   .link {
     border: 0;
@@ -178,9 +283,66 @@
   .link:hover {
     color: var(--ink);
   }
-  @media (max-width: 520px) {
-    .setting {
+  .control {
+    grid-area: control;
+    display: grid;
+    gap: 6px;
+    min-width: 0;
+  }
+  .switch-row .control {
+    justify-self: end;
+    padding-top: 1px;
+  }
+  /* Lists, commands and JSON: the control spans the row under the text. */
+  .full .layout {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: none;
+    grid-template-areas:
+      'text'
+      'control';
+    row-gap: var(--space-2);
+  }
+  .full .has-meta {
+    grid-template-areas:
+      'text'
+      'control'
+      'meta';
+  }
+  .full .control {
+    max-width: 760px;
+  }
+  @container setting (max-width: 620px) {
+    .layout {
+      grid-template-columns: minmax(0, 1fr);
+      grid-template-rows: none;
+      grid-template-areas:
+        'text'
+        'control';
+      gap: var(--space-2);
       padding: var(--space-3) var(--space-4);
+    }
+    .layout.has-meta {
+      grid-template-areas:
+        'text'
+        'control'
+        'meta';
+    }
+    /* A switch stays beside its label, as on a phone's own settings. */
+    .switch-row .layout {
+      grid-template-columns: minmax(0, 1fr) auto;
+      grid-template-areas: 'text control';
+      column-gap: var(--space-4);
+    }
+    .switch-row .layout.has-meta {
+      grid-template-areas:
+        'text control'
+        'meta meta';
+    }
+  }
+  @media (max-width: 520px) {
+    .more summary,
+    .link {
+      min-height: 32px;
     }
   }
 </style>

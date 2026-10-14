@@ -3,7 +3,7 @@
   import Button from '../Button.svelte';
   import Icon from '../Icon.svelte';
   import PathPicker from '../PathPicker.svelte';
-  import Toggle from '../Toggle.svelte';
+  import Switch from './Switch.svelte';
   import type { ConfigValue, PrepCommand } from '../../lib/api';
   import type { Option, Setting } from '../../lib/settings-types';
   import { session } from '../../lib/session.svelte';
@@ -27,6 +27,7 @@
     onchange,
     invalidText,
     oninvalid,
+    describedby,
   }: {
     setting: Setting;
     /** On the control the row's label points at. */
@@ -38,11 +39,15 @@
     invalidText?: string;
     /** Called with an invalid draft, or null when the control is valid again. */
     oninvalid?: (text: string | null) => void;
+    /** The id of the row's description. */
+    describedby?: string;
   } = $props();
 
   const control = $derived(setting.control);
   const label = $derived(setting.label);
   const current = $derived(toText(value));
+  /** The control's own messages first, then the row's description. */
+  const describe = (...ids: (string | false | undefined)[]) => [...ids, describedby].filter(Boolean).join(' ') || undefined;
 
   // ---------- choices: select, display, audio, adapter ----------
 
@@ -149,6 +154,9 @@
   }
 
   const rangeError = $derived(numberError(setting, numberText, invalidText === ''));
+  // An empty field uses the default, so the placeholder names it.
+  const numberDefault = $derived(toNumber(setting.default));
+  const numberPlaceholder = $derived(numberDefault === null ? 'Not set' : `Default: ${numberDefault}`);
 
   // ---------- rows: list, commands, server-commands ----------
 
@@ -185,7 +193,7 @@
     const parsed = parseJson(jsonDraft);
     return parsed.ok ? '' : parsed.error;
   });
-  const jsonRows = $derived(Math.min(16, Math.max(4, jsonDraft.split('\n').length + 1)));
+  const jsonRows = $derived(Math.min(16, Math.max(2, jsonDraft.split('\n').length + 1)));
 
   // Follow resets and discards; leave the text alone while it says the same thing.
   $effect(() => {
@@ -215,14 +223,14 @@
 </script>
 
 {#if control.kind === 'toggle'}
-  <Toggle
-    label={setting.label}
-    hint={setting.description || undefined}
-    checked={value === true}
-    onchange={(checked) => onchange(checked)}
-  />
+  <Switch {id} {describedby} checked={value === true} onchange={(checked) => onchange(checked)} />
 {:else if control.kind === 'select' || listsHost}
-  <select {id} class="select" onchange={(event) => onchange(event.currentTarget.value)}>
+  <select
+    {id}
+    class="select"
+    aria-describedby={describe(!!hostError && `${id}-host`)}
+    onchange={(event) => onchange(event.currentTarget.value)}
+  >
     {#each choices as option (option.value)}
       <option value={option.value} selected={option.value === current}>{option.label}</option>
     {/each}
@@ -230,9 +238,9 @@
       <option disabled value={'\u0000loading'}>Loading…</option>
     {/if}
   </select>
-  {#if hostError}<p class="note">{hostError}</p>{/if}
+  {#if hostError}<p class="note" id="{id}-host">{hostError}</p>{/if}
 {:else if control.kind === 'number'}
-  <div class="number">
+  <div class="number" style:--unit-width={control.unit ? `${control.unit.length + 1}ch` : undefined}>
     <input
       {id}
       class="input num"
@@ -241,16 +249,15 @@
       min={control.min}
       max={control.max}
       step={control.step ?? 'any'}
-      placeholder={toNumber(setting.default)?.toString()}
+      placeholder={numberPlaceholder}
       aria-invalid={rangeError ? 'true' : undefined}
-      aria-describedby={rangeError ? `${id}-range` : `${id}-number-hint`}
+      aria-describedby={describe(!!control.unit && `${id}-unit`, !!rangeError && `${id}-range`)}
       value={numberText}
       oninput={(event) => editNumber(event.currentTarget)}
     />
-    {#if control.unit}<span class="unit muted">{control.unit}</span>{/if}
+    {#if control.unit}<span class="unit" id="{id}-unit">{control.unit}</span>{/if}
   </div>
   {#if rangeError}<p class="error" id="{id}-range">{rangeError}</p>{/if}
-  <p class="note" id="{id}-number-hint">Leave blank to use the default.</p>
 {:else if control.kind === 'text'}
   {#snippet text()}
     <input
@@ -261,6 +268,7 @@
       autocomplete="off"
       spellcheck={control.mono ? 'false' : undefined}
       placeholder={control.placeholder ?? (toText(setting.default) || undefined)}
+      aria-describedby={describedby}
       value={current}
       oninput={(event) => onchange(event.currentTarget.value)}
     />
@@ -404,7 +412,6 @@
     </div>
   </div>
 {:else if control.kind === 'json'}
-  <p class="note">Edit as JSON: use double quotes around text, commas between entries, and matching brackets.</p>
   <textarea
     {id}
     class="textarea"
@@ -412,11 +419,15 @@
     spellcheck="false"
     autocomplete="off"
     aria-invalid={jsonError ? 'true' : undefined}
-    aria-describedby={jsonError ? `${id}-json` : undefined}
+    aria-describedby={describe(!!jsonError && `${id}-json`)}
     value={jsonDraft}
     oninput={(event) => editJson(event.currentTarget.value)}
   ></textarea>
-  {#if jsonError}<p class="error" id="{id}-json">Not valid JSON: {jsonError}</p>{/if}
+  {#if jsonError}
+    <p class="error" id="{id}-json">
+      Not valid JSON: {jsonError}. Use double quotes around text, commas between entries, and matching brackets.
+    </p>
+  {/if}
 {/if}
 
 <style>
@@ -433,16 +444,32 @@
   [aria-invalid='true'] {
     border-color: var(--danger);
   }
+  /* Sized by its rows: an empty list needs two lines, not the page default. */
+  .textarea {
+    min-height: 0;
+  }
+  /* The unit sits inside the field, so every number field has the same width. */
   .number {
-    display: flex;
-    align-items: center;
-    gap: var(--space-2);
+    position: relative;
+    display: grid;
   }
   .number .input {
-    max-width: 160px;
+    appearance: textfield;
+    padding-right: calc(var(--unit-width, 0ch) + 20px);
+  }
+  .number .input::-webkit-inner-spin-button,
+  .number .input::-webkit-outer-spin-button {
+    appearance: none;
+    margin: 0;
   }
   .unit {
+    position: absolute;
+    right: 10px;
+    top: 50%;
+    transform: translateY(-50%);
     font-size: var(--text-sm);
+    color: var(--muted);
+    pointer-events: none;
   }
   .rows {
     display: grid;

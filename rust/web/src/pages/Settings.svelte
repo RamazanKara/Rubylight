@@ -6,12 +6,14 @@
   import PageHeader from '../components/PageHeader.svelte';
   import Panel from '../components/Panel.svelte';
   import SettingRow from '../components/settings/SettingRow.svelte';
+  import Switch from '../components/settings/Switch.svelte';
   import UnknownKeys from '../components/settings/UnknownKeys.svelte';
   import { matchesSetting, matchesWords, searchWords } from '../components/settings/search';
   import {
     applyChanges,
     computeChanges,
     currentValues,
+    differsFromDefault,
     effective,
     has,
     normalise,
@@ -53,6 +55,27 @@
   let saved = $state(false);
   let restarting = $state(false);
   let latestLoad = 0;
+
+  // Configuration keys are for people editing the settings file or following
+  // a guide; the choice is remembered in this browser.
+  const KEYS = 'butterpollo.settings.show-keys';
+  let showKeys = $state(readShowKeys());
+  function readShowKeys(): boolean {
+    try {
+      return localStorage.getItem(KEYS) === 'true';
+    } catch {
+      return false;
+    }
+  }
+  function setShowKeys(show: boolean) {
+    showKeys = show;
+    try {
+      if (show) localStorage.setItem(KEYS, 'true');
+      else localStorage.removeItem(KEYS);
+    } catch {
+      // Storage may be unavailable (private windows); the switch still works for this visit.
+    }
+  }
 
   const config = $derived(stored ?? {});
   const values = $derived(currentValues(schema.settings, edits, config));
@@ -280,6 +303,8 @@
     stored={has(config, setting.key)}
     changed={has(changes, setting.key)}
     resetting={edits[setting.key] === null && has(config, setting.key)}
+    differs={differsFromDefault(setting, edits, config)}
+    showKey={showKeys || (searching && matchesWords(setting.key, words))}
     {inactive}
     invalidText={invalid[setting.key]}
     onchange={(value) => edit(setting.key, value)}
@@ -315,7 +340,14 @@
   />
 {/snippet}
 
-<PageHeader title="Settings" subtitle="How this host captures, encodes and streams. Most changes apply after the host restarts." />
+<PageHeader title="Settings" subtitle="How this host captures, encodes and streams your games.">
+  {#snippet actions()}
+    <label class="show-keys">
+      <span>Show config keys</span>
+      <Switch checked={showKeys} onchange={setShowKeys} />
+    </label>
+  {/snippet}
+</PageHeader>
 
 <div class="frame">
   <div class="layout">
@@ -401,7 +433,7 @@
         {#if results.length === 0}
           <Panel>
             <EmptyState icon="search" title={review === 'invalid' ? 'All corrections complete' : review === 'changed' ? 'No unsaved changes' : 'No settings match'}>
-              <p>{review === 'invalid' ? 'You can save your changes now.' : review === 'changed' ? 'Your settings are up to date.' : 'Search names, configuration keys, descriptions, categories and menu options.'}</p>
+              <p>{review === 'invalid' ? 'You can save your changes now.' : review === 'changed' ? 'Your settings are up to date.' : 'Search looks at names, config keys, descriptions, categories and menu choices.'}</p>
             </EmptyState>
           </Panel>
         {:else}
@@ -454,7 +486,7 @@
                 <summary>
                   <Icon name="chevron" size={15} />
                   Advanced
-                  <span class="muted">
+                  <span class="count">
                     {advanced.length}
                     {advanced.length === 1 ? 'setting' : 'settings'}{advancedChanged ? `, ${advancedChanged} unsaved` : ''}
                   </span>
@@ -479,8 +511,8 @@
     {#if pending.size > 0}
       <p class="status" role="status">
         <span class="dot" aria-hidden="true"></span>
-        {pending.size} unsaved {pending.size === 1 ? 'change' : 'changes'}
-        {#if invalidCount}<span class="problem">{invalidCount} {invalidCount === 1 ? 'setting needs' : 'settings need'} correction.</span>{/if}
+        <span>{pending.size} unsaved {pending.size === 1 ? 'change' : 'changes'}</span>
+        {#if invalidCount}<span class="problem">{invalidCount} {invalidCount === 1 ? 'setting needs' : 'settings need'} correction before saving.</span>{/if}
       </p>
       <div class="actions">
         <Button variant="ghost" onclick={() => reviewChanges(invalidCount ? 'invalid' : 'changed')}>
@@ -620,22 +652,23 @@
   .rows {
     display: grid;
   }
-  .group + .group {
-    border-top: 1px solid var(--line);
+  /* Section headings with hairlines between the rows under them. */
+  .group-title {
+    padding: var(--space-5) var(--space-5) var(--space-2);
+    font-size: var(--text);
+    font-weight: 600;
+    color: var(--ink);
   }
-  .group :global(.setting + .setting) {
-    border-top: 1px solid var(--line);
+  .group:first-child .group-title {
+    padding-top: var(--space-4);
   }
+  .group-title + :global(.setting),
+  .group :global(.setting + .setting),
   .rows > :global(.setting + .setting) {
     border-top: 1px solid var(--line);
   }
-  .group-title {
-    padding: var(--space-2) var(--space-5);
-    border-bottom: 1px solid var(--line);
-    background: var(--sunken);
-    font-size: var(--text-xs);
-    font-weight: 600;
-    color: var(--ink-2);
+  .group + .group:not(:has(.group-title)) {
+    border-top: 1px solid var(--line);
   }
   .advanced {
     border-top: 1px solid var(--line);
@@ -644,9 +677,9 @@
     display: flex;
     align-items: center;
     gap: var(--space-2);
-    padding: var(--space-3) var(--space-5);
-    font-size: var(--text-sm);
-    font-weight: 560;
+    padding: var(--space-4) var(--space-5);
+    font-size: var(--text);
+    font-weight: 600;
     cursor: pointer;
     list-style: none;
   }
@@ -657,17 +690,30 @@
     background: var(--sunken);
   }
   .advanced summary :global(svg) {
+    color: var(--muted);
     transition: transform 0.12s;
   }
   .advanced[open] summary :global(svg) {
     transform: rotate(90deg);
   }
-  .advanced summary .muted {
+  .count {
     font-weight: 400;
-    font-size: var(--text-xs);
+    font-size: var(--text-sm);
+    color: var(--muted);
   }
-  .advanced[open] summary {
-    border-bottom: 1px solid var(--line);
+  /* The headings inside read as subsections of Advanced. */
+  .advanced .group:first-child .group-title {
+    padding-top: 0;
+  }
+  .show-keys {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-3);
+    min-height: 36px;
+    font-size: var(--text-sm);
+    font-weight: 560;
+    color: var(--ink-2);
+    cursor: pointer;
   }
   .save-bar {
     position: sticky;
@@ -726,6 +772,10 @@
     .advanced summary {
       padding-left: var(--space-4);
       padding-right: var(--space-4);
+    }
+    .show-keys,
+    .advanced summary {
+      min-height: 44px;
     }
   }
 </style>

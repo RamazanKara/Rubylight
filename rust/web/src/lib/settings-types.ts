@@ -52,6 +52,8 @@ export interface Setting {
   label: string;
   /** One or two plain sentences: what it does and when to change it. */
   description: string;
+  /** The finer points (limits, interactions, measurements), behind "More". */
+  details?: string;
   category: CategoryId;
   /** A heading within the category, for grouping related settings. */
   group?: string;

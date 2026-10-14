@@ -9,8 +9,32 @@ const server = await createServer({
 });
 after(() => server.close());
 const { schema } = await server.ssrLoadModule('/src/lib/settings-schema.ts');
-const { computeChanges, describeDefault, effective, numberError } = await server.ssrLoadModule('/src/components/settings/values.ts');
+const types = await server.ssrLoadModule('/src/lib/settings-types.ts');
+const values =await server.ssrLoadModule('/src/components/settings/values.ts');
+const { computeChanges, describeDefault, differsFromDefault, effective, numberError, toServerCommands } = values;
+const { matchesSetting, searchWords } = await server.ssrLoadModule('/src/components/settings/search.ts');
 const settings = new Map(schema.settings.map(setting => [setting.key, setting]));
+const categoryOf = setting => schema.categories.find(category => category.id === setting.category);
+
+test('the default is shown only when the saved value would differ from it', () => {
+  const fec = settings.get('fec_percentage');
+  assert.equal(differsFromDefault(fec, {}, {}), false);
+  assert.equal(differsFromDefault(fec, {}, { fec_percentage: 20 }), false);
+  assert.equal(differsFromDefault(fec, {}, { fec_percentage: '"20"' }), false);
+  assert.equal(differsFromDefault(fec, {}, { fec_percentage: 30 }), true);
+  assert.equal(differsFromDefault(fec, { fec_percentage: 30 }, {}), true);
+  // Clearing the field or resetting goes back to the default.
+  assert.equal(differsFromDefault(fec, { fec_percentage: '' }, { fec_percentage: 30 }), false);
+  assert.equal(differsFromDefault(fec, { fec_percentage: null }, { fec_percentage: 30 }), false);
+  // Spellings the host reads as the default.
+  assert.equal(differsFromDefault(settings.get('stream_audio'), {}, { stream_audio: 'enabled' }), false);
+  assert.equal(differsFromDefault(settings.get('hevc_mode'), {}, { hevc_mode: '0' }), false);
+  assert.equal(differsFromDefault(settings.get('hevc_mode'), {}, { hevc_mode: 3 }), true);
+  // Zero permanent displays is a real choice; an empty value is the default.
+  const permanent = settings.get('dd_virtual_display_permanent_count');
+  assert.equal(differsFromDefault(permanent, {}, { dd_virtual_display_permanent_count: 0 }), true);
+  assert.equal(differsFromDefault(permanent, {}, {}), false);
+});
 
 test('an unset virtual display mode keeps the OS-dependent default without hiding an explicit per-device choice', () => {
   const key = 'virtual_display_mode';

@@ -41,4 +41,5 @@
     <string name="stream_h264_decoder_missing">Dieses Gerät kann H.264-Video nicht per Hardware dekodieren, was das Streaming braucht.</string>
     <string name="perf_overlay_vrr">Panel: %1$.2f Hz · Ausgabe: %2$.2f Hz · VRR: %3$s</string>
     <string name="perf_overlay_vrr_max_hz">max. Hz</string>
+    <string name="sheet_back">Zurück</string>
 </resources>

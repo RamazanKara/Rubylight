@@ -209,11 +209,19 @@ public class StreamMenuTest {
             List<StreamMenu.Item> chosen = new ArrayList<>();
             StreamMenu menu = new StreamMenu(activity, () -> options("rubylight-serverinfo.xml", NvApp.Role.STREAM), chosen::add);
             menu.show();
+            View back = menu.sheet().findViewById(R.id.action_sheet_back);
+            assertEquals("The first page has no back arrow", View.GONE, back.getVisibility());
             menu.row(OVERLAY_PAGE).performClick();
             assertEquals(StreamMenu.Page.OVERLAY, menu.page());
             assertNotNull(menu.row(OVERLAY_DEBUG));
             assertNull(menu.row(DISCONNECT));
             assertTrue(chosen.isEmpty());
+            // Touch has a back arrow on the page; it does what Back does.
+            assertEquals(View.VISIBLE, back.getVisibility());
+            back.performClick();
+            assertEquals(StreamMenu.Page.MAIN, menu.page());
+            assertEquals(View.GONE, back.getVisibility());
+            menu.row(OVERLAY_PAGE).performClick();
             menu.sheet().onBackPressed();
             assertTrue(menu.sheet().isShowing());
             assertEquals(StreamMenu.Page.MAIN, menu.page());

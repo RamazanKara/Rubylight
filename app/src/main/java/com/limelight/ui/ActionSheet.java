@@ -22,6 +22,7 @@ public final class ActionSheet extends BottomSheetDialog {
     private final LinearLayout body;
     private final LinearLayout content;
     private final TextView heading;
+    private final ImageButton back;
     private final NestedScrollView scroll;
     private final int spacing;
     private MaterialButton firstAction;
@@ -55,6 +56,22 @@ public final class ActionSheet extends BottomSheetDialog {
         heading.setTextColor(MaterialColors.getColor(context, com.google.android.material.R.attr.colorOnSurface, 0));
         heading.setPadding(0, spacing, spacing, spacing);
         ViewCompat.setAccessibilityHeading(heading, true);
+        // Shown on a page: touch gets the same way back to the first page as Back, Escape and B.
+        back = new androidx.appcompat.widget.AppCompatImageButton(context, null, 0);
+        back.setId(R.id.action_sheet_back);
+        back.setImageResource(R.drawable.ic_arrow_back);
+        back.setImageTintList(android.content.res.ColorStateList.valueOf(
+                MaterialColors.getColor(context, com.google.android.material.R.attr.colorOnSurfaceVariant, 0)));
+        back.setPadding(spacing * 3 / 2, spacing * 3 / 2, spacing * 3 / 2, spacing * 3 / 2);
+        back.setBackgroundResource(R.drawable.bg_icon_button);
+        back.setContentDescription(context.getString(R.string.sheet_back));
+        back.setOnClickListener(view -> {
+            if (backHandler != null) backHandler.run();
+        });
+        back.setVisibility(android.view.View.GONE);
+        LinearLayout.LayoutParams backParams = new LinearLayout.LayoutParams(spacing * 6, spacing * 6);
+        backParams.setMarginEnd(spacing);
+        header.addView(back, backParams);
         header.addView(heading, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
         ImageButton close = new androidx.appcompat.widget.AppCompatImageButton(context, null, 0);
         close.setId(R.id.action_sheet_close);
@@ -93,6 +110,7 @@ public final class ActionSheet extends BottomSheetDialog {
     public void setBackHandler(Runnable handler) {
         backHandler = handler;
         pageBack.setEnabled(handler != null);
+        back.setVisibility(handler != null ? android.view.View.VISIBLE : android.view.View.GONE);
     }
 
     /** The sheet's title, for a page shown in place of the first one. */
@@ -117,6 +135,8 @@ public final class ActionSheet extends BottomSheetDialog {
     public LinearLayout addToggleRow() {
         LinearLayout row = new LinearLayout(getContext());
         row.setOrientation(LinearLayout.HORIZONTAL);
+        // Equal buttons in a straight line, whatever the size of their icons or text.
+        row.setBaselineAligned(false);
         row.setPadding(spacing, spacing, spacing, spacing);
         content.addView(row, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT));
@@ -137,6 +157,7 @@ public final class ActionSheet extends BottomSheetDialog {
         button.setMaxLines(2);
         button.setIconResource(icon);
         button.setIconGravity(MaterialButton.ICON_GRAVITY_TOP);
+        button.setIconSize(spacing * 3);
         button.setIconPadding(spacing / 2);
         button.setMinHeight(spacing * 9);
         int[][] states = {new int[] {android.R.attr.state_checked}, new int[] {}};
@@ -148,7 +169,7 @@ public final class ActionSheet extends BottomSheetDialog {
         button.setBackgroundTintList(new android.content.res.ColorStateList(states, new int[] {
                 MaterialColors.getColor(context, com.google.android.material.R.attr.colorPrimaryContainer, 0),
                 android.graphics.Color.TRANSPARENT}));
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1);
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1);
         if (row.getChildCount() > 0) params.setMarginStart(spacing);
         row.addView(button, params);
         claimFirstAction(button);

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="startup_host_message">The host could not start this stream: %1$s (error %2$d)</string>
+    <string name="startup_launch_cancelled">Launch cancelled.</string>
+    <string name="startup_confirmation_timed_out">Confirmation timed out. Start the tile again to retry.</string>
+    <string name="startup_confirmation_rejected">The host session changed or confirmation expired. Start the tile again.</string>
+</resources>

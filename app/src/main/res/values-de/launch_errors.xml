@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="startup_host_message">Der Host konnte den Stream nicht starten: %1$s (Fehler %2$d)</string>
+    <string name="startup_launch_cancelled">Start abgebrochen.</string>
+    <string name="startup_confirmation_timed_out">Die Bestätigung ist abgelaufen. Starte die Kachel erneut, um es noch einmal zu versuchen.</string>
+    <string name="startup_confirmation_rejected">Die Sitzung auf dem Host hat sich geändert oder die Bestätigung ist abgelaufen. Starte die Kachel erneut.</string>
+</resources>

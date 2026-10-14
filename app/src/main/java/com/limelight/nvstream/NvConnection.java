@@ -750,7 +750,8 @@ public class NvConnection {
     protected boolean quitAndLaunch(NvHTTP h, ConnectionContext context) throws IOException,
             XmlPullParserException {
         if (context.streamConfig.isResumeOnly()) {
-            throw new HostHttpResponseException(409, "The previous session is no longer available.");
+            throw new LocalLaunchFailure(409, R.string.stream_recovery_session_changed,
+                    "The previous session is no longer available.");
         }
         if (context.streamConfig.getApp().getControl() != NvApp.Control.NONE) {
             return launchNotRunningApp(h, context);
@@ -791,7 +792,8 @@ public class NvConnection {
     static boolean launchApp(NvHTTP http, ConnectionContext context, String verb)
             throws IOException, XmlPullParserException {
         if (context.streamConfig.isResumeOnly() && !"resume".equals(verb)) {
-            throw new HostHttpResponseException(409, "Recovery can only resume the previous session.");
+            throw new LocalLaunchFailure(409, R.string.stream_recovery_session_changed,
+                    "Recovery can only resume the previous session.");
         }
         NvApp app = context.streamConfig.getApp();
         boolean retried = false;
@@ -808,17 +810,19 @@ public class NvConnection {
                     throw e;
                 }
                 if (retried) {
-                    throw new HostHttpResponseException(409, "The host session changed or confirmation expired. Start the tile again.");
+                    throw new LocalLaunchFailure(409, R.string.startup_confirmation_rejected,
+                            "The host session changed or confirmation expired. Start the tile again.");
                 }
                 LaunchConfirmation confirmation = new LaunchConfirmation(
                         app.getControl() == NvApp.Control.TERMINATE, LaunchConfirmation.nowMs());
                 try {
                     context.connListener.launchConfirmationRequired(confirmation);
                     LaunchConfirmation.State state = confirmation.await();
-                    if (state != LaunchConfirmation.State.CONFIRMED) {
-                        throw new HostHttpResponseException(state == LaunchConfirmation.State.TIMED_OUT ? 408 : 499,
-                                state == LaunchConfirmation.State.TIMED_OUT ?
-                                "Confirmation timed out. Start the tile again to retry." : "Launch cancelled.");
+                    if (state == LaunchConfirmation.State.TIMED_OUT) {
+                        throw new LocalLaunchFailure(408, R.string.startup_confirmation_timed_out,
+                                "Confirmation timed out. Start the tile again to retry.");
+                    } else if (state != LaunchConfirmation.State.CONFIRMED) {
+                        throw new LocalLaunchFailure(499, R.string.startup_launch_cancelled, "Launch cancelled.");
                     }
                 } catch (InterruptedException interrupted) {
                     confirmation.cancel();
@@ -830,6 +834,34 @@ public class NvConnection {
                 retried = true;
             }
         }
+    }
+
+    // A launch this device stopped itself: cancelled, timed out, or limited to resuming the
+    // previous session. It keeps an HTTP-style code for the recovery policy, but the host
+    // reported nothing, so it is never shown as a host failure.
+    static final class LocalLaunchFailure extends HostHttpResponseException {
+        private static final long serialVersionUID = 1L;
+        final int messageId;
+
+        LocalLaunchFailure(int errorCode, int messageId, String logMessage) {
+            super(errorCode, logMessage);
+            this.messageId = messageId;
+        }
+    }
+
+    // The host's own reason is shown when it gave one (Sunshine explains encoder and capture
+    // failures this way); the generic text only stands in when it gave none.
+    static String launchFailureMessage(Context context, HostHttpResponseException e) {
+        if (e instanceof LocalLaunchFailure) {
+            return context.getString(((LocalLaunchFailure) e).messageId);
+        }
+        String reason = e.getErrorMessage() == null ? "" : e.getErrorMessage().trim();
+        if (e.getErrorCode() == 401 || e.getErrorCode() == 403) {
+            String permission = context.getString(R.string.startup_permission_denied);
+            return reason.isEmpty() ? permission : permission + "\n\n" + reason;
+        }
+        return reason.isEmpty() ? context.getString(R.string.startup_host_error, e.getErrorCode()) :
+                context.getString(R.string.startup_host_message, reason, e.getErrorCode());
     }
 
     public synchronized void start(final AudioRenderer audioRenderer, final VideoDecoderRenderer videoDecoderRenderer, final NvConnectionListener connectionListener)
@@ -913,10 +945,7 @@ public class NvConnection {
                 } catch (HostHttpResponseException e) {
                     if (!stopRequested) {
                         e.printStackTrace();
-                        context.connListener.displayMessage(appContext.getString(
-                                e.getErrorCode() == 401 || e.getErrorCode() == 403 ?
-                                        R.string.startup_permission_denied : R.string.startup_host_error,
-                                e.getErrorCode()));
+                        context.connListener.displayMessage(launchFailureMessage(appContext, e));
                         context.connListener.stageFailed(appName, 0, e.getErrorCode());
                     }
                 } catch (XmlPullParserException | IOException | RuntimeException e) {

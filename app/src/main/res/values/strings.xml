@@ -162,8 +162,8 @@
     <string name="summary_checkbox_enable_audiofx">Lets Android equalizers and effects process the sound. Can add audio delay.</string>
 
     <string name="category_gamepad_settings">Controllers</string>
-    <string name="title_checkbox_multi_controller">Detect controllers</string>
-    <string name="summary_checkbox_multi_controller">When off, the PC always sees a controller.</string>
+    <string name="title_checkbox_multi_controller">Multiple controllers</string>
+    <string name="summary_checkbox_multi_controller">On: each controller is its own player, and the PC sees a controller only while one is connected. Off: every controller acts as player 1, and the PC always sees one controller.</string>
     <string name="title_checkbox_vibrate_fallback">Vibrate device for rumble</string>
     <string name="summary_checkbox_vibrate_fallback">Vibrate this device if your controller cannot.</string>
     <string name="title_seekbar_vibrate_fallback_strength">Device vibration strength</string>
@@ -267,8 +267,8 @@
     <string name="summary_full_range">Use only when the PC and this screen both use full-range color. Otherwise dark and bright areas lose detail.</string>
     <string name="title_enable_perf_overlay">Show performance overlay</string>
     <string name="summary_enable_perf_overlay">Shows stream speed, delay and frame loss live. You can also show it from the stream menu.</string>
-    <string name="title_enable_post_stream_toast">Show latency after streaming</string>
-    <string name="summary_enable_post_stream_toast">Show average decode time after each stream.</string>
+    <string name="title_enable_post_stream_toast">Show decode time after streaming</string>
+    <string name="summary_enable_post_stream_toast">Shows the average decode time when a stream ends.</string>
 
     <string name="category_help">Help</string>
     <string name="title_setup_guide">Setup guide</string>
@@ -301,8 +301,8 @@
     <string name="audioconf_71surround">7.1 Surround Sound</string>
 
     <string name="videoformat_auto">Automatic (recommended)</string>
-    <string name="videoformat_av1always">AV1</string>
-    <string name="videoformat_hevcalways">HEVC</string>
+    <string name="videoformat_av1always">Prefer AV1</string>
+    <string name="videoformat_hevcalways">Prefer HEVC</string>
     <string name="videoformat_h264always">H.264</string>
 
     <string name="title_frame_pacing">Frame pacing</string>

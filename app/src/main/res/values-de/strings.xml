@@ -135,8 +135,8 @@
     <string name="title_checkbox_enable_audiofx">System-Audioeffekte</string>
     <string name="summary_checkbox_enable_audiofx">Lässt Equalizer und Effekte von Android den Ton bearbeiten. Kann den Ton verzögern.</string>
     <string name="category_gamepad_settings">Controller</string>
-    <string name="title_checkbox_multi_controller">Controller erkennen</string>
-    <string name="summary_checkbox_multi_controller">Ausgeschaltet sieht der PC immer einen Controller.</string>
+    <string name="title_checkbox_multi_controller">Mehrere Controller</string>
+    <string name="summary_checkbox_multi_controller">An: Jeder Controller ist ein eigener Spieler, und der PC sieht nur verbundene Controller. Aus: Alle Controller steuern Spieler 1, und der PC sieht immer einen Controller.</string>
     <string name="title_checkbox_vibrate_fallback">Gerät vibrieren lassen</string>
     <string name="summary_checkbox_vibrate_fallback">Dein Gerät vibriert, wenn der Controller es nicht kann.</string>
     <string name="title_seekbar_vibrate_fallback_strength">Vibrationsstärke</string>
@@ -235,8 +235,8 @@
     <string name="summary_full_range">Nur nutzen, wenn PC und Display beide den vollen Farbbereich verwenden. Sonst gehen in dunklen und hellen Bereichen Details verloren.</string>
     <string name="title_enable_perf_overlay">Leistungsanzeige</string>
     <string name="summary_enable_perf_overlay">Zeigt Bildrate, Latenz und Bildverluste live. Lässt sich auch im Stream-Menü einblenden.</string>
-    <string name="title_enable_post_stream_toast">Latenz nach dem Stream</string>
-    <string name="summary_enable_post_stream_toast">Zeige die mittlere Dekodierzeit nach jedem Stream.</string>
+    <string name="title_enable_post_stream_toast">Dekodierzeit nach dem Stream</string>
+    <string name="summary_enable_post_stream_toast">Zeigt die mittlere Dekodierzeit, wenn ein Stream endet.</string>
     <string name="category_help">Hilfe</string>
     <string name="title_setup_guide">Einrichtung</string>
     <string name="summary_setup_guide">Richte deinen PC fürs Streaming ein.</string>
@@ -259,8 +259,8 @@
     <string name="audioconf_51surround">5.1-Surround</string>
     <string name="audioconf_71surround">7.1-Surround</string>
     <string name="videoformat_auto">Automatisch (empfohlen)</string>
-    <string name="videoformat_av1always">AV1</string>
-    <string name="videoformat_hevcalways">HEVC</string>
+    <string name="videoformat_av1always">AV1 bevorzugen</string>
+    <string name="videoformat_hevcalways">HEVC bevorzugen</string>
     <string name="videoformat_h264always">H.264</string>
     <string name="title_frame_pacing">Frame-Pacing</string>
     <string name="pacing_latency">Niedrigste Latenz</string>

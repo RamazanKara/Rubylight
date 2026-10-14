@@ -26,9 +26,9 @@
     <string name="host_profile_invalid_bitrate">Enter 0.5–2000 Mbps</string>
     <string-array name="host_profile_codecs">
         <item>Automatic</item>
-        <item>Prefer AV1</item>
-        <item>Prefer HEVC</item>
-        <item>H.264</item>
+        <item>@string/videoformat_av1always</item>
+        <item>@string/videoformat_hevcalways</item>
+        <item>@string/videoformat_h264always</item>
         <item>@string/videoformat_pyrowave</item>
     </string-array>
     <string name="host_profile_follows">Same as all PCs · %1$s</string>

@@ -305,4 +305,24 @@ public class SettingsStructureTest {
                     shadowOf(screen).getNextStartedActivity().getComponent().getClassName());
         }
     }
+
+    @Test
+    public void touchModeHelpKeepsThePickerOpen() {
+        try (ActivityController<StreamSettings> controller = Robolectric.buildActivity(StreamSettings.class).setup()) {
+            StreamSettings screen = controller.get();
+            Preference touch = open(screen, "input").findPreference("checkbox_touchscreen_trackpad");
+            assertEquals(screen.getResources().getStringArray(R.array.stream_touch_modes)[0], touch.getSummary().toString());
+            touch.getOnPreferenceClickListener().onPreferenceClick(touch);
+            AlertDialog picker = (AlertDialog) ShadowDialog.getLatestDialog();
+            picker.getButton(AlertDialog.BUTTON_NEUTRAL).performClick();
+            ShadowLooper.idleMainLooper();
+            AlertDialog help = (AlertDialog) ShadowDialog.getLatestDialog();
+            assertNotSame(picker, help);
+            assertTrue(picker.isShowing());
+            assertEquals(screen.getString(R.string.settings_touch_mode_help),
+                    ((TextView) help.findViewById(android.R.id.message)).getText().toString());
+            help.dismiss();
+            picker.dismiss();
+        }
+    }
 }

@@ -858,30 +858,10 @@ public class StreamSettings extends AppCompatActivity {
             pref.setEntryValues(newValues);
         }
 
-        private void addNativeResolutionEntry(int nativeWidth, int nativeHeight, boolean insetsRemoved, boolean portrait) {
+        // A size taken from this screen: the panel itself, or the area beside its camera cutout.
+        private void addNativeResolutionEntry(int nativeWidth, int nativeHeight, boolean avoidsCutout, boolean portrait) {
             ListPreference pref = (ListPreference) findPreference(PreferenceConfiguration.RESOLUTION_PREF_STRING);
-
-            String newName;
-
-            if (insetsRemoved) {
-                newName = getResources().getString(R.string.resolution_prefix_native_fullscreen);
-            }
-            else {
-                newName = getResources().getString(R.string.resolution_prefix_native);
-            }
-
-            if (PreferenceConfiguration.isSquarishScreen(nativeWidth, nativeHeight)) {
-                if (portrait) {
-                    newName += " " + getResources().getString(R.string.resolution_prefix_native_portrait);
-                }
-                else {
-                    newName += " " + getResources().getString(R.string.resolution_prefix_native_landscape);
-                }
-            }
-
-            newName += " ("+nativeWidth+"x"+nativeHeight+")";
-
-            String newValue = nativeWidth+"x"+nativeHeight;
+            String newValue = nativeWidth + "x" + nativeHeight;
 
             // Check if the native resolution is already present
             for (CharSequence value : pref.getEntryValues()) {
@@ -891,14 +871,62 @@ public class StreamSettings extends AppCompatActivity {
                 }
             }
 
+            String size = nativeWidth + "×" + nativeHeight;
+            String panel = PreferenceConfiguration.nativeResolution(getActivity());
+            String landscape = Math.max(nativeWidth, nativeHeight) + "x" + Math.min(nativeWidth, nativeHeight);
+            String newName;
+            if (avoidsCutout) {
+                newName = getString(portrait ? R.string.resolution_screen_cutout_portrait : R.string.resolution_screen_cutout, size);
+            } else if (panel == null || panel.equals(landscape)) {
+                newName = getString(portrait ? R.string.resolution_screen_portrait : R.string.resolution_screen, size);
+            } else {
+                // Another mode the panel can switch to
+                newName = size;
+            }
             appendPreferenceEntry(pref, newName, newValue);
         }
 
-        private void addNativeResolutionEntries(int nativeWidth, int nativeHeight, boolean insetsRemoved) {
+        private void addNativeResolutionEntries(int nativeWidth, int nativeHeight, boolean avoidsCutout) {
             if (PreferenceConfiguration.isSquarishScreen(nativeWidth, nativeHeight)) {
-                addNativeResolutionEntry(nativeHeight, nativeWidth, insetsRemoved, true);
+                addNativeResolutionEntry(nativeHeight, nativeWidth, avoidsCutout, true);
             }
-            addNativeResolutionEntry(nativeWidth, nativeHeight, insetsRemoved, false);
+            addNativeResolutionEntry(nativeWidth, nativeHeight, avoidsCutout, false);
+        }
+
+        // Fixed sizes larger than the panel would only be scaled down again; they stay listed while chosen.
+        static boolean fitsPanel(String size, String panel) {
+            if (panel == null) return true;
+            return PreferenceConfiguration.getWidthFromResolutionString(size) <= PreferenceConfiguration.getWidthFromResolutionString(panel) &&
+                    PreferenceConfiguration.getHeightFromResolutionString(size) <= PreferenceConfiguration.getHeightFromResolutionString(panel);
+        }
+
+        // Largest first, so this screen's own size leads the list.
+        private void sortResolutionEntries(boolean hideLargerThanPanel) {
+            ListPreference pref = (ListPreference) findPreference(PreferenceConfiguration.RESOLUTION_PREF_STRING);
+            String panel = PreferenceConfiguration.nativeResolution(getActivity());
+            List<String[]> entries = new ArrayList<>();
+            List<CharSequence> presets = Arrays.asList(getResources().getStringArray(R.array.resolution_values));
+            for (int i = 0; i < pref.getEntryValues().length; i++) {
+                String value = pref.getEntryValues()[i].toString();
+                if (hideLargerThanPanel && presets.contains(value) && !fitsPanel(value, panel) && !value.equals(pref.getValue())) {
+                    continue;
+                }
+                entries.add(new String[] {pref.getEntries()[i].toString(), value});
+            }
+            java.util.Collections.sort(entries, (a, b) -> Long.compare(pixels(b[1]), pixels(a[1])));
+            CharSequence[] names = new CharSequence[entries.size()];
+            CharSequence[] values = new CharSequence[entries.size()];
+            for (int i = 0; i < entries.size(); i++) {
+                names[i] = entries.get(i)[0];
+                values[i] = entries.get(i)[1];
+            }
+            pref.setEntries(names);
+            pref.setEntryValues(values);
+        }
+
+        private static long pixels(String size) {
+            return (long) PreferenceConfiguration.getWidthFromResolutionString(size) *
+                    PreferenceConfiguration.getHeightFromResolutionString(size);
         }
 
         private void addNativeFrameRateEntry(float framerate) {
@@ -909,8 +937,6 @@ public class StreamSettings extends AppCompatActivity {
 
             ListPreference pref = (ListPreference) findPreference(PreferenceConfiguration.FPS_PREF_STRING);
             String fpsValue = Integer.toString(frameRateRounded);
-            String fpsName = getResources().getString(R.string.resolution_prefix_native) +
-                    " (" + fpsValue + " " + getResources().getString(R.string.fps_suffix_fps) + ")";
 
             // Check if the native frame rate is already present
             for (CharSequence value : pref.getEntryValues()) {
@@ -920,7 +946,7 @@ public class StreamSettings extends AppCompatActivity {
                 }
             }
 
-            appendPreferenceEntry(pref, fpsName, fpsValue);
+            appendPreferenceEntry(pref, getString(R.string.fps_screen, frameRateRounded), fpsValue);
         }
 
         private void removeValue(String preferenceKey, String value, Runnable onMatched) {
@@ -1155,16 +1181,17 @@ public class StreamSettings extends AppCompatActivity {
                 SharedPreferences prefs = getPreferenceManager().getSharedPreferences();
                 int selected = prefs.getBoolean("checkbox_touchscreen_trackpad", true) ? 0 :
                         prefs.getBoolean("checkbox_native_touch", false) ? 2 : 1;
-                new MaterialAlertDialogBuilder(getActivity()).setTitle(R.string.stream_touch_mode)
+                AlertDialog picker = new MaterialAlertDialogBuilder(getActivity()).setTitle(R.string.stream_touch_mode)
                         .setSingleChoiceItems(R.array.stream_touch_modes, selected, (dialog, which) -> {
                             prefs.edit().putBoolean("checkbox_touchscreen_trackpad", which == 0)
                                     .putBoolean("checkbox_native_touch", which == 2).apply();
                             dialog.dismiss();
-                        }).setNeutralButton(R.string.help, (dialog, which) ->
-                                new MaterialAlertDialogBuilder(getActivity()).setTitle(R.string.stream_touch_mode)
-                                        .setMessage(R.string.stream_native_touch_help)
-                                        .setPositiveButton(android.R.string.ok, null).show())
-                        .setNegativeButton(android.R.string.cancel, null).show();
+                        }).setNeutralButton(R.string.help, null)
+                        .setNegativeButton(android.R.string.cancel, null).create();
+                UiHelper.showDialog(getActivity(), picker);
+                // Like the other pickers, Help explains the choices without closing the list.
+                picker.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(view ->
+                        showInfo(R.string.stream_touch_mode, R.string.settings_touch_mode_help));
                 return true;
             });
             findPreference("controller_button_mapping").setOnPreferenceClickListener(preference -> {
@@ -1263,6 +1290,7 @@ public class StreamSettings extends AppCompatActivity {
 
             Display display = getActivity().getWindowManager().getDefaultDisplay();
             float maxSupportedFps = display.getRefreshRate();
+            boolean television = getActivity().getPackageManager().hasSystemFeature(PackageManager.FEATURE_TELEVISION);
 
             // Hide non-supported resolution/FPS combinations
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
@@ -1270,7 +1298,6 @@ public class StreamSettings extends AppCompatActivity {
 
                 // Add a native resolution with any insets included for users that don't want content
                 // behind the notch of their display
-                boolean hasInsets = false;
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                     DisplayCutout cutout;
 
@@ -1295,8 +1322,7 @@ public class StreamSettings extends AppCompatActivity {
                             int width = Math.max(metrics.widthPixels - widthInsets, metrics.heightPixels - heightInsets);
                             int height = Math.min(metrics.widthPixels - widthInsets, metrics.heightPixels - heightInsets);
 
-                            addNativeResolutionEntries(width, height, false);
-                            hasInsets = true;
+                            addNativeResolutionEntries(width, height, true);
                         }
                     }
                 }
@@ -1318,9 +1344,8 @@ public class StreamSettings extends AppCompatActivity {
 
                     // Some TVs report strange values here, so let's avoid native resolutions on a TV
                     // unless they report greater than 4K resolutions.
-                    if (!getActivity().getPackageManager().hasSystemFeature(PackageManager.FEATURE_TELEVISION) ||
-                            (width > 3840 || height > 2160)) {
-                        addNativeResolutionEntries(width, height, hasInsets);
+                    if (!television || (width > 3840 || height > 2160)) {
+                        addNativeResolutionEntries(width, height, false);
                     }
 
                     if ((width >= 3840 || height >= 2160) && maxSupportedResW < 3840) {
@@ -1431,6 +1456,8 @@ public class StreamSettings extends AppCompatActivity {
                 int height = Math.min(metrics.widthPixels, metrics.heightPixels);
                 addNativeResolutionEntries(width, height, false);
             }
+            // TVs can report a smaller panel than the screen they drive, so they keep every size.
+            sortResolutionEntries(!television);
 
             if (!PreferenceConfiguration.readPreferences(this.getActivity()).unlockFps) {
                 // We give some extra room in case the FPS is rounded down

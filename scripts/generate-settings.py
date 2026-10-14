@@ -12,10 +12,10 @@ SEEKBAR = "{http://schemas.moonlight-stream.com/apk/res/seekbar}"
 
 # Usage advice is editorial; labels, options, ranges, dependencies, sections and preset writes come from source.
 ADVICE = {
-    "list_resolution": "Raise for fine detail; lower when decode time or network load is high. Your screen's native size is added automatically.",
-    "list_fps": "Raise for smoother motion on a fast screen. Your screen's native refresh rate is added automatically. Changing resolution or FPS preserves an explicitly chosen bitrate.",
+    "list_resolution": "Raise for fine detail; lower when decode time or network load is high. The picker starts with this screen's size, plus the size beside the camera cutout where there is one; fixed sizes larger than the screen are left out unless already chosen.",
+    "list_fps": "Raise for smoother motion on a fast screen. The screen's own refresh rate is added as Screen refresh rate. Changing resolution or FPS preserves an explicitly chosen bitrate.",
     "seekbar_bitrate_kbps": "Raise for image quality on a stable link; lower for network loss. The slider is logarithmic; the buttons make fine adjustments.",
-    "video_format": "Start with Automatic. Choose a specific codec to compare decoder performance; PyroWave requires a host that supports it (Rubylight, or Vibepollo with PyroWave available) and Vulkan capabilities; on a PC whose host has none, that PC uses the setting for all PCs or Automatic instead.",
+    "video_format": "Start with Automatic. Choose a specific codec to compare decoder performance; Prefer AV1 and Prefer HEVC fall back when the PC or device lacks them. PyroWave requires a host that supports it (Rubylight, or Vibepollo with PyroWave available) and Vulkan capabilities; on a PC whose host has none, that PC uses the setting for all PCs or Automatic instead.",
     "adaptive_quality_mode": "Off by default. Motion preserves FPS first, Detail preserves resolution first, and Battery also reduces work on healthy links. Requires the host's reconfigure capability and an adaptive decoder; PyroWave is unsupported. The stream menu can override the mode per PC.",
     "adaptive_quality_min_resolution": "Sets the smallest short edge for automatic quality, with the aspect ratio preserved. The selected starting resolution is the ceiling; a minimum above that ceiling is clamped down. Available while Automatic stream quality is on.",
     "adaptive_quality_min_fps": "Sets the lowest FPS automatic quality may request, including Battery mode. Recovery increases one step after 30 healthy seconds; reductions are at least 15 seconds apart. Available while Automatic stream quality is on.",
@@ -29,7 +29,7 @@ ADVICE = {
     "checkbox_yuv444": "Enable for colored text and desktop detail when both ends support it. Otherwise 4:2:0 is used; HDR takes priority.",
     "checkbox_stretch_video": "Enable to fill a screen with a different aspect ratio; shapes will stretch.",
     "seekbar_deadzone": "Raise to suppress stick drift; lower for small movements. Games can add their own deadzone on top.",
-    "checkbox_multi_controller": "Leave on to detect connected controllers and assign players. Turn off when a game needs a controller present before one connects.",
+    "checkbox_multi_controller": "Leave on so each controller is its own player and the PC sees controllers as they connect. Turn off to make every controller player 1 and keep one controller present on the PC, for games that need one before any connects.",
     "controller_button_mapping": "Open Controller buttons, press a digital button and choose its output or Nothing. Mappings default to the original button, are saved per controller model and apply next stream.",
     "checkbox_flip_face_buttons": "Enable to swap A/B and X/Y on physical and on-screen gamepads.",
     "checkbox_gamepad_motion_sensors": "Enable for controller gyro/accelerometer input on Android 12+. Fresh Android 12 (API 31) installations override this to Off because of an OS sensor bug.",
@@ -58,7 +58,7 @@ ADVICE = {
     "checkbox_host_audio": "Enable to hear audio on the PC as well as Android.",
     "checkbox_enable_mic": "Enable to talk in games and chat apps on the PC. Asks for microphone access; if it is not allowed, the setting stays off. The PC hears it as its streaming microphone. Mute it from the stream menu; the overlay shows whether it is sending.",
     "checkbox_enable_audiofx": "Enable for Android equalizers or effects. Can add delay and changes the audio output path.",
-    "checkbox_enable_post_stream_toast": "Enable to see average decode time after a session ends.",
+    "checkbox_enable_post_stream_toast": "Enable to see the average decode time after a session ends; it is not end-to-end latency.",
     "checkbox_enable_pip": "Enable to keep a small video window when leaving the app. Input and overlay are hidden there; requires device support.",
     "checkbox_auto_reconnect": "Resume the same running game after transport failures or returning from screen lock, up to five attempts within one minute. Back or leaving during a retry cancels it. Graceful termination, pairing, permissions and decoder failures stay manual; recovery never launches or replaces a game.",
     "list_languages": "Choose the interface language. Android 13+ uses the system per-app language setting.",

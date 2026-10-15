@@ -63,7 +63,6 @@ pub const GLOBAL: &[Setting] = settings! {
         "dd_always_restore_from_golden", "Always restore the saved display layout", Bool;
         "dd_activate_virtual_display", "Activate virtual display", Bool;
         "dd_virtual_display_scale", "Virtual display scale (%)", Number;
-        "dd_virtual_display_permanent_count", "Permanent virtual displays (0–4)", Number;
         "dd_snapshot_exclude_devices", "Devices excluded from saved layout restore", Json;
         "dd_mode_remapping", "Resolution and refresh remapping", Json;
         "vulkan_hdr_layer", "Vulkan virtual HDR support", Bool;

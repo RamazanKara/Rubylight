@@ -2,8 +2,7 @@
 //! its control IOCTLs, the WUDFHost the frame ring's handles are duplicated into, and the
 //! monitors this process created on it.
 //!
-//! Off by default: only `virtual_display_driver = rubylight` creates displays here
-//! ([`VirtualDriver::configured`]); everything else keeps using libvirtualdisplay.
+//! It is the only virtual display driver: every display the host creates comes from it.
 
 use super::*;
 use rubylight_vdisplay_proto::control::{
@@ -13,32 +12,6 @@ use rubylight_vdisplay_proto::control::{
 use rubylight_vdisplay_proto::modes;
 use std::sync::Mutex;
 use windows::Win32::System::Threading::{GetCurrentProcess, OpenProcess, PROCESS_DUP_HANDLE};
-
-/// Which driver creates the virtual displays.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum VirtualDriver {
-    /// libvirtualdisplay (SudoVDA compatible), as shipped from Vibepollo.
-    #[default]
-    Vdd,
-    /// Rubylight's own IddCx driver, which also pushes frames to the host.
-    Rubylight,
-}
-
-impl VirtualDriver {
-    /// `virtual_display_driver = rubylight` selects Rubylight's driver; any other value,
-    /// or none, keeps libvirtualdisplay.
-    pub fn configured(config: &butterpollo_core::config::Config) -> Self {
-        if config
-            .get("virtual_display_driver", "")
-            .trim()
-            .eq_ignore_ascii_case("rubylight")
-        {
-            Self::Rubylight
-        } else {
-            Self::Vdd
-        }
-    }
-}
 
 /// An open handle to the driver's control interface, checked for a matching protocol.
 pub struct Control {
@@ -323,23 +296,6 @@ pub fn owned_display(name: &str) -> Result<Option<Owned>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn only_rubylight_selects_the_rubylight_driver() {
-        use butterpollo_core::config::Config;
-        assert_eq!(
-            VirtualDriver::configured(&Config::default()),
-            VirtualDriver::Vdd
-        );
-        for value in ["rubylight", "Rubylight", " rubylight "] {
-            let config = Config::parse(&format!("virtual_display_driver = {value}\n")).unwrap();
-            assert_eq!(VirtualDriver::configured(&config), VirtualDriver::Rubylight);
-        }
-        for value in ["vdd", "libvirtualdisplay", "punktfunk", ""] {
-            let config = Config::parse(&format!("virtual_display_driver = {value}\n")).unwrap();
-            assert_eq!(VirtualDriver::configured(&config), VirtualDriver::Vdd);
-        }
-    }
 
     #[test]
     fn add_requests_keep_the_display_identity_and_the_stream_mode() {

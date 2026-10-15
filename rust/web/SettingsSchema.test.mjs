@@ -50,10 +50,6 @@ test('the default is shown only when the saved value would differ from it', () =
   assert.equal(differsFromDefault(settings.get('stream_audio'), {}, { stream_audio: 'enabled' }), false);
   assert.equal(differsFromDefault(settings.get('hevc_mode'), {}, { hevc_mode: '0' }), false);
   assert.equal(differsFromDefault(settings.get('hevc_mode'), {}, { hevc_mode: 3 }), true);
-  // Zero permanent displays is a real choice; an empty value is the default.
-  const permanent = settings.get('dd_virtual_display_permanent_count');
-  assert.equal(differsFromDefault(permanent, {}, { dd_virtual_display_permanent_count: 0 }), true);
-  assert.equal(differsFromDefault(permanent, {}, {}), false);
 });
 
 test('spellings the host reads as an option show as that option', () => {
@@ -106,7 +102,6 @@ test('spellings the host reads as an option show as that option', () => {
     ['frame_pacing', 'fixed', 'grid'],
     ['virtual_display_layout', 'Extended-Primary', 'extended_primary'],
     ['virtual_display_layout', 'ensure_only_display', 'exclusive'],
-    ['virtual_display_driver', 'Rubylight', 'rubylight'],
     ['gamepad', 'ds5', 'vhf_ds5'],
     ['gamepad', 'x360', 'vhf_xbox_one'],
     ['amd_coder', 'vlc', 'cavlc'],
@@ -255,16 +250,6 @@ test('an unset virtual display mode keeps the OS-dependent default without hidin
   assert.equal(describeDefault(setting).text, 'Automatic (Windows default)');
   assert.deepEqual(computeChanges(settings, { [key]: 'per_client' }, {}), { [key]: 'per_client' });
   assert.deepEqual(computeChanges(settings, { [key]: '' }, { [key]: 'disabled' }), { [key]: null });
-});
-
-test('zero permanent displays is a real edit while an empty value leaves the driver unchanged', () => {
-  const key = 'dd_virtual_display_permanent_count';
-  const setting = settings.get(key);
-  assert.equal(effective(setting, {}, {}), '');
-  assert.equal(describeDefault(setting).text, 'Not set');
-  assert.deepEqual(computeChanges(settings, { [key]: 0 }, {}), { [key]: 0 });
-  assert.deepEqual(computeChanges(settings, { [key]: '' }, { [key]: 2 }), { [key]: null });
-  assert.deepEqual(computeChanges(settings, { [key]: 0 }, { [key]: '0' }), {});
 });
 
 test('library counts and time limits reject fractions instead of saving values the host would ignore', () => {

@@ -1,6 +1,6 @@
 //! The platform seams for virtual displays the host creates itself and the frames their
-//! drivers push to it. Windows implements them with IddCx drivers (libvirtualdisplay, and
-//! Rubylight's own `rubylight-vdisplay`, whose frame ring is `idd-push`); nothing here names a
+//! drivers push to it. Windows implements them with Rubylight's IddCx driver
+//! (`rubylight-vdisplay`, whose frame ring is `idd-push`); nothing here names a
 //! Windows type, so another platform's virtual output can plug into the same places.
 
 /// A display mode: pixels and refresh in millihertz.
@@ -26,14 +26,13 @@ impl Mode {
 /// platform-specific reply the backend resolves into its display; the lifecycle after that
 /// is the same for every backend.
 pub trait DisplayProvider {
-    /// Keep display `id` (under `lease`, for drivers that lease) alive. An error means the
-    /// driver no longer has it.
-    fn renew(&self, lease: u64, id: u64) -> anyhow::Result<()>;
+    /// Keep display `id` alive. An error means the driver no longer has it.
+    fn renew(&self, id: u64) -> anyhow::Result<()>;
     /// Offer `mode` on the live display before the system is asked to set it. Drivers with a
     /// fixed mode list ignore it.
     fn offer_mode(&self, id: u64, mode: Mode);
-    /// Remove the display; best effort, as a lease that expires recovers it too.
-    fn remove(&self, lease: u64, id: u64);
+    /// Remove the display; best effort, as a display whose heartbeats stop departs too.
+    fn remove(&self, id: u64);
     /// Whether the driver pushes the display's frames itself ([`PushedFrames`]), so no
     /// separate screen capture is needed.
     fn pushes_frames(&self) -> bool;

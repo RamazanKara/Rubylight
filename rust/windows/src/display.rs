@@ -26,12 +26,10 @@ pub use modes::{dpi_scale, highest_refresh, mode, set_dpi_scale, set_mode, virtu
 pub use recovery::{
     Guard, Retained, Snapshot, apply_layout, baseline_nodes, leased_displays, restore_positions,
 };
-pub use rubylight_vdd::VirtualDriver;
 pub use topology::{Monitor, Topology, edid_refresh, monitors};
 pub use virtual_display::{
-    RenderAdapter, VirtualDisplay, VirtualOptions, configure_permanent, configured_render_adapter,
-    permanent_display_count, set_permanent_display_count, virtual_display_available,
-    virtual_display_status, windows_11,
+    RenderAdapter, VirtualDisplay, VirtualOptions, configured_render_adapter,
+    virtual_display_available, virtual_display_status, windows_11,
 };
 
 fn check(code: i32) -> Result<()> {

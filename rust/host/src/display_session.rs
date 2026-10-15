@@ -855,16 +855,6 @@ impl Prepared {
             None
         };
         let virtual_options = butterpollo_windows::display::VirtualOptions {
-            label: if mode == "shared" {
-                config.get("sunshine_name", "Butterpollo").into()
-            } else if app
-                .as_ref()
-                .is_some_and(|a| crate::process::app_bool(a, "use-app-identity", false))
-            {
-                app.as_ref().unwrap().name.clone()
-            } else {
-                launch.client.name.clone()
-            },
             peak_nits: config
                 .integer("rtx_hdr_peak_brightness", 1000)
                 .clamp(400, 2000) as u32,
@@ -873,7 +863,6 @@ impl Prepared {
             } else {
                 None
             },
-            driver: butterpollo_windows::display::VirtualDriver::configured(config),
         };
         // The layout to return to after the stream, taken before the virtual
         // display exists: Windows can switch other displays on or off, change

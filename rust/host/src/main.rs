@@ -307,10 +307,6 @@ async fn run(args: Args, assets: PathBuf) -> Result<()> {
         }
     };
     let port_forward = network::port_forward(h.clone(), bind);
-    if let Err(error) = butterpollo_windows::display::configure_permanent(&h.config.read().unwrap())
-    {
-        tracing::warn!(%error, "configured permanent virtual displays could not be applied");
-    }
     let (tray, actions) = if args.no_tray || !h.config.read().unwrap().boolean("system_tray", true)
     {
         (None, None)

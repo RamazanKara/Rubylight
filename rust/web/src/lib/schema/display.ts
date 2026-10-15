@@ -90,28 +90,6 @@ export const settings: Setting[] = [
     default: 'exclusive',
   },
   {
-    key: 'virtual_display_driver',
-    label: 'Virtual display driver',
-    description:
-      'The driver that creates virtual displays. The Rubylight display hands each frame straight to the encoder, without screen capture.',
-    details:
-      'Run the Rubylight installer after changing it: setup installs the display driver while it is chosen and removes it once it is not. Windows trusts the driver through a certificate made on this PC for it alone; its key is deleted at once.',
-    category: 'display',
-    group: 'Streamed display',
-    control: {
-      kind: 'select',
-      options: [
-        { value: '', label: 'Standard (SudoVDA compatible)' },
-        { value: 'rubylight', label: 'Rubylight display (preview)' },
-      ],
-    },
-    // rubylight_vdd.rs VirtualDriver::configured: any case, anything else is the standard driver.
-    aliases: { match: 'case', spellings: {} },
-    default: '',
-    restart: true,
-    advanced: true,
-  },
-  {
     key: 'dd_virtual_display_scale',
     label: 'Virtual display scale',
     description:
@@ -137,19 +115,6 @@ export const settings: Setting[] = [
     group: 'Streamed display',
     control: { kind: 'toggle' },
     default: false,
-    advanced: true,
-  },
-  {
-    key: 'dd_virtual_display_permanent_count',
-    label: 'Permanent virtual displays',
-    description:
-      'Virtual displays the driver keeps even when nothing streams, from 0 to 4. Leave empty to keep its current count.',
-    details: 'Enter 0 to remove permanent displays. Applied when the host starts.',
-    category: 'display',
-    group: 'Streamed display',
-    control: { kind: 'number', min: 0, max: 4, step: 1 },
-    default: '',
-    restart: true,
     advanced: true,
   },
   {

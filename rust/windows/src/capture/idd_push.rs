@@ -7,12 +7,11 @@
 //! holding its keyed mutex until the conversion is done; elsewhere the texture is copied into
 //! the owned pool as every other capture's frames are.
 //!
-//! Off by default. It runs for `capture = idd-push`, or for an automatic capture of a display
-//! this host created with `virtual_display_driver = rubylight`; anything else keeps WGC or
-//! Desktop Duplication.
+//! It runs for every automatic capture of a display this host created, and for
+//! `capture = idd-push`; physical displays, and `capture = wgc` or `ddx`, keep WGC or Desktop
+//! Duplication.
 
 use super::*;
-use crate::display::VirtualDriver;
 use crate::display::rubylight_vdd::{Control, Owned, Remote, owned_display};
 use butterpollo_core::virtual_output::{PushedFrame, PushedFrames};
 use rubylight_vdisplay_proto::control::{MonitorStatus, SetFrameRingRequest};
@@ -47,17 +46,9 @@ fn qpc_micros(from: u64, to: u64, frequency: i64) -> u64 {
 }
 
 /// Whether this capture should come from the driver: asked for by name, or automatic on a
-/// display this host created with Rubylight's driver.
-pub(super) fn wanted(
-    kind: &str,
-    driver: VirtualDriver,
-    capture_setting: &str,
-    rubylight_display: bool,
-) -> bool {
-    kind == "idd-push"
-        || (driver == VirtualDriver::Rubylight
-            && matches!(capture_setting.trim(), "" | "auto")
-            && rubylight_display)
+/// display this host created. `capture = wgc` or `ddx` keeps those.
+pub(super) fn wanted(kind: &str, capture_setting: &str, own_display: bool) -> bool {
+    kind == "idd-push" || (matches!(capture_setting.trim(), "" | "auto") && own_display)
 }
 
 /// [`wanted`] for a stream on display `name`; the display lookup runs only when it decides.
@@ -66,10 +57,9 @@ pub(super) fn wanted_for(
     kind: &str,
     config: &butterpollo_core::config::Config,
 ) -> bool {
-    let driver = VirtualDriver::configured(config);
     let setting = config.get("capture", "auto");
-    wanted(kind, driver, setting, false)
-        || (wanted(kind, driver, setting, true) && matches!(owned_display(name), Ok(Some(_))))
+    wanted(kind, setting, false)
+        || (wanted(kind, setting, true) && matches!(owned_display(name), Ok(Some(_))))
 }
 
 /// The ring to open: the surface the driver last composed when it reported one, otherwise
@@ -717,19 +707,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn idd_push_runs_only_when_asked_or_on_a_rubylight_display_in_auto() {
-        use VirtualDriver::{Rubylight, Vdd};
-        // Named explicitly.
-        assert!(wanted("idd-push", Vdd, "idd-push", false));
-        // Automatic, only for a display this host created with the Rubylight driver.
-        assert!(wanted("wgc", Rubylight, "auto", true));
-        assert!(wanted("wgc", Rubylight, "", true));
-        assert!(!wanted("wgc", Rubylight, "auto", false));
+    fn idd_push_runs_when_asked_or_on_the_hosts_own_display_in_auto() {
+        assert!(wanted("idd-push", "wgc", false));
+        assert!(wanted("wgc", "auto", true));
+        assert!(wanted("wgc", "", true));
+        // A physical display, or a display another program created.
+        assert!(!wanted("wgc", "auto", false));
         // An explicit WGC or DDX choice is kept.
-        assert!(!wanted("wgc", Rubylight, "wgc", true));
-        assert!(!wanted("ddx", Rubylight, "ddx", true));
-        // Off by default: libvirtualdisplay displays never take this path.
-        assert!(!wanted("wgc", Vdd, "auto", true));
+        assert!(!wanted("wgc", "wgc", true));
+        assert!(!wanted("ddx", "ddx", true));
     }
 
     #[test]

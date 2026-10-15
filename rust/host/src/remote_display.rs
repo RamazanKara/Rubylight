@@ -123,9 +123,6 @@ pub fn activate(h: &Shared, client: &str, config: &Negotiated) -> Result<Arc<Ret
         .find(|c| c.uuid == client)
         .cloned();
     let options = display::VirtualOptions {
-        label: identity
-            .as_ref()
-            .map_or_else(|| "Moonlight Client".into(), |c| c.name.clone()),
         peak_nits: identity
             .as_ref()
             .and_then(|c| c.extra.get("hdr_profile"))
@@ -138,7 +135,6 @@ pub fn activate(h: &Shared, client: &str, config: &Negotiated) -> Result<Arc<Ret
             .unwrap_or(1000)
             .clamp(400, 2000),
         render_adapter: display::configured_render_adapter(&h.config.read().unwrap()),
-        driver: display::VirtualDriver::configured(&h.config.read().unwrap()),
     };
     let host = Arc::downgrade(h);
     let lease = Arc::new(Retained::create_options(

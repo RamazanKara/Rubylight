@@ -1,19 +1,16 @@
-//! Display self-test. The virtual display driver accepts only the SYSTEM
-//! service, so `butterpollo-service.exe --display-self-test REPORT`, run as
-//! SYSTEM, starts `butterpollo.exe --display-self-test REPORT` in the signed-in
-//! console session. The desktop changes for about half a minute and is then
-//! restored, including the driver's permanent display count.
+//! Display self-test. `butterpollo-service.exe --display-self-test REPORT`, run as SYSTEM,
+//! starts `butterpollo.exe --display-self-test REPORT` in the signed-in console session. The
+//! desktop changes for about half a minute and is then restored.
 //!
 //! 1. A virtual display that Windows leaves off is switched on by the host,
 //!    and the other displays keep their modes and positions.
-//! 2. Two of the driver's permanent displays stand in for TVs in duplicate
-//!    mode, as in issue #4, and a stream's virtual display still comes up.
+//! 2. Two more virtual displays stand in for TVs in duplicate mode, as in
+//!    issue #4, and a stream's virtual display still comes up.
 //! 3. A saved layout with that clone group is restored after the group was
 //!    broken up.
 use super::topology::activate_target;
 use super::*;
 use serde_json::{Value, json};
-use std::collections::BTreeSet;
 
 /// Device, width, height, refresh and desktop position.
 type Timing = (String, u32, u32, u32, i32, i32);
@@ -104,33 +101,53 @@ fn switch_on() -> Result<(Value, String)> {
     Ok((check, target.device_id))
 }
 
-/// Two more permanent displays from the driver, on and duplicated.
-fn stand_in_tvs(permanent: u32, before: &BTreeSet<String>) -> Result<(String, String)> {
-    anyhow::ensure!(
-        permanent <= 2,
-        "the driver already has {permanent} permanent displays"
-    );
-    set_permanent_display_count(permanent + 2)?;
-    let deadline = Instant::now() + Duration::from_secs(15);
-    let added = loop {
-        let added: Vec<_> = Topology::query_all()?
-            .monitors()
-            .into_iter()
-            .map(|m| m.device_id)
-            .filter(|id| !before.contains(id))
-            .collect::<BTreeSet<_>>()
-            .into_iter()
-            .collect();
-        if added.len() >= 2 {
-            break added;
+/// Displays standing in for TVs; they stay, with their heartbeats, until this is dropped.
+struct StandIns {
+    stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    thread: Option<std::thread::JoinHandle<()>>,
+}
+
+impl Drop for StandIns {
+    fn drop(&mut self) {
+        self.stop.store(true, std::sync::atomic::Ordering::Release);
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
         }
-        anyhow::ensure!(
-            Instant::now() < deadline,
-            "the driver's permanent displays did not appear"
-        );
-        std::thread::sleep(Duration::from_millis(250));
+    }
+}
+
+/// Two more virtual displays, on and duplicated.
+fn stand_in_tvs() -> Result<(String, String, StandIns)> {
+    let mut tvs = Vec::new();
+    for name in ["butterpollo-self-test-tv-a", "butterpollo-self-test-tv-b"] {
+        tvs.push(VirtualDisplay::create(name, 1920, 1080, 60)?);
+    }
+    let ids = tvs
+        .iter()
+        .map(|tv| {
+            tv.resolved_target
+                .as_ref()
+                .map(|m| m.device_id.clone())
+                .context("stand-in TV unresolved")
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let feeding = stop.clone();
+    let thread = std::thread::spawn(move || {
+        while !feeding.load(std::sync::atomic::Ordering::Acquire) {
+            for tv in &mut tvs {
+                if let Err(error) = tv.feed() {
+                    tracing::warn!(error = %format!("{error:#}"), "stand-in TV heartbeat failed");
+                }
+            }
+            std::thread::sleep(Duration::from_millis(250));
+        }
+    });
+    let stand_ins = StandIns {
+        stop,
+        thread: Some(thread),
     };
-    let (a, b) = (added[0].clone(), added[1].clone());
+    let (a, b) = (ids[0].clone(), ids[1].clone());
     let mut on = active_ids()?;
     on.extend([a.clone(), b.clone()]);
     on.sort();
@@ -138,7 +155,7 @@ fn stand_in_tvs(permanent: u32, before: &BTreeSet<String>) -> Result<(String, St
     Topology::set_active(&on)?;
     Topology::query()?.restore_clone_groups(&[vec![a.clone(), b.clone()]])?;
     anyhow::ensure!(cloned(&a, &b)?, "the stand-in TVs could not be duplicated");
-    Ok((a, b))
+    Ok((a, b, stand_ins))
 }
 
 /// A dropped test display leaves asynchronously; Windows refuses a layout
@@ -229,12 +246,6 @@ fn clone_layout_restored(a: &str, b: &str) -> Result<Value> {
 /// check passed.
 pub fn run(report: &std::path::Path) -> Result<bool> {
     let original = Snapshot::capture()?;
-    let permanent = permanent_display_count()?;
-    let before: BTreeSet<_> = Topology::query_all()?
-        .monitors()
-        .into_iter()
-        .map(|m| m.device_id)
-        .collect();
     let mut checks = serde_json::Map::new();
     let result = (|| -> Result<()> {
         let (check, test_display) = switch_on()?;
@@ -242,9 +253,7 @@ pub fn run(report: &std::path::Path) -> Result<bool> {
         // It leaves asynchronously; going during the next check, it would
         // count as another display that changed.
         wait_gone(&test_display)?;
-        let mut before = before.clone();
-        before.insert(test_display);
-        let (a, b) = stand_in_tvs(permanent, &before)?;
+        let (a, b, stand_ins) = stand_in_tvs()?;
         let (check, test_display) = beside_duplicated_tvs(&a, &b)?;
         checks.insert("beside_duplicated_tvs".into(), check);
         wait_gone(&test_display)?;
@@ -252,12 +261,10 @@ pub fn run(report: &std::path::Path) -> Result<bool> {
             "clone_layout_restored".into(),
             clone_layout_restored(&a, &b)?,
         );
+        drop(stand_ins);
         Ok(())
     })();
     let mut cleanup = Vec::new();
-    if let Err(error) = set_permanent_display_count(permanent) {
-        cleanup.push(format!("permanent display count: {error:#}"));
-    }
     std::thread::sleep(Duration::from_secs(2));
     if let Err(error) = original.restore() {
         cleanup.push(format!("original layout: {error:#}"));
@@ -271,7 +278,6 @@ pub fn run(report: &std::path::Path) -> Result<bool> {
         "checks": checks,
         "error": result.err().map(|e| format!("{e:#}")),
         "cleanup_errors": cleanup,
-        "permanent_display_count": permanent,
     });
     std::fs::write(report, serde_json::to_vec_pretty(&document)?)?;
     Ok(passed)

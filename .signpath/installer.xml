@@ -1,6 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  SignPath artifact configuration "installer": the self-extracting installer,
+  built from the signed setup and the signed binaries. Paste it into SignPath
+  under this slug.
+
+  The installer is the setup executable with the package appended, so it
+  carries setup's version information: ProductName "Rubylight" and the
+  release version the workflow passes as "version".
+-->
 <artifact-configuration xmlns="http://signpath.io/artifact-configuration/v1">
+  <parameters>
+    <parameter name="version" required="true" />
+  </parameters>
   <zip-file>
-    <pe-file path="butterpollo-setup-*.exe"><authenticode-sign /></pe-file>
+    <pe-file path="butterpollo-setup-${version}.exe" product-name="Rubylight" product-version="${version}">
+      <authenticode-sign />
+    </pe-file>
   </zip-file>
 </artifact-configuration>

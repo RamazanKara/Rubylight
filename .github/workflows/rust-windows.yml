@@ -37,6 +37,7 @@ jobs:
       actions: read
     outputs:
       run: ${{ steps.built.outputs.run }}
+      sign: ${{ steps.built.outputs.sign }}
       version: ${{ steps.version.outputs.version }}
       tag: ${{ steps.version.outputs.tag }}
     steps:
@@ -62,6 +63,15 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           SIGNPATH_PROJECT: ${{ vars.SIGNPATH_PROJECT_SLUG }}
         run: |
+          # With SignPath configured every release is signed, and only release
+          # runs sign (SignPath asks an approver for each request), so a
+          # signed release always builds afresh instead of reusing main's
+          # unsigned build.
+          if [ -n "$SIGNPATH_PROJECT" ]; then
+            echo "sign=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::building $GITHUB_SHA afresh to sign it with SignPath"
+            exit 0
+          fi
           run=$(gh run list -R "$GITHUB_REPOSITORY" --workflow rust-windows.yml --branch main --commit "$GITHUB_SHA" \
             --event push --status success --limit 1 --json databaseId --jq '.[0].databaseId // empty')
           if [ -n "$run" ]; then
@@ -69,24 +79,23 @@ jobs:
               --jq '.artifacts[] | select(.name == "butterpollo-rust-windows-x64" and .expired == false) | .id') || artifact=
             if [ -z "$artifact" ]; then run=; fi
           fi
-          # Enabling signing must not reuse an older unsigned build of this commit.
-          if [ -n "$run" ] && [ -n "$SIGNPATH_PROJECT" ]; then
-            signed=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run/jobs" \
-              --jq '[.jobs[].steps[]? | select(.name == "Verify signed installer" and .conclusion == "success")] | length') || signed=0
-            if [ "$signed" = 0 ]; then run=; fi
-          fi
           echo "run=$run" >> "$GITHUB_OUTPUT"
           if [ -n "$run" ]; then echo "::notice::reusing the build of $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$run"; fi
   windows:
     needs: tag
     if: ${{ !cancelled() && needs.tag.result != 'failure' && !needs.tag.outputs.run && !inputs.notes }}
     runs-on: windows-2022
-    timeout-minutes: 50
+    # A signed release builds without the cache and waits for a SignPath
+    # approver once per request (two requests, an hour each).
+    timeout-minutes: ${{ needs.tag.outputs.sign == 'true' && 240 || 50 }}
     permissions:
       contents: read
       actions: read
     env:
-      SIGNPATH_ENABLED: ${{ github.event_name != 'pull_request' && vars.SIGNPATH_PROJECT_SLUG != '' }}
+      # Only release runs sign, and only once SignPath is configured: the
+      # SignPath Foundation's release policy needs a manual approval for every
+      # signing request, so main's pushes and pull requests stay unsigned.
+      SIGNPATH_ENABLED: ${{ needs.tag.outputs.sign == 'true' }}
     defaults:
       run:
         shell: pwsh
@@ -127,7 +136,10 @@ jobs:
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
       - name: Check release notes tooling
         run: python -m unittest discover -s rust/release -p test_release.py -v
+      # A signed release is built from this run's checkout and downloads,
+      # never from an earlier run's cache.
       - uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae
+        if: env.SIGNPATH_ENABLED != 'true'
         with:
           path: |
             ~/AppData/Local/ButterpolloRust/sdk
@@ -140,6 +152,12 @@ jobs:
           Import-Module "$vs\Common7\Tools\Microsoft.VisualStudio.DevShell.dll"
           Enter-VsDevShell -VsInstallPath $vs -SkipAutomaticLocation -DevCmdArguments '-arch=x64 -host_arch=x64'
           .\rust\build.ps1 -MsysRoot '${{ steps.msys.outputs.msys2-location }}' -FetchDependencies -Package -TargetDirectory "$env:RUNNER_TEMP\butterpollo-rust-target"
+      # SignPath signs a file only when its version information names
+      # Rubylight and the release; every build checks that it would.
+      - name: Check release binary metadata
+        run: |
+          $version = (Select-String -LiteralPath Cargo.toml -Pattern '^version = "(.+)"').Matches[0].Groups[1].Value
+          .\rust\release\sign-artifacts.ps1 -Phase CheckMetadata -TargetDirectory "$env:RUNNER_TEMP\butterpollo-rust-target" -Version $version
       - name: Prepare signing
         if: env.SIGNPATH_ENABLED == 'true'
         env:
@@ -169,13 +187,18 @@ jobs:
           signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
           artifact-configuration-slug: binaries
           github-artifact-id: ${{ steps.unsigned-binaries.outputs.artifact-id }}
+          parameters: |
+            version: ${{ toJSON(env.RELEASE_VERSION) }}
           wait-for-completion: true
+          wait-for-completion-timeout-in-seconds: 3600
           output-artifact-directory: ${{ runner.temp }}/signed-binaries
+      - name: Apply signed binaries
+        if: env.SIGNPATH_ENABLED == 'true'
+        run: .\rust\release\sign-artifacts.ps1 -Phase ApplyBinaries -TargetDirectory "$env:RUNNER_TEMP\butterpollo-rust-target" -SigningDirectory "$env:RUNNER_TEMP\signed-binaries" -Version $env:RELEASE_VERSION
       - name: Repackage signed binaries
         if: env.SIGNPATH_ENABLED == 'true'
         run: |
           $target = "$env:RUNNER_TEMP\butterpollo-rust-target"
-          .\rust\release\sign-artifacts.ps1 -Phase ApplyBinaries -TargetDirectory $target -SigningDirectory "$env:RUNNER_TEMP\signed-binaries" -Version $env:RELEASE_VERSION
           .\rust\release\package.ps1 -Distribution "$target\butterpollo-rust-release" -TargetDirectory $target -Stub "$target\release\butterpollo-setup.exe" -Version $env:RELEASE_VERSION
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         if: env.SIGNPATH_ENABLED == 'true'
@@ -195,7 +218,10 @@ jobs:
           signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
           artifact-configuration-slug: installer
           github-artifact-id: ${{ steps.unsigned-installer.outputs.artifact-id }}
+          parameters: |
+            version: ${{ toJSON(env.RELEASE_VERSION) }}
           wait-for-completion: true
+          wait-for-completion-timeout-in-seconds: 3600
           output-artifact-directory: ${{ runner.temp }}/signed-installer
       - name: Verify signed installer
         if: env.SIGNPATH_ENABLED == 'true'

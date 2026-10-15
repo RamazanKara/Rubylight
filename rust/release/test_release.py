@@ -1,4 +1,5 @@
 import json, os, pathlib, re, shutil, subprocess, sys, tempfile, textwrap, unittest
+import xml.etree.ElementTree as ET
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
@@ -111,10 +112,13 @@ class ReleaseVersions(unittest.TestCase):
           fi
         }
         '''
-        for candidate, artifact, expected in [('', '', ''), ('123', '456', '123'),
-                                               ('123', '', ''), ('123', 'error', '')]:
-            with self.subTest(candidate=candidate, artifact=artifact):
-                env = dict(os.environ, MOCK_RUN=candidate, MOCK_ARTIFACT=artifact,
+        # A configured SignPath project signs the release, so it never reuses
+        # main's unsigned build.
+        for candidate, artifact, project, expected in [('', '', '', 'run=\n'), ('123', '456', '', 'run=123\n'),
+                                                        ('123', '', '', 'run=\n'), ('123', 'error', '', 'run=\n'),
+                                                        ('123', '456', 'rubylight', 'sign=true\n')]:
+            with self.subTest(candidate=candidate, artifact=artifact, project=project):
+                env = dict(os.environ, MOCK_RUN=candidate, MOCK_ARTIFACT=artifact, SIGNPATH_PROJECT=project,
                            GITHUB_OUTPUT='output.txt', GITHUB_REPOSITORY='owner/repo',
                            GITHUB_SHA='abc', GITHUB_SERVER_URL='https://github.com')
                 out = self.root / 'output.txt'
@@ -122,7 +126,60 @@ class ReleaseVersions(unittest.TestCase):
                 result = subprocess.run([str(BASH), '--noprofile', '--norc', '-ec', stub + script],
                                         cwd=self.root, env=env, capture_output=True, text=True)
                 self.assertEqual(result.returncode, 0, result.stderr)
-                self.assertEqual(out.read_text(encoding='utf-8'), f'run={expected}\n')
+                self.assertEqual(out.read_text(encoding='utf-8'), expected)
+
+
+class Signing(unittest.TestCase):
+    """The workflow, rust/release/sign-artifacts.ps1 and .signpath/ agree."""
+
+    def setUp(self):
+        self.workflow = (ROOT / '.github/workflows/rust-windows.yml').read_text(encoding='utf-8')
+        self.configurations = {path.stem: ET.parse(path).getroot() for path in (ROOT / '.signpath').glob('*.xml')}
+
+    def requests(self):
+        """Each SignPath step's inputs, by artifact configuration slug."""
+        steps = re.findall(r'(?ms)^        uses: SignPath/github-action-submit-signing-request@\w+\n(.*?)(?=^      - )', self.workflow)
+        self.assertTrue(steps)
+        return {re.search(r'artifact-configuration-slug: (\S+)', step)[1]: step for step in steps}
+
+    def test_only_release_runs_sign(self):
+        # Every SignPath request waits for a manual approval, so only the tag
+        # job's release decision turns signing on.
+        self.assertIn("SIGNPATH_ENABLED: ${{ needs.tag.outputs.sign == 'true' }}", self.workflow)
+        self.assertIn("timeout-minutes: ${{ needs.tag.outputs.sign == 'true' && 240 || 50 }}", self.workflow)
+
+    def test_each_request_names_a_configuration_and_the_version(self):
+        requests = self.requests()
+        self.assertEqual(set(requests), {'binaries', 'installer'})
+        for slug, step in requests.items():
+            with self.subTest(slug=slug):
+                self.assertIn(slug, self.configurations)
+                self.assertIn('version: ${{ toJSON(env.RELEASE_VERSION) }}', step)
+                self.assertIn('wait-for-completion: true', step)
+                # Long enough for an approver to answer the e-mail.
+                timeout = int(re.search(r'wait-for-completion-timeout-in-seconds: (\d+)', step)[1])
+                self.assertGreaterEqual(timeout, 1800)
+
+    def test_signed_files_name_rubylight_and_the_release(self):
+        # The SignPath Foundation's metadata restriction.
+        for slug, root in self.configurations.items():
+            with self.subTest(slug=slug):
+                parameter = root.find(f'{NS}parameters/{NS}parameter[@name="version"]')
+                self.assertIsNotNone(parameter)
+                self.assertEqual(parameter.get('required'), 'true')
+                for element in root.iter():
+                    if element.tag in (f'{NS}pe-file', f'{NS}pe-file-set'):
+                        self.assertEqual(element.get('product-name'), 'Rubylight')
+                        self.assertEqual(element.get('product-version'), '${version}')
+
+    def test_binaries_configuration_lists_the_staged_binaries(self):
+        script = (ROOT / 'rust/release/sign-artifacts.ps1').read_text(encoding='utf-8')
+        staged = set(re.findall(r"'([^']+)'", re.search(r'(?s)\$binaries = @\((.*?)\)', script)[1]))
+        includes = {element.get('path') for element in self.configurations['binaries'].iter(f'{NS}include')}
+        self.assertEqual(includes, staged)
+
+
+NS = '{http://signpath.io/artifact-configuration/v1}'
 
 
 if __name__ == '__main__':

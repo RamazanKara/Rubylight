@@ -1,14 +1,34 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  SignPath artifact configuration "binaries": Rubylight's own executables and
+  DLLs, uploaded by the Windows workflow (rust/release/sign-artifacts.ps1,
+  StageBinaries). Paste it into SignPath under this slug; the copy in SignPath
+  is the one that signs.
+
+  The SignPath Foundation requires every signed file to name the project and
+  the release: ProductName "Rubylight" and ProductVersion equal to the
+  "version" parameter the workflow passes (Cargo.toml's version).
+  Third-party files in the package keep their own signatures and are never
+  sent here.
+-->
 <artifact-configuration xmlns="http://signpath.io/artifact-configuration/v1">
+  <parameters>
+    <parameter name="version" required="true" />
+  </parameters>
   <zip-file>
-    <pe-file path="butterpollo.exe"><authenticode-sign /></pe-file>
-    <pe-file path="butterpollo-service.exe"><authenticode-sign /></pe-file>
-    <pe-file path="Start Rubylight.exe"><authenticode-sign /></pe-file>
-    <pe-file path="butterpollo-setup.exe"><authenticode-sign /></pe-file>
-    <pe-file path="butterpollo-performance.exe"><authenticode-sign /></pe-file>
-    <pe-file path="butterpollo-protocol-performance.exe"><authenticode-sign /></pe-file>
-    <pe-file path="butterpollo-video-packet-performance.exe"><authenticode-sign /></pe-file>
-    <pe-file path="butterpollo_truehdr.dll"><authenticode-sign /></pe-file>
-    <pe-file path="vulkan-layer/butterpollo_vulkan_layer.dll"><authenticode-sign /></pe-file>
+    <pe-file-set product-name="Rubylight" product-version="${version}">
+      <include path="butterpollo.exe" />
+      <include path="butterpollo-service.exe" />
+      <include path="Start Rubylight.exe" />
+      <include path="butterpollo-setup.exe" />
+      <include path="butterpollo-performance.exe" />
+      <include path="butterpollo-protocol-performance.exe" />
+      <include path="butterpollo-video-packet-performance.exe" />
+      <include path="butterpollo_truehdr.dll" />
+      <include path="vulkan-layer/butterpollo_vulkan_layer.dll" />
+      <for-each>
+        <authenticode-sign />
+      </for-each>
+    </pe-file-set>
   </zip-file>
 </artifact-configuration>

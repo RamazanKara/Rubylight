@@ -44,6 +44,13 @@ Rubylight is not here to win a big userbase. There is no growth plan and no camp
 2. **Open your console.** Visit **`https://localhost:47990`** on the host PC and create your local account.
 3. **Pair and play.** Open Moonlight on a device on the same network, select your PC, enter its PIN in Rubylight's **Devices** page, then launch **Desktop**.
 
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/media/console-dark.png">
+    <img src="docs/media/console-light.png" width="800" alt="Rubylight's web console: a Steam Deck streaming 2560×1440 at 120 fps in AV1, with frame rate, encoding time and host readiness.">
+  </picture>
+</p>
+
 Coming from Apollo or Vibepollo? Rubylight imports your settings, paired devices and app library. Upgrades keep them too. Updates notify you first; automatic installation is opt-in.
 
 [First-stream walkthrough, portable setup and migration →](docs/getting-started.md)

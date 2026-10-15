@@ -17,7 +17,7 @@ The menu is one sheet:
 | Display | Stretch video to fill the screen (local video without upscaling), Enable pinch zoom and pan, Reset zoom, **Overlay and diagnostics**, Picture-in-picture, Video output (with an external display). |
 | Quality | Set bitrate, Automatic stream quality and Automatic bitrate, where the host supports them. |
 | Host | Server commands, Send clipboard to host, Copy host clipboard, Open host web UI, Permissions and frame limits, as the host and its permissions allow. |
-| Bottom | Reconnect stream, Disconnect, and **Quit game** in red, which asks first. Remote Monitor and Input-only end their session instead. |
+| Bottom | Reconnect stream, Disconnect, and **Quit game** in red, which asks first. Remote Monitor and Input-only end their session instead. Disconnect also quits a game set to **Quit the game when I leave the stream** (see [leaving a game](#leaving-a-game)). |
 
 **Overlay and diagnostics** opens a page in the same sheet: Compact, Statistics or Debug, Copy stats, Why did my stream stutter? and Measure input latency. Back, Escape or a controller's B returns from the page to the menu; Back again closes the menu, and the close button closes it from anywhere. The D-pad and a controller move through every row; on a USB-driver controller, its D-pad, A and B do this while the menu is open. Items a host or permission does not allow are left out rather than shown disabled.
 
@@ -147,6 +147,16 @@ For external MediaCodec video, **Balanced** pacing uses the lowest-latency path 
 
 The JSON validator, held-input ownership, axis/hat report remapping, zoom bounds and inverse touch mapping have headless unit coverage. Actual monitor attach/detach, OEM SurfaceView transforms, controller hardware and accessibility services still require device testing; no physical display, audio or controller is used by these tests.
 
+## Leaving a game
+
+Disconnect ends the stream on this device and leaves the game running on the PC, so you can resume it later. To choose per game:
+
+- **Quit the game when I leave the stream**: long-press the game in the library (or use its options button) and choose this row to turn it on or off; the row says what Disconnect will do. It is stored per PC and game on this device. With it on, **Disconnect**, **Ctrl+Alt+Shift+Q** and Disconnect on the picture-in-picture window ask the PC to quit the game, then close the stream. If the PC refuses or does not answer, the stream still closes and a message says the game is still running. A lost connection, an error, the PC ending the stream, or leaving the app without choosing Disconnect never quits the game, so a dropped Wi-Fi link can't cost you unsaved progress. The row is shown when the host allows this device to launch and quit games; Remote Monitor, Input-only and host actions are not offered it.
+- **Quit game** right away: long-press the running game in the library, or the PC in the PC list, and choose **Quit game**, which asks first. It needs the same permission.
+- **Quick resume** (Settings → App): a tap on a PC that is running a game goes straight back into the game instead of opening the library. The PC's menu still opens the library. Off by default. In the library, a tap on the running game always resumes it.
+
+Quitting uses the standard Moonlight request, so it works with any compatible host that gives this device permission to launch apps. A host may refuse to quit a game another device started.
+
 ## Shortcuts
 
 ### App navigation
@@ -163,7 +173,7 @@ In Settings, Right opens the selected switch's help (Left in RTL). TV settings p
 | Ctrl+Alt+Shift+S | Show or hide the performance overlay. |
 | Ctrl+Alt+Shift+Z | Toggle input capture. |
 | Ctrl+Alt+Shift+C | Toggle the local cursor's visibility and recapture input if needed. With a mouse attached, **stream menu → Input → Show mouse cursor** does the same. |
-| Ctrl+Alt+Shift+Q | Disconnect the local stream; the PC app stays running. |
+| Ctrl+Alt+Shift+Q | Disconnect the local stream; the PC app stays running unless it is set to quit when you leave. |
 | Hold Start on a controller | Toggle controller mouse mode when enabled. |
 | Start+Back+LB+RB on a controller, USB-driver pads included | Open the stream menu once all four are released. The stream keeps running. |
 | Start+LB when the controller has no Select/Back button | Send Select/Back. |

@@ -134,6 +134,7 @@ These tables include every preference, including actions, grouped as the Setting
 | --- | --- | --- | --- |
 | Language<br>`list_languages` | System default | System default; English; Deutsch; Español; Français; Italiano; Polski; Português (Brasil); Tiếng Việt; Türkçe; Русский; Українська; 日本語; 한국어; 简体中文; 繁體中文 | Choose the interface language. Android 13+ uses the system per-app language setting. |
 | Use small box art<br>`checkbox_small_icon_mode` | On below 500 dp smallest screen width; Off on TVs and larger screens | On; Off | Enable to fit more games in the library grid. |
+| Quick resume<br>`checkbox_quick_resume` | Off | On; Off | Enable to go straight back into the running game when you tap its PC, skipping the library. Use the PC's menu for the library while a game runs. Off keeps the tap opening the library. |
 | Help<br>`help` | No stored default | Action | Open the bundled help: connecting a PC, pairing, controls and the stream menu, common fixes and problem reports. Works offline; each topic links to these documents for detail. |
 | Report a problem<br>`report_problem` | No stored default | Action | Preview the explanation and share a redacted event/crash report through Android's share sheet. |
 | About<br>`about_app` | No stored default | Action | View the installed app version and open Source and licenses. Tapping the version seven times shows Developer options. |

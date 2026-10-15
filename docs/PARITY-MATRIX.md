@@ -14,7 +14,7 @@ Nightjar decides from what each host reports about itself, not from its name. A 
 | PIN and one-time-PIN pairing | Certificate pairing with a cancellable flow and a persistent installation identity. | PIN: any host. One-time PIN: hosts that report device permissions (Apollo, Rubylight, Vibepollo) |
 | Device permissions | Separate list, view, launch, input, clipboard and command permissions, set by the host. Hosts that report no permissions keep their usual behavior. | Apollo, Rubylight, Vibepollo |
 | Library and artwork | Shows your apps in host order and caches artwork until the host publishes new art. | Any host |
-| Launch, resume, disconnect, quit | Checks permissions first and confirms before ending a game. | Any host |
+| Launch, resume, disconnect, quit | Checks permissions first and confirms before ending a game. Optional quick resume from the PC list and per-game quit when you disconnect. | Any host |
 | Automatic recovery | Bounded retries resume the same running app after transient transport loss. Off by default (Settings › Streaming); retries cannot launch, quit or replace an app. | Any host |
 | Remote Monitor / Input-only | View-only video and audio, or controls and feedback without starting decoders. Their reserved app tiles count as tiles only on hosts that publish them; elsewhere they are ordinary apps. Apollo's Remote Input and Terminate apps work as Input-only and Terminate on Apollo and Vibepollo. | Rubylight, Vibepollo. Input-only: also Apollo with its input-only mode on |
 | H.264 / HEVC / AV1 | Hardware decoding with automatic codec selection and per-device low-latency decoder tuning ([decoder notes](../decoder-errata.txt)). | Any host (AV1 where the host encodes it) |

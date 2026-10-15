@@ -28,7 +28,7 @@ In your host's settings or web UI, if it has per-device permissions (e.g. Apollo
 
 ## Does Disconnect close my game?
 
-Disconnect ends the local stream and leaves the host app running. Select it again to resume. Quit game requests host application exit and needs permission and confirmation.
+Disconnect ends the local stream and leaves the host app running. Select it again to resume, or turn on **Quick resume** in Settings to resume with one tap on the PC. Quit game requests host application exit and needs permission and confirmation; it is in the stream menu and in the running game's library menu. To quit a game every time you disconnect, turn on **Quit the game when I leave the stream** in that game's library menu. A lost connection never quits the game. See [leaving a game](controls.md#leaving-a-game).
 
 ## Why did changing a preset do nothing?
 

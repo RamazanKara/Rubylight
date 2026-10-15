@@ -89,6 +89,9 @@
     <string name="applist_connect_msg">Підключення до ПК…</string>
     <string name="applist_menu_resume">Продовжити</string>
     <string name="applist_menu_quit">Закрити гру</string>
+    <string name="library_quit_on_leave">Закривати гру після виходу з трансляції</string>
+    <string name="library_quit_on_leave_on">Увімк.: відключення закриває гру й на ПК</string>
+    <string name="library_quit_on_leave_off">Вимк.: після відключення гра працює на ПК далі</string>
     <string name="applist_menu_cancel">Скасувати</string>
     <string name="applist_menu_details">Переглянути деталі</string>
     <string name="applist_menu_scut">Створити ярлик</string>
@@ -184,6 +187,8 @@
     <string name="title_language_list">Мова</string>
     <string name="title_checkbox_small_icon_mode">Маленькі обкладинки</string>
     <string name="summary_checkbox_small_icon_mode">Більше ігор на екрані в бібліотеці.</string>
+    <string name="title_quick_resume">Швидке продовження</string>
+    <string name="summary_quick_resume">Натискання на ПК, на якому запущено гру, одразу повертає до гри замість відкриття бібліотеки.</string>
     <string name="title_checkbox_enable_sops">Оптимізувати налаштування гри</string>
     <string name="summary_checkbox_enable_sops">Дозволяє хосту змінювати налаштування гри для трансляції. Що саме змінюється, вирішує хост.</string>
     <string name="title_checkbox_host_audio">Відтворювати звук на ПК-хості</string>
@@ -319,6 +324,8 @@
     <string name="stream_android_arr">Android ARR: автоматичний режим. Працює з будь-яким сумісним хостом; фактичну частоту оновлення вибирає Android.</string>
     <string name="stream_android_max_refresh">Android ARR: недоступно на цій версії Android або цьому дисплеї. Запитується максимальна частота оновлення, кадри показуються в міру надходження.</string>
     <string name="stream_host_action_failed">Помилка дії хоста: %1$s</string>
+    <string name="stream_quit_on_leave_progress">Закриття %1$s на ПК…</string>
+    <string name="stream_quit_on_leave_failed">Не вдалося закрити %1$s на ПК, тому гра досі працює. %2$s</string>
     <string name="host_launch_permission_denied">Дозвольте цьому пристрою запускати застосунки в налаштуваннях або вебінтерфейсі хоста.</string>
     <string name="videoformat_pyrowave">PyroWave (потрібна підтримка хоста)</string>
     <string name="settings">Налаштування</string>

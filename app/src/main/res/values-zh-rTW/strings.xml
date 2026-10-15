@@ -89,6 +89,9 @@
     <string name="applist_connect_msg">正在連線至電腦…</string>
     <string name="applist_menu_resume">繼續</string>
     <string name="applist_menu_quit">結束遊戲</string>
+    <string name="library_quit_on_leave">離開串流時結束遊戲</string>
+    <string name="library_quit_on_leave_on">開：中斷連線時也會在電腦上結束遊戲</string>
+    <string name="library_quit_on_leave_off">關：中斷連線後遊戲會繼續在電腦上執行</string>
     <string name="applist_menu_cancel">取消</string>
     <string name="applist_menu_details">查看詳細資料</string>
     <string name="applist_menu_scut">建立捷徑</string>
@@ -184,6 +187,8 @@
     <string name="title_language_list">語言</string>
     <string name="title_checkbox_small_icon_mode">使用小型封面圖</string>
     <string name="summary_checkbox_small_icon_mode">在遊戲庫的畫面中顯示更多遊戲。</string>
+    <string name="title_quick_resume">快速繼續</string>
+    <string name="summary_quick_resume">輕觸正在執行遊戲的電腦會直接回到遊戲，而不是開啟它的遊戲庫。</string>
     <string name="title_checkbox_enable_sops">最佳化遊戲設定</string>
     <string name="summary_checkbox_enable_sops">讓主機為串流調整遊戲的設定。由主機決定要變更哪些內容。</string>
     <string name="title_checkbox_host_audio">在主機電腦上播放音訊</string>
@@ -319,6 +324,8 @@
     <string name="stream_android_arr">Android ARR：自動政策。適用於任何相容的主機；實際更新率由 Android 決定。</string>
     <string name="stream_android_max_refresh">Android ARR：這個 Android 版本或顯示器無法使用。將要求最高更新率，並在影格抵達時立即顯示。</string>
     <string name="stream_host_action_failed">主機動作失敗：%1$s</string>
+    <string name="stream_quit_on_leave_progress">正在電腦上結束 %1$s…</string>
+    <string name="stream_quit_on_leave_failed">無法在電腦上結束 %1$s，因此它仍在執行。%2$s</string>
     <string name="host_launch_permission_denied">請在主機的設定或網頁 UI 中允許這部裝置啟動應用程式。</string>
     <string name="videoformat_pyrowave">PyroWave (需要主機支援)</string>
     <string name="settings">設定</string>

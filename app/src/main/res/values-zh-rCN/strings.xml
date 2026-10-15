@@ -89,6 +89,9 @@
     <string name="applist_connect_msg">正在连接电脑…</string>
     <string name="applist_menu_resume">继续</string>
     <string name="applist_menu_quit">退出游戏</string>
+    <string name="library_quit_on_leave">离开串流时退出游戏</string>
+    <string name="library_quit_on_leave_on">开：断开连接时也会在电脑上退出游戏</string>
+    <string name="library_quit_on_leave_off">关：断开连接后游戏仍在电脑上运行</string>
     <string name="applist_menu_cancel">取消</string>
     <string name="applist_menu_details">查看详情</string>
     <string name="applist_menu_scut">创建快捷方式</string>
@@ -184,6 +187,8 @@
     <string name="title_language_list">语言</string>
     <string name="title_checkbox_small_icon_mode">使用小封面图</string>
     <string name="summary_checkbox_small_icon_mode">在游戏库中显示更多游戏。</string>
+    <string name="title_quick_resume">快速继续</string>
+    <string name="summary_quick_resume">点按正在运行游戏的电脑会直接回到游戏，而不是打开它的游戏库。</string>
     <string name="title_checkbox_enable_sops">优化游戏设置</string>
     <string name="summary_checkbox_enable_sops">允许主机为串流调整游戏的设置。具体更改由主机决定。</string>
     <string name="title_checkbox_host_audio">在主机电脑上播放音频</string>
@@ -319,6 +324,8 @@
     <string name="stream_android_arr">Android ARR：自动策略。适用于任何兼容的主机；实际刷新率由 Android 决定。</string>
     <string name="stream_android_max_refresh">Android ARR：此 Android 版本或显示屏不支持。将请求最高刷新率，并在帧到达后立即显示。</string>
     <string name="stream_host_action_failed">主机操作失败：%1$s</string>
+    <string name="stream_quit_on_leave_progress">正在电脑上退出 %1$s…</string>
+    <string name="stream_quit_on_leave_failed">无法在电脑上退出 %1$s，它仍在运行。%2$s</string>
     <string name="host_launch_permission_denied">请在主机的设置或网页界面中允许此设备启动应用。</string>
     <string name="videoformat_pyrowave">PyroWave（需要主机支持）</string>
     <string name="settings">设置</string>

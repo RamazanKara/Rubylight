@@ -89,6 +89,9 @@
     <string name="applist_connect_msg">Подключение к ПК…</string>
     <string name="applist_menu_resume">Продолжить</string>
     <string name="applist_menu_quit">Закрыть игру</string>
+    <string name="library_quit_on_leave">Закрывать игру при выходе из трансляции</string>
+    <string name="library_quit_on_leave_on">Вкл.: при отключении игра закрывается и на ПК</string>
+    <string name="library_quit_on_leave_off">Выкл.: при отключении игра продолжает работать на ПК</string>
     <string name="applist_menu_cancel">Отмена</string>
     <string name="applist_menu_details">Подробности</string>
     <string name="applist_menu_scut">Создать ярлык</string>
@@ -184,6 +187,8 @@
     <string name="title_language_list">Язык</string>
     <string name="title_checkbox_small_icon_mode">Маленькие обложки</string>
     <string name="summary_checkbox_small_icon_mode">Больше игр на экране библиотеки.</string>
+    <string name="title_quick_resume">Быстрое продолжение</string>
+    <string name="summary_quick_resume">Нажатие на ПК, на котором запущена игра, сразу возвращает в игру вместо открытия библиотеки.</string>
     <string name="title_checkbox_enable_sops">Оптимизировать настройки игр</string>
     <string name="summary_checkbox_enable_sops">Хост может менять настройки игры под трансляцию. Что менять, решает хост.</string>
     <string name="title_checkbox_host_audio">Воспроизводить звук на ПК</string>
@@ -319,6 +324,8 @@
     <string name="stream_android_arr">Android ARR: автоматический режим. Работает с любым совместимым хостом; фактическую частоту обновления выбирает Android.</string>
     <string name="stream_android_max_refresh">Android ARR: недоступно в этой версии Android или на этом дисплее. Запрашивается максимальная частота, кадры показываются по мере поступления.</string>
     <string name="stream_host_action_failed">Ошибка действия на хосте: %1$s</string>
+    <string name="stream_quit_on_leave_progress">Закрытие %1$s на ПК…</string>
+    <string name="stream_quit_on_leave_failed">Не удалось закрыть %1$s на ПК, игра продолжает работать. %2$s</string>
     <string name="host_launch_permission_denied">Разрешите этому устройству запускать приложения в настройках или веб-интерфейсе хоста.</string>
     <string name="videoformat_pyrowave">PyroWave (нужна поддержка хоста)</string>
     <string name="settings">Настройки</string>

@@ -89,6 +89,9 @@
     <string name="applist_connect_msg">Bilgisayara bağlanılıyor…</string>
     <string name="applist_menu_resume">Sürdür</string>
     <string name="applist_menu_quit">Oyundan çık</string>
+    <string name="library_quit_on_leave">Yayından ayrılınca oyundan çık</string>
+    <string name="library_quit_on_leave_on">Açık: Bağlantıyı kesmek bilgisayardaki oyundan da çıkar</string>
+    <string name="library_quit_on_leave_off">Kapalı: Bağlantıyı kesmek oyunu bilgisayarda çalışır bırakır</string>
     <string name="applist_menu_cancel">İptal</string>
     <string name="applist_menu_details">Ayrıntıları göster</string>
     <string name="applist_menu_scut">Kısayol oluştur</string>
@@ -184,6 +187,8 @@
     <string name="title_language_list">Dil</string>
     <string name="title_checkbox_small_icon_mode">Küçük kapak resmi kullan</string>
     <string name="summary_checkbox_small_icon_mode">Kitaplıkta ekrana daha fazla oyun sığdırır.</string>
+    <string name="title_quick_resume">Hızlı sürdürme</string>
+    <string name="summary_quick_resume">Oyun çalıştıran bir bilgisayara dokunmak, kitaplığını açmak yerine sizi doğrudan oyuna geri götürür.</string>
     <string name="title_checkbox_enable_sops">Oyun ayarlarını optimize et</string>
     <string name="summary_checkbox_enable_sops">Ana bilgisayarın bir oyunun ayarlarını yayına göre düzenlemesine izin verir. Neyin değişeceğine ana bilgisayar karar verir.</string>
     <string name="title_checkbox_host_audio">Sesi ana bilgisayarda çal</string>
@@ -319,6 +324,8 @@
     <string name="stream_android_arr">Android ARR: otomatik politika. Tüm uyumlu ana bilgisayarlarla çalışır; gerçek yenileme hızını Android seçer.</string>
     <string name="stream_android_max_refresh">Android ARR: bu Android sürümünde veya ekranda kullanılamıyor. En yüksek yenileme hızı isteniyor ve kareler geldikçe gösteriliyor.</string>
     <string name="stream_host_action_failed">Ana bilgisayar işlemi başarısız oldu: %1$s</string>
+    <string name="stream_quit_on_leave_progress">Bilgisayarda %1$s oyunundan çıkılıyor…</string>
+    <string name="stream_quit_on_leave_failed">Bilgisayarda %1$s oyunundan çıkılamadı, bu yüzden hâlâ çalışıyor. %2$s</string>
     <string name="host_launch_permission_denied">Ana bilgisayarınızın ayarlarında veya web arayüzünde bu cihazın uygulama başlatmasına izin verin.</string>
     <string name="videoformat_pyrowave">PyroWave (ana bilgisayar desteği gerekir)</string>
     <string name="settings">Ayarlar</string>

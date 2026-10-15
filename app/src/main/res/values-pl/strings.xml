@@ -89,6 +89,9 @@
     <string name="applist_connect_msg">Łączenie z komputerem…</string>
     <string name="applist_menu_resume">Wznów</string>
     <string name="applist_menu_quit">Zamknij grę</string>
+    <string name="library_quit_on_leave">Zamykaj grę po opuszczeniu strumienia</string>
+    <string name="library_quit_on_leave_on">Wł.: rozłączenie zamyka grę także na komputerze</string>
+    <string name="library_quit_on_leave_off">Wył.: po rozłączeniu gra działa dalej na komputerze</string>
     <string name="applist_menu_cancel">Anuluj</string>
     <string name="applist_menu_details">Pokaż szczegóły</string>
     <string name="applist_menu_scut">Utwórz skrót</string>
@@ -184,6 +187,8 @@
     <string name="title_language_list">Język</string>
     <string name="title_checkbox_small_icon_mode">Małe okładki</string>
     <string name="summary_checkbox_small_icon_mode">Mieści więcej gier na ekranie biblioteki.</string>
+    <string name="title_quick_resume">Szybkie wznawianie</string>
+    <string name="summary_quick_resume">Dotknięcie komputera, na którym działa gra, od razu przenosi do gry zamiast otwierać jego bibliotekę.</string>
     <string name="title_checkbox_enable_sops">Optymalizuj ustawienia gry</string>
     <string name="summary_checkbox_enable_sops">Pozwala hostowi dostosować ustawienia gry do strumienia. Host decyduje, co zmienić.</string>
     <string name="title_checkbox_host_audio">Odtwarzaj dźwięk na komputerze</string>
@@ -319,6 +324,8 @@
     <string name="stream_android_arr">ARR Androida: zasada automatyczna. Działa z każdym zgodnym hostem; Android wybiera rzeczywistą częstotliwość odświeżania.</string>
     <string name="stream_android_max_refresh">ARR Androida: niedostępne w tej wersji Androida lub na tym ekranie. Żądanie maksymalnego odświeżania i wyświetlanie klatek od razu po odebraniu.</string>
     <string name="stream_host_action_failed">Działanie hosta nie powiodło się: %1$s</string>
+    <string name="stream_quit_on_leave_progress">Zamykanie %1$s na komputerze…</string>
+    <string name="stream_quit_on_leave_failed">Nie udało się zamknąć %1$s na komputerze, więc nadal działa. %2$s</string>
     <string name="host_launch_permission_denied">Zezwól temu urządzeniu na uruchamianie aplikacji w ustawieniach lub interfejsie WWW hosta.</string>
     <string name="videoformat_pyrowave">PyroWave (wymaga obsługi przez host)</string>
     <string name="settings">Ustawienia</string>

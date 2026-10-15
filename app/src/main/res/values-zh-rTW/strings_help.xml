@@ -7,7 +7,7 @@
     <string name="help_pairing_body">輕觸電腦，並讓 PIN 碼保持顯示在畫面上。在電腦上主機的設定或網頁中輸入該 PIN 碼。如果主機有個別裝置權限，請允許這部裝置列出及啟動應用程式。</string>
     <string name="help_pairing_link">配對指南</string>
     <string name="help_controls_title">控制方式和串流選單</string>
-    <string name="help_controls_body">串流期間，按「返回」即可開啟串流選單：鍵盤、輸入模式、覆蓋層、位元速率和中斷連線。使用控制器時，請同時按下 Start、Back、LB 和 RB。中斷連線後，遊戲會繼續在電腦上執行，讓你之後可以接著玩。</string>
+    <string name="help_controls_body">串流期間，按「返回」即可開啟串流選單：鍵盤、輸入模式、覆蓋層、位元速率和中斷連線。使用控制器時，請同時按下 Start、Back、LB 和 RB。中斷連線後，遊戲會繼續在電腦上執行，讓你之後可以接著玩；除非你在該遊戲的遊戲庫選單中開啟了「離開串流時結束遊戲」。</string>
     <string name="help_controls_link">控制指南</string>
     <string name="help_problems_title">修正常見問題</string>
     <string name="help_problems_body"><b>沒有畫面：</b>請嘗試使用 H.264 和 720p，並關閉 HDR 和升頻。\n\n<b>畫面卡頓：</b>請降低位元速率、以網路線連接電腦，或靠近路由器。\n\n<b>輸入延遲：</b>請開啟效能覆蓋層查看延遲來源，並保持開啟「低延遲解碼」。\n\n<b>沒有聲音：</b>請選擇「立體聲」，檢查電腦的音訊輸出，然後重新連線。</string>

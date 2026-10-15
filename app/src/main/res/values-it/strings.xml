@@ -89,6 +89,9 @@
     <string name="applist_connect_msg">Connessione al PC…</string>
     <string name="applist_menu_resume">Riprendi</string>
     <string name="applist_menu_quit">Chiudi gioco</string>
+    <string name="library_quit_on_leave">Chiudi il gioco quando lascio lo stream</string>
+    <string name="library_quit_on_leave_on">Attivo: la disconnessione chiude il gioco anche sul PC</string>
+    <string name="library_quit_on_leave_off">Disattivo: la disconnessione lascia il gioco in esecuzione sul PC</string>
     <string name="applist_menu_cancel">Annulla</string>
     <string name="applist_menu_details">Visualizza dettagli</string>
     <string name="applist_menu_scut">Crea scorciatoia</string>
@@ -184,6 +187,8 @@
     <string name="title_language_list">Lingua</string>
     <string name="title_checkbox_small_icon_mode">Usa copertine piccole</string>
     <string name="summary_checkbox_small_icon_mode">Mostra più giochi sullo schermo nella libreria.</string>
+    <string name="title_quick_resume">Ripresa rapida</string>
+    <string name="summary_quick_resume">Toccando un PC su cui è in esecuzione un gioco torni direttamente al gioco invece di aprirne la libreria.</string>
     <string name="title_checkbox_enable_sops">Ottimizza impostazioni dei giochi</string>
     <string name="summary_checkbox_enable_sops">Consente all’host di adattare le impostazioni di un gioco allo stream. È l’host a decidere cosa cambia.</string>
     <string name="title_checkbox_host_audio">Riproduci l’audio sul PC host</string>
@@ -319,6 +324,8 @@
     <string name="stream_android_arr">ARR di Android: criterio automatico. Funziona con qualsiasi host compatibile; Android sceglie la frequenza di aggiornamento effettiva.</string>
     <string name="stream_android_max_refresh">ARR di Android: non disponibile su questa versione di Android o su questo display. Viene richiesta la frequenza di aggiornamento massima e i frame vengono mostrati appena arrivano.</string>
     <string name="stream_host_action_failed">Azione dell’host non riuscita: %1$s</string>
+    <string name="stream_quit_on_leave_progress">Chiusura di %1$s sul PC…</string>
+    <string name="stream_quit_on_leave_failed">Impossibile chiudere %1$s sul PC, quindi è ancora in esecuzione. %2$s</string>
     <string name="host_launch_permission_denied">Consenti a questo dispositivo di avviare app nelle impostazioni o nell’interfaccia web dell’host.</string>
     <string name="videoformat_pyrowave">PyroWave (richiede supporto dell’host)</string>
     <string name="settings">Impostazioni</string>

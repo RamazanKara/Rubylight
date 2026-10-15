@@ -7,7 +7,7 @@
     <string name="help_pairing_body">点按电脑，并让 PIN 码保持显示在屏幕上。在电脑上主机的设置或网页中输入该 PIN 码。如果主机支持按设备设置权限，请允许此设备列出和启动应用。</string>
     <string name="help_pairing_link">配对指南</string>
     <string name="help_controls_title">控制方式和串流菜单</string>
-    <string name="help_controls_body">串流期间，按“返回”可打开串流菜单：键盘、输入模式、叠加层、码率和断开连接。使用手柄时，同时按下 Start、Back、LB 和 RB。断开连接后游戏仍会在电脑上运行，你可以稍后继续。</string>
+    <string name="help_controls_body">串流期间，按“返回”可打开串流菜单：键盘、输入模式、叠加层、码率和断开连接。使用手柄时，同时按下 Start、Back、LB 和 RB。断开连接后游戏仍会在电脑上运行，你可以稍后继续，除非你在该游戏的游戏库菜单中开启了“离开串流时退出游戏”。</string>
     <string name="help_controls_link">控制指南</string>
     <string name="help_problems_title">解决常见问题</string>
     <string name="help_problems_body"><b>没有画面：</b>请尝试 H.264、720p，并关闭 HDR 和放大。\n\n<b>卡顿：</b>请降低码率、用网线连接电脑，或靠近路由器。\n\n<b>输入延迟：</b>请开启性能叠加层查看延迟来源，并保持开启低延迟解码。\n\n<b>没有声音：</b>请选择立体声，检查电脑的音频输出，然后重新连接。</string>

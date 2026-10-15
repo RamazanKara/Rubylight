@@ -89,6 +89,9 @@
     <string name="applist_connect_msg">Đang kết nối với PC…</string>
     <string name="applist_menu_resume">Tiếp tục</string>
     <string name="applist_menu_quit">Thoát trò chơi</string>
+    <string name="library_quit_on_leave">Thoát trò chơi khi tôi rời stream</string>
+    <string name="library_quit_on_leave_on">Bật: Ngắt kết nối cũng thoát trò chơi trên PC</string>
+    <string name="library_quit_on_leave_off">Tắt: Ngắt kết nối để trò chơi tiếp tục chạy trên PC</string>
     <string name="applist_menu_cancel">Hủy</string>
     <string name="applist_menu_details">Xem chi tiết</string>
     <string name="applist_menu_scut">Tạo lối tắt</string>
@@ -184,6 +187,8 @@
     <string name="title_language_list">Ngôn ngữ</string>
     <string name="title_checkbox_small_icon_mode">Dùng ảnh bìa nhỏ</string>
     <string name="summary_checkbox_small_icon_mode">Hiển thị nhiều trò chơi hơn trên màn hình thư viện.</string>
+    <string name="title_quick_resume">Tiếp tục nhanh</string>
+    <string name="summary_quick_resume">Chạm vào PC đang chạy trò chơi sẽ đưa bạn thẳng vào lại trò chơi thay vì mở thư viện của PC đó.</string>
     <string name="title_checkbox_enable_sops">Tối ưu hóa cài đặt trò chơi</string>
     <string name="summary_checkbox_enable_sops">Cho phép máy chủ điều chỉnh cài đặt của trò chơi cho stream. Máy chủ quyết định những gì thay đổi.</string>
     <string name="title_checkbox_host_audio">Phát âm thanh trên PC chủ</string>
@@ -319,6 +324,8 @@
     <string name="stream_android_arr">Android ARR: chính sách tự động. Hoạt động với mọi máy chủ tương thích; Android chọn tần số quét thực tế.</string>
     <string name="stream_android_max_refresh">Android ARR: không khả dụng trên phiên bản Android hoặc màn hình này. Đang yêu cầu tần số quét tối đa và hiển thị khung hình ngay khi nhận được.</string>
     <string name="stream_host_action_failed">Thao tác trên máy chủ thất bại: %1$s</string>
+    <string name="stream_quit_on_leave_progress">Đang thoát %1$s trên PC…</string>
+    <string name="stream_quit_on_leave_failed">Không thể thoát %1$s trên PC nên trò chơi vẫn đang chạy. %2$s</string>
     <string name="host_launch_permission_denied">Hãy cho phép thiết bị này mở ứng dụng trong cài đặt hoặc giao diện web của máy chủ.</string>
     <string name="videoformat_pyrowave">PyroWave (cần máy chủ hỗ trợ)</string>
     <string name="settings">Cài đặt</string>

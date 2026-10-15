@@ -89,6 +89,9 @@
     <string name="applist_connect_msg">Connexion au PC…</string>
     <string name="applist_menu_resume">Reprendre</string>
     <string name="applist_menu_quit">Quitter le jeu</string>
+    <string name="library_quit_on_leave">Quitter le jeu quand je quitte le stream</string>
+    <string name="library_quit_on_leave_on">Activé : la déconnexion quitte aussi le jeu sur le PC</string>
+    <string name="library_quit_on_leave_off">Désactivé : la déconnexion laisse le jeu tourner sur le PC</string>
     <string name="applist_menu_cancel">Annuler</string>
     <string name="applist_menu_details">Voir les détails</string>
     <string name="applist_menu_scut">Créer un raccourci</string>
@@ -184,6 +187,8 @@
     <string name="title_language_list">Langue</string>
     <string name="title_checkbox_small_icon_mode">Utiliser de petites jaquettes</string>
     <string name="summary_checkbox_small_icon_mode">Affiche plus de jeux à l’écran dans la bibliothèque.</string>
+    <string name="title_quick_resume">Reprise rapide</string>
+    <string name="summary_quick_resume">Toucher un PC sur lequel un jeu tourne vous ramène directement dans le jeu au lieu d’ouvrir sa bibliothèque.</string>
     <string name="title_checkbox_enable_sops">Optimiser les paramètres du jeu</string>
     <string name="summary_checkbox_enable_sops">Laisse l’hôte ajuster les paramètres d’un jeu pour le stream. L’hôte décide de ce qui change.</string>
     <string name="title_checkbox_host_audio">Lire l’audio sur le PC hôte</string>
@@ -319,6 +324,8 @@
     <string name="stream_android_arr">ARR Android : règle automatique. Fonctionne avec tout hôte compatible ; Android choisit la fréquence de rafraîchissement réelle.</string>
     <string name="stream_android_max_refresh">ARR Android : indisponible sur cette version d’Android ou cet écran. Demande du rafraîchissement maximal et affichage des images dès leur arrivée.</string>
     <string name="stream_host_action_failed">Échec de l’action sur l’hôte : %1$s</string>
+    <string name="stream_quit_on_leave_progress">Fermeture de %1$s sur le PC…</string>
+    <string name="stream_quit_on_leave_failed">Impossible de quitter %1$s sur le PC, il tourne donc toujours. %2$s</string>
     <string name="host_launch_permission_denied">Autorisez cet appareil à lancer des applications dans les paramètres ou l’interface Web de votre hôte.</string>
     <string name="videoformat_pyrowave">PyroWave (prise en charge par l’hôte requise)</string>
     <string name="settings">Paramètres</string>

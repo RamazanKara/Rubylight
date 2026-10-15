@@ -7,7 +7,7 @@
     <string name="help_pairing_body">Toque no PC e mantenha o PIN na tela. Insira esse PIN nas configurações ou na página web do host no PC. Se o host tiver permissões por dispositivo, permita que este dispositivo liste e inicie apps.</string>
     <string name="help_pairing_link">Guia de pareamento</string>
     <string name="help_controls_title">Controles e menu da transmissão</string>
-    <string name="help_controls_body">Durante uma transmissão, pressione Voltar para abrir o menu da transmissão: teclado, modo de entrada, sobreposição, taxa de bits e desconectar. Em um controle, pressione Start, Back, LB e RB juntos. Desconectar mantém o jogo em execução no PC, para você continuar depois.</string>
+    <string name="help_controls_body">Durante uma transmissão, pressione Voltar para abrir o menu da transmissão: teclado, modo de entrada, sobreposição, taxa de bits e desconectar. Em um controle, pressione Start, Back, LB e RB juntos. Desconectar mantém o jogo em execução no PC, para você continuar depois, a menos que você tenha ativado “Encerrar o jogo ao sair da transmissão” no menu desse jogo na biblioteca.</string>
     <string name="help_controls_link">Guia de controles</string>
     <string name="help_problems_title">Corrigir problemas comuns</string>
     <string name="help_problems_body"><b>Sem vídeo:</b> tente H.264 em 720p com HDR e upscaling desativados.\n\n<b>Travamentos:</b> diminua a taxa de bits, conecte o PC por cabo ou fique mais perto do roteador.\n\n<b>Atraso na entrada:</b> ative a sobreposição de desempenho para ver de onde vem o atraso e mantenha a Decodificação de baixa latência ativada.\n\n<b>Sem som:</b> escolha Estéreo, verifique a saída de áudio do PC e reconecte.</string>

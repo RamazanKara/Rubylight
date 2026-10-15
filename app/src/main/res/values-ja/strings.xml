@@ -89,6 +89,9 @@
     <string name="applist_connect_msg">PC に接続しています…</string>
     <string name="applist_menu_resume">再開</string>
     <string name="applist_menu_quit">ゲームを終了</string>
+    <string name="library_quit_on_leave">ストリームを離れるときにゲームを終了</string>
+    <string name="library_quit_on_leave_on">オン: 切断すると PC 上のゲームも終了します</string>
+    <string name="library_quit_on_leave_off">オフ: 切断してもゲームは PC 上で実行され続けます</string>
     <string name="applist_menu_cancel">キャンセル</string>
     <string name="applist_menu_details">詳細を表示</string>
     <string name="applist_menu_scut">ショートカットを作成</string>
@@ -184,6 +187,8 @@
     <string name="title_language_list">言語</string>
     <string name="title_checkbox_small_icon_mode">小さいボックスアートを使用</string>
     <string name="summary_checkbox_small_icon_mode">ライブラリの画面により多くのゲームを表示します。</string>
+    <string name="title_quick_resume">クイック再開</string>
+    <string name="summary_quick_resume">ゲームを実行中の PC をタップすると、ライブラリを開かずにそのままゲームに戻ります。</string>
     <string name="title_checkbox_enable_sops">ゲーム設定の最適化</string>
     <string name="summary_checkbox_enable_sops">ストリーム用にホストがゲームの設定を調整できるようにします。変更内容はホストが決定します。</string>
     <string name="title_checkbox_host_audio">ホスト PC で音声を再生</string>
@@ -319,6 +324,8 @@
     <string name="stream_android_arr">Android ARR: 自動ポリシー。互換性のあるすべてのホストで動作し、実際のリフレッシュレートは Android が選択します。</string>
     <string name="stream_android_max_refresh">Android ARR: この Android バージョンまたはディスプレイでは利用できません。最大リフレッシュレートを要求し、フレームを受信次第表示します。</string>
     <string name="stream_host_action_failed">ホストの操作に失敗しました: %1$s</string>
+    <string name="stream_quit_on_leave_progress">PC 上の %1$s を終了しています…</string>
+    <string name="stream_quit_on_leave_failed">PC 上の %1$s を終了できなかったため、まだ実行中です。%2$s</string>
     <string name="host_launch_permission_denied">ホストの設定またはウェブ UI で、このデバイスにアプリの起動を許可してください。</string>
     <string name="videoformat_pyrowave">PyroWave（ホストの対応が必要）</string>
     <string name="settings">設定</string>

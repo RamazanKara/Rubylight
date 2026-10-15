@@ -1414,6 +1414,12 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                 result = initializeDecoder(false);
             }
         }
+        // The host may stream a smaller size than was asked for (4K to a host without 4K is
+        // negotiated down to 1080p); scaling and touch follow the size the decoder gets.
+        StreamSizeListener listener = streamSizeListener;
+        if (listener != null) {
+            listener.onStreamSizeChanged(width, height);
+        }
         if (result == 0) {
             if (prefs.enableYuv444 && (format & MoonBridge.VIDEO_FORMAT_MASK_YUV444) == 0) {
                 activity.runOnUiThread(() -> Toast.makeText(context, R.string.yuv444_fallback, Toast.LENGTH_LONG).show());

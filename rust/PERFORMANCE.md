@@ -6329,9 +6329,45 @@ before any host stamp and is not explained yet.
 at 60 fps (first pass), so the 2x default stays.
 
 Reproduce with `cases.ps1` (`-LabelList`, labels `CODEC[-hdr]-FPS-CAPTURE[-1x]`),
-`run.ps1`, `collect.py` and `compare.py` in `C:\srcutterpollo-release\idd-push`;
+`run.ps1`, `collect.py` and `compare.py` in `C:\src\butterpollo-release\idd-push`;
 `idd_push=trace` in `log-extra.txt` logs the driver's per-frame times. Raw runs
 `runs3`, `runs4`, `runs-diag-*`; summaries `matrix3.jsonl`, `matrix4.jsonl`.
+
+### Later that day: driver only, and what else was tried
+
+The host now creates every virtual display with this driver (libvirtualdisplay
+and its lease protocol are gone), so `capture = auto` always takes the frame
+push on them. Three host builds on the same driver, idd-push only, HEVC and
+AV1 HDR at 60/120/240 fps, two rounds in alternating order (`runs-final`,
+`matrix-final.jsonl`): the build before the refactor, the refactor, and the
+refactor with the capture thread kept at its MMCSS boost. The main monitor had
+been switched from 5120x1440 to 2560x1440 since the morning, and render to
+received was about 13 ms for every build (8 ms in the morning), so only the
+differences within the run count; they are about 0.3 ms of noise.
+
+| Render to received, mean ms | 60 fps | 120 fps | 240 fps |
+| --- | ---: | ---: | ---: |
+| HEVC, before the refactor | 14.18 | 13.22 | 13.31 |
+| HEVC, refactor | 13.48 | 12.98 | 12.90 |
+| AV1 HDR, before the refactor | 13.45 | 12.96 | 13.15 |
+| AV1 HDR, refactor | 14.00 | 13.19 | 12.89 |
+
+The refactor is 0.3-0.45 ms faster at 240 fps and for HEVC at 60 and 120 fps,
+and 0.2-0.55 ms slower for AV1 HDR at 60 and 120 fps. Three more ideas did not
+pay and were dropped:
+
+- **The capture thread at its MMCSS boost** (as the input thread is): the
+  handoff from the driver's publish to the host taking the frame stayed at
+  130-155 us (119-139 us without it), and at 60 fps the claim wait and p95
+  grew.
+- **Waking the host before the driver's flush**: handoff 132-179 us against
+  127-141 us.
+- **Converting in the driver** into the encoder's NV12/P010 (bit-exact with
+  the host's compute conversion): AMF blocks 1-3 ms in `SubmitInput` on
+  textures opened from the ring's shared handle, and with a copy into the
+  converter's own texture first, the conversion runs on the driver's graphics
+  queue behind DWM instead of the host's compute queue, 0.3-1.3 ms later at
+  60 and 120 fps. The ring stays a copy the host converts in place.
 
 ## Hardware covered
 

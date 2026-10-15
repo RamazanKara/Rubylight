@@ -17,9 +17,9 @@ Still in Alpha. Expect Bugs to happen
 </p>
 
 <p align="center">
-  <img src="docs/assets/shots/pc-list.png" width="160" alt="Nightjar's computers list showing online, offline and unpaired PCs">
-  <img src="docs/assets/shots/library.png" width="160" alt="Nightjar's game library with cover art and a running game">
-  <img src="https://raw.githubusercontent.com/RamazanKara/nightjar-android/1ffce8285cca6b54c8da6aca64d1123fd3812ef9/docs/assets/shots/stream.png" width="160" alt="Close-up of a Nightjar stream with the compact one-line performance overlay">
+  <img src="docs/assets/shots/pc-list.png" width="160" alt="Nightjar's PCs list: Living-room PC playing Racing Game, Studio PC not paired and Laptop offline">
+  <img src="docs/assets/shots/library.png" width="160" alt="Living-room PC's game library in Nightjar: ten games with cover art, Racing Game marked Running">
+  <img src="https://raw.githubusercontent.com/RamazanKara/nightjar-android/1ffce8285cca6b54c8da6aca64d1123fd3812ef9/docs/assets/shots/stream.png" width="160" alt="Close-up of a Nightjar stream's top-left corner, where the one-line overlay shows a green health dot, 119.9 FPS and 8 ms RTT">
   <img src="docs/assets/shots/pip.png" width="160" alt="A Nightjar stream floating over the home screen in a picture-in-picture window">
 </p>
 

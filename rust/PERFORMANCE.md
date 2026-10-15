@@ -6368,6 +6368,15 @@ pay and were dropped:
   converter's own texture first, the conversion runs on the driver's graphics
   queue behind DWM instead of the host's compute queue, 0.3-1.3 ms later at
   60 and 120 fps. The ring stays a copy the host converts in place.
+- **A faster virtual display** to shorten DWM's wait for its vblank before the
+  driver acquires: four times the stream rate (`enabled`) and the fixed
+  1000 Hz (`vrr`) against the 2x default, HEVC, one 8 s round each
+  (`runs-refresh`, `cases-refresh.ps1`). 4x was within 0.15 ms of 2x
+  (60 fps 13.03 against 13.15 ms render to received, 120 fps 12.71 against
+  12.72); 1000 Hz was no faster at 120 fps and worse at 60 fps (14.28 ms, p95
+  20.8 against 13.6 ms, the claim wait 0.65 against 0.08 ms). The 240 fps
+  cases delivered 120 fps in this run and agree with the 120 fps ones. The 2x
+  default stays.
 
 ## Hardware covered
 

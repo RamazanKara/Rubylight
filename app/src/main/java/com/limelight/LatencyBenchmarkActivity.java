@@ -1,5 +1,8 @@
 package com.limelight;
 
+import android.content.ClipData;
+import android.content.ClipboardManager;
+import android.content.Intent;
 import android.media.AudioManager;
 import android.os.Build;
 import android.os.Bundle;
@@ -13,9 +16,14 @@ import android.view.MotionEvent;
 import android.widget.Button;
 import android.widget.FrameLayout;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
 
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
+import com.limelight.binding.video.DecoderBenchmark;
+import com.limelight.preferences.GlPreferences;
+import com.limelight.utils.DeviceResults;
 import com.limelight.utils.LatencyBenchmarkStats;
 import com.limelight.ui.TopAppBar;
 import com.limelight.utils.UiHelper;
@@ -24,6 +32,7 @@ public class LatencyBenchmarkActivity extends AppCompatActivity implements Chore
     private final Handler handler = new Handler(Looper.getMainLooper());
     private LatencyBenchmarkStats stats = new LatencyBenchmarkStats();
     private boolean running;
+    private boolean measured;
     private long nextTimerMs;
     private long lastUpdateMs;
     private TextView results;
@@ -55,6 +64,7 @@ public class LatencyBenchmarkActivity extends AppCompatActivity implements Chore
             if (running) stopTest();
             else startTest();
         });
+        benchmark.findViewById(R.id.benchmark_share).setOnClickListener(v -> showShareDialog());
         UiHelper.notifyNewRootView(this);
         showResults();
     }
@@ -62,6 +72,7 @@ public class LatencyBenchmarkActivity extends AppCompatActivity implements Chore
     private void startTest() {
         stats = new LatencyBenchmarkStats();
         running = true;
+        measured = true;
         start.setText(R.string.latency_benchmark_stop);
         lastUpdateMs = SystemClock.uptimeMillis();
         nextTimerMs = lastUpdateMs + 100;
@@ -107,14 +118,20 @@ public class LatencyBenchmarkActivity extends AppCompatActivity implements Chore
         return super.dispatchKeyEvent(event);
     }
 
-    private void showResults() {
+    private float panelHz() {
         Display display = getWindowManager().getDefaultDisplay();
-        float panelHz = Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ?
+        return Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ?
                 display.getMode().getRefreshRate() : display.getRefreshRate();
-        StringBuilder text = new StringBuilder(getString(R.string.latency_benchmark_display, panelHz));
-        AudioManager audio = (AudioManager) getSystemService(AUDIO_SERVICE);
-        String rate = audio.getProperty(AudioManager.PROPERTY_OUTPUT_SAMPLE_RATE);
-        String burst = audio.getProperty(AudioManager.PROPERTY_OUTPUT_FRAMES_PER_BUFFER);
+    }
+
+    private String audioProperty(String name) {
+        return ((AudioManager) getSystemService(AUDIO_SERVICE)).getProperty(name);
+    }
+
+    private void showResults() {
+        StringBuilder text = new StringBuilder(getString(R.string.latency_benchmark_display, panelHz()));
+        String rate = audioProperty(AudioManager.PROPERTY_OUTPUT_SAMPLE_RATE);
+        String burst = audioProperty(AudioManager.PROPERTY_OUTPUT_FRAMES_PER_BUFFER);
         String unknown = getString(R.string.latency_unavailable);
         text.append('\n').append(getString(R.string.latency_benchmark_audio,
                 rate == null ? unknown : rate, burst == null ? unknown : burst));
@@ -127,6 +144,58 @@ public class LatencyBenchmarkActivity extends AppCompatActivity implements Chore
                     summary[1], summary[2], summary[3], (int) summary[0]));
         }
         results.setText(text);
+    }
+
+    private String exportResults() {
+        DeviceResults results = new DeviceResults();
+        results.appVersion = BuildConfig.VERSION_NAME;
+        results.appBuild = BuildConfig.VERSION_CODE;
+        results.manufacturer = Build.MANUFACTURER;
+        results.model = Build.MODEL;
+        results.codename = Build.DEVICE;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            results.socManufacturer = Build.SOC_MANUFACTURER;
+            results.socModel = Build.SOC_MODEL;
+        }
+        results.hardware = Build.HARDWARE;
+        results.board = Build.BOARD;
+        results.androidRelease = Build.VERSION.RELEASE;
+        results.sdk = Build.VERSION.SDK_INT;
+        results.gpu = GlPreferences.readPreferences(this).glRenderer;
+        DecoderBenchmark.addTo(this, results);
+        if (measured) {
+            DeviceResults.Latency latency = new DeviceResults.Latency();
+            latency.panelHz = panelHz();
+            latency.audioSampleRate = DeviceResults.Latency.audioProperty(
+                    audioProperty(AudioManager.PROPERTY_OUTPUT_SAMPLE_RATE));
+            latency.audioFramesPerBuffer = DeviceResults.Latency.audioProperty(
+                    audioProperty(AudioManager.PROPERTY_OUTPUT_FRAMES_PER_BUFFER));
+            for (int metric = 0; metric < latency.metrics.length; metric++) {
+                latency.metrics[metric] = stats.summary(metric);
+            }
+            results.latency = latency;
+        }
+        return results.toJson();
+    }
+
+    private void showShareDialog() {
+        String json = exportResults();
+        UiHelper.showDialog(this, new MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.latency_benchmark_share_title)
+                .setMessage(getString(R.string.latency_benchmark_share_message) + "\n\n" + json)
+                .setNegativeButton(android.R.string.cancel, null)
+                .setNeutralButton(android.R.string.copy, (dialog, which) -> {
+                    ClipboardManager clipboard = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+                    clipboard.setPrimaryClip(ClipData.newPlainText(getString(R.string.latency_benchmark_share_title), json));
+                    Toast.makeText(this, R.string.latency_benchmark_copied, Toast.LENGTH_SHORT).show();
+                })
+                .setPositiveButton(R.string.latency_benchmark_share, (dialog, which) -> {
+                    Intent intent = new Intent(Intent.ACTION_SEND).setType("text/plain")
+                            .putExtra(Intent.EXTRA_SUBJECT, getString(R.string.latency_benchmark_share_title))
+                            .putExtra(Intent.EXTRA_TEXT, json);
+                    startActivity(Intent.createChooser(intent, getString(R.string.latency_benchmark_share)));
+                })
+                .create());
     }
 
     @Override protected void onPause() {

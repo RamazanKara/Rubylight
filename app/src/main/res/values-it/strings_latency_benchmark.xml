@@ -15,4 +15,8 @@
     <string name="latency_test_running">Misurazione in corso… mostra un desktop fermo con il puntatore del mouse e non toccare nulla per qualche secondo.</string>
     <string name="latency_test_result">Dall’input allo schermo: %1$.1f ms tipico, %2$.1f ms migliore, %3$.1f ms nel 10%% più lento (%4$d campioni).\n\nMisurato dal momento in cui questa app invia un piccolo movimento del mouse fino a quando Android mostra il frame di risposta dell’host. Include rete, acquisizione e codifica sull’host, decodifica e visualizzazione. Il tuo dito e il ritardo proprio del pannello non sono inclusi.</string>
     <string name="latency_test_failed">Impossibile misurare. L’host ha continuato a inviare frame o non ha risposto al movimento del mouse. Mostra un desktop fermo con il puntatore del mouse visibile, chiudi giochi e video e riprova.</string>
+    <string name="latency_benchmark_share">Condividi risultati</string>
+    <string name="latency_benchmark_share_title">Risultati del dispositivo</string>
+    <string name="latency_benchmark_share_message">Nightjar non lo invia mai da solo. Il testo riporta questo dispositivo, il benchmark del decoder e l’ultimo test di questa schermata, senza nomi dei PC, indirizzi, numeri di serie o dati dell’account. Condividilo o copialo per aggiungere questo dispositivo alla tabella dei risultati.</string>
+    <string name="latency_benchmark_copied">Risultati copiati</string>
 </resources>

@@ -13,6 +13,12 @@
             android:layout_width="match_parent" android:layout_height="wrap_content"
             android:layout_marginTop="@dimen/space_l" android:minHeight="@dimen/touch_target"
             android:text="@string/latency_benchmark_start" />
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/benchmark_share"
+            style="@style/Widget.Nightjar.Button.Tonal"
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/space_s" android:minHeight="@dimen/touch_target"
+            android:text="@string/latency_benchmark_share" />
         <TextView android:id="@+id/benchmark_results"
             android:layout_width="match_parent" android:layout_height="wrap_content"
             android:layout_marginTop="@dimen/space_l" android:textIsSelectable="true"

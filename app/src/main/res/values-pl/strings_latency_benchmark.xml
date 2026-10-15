@@ -15,4 +15,8 @@
     <string name="latency_test_running">Pomiar… pokaż nieruchomy pulpit z kursorem myszy i nie dotykaj niczego przez kilka sekund.</string>
     <string name="latency_test_result">Od sterowania do ekranu: typowo %1$.1f ms, najlepiej %2$.1f ms, najwolniejsze 10%% %3$.1f ms (próbki: %4$d).\n\nMierzone od chwili, gdy ta aplikacja wysyła ruch myszy, do wyświetlenia przez Androida klatki odpowiedzi hosta. Obejmuje sieć, przechwytywanie i kodowanie na hoście, dekodowanie i wyświetlanie. Nie obejmuje reakcji palca ani opóźnienia samego panelu.</string>
     <string name="latency_test_failed">Nie udało się zmierzyć. Host wysyłał klatki bez przerwy lub nie odpowiedział na ruch myszy. Pokaż nieruchomy pulpit z widocznym kursorem myszy, zamknij gry i filmy, a potem spróbuj ponownie.</string>
+    <string name="latency_benchmark_share">Udostępnij wyniki</string>
+    <string name="latency_benchmark_share_title">Wyniki urządzenia</string>
+    <string name="latency_benchmark_share_message">Nightjar nigdy nie wysyła tego samodzielnie. Tekst zawiera to urządzenie, test dekodera i ostatni test z tego ekranu, bez nazw komputerów, adresów, numerów seryjnych i danych konta. Udostępnij go lub skopiuj, aby dodać to urządzenie do tabeli wyników.</string>
+    <string name="latency_benchmark_copied">Skopiowano wyniki</string>
 </resources>

@@ -15,4 +15,8 @@
     <string name="latency_test_running">Đang đo… hãy hiển thị màn hình desktop tĩnh có con trỏ chuột và không chạm vào gì trong vài giây.</string>
     <string name="latency_test_result">Từ đầu vào đến màn hình: thông thường %1$.1f ms, tốt nhất %2$.1f ms, 10%% chậm nhất %3$.1f ms (%4$d mẫu).\n\nĐược tính từ lúc ứng dụng này gửi một cú dịch chuột cho đến khi Android hiển thị khung hình phản hồi của máy chủ. Bao gồm mạng, quá trình chụp và mã hóa trên máy chủ, giải mã và hiển thị. Không bao gồm ngón tay của bạn và độ trễ riêng của màn hình.</string>
     <string name="latency_test_failed">Không đo được. Máy chủ liên tục gửi khung hình hoặc không phản hồi cú dịch chuột. Hãy hiển thị màn hình desktop tĩnh có con trỏ chuột, đóng trò chơi và video rồi thử lại.</string>
+    <string name="latency_benchmark_share">Chia sẻ kết quả</string>
+    <string name="latency_benchmark_share_title">Kết quả thiết bị</string>
+    <string name="latency_benchmark_share_message">Nightjar không bao giờ tự gửi nội dung này. Văn bản gồm thiết bị này, bài đo bộ giải mã và lần kiểm tra gần nhất trên màn hình này, không có tên PC, địa chỉ, số sê-ri hay dữ liệu tài khoản. Chia sẻ hoặc sao chép để thêm thiết bị này vào bảng kết quả.</string>
+    <string name="latency_benchmark_copied">Đã sao chép kết quả</string>
 </resources>

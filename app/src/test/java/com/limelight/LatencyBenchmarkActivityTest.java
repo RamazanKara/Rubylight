@@ -50,4 +50,20 @@ public class LatencyBenchmarkActivityTest {
             assertNotSame(first, ReflectionHelpers.getField(activity, "stats"));
         }
     }
+
+    @Test public void exportAddsLatencyResultsOnlyAfterATestRan() {
+        try (ActivityController<LatencyBenchmarkActivity> controller =
+                     Robolectric.buildActivity(LatencyBenchmarkActivity.class).setup()) {
+            LatencyBenchmarkActivity activity = controller.get();
+            String before = ReflectionHelpers.callInstanceMethod(activity, "exportResults");
+            assertTrue(before.contains("\"format\": \"nightjar-device-results\""));
+            assertTrue(before.contains("\"measured\": false"));
+            assertTrue(before.contains("\"latencyTest\": null"));
+            activity.findViewById(R.id.benchmark_start).performClick();
+            controller.pause();
+            String after = ReflectionHelpers.callInstanceMethod(activity, "exportResults");
+            assertTrue(after.contains("\"panelHz\": "));
+            assertFalse(after.contains("\"latencyTest\": null"));
+        }
+    }
 }

@@ -14,4 +14,8 @@
     <string name="latency_test_running">Messung läuft… zeige einen ruhigen Desktop mit Mauszeiger und berühre einige Sekunden nichts.</string>
     <string name="latency_test_result">Eingabe bis Bild: %1$.1f ms typisch, %2$.1f ms bestenfalls, %3$.1f ms langsamste 10 %% (%4$d Messungen).\n\nGemessen ab dem Senden eines kleinen Mausschubs durch diese App, bis Android das Antwortbild des Hosts zeigt. Enthalten sind Netzwerk, Aufnahme und Kodierung am Host, Dekodierung und Anzeige. Dein Finger und die Eigenverzögerung des Displays sind nicht enthalten.</string>
     <string name="latency_test_failed">Messung nicht möglich. Der Host hat ständig Bilder gesendet oder nicht auf den Mausschub reagiert. Zeige einen ruhigen Desktop mit sichtbarem Mauszeiger, schließe Spiele und Videos und versuche es erneut.</string>
+    <string name="latency_benchmark_share">Ergebnisse teilen</string>
+    <string name="latency_benchmark_share_title">Geräteergebnisse</string>
+    <string name="latency_benchmark_share_message">Nightjar sendet das nie von selbst. Der Text enthält dieses Gerät, seinen Decoder-Benchmark und den letzten Test auf diesem Bildschirm, ohne PC-Namen, Adressen, Seriennummern oder Kontodaten. Teile oder kopiere ihn, um das Gerät in die Ergebnistabelle aufzunehmen.</string>
+    <string name="latency_benchmark_copied">Ergebnisse kopiert</string>
 </resources>

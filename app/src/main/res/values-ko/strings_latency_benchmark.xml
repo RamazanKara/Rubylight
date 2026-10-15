@@ -15,4 +15,8 @@
     <string name="latency_test_running">측정 중… 마우스 포인터가 있는 정지된 바탕화면을 띄우고 몇 초 동안 아무것도 만지지 마세요.</string>
     <string name="latency_test_result">입력부터 화면까지: 일반 %1$.1f ms, 최소 %2$.1f ms, 가장 느린 10%% %3$.1f ms(샘플 %4$d개).\n\n이 앱이 마우스를 살짝 움직이는 신호를 보낸 순간부터 Android가 호스트의 응답 프레임을 표시할 때까지 측정합니다. 네트워크, 호스트 캡처 및 인코딩, 디코딩, 표시가 포함됩니다. 손가락 동작과 패널 자체의 지연은 포함되지 않습니다.</string>
     <string name="latency_test_failed">측정할 수 없습니다. 호스트가 계속 프레임을 보냈거나 마우스 움직임에 응답하지 않았습니다. 마우스 포인터가 보이는 정지된 바탕화면을 띄우고, 게임과 동영상을 닫은 후 다시 시도하세요.</string>
+    <string name="latency_benchmark_share">결과 공유</string>
+    <string name="latency_benchmark_share_title">기기 결과</string>
+    <string name="latency_benchmark_share_message">Nightjar는 이 내용을 자동으로 보내지 않습니다. 텍스트에는 이 기기, 디코더 벤치마크, 이 화면의 최근 테스트가 포함되며 PC 이름, 주소, 일련번호, 계정 정보는 포함되지 않습니다. 결과 표에 이 기기를 추가하려면 공유하거나 복사하세요.</string>
+    <string name="latency_benchmark_copied">결과를 복사했습니다</string>
 </resources>

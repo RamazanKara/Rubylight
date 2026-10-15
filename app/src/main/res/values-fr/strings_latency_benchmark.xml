@@ -15,4 +15,8 @@
     <string name="latency_test_running">Mesure en cours… affichez un bureau immobile avec le pointeur de la souris et ne touchez à rien pendant quelques secondes.</string>
     <string name="latency_test_result">De la saisie à l’écran : %1$.1f ms en général, %2$.1f ms au mieux, %3$.1f ms pour les 10 %% les plus lents (%4$d échantillons).\n\nMesuré depuis l’envoi par cette appli d’un petit mouvement de souris jusqu’à l’affichage par Android de l’image de réponse de l’hôte. Cela inclut le réseau, la capture et l’encodage sur l’hôte, le décodage et l’affichage. Votre doigt et le retard propre de l’écran ne sont pas inclus.</string>
     <string name="latency_test_failed">Mesure impossible. L’hôte a continué d’envoyer des images ou n’a pas répondu au mouvement de souris. Affichez un bureau immobile avec un pointeur de souris visible, fermez les jeux et vidéos, puis réessayez.</string>
+    <string name="latency_benchmark_share">Partager les résultats</string>
+    <string name="latency_benchmark_share_title">Résultats de l’appareil</string>
+    <string name="latency_benchmark_share_message">Nightjar n’envoie jamais ceci de lui-même. Le texte décrit cet appareil, son benchmark de décodeur et le dernier test de cet écran, sans noms de PC, adresses, numéros de série ni données de compte. Partagez-le ou copiez-le pour ajouter cet appareil au tableau des résultats.</string>
+    <string name="latency_benchmark_copied">Résultats copiés</string>
 </resources>

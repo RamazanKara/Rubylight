@@ -15,6 +15,7 @@ import android.view.Surface;
 import com.limelight.BuildConfig;
 import com.limelight.LimeLog;
 import com.limelight.preferences.GlPreferences;
+import com.limelight.utils.DeviceResults;
 
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
@@ -22,6 +23,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 
 /**
  * Times each hardware decoder on a short 1080p60 game-like clip with the same low-latency
@@ -30,7 +32,14 @@ import java.util.Locale;
  */
 public final class DecoderBenchmark {
     static final String[] MIMES = {"video/avc", "video/hevc", "video/av01"};
+    static final String[] CODEC_NAMES = {"H.264", "HEVC", "AV1"};
     private static final String[] CLIPS = {"bench/h264.mp4", "bench/hevc.mp4", "bench/av1.mp4"};
+    public static final int CLIP_WIDTH = 1920;
+    public static final int CLIP_HEIGHT = 1080;
+    public static final int CLIP_FPS = 60;
+    // Recorded beside each result so shared results show which low-latency switches the decoder offers.
+    static final String FEATURE_PREFIX = "lowlatency|";
+    static final String VENDOR_KEYS_PREFIX = "vendorkeys|";
     private static final String PREFS = "decoder_benchmark";
     private static final int ROUNDS = 3;
     private static final long TIMEOUT_US = 200_000;
@@ -59,7 +68,17 @@ public final class DecoderBenchmark {
                     if (decoder == null) continue;
                     long us = measure(app, decoder, MIMES[i], CLIPS[i]);
                     LimeLog.info("Decoder benchmark " + decoder.getName() + ": " + (us > 0 ? us + " us/frame" : "failed"));
-                    if (us > 0) editor.putLong(decoder.getName() + "|" + MIMES[i], us);
+                    if (us > 0) {
+                        editor.putLong(decoder.getName() + "|" + MIMES[i], us);
+                        String suffix = MIMES[i] + "|" + decoder.getName();
+                        editor.putBoolean(FEATURE_PREFIX + suffix,
+                                MediaCodecHelper.decoderSupportsAndroidRLowLatency(decoder, MIMES[i]));
+                        List<String> params = MediaCodecHelper.getIntegerVendorParameters(decoder.getName());
+                        if (params != null) {
+                            editor.putString(VENDOR_KEYS_PREFIX + suffix,
+                                    String.join(",", VendorLowLatencyKeys.forSupported(params).keySet()));
+                        }
+                    }
                 }
                 editor.putString("key", key()).apply();
             } catch (Exception e) {
@@ -101,17 +120,57 @@ public final class DecoderBenchmark {
     public static String summary(Context context) {
         SharedPreferences prefs = prefs(context);
         if (!prefs.getString("key", "").equals(key())) return null;
-        String[] names = {"H.264", "HEVC", "AV1"};
         List<String> parts = new ArrayList<>();
         for (String entry : prefs.getAll().keySet()) {
             for (int i = 0; i < MIMES.length; i++) {
                 if (entry.endsWith("|" + MIMES[i])) {
-                    parts.add(names[i] + String.format(Locale.US, " %.1f ms", prefs.getLong(entry, 0) / 1000f));
+                    parts.add(CODEC_NAMES[i] + String.format(Locale.US, " %.1f ms", prefs.getLong(entry, 0) / 1000f));
                 }
             }
         }
         Collections.sort(parts);
         return parts.isEmpty() ? null : String.join(" · ", parts);
+    }
+
+    /** Adds this build's measurements on this phone to a shareable results export. */
+    public static void addTo(Context context, DeviceResults results) {
+        SharedPreferences prefs = prefs(context);
+        results.clipWidth = CLIP_WIDTH;
+        results.clipHeight = CLIP_HEIGHT;
+        results.clipFps = CLIP_FPS;
+        results.decoderBenchmarkMeasured = prefs.getString("key", "").equals(key());
+        if (results.decoderBenchmarkMeasured) results.decoders.addAll(decoders(prefs.getAll()));
+    }
+
+    /** Stored results in codec order; low-latency details are null when they were not recorded. */
+    static List<DeviceResults.Decoder> decoders(Map<String, ?> stored) {
+        List<DeviceResults.Decoder> decoders = new ArrayList<>();
+        for (int i = 0; i < MIMES.length; i++) {
+            String suffix = "|" + MIMES[i];
+            List<String> names = new ArrayList<>();
+            for (Map.Entry<String, ?> entry : stored.entrySet()) {
+                String key = entry.getKey();
+                if (key.endsWith(suffix) && key.length() > suffix.length() && entry.getValue() instanceof Long) {
+                    names.add(key.substring(0, key.length() - suffix.length()));
+                }
+            }
+            Collections.sort(names);
+            for (String name : names) {
+                Object feature = stored.get(FEATURE_PREFIX + MIMES[i] + "|" + name);
+                Object keys = stored.get(VENDOR_KEYS_PREFIX + MIMES[i] + "|" + name);
+                List<String> keyList = null;
+                if (keys instanceof String) {
+                    keyList = new ArrayList<>();
+                    for (String key : ((String) keys).split(",")) {
+                        if (!key.isEmpty()) keyList.add(key);
+                    }
+                }
+                decoders.add(new DeviceResults.Decoder(CODEC_NAMES[i], MIMES[i], name,
+                        (Long) stored.get(name + suffix),
+                        feature instanceof Boolean ? (Boolean) feature : null, keyList));
+            }
+        }
+        return decoders;
     }
 
     private static SharedPreferences prefs(Context context) {

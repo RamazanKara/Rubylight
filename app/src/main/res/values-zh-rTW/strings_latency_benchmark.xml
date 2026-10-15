@@ -15,4 +15,8 @@
     <string name="latency_test_running">正在測量… 請顯示靜止的桌面和滑鼠游標，並在幾秒內不要碰觸任何東西。</string>
     <string name="latency_test_result">輸入到畫面：一般 %1$.1f ms，最佳 %2$.1f ms，最慢 10%% 為 %3$.1f ms (%4$d 個樣本)。\n\n計時從這個應用程式傳送滑鼠微移開始，直到 Android 顯示主機回應的影格為止。涵蓋網路、主機擷取和編碼、解碼及顯示。不包含你的手指和面板本身的延遲。</string>
     <string name="latency_test_failed">無法測量。主機持續傳送影格，或未回應滑鼠微移。請顯示靜止的桌面並讓滑鼠游標可見，關閉遊戲和影片後再試一次。</string>
+    <string name="latency_benchmark_share">分享結果</string>
+    <string name="latency_benchmark_share_title">裝置結果</string>
+    <string name="latency_benchmark_share_message">Nightjar 絕不會自行傳送這些內容。文字包含此裝置、其解碼器基準測試和此畫面上最近一次測試的結果，不含電腦名稱、位址、序號或帳戶資料。分享或複製它即可將此裝置加入結果表。</string>
+    <string name="latency_benchmark_copied">已複製結果</string>
 </resources>

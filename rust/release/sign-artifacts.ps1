@@ -16,11 +16,12 @@ $binaries = @(
 )
 # butterpollo_truehdr.dll is not here: signed releases are built with
 # -SkipTrueHdr, because the adapter links NVIDIA's proprietary NGX library.
-# Rubylight's own display driver package, once rust/build.ps1 adds one: an
-# INF and its DLL. The DLL is signed with the binaries, the catalog is made
-# from the signed DLL, then the "driver" request signs the catalog
-# (.signpath/driver.xml). Packages without the folder skip all of this.
-$driver = Join-Path $distribution 'drivers\rubylight-vdisplay'
+# Rubylight's own display driver package (rust/build.ps1): an INF, its DLL
+# and an unsigned catalog, next to install-local.ps1 and nefconc.exe. The DLL
+# is signed with the binaries, the catalog is made again from the signed DLL,
+# then the "driver" request signs it (.signpath/driver.xml); install-local.ps1
+# installs a signed catalog as it is. Packages without the folder skip this.
+$driver = Join-Path $distribution 'drivers\rubylight-display'
 function Get-DriverFile([string]$Directory, [string]$Extension) {
     $files = @(Get-ChildItem -LiteralPath $Directory -File -Filter "*$Extension")
     if ($files.Count -ne 1) { throw "Expected one $Extension file in $Directory, found $($files.Count)" }
@@ -29,7 +30,7 @@ function Get-DriverFile([string]$Directory, [string]$Extension) {
 function Get-Release {
     # The first-party binaries this package ships, relative to the distribution.
     $names = @($binaries)
-    if (Test-Path -LiteralPath $driver) { $names += 'drivers/rubylight-vdisplay/' + (Get-DriverFile $driver '.dll').Name }
+    if (Test-Path -LiteralPath $driver) { $names += 'drivers/rubylight-display/' + (Get-DriverFile $driver '.dll').Name }
     $names
 }
 function Assert-Signed([string]$Path) {

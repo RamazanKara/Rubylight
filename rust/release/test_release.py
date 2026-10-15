@@ -178,7 +178,26 @@ class Signing(unittest.TestCase):
         script = (ROOT / 'rust/release/sign-artifacts.ps1').read_text(encoding='utf-8')
         staged = set(re.findall(r"'([^']+)'", re.search(r'(?s)\$binaries = @\((.*?)\)', script)[1]))
         includes = {element.get('path') for element in self.configurations['binaries'].iter(f'{NS}include')}
-        self.assertEqual(includes - {'drivers/rubylight-vdisplay/*.dll'}, staged)
+        self.assertEqual(includes - {'drivers/rubylight-display/*.dll'}, staged)
+
+    def test_the_display_driver_is_packaged_where_setup_signing_and_the_service_look(self):
+        # rust/build.ps1 lays the package out; setup, the service and the
+        # signing steps each name the same folder.
+        build = (ROOT / 'rust/build.ps1').read_text(encoding='utf-8')
+        self.assertIn(r"$distribution 'drivers\rubylight-display'", build)
+        self.assertIn("'install-local.ps1'", build)
+        self.assertIn(r"'sunshine\nefconc.exe'", build)
+        script = r'drivers\\rubylight-display\\install-local.ps1'
+        self.assertIn(f'"{script}"', (ROOT / 'rust/setup/src/install.rs').read_text(encoding='utf-8'))
+        self.assertIn(f'"{script}"', (ROOT / 'rust/windows/src/service.rs').read_text(encoding='utf-8'))
+        signing = (ROOT / 'rust/release/sign-artifacts.ps1').read_text(encoding='utf-8')
+        self.assertIn(r"$distribution 'drivers\rubylight-display'", signing)
+        workflow = (ROOT / '.github/workflows/rust-windows.yml').read_text(encoding='utf-8')
+        self.assertIn(r'butterpollo-rust-release\drivers\rubylight-display', workflow)
+        # install-local.ps1 finds the package and nefconc.exe beside itself.
+        installer = (ROOT / 'rust/drivers/rubylight-vdisplay/install-local.ps1').read_text(encoding='utf-8')
+        self.assertIn("Join-Path $PSScriptRoot 'rubylight_vdisplay.inf'", installer)
+        self.assertIn("Join-Path $PSScriptRoot 'nefconc.exe'", installer)
 
 
 NS = '{http://signpath.io/artifact-configuration/v1}'

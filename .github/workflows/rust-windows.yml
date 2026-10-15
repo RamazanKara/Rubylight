@@ -121,6 +121,18 @@ jobs:
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           rustup target add x86_64-pc-windows-msvc --toolchain 1.98.1-x86_64-pc-windows-gnu
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          # The display driver's own workspace (rust/drivers/rubylight-vdisplay).
+          rustup toolchain install 1.98.1-x86_64-pc-windows-msvc --profile minimal
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      # The display driver builds against the Windows Driver Kit (IddCx stub,
+      # stampinf, Inf2Cat); installed only when the image lacks it.
+      - name: Windows Driver Kit
+        run: |
+          $kits = "${env:ProgramFiles(x86)}\Windows Kits\10"
+          $ready = { (Test-Path "$kits\Lib\*\um\x64\iddcx\*\IddCxStub.lib") -and (Test-Path "$kits\bin\*\x86\Inf2Cat.exe") -and (Test-Path "$kits\bin\*\x64\stampinf.exe") }
+          if (& $ready) { Get-ChildItem "$kits\Lib\*\um\x64\iddcx" -Directory | ForEach-Object FullName; exit 0 }
+          winget install --id Microsoft.WindowsWDK.10.0.26100 --exact --silent --accept-package-agreements --accept-source-agreements --disable-interactivity
+          if (!(& $ready)) { throw 'The Windows Driver Kit is still missing after installing it' }
       # The web console build needs Vite 7's Node.
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
@@ -205,15 +217,16 @@ jobs:
       - name: Apply signed binaries
         if: env.SIGNPATH_ENABLED == 'true'
         run: .\rust\release\sign-artifacts.ps1 -Phase ApplyBinaries -TargetDirectory "$env:RUNNER_TEMP\butterpollo-rust-target" -SigningDirectory "$env:RUNNER_TEMP\signed-binaries" -Version $env:RELEASE_VERSION
-      # Ready for Rubylight's own display driver (rust/drivers/rubylight-vdisplay):
-      # once rust/build.ps1 puts it in the package, its DLL is signed with the
-      # binaries above, Inf2Cat catalogs the signed DLL and the "driver"
-      # request signs the catalog. Packages without the driver skip this.
+      # Rubylight's own display driver (rust/drivers/rubylight-vdisplay), which
+      # rust/build.ps1 puts in the package: its DLL is signed with the binaries
+      # above, Inf2Cat catalogs the signed DLL and the "driver" request signs
+      # the catalog; setup then installs that catalog instead of signing one on
+      # the user's PC. Packages without the driver skip this.
       - name: Catalog the display driver
         if: env.SIGNPATH_ENABLED == 'true'
         id: driver
         run: |
-          if (!(Test-Path -LiteralPath "$env:RUNNER_TEMP\butterpollo-rust-target\butterpollo-rust-release\drivers\rubylight-vdisplay")) { exit 0 }
+          if (!(Test-Path -LiteralPath "$env:RUNNER_TEMP\butterpollo-rust-target\butterpollo-rust-release\drivers\rubylight-display")) { exit 0 }
           .\rust\release\sign-artifacts.ps1 -Phase StageDriver -TargetDirectory "$env:RUNNER_TEMP\butterpollo-rust-target" -SigningDirectory "$env:RUNNER_TEMP\unsigned-driver" -Version $env:RELEASE_VERSION
           'present=true' >> $env:GITHUB_OUTPUT
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a

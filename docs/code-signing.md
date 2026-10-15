@@ -85,15 +85,15 @@ Do these in order. Steps 1 to 5 can happen before applying; steps 7 to 18 need t
 
 ## Rubylight's display driver
 
-The workflow is ready for a Rubylight user-mode (UMDF IddCx) display driver at `rust/drivers/rubylight-vdisplay`. Nothing happens until [build.ps1](../rust/build.ps1) puts it in the package; from the first release that does, the driver steps run by themselves. Before that release:
+[build.ps1](../rust/build.ps1) builds Rubylight's user-mode (UMDF IddCx) display driver from `rust/drivers/rubylight-vdisplay` into every package, so the driver steps of a signed release run by themselves:
 
-- **Package layout.** `drivers/rubylight-vdisplay/` in the package holds exactly one `.inf` and one `.dll`, and no `.cat`. The INF's `[Version]` section names the catalog (`CatalogFile=rubylight-vdisplay.cat`), and Inf2Cat must accept it for `10_X64`.
-- **Version information.** The DLL carries the same VERSIONINFO as every other binary: ProductName `Rubylight` and ProductVersion equal to the release version. [version_info.rs](../rust/assets/version_info.rs) writes it for Rust crates; a C++ driver needs the same strings in its `.rc` file.
+- **Package layout.** `drivers/rubylight-display/` in the package holds one `.inf`, one `.dll` and their unsigned `.cat` (`CatalogFile=rubylight_vdisplay.cat`), plus `install-local.ps1` and `nefconc.exe`. `StageDriver` makes the catalog again from the signed DLL for `10_X64`.
+- **Version information.** The DLL carries the same VERSIONINFO as every other binary: ProductName `Rubylight` and ProductVersion equal to the release version. The driver's build script writes it with [version_info.rs](../rust/assets/version_info.rs) and compiles it with the Windows Kit's `rc.exe`.
 - **Signing order.** The `binaries` request signs the DLL. Inf2Cat then makes the catalog from the INF and the signed DLL, and the `driver` request signs the catalog after checking the DLL's signature and version information. This is the order Microsoft documents: signing the DLL after the catalog would change bytes the catalog has hashed. [sign-artifacts.ps1](../rust/release/sign-artifacts.ps1) checks that the signed catalog covers the INF and the DLL before the package is built.
-- **SignPath.** Create the `driver` artifact configuration (step 10) before that release, or the release fails at signing.
-- **Tools.** The workflow takes Inf2Cat and signtool from the Windows Kits on the runner. If the runner image lacks the Windows Driver Kit, install it in the step that builds the driver (`winget install --id Microsoft.WindowsWDK.10.0.26100 --exact`).
-- **Unsigned builds.** Pull requests, `main` builds and local packages have no catalog, so their driver cannot be installed unless you test-sign it.
-- **Installing silently.** Windows asks before installing a driver from a publisher it doesn't trust yet. Vibepollo's installer avoids the prompt by checking the signed catalog and then adding that exact SignPath Foundation certificate to the machine's `TrustedPublisher` store before `pnputil`. Rubylight's installer would need the same.
+- **SignPath.** Create the `driver` artifact configuration (step 10) before the first signed release, or that release fails at signing.
+- **Tools.** The driver build and the signing steps take stampinf, Inf2Cat, signtool, rc.exe and the IddCx stub library from the Windows Driver Kit. The workflow installs the kit when the runner image lacks it.
+- **Unsigned builds.** Until SignPath signs releases, and in every `main` and local build, the catalog is unsigned. Setup's `install-local.ps1` signs it on the user's PC with a key it deletes at once (see the driver's README).
+- **Installing silently.** Windows asks before installing a driver from a publisher it doesn't trust yet. For a SignPath-signed catalog `install-local.ps1` adds that exact signer certificate to the machine's `TrustedPublisher` store before `pnputil`, as Vibepollo's installer does, and its `-Uninstall` removes the certificate again if it added it.
 
 Kernel-mode drivers cannot be signed this way; Windows requires Microsoft's attestation or WHQL signature for them.
 

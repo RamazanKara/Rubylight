@@ -2,9 +2,10 @@
 <!--
   SignPath artifact configuration "driver": the catalog of Rubylight's own
   user-mode (UMDF IddCx) display driver, rust/drivers/rubylight-vdisplay.
-  Ready to enable: the Windows workflow submits it only when the package
-  carries drivers/rubylight-vdisplay. Create it in SignPath before the first
-  release that ships the driver, or that release fails at signing.
+  The Windows workflow submits it when the package carries
+  drivers/rubylight-display, which rust/build.ps1 adds to every package.
+  Create it in SignPath before the first signed release, or that release
+  fails at signing.
 
   The driver package is one INF, one DLL and the INF's CatalogFile. Windows
   trusts a user-mode driver package through its signed catalog, and the

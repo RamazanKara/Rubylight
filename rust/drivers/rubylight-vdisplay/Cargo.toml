@@ -2,8 +2,9 @@
 #
 # Separate from the main workspace (which excludes this directory) because a UMDF driver is
 # a cdylib built for x86_64-pc-windows-msvc with the static CRT, against the Windows Driver
-# Kit, by windows-drivers-rs (wdk-build / wdk-sys). The main build and CI never see it;
-# build-package.ps1 builds, packages and test-signs it.
+# Kit, by windows-drivers-rs (wdk-build / wdk-sys). The main cargo build never sees it;
+# build-package.ps1 builds, packages and (with -TestSign) test-signs it, and rust/build.ps1
+# runs that for every Rubylight package.
 #
 # Based on punktfunk's driver workspace (packaging/windows/drivers) by Enrico Bühler (unom),
 # MIT OR Apache-2.0. The shared host-driver contract is a member of the main workspace and a

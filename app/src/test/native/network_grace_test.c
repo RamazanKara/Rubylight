@@ -44,6 +44,8 @@ bool PltEncryptMessage(PPLT_CRYPTO_CONTEXT ctx, int algorithm, int flags,
 int LbqOfferQueueItem(PLINKED_BLOCKING_QUEUE queue, void* data, PLINKED_BLOCKING_QUEUE_ENTRY entry) { CHECK(false); return -1; }
 void BridgeClControllerHaptics(uint16_t controller, uint32_t sequence, const uint8_t* pcm, uint16_t frames) { CHECK(false); }
 void BridgeClControllerAudio(uint16_t kind, const uint8_t* payload, int length) { CHECK(false); }
+void BridgeClHostTiming(const uint8_t* payload, int length) { CHECK(false); }
+void BridgeClCursorShape(const uint8_t* payload, int length) { CHECK(false); }
 
 // ControlStream.c also references streams and sockets this test does not run.
 bool ReferenceFrameInvalidationSupported;

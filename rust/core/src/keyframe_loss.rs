@@ -10,11 +10,21 @@
 //! is paced like a Wi-Fi route for the rest of the session: twice the
 //! encoder bitrate, at least 1.25 times the packetized wire demand. A client
 //! that never loses a keyframe keeps the fast route policy.
+//!
+//! A client whose decoder falls behind asks again too: Moonlight drops its
+//! decode queue when it overflows and requests a keyframe. That request comes
+//! only after the queue filled up behind the keyframe, so it is told apart by
+//! the frames sent since the keyframe; slowing the send would not help it.
 use std::time::{Duration, Instant};
 
 /// A second keyframe request this soon after the first, with a keyframe sent
 /// in between: that keyframe did not arrive.
 pub const REPEAT: Duration = Duration::from_millis(500);
+/// Moonlight's decode unit queue (`decodeUnitQueue`) holds 15 frames. A
+/// request after this many frames followed the keyframe can be its overflow
+/// (a decoder that falls behind); a lost keyframe is asked for again as soon
+/// as the next frame arrives.
+pub const DECODE_QUEUE: u32 = 15;
 
 #[derive(Debug, Default)]
 pub struct KeyframeLoss {
@@ -24,6 +34,8 @@ pub struct KeyframeLoss {
     next: usize,
     last_request: Option<Instant>,
     keyframe_since_request: bool,
+    /// Frames sent after the latest keyframe.
+    since_keyframe: u32,
     latched: Option<&'static str>,
 }
 impl KeyframeLoss {
@@ -39,6 +51,9 @@ impl KeyframeLoss {
             self.keyframes[self.next] = Some(frame);
             self.next = (self.next + 1) % self.keyframes.len();
             self.keyframe_since_request = true;
+            self.since_keyframe = 0;
+        } else {
+            self.since_keyframe = self.since_keyframe.saturating_add(1);
         }
     }
     /// The client could not repair a block of this frame. Returns the reason
@@ -54,6 +69,7 @@ impl KeyframeLoss {
     /// when this request slows the stream.
     pub fn requested(&mut self, now: Instant) -> Option<&'static str> {
         let repeated = self.keyframe_since_request
+            && self.since_keyframe < DECODE_QUEUE
             && self
                 .last_request
                 .is_some_and(|at| now.saturating_duration_since(at) < REPEAT);
@@ -121,6 +137,36 @@ mod tests {
         loss.sending(3, true);
         loss.sending(4, false);
         assert!(loss.requested(start + Duration::from_millis(60)).is_some());
+        assert_eq!(loss.bps(FAST, SAFE), SAFE);
+    }
+
+    #[test]
+    fn a_decoder_that_falls_behind_keeps_the_fast_rate() {
+        // A 240 fps stream to a client whose decode queue overflows: every
+        // keyframe arrives, 15 or more frames queue up behind it and the
+        // client asks again, about 70 ms apart (e2e-av1-240-ddx-load: 24
+        // requests in 10 s, the stream paced at twice the bitrate).
+        let start = Instant::now();
+        let mut loss = KeyframeLoss::new(true);
+        let mut frame = 1;
+        for request in 0..24u32 {
+            loss.sending(frame, true);
+            frame += 1;
+            for _ in 0..DECODE_QUEUE + 1 {
+                loss.sending(frame, false);
+                frame += 1;
+            }
+            assert_eq!(
+                loss.requested(start + Duration::from_millis(u64::from(request) * 70)),
+                None,
+                "request {request}"
+            );
+        }
+        assert_eq!(loss.bps(FAST, SAFE), FAST);
+        // A keyframe lost on the way is still asked for at the next frame.
+        loss.sending(frame, true);
+        loss.sending(frame + 1, false);
+        assert!(loss.requested(start + Duration::from_millis(24 * 70)).is_some());
         assert_eq!(loss.bps(FAST, SAFE), SAFE);
     }
 

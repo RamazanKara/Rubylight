@@ -7,6 +7,7 @@ This is the dated measurement record. For a guided comparison, start with the [p
 | Find a result | Recorded evidence |
 | --- | --- |
 | Where host latency goes | [October 15, present to last packet sent by stage, beside Moonlight's field](#october-15-where-host-latency-goes) |
+| Frame push from Rubylight's display driver | [October 15, idd-push against WGC on the same virtual display](#october-15-frame-push-from-rubylights-display-driver) |
 | Frame rates above 60 | [October 14, 1440p at 60-240 fps and 20-500 Mbps](#october-14-frame-rates-above-60) |
 | A port slower than the host | [October 14, keyframe loss through a 100 Mbps bottleneck](#october-14-keyframe-loss-on-a-slow-port) |
 | HDR and recovery fixes | [October 14, 2.2.17 against 2.2.18](#october-14-hdr-and-recovery-fixes-2218) |
@@ -6217,6 +6218,52 @@ and `tables.py` in `C:\src\butterpollo-release\stage-latency` (the case list is
 `BUTTERPOLLO_TEST_TIMING_CSV` set for the receiver. Raw runs: `runs1`,
 `runs2`, `vdruns1`, `vdruns2`; summaries in `matrix1.jsonl`, `matrix2.jsonl`,
 `vd1.jsonl` and `vd2.jsonl`.
+
+## October 15: frame push from Rubylight's display driver
+
+`capture = idd-push` takes each frame from Rubylight's own IddCx driver
+(`rust/drivers/rubylight-vdisplay`) through a shared texture ring instead of
+asking Windows for it. The estimate above put the most it can save at the
+capture stage: about 0.9 ms on a virtual display.
+
+**Machine and host** as in the section above; host from `claude/idd-push`
+rebased on main (release build, isolated profile), driver 0.1.0.6912
+test-signed on the same PC with Memory Integrity on. `vd_e2e.py` streams a
+per-client Rubylight virtual display (extended layout, run as SYSTEM) at
+2560x1440, 80 Mbps, 20 s per case, with `virtual_display_driver = rubylight`
+and `capture = idd-push` or `wgc`; the receiver decodes on the same GPU.
+Two passes, the second with stage tracing. **Render to received** is the
+receiver's clock from the probe's present on the virtual display to the
+frame fully received, so it includes what happens before any host stamp.
+
+| Rate | Render to received, idd-push faster by (mean of 8 pairs) | Pairs idd-push won | Range |
+| --- | ---: | ---: | ---: |
+| 60 Hz | -0.84 ms | 2 of 8 | -2.61 to +2.58 ms |
+| 120 Hz | +0.87 ms | 6 of 8 | -1.80 to +2.77 ms |
+| 240 Hz | +0.92 ms | 8 of 8 | +0.58 to +1.41 ms |
+
+At 240 Hz (HEVC, AV1, each SDR and HDR, both passes) idd-push received
+frames in 8.7-9.9 ms against 9.4-10.6 ms with WGC, and its p95 was the same
+or lower in 7 of 8 pairs (10.8-15.1 against 10.8-15.1 ms; HDR 11.3-13.1
+against 12.6-14.1 ms). The host's own present to sent does not show the gain:
+WGC's capture stage on a virtual display is only 0.05 ms (its frame time is
+close to its arrival), and idd-push's present to sent was 0.1 ms longer at
+240 Hz (2.90-3.22 against 2.77-3.10 ms), probably because its present stamp is the
+driver's, taken earlier. The saving is in Windows' delivery to WGC, before any
+stamp WGC gives the host. At 60 Hz the 16.7 ms frame period dominates and
+idd-push's claim waited longer (0.4-2.4 against 0.7-1.0 ms mean); whether that
+is the pacing phase or the push is not settled. Delivered frame rates at
+240 Hz were mixed (194-229 against 203-235 fps); both captures failed the
+receiver's gap check in most cases on this loaded virtual display, at the same
+rate.
+
+So idd-push reaches the 0.9 ms the capture stage allowed on a virtual display
+at 240 Hz, and about that at 120 Hz with more spread. It stays opt-in
+(`virtual_display_driver = rubylight`); the driver is not in the installer.
+
+Reproduce with `cases.ps1`, `run.ps1` and `collect.py` in
+`C:\src\butterpollo-release\idd-push` (labels `CODEC[-hdr]-FPS-CAPTURE`).
+Raw runs: `runs1`, `runs`; summaries `matrix1.jsonl` and `matrix2.jsonl`.
 
 ## Hardware covered
 

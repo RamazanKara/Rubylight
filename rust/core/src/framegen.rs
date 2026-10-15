@@ -200,7 +200,15 @@ impl Policy {
         let requested_capture = match config.get("capture", "").trim().to_ascii_lowercase() {
             // Vibepollo's constant-rate WGC variant.
             wgc if wgc == "wgcc" => "wgc".to_owned(),
-            known if matches!(known.as_str(), "" | "auto" | "wgc" | "ddx" | "dxgi") => known,
+            // `idd-push`: frames pushed by Rubylight's own virtual display driver.
+            known
+                if matches!(
+                    known.as_str(),
+                    "" | "auto" | "wgc" | "ddx" | "dxgi" | "idd-push"
+                ) =>
+            {
+                known
+            }
             other => {
                 crate::config::invalid("capture", &other);
                 String::new()
@@ -339,6 +347,9 @@ mod tests {
             ("wgc", "wgc"),
             ("WGC", "wgc"),
             ("wgcc", "wgc"),
+            // Rubylight's own display driver pushes the frames.
+            ("idd-push", "idd-push"),
+            (" IDD-Push ", "idd-push"),
         ] {
             let config = Config::parse(&format!("capture={setting}")).unwrap();
             let original = config.values.clone();

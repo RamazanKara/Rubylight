@@ -1,0 +1,688 @@
+//! Capture from Rubylight's own virtual display driver (rust/drivers/rubylight-vdisplay).
+//!
+//! The driver copies every frame Windows composes for its monitor into textures this session
+//! creates and shares with it, stamps the frame's present QPC beside it and sets an event
+//! (`rubylight_vdisplay_proto::ring`). No WGC and no Desktop Duplication run: a frame is one
+//! GPU copy in the driver, then the same owned-pool copy (compute queue on AMD) and AMF path
+//! every other capture feeds.
+//!
+//! Off by default. It runs for `capture = idd-push`, or for an automatic capture of a display
+//! this host created with `virtual_display_driver = rubylight`; anything else keeps WGC or
+//! Desktop Duplication.
+
+use super::*;
+use crate::display::VirtualDriver;
+use crate::display::rubylight_vdd::{Control, Owned, Remote, owned_display};
+use rubylight_vdisplay_proto::control::{MonitorStatus, SetFrameRingRequest};
+use rubylight_vdisplay_proto::ring::{self, Consumer, Header, Layout};
+use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
+use std::sync::Arc;
+use std::sync::atomic::AtomicU64;
+use windows::Win32::Foundation::{HANDLE, INVALID_HANDLE_VALUE, WAIT_TIMEOUT};
+use windows::Win32::System::Memory::{
+    CreateFileMappingW, FILE_MAP_ALL_ACCESS, MEMORY_MAPPED_VIEW_ADDRESS, MapViewOfFile,
+    PAGE_READWRITE, UnmapViewOfFile,
+};
+use windows::core::HRESULT;
+
+/// Shapes a ring may be rebuilt to before the first frame, when the driver reports the
+/// surface differs from the guess it was opened with.
+const RESHAPES_BEFORE_FIRST_FRAME: u32 = 3;
+/// The driver stamps its swap-chain loop every pass (at most 125 ms apart while idle). This
+/// much silence after frames flowed means the loop stopped.
+const DRAIN_STALL: Duration = Duration::from_secs(3);
+/// How long a ring may wait for its first frame before the capture gives up.
+const FIRST_FRAME_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Whether this capture should come from the driver: asked for by name, or automatic on a
+/// display this host created with Rubylight's driver.
+pub(super) fn wanted(
+    kind: &str,
+    driver: VirtualDriver,
+    capture_setting: &str,
+    rubylight_display: bool,
+) -> bool {
+    kind == "idd-push"
+        || (driver == VirtualDriver::Rubylight
+            && matches!(capture_setting.trim(), "" | "auto")
+            && rubylight_display)
+}
+
+/// [`wanted`] for a stream on display `name`; the display lookup runs only when it decides.
+pub(super) fn wanted_for(
+    name: &str,
+    kind: &str,
+    config: &butterpollo_core::config::Config,
+) -> bool {
+    let driver = VirtualDriver::configured(config);
+    let setting = config.get("capture", "auto");
+    wanted(kind, driver, setting, false)
+        || (wanted(kind, driver, setting, true) && matches!(owned_display(name), Ok(Some(_))))
+}
+
+/// The ring to open: the surface the driver last composed when it reported one, otherwise
+/// the monitor's mode in the format its colour state suggests.
+fn ring_shape(status: &MonitorStatus, hdr: bool) -> (u32, u32, u32) {
+    if status.surface_width > 0
+        && status.surface_height > 0
+        && ring::supported_format(status.surface_format)
+    {
+        return (
+            status.surface_width,
+            status.surface_height,
+            status.surface_format,
+        );
+    }
+    let format = if hdr {
+        ring::FORMAT_RGBA16F
+    } else {
+        ring::FORMAT_BGRA8
+    };
+    (status.width, status.height, format)
+}
+
+/// The generation after `previous`: never 0 and within the publish token's 24 bits, so a
+/// frame an earlier ring of the monitor left in its header is never taken from this one.
+fn next_generation(previous: u32) -> u32 {
+    (previous % ring::Token::GENERATION_MASK) + 1
+}
+
+/// What the header's driver status means for this capture.
+#[derive(Debug, PartialEq, Eq)]
+enum Verdict {
+    Fine,
+    /// Rebuild the ring at the surface's real `(width, height, format)`.
+    Reshape(u32, u32, u32),
+    Fail(String),
+}
+
+fn verdict(status: (u32, u32), surface: (u32, u32, u32), started: bool) -> Verdict {
+    match status.0 {
+        ring::STATUS_WAITING | ring::STATUS_STREAMING => Verdict::Fine,
+        ring::STATUS_SIZE_MISMATCH | ring::STATUS_FORMAT_MISMATCH => {
+            let (width, height, format) = surface;
+            if started {
+                // As with WGC, a size or colour-space change reopens the capture, so the
+                // encoder is rebuilt for it.
+                Verdict::Fail(format!(
+                    "the Rubylight display changed to {width}x{height} format {format}"
+                ))
+            } else if width > 0 && height > 0 && ring::supported_format(format) {
+                Verdict::Reshape(width, height, format)
+            } else {
+                Verdict::Fail(format!(
+                    "the Rubylight display composes an unsupported surface ({width}x{height} format {format})"
+                ))
+            }
+        }
+        ring::STATUS_OPEN_FAILED => Verdict::Fail(format!(
+            "the Rubylight display driver could not open the shared textures ({:#010x})",
+            status.1
+        )),
+        ring::STATUS_WRONG_ADAPTER => Verdict::Fail(
+            "the Rubylight display renders on another GPU than the capture opened on; select that GPU or let Windows choose".into(),
+        ),
+        ring::STATUS_DEVICE_LOST => {
+            Verdict::Fail("the Rubylight display driver lost its GPU device".into())
+        }
+        other => Verdict::Fail(format!("unknown Rubylight display driver status {other}")),
+    }
+}
+
+/// Whether the driver's drain loop has gone quiet: `beat` and `now` are QPC values.
+fn stalled(beat: u64, now: i64, frequency: i64, limit: Duration) -> bool {
+    if beat == 0 || now <= 0 || frequency <= 0 {
+        return false;
+    }
+    let age = now.saturating_sub(beat as i64).max(0) as f64 / frequency as f64;
+    age > limit.as_secs_f64()
+}
+
+fn qpc_now() -> i64 {
+    let mut now = 0;
+    // SAFETY: QueryPerformanceCounter writes only to the live local.
+    let _ = unsafe { windows::Win32::System::Performance::QueryPerformanceCounter(&mut now) };
+    now
+}
+
+/// Take a keyed mutex without waiting. AcquireSync's WAIT_TIMEOUT is a success HRESULT the
+/// `Result` binding would report as `Ok`, so the raw code is inspected (as the WGC helper
+/// transport does).
+fn acquire(mutex: &IDXGIKeyedMutex, key: u64) -> Result<bool> {
+    // SAFETY: `mutex` is a live keyed mutex; AcquireSync takes (this, key, timeout).
+    let status = unsafe { (mutex.vtable().AcquireSync)(mutex.as_raw(), key, 0) };
+    if status.0 == WAIT_TIMEOUT.0 as i32 {
+        return Ok(false);
+    }
+    anyhow::ensure!(
+        status == HRESULT(0),
+        "Rubylight frame ring mutex failed: {status:?}"
+    );
+    Ok(true)
+}
+
+/// The shared header: an unnamed section mapped here, its handle duplicated to the driver.
+struct Section {
+    handle: OwnedHandle,
+    base: *mut std::ffi::c_void,
+}
+
+impl Section {
+    fn new() -> Result<Self> {
+        // SAFETY: an unnamed, pagefile-backed section of SECTION_BYTES; the handle is owned
+        // below and the view unmapped in Drop.
+        unsafe {
+            let handle = CreateFileMappingW(
+                INVALID_HANDLE_VALUE,
+                None,
+                PAGE_READWRITE,
+                0,
+                ring::SECTION_BYTES as u32,
+                PCWSTR::null(),
+            )?;
+            let handle = OwnedHandle::from_raw_handle(handle.0);
+            let view = MapViewOfFile(
+                HANDLE(handle.as_raw_handle()),
+                FILE_MAP_ALL_ACCESS,
+                0,
+                0,
+                ring::SECTION_BYTES,
+            );
+            anyhow::ensure!(!view.Value.is_null(), "map the frame ring header");
+            Ok(Self {
+                handle,
+                base: view.Value,
+            })
+        }
+    }
+
+    fn header(&self) -> Header<'_> {
+        // SAFETY: the view is page-aligned and SECTION_BYTES long, so it holds HEADER_WORDS
+        // aligned u64 words; both processes access them only atomically.
+        let words = unsafe {
+            std::slice::from_raw_parts(self.base.cast::<AtomicU64>(), ring::HEADER_WORDS)
+        };
+        Header::new(words).expect("a section holds a whole header")
+    }
+}
+
+impl Drop for Section {
+    fn drop(&mut self) {
+        // SAFETY: this value's own single view; the handle closes after, as a field.
+        unsafe {
+            let _ = UnmapViewOfFile(MEMORY_MAPPED_VIEW_ADDRESS { Value: self.base });
+        }
+    }
+}
+
+struct Slot {
+    texture: ID3D11Texture2D,
+    mutex: IDXGIKeyedMutex,
+    shared: OwnedHandle,
+}
+
+/// One ring: its header and textures. The driver holds duplicates of every handle until the
+/// ring is replaced or cleared.
+struct Ring {
+    section: Section,
+    slots: Vec<Slot>,
+    layout: Layout,
+}
+
+impl Ring {
+    fn new(gpu: &Device, layout: Layout) -> Result<Self> {
+        let section = Section::new()?;
+        section.header().init(layout);
+        let desc = D3D11_TEXTURE2D_DESC {
+            Width: layout.width,
+            Height: layout.height,
+            MipLevels: 1,
+            ArraySize: 1,
+            Format: DXGI_FORMAT(layout.format as i32),
+            SampleDesc: DXGI_SAMPLE_DESC {
+                Count: 1,
+                Quality: 0,
+            },
+            Usage: D3D11_USAGE_DEFAULT,
+            BindFlags: D3D11_BIND_SHADER_RESOURCE.0 as u32,
+            CPUAccessFlags: 0,
+            MiscFlags: (D3D11_RESOURCE_MISC_SHARED_NTHANDLE.0
+                | D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX.0) as u32,
+        };
+        let mut slots = Vec::with_capacity(layout.slot_count as usize);
+        for _ in 0..layout.slot_count {
+            // SAFETY: `gpu.device` is live and `desc` describes a valid shareable texture; the
+            // shared NT handle is owned by the slot.
+            unsafe {
+                let mut texture = None;
+                gpu.device
+                    .CreateTexture2D(&desc, None, Some(&mut texture))?;
+                let texture = texture.context("frame ring texture missing")?;
+                let shared = texture.cast::<IDXGIResource1>()?.CreateSharedHandle(
+                    None,
+                    DXGI_SHARED_RESOURCE_READ.0 | DXGI_SHARED_RESOURCE_WRITE.0,
+                    None,
+                )?;
+                slots.push(Slot {
+                    mutex: texture.cast()?,
+                    texture,
+                    shared: OwnedHandle::from_raw_handle(shared.0),
+                });
+            }
+        }
+        Ok(Self {
+            section,
+            slots,
+            layout,
+        })
+    }
+}
+
+/// Handle values duplicated into the driver's process for one request, closed there again
+/// unless the driver adopted them.
+struct Delivery<'a> {
+    remote: &'a Remote,
+    values: Vec<u64>,
+    adopted: bool,
+}
+
+impl Delivery<'_> {
+    fn send(&mut self, handle: HANDLE) -> Result<u64> {
+        let value = self.remote.duplicate(handle)?;
+        self.values.push(value);
+        Ok(value)
+    }
+}
+
+impl Drop for Delivery<'_> {
+    fn drop(&mut self) {
+        if !self.adopted {
+            for value in self.values.drain(..) {
+                self.remote.close(value);
+            }
+        }
+    }
+}
+
+pub struct Session {
+    pub(super) gpu: Device,
+    control: Control,
+    monitor: Owned,
+    remote: Remote,
+    adapter: (u32, i32),
+    ring: Ring,
+    consumer: Consumer,
+    pool: GpuPool,
+    frame: Arc<crate::timing::Signal>,
+    staging: Option<ID3D11Texture2D>,
+    started: bool,
+    reshapes: u32,
+    opened: Instant,
+    next_check: Instant,
+}
+
+impl Session {
+    pub(super) fn new(
+        name: &str,
+        hdr: bool,
+        config: &butterpollo_core::config::Config,
+        warnings: Arc<butterpollo_core::session::Warnings>,
+    ) -> Result<Self> {
+        let monitor = owned_display(name)?.with_context(|| {
+            format!("{name} is not a display this host created with the Rubylight display driver")
+        })?;
+        let control = Control::open()?;
+        let status = control.query(monitor.session_id)?;
+        let gpu = Device::for_display(
+            name,
+            config.get("adapter_name", ""),
+            config.get("adapter_pnp_id", ""),
+        )?;
+        // SAFETY: the device is live; GetAdapter and GetDesc return owned values.
+        let adapter = unsafe {
+            let desc = gpu.device.cast::<IDXGIDevice>()?.GetAdapter()?.GetDesc()?;
+            (desc.AdapterLuid.LowPart, desc.AdapterLuid.HighPart)
+        };
+        let render = (status.render_luid_low, status.render_luid_high);
+        if render != (0, 0) && render != adapter {
+            bail!(
+                "the Rubylight display renders on GPU {:08x}:{:08x}, but capture opened on {:08x}:{:08x}",
+                render.1,
+                render.0,
+                adapter.1,
+                adapter.0
+            );
+        }
+        if let Err(error) = crate::gpu_priority::configure(&gpu, config) {
+            tracing::debug!(%error, "GPU priority remains at the process default");
+        }
+        let remote = Remote::open(monitor.wudf_pid)?;
+        let mut pool = GpuPool {
+            warnings: warnings.clone(),
+            ..Default::default()
+        };
+        if crate::compute::enabled(config) && crate::compute::copies_on(&gpu.device) {
+            match crate::compute::Compute::for_device(&gpu.device)
+                .and_then(|compute| crate::compute::Handoff::new(compute, &gpu))
+            {
+                Ok(handoff) => pool.compute = Some(handoff),
+                Err(error) => warnings.set("capture_compute", format!("Compute capture copies unavailable ({error:#}); copying on the graphics queue. Lower game GPU load or update the AMD driver if capture stutters.")),
+            }
+        }
+        // Before the first frame the driver may not know the surface yet: guess from the
+        // display's colour state, and rebuild once it reports the real one.
+        let native_hdr = hdr
+            || gpu
+                .color_description()?
+                .is_some_and(|d| d.color_space == DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020);
+        let (width, height, format) = ring_shape(&status, native_hdr);
+        let layout = Layout {
+            slot_count: ring::DEFAULT_SLOTS as u32,
+            width,
+            height,
+            format,
+            generation: next_generation(status.ring_generation),
+        };
+        let frame = Arc::new(crate::timing::Signal::new()?);
+        let ring = Ring::new(&gpu, layout)?;
+        let now = Instant::now();
+        let mut session = Self {
+            gpu,
+            control,
+            monitor,
+            remote,
+            adapter,
+            consumer: Consumer::new(layout.generation, layout.slot_count),
+            ring,
+            pool,
+            frame,
+            staging: None,
+            started: false,
+            reshapes: 0,
+            opened: now,
+            next_check: now,
+        };
+        session.deliver()?;
+        tracing::info!(
+            output = %name,
+            width,
+            height,
+            format,
+            target = session.monitor.target,
+            compute = session.pool.compute.is_some(),
+            "capturing from the Rubylight display driver's frame push"
+        );
+        Ok(session)
+    }
+
+    /// Import the current ring into the compute copy and hand it to the driver.
+    fn deliver(&mut self) -> Result<()> {
+        let imported = match &mut self.pool.compute {
+            Some(handoff) => self.ring.slots.iter().try_for_each(|slot| {
+                handoff.import_shared(&slot.texture, HANDLE(slot.shared.as_raw_handle()))
+            }),
+            None => Ok(()),
+        };
+        if let Err(error) = imported {
+            self.pool.warnings.set("capture_compute", format!("The Rubylight frame ring cannot use compute copies ({error:#}); copying on the graphics queue."));
+            self.pool.compute = None;
+        }
+        let layout = self.ring.layout;
+        let mut delivery = Delivery {
+            remote: &self.remote,
+            values: Vec::new(),
+            adopted: false,
+        };
+        let mut textures = [0; ring::MAX_SLOTS];
+        for (value, slot) in textures.iter_mut().zip(&self.ring.slots) {
+            *value = delivery.send(HANDLE(slot.shared.as_raw_handle()))?;
+        }
+        let request = SetFrameRingRequest {
+            session_id: self.monitor.session_id,
+            generation: layout.generation,
+            slot_count: layout.slot_count,
+            width: layout.width,
+            height: layout.height,
+            format: layout.format,
+            header_bytes: ring::SECTION_BYTES as u32,
+            adapter_luid_low: self.adapter.0,
+            adapter_luid_high: self.adapter.1,
+            header_section: delivery.send(HANDLE(self.ring.section.handle.as_raw_handle()))?,
+            event: delivery.send(self.frame.raw())?,
+            textures,
+        };
+        request
+            .validate()
+            .map_err(|e| anyhow::anyhow!("frame ring request: {e}"))?;
+        self.control
+            .set_frame_ring(&request)
+            .context("the Rubylight display driver refused the frame ring")?;
+        delivery.adopted = true;
+        Ok(())
+    }
+
+    /// Rebuild the ring at the shape the driver reported, before any frame was taken.
+    fn reshape(&mut self, width: u32, height: u32, format: u32) -> Result<()> {
+        self.reshapes += 1;
+        anyhow::ensure!(
+            self.reshapes <= RESHAPES_BEFORE_FIRST_FRAME,
+            "the Rubylight display surface keeps changing shape"
+        );
+        let mut layout = self.ring.layout;
+        layout.width = width;
+        layout.height = height;
+        layout.format = format;
+        layout.generation = next_generation(layout.generation);
+        tracing::info!(
+            width,
+            height,
+            format,
+            "rebuilding the Rubylight frame ring for the composed surface"
+        );
+        self.ring = Ring::new(&self.gpu, layout)?;
+        self.consumer = Consumer::new(layout.generation, layout.slot_count);
+        self.opened = Instant::now();
+        self.deliver()
+    }
+
+    fn check(&mut self) -> Result<()> {
+        if let Some(loss) = crate::device_loss::DeviceLost::d3d11(&self.gpu.device) {
+            return Err(loss.into());
+        }
+        let header = self.ring.section.header();
+        match verdict(header.status(), header.surface(), self.started) {
+            Verdict::Fine => {}
+            Verdict::Reshape(width, height, format) => return self.reshape(width, height, format),
+            Verdict::Fail(message) => bail!(message),
+        }
+        if self.started {
+            anyhow::ensure!(
+                !stalled(header.heartbeat(), qpc_now(), qpc_frequency(), DRAIN_STALL),
+                "the Rubylight display driver stopped delivering frames"
+            );
+        } else {
+            anyhow::ensure!(
+                self.opened.elapsed() < FIRST_FRAME_TIMEOUT,
+                "the Rubylight display driver delivered no frame"
+            );
+        }
+        Ok(())
+    }
+
+    pub(super) fn frame_signal(&self) -> &crate::timing::Signal {
+        &self.frame
+    }
+
+    pub(super) fn next_frame(&mut self) -> Result<Option<Image>> {
+        self.next_gpu()?
+            .map(|image| image.readback(&mut self.staging))
+            .transpose()
+    }
+
+    pub(super) fn next_gpu(&mut self) -> Result<Option<GpuImage>> {
+        let now = Instant::now();
+        if now >= self.next_check {
+            self.next_check = now + Duration::from_millis(100);
+            self.check()?;
+        }
+        // Leave the newest frame published while every snapshot is held: the driver keeps
+        // the texture updated, and it is taken once a snapshot frees.
+        if !self.pool.has_capacity() {
+            return Ok(None);
+        }
+        let header = self.ring.section.header();
+        let Some(index) = self.consumer.wanted(header.latest()) else {
+            return Ok(None);
+        };
+        let slot = &self.ring.slots[index];
+        if !acquire(&slot.mutex, ring::KEY_HOST)? {
+            // The driver is refilling it with a newer frame; its publish wakes the next poll.
+            return Ok(None);
+        }
+        let meta = header.slot(index);
+        let copied = if self.consumer.fresh(&meta) {
+            self.pool.copy(&self.gpu, &slot.texture)
+        } else {
+            Ok(None)
+        };
+        // The copy is queued on this device (or ordered before it by the compute handoff), so
+        // releasing now cannot let the driver overwrite pixels still being read.
+        // SAFETY: this process took the mutex with KEY_HOST above; the context is this
+        // device's and multithread-protected.
+        unsafe {
+            slot.mutex.ReleaseSync(ring::KEY_DRIVER)?;
+            self.gpu.context.Flush();
+        }
+        let Some(mut image) = copied? else {
+            return Ok(None);
+        };
+        self.consumer.consumed(meta.seq);
+        header.set_consumed(self.consumer.last());
+        self.started = true;
+        let (captured, stamp) = qpc_timestamps(meta.present_qpc.min(i64::MAX as u64) as i64);
+        image.captured = captured;
+        image.wgc_stamp = stamp;
+        Ok(Some(image))
+    }
+}
+
+impl Drop for Session {
+    fn drop(&mut self) {
+        // The driver closes its duplicates; ours close with the ring.
+        if let Err(error) = self.control.clear_frame_ring(self.monitor.session_id) {
+            tracing::debug!(error = %format!("{error:#}"), "Rubylight frame ring was already gone");
+        }
+    }
+}
+
+// SAFETY: the D3D11 objects live on a multithread-protected device, the section view is used
+// only through atomics, and every handle is owned; the session moves between threads with
+// the capture, never shared.
+unsafe impl Send for Session {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn idd_push_runs_only_when_asked_or_on_a_rubylight_display_in_auto() {
+        use VirtualDriver::{Rubylight, Vdd};
+        // Named explicitly.
+        assert!(wanted("idd-push", Vdd, "idd-push", false));
+        // Automatic, only for a display this host created with the Rubylight driver.
+        assert!(wanted("wgc", Rubylight, "auto", true));
+        assert!(wanted("wgc", Rubylight, "", true));
+        assert!(!wanted("wgc", Rubylight, "auto", false));
+        // An explicit WGC or DDX choice is kept.
+        assert!(!wanted("wgc", Rubylight, "wgc", true));
+        assert!(!wanted("ddx", Rubylight, "ddx", true));
+        // Off by default: libvirtualdisplay displays never take this path.
+        assert!(!wanted("wgc", Vdd, "auto", true));
+    }
+
+    #[test]
+    fn the_ring_follows_the_composed_surface_once_known() {
+        let mut status = MonitorStatus {
+            width: 2560,
+            height: 1440,
+            refresh_mhz: 240_000,
+            ..Default::default()
+        };
+        assert_eq!(ring_shape(&status, false), (2560, 1440, ring::FORMAT_BGRA8));
+        assert_eq!(
+            ring_shape(&status, true),
+            (2560, 1440, ring::FORMAT_RGBA16F)
+        );
+        status.surface_width = 1920;
+        status.surface_height = 1080;
+        status.surface_format = ring::FORMAT_RGBA16F;
+        assert_eq!(
+            ring_shape(&status, false),
+            (1920, 1080, ring::FORMAT_RGBA16F)
+        );
+        // A surface format the ring cannot carry falls back to the mode.
+        status.surface_format = 24;
+        assert_eq!(ring_shape(&status, false), (2560, 1440, ring::FORMAT_BGRA8));
+    }
+
+    #[test]
+    fn a_shape_change_rebuilds_before_the_first_frame_and_reopens_after() {
+        let fp16 = (1920, 1080, ring::FORMAT_RGBA16F);
+        assert_eq!(
+            verdict((ring::STATUS_FORMAT_MISMATCH, 10), fp16, false),
+            Verdict::Reshape(1920, 1080, ring::FORMAT_RGBA16F)
+        );
+        assert!(matches!(
+            verdict((ring::STATUS_SIZE_MISMATCH, 0), fp16, true),
+            Verdict::Fail(_)
+        ));
+        assert!(matches!(
+            verdict((ring::STATUS_SIZE_MISMATCH, 0), (0, 0, 0), false),
+            Verdict::Fail(_)
+        ));
+        assert_eq!(
+            verdict((ring::STATUS_STREAMING, 0), fp16, true),
+            Verdict::Fine
+        );
+        assert_eq!(
+            verdict((ring::STATUS_WAITING, 0), (0, 0, 0), false),
+            Verdict::Fine
+        );
+        for status in [
+            ring::STATUS_OPEN_FAILED,
+            ring::STATUS_WRONG_ADAPTER,
+            ring::STATUS_DEVICE_LOST,
+            99,
+        ] {
+            assert!(matches!(
+                verdict((status, 0), fp16, false),
+                Verdict::Fail(_)
+            ));
+        }
+    }
+
+    #[test]
+    fn ring_generations_are_new_nonzero_and_fit_the_token() {
+        assert_eq!(next_generation(0), 1);
+        assert_eq!(next_generation(4), 5);
+        let last = ring::Token::GENERATION_MASK;
+        assert_eq!(next_generation(last - 1), last);
+        assert_eq!(next_generation(last), 1, "wraps past 24 bits, never to 0");
+        assert_eq!(next_generation(u32::MAX), 1 + u32::MAX % last);
+        for previous in [0, 1, last - 1, last, u32::MAX] {
+            let next = next_generation(previous);
+            assert!((1..=last).contains(&next), "{previous} -> {next}");
+        }
+    }
+
+    #[test]
+    fn a_quiet_drain_loop_counts_only_past_the_limit() {
+        let frequency = 10_000_000;
+        let limit = Duration::from_secs(3);
+        assert!(!stalled(0, 50_000_000, frequency, limit), "never stamped");
+        assert!(!stalled(40_000_000, 50_000_000, frequency, limit));
+        assert!(stalled(10_000_000, 50_000_000, frequency, limit));
+        // A stamp ahead of this process's clock read is not a stall.
+        assert!(!stalled(60_000_000, 50_000_000, frequency, limit));
+    }
+}

@@ -413,6 +413,7 @@ dependencies = [
  "half",
  "libloading",
  "rayon",
+ "rubylight-vdisplay-proto",
  "serde",
  "serde_json",
  "socket2",

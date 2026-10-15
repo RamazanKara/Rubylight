@@ -1532,6 +1532,7 @@ impl Drop for Wgc {
 }
 mod bridge;
 pub use bridge::run_worker as run_wgc_worker;
+mod idd_push;
 
 /// Whether WGC can capture the input desktop without crossing into Winlogon.
 pub fn wgc_desktop_available() -> bool {
@@ -1542,6 +1543,8 @@ pub enum Capture {
     Wgc(Box<Wgc>),
     WgcWorker(Box<bridge::Session>),
     Dxgi(Box<Duplication>),
+    /// Frames pushed by Rubylight's own virtual display driver.
+    IddPush(Box<idd_push::Session>),
     /// Holds no device: the place of a lost capture while a new one is made.
     Closed,
 }
@@ -1595,6 +1598,7 @@ impl Capture {
         match self {
             Self::Wgc(_) | Self::WgcWorker(_) => "wgc",
             Self::Dxgi(_) => "ddx",
+            Self::IddPush(_) => "idd-push",
             Self::Closed => "closed",
         }
     }
@@ -1625,6 +1629,7 @@ impl Capture {
     pub fn frame_signal(&self) -> Option<&crate::timing::Signal> {
         match self {
             Self::WgcWorker(worker) => Some(worker.frame_signal()),
+            Self::IddPush(session) => Some(session.frame_signal()),
             _ => None,
         }
     }
@@ -1659,6 +1664,22 @@ impl Capture {
         warnings.clear("capture_compute");
         warnings.clear("capture_helper_compute");
         warnings.clear("capture_adapter");
+        warnings.clear("capture_idd_push");
+        // Rubylight's display driver pushes its frames itself; without it, or when it
+        // fails, the stream keeps the usual WGC/DDX path.
+        if idd_push::wanted_for(name, kind, config) {
+            match idd_push::Session::new(name, hdr, config, warnings.clone()) {
+                Ok(session) => return Ok(Self::IddPush(Box::new(session))),
+                Err(error) if crate::device_loss::DeviceLost::from_error(&error).is_some() => {
+                    return Err(error);
+                }
+                Err(error) => {
+                    tracing::warn!(error = %format!("{error:#}"), "Rubylight display frame push unavailable; capturing with WGC");
+                    warnings.set("capture_idd_push", format!("Capturing with WGC: the Rubylight display driver's frame push is unavailable ({error:#})."));
+                }
+            }
+        }
+        let kind = if kind == "idd-push" { "wgc" } else { kind };
         open_stream_capture(kind, &warnings, |backend| {
             Self::new_options_reported(name, backend, hdr, config, warnings.clone())
         })
@@ -1684,6 +1705,11 @@ impl Capture {
         config: &butterpollo_core::config::Config,
         warnings: std::sync::Arc<butterpollo_core::session::Warnings>,
     ) -> Result<Self> {
+        if kind == "idd-push" {
+            return Ok(Self::IddPush(Box::new(idd_push::Session::new(
+                name, hdr, config, warnings,
+            )?)));
+        }
         if kind == "wgc"
             && (crate::process::is_system() || config.boolean("wgc_user_helper", false))
         {
@@ -1770,6 +1796,7 @@ impl Capture {
             Self::Wgc(w) => w.next_frame(),
             Self::WgcWorker(w) => w.next_frame(),
             Self::Dxgi(d) => d.next(Duration::from_millis(1)),
+            Self::IddPush(s) => s.next_frame(),
             Self::Closed => bail!("capture is closed"),
         }
     }
@@ -1778,6 +1805,7 @@ impl Capture {
             Self::Wgc(w) => w.next_gpu(),
             Self::WgcWorker(w) => w.next_gpu(),
             Self::Dxgi(d) => d.next_gpu(),
+            Self::IddPush(s) => s.next_gpu(),
             Self::Closed => bail!("capture is closed"),
         };
         result.map_err(|error| match self.device_removed() {
@@ -1790,6 +1818,7 @@ impl Capture {
             Self::Wgc(w) => &w.gpu,
             Self::WgcWorker(w) => &w.gpu,
             Self::Dxgi(d) => &d.gpu,
+            Self::IddPush(s) => &s.gpu,
             Self::Closed => return None,
         };
         crate::device_loss::DeviceLost::d3d11(&gpu.device)

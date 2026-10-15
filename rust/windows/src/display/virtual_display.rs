@@ -3,6 +3,7 @@
 use super::modes::{
     ModeOutcome, current_timing, format_timing, mode_outcome, offered_rates, supported_modes,
 };
+use super::rubylight_vdd::{self, VirtualDriver};
 use super::topology::activate_target;
 use super::*;
 
@@ -173,6 +174,9 @@ pub struct VirtualOptions {
     pub peak_nits: u32,
     /// The GPU to render the display on; None leaves the choice to Windows.
     pub render_adapter: Option<RenderAdapter>,
+    /// The driver that creates the display: libvirtualdisplay unless
+    /// `virtual_display_driver = rubylight`.
+    pub driver: VirtualDriver,
 }
 impl Default for VirtualOptions {
     fn default() -> Self {
@@ -180,6 +184,7 @@ impl Default for VirtualOptions {
             label: "Butterpollo".into(),
             peak_nits: 1000,
             render_adapter: None,
+            driver: VirtualDriver::Vdd,
         }
     }
 }
@@ -250,6 +255,124 @@ fn apply_render_adapter(driver: &Driver, options: &VirtualOptions) {
         Ok(_) => tracing::info!(gpu = %adapter.name, "virtual display renders on the selected GPU"),
         Err(error) => {
             tracing::warn!(gpu = %adapter.name, error = %format!("{error:#}"), "the virtual display driver did not accept the selected GPU as its render adapter; Windows picks the GPU that renders the virtual display, and Desktop Duplication then captures and encodes there")
+        }
+    }
+}
+/// Where a display's driver requests go. Everything above the transport (resolving the
+/// display path, switching it on, modes, HDR, recovery) is the same for both drivers.
+enum Transport {
+    /// libvirtualdisplay: a lease that expires unless renewed.
+    Vdd(Driver),
+    /// Rubylight's own driver: the monitor belongs to this process and departs when it
+    /// stops sending requests; the session id is the display id.
+    Rubylight(rubylight_vdd::Control),
+}
+impl Transport {
+    fn open(kind: VirtualDriver) -> Result<Self> {
+        Ok(match kind {
+            VirtualDriver::Vdd => Self::Vdd(Driver::open()?),
+            VirtualDriver::Rubylight => Self::Rubylight(rubylight_vdd::Control::open()?),
+        })
+    }
+    /// Best effort, as for libvirtualdisplay: a refusal leaves the GPU to Windows.
+    fn apply_render_adapter(&self, options: &VirtualOptions) {
+        match self {
+            Self::Vdd(driver) => apply_render_adapter(driver, options),
+            Self::Rubylight(control) => {
+                let Some(adapter) = &options.render_adapter else {
+                    return;
+                };
+                match retry_busy(
+                    || control.set_render_adapter(adapter.luid),
+                    Duration::from_secs(1),
+                ) {
+                    Ok(()) => {
+                        tracing::info!(gpu = %adapter.name, "Rubylight virtual display renders on the selected GPU")
+                    }
+                    Err(error) => {
+                        tracing::warn!(gpu = %adapter.name, error = %format!("{error:#}"), "the Rubylight display driver did not accept the selected GPU; Windows picks the GPU that renders the virtual display")
+                    }
+                }
+            }
+        }
+    }
+    /// Create the display; the raw reply goes to [`VirtualDisplay::resolve`].
+    fn create(
+        &self,
+        lease: u64,
+        id: u64,
+        mode: (u32, u32, u32),
+        options: &VirtualOptions,
+        capability: &[u8; 32],
+    ) -> Result<Vec<u8>> {
+        match self {
+            Self::Vdd(driver) => {
+                let request =
+                    temporary_request(lease, id, mode, options, driver.protocol, capability);
+                driver.ioctl(driver.protocol.create_function(), 3, &request, 56)
+            }
+            Self::Rubylight(control) => {
+                control.add_bytes(&rubylight_vdd::add_request(id, mode, options.peak_nits))
+            }
+        }
+    }
+    /// Renew the lease; `ERROR_NOT_FOUND` when the driver no longer has the display.
+    fn renew(&self, lease: u64, id: u64) -> Result<()> {
+        match self {
+            Self::Vdd(driver) => {
+                let mut request = NAMESPACE.to_vec();
+                request.extend_from_slice(&lease.to_le_bytes());
+                request.extend_from_slice(&LEASE_TIMEOUT_MS.to_le_bytes());
+                request.extend_from_slice(&0u32.to_le_bytes());
+                driver.ioctl(0x903, 3, &request, 0)?;
+                Ok(())
+            }
+            Self::Rubylight(control) => {
+                control.drain_log();
+                control.heartbeat(id)
+            }
+        }
+    }
+    /// Offer `mode` on the live display before Windows is asked to set it. libvirtualdisplay
+    /// offers its own fixed list; Rubylight's driver advertises what it is told.
+    fn offer_mode(&self, id: u64, mode: (u32, u32, u32)) {
+        if let Self::Rubylight(control) = self
+            && let Err(error) = control.update_modes(id, mode)
+        {
+            tracing::warn!(error = %format!("{error:#}"), mode = %format_timing(mode), "the Rubylight display driver did not offer the mode");
+        }
+    }
+    fn remove(&self, lease: u64, id: u64) {
+        match self {
+            Self::Vdd(driver) => {
+                let mut request = NAMESPACE.to_vec();
+                request.extend_from_slice(&lease.to_le_bytes());
+                request.extend_from_slice(&id.to_le_bytes());
+                if let Err(e) = lease_exists(retry_busy(
+                    || driver.ioctl(0x902, 3, &request, 0).map(|_| ()),
+                    Duration::from_secs(1),
+                )) {
+                    tracing::warn!(error=%e,"virtual display removal failed; lease expiration will recover it");
+                }
+                request.truncate(24);
+                request.extend_from_slice(&0u64.to_le_bytes());
+                // Removing the last display also removes its lease in the driver.
+                if let Err(e) = lease_exists(retry_busy(
+                    || driver.ioctl(0x904, 3, &request, 0).map(|_| ()),
+                    Duration::from_secs(1),
+                )) {
+                    tracing::warn!(error=%e,"virtual display lease release failed; lease expiration will recover it");
+                }
+            }
+            Self::Rubylight(control) => {
+                if let Err(e) =
+                    lease_exists(retry_busy(|| control.remove(id), Duration::from_secs(1)))
+                {
+                    tracing::warn!(error=%e,"Rubylight virtual display removal failed; the driver departs it when this host stops");
+                }
+                rubylight_vdd::unregister(id);
+                control.drain_log();
+            }
         }
     }
 }
@@ -346,7 +469,7 @@ pub fn set_permanent_display_count(count: u32) -> Result<()> {
     Ok(())
 }
 pub struct VirtualDisplay {
-    driver: Driver,
+    driver: Transport,
     pub name: String,
     lease: u64,
     id: u64,
@@ -509,27 +632,20 @@ impl VirtualDisplay {
         {
             bail!("virtual display mode is outside the driver limits");
         }
-        let driver = Driver::open()?;
+        let driver = Transport::open(options.driver)?;
         let lease = (u64::from_le_bytes(butterpollo_core::crypto::random())
             & 0x1fff_ffff_ffff_ffff)
             | 0x6000_0000_0000_0000;
         let id = butterpollo_core::display_policy::virtual_display_id(stable_id);
         let capability = butterpollo_core::crypto::random::<32>();
-        let request = temporary_request(
-            lease,
-            id,
-            (width, height, fps),
-            &options,
-            driver.protocol,
-            &capability,
-        );
-        apply_render_adapter(&driver, &options);
+        driver.apply_render_adapter(&options);
         // A previous host's lease can survive a session handover until its
         // removal completes or its heartbeat expires. Keep the same identity.
         let (result, startup_protection) = retry_busy(
             || {
                 let protection = hotplug::Protection::capture()?;
-                let result = driver.ioctl(driver.protocol.create_function(), 3, &request, 56)?;
+                let result =
+                    driver.create(lease, id, (width, height, fps), &options, &capability)?;
                 Ok((result, protection))
             },
             Duration::from_millis(u64::from(LEASE_TIMEOUT_MS)),
@@ -552,7 +668,25 @@ impl VirtualDisplay {
         display.check_hotplug("created")?;
         Ok(display)
     }
-    fn resolve(&mut self, result: &[u8]) -> Result<()> {
+    /// The display path the driver's create reply names.
+    fn identity(&self, result: &[u8]) -> Result<(LUID, u32)> {
+        if let Transport::Rubylight(_) = self.driver {
+            let reply = rubylight_vdisplay_proto::control::AddReply::decode(result)
+                .map_err(|e| anyhow::anyhow!("invalid Rubylight virtual display reply: {e}"))?;
+            rubylight_vdd::register(rubylight_vdd::Owned {
+                session_id: self.id,
+                adapter: (reply.adapter_luid_low, reply.adapter_luid_high),
+                target: reply.target_id,
+                wudf_pid: reply.wudf_pid,
+            });
+            return Ok((
+                LUID {
+                    LowPart: reply.adapter_luid_low,
+                    HighPart: reply.adapter_luid_high,
+                },
+                reply.target_id,
+            ));
+        }
         if result.len() != 56
             || result[..16] != NAMESPACE
             || result[16..24] != self.lease.to_le_bytes()
@@ -560,11 +694,16 @@ impl VirtualDisplay {
         {
             bail!("invalid virtual display identity response");
         }
-        let luid = LUID {
-            LowPart: u32::from_le_bytes(result[32..36].try_into().unwrap()),
-            HighPart: i32::from_le_bytes(result[36..40].try_into().unwrap()),
-        };
-        let target = u32::from_le_bytes(result[40..44].try_into().unwrap());
+        Ok((
+            LUID {
+                LowPart: u32::from_le_bytes(result[32..36].try_into().unwrap()),
+                HighPart: i32::from_le_bytes(result[36..40].try_into().unwrap()),
+            },
+            u32::from_le_bytes(result[40..44].try_into().unwrap()),
+        ))
+    }
+    fn resolve(&mut self, result: &[u8]) -> Result<()> {
+        let (luid, target) = self.identity(result)?;
         let deadline = Instant::now() + Duration::from_secs(10);
         // Windows decides whether a display it has just connected joins the
         // desktop. A layout it saved for the same displays (duplicate, or one
@@ -776,6 +915,7 @@ impl VirtualDisplay {
         }
         let previous = self.mode;
         self.mode.2 = rate;
+        self.driver.offer_mode(self.id, self.mode);
         if self.apply_mode("stream request") {
             return Some(rate);
         }
@@ -783,12 +923,7 @@ impl VirtualDisplay {
         None
     }
     fn renew(&mut self) -> Result<()> {
-        let mut request = NAMESPACE.to_vec();
-        request.extend_from_slice(&self.lease.to_le_bytes());
-        request.extend_from_slice(&LEASE_TIMEOUT_MS.to_le_bytes());
-        request.extend_from_slice(&0u32.to_le_bytes());
-        self.driver.ioctl(0x903, 3, &request, 0)?;
-        Ok(())
+        self.driver.renew(self.lease, self.id)
     }
     pub fn feed(&mut self) -> Result<()> {
         if self.last_feed.elapsed() >= Duration::from_secs(1) {
@@ -797,7 +932,7 @@ impl VirtualDisplay {
             if renewed.is_err() {
                 // Reopen a stale transport for the next heartbeat, without
                 // mistaking its error for permission to create another monitor.
-                if let Ok(driver) = Driver::open() {
+                if let Ok(driver) = Transport::open(self.options.driver) {
                     self.driver = driver;
                 }
             }
@@ -832,21 +967,17 @@ impl VirtualDisplay {
             }
             // Only a confirmed missing lease permits creation. Retain the
             // stream's descriptor and identity, never a recalled desktop mode.
-            self.driver = Driver::open()?;
+            self.driver = Transport::open(self.options.driver)?;
             // A restarted driver has forgotten the render adapter.
-            apply_render_adapter(&self.driver, &self.options);
-            let request = temporary_request(
+            self.driver.apply_render_adapter(&self.options);
+            let protection = hotplug::Protection::capture()?;
+            let response = self.driver.create(
                 self.lease,
                 self.id,
                 self.mode,
                 &self.options,
-                self.driver.protocol,
                 &self.capability,
-            );
-            let protection = hotplug::Protection::capture()?;
-            let response =
-                self.driver
-                    .ioctl(self.driver.protocol.create_function(), 3, &request, 56)?;
+            )?;
             self.startup_protection = Some(protection);
             self.resolve(&response)?;
             // Retain a resolved recovery even if protection needs a retry, so
@@ -860,24 +991,7 @@ impl VirtualDisplay {
 }
 impl Drop for VirtualDisplay {
     fn drop(&mut self) {
-        let mut request = NAMESPACE.to_vec();
-        request.extend_from_slice(&self.lease.to_le_bytes());
-        request.extend_from_slice(&self.id.to_le_bytes());
-        if let Err(e) = lease_exists(retry_busy(
-            || self.driver.ioctl(0x902, 3, &request, 0).map(|_| ()),
-            Duration::from_secs(1),
-        )) {
-            tracing::warn!(error=%e,"virtual display removal failed; lease expiration will recover it");
-        }
-        request.truncate(24);
-        request.extend_from_slice(&0u64.to_le_bytes());
-        // Removing the last display also removes its lease in the driver.
-        if let Err(e) = lease_exists(retry_busy(
-            || self.driver.ioctl(0x904, 3, &request, 0).map(|_| ()),
-            Duration::from_secs(1),
-        )) {
-            tracing::warn!(error=%e,"virtual display lease release failed; lease expiration will recover it");
-        }
+        self.driver.remove(self.lease, self.id);
     }
 }
 
@@ -1307,7 +1421,10 @@ mod tests {
                 let mut request = NAMESPACE.to_vec();
                 request.extend_from_slice(&display.lease.to_le_bytes());
                 request.extend_from_slice(&0u64.to_le_bytes());
-                display.driver.ioctl(0x904, 3, &request, 0)?;
+                let Transport::Vdd(driver) = &display.driver else {
+                    bail!("this test drives libvirtualdisplay");
+                };
+                driver.ioctl(0x904, 3, &request, 0)?;
                 let deadline = Instant::now() + Duration::from_secs(20);
                 while display.generation == 0 {
                     let recovered = display.feed();
@@ -1467,6 +1584,14 @@ mod tests {
         assert_eq!(&request[16..20], &0x0001_2345u32.to_le_bytes());
         assert_eq!(&request[20..24], &(-2i32).to_le_bytes());
         assert_eq!(&request[24..], &[0; 8]);
+    }
+    #[test]
+    fn displays_use_libvirtualdisplay_unless_the_rubylight_driver_is_configured() {
+        assert_eq!(VirtualOptions::default().driver, VirtualDriver::Vdd);
+        let config =
+            butterpollo_core::config::Config::parse("virtual_display_driver = rubylight\n")
+                .unwrap();
+        assert_eq!(VirtualDriver::configured(&config), VirtualDriver::Rubylight);
     }
     #[test]
     fn permanent_monitor_payload_matches_driver_v3_contract() {

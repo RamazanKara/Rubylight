@@ -11,6 +11,7 @@ serde.workspace = true
 serde_json.workspace = true
 tracing.workspace = true
 butterpollo-core = { path = "../core" }
+rubylight-vdisplay-proto = { path = "../drivers/rubylight-vdisplay-proto" }
 libloading = "0.8"
 half = "2.7"
 rayon = "=1.11.0"

@@ -138,6 +138,7 @@ pub fn activate(h: &Shared, client: &str, config: &Negotiated) -> Result<Arc<Ret
             .unwrap_or(1000)
             .clamp(400, 2000),
         render_adapter: display::configured_render_adapter(&h.config.read().unwrap()),
+        driver: display::VirtualDriver::configured(&h.config.read().unwrap()),
     };
     let host = Arc::downgrade(h);
     let lease = Arc::new(Retained::create_options(

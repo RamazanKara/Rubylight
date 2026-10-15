@@ -23,16 +23,53 @@
 
 use core::sync::atomic::{AtomicU64, Ordering};
 
-/// `DXGI_FORMAT_B8G8R8A8_UNORM`, the SDR desktop.
+/// The pixel formats a ring may carry. The wire and the header carry them as numbers, which
+/// are `DXGI_FORMAT` values on Windows; another platform maps its own format codes here.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Format {
+    /// 8-bit BGRA, the SDR desktop.
+    Bgra8,
+    /// 16-bit float RGBA, the scRGB desktop composed for HDR and wide colour.
+    Rgba16F,
+}
+
+impl Format {
+    #[must_use]
+    pub const fn wire(self) -> u32 {
+        match self {
+            Self::Bgra8 => FORMAT_BGRA8,
+            Self::Rgba16F => FORMAT_RGBA16F,
+        }
+    }
+
+    #[must_use]
+    pub const fn from_wire(format: u32) -> Option<Self> {
+        match format {
+            FORMAT_BGRA8 => Some(Self::Bgra8),
+            FORMAT_RGBA16F => Some(Self::Rgba16F),
+            _ => None,
+        }
+    }
+
+    /// Bytes per pixel.
+    #[must_use]
+    pub const fn bytes(self) -> u32 {
+        match self {
+            Self::Bgra8 => 4,
+            Self::Rgba16F => 8,
+        }
+    }
+}
+
+/// [`Format::Bgra8`] on the wire: `DXGI_FORMAT_B8G8R8A8_UNORM`.
 pub const FORMAT_BGRA8: u32 = 87;
-/// `DXGI_FORMAT_R16G16B16A16_FLOAT`, the scRGB desktop Windows composes for HDR and wide
-/// colour.
+/// [`Format::Rgba16F`] on the wire: `DXGI_FORMAT_R16G16B16A16_FLOAT`.
 pub const FORMAT_RGBA16F: u32 = 10;
 
 /// Formats a ring may carry.
 #[must_use]
 pub const fn supported_format(format: u32) -> bool {
-    matches!(format, FORMAT_BGRA8 | FORMAT_RGBA16F)
+    Format::from_wire(format).is_some()
 }
 
 /// Fewest and most textures in a ring.
@@ -159,7 +196,8 @@ pub struct Layout {
 pub struct SlotMeta {
     /// The publish sequence that filled it; `0` = never written.
     pub seq: u64,
-    /// `PresentDisplayQPCTime` of the frame.
+    /// When the frame is to be scanned out (IddCx's `PresentDisplayQPCTime`), normally
+    /// after `acquire_qpc`: the host's present stamp is the earlier of the two.
     pub present_qpc: u64,
     /// When the driver acquired the surface.
     pub acquire_qpc: u64,
@@ -475,6 +513,16 @@ mod tests {
 
     fn words() -> Vec<AtomicU64> {
         (0..SECTION_BYTES / 8).map(|_| AtomicU64::new(0)).collect()
+    }
+
+    #[test]
+    fn formats_round_trip_through_the_wire() {
+        for format in [Format::Bgra8, Format::Rgba16F] {
+            assert_eq!(Format::from_wire(format.wire()), Some(format));
+            assert!(supported_format(format.wire()));
+        }
+        assert_eq!(Format::from_wire(24), None, "R10G10B10A2 is never pushed");
+        assert_eq!(Format::Rgba16F.bytes(), 8);
     }
 
     #[test]

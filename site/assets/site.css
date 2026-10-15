@@ -80,6 +80,18 @@ code{font-family:ui-monospace,"Cascadia Code",Consolas,monospace}.inline-help .t
 .docs-bottom{display:grid;grid-template-columns:1fr 1fr;gap:64px;padding-block:0 88px}.docs-bottom h2{font-size:28px}.docs-bottom p{margin-block:18px 12px}
 .not-found{padding-block:72px 108px}.not-found h1{font-size:clamp(42px,5vw,72px)}
 .error-number{font-size:clamp(100px,13vw,172px);line-height:1;font-weight:550;letter-spacing:-.06em;color:var(--accent);margin-bottom:28px}
+.results-section{padding-block:12px 72px}.results-toolbar{display:flex;flex-wrap:wrap;align-items:end;justify-content:space-between;gap:16px 32px}.results-toolbar h2{font-size:30px}
+.results-filter{display:inline-flex;align-items:center;gap:12px;color:var(--muted);font-size:15px;font-weight:600}
+.results-filter select{min-height:44px;padding:8px 12px;border:1px solid var(--line);border-radius:6px;background:var(--paper);color:var(--text);font:inherit}
+.results-note{max-width:720px;margin-top:16px;font-size:15px}.results-scroll{margin-top:28px;overflow-x:auto;border-top:1px solid var(--line)}
+.results-table{width:100%;border-collapse:collapse;font-size:15px;line-height:1.45}
+.results-table th,.results-table td{padding:12px 16px 12px 0;border-bottom:1px solid var(--line);text-align:left;vertical-align:top;white-space:nowrap}
+.results-table td{color:var(--text)}.results-table .number{text-align:right;font-variant-numeric:tabular-nums}.results-table .code{font-family:ui-monospace,"Cascadia Code",Consolas,monospace;font-size:13px;color:var(--muted)}
+.results-table th button{display:inline-flex;align-items:center;gap:6px;min-height:44px;padding:0;border:0;background:none;color:var(--muted);font:inherit;font-size:13px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;cursor:pointer}
+.results-table th button:hover,.results-table th[aria-sort] button{color:var(--accent)}
+.results-table th[aria-sort=ascending] button::after{content:"↑"}.results-table th[aria-sort=descending] button::after{content:"↓"}
+.results-table .results-empty{padding-block:28px;color:var(--muted);white-space:normal}
+.docs-bottom .text-link{margin-right:24px}
 @media(max-width:1000px){
 .wrap{width:calc(100% - 64px)}.site-header{gap:22px}.main-nav{gap:20px}.hero{gap:28px}.hero-media{padding-inline:8px}.hero h1{font-size:58px}.phone{width:242px}
 .control-layout{gap:44px;grid-template-columns:.8fr 1.2fr}.control-list{grid-template-columns:1fr;gap:24px}.control-media .phone{width:256px}
@@ -106,5 +118,5 @@ h1,.hero h1{font-size:clamp(44px,11.8vw,64px)}h2{font-size:35px}.hero{padding-bl
 .page-heading{padding-block:48px 36px}.page-heading h1{font-size:42px}.lead{font-size:18px;margin-top:22px}.download-heading{padding-top:42px}.download-mark{width:64px;margin-bottom:24px}
 .reading-layout{padding-block:16px 56px}.reading-content h2{font-size:28px}.reading-content section{margin-bottom:36px}pre{font-size:12px;padding:15px 12px}
 .doc-link{grid-template-columns:24px 1fr 20px;gap:12px;padding-block:24px}.doc-link h3{font-size:21px}.doc-link p{font-size:15px}.docs-section{padding-bottom:48px}
-.docs-bottom{grid-template-columns:1fr;gap:36px;padding-bottom:56px}.not-found{padding-block:48px 72px}.not-found h1{font-size:40px}.not-found .actions{align-items:flex-start;flex-direction:column;gap:12px}}
+.docs-bottom{grid-template-columns:1fr;gap:36px;padding-bottom:56px}.results-section{padding-bottom:48px}.results-table{font-size:14px}.not-found{padding-block:48px 72px}.not-found h1{font-size:40px}.not-found .actions{align-items:flex-start;flex-direction:column;gap:12px}}
 @media(prefers-reduced-motion:reduce){:root{scroll-behavior:auto}*,*::before,*::after{animation:none!important;transition:none!important}}

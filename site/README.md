@@ -60,9 +60,27 @@ The privacy page follows `docs/PRIVACY.md`, including public network checks,
 local diagnostics, report sharing and Android backups. Endpoint names stay
 in the linked source policy. Update both documents together when policy changes.
 
+## Device results
+
+`devices.html` renders `data/device-results.json` with `assets/devices.js`: one
+row per measured decoder, sortable by every column and filterable by codec.
+The data file starts empty. To add a report posted with the
+[device results issue form](../.github/ISSUE_TEMPLATE/device-results.yml), save
+the pasted text from the issue to a file and run, from the repository root:
+
+```powershell
+& C:\nodejs\node.exe scripts/add-device-results.mjs results.txt --issue 123 --name "Galaxy S23" --dry-run
+& C:\nodejs\node.exe scripts/add-device-results.mjs results.txt --issue 123 --name "Galaxy S23"
+```
+
+The script accepts format version 1 only, drops unknown fields and refuses
+text that looks like an address, e-mail, ID, token, path or markup. Fix or
+reject the report instead of editing the data file by hand. Also add the
+device to the table in `docs/devices.md`.
+
 ## Review
 
-Keep captures in `site/_review/` (ignored by Git). Review each of the seven
+Keep captures in `site/_review/` (ignored by Git). Review each of the eight
 HTML pages at 360, 768 and 1440 CSS pixels, in light and dark mode.
 
 - No unintended overlap or horizontal page scrolling.

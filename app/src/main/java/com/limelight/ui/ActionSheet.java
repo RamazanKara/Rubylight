@@ -220,6 +220,15 @@ public final class ActionSheet extends BottomSheetDialog {
 
     /** An action with a second, quieter line that says what will happen. */
     public MaterialButton addAction(int icon, CharSequence label, CharSequence note) {
+        return addAction(icon, withNote(label, note));
+    }
+
+    /** Rewrites an action added with a note, for a row that changes a setting in place. */
+    public void setActionText(MaterialButton action, CharSequence label, CharSequence note) {
+        action.setText(withNote(label, note));
+    }
+
+    private CharSequence withNote(CharSequence label, CharSequence note) {
         android.text.SpannableStringBuilder text = new android.text.SpannableStringBuilder(label).append('\n');
         int start = text.length();
         text.append(note);
@@ -227,7 +236,7 @@ public final class ActionSheet extends BottomSheetDialog {
                 start, text.length(), 0);
         text.setSpan(new android.text.style.ForegroundColorSpan(MaterialColors.getColor(getContext(),
                 com.google.android.material.R.attr.colorOnSurfaceVariant, 0)), start, text.length(), 0);
-        return addAction(icon, text);
+        return text;
     }
 
     /** An action that removes something, in the error colour and kept last in the sheet. */

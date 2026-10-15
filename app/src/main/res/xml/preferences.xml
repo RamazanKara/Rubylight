@@ -387,6 +387,11 @@
             android:key="checkbox_small_icon_mode"
             android:title="@string/title_checkbox_small_icon_mode"
             android:dialogMessage="@string/summary_checkbox_small_icon_mode" />
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_quick_resume"
+            android:title="@string/title_quick_resume"
+            android:dialogMessage="@string/summary_quick_resume"
+            android:defaultValue="false" />
         <Preference android:key="help" android:title="@string/help"
             android:summary="@string/settings_help_summary" />
         <Preference android:key="report_problem" android:title="@string/report_problem"

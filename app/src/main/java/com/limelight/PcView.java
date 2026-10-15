@@ -764,7 +764,13 @@ public class PcView extends AppCompatActivity implements AdapterFragmentCallback
 
     /** A tap does the row's main action; a PC with nothing to do opens its menu. */
     private void onComputerTapped(ComputerObject computer) {
-        switch (computer.rowState()) {
+        PcGridAdapter.RowState state = computer.rowState();
+        if (LaunchPolicy.resumesOnPcTap(PreferenceConfiguration.readPreferences(this).quickResume,
+                state == PcGridAdapter.RowState.RUNNING)) {
+            onComputerAction(computer, RESUME_ID);
+            return;
+        }
+        switch (state) {
             case RUNNING:
             case READY:
                 doAppList(computer.details, false, false);

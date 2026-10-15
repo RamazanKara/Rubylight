@@ -89,6 +89,9 @@
     <string name="applist_connect_msg">Verbinde mit PC…</string>
     <string name="applist_menu_resume">Fortsetzen</string>
     <string name="applist_menu_quit">Spiel beenden</string>
+    <string name="library_quit_on_leave">Spiel beim Verlassen des Streams beenden</string>
+    <string name="library_quit_on_leave_on">An: Trennen beendet es auch auf dem PC</string>
+    <string name="library_quit_on_leave_off">Aus: Trennen lässt es auf dem PC weiterlaufen</string>
     <string name="applist_menu_cancel">Abbrechen</string>
     <string name="applist_menu_details">Details anzeigen</string>
     <string name="applist_menu_scut">Verknüpfung erstellen</string>
@@ -184,6 +187,8 @@
     <string name="title_language_list">Sprache</string>
     <string name="title_checkbox_small_icon_mode">Kleine Cover</string>
     <string name="summary_checkbox_small_icon_mode">Zeigt mehr Spiele gleichzeitig in der Bibliothek.</string>
+    <string name="title_quick_resume">Schnell fortsetzen</string>
+    <string name="summary_quick_resume">Ein Tipp auf einen PC, auf dem ein Spiel läuft, setzt das Spiel direkt fort, statt seine Bibliothek zu öffnen.</string>
     <string name="title_checkbox_enable_sops">Spieleinstellungen optimieren</string>
     <string name="summary_checkbox_enable_sops">Lässt den Host die Einstellungen eines Spiels an den Stream anpassen. Der Host entscheidet, was sich ändert.</string>
     <string name="title_checkbox_host_audio">Ton am PC wiedergeben</string>
@@ -319,6 +324,8 @@
     <string name="stream_android_arr">Android ARR: automatische Steuerung. Funktioniert mit jedem kompatiblen Host; Android wählt die tatsächliche Bildwiederholrate.</string>
     <string name="stream_android_max_refresh">Android ARR: auf dieser Android-Version oder diesem Display nicht verfügbar. Die maximale Bildwiederholrate wird angefordert und Frames werden sofort angezeigt.</string>
     <string name="stream_host_action_failed">Host-Aktion fehlgeschlagen: %1$s</string>
+    <string name="stream_quit_on_leave_progress">%1$s wird auf dem PC beendet …</string>
+    <string name="stream_quit_on_leave_failed">%1$s konnte auf dem PC nicht beendet werden und läuft weiter. %2$s</string>
     <string name="host_launch_permission_denied">Erlaube App-Starts für dieses Gerät in den Einstellungen oder der Web-UI deines Hosts.</string>
     <string name="videoformat_pyrowave">PyroWave (Host-Unterstützung nötig)</string>
     <string name="settings">Einstellungen</string>

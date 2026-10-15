@@ -42,6 +42,7 @@ import com.limelight.nvstream.input.ControllerPacket;
 import com.limelight.nvstream.input.KeyboardPacket;
 import com.limelight.nvstream.input.MouseButtonPacket;
 import com.limelight.nvstream.jni.MoonBridge;
+import com.limelight.preferences.AppQuitOnLeave;
 import com.limelight.preferences.GlPreferences;
 import com.limelight.preferences.PreferenceConfiguration;
 import com.limelight.ui.GameGestures;
@@ -408,7 +409,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         @Override public void onReceive(Context context, Intent intent) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
                     PictureInPicturePolicy.canDisconnect(connected, isInPictureInPictureMode(), app.getRole())) {
-                finish();
+                leaveStream();
             }
         }
     };
@@ -2257,7 +2258,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             case HOST_WEB_UI: action = this::showHostWebUi; break;
             case HOST_STATUS: action = this::refreshHostStatus; break;
             case RECONNECT: action = this::reconnectStream; break;
-            case DISCONNECT: action = this::finish; break;
+            case DISCONNECT: action = this::leaveStream; break;
             case QUIT_GAME: action = this::confirmQuitApp; break;
             case END_SESSION: action = this::endRemoteSession; break;
             case OVERLAY_COMPACT: action = () -> showPerformanceOverlay(PerformanceOverlay.MODE_COMPACT); break;
@@ -2572,6 +2573,44 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 runOnUiThread(() -> hostActionInProgress = false);
             }
         }, "Quit stream app").start();
+    }
+
+    /**
+     * Leaves the stream as the player asked. A game set to quit on leave is quit first, while the
+     * stream still holds the host connection; a failure is reported because the game stays running.
+     */
+    private void leaveStream() {
+        boolean chosen = AppQuitOnLeave.isEnabled(this, getIntent().getStringExtra(EXTRA_PC_UUID),
+                app.getAppUuid(), app.getAppId());
+        if (!StreamExitPolicy.quitsOnLeave(chosen, app.getRole(), connected)) {
+            finish();
+            return;
+        }
+        String name = appName != null ? appName : app.getAppName();
+        Context context = getApplicationContext();
+        hostActionInProgress = true;
+        hostExitRequested = true;
+        Toast.makeText(context, getString(R.string.stream_quit_on_leave_progress, name), Toast.LENGTH_SHORT).show();
+        new Thread(() -> {
+            Exception failure = null;
+            try {
+                conn.quitApp();
+            } catch (IOException | XmlPullParserException e) {
+                failure = e;
+            }
+            Exception error = failure;
+            runOnUiThread(() -> {
+                hostActionInProgress = false;
+                // A host that ends the stream while it quits cancels the reply, so a failure counts
+                // only while the stream is still up.
+                if (error != null && connected) {
+                    LimeLog.warning("Quit on leave failed: " + error.getMessage());
+                    Toast.makeText(context, context.getString(R.string.stream_quit_on_leave_failed, name,
+                            error.getMessage()), Toast.LENGTH_LONG).show();
+                }
+                finish();
+            });
+        }, "Quit on leave").start();
     }
 
     private void endRemoteSession() {
@@ -3499,9 +3538,9 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                         }
                         break;
 
-                    // Quit
+                    // Leave the stream
                     case KeyEvent.KEYCODE_Q:
-                        finish();
+                        leaveStream();
                         break;
 
                     case KeyEvent.KEYCODE_M:

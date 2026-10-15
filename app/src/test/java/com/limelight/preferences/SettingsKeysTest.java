@@ -51,7 +51,7 @@ public class SettingsKeysTest {
             "checkbox_network_priority", "checkbox_texture_view", "checkbox_unlock_fps",
             "checkbox_reduce_refresh_rate", "checkbox_full_range", "checkbox_usb_driver", "checkbox_usb_dualsense",
             "checkbox_usb_dualsense_haptics", "checkbox_usb_bind_all", "checkbox_enable_sops",
-            "checkbox_disable_warnings", "export_latency_csv",
+            "checkbox_disable_warnings", "export_latency_csv", "checkbox_quick_resume",
     };
     // Rows that open a screen or a dialog and store nothing under their key.
     private static final Set<String> ACTIONS = new HashSet<>(Arrays.asList(
@@ -162,6 +162,7 @@ public class SettingsKeysTest {
         reads.put("checkbox_disable_warnings", new Read(false, true, c -> c.disableWarnings));
         reads.put("list_languages", new Read("default", "de", c -> c.language));
         reads.put("checkbox_small_icon_mode", new Read(false, true, c -> c.smallIconMode));
+        reads.put("checkbox_quick_resume", new Read(false, true, c -> c.quickResume));
         reads.put("checkbox_enable_sops", new Read(true, false, c -> c.enableSops));
         reads.put("checkbox_codec_low_latency", new Read(true, false, c -> c.codecLowLatency));
         reads.put("checkbox_vendor_low_latency", new Read(true, false, c -> c.vendorLowLatency));

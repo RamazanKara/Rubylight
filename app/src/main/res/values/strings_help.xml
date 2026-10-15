@@ -8,7 +8,7 @@
     <string name="help_pairing_body">Tap the PC and keep the PIN on screen. Enter that PIN in the host’s settings or web page on the PC. If the host has per-device permissions, allow this device to list and launch apps.</string>
     <string name="help_pairing_link">Pairing guide</string>
     <string name="help_controls_title">Controls and the stream menu</string>
-    <string name="help_controls_body">During a stream, press Back to open the stream menu: keyboard, input mode, overlay, bitrate and disconnect. On a controller, press Start, Back, LB and RB together. Disconnect leaves the game running on the PC, so you can pick it up again.</string>
+    <string name="help_controls_body">During a stream, press Back to open the stream menu: keyboard, input mode, overlay, bitrate and disconnect. On a controller, press Start, Back, LB and RB together. Disconnect leaves the game running on the PC, so you can pick it up again, unless you turned on Quit the game when I leave the stream in that game’s library menu.</string>
     <string name="help_controls_link">Controls guide</string>
     <string name="help_problems_title">Fixing common problems</string>
     <string name="help_problems_body"><b>No video:</b> try H.264 at 720p with HDR and upscaling off.\n\n<b>Stutter:</b> lower the bitrate, connect the PC by cable, or move closer to the router.\n\n<b>Input lag:</b> turn on the performance overlay to see where the delay comes from, and keep Low-latency decoding on.\n\n<b>No sound:</b> choose Stereo, check the PC’s audio output, then reconnect.</string>

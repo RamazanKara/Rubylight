@@ -110,6 +110,9 @@
     <string name="applist_connect_msg">Connecting to PC…</string>
     <string name="applist_menu_resume">Resume</string>
     <string name="applist_menu_quit">Quit game</string>
+    <string name="library_quit_on_leave">Quit the game when I leave the stream</string>
+    <string name="library_quit_on_leave_on">On: Disconnect also quits it on the PC</string>
+    <string name="library_quit_on_leave_off">Off: Disconnect leaves it running on the PC</string>
     <string name="applist_menu_cancel">Cancel</string>
     <string name="applist_menu_details">View details</string>
     <string name="applist_menu_scut">Create shortcut</string>
@@ -214,6 +217,8 @@
     <string name="title_language_list">Language</string>
     <string name="title_checkbox_small_icon_mode">Use small box art</string>
     <string name="summary_checkbox_small_icon_mode">Fit more games on screen in the library.</string>
+    <string name="title_quick_resume">Quick resume</string>
+    <string name="summary_quick_resume">Tapping a PC that is running a game goes straight back into the game instead of opening its library.</string>
 
     <string name="title_checkbox_enable_sops">Optimize game settings</string>
     <string name="summary_checkbox_enable_sops">Lets the host adjust a game’s settings for the stream. The host decides what changes.</string>
@@ -363,6 +368,8 @@
     <string name="stream_android_arr">Android ARR: automatic policy. Works with any compatible host; Android chooses the actual refresh rate.</string>
     <string name="stream_android_max_refresh">Android ARR: unavailable on this Android version or display. Requesting maximum refresh and showing frames as they arrive.</string>
     <string name="stream_host_action_failed">Host action failed: %1$s</string>
+    <string name="stream_quit_on_leave_progress">Quitting %1$s on the PC…</string>
+    <string name="stream_quit_on_leave_failed">Couldn’t quit %1$s on the PC, so it is still running. %2$s</string>
     <string name="host_launch_permission_denied">Allow this device to launch apps in your host’s settings or web UI.</string>
     <string name="videoformat_pyrowave">PyroWave (host support required)</string>
     <string name="settings">Settings</string>

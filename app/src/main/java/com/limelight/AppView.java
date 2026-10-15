@@ -17,6 +17,7 @@ import com.limelight.nvstream.http.HostCapabilities;
 import com.limelight.nvstream.http.NvApp;
 import com.limelight.nvstream.http.NvHTTP;
 import com.limelight.nvstream.http.PairingManager;
+import com.limelight.preferences.AppQuitOnLeave;
 import com.limelight.preferences.PreferenceConfiguration;
 import com.limelight.ui.AdapterFragment;
 import com.limelight.ui.AdapterFragmentCallbacks;
@@ -625,6 +626,9 @@ public class AppView extends AppCompatActivity implements AdapterFragmentCallbac
             addAppAction(sheet, selectedApp, selectedView, START_OR_RESUME_ID,
                     R.drawable.ic_play, getString(R.string.library_play));
         }
+        if (LaunchPolicy.offersQuitOnLeave(canLaunch, selectedApp.app.getControl(), selectedApp.app.getRole())) {
+            addQuitOnLeaveAction(sheet, selectedApp);
+        }
         if (!selectedApp.isRunning || selectedApp.isHidden) {
             addAppAction(sheet, selectedApp, selectedView, HIDE_APP_ID,
                     selectedApp.isHidden ? R.drawable.ic_visibility : R.drawable.ic_visibility_off,
@@ -642,6 +646,25 @@ public class AppView extends AppCompatActivity implements AdapterFragmentCallbac
             if (poller != null && inForeground) poller.pollNow();
         });
         sheet.show();
+    }
+
+    /** Turns quit on leave on or off for this game in place; the sheet stays open and says what leaving now does. */
+    private void addQuitOnLeaveAction(ActionSheet sheet, AppObject app) {
+        String appUuid = app.app.getAppUuid();
+        int appId = app.app.getAppId();
+        com.google.android.material.button.MaterialButton action = sheet.addAction(R.drawable.ic_power,
+                getString(R.string.library_quit_on_leave),
+                quitOnLeaveNote(AppQuitOnLeave.isEnabled(this, uuidString, appUuid, appId)));
+        action.setOnClickListener(v -> {
+            boolean enabled = !AppQuitOnLeave.isEnabled(this, uuidString, appUuid, appId);
+            AppQuitOnLeave.setEnabled(this, uuidString, appUuid, appId, enabled);
+            sheet.setActionText(action, getString(R.string.library_quit_on_leave), quitOnLeaveNote(enabled));
+            action.announceForAccessibility(quitOnLeaveNote(enabled));
+        });
+    }
+
+    private String quitOnLeaveNote(boolean enabled) {
+        return getString(enabled ? R.string.library_quit_on_leave_on : R.string.library_quit_on_leave_off);
     }
 
     private void addAppAction(ActionSheet sheet, AppObject app, View view, int action, int icon, String label) {

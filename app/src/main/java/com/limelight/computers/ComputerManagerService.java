@@ -525,6 +525,7 @@ public class ComputerManagerService extends Service {
             HostDisplayChoice.save(this, computer.uuid, HostDisplayChoice.HOST_DEFAULT);
             HostCapabilityCache.forget(this, computer.uuid);
             HostNotices.forget(this, computer.uuid);
+            com.limelight.preferences.AppQuitOnLeave.forget(this, computer.uuid);
             for (String preferences : new String[] {"AdaptiveBitrate", "PyroWaveBitrate"}) {
                 getSharedPreferences(preferences, MODE_PRIVATE).edit().remove(computer.uuid).apply();
             }

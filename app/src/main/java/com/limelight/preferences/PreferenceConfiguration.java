@@ -67,6 +67,7 @@ public class PreferenceConfiguration {
     private static final String ENABLE_HDR_PREF_STRING = "checkbox_enable_hdr";
     private static final String ENABLE_PIP_PREF_STRING = "checkbox_enable_pip";
     private static final String AUTO_RECONNECT_PREF_STRING = "checkbox_auto_reconnect";
+    private static final String QUICK_RESUME_PREF_STRING = "checkbox_quick_resume";
     private static final String AUTO_RECONNECT_DEFAULT_OFF_PREF_STRING = "auto_reconnect_default_off";
     private static final String ENABLE_PERF_OVERLAY_STRING = "checkbox_enable_perf_overlay";
     private static final String BIND_ALL_USB_STRING = "checkbox_usb_bind_all";
@@ -181,6 +182,7 @@ public class PreferenceConfiguration {
     public boolean enableHdr;
     public boolean enablePip;
     public boolean autoReconnect;
+    public boolean quickResume;
     public com.limelight.nvstream.AdaptiveQualityController.Mode adaptiveQualityMode =
             com.limelight.nvstream.AdaptiveQualityController.Mode.OFF;
     public int qualityMinShortEdge = 720, qualityMinFps = 30;
@@ -910,6 +912,7 @@ public class PreferenceConfiguration {
         config.enableHdr = prefs.getBoolean(ENABLE_HDR_PREF_STRING, DEFAULT_ENABLE_HDR) && !isShieldAtvFirmwareWithBrokenHdr();
         config.enablePip = prefs.getBoolean(ENABLE_PIP_PREF_STRING, DEFAULT_ENABLE_PIP);
         config.autoReconnect = prefs.getBoolean(AUTO_RECONNECT_PREF_STRING, false);
+        config.quickResume = prefs.getBoolean(QUICK_RESUME_PREF_STRING, false);
         config.adaptiveQualityMode = com.limelight.nvstream.AdaptiveQualityController.Mode.parse(
                 prefs.getString("adaptive_quality_mode", "off"));
         String qualityFloor = prefs.getString("adaptive_quality_min_resolution", "720");

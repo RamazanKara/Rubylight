@@ -8,6 +8,7 @@ This is the dated measurement record. For a guided comparison, start with the [p
 | --- | --- |
 | Where host latency goes | [October 15, present to last packet sent by stage, beside Moonlight's field](#october-15-where-host-latency-goes) |
 | Frame push from Rubylight's display driver | [October 15, idd-push against WGC on the same virtual display](#october-15-frame-push-from-rubylights-display-driver) |
+| Display driver and frame push refactor | [October 15, where the frame push spends its time after the refactor](#october-15-display-driver-and-frame-push-refactor) |
 | Frame rates above 60 | [October 14, 1440p at 60-240 fps and 20-500 Mbps](#october-14-frame-rates-above-60) |
 | A port slower than the host | [October 14, keyframe loss through a 100 Mbps bottleneck](#october-14-keyframe-loss-on-a-slow-port) |
 | HDR and recovery fixes | [October 14, 2.2.17 against 2.2.18](#october-14-hdr-and-recovery-fixes-2218) |
@@ -6264,6 +6265,73 @@ at 240 Hz, and about that at 120 Hz with more spread. It stays opt-in
 Reproduce with `cases.ps1`, `run.ps1` and `collect.py` in
 `C:\src\butterpollo-release\idd-push` (labels `CODEC[-hdr]-FPS-CAPTURE`).
 Raw runs: `runs1`, `runs2`; summaries `matrix1.jsonl` and `matrix2.jsonl`.
+
+## October 15: display driver and frame push refactor
+
+The display driver and the host's `idd-push` path were reworked for latency.
+What changed, and what each stage costs now:
+
+- **The claim wait at 60 fps was the pacer, not the driver.** The 2x virtual
+  display is a faster source, whose credit refilled at exactly the stream
+  rate, so a deficit from the slow first encode was never repaid: every claim
+  waited the same 1-3 ms beside a frame already in hand (480 of 900 frames of
+  the earlier HEVC 60 fps run sat at 2-3 ms). A frame that waits only for
+  credit now borrows the shortfall from a bounded grace (a quarter frame at
+  most, refilled at a tenth of a frame a second). The claim stage at 60 fps
+  fell from 0.37-2.39 ms to 0.07-0.28 ms mean, and at 120 fps from 0.59-1.37
+  to 0.06-0.07 ms.
+- **No host copy.** On AMD the compute conversion reads the ring texture the
+  driver wrote, holding its keyed mutex until the conversion is done (as the
+  WGC helper's zero-copy path does). Convert fell from 0.20-0.26 to 0.16-0.21
+  ms mean. Four textures were enough: the driver dropped and overwrote no
+  frame in any run.
+- **An honest capture stage.** IddCx's `PresentDisplayQPCTime` is the
+  scan-out, 6.8 ms after the driver acquired the frame on a 120 Hz display,
+  so the capture stage used to read 0.00. The present stamp is now the
+  driver's acquire: capture (acquire to the host taking the texture) is
+  0.13-0.24 ms.
+- **The driver costs about nothing.** From the swap chain's acquire to the
+  publish took 19 us on average (p99 55 us); from the publish to the host
+  taking the texture, 132 us (p99 221 us), the capture thread's wake.
+- **What remains is encode.** AMF's encode stage on the driver's frames is
+  2.8-3.7 ms against 2.6-2.8 ms with WGC on the same display. The driver gets
+  DWM's surface before DWM's GPU work on it has finished, and the copy and
+  conversion queue behind it, as with Desktop Duplication.
+
+**Machine and method** as in the section above: RX 7900 XT, AMF, Ryzen 7
+5800X3D, Windows 26200, Memory Integrity on; driver 0.1.0.7001 signed on the
+PC; release host from this work; 2560x1440 per-client virtual display,
+extended layout, host as SYSTEM, 20 s per case, receiver decoding on the same
+GPU. One full pass of HEVC and AV1, SDR and HDR, 60/120/240 fps (30 cases
+with exact refresh, 28 passed the receiver's checks), then the 240 fps half
+of a reverse-order pass. The other half of that pass was discarded: from
+15:32 the desktop was in use and DWM composed only half the virtual
+display's frames (62 instead of 120 a second) for both captures.
+
+Render to received, mean / p95 ms, first pass:
+
+| | 60 fps | 120 fps | 240 fps |
+| --- | ---: | ---: | ---: |
+| HEVC idd-push | 8.44 / 8.92 | 8.37 / 8.86 | 8.38 / 8.95 |
+| AV1 idd-push | 6.40 / 6.90 | 8.18 / 8.73 | 8.15 / 8.68 |
+| HEVC HDR idd-push | 6.71 / 7.27 | 8.25 / 8.77 | 8.30 / 8.81 |
+| AV1 HDR idd-push | 8.78 / 9.39 | 8.16 / 8.73 | 7.83 / 8.34 |
+
+The second pass at 240 fps agreed within 0.3 ms (7.87-8.34 ms). p95 is now
+within 0.7 ms of the mean in every case; before the refactor it was 2.5-9.6
+ms above it. For reference, WGC on the same display was 0.6-1.0 ms slower at
+120 and 240 fps and 1.1-2.8 ms faster at 60 fps, where the difference lies
+before any host stamp and is not explained yet.
+
+**Exact refresh does not pay.** A display at the stream rate
+(`frame_limiter_auto_virtual_framegen = disabled`) instead of twice it was
+0.12-0.14 ms faster at 240 fps, 0.7 ms slower at 120 fps and 2.2 ms slower
+at 60 fps (first pass), so the 2x default stays.
+
+Reproduce with `cases.ps1` (`-LabelList`, labels `CODEC[-hdr]-FPS-CAPTURE[-1x]`),
+`run.ps1`, `collect.py` and `compare.py` in `C:\srcutterpollo-release\idd-push`;
+`idd_push=trace` in `log-extra.txt` logs the driver's per-frame times. Raw runs
+`runs3`, `runs4`, `runs-diag-*`; summaries `matrix3.jsonl`, `matrix4.jsonl`.
 
 ## Hardware covered
 

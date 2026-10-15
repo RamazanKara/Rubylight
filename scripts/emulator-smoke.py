@@ -312,6 +312,9 @@ def host_menu(item=None):
 
 
 PROFILE_RESET = "Same as all PCs for everything"
+PROFILES_ORDER = ("When a stream starts, each value comes from the first of these that sets it: this game, this PC, "
+                  "the profile, then the main settings. On mobile data, Bitrate on mobile data then caps the bitrate. "
+                  "Changes never apply to a stream that is already running.")
 
 
 def open_host_profile():
@@ -457,6 +460,18 @@ def capture_ui_set(width, font, rotation=0):
         find(setting, scroll=True)
         screenshot(prefix + "-" + name)
         navigate_up()
+    # Named profiles: the list, the choice by network and the precedence order on one screen.
+    tap("Video", scroll=True)
+    tap("Profiles", scroll=True)
+    find("New profile", scroll=True)
+    screenshot(prefix + "-profiles")
+    find("Choose by network", scroll=True)
+    find(PROFILES_ORDER, scroll=True)
+    screenshot(prefix + "-profiles-order")
+    navigate_up()
+    find("Bitrate on mobile data", scroll=True)
+    navigate_up()
+    find("Presets", scroll=True)
     search = f"{PACKAGE}:id/search_src_text"
     # Search sits behind a top app bar action until it is used.
     assert not any(n.get("resource-id") == search for n in tree().iter("node")), "Settings search is open before it was asked for"
@@ -563,7 +578,14 @@ def library_regressions():
     find(f"{PACKAGE}:id/action_sheet_close")
     find("Resume")
     screenshot("library-app-sheet-landscape-font-2")
-    tap(f"{PACKAGE}:id/action_sheet_close")
+    # A game's own stream values open from its sheet and say where unset values come from.
+    tap("Stream settings for this game", scroll=True)
+    find("Racing Game")
+    find_text(r"(?m)from the main settings$")
+    screenshot("game-settings-landscape-font-2")
+    find(f"{PACKAGE}:id/host_profile_save", scroll=True)
+    navigate_up()
+    find("Racing Game")
     adb("shell", "am", "force-stop", PACKAGE)
     adb("shell", "settings", "put", "system", "font_scale", "1.0")
 

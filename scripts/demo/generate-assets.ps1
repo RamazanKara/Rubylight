@@ -18,13 +18,14 @@ if ($encoders -match 'libx265') {
         -pix_fmt yuv420p10le -tag:v hvc1 -x265-params 'pools=2:frame-threads=2:log-level=error' -movflags +faststart "$assets/stream-hevc.mp4"
     if ($LASTEXITCODE -ne 0) { throw 'HEVC encode failed.' }
 }
-if ($encoders -match 'libsvtav1') {
-    & $ffmpeg -y -hide_banner -loglevel warning -i "$assets/stream-h264.mp4" -an -c:v libsvtav1 -preset 10 -crf 32 `
-        -pix_fmt yuv420p10le -svtav1-params 'lp=2' -movflags +faststart "$assets/stream-av1.mp4"
-    if ($LASTEXITCODE -ne 0) { throw 'AV1 encode failed.' }
-} elseif ($encoders -match 'libaom-av1') {
+# libaom first: SVT-AV1 at these settings writes a sample about 3.5 times larger (6 MB instead of 1.7 MB) into the debug APK.
+if ($encoders -match 'libaom-av1') {
     & $ffmpeg -y -hide_banner -loglevel warning -i "$assets/stream-h264.mp4" -an -c:v libaom-av1 -cpu-used 8 -crf 36 -b:v 0 `
         -row-mt 1 -threads 2 -pix_fmt yuv420p10le -movflags +faststart "$assets/stream-av1.mp4"
+    if ($LASTEXITCODE -ne 0) { throw 'AV1 encode failed.' }
+} elseif ($encoders -match 'libsvtav1') {
+    & $ffmpeg -y -hide_banner -loglevel warning -i "$assets/stream-h264.mp4" -an -c:v libsvtav1 -preset 10 -crf 32 `
+        -pix_fmt yuv420p10le -svtav1-params 'lp=2' -movflags +faststart "$assets/stream-av1.mp4"
     if ($LASTEXITCODE -ne 0) { throw 'AV1 encode failed.' }
 }
 $ffprobe = Join-Path (Split-Path $ffmpeg) 'ffprobe.exe'

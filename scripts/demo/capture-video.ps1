@@ -2,9 +2,11 @@
 # -Shot retakes some shots by ID; a retake replaces a clip only when it missed fewer frames, unless -Replace is given.
 # -Takes is how many times each shot is taken at most (the best take is kept). -MaxHostLoad waits, before each take, until
 # the host's CPU load is below that percentage (up to five minutes): the emulator misses frames on a busy host.
+# -HostCapture records the emulator's window on the PC (Desktop Duplication, encoded on the GPU with AMF) instead of
+# with screenrecord inside the device; see docs/demo/README.md. -WindowHeight is the height of the window's display area.
 # -Theme picks the system theme the app follows (dark by default, matching the stills); the prior mode is restored.
 param([string[]]$Shot, [ValidateSet('dark', 'light')][string]$Theme = 'dark', [int]$Takes = 3, [int]$MaxHostLoad = 50,
-    [switch]$Replace)
+    [switch]$Replace, [switch]$HostCapture, [int]$WindowHeight = 1320)
 . (Join-Path $PSScriptRoot 'capture-common.ps1')
 $output = Join-Path $root 'out/demo/clips'
 New-Item -ItemType Directory -Force $output | Out-Null
@@ -328,29 +330,67 @@ function Invoke-Take($Take, $Plan, [int]$Width, [int]$Height, [double]$Seconds, 
     Start-Sleep -Milliseconds 1200
     if ($MaxHostLoad -lt 100) { Wait-QuietHost }
     $remoteClip = "$remote/$($Take.Id).mp4"
-    $recording = Start-Process -FilePath $adb -ArgumentList @('shell', 'screenrecord', '--size', "${Width}x$Height",
-        '--bit-rate', '12000000', '--time-limit', "$($Seconds + 2)", $remoteClip) `
-        -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path $output "$($Take.Id).record.log") `
-        -RedirectStandardError (Join-Path $output "$($Take.Id).record-error.log")
+    if ($HostCapture) {
+        # The window's display area, grabbed at 60 fps. The emulator draws a landscape app turned on its side inside
+        # the portrait window, so landscape takes are turned back (counter-clockwise).
+        $r = $script:window
+        $grab = "ddagrab=output_idx=$OutputIndex`:framerate=$fps`:offset_x=$($r.X):offset_y=$($r.Y):video_size=$($r.Width)x$($r.Height)"
+        $turn = $(if ($Plan.Landscape) { ',transpose=2' } else { '' })
+        $recording = Start-Process -FilePath $ffmpeg -ArgumentList @('-hide_banner', '-nostdin', '-y', '-loglevel', 'error',
+            '-f', 'lavfi', '-i', $grab, '-vf', "hwdownload,format=bgra$turn,format=nv12", '-t', "$($Seconds + 1)",
+            '-c:v', 'h264_amf', '-quality', 'quality', '-rc', 'cqp', '-qp_i', '16', '-qp_p', '18', $Raw) `
+            -WindowStyle Hidden -PassThru -RedirectStandardError (Join-Path $output "$($Take.Id).record-error.log")
+    } else {
+        $recording = Start-Process -FilePath $adb -ArgumentList @('shell', 'screenrecord', '--size', "${Width}x$Height",
+            '--bit-rate', '12000000', '--time-limit', "$($Seconds + 2)", $remoteClip) `
+            -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path $output "$($Take.Id).record.log") `
+            -RedirectStandardError (Join-Path $output "$($Take.Id).record-error.log")
+    }
     $script:clock = [Diagnostics.Stopwatch]::StartNew()
     # PowerShell 7 leaves ExitCode empty for a -PassThru process unless its handle was opened before it exited.
     $null = $recording.Handle
     try {
         & $Plan.Act
         if (-not $recording.WaitForExit(($Seconds + 20) * 1000)) { throw 'screenrecord timed out.' }
-        if ($recording.ExitCode -ne 0) { throw "screenrecord failed: $($Take.Id).record-error.log" }
+        if ($recording.ExitCode -ne 0) { throw "The recording failed: $($Take.Id).record-error.log" }
     } finally {
         if (-not $recording.HasExited) { $recording.Kill() }
         $recording.Dispose()
     }
     & $Plan.Check
-    $null = Invoke-Adb @('pull', $remoteClip, $Raw)
-    $null = Invoke-Adb @('shell', 'rm', $remoteClip)
+    if (-not $HostCapture) {
+        $null = Invoke-Adb @('pull', $remoteClip, $Raw)
+        $null = Invoke-Adb @('shell', 'rm', $remoteClip)
+    }
     if ((Get-Item $Raw).Length -eq 0) { throw 'Empty recording.' }
 }
 
+function Get-Repeats([string]$Path) {
+    # A grab has a frame every 1/60 s whether or not the window changed: count the repeated ones FFmpeg's mpdecimate
+    # finds while something moves (runs of one to eight repeats; longer runs are a still screen).
+    $log = Join-Path $output 'repeats.log'
+    $ErrorActionPreference = 'Continue'
+    & $ffmpeg -hide_banner -nostdin -i $Path -vf 'mpdecimate=hi=64*4:lo=64*2:frac=0.2,showinfo' -an -f null - 2> $log
+    $ErrorActionPreference = 'Stop'
+    $kept = @(Select-String -LiteralPath $log -Pattern 'pts_time:([0-9.]+)' | ForEach-Object {
+        [double]::Parse($_.Matches[0].Groups[1].Value, [Globalization.CultureInfo]::InvariantCulture) })
+    $repeats = 0
+    for ($i = 1; $i -lt $kept.Count; $i++) {
+        $gap = [int][Math]::Round(($kept[$i] - $kept[$i - 1]) * $fps) - 1
+        if ($gap -ge 1 -and $gap -le 8) { $repeats += $gap }
+    }
+    return $repeats
+}
+
 # The recorder's start-up delay where a take cannot measure it (a stream never stands still before its first action).
-$startDelay = 0.45
+$startDelay = $(if ($HostCapture) { 0.35 } else { 0.45 })
+if ($HostCapture) {
+    $OutputIndex = 0
+    $script:window = & (Join-Path $PSScriptRoot 'emulator-window.ps1') -Height $WindowHeight
+    if ($script:window.Width % 2 -or $script:window.Height % 2) { throw "Make the window's display area even-sized: $($script:window.Width)x$($script:window.Height)" }
+    $portraitSize = @($script:window.Width, $script:window.Height)
+    Write-Host "Recording the emulator window's display area at $($script:window.X),$($script:window.Y), $($script:window.Width)x$($script:window.Height)"
+}
 try {
     Initialize-Capture $Theme
     # A plain dark home screen for the picture-in-picture shot (enabling it launches an activity, so do it before any stream).
@@ -375,7 +415,7 @@ try {
         for ($attempt = 1; $attempt -le $Takes -and ($null -eq $best -or $best -gt 0); ) {
             try {
                 Invoke-Take $take $plan $width $height $seconds $candidate
-                $hitches = (Get-Slots (Get-FrameTimes $candidate) 0).Missed
+                $hitches = $(if ($HostCapture) { Get-Repeats $candidate } else { (Get-Slots (Get-FrameTimes $candidate) 0).Missed })
                 Write-Host "  $($take.Id) take $attempt`: $hitches missed frame(s) in motion"
                 if (($null -eq $best -or $hitches -lt $best) -and ($null -eq $kept -or $hitches -lt $kept)) {
                     Move-Item -Force $candidate $raw

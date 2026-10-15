@@ -34,7 +34,7 @@ Nightjar decides from what each host reports about itself, not from its name. A 
 | Stream health | [Recent evidence](stream-health.md) for network, decoder, host, presentation and heat, with an optional reversible bitrate trial. | Any host. Bitrate trial: Rubylight |
 | Audio | Stereo, 5.1 and 7.1, with low-latency AAudio for stereo on Android 8.1 and later. | Any host |
 | Controllers and mappings | Multiple players, per-model button, stick/trigger and D-pad mapping, and built-in Xbox USB drivers. | Any host |
-| Per-game touch controls | Held/toggle keyboard and mouse buttons, layout editing, and validated JSON import/export/sharing. | Any host |
+| Per-game touch controls | Held/toggle keyboard, mouse and gamepad buttons, analog sticks (fixed or floating), triggers, a D-pad and WASD sticks; layout editing with grid snapping; validated JSON import/export/sharing; import of Artemis keyboard layouts and Custom Keys files. | Any host |
 | Desktop tools | Pinch zoom/pan with matching absolute input, plus external-display video and a phone touchpad with reconnect fallback. | Any host |
 | Remote access guide | [Paired HTTPS checks](remote-setup.md) and direct/DERP/peer-relay status for the current Tailscale peer. | Any host. Tailscale path status: Rubylight |
 | DualSense / Edge | Adaptive triggers, rumble, lightbar and Edge paddles over the direct USB driver. | Rumble: any host. Adaptive triggers and lightbar: hosts that send them (Sunshine protocol extension) |

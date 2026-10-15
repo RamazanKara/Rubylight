@@ -44,7 +44,7 @@
 ## Everything else
 
 - AV1, HEVC and H.264 with HDR10, and 4:4:4 where the host offers it
-- Touch, trackpad, mouse, pen and keyboard, with editable keyboard shortcuts and per-game touch controls you can export and share ([controls](docs/controls.md))
+- Touch, trackpad, mouse, pen and keyboard, with editable keyboard shortcuts and per-game touch controls (keys, gamepad buttons, sticks, triggers, D-pad) you can export, share and import from Artemis ([controls](docs/controls.md))
 - Desktop tools: pinch zoom, and video on an external display with the phone as a touchpad
 - Settings per PC, Native and Battery saver presets, Wake-on-LAN and automatic discovery
 - Phones, foldables, tablets and Android TV with D-pad navigation, plus picture-in-picture

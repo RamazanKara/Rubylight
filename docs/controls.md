@@ -157,15 +157,47 @@ Turn on **Settings → Controls → Show on-screen controls**, or use **stream m
 
 During a stream choose **stream menu → Input → Edit controller layout**. Select **Move controls** or **Resize controls**, drag the controls, then choose **Save layout and play**. **Reset controls layout** in Settings restores their sizes and positions.
 
-### Per-game keyboard and mouse buttons
+### Per-game controls
 
-Choose **stream menu → Input → Controls for this game → Add keyboard or mouse button**. Give the button a label and a key or chord (`W`, `SPACE`, `CTRL + C`) or mouse binding (`MOUSE_1` left, `MOUSE_2` middle, `MOUSE_3` right, `MOUSE_4` back, `MOUSE_5` forward). Buttons normally hold their input while pressed. The **Tap to hold; tap again to release** option supports actions that would otherwise require a long press. TalkBack, Switch Access and keyboard activation can also activate a button; ordinary activation sends an 80 ms press.
+Choose **stream menu → Input → Controls for this game → Add control** and pick a type:
 
-Set button width and height as percentages of the available control surface. Every button retains at least a 48 dp touch target. Select **Move game buttons**, drag them to position, then **Save layout and play**. Touch input to the PC is suppressed while placing buttons. Select a button's name in this menu to edit its size, binding or label, or delete it. These controls can coexist with the virtual gamepad; the virtual gamepad's existing layout remains separate.
+- **Keyboard or mouse button**: a key or chord (`W`, `SPACE`, `CTRL + C`) or a mouse button (`MOUSE_1` left, `MOUSE_2` middle, `MOUSE_3` right, `MOUSE_4` back, `MOUSE_5` forward).
+- **Gamepad button**: A, B, X, Y, LB, RB, LS, RS (stick clicks), Back, Start or Guide.
+- **Analog trigger**: LT or RT. Pressing it pulls the trigger fully.
+- **Analog stick**: the left or right stick. The deadzone (0–50% of the stick's travel) sends nothing near the center, and the rest of the travel is rescaled so small movements still register.
+- **D-pad**: eight directions, with the center quarter ignored.
+- **WASD stick**: a stick that holds keys instead of moving an axis, `W + A + S + D` by default (up, left, down, right). **Diagonals** sets how far either side of a diagonal both neighboring keys are held: 0 never holds two keys, 45 gives eight equal directions, 90 holds two keys everywhere off the axes.
 
-Layouts and their visibility are saved separately for each PC and game, using the app UUID when available and its numeric ID otherwise. Resume and Running Game tiles select the established game's saved controls when the stream connects. Shared modifier keys and mouse buttons remain held until all controls using them have released. Opening the menu, hiding the layout, entering picture-in-picture, leaving the activity, disconnecting, canceling a touch, or replacing a layout releases its held input. The host's ordinary keyboard/mouse permissions still apply; no host extension is needed.
+Sticks and WASD sticks can be **floating**: the stick centers wherever the thumb lands inside its area, so make the area large (for example the left third of the screen). A fixed stick centers in the middle of its area.
 
-**Export or share layout** offers selectable JSON, **Copy JSON**, and a JSON file through Android's share sheet. The share sheet may leave the stream according to Android's activity lifecycle; the PC game remains running. On another game/device, **Import layout** accepts pasted JSON and replaces that game's custom buttons only after pressing **Replace**. Layouts are limited to 32 buttons and 64 KiB. Unsupported versions, duplicate IDs, unsupported keys, nonfinite/out-of-bounds geometry and invalid mouse bindings are rejected without changing the current layout. Coordinates are normalized so layouts scale across devices; review placement on a different aspect ratio.
+Buttons and triggers hold while pressed. **Tap to hold; tap again to release** turns one into a toggle for actions that would otherwise need a long press. TalkBack, Switch Access and keyboard activation can also activate a button; ordinary activation sends an 80 ms press. Sticks, D-pads and WASD sticks take touch only.
+
+The same key, mouse button or gamepad button can be on several controls. Each control releases only its own press, so a shared key stays down until every control holding it lets go. Two sticks on one side send whichever is pushed further.
+
+Gamepad controls join controller 1, the same slot as the fixed on-screen gamepad and a first physical controller; their input is combined. They work without turning on the fixed on-screen gamepad, and like it they send each change a few more times over the next 75 ms so a dropped packet cannot leave a stick pushed.
+
+Set width and height as percentages of the control surface; every control keeps at least a 48 dp touch target. Select **Move game buttons**, drag controls into place, then **Save layout and play**. Touch input to the PC is paused while placing controls. **Snap to grid** (Off, 2.5%, 5% or 10% of the shorter screen edge) shows the grid while moving and snaps each control's top-left corner to it; a control that cannot reach the far edge on the grid can sit flush against it. The grid size is saved for this device. Select a control's name in this menu to edit or delete it.
+
+Layouts and their visibility are saved separately for each PC and game, using the app UUID when available and its numeric ID otherwise. Resume and Running Game tiles select the established game's saved controls when the stream connects. Opening the menu, hiding the layout, entering picture-in-picture, the stream losing focus, leaving the activity, disconnecting, canceling a touch or replacing a layout releases everything the layout holds: keys and mouse buttons go up, gamepad buttons go up, triggers return to 0 and sticks recenter. The host's ordinary keyboard, mouse and gamepad permissions still apply; no host extension is needed.
+
+**Export or share layout** offers selectable JSON, **Copy JSON**, and a JSON file through Android's share sheet. The share sheet may leave the stream according to Android's activity lifecycle; the PC game remains running. On another game or device, **Import layout** accepts pasted JSON and replaces that game's controls only after pressing **Replace**. Layouts are limited to 32 controls and 64 KiB. Coordinates are normalized so layouts scale across devices; review placement on a different aspect ratio.
+
+Layouts with only keyboard and mouse buttons are still saved as version 1, so older Nightjar releases can import them. A layout with any other control is version 2. Unsupported versions, duplicate IDs, unsupported keys or buttons, out-of-range deadzone or diagonal values, nonfinite or off-screen geometry and invalid mouse bindings are rejected without changing the current layout, and the message names the problem and, for a single control, its number and name.
+
+#### Import from Artemis
+
+To move a layout from Artemis, export it there (**Export keyboard layout** for the on-screen keyboard, and keep your **Custom Keys** JSON file if you use custom keys). In Nightjar, long-press the game in the library (or use its options button), choose **Import game controls**, and pick the layout file, the Custom Keys file, or both together. **Import layout** in the stream menu also accepts either file's text. Nightjar shows what it will import and lists everything it skipped, with the reason, before you press **Replace**.
+
+| Artemis element | In Nightjar |
+| --- | --- |
+| Keys (`key_…`), including toggling ones | Keyboard buttons; toggling ones become **Tap to hold** |
+| Mouse buttons left, middle, right, and the toggling right button | Mouse buttons |
+| Keyboard stick (`rocker_1`) and keyboard D-pad (`dpad_1`) | WASD sticks with W, A, S and D; the stick's double-tap center key (Shift) is skipped |
+| Custom keys (`VK_*` names or `0x..` codes; `sticky` toggles) | Keyboard buttons; `VK_LBUTTON`, `VK_MBUTTON`, `VK_RBUTTON`, `VK_XBUTTON1/2` alone become mouse buttons. Keys the Moonlight protocol cannot send, and keys mixed with mouse buttons, are skipped |
+| Touchpad areas (`m_9`, `m_10`, `m_11`) | Skipped: no equivalent |
+| Elements turned off or hidden in Artemis | Left out, and counted in the summary |
+
+Artemis saves pixel positions without the screen size, so Nightjar reads them against this device's screen in landscape. A layout made on a larger screen is scaled down to fit, and the summary says so; check the placement either way. A Custom Keys file on its own has no positions, so its keys are laid out in rows as Artemis does. Custom keys placed in a layout file need the Custom Keys file picked together with it; otherwise they are listed as skipped. Layouts of Artemis's fixed virtual gamepad are not exported by Artemis and so cannot be imported.
 
 ### Tablet zoom and external displays
 
@@ -179,7 +211,7 @@ Android 0.4.9 tracks changes to the selected video display's maximum refresh rat
 
 For external MediaCodec video, **Balanced** pacing uses the lowest-latency path for this session, with a notice when it changes. Android's public Choreographer callbacks follow the internal display, so using them to pace an external surface can hold video to the phone's cadence. The saved pacing preference is unchanged; other pacing modes keep their behavior. PyroWave keeps its own Vulkan presentation. External output does not send phase-lock timing derived from the phone display, and this fallback does not claim a measured FPS or VRR result.
 
-The JSON validator, held-input ownership, axis/hat report remapping, zoom bounds and inverse touch mapping have headless unit coverage. Actual monitor attach/detach, OEM SurfaceView transforms, controller hardware and accessibility services still require device testing; no physical display, audio or controller is used by these tests.
+The JSON validator and its version 1 fixtures, the Artemis import mapping, stick deadzone, floating centering, WASD directions, grid snapping, release of held gamepad input, held-input ownership, axis/hat report remapping, zoom bounds and inverse touch mapping have headless unit coverage. Actual monitor attach/detach, OEM SurfaceView transforms, controller hardware and accessibility services still require device testing; no physical display, audio or controller is used by these tests.
 
 ## Leaving a game
 

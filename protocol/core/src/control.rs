@@ -14,6 +14,19 @@ pub const DISPLAY_CAPS_BYTES: usize = 16;
 pub const RECONFIGURE_MESSAGE_TYPE: u16 = 0x5532;
 /// Encoded size of [`Reconfigure`].
 pub const RECONFIGURE_BYTES: usize = 12;
+/// Control-stream message type of host timing, both ways: a client sends a
+/// [`HostTimingRequest`], and the host answers with [`HostTiming`] reports.
+pub const HOST_TIMING_MESSAGE_TYPE: u16 = 0x5536;
+/// Encoded size of [`HostTimingRequest`].
+pub const HOST_TIMING_REQUEST_BYTES: usize = 4;
+/// Size of a host timing report's header, before its records.
+pub const HOST_TIMING_HEADER_BYTES: usize = 4;
+/// Encoded size of one [`HostTiming`] record.
+pub const HOST_TIMING_RECORD_BYTES: usize = 20;
+/// Most records one report carries (a 644-byte message).
+pub const HOST_TIMING_MAX_RECORDS: usize = 32;
+
+use alloc::vec::Vec;
 
 const VERSION: u8 = 1;
 
@@ -129,6 +142,116 @@ impl Reconfigure {
     }
 }
 
+/// A client's request for [`HostTiming`] reports (client to host), sent once the stream
+/// starts. A host that does not know the id ignores it and the client keeps Moonlight's
+/// per-frame host latency.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct HostTimingRequest {
+    pub enabled: bool,
+}
+
+impl HostTimingRequest {
+    const ENABLED_FLAG: u8 = 1;
+
+    /// Little-endian wire form: version, flags, reserved.
+    pub fn encode(&self) -> [u8; HOST_TIMING_REQUEST_BYTES] {
+        let mut out = [0; HOST_TIMING_REQUEST_BYTES];
+        out[0] = VERSION;
+        out[1] = if self.enabled { Self::ENABLED_FLAG } else { 0 };
+        out
+    }
+
+    pub fn decode(data: &[u8]) -> Option<Self> {
+        if data.len() < HOST_TIMING_REQUEST_BYTES || data[0] != VERSION {
+            return None;
+        }
+        Some(Self {
+            enabled: data[1] & Self::ENABLED_FLAG != 0,
+        })
+    }
+}
+
+/// Where one new picture's time went on the host, sent after its last packet left the
+/// socket, as punktfunk's host timing is. All in microseconds from the same anchor: the
+/// picture's present stamp (the display driver's acquire on a Rubylight display), or the
+/// stream thread's claim of a picture without one.
+///
+/// `host_us = queue_us + encode_us + residual + send_us`; the residual (waiting for the
+/// sender and packetizing) is what the named stages leave.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct HostTiming {
+    /// The frame number in the video stream's packets (Moonlight's frame index).
+    pub frame: u32,
+    /// Present to the frame's last packet handed to the socket.
+    pub host_us: u32,
+    /// Present to the encoder taking the picture: capture, the wait for the claim and
+    /// the conversion.
+    pub queue_us: u32,
+    /// The encoder taking the picture to the encoded frame in the host's hands.
+    pub encode_us: u32,
+    /// The first packet to the last one handed to the socket.
+    pub send_us: u32,
+}
+
+impl HostTiming {
+    /// What `host_us` holds besides the named stages.
+    pub fn residual_us(&self) -> u32 {
+        self.host_us
+            .saturating_sub(self.queue_us)
+            .saturating_sub(self.encode_us)
+            .saturating_sub(self.send_us)
+    }
+
+    /// One report of up to [`HOST_TIMING_MAX_RECORDS`] records; the rest are left out.
+    /// Little-endian: version, count, reserved, then each record's five words.
+    pub fn encode_report(records: &[Self]) -> Vec<u8> {
+        let records = &records[..records.len().min(HOST_TIMING_MAX_RECORDS)];
+        let mut out =
+            Vec::with_capacity(HOST_TIMING_HEADER_BYTES + records.len() * HOST_TIMING_RECORD_BYTES);
+        out.extend_from_slice(&[VERSION, records.len() as u8, 0, 0]);
+        for r in records {
+            for word in [r.frame, r.host_us, r.queue_us, r.encode_us, r.send_us] {
+                out.extend_from_slice(&word.to_le_bytes());
+            }
+        }
+        out
+    }
+
+    /// Parses a report. An unknown version, no records, a count over the limit or past the
+    /// data, or a record whose stages add up to more than its total rejects it whole.
+    pub fn decode_report(data: &[u8]) -> Option<Vec<Self>> {
+        if data.len() < HOST_TIMING_HEADER_BYTES || data[0] != VERSION {
+            return None;
+        }
+        let count = usize::from(data[1]);
+        if count == 0
+            || count > HOST_TIMING_MAX_RECORDS
+            || data.len() < HOST_TIMING_HEADER_BYTES + count * HOST_TIMING_RECORD_BYTES
+        {
+            return None;
+        }
+        let records: Vec<Self> = (0..count)
+            .map(|i| {
+                let at = HOST_TIMING_HEADER_BYTES + i * HOST_TIMING_RECORD_BYTES;
+                Self {
+                    frame: u32_at(data, at),
+                    host_us: u32_at(data, at + 4),
+                    queue_us: u32_at(data, at + 8),
+                    encode_us: u32_at(data, at + 12),
+                    send_us: u32_at(data, at + 16),
+                }
+            })
+            .collect();
+        records
+            .iter()
+            .all(|r| {
+                u64::from(r.queue_us) + u64::from(r.encode_us) + u64::from(r.send_us)
+                    <= u64::from(r.host_us)
+            })
+            .then_some(records)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -215,5 +338,68 @@ mod tests {
         ] {
             assert_eq!(Reconfigure::decode(&wild.encode()), None, "{wild:?}");
         }
+    }
+
+    #[test]
+    fn host_timing_request_round_trips() {
+        for enabled in [true, false] {
+            let request = HostTimingRequest { enabled };
+            let bytes = request.encode();
+            assert_eq!(bytes, [1, u8::from(enabled), 0, 0]);
+            assert_eq!(HostTimingRequest::decode(&bytes), Some(request));
+        }
+        assert_eq!(HostTimingRequest::decode(&[1, 1, 0]), None);
+        assert_eq!(HostTimingRequest::decode(&[2, 1, 0, 0]), None);
+    }
+
+    #[test]
+    fn host_timing_reports_round_trip_and_reject_nonsense() {
+        let records: Vec<HostTiming> = (0..3)
+            .map(|i| HostTiming {
+                frame: 1000 + i,
+                host_us: 3_200,
+                queue_us: 400,
+                encode_us: 2_500,
+                send_us: 120,
+            })
+            .collect();
+        let bytes = HostTiming::encode_report(&records);
+        assert_eq!(
+            bytes.len(),
+            HOST_TIMING_HEADER_BYTES + 3 * HOST_TIMING_RECORD_BYTES
+        );
+        assert_eq!(&bytes[..8], &[1, 3, 0, 0, 0xe8, 0x03, 0, 0]);
+        assert_eq!(HostTiming::decode_report(&bytes), Some(records.clone()));
+        assert_eq!(records[0].residual_us(), 180);
+        let mut longer = bytes.clone();
+        longer.extend_from_slice(&[0xff; 7]);
+        assert_eq!(
+            HostTiming::decode_report(&longer),
+            Some(records.clone()),
+            "newer hosts may append bytes"
+        );
+        assert_eq!(HostTiming::decode_report(&bytes[..bytes.len() - 1]), None);
+        let mut version = bytes.clone();
+        version[0] = 2;
+        assert_eq!(HostTiming::decode_report(&version), None);
+        assert_eq!(HostTiming::decode_report(&[1, 0, 0, 0]), None);
+        let mut too_many = bytes.clone();
+        too_many[1] = (HOST_TIMING_MAX_RECORDS + 1) as u8;
+        assert_eq!(HostTiming::decode_report(&too_many), None);
+        let over = HostTiming {
+            send_us: 900,
+            ..records[0]
+        };
+        assert_eq!(
+            HostTiming::decode_report(&HostTiming::encode_report(&[over])),
+            None
+        );
+        let many = alloc::vec![records[0]; HOST_TIMING_MAX_RECORDS + 5];
+        let capped = HostTiming::encode_report(&many);
+        assert_eq!(usize::from(capped[1]), HOST_TIMING_MAX_RECORDS);
+        assert_eq!(
+            HostTiming::decode_report(&capped).map(|r| r.len()),
+            Some(HOST_TIMING_MAX_RECORDS)
+        );
     }
 }

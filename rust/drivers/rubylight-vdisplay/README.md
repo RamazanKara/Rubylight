@@ -81,19 +81,14 @@ untouched**. Two checks still apply:
 - Plug and Play verifies the package's catalog and installs it silently only when the signing
   certificate is in the local machine's Trusted Publishers store and chains to a trusted root.
   A self-signed certificate is its own root, so it goes into both `Root` and `TrustedPublisher`.
-- WUDFHost loads the DLL under Code Integrity (seen on Windows 11 build 26200 with Memory
-  Integrity on), and CI judges the root itself. It rejected the first test certificate,
-  although that certificate was in `Root` and PnP installed the package: the device failed with
-  code 31, UMDF log event 2007 reported `0x80070241` (ERROR_INVALID_IMAGE_HASH) and
-  CodeIntegrity/Operational logged 3004 plus 3089 with `VerificationError 7` (invalid root),
-  `KnownRoot 2` (self-signed). SudoVDA's self-signed certificate passes the same check on
-  the same PC. It has the `New-SelfSignedCertificate -Type CodeSigningCert` profile that
-  `build-package.ps1` now generates: RSA 2048, critical KeyUsage digitalSignature,
-  non-critical code-signing EKU, a subject key identifier and no basic constraints. The
-  rejected one had a critical `CA:FALSE` basic constraint, a critical EKU and RSA 3072, and was
-  added to `Root` after the last boot, so whether CI disliked its shape or has not re-read
-  `Root` since boot is still open. `.\build-package.ps1 -TestSign -NewTestCertificate`
-  replaces it (the old files are kept with a date suffix for the uninstall).
+- The DLL must not be linked with `/INTEGRITYCHECK` (`IMAGE_DLLCHARACTERISTICS_FORCE_INTEGRITY`).
+  windows-drivers-rs sets it for every driver; with it, WUDFHost has the kernel check the
+  DLL's own signature, and the kernel trusts only Microsoft's roots. The device then fails
+  with code 31: UMDF log event 2007 reports `0x80070241` (ERROR_INVALID_IMAGE_HASH) and
+  CodeIntegrity/Operational logs 3004 plus 3089 with `VerificationError 7` (invalid root),
+  even after a reboot with the certificate in `Root`. SudoVDA and the Sunshine driver are
+  linked without it and load. The vendored `wdk-build` keeps the flag for kernel drivers
+  only, and `build-package.ps1` refuses a DLL that has it.
 
 References: [Trusted Publishers certificate store](https://learn.microsoft.com/windows-hardware/drivers/install/trusted-publishers-certificate-store),
 [Loading test-signed code](https://learn.microsoft.com/windows-hardware/drivers/install/the-testsigning-boot-configuration-option)

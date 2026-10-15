@@ -5669,7 +5669,7 @@ the stream rate, the captured display's refresh and the game's own rate:
 
 | Path | Default | Effect |
 | --- | --- | --- |
-| `limit_framerate` (Use the launch frame rate) | on | The stream runs at the rate of the launch request (`mode=WxHxFPS`), not the stream request (`maxFPS`). Artemis's Warp frame pacing launches at the display rate and asks for 2x or 4x. Vibepollo, with the same setting on, only uses the launch rate for the encoder's frame timestamps and captures at the requested rate. |
+| `limit_framerate` (Use the launch frame rate) | on in 2.3.0, off since (below) | On, the stream runs at the rate of the launch request (`mode=WxHxFPS`), not the stream request (`maxFPS`). Artemis's Warp frame pacing launches at the display rate and asks for 2x or 4x. Vibepollo, with the same setting on, only uses the launch rate for the encoder's frame timestamps and captures at the requested rate. |
 | `virtual_display_mode` | per client on Windows 11, disabled on Windows 10 | On the physical display the host asks for the stream rate, but keeps the current refresh, or the highest at the chosen resolution, when the monitor lacks it. A 60 Hz monitor gives 60. |
 | Virtual display refresh | twice the launch rate (`frame_limiter_auto_virtual_framegen = legacy`) | Applied after creation; when Windows keeps another mode the log says "virtual display mode not applied" and capture runs at that mode. |
 | Frame limiter, Automatic | on with a virtual display | Caps the game at the launch rate (RTSS, or NVIDIA's driver limit without RTSS). |
@@ -5691,6 +5691,34 @@ asking for twice that in the stream request (HEVC, 2560x1440, 80 Mbps):
 With the setting on, 2.3.0's console showed the stream request's rate as the
 target (120) while 60 frames a second went out, which reads as a host that
 cannot keep up. The console now shows the encoded rate and the requested one.
+
+### Streams at the requested rate
+
+Since then `limit_framerate` is off by default: the stream runs at the
+stream request's rate, as in Vibepollo. The client's bitrate stays the budget
+(Vibepollo multiplies it for Warp), so each frame gets half or a quarter of
+it. When the launch prepared a virtual display for its own rate, the display
+is kept and its refresh raised where the stream needs more (twice the stream
+rate by default), and the frame limiter follows the stream; a physical
+display, or a virtual one Windows will not raise, is prepared again at the
+stream's rate. The same machine and fixture as above, HEVC unless noted,
+2560x1440 at 80 Mbps (62,988 Kbps encoded in every run), physical monitor,
+`minimum_fps_target = 20`, CPU 57-65% busy with other work:
+
+| Host | Launch, then stream request | Delivered fps | Picture age p95 |
+| --- | --- | ---: | ---: |
+| This change | 60, then 120 | 119.9 | 13.9 ms |
+| This change, AV1 | 60, then 120 | 119.8 | 22.9 ms |
+| This change | 120, then 240 | 239.6 | 17.6 ms |
+| This change | 120, then 120 | 119.6 | 21.7 ms |
+| 2.3.0 | 120, then 120 | 120.0 | 19.1 ms |
+| This change, `limit_framerate = true` | 60, then 120 | 60.1 | 21.9 ms |
+
+The release check's new `hevc-warp` case (launched at 60, asking for 120)
+passed with this change (120.05 fps) and failed with 2.3.0 (60.0 fps). The
+virtual display path was not measured: the driver accepts only SYSTEM, and
+running a test host as SYSTEM needs a one-shot SYSTEM task that was not
+created here.
 
 ## October 14: keyframe loss on a slow port
 

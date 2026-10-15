@@ -23,6 +23,7 @@ Use **Review changes** to see pending edits across all categories, including set
 | AMD usage — `amd_usage` | `ultralowlatency` | AMD's lowest-latency preset. The driver also turns on its internal low-latency mode, and the lowest latency for AV1. |
 | AMD quality — `amd_quality` | `speed` | Favours low encoding latency. |
 | Frame pacing — `frame_pacing` | `arrival` | Encodes arriving frames, limited to the requested stream rate. |
+| Use the launch frame rate — `limit_framerate` | `false` | Off, the stream runs at the rate the stream request asks for, as in Vibepollo; a virtual display's refresh and the frame limiter follow it. On, the launch request's rate is encoded, as before. Artemis's Warp frame pacing launches at 60 and asks for 120 or 240. The client's bitrate is the budget either way. |
 | Video packet pacing — `pacing_max_bitrate_kbps` | `0` | Route-based: fast wired pacing; confirmed host Wi-Fi uses twice the encoder bitrate with FEC headroom. Positive values set a fixed limit. PyroWave keeps its separate policy. |
 | Adaptive packet pacing — `host_adaptive_pacing` | `false` | Experimental opt-in: slower startup, tentative rate increases and loss-based rollback. Does not change picture bitrate or FPS. |
 | Slow down after lost keyframes — `keyframe_loss_pacing` | `true` | Once a keyframe does not reach the client, paces video like Wi-Fi (twice the encoder bitrate) for the rest of the stream. Off with a manual pacing limit or either adaptive option. |

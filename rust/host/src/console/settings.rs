@@ -85,7 +85,7 @@ pub const GLOBAL: &[Setting] = settings! {
         "hevc_mode", "HEVC support (0 auto, 1 disabled, 2 SDR, 3 HDR)", Number;
         "av1_mode", "AV1 support (0 auto, 1 disabled, 2 SDR, 3 HDR)", Number;
         "max_bitrate", "Maximum bitrate (kbps; 0 has no configured limit)", Number;
-        "limit_framerate", "Use the launch frame rate for encoding", Bool;
+        "limit_framerate", "Use the launch frame rate for encoding (off by default: the stream runs at the rate its request asks for)", Bool;
         "minimum_fps_target", "Minimum frame rate for an unchanged desktop", Number;
         "wgc_pacing_smoothing", "Smooth capture pacing", Bool;
         "stream_reconfigure", "Follow client size and frame rate changes", Bool;

@@ -1336,8 +1336,17 @@ impl Media {
                         .lock()
                         .unwrap()
                         .take();
+                    // A stream request at another rate than the launch keeps an
+                    // owned virtual display and raises its refresh where needed.
+                    let initial = match initial {
+                        Some(p) if !p.prepared().display.matches(&s.config) => Some(
+                            crate::display_session::retime(p.into_prepared(), &h, &s.launch, &s.config, &c)?,
+                        ),
+                        Some(p) => Some(Ok(p.into_prepared())),
+                        None => None,
+                    };
                     let stream_preparation = stream_preparation.insert(match initial {
-                        Some(p) if p.prepared().display.matches(&s.config) => p.into_prepared(),
+                        Some(Ok(prepared)) => prepared,
                         previous => {
                             if previous.is_some() {
                                 tracing::info!(client = %s.launch.client.name, width = s.config.width, height = s.config.height, fps_millihz = s.config.fps_millihz(), hdr = s.config.hdr, "negotiated mode differs from launch; preparing display again");

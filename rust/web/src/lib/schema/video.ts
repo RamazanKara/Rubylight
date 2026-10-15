@@ -266,13 +266,13 @@ const video: Setting[] = [
     key: 'limit_framerate',
     label: 'Use the launch frame rate',
     description:
-      'Encodes at the frame rate the device asked for when it launched the app, not the rate in its stream request.',
+      'Encodes at the frame rate the device asked for when it launched the app instead of the faster rate its stream request may ask for.',
     details:
-      "The device's bitrate is kept when its stream request is a multiple of that rate, as Artemis's Warp frame pacing sends.",
+      "Off, the stream runs at the stream request's rate, as in Vibepollo: Artemis's Warp frame pacing launches at 60 and asks for 120 or 240. The device's bitrate stays the stream's budget either way, so each frame gets less of it at the faster rate.",
     category: 'video',
     group: 'Frame pacing',
     control: { kind: 'toggle' },
-    default: true,
+    default: false,
   },
   {
     key: 'stream_reconfigure',

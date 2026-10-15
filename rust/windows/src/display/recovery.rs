@@ -757,6 +757,17 @@ impl Guard {
             display.lock().unwrap().apply_mode(stage);
         }
     }
+    /// Raise this guard's own virtual display to at least `rate` without
+    /// recreating it, returning the refresh (millihertz) it has now. None
+    /// without a virtual display of its own (another stream shares it at its
+    /// mode), or when Windows refused the rate.
+    pub fn raise_virtual_rate(&self, rate: butterpollo_core::framegen::Rate) -> Option<u32> {
+        let display = self.virtual_display.as_ref()?;
+        if std::sync::Arc::strong_count(display) > 1 {
+            return None;
+        }
+        display.lock().unwrap().raise_rate(rate.0)
+    }
     /// True when the display was recovered, or a recovered display's HDR and
     /// mode were restored late: capture and the stream's layout follow it.
     pub fn feed(&mut self) -> Result<bool> {

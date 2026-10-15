@@ -725,7 +725,8 @@ impl VirtualDisplay {
     /// does so on arrival, when it switches the display back on and when a
     /// layout is applied. A refused mode is logged, not retried: the stream
     /// continues at the display's mode and its card reports the difference.
-    pub(super) fn apply_mode(&self, stage: &str) {
+    /// Returns whether Windows shows the mode.
+    pub(super) fn apply_mode(&self, stage: &str) -> bool {
         let (width, height, rate) = self.mode;
         let result = Topology::set_mode_rate(
             &self.name,
@@ -737,13 +738,16 @@ impl VirtualDisplay {
         let requested = format_timing(self.mode);
         match mode_outcome(self.mode, actual.as_ref().ok().copied()) {
             // Applied tolerates rational rates: log what Windows shows.
-            ModeOutcome::Applied => tracing::info!(
-                output = %self.name,
-                stage,
-                requested = %requested,
-                actual = %actual.as_ref().map_or(requested.clone(), |t| format_timing(*t)),
-                "virtual display mode applied"
-            ),
+            ModeOutcome::Applied => {
+                tracing::info!(
+                    output = %self.name,
+                    stage,
+                    requested = %requested,
+                    actual = %actual.as_ref().map_or(requested.clone(), |t| format_timing(*t)),
+                    "virtual display mode applied"
+                );
+                true
+            }
             outcome => {
                 let actual_text = match outcome {
                     ModeOutcome::Kept(actual) => format_timing(actual),
@@ -757,9 +761,26 @@ impl VirtualDisplay {
                     offered_hz = ?offered_rates(&supported_modes(&self.name), width, height),
                     error = ?result.err().or(actual.err()).map(|e| format!("{e:#}")),
                     "virtual display mode not applied; streaming at the mode Windows chose"
-                )
+                );
+                false
             }
         }
+    }
+    /// Raise the refresh in place for a stream that asks for more than its
+    /// launch did, keeping the display and what runs on it. Returns the
+    /// refresh (millihertz) the display has now, at least `rate`, or None
+    /// when Windows refused it and the display kept its previous mode.
+    pub(super) fn raise_rate(&mut self, rate: u32) -> Option<u32> {
+        if rate <= self.mode.2 {
+            return Some(self.mode.2);
+        }
+        let previous = self.mode;
+        self.mode.2 = rate;
+        if self.apply_mode("stream request") {
+            return Some(rate);
+        }
+        self.mode = previous;
+        None
     }
     fn renew(&mut self) -> Result<()> {
         let mut request = NAMESPACE.to_vec();

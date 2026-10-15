@@ -982,19 +982,29 @@ mod tests {
     #[test]
     fn the_console_shows_the_encoded_rate_beside_the_requested_one() {
         // Artemis's Warp launches at 60 fps and asks for 120 in the stream
-        // request; the launch frame rate (the default) encodes 60. The
-        // console showed 120 as the stream's rate and target.
-        let mut config = Negotiated {
+        // request; with the launch frame rate on, 60 is encoded. The console
+        // showed 120 as the stream's rate and target.
+        let request = Negotiated {
             fps: 120,
             rate_millihz: 120_000,
             ..Default::default()
         };
-        crate::stream_policy::apply(&mut config, 60_000, &crate::config::Config::default());
+        let mut config = request.clone();
+        let limited = crate::config::Config::parse("limit_framerate=true\n").unwrap();
+        crate::stream_policy::apply(&mut config, 60_000, &limited);
         let session = Session::new(launch("warp", Role::Stream), config.clone());
         let info = session.info();
         assert_eq!(
             (info["fps"].clone(), info["requested_fps"].clone()),
             (60.into(), 120.into())
+        );
+        // By default the stream runs at the request's rate.
+        let mut following = request.clone();
+        crate::stream_policy::apply(&mut following, 60_000, &crate::config::Config::default());
+        let info = Session::new(launch("warp", Role::Stream), following).info();
+        assert_eq!(
+            (info["fps"].clone(), info["requested_fps"].clone()),
+            (120.into(), 120.into())
         );
         // A client's own mode switch is what it asked for.
         let switch = crate::reconfigure::Mode {

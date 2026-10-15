@@ -1250,7 +1250,8 @@ fn configured_wire_budget_deducts_fec_and_audio_after_the_ceiling() {
         ..Default::default()
     };
     apply(&mut stream, 59940, &Config::default());
-    assert_eq!(stream.rate_millihz, 59940);
+    // The stream keeps its request's rate; see a_stream_runs_at_the_rate_its_request_asks_for.
+    assert_eq!(stream.fps_millihz(), 120_000);
     assert_eq!(stream.bitrate_kbps, 14924);
     let config = Config::parse("max_bitrate=15000\n").unwrap();
     apply(&mut stream, 59940, &config);
@@ -1273,6 +1274,38 @@ fn configured_wire_budget_deducts_fec_and_audio_after_the_ceiling() {
     };
     apply(&mut pyro, 120000, &Config::default());
     assert_eq!(pyro.bitrate_kbps, 799308); // audio/control, without generic 20% FEC
+}
+#[test]
+fn a_stream_runs_at_the_rate_its_request_asks_for() {
+    // Artemis's Warp launches at 60 and asks for 120 or 240; Moonlight for
+    // Android launches at 120 and asks for 119 on a 120 Hz panel.
+    for (launch, request, expected) in [
+        (60_000, 60, 60_000),
+        (60_000, 120, 120_000),
+        (60_000, 240, 240_000),
+        (120_000, 119, 119_000),
+        // A launch without a rate leaves the request's.
+        (0, 120, 120_000),
+    ] {
+        let mut stream = artemis_announce(request);
+        apply(&mut stream, launch, &Config::default());
+        assert_eq!(
+            stream.fps_millihz(),
+            expected,
+            "launch {launch}, request {request}"
+        );
+    }
+    // "Use the launch frame rate" keeps the previous behaviour on request.
+    let limited = Config::parse("limit_framerate=true\n").unwrap();
+    for request in [120, 240] {
+        let mut stream = artemis_announce(request);
+        apply(&mut stream, 60_000, &limited);
+        assert_eq!(stream.fps_millihz(), 60_000, "request {request}");
+        assert_eq!(stream.bitrate_kbps, 31_308);
+    }
+    let mut stream = artemis_announce(120);
+    apply(&mut stream, 0, &limited);
+    assert_eq!(stream.fps_millihz(), 120_000);
 }
 /// The ANNOUNCE Artemis sends with its 40 Mbps setting: Warp Drive and Warp 2
 /// frame pacing multiply the stream rate (maxFPS) by two and four but launch
@@ -1299,8 +1332,6 @@ fn a_warp_stream_request_keeps_the_clients_bitrate() {
         let mut warped = artemis_announce(60 * warp);
         let uncapped = uncapped_bitrate_kbps(&warped, 60_000, &config);
         apply(&mut warped, 60_000, &config);
-        // The encoder runs at the launch rate, so its bitrate is the wire rate.
-        assert_eq!(warped.fps_millihz(), 60_000);
         assert_eq!(warped.bitrate_kbps, plain.bitrate_kbps, "warp {warp}");
         assert_eq!(uncapped, plain.bitrate_kbps, "warp {warp}");
     }

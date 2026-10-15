@@ -160,6 +160,13 @@ impl ModeReport {
         state.warnings = warnings;
         state.report();
     }
+    /// The stream asks for another rate than the launch the display was
+    /// prepared for.
+    fn retime(&self, requested: RequestedMode, stream_rate: u32) {
+        let mut state = self.0.lock().unwrap();
+        state.requested = requested;
+        state.stream_rate = stream_rate;
+    }
 }
 
 /// A display recovery's steps after the heartbeat brought the display back.
@@ -221,7 +228,8 @@ impl StreamPreparation {
         config: &butterpollo_core::config::Config,
     ) {
         let explicit = config.boolean("frame_limiter_enable", false);
-        if let Some(message) = self._limiter.warning(&self.display.framegen, explicit) {
+        let framegen = self.display.framegen.lock().unwrap().clone();
+        if let Some(message) = self._limiter.warning(&framegen, explicit) {
             warnings.set("display_limiter", message);
         } else {
             warnings.clear("display_limiter");
@@ -247,7 +255,8 @@ pub struct Ready {
     mode: (u32, u32, u32, bool, bool),
     client_display: Option<HostDisplay>,
     virtual_layout: Option<String>,
-    framegen: Policy,
+    /// The launch's policy, or the stream request's once `retime` raised it.
+    framegen: Mutex<Policy>,
     mode_report: ModeReport,
     stop: Arc<AtomicBool>,
     active: Arc<AtomicUsize>,
@@ -305,7 +314,7 @@ impl Ready {
             mode,
             client_display,
             virtual_layout,
-            framegen,
+            framegen: Mutex::new(framegen),
             mode_report,
             stop,
             active,
@@ -323,7 +332,8 @@ impl Ready {
         config: &Config,
         warnings: Arc<Warnings>,
     ) -> Result<StreamPreparation> {
-        let limiter = limiter::Lease::acquire(directory, config, &self.framegen)?;
+        let framegen = self.framegen.lock().unwrap().clone();
+        let limiter = limiter::Lease::acquire(directory, config, &framegen)?;
         butterpollo_windows::input::on_input_desktop(|| -> Result<()> {
             let prepared = self._state.lock().unwrap();
             // A paused stream leaves local display changes alone. Resuming
@@ -368,7 +378,7 @@ impl Ready {
         self.target.current()
     }
     pub fn capture(&self) -> String {
-        self.framegen.capture.clone()
+        self.framegen.lock().unwrap().capture.clone()
     }
 }
 
@@ -422,6 +432,112 @@ pub struct Prepared {
     recovery_profile: Option<String>,
     host: std::sync::Weak<crate::state::Host>,
 }
+
+/// A device's own display mode (`display_mode`): width, height and refresh.
+type DeviceMode = (u32, u32, Rate);
+
+/// The frame limiter and the display refresh for `stream`: the stream's rate,
+/// the app's frame generation, the device's own display mode, VRR and
+/// Lossless Scaling. Also returns that display mode.
+fn frame_policy(
+    app: Option<&butterpollo_core::state::App>,
+    launch: &Launch,
+    stream: &Negotiated,
+    config: &Config,
+    virtual_mode: bool,
+) -> Result<(Policy, Option<DeviceMode>)> {
+    let option = |key: &str| {
+        app.and_then(|a| a.extra.get(key))
+            .and_then(serde_json::Value::as_str)
+            .filter(|s| !s.is_empty())
+    };
+    let generation = option("frame-generation-mode")
+        .or_else(|| option("frame-generation-provider"))
+        .unwrap_or("none");
+    let generation_enabled = if option("frame-generation-mode").is_some() {
+        butterpollo_core::framegen::generation_provider(generation) != "none"
+    } else {
+        app.as_ref().is_some_and(|a| {
+            [
+                "frame-generation-enabled",
+                "gen1-framegen-fix",
+                "dlss-framegen-capture-fix",
+                "gen2-framegen-fix",
+                "frame-generation-capture-fix",
+            ]
+            .iter()
+            .any(|key| crate::process::app_bool(a, key, false))
+        })
+    };
+    let adapters = butterpollo_windows::capture::gpus()?;
+    // A device's own display mode replaces the host's resolution and
+    // refresh policies for its display; the stream keeps the rate the
+    // client asked for.
+    let device_mode = launch
+        .client
+        .extra
+        .get("display_mode")
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        .and_then(|text| {
+            let mode = butterpollo_core::display_policy::parse_display_mode(text);
+            if mode.is_none() {
+                tracing::warn!(
+                    display_mode = text,
+                    "ignoring a device display mode that is not WIDTHxHEIGHTxREFRESH"
+                );
+            }
+            mode
+        });
+    let mut framegen = Policy::resolve(
+        config,
+        Rate(stream.fps_millihz()),
+        virtual_mode,
+        generation,
+        generation_enabled,
+        adapters.iter().any(|a| a.vendor == 0x10de),
+        adapters.iter().any(|a| matches!(a.vendor, 0x1002 | 0x1022)),
+        launch
+            .client
+            .extra
+            .get("config_overrides")
+            .and_then(serde_json::Value::as_object)
+            .is_some_and(|o| o.contains_key("rtss_frame_limit_type"))
+            || app
+                .as_ref()
+                .and_then(|a| a.extra.get("config-overrides"))
+                .and_then(serde_json::Value::as_object)
+                .is_some_and(|o| o.contains_key("rtss_frame_limit_type")),
+    )?;
+    if let Some((_, _, rate)) = device_mode {
+        // A saved display mode must not cap a faster stream's game at its refresh rate.
+        framegen.display_rate = butterpollo_core::framegen::display_rate(
+            rate,
+            virtual_mode,
+            butterpollo_core::framegen::virtual_refresh(config),
+        );
+    }
+    framegen = framegen.with_vrr(
+        config,
+        virtual_mode,
+        stream.vrr_low_latency || launch.vrr_requested,
+    );
+    // Lossless Scaling doubles the frames: the game runs at its limit.
+    if let Some(limit) = app
+        .as_ref()
+        .and_then(|a| serde_json::to_value(a).ok())
+        .and_then(|a| {
+            butterpollo_core::lossless::options(&a, config, f64::from(stream.fps_millihz()) / 1000.)
+        })
+        .and_then(|options| options.frame_limit)
+    {
+        framegen.rate = Rate(limit.saturating_mul(1000).min(1_000_000));
+        framegen.enabled = true;
+    }
+    Ok((framegen, device_mode))
+}
+
 impl Prepared {
     fn capture_target(&self) -> (String, u64) {
         self._retained.as_ref().map_or_else(
@@ -573,12 +689,6 @@ impl Prepared {
         } else {
             None
         };
-        let option = |key: &str| {
-            app.as_ref()
-                .and_then(|a| a.extra.get(key))
-                .and_then(serde_json::Value::as_str)
-                .filter(|s| !s.is_empty())
-        };
         let mode = virtual_display_mode(
             config,
             &launch.client,
@@ -628,94 +738,8 @@ impl Prepared {
         } else {
             launch.warnings.clear("display_virtual");
         }
-        let generation = option("frame-generation-mode")
-            .or_else(|| option("frame-generation-provider"))
-            .unwrap_or("none");
-        let generation_enabled = if option("frame-generation-mode").is_some() {
-            butterpollo_core::framegen::generation_provider(generation) != "none"
-        } else {
-            app.as_ref().is_some_and(|a| {
-                [
-                    "frame-generation-enabled",
-                    "gen1-framegen-fix",
-                    "dlss-framegen-capture-fix",
-                    "gen2-framegen-fix",
-                    "frame-generation-capture-fix",
-                ]
-                .iter()
-                .any(|key| crate::process::app_bool(a, key, false))
-            })
-        };
-        let adapters = butterpollo_windows::capture::gpus()?;
-        // A device's own display mode replaces the host's resolution and
-        // refresh policies for its display; the stream keeps the rate the
-        // client asked for.
-        let device_mode = launch
-            .client
-            .extra
-            .get("display_mode")
-            .and_then(serde_json::Value::as_str)
-            .map(str::trim)
-            .filter(|text| !text.is_empty())
-            .and_then(|text| {
-                let mode = butterpollo_core::display_policy::parse_display_mode(text);
-                if mode.is_none() {
-                    tracing::warn!(
-                        display_mode = text,
-                        "ignoring a device display mode that is not WIDTHxHEIGHTxREFRESH"
-                    );
-                }
-                mode
-            });
-        let mut framegen = Policy::resolve(
-            config,
-            Rate(stream.fps_millihz()),
-            virtual_mode,
-            generation,
-            generation_enabled,
-            adapters.iter().any(|a| a.vendor == 0x10de),
-            adapters.iter().any(|a| matches!(a.vendor, 0x1002 | 0x1022)),
-            launch
-                .client
-                .extra
-                .get("config_overrides")
-                .and_then(serde_json::Value::as_object)
-                .is_some_and(|o| o.contains_key("rtss_frame_limit_type"))
-                || app
-                    .as_ref()
-                    .and_then(|a| a.extra.get("config-overrides"))
-                    .and_then(serde_json::Value::as_object)
-                    .is_some_and(|o| o.contains_key("rtss_frame_limit_type")),
-        )?;
-        if let Some((_, _, rate)) = device_mode {
-            // A saved display mode must not cap a faster stream's game at its refresh rate.
-            framegen.display_rate = butterpollo_core::framegen::display_rate(
-                rate,
-                virtual_mode,
-                butterpollo_core::framegen::virtual_refresh(config),
-            );
-        }
-        framegen = framegen.with_vrr(
-            config,
-            virtual_mode,
-            stream.vrr_low_latency || launch.vrr_requested,
-        );
-        // Lossless Scaling doubles the frames: the game runs at its limit.
-        if let Some(limit) = app
-            .as_ref()
-            .and_then(|a| serde_json::to_value(a).ok())
-            .and_then(|a| {
-                butterpollo_core::lossless::options(
-                    &a,
-                    config,
-                    f64::from(stream.fps_millihz()) / 1000.,
-                )
-            })
-            .and_then(|options| options.frame_limit)
-        {
-            framegen.rate = Rate(limit.saturating_mul(1000).min(1_000_000));
-            framegen.enabled = true;
-        }
+        let (framegen, device_mode) =
+            frame_policy(app.as_ref(), launch, stream, config, virtual_mode)?;
         let limiter = limiter::Lease::acquire(&h.directory, config, &framegen)?;
         let vulkan = if stream.hdr && config.boolean("vulkan_hdr_layer", true) {
             Some(vulkan::Lease::acquire()?)
@@ -1051,6 +1075,108 @@ impl Drop for Prepared {
             self._retained.take();
             self._vulkan.take();
         });
+    }
+}
+
+/// The launch prepared the display for its own rate and the stream asks for
+/// another, as Artemis's Warp frame pacing does (launch at 60, ask for 120 or
+/// 240). An owned virtual display keeps running, so a game on it stays put:
+/// its refresh is raised where the stream needs more, and the frame limiter
+/// follows the stream's rate. Any other difference, or a display that cannot
+/// be raised, comes back as `Err` to be prepared again.
+pub fn retime(
+    preparation: StreamPreparation,
+    h: &Shared,
+    launch: &Launch,
+    stream: &Negotiated,
+    config: &Config,
+) -> Result<std::result::Result<StreamPreparation, StreamPreparation>> {
+    let display = preparation.display.clone();
+    let (width, height, launch_rate, hdr, vrr) = display.mode;
+    if (width, height, hdr, vrr)
+        != (
+            stream.width,
+            stream.height,
+            stream.hdr,
+            stream.vrr_low_latency,
+        )
+    {
+        return Ok(Err(preparation));
+    }
+    let app = h
+        .apps
+        .read()
+        .unwrap()
+        .iter()
+        .find(|a| a.id() == launch.app_id || a.aliases.contains(&launch.app_id))
+        .cloned();
+    let (framegen, device_mode) = frame_policy(app.as_ref(), launch, stream, config, true)?;
+    let raised = butterpollo_windows::input::on_input_desktop(|| -> Result<Option<u32>> {
+        let mut prepared = display._state.lock().unwrap();
+        let Some(guard) = &prepared.display else {
+            return Ok(None);
+        };
+        let (display_width, display_height) = prepared.recovery_dimensions;
+        let request = config.display_request_rate(
+            display_width,
+            display_height,
+            framegen.display_rate,
+            stream.hdr,
+            true,
+        )?;
+        // As for a new display: a device's own mode sets its refresh.
+        let rate = if device_mode.is_some() {
+            framegen.display_rate
+        } else {
+            Rate(request.refresh.unwrap_or(framegen.display_rate.0))
+        };
+        let Some(applied) = guard.raise_virtual_rate(rate) else {
+            return Ok(None);
+        };
+        prepared.framegen = framegen.clone();
+        prepared.mode_report.retime(
+            (
+                Some((display_width, display_height)),
+                Some(applied),
+                request.hdr,
+            ),
+            stream.fps_millihz(),
+        );
+        prepared.mode_report.publish(applied_mode(&prepared.output));
+        Ok(Some(applied))
+    })?;
+    let Some(refresh) = raised else {
+        return Ok(Err(preparation));
+    };
+    tracing::info!(
+        client = %launch.client.name,
+        launch_millihz = launch_rate,
+        stream_millihz = stream.fps_millihz(),
+        display_millihz = refresh,
+        limiter_rate = %framegen.rate,
+        limiter_enabled = framegen.enabled,
+        "the stream asks for another rate than its launch; the display and the frame limiter follow it"
+    );
+    *display.framegen.lock().unwrap() = framegen.clone();
+    // The launch's preparation goes, with its limiter: a second lease would
+    // leave the launch's rate applied.
+    display.active.fetch_add(1, Ordering::AcqRel);
+    if let Some(retained) = &display.retained {
+        retained.stream_started();
+    }
+    drop(preparation);
+    match limiter::Lease::acquire(&h.directory, config, &framegen) {
+        Ok(limiter) => Ok(Ok(StreamPreparation {
+            display,
+            _limiter: limiter,
+        })),
+        Err(error) => {
+            display.active.fetch_sub(1, Ordering::AcqRel);
+            if let Some(retained) = &display.retained {
+                retained.stream_stopped();
+            }
+            Err(error)
+        }
     }
 }
 
@@ -1463,6 +1589,82 @@ mod tests {
             );
             assert_eq!(virtual_display_mode(&config, &client, None, true), "shared");
         }
+    }
+
+    #[test]
+    fn a_faster_stream_request_keeps_only_a_display_that_can_follow_it() {
+        // Artemis's Warp launches at 60 and asks for 120. Without a virtual
+        // display of its own to raise (a physical display here), the
+        // launch's preparation goes back to be prepared again at 120; one
+        // made for another size never serves the stream.
+        let fixture = crate::state::test_support::Fixture::new();
+        let config = Config::default();
+        let launched = Negotiated {
+            width: 2560,
+            height: 1440,
+            fps: 60,
+            ..Default::default()
+        };
+        let policy = Policy::resolve(
+            &config,
+            Rate(60_000),
+            false,
+            "none",
+            false,
+            false,
+            false,
+            false,
+        )
+        .unwrap();
+        let prepared = Prepared {
+            display: None,
+            output: String::new(),
+            framegen: policy.clone(),
+            _arrangement: None,
+            _activation: None,
+            _profile: None,
+            _retained: None,
+            _vulkan: None,
+            _golden: None,
+            mode: stream_mode(&launched),
+            client_display: None,
+            virtual_layout: None,
+            revision: 0,
+            recovery: Recovery::new(),
+            layout_watch: Default::default(),
+            mode_report: ModeReport::new(Arc::new(Warnings::default()), (None, None, None), 60_000),
+            recovery_scale: 0,
+            recovery_dimensions: (2560, 1440),
+            recovery_profile: None,
+            host: Arc::downgrade(&fixture.host),
+        };
+        let limiter = limiter::Lease::acquire(&fixture.host.directory, &config, &policy).unwrap();
+        let mut preparation = Ready::prepare((prepared, limiter)).unwrap();
+        let display = preparation.display.clone();
+        let launch = fixture.launch(fixture.client(u32::MAX), Role::Stream);
+        for request in [
+            Negotiated {
+                fps: 120,
+                ..launched.clone()
+            },
+            Negotiated {
+                width: 1920,
+                fps: 120,
+                ..launched.clone()
+            },
+        ] {
+            assert!(!display.matches(&request));
+            preparation = retime(preparation, &fixture.host, &launch, &request, &config)
+                .unwrap()
+                .err()
+                .expect("prepared again");
+            assert_eq!(display.active.load(Ordering::Acquire), 1);
+            assert_eq!(display.framegen.lock().unwrap().rate, Rate(60_000));
+        }
+        // The launch's own rate keeps the preparation as it is.
+        assert!(display.matches(&launched));
+        drop(preparation);
+        assert_eq!(display.active.load(Ordering::Acquire), 0);
     }
 
     #[test]

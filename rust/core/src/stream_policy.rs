@@ -627,7 +627,10 @@ pub fn apply_color(stream: &mut Negotiated, config: &Config) {
     }
 }
 pub fn apply(stream: &mut Negotiated, launch_millihz: u32, config: &Config) {
-    let limit = config.boolean("limit_framerate", true);
+    // The stream runs at the rate its request asks for, as in Vibepollo,
+    // where `limit_framerate` only aligns encoder timestamps to the launch
+    // rate. Turned on here, the stream is encoded at the launch rate.
+    let limit = config.boolean("limit_framerate", false);
     if limit && (1..=4_000_000).contains(&launch_millihz) {
         stream.rate_millihz = launch_millihz;
     }
@@ -639,9 +642,9 @@ pub fn apply(stream: &mut Negotiated, launch_millihz: u32, config: &Config) {
     };
     // A stream request at a multiple of the launch rate (Artemis's Warp modes
     // ask for 2x or 4x) keeps the client's bitrate. Vibepollo multiplies it
-    // back because its encoder is told the requested rate and spreads the
-    // budget over frames that never come; this encoder runs at the launch
-    // rate, so the multiplication sent two to four times the client's bitrate.
+    // by that factor, which sent two to four times the bitrate the client set:
+    // more than an Onn 4K Pro's 100 Mbps port carries. Each frame gets a half
+    // or a quarter of Vibepollo's budget instead.
     let ceiling = config.integer("max_bitrate", 0);
     let mut budget = requested.min(if ceiling > 0 {
         ceiling as u64

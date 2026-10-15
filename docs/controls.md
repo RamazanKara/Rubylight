@@ -14,7 +14,7 @@ The menu is one sheet:
 | --- | --- |
 | Top row | **Keyboard** (Android's keyboard), **Overlay** (show or hide the performance overlay) and **Microphone** (mute or unmute, when the PC offers a microphone). Overlay and Microphone switch in place. |
 | Input | Touch mode, Show mouse cursor (with a mouse attached), Show on-screen controls, Edit controller layout, Controls for this game, Extra keyboard keys. |
-| Display | Stretch video to fill the screen (local video without upscaling), Enable pinch zoom and pan, Reset zoom, **Overlay and diagnostics**, Picture-in-picture, Video output (with an external display). |
+| Display | Video scaling (Fit, Fill, Stretch or 1:1, local video without upscaling), Enable pinch zoom and pan, Reset zoom, **Overlay and diagnostics**, Picture-in-picture, Video output (with an external display). |
 | Quality | Set bitrate, Automatic stream quality and Automatic bitrate, where the host supports them. |
 | Host | Server commands, Send clipboard to host, Copy host clipboard, Open host web UI, Permissions and frame limits, as the host and its permissions allow. |
 | Bottom | Reconnect stream, Disconnect, and **Quit game** in red, which asks first. Remote Monitor and Input-only end their session instead. Disconnect also quits a game set to **Quit the game when I leave the stream** (see [leaving a game](#leaving-a-game)). |
@@ -212,6 +212,10 @@ Android 0.4.9 tracks changes to the selected video display's maximum refresh rat
 For external MediaCodec video, **Balanced** pacing uses the lowest-latency path for this session, with a notice when it changes. Android's public Choreographer callbacks follow the internal display, so using them to pace an external surface can hold video to the phone's cadence. The saved pacing preference is unchanged; other pacing modes keep their behavior. PyroWave keeps its own Vulkan presentation. External output does not send phase-lock timing derived from the phone display, and this fallback does not claim a measured FPS or VRR result.
 
 The JSON validator and its version 1 fixtures, the Artemis import mapping, stick deadzone, floating centering, WASD directions, grid snapping, release of held gamepad input, held-input ownership, axis/hat report remapping, zoom bounds and inverse touch mapping have headless unit coverage. Actual monitor attach/detach, OEM SurfaceView transforms, controller hardware and accessibility services still require device testing; no physical display, audio or controller is used by these tests.
+
+### Touch mapping and video scaling
+
+Every [video scaling](video-and-latency.md#video-scaling) mode maps touch and mouse input to the stream pixel under your finger. Direct mouse, Multi-touch, a pen and an absolute mouse go through the video's rectangle and then pinch zoom, so a tap lands on what you see in Fit, Fill, Stretch and 1:1 alike. A touch on a border beside a Fit or 1:1 picture goes to the nearest edge of the stream. In Fill, the cropped edges are still part of the stream: Trackpad and Local cursor can move the pointer there, and the drawn pointer then leaves the screen until you move it back. Trackpad speed follows the picture's size on screen, so the pointer keeps pace with your finger in every mode. On-screen controls and per-game touch buttons stay where you placed them; they belong to the screen, not the video.
 
 ## Leaving a game
 

@@ -34,6 +34,23 @@ With **Variable refresh (VRR)** on, Nightjar requests the screen's maximum refre
 
 Per-PC profiles accept rates to 0.01 Hz, such as 59.94 or 119.88. Hosts that support fractional rates (currently Rubylight) receive them as set; other hosts receive a whole-number rate. The overlay reports received, released and shown FPS separately from panel refresh.
 
+## Video scaling
+
+**Settings → Display & image → Video scaling** decides how the stream fills a screen of another shape. The stream menu's **Video scaling** changes it during a stream when no upscaler or PyroWave is active; with either of those it applies to the next stream.
+
+| Mode | Result |
+| --- | --- |
+| Fit (default) | The whole picture, with bars on the sides or above and below. |
+| Fill (crop) | Fills the screen without distortion; the edges that do not fit are cut off evenly. |
+| Stretch | Fills the screen; shapes look wider or taller. |
+| 1:1 pixels | One stream pixel per screen pixel, centred. A smaller stream gets a border; a larger one is cropped. |
+
+**Video position** (Centre or Top) places a Fit or 1:1 picture that leaves room: Top keeps the space below free, for the soft keyboard or the lower half of a half-folded phone. Fill and Stretch cover the whole screen, so the position changes nothing there. Fill and Stretch also use the area beside a camera cutout, like a stream at the panel's own size; Fit and 1:1 keep to the cutout-safe area. Picture-in-picture always shows the whole stream (Fit, or Stretch if chosen).
+
+Scaling is a view transform only: the decoder, its buffers and the frame path are unchanged, and touch, mouse, pinch zoom and the Local cursor map through it (see [touch mapping](controls.md#touch-mapping-and-video-scaling)). With an upscaler, Fill draws the cropped edges too, so it costs a little more GPU time than Fit; 1:1 shows the stream at its own size, so there is nothing to upscale.
+
+Older versions only know **Stretch to fill screen** (`checkbox_stretch_video`). Nightjar keeps writing that switch (on only for Stretch), so after a downgrade Fill and 1:1 show as Fit, and a change made in an older version wins after the next upgrade.
+
 ## Upscaling
 
 Choose **Settings → Display & image → Client-side upscaling** or override it in a PC profile. First lower **Stream resolution**, for example to 720p on a 1080p screen. A PC profile also accepts a custom stream resolution. This reduces transmitted pixels and decode work; upscaling reconstructs that smaller video at the Android output size. **Host render scale** changes the PC's render resolution, not the transmitted video size.
@@ -47,7 +64,7 @@ Choose **Settings → Display & image → Client-side upscaling** or override it
 
 MediaCodec GPU upscaling requires lower-resolution SDR video, GLES 3.0 and the required external-image support. Native/larger input, HDR and 10-bit use direct output. Under GPU overload or after a resize, this path switches to direct output for the rest of the session; reconnect to retry.
 
-PyroWave SDR streams use SGSR 1 inside the Vulkan renderer for both FSR and SGSR, reading the decoded planes directly in one pass. The output follows the actual Android surface size independently of the decoded stream size. It preserves the video's aspect ratio unless **Stretch to fill screen** is enabled. Upscaling needs an output viewport larger than the source; HDR/10-bit and a failed SGSR pipeline keep direct output. The Debug overlay shows the active path or the reason it is inactive.
+PyroWave SDR streams use SGSR 1 inside the Vulkan renderer for both FSR and SGSR, reading the decoded planes directly in one pass. The output follows the actual Android surface size independently of the decoded stream size. It preserves the video's aspect ratio unless **Video scaling** is Stretch. Upscaling needs an output viewport larger than the source; HDR/10-bit and a failed SGSR pipeline keep direct output. The Debug overlay shows the active path or the reason it is inactive.
 
 Sharpening ranges from 0–100%, default 50%. At 0%, FSR bypasses extra sharpening; SGSR still performs spatial reconstruction. The setting applies next stream. Compare text, edges, motion, battery use and added time, not just a still image.
 

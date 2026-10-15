@@ -7,10 +7,10 @@
 <p align="center"><b>Early release:</b> expect rough edges, and please <a href="https://github.com/RamazanKara/nightjar/issues">report what breaks</a>.</p>
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/RamazanKara/nightjar/f9768432270ba1ee29f3d79a77177a1e403f2d2b/docs/assets/demo.gif" width="360" alt="Nightjar demo: open your game library, tap a game to start your stream, keep the performance overlay in view, open the stream menu to its quality and host controls, and keep the stream floating in picture-in-picture.">
+  <img src="https://raw.githubusercontent.com/RamazanKara/nightjar/a10c14a1fab2ce1f3bc07122fdacdabf457b9d25/docs/assets/demo.gif" width="360" alt="Nightjar demo: tap a PC to open its game library, tap a game to start your stream, open the stream menu, and switch the overlay to statistics with the host's CPU and GPU readings.">
 </p>
 
-<p align="center"><a href="https://ramazankara.github.io/nightjar/#demo">Watch the 51-second tour: PCs, PC settings, library, stream, stream menu, upscaling and picture-in-picture →</a></p>
+<p align="center"><a href="https://ramazankara.github.io/nightjar/#demo">Watch the 63-second tour: PCs and library, PC settings for your host, stream menu, host statistics, PyroWave, adaptive refresh, upscaling, the Snapdragon GPU driver and DualSense →</a></p>
 
 <p align="center">
   <a id="download" href="https://github.com/RamazanKara/nightjar/releases/latest"><img src="docs/assets/download.svg" width="260" height="52" alt="Download Nightjar for Android"></a>
@@ -19,7 +19,7 @@
 <p align="center">
   <img src="docs/assets/shots/pc-list.png" width="160" alt="Nightjar's PCs list: Living-room PC playing Racing Game, Studio PC not paired and Laptop offline">
   <img src="docs/assets/shots/library.png" width="160" alt="Living-room PC's game library in Nightjar: ten games with cover art, Racing Game marked Running">
-  <img src="https://raw.githubusercontent.com/RamazanKara/nightjar/f9768432270ba1ee29f3d79a77177a1e403f2d2b/docs/assets/shots/stream.png" width="160" alt="Close-up of a Nightjar stream's top-left corner, where the one-line overlay shows a green health dot, 119.9 FPS and 8 ms RTT">
+  <img src="https://raw.githubusercontent.com/RamazanKara/nightjar/a10c14a1fab2ce1f3bc07122fdacdabf457b9d25/docs/assets/shots/stream.png" width="160" alt="Close-up of a Nightjar stream's top-left corner, where the one-line overlay shows a green health dot, 119.9 FPS and 8 ms RTT">
   <img src="docs/assets/shots/pip.png" width="160" alt="A Nightjar stream floating over the home screen in a picture-in-picture window">
 </p>
 

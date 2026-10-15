@@ -10,10 +10,13 @@ packet notices), it sends that state, releases first, and cancels touches and pe
 changed meanwhile. Mouse motion, scrolling and text from the silence are dropped. Packets
 already handed to ENet before contact counted as lost are still delivered. Without a grace
 period isControlContactLost() is always false and nothing changes.
+During a grace period the control receive thread also stops spinning through a silence: ENet
+does not ping while reliable data waits for an ack, so it waits for the resend timer instead of
+waking at once for a ping that is never sent.
 Applies after cursor-shape.patch.
 
 diff --git a/src/ControlStream.c b/src/ControlStream.c
-index 4bf35e2..61e4280 100644
+index 4bf35e2..c7b9c42 100644
 --- a/src/ControlStream.c
 +++ b/src/ControlStream.c
 @@ -724,6 +724,31 @@ static enet_uint32 controlPeerTimeoutMs(void) {
@@ -48,7 +51,22 @@ index 4bf35e2..61e4280 100644
  static bool sendMessageEnetInternal(short ptype, short paylen, const void* payload, uint8_t channelId, uint32_t flags, bool moreData) {
      ENetPacket* enetPacket;
      int err;
-@@ -1281,6 +1306,10 @@ static void controlReceiveThreadFunc(void* context) {
+@@ -1268,8 +1293,12 @@ static void controlReceiveThreadFunc(void* context) {
+                 enet_uint32 timeSinceLastComm = MIN(timeSinceLastSend, timeSinceLastRecv);
+ 
+                 if (timeSinceLastComm >= peer->pingInterval) {
+-                    // Ping is due now for this peer
+-                    waitTimeMs = 0;
++                    // Ping is due now for this peer. ENet does not ping while reliable data waits
++                    // for an ack, so during a grace period silence wait for the resend timer (or
++                    // the host) instead of spinning through the whole silence.
++                    if (networkGracePeriodMs <= CONTROL_PEER_TIMEOUT_MS || enet_list_empty(&peer->sentReliableCommands)) {
++                        waitTimeMs = 0;
++                    }
+                 } else {
+                     waitTimeMs = MIN(waitTimeMs, peer->pingInterval - timeSinceLastComm);
+                 }
+@@ -1281,6 +1310,10 @@ static void controlReceiveThreadFunc(void* context) {
  
          PltUnlockMutex(&enetMutex);
  

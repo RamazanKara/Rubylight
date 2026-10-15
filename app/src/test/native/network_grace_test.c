@@ -5,7 +5,8 @@
 // and a silence that outlasts it ends the stream with the usual transport error (-1).
 // While a grace period rides out the silence, the control stream reports lost contact so the
 // input stream holds input back instead of queueing it in ENet, and wakes the input stream once
-// the host is heard again. The default timeout is shortened here so the test does not wait 10
+// the host is heard again, and the receive thread sleeps through the silence rather than
+// spinning. The default timeout is shortened here so the test does not wait 10
 // seconds, and so is the time without a reply that counts as lost contact.
 #include "Limelight-internal.h"
 #include <arpa/inet.h>
@@ -212,6 +213,7 @@ static void run(const char* name, int gracePeriodMs, int silenceMs, int expected
     bool passed = reports == 1 && reportedReason == expectedReason &&
             elapsed >= minElapsedMs && elapsed <= maxElapsedMs &&
             lost == expectContactLost && (contactLostPasses > 0) == expectContactLost &&
+            contactLostPasses < 2000 &&
             contactRegained == expectContactRegained;
     printf("%s %s: expected %d, received %d (%d reports) %llu ms into the silence, "
            "contact lost %d (%d passes), regained %d\n", passed ? "PASS" : "FAIL", name, expectedReason,

@@ -41,6 +41,18 @@ public class NvConnectionHapticsFlagTest {
         }
     }
 
+    // The drop tolerance reaches the native control timeout only when it is longer than it.
+    @Test public void networkDropToleranceIsSetBeforeEveryStart() throws Exception {
+        String[][] settings = {{"0", "0"}, {"30", "30000"}, {"60", "60000"}, {"3600", "0"}};
+        for (String[] setting : settings) {
+            PreferenceManager.getDefaultSharedPreferences(RuntimeEnvironment.getApplication()).edit()
+                    .putString("list_network_grace", setting[0]).commit();
+            CapturingBridge.gracePeriodMs = null;
+            startStream();
+            assertEquals(Integer.valueOf(setting[1]), CapturingBridge.gracePeriodMs);
+        }
+    }
+
     private static void startStream() throws Exception {
         NvConnectionRecoveryTest.FakeHost.initial = "<root status_code=\"200\"><appversion>7.1.431.0</appversion>" +
                 "<uniqueid>test-host</uniqueid><HttpsPort>47984</HttpsPort><state>SUNSHINE_SERVER_FREE</state>" +
@@ -85,8 +97,14 @@ public class NvConnectionHapticsFlagTest {
     public static class CapturingBridge {
         static Boolean hapticsPcm;
         static int serverCodecModeSupport, hostFeatures;
+        static Integer gracePeriodMs;
 
         @Implementation protected static void __staticInitializer__() {}
+
+        @Implementation
+        public static void setNetworkGracePeriodMs(int gracePeriodMs) {
+            CapturingBridge.gracePeriodMs = gracePeriodMs;
+        }
 
         @Implementation
         public static int startConnection(String address, String appVersion, String gfeVersion,

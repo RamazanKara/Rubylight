@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_network_grace">Przetrwaj zaniki sieci</string>
+    <string name="summary_network_grace">Jak długo strumień czeka, gdy sieć przestaje odpowiadać, na przykład gdy Wi-Fi przełącza się między punktami dostępu albo VPN przechodzi z Wi-Fi na dane komórkowe. Wyłączone kończy strumień po 10 sekundach bez kontaktu. Obraz zatrzymuje się do powrotu sieci. Czekanie dłużej niż 10 sekund pomaga tylko wtedy, gdy host też tyle czeka: zwiększ jego limit czasu klienta.</string>
+    <string name="network_grace_off">Wyłączone (10 sekund)</string>
+    <string name="network_grace_20">20 sekund</string>
+    <string name="network_grace_30">30 sekund</string>
+    <string name="network_grace_60">60 sekund</string>
+    <string name="network_grace_gave_up">Połączenie milczało dłużej niż tolerancja %1$d s albo host zakończył sesję. Jeśli host poddał się pierwszy, zwiększ też jego limit czasu klienta.</string>
+</resources>

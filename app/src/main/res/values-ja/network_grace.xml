@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_network_grace">ネットワークの途切れを待つ</string>
+    <string name="summary_network_grace">ネットワークが応答しなくなったときにストリームが待つ時間です。たとえば Wi-Fi がアクセスポイントを切り替えるときや、VPN が Wi-Fi とモバイルデータを切り替えるときです。オフでは 10 秒間通信がないとストリームを終了します。ネットワークが戻るまで映像は止まります。10 秒を超える待機は、ホストも同じ時間待つ場合にのみ有効です。ホスト側のクライアントタイムアウトも延ばしてください。</string>
+    <string name="network_grace_off">オフ（10 秒）</string>
+    <string name="network_grace_20">20 秒</string>
+    <string name="network_grace_30">30 秒</string>
+    <string name="network_grace_60">60 秒</string>
+    <string name="network_grace_gave_up">接続が途切れた時間が %1$d 秒の許容時間を超えたか、ホストがセッションを終了しました。ホストが先にあきらめた場合は、ホスト側のクライアントタイムアウトも延ばしてください。</string>
+</resources>

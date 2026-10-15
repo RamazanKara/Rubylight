@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_network_grace">Chờ qua lúc mất mạng</string>
+    <string name="summary_network_grace">Thời gian stream chờ khi mạng ngừng phản hồi, ví dụ khi Wi-Fi chuyển giữa các điểm truy cập hoặc VPN chuyển giữa Wi-Fi và dữ liệu di động. Tắt sẽ kết thúc stream sau 10 giây không có liên lạc. Hình ảnh đứng yên cho đến khi mạng trở lại. Chờ lâu hơn 10 giây chỉ có ích nếu máy chủ cũng chờ lâu như vậy: hãy tăng thời gian chờ máy khách của máy chủ.</string>
+    <string name="network_grace_off">Tắt (10 giây)</string>
+    <string name="network_grace_20">20 giây</string>
+    <string name="network_grace_30">30 giây</string>
+    <string name="network_grace_60">60 giây</string>
+    <string name="network_grace_gave_up">Kết nối im lặng lâu hơn mức chịu đựng %1$d giây, hoặc máy chủ đã kết thúc phiên. Nếu máy chủ bỏ cuộc trước, hãy tăng cả thời gian chờ máy khách của máy chủ.</string>
+</resources>

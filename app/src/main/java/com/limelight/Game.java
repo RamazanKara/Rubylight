@@ -60,6 +60,7 @@ import com.limelight.ui.StreamOrientation;
 import com.limelight.ui.StreamView;
 import com.limelight.ui.VideoScaling;
 import com.limelight.utils.Dialog;
+import com.limelight.utils.NetworkGrace;
 import com.limelight.utils.ServerHelper;
 import com.limelight.utils.ShortcutHelper;
 import com.limelight.utils.SpinnerDialog;
@@ -5173,6 +5174,11 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                                     }
                                     message = getResources().getString(R.string.conn_terminated_msg) + "\n\n" +
                                             getResources().getString(R.string.error_code_prefix) + " " + errorCodeString;
+                                    if (prefConfig != null &&
+                                            NetworkGrace.mayHaveGivenUp(prefConfig.networkGraceSeconds, errorCode)) {
+                                        message = getResources().getString(R.string.network_grace_gave_up,
+                                                prefConfig.networkGraceSeconds) + "\n\n" + message;
+                                    }
                                     break;
                             }
                         }

@@ -175,6 +175,7 @@ public class SettingsKeysTest {
         reads.put("checkbox_enable_perf_overlay", new Read(false, true, c -> c.enablePerfOverlay));
         reads.put("checkbox_enable_pip", new Read(false, true, c -> c.enablePip));
         reads.put("checkbox_auto_reconnect", new Read(false, true, c -> c.autoReconnect));
+        reads.put("list_network_grace", new Read("0", "30", c -> c.networkGraceSeconds));
         reads.put("checkbox_disable_warnings", new Read(false, true, c -> c.disableWarnings));
         reads.put("list_languages", new Read("default", "de", c -> c.language));
         reads.put("checkbox_small_icon_mode", new Read(false, true, c -> c.smallIconMode));

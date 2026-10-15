@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_network_grace">Tenir pendant les coupures réseau</string>
+    <string name="summary_network_grace">Durée pendant laquelle un stream attend quand le réseau ne répond plus, par exemple quand le Wi-Fi change de point d’accès ou qu’un VPN passe du Wi-Fi aux données mobiles. Désactivé termine le stream après 10 secondes sans contact. L’image se fige jusqu’au retour du réseau. Une attente de plus de 10 secondes n’aide que si l’hôte attend aussi longtemps : augmentez son propre délai d’expiration client.</string>
+    <string name="network_grace_off">Désactivé (10 secondes)</string>
+    <string name="network_grace_20">20 secondes</string>
+    <string name="network_grace_30">30 secondes</string>
+    <string name="network_grace_60">60 secondes</string>
+    <string name="network_grace_gave_up">La connexion est restée silencieuse plus longtemps que la tolérance de %1$d secondes, ou l’hôte a mis fin à la session. Si l’hôte a abandonné le premier, augmentez aussi son délai d’expiration client.</string>
+</resources>

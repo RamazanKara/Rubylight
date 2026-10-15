@@ -408,6 +408,9 @@ public class MoonBridge {
                                               boolean inputOnly, boolean remoteMonitor, boolean enableMic,
                                               boolean hapticsPcm);
 
+    /** Call before startConnection(); 0 keeps the native 10 second control timeout. */
+    public static native void setNetworkGracePeriodMs(int gracePeriodMs);
+
     public static native void stopConnection();
 
     public static native void interruptConnection();

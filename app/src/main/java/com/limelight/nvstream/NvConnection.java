@@ -58,6 +58,7 @@ import com.limelight.nvstream.input.MouseButtonPacket;
 import com.limelight.nvstream.jni.MoonBridge;
 import com.limelight.preferences.HostDisplayChoice;
 import com.limelight.preferences.PreferenceConfiguration;
+import com.limelight.utils.NetworkGrace;
 
 public class NvConnection {
     private static final class SessionEndedException extends IOException {}
@@ -945,6 +946,11 @@ public class NvConnection {
                         if (micEnabled && !micPermitted) {
                             LimeLog.warning("Microphone: on in settings but the permission is not granted; not sending");
                         }
+                        int graceMs = NetworkGrace.nativeMilliseconds(prefs.networkGraceSeconds);
+                        if (graceMs > 0) {
+                            LimeLog.info("Network drop tolerance: " + prefs.networkGraceSeconds + " s");
+                        }
+                        MoonBridge.setNetworkGracePeriodMs(graceMs);
                         int ret = MoonBridge.startConnection(context.serverAddress.address,
                                 context.serverAppVersion, context.serverGfeVersion, context.rtspSessionUrl,
                                 context.serverCodecModeSupport,

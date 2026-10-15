@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_network_grace">Ağ kesintilerini atlat</string>
+    <string name="summary_network_grace">Ağ yanıt vermeyi kestiğinde bir yayının ne kadar bekleyeceği; örneğin Wi-Fi erişim noktası değiştirirken veya bir VPN, Wi-Fi ile mobil veri arasında geçiş yaparken. Kapalı, bağlantı olmadan 10 saniye sonra yayını sonlandırır. Ağ geri gelene kadar görüntü donar. 10 saniyeden uzun beklemeler yalnızca ana bilgisayar da o kadar beklerse işe yarar: onun istemci zaman aşımını da artırın.</string>
+    <string name="network_grace_off">Kapalı (10 saniye)</string>
+    <string name="network_grace_20">20 saniye</string>
+    <string name="network_grace_30">30 saniye</string>
+    <string name="network_grace_60">60 saniye</string>
+    <string name="network_grace_gave_up">Bağlantı %1$d saniyelik toleranstan daha uzun süre sessiz kaldı veya ana bilgisayar oturumu sonlandırdı. Ana bilgisayar önce vazgeçtiyse onun istemci zaman aşımını da artırın.</string>
+</resources>

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_network_grace">撑过网络中断</string>
+    <string name="summary_network_grace">网络无响应时串流等待的时长，例如 Wi-Fi 在接入点之间切换，或 VPN 在 Wi-Fi 和移动数据之间切换时。关闭时，10 秒无通信即结束串流。网络恢复前画面会停住。超过 10 秒的等待只有在主机也等待同样长时间时才有用：请同时调高主机自身的客户端超时。</string>
+    <string name="network_grace_off">关闭（10 秒）</string>
+    <string name="network_grace_20">20 秒</string>
+    <string name="network_grace_30">30 秒</string>
+    <string name="network_grace_60">60 秒</string>
+    <string name="network_grace_gave_up">连接中断时间超过了 %1$d 秒的容忍时长，或主机结束了会话。如果是主机先放弃，请同时调高主机自身的客户端超时。</string>
+</resources>

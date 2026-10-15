@@ -9,7 +9,10 @@ import java.util.List;
 public final class StreamHealth {
     public static final long HISTORY_MS = 30_000;
     private static final int MAX_SAMPLES = 30;
-    public enum Finding { NETWORK, DECODER, HOST, PRESENTATION, HEAT }
+    /** Stall starts are kept longer than samples so a rhythm of several minutes can show. */
+    public static final long STALL_HISTORY_MS = 20 * 60_000;
+    private static final int MAX_STALLS = 64;
+    public enum Finding { NETWORK, DECODER, HOST, PRESENTATION, HEAT, PERIODIC }
 
     public static final class Sample {
         public final long atMs;
@@ -40,11 +43,16 @@ public final class StreamHealth {
         public final int samples;
         public final boolean recent;
         public final float worstLossPercent, worstDecodeMs, worstHostP95Ms, worstDisplayP95Ms;
+        /** Network stalls started in the last {@link #STALL_HISTORY_MS}, and their rhythm (0 when none). */
+        public final int stalls;
+        public final long stallPeriodMs;
         private Report(List<Finding> findings, int samples, boolean recent, float loss,
-                       float decode, float host, float display) {
+                       float decode, float host, float display, int stalls, long stallPeriodMs) {
             this.findings = Collections.unmodifiableList(findings);
             this.samples = samples;
             this.recent = recent;
+            this.stalls = stalls;
+            this.stallPeriodMs = stallPeriodMs;
             worstLossPercent = loss; worstDecodeMs = decode;
             worstHostP95Ms = host; worstDisplayP95Ms = display;
         }
@@ -54,16 +62,45 @@ public final class StreamHealth {
     }
 
     private final ArrayDeque<Sample> samples = new ArrayDeque<>();
+    private final long[] stallStarts = new long[MAX_STALLS];
+    private int stallCount;
+    private long lastStallMs = Long.MIN_VALUE / 2;
+    private long stallPeriodMs;
 
     public synchronized void add(Sample sample) {
         if (!samples.isEmpty() && sample.atMs - samples.getLast().atMs < 900) return;
         expire(sample.atMs);
         while (samples.size() >= MAX_SAMPLES) samples.removeFirst();
         samples.addLast(sample);
+        if (sample.fresh && Float.isFinite(sample.budgetMs) && networkEvidence(sample)) {
+            if (sample.atMs - lastStallMs > PeriodicStalls.BURST_GAP_MS) {
+                if (stallCount == MAX_STALLS) System.arraycopy(stallStarts, 1, stallStarts, 0, --stallCount);
+                stallStarts[stallCount++] = sample.atMs;
+                stallPeriodMs = PeriodicStalls.periodMs(stallStarts, stallCount);
+            }
+            lastStallMs = sample.atMs;
+        }
     }
 
     private void expire(long nowMs) {
         while (!samples.isEmpty() && nowMs - samples.getFirst().atMs > HISTORY_MS) samples.removeFirst();
+        int old = 0;
+        while (old < stallCount && nowMs - stallStarts[old] > STALL_HISTORY_MS) old++;
+        if (old > 0) {
+            System.arraycopy(stallStarts, old, stallStarts, 0, stallCount - old);
+            stallCount -= old;
+            stallPeriodMs = PeriodicStalls.periodMs(stallStarts, stallCount);
+        }
+    }
+
+    /** The rhythm of recent network stalls in ms, or 0. Cheap: updated only when a stall starts or expires. */
+    public synchronized long stallPeriodMs() {
+        return stallPeriodMs;
+    }
+
+    private static boolean networkEvidence(Sample s) {
+        return (valid(s.lossPercent) && s.lossPercent >= 2) ||
+                (valid(s.jitterMs) && s.jitterMs >= Math.max(8, s.budgetMs));
     }
 
     public synchronized Report report(long nowMs) {
@@ -78,8 +115,7 @@ public final class StreamHealth {
             if (valid(s.decodeMs)) decode = Math.max(decode, s.decodeMs);
             if (valid(s.hostP95Ms)) host = Math.max(host, s.hostP95Ms);
             if (valid(s.displayP95Ms)) display = Math.max(display, s.displayP95Ms);
-            if ((valid(s.lossPercent) && s.lossPercent >= 2) ||
-                    (valid(s.jitterMs) && s.jitterMs >= Math.max(8, s.budgetMs))) votes[Finding.NETWORK.ordinal()]++;
+            if (networkEvidence(s)) votes[Finding.NETWORK.ordinal()]++;
             if (valid(s.decodeMs) && s.decodeMs >= s.budgetMs) votes[Finding.DECODER.ordinal()]++;
             if (valid(s.hostP95Ms) && s.hostP95Ms >= s.budgetMs * 1.25f) votes[Finding.HOST.ordinal()]++;
             // Compare observed stages, not requested FPS: a static/VRR desktop is not a dropped-frame fault.
@@ -93,8 +129,10 @@ public final class StreamHealth {
         if (valid >= 3) for (Finding finding : Finding.values()) {
             if (votes[finding.ordinal()] >= 2) findings.add(finding);
         }
+        // A rhythm spans minutes, so it stands on its own rather than on the last 30 seconds.
+        if (stallPeriodMs > 0) findings.add(Finding.PERIODIC);
         boolean recent = !samples.isEmpty() && samples.getLast().fresh && nowMs - samples.getLast().atMs <= 2500;
-        return new Report(findings, valid, recent, loss, decode, host, display);
+        return new Report(findings, valid, recent, loss, decode, host, display, stallCount, stallPeriodMs);
     }
 
     private static boolean valid(float value) { return Float.isFinite(value) && value >= 0; }

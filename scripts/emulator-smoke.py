@@ -670,6 +670,9 @@ def capture_debug_checks():
             assert section in text, node.attrib
         assert "Low latency mode: " in text, node.attrib
         assert "Queue wait: " in text, node.attrib
+        # The smoke turns Wi-Fi off, so the connection line reports that rather than vanishing.
+        assert re.search(r"Wi-Fi band: |Connection: |Wi-Fi details: not available", text), node.attrib
+        assert "Stall rhythm: about every 2 min" in text, node.attrib
         assert "Host hardware (all GPUs)" in text and "GPU 11520 · AMD Radeon (preview)" in text, node.attrib
         assert "GPU power: 28.0 W · Board power: 40.0 W" in text, node.attrib
         screenshot("overlay-debug" + suffix)
@@ -682,7 +685,25 @@ def capture_debug_checks():
         x1, y1, x2, y2 = bounds(node)
         x, y = str((x1 + x2) // 2), str((y1 + y2) // 2)
         adb("shell", "input", "swipe", x, y, x, y, "1000")
+    stream_health_checks()
     stream_ui_checks()
+
+
+def stream_health_checks():
+    """The real stream doctor text over a scripted two-minute stall rhythm."""
+    adb("shell", "am", "force-stop", PACKAGE)
+    for rotation, suffix in ((0, ""), (1, "-landscape")):
+        set_rotation(rotation)
+        adb("shell", "am", "start", "-W", "-n", f"{PACKAGE}/com.limelight.LatencyOverlaySmokeActivity",
+            "--es", "mode", "health")
+        find("Why did my stream stutter?")
+        node = find_text(r"Repeating stalls: 5 network stalls in the last 20 minutes started about every 2 min")
+        text = node.get("text", "")
+        assert "Wi-Fi scan throttling" in text and "low-latency Wi-Fi lock" in text, node.attrib
+        assert re.search(r"Connection\n(Wi-Fi band|Connection|Wi-Fi details): ", text), node.attrib
+        screenshot("stream-health-rhythm" + suffix)
+        adb("shell", "am", "force-stop", PACKAGE)
+    set_rotation(0)
 
 
 COMPACT_TEXT = "● 119.9 FPS · 8 ms RTT · 0.1% loss"

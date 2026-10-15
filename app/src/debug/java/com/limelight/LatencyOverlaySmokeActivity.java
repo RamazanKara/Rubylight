@@ -19,11 +19,15 @@ import java.util.Map;
  * Debug-only rendering check using the stream layout and production overlay formatters and placement.
  * "--es mode compact|statistics|debug" picks the first mode (default statistics), "--ez controls true"
  * shows the on-screen controls the overlay must keep clear of. Long-press cycles the modes.
+ * "--es mode health" opens the stream doctor over ten scripted minutes with a two-minute stall rhythm.
+ * Debug and health show this device's real Wi-Fi reading.
  */
 public class LatencyOverlaySmokeActivity extends Activity {
     private String mode;
     private com.limelight.binding.input.virtual_controller.VirtualController controls;
     private final HardwareMetrics hardwareMetrics = previewHardwareMetrics();
+    private com.limelight.utils.WifiFacts wifi;
+    private static final long RHYTHM_MS = 120_000;
 
     private static HardwareMetrics previewHardwareMetrics() {
         Map<String, Double> gpu = new HashMap<>();
@@ -51,6 +55,11 @@ public class LatencyOverlaySmokeActivity extends Activity {
         stream.setFocusable(false);
         stream.initializeSurface(false);
         mode = savedInstanceState != null ? savedInstanceState.getString("mode") : getIntent().getStringExtra("mode");
+        wifi = com.limelight.utils.WifiDiagnostics.read(this);
+        if ("health".equals(mode)) {
+            showHealth();
+            mode = PerformanceOverlay.MODE_DEBUG;
+        }
         mode = mode == null ? PerformanceOverlay.MODE_STATISTICS : PerformanceOverlay.normalizeMode(mode);
         TextView message = findViewById(R.id.inputOnlyStatus);
         message.setText(R.string.smoke_overlay_message);
@@ -74,6 +83,26 @@ public class LatencyOverlaySmokeActivity extends Activity {
             if (controls != null) controls.collectVisibleBounds(out);
         });
         updateOverlay();
+    }
+
+    private com.limelight.utils.WifiDiagnostics.Lock lock() {
+        // The fixture streams nothing, so it holds no Wi-Fi lock.
+        return android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.Q ?
+                com.limelight.utils.WifiDiagnostics.Lock.UNSUPPORTED : com.limelight.utils.WifiDiagnostics.Lock.NOT_HELD;
+    }
+
+    // Ten minutes of 60 FPS samples with a three-second loss burst every two minutes; the last 30 s are clean.
+    private void showHealth() {
+        com.limelight.utils.StreamHealth health = new com.limelight.utils.StreamHealth();
+        for (int second = 1; second <= 600; second++) {
+            boolean stall = second % 120 >= 30 && second % 120 < 33;
+            health.add(new com.limelight.utils.StreamHealth.Sample(second * 1000L, true, 60, stall ? 6 : 0.1f, 2,
+                    4.6f, 2.1f, 1.2f, 60, 60, 60, 0));
+        }
+        com.limelight.utils.StreamHealth.Report report = health.report(600_000);
+        new com.google.android.material.dialog.MaterialAlertDialogBuilder(this).setTitle(R.string.health_title)
+                .setMessage(Game.healthText(this, report, com.limelight.utils.WifiDiagnostics.describe(this, wifi, lock(), 0)))
+                .setPositiveButton(android.R.string.ok, null).show();
     }
 
     @Override
@@ -107,7 +136,8 @@ public class LatencyOverlaySmokeActivity extends Activity {
                 "Panel: 120.00 Hz · render: 120.00 Hz · VRR: max Hz";
         String network = getString(R.string.perf_overlay_netdrops, 0.14f) + '\n' +
                 getString(R.string.perf_overlay_netlatency, 8, 1) + '\n' +
-                getString(R.string.stream_auto_bitrate_status, 15.0);
+                getString(R.string.stream_auto_bitrate_status, 15.0) + '\n' +
+                com.limelight.utils.WifiDiagnostics.describe(this, wifi, lock(), RHYTHM_MS);
         String decode = getString(R.string.perf_overlay_decoder, "c2.qti.av1.decoder (video/av01)") + '\n' +
                 getString(R.string.perf_overlay_low_latency, getString(R.string.perf_overlay_low_latency_android_vendor)) + '\n' +
                 getString(R.string.perf_overlay_low_latency_keys, "low-latency=1") + '\n' +

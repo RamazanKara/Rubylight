@@ -243,6 +243,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     private int qualityMaxWidth, qualityMaxHeight, qualityMaxFps;
     private final Handler bitrateHandler = new Handler(Looper.getMainLooper());
     private final com.limelight.utils.StreamHealth streamHealth = new com.limelight.utils.StreamHealth();
+    private com.limelight.utils.WifiDiagnostics wifiDiagnostics;
     private int healthOriginalBitrate, healthTrialBitrate;
     private final Runnable sampleStreamHealth = new Runnable() {
         @Override public void run() {
@@ -2424,17 +2425,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
 
     private void showStreamHealth() {
         com.limelight.utils.StreamHealth.Report report = streamHealth.report(SystemClock.uptimeMillis());
-        StringBuilder text = new StringBuilder(getString(R.string.health_intro, report.samples));
-        if (!report.recent || report.samples < 3) text.append("\n\n").append(getString(R.string.health_insufficient));
-        else if (report.findings.isEmpty()) text.append("\n\n").append(getString(R.string.health_no_issue));
-        int[] descriptions = {R.string.health_network, R.string.health_decoder, R.string.health_host,
-                R.string.health_presentation, R.string.health_heat};
-        for (com.limelight.utils.StreamHealth.Finding finding : report.findings) {
-            text.append("\n\n").append(getString(descriptions[finding.ordinal()]));
-        }
-        text.append("\n\n").append(getString(R.string.health_evidence,
-                healthMeasurement(report.worstLossPercent), healthMeasurement(report.worstDecodeMs),
-                healthMeasurement(report.worstHostP95Ms), healthMeasurement(report.worstDisplayP95Ms)));
+        StringBuilder text = healthText(this, report, wifiText(0));
         boolean undo = healthOriginalBitrate > 0 && currentBitrate == healthTrialBitrate &&
                 !isAdaptiveBitrateEnabled() && adaptiveQuality == null;
         boolean suggest = report.canSuggestBitrate() && supportsAdaptiveBitrate() && !isAdaptiveBitrateEnabled() &&
@@ -2452,9 +2443,38 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         showStreamDialog(builder.create());
     }
 
-    private String healthMeasurement(float value) {
+    private String wifiText(long stallPeriodMs) {
+        com.limelight.utils.WifiDiagnostics.Lock lock = Build.VERSION.SDK_INT < Build.VERSION_CODES.Q ?
+                com.limelight.utils.WifiDiagnostics.Lock.UNSUPPORTED :
+                lowLatencyWifiLock != null && lowLatencyWifiLock.isHeld() ?
+                        com.limelight.utils.WifiDiagnostics.Lock.HELD : com.limelight.utils.WifiDiagnostics.Lock.NOT_HELD;
+        return com.limelight.utils.WifiDiagnostics.describe(this,
+                wifiDiagnostics != null ? wifiDiagnostics.latest() : null, lock, stallPeriodMs);
+    }
+
+    /** The stream doctor's findings, evidence and connection facts; shared with the debug fixture. */
+    static StringBuilder healthText(Context context, com.limelight.utils.StreamHealth.Report report, String connection) {
+        StringBuilder text = new StringBuilder(context.getString(R.string.health_intro, report.samples));
+        if (!report.recent || report.samples < 3) text.append("\n\n").append(context.getString(R.string.health_insufficient));
+        else if (report.findings.isEmpty()) text.append("\n\n").append(context.getString(R.string.health_no_issue));
+        int[] descriptions = {R.string.health_network, R.string.health_decoder, R.string.health_host,
+                R.string.health_presentation, R.string.health_heat};
+        for (com.limelight.utils.StreamHealth.Finding finding : report.findings) {
+            text.append("\n\n").append(finding == com.limelight.utils.StreamHealth.Finding.PERIODIC ?
+                    context.getString(R.string.health_periodic,
+                            com.limelight.utils.WifiDiagnostics.period(context, report.stallPeriodMs), report.stalls) :
+                    context.getString(descriptions[finding.ordinal()]));
+        }
+        text.append("\n\n").append(context.getString(R.string.health_evidence,
+                healthMeasurement(context, report.worstLossPercent), healthMeasurement(context, report.worstDecodeMs),
+                healthMeasurement(context, report.worstHostP95Ms), healthMeasurement(context, report.worstDisplayP95Ms)));
+        text.append("\n\n").append(context.getString(R.string.wifi_heading)).append('\n').append(connection);
+        return text;
+    }
+
+    private static String healthMeasurement(Context context, float value) {
         return Float.isFinite(value) && value >= 0 ? String.format(Locale.getDefault(), "%.1f", value) :
-                getString(R.string.latency_unavailable);
+                context.getString(R.string.latency_unavailable);
     }
 
     private void applyHealthBitrate(boolean undo) {
@@ -4726,6 +4746,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         adaptiveBitrate = null;
         qualityAutoBitrate = false;
         bitrateHandler.removeCallbacks(sampleStreamHealth);
+        if (wifiDiagnostics != null) wifiDiagnostics.stop();
         pyroWaveBitrate = null;
         displayCapsReporter = null;
         if (usbDriverBinder != null) {
@@ -5008,6 +5029,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 getIntent().removeExtra(EXTRA_RECOVERY_MEDIA_FAILURE);
                 bitrateHandler.removeCallbacks(sampleStreamHealth);
                 bitrateHandler.postDelayed(sampleStreamHealth, 1000);
+                if (wifiDiagnostics == null) wifiDiagnostics = new com.limelight.utils.WifiDiagnostics(Game.this);
+                wifiDiagnostics.start();
                 connectedAt = SystemClock.elapsedRealtime();
                 bitrateHandler.removeCallbacks(recoveryTimeout);
                 recoveryAppId = app.getControl() == NvApp.Control.NONE ? app.getAppId() : conn.getHostDetails().runningGameId;
@@ -5559,6 +5582,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 for (String note : messages.notes()) {
                     if (!note.equals(qualityStatus)) networkText += "\n" + note;
                 }
+                networkText += "\n" + wifiText(streamHealth.stallPeriodMs());
                 debugPerformanceText = PerformanceOverlay.debugText(Game.this, video + displayLine, networkText, decode);
                 statisticsPerformanceText = statisticsText;
                 compactPerformanceText = compactText;

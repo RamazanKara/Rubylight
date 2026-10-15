@@ -45,4 +45,46 @@ public class StreamHealthTest {
         assertTrue(health.report(4000).findings.isEmpty());
         assertEquals(-1, health.report(4000).worstHostP95Ms, 0);
     }
+
+    // One healthy sample per second, with a three-second loss burst every two minutes.
+    private static StreamHealth scanRhythm(int minutes) {
+        StreamHealth health = new StreamHealth();
+        for (int second = 1; second <= minutes * 60; second++) {
+            boolean stall = second % 120 >= 30 && second % 120 < 33;
+            health.add(new StreamHealth.Sample(second * 1000L, true, 60, stall ? 6 : 0, 1, 4, 3, 2,
+                    60, 60, 60, 0));
+        }
+        return health;
+    }
+    @Test public void regularStallsBecomeARhythmFinding() {
+        StreamHealth health = scanRhythm(10);
+        StreamHealth.Report report = health.report(600_000);
+        assertEquals(120_000, report.stallPeriodMs);
+        assertEquals(5, report.stalls);
+        assertEquals(120_000, health.stallPeriodMs());
+        // The last 30 seconds were healthy; only the rhythm is reported.
+        assertEquals(java.util.Collections.singletonList(StreamHealth.Finding.PERIODIC), report.findings);
+    }
+    @Test public void fewStallsAndContinuousLossAreNoRhythm() {
+        assertEquals(0, scanRhythm(5).report(300_000).stallPeriodMs);
+        StreamHealth health = new StreamHealth();
+        for (int n = 1; n <= 900; n++) health.add(sample(n * 1000L, true, 4, 1, 1, 1, 60, 60, 0));
+        StreamHealth.Report report = health.report(900_000);
+        assertEquals(1, report.stalls);
+        assertFalse(report.findings.contains(StreamHealth.Finding.PERIODIC));
+    }
+    @Test public void stallRhythmExpiresWithItsHistory() {
+        StreamHealth health = scanRhythm(10);
+        health.add(sample(600_000 + StreamHealth.STALL_HISTORY_MS, true, 0, 1, 1, 1, 60, 60, 0));
+        StreamHealth.Report report = health.report(600_000 + StreamHealth.STALL_HISTORY_MS);
+        assertEquals(0, report.stalls);
+        assertEquals(0, report.stallPeriodMs);
+        assertEquals(0, health.stallPeriodMs());
+    }
+    @Test public void staleOrUnmeasuredSamplesAreNotStalls() {
+        StreamHealth health = new StreamHealth();
+        for (int n = 1; n <= 600; n++) health.add(new StreamHealth.Sample(n * 1000L, n % 120 != 30, 60,
+                n % 120 == 30 ? 50 : 0, 1, 1, 1, 1, 60, 60, 60, 0));
+        assertEquals(0, health.report(600_000).stalls);
+    }
 }

@@ -6,6 +6,7 @@ This is the dated measurement record. For a guided comparison, start with the [p
 
 | Find a result | Recorded evidence |
 | --- | --- |
+| Where host latency goes | [October 15, present to last packet sent by stage, beside Moonlight's field](#october-15-where-host-latency-goes) |
 | Frame rates above 60 | [October 14, 1440p at 60-240 fps and 20-500 Mbps](#october-14-frame-rates-above-60) |
 | A port slower than the host | [October 14, keyframe loss through a 100 Mbps bottleneck](#october-14-keyframe-loss-on-a-slow-port) |
 | HDR and recovery fixes | [October 14, 2.2.17 against 2.2.18](#october-14-hdr-and-recovery-fixes-2218) |
@@ -5899,6 +5900,323 @@ buffer pool has nothing left to win: the whole paced encode at 5120×1440 HDR
 cache in the encoder for a gain inside run-to-run spread is not worth the risk.
 The port stays on the `claude/pyrowave-fixes` branch, and the rebuild test
 stays on main, where it passes with the shipped SDK.
+
+## October 15: where host latency goes
+
+Moonlight's host latency from Rubylight runs from the claim to packetization
+(native AMF: from the encode call's entry; the separate sender stops at its
+dequeue). It leaves out the capture and the wait before the claim, and the
+send after packetization, so it cannot be set beside a host that times from
+Windows' present. Each new picture now records these points on the host's
+monotonic clock:
+
+| Point | Taken when |
+| --- | --- |
+| Present | The capture's present stamp: Desktop Duplication's `LastPresentTime` (or the pointer's update), WGC's `SystemRelativeTime`. A stamp in the future or more than two seconds old is replaced by the capture's arrival, as the pacing clock has always done. |
+| Acquired | The host submitted its own copy of the picture, or took a WGC helper texture to read in place. |
+| Published | The capture worker published the picture to the stream threads. |
+| Claimed | The stream thread took the picture to encode. |
+| Submitted | AMF accepted the converted picture (`SubmitInput` returned). Encoders that do not report it put their conversion in the encode stage. |
+| Encoded | The encoded frame was in the host's hands (`QueryOutput` returned it). |
+| Packetized | Packetization began. |
+| First sent | The first send call for the frame returned. |
+| Last sent | The last send call returned. |
+
+The stages between them are capture, hold, claim, convert, encode, queue,
+packetize (packetizing the first FEC block and the first send call) and send
+(the rest of the frame, with pacing). A point earlier than the one before it
+counts as reached with it, so no stage is negative and the stages add up to
+**present to sent**. Static repeats have no present and are not recorded.
+The session's performance snapshot (`performance.stages`, shown in the
+console as Present to sent) and the 5 s `stream timings` line give mean, p95
+and p99 per stage over five seconds as `present_to_sent_ms` and
+`stage_*_ms` (mean/p95/p99), beside `moonlight_host_ms`, the field sent to
+Moonlight for the same pictures. `RUST_LOG=info,stages=trace` logs every
+picture (target `stages`). The field sent to Moonlight is unchanged.
+
+**Machine:** AMD Radeon RX 7900 XT (driver 32.0.32015.2008), Ryzen 7 5800X3D,
+Windows 26200, one 5120x1440 monitor at 240 Hz. **Host:** the stage
+instrumentation above (built before rebasing onto main `a5fb5155`, whose
+newer commits change no host, capture or encoder code), release build, in a
+copy of the 2.3.1 package, isolated profile on ports 48518-48544, AMF defaults,
+`RUST_LOG=info,stages=trace`. **Physical display:** `rust/release/e2e.py`
+streams 2560x1440 (the 5120x1440 desktop scaled into it) at 60, 120 and 240
+fps and 50 Mbps. **Virtual display:** 1968x2184 at 120 fps and 80 Mbps on a
+per-client virtual display in the **extended** layout, the host running as
+SYSTEM from a one-shot scheduled task (the hardware-fps fixture's
+`vd_e2e.py`); as SYSTEM, WGC always uses the helper. The layout was checked
+unchanged after every run. **Capture:** WGC in the host process
+(`wgc_user_helper = false`), the WGC helper (`wgc_user_helper = true`, as the
+service runs) and Desktop Duplication (DDX). **Receiver:** the independent
+moonlight-common-c fixture, decoding with D3D11VA on the same GPU, with
+`BUTTERPOLLO_TEST_TIMING_CSV` per frame. `motion_probe` moves a 128-pixel
+strip at twice the stream rate. **Load:** idle, or
+`gpu_load SECONDS 1000 60 200` (60 fps, about 50% of the 3D engine).
+20-second streams; the first 3 s and the last 1 s are dropped. Two runs per
+case, the second pass in the reverse order; every cell is the mean of the two
+runs' own statistics over 910-3,775 pictures each. Before each run the
+installed host had no session and no app, no other test host ran, and the
+3D engines were below 15%.
+
+### Present to sent beside Moonlight's field
+
+Each cell: present to sent mean / p95 / p99 in ms, with the mean of Moonlight's
+field for the same pictures in parentheses. The receiver's per-frame host
+latency, what Moonlight shows, matched the host's field to 0.08 ms in every
+case.
+
+| | 2560x1440, 60 fps | 2560x1440, 120 fps | 2560x1440, 240 fps | Virtual display 1968x2184, 120 fps |
+| --- | ---: | ---: | ---: | ---: |
+| HEVC DDX, idle | 5.0 / 8.4 / 12.2 (3.3) | 4.3 / 4.8 / 7.5 (3.3) | 4.3 / 6.2 / 7.8 (3.1) | 4.2 / 4.9 / 7.4 (3.4) |
+| HEVC WGC, idle | 4.4 / 10.5 / 11.5 (3.2) | 4.4 / 7.2 / 9.4 (3.2) | 4.6 / 7.5 / 8.3 (3.2) | – |
+| HEVC WGC helper, idle | 5.6 / 10.7 / 13.8 (3.2) | 4.4 / 6.4 / 8.4 (3.2) | 4.5 / 7.1 / 8.0 (3.2) | 3.9 / 4.5 / 4.9 (3.4) |
+| AV1 DDX, idle | 4.3 / 6.0 / 11.8 (3.1) | 3.8 / 4.3 / 4.7 (3.0) | 4.1 / 5.5 / 7.7 (3.1) | 4.0 / 4.7 / 9.5 (3.2) |
+| AV1 WGC, idle | 4.2 / 10.2 / 10.7 (2.9) | 4.2 / 6.7 / 7.2 (3.0) | 4.5 / 7.2 / 8.1 (3.0) | – |
+| AV1 WGC helper, idle | 4.5 / 10.4 / 11.1 (3.0) | 3.8 / 6.0 / 8.4 (2.9) | 5.0 / 7.9 / 9.9 (3.2) | 3.6 / 4.7 / 5.1 (3.1) |
+| HEVC DDX, GPU load | 7.4 / 12.2 / 14.3 (3.7) | 5.6 / 9.9 / 10.3 (3.5) | 5.2 / 7.7 / 8.6 (4.2) | 5.6 / 10.1 / 11.1 (3.6) |
+| HEVC WGC, GPU load | 5.7 / 10.2 / 13.8 (3.2) | 9.0 / 15.1 / 18.7 (3.3) | 7.0 / 10.9 / 12.3 (3.3) | – |
+| HEVC WGC helper, GPU load | 7.2 / 13.5 / 15.6 (3.2) | 7.5 / 11.8 / 14.6 (3.2) | 6.4 / 10.0 / 11.0 (3.2) | 6.8 / 10.8 / 12.1 (3.5) |
+| AV1 DDX, GPU load | 8.2 / 13.8 / 14.1 (3.1) | 6.4 / 9.5 / 9.8 (3.9) | 6.7 / 9.5 / 20.6 (4.0) | 5.4 / 10.5 / 11.1 (3.2) |
+| AV1 WGC, GPU load | 6.9 / 13.1 / 14.4 (3.0) | 6.1 / 10.2 / 11.1 (2.9) | 7.0 / 11.1 / 13.0 (3.4) | – |
+| AV1 WGC helper, GPU load | 4.9 / 8.4 / 13.8 (3.0) | 6.2 / 10.3 / 11.2 (3.0) | 7.9 / 11.7 / 16.3 (3.4) | 5.8 / 10.3 / 10.8 (3.2) |
+
+At idle, present to sent was 0.5-2.4 ms above Moonlight's field, about 1 ms
+at 120 fps on the monitor. Under the GPU load it was 1.0-5.7 ms above, while
+Moonlight's field moved by at most 1.1 ms. Moonlight's figure therefore says
+little about how old a picture is when it leaves the host.
+
+### Where the time goes
+
+Stage means in ms. Hold is the WGC path's time between taking the picture and
+publishing it; queue is the handoff to the sender.
+
+| Case | fps received | Capture | Hold | Claim | Convert | Encode | Queue | Packetize | Send | Present to sent | Moonlight field | Moonlight shows |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 2560x1440 60, HEVC, DDX, idle | 60.0 | 0.89 | 0.00 | 0.55 | 0.32 | 2.99 | 0.00 | 0.21 | 0.00 | 4.96 | 3.28 | 3.27 |
+| 2560x1440 60, HEVC, WGC, idle | 60.0 | 0.27 | 0.06 | 0.62 | 0.34 | 2.92 | 0.01 | 0.21 | 0.00 | 4.43 | 3.24 | 3.24 |
+| 2560x1440 60, HEVC, WGC helper, idle | 60.0 | 0.43 | 0.00 | 1.71 | 0.34 | 2.88 | 0.01 | 0.20 | 0.00 | 5.57 | 3.19 | 3.19 |
+| 2560x1440 60, AV1, DDX, idle | 60.0 | 0.64 | 0.00 | 0.43 | 0.30 | 2.78 | 0.00 | 0.10 | 0.00 | 4.26 | 3.06 | 3.06 |
+| 2560x1440 60, AV1, WGC, idle | 60.0 | 0.31 | 0.06 | 0.78 | 0.32 | 2.64 | 0.01 | 0.11 | 0.00 | 4.21 | 2.94 | 2.95 |
+| 2560x1440 60, AV1, WGC helper, idle | 60.0 | 0.44 | 0.00 | 0.92 | 0.33 | 2.65 | 0.01 | 0.11 | 0.00 | 4.46 | 2.96 | 2.96 |
+| 2560x1440 60, HEVC, DDX, GPU load | 60.0 | 0.76 | 0.00 | 2.69 | 0.37 | 3.37 | 0.00 | 0.23 | 0.01 | 7.43 | 3.71 | 3.70 |
+| 2560x1440 60, HEVC, WGC, GPU load | 60.0 | 0.85 | 0.06 | 1.40 | 0.33 | 2.89 | 0.01 | 0.20 | 0.01 | 5.74 | 3.19 | 3.19 |
+| 2560x1440 60, HEVC, WGC helper, GPU load | 60.1 | 1.63 | 0.00 | 2.14 | 0.35 | 2.90 | 0.01 | 0.21 | 0.00 | 7.24 | 3.22 | 3.22 |
+| 2560x1440 60, AV1, DDX, GPU load | 60.0 | 0.55 | 0.00 | 4.48 | 0.35 | 2.75 | 0.00 | 0.10 | 0.00 | 8.23 | 3.08 | 3.08 |
+| 2560x1440 60, AV1, WGC, GPU load | 60.1 | 0.91 | 0.06 | 2.78 | 0.33 | 2.65 | 0.01 | 0.11 | 0.00 | 6.85 | 2.96 | 2.96 |
+| 2560x1440 60, AV1, WGC helper, GPU load | 60.1 | 0.74 | 0.00 | 1.10 | 0.35 | 2.63 | 0.01 | 0.11 | 0.00 | 4.93 | 2.96 | 2.96 |
+| 2560x1440 120, HEVC, DDX, idle | 120.0 | 0.67 | 0.00 | 0.07 | 0.34 | 2.98 | 0.00 | 0.20 | 0.00 | 4.26 | 3.29 | 3.29 |
+| 2560x1440 120, HEVC, WGC, idle | 120.0 | 0.58 | 0.06 | 0.30 | 0.36 | 2.88 | 0.01 | 0.22 | 0.00 | 4.41 | 3.21 | 3.22 |
+| 2560x1440 120, HEVC, WGC helper, idle | 120.0 | 0.66 | 0.00 | 0.32 | 0.35 | 2.88 | 0.01 | 0.22 | 0.00 | 4.43 | 3.20 | 3.20 |
+| 2560x1440 120, AV1, DDX, idle | 120.0 | 0.63 | 0.00 | 0.02 | 0.26 | 2.78 | 0.00 | 0.09 | 0.00 | 3.79 | 3.03 | 3.03 |
+| 2560x1440 120, AV1, WGC, idle | 120.0 | 0.46 | 0.06 | 0.53 | 0.30 | 2.76 | 0.01 | 0.11 | 0.00 | 4.22 | 3.03 | 3.04 |
+| 2560x1440 120, AV1, WGC helper, idle | 120.0 | 0.49 | 0.00 | 0.26 | 0.29 | 2.66 | 0.01 | 0.11 | 0.00 | 3.81 | 2.93 | 2.93 |
+| 2560x1440 120, HEVC, DDX, GPU load | 120.0 | 0.61 | 0.00 | 1.20 | 0.31 | 3.23 | 0.00 | 0.22 | 0.00 | 5.57 | 3.51 | 3.50 |
+| 2560x1440 120, HEVC, WGC, GPU load | 109.7 | 2.01 | 0.08 | 2.53 | 0.38 | 2.94 | 0.01 | 0.19 | 0.85 | 8.99 | 3.29 | 3.29 |
+| 2560x1440 120, HEVC, WGC helper, GPU load | 120.0 | 1.50 | 0.00 | 2.47 | 0.35 | 2.89 | 0.01 | 0.24 | 0.00 | 7.46 | 3.21 | 3.22 |
+| 2560x1440 120, AV1, DDX, GPU load | 120.0 | 0.59 | 0.00 | 1.78 | 0.27 | 3.63 | 0.00 | 0.12 | 0.00 | 6.38 | 3.88 | 3.82 |
+| 2560x1440 120, AV1, WGC, GPU load | 120.1 | 0.74 | 0.06 | 2.25 | 0.29 | 2.66 | 0.01 | 0.12 | 0.00 | 6.13 | 2.93 | 2.94 |
+| 2560x1440 120, AV1, WGC helper, GPU load | 120.1 | 0.96 | 0.00 | 2.10 | 0.29 | 2.69 | 0.01 | 0.12 | 0.00 | 6.17 | 2.96 | 2.96 |
+| 2560x1440 240, HEVC, DDX, idle | 240.7 | 0.62 | 0.00 | 0.35 | 0.27 | 2.89 | 0.00 | 0.16 | 0.00 | 4.29 | 3.14 | 3.14 |
+| 2560x1440 240, HEVC, WGC, idle | 239.8 | 0.42 | 0.06 | 0.72 | 0.27 | 2.94 | 0.00 | 0.15 | 0.00 | 4.57 | 3.19 | 3.19 |
+| 2560x1440 240, HEVC, WGC helper, idle | 239.7 | 0.36 | 0.00 | 0.74 | 0.27 | 2.97 | 0.00 | 0.14 | 0.00 | 4.49 | 3.20 | 3.19 |
+| 2560x1440 240, AV1, DDX, idle | 240.3 | 0.66 | 0.00 | 0.26 | 0.30 | 2.78 | 0.00 | 0.13 | 0.00 | 4.13 | 3.06 | 3.05 |
+| 2560x1440 240, AV1, WGC, idle | 238.9 | 0.49 | 0.06 | 0.75 | 0.28 | 2.76 | 0.00 | 0.12 | 0.00 | 4.47 | 3.03 | 3.02 |
+| 2560x1440 240, AV1, WGC helper, idle | 238.0 | 0.65 | 0.00 | 0.96 | 0.32 | 2.90 | 0.00 | 0.13 | 0.00 | 4.96 | 3.17 | 3.18 |
+| 2560x1440 240, HEVC, DDX, GPU load | 240.1 | 0.55 | 0.00 | 0.24 | 0.25 | 3.97 | 0.00 | 0.16 | 0.00 | 5.17 | 4.20 | 4.13 |
+| 2560x1440 240, HEVC, WGC, GPU load | 231.7 | 1.27 | 0.07 | 1.45 | 0.30 | 3.00 | 0.00 | 0.13 | 0.75 | 6.97 | 3.27 | 3.28 |
+| 2560x1440 240, HEVC, WGC helper, GPU load | 240.5 | 1.34 | 0.00 | 1.63 | 0.27 | 3.01 | 0.00 | 0.15 | 0.00 | 6.42 | 3.23 | 3.24 |
+| 2560x1440 240, AV1, DDX, GPU load | 193.6 | 0.64 | 0.00 | 0.78 | 0.29 | 3.75 | 0.00 | 0.08 | 1.16 | 6.70 | 4.01 | 3.94 |
+| 2560x1440 240, AV1, WGC, GPU load | 210.5 | 1.26 | 0.07 | 1.29 | 0.31 | 3.06 | 0.00 | 0.07 | 0.95 | 7.02 | 3.35 | 3.27 |
+| 2560x1440 240, AV1, WGC helper, GPU load | 200.1 | 1.82 | 0.00 | 1.64 | 0.32 | 3.17 | 0.00 | 0.08 | 0.91 | 7.94 | 3.43 | 3.42 |
+| VD 1968x2184 120, HEVC, DDX, idle | 119.9 | 0.54 | 0.00 | 0.11 | 0.31 | 3.12 | 0.00 | 0.10 | 0.00 | 4.17 | 3.40 | 3.40 |
+| VD 1968x2184 120, HEVC, WGC helper, idle | 120.0 | 0.06 | 0.00 | 0.32 | 0.30 | 3.12 | 0.01 | 0.10 | 0.00 | 3.92 | 3.40 | 3.40 |
+| VD 1968x2184 120, AV1, DDX, idle | 119.6 | 0.60 | 0.00 | 0.10 | 0.36 | 2.84 | 0.00 | 0.08 | 0.00 | 3.98 | 3.18 | 3.18 |
+| VD 1968x2184 120, AV1, WGC helper, idle | 120.0 | 0.07 | 0.00 | 0.32 | 0.33 | 2.81 | 0.01 | 0.07 | 0.00 | 3.61 | 3.12 | 3.12 |
+| VD 1968x2184 120, HEVC, DDX, GPU load | 119.8 | 0.57 | 0.00 | 1.33 | 0.40 | 3.22 | 0.00 | 0.10 | 0.00 | 5.62 | 3.60 | 3.61 |
+| VD 1968x2184 120, HEVC, WGC helper, GPU load | 115.1 | 0.90 | 0.00 | 2.27 | 0.38 | 3.13 | 0.01 | 0.10 | 0.02 | 6.81 | 3.49 | 3.49 |
+| VD 1968x2184 120, AV1, DDX, GPU load | 119.9 | 0.55 | 0.00 | 1.47 | 0.37 | 2.88 | 0.00 | 0.08 | 0.00 | 5.35 | 3.23 | 3.24 |
+| VD 1968x2184 120, AV1, WGC helper, GPU load | 119.9 | 0.75 | 0.00 | 1.80 | 0.34 | 2.84 | 0.01 | 0.07 | 0.00 | 5.81 | 3.16 | 3.16 |
+
+Stage p99 in ms:
+
+| Case | Capture | Hold | Claim | Convert | Encode | Queue | Packetize | Send |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 2560x1440 60, HEVC, DDX, idle | 3.07 | 0.00 | 8.12 | 0.60 | 3.50 | 0.00 | 0.38 | 0.11 |
+| 2560x1440 60, HEVC, WGC, idle | 2.02 | 0.15 | 6.91 | 0.63 | 3.46 | 0.01 | 0.40 | 0.11 |
+| 2560x1440 60, HEVC, WGC helper, idle | 2.31 | 0.00 | 9.73 | 0.66 | 3.45 | 0.01 | 0.37 | 0.00 |
+| 2560x1440 60, AV1, DDX, idle | 2.57 | 0.00 | 8.06 | 0.55 | 3.31 | 0.00 | 0.24 | 0.00 |
+| 2560x1440 60, AV1, WGC, idle | 1.91 | 0.18 | 6.91 | 0.62 | 3.31 | 0.01 | 0.22 | 0.00 |
+| 2560x1440 60, AV1, WGC helper, idle | 2.19 | 0.00 | 7.10 | 0.58 | 3.23 | 0.01 | 0.22 | 0.00 |
+| 2560x1440 60, HEVC, DDX, GPU load | 4.60 | 0.00 | 10.11 | 0.81 | 6.48 | 0.00 | 0.40 | 0.13 |
+| 2560x1440 60, HEVC, WGC, GPU load | 3.46 | 0.16 | 9.77 | 0.65 | 3.49 | 0.01 | 0.37 | 0.11 |
+| 2560x1440 60, HEVC, WGC helper, GPU load | 6.48 | 0.00 | 10.90 | 0.69 | 3.61 | 0.01 | 0.38 | 0.21 |
+| 2560x1440 60, AV1, DDX, GPU load | 2.43 | 0.00 | 10.25 | 0.75 | 3.37 | 0.00 | 0.23 | 0.00 |
+| 2560x1440 60, AV1, WGC, GPU load | 4.47 | 0.22 | 10.31 | 0.68 | 3.17 | 0.01 | 0.24 | 0.00 |
+| 2560x1440 60, AV1, WGC helper, GPU load | 4.70 | 0.00 | 8.12 | 0.72 | 3.18 | 0.01 | 0.23 | 0.00 |
+| 2560x1440 120, HEVC, DDX, idle | 1.47 | 0.00 | 1.21 | 0.67 | 3.68 | 0.00 | 0.32 | 0.00 |
+| 2560x1440 120, HEVC, WGC, idle | 2.81 | 0.22 | 4.64 | 0.76 | 3.44 | 0.01 | 0.40 | 0.00 |
+| 2560x1440 120, HEVC, WGC helper, idle | 2.92 | 0.00 | 2.67 | 0.74 | 3.52 | 0.01 | 0.40 | 0.00 |
+| 2560x1440 120, AV1, DDX, idle | 1.44 | 0.00 | 0.03 | 0.51 | 3.40 | 0.00 | 0.17 | 0.00 |
+| 2560x1440 120, AV1, WGC, idle | 1.54 | 0.18 | 3.35 | 0.55 | 3.30 | 0.01 | 0.21 | 0.00 |
+| 2560x1440 120, AV1, WGC helper, idle | 2.90 | 0.00 | 4.55 | 0.61 | 3.26 | 0.01 | 0.23 | 0.00 |
+| 2560x1440 120, HEVC, DDX, GPU load | 1.60 | 0.00 | 6.04 | 0.66 | 5.45 | 0.00 | 0.37 | 0.00 |
+| 2560x1440 120, HEVC, WGC, GPU load | 8.91 | 0.31 | 8.26 | 0.83 | 3.58 | 0.01 | 0.38 | 2.13 |
+| 2560x1440 120, HEVC, WGC helper, GPU load | 7.12 | 0.00 | 7.42 | 0.75 | 3.50 | 0.01 | 0.41 | 0.00 |
+| 2560x1440 120, AV1, DDX, GPU load | 1.60 | 0.00 | 6.15 | 0.53 | 5.97 | 0.00 | 0.21 | 0.00 |
+| 2560x1440 120, AV1, WGC, GPU load | 5.19 | 0.22 | 6.82 | 0.66 | 3.26 | 0.01 | 0.23 | 0.00 |
+| 2560x1440 120, AV1, WGC helper, GPU load | 5.97 | 0.00 | 6.67 | 0.66 | 3.45 | 0.01 | 0.22 | 0.00 |
+| 2560x1440 240, HEVC, DDX, idle | 1.36 | 0.00 | 3.46 | 0.55 | 3.72 | 0.00 | 0.27 | 0.00 |
+| 2560x1440 240, HEVC, WGC, idle | 2.41 | 0.21 | 3.96 | 0.62 | 4.02 | 0.01 | 0.27 | 0.00 |
+| 2560x1440 240, HEVC, WGC helper, idle | 2.43 | 0.00 | 3.75 | 0.61 | 4.25 | 0.01 | 0.26 | 0.00 |
+| 2560x1440 240, AV1, DDX, idle | 1.31 | 0.00 | 3.30 | 0.66 | 4.13 | 0.00 | 0.19 | 0.00 |
+| 2560x1440 240, AV1, WGC, idle | 2.44 | 0.20 | 3.85 | 0.61 | 4.14 | 0.01 | 0.19 | 0.00 |
+| 2560x1440 240, AV1, WGC helper, idle | 3.92 | 0.00 | 3.69 | 0.72 | 4.58 | 0.01 | 0.19 | 0.00 |
+| 2560x1440 240, HEVC, DDX, GPU load | 1.20 | 0.00 | 3.80 | 0.51 | 7.20 | 0.00 | 0.28 | 0.00 |
+| 2560x1440 240, HEVC, WGC, GPU load | 6.50 | 0.24 | 5.15 | 0.68 | 4.15 | 0.01 | 0.34 | 1.81 |
+| 2560x1440 240, HEVC, WGC helper, GPU load | 6.16 | 0.00 | 5.16 | 0.63 | 4.31 | 0.01 | 0.29 | 0.00 |
+| 2560x1440 240, AV1, DDX, GPU load | 1.44 | 0.00 | 4.09 | 0.62 | 8.28 | 0.00 | 0.30 | 2.97 |
+| 2560x1440 240, AV1, WGC, GPU load | 7.72 | 0.30 | 5.03 | 0.75 | 4.35 | 0.01 | 0.21 | 2.37 |
+| 2560x1440 240, AV1, WGC helper, GPU load | 6.79 | 0.00 | 4.84 | 0.71 | 4.64 | 0.01 | 0.31 | 2.57 |
+| VD 1968x2184 120, HEVC, DDX, idle | 1.23 | 0.00 | 2.71 | 0.59 | 3.63 | 0.00 | 0.18 | 0.00 |
+| VD 1968x2184 120, HEVC, WGC helper, idle | 0.14 | 0.00 | 0.89 | 0.60 | 3.62 | 0.01 | 0.18 | 0.00 |
+| VD 1968x2184 120, AV1, DDX, idle | 1.46 | 0.00 | 5.38 | 0.65 | 3.34 | 0.00 | 0.12 | 0.00 |
+| VD 1968x2184 120, AV1, WGC helper, idle | 0.46 | 0.00 | 1.70 | 0.67 | 3.29 | 0.01 | 0.11 | 0.00 |
+| VD 1968x2184 120, HEVC, DDX, GPU load | 1.42 | 0.00 | 6.89 | 0.75 | 7.21 | 0.00 | 0.17 | 0.00 |
+| VD 1968x2184 120, HEVC, WGC helper, GPU load | 5.08 | 0.00 | 7.22 | 0.82 | 3.74 | 0.01 | 0.17 | 0.00 |
+| VD 1968x2184 120, AV1, DDX, GPU load | 1.27 | 0.00 | 7.09 | 0.79 | 3.60 | 0.00 | 0.13 | 0.00 |
+| VD 1968x2184 120, AV1, WGC helper, GPU load | 3.91 | 0.00 | 7.17 | 0.73 | 3.45 | 0.01 | 0.12 | 0.00 |
+
+- **Encoding is the largest part.** AMF took 2.6-3.1 ms from accepting a
+  picture to returning its frame at idle, conversion 0.26-0.36 ms before it.
+  Moonlight's field is essentially conversion plus encoding.
+- **Capture with Desktop Duplication is about 0.6 ms** (0.54-0.89 ms) at
+  every rate, idle or loaded, on the monitor and on the virtual display (p99
+  1.2-1.6 ms at 120 and 240 fps; up to 4.6 ms at 60 fps).
+- **The wait for the claim** is pacing: a published picture waits for its
+  slot. At idle it was 0.02-1.7 ms, least with DDX at 120 fps; under load
+  1.1-4.5 ms at 60 and 120 fps and 0.2-2.3 ms at 240 fps and on the virtual
+  display.
+- **Under load, DDX's delay moves into encoding.** Desktop Duplication hands
+  over a picture before DWM's GPU work on it has finished
+  ([October 12 diagnosis](PERFORMANCE_WORK.md#av1-host-processing-p95-diagnosis-october-12));
+  behind the game that work finishes later, so AMF's encode stage grew by
+  0.25-1.1 ms at 120 and 240 fps (p99 up to 8.3 ms), while DDX's capture
+  stage stayed at 0.6 ms. WGC's encode grew by at most 0.3 ms; its pictures
+  arrived later instead.
+- **Packetization took 0.07-0.24 ms**; the queue to the sender thread was
+  unused (these loopback streams send inline). **Sending** was near zero on
+  loopback, except in runs where the loaded receiver lost frames and asked for
+  4-32 keyframes. The host took those requests for keyframes lost on the
+  way ("keyframes are not arriving"), paced the rest of the stream at twice
+  the bitrate (`keyframe_loss_pacing`), and sending a frame took 0.75-1.2 ms
+  on average over the two runs, p99 up to 3 ms. On a real network the paced
+  send adds the frame's size over the pacing rate to every frame.
+
+### Capture: how late is the picture in hand
+
+Capture stage, present stamp to frame in hand, mean / p99 ms:
+
+| | 2560x1440, 60 fps | 2560x1440, 120 fps | 2560x1440, 240 fps | Virtual display 1968x2184, 120 fps |
+| --- | ---: | ---: | ---: | ---: |
+| HEVC DDX, idle | 0.89 / 3.07 | 0.67 / 1.47 | 0.62 / 1.36 | 0.54 / 1.23 |
+| HEVC WGC, idle | 0.27 / 2.02 | 0.58 / 2.81 | 0.42 / 2.41 | – |
+| HEVC WGC helper, idle | 0.43 / 2.31 | 0.66 / 2.92 | 0.36 / 2.43 | 0.06 / 0.14 |
+| AV1 DDX, idle | 0.64 / 2.57 | 0.63 / 1.44 | 0.66 / 1.31 | 0.60 / 1.46 |
+| AV1 WGC, idle | 0.31 / 1.91 | 0.46 / 1.54 | 0.49 / 2.44 | – |
+| AV1 WGC helper, idle | 0.44 / 2.19 | 0.49 / 2.90 | 0.65 / 3.92 | 0.07 / 0.46 |
+| HEVC DDX, GPU load | 0.76 / 4.60 | 0.61 / 1.60 | 0.55 / 1.20 | 0.57 / 1.42 |
+| HEVC WGC, GPU load | 0.85 / 3.46 | 2.01 / 8.91 | 1.27 / 6.50 | – |
+| HEVC WGC helper, GPU load | 1.63 / 6.48 | 1.50 / 7.12 | 1.34 / 6.16 | 0.90 / 5.08 |
+| AV1 DDX, GPU load | 0.55 / 2.43 | 0.59 / 1.60 | 0.64 / 1.44 | 0.55 / 1.27 |
+| AV1 WGC, GPU load | 0.91 / 4.47 | 0.74 / 5.19 | 1.26 / 7.72 | – |
+| AV1 WGC helper, GPU load | 0.74 / 4.70 | 0.96 / 5.97 | 1.82 / 6.79 | 0.75 / 3.91 |
+
+WGC's `SystemRelativeTime` is not a present time: for 47-99% of idle frames it
+was later than the frame's arrival at the host (24-95% under load), and the
+host then uses the arrival. WGC's capture stage therefore leaves out how long
+WGC took to deliver. To estimate that part, the receiver's render-to-received
+time (the probe's QPC before `Present` to the frame fully received on the same
+clock) was compared with present to sent: their difference is the time from
+the probe's `Present` to the host's stamp, plus loopback. With DDX the stamp is
+the compositor's present; the difference between WGC's and DDX's, using
+medians, is the delivery WGC hides:
+
+| | 2560x1440, 60 fps | 2560x1440, 120 fps | 2560x1440, 240 fps | Virtual display 1968x2184, 120 fps |
+| --- | ---: | ---: | ---: | ---: |
+| HEVC WGC, idle | 2.5 | 2.1 | 2.0 | – |
+| HEVC WGC helper, idle | 3.5 | 2.3 | 2.1 | 0.9 |
+| AV1 WGC, idle | 1.5 | 2.2 | 2.1 | – |
+| AV1 WGC helper, idle | 2.8 | 1.9 | 2.7 | 0.8 |
+| HEVC WGC, GPU load | 2.5 | 3.7 | 2.1 | – |
+| HEVC WGC helper, GPU load | 3.8 | 4.3 | 2.6 | -0.7 |
+| AV1 WGC, GPU load | 1.7 | 1.5 | 3.3 | – |
+| AV1 WGC helper, GPU load | 1.9 | 3.4 | 3.4 | -1.8 |
+
+At idle it is about 2 ms on the 240 Hz monitor (1.9-2.7 ms at 120 and 240
+fps; 1.5-3.5 ms at 60 fps, where the estimate is noisier) and 0.8-0.9 ms on
+the virtual display, close to the helper's 0.7-1.0 ms delivery gap in the
+[October 7 probe](#october-7-where-wgc-loses-a-millisecond). Under load the
+monitor's estimates are 1.5-4.3 ms; on the virtual display the estimate came
+out negative, with DDX's loaded present to sent there skewed (medians 3.9-4.4
+ms, means 5.1-5.8 ms), and is not usable. So WGC's real capture stage is about 2.3-3.3 ms idle on the monitor at
+120 and 240 fps and about 0.9 ms on the virtual display, against DDX's
+0.5-0.7 ms.
+
+### Comparable numbers
+
+[punktfunk](https://git.unom.io/unom/punktfunk) 0.44's native `host_us`
+runs from the compositor's present stamp its virtual display driver passes
+with each frame to that frame's last paced packet
+(`crates/host/punktfunk-host/src/native/stream/send.rs`). Rubylight's present
+to sent with DDX covers that span, from the compositor's present stamp
+(`LastPresentTime`) to the last packet: 3.8-5.0 ms idle and 5.2-8.2 ms under
+this load on the monitor, 4.0-4.2 ms idle and 5.4-5.6 ms loaded on the
+virtual display. With WGC, add the hidden delivery above: roughly 5.7-7.7 ms
+idle on the monitor at 120 and 240 fps and 4.4-4.8 ms on the virtual display.
+punktfunk's Moonlight field (`gamestream/stream.rs`, `cap_at` to the
+packetizer thread) starts at its
+encode loop's tick and, with its encoding driver, leaves out the encode; it
+cannot be compared with Rubylight's Moonlight field or with present to sent.
+No punktfunk host ran on this machine; these are Rubylight's numbers for the
+span punktfunk reports.
+
+### Is a frame-push display driver worth it
+
+A driver that hands the host each composed frame at the compositor's present
+can only remove the capture stage, and only down to its own handoff:
+
+- **Against DDX, at most about 0.6 ms** a frame, idle or loaded, at every
+  rate. DDX's capture p99 was 1.2-1.6 ms at 120 and 240 fps.
+- **Against WGC, about 2.3-3.3 ms idle on the monitor** (capture plus hidden
+  delivery), about 0.9 ms on the virtual display, and an estimated 2-6 ms
+  under load on the monitor.
+- Under load the larger costs are elsewhere: the wait for the claim
+  (1.1-4.5 ms at 60 and 120 fps) and, with DDX, encoding behind DWM's
+  unfinished GPU work (up to 1.1 ms more). A driver that only delivers frames
+  earlier does not shorten the claim wait; whether a pushed frame avoids
+  DDX's wait for DWM's work is not measured here.
+
+Against the WGC helper the service uses, a push driver could save about
+2.3-3.3 ms a frame idle on a monitor and about 1 ms on a virtual display.
+Against DDX it could save about 0.6 ms.
+
+### Limits
+
+One machine, one GPU, one driver. The receiver decodes on the same GPU; under
+load it lost frames with AV1 at 240 fps (194-211 fps received) and with
+in-process WGC HEVC at 120 and 240 fps (110 and 232 fps). At 240 fps the probe
+presents about 233 times a second, so the receiver's motion check fails there
+although it received 238-241 fps idle. Loopback hides network pacing.
+The hidden-delivery estimate subtracts distributions, not matched frames. The
+virtual display's AV1 WGC-helper load case of the second pass failed to launch
+(the client was refused before the stream started) and was run again.
+
+Reproduce with `run_matrix.py`, `vd_cases.ps1`, `collect_vd.py`, `stages.py`
+and `tables.py` in `C:\src\butterpollo-release\stage-latency` (the case list is
+`CODEC-FPS-CAPTURE-LOAD`), with the host log at `info,stages=trace` and
+`BUTTERPOLLO_TEST_TIMING_CSV` set for the receiver. Raw runs: `runs1`,
+`runs2`, `vdruns1`, `vdruns2`; summaries in `matrix1.jsonl`, `matrix2.jsonl`,
+`vd1.jsonl` and `vd2.jsonl`.
 
 ## Hardware covered
 

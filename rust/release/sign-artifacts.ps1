@@ -12,8 +12,10 @@ $binaries = @(
     'butterpollo.exe', 'butterpollo-service.exe', 'Start Rubylight.exe',
     'butterpollo-setup.exe', 'butterpollo-performance.exe',
     'butterpollo-protocol-performance.exe', 'butterpollo-video-packet-performance.exe',
-    'butterpollo_truehdr.dll', 'vulkan-layer/butterpollo_vulkan_layer.dll'
+    'vulkan-layer/butterpollo_vulkan_layer.dll'
 )
+# butterpollo_truehdr.dll is not here: signed releases are built with
+# -SkipTrueHdr, because the adapter links NVIDIA's proprietary NGX library.
 # Rubylight's own display driver package, once rust/build.ps1 adds one: an
 # INF and its DLL. The DLL is signed with the binaries, the catalog is made
 # from the signed DLL, then the "driver" request signs the catalog

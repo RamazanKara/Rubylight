@@ -20,13 +20,13 @@ Team members use multi-factor authentication for GitHub and for SignPath. When t
 
 Only files built from this repository's source code by its GitHub Actions workflow ([rust-windows.yml](../.github/workflows/rust-windows.yml)) are signed:
 
-- Rubylight's executables and DLLs: the host, its service and start programs, setup (also installed as `uninstall.exe`), the diagnostic probes, the TrueHDR adapter and the Vulkan HDR layer.
+- Rubylight's executables and DLLs: the host, its service and start programs, setup (also installed as `uninstall.exe`), the diagnostic probes and the Vulkan HDR layer. Signed releases leave out the optional NVIDIA TrueHDR adapter, which links NVIDIA's proprietary library.
 - The installer that carries them, `rubylight-setup-<version>.exe`.
 - When Rubylight ships its own virtual display driver, that driver's DLL and catalog.
 
 Every signed executable and DLL carries the product name **Rubylight** and the release's version, and SignPath refuses files that don't ([artifact configurations](../.signpath/)). The [code signing guide](code-signing.md) describes the setup.
 
-Files from other projects keep their own publishers' signatures and are never signed with Rubylight's certificate: the virtual display and gamepad drivers released with Vibepollo (signed by SignPath Foundation for that project), the usbip-win2 installer and drivers, `nefconc.exe`, and NVIDIA's `nvngx_truehdr.dll`. Open-source libraries whose projects publish no signed builds ship unsigned: the Opus, oneVPL and GCC runtime DLLs from MSYS2 and the PyroWave library built from its pinned source. [Third-party components](../rust/THIRD_PARTY.md) lists them all with their licences.
+Files from other projects keep their own publishers' signatures and are never signed with Rubylight's certificate: the virtual display and gamepad drivers released with Vibepollo (signed by SignPath Foundation for that project), the usbip-win2 installer and drivers and `nefconc.exe`. Open-source libraries whose projects publish no signed builds ship unsigned: the Opus, oneVPL and GCC runtime DLLs from MSYS2 and the PyroWave library built from its pinned source. [Third-party components](../rust/THIRD_PARTY.md) lists them all with their licences.
 
 ## How a release is signed
 

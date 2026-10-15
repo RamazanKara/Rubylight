@@ -24,7 +24,6 @@
       <include path="butterpollo-performance.exe" />
       <include path="butterpollo-protocol-performance.exe" />
       <include path="butterpollo-video-packet-performance.exe" />
-      <include path="butterpollo_truehdr.dll" />
       <include path="vulkan-layer/butterpollo_vulkan_layer.dll" />
       <!--
         Rubylight's display driver DLL, once the package carries the driver.

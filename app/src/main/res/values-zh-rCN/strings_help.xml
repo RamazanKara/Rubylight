@@ -10,7 +10,7 @@
     <string name="help_controls_body">串流期间，按“返回”可打开串流菜单：键盘、输入模式、叠加层、码率和断开连接。使用手柄时，同时按下 Start、Back、LB 和 RB。断开连接后游戏仍会在电脑上运行，你可以稍后继续，除非你在该游戏的游戏库菜单中开启了“离开串流时退出游戏”。要检查手柄的按键、摇杆和震动，请依次打开“设置”、“控制”、“手柄测试”。</string>
     <string name="help_controls_link">控制指南</string>
     <string name="help_problems_title">解决常见问题</string>
-    <string name="help_problems_body"><b>没有画面：</b>请尝试 H.264、720p，并关闭 HDR 和放大。\n\n<b>卡顿：</b>请降低码率、用网线连接电脑，或靠近路由器。\n\n<b>输入延迟：</b>请开启性能叠加层查看延迟来源，并保持开启低延迟解码。\n\n<b>没有声音：</b>请选择立体声，检查电脑的音频输出，然后重新连接。</string>
+    <string name="help_problems_body"><b>没有画面：</b>请尝试 H.264、720p，并关闭 HDR 和放大。\n\n<b>卡顿：</b>请降低码率、用网线连接电脑，或靠近路由器。请使用 5 或 6 GHz Wi-Fi，而不是 2.4 GHz。如果每隔几分钟卡顿一次，请在串流菜单中打开“串流为什么会卡顿？”：它能识别后台 Wi-Fi 扫描的节奏。\n\n<b>输入延迟：</b>请开启性能叠加层查看延迟来源，并保持开启低延迟解码。\n\n<b>没有声音：</b>请选择立体声，检查电脑的音频输出，然后重新连接。</string>
     <string name="help_problems_link">故障排除指南</string>
     <string name="help_report_body">分享已移除个人信息的日志。在你选择用于分享的应用之前，不会发送任何内容。</string>
     <string name="help_report_link">应包含的内容</string>

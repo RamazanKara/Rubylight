@@ -1200,6 +1200,13 @@ def main():
             prefs(f"{PACKAGE}_preferences", lambda root: any(
                 n.get("name") == "checkbox_enable_perf_overlay" and n.get("value") == "true" for n in root),
                 "Overlay preference was not enabled")
+            # The overlay mode sits beside the switch; Debug stays out while Developer options are hidden.
+            tap("Performance overlay mode", scroll=True)
+            find("Statistics")
+            assert not any(n.get("text") == "Debug" for n in tree().iter("node")), \
+                "The overlay mode offers Debug while Developer options are hidden"
+            adb("shell", "input", "keyevent", "4")
+            find(overlay)
             adb("shell", "input", "keyevent", "3")
             adb("shell", "am", "start", "-W", "-n", f"{PACKAGE}/com.limelight.PcView")
             find(overlay)
@@ -1268,7 +1275,7 @@ def main():
             capture_ui_sweep(args.ui_case)
             assert_no_app_crashes()
             overlay_result = "overlay rendering" if DEBUGGABLE else "overlay settings (live rendering needs a paired host)"
-            print(f"PASS: native {native} and latency defaults on a fresh install, pairing guide and PIN prompt, manual discovery and inline validation, OTP and details dialogs, PC settings and host profile validation/save/reset, PC menu close, settings search/back restoration for {', '.join(args.ui_case or UI_CASES)}, VRR toggle/persistence, PyroWave readiness, bitrate, controller mapping, reset, frontend entries, unpaired export menu, {overlay_result}, demo home row states and menus, cover library and rotation; screenshots: {SHOTS}", flush=True)
+            print(f"PASS: native {native} and latency defaults on a fresh install, pairing guide and PIN prompt, manual discovery and inline validation, OTP and details dialogs, PC settings and host profile validation/save/reset, PC menu close, settings search/back restoration for {', '.join(args.ui_case or UI_CASES)}, VRR toggle/persistence, PyroWave readiness, bitrate, controller mapping, reset, frontend entries, unpaired export menu, overlay mode choices beside the overlay switch, {overlay_result}, demo home row states and menus, cover library and rotation; screenshots: {SHOTS}", flush=True)
         finally:
             try:
                 LOGS.joinpath("logcat.txt").write_text(adb("logcat", "-d"), encoding="utf-8")

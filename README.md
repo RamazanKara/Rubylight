@@ -7,7 +7,7 @@ Still in Alpha. Expect Bugs to happen
 <p align="center">Stream your PC games and desktop to Android, with ultra-low latency and the controls you love. Nightjar works with Apollo, NVIDIA GameStream, Rubylight, Sunshine, Vibepollo and other Moonlight-compatible hosts.</p>
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/RamazanKara/nightjar-android/2836f32aced578cd9d0a0ad1bcae8373e8e32ebb/docs/assets/demo.gif" width="360" alt="Nightjar demo: open your game library, tap a game to start your stream, keep the performance overlay in view, and keep the stream floating in picture-in-picture.">
+  <img src="https://raw.githubusercontent.com/RamazanKara/nightjar-android/1ffce8285cca6b54c8da6aca64d1123fd3812ef9/docs/assets/demo.gif" width="360" alt="Nightjar demo: open your game library, tap a game to start your stream, keep the performance overlay in view, and keep the stream floating in picture-in-picture.">
 </p>
 
 <p align="center"><a href="https://ramazankara.github.io/nightjar-android/#demo">Watch the full demo →</a></p>
@@ -19,7 +19,7 @@ Still in Alpha. Expect Bugs to happen
 <p align="center">
   <img src="docs/assets/shots/pc-list.png" width="160" alt="Nightjar's computers list showing online, offline and unpaired PCs">
   <img src="docs/assets/shots/library.png" width="160" alt="Nightjar's game library with cover art and a running game">
-  <img src="https://raw.githubusercontent.com/RamazanKara/nightjar-android/2836f32aced578cd9d0a0ad1bcae8373e8e32ebb/docs/assets/shots/stream.png" width="160" alt="Close-up of a Nightjar stream with the compact one-line performance overlay">
+  <img src="https://raw.githubusercontent.com/RamazanKara/nightjar-android/1ffce8285cca6b54c8da6aca64d1123fd3812ef9/docs/assets/shots/stream.png" width="160" alt="Close-up of a Nightjar stream with the compact one-line performance overlay">
   <img src="docs/assets/shots/pip.png" width="160" alt="A Nightjar stream floating over the home screen in a picture-in-picture window">
 </p>
 

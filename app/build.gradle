@@ -106,7 +106,8 @@ android {
         unitTests.includeAndroidResources = true
         unitTests.all {
             maxParallelForks = 2
-            maxHeapSize = '512m'
+            // Robolectric keeps every locale's resource table in memory.
+            maxHeapSize = '1g'
         }
     }
 

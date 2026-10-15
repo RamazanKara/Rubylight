@@ -5,9 +5,8 @@
 // (see .signpath/ and docs/code-signing.md).
 
 /// The release version: the workspace version in the repository's
-/// Cargo.toml. The TrueHDR adapter and the display driver are outside the
-/// workspace and have their own crate versions, so the version comes from
-/// here rather than from Cargo. The repository is the nearest folder above
+/// Cargo.toml. The display driver is outside the workspace and has its own
+/// crate version, so the version comes from here rather than from Cargo. The repository is the nearest folder above
 /// the crate that holds this file.
 fn release_version() -> String {
     let manifest = std::path::PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());

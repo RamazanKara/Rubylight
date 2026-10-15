@@ -21,7 +21,7 @@ rustup target add x86_64-pc-windows-msvc --toolchain 1.98.1-x86_64-pc-windows-gn
 .\rust\build.ps1 -FetchDependencies -Package
 ```
 
-Run in a Visual Studio x64 developer PowerShell for TrueHDR, or pass `-MsvcSdk` for a compatible xwin SDK layout. `-SkipTrueHdr` omits that optional NVIDIA DLL. Existing dependency roots can be supplied with `-FfmpegRoot`, `-PyrowaveRoot` and `-NvidiaRoot`.
+Run in a Visual Studio x64 developer PowerShell, which the display driver build needs. Existing dependency roots can be supplied with `-FfmpegRoot` and `-PyrowaveRoot`.
 
 The [build script](build.ps1) checks formatting, tests and lints, then builds and packages the runtime, helpers, performance probes, console, notices and SHA-256 manifest. PyroWave uses a pinned SDK identity and matching patches. CMake builds the external PyroWave SDK; Cargo builds the host. [rust-windows.yml](../.github/workflows/rust-windows.yml) defines the Windows CI path.
 
@@ -63,7 +63,6 @@ Keep development profiles and ports distinct from the installed service. See [mu
 | [host](host) | HTTP/TLS, administration, RTSP, ENet control, UDP transport and stream lifecycle. |
 | [setup](setup) | Installation, upgrade and recovery. |
 | [vulkan-layer](vulkan-layer) | Implicit Vulkan HDR layer for owned sessions. |
-| [truehdr-runtime](truehdr-runtime) | Separately built Rust MSVC DLL calling NVIDIA's NGX C ABI. |
 
 The [Svelte console](web) is packaged with the host; server-rendered pages remain a fallback. The [architecture guide](../docs/architecture.md) explains compute queues, producer/output fences, service-mode WGC, HDR and PyroWave.
 

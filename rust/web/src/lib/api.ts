@@ -227,7 +227,7 @@ export interface Metadata {
   audio_sinks: AudioEndpoint[] | null;
   audio_error: string | null;
   audio_enabled: boolean;
-  features: { truehdr_runtime: boolean; pyrowave: boolean; virtual_display: boolean; [key: string]: boolean };
+  features: { pyrowave: boolean; virtual_display: boolean; [key: string]: boolean };
   credentials_exists: boolean;
 }
 
@@ -566,8 +566,6 @@ export const api = {
     /** Store a cover from an https PNG URL (IGDB) or a PNG as base64. */
     uploadCover: (key: string, source: { url: string } | { data: string }) =>
       post<{ status: true; path: string }>('/api/covers/upload', { key, ...source }, ACTION_TIMEOUT_MS),
-    rtxLive: (uuid: string, overrides: Record<string, string | number | boolean>) =>
-      post<{ status: true; applied: boolean }>('/api/apps/rtx_hdr/live', { uuid, 'config-overrides': overrides }),
   },
   steam: {
     status: () => get<SteamStatus>('/api/steam/status'),

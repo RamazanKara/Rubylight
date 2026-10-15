@@ -62,7 +62,6 @@ pub mod pyrowave;
 pub mod reconfigure;
 pub mod remote;
 pub mod rtsp;
-pub mod rtx_policy;
 pub mod session;
 pub mod stall_watch;
 pub mod state;

@@ -13,7 +13,7 @@ const categories: Category[] = [
   { id: 'encoders', label: 'Encoders', description: 'Which GPU and encoder compress the video' },
   { id: 'display', label: 'Display', description: 'Which screen streams and virtual displays' },
   { id: 'frame-limiting', label: 'Frame limiting', description: 'Frame rate caps for games' },
-  { id: 'hdr', label: 'HDR', description: 'HDR on the display and RTX HDR' },
+  { id: 'hdr', label: 'HDR', description: 'HDR on the streamed display' },
   { id: 'audio', label: 'Audio', description: 'Sound, speakers and microphone' },
   { id: 'input', label: 'Input', description: 'Keyboard, mouse and controllers' },
   { id: 'commands', label: 'Commands', description: 'Commands run around apps or from a device' },

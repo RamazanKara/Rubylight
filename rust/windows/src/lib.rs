@@ -52,14 +52,12 @@ pub mod present_timing;
 pub mod process;
 pub mod pyrowave;
 pub mod rtss;
-pub mod rtx_profiles;
 pub mod service;
 pub mod steam;
 pub mod telemetry;
 mod text;
 pub mod timing;
 pub mod tray;
-pub mod truehdr;
 pub mod vulkan;
 
 // Bindgen emits these unsafe blocks; the restriction lint is not covered by clippy::all.

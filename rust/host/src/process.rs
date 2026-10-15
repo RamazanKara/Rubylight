@@ -199,7 +199,6 @@ impl Drop for StateCommands {
 pub struct RunningApp {
     pub id: u32,
     pub name: String,
-    pub uuid: String,
     pub child: Option<Process>,
     pub owner: String,
     pub generation: String,
@@ -292,12 +291,6 @@ impl RunningApp {
         let mut running = Self {
             id: app.id(),
             name: app.name.clone(),
-            uuid: app
-                .extra
-                .get("uuid")
-                .and_then(serde_json::Value::as_str)
-                .unwrap_or_default()
-                .to_owned(),
             child: None,
             owner: environment
                 .get("SUNSHINE_CLIENT_UUID")

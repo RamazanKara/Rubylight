@@ -203,7 +203,6 @@ fn token_catalog() -> Vec<auth::Scope> {
         ("/api/apps/close", &["POST"][..]),
         ("/api/apps/launch", &["POST"][..]),
         ("/api/apps/reorder", &["POST"][..]),
-        ("/api/apps/rtx_hdr/live", &["POST"][..]),
         ("/api/clients/list", &["GET"][..]),
         ("/api/clients/update", &["POST"][..]),
         ("/api/clients/unpair", &["POST"][..]),
@@ -912,7 +911,6 @@ pub(crate) async fn api(
             | ("POST", "/api/apps")
             | ("POST", "/api/apps/delete")
             | ("POST", "/api/apps/reorder")
-            | ("POST", "/api/apps/rtx_hdr/live")
             | ("POST", "/api/apps/close")
             | ("POST", "/api/apps/launch") => apps::handle(&h, method.as_str(), path, &data)?,
             ("GET", "/api/clients/list") => clients::handle(&h, method.as_str(), path, &data)?,

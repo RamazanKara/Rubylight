@@ -496,7 +496,7 @@ export const settings: Setting[] = [
     key: 'dd_hdr_option',
     label: 'Display HDR',
     description:
-      'Turns HDR on the streamed display on or off to match the stream. While RTX HDR converts the picture, the display stays in SDR.',
+      'Turns HDR on the streamed display on or off to match the stream.',
     category: 'hdr',
     group: 'Display',
     control: {
@@ -539,62 +539,12 @@ export const settings: Setting[] = [
     advanced: true,
   },
   {
-    key: 'rtx_hdr',
-    label: 'RTX HDR',
-    description:
-      'Turns a game’s SDR picture into HDR on NVIDIA GPUs. It runs only when an app or device turns it on and the device asks for HDR, so this switch alone converts nothing.',
-    category: 'hdr',
-    group: 'RTX HDR',
-    control: { kind: 'toggle' },
-    default: false,
-  },
-  {
-    key: 'rtx_hdr_sdr_brightness',
-    label: 'SDR brightness',
-    description: 'Raises the brightness of the SDR picture in an RTX HDR stream, from 0 to 100. 0 leaves it unchanged.',
-    category: 'hdr',
-    group: 'RTX HDR',
-    control: { kind: 'number', min: 0, max: 100, step: 1 },
-    default: 0,
-  },
-  {
-    key: 'rtx_hdr_contrast',
-    label: 'Contrast',
-    description:
-      'From −100 to 100; 0 is neutral. A value in the game’s NVIDIA driver profile wins, and the desktop always uses 0.',
-    category: 'hdr',
-    group: 'RTX HDR',
-    control: { kind: 'number', min: -100, max: 100, step: 1 },
-    default: 0,
-  },
-  {
-    key: 'rtx_hdr_saturation',
-    label: 'Saturation',
-    description:
-      'From −100 to 100; 0 is neutral. A value in the game’s NVIDIA driver profile wins, and the desktop always uses 0.',
-    category: 'hdr',
-    group: 'RTX HDR',
-    control: { kind: 'number', min: -100, max: 100, step: 1 },
-    default: 0,
-  },
-  {
-    key: 'rtx_hdr_middle_gray',
-    label: 'Middle gray',
-    description:
-      'Mid-tone brightness from 10 to 100; higher is brighter. A value in the game’s NVIDIA driver profile wins, and the desktop always uses 50.',
-    category: 'hdr',
-    group: 'RTX HDR',
-    control: { kind: 'number', min: 10, max: 100, step: 1 },
-    default: 50,
-  },
-  {
-    key: 'rtx_hdr_peak_brightness',
+    key: 'hdr_peak_brightness',
     label: 'Peak brightness',
-    description:
-      'The brightest the device’s screen can show, used for the RTX HDR conversion and as the peak a virtual display reports.',
-    details: 'A device’s HDR color profile or the game’s NVIDIA driver profile can replace it.',
+    description: 'The brightest the device’s screen can show, which a virtual display reports as its peak.',
+    details: 'A device’s HDR color profile replaces it, unless the device or app sets its own.',
     category: 'hdr',
-    group: 'RTX HDR',
+    group: 'Display',
     control: { kind: 'number', min: 400, max: 2000, step: 1, unit: 'nits' },
     default: 1000,
   },

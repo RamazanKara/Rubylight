@@ -13,7 +13,6 @@ pub(crate) fn route(fields: &Fields) -> Result<(Method, String), String> {
         "config" | "theme" => (Method::POST, "/api/config"),
         "app-save" => (Method::POST, "/api/apps"),
         "app-move" => (Method::POST, "/api/apps/reorder"),
-        "app-live" => (Method::POST, "/api/apps/rtx_hdr/live"),
         "app-delete" => {
             let uuid = fields.get("uuid").ok_or("Select an app first.")?;
             if uuid.is_empty()
@@ -70,11 +69,7 @@ pub(crate) fn route(fields: &Fields) -> Result<(Method, String), String> {
     Ok((method, path.to_owned()))
 }
 fn object(fields: &Fields, key: &str) -> Result<Map<String, Value>, String> {
-    let label = if key == "overrides" {
-        "RTX HDR settings"
-    } else {
-        "Advanced settings"
-    };
+    let label = "Advanced settings";
     let value = fields
         .get(key)
         .map(String::as_str)
@@ -141,16 +136,6 @@ fn payload(h: &Shared, fields: &Fields) -> Result<Value, String> {
             }
             app.extend(copy(&["name", "cmd", "working-dir"]));
             super::settings::apply("app_", super::settings::APP, fields, &mut app)?;
-            if let Some(overrides) = app
-                .get_mut("config-overrides")
-                .and_then(Value::as_object_mut)
-            {
-                for key in crate::stream::RTX_KEYS {
-                    if fields.contains_key(&format!("app_{}", key.replace('_', "-"))) {
-                        overrides.remove(*key);
-                    }
-                }
-            }
             if value("uuid").is_empty() {
                 app.remove("uuid");
             } else {
@@ -178,7 +163,6 @@ fn payload(h: &Shared, fields: &Fields) -> Result<Value, String> {
             }
             json!({"order": order})
         }
-        "app-live" => json!({"uuid":value("uuid"),"config-overrides":object(fields,"overrides")?}),
         "client-save" => {
             let mut client = object(fields, "advanced")?;
             client.remove("cert");

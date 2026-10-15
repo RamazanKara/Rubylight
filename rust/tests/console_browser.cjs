@@ -69,45 +69,23 @@ assert(output && password, 'Set test artifact directory and test password');
     await editor().getByLabel('Application name',{exact:true}).fill('Rust browser <script> fixture');
     await editor().getByText('Preparation commands and advanced options',{exact:true}).click();
     await editor().getByLabel('Application options (JSON)',{exact:true}).fill(JSON.stringify({'migration-field':{preserve:true}}));
-    await editor().getByText('Application TrueHDR',{exact:true}).click();
-    await editor().getByLabel('TrueHDR override',{exact:true}).selectOption('true');
-    await editor().getByLabel('TrueHDR contrast override',{exact:true}).fill('14');
-    await editor().getByLabel('TrueHDR peak brightness override (nits)',{exact:true}).fill('1500');
     await editor().getByRole('button',{name:'Save application',exact:true}).click();
     let saved = (await api('GET','/api/apps')).apps.find(a=>a.name==='Rust browser <script> fixture');
-    uuid = saved.uuid; assert.equal(saved['rtx-hdr'],'true'); assert.equal(saved['rtx-hdr-contrast'],'14');
+    uuid = saved.uuid;
     assert.deepEqual(saved['migration-field'],{preserve:true});
     await app().getByRole('button',{name:'Move up',exact:true}).click();
     assert.equal((await api('GET','/api/apps')).apps[0].uuid,uuid);
-    // Import an older nested override and verify the typed editor materializes it.
-    saved['config-overrides'] = {rtx_hdr_contrast:27,'migration-tuning':9};
+    // Unknown nested overrides of an imported app survive an edit.
+    saved['config-overrides'] = {'migration-tuning':9};
     await api('POST','/api/apps',saved);
     await page.goto(base+'/library?edit='+encodeURIComponent(uuid));
-    await editor().getByText('Application TrueHDR',{exact:true}).click();
-    assert.equal(await editor().getByLabel('TrueHDR contrast override',{exact:true}).inputValue(),'27');
-    for (const label of ['SDR brightness override','TrueHDR saturation override','TrueHDR middle gray override']) {
-      assert.equal(await editor().getByLabel(label,{exact:true}).inputValue(),'');
-    }
-    const live = page.getByLabel('TrueHDR settings (JSON)',{exact:true});
-    assert.equal(JSON.parse(await live.inputValue()).rtx_hdr,'true');
-    await editor().getByLabel('TrueHDR contrast override',{exact:true}).fill('19');
     await page.setViewportSize({width:390,height:844});
     await editor().scrollIntoViewIfNeeded();
     await page.screenshot({path:path.join(output,'rust-ui-application-mobile.png')});
     assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
     await editor().getByRole('button',{name:'Save application',exact:true}).click();
     saved = (await api('GET','/api/apps')).apps.find(a=>a.uuid===uuid);
-    assert.equal(saved['rtx-hdr-contrast'],'19');
-    assert(!Object.hasOwn(saved['config-overrides'],'rtx_hdr_contrast'));
     assert.equal(saved['config-overrides']['migration-tuning'],9);
-    await page.goto(base+'/library?edit='+encodeURIComponent(uuid));
-    await editor().getByText('Application TrueHDR',{exact:true}).click();
-    await editor().getByLabel('TrueHDR override',{exact:true}).selectOption('');
-    await editor().getByLabel('TrueHDR contrast override',{exact:true}).fill('');
-    await editor().getByLabel('TrueHDR peak brightness override (nits)',{exact:true}).fill('');
-    await editor().getByRole('button',{name:'Save application',exact:true}).click();
-    saved = (await api('GET','/api/apps')).apps.find(a=>a.uuid===uuid);
-    assert.equal(saved['rtx-hdr'],null); assert.equal(saved['rtx-hdr-contrast'],null);
     assert.deepEqual(saved['migration-field'],{preserve:true});
     localeRestore = (await api('GET','/api/config')).locale ?? null;
     const german = JSON.parse(fs.readFileSync(path.join(__dirname,'../assets/locale/de.json'),'utf8'));
@@ -145,8 +123,8 @@ assert(output && password, 'Set test artifact directory and test password');
       checks:['remembered sign-in','eight administration pages','escaped application CRUD','ordering',
         'connection checklist and host network address','first-stream instructions on desktop/mobile',
         'optional live refresh and pause','Moonlight pairing instructions and request reload',
-        'typed TrueHDR and previous nested overrides','unknown-field preservation','reset to inherited settings',
-        'live editor projects typed settings','mobile form without overflow','German and traditional Chinese locales preserve data',
+        'unknown-field preservation',
+        'mobile form without overflow','German and traditional Chinese locales preserve data',
         'theme persistence','sign-out'],errors,failed,scripts};
     fs.writeFileSync(path.join(output,'rust-ui-qa.json'),JSON.stringify(report,null,2)); console.log(JSON.stringify(report));
   } finally {

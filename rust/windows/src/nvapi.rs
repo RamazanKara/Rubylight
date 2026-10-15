@@ -275,21 +275,6 @@ impl Drs {
             override_value: owned.then_some(setting.value[0]),
         })
     }
-    /// Driver profile tuning, including predefined values. Application queries
-    /// exclude inherited global values so app/global precedence stays explicit.
-    pub fn profile_dword(&self, id: u32) -> Result<Option<u32>> {
-        let mut setting = Setting::new(id);
-        // SAFETY: `get` is NvAPI_DRS_GetSetting from the library Drs keeps loaded, with the open
-        // session and profile; `setting` is a versioned NVDRS_SETTING that outlives the call.
-        let code = unsafe { (self.get)(self.session, self.profile, id, &mut setting) };
-        if code == -160 {
-            return Ok(None);
-        }
-        check(code, "GetSetting")?;
-        let visible =
-            setting.location == 0 || setting.location == if self.location == 0 { 2 } else { 1 };
-        Ok((setting.kind == 0 && visible).then_some(setting.value[0]))
-    }
     pub fn write(&self, id: u32, value: Option<u32>) -> Result<()> {
         if let Some(value) = value {
             let mut setting = Setting::new(id);

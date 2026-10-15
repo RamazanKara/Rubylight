@@ -57,6 +57,7 @@ pub const GLOBAL: &[Setting] = settings! {
         "dd_manual_refresh_rate", "Manual refresh rate (supports 59.94, 119.88)", Number;
         "dd_hdr_option", "HDR policy", Choice(&["disabled","auto"]);
         "dd_hdr_request_override", "Device HDR request", Choice(&["auto","force_on","force_off"]);
+        "hdr_peak_brightness", "Peak brightness a virtual display reports (nits)", Number;
         "dd_config_revert_on_disconnect", "Restore displays when the stream disconnects", Bool;
         "dd_config_revert_delay", "Display restore delay (milliseconds)", Number;
         "dd_paused_virtual_display_timeout_secs", "Paused display timeout (seconds; 0 keeps it)", Number;
@@ -132,18 +133,12 @@ pub const GLOBAL: &[Setting] = settings! {
         "qsv_coder", "Quick Sync H.264 entropy coder", Choice(&["auto","cabac","cavlc"]);
         "qsv_slow_hevc", "Use Quick Sync software HEVC when needed", Bool;
     ]
-    "Software encoding and RTX HDR" => [
+    "Software encoding" => [
         "sw_preset", "Software encoder preset", Choice(&["ultrafast","superfast","veryfast","faster","fast","medium","slow","slower","veryslow"]);
         "sw_tune", "Software encoder tuning", Text;
         "min_threads", "Software encoder threads", Number;
         "crf", "Constant rate factor", Number;
         "qp", "Constant quantizer", Number;
-        "rtx_hdr", "NVIDIA RTX HDR", Bool;
-        "rtx_hdr_sdr_brightness", "SDR brightness for RTX HDR", Number;
-        "rtx_hdr_contrast", "RTX HDR contrast", Number;
-        "rtx_hdr_saturation", "RTX HDR saturation", Number;
-        "rtx_hdr_middle_gray", "RTX HDR middle gray", Number;
-        "rtx_hdr_peak_brightness", "RTX HDR peak brightness (nits)", Number;
     ]
     "Input" => [
         "keyboard", "Keyboard input", Bool;
@@ -237,14 +232,6 @@ pub const APP: &[Setting] = settings! {
         "frame-generation-mode", "Frame generation", Choice(&["none","game-provided","nvidia-smooth-motion"]);
         "gen1-framegen-fix", "Legacy frame generation capture fix", Bool;
         "frame-gen-limiter-fix", "Frame generation limiter fix", Bool;
-    ]
-    "App RTX HDR" => [
-        "rtx-hdr", "RTX HDR override", Bool;
-        "rtx-hdr-sdr-brightness", "SDR brightness override", Number;
-        "rtx-hdr-contrast", "RTX HDR contrast override", Number;
-        "rtx-hdr-saturation", "RTX HDR saturation override", Number;
-        "rtx-hdr-middle-gray", "RTX HDR middle gray override", Number;
-        "rtx-hdr-peak-brightness", "RTX HDR peak brightness override (nits)", Number;
     ]
 };
 pub const CLIENT: &[Setting] = settings! {

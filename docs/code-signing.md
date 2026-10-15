@@ -28,7 +28,7 @@ Do these in order. Steps 1 to 5 can happen before applying; steps 7 to 18 need t
 
 ### Before applying
 
-1. **NVIDIA TrueHDR: done.** The Foundation's conditions say a project "may not contain any proprietary, non open-source component" except system libraries, and the TrueHDR adapter links NVIDIA's proprietary NGX library and ships NVIDIA's `nvngx_truehdr.dll`. Signed releases are therefore built with `-SkipTrueHdr` (the workflow passes it whenever signing is on), and neither [sign-artifacts.ps1](../rust/release/sign-artifacts.ps1) nor [binaries.xml](../.signpath/binaries.xml) lists the adapter. Unsigned builds keep it as before. The application text below asks whether a separate NVIDIA add-on would be acceptable.
+1. **Only open-source code: done.** Rubylight removed its NVIDIA TrueHDR adapter, the one part that linked a proprietary library (NVIDIA's NGX) and shipped NVIDIA's `nvngx_truehdr.dll`. Every build, signed or not, now comes from this repository's open-source code.
 2. **Turn on two-factor authentication on GitHub** (Settings, Password and authentication). The Foundation requires multi-factor authentication for the repository and for SignPath.
 3. **Protect `main` and the release tags.** In the repository's Settings, Rules, Rulesets, add a branch ruleset for `main` and a tag ruleset for `v*`, both active with **Restrict deletions** and **Block force pushes** (for tags also **Restrict updates**). Direct pushes to `main` keep working. SignPath's origin check trusts the branch or tag name, so these refs must not be rewritable.
 4. **Publish the policy pages.** Merge this work to `main`; the Pages workflow publishes [the code signing policy](https://ramazankara.github.io/Rubylight/docs/code-signing-policy.html) and [the privacy statement](https://ramazankara.github.io/Rubylight/docs/privacy.html), and the landing page's install section shows the SignPath attribution. Check all three load. The next release's notes link the policy too.
@@ -123,10 +123,6 @@ The form at [signpath.org/apply](https://signpath.org/apply) asks for these fiel
 > We would like to sign because Windows warns about the unsigned installer: SmartScreen stops it with a "Windows protected your PC" warning and Smart App Control can block it outright, which pushes users to turn off protections they should keep. The installer also sets up a Windows service and drivers, so users should be able to see who published what they run. A future Rubylight virtual display driver (user-mode, IddCx) also needs a trusted signature on its catalog to install. Rubylight already ships the display and gamepad drivers your Foundation signed for Vibepollo, unchanged, with their original signatures.
 >
 > Rubylight has one maintainer, Ramazan Kara (GitHub: RamazanKara), who writes, reviews and releases the code and will approve every signing request. GitHub and SignPath access use multi-factor authentication. The code signing policy is at https://ramazankara.github.io/Rubylight/docs/code-signing-policy.html.
-
-Add, about the one proprietary piece:
-
-> Signed releases contain only open-source code. They are built without our optional NVIDIA TrueHDR adapter, because it links NVIDIA's proprietary NGX library and needs NVIDIA's `nvngx_truehdr.dll`; Rubylight is built for AMD GPUs and the feature only runs on NVIDIA. Would you accept us offering that adapter as a separate, unsigned add-on for the few NVIDIA users, or should it stay out of anything we distribute alongside signed releases?
 
 **Reputation** (update the numbers on the day you apply; the first three come from `gh api repos/RamazanKara/Rubylight/releases` and the issue list):
 

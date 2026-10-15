@@ -438,12 +438,7 @@ async fn apps(
         .cloned()
         .unwrap_or(json!({"name":"","cmd":"","working-dir":""}));
     let mut advanced = edit.clone();
-    let mut settings = edit.clone();
-    for key in crate::stream::RTX_KEYS {
-        if let Some(value) = edit.get("config-overrides").and_then(|v| v.get(*key)) {
-            settings[key.replace('_', "-")] = value.clone();
-        }
-    }
+    let settings = edit.clone();
     for key in ["name", "cmd", "working-dir", "uuid"] {
         advanced.as_object_mut().unwrap().remove(key);
     }
@@ -475,43 +470,6 @@ async fn apps(
         },
         &form("app-save", csrf, "/library", &editor),
     );
-    if !text(&edit, "uuid").is_empty() {
-        let mut overrides = edit
-            .get("config-overrides")
-            .and_then(Value::as_object)
-            .map(|values| {
-                values
-                    .iter()
-                    .filter(|(key, _)| crate::stream::RTX_KEYS.contains(&key.as_str()))
-                    .map(|(key, value)| (key.clone(), value.clone()))
-                    .collect::<serde_json::Map<_, _>>()
-            })
-            .unwrap_or_default();
-        for &key in crate::stream::RTX_KEYS {
-            if let Some(value) = edit
-                .get(key.replace('_', "-"))
-                .filter(|v| !v.is_null() && v.as_str() != Some(""))
-            {
-                overrides.entry(key).or_insert_with(|| value.clone());
-            }
-        }
-        content += &card(
-            "Live RTX HDR settings",
-            &form(
-                "app-live",
-                csrf,
-                "/library",
-                &(hidden("uuid", text(&edit, "uuid"))
-                    + "<p>Apply brightness and color settings to this running app without saving them. An empty object restores inherited settings.</p>"
-                    + &area(
-                        "overrides",
-                        "RTX HDR settings (JSON)",
-                        &raw(&Value::Object(overrides)),
-                    )
-                    + "<button>Apply to running app</button>"),
-            ),
-        );
-    }
     Ok(content + &button("app-close", csrf, "/library", "", "", "Close running app"))
 }
 
@@ -770,7 +728,6 @@ async fn integrations(
     for (key, label) in [
         ("virtual_display", "Virtual displays"),
         ("pyrowave", "PyroWave"),
-        ("truehdr_runtime", "NVIDIA RTX HDR"),
     ] {
         features += &format!(
             "<div><dt>{label}</dt><dd>{}</dd></div>",

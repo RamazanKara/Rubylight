@@ -213,7 +213,7 @@ const video: Setting[] = [
     label: 'Prefer 10-bit SDR',
     description:
       'When a device asks for HDR, keeps the display in standard dynamic range (SDR) and sends 10-bit SDR video. Reduces banding without switching to HDR.',
-    details: 'Not applied while RTX HDR converts the stream. Devices and apps can override it.',
+    details: 'Devices and apps can override it.',
     category: 'video',
     group: 'Codecs',
     control: { kind: 'toggle' },

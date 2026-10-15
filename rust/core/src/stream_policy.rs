@@ -651,13 +651,9 @@ impl SendOutage {
                 < self.length
     }
 }
-/// An HDR request stays HDR when RTX HDR converts an SDR source for it;
-/// otherwise `prefer_sdr_10bit` streams it as ten-bit SDR. As in Vibepollo
-/// 2.0, RTX HDR needs the client to ask for HDR and the retired
-/// `rtx_hdr_force_sdr` has no effect.
+/// `prefer_sdr_10bit` streams an HDR request as ten-bit SDR.
 pub fn apply_color(stream: &mut Negotiated, config: &Config) {
-    let truehdr = stream.hdr && stream.codec != 0 && crate::rtx_policy::enabled(config);
-    stream.sdr_10bit = stream.hdr && !truehdr && config.boolean("prefer_sdr_10bit", false);
+    stream.sdr_10bit = stream.hdr && config.boolean("prefer_sdr_10bit", false);
     if stream.sdr_10bit {
         stream.hdr = false;
     }

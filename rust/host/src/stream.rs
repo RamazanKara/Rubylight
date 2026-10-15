@@ -19,14 +19,6 @@ use butterpollo_core::{
     session::Role,
 };
 use butterpollo_windows::device_loss::DeviceLost;
-pub(crate) const RTX_KEYS: &[&str] = &[
-    "rtx_hdr",
-    "rtx_hdr_sdr_brightness",
-    "rtx_hdr_contrast",
-    "rtx_hdr_saturation",
-    "rtx_hdr_middle_gray",
-    "rtx_hdr_peak_brightness",
-];
 fn server_command(
     h: &Shared,
     client: &butterpollo_core::state::Client,
@@ -288,20 +280,6 @@ fn reopen_on(present: bool, missing_since: &mut Option<Instant>, now: Instant) -
         ReopenOn::Wait
     }
 }
-fn rtx_parameters(config: &Config) -> [u32; 4] {
-    let peak = config
-        .integer("rtx_hdr_peak_brightness", 1000)
-        .clamp(400, 2000) as u32;
-    let scale = (peak as f32 / 1000.).max(1.);
-    [
-        (config.integer("rtx_hdr_contrast", 0) + 100).clamp(0, 200) as u32,
-        (config.integer("rtx_hdr_saturation", 0) + 100).clamp(0, 200) as u32,
-        (config.integer("rtx_hdr_middle_gray", 50).clamp(10, 100) as f32 / scale)
-            .round()
-            .clamp(10., 100.) as u32,
-        peak.min(1000),
-    ]
-}
 /// The interval to the frame after one captured at `at` while the client sends phase
 /// lock reports: its refresh with the phase correction. `None` otherwise, and then the
 /// caller keeps its original pacing.
@@ -318,37 +296,29 @@ fn phase_interval(s: &Session, at: Instant, period: Duration) -> Option<Duration
     }
     Some(interval)
 }
-fn rtx_enabled(config: &Config) -> bool {
-    butterpollo_core::rtx_policy::enabled(config)
-}
-fn truehdr_filter(
-    image: &GpuImage,
-    config: &Config,
-    warnings: &butterpollo_core::session::Warnings,
-) -> Option<butterpollo_windows::truehdr::Filter> {
-    if image.pixel != butterpollo_windows::capture::Pixel::Bgra8 {
-        return None;
-    }
-    match butterpollo_windows::truehdr::Filter::new_gpu(image, rtx_parameters(config)) {
-        Ok(filter) => {
-            warnings.clear("display_truehdr");
-            Some(filter)
-        }
-        Err(error) => {
-            warnings.set("display_truehdr", format!("TrueHDR unavailable ({error:#}); using neutral SDR-to-PQ conversion without HDR enhancement. Check TrueHDR support or disable TrueHDR for this app."));
-            None
-        }
-    }
+
+/// Whether `overrides` set the peak brightness, under its name before or
+/// after it moved out of RTX HDR.
+fn sets_peak(overrides: &serde_json::Map<String, serde_json::Value>) -> bool {
+    ["hdr_peak_brightness", "rtx_hdr_peak_brightness"]
+        .iter()
+        .any(|key| {
+            overrides
+                .get(*key)
+                .is_some_and(|value| !value.is_null() && value.as_str() != Some(""))
+        })
 }
 
 pub(crate) fn effective_config(h: &Shared, launch: &Launch) -> Result<Config> {
     let mut config = h.config.read().unwrap().clone();
+    let mut peak_chosen = false;
     if let Some(overrides) = launch
         .client
         .extra
         .get("config_overrides")
         .and_then(serde_json::Value::as_object)
     {
+        peak_chosen |= sets_peak(overrides);
         apply_overrides(&mut config, overrides)?;
     }
     if let Some(value) = launch
@@ -365,7 +335,6 @@ pub(crate) fn effective_config(h: &Shared, launch: &Launch) -> Result<Config> {
                 .unwrap_or_else(|| value.to_string()),
         );
     }
-    let inherited = config.clone();
     let app = h
         .apps
         .read()
@@ -373,22 +342,14 @@ pub(crate) fn effective_config(h: &Shared, launch: &Launch) -> Result<Config> {
         .iter()
         .find(|app| app.id() == launch.app_id || app.aliases.contains(&launch.app_id))
         .cloned();
-    let app_uuid = app
-        .as_ref()
-        .and_then(|app| app.extra.get("uuid"))
-        .and_then(serde_json::Value::as_str)
-        .map(str::to_owned);
     if let Some(app) = &app {
         for (source, target) in [
             ("gamepad", "gamepad"),
             ("dd-configuration-option", "dd_configuration_option"),
             ("prefer-10bit-sdr", "prefer_sdr_10bit"),
-            ("rtx-hdr", "rtx_hdr"),
-            ("rtx-hdr-sdr-brightness", "rtx_hdr_sdr_brightness"),
-            ("rtx-hdr-contrast", "rtx_hdr_contrast"),
-            ("rtx-hdr-saturation", "rtx_hdr_saturation"),
-            ("rtx-hdr-middle-gray", "rtx_hdr_middle_gray"),
-            ("rtx-hdr-peak-brightness", "rtx_hdr_peak_brightness"),
+            // Saved by Vibepollo and earlier Rubylight apps for RTX HDR;
+            // the peak is still what a virtual display reports.
+            ("rtx-hdr-peak-brightness", "hdr_peak_brightness"),
         ] {
             if let Some(value) = app
                 .extra
@@ -402,11 +363,7 @@ pub(crate) fn effective_config(h: &Shared, launch: &Launch) -> Result<Config> {
                         .map(str::to_owned)
                         .unwrap_or_else(|| value.to_string()),
                 );
-                if RTX_KEYS.contains(&target) {
-                    config
-                        .values
-                        .insert(butterpollo_core::rtx_policy::marker(target), "true".into());
-                }
+                peak_chosen |= target == "hdr_peak_brightness";
             }
         }
     }
@@ -415,48 +372,24 @@ pub(crate) fn effective_config(h: &Shared, launch: &Launch) -> Result<Config> {
         .and_then(|app| app.extra.get("config-overrides"))
         .and_then(serde_json::Value::as_object)
     {
+        peak_chosen |= sets_peak(overrides);
         apply_overrides(&mut config, overrides)?;
     }
-    if let Some((uuid, values)) = h.live_rtx.lock().unwrap().as_ref()
-        && Some(uuid) == app_uuid.as_ref()
-    {
-        for &key in RTX_KEYS {
-            match inherited.values.get(key) {
-                Some(value) => {
-                    config.values.insert(key.into(), value.clone());
-                }
-                None => {
-                    config.values.remove(key);
-                }
-            }
-            let marker = butterpollo_core::rtx_policy::marker(key);
-            if let Some(value) = inherited.values.get(&marker) {
-                config.values.insert(marker, value.clone());
-            } else {
-                config.values.remove(&marker);
-            }
-        }
-        apply_overrides(&mut config, values)?;
-    }
-    if !config.boolean(
-        &butterpollo_core::rtx_policy::marker("rtx_hdr_peak_brightness"),
-        false,
-    ) && let Some(selection) = launch
-        .client
-        .extra
-        .get("hdr_profile")
-        .and_then(serde_json::Value::as_str)
-        .filter(|s| !s.is_empty())
+    // A device's HDR calibration gives its screen's peak unless the device
+    // or app chose one.
+    if !peak_chosen
+        && let Some(selection) = launch
+            .client
+            .extra
+            .get("hdr_profile")
+            .and_then(serde_json::Value::as_str)
+            .filter(|s| !s.is_empty())
     {
         match butterpollo_windows::hdr_profile::peak_luminance(selection) {
             Ok(Some(peak)) => {
                 config.values.insert(
-                    "rtx_hdr_peak_brightness".into(),
+                    "hdr_peak_brightness".into(),
                     peak.clamp(400, 2000).to_string(),
-                );
-                config.values.insert(
-                    butterpollo_core::rtx_policy::marker("rtx_hdr_peak_brightness"),
-                    "true".into(),
                 );
             }
             Ok(None) => tracing::debug!(%selection, "HDR calibration has no MHC2 peak"),
@@ -472,6 +405,8 @@ fn apply_overrides(
     let overrides: serde_json::Map<String, serde_json::Value> = overrides
         .iter()
         .filter(|(_, v)| v.as_str() != Some(""))
+        .filter(|(k, _)| !butterpollo_core::config::removed(k))
+        .map(|(k, v)| (butterpollo_core::config::current_name(k).to_owned(), v))
         .filter(|(k, _)| {
             let allowed = butterpollo_core::config::override_allowed(k);
             if !allowed {
@@ -479,7 +414,7 @@ fn apply_overrides(
             }
             allowed
         })
-        .map(|(k, v)| (k.clone(), v.clone()))
+        .map(|(k, v)| (k, v.clone()))
         .collect();
     // One at a time: an override the host cannot use (an imported frame
     // limit of -1) is skipped, as in the C++ host, instead of failing every
@@ -501,16 +436,6 @@ fn apply_overrides(
             }
         }
     });
-    for (key, value) in overrides {
-        if RTX_KEYS.contains(&key.as_str()) {
-            let marker = butterpollo_core::rtx_policy::marker(&key);
-            if value.is_null() {
-                config.values.remove(&marker);
-            } else {
-                config.values.insert(marker, "true".into());
-            }
-        }
-    }
     Ok(())
 }
 use butterpollo_windows::{
@@ -1370,8 +1295,7 @@ impl Media {
                     }
                     let output = prepared.output();
                     *s.output.write().unwrap() = output.clone();
-                    let mut use_truehdr = s.config.hdr && rtx_enabled(&c);
-                    let (latest, mut capture_wake) = m.open_session_capture(&s, &c, &prepared, &mut latest)?;
+                    let (latest, capture_wake) = m.open_session_capture(&s, &c, &prepared, &mut latest)?;
                     let first = {
                         let deadline = Instant::now() + Duration::from_secs(10);
                         loop {
@@ -1388,13 +1312,8 @@ impl Media {
                         }
                     };
                     let pinned_backend = m.configure_encoder(&s, &c, &first, &prepared, &mut encoder)?;
-                    let mut truehdr = if use_truehdr {
-                        truehdr_filter(&first, &c, &s.launch.warnings)
-                    } else {
-                        None
-                    };
                     drop(first);
-                    let mut truehdr_staging = None;
+                    let mut staging = None;
                     client_commands = Some(crate::process::ClientCommands::start(&h, &s)?);
                     audio = Some(m.spawn_audio(&h, &s)?);
                     let requested_fec = c.integer("fec_percentage", 20);
@@ -1482,13 +1401,10 @@ impl Media {
                     let mut calibration_due = s.launch.client.extra.get("hdr_profile")
                         .and_then(serde_json::Value::as_str).filter(|profile| !profile.is_empty())
                         .map(|_| Instant::now() + Duration::from_secs(30));
-                    let mut profiles = None;
-                    let mut foreground = None;
                     // The fullscreen game on this display, for quitting a game
                     // that a store client started outside the app's processes.
                     let mut quit_scan: Option<butterpollo_windows::foreground::Tracker> = None;
                     let mut quit_scan_due = Instant::now() + Duration::from_secs(1);
-                    let mut profile_due = Instant::now();
                     let mut metadata_due = Instant::now() + Duration::from_secs(1);
                     // A keyframe a while after an AMF reference-invalidation recovery.
                     let mut confirm_keyframe: Option<Instant> = None;
@@ -1796,27 +1712,6 @@ impl Media {
                                     }
                                 }
                                 *s.output.write().unwrap() = prepared.output();
-                                let runtime = &runtime_config;
-                                let enabled = s.config.hdr && rtx_enabled(runtime);
-                                if enabled != use_truehdr {
-                                    truehdr = None;
-                                    *latest = m.capture(
-                                        &prepared.capture(),
-                                        s.config.hdr,
-                                        runtime,
-                                        butterpollo_core::framegen::Rate(stream.fps_millihz()),
-                                        &s.launch.id,
-                                        prepared.clone(),
-                                    )?;
-                                    *s.capture_warnings.write().unwrap() = latest.warnings.clone();
-                                    capture_wake = latest.subscribe(Arc::downgrade(&s))?;
-                                    capture_wake.wake_on_recovery(&s);
-                                    use_truehdr = enabled;
-                                    rebuild_encoder = true;
-                                }
-                                if let Some(filter) = truehdr.as_mut() {
-                                    filter.set_parameters(rtx_parameters(runtime));
-                                }
                                 if Instant::now() >= timing_due {
                                     timing_due = Instant::now() + Duration::from_secs(5);
                                     if timings_logged {
@@ -1980,8 +1875,7 @@ impl Media {
                                     tracing::info!(client = %s.launch.client.name, "releasing the encoder while the capture recovers");
                                 }
                                 last_image = None;
-                                truehdr = None;
-                                truehdr_staging = None;
+                                staging = None;
                                 pacer.reset_source_phase();
                                 latest.release_generation(&capture_wake);
                                 continue;
@@ -2103,17 +1997,6 @@ impl Media {
                                 continue;
                             }
                             recovery.backlog_since = None;
-                            if use_truehdr && Instant::now() >= profile_due {
-                                profile_due = Instant::now() + Duration::from_millis(250);
-                                let (active, owned) = {
-                                    let app = h.current_app.lock().unwrap();
-                                    (app.is_some(), app.as_ref().and_then(|app| app.child.as_ref()).and_then(|child| child.process_ids().ok()).unwrap_or_default())
-                                };
-                                let visible = if active { foreground.get_or_insert_with(butterpollo_windows::foreground::Tracker::default).poll(&owned, &image.gpu.display) } else { None };
-                                let profiles = profiles.get_or_insert_with(butterpollo_windows::rtx_profiles::Profiles::new);
-                                runtime_config = butterpollo_core::rtx_policy::resolve(&base_config, visible.is_some(), profiles.poll(visible.as_deref()));
-                                if let Some(filter) = truehdr.as_mut() { filter.set_parameters(rtx_parameters(&runtime_config)); }
-                            }
                             if s.launch.role == Role::Stream && Instant::now() >= quit_scan_due {
                                 quit_scan_due = Instant::now() + Duration::from_secs(1);
                                 // The scan runs on its own thread; this reads its last result.
@@ -2197,12 +2080,7 @@ impl Media {
                                     pacer.observe_source(image.captured);
                                 }
                                 metadata_due = Instant::now();
-                                truehdr = if use_truehdr {
-                                    truehdr_filter(&image, &runtime_config, &s.launch.warnings)
-                                } else {
-                                    None
-                                };
-                                truehdr_staging = None;
+                                staging = None;
                                 recovery.recreated(&s);
                                 rebuild_encoder = false;
                             }
@@ -2279,45 +2157,19 @@ impl Media {
                             }
                             let recovering = idr || invalidation.is_some();
                             let bitrate = s.bitrate.load(Ordering::Acquire);
-                            let converted = truehdr.is_some()
-                                && image.pixel == butterpollo_windows::capture::Pixel::Bgra8;
-                            let scale = if converted {
-                                (runtime_config
-                                    .integer("rtx_hdr_peak_brightness", 1000)
-                                    .clamp(400, 2000) as f32
-                                    / 1000.)
-                                    .max(1.)
-                            } else {
-                                1.
-                            };
-                            active.set_luminance(
-                                100. + runtime_config
-                                    .integer("rtx_hdr_sdr_brightness", 0)
-                                    .clamp(0, 100) as f32,
-                                scale,
-                            );
                             active.set_repeat(!fresh);
                             let mut presented_image = image.as_ref().clone();
                             if !fresh { presented_image.captured = Instant::now(); }
-                            let transformed = if converted { truehdr.as_mut().map(|filter| filter.apply_gpu(&presented_image)).transpose() } else { Ok(None) };
                             progress.mark(crate::stall_watch::Phase::Encode);
                             let encoded = (|| -> Result<Vec<butterpollo_windows::encoder::Encoded>> {
                                 #[cfg(debug_assertions)]
                                 crate::soak_fault::check("encoder failure")?;
                                 #[cfg(debug_assertions)]
                                 crate::soak_fault::check("DXGI_ERROR_DEVICE_REMOVED")?;
-                                Ok(if let Ok(Some(transformed)) = transformed.as_ref() {
-                                    active.encode_gpu(transformed, idr, bitrate)?
-                                } else if let Err(error) = transformed {
-                                    s.launch.warnings.set("display_truehdr", format!("TrueHDR conversion failed ({error:#}); continuing with SDR-to-PQ without HDR enhancement. Check TrueHDR support or disable it for this app."));
-                                    truehdr = None;
-                                    active.set_luminance(100. + runtime_config.integer("rtx_hdr_sdr_brightness",0).clamp(0,100) as f32, 1.);
-                                    active.encode_gpu(&presented_image, idr, bitrate)?
-                                } else if c.boolean("wgc_direct_encoder_input", true) {
-                                    active.encode_gpu(&presented_image, idr, bitrate)?
+                                Ok(if c.boolean("wgc_direct_encoder_input", true) {                                    active.encode_gpu(&presented_image, idr, bitrate)?
                                 } else {
                                     active.encode(
-                                        &presented_image.readback(&mut truehdr_staging)?,
+                                        &presented_image.readback(&mut staging)?,
                                         idr,
                                         bitrate,
                                     )?
@@ -3549,6 +3401,28 @@ fn feedback_packets(id: u16, kind: u16, data: &[u8]) -> Vec<(u16, Vec<u8>)> {
 #[cfg(test)]
 mod tests {
 
+    #[test]
+    fn overrides_saved_for_rtx_hdr_keep_only_the_peak_brightness() {
+        let mut config = Config::parse("port = 47989\n").unwrap();
+        let overrides = serde_json::json!({
+            "rtx_hdr": true,
+            "rtx_hdr_contrast": 14,
+            "rtx_hdr_peak_brightness": 1200,
+            "encoder": "software",
+        });
+        let overrides = overrides.as_object().unwrap();
+        assert!(super::sets_peak(overrides));
+        super::apply_overrides(&mut config, overrides).unwrap();
+        assert_eq!(config.integer("hdr_peak_brightness", 0), 1200);
+        assert_eq!(config.get("encoder", ""), "software");
+        assert!(!config.values.contains_key("rtx_hdr"));
+        assert!(!config.values.contains_key("rtx_hdr_contrast"));
+        assert!(!super::sets_peak(
+            serde_json::json!({"hdr_peak_brightness": ""})
+                .as_object()
+                .unwrap()
+        ));
+    }
     #[test]
     fn waveform_haptics_require_negotiation_and_encrypted_multichannel_control() {
         let mut config = butterpollo_core::rtsp::Negotiated::from_sdp(

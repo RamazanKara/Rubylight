@@ -25,7 +25,7 @@ Search the existing issues first, then use the bug or crash form. Attach the sup
 [Build Rubylight](../docs/building.md) lists the prerequisites and the SDK environment. The first build fetches and verifies the pinned SDKs:
 
 ```powershell
-.\rust\build.ps1 -FetchDependencies -SkipTrueHdr
+.\rust\build.ps1 -FetchDependencies
 ```
 
 Before sending a change, run the checks CI runs, in the same shell:

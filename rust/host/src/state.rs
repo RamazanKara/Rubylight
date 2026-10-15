@@ -173,7 +173,6 @@ pub struct Host {
     pub(crate) startup_codecs: tokio::sync::watch::Sender<bool>,
     pub warnings: Warnings,
     pub current_app: Mutex<Option<crate::process::RunningApp>>,
-    pub live_rtx: Mutex<Option<(String, serde_json::Map<String, Value>)>>,
     pub launch_transition: Mutex<()>,
     pub confirmations: Mutex<butterpollo_core::remote::Confirmations>,
     pub app_audio: Mutex<Option<Arc<butterpollo_windows::audio_route::Route>>>,
@@ -193,10 +192,6 @@ impl Host {
         // undo commands: never under the lock every serverinfo request takes.
         let app = self.current_app.lock().unwrap().take();
         drop(app);
-        if self.live_rtx.lock().unwrap().take().is_some() {
-            self.config_version
-                .fetch_add(1, std::sync::atomic::Ordering::Release);
-        }
         let audio = self.app_audio.lock().unwrap().take();
         let displays = std::mem::take(&mut *self.app_display.lock().unwrap());
         drop((audio, displays));
@@ -374,7 +369,6 @@ impl Host {
             startup_codecs: tokio::sync::watch::channel(false).0,
             warnings: Warnings::default(),
             current_app: Mutex::new(None),
-            live_rtx: Default::default(),
             launch_transition: Mutex::new(()),
             confirmations: Mutex::new(Default::default()),
             app_audio: Mutex::new(None),
@@ -400,35 +394,6 @@ impl Host {
         butterpollo_core::state::write_json(&self.aliases_path, &next)?;
         *aliases = next;
         Ok(())
-    }
-    pub fn update_live_rtx(
-        &self,
-        uuid: &str,
-        values: &serde_json::Map<String, Value>,
-    ) -> Result<bool> {
-        if uuid.is_empty() {
-            anyhow::bail!("application UUID required");
-        }
-        let values: serde_json::Map<_, _> = values
-            .iter()
-            .filter(|(key, _)| crate::stream::RTX_KEYS.contains(&key.as_str()))
-            .map(|(key, value)| (key.clone(), value.clone()))
-            .collect();
-        let mut validation = self.config.read().unwrap().clone();
-        validation.update(&values)?;
-        let current = self.current_app.lock().unwrap();
-        if !current.as_ref().is_some_and(|app| app.uuid == uuid) {
-            return Ok(false);
-        }
-        let mut live = self.live_rtx.lock().unwrap();
-        let next = Some((uuid.to_owned(), values));
-        let changed = *live != next;
-        *live = next;
-        if changed {
-            self.config_version
-                .fetch_add(1, std::sync::atomic::Ordering::Release);
-        }
-        Ok(changed)
     }
     pub fn request_codec_probe(&self) {
         if self.codecs.load(std::sync::atomic::Ordering::Acquire) & STANDARD_CODECS == 0 {

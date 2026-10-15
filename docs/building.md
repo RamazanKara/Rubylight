@@ -14,7 +14,7 @@ Use Windows x64 with PowerShell, Git, Rustup and Node.js 22. In an MSYS2 UCRT64 
 pacman -S --needed git mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-clang mingw-w64-ucrt-x86_64-cmake mingw-w64-ucrt-x86_64-ninja mingw-w64-ucrt-x86_64-vulkan-headers mingw-w64-ucrt-x86_64-opus mingw-w64-ucrt-x86_64-libvpl
 ```
 
-The default MSYS2 path is `C:\msys64`; pass `-MsysRoot` if yours differs. The host uses the GNU Rust target and GNU codec libraries. The optional TrueHDR DLL uses the MSVC target and needs an x64 Microsoft C++ toolchain and Windows SDK.
+The default MSYS2 path is `C:\msys64`; pass `-MsysRoot` if yours differs. The host uses the GNU Rust target and GNU codec libraries.
 
 Clone the repository and install the pinned toolchains in PowerShell:
 
@@ -30,15 +30,15 @@ The pinned version is defined by [rust-toolchain.toml](../rust-toolchain.toml) a
 
 ## Build and package
 
-Run the full build from the repository root in a **Visual Studio x64 developer PowerShell** so the TrueHDR adapter can find the Microsoft libraries:
+Run the full build from the repository root in a **Visual Studio x64 developer PowerShell** so the display driver build finds the Microsoft C++ toolchain and the Windows Driver Kit:
 
 ```powershell
 .\rust\build.ps1 -FetchDependencies -Package
 ```
 
-The script fetches the pinned FFmpeg and NVIDIA SDK archives, builds the pinned PyroWave SDK and extracts the signed display/gamepad packages and the Playnite plugin from the pinned Vibepollo release. Archive hashes, PyroWave build identity and driver signatures are checked. CMake builds the external PyroWave SDK; Cargo builds the host.
+The script fetches the pinned FFmpeg archive, builds the pinned PyroWave SDK and extracts the signed display/gamepad packages and the Playnite plugin from the pinned Vibepollo release. Archive hashes, PyroWave build identity and driver signatures are checked. CMake builds the external PyroWave SDK; Cargo builds the host.
 
-The build checks Rust formatting, runs ordinary workspace tests and Clippy with warnings denied, then builds the release executables, performance probes and TrueHDR adapter. Packaging also builds the Svelte console and includes runtime libraries, drivers, the Playnite plugin, artwork, licenses, the optional Moonlight source patch and a SHA-256 file manifest. Building a package does not install it. Packaging also downloads and verifies the pinned, signed usbip-win2 0.9.8.1 installer (about 26 MB), cached in the dependencies folder, and includes it with its BSD license. It never executes that installer. `rust/drivers/usbip/bundle.ps1` can check this small packaging step independently of a host build.
+The build checks Rust formatting, runs ordinary workspace tests and Clippy with warnings denied, then builds the release executables, performance probes and the display driver. Packaging also builds the Svelte console and includes runtime libraries, drivers, the Playnite plugin, artwork, licenses, the optional Moonlight source patch and a SHA-256 file manifest. Building a package does not install it. Packaging also downloads and verifies the pinned, signed usbip-win2 0.9.8.1 installer (about 26 MB), cached in the dependencies folder, and includes it with its BSD license. It never executes that installer. `rust/drivers/usbip/bundle.ps1` can check this small packaging step independently of a host build.
 
 Default outputs are under `%LOCALAPPDATA%\ButterpolloRust\target`:
 
@@ -56,17 +56,9 @@ Useful options:
 | Option | Purpose |
 | --- | --- |
 | `-DebugBuild` | Build debug executables for development. Use release builds for streaming measurements. |
-| `-SkipTrueHdr` | Omit the optional NVIDIA TrueHDR adapter and its MSVC SDK requirement. |
-| `-MsvcSdk <path>` | Use an xwin SDK layout containing `crt/lib/x86_64`, `sdk/lib/um/x86_64` and `sdk/lib/ucrt/x86_64`. |
-| `-FfmpegRoot`, `-PyrowaveRoot`, `-NvidiaRoot` | Reuse existing SDKs. The PyroWave identity must match the pinned revision and patches. |
+| `-FfmpegRoot`, `-PyrowaveRoot` | Reuse existing SDKs. The PyroWave identity must match the pinned revision and patches. |
 | `-DriverRoot <path>` | Supply the signed release's `drivers` folder for packaging. |
 | `-SkipTests` | Skip workspace tests and Clippy for a local iteration. Formatting still runs; this is not the release validation path. |
-
-For a build without TrueHDR:
-
-```powershell
-.\rust\build.ps1 -FetchDependencies -SkipTrueHdr -Package
-```
 
 ## SDK environment
 
@@ -79,8 +71,7 @@ Cargo alone cannot build the Windows crates: their build scripts generate bindin
 | `BUTTERPOLLO_VULKAN_INCLUDE` | `rust/windows/build.rs` | Vulkan 1.4 headers, `C:\msys64\ucrt64\include` in MSYS2. |
 | `BUTTERPOLLO_SYSTEM_LIBS` | `rust/windows/build.rs` | MSYS2's `ucrt64\lib`, for libvpl and the C++ runtime. |
 | `LIBCLANG_PATH` | bindgen | MSYS2's `ucrt64\bin`, which holds `libclang.dll`. |
-| `NV_RTX_VIDEO_SDK` | `rust/truehdr-runtime/build.rs` | NVIDIA's RTX Video SDK, only for the optional TrueHDR adapter. |
-| `BUTTERPOLLO_MSVC_ROOT`, `BUTTERPOLLO_DRIVER_ROOT` | `rust/build.ps1` | Defaults for `-MsvcSdk` and `-DriverRoot`. |
+| `BUTTERPOLLO_DRIVER_ROOT` | `rust/build.ps1` | Default for `-DriverRoot`. |
 
 `butterpollo-core` needs none of them and builds and tests on any OS with plain `cargo test -p butterpollo-core`.
 
@@ -94,7 +85,7 @@ cargo +1.98.1-x86_64-pc-windows-gnu test --workspace --locked
 cargo +1.98.1-x86_64-pc-windows-gnu clippy --workspace --all-targets --locked -- -D warnings
 ```
 
-The TrueHDR crate is outside the main workspace; the build script checks and builds it separately for `x86_64-pc-windows-msvc`.
+The display driver (`rust/drivers/rubylight-vdisplay`) is outside the main workspace; the build script builds it separately with the Windows Driver Kit.
 
 Hardware and environment-dependent tests are selected separately. Their fixtures can exercise capture, controllers or displays; choose a fixture for the intended machine and preserve its restoration checks. [PERFORMANCE.md](../rust/PERFORMANCE.md) records measured workloads.
 

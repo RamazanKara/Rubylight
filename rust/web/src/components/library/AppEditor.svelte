@@ -13,7 +13,6 @@
   import DisplaySettings from './DisplaySettings.svelte';
   import NumberField from './NumberField.svelte';
   import PrepCommands from './PrepCommands.svelte';
-  import RtxSettings from './RtxSettings.svelte';
   import VideoSettings from './VideoSettings.svelte';
   import LosslessSettings from './LosslessSettings.svelte';
   import { api, type App, type SessionStatus } from '../../lib/api';
@@ -328,10 +327,6 @@
 
     <Panel title="Lossless Scaling" description="Upscaling and frame generation by Lossless Scaling while the app runs.">
       <LosslessSettings {draft} />
-    </Panel>
-
-    <Panel title="NVIDIA RTX HDR">
-      <RtxSettings {draft} running={isRunning} />
     </Panel>
 
     <footer class="bar">

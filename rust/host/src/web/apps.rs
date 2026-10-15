@@ -25,25 +25,6 @@ pub(super) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
             if app.name.trim().is_empty() {
                 anyhow::bail!("application name required");
             }
-            let mut tuning = serde_json::Map::new();
-            for &key in crate::stream::RTX_KEYS {
-                if let Some(value) = app
-                    .extra
-                    .get(&key.replace('_', "-"))
-                    .filter(|value| !value.is_null() && value.as_str() != Some(""))
-                {
-                    tuning.insert(key.into(), value.clone());
-                }
-                if let Some(value) = app
-                    .extra
-                    .get("config-overrides")
-                    .and_then(|v| v.get(key))
-                    .filter(|value| !value.is_null() && value.as_str() != Some(""))
-                {
-                    tuning.insert(key.into(), value.clone());
-                }
-            }
-            h.config.read().unwrap().clone().update(&tuning)?;
             if !app.extra.contains_key("uuid") {
                 app.extra
                     .insert("uuid".into(), json!(uuid::Uuid::new_v4().to_string()));
@@ -82,16 +63,6 @@ pub(super) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
             *apps = next;
             *h.app_document.write().unwrap() = document;
             json!({"status":true})
-        }
-        ("POST", "/api/apps/rtx_hdr/live") => {
-            let values = match data.get("config-overrides") {
-                Some(values) => values
-                    .as_object()
-                    .ok_or_else(|| anyhow::anyhow!("config-overrides must be an object"))?
-                    .clone(),
-                None => Default::default(),
-            };
-            json!({"status":true,"applied":h.update_live_rtx(text("uuid"),&values)?})
         }
         ("POST", "/api/apps/close") => {
             let canceled = h

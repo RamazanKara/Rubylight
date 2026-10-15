@@ -72,7 +72,6 @@ try:
     assert ordered[0]['custom-field']==7
     request(browser,'POST','/console/action',303,data={'op':'app-move','_csrf':csrf,'uuid':app_id,'direction':'up','_return':'/library'},allow_redirects=False)
     assert request(browser,'GET','/api/apps').json()['apps'][0]['uuid']==app_id
-    assert request(browser,'POST','/api/apps/rtx_hdr/live',json={'uuid':app_id,'config-overrides':{'rtx_hdr_contrast':14,'encoder':'software'}}).json()['applied'] is False
     request(browser, 'POST', '/console/action', 303, data={'op':'app-save','_csrf':csrf,'uuid':app_id,'name':'Rust <script>alert(1)</script> fixture','cmd':'','working-dir':'','_return':'/library'},allow_redirects=False)
     saved=next(a for a in request(browser, 'GET', '/api/apps').json()['apps'] if a.get('uuid')==app_id)
     assert saved['migration-field']=={'preserve':True}
@@ -82,12 +81,6 @@ try:
     assert cover.content.startswith(b'\x89PNG\r\n\x1a\n')
     if os.environ.get('BUTTERPOLLO_TEST_DIR'):
         request(browser,'POST','/api/apps/launch',json={'uuid':app_id})
-        live={'rtx_hdr_contrast':14,'rtx_hdr_peak_brightness':1500,'encoder':'software'}
-        assert request(browser,'POST','/api/apps/rtx_hdr/live',json={'uuid':app_id,'config-overrides':live}).json()['applied']
-        assert not request(browser,'POST','/api/apps/rtx_hdr/live',json={'uuid':app_id,'config-overrides':live}).json()['applied']
-        saved=next(a for a in request(browser,'GET','/api/apps').json()['apps'] if a['uuid']==app_id)
-        assert 'config-overrides' not in saved
-        assert request(browser,'POST','/api/apps/rtx_hdr/live',json={'uuid':app_id,'config-overrides':{}}).json()['applied']
         request(browser,'POST','/api/apps/close',json={})
         output = pathlib.Path(os.environ['BUTTERPOLLO_TEST_DIR']) / 'web-app-output.log'
         if output.exists(): output.unlink()

@@ -42,7 +42,24 @@ pub const RENAMED_KEYS: &[(&str, &str)] = &[
         "dd_vdd_static_monitor_count",
         "dd_virtual_display_permanent_count",
     ),
+    // Also what a virtual display reports, the one part of NVIDIA RTX HDR
+    // that stays.
+    ("rtx_hdr_peak_brightness", "hdr_peak_brightness"),
 ];
+/// Settings of features Rubylight removed: NVIDIA RTX HDR (TrueHDR). Saved
+/// profiles, apps and devices can still carry them; the host drops them
+/// without a warning, and the next save leaves them out.
+pub const REMOVED_KEYS: &[&str] = &[
+    "rtx_hdr",
+    "rtx_hdr_sdr_brightness",
+    "rtx_hdr_contrast",
+    "rtx_hdr_saturation",
+    "rtx_hdr_middle_gray",
+];
+/// Whether `key` belongs to a removed feature (`REMOVED_KEYS`).
+pub fn removed(key: &str) -> bool {
+    REMOVED_KEYS.contains(&key)
+}
 /// The name the host reads `key` under now.
 pub fn current_name(key: &str) -> &str {
     RENAMED_KEYS
@@ -153,7 +170,7 @@ impl Config {
                 tracing::warn!(line = number, key, "invalid configuration key; skipped");
                 continue;
             }
-            if value.is_empty() {
+            if value.is_empty() || removed(key) {
                 continue;
             }
             if values.contains_key(key) {
@@ -374,6 +391,7 @@ impl Config {
                 object.insert(new.to_owned(), value);
             }
         }
+        object.retain(|key, _| !removed(key));
         let object = &object;
         let mut next = self.clone();
         for (key, value) in object {
@@ -589,10 +607,7 @@ impl Config {
             resolution,
             refresh,
             prefer_highest: refresh_option == "prefer_highest",
-            // RTX HDR converts an SDR source for the HDR stream.
-            hdr: if hdr && crate::rtx_policy::enabled(self) {
-                Some(false)
-            } else if self.get("dd_hdr_option", "auto") == "disabled" {
+            hdr: if self.get("dd_hdr_option", "auto") == "disabled" {
                 None
             } else {
                 Some(match self.get("dd_hdr_request_override", "auto") {
@@ -724,12 +739,7 @@ pub fn override_allowed(key: &str) -> bool {
         "amd_high_motion_quality_boost",
         "amd_av1_screen_content",
         "amd_av1_latency_mode",
-        "rtx_hdr",
-        "rtx_hdr_sdr_brightness",
-        "rtx_hdr_contrast",
-        "rtx_hdr_saturation",
-        "rtx_hdr_middle_gray",
-        "rtx_hdr_peak_brightness",
+        "hdr_peak_brightness",
         "sw_preset",
         "sw_tune",
     ];
@@ -889,6 +899,31 @@ impl Ports {
 }
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn removed_rtx_hdr_settings_go_quietly_and_its_peak_brightness_is_renamed() {
+        // Profiles, apps and devices saved before RTX HDR was removed.
+        let mut config = super::Config::parse(
+            "rtx_hdr = true\nrtx_hdr_contrast = 14\nrtx_hdr_sdr_brightness = 20\nrtx_hdr_peak_brightness = 1500\nport = 47989\n",
+        )
+        .unwrap();
+        for key in super::REMOVED_KEYS {
+            assert!(!config.values.contains_key(*key), "{key}");
+        }
+        assert_eq!(config.integer("hdr_peak_brightness", 0), 1500);
+        assert_eq!(config.integer("port", 0), 47989);
+        // A console or API save still sending them.
+        let saved = serde_json::json!({"rtx_hdr_saturation": 5, "rtx_hdr_peak_brightness": 900});
+        config.update(saved.as_object().unwrap()).unwrap();
+        assert!(!config.values.contains_key("rtx_hdr_saturation"));
+        assert_eq!(config.integer("hdr_peak_brightness", 0), 900);
+        // Devices and apps may still choose the peak, under its new name.
+        assert!(super::override_allowed("hdr_peak_brightness"));
+        assert!(!super::override_allowed("rtx_hdr"));
+        assert_eq!(
+            super::current_name("rtx_hdr_peak_brightness"),
+            "hdr_peak_brightness"
+        );
+    }
     #[test]
     fn packet_pacing_requires_opt_in_and_yields_to_manual_bitrate_and_codec_policies() {
         let cases = [
@@ -1211,7 +1246,7 @@ mod tests {
     }
     /// A Vibepollo or Rubylight 2.0 file with every setting under its
     /// earlier name, a setting this host does not know, and a comment.
-    const EARLIER_NAMES: &str = "# Vibepollo\nrtss_path = D:\\Tools\\RTSS\nrtss_disable_vsync_ullm = enabled\nnvenc_force_split_encode = driver_decides\ndd_vdd_static_monitor_count = \"2\"\nport = 48123\nfuture_setting = kept\n";
+    const EARLIER_NAMES: &str = "# Vibepollo\nrtss_path = D:\\Tools\\RTSS\nrtss_disable_vsync_ullm = enabled\nnvenc_force_split_encode = driver_decides\ndd_vdd_static_monitor_count = \"2\"\nrtx_hdr_peak_brightness = 1400\nport = 48123\nfuture_setting = kept\n";
     #[test]
     fn settings_under_an_earlier_name_are_read_under_the_current_one() {
         let c = Config::parse(EARLIER_NAMES).unwrap();
@@ -1221,6 +1256,7 @@ mod tests {
         assert!(c.boolean("frame_limiter_disable_vsync", false));
         assert_eq!(c.get("nvenc_split_encode", "auto"), "driver_decides");
         assert_eq!(c.integer("dd_virtual_display_permanent_count", -1), 2);
+        assert_eq!(c.integer("hdr_peak_brightness", 0), 1400);
         for (old, _) in RENAMED_KEYS {
             assert!(!c.values.contains_key(*old), "{old}");
         }

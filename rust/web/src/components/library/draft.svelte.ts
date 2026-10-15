@@ -35,7 +35,6 @@ export const FLAGS = {
   'per-client-app-identity': false,
   'gen1-framegen-fix': false,
   'frame-gen-limiter-fix': false,
-  'rtx-hdr': false,
   'lossless-scaling-enabled': false,
   'lossless-scaling-legacy-auto-detect': false,
 } as const;
@@ -45,11 +44,6 @@ export type FlagKey = keyof typeof FLAGS;
 export const NUMBERS: Record<string, { min: number; max?: number }> = {
   'exit-timeout': { min: 0, max: 300 },
   'scale-factor': { min: 1 },
-  'rtx-hdr-sdr-brightness': { min: 0, max: 100 },
-  'rtx-hdr-contrast': { min: -100, max: 100 },
-  'rtx-hdr-saturation': { min: -100, max: 100 },
-  'rtx-hdr-middle-gray': { min: 10, max: 100 },
-  'rtx-hdr-peak-brightness': { min: 400, max: 2000 },
   'lossless-scaling-target-fps': { min: 1, max: 480 },
   'lossless-scaling-rtss-limit': { min: 1, max: 480 },
   'lossless-scaling-launch-delay': { min: 0, max: 600 },
@@ -57,11 +51,6 @@ export const NUMBERS: Record<string, { min: number; max?: number }> = {
 export type NumberKey =
   | 'exit-timeout'
   | 'scale-factor'
-  | 'rtx-hdr-sdr-brightness'
-  | 'rtx-hdr-contrast'
-  | 'rtx-hdr-saturation'
-  | 'rtx-hdr-middle-gray'
-  | 'rtx-hdr-peak-brightness'
   | 'lossless-scaling-target-fps'
   | 'lossless-scaling-rtss-limit'
   | 'lossless-scaling-launch-delay';

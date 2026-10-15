@@ -6,6 +6,10 @@
 
 Rubylight, called Butterpollo until rc.29, is written in Rust: host, native helpers, service and setup, with a Svelte web console. The 2.3.1 installer is named `rubylight-setup-2.3.1.exe` and upgrades an existing Vibepollo or Butterpollo installation in place, keeping settings, paired devices, the app library and covers. Codec SDKs and Windows drivers remain external components; the setup installs the drivers.
 
+## Unreleased
+
+- **Version details on every Rubylight program.** The host, service, start program, setup, diagnostic probes and Rubylight's DLLs now carry the product name, version and a description, which Explorer's **Details** tab and Task Manager show. Code signing through the SignPath Foundation requires them.
+
 ## New in 2.3.1
 
 Frame rate and slow-network fixes, measured on an RX 7900 XT host: Warp-style requests now get the frame rate they ask for, and TV boxes with 100 Mbps Ethernet get a picture.

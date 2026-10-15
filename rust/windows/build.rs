@@ -1,10 +1,17 @@
 use std::{env, path::PathBuf};
 #[path = "build_shaders.rs"]
 mod shaders;
+include!("../assets/version_info.rs");
 fn main() {
     if env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("windows") {
         return;
     }
+    // The performance probe example ships as butterpollo-performance.exe.
+    println!("cargo:rerun-if-changed=../assets/version_info.rs");
+    let rc = write_resource("examples", "", "Rubylight diagnostic tool", false);
+    embed_resource::compile_for_examples(&rc, embed_resource::NONE)
+        .manifest_optional()
+        .unwrap();
     println!("cargo:rerun-if-env-changed=BUTTERPOLLO_FFMPEG_ROOT");
     let root=PathBuf::from(env::var("BUTTERPOLLO_FFMPEG_ROOT").expect("set BUTTERPOLLO_FFMPEG_ROOT to the pinned FFmpeg SDK (include/ and lib/); see docs/building.md"));
     let include = root.join("include");

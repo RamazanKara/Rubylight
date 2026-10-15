@@ -1,3 +1,7 @@
+include!("../assets/version_info.rs");
+
+// Links NVIDIA's NGX library and gives the adapter DLL the release's
+// version information.
 fn main() {
     if !std::env::var("TARGET").unwrap().ends_with("windows-msvc") {
         panic!("NVIDIA's vendor library requires --target x86_64-pc-windows-msvc");
@@ -17,4 +21,9 @@ fn main() {
     println!("cargo:rustc-link-lib=static=nvsdk_ngx_d");
     println!("cargo:rustc-link-lib=advapi32");
     println!("cargo:rustc-link-lib=user32");
+    println!("cargo:rerun-if-changed=../assets/version_info.rs");
+    let rc = write_resource("truehdr", "", "Rubylight TrueHDR adapter", true);
+    embed_resource::compile_for_cdylib(&rc, embed_resource::NONE)
+        .manifest_optional()
+        .unwrap();
 }

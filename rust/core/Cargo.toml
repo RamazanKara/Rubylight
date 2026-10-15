@@ -29,6 +29,9 @@ crc32fast = "1.5"
 rubylight-protocol = { git = "https://github.com/RamazanKara/rubylight-android", rev = "dcf1257", package = "rubylight-protocol" }
 regex = "1.12"
 
+[build-dependencies]
+embed-resource = "3.0.12"
+
 [dev-dependencies]
 tempfile = "3.23"
 

@@ -48,4 +48,9 @@
     <string name="controller_test_misc">Share</string>
     <string name="controller_test_not_available">Not available on this controller.</string>
     <string name="controller_test_needs_android_12">Needs Android 12 or later.</string>
+
+    <!-- USB Switch Pro driver -->
+    <string name="title_usb_switch_pro">USB Switch Pro driver</string>
+    <string name="summary_usb_switch_pro">Experimental. Reads a wired Nintendo Switch Pro Controller directly, with motion, rumble, Home and Capture.</string>
+    <string name="usb_switch_pro_denied">No USB access; the Switch Pro Controller stays on Android’s input.\nReconnect the cable to retry.</string>
 </resources>

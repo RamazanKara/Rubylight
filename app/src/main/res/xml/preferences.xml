@@ -280,6 +280,11 @@
             android:summary="@string/settings_needs_host_support"
             android:dialogMessage="@string/summary_usb_dualsense_haptics"
             android:defaultValue="false" />
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_usb_switch_pro"
+            android:title="@string/title_usb_switch_pro"
+            android:dialogMessage="@string/summary_usb_switch_pro"
+            android:defaultValue="false" />
     </PreferenceCategory>
     <PreferenceCategory android:key="category_input_settings" android:title="@string/category_input_settings">
         <Preference android:key="checkbox_touchscreen_trackpad"

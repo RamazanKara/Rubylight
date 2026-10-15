@@ -184,6 +184,10 @@ public class UsbDriverService extends Service implements UsbDriverListener {
                     LimeLog.info("USB permission denied");
                     Toast.makeText(context, R.string.usb_dualsense_denied, Toast.LENGTH_LONG).show();
                 }
+                else if (SwitchProController.canClaimDevice(device)) {
+                    LimeLog.info("USB permission denied");
+                    Toast.makeText(context, R.string.usb_switch_pro_denied, Toast.LENGTH_LONG).show();
+                }
             }
         }
     }
@@ -216,6 +220,8 @@ public class UsbDriverService extends Service implements UsbDriverListener {
     private static boolean isControllerForDevice(AbstractController controller, UsbDevice device) {
         return (controller instanceof DualSenseController &&
                 ((DualSenseController)controller).getUsbDeviceId() == device.getDeviceId()) ||
+                (controller instanceof SwitchProController &&
+                ((SwitchProController)controller).getUsbDeviceId() == device.getDeviceId()) ||
                 (controller instanceof AbstractXboxController &&
                 ((AbstractXboxController)controller).device.getDeviceId() == device.getDeviceId());
     }
@@ -293,6 +299,9 @@ public class UsbDriverService extends Service implements UsbDriverListener {
             if (DualSenseController.canClaimDevice(device)) {
                 controller = new DualSenseController(device, connection, nextDeviceId++, this,
                         PreferenceConfiguration.readPreferences(this).usbDualSenseHaptics ? usbManager : null);
+            }
+            else if (SwitchProController.canClaimDevice(device)) {
+                controller = new SwitchProController(device, connection, nextDeviceId++, this);
             }
             else if (XboxOneController.canClaimDevice(device)) {
                 controller = new XboxOneController(device, connection, nextDeviceId++, this);
@@ -397,6 +406,9 @@ public class UsbDriverService extends Service implements UsbDriverListener {
         if (DualSenseController.canClaimDevice(device)) {
             return config.usbDualSense;
         }
+        if (SwitchProController.canClaimDevice(device)) {
+            return config.usbSwitchPro;
+        }
         boolean claimAllAvailable = config.bindAllUsb;
         return config.usbDriver && (
                 ((!kernelSupportsXboxOne() || !isRecognizedInputDevice(device) || claimAllAvailable) && XboxOneController.canClaimDevice(device)) ||
@@ -406,7 +418,7 @@ public class UsbDriverService extends Service implements UsbDriverListener {
     }
 
     private void start() {
-        if (started || usbManager == null || (!prefConfig.usbDriver && !prefConfig.usbDualSense)) {
+        if (started || usbManager == null || (!prefConfig.usbDriver && !prefConfig.usbDualSense && !prefConfig.usbSwitchPro)) {
             return;
         }
 

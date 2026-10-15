@@ -1005,7 +1005,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             virtualController.show();
         }
 
-        if ((prefConfig.usbDriver || prefConfig.usbDualSense) && app.getRole() != NvApp.Role.REMOTE_MONITOR) {
+        if ((prefConfig.usbDriver || prefConfig.usbDualSense || prefConfig.usbSwitchPro) && app.getRole() != NvApp.Role.REMOTE_MONITOR) {
             // Start the USB driver
             usbDriverServiceBound = bindService(new Intent(this, UsbDriverService.class),
                     usbDriverServiceConnection, Service.BIND_AUTO_CREATE);

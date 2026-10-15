@@ -147,7 +147,7 @@ public class ControllerTestActivity extends AppCompatActivity implements UsbDriv
         }
         PreferenceConfiguration config = PreferenceConfiguration.readPreferences(this);
         rumbleDisabledForStreams = config.disableRumble;
-        usbBound = (config.usbDriver || config.usbDualSense) &&
+        usbBound = (config.usbDriver || config.usbDualSense || config.usbSwitchPro) &&
                 bindService(new Intent(this, UsbDriverService.class), usbConnection, Context.BIND_AUTO_CREATE);
         inputManager = (InputManager) getSystemService(Context.INPUT_SERVICE);
         inputManager.registerInputDeviceListener(this, handler);

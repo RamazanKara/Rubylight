@@ -102,6 +102,18 @@ public class UsbControllerLifecycleTest {
     }
 
     @Test
+    public void aSwitchProThatNeverAnswersItsHandshakeIsReleasedAndReported() throws Exception {
+        android.preference.PreferenceManager.getDefaultSharedPreferences(app).edit()
+                .putBoolean("checkbox_usb_switch_pro", true).commit();
+        // Reads time out: the pad never acknowledges the USB handshake.
+        UsbDevice pad = UsbPads.switchPro("/dev/bus/usb/001/009");
+        bind(pad).start();
+        UsbPads.await(() -> listener.has("start failed") && UsbPads.Connection.closes.get() == 1);
+        assertEquals("The claimed interface is released", UsbPads.Connection.claims.get(), UsbPads.Connection.releases.get());
+        assertFalse("A pad that never started is never announced", listener.has("added"));
+    }
+
+    @Test
     public void noInputReachesTheListenerOnceThePadIsDetached() throws Exception {
         UsbPads.Connection.inputReport = UsbPads.dualSenseReport();
         UsbDevice pad = UsbPads.dualSense("/dev/bus/usb/001/003");

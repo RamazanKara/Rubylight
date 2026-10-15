@@ -490,7 +490,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
 
         // Count all USB devices that match our drivers
         PreferenceConfiguration config = PreferenceConfiguration.readPreferences(context);
-        if (config.usbDriver || config.usbDualSense) {
+        if (config.usbDriver || config.usbDualSense || config.usbSwitchPro) {
             UsbManager usbManager = (UsbManager) context.getSystemService(Context.USB_SERVICE);
             if (usbManager != null) {
                 for (UsbDevice dev : usbManager.getDeviceList().values()) {

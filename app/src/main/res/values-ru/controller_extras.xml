@@ -48,4 +48,9 @@
     <string name="controller_test_misc">Share</string>
     <string name="controller_test_not_available">Недоступно на этом контроллере.</string>
     <string name="controller_test_needs_android_12">Требуется Android 12 или новее.</string>
+
+    <!-- USB Switch Pro driver -->
+    <string name="title_usb_switch_pro">Драйвер USB Switch Pro</string>
+    <string name="summary_usb_switch_pro">Экспериментально. Считывает проводной Nintendo Switch Pro Controller напрямую: датчики движения, вибрация, Home и Capture.</string>
+    <string name="usb_switch_pro_denied">Нет доступа к USB; Switch Pro Controller работает через ввод Android.\nПереподключите кабель, чтобы повторить.</string>
 </resources>

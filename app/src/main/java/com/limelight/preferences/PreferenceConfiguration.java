@@ -67,6 +67,7 @@ public class PreferenceConfiguration {
     static final String AUDIO_CONFIG_PREF_STRING = "list_audio_config";
     private static final String USB_DRIVER_PREF_SRING = "checkbox_usb_driver";
     private static final String USB_DUALSENSE_PREF_STRING = "checkbox_usb_dualsense";
+    private static final String USB_SWITCH_PRO_PREF_STRING = "checkbox_usb_switch_pro";
     static final String VIDEO_FORMAT_PREF_STRING = "video_format";
     private static final String ONSCREEN_CONTROLLER_PREF_STRING = "checkbox_show_onscreen_controls";
     private static final String ONLY_L3_R3_PREF_STRING = "checkbox_only_show_L3R3";
@@ -201,7 +202,7 @@ public class PreferenceConfiguration {
     // Send this device's microphone to the host when the host offers to take it.
     public boolean enableMic;
     public String language;
-    public boolean smallIconMode, multiController, usbDriver, usbDualSense, usbDualSenseHaptics, flipFaceButtons;
+    public boolean smallIconMode, multiController, usbDriver, usbDualSense, usbDualSenseHaptics, usbSwitchPro, flipFaceButtons;
     public boolean onscreenController;
     public boolean onlyL3R3;
     public boolean showGuideButton;
@@ -1000,6 +1001,7 @@ public class PreferenceConfiguration {
         config.usbDriver = prefs.getBoolean(USB_DRIVER_PREF_SRING, DEFAULT_USB_DRIVER);
         config.usbDualSense = prefs.getBoolean(USB_DUALSENSE_PREF_STRING, false);
         config.usbDualSenseHaptics = config.usbDualSense && prefs.getBoolean("checkbox_usb_dualsense_haptics", false);
+        config.usbSwitchPro = prefs.getBoolean(USB_SWITCH_PRO_PREF_STRING, false);
         config.onscreenController = prefs.getBoolean(ONSCREEN_CONTROLLER_PREF_STRING, ONSCREEN_CONTROLLER_DEFAULT);
         config.onlyL3R3 = prefs.getBoolean(ONLY_L3_R3_PREF_STRING, ONLY_L3_R3_DEFAULT);
         config.showGuideButton = prefs.getBoolean(SHOW_GUIDE_BUTTON_PREF_STRING, SHOW_GUIDE_BUTTON_DEFAULT);

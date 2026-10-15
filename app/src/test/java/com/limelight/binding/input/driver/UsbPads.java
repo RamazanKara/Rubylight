@@ -31,6 +31,11 @@ public final class UsbPads {
                 endpoint(0x84, 64), endpoint(0x03, 64)));
     }
 
+    public static UsbDevice switchPro(String name) {
+        return device(name, 0x057E, 0x2009, usbInterface(0, UsbConstants.USB_CLASS_HID, 0, 0,
+                endpoint(0x81, 64), endpoint(0x01, 64)));
+    }
+
     public static UsbDevice xboxOne(String name) {
         return device(name, 0x045E, 0x02EA, usbInterface(0, UsbConstants.USB_CLASS_VENDOR_SPEC, 71, 208,
                 endpoint(0x81, 64), endpoint(0x01, 64)));

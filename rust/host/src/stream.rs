@@ -1443,7 +1443,11 @@ impl Media {
                     // next picture be claimed meanwhile. On a fast link the
                     // inline send is shorter than the handoff costs.
                     let video_sender = std::cell::OnceCell::<crate::video_send::Sender>::new();
+                    let send_thread = c.boolean("video_send_thread", true);
                     let mut sender_decided = false;
+                    // An inline frame was paced near the stream bitrate, as after
+                    // a lost keyframe: later frames move to the sender thread.
+                    let mut inline_paced = false;
                     let mut send_loss = butterpollo_core::stream_policy::SendLossRecovery::default();
                     let batch_kb = match c.integer("video_max_batch_size_kb", 64) {
                         16 => 16,
@@ -1461,8 +1465,9 @@ impl Media {
                             source.device_recovered(&source.warnings);
                         }
                         if let Some(sender) = &pyrowave_sender { return sender.submit(output,peer,call_latency); }
-                        if !sender_decided {
+                        if send_thread && (!sender_decided || inline_paced) {
                             sender_decided = true;
+                            let mid_stream = std::mem::take(&mut inline_paced);
                             let route = *link.get_or_insert_with(|| butterpollo_windows::net::routed_link(peer));
                             packetizer.fec_percent = s.fec_percent();
                             let bitrate = s.bitrate.load(Ordering::Relaxed);
@@ -1475,14 +1480,19 @@ impl Media {
                                 needed,
                             );
                             let bps = s.video_pacing_bps(bps, needed);
-                            // Only before the first frame: the sender numbers
-                            // frames and packets from the start.
-                            if packetizer.frame == 1
-                                && c.boolean("video_send_thread", true)
-                                && (automatic_pacing || c.boolean("host_adaptive_bitrate", false) || butterpollo_core::network_pacing::paced(bps, needed))
-                            {
-                                let _ = video_sender.set(crate::video_send::Sender::new(m.video.clone(), s.clone(), c.clone(), h.clone(), start, prepared.capture() == "wgc")?);
-                                tracing::info!(pacing_bps = bps, bitrate_kbps = bitrate, wire_budget_bps = needed, automatic_pacing, "video frames are sent on their own thread for current or adaptive pacing");
+                            if mid_stream || automatic_pacing || c.boolean("host_adaptive_bitrate", false) || butterpollo_core::network_pacing::paced(bps, needed) {
+                                // The sender continues the inline sends' frame,
+                                // packet and IV numbering; nothing sends inline
+                                // after this.
+                                let handoff = crate::video_send::Handoff {
+                                    packetizer: packetizer.clone(),
+                                    present_stamper: present_stamper.take(),
+                                    last_stamp,
+                                    pacing_due: network_pacer.due(),
+                                    send_loss: std::mem::take(&mut send_loss),
+                                };
+                                let _ = video_sender.set(crate::video_send::Sender::new(m.video.clone(), s.clone(), c.clone(), h.clone(), start, handoff)?);
+                                tracing::info!(pacing_bps = bps, bitrate_kbps = bitrate, wire_budget_bps = needed, automatic_pacing, mid_stream, wire_frame = packetizer.frame, "video frames are sent on their own thread for current or adaptive pacing");
                             }
                         }
                         if let Some(sender) = video_sender.get() { return sender.submit(output, peer, call_latency, &mut claims.borrow_mut()); }
@@ -1529,6 +1539,7 @@ impl Media {
                             let bps = s.video_pacing_bps(bps, needed);
                             let safe = butterpollo_core::network_pacing::rate_bps(0, bitrate, route.bps, true, needed);
                             let bps = s.keyframe_loss_bps(bps, safe, wire_frame, frame.idr);
+                            inline_paced |= butterpollo_core::network_pacing::paced(bps, needed);
                             if Instant::now() >= link_due {
                                 butterpollo_core::network_pacing::report_rate(&s.launch.warnings, bps, needed, c.integer("pacing_max_bitrate_kbps", 0));
                                 if reported_pacing != Some(bps) {

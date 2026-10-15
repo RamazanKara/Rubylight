@@ -101,7 +101,7 @@ fn sender_handoff_benchmark() -> Result<()> {
         let period = Duration::from_secs_f64(1. / fps as f64);
         let (finished, results) = mpsc::channel();
         let sender = if threaded {
-            Some(Sender::spawn("handoff-benchmark".into(), move |slot| {
+            Some(Sender::spawn("handoff-benchmark".into(), 1, move |slot| {
                 let mut packetizer = packetizer();
                 slot.run(|frame| {
                     anyhow::ensure!(frame.skipped == 0, "benchmark unexpectedly skipped a frame");
@@ -235,7 +235,7 @@ fn sender_handoff_benchmark() -> Result<()> {
 fn blocked_sender() -> (Sender, Receiver<Frame>, Channel<()>) {
     let (entered, frames) = mpsc::channel();
     let (release, resume) = mpsc::channel();
-    let sender = Sender::spawn("test".into(), move |slot| {
+    let sender = Sender::spawn("test".into(), 1, move |slot| {
         slot.run(|frame| {
             let next = u32::from(frame.encoded.bytes[0]) + 1;
             entered.send(frame).unwrap();
@@ -461,7 +461,7 @@ fn recreation_waits_for_sending_and_pending_wire_indices() {
 fn a_keyframe_request_skips_the_waiting_frame_and_keeps_its_wire_number() {
     let (entered, frames) = mpsc::channel();
     let (release, resume) = mpsc::channel::<()>();
-    let sender = Sender::spawn("skip".into(), move |slot| {
+    let sender = Sender::spawn("skip".into(), 1, move |slot| {
         let mut wire = 1;
         slot.run(|frame| {
             wire += frame.skipped;
@@ -556,7 +556,7 @@ fn a_keyframe_request_skips_the_waiting_frame_and_keeps_its_wire_number() {
 fn sender_failure_wakes_submit_and_recreation_and_stays_in_the_error_slot() {
     let (entered, sending) = mpsc::channel();
     let (fail, failure) = mpsc::channel();
-    let sender = Sender::spawn("error".into(), move |slot| {
+    let sender = Sender::spawn("error".into(), 1, move |slot| {
         slot.run(|_| {
             entered.send(()).unwrap();
             failure.recv_timeout(WAIT)?;
@@ -613,7 +613,7 @@ fn sender_failure_wakes_submit_and_recreation_and_stays_in_the_error_slot() {
 #[test]
 fn initialization_failure_reaches_the_error_slot_and_reconnect_starts_clean() {
     let mut sender =
-        Sender::spawn("init".into(), |_| bail!("timer initialization failed")).unwrap();
+        Sender::spawn("init".into(), 1, |_| bail!("timer initialization failed")).unwrap();
     sender.worker.take().unwrap().join().unwrap();
     assert!(
         sender
@@ -652,7 +652,7 @@ fn initialization_failure_reaches_the_error_slot_and_reconnect_starts_clean() {
 fn dropping_an_idle_sender_wakes_and_joins_it() {
     let finished = Arc::new(AtomicBool::new(false));
     let done = finished.clone();
-    let sender = Sender::spawn("idle".into(), move |slot| {
+    let sender = Sender::spawn("idle".into(), 1, move |slot| {
         let result = slot.run(|_| panic!("no frame was submitted"));
         done.store(true, Ordering::Release);
         result
@@ -663,9 +663,18 @@ fn dropping_an_idle_sender_wakes_and_joins_it() {
 }
 
 #[test]
+fn a_sender_started_mid_stream_continues_the_wire_frame_numbering() {
+    let sender = Sender::spawn("handoff".into(), 4242, move |slot| {
+        slot.run(|_| panic!("no frame was submitted"))
+    })
+    .unwrap();
+    assert_eq!(sender.next_wire_frame().unwrap(), 4242);
+}
+
+#[test]
 fn shutdown_interrupts_sending_and_releases_pending_output() {
     let (entered, sending) = mpsc::channel();
-    let sender = Sender::spawn("stop".into(), move |slot| {
+    let sender = Sender::spawn("stop".into(), 1, move |slot| {
         slot.run(|frame| {
             entered.send(frame.encoded.bytes[0]).unwrap();
             let state = slot.state.lock().unwrap();
@@ -728,6 +737,53 @@ fn packetizer(key: Option<[u8; 16]>) -> VideoPacketizer {
     }
 }
 
+fn handoff(packetizer: VideoPacketizer) -> Handoff {
+    Handoff {
+        packetizer,
+        present_stamper: None,
+        last_stamp: Instant::now(),
+        pacing_due: Instant::now(),
+        send_loss: Default::default(),
+    }
+}
+
+#[test]
+fn a_sender_taking_over_mid_stream_continues_the_inline_numbering() {
+    let fixture = crate::state::test_support::Fixture::new();
+    let session = fixture.session(fixture.client(0), butterpollo_core::session::Role::Stream);
+    let socket = Arc::new(UdpSocket::bind("127.0.0.1:0").unwrap());
+    let receiver = UdpSocket::bind("127.0.0.1:0").unwrap();
+    receiver.set_read_timeout(Some(WAIT)).unwrap();
+    // Where the stream thread's own sends left off.
+    let mut inline = packetizer(None);
+    inline.frame = 300;
+    inline.sequence = 7000;
+    let sender = Sender::new(
+        socket,
+        session.clone(),
+        fixture.host.config.read().unwrap().clone(),
+        fixture.host.clone(),
+        Instant::now(),
+        handoff(inline),
+    )
+    .unwrap();
+    assert_eq!(sender.next_wire_frame().unwrap(), 300);
+    sender
+        .submit(
+            vec![frame(2)],
+            receiver.local_addr().unwrap(),
+            Duration::ZERO,
+            &mut Claims::default(),
+        )
+        .unwrap();
+    assert_eq!(sender.next_wire_frame().unwrap(), 301);
+    let mut packet = [0; 2048];
+    let size = receiver.recv(&mut packet).unwrap();
+    assert!(size > 24);
+    assert_eq!(u16::from_be_bytes([packet[2], packet[3]]), 7000);
+    assert_eq!(u32::from_le_bytes(packet[20..24].try_into().unwrap()), 300);
+}
+
 #[test]
 fn the_sender_thread_accepts_client_reports_for_adaptive_fec() {
     let fixture = crate::state::test_support::Fixture::new();
@@ -741,7 +797,7 @@ fn the_sender_thread_accepts_client_reports_for_adaptive_fec() {
         fixture.host.config.read().unwrap().clone(),
         fixture.host.clone(),
         Instant::now(),
-        false,
+        handoff(packetizer(None)),
     )
     .unwrap();
     sender
@@ -774,7 +830,7 @@ fn the_sender_thread_records_where_a_new_pictures_time_went() {
         fixture.host.config.read().unwrap().clone(),
         fixture.host.clone(),
         Instant::now(),
-        false,
+        handoff(packetizer(None)),
     )
     .unwrap();
     // A client that asked for host timing reports (0x5536).
@@ -858,7 +914,7 @@ fn the_sender_thread_records_where_a_new_pictures_time_went() {
 fn reconnect_keeps_packet_order_fec_recovery_and_iv_ownership_identical_to_inline() {
     for key in [None, Some([17; 16]), Some([29; 16])] {
         let (sent, packets) = mpsc::channel();
-        let sender = Sender::spawn("reconnect".into(), move |slot| {
+        let sender = Sender::spawn("reconnect".into(), 1, move |slot| {
             let mut packetizer = packetizer(key);
             slot.run(|frame| {
                 let frame = frame.encoded;

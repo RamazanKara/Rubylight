@@ -101,6 +101,7 @@ pub fn concat_and_insert(header: usize, slice: usize, a: &[u8], b: &[u8]) -> Res
     }
     Ok(out)
 }
+#[derive(Clone)]
 pub struct VideoPacketizer {
     /// Moonlight uses a 24-bit stream index alongside the 16-bit RTP sequence.
     pub sequence: u32,

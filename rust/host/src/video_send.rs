@@ -103,6 +103,15 @@ impl Slot {
         self.changed.notify_all();
     }
 }
+/// Where the stream thread's own sends left off. A sender started after them
+/// continues their frame, packet and IV numbering and their pacing.
+pub struct Handoff {
+    pub packetizer: VideoPacketizer,
+    pub present_stamper: Option<butterpollo_windows::present_timing::Stamper>,
+    pub last_stamp: Instant,
+    pub pacing_due: Instant,
+    pub send_loss: butterpollo_core::stream_policy::SendLossRecovery,
+}
 pub struct Sender {
     slot: Arc<Slot>,
     worker: Option<thread::JoinHandle<()>>,
@@ -114,38 +123,29 @@ impl Sender {
         c: Config,
         h: Shared,
         start: Instant,
-        track_presents: bool,
+        handoff: Handoff,
     ) -> Result<Self> {
-        Self::spawn(s.launch.id.clone(), move |shared| {
+        let Handoff {
+            mut packetizer,
+            mut present_stamper,
+            mut last_stamp,
+            pacing_due,
+            mut send_loss,
+        } = handoff;
+        let next_wire_frame = packetizer.frame;
+        Self::spawn(s.launch.id.clone(), next_wire_frame, move |shared| {
             let _priority = butterpollo_windows::capture::Priority::new();
             let timer = Timer::new()?;
-            let mut packetizer = VideoPacketizer {
-                sequence: 0,
-                iv_counter: 0,
-                frame: 1,
-                packet_size: s.config.packet_size,
-                fec_percent: c.integer("fec_percentage", 20).clamp(0, 100) as usize,
-                min_fec: s.config.min_fec,
-                key: if s.config.encryption & 2 != 0 {
-                    Some(s.launch.key)
-                } else {
-                    None
-                },
-            };
-            let mut present_stamper =
-                track_presents.then(butterpollo_windows::present_timing::Stamper::default);
-            let mut last_stamp = start;
             let mut batch = Batch::default();
             let mut packets = Vec::new();
             let trace_send = tracing::enabled!(target: "pacing", tracing::Level::TRACE);
             batch.waits = trace_send.then(Default::default);
-            let mut network_pacer = butterpollo_core::network_pacing::Pacer::new(Instant::now());
+            let mut network_pacer = butterpollo_core::network_pacing::Pacer::new(pacing_due);
             let mut link = None;
             let mut link_due = Instant::now();
             let mut reported_pacing = None;
             let mut fec_reported = None;
             let send_outage = butterpollo_core::stream_policy::SendOutage::from_env();
-            let mut send_loss = butterpollo_core::stream_policy::SendLossRecovery::default();
             let batch_kb = match c.integer("video_max_batch_size_kb", 64) {
                 16 => 16,
                 32 => 32,
@@ -339,6 +339,7 @@ impl Sender {
 
     fn spawn(
         stream_id: String,
+        next_wire_frame: u32,
         run: impl FnOnce(&Slot) -> Result<()> + Send + 'static,
     ) -> Result<Self> {
         let slot = Arc::new(Slot {
@@ -346,7 +347,7 @@ impl Sender {
                 pending: None,
                 sending: false,
                 sending_keyframe: false,
-                next_wire_frame: 1,
+                next_wire_frame,
                 skipped: 0,
                 error: None,
             }),

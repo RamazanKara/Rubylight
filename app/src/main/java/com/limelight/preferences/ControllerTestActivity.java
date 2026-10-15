@@ -6,6 +6,7 @@ import android.content.Intent;
 import android.content.ServiceConnection;
 import android.graphics.Canvas;
 import android.graphics.Paint;
+import android.graphics.Typeface;
 import android.hardware.Sensor;
 import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
@@ -754,6 +755,7 @@ public class ControllerTestActivity extends AppCompatActivity implements UsbDriv
     }
 
     private void renderMotion() {
+        motionView.setTypeface(hasMotion ? Typeface.MONOSPACE : Typeface.DEFAULT);
         if (!hasMotion) {
             boolean api = usbController != null || Build.VERSION.SDK_INT >= Build.VERSION_CODES.S;
             motionView.setText(device == null && usbController == null ? R.string.controller_test_waiting_short :

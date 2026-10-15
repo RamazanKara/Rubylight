@@ -53,8 +53,7 @@
 
     <TextView style="@style/HelpTopic.Heading" android:text="@string/controller_test_motion"
         android:accessibilityHeading="true" tools:targetApi="p" />
-    <TextView android:id="@+id/controller_test_motion_values" style="@style/HelpTopic.Body"
-        android:textAppearance="@style/TextAppearance.Nightjar.Mono" />
+    <TextView android:id="@+id/controller_test_motion_values" style="@style/HelpTopic.Body" />
 
     <TextView style="@style/HelpTopic.Heading" android:text="@string/controller_test_touchpad"
         android:accessibilityHeading="true" tools:targetApi="p" />

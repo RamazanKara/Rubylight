@@ -151,6 +151,40 @@ public class KeyboardTranslator implements InputManager.InputDeviceListener {
         return translateKeyCode(keycode);
     }
 
+    /**
+     * The Android key a physical keyboard key stands for once the keyboard options apply: Back on
+     * a keyboard can send the Windows key, and Right Alt can act as Command (Windows) for macOS hosts.
+     */
+    public static int remapPhysicalKey(int keyCode, boolean keyboardBack, boolean backAsMeta, boolean rightAltAsMeta) {
+        if (keyCode == KeyEvent.KEYCODE_BACK && keyboardBack && backAsMeta) {
+            return KeyEvent.KEYCODE_META_LEFT;
+        }
+        if (keyCode == KeyEvent.KEYCODE_ALT_RIGHT && rightAltAsMeta) {
+            return KeyEvent.KEYCODE_META_LEFT;
+        }
+        return keyCode;
+    }
+
+    /**
+     * Back from a real alphabetic keyboard, as opposed to a controller, a TV remote, the navigation
+     * bar or gesture, or the synthetic Back some devices send for a right click.
+     */
+    public static boolean isKeyboardBack(int keyCode, boolean synthetic, boolean virtualDevice,
+                                         boolean alphabeticKeyboard, boolean gameController, int source) {
+        return keyCode == KeyEvent.KEYCODE_BACK && !synthetic && !virtualDevice && alphabeticKeyboard &&
+                !gameController && (source & InputDevice.SOURCE_KEYBOARD) == InputDevice.SOURCE_KEYBOARD &&
+                (source & InputDevice.SOURCE_CLASS_POINTER) == 0;
+    }
+
+    /** Whether Alt from the event's meta state reaches the host; Right Alt does not when it acts as Command. */
+    public static boolean altHeld(int metaState, boolean rightAltAsMeta) {
+        if ((metaState & KeyEvent.META_ALT_ON) == 0) {
+            return false;
+        }
+        return !rightAltAsMeta || (metaState & KeyEvent.META_ALT_LEFT_ON) != 0 ||
+                (metaState & KeyEvent.META_ALT_RIGHT_ON) == 0;
+    }
+
     public static String textForCodePoint(int codePoint) {
         if (codePoint <= 0 || !Character.isValidCodePoint(codePoint) ||
                 (codePoint >= Character.MIN_SURROGATE && codePoint <= Character.MAX_SURROGATE)) {

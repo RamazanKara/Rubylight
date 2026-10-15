@@ -141,6 +141,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
     private volatile boolean inputEnabled = true;
 
     private final PreferenceConfiguration prefConfig;
+    private final boolean rumbleAllowed;
     private short currentControllers, initialControllers;
 
     public ControllerHandler(Activity activityContext, NvConnection conn, GameGestures gestures, PreferenceConfiguration prefConfig) {
@@ -148,6 +149,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         this.conn = conn;
         this.gestures = gestures;
         this.prefConfig = prefConfig;
+        this.rumbleAllowed = RumblePolicy.allows(prefConfig.disableRumble);
 		
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             this.deviceVibratorManager = (VibratorManager) activityContext.getSystemService(Context.VIBRATOR_MANAGER_SERVICE);
@@ -1429,6 +1431,15 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
 
             originalContext.mouseEmulationLastInputMap = inputMap;
 
+            if (prefConfig.mouseEmulationFixedStep) {
+                originalContext.mouseEmulationFixedStepHeld = (inputMap & ControllerPacket.X_FLAG) != 0;
+                if ((changedMask & inputMap & ControllerPacket.Y_FLAG) != 0) {
+                    originalContext.mouseEmulationStep = FixedStepMouse.nextStep(originalContext.mouseEmulationStep);
+                    Toast.makeText(activityContext, activityContext.getString(R.string.stream_mouse_step,
+                            originalContext.mouseEmulationStep), Toast.LENGTH_SHORT).show();
+                }
+            }
+
             if ((changedMask & ControllerPacket.A_FLAG) != 0) {
                 if (aDown) {
                     conn.sendMouseButtonDown(MouseButtonPacket.BUTTON_LEFT);
@@ -2023,10 +2034,20 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         return vector;
     }
 
-    private void sendEmulatedMouseMove(short x, short y) {
+    // fixedStep is 0 for movement that follows how far the stick is pushed.
+    private void sendEmulatedMouseMove(short x, short y, int fixedStep) {
         Vector2d vector = convertRawStickAxisToPixelMovement(x, y);
         if (vector.getMagnitude() >= 1) {
-            conn.sendMouseMove((short)vector.getX(), (short)-vector.getY());
+            if (fixedStep > 0) {
+                int dx = FixedStepMouse.delta(vector.getX(), fixedStep);
+                int dy = FixedStepMouse.delta(-vector.getY(), fixedStep);
+                if (dx != 0 || dy != 0) {
+                    conn.sendMouseMove((short)dx, (short)dy);
+                }
+            }
+            else {
+                conn.sendMouseMove((short)vector.getX(), (short)-vector.getY());
+            }
         }
     }
 
@@ -2214,7 +2235,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         boolean foundMatchingDevice = false;
         boolean vibrated = false;
 
-        if (stopped) {
+        if (stopped || !rumbleAllowed) {
             return;
         }
 
@@ -2271,13 +2292,8 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
                 // We found a device to vibrate but it didn't have rumble support. The user
                 // has requested us to vibrate the device in this case.
 
-                // We cast the unsigned short value to a signed int before multiplying by
-                // the preferred strength. The resulting value is capped at 65534 before
-                // we cast it back to a short so it doesn't go above 100%.
-                short lowFreqMotorAdjusted = (short)(Math.min((((lowFreqMotor & 0xffff)
-                        * prefConfig.vibrateFallbackToDeviceStrength) / 100), Short.MAX_VALUE*2));
-                short highFreqMotorAdjusted = (short)(Math.min((((highFreqMotor & 0xffff)
-                        * prefConfig.vibrateFallbackToDeviceStrength) / 100), Short.MAX_VALUE*2));
+                short lowFreqMotorAdjusted = RumblePolicy.scaleMotor(lowFreqMotor, prefConfig.vibrateFallbackToDeviceStrength);
+                short highFreqMotorAdjusted = RumblePolicy.scaleMotor(highFreqMotor, prefConfig.vibrateFallbackToDeviceStrength);
 
                 rumbleSingleVibrator(deviceVibrator, lowFreqMotorAdjusted, highFreqMotorAdjusted);
             }
@@ -2285,7 +2301,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
     }
 
     public synchronized void handleRumbleTriggers(short controllerNumber, short leftTrigger, short rightTrigger) {
-        if (stopped) {
+        if (stopped || !rumbleAllowed) {
             return;
         }
 
@@ -2404,7 +2420,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         return false;
     }
     public void handleControllerHaptics(short controllerNumber, int sequence, byte[] pcm) {
-        if (stopped || !conn.canSendControllerInput()) return;
+        if (stopped || !rumbleAllowed || !conn.canSendControllerInput()) return;
         // Avoid the input monitor and HID transfers on the control receive thread.
         AbstractController controller = waveformControllers.get(controllerNumber);
         if (controller != null) controller.controllerHaptics(sequence, pcm);
@@ -3297,6 +3313,8 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
 
         public boolean mouseEmulationActive;
         public int mouseEmulationLastInputMap;
+        public boolean mouseEmulationFixedStepHeld;
+        public int mouseEmulationStep = FixedStepMouse.MIN_STEP;
         public final int mouseEmulationReportPeriod = 50;
 
         public final Runnable mouseEmulationRunnable = new Runnable() {
@@ -3306,18 +3324,20 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
                     return;
                 }
 
+                int fixedStep = mouseEmulationFixedStepHeld ? mouseEmulationStep : 0;
+
                 // Send mouse events from analog sticks
                 if (prefConfig.analogStickForScrolling == PreferenceConfiguration.AnalogStickForScrolling.RIGHT) {
-                    sendEmulatedMouseMove(leftStickX, leftStickY);
+                    sendEmulatedMouseMove(leftStickX, leftStickY, fixedStep);
                     sendEmulatedMouseScroll(rightStickX, rightStickY);
                 }
                 else if (prefConfig.analogStickForScrolling == PreferenceConfiguration.AnalogStickForScrolling.LEFT) {
-                    sendEmulatedMouseMove(rightStickX, rightStickY);
+                    sendEmulatedMouseMove(rightStickX, rightStickY, fixedStep);
                     sendEmulatedMouseScroll(leftStickX, leftStickY);
                 }
                 else {
-                    sendEmulatedMouseMove(leftStickX, leftStickY);
-                    sendEmulatedMouseMove(rightStickX, rightStickY);
+                    sendEmulatedMouseMove(leftStickX, leftStickY, fixedStep);
+                    sendEmulatedMouseMove(rightStickX, rightStickY, fixedStep);
                 }
 
                 // Requeue the callback
@@ -3351,6 +3371,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
                 conn.sendMouseButtonUp(MouseButtonPacket.BUTTON_RIGHT);
             }
             mouseEmulationLastInputMap = 0;
+            mouseEmulationFixedStepHeld = false;
         }
 
         public void sendControllerArrival() {}
@@ -3680,6 +3701,8 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
             this.hatYAxisUsed = oldContext.hatYAxisUsed && hatYAxis == oldContext.hatYAxis;
             this.mouseEmulationActive = oldContext.mouseEmulationActive;
             this.mouseEmulationLastInputMap = oldContext.mouseEmulationLastInputMap;
+            this.mouseEmulationFixedStepHeld = oldContext.mouseEmulationFixedStepHeld;
+            this.mouseEmulationStep = oldContext.mouseEmulationStep;
             oldContext.mouseEmulationLastInputMap = 0;
             synchronized (oldContext) {
                 // Take ownership of the sensor and light sessions

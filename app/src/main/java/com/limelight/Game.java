@@ -3608,7 +3608,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         if (event.isCtrlPressed()) {
             modifier |= KeyboardPacket.MODIFIER_CTRL;
         }
-        if (event.isAltPressed()) {
+        if (KeyboardTranslator.altHeld(event.getMetaState(), prefConfig.rightAltAsMeta)) {
             modifier |= KeyboardPacket.MODIFIER_ALT;
         }
         if (event.isMetaPressed()) {
@@ -3631,6 +3631,20 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
 
     private byte getModifierState() {
         return (byte) (modifierFlags | (modifierFlags >> 8));
+    }
+
+    // The keyboard options can turn a physical Back or Right Alt into the Windows key.
+    private int physicalKeyCode(KeyEvent event) {
+        int keyCode = event.getKeyCode();
+        boolean keyboardBack = false;
+        if (keyCode == KeyEvent.KEYCODE_BACK && prefConfig.backAsMeta) {
+            InputDevice device = event.getDevice();
+            keyboardBack = device != null && KeyboardTranslator.isKeyboardBack(keyCode,
+                    (event.getFlags() & (KeyEvent.FLAG_VIRTUAL_HARD_KEY | KeyEvent.FLAG_FALLBACK)) != 0,
+                    device.isVirtual(), device.getKeyboardType() == InputDevice.KEYBOARD_TYPE_ALPHABETIC,
+                    ControllerHandler.isGameControllerDevice(device), event.getSource());
+        }
+        return KeyboardTranslator.remapPhysicalKey(keyCode, keyboardBack, prefConfig.backAsMeta, prefConfig.rightAltAsMeta);
     }
 
     @Override
@@ -3674,8 +3688,10 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
 
         // Try the keyboard handler if it wasn't handled as a game controller
         if (!handled) {
+            int keyCode = physicalKeyCode(event);
+
             // Let this method take duplicate key down events
-            if (handleSpecialKeys(event.getKeyCode(), true)) {
+            if (handleSpecialKeys(keyCode, true)) {
                 return true;
             }
 
@@ -3686,7 +3702,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
 
             // We'll send it as a raw key event if we have a key mapping, otherwise we'll send it
             // as UTF-8 text (if it's a printable character).
-            short translated = keyboardTranslator.translate(event.getKeyCode(), event.getDeviceId());
+            short translated = keyboardTranslator.translate(keyCode, event.getDeviceId());
             if (translated == 0) {
                 // Make sure it has a valid Unicode representation and it's not a dead character
                 // (which we don't support). If those are true, we can send it as UTF-8 text.
@@ -3709,7 +3725,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             }
 
             sendKeyboardInput(translated, KeyboardPacket.KEY_DOWN, getModifierState(event),
-                    keyboardTranslator.hasNormalizedMapping(event.getKeyCode(), event.getDeviceId()) ? 0 : MoonBridge.SS_KBE_FLAG_NON_NORMALIZED);
+                    keyboardTranslator.hasNormalizedMapping(keyCode, event.getDeviceId()) ? 0 : MoonBridge.SS_KBE_FLAG_NON_NORMALIZED);
         }
 
         return true;
@@ -3754,7 +3770,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
 
         // Try the keyboard handler if it wasn't handled as a game controller
         if (!handled) {
-            if (handleSpecialKeys(event.getKeyCode(), false)) {
+            int keyCode = physicalKeyCode(event);
+            if (handleSpecialKeys(keyCode, false)) {
                 return true;
             }
 
@@ -3763,7 +3780,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 return false;
             }
 
-            short translated = keyboardTranslator.translate(event.getKeyCode(), event.getDeviceId());
+            short translated = keyboardTranslator.translate(keyCode, event.getDeviceId());
             if (translated == 0) {
                 // If we sent this event as UTF-8 on key down, also report that it was handled
                 // when we get the key up event for it.
@@ -3772,7 +3789,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             }
 
             sendKeyboardInput(translated, KeyboardPacket.KEY_UP, getModifierState(event),
-                    keyboardTranslator.hasNormalizedMapping(event.getKeyCode(), event.getDeviceId()) ? 0 : MoonBridge.SS_KBE_FLAG_NON_NORMALIZED);
+                    keyboardTranslator.hasNormalizedMapping(keyCode, event.getDeviceId()) ? 0 : MoonBridge.SS_KBE_FLAG_NON_NORMALIZED);
         }
 
         return true;

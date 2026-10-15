@@ -29,7 +29,7 @@ Use **Controller buttons** to press a digital button and choose what it sends, i
 
 Open **Sticks, triggers and D-pad** after selecting a controller. Each output stick axis can read either stick's horizontal or vertical axis, optionally inverted, or be disabled. Triggers can read either physical trigger or be disabled; their full analog range is preserved. Each D-pad direction can send another direction, a gamepad button, or nothing. These mappings apply to normalized Android and direct-USB reports, after deadzones, and also apply from the next stream. D-pad directions mapped to the same button stay held until every contributing source is released. Reset restores both digital and axis mappings. Axis mappings do not convert a stick into a trigger or emulate keyboard keys.
 
-**Flip face buttons** swaps A/B and X/Y. Raise the stick deadzone if a stationary stick drifts. **Vibrate device for rumble** gives you rumble on the phone or tablet when the controller has no motors.
+**Flip face buttons** swaps A/B and X/Y. Raise the stick deadzone if a stationary stick drifts. **Vibrate device for rumble** gives you rumble on the phone or tablet when the controller has no motors. **Disable rumble** (off by default) stops every vibration the host asks for: controller and trigger rumble, USB DualSense waveform haptics and the device vibration above. It applies from the next stream.
 
 ### DualSense and USB
 
@@ -52,6 +52,8 @@ The separate **USB controller driver** setting supplies Xbox USB support. **Alwa
 ### Controller mouse mode
 
 With **Controller mouse mode** enabled, hold **Start** to toggle it. By default the left stick moves the pointer, the right stick scrolls, **A** left-clicks and **B** right-clicks. **Scroll with an analog stick** can swap the sticks or make both move the pointer.
+
+**Fixed-step mouse movement** (off by default) helps with small targets: while you hold **X**, each stick push moves the pointer a fixed number of pixels in the stick's direction instead of speeding up with the push. Press **Y** to double the step, 1, 2, 4 and so on up to 128 pixels, then back to 1; a short message shows the new step.
 
 ## Touch modes
 
@@ -78,6 +80,13 @@ Open the stream menu and select **Keyboard** in its top row for Android's on-scr
 Select **stream menu → Input → Extra keyboard keys** for a toolbar with Esc, Tab, Enter, Backspace, Delete, Home/End, Page Up/Down, arrows and F1–F12. Scroll each row horizontally to reach more keys. Ctrl, Alt, Shift and Win apply to the next key pressed in this toolbar, then reset. **Hide keys** closes the toolbar; **Keyboard** opens Android's text keyboard.
 
 The toolbar also provides **Task Manager** (Ctrl+Shift+Esc), **Switch window** (Alt+Tab) and **Close window** (Alt+F4). To stop an unresponsive app, open Task Manager and use its **End task** action on the host. These controls require the host's keyboard permission.
+
+### Keyboard options
+
+Both are in **Settings → Controls → Keyboard** and off by default.
+
+- **Keyboard Back sends Windows key**: the Back key of a physical keyboard sends the Windows key (Command on a Mac host). Only keyboard Back changes: a controller's Back, a TV remote, Android's navigation button or Back gesture and a mouse's right-click Back keep their usual roles. With this on, open the stream menu with **Ctrl+Alt+Shift+M**, Android's Back gesture or navigation button, or **Start+Back+LB+RB** on a controller. While input is released (Ctrl+Alt+Shift+Z), keyboard Back opens the menu as before.
+- **Right Alt as Command**: Right Alt sends the Windows key, which macOS hosts use as Command, so Right Alt+C and Right Alt+V copy and paste. Left Alt stays Alt. Leave it off if you type characters with AltGr, since Right Alt then no longer works as AltGr.
 
 ### Custom keyboard shortcuts
 
@@ -169,12 +178,13 @@ In Settings, Right opens the selected switch's help (Left in RTL). TV settings p
 
 | Shortcut | Action |
 | --- | --- |
-| Android Back / Ctrl+Alt+Shift+M | Open the stream menu. Back in a page of the menu returns to the menu; Back again closes it. |
+| Android Back / Ctrl+Alt+Shift+M | Open the stream menu. Back in a page of the menu returns to the menu; Back again closes it. With **Keyboard Back sends Windows key** on, a keyboard's Back key sends Win instead. |
 | Ctrl+Alt+Shift+S | Show or hide the performance overlay. |
 | Ctrl+Alt+Shift+Z | Toggle input capture. |
 | Ctrl+Alt+Shift+C | Toggle the local cursor's visibility and recapture input if needed. With a mouse attached, **stream menu → Input → Show mouse cursor** does the same. |
 | Ctrl+Alt+Shift+Q | Disconnect the local stream; the PC app stays running unless it is set to quit when you leave. |
 | Hold Start on a controller | Toggle controller mouse mode when enabled. |
+| Hold X / press Y in controller mouse mode | Move in fixed steps / double the step, with **Fixed-step mouse movement** on. |
 | Start+Back+LB+RB on a controller, USB-driver pads included | Open the stream menu once all four are released. The stream keeps running. |
 | Start+LB when the controller has no Select/Back button | Send Select/Back. |
 | Start+Select when the controller has no Guide button | Send Guide; without Select, use Start+RB. |

@@ -72,6 +72,10 @@ public class PreferenceConfiguration {
     private static final String ENABLE_PERF_OVERLAY_STRING = "checkbox_enable_perf_overlay";
     private static final String BIND_ALL_USB_STRING = "checkbox_usb_bind_all";
     private static final String MOUSE_EMULATION_STRING = "checkbox_mouse_emulation";
+    private static final String MOUSE_EMULATION_FIXED_STEP_STRING = "checkbox_mouse_emulation_fixed_step";
+    private static final String DISABLE_RUMBLE_PREF_STRING = "checkbox_disable_rumble";
+    private static final String BACK_AS_META_PREF_STRING = "checkbox_back_as_meta";
+    private static final String RIGHT_ALT_AS_META_PREF_STRING = "checkbox_right_alt_as_meta";
     private static final String ANALOG_SCROLLING_PREF_STRING = "analog_scrolling";
     private static final String MOUSE_NAV_BUTTONS_STRING = "checkbox_mouse_nav_buttons";
     static final String UNLOCK_FPS_STRING = "checkbox_unlock_fps";
@@ -190,6 +194,10 @@ public class PreferenceConfiguration {
     public boolean enableLatencyToast;
     public boolean bindAllUsb;
     public boolean mouseEmulation;
+    public boolean mouseEmulationFixedStep;
+    public boolean disableRumble;
+    public boolean backAsMeta;
+    public boolean rightAltAsMeta;
     public AnalogStickForScrolling analogStickForScrolling;
     public boolean mouseNavButtons;
     public boolean unlockFps;
@@ -923,6 +931,10 @@ public class PreferenceConfiguration {
         config.enablePerfOverlay = prefs.getBoolean(ENABLE_PERF_OVERLAY_STRING, DEFAULT_ENABLE_PERF_OVERLAY);
         config.bindAllUsb = prefs.getBoolean(BIND_ALL_USB_STRING, DEFAULT_BIND_ALL_USB);
         config.mouseEmulation = prefs.getBoolean(MOUSE_EMULATION_STRING, DEFAULT_MOUSE_EMULATION);
+        config.mouseEmulationFixedStep = prefs.getBoolean(MOUSE_EMULATION_FIXED_STEP_STRING, false);
+        config.disableRumble = prefs.getBoolean(DISABLE_RUMBLE_PREF_STRING, false);
+        config.backAsMeta = prefs.getBoolean(BACK_AS_META_PREF_STRING, false);
+        config.rightAltAsMeta = prefs.getBoolean(RIGHT_ALT_AS_META_PREF_STRING, false);
         config.mouseNavButtons = prefs.getBoolean(MOUSE_NAV_BUTTONS_STRING, DEFAULT_MOUSE_NAV_BUTTONS);
         config.unlockFps = prefs.getBoolean(UNLOCK_FPS_STRING, DEFAULT_UNLOCK_FPS);
         config.vibrateOsc = prefs.getBoolean(VIBRATE_OSC_PREF_STRING, DEFAULT_VIBRATE_OSC);

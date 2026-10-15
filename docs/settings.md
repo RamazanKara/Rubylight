@@ -67,9 +67,11 @@ These tables include every preference, including actions, grouped as the Setting
 | Flip face buttons<br>`checkbox_flip_face_buttons` | Off | On; Off | Enable to swap A/B and X/Y on physical and on-screen gamepads. |
 | Controller mouse mode<br>`checkbox_mouse_emulation` | On | On; Off | Leave on to toggle controller mouse mode by holding Start. |
 | Scroll with an analog stick<br>`analog_scrolling` | Right analog stick | Both sticks move the mouse; Right analog stick; Left analog stick | Choose which stick scrolls in controller mouse mode. The other moves the pointer; with None, both move it. Requires Controller mouse mode On. |
+| Fixed-step mouse movement<br>`checkbox_mouse_emulation_fixed_step` | Off | On; Off | Enable for precise pointing in controller mouse mode: hold X while moving the stick to move a fixed step; Y doubles the step from 1 to 128 pixels, then wraps to 1. Requires Controller mouse mode On. |
 | Touchpad always moves mouse<br>`checkbox_gamepad_touchpad_as_mouse` | Off | On; Off | Enable to always move the host pointer with the controller touchpad instead of forwarding native touchpad input. |
 | Gamepad motion sensors<br>`checkbox_gamepad_motion_sensors` | On; Off on Android 12 (API 31) | On; Off | Enable for controller gyro/accelerometer input on Android 12+. Fresh Android 12 (API 31) installations override this to Off because of an OS sensor bug. |
 | Use device motion sensors<br>`checkbox_gamepad_motion_fallback` | Off | On; Off | Enable to use this device's motion sensors when a controller lacks them. Hidden if the device has neither gyro nor accelerometer. |
+| Disable rumble<br>`checkbox_disable_rumble` | Off | On; Off | Enable to stop every vibration the host asks for: controller and trigger rumble, USB DualSense waveform haptics and Vibrate device for rumble. Checked once at stream start. |
 | Vibrate device for rumble<br>`checkbox_vibrate_fallback` | Off | On; Off | Enable to feel host rumble on this device when the controller has no rumble motors. |
 | Device vibration strength<br>`seekbar_vibrate_fallback_strength` | 100% | 1%–200%; step 1% | Adjust device rumble strength; 100% is normal strength. Requires Vibrate device for rumble On. |
 
@@ -108,6 +110,8 @@ These tables include every preference, including actions, grouped as the Setting
 | Setting / preference key | Default | Choices and units | When to change or use |
 | --- | --- | --- | --- |
 | Keyboard shortcuts<br>`keyboard_shortcuts_editor` | No stored default | Action | Create, edit or delete up to 32 named keyboard chords for the extra keyboard toolbar. Import/export JSON files to transfer them; importing asks before replacing the saved list. See [custom keyboard shortcuts](controls.md#custom-keyboard-shortcuts). |
+| Keyboard Back sends Windows key<br>`checkbox_back_as_meta` | Off | On; Off | Enable to send the Windows key from a physical keyboard's Back key. Controllers, remotes and Android's Back gesture keep opening the stream menu, as does Ctrl+Alt+Shift+M. See [keyboard options](controls.md#keyboard-options). |
+| Right Alt as Command<br>`checkbox_right_alt_as_meta` | Off | On; Off | Enable on a Mac host so Right Alt acts as Command (the Windows key). Left Alt is unchanged; leave off if you type with AltGr. |
 
 ### Audio
 

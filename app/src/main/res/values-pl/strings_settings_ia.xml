@@ -25,7 +25,7 @@
     <string name="upscaling_pyrowave_short">PyroWave używa SGSR</string>
     <string name="title_low_latency_decoding">Dekodowanie o niskim opóźnieniu</string>
     <string name="summary_low_latency_decoding">Używa trybów niskiego opóźnienia Androida i dekodera chipsetu oraz pozwala Androidowi dostrajać wydajność podczas strumieniowania. Wyłącz tylko w celu zbadania problemu z dekodowaniem.</string>
-    <string name="settings_touch_mode_help">Touchpad: przeciągnij, aby przesunąć kursor, dotknij, aby kliknąć.\nMysz bezpośrednia: kursor przesuwa się w miejsce dotknięcia.\nWielodotyk: dotknięcia trafiają do komputera jako dotyk. Bez obsługi przez host działa jak Mysz bezpośrednia.</string>
+    <string name="settings_touch_mode_help">Touchpad: przeciągnij, aby przesunąć kursor, dotknij, aby kliknąć.\nMysz bezpośrednia: kursor przesuwa się w miejsce dotknięcia.\nWielodotyk: dotknięcia trafiają do komputera jako dotyk. Bez obsługi przez host działa jak Mysz bezpośrednia.\nKursor lokalny: wskaźnik rysowany na tym urządzeniu od razu podąża za palcem; stuknij, aby kliknąć tam, gdzie wskazuje.\nDotyk wyłączony: ekran ignoruje dotyk, gdy grasz na kontrolerze. Przesuń wstecz lub naciśnij Wstecz, aby otworzyć menu strumienia.</string>
     <string name="resolution_screen">Rozmiar ekranu (%1$s)</string>
     <string name="resolution_screen_cutout">Rozmiar ekranu z pominięciem wycięcia aparatu (%1$s)</string>
     <string name="resolution_screen_portrait">Rozmiar ekranu, pionowo (%1$s)</string>

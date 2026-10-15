@@ -16,6 +16,8 @@
         <item>Trackpad</item>
         <item>Direct mouse</item>
         <item>Multi-touch</item>
+        <item>Local cursor</item>
+        <item>Touch off</item>
     </string-array>
     <string-array name="stream_control_layout_actions">
         <item>Move controls</item>

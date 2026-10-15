@@ -16,6 +16,8 @@
         <item>Трекпад</item>
         <item>Пряме керування мишею</item>
         <item>Мультитач</item>
+        <item>Локальний курсор</item>
+        <item>Сенсор вимкнено</item>
     </string-array>
     <string-array name="stream_control_layout_actions">
         <item>Перемістити елементи</item>

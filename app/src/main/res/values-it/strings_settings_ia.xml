@@ -25,7 +25,7 @@
     <string name="upscaling_pyrowave_short">PyroWave usa SGSR</string>
     <string name="title_low_latency_decoding">Decodifica a bassa latenza</string>
     <string name="summary_low_latency_decoding">Usa le modalità a bassa latenza di Android e del decoder del chipset e consente ad Android di ottimizzare le prestazioni durante lo streaming. Disattivala solo per testare un problema di decodifica.</string>
-    <string name="settings_touch_mode_help">Trackpad: trascina per muovere il cursore, tocca per fare clic.\nMouse diretto: il cursore va dove tocchi.\nMulti-touch: i tocchi arrivano al PC come input touch. Senza il supporto dell’host funziona come Mouse diretto.</string>
+    <string name="settings_touch_mode_help">Trackpad: trascina per muovere il cursore, tocca per fare clic.\nMouse diretto: il cursore va dove tocchi.\nMulti-touch: i tocchi arrivano al PC come input touch. Senza il supporto dell’host funziona come Mouse diretto.\nCursore locale: un puntatore disegnato su questo dispositivo segue subito il dito; tocca per fare clic dove punta.\nTouch disattivato: lo schermo ignora il tocco mentre giochi con un controller. Scorri indietro o premi Indietro per il menu dello stream.</string>
     <string name="resolution_screen">Dimensioni schermo (%1$s)</string>
     <string name="resolution_screen_cutout">Dimensioni schermo, evitando il foro della fotocamera (%1$s)</string>
     <string name="resolution_screen_portrait">Dimensioni schermo, verticale (%1$s)</string>

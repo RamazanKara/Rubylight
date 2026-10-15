@@ -47,6 +47,7 @@ import java.util.List;
 import java.util.Locale;
 
 import com.limelight.BuildConfig;
+import com.limelight.binding.input.touch.TouchMode;
 import com.limelight.LimeLog;
 import com.limelight.PcView;
 import com.limelight.R;
@@ -737,8 +738,7 @@ public class StreamSettings extends AppCompatActivity {
                 } else if (pref instanceof SeekBarPreference) {
                     value = ((SeekBarPreference) pref).getValueText();
                 } else if ("checkbox_touchscreen_trackpad".equals(pref.getKey())) {
-                    int mode = prefs.getBoolean("checkbox_touchscreen_trackpad", true) ? 0 :
-                            prefs.getBoolean("checkbox_native_touch", false) ? 2 : 1;
+                    int mode = storedTouchMode(prefs);
                     value = getResources().getStringArray(R.array.stream_touch_modes)[mode];
                 } else if (LOW_LATENCY_DECODING_KEY.equals(pref.getKey())) {
                     // On only when every part is on; a part turned off in Developer options says so here.
@@ -1075,6 +1075,11 @@ public class StreamSettings extends AppCompatActivity {
             }
         }
 
+        private static int storedTouchMode(SharedPreferences prefs) {
+            return TouchMode.resolve(prefs.getString(TouchMode.PREF, null),
+                    prefs.getBoolean(TouchMode.TRACKPAD_PREF, true), prefs.getBoolean(TouchMode.NATIVE_TOUCH_PREF, false));
+        }
+
         private void confirmReset() {
             AlertDialog confirm = new MaterialAlertDialogBuilder(getActivity()).setTitle(R.string.dialog_reset_settings_title)
                     .setMessage(R.string.dialog_reset_settings_text)
@@ -1202,12 +1207,12 @@ public class StreamSettings extends AppCompatActivity {
             });
             findPreference("checkbox_touchscreen_trackpad").setOnPreferenceClickListener(preference -> {
                 SharedPreferences prefs = getPreferenceManager().getSharedPreferences();
-                int selected = prefs.getBoolean("checkbox_touchscreen_trackpad", true) ? 0 :
-                        prefs.getBoolean("checkbox_native_touch", false) ? 2 : 1;
+                int selected = storedTouchMode(prefs);
                 AlertDialog picker = new MaterialAlertDialogBuilder(getActivity()).setTitle(R.string.stream_touch_mode)
                         .setSingleChoiceItems(R.array.stream_touch_modes, selected, (dialog, which) -> {
-                            prefs.edit().putBoolean("checkbox_touchscreen_trackpad", which == 0)
-                                    .putBoolean("checkbox_native_touch", which == 2).apply();
+                            SharedPreferences.Editor editor = prefs.edit();
+                            TouchMode.save(editor, which);
+                            editor.apply();
                             dialog.dismiss();
                         }).setNeutralButton(R.string.help, null)
                         .setNegativeButton(android.R.string.cancel, null).create();

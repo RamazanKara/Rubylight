@@ -16,6 +16,8 @@
         <item>트랙패드</item>
         <item>다이렉트 마우스</item>
         <item>멀티 터치</item>
+        <item>로컬 커서</item>
+        <item>터치 끄기</item>
     </string-array>
     <string-array name="stream_control_layout_actions">
         <item>컨트롤 이동</item>

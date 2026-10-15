@@ -16,6 +16,8 @@
         <item>Trackpad</item>
         <item>Doğrudan fare</item>
         <item>Çoklu dokunma</item>
+        <item>Yerel imleç</item>
+        <item>Dokunma kapalı</item>
     </string-array>
     <string-array name="stream_control_layout_actions">
         <item>Kontrolleri taşı</item>

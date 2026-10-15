@@ -22,6 +22,13 @@
         <requestFocus />
     </com.limelight.ui.StreamView>
 
+    <com.limelight.ui.LocalCursorView
+        android:id="@+id/localCursor"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top|start"
+        android:visibility="gone" />
+
     <TextView
         android:id="@+id/inputOnlyStatus"
         android:layout_width="match_parent"

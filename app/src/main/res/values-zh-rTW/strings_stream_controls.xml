@@ -16,6 +16,8 @@
         <item>觸控板</item>
         <item>直接滑鼠</item>
         <item>多點觸控</item>
+        <item>本機游標</item>
+        <item>關閉觸控</item>
     </string-array>
     <string-array name="stream_control_layout_actions">
         <item>移動控制按鈕</item>

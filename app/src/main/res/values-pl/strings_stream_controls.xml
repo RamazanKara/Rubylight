@@ -16,6 +16,8 @@
         <item>Touchpad</item>
         <item>Mysz bezpośrednia</item>
         <item>Wielodotyk</item>
+        <item>Kursor lokalny</item>
+        <item>Dotyk wyłączony</item>
     </string-array>
     <string-array name="stream_control_layout_actions">
         <item>Przesuń elementy</item>

@@ -34,7 +34,9 @@
     <string name="title_low_latency_decoding">Low-latency decoding</string>
     <string name="summary_low_latency_decoding">Uses the low-latency modes of Android and the chipset’s decoder, and lets Android tune performance while you stream. Turn it off only to test a decoding problem.</string>
 
-    <string name="settings_touch_mode_help">Trackpad: drag to move the cursor, tap to click.\nDirect mouse: the cursor goes where you tap.\nMulti-touch: touches reach the PC as touch input. Without host support this works like Direct mouse.</string>
+    <string name="settings_touch_mode_help">Trackpad: drag to move the cursor, tap to click.\nDirect mouse: the cursor goes where you tap.\nMulti-touch: touches reach the PC as touch input. Without host support this works like Direct mouse.
+Local cursor: a pointer drawn on this device follows your finger at once; tap to click where it points.
+Touch off: the screen ignores touch while you play with a controller. Swipe back or press Back for the stream menu.</string>
 
     <!-- Resolution and frame rate choices that come from this device's screen -->
     <string name="resolution_screen">Screen size (%1$s)</string>

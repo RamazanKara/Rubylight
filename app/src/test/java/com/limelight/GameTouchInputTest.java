@@ -9,6 +9,8 @@ import android.widget.FrameLayout;
 
 import com.limelight.binding.input.HeldInputState;
 import com.limelight.binding.input.TouchLayout;
+import com.limelight.binding.input.touch.TouchMode;
+import com.limelight.binding.input.touch.TrackpadPointer;
 import com.limelight.nvstream.NvConnection;
 import com.limelight.nvstream.StreamConfiguration;
 import com.limelight.nvstream.http.ComputerDetails;
@@ -145,6 +147,154 @@ public class GameTouchInputTest {
         }
     }
 
+    @Test
+    public void localCursorSendsWhereTheDrawnPointerIs() {
+        RecordingConnection connection = new RecordingConnection();
+        Game game = game(connection);
+        PreferenceConfiguration config = touchConfig(game, TouchMode.LOCAL_CURSOR);
+        config.localCursorSpeed = 50;
+        View background = layout(game, 0, 0);
+        ReflectionHelpers.callInstanceMethod(game, "initializeTouchContexts");
+        touchAt(game, background, MotionEvent.ACTION_DOWN, 500, 250, 1000);
+        touchAt(game, background, MotionEvent.ACTION_MOVE, 700, 250, 1100);
+        touchAt(game, background, MotionEvent.ACTION_MOVE, 700, -2000, 1200);
+        touchAt(game, background, MotionEvent.ACTION_UP, 700, -2000, 1300);
+        // The pointer starts in the middle, moves at half speed and stops at the edge.
+        assertArrayEquals(new int[] {400, 200, 800, 400}, connection.positions.get(0));
+        assertArrayEquals(new int[] {500, 200, 800, 400}, connection.positions.get(1));
+        assertArrayEquals(new int[] {500, 0, 800, 400}, connection.positions.get(2));
+        assertTrue(connection.moves.isEmpty());
+    }
+
+    @Test
+    public void touchOffIgnoresFingers() {
+        RecordingConnection connection = new RecordingConnection();
+        Game game = game(connection);
+        touchConfig(game, TouchMode.OFF);
+        View background = layout(game, 0, 0);
+        ReflectionHelpers.callInstanceMethod(game, "initializeTouchContexts");
+        touchAt(game, background, MotionEvent.ACTION_DOWN, 500, 250, 1000);
+        touchAt(game, background, MotionEvent.ACTION_MOVE, 700, 250, 1100);
+        touchAt(game, background, MotionEvent.ACTION_UP, 700, 250, 1150);
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(1, TimeUnit.SECONDS);
+        assertTrue(connection.positions.isEmpty());
+        assertTrue(connection.moves.isEmpty());
+        assertTrue(connection.buttons.isEmpty());
+    }
+
+    @Test
+    public void trackpadGesturesStartOnlyInsideTheArea() {
+        RecordingConnection connection = new RecordingConnection();
+        Game game = game(connection);
+        touchConfig(game, TouchMode.TRACKPAD).trackpadArea = "right_half";
+        FrameLayout container = streamContainer(game, null);
+        ReflectionHelpers.callInstanceMethod(game, "initializeTouchContexts");
+        int[] first = {0};
+        dispatch(container, MotionEvent.ACTION_DOWN, 0, first, new float[] {100, 200});
+        dispatch(container, MotionEvent.ACTION_UP, 0, first, new float[] {100, 200});
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(200, TimeUnit.MILLISECONDS);
+        assertTrue(connection.buttons.isEmpty());
+        dispatch(container, MotionEvent.ACTION_DOWN, 0, first, new float[] {600, 200});
+        dispatch(container, MotionEvent.ACTION_UP, 0, first, new float[] {600, 200});
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(200, TimeUnit.MILLISECONDS);
+        assertEquals(java.util.Arrays.asList("down 1", "up 1"), connection.buttons);
+    }
+
+    @Test
+    public void threeFingerTapCanMiddleClick() {
+        RecordingConnection connection = new RecordingConnection();
+        Game game = game(connection);
+        touchConfig(game, TouchMode.TRACKPAD).threeFingerTap = "middle_click";
+        FrameLayout container = streamContainer(game, null);
+        ReflectionHelpers.callInstanceMethod(game, "initializeTouchContexts");
+        float[] a = {300, 200}, b = {400, 200}, c = {500, 200};
+        dispatch(container, MotionEvent.ACTION_DOWN, 0, new int[] {0}, a);
+        dispatch(container, MotionEvent.ACTION_POINTER_DOWN, 1, new int[] {0, 1}, a, b);
+        dispatch(container, MotionEvent.ACTION_POINTER_DOWN, 2, new int[] {0, 1, 2}, a, b, c);
+        dispatch(container, MotionEvent.ACTION_POINTER_UP, 0, new int[] {0, 1, 2}, a, b, c);
+        dispatch(container, MotionEvent.ACTION_POINTER_UP, 0, new int[] {1, 2}, b, c);
+        dispatch(container, MotionEvent.ACTION_UP, 0, new int[] {2}, c);
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(200, TimeUnit.MILLISECONDS);
+        assertEquals(java.util.Arrays.asList("down 2", "up 2"), connection.buttons);
+    }
+
+    @Test
+    public void momentumGlidesAfterAFlickAndStopsOnTheNextTouch() {
+        RecordingConnection connection = new RecordingConnection();
+        Game game = game(connection);
+        touchConfig(game, TouchMode.TRACKPAD).trackpadMomentum = true;
+        View background = layout(game, 0, 0);
+        ReflectionHelpers.callInstanceMethod(game, "initializeTouchContexts");
+        flick(game, background);
+        int afterFlick = connection.moves.size();
+        TrackpadPointer pointer = ReflectionHelpers.getField(game, "trackpadPointer");
+        assertTrue(pointer.isGliding());
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(100, TimeUnit.MILLISECONDS);
+        assertTrue(connection.moves.size() > afterFlick);
+
+        long now = android.os.SystemClock.uptimeMillis();
+        touchAt(game, background, MotionEvent.ACTION_DOWN, 500, 250, now);
+        assertFalse(pointer.isGliding());
+        int afterTouch = connection.moves.size();
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(1, TimeUnit.SECONDS);
+        assertEquals(afterTouch, connection.moves.size());
+        touchAt(game, background, MotionEvent.ACTION_UP, 500, 250, now + 50);
+
+        // Focus loss, mode changes, releasing input and PiP all cancel touch input first.
+        flick(game, background);
+        assertTrue(pointer.isGliding());
+        ReflectionHelpers.callInstanceMethod(game, "cancelTouchInput");
+        assertFalse(pointer.isGliding());
+        int afterCancel = connection.moves.size();
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(1, TimeUnit.SECONDS);
+        assertEquals(afterCancel, connection.moves.size());
+    }
+
+    @Test
+    public void withoutMomentumAFlickStopsWithTheFinger() {
+        RecordingConnection connection = new RecordingConnection();
+        Game game = game(connection);
+        touchConfig(game, TouchMode.TRACKPAD);
+        View background = layout(game, 0, 0);
+        ReflectionHelpers.callInstanceMethod(game, "initializeTouchContexts");
+        flick(game, background);
+        int afterFlick = connection.moves.size();
+        assertTrue(afterFlick > 0);
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(1, TimeUnit.SECONDS);
+        assertEquals(afterFlick, connection.moves.size());
+    }
+
+    private static void flick(Game game, View view) {
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(1, TimeUnit.SECONDS);
+        long start = android.os.SystemClock.uptimeMillis();
+        touchAt(game, view, MotionEvent.ACTION_DOWN, 100, 250, start);
+        for (int i = 1; i <= 8; i++) {
+            touchAt(game, view, MotionEvent.ACTION_MOVE, 100 + i * 40, 250, start + i * 8);
+        }
+        touchAt(game, view, MotionEvent.ACTION_UP, 420, 250, start + 66);
+    }
+
+    private static PreferenceConfiguration touchConfig(Game game, int mode) {
+        PreferenceConfiguration config = ReflectionHelpers.getField(game, "prefConfig");
+        config.touchMode = mode;
+        config.touchscreenTrackpad = TouchMode.legacyTrackpad(mode);
+        config.width = 800;
+        config.height = 400;
+        config.trackpadSpeed = 100;
+        config.localCursorSpeed = 100;
+        return config;
+    }
+
+    private static void touchAt(Game game, View view, int action, float x, float y, long time) {
+        MotionEvent event = MotionEvent.obtain(1000, time, action, x, y, 0);
+        event.setSource(InputDevice.SOURCE_TOUCHSCREEN);
+        try {
+            assertTrue(game.onTouch(view, event));
+        } finally {
+            event.recycle();
+        }
+    }
+
     private static GameTouchControls touchControls(Game game) {
         game.setTheme(R.style.AppTheme);
         new TouchLayout(Collections.singletonList(new TouchLayout.Button("w", "W", new int[] {51}, 0,
@@ -171,7 +321,7 @@ public class GameTouchInputTest {
         FrameLayout container = new FrameLayout(game);
         container.addView(stream);
         container.addView(background);
-        container.addView(controls);
+        if (controls != null) container.addView(controls);
         container.measure(View.MeasureSpec.makeMeasureSpec(800, View.MeasureSpec.EXACTLY),
                 View.MeasureSpec.makeMeasureSpec(400, View.MeasureSpec.EXACTLY));
         container.layout(0, 0, 800, 400);
@@ -229,6 +379,8 @@ public class GameTouchInputTest {
     private static class RecordingConnection extends NvConnection {
         final List<int[]> positions = new ArrayList<>();
         final List<float[]> touches = new ArrayList<>();
+        final List<int[]> moves = new ArrayList<>();
+        final List<String> buttons = new ArrayList<>();
         // Pointers the host considers pressed.
         final Set<Integer> heldTouches = new HashSet<>();
 
@@ -241,8 +393,9 @@ public class GameTouchInputTest {
         @Override public void sendMousePosition(short x, short y, short width, short height) {
             positions.add(new int[] {x, y, width, height});
         }
-        @Override public void sendMouseButtonDown(byte button) { }
-        @Override public void sendMouseButtonUp(byte button) { }
+        @Override public void sendMouseMove(short x, short y) { moves.add(new int[] {x, y}); }
+        @Override public void sendMouseButtonDown(byte button) { buttons.add("down " + button); }
+        @Override public void sendMouseButtonUp(byte button) { buttons.add("up " + button); }
         @Override public int sendTouchEvent(byte event, int pointer, float x, float y, float pressure,
                                             float major, float minor, short rotation) {
             touches.add(new float[] {x, y});

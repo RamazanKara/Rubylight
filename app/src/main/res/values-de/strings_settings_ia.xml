@@ -32,7 +32,7 @@
     <string name="title_low_latency_decoding">Latenzarmes Dekodieren</string>
     <string name="summary_low_latency_decoding">Nutzt die latenzarmen Modi von Android und dem Decoder des Chipsatzes und lässt Android die Leistung beim Streamen anpassen. Schalte es nur aus, um ein Dekodierproblem zu testen.</string>
 
-    <string name="settings_touch_mode_help">Trackpad: Zum Bewegen des Mauszeigers ziehen, zum Klicken tippen.\nDirekte Maussteuerung: Der Mauszeiger springt dorthin, wo du tippst.\nMultitouch: Berührungen kommen am PC als Touch-Eingabe an. Ohne Unterstützung durch den Host funktioniert das wie die direkte Maussteuerung.</string>
+    <string name="settings_touch_mode_help">Trackpad: Zum Bewegen des Mauszeigers ziehen, zum Klicken tippen.\nDirekte Maussteuerung: Der Mauszeiger springt dorthin, wo du tippst.\nMultitouch: Berührungen kommen am PC als Touch-Eingabe an. Ohne Unterstützung durch den Host funktioniert das wie die direkte Maussteuerung.\nLokaler Mauszeiger: Ein auf diesem Gerät gezeichneter Mauszeiger folgt deinem Finger sofort; tippe, um dort zu klicken, wohin er zeigt.\nTouch aus: Der Bildschirm ignoriert Berührungen, während du mit einem Controller spielst. Wische zurück oder drücke Zurück für das Stream-Menü.</string>
 
     <!-- Resolution and frame rate choices that come from this device's screen -->
     <string name="resolution_screen">Bildschirmgröße (%1$s)</string>

@@ -10,7 +10,13 @@ import com.limelight.binding.input.MouseDeltaAccumulator;
 import com.limelight.binding.input.capture.InputCaptureManager;
 import com.limelight.binding.input.capture.InputCaptureProvider;
 import com.limelight.binding.input.touch.AbsoluteTouchContext;
+import com.limelight.binding.input.touch.PointerAcceleration;
 import com.limelight.binding.input.touch.RelativeTouchContext;
+import com.limelight.binding.input.touch.ThreeFingerTap;
+import com.limelight.binding.input.touch.TouchMode;
+import com.limelight.binding.input.touch.TouchMomentum;
+import com.limelight.binding.input.touch.TrackpadArea;
+import com.limelight.binding.input.touch.TrackpadPointer;
 import com.limelight.binding.input.driver.UsbDriverService;
 import com.limelight.binding.input.evdev.EvdevListener;
 import com.limelight.binding.input.touch.TouchContext;
@@ -146,7 +152,16 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
 
     // Mouse emulation uses two touches; native touch forwards all pointers.
     private final TouchContext[] touchContextMap = new TouchContext[2];
-    private long threeFingerDownTime = 0;
+    private final ThreeFingerTap threeFingerTap = new ThreeFingerTap();
+    private TrackpadPointer trackpadPointer;
+    private TrackpadArea trackpadArea;
+    // The current finger gesture started outside the trackpad area or while touch is off.
+    private boolean touchGestureIgnored;
+    private boolean middleButtonUpPending;
+    private final Runnable middleButtonUp = () -> {
+        middleButtonUpPending = false;
+        Game.this.conn.sendMouseButtonUp(MouseButtonPacket.BUTTON_MIDDLE);
+    };
     private boolean nativeTouchEnabled;
     private boolean nativeTouchUnsupported;
     private boolean nativeTouchGestureActive;
@@ -157,7 +172,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     private static final int STYLUS_UP_DEAD_ZONE_DELAY = 150;
     private static final int STYLUS_UP_DEAD_ZONE_RADIUS = 50;
 
-    private static final int THREE_FINGER_TAP_THRESHOLD = 300;
+    // Travel allowed for a three-finger tap, in dp.
+    private static final int THREE_FINGER_TAP_SLOP_DP = 40;
 
     private ControllerHandler controllerHandler;
     private KeyboardTranslator keyboardTranslator;
@@ -599,6 +615,10 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         streamView = findViewById(R.id.surfaceView);
         initializeVideoOutput();
         streamView.setOnGenericMotionListener(this);
+        // Keeps the Local cursor pointer over the same stream pixel when the stream moves or resizes.
+        streamView.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> {
+            if (trackpadPointer != null) trackpadPointer.syncCursor();
+        });
         streamView.setOnKeyListener(this);
         streamView.setInputCallbacks(this);
         adaptiveLayout = com.limelight.ui.AdaptiveLayout.attach(this, findViewById(android.R.id.content));
@@ -913,6 +933,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         initializeTouchContexts();
 
         desktopGestures = new com.limelight.ui.DesktopGestures(this, streamView, this::cancelTouchInput);
+        trackpadPointer.setViewport(desktopGestures.viewport());
         if (app.getRole() != NvApp.Role.REMOTE_MONITOR) {
             String profile = com.limelight.binding.input.TouchLayout.profileKey(getIntent().getStringExtra(EXTRA_PC_UUID),
                     app.getAppUuid(), app.getAppId());
@@ -1001,6 +1022,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 });
                 presentation.show();
                 prefConfig.touchscreenTrackpad = true;
+                // The phone is the touchpad; a pointer drawn on it would not match the external screen.
+                if (prefConfig.touchMode != TouchMode.OFF) prefConfig.touchMode = TouchMode.TRACKPAD;
                 nativeTouchEnabled = false;
                 TextView hint = findViewById(R.id.inputOnlyStatus);
                 hint.setText(R.string.desktop_touchpad_help); hint.setVisibility(View.VISIBLE);
@@ -1208,12 +1231,18 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 // Disable sensors while in PiP mode
                 controllerHandler.disableSensors();
 
+                if (trackpadPointer != null) {
+                    trackpadPointer.stopMomentum();
+                    trackpadPointer.setCursorShown(false);
+                }
+
                 // Update GameManager state to indicate we're in PiP (still gaming, but interruptible)
                 decoderRenderer.notifyVideoBackground();
                 UiHelper.notifyStreamEnteringPiP(this);
             }
             else {
                 isHidingOverlays = false;
+                if (trackpadPointer != null) trackpadPointer.setCursorShown(true);
                 if (gameTouchControls != null) gameTouchControls.hideForPip(false);
 
                 // Restore overlays to previous state when leaving PiP
@@ -2043,6 +2072,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
 
     @Override
     protected void onPause() {
+        if (trackpadPointer != null) trackpadPointer.stopMomentum();
         if (gameTouchControls != null) gameTouchControls.releaseInput();
         // Shown again on the next stream unless it was read.
         dismissStreamMenuHint(false);
@@ -2258,7 +2288,10 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             case KEYBOARD_KEYS: action = this::toggleKeyboardOverlay; break;
             case STRETCH: action = this::toggleStretch; break;
             case ZOOM: action = this::toggleDesktopZoom; break;
-            case ZOOM_RESET: action = () -> desktopGestures.reset(); break;
+            case ZOOM_RESET: action = () -> {
+                desktopGestures.reset();
+                if (trackpadPointer != null) trackpadPointer.syncCursor();
+            }; break;
             case PICTURE_IN_PICTURE: action = this::enterPictureInPictureNow; break;
             case VIDEO_OUTPUT: action = this::showVideoOutputDialog; break;
             case BITRATE: action = this::showBitrateDialog; break;
@@ -2801,10 +2834,55 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     }
 
     private void initializeTouchContexts() {
+        if (trackpadPointer == null) {
+            trackpadPointer = new TrackpadPointer(conn, streamView, findViewById(R.id.localCursor),
+                    prefConfig.absoluteMouseMode,
+                    prefConfig.trackpadAcceleration ? PointerAcceleration.forCurve(prefConfig.trackpadAccelerationCurve) : null,
+                    prefConfig.trackpadMomentum ? new TouchMomentum(prefConfig.trackpadMomentumGlide) : null);
+            trackpadArea = TrackpadArea.forPreset(prefConfig.trackpadArea);
+            if (desktopGestures != null) trackpadPointer.setViewport(desktopGestures.viewport());
+        }
+        trackpadPointer.stopMomentum();
+        trackpadPointer.setReferenceSize(prefConfig.width, prefConfig.height);
+        trackpadPointer.setLocalCursor(touchMode() == TouchMode.LOCAL_CURSOR);
         for (int i = 0; i < touchContextMap.length; i++) {
             touchContextMap[i] = prefConfig.touchscreenTrackpad ?
-                    new RelativeTouchContext(conn, i, prefConfig.width, prefConfig.height, streamView, prefConfig) :
+                    new RelativeTouchContext(conn, i, prefConfig.width, prefConfig.height, streamView, prefConfig,
+                            trackpadPointer) :
                     new AbsoluteTouchContext(conn, i, streamView);
+        }
+    }
+
+    /** The finger touch mode in effect; external displays and tests change the switches directly. */
+    private int touchMode() {
+        if (!prefConfig.touchscreenTrackpad) {
+            return nativeTouchEnabled ? TouchMode.MULTI_TOUCH : TouchMode.DIRECT;
+        }
+        return prefConfig.touchMode == TouchMode.LOCAL_CURSOR || prefConfig.touchMode == TouchMode.OFF ?
+                prefConfig.touchMode : TouchMode.TRACKPAD;
+    }
+
+    private boolean isInTrackpadArea(View view, MotionEvent event) {
+        if (trackpadArea == null || trackpadArea.isFull()) return true;
+        View parent = (View) streamView.getParent();
+        if (parent == null) return true;
+        float x = event.getX(0) + (view != null ? view.getX() : 0);
+        float y = event.getY(0) + (view != null ? view.getY() : 0);
+        return trackpadArea.contains(x, y, parent.getWidth(), parent.getHeight());
+    }
+
+    private void onThreeFingerTap() {
+        if (ThreeFingerTap.MIDDLE_CLICK.equals(prefConfig.threeFingerTap)) {
+            if (middleButtonUpPending) {
+                bitrateHandler.removeCallbacks(middleButtonUp);
+                middleButtonUp.run();
+            }
+            conn.sendMouseButtonDown(MouseButtonPacket.BUTTON_MIDDLE);
+            // Held briefly, like a trackpad tap, so games that poll the buttons see it.
+            middleButtonUpPending = true;
+            bitrateHandler.postDelayed(middleButtonUp, 100);
+        } else {
+            toggleKeyboard();
         }
     }
 
@@ -2819,7 +2897,13 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             conn.sendTouchEvent(MoonBridge.LI_TOUCH_EVENT_CANCEL_ALL, 0, 0, 0, 0, 0, 0, MoonBridge.LI_ROT_UNKNOWN);
             nativeTouchGestureActive = false;
         }
-        threeFingerDownTime = 0;
+        threeFingerTap.reset();
+        touchGestureIgnored = false;
+        if (trackpadPointer != null) trackpadPointer.stopMomentum();
+        if (middleButtonUpPending) {
+            bitrateHandler.removeCallbacks(middleButtonUp);
+            middleButtonUp.run();
+        }
     }
 
     private void showTouchModeDialog() {
@@ -2828,20 +2912,22 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             return;
         }
         String[] modes = getResources().getStringArray(R.array.stream_touch_modes);
-        int selected = prefConfig.touchscreenTrackpad ? 0 : nativeTouchEnabled ? 2 : 1;
         showStreamDialog(new MaterialAlertDialogBuilder(this).setTitle(R.string.stream_touch_mode)
-                .setSingleChoiceItems(modes, selected, (dialog, which) -> {
+                .setSingleChoiceItems(modes, touchMode(), (dialog, which) -> {
                     cancelTouchInput();
-                    prefConfig.touchscreenTrackpad = which == 0;
-                    nativeTouchEnabled = which == 2;
+                    prefConfig.touchMode = which;
+                    prefConfig.touchscreenTrackpad = TouchMode.legacyTrackpad(which);
+                    nativeTouchEnabled = which == TouchMode.MULTI_TOUCH;
                     nativeTouchUnsupported = false;
                     initializeTouchContexts();
-                    PreferenceManager.getDefaultSharedPreferences(this).edit()
-                            .putBoolean("checkbox_touchscreen_trackpad", prefConfig.touchscreenTrackpad)
-                            .putBoolean("checkbox_native_touch", nativeTouchEnabled).apply();
+                    SharedPreferences.Editor editor = PreferenceManager.getDefaultSharedPreferences(this).edit();
+                    TouchMode.save(editor, which);
+                    editor.apply();
                     dialog.dismiss();
                     if (nativeTouchEnabled) {
                         messages.alert(R.string.stream_native_touch_help, Toast.LENGTH_LONG);
+                    } else if (which == TouchMode.OFF) {
+                        messages.alert(R.string.stream_touch_off_help, Toast.LENGTH_LONG);
                     }
                 }).setNegativeButton(android.R.string.cancel, null).create());
     }
@@ -4478,6 +4564,19 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                     return true;
                 }
 
+                if (event.getActionMasked() == MotionEvent.ACTION_DOWN) {
+                    int mode = touchMode();
+                    touchGestureIgnored = mode == TouchMode.OFF ||
+                            (TouchMode.isRelative(mode) && !isInTrackpadArea(view, event));
+                }
+                if (touchGestureIgnored) {
+                    if (event.getActionMasked() == MotionEvent.ACTION_UP ||
+                            event.getActionMasked() == MotionEvent.ACTION_CANCEL) {
+                        touchGestureIgnored = false;
+                    }
+                    return true;
+                }
+
                 if (nativeTouchEnabled && !nativeTouchUnsupported) {
                     if (event.getActionMasked() == MotionEvent.ACTION_DOWN) {
                         nativeTouchGestureActive = true;
@@ -4515,10 +4614,13 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 int eventY = (int)(event.getY(actionIndex) + yOffset);
 
                 // Special handling for 3 finger gesture
+                if (event.getActionMasked() == MotionEvent.ACTION_POINTER_DOWN) {
+                    threeFingerTap.pointers(event.getPointerCount());
+                }
                 if (event.getActionMasked() == MotionEvent.ACTION_POINTER_DOWN &&
                         event.getPointerCount() == 3) {
                     // Three fingers down
-                    threeFingerDownTime = event.getEventTime();
+                    threeFingerTap.start(event.getEventTime(), event.getX(0), event.getY(0));
 
                     // Cancel the first and second touches to avoid
                     // erroneous events
@@ -4548,9 +4650,9 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                     if (event.getPointerCount() == 1 &&
                             (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU || (event.getFlags() & MotionEvent.FLAG_CANCELED) == 0)) {
                         // All fingers up
-                        if (event.getEventTime() - threeFingerDownTime < THREE_FINGER_TAP_THRESHOLD) {
-                            // This is a 3 finger tap to bring up the keyboard
-                            toggleKeyboard();
+                        if (threeFingerTap.finish(event.getEventTime(),
+                                THREE_FINGER_TAP_SLOP_DP * getResources().getDisplayMetrics().density)) {
+                            onThreeFingerTap();
                             return true;
                         }
                     }
@@ -4576,6 +4678,9 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 case MotionEvent.ACTION_MOVE:
                     // ACTION_MOVE is special because it always has actionIndex == 0
                     // We'll call the move handlers for all indexes manually
+                    if (threeFingerTap.isStarted()) {
+                        threeFingerTap.move(event.getX(0), event.getY(0));
+                    }
 
                     // First process the historical events
                     for (int i = 0; i < event.getHistorySize(); i++) {
@@ -4706,7 +4811,10 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             boolean handled;
             try { handled = desktopGestures.onTouch(relative); }
             finally { relative.recycle(); }
-            if (handled) return true;
+            if (handled) {
+                if (trackpadPointer != null) trackpadPointer.syncCursor();
+                return true;
+            }
         }
         if (event.getAction() == MotionEvent.ACTION_DOWN) {
             // Tell the OS not to buffer input events for us
@@ -4735,6 +4843,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     }
 
     private void stopConnection() {
+        if (trackpadPointer != null) trackpadPointer.stopMomentum();
         rememberMicrophoneMute();
         cancelAutomaticRecovery();
         if (gameTouchControls != null) gameTouchControls.releaseInput();

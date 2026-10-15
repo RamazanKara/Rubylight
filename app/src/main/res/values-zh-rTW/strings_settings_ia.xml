@@ -25,7 +25,7 @@
     <string name="upscaling_pyrowave_short">PyroWave 使用 SGSR</string>
     <string name="title_low_latency_decoding">低延遲解碼</string>
     <string name="summary_low_latency_decoding">使用 Android 和晶片組解碼器的低延遲模式，並讓 Android 在串流時調整效能。僅在測試解碼問題時才關閉。</string>
-    <string name="settings_touch_mode_help">觸控板：拖曳即可移動游標，輕觸即可點擊。\n直接滑鼠：游標會移至你輕觸的位置。\n多點觸控：觸控會以觸控輸入傳送至電腦。若主機不支援，運作方式與「直接滑鼠」相同。</string>
+    <string name="settings_touch_mode_help">觸控板：拖曳即可移動游標，輕觸即可點擊。\n直接滑鼠：游標會移至你輕觸的位置。\n多點觸控：觸控會以觸控輸入傳送至電腦。若主機不支援，運作方式與「直接滑鼠」相同。\n本機游標：在本裝置上繪製的指標會立即跟隨手指；輕觸即可在指標所指位置點擊。\n關閉觸控：使用控制器遊玩時，螢幕會忽略觸碰。向後滑動或按返回鍵可開啟串流選單。</string>
     <string name="resolution_screen">螢幕大小 (%1$s)</string>
     <string name="resolution_screen_cutout">螢幕大小，避開相機挖孔 (%1$s)</string>
     <string name="resolution_screen_portrait">螢幕大小，直向 (%1$s)</string>

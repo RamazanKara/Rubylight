@@ -25,7 +25,7 @@
     <string name="upscaling_pyrowave_short">PyroWave SGSR kullanır</string>
     <string name="title_low_latency_decoding">Düşük gecikmeli kod çözme</string>
     <string name="summary_low_latency_decoding">Android’in ve yonga setinin kod çözücüsünün düşük gecikme modlarını kullanır ve yayın sırasında Android’in performansı ayarlamasına izin verir. Yalnızca bir kod çözme sorununu test etmek için kapatın.</string>
-    <string name="settings_touch_mode_help">Trackpad: imleci hareket ettirmek için sürükleyin, tıklamak için dokunun.\nDoğrudan fare: imleç dokunduğunuz yere gider.\nÇoklu dokunma: dokunuşlar bilgisayara dokunma girişi olarak ulaşır. Ana bilgisayar desteği yoksa Doğrudan fare gibi çalışır.</string>
+    <string name="settings_touch_mode_help">Trackpad: imleci hareket ettirmek için sürükleyin, tıklamak için dokunun.\nDoğrudan fare: imleç dokunduğunuz yere gider.\nÇoklu dokunma: dokunuşlar bilgisayara dokunma girişi olarak ulaşır. Ana bilgisayar desteği yoksa Doğrudan fare gibi çalışır.\nYerel imleç: bu cihazda çizilen bir işaretçi parmağınızı anında izler; gösterdiği yere tıklamak için dokunun.\nDokunma kapalı: kumandayla oynarken ekran dokunmaları yok sayar. Yayın menüsü için geri kaydırın veya Geri’ye basın.</string>
     <string name="resolution_screen">Ekran boyutu (%1$s)</string>
     <string name="resolution_screen_cutout">Ekran boyutu, kamera kesiği hariç (%1$s)</string>
     <string name="resolution_screen_portrait">Ekran boyutu, dikey (%1$s)</string>

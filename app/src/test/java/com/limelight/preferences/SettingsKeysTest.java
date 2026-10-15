@@ -147,6 +147,13 @@ public class SettingsKeysTest {
         reads.put("checkbox_usb_dualsense_haptics", new Read(false, true, c -> c.usbDualSenseHaptics));
         reads.put("checkbox_touchscreen_trackpad", new Read(true, false, c -> c.touchscreenTrackpad));
         reads.put("seekbar_trackpad_speed", new Read(100, 200, c -> c.trackpadSpeed));
+        reads.put("seekbar_local_cursor_speed", new Read(100, 200, c -> c.localCursorSpeed));
+        reads.put("checkbox_trackpad_acceleration", new Read(false, true, c -> c.trackpadAcceleration));
+        reads.put("list_trackpad_acceleration_curve", new Read("medium", "strong", c -> c.trackpadAccelerationCurve));
+        reads.put("checkbox_trackpad_momentum", new Read(false, true, c -> c.trackpadMomentum));
+        reads.put("list_trackpad_momentum_glide", new Read("medium", "long", c -> c.trackpadMomentumGlide));
+        reads.put("list_trackpad_area", new Read("full", "right_half", c -> c.trackpadArea));
+        reads.put("list_three_finger_tap", new Read("keyboard", "middle_click", c -> c.threeFingerTap));
         reads.put("seekbar_mouse_speed", new Read(100, 200, c -> c.mouseSpeed));
         reads.put("checkbox_mouse_nav_buttons", new Read(false, true, c -> c.mouseNavButtons));
         reads.put("checkbox_absolute_mouse_mode", new Read(false, true, c -> c.absoluteMouseMode));
@@ -250,6 +257,32 @@ public class SettingsKeysTest {
             } else {
                 prefs().edit().putBoolean(key, true).commit();
             }
+        }
+    }
+
+    @Test
+    public void touchModeKeepsTheOlderSwitchesAndAddsTheNewerModes() {
+        Application app = RuntimeEnvironment.getApplication();
+        PreferenceConfiguration config = PreferenceConfiguration.readPreferences(app);
+        assertEquals(com.limelight.binding.input.touch.TouchMode.TRACKPAD, config.touchMode);
+        assertTrue(config.touchscreenTrackpad);
+
+        prefs().edit().putBoolean("checkbox_touchscreen_trackpad", false).putBoolean("checkbox_native_touch", true).commit();
+        assertEquals(com.limelight.binding.input.touch.TouchMode.MULTI_TOUCH,
+                PreferenceConfiguration.readPreferences(app).touchMode);
+
+        for (int mode : new int[] {com.limelight.binding.input.touch.TouchMode.LOCAL_CURSOR,
+                com.limelight.binding.input.touch.TouchMode.OFF, com.limelight.binding.input.touch.TouchMode.DIRECT}) {
+            SharedPreferences.Editor editor = prefs().edit();
+            com.limelight.binding.input.touch.TouchMode.save(editor, mode);
+            editor.commit();
+            config = PreferenceConfiguration.readPreferences(app);
+            assertEquals(mode, config.touchMode);
+            // Older versions read the same switches as before.
+            assertEquals(mode != com.limelight.binding.input.touch.TouchMode.DIRECT,
+                    prefs().getBoolean("checkbox_touchscreen_trackpad", true));
+            assertEquals(mode != com.limelight.binding.input.touch.TouchMode.DIRECT, config.touchscreenTrackpad);
+            assertFalse(prefs().getBoolean("checkbox_native_touch", true));
         }
     }
 

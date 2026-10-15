@@ -15,6 +15,7 @@ public class RelativeTouchContext implements TouchContext {
     private int originalTouchX = 0;
     private int originalTouchY = 0;
     private long originalTouchTime = 0;
+    private long lastMoveTime = 0;
     private boolean cancelled;
     private boolean confirmedMove;
     private boolean confirmedDrag;
@@ -33,6 +34,8 @@ public class RelativeTouchContext implements TouchContext {
     private final int referenceHeight;
     private final View targetView;
     private final PreferenceConfiguration prefConfig;
+    private final TrackpadPointer pointer;
+    private final float density;
     private final Handler handler;
 
     private final Runnable dragTimerRunnable = new Runnable() {
@@ -72,7 +75,7 @@ public class RelativeTouchContext implements TouchContext {
 
     public RelativeTouchContext(NvConnection conn, int actionIndex,
                                 int referenceWidth, int referenceHeight,
-                                View view, PreferenceConfiguration prefConfig)
+                                View view, PreferenceConfiguration prefConfig, TrackpadPointer pointer)
     {
         this.conn = conn;
         this.actionIndex = actionIndex;
@@ -80,6 +83,8 @@ public class RelativeTouchContext implements TouchContext {
         this.referenceHeight = referenceHeight;
         this.targetView = view;
         this.prefConfig = prefConfig;
+        this.pointer = pointer;
+        this.density = view.getResources().getDisplayMetrics().density;
         this.handler = new Handler(Looper.getMainLooper());
     }
 
@@ -128,11 +133,17 @@ public class RelativeTouchContext implements TouchContext {
     public boolean touchDownEvent(int eventX, int eventY, long eventTime, boolean isNewFinger)
     {
         // Get the view dimensions to scale inputs on this touch
-        xFactor = referenceWidth / (float)targetView.getWidth() * prefConfig.trackpadSpeed / 100f;
-        yFactor = referenceHeight / (float)targetView.getHeight() * prefConfig.trackpadSpeed / 100f;
+        float speed = (pointer.isLocalCursor() ? prefConfig.localCursorSpeed : prefConfig.trackpadSpeed) / 100f;
+        if (pointer.isLocalCursor()) {
+            // Under desktop zoom the drawn pointer keeps pace with the finger on screen.
+            speed /= pointer.zoomScale();
+        }
+        xFactor = referenceWidth / (float)targetView.getWidth() * speed;
+        yFactor = referenceHeight / (float)targetView.getHeight() * speed;
 
         originalTouchX = lastTouchX = eventX;
         originalTouchY = lastTouchY = eventY;
+        lastMoveTime = eventTime;
 
         if (isNewFinger) {
             maxPointerCountInGesture = pointerCount;
@@ -141,6 +152,7 @@ public class RelativeTouchContext implements TouchContext {
             distanceMoved = 0;
 
             if (actionIndex == 0) {
+                pointer.touchDown();
                 // Start the timer for engaging a drag
                 startDragTimer();
             }
@@ -164,6 +176,10 @@ public class RelativeTouchContext implements TouchContext {
         if (confirmedDrag) {
             // Raise the button after a drag
             conn.sendMouseButtonUp(buttonIndex);
+        }
+        else if (actionIndex == 0 && confirmedMove && !confirmedScroll && maxPointerCountInGesture == 1) {
+            // A flick keeps the pointer gliding when momentum is on.
+            pointer.release(eventTime);
         }
         else if (isTap(eventTime))
         {
@@ -237,27 +253,28 @@ public class RelativeTouchContext implements TouchContext {
 
             // We only send moves and drags for the primary touch point
             if (actionIndex == 0) {
-                int deltaX = deltaXAccumulator.scale(eventX - lastTouchX, xFactor);
-                int deltaY = deltaYAccumulator.scale(eventY - lastTouchY, yFactor);
+                float gain = 1;
+                PointerAcceleration acceleration = pointer.acceleration();
+                if (acceleration != null && pointerCount != 2) {
+                    gain = acceleration.gain(PointerAcceleration.speed(eventX - lastTouchX, eventY - lastTouchY,
+                            eventTime - lastMoveTime, density));
+                }
+                int deltaX = deltaXAccumulator.scale(eventX - lastTouchX, xFactor * gain);
+                int deltaY = deltaYAccumulator.scale(eventY - lastTouchY, yFactor * gain);
 
                 if (pointerCount == 2) {
                     if (confirmedScroll) {
                         conn.sendMouseHighResScroll((short)(deltaY * SCROLL_SPEED_FACTOR));
                     }
-                } else if (deltaX != 0 || deltaY != 0) {
-                    if (prefConfig.absoluteMouseMode) {
-                        conn.sendMouseMoveAsMousePosition(
-                                (short) deltaX,
-                                (short) deltaY,
-                                (short) referenceWidth,
-                                (short) referenceHeight);
+                } else {
+                    if (deltaX != 0 || deltaY != 0) {
+                        pointer.moveBy(deltaX, deltaY);
                     }
-                    else {
-                        conn.sendMouseMove((short) deltaX, (short) deltaY);
-                    }
+                    pointer.track(deltaX, deltaY, eventTime);
                 }
 
             }
+            lastMoveTime = eventTime;
             lastTouchX = eventX;
             lastTouchY = eventY;
         }

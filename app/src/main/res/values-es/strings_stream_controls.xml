@@ -16,6 +16,8 @@
         <item>Trackpad</item>
         <item>Ratón directo</item>
         <item>Multitáctil</item>
+        <item>Cursor local</item>
+        <item>Táctil desactivado</item>
     </string-array>
     <string-array name="stream_control_layout_actions">
         <item>Mover controles</item>

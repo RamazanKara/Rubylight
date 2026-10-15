@@ -8,6 +8,11 @@ import android.preference.PreferenceManager;
 import android.hardware.display.DisplayManager;
 import android.view.Display;
 
+import com.limelight.binding.input.touch.PointerAcceleration;
+import com.limelight.binding.input.touch.ThreeFingerTap;
+import com.limelight.binding.input.touch.TouchMode;
+import com.limelight.binding.input.touch.TouchMomentum;
+import com.limelight.binding.input.touch.TrackpadArea;
 import com.limelight.computers.HostCapabilityCache;
 import com.limelight.nvstream.http.HostCapabilities;
 import com.limelight.nvstream.jni.MoonBridge;
@@ -85,6 +90,13 @@ public class PreferenceConfiguration {
     private static final String FLIP_FACE_BUTTONS_PREF_STRING = "checkbox_flip_face_buttons";
     private static final String TOUCHSCREEN_TRACKPAD_PREF_STRING = "checkbox_touchscreen_trackpad";
     private static final String TRACKPAD_SPEED_PREF_STRING = "seekbar_trackpad_speed";
+    private static final String LOCAL_CURSOR_SPEED_PREF_STRING = "seekbar_local_cursor_speed";
+    private static final String TRACKPAD_ACCELERATION_PREF_STRING = "checkbox_trackpad_acceleration";
+    private static final String TRACKPAD_ACCELERATION_CURVE_PREF_STRING = "list_trackpad_acceleration_curve";
+    private static final String TRACKPAD_MOMENTUM_PREF_STRING = "checkbox_trackpad_momentum";
+    private static final String TRACKPAD_MOMENTUM_GLIDE_PREF_STRING = "list_trackpad_momentum_glide";
+    private static final String TRACKPAD_AREA_PREF_STRING = "list_trackpad_area";
+    private static final String THREE_FINGER_TAP_PREF_STRING = "list_three_finger_tap";
     private static final String MOUSE_SPEED_PREF_STRING = "seekbar_mouse_speed";
     private static final String LATENCY_TOAST_PREF_STRING = "checkbox_enable_post_stream_toast";
     static final String FRAME_PACING_PREF_STRING = "frame_pacing";
@@ -205,7 +217,10 @@ public class PreferenceConfiguration {
     public boolean vibrateFallbackToDevice;
     public int vibrateFallbackToDeviceStrength;
     public boolean touchscreenTrackpad;
-    public int trackpadSpeed, mouseSpeed;
+    public int touchMode;
+    public int trackpadSpeed, mouseSpeed, localCursorSpeed;
+    public boolean trackpadAcceleration, trackpadMomentum;
+    public String trackpadAccelerationCurve, trackpadMomentumGlide, trackpadArea, threeFingerTap;
     public MoonBridge.AudioConfiguration audioConfiguration;
     public int framePacing;
     public boolean absoluteMouseMode;
@@ -941,8 +956,22 @@ public class PreferenceConfiguration {
         config.vibrateFallbackToDevice = prefs.getBoolean(VIBRATE_FALLBACK_PREF_STRING, DEFAULT_VIBRATE_FALLBACK);
         config.vibrateFallbackToDeviceStrength = prefs.getInt(VIBRATE_FALLBACK_STRENGTH_PREF_STRING, DEFAULT_VIBRATE_FALLBACK_STRENGTH);
         config.flipFaceButtons = prefs.getBoolean(FLIP_FACE_BUTTONS_PREF_STRING, DEFAULT_FLIP_FACE_BUTTONS);
-        config.touchscreenTrackpad = prefs.getBoolean(TOUCHSCREEN_TRACKPAD_PREF_STRING, DEFAULT_TOUCHSCREEN_TRACKPAD);
+        config.touchMode = TouchMode.resolve(
+                prefs.getString(TouchMode.PREF, null),
+                prefs.getBoolean(TOUCHSCREEN_TRACKPAD_PREF_STRING, DEFAULT_TOUCHSCREEN_TRACKPAD),
+                prefs.getBoolean(TouchMode.NATIVE_TOUCH_PREF, false));
+        config.touchscreenTrackpad = TouchMode.legacyTrackpad(config.touchMode);
         config.trackpadSpeed = Math.max(25, Math.min(400, prefs.getInt(TRACKPAD_SPEED_PREF_STRING, DEFAULT_TRACKPAD_SPEED)));
+        config.localCursorSpeed = Math.max(25, Math.min(400, prefs.getInt(LOCAL_CURSOR_SPEED_PREF_STRING, DEFAULT_TRACKPAD_SPEED)));
+        config.trackpadAcceleration = prefs.getBoolean(TRACKPAD_ACCELERATION_PREF_STRING, false);
+        config.trackpadAccelerationCurve = prefs.getString(TRACKPAD_ACCELERATION_CURVE_PREF_STRING,
+                PointerAcceleration.MEDIUM);
+        config.trackpadMomentum = prefs.getBoolean(TRACKPAD_MOMENTUM_PREF_STRING, false);
+        config.trackpadMomentumGlide = prefs.getString(TRACKPAD_MOMENTUM_GLIDE_PREF_STRING,
+                TouchMomentum.MEDIUM);
+        config.trackpadArea = prefs.getString(TRACKPAD_AREA_PREF_STRING, TrackpadArea.FULL);
+        config.threeFingerTap = prefs.getString(THREE_FINGER_TAP_PREF_STRING,
+                ThreeFingerTap.KEYBOARD);
         config.mouseSpeed = Math.max(25, Math.min(400, prefs.getInt(MOUSE_SPEED_PREF_STRING, DEFAULT_MOUSE_SPEED)));
         config.enableLatencyToast = prefs.getBoolean(LATENCY_TOAST_PREF_STRING, DEFAULT_LATENCY_TOAST);
         config.absoluteMouseMode = prefs.getBoolean(ABSOLUTE_MOUSE_MODE_PREF_STRING, DEFAULT_ABSOLUTE_MOUSE_MODE);

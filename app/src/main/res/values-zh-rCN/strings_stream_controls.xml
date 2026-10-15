@@ -16,6 +16,8 @@
         <item>触控板</item>
         <item>直接鼠标</item>
         <item>多点触控</item>
+        <item>本地光标</item>
+        <item>关闭触控</item>
     </string-array>
     <string-array name="stream_control_layout_actions">
         <item>移动控制按钮</item>

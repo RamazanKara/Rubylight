@@ -25,7 +25,7 @@
     <string name="upscaling_pyrowave_short">PyroWave は SGSR を使用</string>
     <string name="title_low_latency_decoding">低遅延デコード</string>
     <string name="summary_low_latency_decoding">Android とチップセットのデコーダーの低遅延モードを使用し、ストリーミング中は Android がパフォーマンスを調整できるようにします。デコードの問題をテストする場合以外はオフにしないでください。</string>
-    <string name="settings_touch_mode_help">トラックパッド: ドラッグでカーソルを動かし、タップでクリックします。\nダイレクトマウス: タップした位置にカーソルが移動します。\nマルチタッチ: タッチがタッチ入力として PC に届きます。ホストが対応していない場合はダイレクトマウスと同じ動作になります。</string>
+    <string name="settings_touch_mode_help">トラックパッド: ドラッグでカーソルを動かし、タップでクリックします。\nダイレクトマウス: タップした位置にカーソルが移動します。\nマルチタッチ: タッチがタッチ入力として PC に届きます。ホストが対応していない場合はダイレクトマウスと同じ動作になります。\nローカルカーソル: この端末上に描かれたポインタが指にすぐ追従します。タップすると指している位置をクリックします。\nタッチオフ: コントローラで遊んでいる間、画面へのタッチを無視します。戻るジェスチャーまたは戻るボタンでストリームメニューを開きます。</string>
     <string name="resolution_screen">画面サイズ（%1$s）</string>
     <string name="resolution_screen_cutout">画面サイズ、カメラの切り欠きを避ける（%1$s）</string>
     <string name="resolution_screen_portrait">画面サイズ、縦向き（%1$s）</string>

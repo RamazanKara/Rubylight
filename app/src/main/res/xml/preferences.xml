@@ -269,6 +269,51 @@
             android:max="400"
             android:text="%" />
         <com.limelight.preferences.SeekBarPreference
+            android:key="seekbar_local_cursor_speed"
+            android:title="@string/title_local_cursor_speed"
+            android:defaultValue="100"
+            seekbar:min="25"
+            android:max="400"
+            android:text="%" />
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_trackpad_acceleration"
+            android:title="@string/title_trackpad_acceleration"
+            android:dialogMessage="@string/summary_trackpad_acceleration"
+            android:defaultValue="false" />
+        <com.limelight.preferences.MaterialListPreference
+            android:key="list_trackpad_acceleration_curve"
+            android:dependency="checkbox_trackpad_acceleration"
+            android:title="@string/title_trackpad_acceleration_curve"
+            android:entries="@array/trackpad_acceleration_curve_names"
+            android:entryValues="@array/trackpad_acceleration_curve_values"
+            android:defaultValue="medium" />
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_trackpad_momentum"
+            android:title="@string/title_trackpad_momentum"
+            android:dialogMessage="@string/summary_trackpad_momentum"
+            android:defaultValue="false" />
+        <com.limelight.preferences.MaterialListPreference
+            android:key="list_trackpad_momentum_glide"
+            android:dependency="checkbox_trackpad_momentum"
+            android:title="@string/title_trackpad_momentum_glide"
+            android:entries="@array/trackpad_momentum_glide_names"
+            android:entryValues="@array/trackpad_momentum_glide_values"
+            android:defaultValue="medium" />
+        <com.limelight.preferences.MaterialListPreference
+            android:key="list_trackpad_area"
+            android:title="@string/title_trackpad_area"
+            android:dialogMessage="@string/summary_trackpad_area"
+            android:entries="@array/trackpad_area_names"
+            android:entryValues="@array/trackpad_area_values"
+            android:defaultValue="full" />
+        <com.limelight.preferences.MaterialListPreference
+            android:key="list_three_finger_tap"
+            android:title="@string/title_three_finger_tap"
+            android:dialogMessage="@string/summary_three_finger_tap"
+            android:entries="@array/three_finger_tap_names"
+            android:entryValues="@array/three_finger_tap_values"
+            android:defaultValue="keyboard" />
+        <com.limelight.preferences.SeekBarPreference
             android:key="seekbar_mouse_speed"
             android:title="@string/title_mouse_speed"
             android:defaultValue="100"

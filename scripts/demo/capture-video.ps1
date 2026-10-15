@@ -1,4 +1,5 @@
-param([string[]]$Shot)
+# -Theme picks the system theme the app follows (dark by default, matching the stills); the prior mode is restored.
+param([string[]]$Shot, [ValidateSet('dark', 'light')][string]$Theme = 'dark')
 . (Join-Path $PSScriptRoot 'capture-common.ps1')
 $output = Join-Path $root 'out/demo/clips'
 New-Item -ItemType Directory -Force $output | Out-Null
@@ -19,7 +20,7 @@ if ($Shot) {
     $shots = @($shots | Where-Object { $_.Id -in $Shot })
 }
 try {
-    Initialize-Capture
+    Initialize-Capture $Theme
     # A plain dark home screen for the picture-in-picture shot (enabling it launches an activity, so do it before any stream).
     if ($shots | Where-Object State -eq 'pip') { Enable-DemoHome }
     foreach ($take in $shots) {

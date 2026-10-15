@@ -80,15 +80,18 @@ the app. No host or physical controller is needed.
 ```
 
 Run them with PowerShell 7 (`pwsh`). The scripts temporarily set 1080x2400, density 420, portrait rotation,
-a fixed status bar (SystemUI demo mode: 10:30, full battery and signal, no notification icons) and no soft
-keyboard for the emulator's virtual hardware keyboard, then restore the prior values in `finally`.
+the dark system theme (`-Theme light` captures the day palette instead), a fixed status bar (SystemUI demo mode:
+10:30, full battery and signal, no notification icons) and no soft keyboard for the emulator's virtual hardware
+keyboard, then restore the prior values in `finally`. The published stills, store screenshots and video use the
+dark theme: its night surfaces and amber accents are the Nightjar identity, and they sit in the site's dark phone frames.
 On an emulator, software AV1/HEVC 10-bit playback can render corrupt, so every state is launched with
 `--es codec h264` to use the 8-bit sample (the codec extra is debug-only and sticks for the process).
 They force-stop only this package
 between states and at exit. They do not clear app data. Settings navigation and
 the library/stream tour taps use UIAutomator resource IDs, text and discovered
 bounds; missing UI stops capture and preserves `out/demo/capture/last-ui.xml`.
-PiP capture checks that Android actually entered pinned window mode.
+PiP capture checks that Android actually entered pinned window mode. The presets still applies the Native
+preset first (confirming its dialog), so a preset is selected; every launch writes the demo preferences again.
 
 Stills go to `docs/screenshots/demo/`: `pc-list.png`, `library.png`, `stream.png`,
 `stream-compact.png`, `stream-advanced.png`, `settings-presets.png`,

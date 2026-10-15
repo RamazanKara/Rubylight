@@ -1,5 +1,6 @@
 # -Locale de captures the German stills into docs/screenshots/demo-de (per-app language, reset to English afterwards).
-param([string[]]$Only, [string]$Locale = 'en')
+# -Theme picks the system theme the app follows (dark by default, as in the published stills); the prior mode is restored.
+param([string[]]$Only, [string]$Locale = 'en', [ValidateSet('dark', 'light')][string]$Theme = 'dark')
 . (Join-Path $PSScriptRoot 'capture-common.ps1')
 $output = Join-Path $root $(if ($Locale -eq 'en') { 'docs/screenshots/demo' } else { "docs/screenshots/demo-$Locale" })
 New-Item -ItemType Directory -Force $output | Out-Null
@@ -10,7 +11,7 @@ $states = [ordered]@{
     'controller' = 'controller'; 'touch-controller' = 'touch'; 'pip' = 'pip'
 }
 try {
-    Initialize-Capture
+    Initialize-Capture $Theme
     Set-CaptureLocale $Locale
     # A plain dark home screen for the picture-in-picture still (enabling it launches an activity, so do it before any stream).
     Enable-DemoHome

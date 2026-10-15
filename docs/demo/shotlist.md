@@ -53,11 +53,11 @@ Capture direction:
    not a recorded pairing exchange. Laptop's Wake PC action sends no packets.
 2. For shot 04, the video script opens the real AppView grid with Racing Game
    running. The demo build tidies the cards (no empty "Resume / quit" slot on the
-   idle ones, the Running chip in the top corner clear of the cover wordmark).
+   idle ones, the Running chip in the cover's empty top corner).
 3. Stream shots (05, 06) are recorded in landscape: the 16:9 sample fills the
    screen. Shot 05 starts in the library and taps Racing Game while recording.
-4. The compact overlay sits where the sample has no text of its own: top centre.
-   Retain the DEMO label and illustrative callouts.
+4. The compact overlay takes the top-left corner of the screen, as in a real stream;
+   the sample's HUD panels start below it. Retain the DEMO label and illustrative callouts.
 5. Upscaling shows the actual settings screen and choice dialog.
 6. PiP begins in the stream, then presses Home and verifies Android's pinned
    window. The script enables the debug app's plain dark `DemoHomeActivity` as the

@@ -32,15 +32,27 @@ function Find-FFmpeg {
 }
 
 # Labels the capture looks up that differ per app language (Set-CaptureLocale switches them).
-$script:labels = @{ 'Presets' = 'Presets'; 'Client-side upscaling' = 'Client-side upscaling' }
+$script:labels = @{ 'Presets' = 'Presets'; 'Native preset' = 'Native (recommended)'; 'Display & image' = 'Display & image'
+    'Client-side upscaling' = 'Client-side upscaling' }
 
 function Set-CaptureLocale([string]$Locale) {
     # Per-app language (Android 13+), so the system UI and launcher stay as they are.
     $null = Invoke-Adb @('shell', 'cmd', 'locale', 'set-app-locales', $package, '--user', '0', '--locales', $Locale)
     $script:labels = switch ($Locale) {
-        'de' { @{ 'Presets' = 'Vorgaben'; 'Client-side upscaling' = 'Hochskalierung auf dem Gerät' } }
-        default { @{ 'Presets' = 'Presets'; 'Client-side upscaling' = 'Client-side upscaling' } }
+        'de' { @{ 'Presets' = 'Vorgaben'; 'Native preset' = 'Nativ (empfohlen)'; 'Display & image' = 'Display und Bild'
+            'Client-side upscaling' = 'Hochskalierung auf dem Gerät' } }
+        default { @{ 'Presets' = 'Presets'; 'Native preset' = 'Native (recommended)'; 'Display & image' = 'Display & image'
+            'Client-side upscaling' = 'Client-side upscaling' } }
     }
+}
+
+function Set-CaptureTheme([string]$Theme) {
+    # The app follows the system theme. Dark shows the Nightjar night surfaces and amber accents; light the day palette.
+    if ($null -eq $script:oldNightMode) {
+        $current = Invoke-Adb @('shell', 'cmd', 'uimode', 'night')
+        $script:oldNightMode = if ($current -match 'Night mode: (\w+)') { $Matches[1] } else { 'auto' }
+    }
+    $null = Invoke-Adb @('shell', 'cmd', 'uimode', 'night', $(if ($Theme -eq 'light') { 'no' } else { 'yes' }))
 }
 
 function Get-Ui {
@@ -128,10 +140,18 @@ function Open-DemoState([string]$State) {
         'hosts' { $null = Find-Ui 'Living-room PC' }
         # In landscape the running game is in the second row of the grid: scroll it into view.
         'library' { $null = Find-Ui 'Racing Game' -Scroll }
-        'settings' { $null = Find-Ui $script:labels['Presets'] }
+        'settings' {
+            # Apply the recommended preset (it asks first), so the still shows a selected preset, not "Custom". The demo
+            # preferences are written again on the next launch, so later states keep their FSR 1 demo values.
+            $null = Find-Ui $script:labels['Presets']
+            Tap-Ui $script:labels['Native preset']
+            Tap-Ui 'android:id/button1'
+            $null = Find-Ui $script:labels['Presets']
+            Start-Sleep -Milliseconds 700
+        }
         'controller' { $null = Find-Ui 'Demo wireless controller' }
         'upscaling' {
-            Tap-Ui 'Stream'
+            Tap-Ui $script:labels['Display & image'] -Scroll
             Tap-Ui $script:labels['Client-side upscaling'] -Scroll
             $null = Find-Ui 'FSR 1.0'
         }
@@ -205,8 +225,9 @@ function Enter-DemoPip {
     throw 'PiP did not open. Use an Android 8+ phone/emulator with PiP support enabled.'
 }
 
-function Initialize-Capture {
+function Initialize-Capture([string]$Theme = 'dark') {
     if ((Invoke-Adb @('get-state')).Trim() -ne 'device') { throw 'Connect one authorized device or set ANDROID_SERIAL.' }
+    Set-CaptureTheme $Theme
     $script:oldSize = Invoke-Adb @('shell', 'wm', 'size')
     $script:oldDensity = Invoke-Adb @('shell', 'wm', 'density')
     $script:oldRotation = (Invoke-Adb @('shell', 'settings', 'get', 'system', 'user_rotation')).Trim()
@@ -225,12 +246,13 @@ function Initialize-Capture {
 }
 
 function Enter-CleanStatusBar {
-    # SystemUI demo mode: fixed clock, full battery and signal, no notification icons.
+    # SystemUI demo mode: fixed clock, full battery and Wi-Fi, no mobile signal or notification icons.
     $script:oldDemoAllowed = (Invoke-Adb @('shell', 'settings', 'get', 'global', 'sysui_demo_allowed')).Trim()
     $null = Invoke-Adb @('shell', 'settings', 'put', 'global', 'sysui_demo_allowed', '1')
     foreach ($demo in @(@('enter'), @('clock', '-e', 'hhmm', '1030'), @('battery', '-e', 'level', '100', '-e', 'plugged', 'false'),
             @('network', '-e', 'wifi', 'show', '-e', 'level', '4', '-e', 'fully', 'true'),
-            @('network', '-e', 'mobile', 'show', '-e', 'datatype', 'none', '-e', 'level', '4', '-e', 'fully', 'true'),
+            # Android 15 labels a shown mobile signal "3G" whatever the datatype; Wi-Fi alone reads cleaner.
+            @('network', '-e', 'mobile', 'hide'),
             @('notifications', '-e', 'visible', 'false'))) {
         $null = Invoke-Adb (@('shell', 'am', 'broadcast', '-a', 'com.android.systemui.demo', '-e', 'command') + $demo)
     }
@@ -249,6 +271,7 @@ function Exit-CleanStatusBar {
 function Restore-Capture {
     Disable-DemoHome
     Exit-CleanStatusBar
+    if ($null -ne $script:oldNightMode) { $null = Invoke-Adb @('shell', 'cmd', 'uimode', 'night', $script:oldNightMode) }
     if ($null -ne $script:oldImeSetting) {
         if ($script:oldImeSetting -eq 'null') { $null = Invoke-Adb @('shell', 'settings', 'delete', 'secure', 'show_ime_with_hard_keyboard') }
         else { $null = Invoke-Adb @('shell', 'settings', 'put', 'secure', 'show_ime_with_hard_keyboard', $script:oldImeSetting) }

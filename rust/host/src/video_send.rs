@@ -1,7 +1,11 @@
 //! Ordered conventional video output: one sending frame and one pending frame.
 use crate::state::{Session, Shared};
 use anyhow::{Result, bail};
-use butterpollo_core::{config::Config, packet::VideoPacketizer};
+use butterpollo_core::{
+    config::Config,
+    packet::VideoPacketizer,
+    performance::{Claim, Claims},
+};
 use butterpollo_windows::{encoder::Encoded, net::Batch, timing::Timer};
 use std::{
     net::{SocketAddr, UdpSocket},
@@ -21,6 +25,8 @@ struct Frame {
     latency: Duration,
     /// Frames skipped just before this one; their wire numbers stay used.
     skipped: u32,
+    /// A new picture's claim, for the stage timings.
+    claim: Option<Claim>,
 }
 struct State {
     pending: Option<Frame>,
@@ -146,7 +152,7 @@ impl Sender {
                 _ => 64,
             };
             shared.run(|queued| {
-                let Frame { encoded: frame, peer, claimed, polled, latency: encode, skipped } = queued;
+                let Frame { encoded: frame, peer, claimed, polled, latency: encode, skipped, claim } = queued;
                 // The stream's rate, which the client can change mid-stream (0x5532).
                 let period = s.stream_mode().period();
                 packetizer.frame = packetizer.frame.wrapping_add(skipped);
@@ -197,6 +203,7 @@ impl Sender {
                 // A frame beyond Moonlight's packet limit (very high
                 // bitrates) costs that frame and a keyframe, not the
                 // session.
+                let packetized = Instant::now();
                 let prepared_blocks = packetizer.conventional_blocks(&frame.bytes,frame.idr,frame.after_invalidation,timestamp,processing);
                 if let Err(error) = &prepared_blocks {
                     s.launch.warnings.event("network_frame", format!("Encoded video frame dropped ({error:#}); requesting a recovery frame. Lower bitrate or resolution to stay within Moonlight's packet limit."), butterpollo_core::session::EVENT_PERIOD);
@@ -222,6 +229,7 @@ impl Sender {
                 let mut batches = 0;
                 let mut first_send = None;
                 let mut last_send = None;
+                let mut first_sent = None;
                 let mut lost = butterpollo_core::stream_policy::SendLoss::new(block_layout);
                 let mut abandoned = 0;
                 let mut sent_packets = 0;
@@ -265,6 +273,7 @@ impl Sender {
                             }
                             None => batch.send(&socket, &remaining[..count], peer)?,
                         };
+                        first_sent.get_or_insert_with(Instant::now);
                         if let Some(send_started) = send_started {
                             let finished = Instant::now();
                             first_send.get_or_insert(send_started);
@@ -306,7 +315,13 @@ impl Sender {
                         writable_waits=after.count-before.count, writable_wait_us=micros(after.elapsed-before.elapsed),
                         dropped=batch.dropped-dropped, stream_id=%s.launch.id, "send");
                 }
-                s.stats.performance.lock().unwrap().record_timing(sent,butterpollo_core::performance::Timing{period,encode:latency,host:processing,age,sent:micros(sent.saturating_duration_since(claimed))},frame_bytes);
+                let mut performance = s.stats.performance.lock().unwrap();
+                performance.record_timing(sent,butterpollo_core::performance::Timing{period,encode:latency,host:processing,age,sent:micros(sent.saturating_duration_since(claimed))},frame_bytes);
+                // A frame abandoned on send never had its last packet sent.
+                if let Some(claim) = claim.filter(|_| !lost.unrecoverable()) {
+                    performance.record_stages(&claim.sent(polled, packetized, first_sent.unwrap_or(sent), sent), processing);
+                }
+                drop(performance);
                 // The interface lookup takes a moment: refresh the
                 // link speed after the frame is out, for the next one.
                 if Instant::now() >= link_due {
@@ -356,11 +371,19 @@ impl Sender {
         })
     }
 
-    pub fn submit(&self, frames: Vec<Encoded>, peer: SocketAddr, latency: Duration) -> Result<()> {
+    /// Queues encoded frames, each with its picture's claim from `claims`.
+    pub fn submit(
+        &self,
+        frames: Vec<Encoded>,
+        peer: SocketAddr,
+        latency: Duration,
+        claims: &mut Claims,
+    ) -> Result<()> {
         let polled = Instant::now();
         let mut state = self.slot.state.lock().unwrap();
         state.backlog()?;
         for encoded in frames {
+            let claim = claims.take(encoded.presentation);
             let latency = encoded.latency.unwrap_or(latency);
             // Stamp every output from this poll before any capacity wait.
             let claimed = polled.checked_sub(latency).unwrap_or(polled);
@@ -382,6 +405,7 @@ impl Sender {
                 polled,
                 latency,
                 skipped: 0,
+                claim,
             });
             tracing::trace!(target: "pacing", pending=usize::from(state.pending.is_some()),
                 sending=usize::from(state.sending), inventory=state.backlog()?,

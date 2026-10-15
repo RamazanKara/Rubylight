@@ -37,9 +37,147 @@ pub struct Timing {
     /// Claim through sending the final packet, including packetization and pacing.
     pub sent: u64,
 }
+/// The points one new picture passed on the host, from Windows' present to
+/// its last packet. Static repeats have no present and are not recorded.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Stamps {
+    /// The capture's present stamp: Desktop Duplication's LastPresentTime or
+    /// WGC's SystemRelativeTime. A stamp in the future or over two seconds
+    /// old is the capture's arrival instead, as the pacing clock has it.
+    pub presented: Instant,
+    /// The host submitted its own copy of the picture, or took a WGC helper
+    /// texture to read in place.
+    pub acquired: Instant,
+    /// Published to the stream threads. The WGC helper can hold a picture
+    /// between acquiring and publishing it, to publish on the claim grid.
+    pub published: Instant,
+    /// The stream thread took the picture to encode.
+    pub claimed: Instant,
+    /// The encoder accepted the converted picture. An encoder that does not
+    /// say when gives the claim, which puts its conversion in `encode`.
+    pub submitted: Instant,
+    /// The encoded frame was in the host's hands.
+    pub encoded: Instant,
+    /// Packetization began.
+    pub packetized: Instant,
+    /// The first packets were handed to the socket.
+    pub first_sent: Instant,
+    /// The last packet was handed to the socket.
+    pub last_sent: Instant,
+}
+/// The stages between consecutive `Stamps`, in their order.
+pub const STAGES: [&str; 8] = [
+    "capture",
+    "hold",
+    "claim",
+    "convert",
+    "encode",
+    "queue",
+    "packetize",
+    "send",
+];
+impl Stamps {
+    /// Microseconds spent in each of `STAGES`. A point earlier than the one
+    /// before it (a present stamp clamped to arrival) counts as reached with
+    /// it, so no stage is negative and the stages add up to `total`.
+    pub fn stages(&self) -> [u64; 8] {
+        let points = [
+            self.presented,
+            self.acquired,
+            self.published,
+            self.claimed,
+            self.submitted,
+            self.encoded,
+            self.packetized,
+            self.first_sent,
+            self.last_sent,
+        ];
+        let mut reached = points[0];
+        let mut stages = [0; 8];
+        for (stage, point) in stages.iter_mut().zip(&points[1..]) {
+            let next = reached.max(*point);
+            *stage = micros(next.duration_since(reached));
+            reached = next;
+        }
+        stages
+    }
+    /// Present to the last packet sent, in microseconds.
+    pub fn total(&self) -> u64 {
+        self.stages().iter().sum()
+    }
+}
+fn micros(duration: Duration) -> u64 {
+    duration.as_micros().min(u128::from(u64::MAX)) as u64
+}
+/// A new picture's points up to its encoder submission, kept from its claim
+/// until its encoded frame is sent.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Claim {
+    /// The presentation time the encoder returns with this picture's frame.
+    pub key: Instant,
+    pub presented: Instant,
+    pub acquired: Instant,
+    pub published: Instant,
+    pub claimed: Instant,
+    pub submitted: Instant,
+}
+impl Claim {
+    pub fn sent(
+        &self,
+        encoded: Instant,
+        packetized: Instant,
+        first_sent: Instant,
+        last_sent: Instant,
+    ) -> Stamps {
+        Stamps {
+            presented: self.presented,
+            acquired: self.acquired,
+            published: self.published,
+            claimed: self.claimed,
+            submitted: self.submitted,
+            encoded,
+            packetized,
+            first_sent,
+            last_sent,
+        }
+    }
+}
+/// Claims of new pictures whose encoded frames are not sent yet.
+#[derive(Default)]
+pub struct Claims(VecDeque<Claim>);
+impl Claims {
+    /// More than any encoder holds in flight.
+    const LIMIT: usize = 16;
+    pub fn push(&mut self, claim: Claim) {
+        if self.0.len() == Self::LIMIT {
+            self.0.pop_front();
+        }
+        self.0.push_back(claim);
+    }
+    /// The claim of the picture whose frame the encoder returned with
+    /// `presentation`. Encoders return frames in order, so the claims before
+    /// it got no frame and are dropped. A static repeat has no claim.
+    pub fn take(&mut self, presentation: Option<Instant>) -> Option<Claim> {
+        let index = self.0.iter().position(|c| Some(c.key) == presentation)?;
+        self.0.drain(..index);
+        self.0.pop_front()
+    }
+}
+/// Stage samples are kept as long as the 5 s timing log apart, so each line
+/// covers the pictures since the last one.
+const STAGE_WINDOW: Duration = Duration::from_secs(5);
+/// Bounds the window to 400 new pictures a second.
+const STAGE_SAMPLES: usize = 2048;
+struct StageSample {
+    at: Instant,
+    /// `STAGES`, then the total, then Moonlight's host latency field for the
+    /// same picture, in microseconds.
+    micros: [u32; STAGES.len() + 2],
+}
 #[derive(Default)]
 pub struct Performance {
     frames: VecDeque<Frame>,
+    stages: VecDeque<StageSample>,
     history: VecDeque<Value>,
     bucket: Option<Instant>,
     count: u64,
@@ -209,6 +347,65 @@ impl Performance {
             self.frames.pop_front();
         }
     }
+    /// Records where a new picture's time went. `moonlight_host` is the host
+    /// latency sent to Moonlight for it, in microseconds.
+    pub fn record_stages(&mut self, stamps: &Stamps, moonlight_host: u64) {
+        let mut micros = [0; STAGES.len() + 2];
+        let stages = stamps.stages();
+        for (sample, value) in micros.iter_mut().zip(
+            stages
+                .iter()
+                .copied()
+                .chain([stages.iter().sum(), moonlight_host]),
+        ) {
+            *sample = value.min(u64::from(u32::MAX)) as u32;
+        }
+        let at = stamps.last_sent;
+        self.stages.push_back(StageSample { at, micros });
+        while self.stages.len() > STAGE_SAMPLES
+            || self
+                .stages
+                .front()
+                .is_some_and(|s| at.saturating_duration_since(s.at) > STAGE_WINDOW)
+        {
+            self.stages.pop_front();
+        }
+    }
+    /// Mean, p95 and p99 of each stage over the last five seconds' new
+    /// pictures, in milliseconds.
+    fn stage_snapshot(&self, now: Instant) -> Value {
+        let samples: Vec<_> = self
+            .stages
+            .iter()
+            .filter(|s| now.saturating_duration_since(s.at) <= STAGE_WINDOW)
+            .collect();
+        let spread = |index: usize| {
+            let mut values: Vec<u32> = samples.iter().map(|s| s.micros[index]).collect();
+            values.sort_unstable();
+            let ms = |us: u32| f64::from(us) / 1000.;
+            let at = |percent: usize| {
+                values
+                    .get(values.len().saturating_sub(1) * percent / 100)
+                    .copied()
+                    .map_or(0., ms)
+            };
+            json!({
+                "mean_ms": values.iter().map(|v| f64::from(*v)).sum::<f64>()
+                    / values.len().max(1) as f64 / 1000.,
+                "p95_ms": at(95),
+                "p99_ms": at(99),
+            })
+        };
+        let mut stages = serde_json::Map::new();
+        stages.insert("frames".into(), samples.len().into());
+        stages.insert("window_seconds".into(), STAGE_WINDOW.as_secs().into());
+        for (index, name) in STAGES.iter().enumerate() {
+            stages.insert((*name).into(), spread(index));
+        }
+        stages.insert("present_to_sent".into(), spread(STAGES.len()));
+        stages.insert("moonlight_host".into(), spread(STAGES.len() + 1));
+        Value::Object(stages)
+    }
     pub fn snapshot(&self, now: Instant) -> Value {
         let frames: Vec<_> = self
             .frames
@@ -272,6 +469,7 @@ impl Performance {
             "fec_recovered_frames":self.fec_recovered_frames,
             "fec_unrecoverable_frames":self.fec_unrecoverable_frames,
             "fec_missing_packets":self.fec_missing_packets,
+            "stages":self.stage_snapshot(now),
             "sample_frames":frames.len(),"history":self.history
         })
     }
@@ -490,6 +688,158 @@ mod tests {
             p.snapshot(start + Duration::from_millis(30051))["send_stutters"],
             1
         );
+    }
+    /// A picture `offsets` microseconds after `start` at each point.
+    fn stamps(start: Instant, offsets: [u64; 9]) -> Stamps {
+        let at = |index: usize| start + Duration::from_micros(offsets[index]);
+        Stamps {
+            presented: at(0),
+            acquired: at(1),
+            published: at(2),
+            claimed: at(3),
+            submitted: at(4),
+            encoded: at(5),
+            packetized: at(6),
+            first_sent: at(7),
+            last_sent: at(8),
+        }
+    }
+    #[test]
+    fn stages_split_present_to_last_packet_into_consecutive_parts() {
+        let start = Instant::now();
+        let picture = stamps(start, [0, 4200, 4250, 5100, 5900, 8400, 8460, 8700, 9900]);
+        assert_eq!(picture.stages(), [4200, 50, 850, 800, 2500, 60, 240, 1200]);
+        assert_eq!(picture.total(), 9900);
+        assert_eq!(
+            Duration::from_micros(picture.total()),
+            picture.last_sent - picture.presented
+        );
+    }
+    #[test]
+    fn a_point_earlier_than_the_one_before_it_adds_no_time_and_keeps_the_total() {
+        let start = Instant::now();
+        // An encoder output stamped before its submission, and a present
+        // stamp after acquisition: neither stage goes negative, the next
+        // stage starts from the later point, and the stages still add up
+        // to present through the last packet.
+        let picture = stamps(start, [1000, 900, 1200, 2000, 3500, 3000, 3600, 3700, 4000]);
+        assert_eq!(picture.stages(), [0, 200, 800, 1500, 0, 100, 100, 300]);
+        assert_eq!(picture.total(), 3000);
+        let late = stamps(start, [5000, 0, 0, 0, 0, 0, 0, 0, 0]);
+        assert_eq!(late.stages(), [0; 8]);
+        assert_eq!(late.total(), 0);
+    }
+    #[test]
+    fn stage_snapshot_reports_mean_p95_and_p99_for_new_pictures_in_the_last_five_seconds() {
+        let start = Instant::now();
+        let mut p = Performance::default();
+        let empty = p.snapshot(start);
+        assert_eq!(empty["stages"]["frames"], 0);
+        assert_eq!(empty["stages"]["present_to_sent"]["p99_ms"], 0.);
+        for i in 0..100u64 {
+            // Capture takes 1 ms, except 2 ms on every tenth picture and
+            // 9 ms on the last one; everything after it takes 3 ms.
+            let capture = match i {
+                99 => 9000,
+                _ if i % 10 == 0 => 2000,
+                _ => 1000,
+            };
+            let at = start + Duration::from_millis(i * 10);
+            let offsets = [
+                0,
+                capture,
+                capture,
+                capture + 500,
+                capture + 1000,
+                capture + 2000,
+                capture + 2100,
+                capture + 2500,
+                capture + 3000,
+            ];
+            p.record_stages(&stamps(at, offsets), 2000);
+        }
+        let now = start + Duration::from_millis(990 + 9);
+        let stages = &p.snapshot(now)["stages"];
+        assert_eq!(stages["frames"], 100);
+        assert_eq!(stages["window_seconds"], 5);
+        assert_eq!(stages["capture"]["mean_ms"], 1.18);
+        assert_eq!(stages["capture"]["p95_ms"], 2.);
+        assert_eq!(stages["capture"]["p99_ms"], 2.);
+        assert_eq!(stages["hold"]["p99_ms"], 0.);
+        assert_eq!(stages["claim"]["mean_ms"], 0.5);
+        assert_eq!(stages["encode"]["p95_ms"], 1.);
+        assert_eq!(stages["send"]["mean_ms"], 0.5);
+        assert_eq!(stages["present_to_sent"]["mean_ms"], 4.18);
+        assert_eq!(stages["present_to_sent"]["p95_ms"], 5.);
+        assert_eq!(stages["moonlight_host"]["mean_ms"], 2.);
+        // A picture is counted for five seconds after its last packet.
+        let later = start + Duration::from_millis(990 + 9) + Duration::from_millis(4500);
+        assert_eq!(p.snapshot(later)["stages"]["frames"], 50);
+        assert_eq!(
+            p.snapshot(start + Duration::from_secs(20))["stages"]["frames"],
+            0
+        );
+    }
+    #[test]
+    fn claims_match_encoded_frames_by_presentation_and_drop_frames_never_returned() {
+        let start = Instant::now();
+        let claim = |ms: u64| {
+            let at = start + Duration::from_millis(ms);
+            Claim {
+                key: at,
+                presented: at,
+                acquired: at,
+                published: at,
+                claimed: at,
+                submitted: at,
+            }
+        };
+        let mut claims = Claims::default();
+        for ms in [1, 2, 3, 4] {
+            claims.push(claim(ms));
+        }
+        // A repeat's frame, or a frame without a presentation, has no claim
+        // and leaves the others waiting.
+        assert_eq!(claims.take(Some(start)), None);
+        assert_eq!(claims.take(None), None);
+        assert_eq!(claims.take(Some(claim(2).key)), Some(claim(2)));
+        // The encoder never returned picture 1.
+        assert_eq!(claims.take(Some(claim(1).key)), None);
+        assert_eq!(claims.take(Some(claim(4).key)), Some(claim(4)));
+        assert_eq!(claims.take(Some(claim(3).key)), None);
+        for ms in 0..40 {
+            claims.push(claim(ms));
+        }
+        assert_eq!(claims.0.len(), Claims::LIMIT);
+        assert_eq!(claims.take(Some(claim(23).key)), None);
+        assert_eq!(claims.take(Some(claim(24).key)), Some(claim(24)));
+        let sent = claim(24).sent(
+            start + Duration::from_millis(30),
+            start + Duration::from_millis(31),
+            start + Duration::from_millis(32),
+            start + Duration::from_millis(33),
+        );
+        assert_eq!(sent.claimed, claim(24).claimed);
+        assert_eq!(sent.total(), 9000);
+    }
+    #[test]
+    fn stage_samples_are_bounded_and_saturate_instead_of_wrapping() {
+        let start = Instant::now();
+        let mut p = Performance::default();
+        for i in 0..3000u64 {
+            p.record_stages(&stamps(start + Duration::from_micros(i), [0; 9]), u64::MAX);
+        }
+        assert_eq!(p.stages.len(), STAGE_SAMPLES);
+        assert_eq!(p.stages.back().unwrap().micros[STAGES.len() + 1], u32::MAX);
+        // A picture that took over an hour from present to send.
+        let mut stuck = [5_000_000_000; 9];
+        stuck[0] = 0;
+        p.record_stages(&stamps(start, stuck), 0);
+        let sample = p.stages.back().unwrap();
+        assert_eq!(sample.micros[0], u32::MAX);
+        assert_eq!(sample.micros[STAGES.len()], u32::MAX);
+        // Its last packet is long after every other sample's.
+        assert_eq!(p.stages.len(), 1);
     }
     #[test]
     fn recent_rates_detect_stalls_and_history_is_bounded() {

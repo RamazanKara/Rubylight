@@ -784,6 +784,9 @@ pub struct GpuImage {
     pub wgc_stamp: Option<Instant>,
     /// When the host submitted its owned copy, before GPU completion.
     pub acquired: Instant,
+    /// When the capture published the picture to the stream threads; until
+    /// then, its acquisition. Only timing reports read this.
+    pub published: Instant,
     pub gpu: Device,
     pub texture: std::sync::Arc<ID3D11Texture2D>,
     /// When a compute-queue copy into `texture` completes. D3D11 work on
@@ -852,6 +855,7 @@ impl GpuImage {
                 captured: image.captured,
                 wgc_stamp: None,
                 acquired: Instant::now(),
+                published: Instant::now(),
                 gpu: gpu.clone(),
                 texture: std::sync::Arc::new(texture.unwrap()),
                 ready: None,
@@ -1012,6 +1016,7 @@ impl GpuPool {
                 captured: Instant::now(),
                 wgc_stamp: None,
                 acquired: Instant::now(),
+                published: Instant::now(),
                 gpu: gpu.clone(),
                 texture,
                 ready,

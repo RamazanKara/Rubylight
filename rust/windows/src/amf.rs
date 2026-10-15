@@ -175,6 +175,8 @@ pub struct Encoder {
     compute: Option<Box<ComputeInput>>,
     last_query: Option<AMF_RESULT>,
     last_submit: Option<AMF_RESULT>,
+    /// When AMF last accepted an input, for the stream's stage timings.
+    last_accepted: Option<Instant>,
     input_full: u64,
 }
 struct ComputeInput {
@@ -359,6 +361,7 @@ impl Encoder {
                 compute,
                 last_query: None,
                 last_submit: None,
+                last_accepted: None,
                 input_full: 0,
             };
             let mut properties = butterpollo_core::encoder_policy::amf(options, config)?;
@@ -1002,6 +1005,10 @@ impl Encoder {
     pub fn pending(&self) -> bool {
         !self.in_flight.is_empty()
     }
+    /// When AMF accepted the last submitted input.
+    pub fn last_submitted(&self) -> Option<Instant> {
+        self.last_accepted
+    }
     /// Frames submitted and not yet returned.
     pub fn backlog(&self) -> usize {
         self.in_flight.len()
@@ -1416,10 +1423,12 @@ impl Encoder {
                 result?;
                 break;
             }
+            let accepted = Instant::now();
+            self.last_accepted = Some(accepted);
             self.in_flight.push_back(Submission {
                 pts: self.index,
                 started,
-                accepted: Instant::now(),
+                accepted,
                 presentation: image.captured,
                 after_invalidation: plan.after_invalidation,
                 _capture: None,
@@ -1615,10 +1624,12 @@ impl Encoder {
             }
             // Compute keeps the capture until conversion completes; graphics
             // still retains it until the encoder returns its output.
+            let accepted = Instant::now();
+            self.last_accepted = Some(accepted);
             self.in_flight.push_back(Submission {
                 pts: self.index,
                 started,
-                accepted: Instant::now(),
+                accepted,
                 presentation: image.captured,
                 after_invalidation: plan.after_invalidation,
                 _capture: self.compute.is_none().then(|| image.clone()),

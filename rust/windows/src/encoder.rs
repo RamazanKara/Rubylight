@@ -1086,6 +1086,14 @@ impl Encoder {
             _ => false,
         }
     }
+    /// When the encoder accepted the input of the last encode call, after
+    /// its colour conversion. Only AMF reports it.
+    pub fn last_submitted(&self) -> Option<std::time::Instant> {
+        match self {
+            Self::Amf(e) => e.last_submitted(),
+            _ => None,
+        }
+    }
     /// Frames the GPU encoder has accepted and not yet finished.
     pub fn backlog(&self) -> usize {
         match self {

@@ -144,7 +144,7 @@ fn sender_handoff_benchmark() -> Result<()> {
             // Both paths own the same single-output Vec as the real caller.
             let mut output = vec![encoded];
             let sample = if let Some(sender) = &sender {
-                sender.submit(output, peer(), Duration::ZERO)?;
+                sender.submit(output, peer(), Duration::ZERO, &mut Claims::default())?;
                 results.recv_timeout(WAIT)?
             } else {
                 work(&mut inline_packetizer, output.pop().unwrap())?
@@ -248,6 +248,55 @@ fn blocked_sender() -> (Sender, Receiver<Frame>, Channel<()>) {
 }
 
 #[test]
+fn each_queued_frame_carries_its_pictures_claim_and_repeats_carry_none() {
+    let (sender, frames, release) = blocked_sender();
+    let start = Instant::now();
+    let claim = |ms: u64| {
+        let at = start + Duration::from_millis(ms);
+        Claim {
+            key: at,
+            presented: at,
+            acquired: at,
+            published: at,
+            claimed: at,
+            submitted: at,
+        }
+    };
+    let mut claims = Claims::default();
+    claims.push(claim(1));
+    claims.push(claim(2));
+    let mut first = frame(2);
+    first.presentation = Some(claim(1).key);
+    // A static repeat: the encoder returns a presentation nobody claimed.
+    let mut repeat = frame(3);
+    repeat.presentation = Some(start + Duration::from_millis(9));
+    let mut second = frame(4);
+    second.presentation = Some(claim(2).key);
+    thread::scope(|scope| {
+        let sender = &sender;
+        let producer = scope.spawn(move || {
+            sender
+                .submit(
+                    vec![first, repeat, second],
+                    peer(),
+                    Duration::ZERO,
+                    &mut claims,
+                )
+                .unwrap();
+            claims
+        });
+        let mut seen = vec![];
+        for _ in 0..3 {
+            seen.push(frames.recv_timeout(WAIT).unwrap().claim);
+            release.send(()).unwrap();
+        }
+        assert_eq!(seen, [Some(claim(1)), None, Some(claim(2))]);
+        let mut claims = producer.join().unwrap();
+        assert_eq!(claims.take(Some(claim(2).key)), None);
+    });
+}
+
+#[test]
 fn a_keyframe_waiting_for_the_sender_also_blocks_the_next_claim() {
     let now = Instant::now();
     let state = State {
@@ -258,6 +307,7 @@ fn a_keyframe_waiting_for_the_sender_also_blocks_the_next_claim() {
             polled: now,
             latency: Duration::ZERO,
             skipped: 0,
+            claim: None,
         }),
         sending: false,
         sending_keyframe: false,
@@ -273,7 +323,12 @@ fn a_keyframe_waiting_for_the_sender_also_blocks_the_next_claim() {
 fn capacity_wait_wakes_after_the_sender_releases_a_frame() {
     let (sender, frames, release) = blocked_sender();
     sender
-        .submit(vec![frame(1)], peer(), Duration::ZERO)
+        .submit(
+            vec![frame(1)],
+            peer(),
+            Duration::ZERO,
+            &mut Claims::default(),
+        )
         .unwrap();
     frames.recv_timeout(WAIT).unwrap();
     assert_eq!(sender.backlog().unwrap(), 1);
@@ -292,7 +347,12 @@ fn capacity_wait_wakes_after_the_sender_releases_a_frame() {
         release.send(()).unwrap();
         done.recv_timeout(WAIT).unwrap();
         sender
-            .submit(vec![frame(2)], peer(), Duration::ZERO)
+            .submit(
+                vec![frame(2)],
+                peer(),
+                Duration::ZERO,
+                &mut Claims::default(),
+            )
             .unwrap();
         frames.recv_timeout(WAIT).unwrap();
         assert_eq!(sender.claim_backlog().unwrap(), 1);
@@ -304,7 +364,12 @@ fn capacity_wait_wakes_after_the_sender_releases_a_frame() {
 fn ordered_output_waits_for_the_single_pending_slot_without_replacing_frames() {
     let (sender, frames, release) = blocked_sender();
     sender
-        .submit(vec![frame(1)], peer(), Duration::ZERO)
+        .submit(
+            vec![frame(1)],
+            peer(),
+            Duration::ZERO,
+            &mut Claims::default(),
+        )
         .unwrap();
     assert!(frames.recv_timeout(WAIT).unwrap().encoded.idr);
     assert_eq!(sender.backlog().unwrap(), 1);
@@ -315,7 +380,12 @@ fn ordered_output_waits_for_the_single_pending_slot_without_replacing_frames() {
             let mut third = frame(3);
             third.latency = Some(Duration::from_millis(3));
             sender
-                .submit(vec![frame(2), third], peer(), Duration::from_millis(7))
+                .submit(
+                    vec![frame(2), third],
+                    peer(),
+                    Duration::from_millis(7),
+                    &mut Claims::default(),
+                )
                 .unwrap();
             submitted.send(()).unwrap();
         });
@@ -358,11 +428,21 @@ fn ordered_output_waits_for_the_single_pending_slot_without_replacing_frames() {
 fn recreation_waits_for_sending_and_pending_wire_indices() {
     let (sender, frames, release) = blocked_sender();
     sender
-        .submit(vec![frame(1)], peer(), Duration::ZERO)
+        .submit(
+            vec![frame(1)],
+            peer(),
+            Duration::ZERO,
+            &mut Claims::default(),
+        )
         .unwrap();
     frames.recv_timeout(WAIT).unwrap();
     sender
-        .submit(vec![frame(2)], peer(), Duration::ZERO)
+        .submit(
+            vec![frame(2)],
+            peer(),
+            Duration::ZERO,
+            &mut Claims::default(),
+        )
         .unwrap();
     thread::scope(|scope| {
         let (mapped, result) = mpsc::channel();
@@ -395,19 +475,34 @@ fn a_keyframe_request_skips_the_waiting_frame_and_keeps_its_wire_number() {
     })
     .unwrap();
     sender
-        .submit(vec![frame(1)], peer(), Duration::ZERO)
+        .submit(
+            vec![frame(1)],
+            peer(),
+            Duration::ZERO,
+            &mut Claims::default(),
+        )
         .unwrap();
     assert_eq!(frames.recv_timeout(WAIT).unwrap(), (1, 1, 0));
     // A request while a frame waits: it is skipped, the one sending is not.
     sender
-        .submit(vec![frame(2)], peer(), Duration::ZERO)
+        .submit(
+            vec![frame(2)],
+            peer(),
+            Duration::ZERO,
+            &mut Claims::default(),
+        )
         .unwrap();
     assert_eq!(sender.backlog().unwrap(), 2);
     assert_eq!(sender.skip_pending().unwrap(), 1);
     assert_eq!(sender.skip_pending().unwrap(), 1);
     // A keyframe takes the place of a frame waiting before it.
     sender
-        .submit(vec![frame(3)], peer(), Duration::ZERO)
+        .submit(
+            vec![frame(3)],
+            peer(),
+            Duration::ZERO,
+            &mut Claims::default(),
+        )
         .unwrap();
     let mut keyframe = frame(4);
     keyframe.idr = true;
@@ -416,7 +511,12 @@ fn a_keyframe_request_skips_the_waiting_frame_and_keeps_its_wire_number() {
         let sender = &sender;
         scope.spawn(move || {
             sender
-                .submit(vec![keyframe], peer(), Duration::ZERO)
+                .submit(
+                    vec![keyframe],
+                    peer(),
+                    Duration::ZERO,
+                    &mut Claims::default(),
+                )
                 .unwrap();
             submitted.send(()).unwrap();
         });
@@ -431,11 +531,21 @@ fn a_keyframe_request_skips_the_waiting_frame_and_keeps_its_wire_number() {
     assert_eq!(sender.next_wire_frame().unwrap(), 5);
     // A skipped frame with nothing after it still counts for a new encoder.
     sender
-        .submit(vec![frame(5)], peer(), Duration::ZERO)
+        .submit(
+            vec![frame(5)],
+            peer(),
+            Duration::ZERO,
+            &mut Claims::default(),
+        )
         .unwrap();
     assert_eq!(frames.recv_timeout(WAIT).unwrap(), (5, 5, 0));
     sender
-        .submit(vec![frame(6)], peer(), Duration::ZERO)
+        .submit(
+            vec![frame(6)],
+            peer(),
+            Duration::ZERO,
+            &mut Claims::default(),
+        )
         .unwrap();
     assert_eq!(sender.skip_pending().unwrap(), 1);
     release.send(()).unwrap();
@@ -455,12 +565,23 @@ fn sender_failure_wakes_submit_and_recreation_and_stays_in_the_error_slot() {
     })
     .unwrap();
     sender
-        .submit(vec![frame(1)], peer(), Duration::ZERO)
+        .submit(
+            vec![frame(1)],
+            peer(),
+            Duration::ZERO,
+            &mut Claims::default(),
+        )
         .unwrap();
     sending.recv_timeout(WAIT).unwrap();
     thread::scope(|scope| {
-        let producer =
-            scope.spawn(|| sender.submit(vec![frame(2), frame(3)], peer(), Duration::ZERO));
+        let producer = scope.spawn(|| {
+            sender.submit(
+                vec![frame(2), frame(3)],
+                peer(),
+                Duration::ZERO,
+                &mut Claims::default(),
+            )
+        });
         let recreation = scope.spawn(|| sender.next_wire_frame());
         let state = sender.slot.state.lock().unwrap();
         let (state, timeout) = sender
@@ -476,7 +597,9 @@ fn sender_failure_wakes_submit_and_recreation_and_stays_in_the_error_slot() {
             producer.join().unwrap().unwrap_err(),
             recreation.join().unwrap().unwrap_err(),
             sender.backlog().unwrap_err(),
-            sender.submit(vec![], peer(), Duration::ZERO).unwrap_err(),
+            sender
+                .submit(vec![], peer(), Duration::ZERO, &mut Claims::default())
+                .unwrap_err(),
         ] {
             assert!(error.to_string().contains("injected socket failure"));
         }
@@ -501,14 +624,24 @@ fn initialization_failure_reaches_the_error_slot_and_reconnect_starts_clean() {
     );
     assert!(
         sender
-            .submit(vec![frame(1)], peer(), Duration::ZERO)
+            .submit(
+                vec![frame(1)],
+                peer(),
+                Duration::ZERO,
+                &mut Claims::default()
+            )
             .is_err()
     );
     drop(sender);
     let (sender, frames, release) = blocked_sender();
     assert_eq!(sender.next_wire_frame().unwrap(), 1);
     sender
-        .submit(vec![frame(1)], peer(), Duration::ZERO)
+        .submit(
+            vec![frame(1)],
+            peer(),
+            Duration::ZERO,
+            &mut Claims::default(),
+        )
         .unwrap();
     assert!(frames.recv_timeout(WAIT).unwrap().encoded.idr);
     release.send(()).unwrap();
@@ -546,14 +679,31 @@ fn shutdown_interrupts_sending_and_releases_pending_output() {
     })
     .unwrap();
     sender
-        .submit(vec![frame(1)], peer(), Duration::ZERO)
+        .submit(
+            vec![frame(1)],
+            peer(),
+            Duration::ZERO,
+            &mut Claims::default(),
+        )
         .unwrap();
     assert_eq!(sending.recv_timeout(WAIT).unwrap(), 1);
     sender
-        .submit(vec![frame(2)], peer(), Duration::ZERO)
+        .submit(
+            vec![frame(2)],
+            peer(),
+            Duration::ZERO,
+            &mut Claims::default(),
+        )
         .unwrap();
     thread::scope(|scope| {
-        let producer = scope.spawn(|| sender.submit(vec![frame(3)], peer(), Duration::ZERO));
+        let producer = scope.spawn(|| {
+            sender.submit(
+                vec![frame(3)],
+                peer(),
+                Duration::ZERO,
+                &mut Claims::default(),
+            )
+        });
         sender.slot.stop();
         producer.join().unwrap().unwrap();
     });
@@ -599,6 +749,7 @@ fn the_sender_thread_accepts_client_reports_for_adaptive_fec() {
             vec![frame(2)],
             receiver.local_addr().unwrap(),
             Duration::ZERO,
+            &mut Claims::default(),
         )
         .unwrap();
     assert_eq!(sender.next_wire_frame().unwrap(), 2);
@@ -609,6 +760,70 @@ fn the_sender_thread_accepts_client_reports_for_adaptive_fec() {
     assert_eq!(session.info()["performance"]["fec_invalid_reports"], 0);
     session.tick_fec(Instant::now() + Duration::from_secs(60));
     assert!(session.fec_percent() < 20);
+}
+
+#[test]
+fn the_sender_thread_records_where_a_new_pictures_time_went() {
+    let fixture = crate::state::test_support::Fixture::new();
+    let session = fixture.session(fixture.client(0), butterpollo_core::session::Role::Stream);
+    let socket = Arc::new(UdpSocket::bind("127.0.0.1:0").unwrap());
+    let receiver = UdpSocket::bind("127.0.0.1:0").unwrap();
+    let sender = Sender::new(
+        socket,
+        session.clone(),
+        fixture.host.config.read().unwrap().clone(),
+        fixture.host.clone(),
+        Instant::now(),
+        false,
+    )
+    .unwrap();
+    // A picture presented 6 ms ago, held 1 ms, claimed 3 ms ago and encoded
+    // in 2 ms, beside a static repeat that has no present.
+    let now = Instant::now();
+    let ago = |ms: u64| now - Duration::from_millis(ms);
+    let mut claims = Claims::default();
+    claims.push(Claim {
+        key: ago(6),
+        presented: ago(6),
+        acquired: ago(5),
+        published: ago(4),
+        claimed: ago(3),
+        submitted: ago(2),
+    });
+    let mut picture = frame(2);
+    picture.presentation = Some(ago(6));
+    picture.latency = Some(Duration::from_millis(3));
+    let mut repeat = frame(3);
+    repeat.presentation = Some(now);
+    sender
+        .submit(
+            vec![picture, repeat],
+            receiver.local_addr().unwrap(),
+            Duration::ZERO,
+            &mut claims,
+        )
+        .unwrap();
+    assert_eq!(sender.next_wire_frame().unwrap(), 3);
+    let performance = &session.info()["performance"];
+    let stages = &performance["stages"];
+    let ms = |stage: &str| stages[stage]["mean_ms"].as_f64().unwrap();
+    assert_eq!(performance["sample_frames"], 2);
+    assert_eq!(stages["frames"], 1);
+    assert_eq!(
+        (ms("capture"), ms("hold"), ms("claim"), ms("convert")),
+        (1., 1., 1., 1.)
+    );
+    // Encoding ran from the submission to the output reaching the sender.
+    assert!(ms("encode") >= 2.);
+    let parts: f64 = butterpollo_core::performance::STAGES
+        .iter()
+        .map(|stage| ms(stage))
+        .sum();
+    assert!((parts - ms("present_to_sent")).abs() < 0.01);
+    assert!(ms("present_to_sent") >= 6.);
+    // Moonlight's field for the same picture runs from the claim to packetization.
+    assert!(ms("moonlight_host") >= 3.);
+    assert!(ms("moonlight_host") < ms("present_to_sent"));
 }
 
 #[test]
@@ -636,7 +851,12 @@ fn reconnect_keeps_packet_order_fec_recovery_and_iv_ownership_identical_to_inlin
         for index in 1..=4 {
             let expected = frame(index);
             sender
-                .submit(vec![frame(index)], peer(), Duration::ZERO)
+                .submit(
+                    vec![frame(index)],
+                    peer(),
+                    Duration::ZERO,
+                    &mut Claims::default(),
+                )
                 .unwrap();
             assert_eq!(
                 packets.recv_timeout(WAIT).unwrap(),

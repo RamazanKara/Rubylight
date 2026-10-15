@@ -1068,9 +1068,10 @@ impl Media {
                             capture.next_gpu()
                         })();
                         match captured {
-                            Ok(Some(image)) => {
+                            Ok(Some(mut image)) => {
                                 capture_warnings.clear("capture_recovery");
                                 let captured = image.captured;
+                                image.published = Instant::now();
                                 worker.publish_captured(Arc::new(image), captured)?;
                             }
                             Ok(None) => {
@@ -1424,6 +1425,8 @@ impl Media {
                         },
                     };
                     let next_wire_frame = std::cell::Cell::new(u64::from(packetizer.frame));
+                    // New pictures claimed and not yet sent, for the stage timings.
+                    let claims = std::cell::RefCell::new(butterpollo_core::performance::Claims::default());
                     let start = Instant::now();
                     let mut present_stamper = (s.config.codec != 3 && prepared.capture() == "wgc").then(butterpollo_windows::present_timing::Stamper::default);
                     pyrowave_sender = if s.config.codec == 3 { Some(crate::pyrowave_send::Sender::new(m.video.clone(),s.clone(),c.clone(),h.clone(),start,prepared.capture() == "wgc")?) } else { None };
@@ -1566,7 +1569,7 @@ impl Media {
                                 tracing::info!(pacing_bps = bps, bitrate_kbps = bitrate, wire_budget_bps = needed, automatic_pacing, "video frames are sent on their own thread for current or adaptive pacing");
                             }
                         }
-                        if let Some(sender) = video_sender.get() { return sender.submit(output, peer, call_latency); }
+                        if let Some(sender) = video_sender.get() { return sender.submit(output, peer, call_latency, &mut claims.borrow_mut()); }
                         let polled = Instant::now();
                         let micros = |d: Duration| d.as_micros().min(u128::from(u64::MAX)) as u64;
                         'frames: for frame in output {
@@ -1581,6 +1584,7 @@ impl Media {
                             let captured = frame.presentation.unwrap_or(claimed);
                             let age = micros(claimed.saturating_duration_since(captured));
                             let processing = micros(Instant::now().saturating_duration_since(claimed));
+                            let claim = claims.borrow_mut().take(frame.presentation);
                             let stamp_started = Instant::now();
                             let stamp = present_stamper.as_mut().map_or(captured, |stamper| stamper.stamp(captured, &prepared.output())).max(last_stamp + Duration::from_nanos(11_112));
                             let stamp_time = stamp_started.elapsed();
@@ -1647,6 +1651,7 @@ impl Media {
                             let mut batches = 0;
                             let mut first_send = None;
                             let mut last_send = None;
+                            let mut first_sent = None;
                             let mut lost = butterpollo_core::stream_policy::SendLoss::new(block_layout);
                             let mut abandoned = 0;
                             let mut sent_packets = 0;
@@ -1693,6 +1698,7 @@ impl Media {
                                         None => batch.send(&m.video, &remaining[..count], peer)?,
                                     };
                                     let finished = Instant::now();
+                                    first_sent.get_or_insert(finished);
                                     send_time += finished.duration_since(send_started);
                                     if trace_send {
                                         first_send.get_or_insert(send_started);
@@ -1735,7 +1741,14 @@ impl Media {
                                     writable_waits=after.count-before.count, writable_wait_us=micros(after.elapsed-before.elapsed),
                                     dropped=batch.dropped-dropped, stream_id=%s.launch.id, "send");
                             }
-                            s.stats.performance.lock().unwrap().record_timing(sent,butterpollo_core::performance::Timing{period:stream_period.get(),encode:latency,host:processing,age,sent:micros(sent.saturating_duration_since(claimed))},frame_bytes);
+                            {
+                                let mut performance = s.stats.performance.lock().unwrap();
+                                performance.record_timing(sent,butterpollo_core::performance::Timing{period:stream_period.get(),encode:latency,host:processing,age,sent:micros(sent.saturating_duration_since(claimed))},frame_bytes);
+                                // A frame abandoned on send never had its last packet sent.
+                                if let Some(claim) = claim.filter(|_| !lost.unrecoverable()) {
+                                    performance.record_stages(&claim.sent(polled, packetize_started, first_sent.unwrap_or(sent), sent), processing);
+                                }
+                            }
                             let record_time = sent.elapsed();
                             // The interface lookup takes a moment: refresh the
                             // link speed after the frame is out, for the next one.
@@ -1823,6 +1836,11 @@ impl Media {
                                         let wgc_stamp_future_frames = wgc_stamp_ages.iter().filter(|age| **age < 0.).count();
                                         let wgc_stamp_to_host_mean_ms = (wgc_stamp_frames > 0).then(|| wgc_stamp_ages.iter().sum::<f64>() / wgc_stamp_frames as f64);
                                         let wgc_stamp_to_host_p95_ms = wgc_stamp_ages.get(wgc_stamp_frames.saturating_sub(1) * 95 / 100).copied();
+                                        // New pictures' stages over the last five seconds: mean/p95/p99 ms.
+                                        let stage = |name: &str| {
+                                            let ms = |key: &str| timing["stages"][name][key].as_f64().unwrap_or(0.);
+                                            format!("{:.2}/{:.2}/{:.2}", ms("mean_ms"), ms("p95_ms"), ms("p99_ms"))
+                                        };
 
                                         tracing::info!(
                                             fps=ms("fps"),
@@ -1837,6 +1855,17 @@ impl Media {
                                             frame_age_p95_ms=ms("frame_age_p95_ms"),
                                             present_to_send_mean_ms=ms("present_to_send_mean_ms"),
                                             present_to_send_p99_ms=ms("present_to_send_p99_ms"),
+                                            present_to_sent_ms=%stage("present_to_sent"),
+                                            stage_capture_ms=%stage("capture"),
+                                            stage_hold_ms=%stage("hold"),
+                                            stage_claim_ms=%stage("claim"),
+                                            stage_convert_ms=%stage("convert"),
+                                            stage_encode_ms=%stage("encode"),
+                                            stage_queue_ms=%stage("queue"),
+                                            stage_packetize_ms=%stage("packetize"),
+                                            stage_send_ms=%stage("send"),
+                                            moonlight_host_ms=%stage("moonlight_host"),
+                                            stage_frames=timing["stages"]["frames"].as_u64().unwrap_or(0),
                                             detect_mean_ms,
                                             detect_p95_ms,
                                             claim_wait_mean_ms,
@@ -2343,6 +2372,16 @@ impl Media {
                                 );
                             }
                             let call_latency = begin.elapsed();
+                            if fresh && pyrowave_sender.is_none() {
+                                claims.borrow_mut().push(butterpollo_core::performance::Claim {
+                                    key: presented_image.captured,
+                                    presented: image.captured,
+                                    acquired: image.acquired,
+                                    published: image.published,
+                                    claimed: begin,
+                                    submitted: active.last_submitted().filter(|at| *at >= begin).unwrap_or(begin),
+                                });
+                            }
                             // Repeat deadlines start at submission, so encoder work
                             // does not extend the interval between static frames.
                             encoded_at = begin;

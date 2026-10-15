@@ -638,6 +638,7 @@ impl Session {
             captured: Instant::now(),
             wgc_stamp: None,
             acquired: Instant::now(),
+            published: Instant::now(),
             gpu: self.gpu.clone(),
             texture: Arc::new(texture.texture.clone()),
             ready: Some(ready),

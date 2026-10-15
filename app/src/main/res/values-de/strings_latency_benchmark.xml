@@ -16,6 +16,8 @@
     <string name="latency_test_failed">Messung nicht möglich. Der Host hat ständig Bilder gesendet oder nicht auf den Mausschub reagiert. Zeige einen ruhigen Desktop mit sichtbarem Mauszeiger, schließe Spiele und Videos und versuche es erneut.</string>
     <string name="latency_benchmark_share">Ergebnisse teilen</string>
     <string name="latency_benchmark_share_title">Geräteergebnisse</string>
-    <string name="latency_benchmark_share_message">Nightjar sendet das nie von selbst. Der Text enthält dieses Gerät, seinen Decoder-Benchmark und den letzten Test auf diesem Bildschirm, ohne PC-Namen, Adressen, Seriennummern oder Kontodaten. Teile oder kopiere ihn, um das Gerät in die Ergebnistabelle aufzunehmen.</string>
+    <string name="latency_benchmark_share_message">Nightjar sendet das nie von selbst. Der Text enthält dieses Gerät (Modell, SoC, GPU und Android-Version), seinen Decoder-Benchmark und den letzten Test auf diesem Bildschirm, ohne PC-Namen, Adressen, Seriennummern oder Kontodaten. „Formular öffnen“ kopiert den Text und öffnet ein öffentliches GitHub-Formular. Alles, was du dort einfügst, wird öffentlich und kommt in die Gerätetabelle auf der Nightjar-Website.</string>
     <string name="latency_benchmark_copied">Ergebnisse kopiert</string>
+    <string name="latency_benchmark_report_form">Formular öffnen</string>
+    <string name="latency_benchmark_paste_hint">Ergebnisse kopiert. Füge sie in das Formular ein.</string>
 </resources>

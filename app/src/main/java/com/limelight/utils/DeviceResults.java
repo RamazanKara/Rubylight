@@ -17,6 +17,9 @@ import java.util.regex.Pattern;
 public final class DeviceResults {
     public static final String FORMAT = "nightjar-device-results";
     public static final int VERSION = 1;
+    /** The public GitHub issue form for results. It carries no device data; the user pastes the text. */
+    public static final String REPORT_FORM_URL =
+            "https://github.com/RamazanKara/nightjar/issues/new?template=device-results.yml";
     static final int MAX_TEXT = 96;
     static final String OMITTED = "[omitted]";
     /** JSON names of the latency test metrics, indexed like {@link LatencyBenchmarkStats}. */

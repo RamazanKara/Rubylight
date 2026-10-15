@@ -216,4 +216,9 @@ public class DeviceResultsTest {
         assertTrue(json.contains("\"audioSampleRate\": null"));
         assertTrue(json.contains("\"frameIntervalMs\": null"));
     }
+
+    @Test public void reportFormUrlOpensTheIssueFormWithoutDeviceData() {
+        assertEquals("https://github.com/RamazanKara/nightjar/issues/new?template=device-results.yml",
+                DeviceResults.REPORT_FORM_URL);
+    }
 }

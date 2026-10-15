@@ -17,6 +17,8 @@
     <string name="latency_test_failed">No se ha podido medir. El servidor siguió enviando fotogramas o no respondió al movimiento. Muestra un escritorio quieto con el puntero del ratón visible, cierra juegos y vídeos y vuelve a intentarlo.</string>
     <string name="latency_benchmark_share">Compartir resultados</string>
     <string name="latency_benchmark_share_title">Resultados del dispositivo</string>
-    <string name="latency_benchmark_share_message">Nightjar nunca envía esto por sí solo. El texto incluye este dispositivo, su prueba de decodificador y la última prueba de esta pantalla, sin nombres de PC, direcciones, números de serie ni datos de cuenta. Compártelo o cópialo para añadir este dispositivo a la tabla de resultados.</string>
+    <string name="latency_benchmark_share_message">Nightjar nunca envía esto por sí solo. El texto incluye este dispositivo (modelo, SoC, GPU y versión de Android), su prueba de decodificador y la última prueba de esta pantalla, sin nombres de PC, direcciones, números de serie ni datos de cuenta. «Abrir formulario» copia el texto y abre un formulario público de GitHub. Todo lo que pegues allí se vuelve público y se añade a la tabla de dispositivos del sitio web de Nightjar.</string>
     <string name="latency_benchmark_copied">Resultados copiados</string>
+    <string name="latency_benchmark_report_form">Abrir formulario</string>
+    <string name="latency_benchmark_paste_hint">Resultados copiados. Pégalos en el formulario.</string>
 </resources>

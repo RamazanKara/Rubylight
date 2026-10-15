@@ -17,6 +17,8 @@
     <string name="latency_test_failed">Не вдалося виміряти. Хост постійно надсилав кадри або не відповів на рух миші. Покажіть нерухомий робочий стіл із видимим вказівником миші, закрийте ігри та відео й спробуйте ще раз.</string>
     <string name="latency_benchmark_share">Поділитися результатами</string>
     <string name="latency_benchmark_share_title">Результати пристрою</string>
-    <string name="latency_benchmark_share_message">Nightjar ніколи не надсилає це сам. Текст містить цей пристрій, тест декодера й останній тест на цьому екрані, без імен ПК, адрес, серійних номерів і даних облікового запису. Поділіться ним або скопіюйте його, щоб додати пристрій до таблиці результатів.</string>
+    <string name="latency_benchmark_share_message">Nightjar ніколи не надсилає це сам. Текст містить цей пристрій (модель, SoC, GPU і версію Android), тест декодера й останній тест на цьому екрані, без імен ПК, адрес, серійних номерів і даних облікового запису. «Відкрити форму» копіює текст і відкриває публічну форму GitHub. Усе, що ви туди вставите, стане загальнодоступним і потрапить до таблиці пристроїв на сайті Nightjar.</string>
     <string name="latency_benchmark_copied">Результати скопійовано</string>
+    <string name="latency_benchmark_report_form">Відкрити форму</string>
+    <string name="latency_benchmark_paste_hint">Результати скопійовано. Вставте їх у форму.</string>
 </resources>

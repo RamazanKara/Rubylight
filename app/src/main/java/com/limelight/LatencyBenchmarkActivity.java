@@ -24,6 +24,7 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.limelight.binding.video.DecoderBenchmark;
 import com.limelight.preferences.GlPreferences;
 import com.limelight.utils.DeviceResults;
+import com.limelight.utils.HelpLauncher;
 import com.limelight.utils.LatencyBenchmarkStats;
 import com.limelight.ui.TopAppBar;
 import com.limelight.utils.UiHelper;
@@ -183,10 +184,13 @@ public class LatencyBenchmarkActivity extends AppCompatActivity implements Chore
         UiHelper.showDialog(this, new MaterialAlertDialogBuilder(this)
                 .setTitle(R.string.latency_benchmark_share_title)
                 .setMessage(getString(R.string.latency_benchmark_share_message) + "\n\n" + json)
-                .setNegativeButton(android.R.string.cancel, null)
+                .setNegativeButton(R.string.latency_benchmark_report_form, (dialog, which) -> {
+                    copyResults(json);
+                    Toast.makeText(this, R.string.latency_benchmark_paste_hint, Toast.LENGTH_LONG).show();
+                    HelpLauncher.launchUrl(this, DeviceResults.REPORT_FORM_URL);
+                })
                 .setNeutralButton(android.R.string.copy, (dialog, which) -> {
-                    ClipboardManager clipboard = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
-                    clipboard.setPrimaryClip(ClipData.newPlainText(getString(R.string.latency_benchmark_share_title), json));
+                    copyResults(json);
                     Toast.makeText(this, R.string.latency_benchmark_copied, Toast.LENGTH_SHORT).show();
                 })
                 .setPositiveButton(R.string.latency_benchmark_share, (dialog, which) -> {
@@ -196,6 +200,11 @@ public class LatencyBenchmarkActivity extends AppCompatActivity implements Chore
                     startActivity(Intent.createChooser(intent, getString(R.string.latency_benchmark_share)));
                 })
                 .create());
+    }
+
+    private void copyResults(String json) {
+        ClipboardManager clipboard = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+        clipboard.setPrimaryClip(ClipData.newPlainText(getString(R.string.latency_benchmark_share_title), json));
     }
 
     @Override protected void onPause() {

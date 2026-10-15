@@ -17,6 +17,8 @@
     <string name="latency_test_failed">Couldn\'t measure. The host kept sending frames or didn\'t answer the nudge. Show a still desktop with a visible mouse pointer, close games and videos, and try again.</string>
     <string name="latency_benchmark_share">Share results</string>
     <string name="latency_benchmark_share_title">Device results</string>
-    <string name="latency_benchmark_share_message">Nightjar never sends this by itself. The text lists this device, its decoder benchmark and the latest test from this screen, without PC names, addresses, serial numbers or account data. Share or copy it to add this device to the results table.</string>
+    <string name="latency_benchmark_share_message">Nightjar never sends this by itself. The text lists this device (model, SoC, GPU and Android version), its decoder benchmark and the latest test from this screen, without PC names, addresses, serial numbers or account data. Open report form copies the text and opens a public GitHub issue form. Everything you paste there becomes public and is added to the device table on the Nightjar website.</string>
     <string name="latency_benchmark_copied">Results copied</string>
+    <string name="latency_benchmark_report_form">Open report form</string>
+    <string name="latency_benchmark_paste_hint">Results copied. Paste them into the form.</string>
 </resources>

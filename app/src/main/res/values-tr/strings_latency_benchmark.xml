@@ -17,6 +17,8 @@
     <string name="latency_test_failed">Ölçülemedi. Ana bilgisayar kare göndermeye devam etti veya fare kaydırmasına yanıt vermedi. Fare imleci görünen hareketsiz bir masaüstü gösterin, oyunları ve videoları kapatın, sonra tekrar deneyin.</string>
     <string name="latency_benchmark_share">Sonuçları paylaş</string>
     <string name="latency_benchmark_share_title">Cihaz sonuçları</string>
-    <string name="latency_benchmark_share_message">Nightjar bunu asla kendiliğinden göndermez. Metin bu cihazı, kod çözücü testini ve bu ekrandaki son testi içerir; PC adları, adresler, seri numaraları veya hesap verileri içermez. Bu cihazı sonuç tablosuna eklemek için paylaşın veya kopyalayın.</string>
+    <string name="latency_benchmark_share_message">Nightjar bunu asla kendiliğinden göndermez. Metin bu cihazı (model, SoC, GPU ve Android sürümü), kod çözücü testini ve bu ekrandaki son testi içerir; PC adları, adresler, seri numaraları veya hesap verileri içermez. “Formu aç” metni kopyalar ve herkese açık bir GitHub formu açar. Oraya yapıştırdığınız her şey herkese açık olur ve Nightjar web sitesindeki cihaz tablosuna eklenir.</string>
     <string name="latency_benchmark_copied">Sonuçlar kopyalandı</string>
+    <string name="latency_benchmark_report_form">Formu aç</string>
+    <string name="latency_benchmark_paste_hint">Sonuçlar kopyalandı. Forma yapıştırın.</string>
 </resources>

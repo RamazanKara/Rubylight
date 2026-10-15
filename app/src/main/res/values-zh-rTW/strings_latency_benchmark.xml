@@ -17,6 +17,8 @@
     <string name="latency_test_failed">無法測量。主機持續傳送影格，或未回應滑鼠微移。請顯示靜止的桌面並讓滑鼠游標可見，關閉遊戲和影片後再試一次。</string>
     <string name="latency_benchmark_share">分享結果</string>
     <string name="latency_benchmark_share_title">裝置結果</string>
-    <string name="latency_benchmark_share_message">Nightjar 絕不會自行傳送這些內容。文字包含此裝置、其解碼器基準測試和此畫面上最近一次測試的結果，不含電腦名稱、位址、序號或帳戶資料。分享或複製它即可將此裝置加入結果表。</string>
+    <string name="latency_benchmark_share_message">Nightjar 絕不會自行傳送這些內容。文字包含此裝置（型號、SoC、GPU 和 Android 版本）、其解碼器基準測試和此畫面上最近一次測試的結果，不含電腦名稱、位址、序號或帳戶資料。「開啟表單」會複製文字並開啟一個公開的 GitHub 表單。你貼到那裡的所有內容都會公開，並加入 Nightjar 網站上的裝置表。</string>
     <string name="latency_benchmark_copied">已複製結果</string>
+    <string name="latency_benchmark_report_form">開啟表單</string>
+    <string name="latency_benchmark_paste_hint">已複製結果。請貼到表單中。</string>
 </resources>

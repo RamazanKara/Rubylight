@@ -17,6 +17,8 @@
     <string name="latency_test_failed">Mesure impossible. L’hôte a continué d’envoyer des images ou n’a pas répondu au mouvement de souris. Affichez un bureau immobile avec un pointeur de souris visible, fermez les jeux et vidéos, puis réessayez.</string>
     <string name="latency_benchmark_share">Partager les résultats</string>
     <string name="latency_benchmark_share_title">Résultats de l’appareil</string>
-    <string name="latency_benchmark_share_message">Nightjar n’envoie jamais ceci de lui-même. Le texte décrit cet appareil, son benchmark de décodeur et le dernier test de cet écran, sans noms de PC, adresses, numéros de série ni données de compte. Partagez-le ou copiez-le pour ajouter cet appareil au tableau des résultats.</string>
+    <string name="latency_benchmark_share_message">Nightjar n’envoie jamais ceci de lui-même. Le texte décrit cet appareil (modèle, SoC, GPU et version d’Android), son benchmark de décodeur et le dernier test de cet écran, sans noms de PC, adresses, numéros de série ni données de compte. « Ouvrir le formulaire » copie le texte et ouvre un formulaire GitHub public. Tout ce que vous y collez devient public et rejoint le tableau des appareils du site de Nightjar.</string>
     <string name="latency_benchmark_copied">Résultats copiés</string>
+    <string name="latency_benchmark_report_form">Ouvrir le formulaire</string>
+    <string name="latency_benchmark_paste_hint">Résultats copiés. Collez-les dans le formulaire.</string>
 </resources>

@@ -31,6 +31,7 @@ ADVICE = {
     "seekbar_deadzone": "Raise to suppress stick drift; lower for small movements. Games can add their own deadzone on top.",
     "checkbox_multi_controller": "Leave on so each controller is its own player and the PC sees controllers as they connect. Turn off to make every controller player 1 and keep one controller present on the PC, for games that need one before any connects.",
     "controller_button_mapping": "Open Controller buttons, press a digital button and choose its output or Nothing. Mappings default to the original button, are saved per controller model and apply next stream.",
+    "controller_test": "Open Controller test to see buttons, sticks, triggers and the D-pad live and to try rumble, lights, motion sensors and the touchpad where the controller has them. Works with a D-pad or controller alone; hold B or Back for one second to leave. Leaving stops rumble and restores the lights. See [controller test](controls.md#controller-test).",
     "checkbox_flip_face_buttons": "Enable to swap A/B and X/Y on physical and on-screen gamepads.",
     "checkbox_gamepad_motion_sensors": "Enable for controller gyro/accelerometer input on Android 12+. Fresh Android 12 (API 31) installations override this to Off because of an OS sensor bug.",
     "checkbox_gamepad_motion_fallback": "Enable to use this device's motion sensors when a controller lacks them. Hidden if the device has neither gyro nor accelerometer.",

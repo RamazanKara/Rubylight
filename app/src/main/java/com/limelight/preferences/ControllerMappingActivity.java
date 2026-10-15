@@ -71,6 +71,11 @@ public class ControllerMappingActivity extends AppCompatActivity {
         axisButton.setOnClickListener(v -> chooseAxis());
         root.addView(axisButton);
 
+        MaterialButton testButton = new MaterialButton(this, null, R.attr.nightjarButtonTonalStyle);
+        testButton.setText(R.string.controller_test_open);
+        testButton.setOnClickListener(v -> startActivity(new android.content.Intent(this, ControllerTestActivity.class)));
+        root.addView(testButton);
+
         mappingList = new LinearLayout(this);
         mappingList.setOrientation(LinearLayout.VERTICAL);
         root.addView(mappingList);

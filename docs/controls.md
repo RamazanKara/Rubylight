@@ -31,6 +31,18 @@ Open **Sticks, triggers and D-pad** after selecting a controller. Each output st
 
 **Flip face buttons** swaps A/B and X/Y. Raise the stick deadzone if a stationary stick drifts. **Vibrate device for rumble** gives you rumble on the phone or tablet when the controller has no motors. **Disable rumble** (off by default) stops every vibration the host asks for: controller and trigger rumble, USB DualSense waveform haptics and the device vibration above. It applies from the next stream.
 
+### Controller test
+
+Open **Settings → Controls → Controller test**, or **Test controller** on the Controller buttons page, to check a controller without a stream:
+
+- **Buttons** light up while held, and the line under them names them for screen readers. LT and RT count as pressed past half travel.
+- **Sticks and triggers** draw both sticks and both triggers and print their values, followed by every raw axis the controller reports.
+- **Rumble** runs each motor the controller exposes (strong, weak, and the triggers where present) for a moment; **Stop** ends it.
+- **Lights** sets an RGB lightbar to red, green or blue where Android 12+ or Nightjar's USB driver can drive it; **Reset** gives it back.
+- **Motion sensors** and **Touchpad** show the gyro, accelerometer and finger position where the controller has them.
+
+Anything a controller or Android version lacks says so instead of being hidden. Pads that Nightjar's USB driver owns (see below) are read through the driver, as in a stream, and Android 12+ is needed for rumble per motor, lights and motion on other pads. The page works with a D-pad or controller alone: the D-pad and A move around it, and holding B or Back for one second leaves it. Leaving stops rumble, restores the lights and hands USB pads back to Android.
+
 ### DualSense and USB
 
 Bluetooth DualSense uses Android's controller path. Controller motion, lights, battery and vibration extensions depend on Android and controller support; motion settings are available on Android 12+, with motion defaulting off on API 31 because of an OS bug.

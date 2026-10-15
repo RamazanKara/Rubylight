@@ -1221,6 +1221,10 @@ public class StreamSettings extends AppCompatActivity {
                 startActivity(new Intent(getActivity(), ControllerMappingActivity.class));
                 return true;
             });
+            findPreference("controller_test").setOnPreferenceClickListener(preference -> {
+                startActivity(new Intent(getActivity(), ControllerTestActivity.class));
+                return true;
+            });
             findPreference("keyboard_shortcuts_editor").setOnPreferenceClickListener(preference -> {
                 startActivity(new Intent(getActivity(), KeyboardShortcutsActivity.class));
                 return true;

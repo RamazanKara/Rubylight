@@ -164,6 +164,10 @@
             android:key="controller_button_mapping"
             android:title="@string/controller_mapping_title"
             android:summary="@string/controller_mapping_summary" />
+        <Preference
+            android:key="controller_test"
+            android:title="@string/controller_test_title"
+            android:summary="@string/controller_test_summary" />
         <com.limelight.preferences.SeekBarPreference
             android:key="seekbar_deadzone"
             android:defaultValue="7"

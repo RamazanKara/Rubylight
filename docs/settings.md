@@ -63,6 +63,7 @@ These tables include every preference, including actions, grouped as the Setting
 | --- | --- | --- | --- |
 | Multiple controllers<br>`checkbox_multi_controller` | On | On; Off | Leave on so each controller is its own player and the PC sees controllers as they connect. Turn off to make every controller player 1 and keep one controller present on the PC, for games that need one before any connects. |
 | Controller buttons<br>`controller_button_mapping` | No stored default | Action | Open Controller buttons, press a digital button and choose its output or Nothing. Mappings default to the original button, are saved per controller model and apply next stream. |
+| Controller test<br>`controller_test` | No stored default | Action | Open Controller test to see buttons, sticks, triggers and the D-pad live and to try rumble, lights, motion sensors and the touchpad where the controller has them. Works with a D-pad or controller alone; hold B or Back for one second to leave. Leaving stops rumble and restores the lights. See [controller test](controls.md#controller-test). |
 | Analog stick deadzone<br>`seekbar_deadzone` | 7% | 1%–20%; step 1% | Raise to suppress stick drift; lower for small movements. Games can add their own deadzone on top. |
 | Flip face buttons<br>`checkbox_flip_face_buttons` | Off | On; Off | Enable to swap A/B and X/Y on physical and on-screen gamepads. |
 | Controller mouse mode<br>`checkbox_mouse_emulation` | On | On; Off | Leave on to toggle controller mouse mode by holding Start. |

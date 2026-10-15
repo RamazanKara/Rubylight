@@ -36,4 +36,5 @@
     <string name="host_details_features_none">Bildirilen ek özellik yok</string>
     <string name="host_pyrowave_unavailable">Bu bilgisayar PyroWave yayını yapamadığı için %1$s kullanıyor.</string>
     <string name="connection_test_intro_delay">Bilgisayarınıza olan gecikmeyi test edin.</string>
+    <string name="host_feature_cursor_shape">İmleç şekilleri</string>
 </resources>

@@ -36,4 +36,5 @@
     <string name="host_details_features_none">Дополнительные функции не заявлены</string>
     <string name="host_pyrowave_unavailable">Этот ПК не может транслировать PyroWave, поэтому использует %1$s.</string>
     <string name="connection_test_intro_delay">Проверьте задержку до ПК.</string>
+    <string name="host_feature_cursor_shape">Формы курсора</string>
 </resources>

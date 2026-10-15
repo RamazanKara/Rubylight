@@ -39,4 +39,5 @@
 
     <string name="host_pyrowave_unavailable">Dieser PC kann kein PyroWave streamen, daher wird %1$s verwendet.</string>
     <string name="connection_test_intro_delay">Teste die Latenz zum PC.</string>
+    <string name="host_feature_cursor_shape">Mauszeigerformen</string>
 </resources>

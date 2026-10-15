@@ -36,4 +36,5 @@
     <string name="host_details_features_none">Nenhum recurso extra informado</string>
     <string name="host_pyrowave_unavailable">Este PC não consegue transmitir com PyroWave, então usa %1$s.</string>
     <string name="connection_test_intro_delay">Teste o atraso até o seu PC.</string>
+    <string name="host_feature_cursor_shape">Formatos do cursor</string>
 </resources>

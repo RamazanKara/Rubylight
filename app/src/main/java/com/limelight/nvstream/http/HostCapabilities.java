@@ -55,7 +55,8 @@ public final class HostCapabilities {
         REMOTE_SESSION_TILES(R.string.host_feature_remote_sessions),
         HOST_CONFIRMS_REPLACEMENT(0),
         HOST_TIMING(0),
-        WEB_UI(R.string.host_feature_web_ui);
+        WEB_UI(R.string.host_feature_web_ui),
+        CURSOR_SHAPE(R.string.host_feature_cursor_shape);
 
         @StringRes public final int label;
 
@@ -374,6 +375,7 @@ public final class HostCapabilities {
         int networkPathVersion = -1;
         boolean controllerPreparation;
         boolean currentGameUuid;
+        int cursorShapeVersion = -1;
 
         static Evidence parse(String serverInfo) throws XmlPullParserException, IOException {
             Evidence evidence = new Evidence();
@@ -443,6 +445,9 @@ public final class HostCapabilities {
                         break;
                     case "ControllerPreparation":
                         evidence.controllerPreparation = "1".equals(parser.nextText().trim());
+                        break;
+                    case "CursorShapeVersion":
+                        evidence.cursorShapeVersion = (int) unsigned(parser.nextText(), 0xFFFF);
                         break;
                     case "currentgameuuid":
                         evidence.currentGameUuid = true;
@@ -611,6 +616,9 @@ public final class HostCapabilities {
                     // Sunshine, Apollo, Vibepollo and Rubylight all serve one; GameStream has none.
                     return gameStream ? Availability.NEVER :
                             family() != Family.UNKNOWN ? Availability.SUPPORTED : Availability.UNKNOWN;
+                case CURSOR_SHAPE:
+                    // docs/protocol/cursor-shape.md: the highest version the host speaks; it also speaks 1.
+                    return cursorShapeVersion >= 1 ? Availability.SUPPORTED : absent(false);
                 default:
                     throw new IllegalArgumentException(feature.name());
             }
@@ -633,7 +641,8 @@ public final class HostCapabilities {
                     .put("pyroWaveFields", pyroWaveFields).put("pyroWaveProbeBytes", pyroWaveProbeBytes)
                     .put("pyroWaveCodecs", pyroWaveCodecs).put("encoderBitrate", encoderBitrate)
                     .put("hardwareMetricsVersion", hardwareMetricsVersion).put("networkPathVersion", networkPathVersion)
-                    .put("controllerPreparation", controllerPreparation).put("currentGameUuid", currentGameUuid);
+                    .put("controllerPreparation", controllerPreparation).put("currentGameUuid", currentGameUuid)
+                    .put("cursorShapeVersion", cursorShapeVersion);
             if (rustHostVersion != null) object.put("rustHostVersion", rustHostVersion);
             if (frameLimiter != null) object.put("frameLimiter", frameLimiter);
             if (virtualDisplayCapable != null) object.put("virtualDisplayCapable", virtualDisplayCapable);
@@ -662,6 +671,8 @@ public final class HostCapabilities {
             evidence.networkPathVersion = object.getInt("networkPathVersion");
             evidence.controllerPreparation = object.getBoolean("controllerPreparation");
             evidence.currentGameUuid = object.getBoolean("currentGameUuid");
+            // Absent from capabilities stored before cursor shapes existed.
+            evidence.cursorShapeVersion = object.optInt("cursorShapeVersion", -1);
             if (evidence.permission < -1 || evidence.permission > 0xFFFFFFFFL || evidence.serverCommands < 0 ||
                     (evidence.rustHostVersion != null && evidence.rustHostVersion.isEmpty())) {
                 throw new JSONException("Invalid stored capabilities");
@@ -691,7 +702,8 @@ public final class HostCapabilities {
                     pyroWaveProbeBytes == that.pyroWaveProbeBytes && pyroWaveCodecs == that.pyroWaveCodecs &&
                     encoderBitrate == that.encoderBitrate && hardwareMetricsVersion == that.hardwareMetricsVersion &&
                     networkPathVersion == that.networkPathVersion &&
-                    controllerPreparation == that.controllerPreparation && currentGameUuid == that.currentGameUuid;
+                    controllerPreparation == that.controllerPreparation && currentGameUuid == that.currentGameUuid &&
+                    cursorShapeVersion == that.cursorShapeVersion;
         }
 
         @Override
@@ -699,7 +711,7 @@ public final class HostCapabilities {
             return Objects.hash(gameStream, sunshineVersion, paired, rustHostVersion, permission, serverCommands,
                     virtualDisplayCapable, virtualDisplayDriverReady, virtualDisplayHdrCapable, frameLimiter,
                     pyroWaveFields, pyroWaveProbeBytes, pyroWaveCodecs, encoderBitrate, hardwareMetricsVersion,
-                    networkPathVersion, controllerPreparation, currentGameUuid);
+                    networkPathVersion, controllerPreparation, currentGameUuid, cursorShapeVersion);
         }
     }
 }

@@ -36,4 +36,5 @@
     <string name="host_details_features_none">未回報額外功能</string>
     <string name="host_pyrowave_unavailable">這部電腦無法串流 PyroWave，因此會改用 %1$s。</string>
     <string name="connection_test_intro_delay">測試與電腦之間的延遲。</string>
+    <string name="host_feature_cursor_shape">游標形狀</string>
 </resources>

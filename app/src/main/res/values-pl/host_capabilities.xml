@@ -36,4 +36,5 @@
     <string name="host_details_features_none">Nie zgłoszono dodatkowych funkcji</string>
     <string name="host_pyrowave_unavailable">Ten komputer nie może strumieniować PyroWave, więc używa %1$s.</string>
     <string name="connection_test_intro_delay">Przetestuj opóźnienie do komputera.</string>
+    <string name="host_feature_cursor_shape">Kształty kursora</string>
 </resources>

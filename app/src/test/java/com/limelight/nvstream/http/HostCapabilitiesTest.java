@@ -122,11 +122,38 @@ public class HostCapabilitiesTest {
     }
 
     @Test
-    public void currentRubylightSupportsEverything() {
+    public void currentRubylightSupportsEverythingButCursorShapes() {
         HostCapabilities caps = TestHosts.rubylight();
         assertEquals(Family.RUBYLIGHT, caps.family());
         assertEquals("2.2.21", caps.hostVersion());
-        assertEquals(EnumSet.allOf(Feature.class), caps.supported());
+        assertEquals(EnumSet.complementOf(EnumSet.of(CURSOR_SHAPE)), caps.supported());
+        assertNever(caps, CURSOR_SHAPE);
+    }
+
+    @Test
+    public void cursorShapesNeedTheirVersionFieldFromAnyHost() {
+        for (String host : new String[] {"<appversion>7.1.431.-1</appversion>", "<Permission>0</Permission>",
+                "<FrameLimiterSupported>1</FrameLimiterSupported>", "<RustHostVersion>2.2.21</RustHostVersion>",
+                "<appversion>7.1.431.0</appversion>"}) {
+            assertTrue(host, caps(host + "<CursorShapeVersion>1</CursorShapeVersion>").has(CURSOR_SHAPE));
+            assertTrue(host, caps(host + "<CursorShapeVersion>2</CursorShapeVersion>").has(CURSOR_SHAPE));
+            for (String version : new String[] {"0", "-1", "bad", "", "65536"}) {
+                assertFalse(host + " " + version, caps(host + "<CursorShapeVersion>" + version +
+                        "</CursorShapeVersion>").has(CURSOR_SHAPE));
+            }
+        }
+        assertNever(caps("<appversion>7.1.431.-1</appversion>"), CURSOR_SHAPE);
+        assertUnknown(caps("<appversion>7.1.431.0</appversion>"), CURSOR_SHAPE);
+        HostCapabilities stored = caps("<RustHostVersion>2.2.21</RustHostVersion><CursorShapeVersion>1</CursorShapeVersion>");
+        assertEquals(stored, HostCapabilities.fromJson(stored.toJson()));
+        assertTrue(HostCapabilities.fromJson(stored.toJson()).has(CURSOR_SHAPE));
+        // Capabilities stored before the field existed still load, without cursor shapes.
+        String olderJson = TestHosts.rubylight().toJson().replace(",\"cursorShapeVersion\":-1", "")
+                .replace("\"cursorShapeVersion\":-1,", "");
+        assertFalse(olderJson, olderJson.contains("cursorShapeVersion"));
+        HostCapabilities older = HostCapabilities.fromJson(olderJson);
+        assertTrue(older.isKnown());
+        assertFalse(older.has(CURSOR_SHAPE));
     }
 
     @Test

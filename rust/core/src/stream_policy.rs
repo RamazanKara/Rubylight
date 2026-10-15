@@ -256,6 +256,9 @@ pub struct Pacer {
     spacing: f64,
     /// The source presents faster than the stream rate.
     faster: bool,
+    /// Credit a faster source may be lent, in frames, to repay a deficit.
+    grace: f64,
+    grace_at: Instant,
 }
 impl Pacer {
     /// Credit above one frame absorbs arrival jitter of a source at the stream rate.
@@ -270,6 +273,8 @@ impl Pacer {
             source_phase: None,
             spacing: 0.75,
             faster: false,
+            grace: Self::GRACE_CAP,
+            grace_at: now,
         }
     }
     /// VRR: the display follows each frame, so a game's uneven frame times
@@ -329,6 +334,34 @@ impl Pacer {
             / self.period.as_secs_f64();
         (self.credit + earned).min(Self::CREDIT_CAP)
     }
+    /// A faster source refills at exactly the stream rate, so a deficit
+    /// would last the whole session: every claim waited the same fraction of
+    /// a frame for credit while a fresh frame was in hand (2-3 ms at 60 fps on
+    /// the 2x virtual display). Such a frame may borrow the shortfall from a
+    /// grace that refills at a tenth of a frame a second, a quarter frame at
+    /// most, so the claim rate stays within 0.1 frames a second of the stream.
+    const GRACE_CAP: f64 = 0.25;
+    const GRACE_PER_SECOND: f64 = 0.1;
+    fn lend_grace(&mut self, now: Instant) {
+        let grace = (self.grace
+            + now.saturating_duration_since(self.grace_at).as_secs_f64() * Self::GRACE_PER_SECOND)
+            .min(Self::GRACE_CAP);
+        self.grace_at = now;
+        let spaced = self
+            .last_claim
+            .is_none_or(|claim| now >= claim + self.period.mul_f64(self.spacing));
+        let credit = self.credit(now);
+        let lent = if spaced {
+            (Self::CLAIM_CREDIT - credit).clamp(0., grace)
+        } else {
+            0.
+        };
+        self.grace = grace - lent;
+        if lent > 0. {
+            self.credit = credit + lent;
+            self.credit_at = now;
+        }
+    }
     /// A claim needs this much credit. A frame at the stream rate that arrives
     /// a little before the previous claim's slot (because that claim was itself
     /// late) is claimed at once; waiting would carry the lateness into every
@@ -384,6 +417,9 @@ impl Pacer {
         source_interval: Option<Duration>,
     ) -> Pace {
         self.faster = source_interval.is_some_and(|i| i < self.period.mul_f64(0.95));
+        if self.faster {
+            self.lend_grace(now);
+        }
         let allowed = self.allowed_at(now);
         if let Some(phase) = &self.source_phase
             && let Some(center) = phase.center

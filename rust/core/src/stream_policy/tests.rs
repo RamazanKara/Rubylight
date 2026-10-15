@@ -848,8 +848,11 @@ fn vrr_source_phase_escapes_startup_alias_with_jittered_extra_compositions() {
             }
         }
     }
+    // The faster-source grace repays part of the deficit on its own (0.90
+    // unique without the phase, against under 0.8 before it); the alias
+    // still shows.
     assert!(
-        lowest_without_phase < 0.8,
+        lowest_without_phase < 0.95,
         "startup alias was not exercised"
     );
 }
@@ -1658,4 +1661,37 @@ fn send_loss_knows_whether_any_packet_reached_the_socket() {
     assert!(!loss.sent(8, 0));
     assert!(loss.sent(4, 4));
     assert!(loss.reached_socket());
+}
+#[test]
+fn a_faster_source_repays_a_startup_deficit_instead_of_lagging_every_claim() {
+    // The 2x virtual display at 60 fps. A slow start left the credit short;
+    // refilling at exactly the stream rate, every later claim then waited the
+    // same 2-3 ms for credit beside a frame already in hand (October 15,
+    // idd-push at 60 fps). A bounded grace now repays it.
+    let period = 1000. / 60.;
+    for burst in [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0] {
+        let claims = simulate_with(
+            period,
+            &source(period / 2., 30., |i| 0.05 * ((i * 7919) % 5) as f64),
+            |_| 0.1,
+            |mut pacer| {
+                let now = Instant::now();
+                for ms in [burst, burst + 3., burst + 6.] {
+                    pacer.claimed(now + Duration::from_secs_f64(ms / 1000.));
+                }
+                pacer
+            },
+        );
+        let late: Vec<f64> = claims[claims.len() / 3..]
+            .iter()
+            .map(|(claim, presented)| claim - presented)
+            .collect();
+        let mean = late.iter().sum::<f64>() / late.len() as f64;
+        assert!(
+            mean <= 0.4,
+            "claims lag {mean:.2} ms after a burst at {burst} ms"
+        );
+        let rate = steady_rate(&claims);
+        assert!(rate <= 60.1, "{rate:.2} claims/s");
+    }
 }

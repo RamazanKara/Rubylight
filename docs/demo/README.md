@@ -138,10 +138,11 @@ It writes `demo-16x9.mp4` (1920x1080) and `demo-9x16.mp4` (1080x1920), posters, 
 .\scripts\demo\readme-preview.ps1 -Docs C:\path\to\readme-checkout  # 1440 px and 393 px README previews
 ```
 
-`readme-assets.ps1` builds the four phone shots (Computers, library, the landscape stream's centre slice with the
+`readme-assets.ps1` builds the four phone shots (PCs, library, the landscape stream's top-left slice with the
 compact overlay, picture-in-picture) from the stills, and `demo.gif` from the rendered 9:16 video cropped to the phone
-column. `readme-preview.ps1` renders the README with GitHub's own markdown renderer (read-only) in headless Edge so
-legibility can be checked at phone width before pushing.
+column. It uses `out/demo` from a fresh render and otherwise the published `site/assets/demo-9x16.mp4`, with shot start
+times worked out from the shotlist. `readme-preview.ps1` renders the README with GitHub's own markdown renderer
+(read-only) in headless Edge so legibility can be checked at phone width before pushing.
 
 ## Regenerate bundled assets
 

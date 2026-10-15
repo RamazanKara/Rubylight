@@ -5,7 +5,7 @@ param(
 )
 
 # Builds the README's phone screenshots (docs/assets/shots) and the animated demo.gif from the demo captures:
-# the stills in docs/screenshots/demo and, for the GIF, the rendered 9:16 video in out/demo.
+# the stills in docs/screenshots/demo and, for the GIF, the rendered 9:16 video (out/demo, or site/assets without a render).
 $ErrorActionPreference = 'Stop'
 $root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
 $stills = Join-Path $root 'docs/screenshots/demo'
@@ -51,14 +51,15 @@ function Save-Shot([string]$Source, [string]$Name, $Crop = $null, [int]$height =
     } finally { $g.Dispose(); $bitmap.Dispose(); $image.Dispose() }
 }
 
-# The four tiles: Computers, library, a landscape stream with the compact overlay, and picture-in-picture. All four are
+# The four tiles: PCs, library, a landscape stream with the compact overlay, and picture-in-picture. All four are
 # the same 360x800 portrait size, so the README shows them as a 2x2 grid on a phone and one row of four on a desktop.
-# The stream still is landscape (2400x1080); its tile is a portrait slice of full height (x 970 to 1456 of the 2400x1080
-# still, 9:20 like the phone shots) that keeps the whole one-line overlay at the top (its text spans x 983 to 1447),
-# the ship in the middle and the small DEMO label at the bottom (x 978 to 1421).
+# The stream still is landscape (2400x1080); its tile is a portrait slice of full height (x 160 to 646, 9:20 like the
+# phone shots) from the screen's top-left corner, where the compact overlay sits. The whole overlay (text x 173 to 858)
+# is wider than any 9:20 slice of the still, so the slice keeps its first two stats at full size, from the health dot to
+# "8 ms RTT" (x 173 to 616), and ends before the next separator (x 647); the SKYBOUND panel and shield bar fill the rest.
 Save-Shot (Join-Path $stills 'pc-list.png') 'pc-list.png'
 Save-Shot (Join-Path $stills 'library.png') 'library.png'
-Save-Shot (Join-Path $stills 'landscape-compact.png') 'stream.png' @(970, 0, 486, 1080)
+Save-Shot (Join-Path $stills 'landscape-compact.png') 'stream.png' @(160, 0, 486, 1080)
 Save-Shot (Join-Path $stills 'pip.png') 'pip.png'
 foreach ($stale in 'overlay.png', 'presets.png') {
     $path = Join-Path $shots $stale
@@ -77,8 +78,20 @@ function Find-FFmpeg {
     throw 'FFmpeg is not accessible.'
 }
 $ffmpeg = Find-FFmpeg
+# A fresh render.ps1 run leaves the video and its segment start times in out/demo. Without one, use the published
+# site/assets/demo-9x16.mp4 and work the start times out from the shotlist the same way render.ps1 does: a 3-second
+# intro, then each shot's seconds in table order.
 $video = Join-Path $root 'out/demo/demo-9x16.mp4'
-$segments = (Get-Content -LiteralPath (Join-Path $root 'out/demo/segments.json') -Raw | ConvertFrom-Json).'9x16'
+$segmentsJson = Join-Path $root 'out/demo/segments.json'
+if ((Test-Path -LiteralPath $video) -and (Test-Path -LiteralPath $segmentsJson)) {
+    $segments = (Get-Content -LiteralPath $segmentsJson -Raw | ConvertFrom-Json).'9x16'
+} else {
+    $video = Join-Path $root 'site/assets/demo-9x16.mp4'
+    $segments = @{}; $at = 3.0
+    foreach ($line in Get-Content -LiteralPath (Join-Path $root 'docs/demo/shotlist.md')) {
+        if ($line -match '^\| (\d{2}-[a-z-]+) \| (\d+) \|') { $segments[$Matches[1]] = $at; $at += [int]$Matches[2] }
+    }
+}
 $cut = @(@('04-library', 0.5, 2.4), @('05-stream', 0.3, 2.6), @('06-compact', 0.4, 2.4), @('12-pip', 0.5, 2.4))
 $chains = @(); $joined = ''
 for ($i = 0; $i -lt $cut.Count; $i++) {

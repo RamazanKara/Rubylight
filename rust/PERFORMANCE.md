@@ -6263,7 +6263,7 @@ at 240 Hz, and about that at 120 Hz with more spread. It stays opt-in
 
 Reproduce with `cases.ps1`, `run.ps1` and `collect.py` in
 `C:\src\butterpollo-release\idd-push` (labels `CODEC[-hdr]-FPS-CAPTURE`).
-Raw runs: `runs1`, `runs`; summaries `matrix1.jsonl` and `matrix2.jsonl`.
+Raw runs: `runs1`, `runs2`; summaries `matrix1.jsonl` and `matrix2.jsonl`.
 
 ## Hardware covered
 

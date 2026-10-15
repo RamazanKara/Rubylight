@@ -144,6 +144,41 @@ no state of its own beyond what its INF installs, which `pnputil /delete-driver 
 removes; its optional debug log (`RLVD_DEBUG_LOG`) is
 `C:\Windows\ServiceProfiles\LocalService\AppData\Local\Temp\rlvd-driver.log`.
 
+## Shipping before SignPath signs it: signed on the user's PC
+
+`install-local.ps1` installs an **unsigned** package (`build-package.ps1` without
+`-TestSign`) on the PC it runs on, elevated:
+
+1. It creates a self-signed code-signing certificate with a non-exportable key in
+   `LocalMachine\My`, signs the package's catalog with it, adds the certificate to `Root` and
+   `TrustedPublisher`, and deletes the key, whatever happens.
+2. It installs the package (`pnputil /add-driver /install`), creating the
+   `Root\RubylightVDisplay` device with the bundled `nefconc.exe` when there is none.
+3. It records the certificate's thumbprint in `HKLM\SOFTWARE\Rubylight\VirtualDisplay`
+   (`LocalSigner`), deletes older packages and removes the previous install's certificate.
+   `-Uninstall` removes the device, every package and the certificate.
+
+No test-signing mode, no Secure Boot change, no reboot, no prompt. It works because a UMDF
+driver needs no Microsoft signature: Plug and Play accepts a catalog that chains to a root in
+`Root` with its signer in `TrustedPublisher`, and WUDFHost loads a DLL without an embedded
+signature once it is linked without `/INTEGRITYCHECK` (see above). The installer already
+does the same for the bundled Sunshine driver with that project's certificate, whose key its
+maintainers hold. Here no key outlives the install, so the trusted certificate can sign
+nothing else, for Rubylight or anyone who compromises it; every PC trusts only its own.
+
+Verified on October 15 on the development PC (Windows 26200, Memory Integrity on): the
+unsigned 0.1.0.6913 package installed silently, the earlier test certificate was removed,
+the device restarted with status OK and no CodeIntegrity events, and an idd-push stream ran
+at 2560x1440 and 240 Hz. Not covered: Windows in S mode or with Smart App Control on (both
+refuse unknown signers, as they refuse the Sunshine driver), and WDAC-managed PCs.
+
+The setup program does not call it yet. To ship: put the unsigned package and
+`install-local.ps1` under `driversubylight-display` in the package, run it from setup when
+the user turns on the Rubylight display, and run `-Uninstall` from the uninstaller. Once
+SignPath signs the catalog, setup installs that package instead and keeps only the
+publisher certificate in `TrustedPublisher` (below); `-Uninstall` cleans up a locally
+signed install either way.
+
 ## Release signing
 
 A release package must be signed in this order, because the catalog hashes the signed DLL:

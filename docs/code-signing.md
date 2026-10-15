@@ -147,3 +147,8 @@ Add, about the one proprietary piece:
 | Artifact configuration | `driver` | [.signpath/driver.xml](../.signpath/driver.xml) |
 
 Sources: [SignPath Foundation conditions](https://signpath.org/terms), [SignPath's GitHub integration](https://docs.signpath.io/trusted-build-systems/github), [artifact configuration reference](https://docs.signpath.io/artifact-configuration/reference), [signing policies](https://docs.signpath.io/projects), [origin verification](https://docs.signpath.io/origin-verification).
+
+Rubylight's own display driver (`rust/drivers/rubylight-vdisplay`) does not wait for
+SignPath: until SignPath signs its catalog, it ships unsigned and
+`install-local.ps1` signs it on each user's PC with a key it deletes at once. See the
+driver's README, "Shipping before SignPath signs it".

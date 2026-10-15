@@ -440,6 +440,8 @@ def capture_ui_set(width, font, rotation=0):
     screenshot(prefix + "-help")
     # Every topic links out, down to the last one.
     find("What to include", scroll=True)
+    # The last link can be found while the bottom edge still clips it; measure it fully shown.
+    scroll_to_end()
     assert_touch_target("What to include")
     navigate_up()
     tap(f"{PACKAGE}:id/settingsButton")

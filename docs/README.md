@@ -31,6 +31,8 @@ The full [configuration guide](configuration.md) starts with the defaults. If a 
 | [Performance](performance.md) | Comparisons under gaming load, the meaning of each measurement and links to recorded runs. |
 | [Features](features.md) | Everything Rubylight does: video, capture, displays, input, library, console and clients. |
 | [Release notes](../rust/RELEASE_NOTES.md) | Changes in every Windows release, from the first release candidate to the latest release. |
+| [Privacy](privacy.md) | Every connection Rubylight makes, what it sends and how to turn it off. |
+| [Code signing policy](code-signing-policy.md) | Who signs releases, what is signed, and how to check a download. |
 
 ## Build and integrate
 

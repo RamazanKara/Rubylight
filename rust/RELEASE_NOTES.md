@@ -9,6 +9,7 @@ Rubylight, called Butterpollo until rc.29, is written in Rust: host, native help
 ## Unreleased
 
 - **Version details on every Rubylight program.** The host, service, start program, setup, diagnostic probes and Rubylight's DLLs now carry the product name, version and a description, which Explorer's **Details** tab and Task Manager show. Code signing through the SignPath Foundation requires them.
+- **Code signing policy and privacy statement.** The [code signing policy](../docs/code-signing-policy.md) says who signs releases and how to check a download; the [privacy statement](../docs/privacy.md) lists every connection Rubylight makes and how to turn it off. Releases stay unsigned until the SignPath project is approved.
 
 ## New in 2.3.1
 

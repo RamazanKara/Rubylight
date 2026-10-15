@@ -42,6 +42,8 @@ class ReleaseVersions(unittest.TestCase):
                 self.assertIn(f'/download/{tag}/rubylight-{self.version}-windows-x64.zip', body)
                 self.assertIn(f'/blob/{tag}/rust/../docs/api.md', body)
                 self.assertIn(f'/blob/{tag}/rust/RELEASE_NOTES.md', body)
+                # The SignPath Foundation asks for the policy on every download page.
+                self.assertIn('[Code signing policy](https://ramazankara.github.io/Rubylight/docs/code-signing-policy.html)', body)
 
     def test_wrong_tag_version_is_rejected(self):
         out = self.root / 'body.md'

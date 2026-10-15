@@ -10,4 +10,4 @@
 
 Disconnect your stream and close host-launched games, then run the installer. Your settings, paired devices and game library are preserved. Open the console at **https://localhost:47990**.
 
-[Full release notes](https://github.com/RamazanKara/Rubylight/blob/{tag}/rust/RELEASE_NOTES.md) · [Build and tests]({run})
+[Full release notes](https://github.com/RamazanKara/Rubylight/blob/{tag}/rust/RELEASE_NOTES.md) · [Build and tests]({run}) · [Code signing policy](https://ramazankara.github.io/Rubylight/docs/code-signing-policy.html)

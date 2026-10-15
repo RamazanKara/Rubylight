@@ -10,8 +10,6 @@
 //! answers only the process whose [`IOCTL_ADD`] created it, and departs when that process
 //! closes its last handle to the device or sends nothing for the watchdog window.
 
-use core::ops::RangeInclusive;
-
 use crate::{modes, ring};
 
 /// `FILE_DEVICE_UNKNOWN`.
@@ -57,11 +55,6 @@ pub const IOCTL_QUERY_MONITOR: u32 = ctl_code(0xB08);
 pub const IOCTL_CLEAR_ALL: u32 = ctl_code(0xB09);
 /// Take the driver's pending log lines as [`log_lines`] records. No input.
 pub const IOCTL_DRAIN_LOG: u32 = ctl_code(0xB0A);
-
-/// Function numbers kept for encoding inside the driver (a later phase: SET_ENCODE,
-/// ENCODE_CTL and an access-unit ring beside the frame ring). A driver without an encoder
-/// answers them `STATUS_NOT_SUPPORTED` and leaves [`CAP_ENCODE`] clear.
-pub const ENCODE_FUNCTIONS: RangeInclusive<u32> = 0xB10..=0xB1F;
 
 /// Every IOCTL this protocol defines, for the uniqueness test and the driver's dispatch.
 pub const ALL_IOCTLS: [u32; 11] = [
@@ -191,8 +184,6 @@ pub const CAP_FRAME_RING: u32 = 1 << 0;
 pub const CAP_HDR: u32 = 1 << 1;
 /// [`InfoReply::caps`]: [`IOCTL_UPDATE_MODES`] changes a live monitor's modes in place.
 pub const CAP_UPDATE_MODES: u32 = 1 << 2;
-/// [`InfoReply::caps`]: the driver encodes ([`ENCODE_FUNCTIONS`]). Not set in this phase.
-pub const CAP_ENCODE: u32 = 1 << 3;
 
 /// [`IOCTL_GET_INFO`] reply.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -708,7 +699,6 @@ mod tests {
             assert_eq!(a & 0b11, 0, "{a:#x}");
             assert_eq!((a >> 14) & 0b11, 0, "{a:#x}");
             assert_eq!(a >> 16, DEVICE_TYPE);
-            assert!(!ENCODE_FUNCTIONS.contains(&function_of(*a)), "{a:#x}");
             for b in &ALL_IOCTLS[i + 1..] {
                 assert_ne!(a, b);
             }

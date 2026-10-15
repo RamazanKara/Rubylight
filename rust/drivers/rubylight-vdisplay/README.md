@@ -7,8 +7,9 @@ Rubylight host's request and pushes every frame Windows composes for them to the
 through shared GPU textures, so the host converts and encodes them without WGC or Desktop
 Duplication.
 
-This is phase 2 groundwork. It is off by default, is not part of the installer, and has not
-been installed or run on hardware yet.
+It is off by default (`virtual_display_driver = rubylight`) and not yet part of the
+installer. It runs on the development PC (RX 7900 XT, Windows 26200, Memory Integrity on),
+installed with `install-local.ps1`.
 
 | | |
 |---|---|
@@ -16,7 +17,6 @@ been installed or run on hardware yet.
 | UMDF service | `RubylightVDisplay` |
 | Files | `rubylight_vdisplay.inf`, `rubylight_vdisplay.dll`, `rubylight_vdisplay.cat` |
 | Control interface | `{5e240e6b-b196-4295-81c3-533c10000c59}`, IOCTL functions `0xB00`-`0xB0A` |
-| Reserved for in-driver encode | IOCTL functions `0xB10`-`0xB1F` |
 
 None of these collide with libvirtualdisplay (Vibepollo) or punktfunk, so all three can be
 installed side by side.
@@ -46,8 +46,17 @@ for `x86_64-pc-windows-msvc` with the static CRT and the Windows Driver Kit.
    whose keyed mutex it can get with key 0 (or reclaims the oldest unconsumed one with key 1),
    copies the surface into it, writes the sequence and `PresentDisplayQPCTime` into the header,
    releases with key 1, publishes the slot and sets the event. It never waits on the host.
-4. The host takes the newest published slot with key 1, copies it into its own pool (on the
-   compute queue on AMD), releases with key 0 and stamps the image with the present QPC.
+4. The host takes the newest published slot with key 1. On AMD its compute conversion reads
+   the texture in place: the host keeps the mutex until the conversion that read it is done,
+   then releases with key 0 (`idd_push_zero_copy = false` copies instead). Elsewhere it
+   copies the texture into its own pool and releases at once. The image's present stamp is
+   the driver's acquire: IddCx's `PresentDisplayQPCTime` is the scan-out, about 6.8 ms later
+   on a 120 Hz display.
+
+With four textures the host holds at most two (the newest, and the one being encoded), so the
+driver always finds one free; `idd_push=debug` logs its counters every 5 s (acquired, pushed,
+dropped, overwritten) and `idd_push=trace` each frame's driver time (acquire to publish) and
+handoff (publish to the host taking it).
 
 The header also carries the driver's status (size or format mismatch, open failure, wrong
 GPU, device lost), the surface it saw and a heartbeat of its swap-chain loop.

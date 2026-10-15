@@ -20,7 +20,7 @@ use windows::{
             Direct3D11::{
                 D3D11_CREATE_DEVICE_BGRA_SUPPORT, D3D11_CREATE_DEVICE_FLAG,
                 D3D11_CREATE_DEVICE_PREVENT_ALTERING_LAYER_SETTINGS_FROM_REGISTRY,
-                D3D11_CREATE_DEVICE_VIDEO_SUPPORT, D3D11_SDK_VERSION, D3D11CreateDevice,
+                D3D11_SDK_VERSION, D3D11CreateDevice,
                 ID3D11Device, ID3D11DeviceContext, ID3D11Multithread,
             },
             Dxgi::{CreateDXGIFactory2, DXGI_CREATE_FACTORY_FLAGS, IDXGIAdapter1, IDXGIFactory5},
@@ -68,32 +68,25 @@ impl Direct3DDevice {
         let adapter = unsafe { dxgi_factory.EnumAdapterByLuid::<IDXGIAdapter1>(adapter_luid)? };
         let mut device = None;
         let mut device_context = None;
-        const BASE: D3D11_CREATE_DEVICE_FLAG = D3D11_CREATE_DEVICE_FLAG(
+        // The device only copies the swap chain's surfaces into the host's textures.
+        let flags = D3D11_CREATE_DEVICE_FLAG(
             D3D11_CREATE_DEVICE_BGRA_SUPPORT.0
                 | D3D11_CREATE_DEVICE_PREVENT_ALTERING_LAYER_SETTINGS_FROM_REGISTRY.0,
         );
-        let mut create = |flags: D3D11_CREATE_DEVICE_FLAG| {
-            // SAFETY: `adapter` is a live adapter; the out-params are live locals checked
-            // below; flags and SDK version are valid constants.
-            unsafe {
-                D3D11CreateDevice(
-                    &adapter,
-                    D3D_DRIVER_TYPE_UNKNOWN,
-                    None,
-                    flags,
-                    None,
-                    D3D11_SDK_VERSION,
-                    Some(&mut device),
-                    None,
-                    Some(&mut device_context),
-                )
-            }
-        };
-        // VIDEO_SUPPORT keeps the device usable by a Media Foundation encoder, the in-driver
-        // encode phase's fallback backend; an adapter that refuses it still captures.
-        if let Err(e) = create(BASE | D3D11_CREATE_DEVICE_VIDEO_SUPPORT) {
-            dbglog!("[rlvd] D3D11 device refused VIDEO_SUPPORT ({e:?}); retrying without it");
-            create(BASE)?;
+        // SAFETY: `adapter` is a live adapter; the out-params are live locals checked below;
+        // flags and SDK version are valid constants.
+        unsafe {
+            D3D11CreateDevice(
+                &adapter,
+                D3D_DRIVER_TYPE_UNKNOWN,
+                None,
+                flags,
+                None,
+                D3D11_SDK_VERSION,
+                Some(&mut device),
+                None,
+                Some(&mut device_context),
+            )?;
         }
         let device = device.ok_or_else(|| Error::new(E_FAIL, "ID3D11Device not found"))?;
         let device_context =

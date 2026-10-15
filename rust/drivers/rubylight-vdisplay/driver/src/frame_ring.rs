@@ -5,9 +5,6 @@
 //! takes ownership of every handle, or takes none of them. [`OpenRing`] is built by the
 //! swap-chain worker on its own device, because only that device can copy the swap chain's
 //! surface into the textures, and is rebuilt when the ring or the device changes.
-//!
-//! This is the seam the in-driver encoder of a later phase plugs into: a second consumer of
-//! the acquired surface beside [`OpenRing::push`], fed from the same swap-chain window.
 
 use std::sync::Arc;
 use std::sync::atomic::AtomicU64;

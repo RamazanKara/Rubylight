@@ -8,7 +8,7 @@
 //! is scoped to the calling process, and every IOCTL counts as that process's heartbeat.
 
 use rubylight_vdisplay_proto::control::{
-    self, AddReply, AddRequest, CAP_FRAME_RING, CAP_HDR, CAP_UPDATE_MODES, ENCODE_FUNCTIONS,
+    self, AddReply, AddRequest, CAP_FRAME_RING, CAP_HDR, CAP_UPDATE_MODES,
     INFO_MAGIC, InfoReply, RenderAdapterRequest, SessionRequest, SetFrameRingRequest,
     UpdateModesRequest,
 };
@@ -125,10 +125,6 @@ pub unsafe fn dispatch(request: WDFREQUEST, ioctl_code: u32) {
                 request.copy_to_output(&lines)
             };
             request.complete(st);
-        }
-        code if ENCODE_FUNCTIONS.contains(&control::function_of(code)) => {
-            // Kept for the in-driver encoder of a later phase.
-            request.complete(STATUS_NOT_SUPPORTED);
         }
         _ => request.complete(STATUS_NOT_SUPPORTED),
     }

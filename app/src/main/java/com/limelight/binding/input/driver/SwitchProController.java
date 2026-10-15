@@ -23,13 +23,18 @@ public class SwitchProController extends AbstractController {
     private final SwitchProReport.ImuCalibration imu = new SwitchProReport.ImuCalibration();
     private final SwitchProReport.Input input = new SwitchProReport.Input();
     private final SwitchProReport.Output output = new SwitchProReport.Output();
+    // Guards output and the pending output below. USB writes run on the output thread, outside it.
     private final Object outputLock = new Object();
+    private final byte[] outputReport = new byte[SwitchProReport.REPORT_SIZE];
     private UsbInterface hidInterface;
     private UsbEndpoint inEndpoint, outEndpoint;
-    private volatile Thread inputThread;
+    private volatile Thread inputThread, outputThread;
     private volatile boolean stopped;
     private int lastBatteryByte = -2;
     private long lastRumbleMs;
+    private boolean rumblePending, playerPending, forceUsbPending;
+    private short rumbleLow, rumbleHigh;
+    private int playerNumber;
     private long accelIntervalNs, gyroIntervalNs, lastAccelNs, lastGyroNs;
 
     public SwitchProController(UsbDevice device, UsbDeviceConnection connection, int deviceId, UsbDriverListener listener) {
@@ -230,9 +235,53 @@ public class SwitchProController extends AbstractController {
             return false;
         }
         LimeLog.info("Switch Pro USB HID ready");
+        startOutput();
         inputThread = new Thread(this::readInput, "Switch Pro USB input");
         inputThread.start();
         return true;
+    }
+
+    void startOutput() {
+        outputThread = new Thread(this::writeOutput, "Switch Pro USB output");
+        outputThread.start();
+    }
+
+    // Rumble, player lights and the USB-only request go out here, so a slow write never holds an
+    // input report or the thread that asked for rumble. Only the newest rumble level is sent; an
+    // active one is repeated as SDL does.
+    private void writeOutput() {
+        try {
+            while (true) {
+                synchronized (outputLock) {
+                    while (!stopped && !forceUsbPending && !playerPending && !rumblePending) {
+                        long wait = output.rumbleActive() ? lastRumbleMs + RUMBLE_REPEAT_MS - SystemClock.uptimeMillis() : 0;
+                        if (output.rumbleActive() && wait <= 0) {
+                            break;
+                        }
+                        outputLock.wait(wait);
+                    }
+                    if (stopped) {
+                        return;
+                    }
+                    byte[] report;
+                    if (forceUsbPending) {
+                        forceUsbPending = false;
+                        report = output.proprietary(SwitchProReport.PROPRIETARY_FORCE_USB);
+                    } else if (playerPending) {
+                        playerPending = false;
+                        report = output.player(playerNumber);
+                    } else {
+                        report = rumblePending ? output.rumble(rumbleLow, rumbleHigh) : output.rumbleReport();
+                        rumblePending = false;
+                        lastRumbleMs = SystemClock.uptimeMillis();
+                    }
+                    System.arraycopy(report, 0, outputReport, 0, outputReport.length);
+                }
+                write(outputReport);
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
     }
 
     private void readInput() {
@@ -258,15 +307,10 @@ public class SwitchProController extends AbstractController {
                         break;
                     }
                     synchronized (outputLock) {
-                        if (!stopped) write(output.proprietary(SwitchProReport.PROPRIETARY_FORCE_USB));
+                        forceUsbPending = true;
+                        outputLock.notifyAll();
                     }
                     continue;
-                }
-                synchronized (outputLock) {
-                    if (!stopped && output.rumbleActive() && now - lastRumbleMs >= RUMBLE_REPEAT_MS) {
-                        write(output.rumbleReport());
-                        lastRumbleMs = now;
-                    }
                 }
                 synchronized (this) {
                     if (stopped) {
@@ -311,6 +355,7 @@ public class SwitchProController extends AbstractController {
                 return;
             }
             stopped = true;
+            outputLock.notifyAll();
         }
         Thread worker = inputThread;
         if (worker != null) {
@@ -321,14 +366,16 @@ public class SwitchProController extends AbstractController {
     }
 
     private void release() {
-        Thread worker = inputThread;
-        if (worker != null) {
-            worker.interrupt();
-            try {
-                // An interrupt cannot end a USB read; it returns within its 1 s timeout.
-                worker.join(1500);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
+        // An interrupt cannot end a USB transfer; a read returns within its 1 s timeout, a write
+        // within 100 ms.
+        for (Thread worker : new Thread[] {inputThread, outputThread}) {
+            if (worker != null) {
+                worker.interrupt();
+                try {
+                    worker.join(1500);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
             }
         }
         synchronized (outputLock) {
@@ -350,8 +397,10 @@ public class SwitchProController extends AbstractController {
     public void rumble(short lowFreqMotor, short highFreqMotor) {
         synchronized (outputLock) {
             if (!stopped && outEndpoint != null) {
-                write(output.rumble(lowFreqMotor, highFreqMotor));
-                lastRumbleMs = SystemClock.uptimeMillis();
+                rumbleLow = lowFreqMotor;
+                rumbleHigh = highFreqMotor;
+                rumblePending = true;
+                outputLock.notifyAll();
             }
         }
     }
@@ -365,7 +414,9 @@ public class SwitchProController extends AbstractController {
     public void setPlayerNumber(int playerNumber) {
         synchronized (outputLock) {
             if (!stopped && outEndpoint != null) {
-                write(output.player(playerNumber));
+                this.playerNumber = playerNumber;
+                playerPending = true;
+                outputLock.notifyAll();
             }
         }
     }

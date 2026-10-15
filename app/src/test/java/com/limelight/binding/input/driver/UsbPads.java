@@ -131,6 +131,10 @@ public final class UsbPads {
         static volatile CountDownLatch controlGate;
         static volatile boolean claimSucceeds;
         static volatile long inputReadMs;
+        // Output transfers take this long; each is recorded with the thread that sent it.
+        static volatile long outputWriteMs;
+        static final java.util.List<byte[]> outputs = new java.util.concurrent.CopyOnWriteArrayList<>();
+        static final java.util.List<String> outputThreads = new java.util.concurrent.CopyOnWriteArrayList<>();
         static volatile byte[] inputReport;
         public static final AtomicInteger claims = new AtomicInteger(), releases = new AtomicInteger(), closes = new AtomicInteger();
         static final AtomicBoolean readInProgress = new AtomicBoolean();
@@ -141,6 +145,9 @@ public final class UsbPads {
             controlGate = null;
             claimSucceeds = true;
             inputReadMs = 4;
+            outputWriteMs = 0;
+            outputs.clear();
+            outputThreads.clear();
             inputReport = null;
             claims.set(0);
             releases.set(0);
@@ -185,11 +192,17 @@ public final class UsbPads {
         @Implementation
         protected int bulkTransfer(UsbEndpoint endpoint, byte[] buffer, int offset, int length, int timeout) {
             if (closes.get() > 0) return -1;
-            if (endpoint.getDirection() == UsbConstants.USB_DIR_OUT) return length;
-            readInProgress.set(true);
+            boolean out = endpoint.getDirection() == UsbConstants.USB_DIR_OUT;
+            if (out) {
+                outputs.add(java.util.Arrays.copyOfRange(buffer, offset, offset + length));
+                outputThreads.add(Thread.currentThread().getName());
+                if (outputWriteMs == 0) return length;
+            } else {
+                readInProgress.set(true);
+            }
             boolean interrupted = false;
             try {
-                long end = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(inputReadMs);
+                long end = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(out ? outputWriteMs : inputReadMs);
                 for (long left; (left = end - System.nanoTime()) > 0; ) {
                     try {
                         TimeUnit.NANOSECONDS.sleep(left);
@@ -199,9 +212,10 @@ public final class UsbPads {
                     }
                 }
             } finally {
-                readInProgress.set(false);
+                if (!out) readInProgress.set(false);
                 if (interrupted) Thread.currentThread().interrupt();
             }
+            if (out) return length;
             byte[] report = inputReport;
             if (report == null) return -1;
             int size = Math.min(report.length, length);

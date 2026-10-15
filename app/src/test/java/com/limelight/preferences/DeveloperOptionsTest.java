@@ -2,7 +2,9 @@ package com.limelight.preferences;
 
 import android.app.Application;
 import android.content.SharedPreferences;
+import android.preference.ListPreference;
 import android.preference.Preference;
+import android.preference.PreferenceGroup;
 import android.preference.PreferenceManager;
 import android.preference.PreferenceScreen;
 import android.preference.SwitchPreference;
@@ -11,6 +13,10 @@ import android.widget.TextView;
 import androidx.appcompat.app.AlertDialog;
 
 import com.limelight.R;
+
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
 
 import org.junit.After;
 import org.junit.Test;
@@ -98,8 +104,7 @@ public class DeveloperOptionsTest {
             for (String key : new String[] {"checkbox_codec_low_latency", "checkbox_vendor_low_latency",
                     "checkbox_phone_performance_hints", "checkbox_codec_performance", "checkbox_drop_late_frames",
                     "checkbox_unbatched_input", "checkbox_network_priority", "checkbox_texture_view", "checkbox_unlock_fps",
-                    "export_latency_csv", "latency_benchmark", "performance_overlay_mode",
-                    "checkbox_enable_post_stream_toast"}) {
+                    "export_latency_csv", "latency_benchmark", "checkbox_enable_post_stream_toast"}) {
                 assertNotNull(key, developer.getPreferenceScreen().findPreference(key));
             }
             // None of them is left at the top level of another section.
@@ -107,8 +112,46 @@ public class DeveloperOptionsTest {
                 PreferenceScreen other = open(controller.get(), section).getPreferenceScreen();
                 assertNull(section, other.findPreference("checkbox_texture_view"));
                 assertNull(section, other.findPreference("export_latency_csv"));
-                assertNull(section, other.findPreference("performance_overlay_mode"));
             }
+            // The overlay mode is a normal choice: it sits in Streaming, not here.
+            assertNull(developer.getPreferenceScreen().findPreference("performance_overlay_mode"));
+        }
+    }
+
+    private static List<String> overlayModes(StreamSettings screen) {
+        ListPreference mode = (ListPreference) open(screen, "streaming").findPreference("performance_overlay_mode");
+        List<String> values = new ArrayList<>();
+        for (CharSequence value : mode.getEntryValues()) values.add(value.toString());
+        return values;
+    }
+
+    @Test
+    public void theOverlayModeSitsBesideTheOverlaySwitchAndOffersDebugToDevelopers() {
+        try (ActivityController<StreamSettings> controller = Robolectric.buildActivity(StreamSettings.class).setup()) {
+            StreamSettings screen = controller.get();
+            PreferenceGroup streaming = (PreferenceGroup) open(screen, "streaming").getPreferenceScreen().getPreference(0);
+            List<String> keys = SettingsStructureTest.keys(streaming);
+            assertEquals(keys.indexOf("checkbox_enable_perf_overlay") + 1, keys.indexOf("performance_overlay_mode"));
+            assertEquals(Arrays.asList("compact", "statistics"), overlayModes(screen));
+            ListPreference mode = (ListPreference) open(screen, "streaming").findPreference("performance_overlay_mode");
+            assertEquals(screen.getString(R.string.overlay_compact), mode.getEntry().toString());
+
+            prefs().edit().putBoolean(StreamSettings.DEVELOPER_OPTIONS_PREF_STRING, true).commit();
+            assertEquals(Arrays.asList("compact", "statistics", "debug"), overlayModes(screen));
+        }
+    }
+
+    @Test
+    public void aSavedDebugOverlayKeepsWorkingWhileDeveloperOptionsAreHidden() {
+        prefs().edit().putString("performance_overlay_mode", "debug").commit();
+        try (ActivityController<StreamSettings> controller = Robolectric.buildActivity(StreamSettings.class).setup()) {
+            StreamSettings screen = controller.get();
+            assertEquals(Arrays.asList("compact", "statistics", "debug"), overlayModes(screen));
+            ListPreference mode = (ListPreference) open(screen, "streaming").findPreference("performance_overlay_mode");
+            assertEquals(screen.getString(R.string.overlay_debug), mode.getEntry().toString());
+            assertEquals("debug", prefs().getString("performance_overlay_mode", null));
+            assertEquals("debug", com.limelight.binding.video.PerformanceOverlay.normalizeMode(
+                    prefs().getString("performance_overlay_mode", null)));
         }
     }
 

@@ -53,6 +53,7 @@ import com.limelight.R;
 import com.limelight.binding.video.GpuDriverStore;
 import com.limelight.binding.video.MediaCodecHelper;
 import com.limelight.binding.video.MediaCodecDecoderRenderer;
+import com.limelight.binding.video.PerformanceOverlay;
 import com.limelight.binding.video.DecoderBenchmark;
 import com.limelight.binding.video.PyroWaveDecoderRenderer;
 import com.limelight.utils.Dialog;
@@ -1124,6 +1125,12 @@ public class StreamSettings extends AppCompatActivity {
                 }
                 return true;
             });
+            // Debug is a developer choice. A saved Debug stays listed, and keeps working, while they are hidden.
+            ListPreference overlayMode = (ListPreference) findPreference(PreferenceConfiguration.OVERLAY_MODE_PREF_STRING);
+            if (!developerOptionsShown(getActivity()) &&
+                    !PerformanceOverlay.MODE_DEBUG.equals(PerformanceOverlay.normalizeMode(overlayMode.getValue()))) {
+                removeValue(PreferenceConfiguration.OVERLAY_MODE_PREF_STRING, PerformanceOverlay.MODE_DEBUG, () -> {});
+            }
             ListPreference pacing = (ListPreference) findPreference("frame_pacing");
             findPreference("checkbox_drop_late_frames").setEnabled("balanced".equals(pacing.getValue()));
             pacing.setOnPreferenceChangeListener((preference, value) -> {

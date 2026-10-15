@@ -123,6 +123,7 @@ These tables include every preference, including actions, grouped as the Setting
 | Setting / preference key | Default | Choices and units | When to change or use |
 | --- | --- | --- | --- |
 | Show performance overlay<br>`checkbox_enable_perf_overlay` | Off | On; Off | Enable while diagnosing frame rate, network loss or delay. Can also be toggled during a stream. |
+| Performance overlay mode<br>`performance_overlay_mode` | Compact | Compact; Statistics; Debug | Compact is one line: displayed FPS, network round trip (RTT) and frame loss behind a green, amber or red dot. Statistics is an Artemis-style summary with a status line of lasting facts. Debug shows detailed measured stages and is offered here while Developer options are shown; a saved Debug keeps working when they are hidden. Installs that kept the old Statistics default move to Compact once. Switch in stream menu → Display → Overlay and diagnostics; Copy stats includes Debug details. |
 | Picture in picture<br>`checkbox_enable_pip` | Off | On; Off | Enable to keep a small video window when leaving the app. Input and overlay are hidden there; requires device support. |
 | Recover interrupted streams<br>`checkbox_auto_reconnect` | Off | On; Off | Resume the same running game after transport failures or returning from screen lock, up to five attempts within one minute. Back or leaving during a retry cancels it. Graceful termination, pairing, permissions and decoder failures stay manual; recovery never launches or replaces a game. |
 | Hide connection warnings<br>`checkbox_disable_warnings` | Off | On; Off | Enable to hide stream connection warnings once your connection is tuned. |
@@ -178,7 +179,6 @@ Hidden until the version in **App → About** is tapped seven times. Values chan
 
 | Setting / preference key | Default | Choices and units | When to change or use |
 | --- | --- | --- | --- |
-| Performance overlay mode<br>`performance_overlay_mode` | Compact | Compact; Statistics; Debug | Compact is one line: displayed FPS, network round trip (RTT) and frame loss behind a green, amber or red dot. Statistics is an Artemis-style summary with a status line of lasting facts; Debug shows detailed measured stages. Installs that kept the old Statistics default move to Compact once. Switch in stream menu → Display → Overlay and diagnostics; Copy stats includes Debug details. |
 | Show decode time after streaming<br>`checkbox_enable_post_stream_toast` | Off | On; Off | Enable to see the average decode time after a session ends; it is not end-to-end latency. |
 | Latency benchmark<br>`latency_benchmark` | No stored default | Action | Run a 10-second local frame-callback, timer and input-dispatch benchmark without a host. Use Measure input latency in the stream menu for end-to-end timing. |
 | Export latency CSV<br>`export_latency_csv` | No stored default | Action | Choose a destination for the latest local frame-timing CSV. Each row holds the measured stage timings. |

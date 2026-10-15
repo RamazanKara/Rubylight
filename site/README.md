@@ -30,11 +30,13 @@ It also fails when the assets, excluding video, exceed 6 MB.
 ## Media
 
 - `assets/shot-library.webp`, `shot-pcs.webp`, `shot-presets.webp` and
-  `shot-upscaling.webp`: demo-mode captures from `docs/screenshots/demo/`
+  `shot-upscaling.webp`: dark-theme demo-mode captures from `docs/screenshots/demo/`
   (`library.png`, `pc-list.png`, `settings-presets.png`,
-  `upscaling-options.png`), resized to 720 px wide.
+  `upscaling-options.png`), resized to 720 px wide. Dark shows the night and
+  amber identity and matches the site's dark phone frames in both page themes.
 - `assets/shot-stream.webp`: `docs/screenshots/demo/landscape-compact.png`
-  with the side bars cropped to 16:9 and resized to 1600 × 900.
+  cropped to 16:9 (x 150 to 2070, so the compact overlay in the screen's
+  top-left corner stays whole) and resized to 1600 × 900.
 - `assets/launcher.png` (192 × 192) and `assets/favicon.png` (32 × 32): the
   launcher icon `app/src/main/res/mipmap-anydpi/ic_launcher.xml` (night circle,
   amber moon, bird), rendered as SVG with a transparent background outside the circle.

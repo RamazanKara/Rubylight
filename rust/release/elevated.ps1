@@ -57,7 +57,8 @@ try {
         setup = "$(Split-Path $Installer -Leaf) --quiet over the running host"
         setup_exit = $setup.ExitCode
         reported_version = $reported
-        host_sha256 = (Get-FileHash 'C:\Program Files\ButterpolloRust\butterpollo.exe' -Algorithm SHA256).Hash.ToLowerInvariant()
+        # The install folder is the service's: Rubylight now, ButterpolloRust before rc.30.
+        host_sha256 = (Get-FileHash (Join-Path (Split-Path ((Get-CimInstance Win32_Service -Filter "Name='ApolloService'").PathName -replace '^"([^"]+)".*$', '$1')) 'butterpollo.exe') -Algorithm SHA256).Hash.ToLowerInvariant()
         service = "$((Get-Service ApolloService -ErrorAction SilentlyContinue).Status)"
     }
     $installed | ConvertTo-Json | Set-Content (Join-Path $out 'installed.json') -Encoding utf8

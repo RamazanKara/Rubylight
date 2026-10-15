@@ -166,7 +166,10 @@ mod tests {
         // A keyframe lost on the way is still asked for at the next frame.
         loss.sending(frame, true);
         loss.sending(frame + 1, false);
-        assert!(loss.requested(start + Duration::from_millis(24 * 70)).is_some());
+        assert!(
+            loss.requested(start + Duration::from_millis(24 * 70))
+                .is_some()
+        );
         assert_eq!(loss.bps(FAST, SAFE), SAFE);
     }
 

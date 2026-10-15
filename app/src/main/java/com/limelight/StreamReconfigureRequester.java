@@ -23,8 +23,13 @@ final class StreamReconfigureRequester {
 
     // Something that may change the native size happened; returns the delay before deciding.
     long onChange(long now) {
-        settleAt = now + SETTLE_MS;
-        return SETTLE_MS;
+        return onChange(now, SETTLE_MS);
+    }
+
+    // As above, waiting at least settleMs; a longer wait already running is kept.
+    long onChange(long now, long settleMs) {
+        settleAt = Math.max(settleAt, now + settleMs);
+        return settleAt - now;
     }
 
     boolean settled(long now) {

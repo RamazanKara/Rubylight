@@ -24,6 +24,29 @@ public class StreamReconfigureRequesterTest {
     }
 
     @Test
+    public void aLongerWaitIsNotCutShortByLaterChanges() {
+        StreamReconfigureRequester requester = foldOpen();
+        // A turn waits a second; the window and display changes it brings wait no less.
+        assertEquals(1000, requester.onChange(1000, 1000));
+        assertEquals(900, requester.onChange(1100));
+        assertFalse(requester.settled(1999));
+        assertTrue(requester.settled(2000));
+        // Once settled, the next change waits its own time again.
+        assertEquals(StreamReconfigureRequester.SETTLE_MS, requester.onChange(3000));
+    }
+
+    @Test
+    public void turningThePhoneAsksForEachShape() {
+        StreamReconfigureRequester requester = new StreamReconfigureRequester();
+        requester.start(2400, 1080, 60_000, 2400, 1080, 60_000);
+        assertNull(requester.decide(2400, 1080, 60_000));
+        int[] portrait = requester.decide(1080, 2400, 60_000);
+        assertArrayEquals(new int[] {1080, 2400, 60_000}, portrait);
+        requester.sent(portrait);
+        assertArrayEquals(new int[] {2400, 1080, 60_000}, requester.decide(2400, 1080, 60_000));
+    }
+
+    @Test
     public void closingAndOpeningTheFoldRequestsEachPanel() {
         StreamReconfigureRequester requester = foldOpen();
         int[] cover = requester.decide(2316, 904, 120_000);

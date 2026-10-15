@@ -89,6 +89,8 @@ Debug groups diagnostics into Video, Network and Decode and scrolls on smaller s
 | PyroWave queue / completed decode / GPU decode | Queued work, completed frame decode and the last GPU decode measurement, each reported separately. |
 | PyroWave missing records | Lost portions of record-framed data. Received records update the picture right away while lost regions keep their previous detail. |
 | PyroWave waits / replaced frames | PyroWave decodes into three plane sets on the stream thread while a separate present thread waits for the display, so decoding never queues behind presentation. "Free planes" is the decoder's wait for a plane set, "screen image" the present thread's wait for a swapchain image, and "replaced" the share of decoded frames a newer one superseded before display. |
+| Wi-Fi band / signal / link speed / standard | The active Wi-Fi link: band, channel and announced width, RSSI with a grade, send/receive link rate, Wi-Fi generation and whether the low-latency Wi-Fi lock is held. A 2.4 GHz link or weak signal adds a warning; Ethernet, mobile data and VPN say so. See [Stream health](stream-health.md#wi-fi-facts). |
+| Stall rhythm | Shown when recent network stalls repeat on a steady beat, the pattern of background Wi-Fi scans. See [Stream health](stream-health.md#stalls-every-few-minutes). |
 | Bitrate / automatic bitrate status | Requested or host-applied bitrate and adaptation state, subject to host caps. |
 
 ## Host hardware metrics

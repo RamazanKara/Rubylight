@@ -20,6 +20,12 @@ a local CSV file that you can export. Preparing a problem report creates a tempo
 local file. These records can include the app version, Android version, device
 model, decoder settings, timing measurements and crash details.
 
+During a stream, Nightjar reads this device's Wi-Fi band, channel, signal
+strength, link speed and Wi-Fi standard for the Debug overlay and the stream
+health report. It does not read the network name or access point address. The
+reading stays in memory and is sent nowhere; **Copy** in the stream health
+report includes it in the text you copy.
+
 ## Network connections
 
 Stream content, input and clipboard transfers are between your device and the

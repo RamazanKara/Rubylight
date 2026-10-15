@@ -8,7 +8,7 @@
 //!                       [--no-start] [--end-streams]
 //! rubylight-setup.exe --uninstall [--quiet] [--factory-reset] [--remove-drivers]
 //! rubylight-setup.exe --repair-drivers (the service runs this one)
-//! rubylight-setup.exe --rubylight-display (and this one)
+//! rubylight-setup.exe --rubylight-display (applies the console's display driver choice)
 #![warn(clippy::undocumented_unsafe_blocks)]
 
 mod detect;
@@ -49,8 +49,8 @@ struct Arguments {
     remove_drivers: bool,
     /// The service found no virtual display driver: set it up again.
     repair_drivers: bool,
-    /// The console's choice of the Rubylight display driver changed: install
-    /// or remove that driver.
+    /// Install or remove Rubylight's display driver as the console's choice
+    /// says, when someone asks for it.
     rubylight_display: bool,
     /// Diagnostics: write what setup found to this file and exit.
     detect: Option<PathBuf>,

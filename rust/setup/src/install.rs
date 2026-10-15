@@ -941,13 +941,14 @@ pub(crate) fn install_drivers(
     notes: &mut Vec<String>,
 ) -> bool {
     let _turn = driver_lock(Duration::from_secs(900));
-    run_drivers(install, display, gamepad, usbip, progress, notes)
+    run_drivers(install, display, gamepad, usbip, true, progress, notes)
 }
 fn run_drivers(
     install: &Path,
     display: bool,
     gamepad: bool,
     usbip: bool,
+    rubylight_display: bool,
     progress: &Progress,
     notes: &mut Vec<String>,
 ) -> bool {
@@ -966,7 +967,9 @@ fn run_drivers(
             "Vulkan layer",
         );
     }
-    restart_needed |= rubylight_display_driver(install, progress, notes);
+    if rubylight_display {
+        restart_needed |= rubylight_display_driver(install, progress, notes);
+    }
     if gamepad && install.join("drivers\\gamepad\\install.ps1").is_file() {
         progress.set("Installing the virtual gamepad driver…");
         restart_needed |= run_driver_script(
@@ -1055,59 +1058,23 @@ fn rubylight_display_driver(install: &Path, progress: &Progress, notes: &mut Vec
         None => false,
     }
 }
-const RUBYLIGHT_DISPLAY_RECORD: &str = "rubylight-display.json";
-/// `butterpollo-setup.exe --rubylight-display`, which the service runs when
-/// the console's display driver choice and the installed driver disagree:
-/// the Rubylight display was selected and its driver does not open, or it
-/// was deselected and is still installed. Never during a stream, and at
-/// most once a day per version and choice. Returns whether Windows must
-/// restart.
+/// `butterpollo-setup.exe --rubylight-display`: install or remove Rubylight's
+/// display driver to match the console's choice now, for someone who just
+/// confirmed it. Nothing runs it on its own. Never during a stream. Returns
+/// whether Windows must restart.
 pub fn apply_rubylight_display(progress: &Progress) -> Result<bool> {
     let exe = std::env::current_exe()?;
     let install = system::win32_path(exe.parent().context("setup folder unavailable")?)?;
-    let profile = profile();
-    let selected = rubylight_display_selected(&conf_text(&profile));
-    let record = profile.join(RUBYLIGHT_DISPLAY_RECORD);
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)?
-        .as_secs();
-    let version = env!("CARGO_PKG_VERSION");
-    if rubylight_display_tried(
-        std::fs::read(&record).ok().as_deref(),
-        version,
-        selected,
-        now,
-    ) {
-        line("not changing the Rubylight display driver: this version already tried today");
-        return Ok(false);
-    }
-    let Some(_turn) = driver_lock(Duration::ZERO) else {
-        return Ok(false);
+    let Some(_turn) = driver_lock(Duration::from_secs(900)) else {
+        bail!("another setup is installing drivers");
     };
-    ensure_idle(probe(&profile), false)?;
-    std::fs::write(
-        &record,
-        serde_json::to_vec(
-            &serde_json::json!({"version": version, "unix": now, "selected": selected}),
-        )?,
-    )?;
+    ensure_idle(probe(&profile()), false)?;
     let mut notes = Vec::new();
     let restart = rubylight_display_driver(&install, progress, &mut notes);
-    for note in notes {
-        line(format!("note: {note}"));
+    if let Some(note) = notes.first() {
+        bail!("{note}");
     }
     Ok(restart)
-}
-fn rubylight_display_tried(record: Option<&[u8]>, version: &str, selected: bool, now: u64) -> bool {
-    record
-        .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(bytes).ok())
-        .is_some_and(|record| {
-            record["version"] == version
-                && record["selected"] == selected
-                && record["unix"]
-                    .as_u64()
-                    .is_some_and(|at| now.saturating_sub(at) < 86_400)
-        })
 }
 /// The Rubylight display driver step: set it up (again, which also updates
 /// it) while the console selects it, and remove it once it no longer does,
@@ -1245,7 +1212,9 @@ pub fn repair_drivers(progress: &Progress) -> Result<bool> {
     )?;
     let mut notes = Vec::new();
     // Automatic display repair never installs an optional USB/IP driver.
-    let restart = run_drivers(&install, true, false, false, progress, &mut notes);
+    // Nor does it change Rubylight's display driver: only setup, an update,
+    // the uninstaller or --rubylight-display do, when someone runs them.
+    let restart = run_drivers(&install, true, false, false, false, progress, &mut notes);
     for note in notes {
         line(format!("note: {note}"));
     }
@@ -1596,32 +1565,6 @@ mod tests {
         assert_eq!(rubylight_display_step("", false, true), None);
         assert_eq!(rubylight_display_step("", true, false), None);
         assert_eq!(rubylight_display_step("", false, false), None);
-    }
-    #[test]
-    fn the_rubylight_display_is_tried_once_a_day_per_version_and_choice() {
-        let record = br#"{"version":"1.0","unix":1000,"selected":true}"#.as_slice();
-        assert!(!rubylight_display_tried(None, "1.0", true, 1000));
-        assert!(rubylight_display_tried(
-            Some(record),
-            "1.0",
-            true,
-            1000 + 86_399
-        ));
-        assert!(!rubylight_display_tried(
-            Some(record),
-            "1.0",
-            true,
-            1000 + 86_400
-        ));
-        assert!(!rubylight_display_tried(Some(record), "1.1", true, 1000));
-        // Turning it off again is a new choice, tried at once.
-        assert!(!rubylight_display_tried(Some(record), "1.0", false, 1000));
-        assert!(!rubylight_display_tried(
-            Some(b"interrupted write"),
-            "1.0",
-            true,
-            1000
-        ));
     }
     #[test]
     fn a_failed_rubylight_display_install_becomes_a_setup_note() {

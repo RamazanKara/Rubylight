@@ -126,80 +126,6 @@ fn repair_display_driver(install: &std::path::Path, stop: Arc<AtomicBool>) {
         }
     });
 }
-/// The console selects Rubylight's own display driver with
-/// `virtual_display_driver = rubylight`, a choice setup cannot see when it is
-/// made. Every minute, when that choice and the installed driver disagree
-/// (selected but the driver does not open, or deselected but still
-/// installed), setup installs or removes the driver: every ten minutes at
-/// most while they disagree. Setup itself waits for no stream and tries at
-/// most once a day per version and choice.
-fn follow_rubylight_display(
-    install: &std::path::Path,
-    profile: std::path::PathBuf,
-    stop: Arc<AtomicBool>,
-) {
-    use std::os::windows::process::CommandExt;
-    let setup = install.join("uninstall.exe");
-    if !setup.is_file()
-        || !install
-            .join("drivers\\rubylight-display\\install-local.ps1")
-            .is_file()
-    {
-        return;
-    }
-    std::thread::spawn(move || {
-        let mut started: Option<(bool, Instant)> = None;
-        loop {
-            for _ in 0..12 {
-                if stop.load(Ordering::Acquire) {
-                    return;
-                }
-                std::thread::sleep(Duration::from_secs(5));
-            }
-            let selected = butterpollo_core::config::Config::load(&profile.join("sunshine.conf"))
-                .is_ok_and(|config| {
-                    crate::display::rubylight_vdd::VirtualDriver::configured(&config)
-                        == crate::display::rubylight_vdd::VirtualDriver::Rubylight
-                });
-            let installed = ["LocalSigner", "Installed"].iter().any(|value| {
-                crate::steam::registry_string(
-                    windows::Win32::System::Registry::HKEY_LOCAL_MACHINE,
-                    "SOFTWARE\\Rubylight\\VirtualDisplay",
-                    value,
-                )
-                .is_some()
-            });
-            if !rubylight_display_pending(selected, installed, || {
-                crate::display::rubylight_vdd::Control::open().is_ok()
-            }) || started.is_some_and(|(choice, at)| {
-                choice == selected && at.elapsed() < Duration::from_secs(600)
-            }) {
-                continue;
-            }
-            started = Some((selected, Instant::now()));
-            tracing::info!(
-                selected,
-                "the Rubylight display driver does not match the console; setting it up"
-            );
-            if let Err(error) = std::process::Command::new(&setup)
-                .arg("--rubylight-display")
-                .creation_flags(windows::Win32::System::Threading::CREATE_NO_WINDOW.0)
-                .spawn()
-            {
-                tracing::warn!(%error, "the Rubylight display setup could not start");
-            }
-        }
-    });
-}
-/// Whether the Rubylight display driver must be installed or removed.
-/// `opens` is only asked when the driver is selected.
-fn rubylight_display_pending(
-    selected: bool,
-    installed: bool,
-    opens: impl FnOnce() -> bool,
-) -> bool {
-    if selected { !opens() } else { installed }
-}
 fn supervise() -> Result<()> {
     let stop = Arc::new(AtomicBool::new(false));
     let event_stop = stop.clone();
@@ -262,7 +188,6 @@ fn supervise() -> Result<()> {
     }
     if let Some(install) = executable.parent() {
         repair_display_driver(install, stop.clone());
-        follow_rubylight_display(install, config.clone(), stop.clone());
     }
     let mut child: Option<crate::process::Process> = None;
     let mut session = u32::MAX;
@@ -366,17 +291,6 @@ fn supervise() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[test]
-    fn the_rubylight_display_follows_the_console_choice() {
-        // Selected: set up only while the driver does not open.
-        assert!(rubylight_display_pending(true, false, || false));
-        assert!(rubylight_display_pending(true, true, || false));
-        assert!(!rubylight_display_pending(true, true, || true));
-        // Deselected: removed while still installed, without opening it.
-        let unasked = || -> bool { panic!("the driver is not opened when it is not selected") };
-        assert!(rubylight_display_pending(false, true, unasked));
-        assert!(!rubylight_display_pending(false, false, unasked));
-    }
     #[test]
     fn windows_termination_does_not_trigger_or_reset_crash_backoff() {
         let mut policy = RestartPolicy::default();

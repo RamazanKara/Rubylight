@@ -95,7 +95,7 @@ export const settings: Setting[] = [
     description:
       'The driver that creates virtual displays. The Rubylight display hands each frame straight to the encoder, without screen capture.',
     details:
-      'Rubylight installs its display driver within a few minutes of choosing it, when nothing streams, and removes it when you switch back. Windows trusts the driver through a certificate made on this PC for it alone; its key is deleted at once.',
+      'Run the Rubylight installer after changing it: setup installs the display driver while it is chosen and removes it once it is not. Windows trusts the driver through a certificate made on this PC for it alone; its key is deleted at once.',
     category: 'display',
     group: 'Streamed display',
     control: {

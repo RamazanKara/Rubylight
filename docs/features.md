@@ -20,7 +20,8 @@ NVIDIA NVENC, Intel Quick Sync and software encoders are included for other hard
 
 ## Capture that keeps working
 
-- **Windows Graphics Capture** is the default on physical and virtual displays, with Desktop Duplication taking over whenever WGC cannot open.
+- **Frames straight from Rubylight's display driver.** On its virtual displays, the driver hands the host each frame Windows composes: no capture API in between, and on Radeon the frame is converted where it lies. A reconnect to a desktop where nothing moves gets its picture at once.
+- **Windows Graphics Capture** is the default on physical displays and takes over on a virtual display when the driver cannot push frames, with Desktop Duplication taking over whenever WGC cannot open.
 - **Locked screens and the secure desktop.** Rubylight streams the lock screen and the sign-in prompt, so you can unlock a PC from your couch, and returns to WGC when the normal desktop comes back. It streams from a locked VM with no monitor attached ([#6](https://github.com/RamazanKara/Rubylight/issues/6)).
 - **Services, VMs and containers.** The Windows service captures through a signed-in-user helper, and the same host runs on headless machines, virtual machines and Kubernetes pods with GPUs.
 - **Capture recovery.** A lost Desktop Duplication session is reopened without ending the stream.

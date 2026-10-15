@@ -62,7 +62,7 @@ Coming from Apollo or Vibepollo? Rubylight imports your settings, paired devices
 | **Radeon compute** | Frame copies and colour conversion run on D3D12 compute queues beside your game's graphics work, so the stream takes less from the game. |
 | **Native AMD encoding** | AMF drives the encoder directly for H.264, HEVC and AV1, with defaults tuned per codec. AV1 can repair packet loss with a small recovery frame instead of a keyframe. |
 | **HDR, and full colour with PyroWave** | HEVC and AV1 carry 10-bit HDR. PyroWave adds 10-bit HDR 4:4:4, which keeps coloured text and fine edges crisp, over a fast local network. |
-| **A screen for each device** | Virtual displays match each client's resolution and refresh rate. Your monitor layout and HDR come back after the stream. |
+| **A screen for each device** | Rubylight's own virtual display driver matches each client's resolution and refresh rate, and hands every frame straight to the host, with no capture API in between. Your monitor layout and HDR come back after the stream. |
 | **One calm console** | Pair devices, manage games and per-app settings, and watch frame rate, bitrate and encoder timing from your browser. |
 
 Also built in: Steam and Playnite library sync, RTSS frame limits, Lossless Scaling, VRR, controllers (including DualSense haptics and a real Steam Deck controller), keyboard, mouse, touch and pen, surround audio, microphone passthrough, and streaming from the lock screen or a headless PC.

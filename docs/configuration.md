@@ -16,7 +16,7 @@ Use **Review changes** to see pending edits across all categories, including set
 
 | Setting / key | Default | What it means |
 | --- | --- | --- |
-| Capture method — `capture` | `auto` | Prefers Windows Graphics Capture (WGC), with Desktop Duplication (DDX) as fallback. |
+| Capture method — `capture` | `auto` | On a virtual display Rubylight created, takes each frame straight from Rubylight's display driver. Elsewhere prefers Windows Graphics Capture (WGC), with Desktop Duplication (DDX) as fallback. |
 | Compute conversion — `gpu_compute_conversion` | `true` | Uses a separate compute queue for supported AMD capture and colour conversion paths. |
 | Encode from GPU memory — `wgc_direct_encoder_input` | `true` | Keeps captured frames on the GPU instead of copying them through system memory. |
 | Encoder — `encoder` | `auto` | Selects an available encoder for the capture GPU. |
@@ -49,6 +49,8 @@ These are defaults for **unset** keys, not a list of values you must copy into a
 **Graphics card** (`adapter_name`) lists all hardware GPUs reported by Windows DXGI, including GPUs with no attached monitor on hybrid systems. **Automatic** uses the GPU that owns the captured display. A GPU appearing in the list does not confirm encoder or codec support; that still depends on its hardware and driver. With a GPU selected, virtual displays are created to render on that GPU, as Apollo and Vibepollo do. WGC can capture a display that another GPU renders; Desktop Duplication cannot, so when it is the capture path in use and the display renders elsewhere (a physical monitor on the integrated GPU, or a driver that ignored the request), the stream captures and encodes on the display's GPU and the stream card says so.
 
 **Keep Capture method on Automatic and compute conversion enabled** for normal use. On supported AMD hardware, the compute path lets capture and colour conversion run alongside graphics work. Unsupported textures can fall back to the graphics path. The internal `wgc_compute_copy` switch also defaults to `true`; it is primarily useful for controlled troubleshooting.
+
+**Frames from Rubylight's display driver.** On a virtual display Rubylight created, Automatic captures from the driver itself: it copies each frame Windows composes into textures it shares with the host, so neither WGC nor Desktop Duplication runs, and on AMD the compute conversion reads those textures in place (`idd_push_zero_copy`, default `true`). `capture = idd-push` asks for it by name; WGC or Desktop Duplication avoid it. The stream captures with WGC instead, and the stream card says why, when the driver is not installed, when another stream with different capture settings already captures that display, or when the display's frame push failed twice before delivering a picture. A display that failed is tried again once it is recreated or renders on another GPU.
 
 The installed service runs WGC through a helper in the signed-in user's session. WGC can fall back to DDX when unavailable. Selecting a particular capture method is useful when investigating a problem; check **Logs** to see which path actually opened.
 

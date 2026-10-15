@@ -53,6 +53,21 @@ Measured on the RX 7900 XT, October 15, with an isolated host streaming 2560×14
 - **WGC's stamp is late.** For 47–99% of idle frames, WGC's frame time was later than the frame's arrival at the host. Rubylight then uses the arrival, so WGC's capture stage reads low. Against Desktop Duplication, the receiver's render-to-received times put the hidden part at about 2 ms idle on the 240 Hz monitor and about 1 ms on a virtual display. Add it to WGC's Present to sent before comparing with another host.
 - **Under GPU load the time goes to waiting.** The wait for the claim grows to 1–4.5 ms at 60 and 120 fps (0.2–1.6 ms at 240), and WGC's pictures arrive later. Desktop Duplication hands the host a picture before DWM's GPU work on it has finished ([October 12 diagnosis](../rust/PERFORMANCE_WORK.md#av1-host-processing-p95-diagnosis-october-12)); under load that work waits behind the game's, and Desktop Duplication's encode stage grows by up to 1.1 ms instead. Moonlight's figure stays near 3–4 ms because it covers none of the waiting before the claim.
 
+## October 15: 2.4.0 to an Intel receiver
+
+Rubylight 2.4.0, installed, streamed the Desktop app on a per-device virtual display (extended layout, captured through Rubylight's display driver) over gigabit Ethernet to the [independent receiver](../rust/tests/moonlight_client.c) on an Intel NUC (i5-8259U, Iris Plus 655), decoding on Quick Sync through VA-API. The host was the RX 7900 XT while a game ran on it; the virtual desktop itself was still, so most frames sent were repeats.
+
+| 1920×1080 at 60 fps, 20 Mbps | Frames received / decoded | Failures | Moonlight host processing, mean / p95 | Receiver decode, mean |
+| --- | ---: | ---: | ---: | ---: |
+| HEVC, 30 s | 681 / 681 | 0 | 2.6 / 3.4 ms | 17.9 ms |
+| H.264, 15 s | 385 / 385 | 0 | 2.9 / 3.6 ms | 16.5 ms |
+| HEVC 10-bit HDR (BT.2020/PQ), 15 s | 378 / 378 | 0 | 2.9 / 4.6 ms | 20.4 ms |
+
+- **Capture through the driver takes 0.2 ms** (p95 0.3 ms), from the driver's acquire to the host holding the frame, against about 0.9 ms through WGC on a virtual display ([October 15](../rust/PERFORMANCE.md#october-15-where-host-latency-goes)). Each stream had its first picture from the driver's retained frame about 0.5 s after launch, and the HDR stream kept running through a swap-chain replacement when the display switched to HDR.
+- **What is left is the encode.** For new pictures on the final build: capture 0.22 ms, convert 0.26 ms, AMF HEVC encode 2.43 ms (p95 3.12 ms), packetization 0.03 ms. Moonlight's host processing, which starts at the claim as punktfunk's does, read 2.69 ms mean and 3.63 ms p95 for them; present to sent read 3.54 ms, the difference being capture and the wait for the claim.
+- **The release check passed** on the published installer: H.264, HEVC, AV1, HEVC with VRR, with keyframe requests, at 2560×1440 and 120 fps (plain and launched as Artemis's Warp does) and PyroWave SDR and HDR 4:4:4 all held their rate (60.05–60.12 and 120.12–120.13 fps) through an isolated host on loopback, with no decode failures. The protocol checks, the display self-test and the install passed too. Results: [`VALIDATION.json`](https://github.com/RamazanKara/Rubylight/releases/download/v2.4.0/VALIDATION.json).
+- **Limits.** The table's runs used the first 2.4.0 build, whose Moonlight field started a new picture at its present stamp; most frames were repeats, which start at the claim either way. One run per case, beside a game, on a still desktop: the waits for the claim are those of rare new pictures, not of a moving stream. The NUC has no AV1 decoder, so AV1 was not part of this check.
+
 ## October 12: 2.2.9 measurements
 
 Native virtual-HDR capture passed **28/28 stream and timing checks** across DDX and WGC, plus **4/4 HDR pixel checks**. The table below gives the current **DDX** results: arithmetic means of two runs' statistics, measured from a timestamped rendered picture through local hardware decoding. It excludes remote network transit and display time.

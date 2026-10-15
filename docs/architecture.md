@@ -27,7 +27,7 @@ For standard H.264, HEVC and AV1 streams on supported AMD GPUs:
 
 | Stage | What happens | Source |
 | --- | --- | --- |
-| **Capture** | Windows Graphics Capture (WGC) supplies a display texture. Automatic selection prefers WGC; Desktop Duplication (DDX) is an explicit choice and fallback. | [Capture backends](../rust/windows/src/capture.rs) |
+| **Capture** | On a virtual display Rubylight created, its display driver pushes each composed frame into textures shared with the host. Elsewhere Windows Graphics Capture (WGC) supplies a display texture; Desktop Duplication (DDX) is an explicit choice and fallback. | [Capture backends](../rust/windows/src/capture.rs), [frame push](../rust/windows/src/capture/idd_push.rs) |
 | **Take ownership** | A GPU copy moves the captured image into a texture the host owns. The capture frame stays alive until the copy finishes. Consumers share the latest published frame. | [Frame publication](../rust/host/src/stream/capture.rs), [compute handoff](../rust/windows/src/compute.rs) |
 | **Prepare** | D3D12 compute converts RGB into the encoder's YUV format, including resizing and HDR conversion where required. | [Colour conversion](../rust/windows/src/compute.rs) |
 | **Encode** | Native AMD AMF consumes the D3D12 surface and produces an H.264, HEVC or AV1 bitstream. | [AMF GPU integration](../rust/windows/src/amf/gpu.rs) |
@@ -52,6 +52,12 @@ A captured texture can arrive before its producer has finished writing it. Rubyl
 Texture pools and native encoder queues are bounded. Texture ownership and per-frame HDR metadata survive until native codec references release them. Capture textures that cannot be shared use the D3D11 fallback. The [compute implementation](../rust/windows/src/compute.rs) and [synchronization measurements](../rust/PERFORMANCE.md#october-4-capture-copies-and-conversion-beside-a-game) contain the details.
 
 The capture snapshot pool holds at most eight textures. If consumers own them all, capture preserves a pending native update until space returns instead of consuming and losing it. WGC retains the newest pending frame, and Desktop Duplication waits before acquiring another frame. A blocked WGC publication uses normal polling rather than repeatedly waking on an expired deadline. This preserves the final update of a desktop that becomes static without growing a queue.
+
+## Frames from Rubylight's display driver
+
+Rubylight's virtual displays come from its own IddCx driver ([`rubylight-vdisplay`](../rust/drivers/rubylight-vdisplay)). For each monitor the driver drains the swap chain Windows composes into, which keeps the monitor live. When a stream captures that monitor, the host creates four shared textures with keyed mutexes and a one-page header and hands them to the driver ([the ring protocol](../rust/drivers/rubylight-vdisplay-proto/src/ring.rs)). Per frame the driver copies the surface into a texture the host is not reading, records its present time and publishes it; with every texture held it drops the frame rather than wait, because Windows waits on the driver for the next frame. The host takes only the newest publish, so neither side builds a queue. On AMD the compute conversion reads the texture in place and hands it back when it is done.
+
+The ring belongs to the monitor, not to the swap chain: when Windows replaces the swap chain (a GPU or colour-mode change), the new one continues the ring's frame sequence. The driver keeps the newest picture no ring holds and starts a new ring with it, so a reconnect to a still desktop, which Windows stops presenting, has a picture at once. A process registers one ring per monitor and clears only its own. A ring that fails before its first picture is retried once, then that display's captures use WGC.
 
 ## WGC through the Windows service
 

@@ -18,6 +18,8 @@ import com.limelight.nvstream.http.NvApp;
 import com.limelight.nvstream.http.NvHTTP;
 import com.limelight.nvstream.http.PairingManager;
 import com.limelight.preferences.AppQuitOnLeave;
+import com.limelight.preferences.AppStreamSettings;
+import com.limelight.preferences.HostStreamSettings;
 import com.limelight.preferences.PreferenceConfiguration;
 import com.limelight.ui.AdapterFragment;
 import com.limelight.ui.AdapterFragmentCallbacks;
@@ -629,6 +631,9 @@ public class AppView extends AppCompatActivity implements AdapterFragmentCallbac
         if (LaunchPolicy.offersQuitOnLeave(canLaunch, selectedApp.app.getControl(), selectedApp.app.getRole())) {
             addQuitOnLeaveAction(sheet, selectedApp);
         }
+        if (selectedApp.app.getControl() == NvApp.Control.NONE) {
+            addGameSettingsAction(sheet, selectedApp);
+        }
         if (!selectedApp.isRunning || selectedApp.isHidden) {
             addAppAction(sheet, selectedApp, selectedView, HIDE_APP_ID,
                     selectedApp.isHidden ? R.drawable.ic_visibility : R.drawable.ic_visibility_off,
@@ -660,6 +665,20 @@ public class AppView extends AppCompatActivity implements AdapterFragmentCallbac
             AppQuitOnLeave.setEnabled(this, uuidString, appUuid, appId, enabled);
             sheet.setActionText(action, getString(R.string.library_quit_on_leave), quitOnLeaveNote(enabled));
             action.announceForAccessibility(quitOnLeaveNote(enabled));
+        });
+    }
+
+    /** Opens this game's own stream values; the note says whether it has any. */
+    private void addGameSettingsAction(ActionSheet sheet, AppObject app) {
+        String appUuid = app.app.getAppUuid();
+        int appId = app.app.getAppId();
+        int own = AppStreamSettings.load(this, uuidString, appUuid, appId).count();
+        sheet.addAction(R.drawable.ic_tune, getString(R.string.game_settings_action), own == 0 ?
+                getString(R.string.game_settings_note_none) :
+                getResources().getQuantityString(R.plurals.game_settings_note_own, own, own)).setOnClickListener(v -> {
+            sheet.dismiss();
+            HostStreamSettings.showGame(this, uuidString, getIntent().getStringExtra(NAME_EXTRA), appUuid, appId,
+                    app.app.getAppName());
         });
     }
 

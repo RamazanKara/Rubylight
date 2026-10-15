@@ -720,6 +720,15 @@ public class StreamSettings extends AppCompatActivity {
         private final SharedPreferences.OnSharedPreferenceChangeListener summaryUpdater =
                 (prefs, key) -> updateValueSummaries(getPreferenceScreen());
 
+        /** Which profile streams use: none, the one in use, or the network's choice. */
+        static String profilesSummary(Context context) {
+            StreamProfiles.Snapshot profiles = StreamProfiles.load(context);
+            String summary = profiles.exists(profiles.activeId) ?
+                    context.getString(R.string.profiles_summary_in_use, profiles.name(profiles.activeId)) :
+                    context.getString(R.string.profiles_summary_none);
+            return profiles.auto ? summary + "\n" + context.getString(R.string.profiles_summary_auto) : summary;
+        }
+
         private void updateValueSummaries(PreferenceGroup group) {
             SharedPreferences prefs = getPreferenceManager().getSharedPreferences();
             for (int i = 0; i < group.getPreferenceCount(); i++) {
@@ -747,6 +756,8 @@ public class StreamSettings extends AppCompatActivity {
                     pref.setSummary(on == 0 || on == PreferenceConfiguration.LOW_LATENCY_DECODING_KEYS.length ? null :
                             getString(R.string.settings_low_latency_partial));
                     continue;
+                } else if ("stream_profiles".equals(pref.getKey())) {
+                    value = profilesSummary(getActivity());
                 } else if ("gpu_driver".equals(pref.getKey())) {
                     GpuDriverStore.Driver driver = GpuDriverStore.selected(getActivity());
                     value = driver == null ? getString(R.string.gpu_driver_system) : driver.name;
@@ -1226,6 +1237,13 @@ public class StreamSettings extends AppCompatActivity {
                 startActivity(new Intent(getActivity(), ControllerMappingActivity.class));
                 return true;
             });
+            Preference profiles = findPreference("stream_profiles");
+            if (profiles != null) {
+                profiles.setOnPreferenceClickListener(preference -> {
+                    startActivity(new Intent(getActivity(), StreamProfilesActivity.class));
+                    return true;
+                });
+            }
             findPreference("controller_test").setOnPreferenceClickListener(preference -> {
                 startActivity(new Intent(getActivity(), ControllerTestActivity.class));
                 return true;

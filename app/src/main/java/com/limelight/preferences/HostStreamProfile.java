@@ -9,8 +9,9 @@ import java.math.BigDecimal;
 import java.util.Map;
 
 /**
- * One PC's stream settings: only the values chosen for that PC. Every value left null follows
- * the settings for all PCs, so changing a global setting reaches this PC unless it has its own.
+ * A set of stream values: one PC's, one game's or a named profile's. Only the values chosen are
+ * set; every value left null falls through to the layer below (see {@link StreamLayers}), so a
+ * change there still reaches this set unless it has its own.
  */
 public final class HostStreamProfile {
     private static final String PREFERENCES = "HostStreamProfiles";
@@ -27,6 +28,16 @@ public final class HostStreamProfile {
     public Boolean virtualDisplay, hdr, fullRange, yuv444, vrr;
     public UpscalingPolicy.Mode upscalingMode;
     public Integer upscalingSharpness;
+    /** A frame pacing choice as the global setting stores it, e.g. "balanced". */
+    public String pacing;
+
+    /** The values a set can hold; each one falls through on its own. */
+    public enum Field {
+        RESOLUTION, REFRESH, BITRATE, CODEC, UPSCALING, SHARPNESS, HDR, VRR, YUV444, FULL_RANGE, PACING,
+        VIRTUAL_DISPLAY, RENDER_SCALE
+    }
+
+    static final String[] PACING_VALUES = {"latency", "balanced", "cap-fps", "smoothness"};
 
     public HostStreamProfile() {
     }
@@ -93,7 +104,64 @@ public final class HostStreamProfile {
     public boolean isEmpty() {
         return nativeResolution == null && refreshRateX100 == null && bitrate == null && renderScale == null &&
                 codec == null && virtualDisplay == null && hdr == null && fullRange == null && yuv444 == null &&
-                vrr == null && upscalingMode == null && upscalingSharpness == null;
+                vrr == null && upscalingMode == null && upscalingSharpness == null && pacing == null;
+    }
+
+    public boolean has(Field field) {
+        switch (field) {
+            case RESOLUTION: return nativeResolution != null;
+            case REFRESH: return refreshRateX100 != null;
+            case BITRATE: return bitrate != null;
+            case CODEC: return codec != null;
+            case UPSCALING: return upscalingMode != null;
+            case SHARPNESS: return upscalingSharpness != null;
+            case HDR: return hdr != null;
+            case VRR: return vrr != null;
+            case YUV444: return yuv444 != null;
+            case FULL_RANGE: return fullRange != null;
+            case PACING: return pacing != null;
+            case VIRTUAL_DISPLAY: return virtualDisplay != null;
+            default: return renderScale != null;
+        }
+    }
+
+    /** Copies one value from {@code from}, set or not. */
+    void take(Field field, HostStreamProfile from) {
+        switch (field) {
+            case RESOLUTION:
+                nativeResolution = from.nativeResolution;
+                width = from.width;
+                height = from.height;
+                break;
+            case REFRESH: refreshRateX100 = from.refreshRateX100; break;
+            case BITRATE: bitrate = from.bitrate; break;
+            case CODEC: codec = from.codec; break;
+            case UPSCALING: upscalingMode = from.upscalingMode; break;
+            case SHARPNESS: upscalingSharpness = from.upscalingSharpness; break;
+            case HDR: hdr = from.hdr; break;
+            case VRR: vrr = from.vrr; break;
+            case YUV444: yuv444 = from.yuv444; break;
+            case FULL_RANGE: fullRange = from.fullRange; break;
+            case PACING: pacing = from.pacing; break;
+            case VIRTUAL_DISPLAY: virtualDisplay = from.virtualDisplay; break;
+            default: renderScale = from.renderScale; break;
+        }
+    }
+
+    /** How many values this set holds. */
+    public int count() {
+        int count = 0;
+        for (Field field : Field.values()) {
+            if (has(field)) count++;
+        }
+        return count;
+    }
+
+    static String requirePacing(String value) {
+        for (String known : PACING_VALUES) {
+            if (known.equals(value)) return value;
+        }
+        throw new IllegalArgumentException("Invalid frame pacing");
     }
 
     public boolean setsResolution() {
@@ -123,6 +191,7 @@ public final class HostStreamProfile {
         if (vrr != null) config.vrr = vrr;
         if (upscalingMode != null) config.upscalingMode = upscalingMode;
         if (upscalingSharpness != null) config.upscalingSharpness = upscalingSharpness;
+        if (pacing != null) config.framePacing = PreferenceConfiguration.framePacingValue(pacing);
         if (config.enableHdr || config.videoFormat == PreferenceConfiguration.FormatOption.FORCE_PYROWAVE) {
             config.useTextureView = false;
         }
@@ -171,6 +240,7 @@ public final class HostStreamProfile {
         if (vrr != null) out.append(";vrr=").append(vrr);
         if (upscalingMode != null) out.append(";upscaling=").append(upscalingMode.name());
         if (upscalingSharpness != null) out.append(";sharpness=").append(upscalingSharpness);
+        if (pacing != null) out.append(";pacing=").append(pacing);
         return out.toString();
     }
 
@@ -242,6 +312,9 @@ public final class HostStreamProfile {
                 case "sharpness":
                     profile.upscalingSharpness = requireRange(Integer.parseInt(field), 0, 100);
                     break;
+                case "pacing":
+                    profile.pacing = requirePacing(field);
+                    break;
                 default:
                     // A value a newer build added; this build leaves it to the global settings.
                     break;
@@ -273,6 +346,12 @@ public final class HostStreamProfile {
                 fields.length >= 11 && !fields[10].isEmpty() ? Boolean.parseBoolean(fields[10]) : null,
                 fields.length == 13 ? UpscalingPolicy.Mode.valueOf(fields[11]) : null,
                 fields.length == 13 ? Integer.parseInt(fields[12]) : null, nativeResolution);
+    }
+
+    /** This PC's stored values, unread, or null when it has none. */
+    static String raw(Context context, String hostUuid) {
+        return hostUuid == null ? null : context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
+                .getString(hostUuid, null);
     }
 
     static HostStreamProfile load(Context context, String hostUuid) {

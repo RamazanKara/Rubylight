@@ -528,6 +528,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     public static final String EXTRA_APP_HDR = "HDR";
     public static final String EXTRA_SERVER_CERT = "ServerCert";
     private static final String EXTRA_RECOVERY_ATTEMPTS = "RecoveryAttempts";
+    // The network the stream started on (StreamLayers.Network), kept across reconnects and handoffs.
+    private static final String EXTRA_STREAM_NETWORK = "StreamNetwork";
     private static final String EXTRA_RECOVERY_STARTED = "RecoveryStarted";
     private static final String EXTRA_RECOVERY_MEDIA_FAILURE = "RecoveryMediaFailure";
     private static final String EXTRA_MICROPHONE_MUTED = "rubylight.microphoneMuted";
@@ -582,7 +584,23 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 getResources().getString(R.string.conn_establishing_msg), true);
 
         // Read the stream preferences
-        prefConfig = PreferenceConfiguration.readPreferences(this, getIntent().getStringExtra(EXTRA_PC_UUID));
+        // Profiles, PC and game values are read once here and never change during the stream. A
+        // reconnect or handoff keeps the network the stream started on, and so the same profile.
+        com.limelight.preferences.StreamLayers.Network startNetwork = null;
+        String seenNetwork = getIntent().getStringExtra(EXTRA_STREAM_NETWORK);
+        if (seenNetwork != null) {
+            try {
+                startNetwork = com.limelight.preferences.StreamLayers.Network.valueOf(seenNetwork);
+            } catch (IllegalArgumentException ignored) {
+                // Read the network again.
+            }
+        }
+        prefConfig = PreferenceConfiguration.readPreferences(this, getIntent().getStringExtra(EXTRA_PC_UUID),
+                HostCapabilityCache.load(this, getIntent().getStringExtra(EXTRA_PC_UUID)),
+                getIntent().getStringExtra(EXTRA_APP_UUID),
+                getIntent().getIntExtra(EXTRA_APP_ID, StreamConfiguration.INVALID_APP_ID), startNetwork);
+        getIntent().putExtra(EXTRA_STREAM_NETWORK, prefConfig.layers.network.name());
+        showStreamLayers(prefConfig, startNetwork == null);
         recoveryPolicy = new StreamRecoveryPolicy(getIntent().getIntExtra(EXTRA_RECOVERY_ATTEMPTS, 0),
                 getIntent().getLongExtra(EXTRA_RECOVERY_STARTED, 0));
         panelMaxRefreshRate = com.limelight.binding.video.DisplayFrameRatePolicy.maxRefreshRate(
@@ -597,6 +615,9 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 " fps (resolution " + prefConfig.resolutionSource() +
                 (prefConfig.vrr ? ", VRR at the panel's " + panelMaxRefreshRate + " Hz" : "") + ")");
         LimeLog.info("PC's own stream values: " + (prefConfig.pcSettings == null ? "none" : prefConfig.pcSettings));
+        if (prefConfig.layers != null) {
+            LimeLog.info("Stream settings layers: " + com.limelight.preferences.StreamLayers.describe(prefConfig.layers));
+        }
         // Fixed presets keep their size; anything else is the phone's own resolution and follows it.
         nativeResolutionStream = prefConfig.resolutionFollowsScreen ||
                 PreferenceConfiguration.isNativeResolution(prefConfig.width, prefConfig.height);
@@ -2637,6 +2658,25 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 runOnUiThread(() -> hostActionInProgress = false);
             }
         }, "Quit stream app").start();
+    }
+
+    /**
+     * Says which profile and own values this stream started with, and loudly what could not be
+     * used. A profile picked for the network is announced; the overlay always lists the layers.
+     */
+    private void showStreamLayers(PreferenceConfiguration config, boolean firstStart) {
+        com.limelight.preferences.StreamLayers.Result layers = config.layers;
+        if (layers == null) return;
+        for (String problem : com.limelight.preferences.StreamLayersText.problems(this, layers)) {
+            messages.alert(problem, Toast.LENGTH_LONG);
+        }
+        config.layersText = com.limelight.preferences.StreamLayersText.applied(this, layers);
+        if (config.layersText == null) return;
+        if (firstStart && layers.reason == com.limelight.preferences.StreamLayers.Reason.NETWORK) {
+            messages.countedNotice(config.layersText);
+        } else {
+            messages.note(config.layersText);
+        }
     }
 
     /**

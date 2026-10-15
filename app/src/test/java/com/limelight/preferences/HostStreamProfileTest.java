@@ -231,4 +231,37 @@ public class HostStreamProfileTest {
         assertNull(HostStreamProfile.migrateToNative(migrated));
         assertNull(HostStreamProfile.migrateToNative("2560,1440,12000,150000,100,AUTO,false,false,false,false"));
     }
+    @Test
+    public void framePacingIsAValueOfItsOwnThatOlderBuildsSkip() {
+        HostStreamProfile profile = HostStreamProfile.deserialize("v2;bitrate=20000;pacing=cap-fps");
+        assertEquals("cap-fps", profile.pacing);
+        assertEquals("v2;bitrate=20000;pacing=cap-fps", profile.serialize());
+        assertEquals(2, profile.count());
+        PreferenceConfiguration config = new PreferenceConfiguration();
+        profile.applyTo(config);
+        assertEquals(PreferenceConfiguration.FRAME_PACING_CAP_FPS, config.framePacing);
+        assertThrows(IllegalArgumentException.class, () -> HostStreamProfile.deserialize("v2;pacing=fast"));
+        // A value from a newer build is left to the layers below.
+        assertEquals("v2;hdr=true", HostStreamProfile.deserialize("v2;hdr=true;future=1").serialize());
+    }
+
+    @Test
+    public void everyFieldCanBeCopiedAloneAndFallsThroughWhenUnset() {
+        HostStreamProfile full = HostStreamProfile.deserialize("v2;res=1920x1080;refresh=6000;bitrate=20000;" +
+                "scale=150;codec=FORCE_AV1;virtual=true;hdr=true;full_range=true;yuv444=true;vrr=false;" +
+                "upscaling=FSR1;sharpness=60;pacing=balanced");
+        assertEquals(HostStreamProfile.Field.values().length, full.count());
+        HostStreamProfile copy = new HostStreamProfile();
+        for (HostStreamProfile.Field field : HostStreamProfile.Field.values()) {
+            assertTrue(field.name(), full.has(field));
+            assertFalse(field.name(), copy.has(field));
+            copy.take(field, full);
+            assertTrue(field.name(), copy.has(field));
+        }
+        assertEquals(full.serialize(), copy.serialize());
+        for (HostStreamProfile.Field field : HostStreamProfile.Field.values()) {
+            copy.take(field, new HostStreamProfile());
+        }
+        assertTrue(copy.isEmpty());
+    }
 }

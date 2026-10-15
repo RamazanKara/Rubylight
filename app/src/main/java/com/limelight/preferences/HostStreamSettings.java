@@ -63,14 +63,30 @@ import java.io.IOException;
 /**
  * One PC's settings, titled with its name: its own stream values, its display, its connection
  * and its host. Each stream value is either this PC's own or "Same as all PCs", which follows the
- * main Stream settings, so a global change reaches every PC that doesn't set it. Save keeps the
- * stream values; the other rows act at once.
+ * main Stream settings and the profile in use, so a change there reaches every PC that doesn't set
+ * it. Save keeps the stream values; the other rows act at once.
+ *
+ * The same stream rows edit a named profile's values and one game's values (see {@link Mode});
+ * a value not set there comes from the layers below it ({@link StreamLayers}).
  */
 public class HostStreamSettings extends AppCompatActivity {
     private static final int PICK_ROMS_REQUEST = 1;
     private static final int PICK_ESDE_REQUEST = 2;
+    static final String EXTRA_MODE = "mode";
+    static final String EXTRA_PROFILE_ID = "profile_id";
+    static final String EXTRA_APP_UUID = "app_uuid";
+    static final String EXTRA_APP_ID = "app_id";
+    static final String EXTRA_APP_NAME = "app_name";
 
-    // The settings for all PCs, and this PC's own values on top of them.
+    /** Whose values this screen edits. */
+    enum Mode { PC, PROFILE, GAME }
+
+    private Mode mode = Mode.PC;
+    private String profileId, appUuid, appName;
+    private int appId;
+    // The layers below the one edited here, and where each of their values comes from.
+    private StreamLayers.Result below;
+    // The values below the ones edited here ("all PCs" on a PC), and the values edited on top of them.
     private PreferenceConfiguration global;
     private HostStreamProfile overrides;
     private String hostUuid;
@@ -114,24 +130,61 @@ public class HostStreamSettings extends AppCompatActivity {
                 .putExtra("host_uuid", hostUuid).putExtra("host_name", hostName));
     }
 
+    /** A named profile's values. */
+    public static void showProfile(Activity activity, String profileId) {
+        activity.startActivity(new Intent(activity, HostStreamSettings.class)
+                .putExtra(EXTRA_MODE, Mode.PROFILE.name()).putExtra(EXTRA_PROFILE_ID, profileId));
+    }
+
+    /** One game's values on one PC. */
+    public static void showGame(Activity activity, String hostUuid, String hostName, String appUuid, int appId,
+                                String appName) {
+        activity.startActivity(new Intent(activity, HostStreamSettings.class)
+                .putExtra(EXTRA_MODE, Mode.GAME.name()).putExtra("host_uuid", hostUuid).putExtra("host_name", hostName)
+                .putExtra(EXTRA_APP_UUID, appUuid).putExtra(EXTRA_APP_ID, appId).putExtra(EXTRA_APP_NAME, appName));
+    }
+
     @Override
     protected void onCreate(Bundle state) {
         super.onCreate(state);
         UiHelper.setLocale(this);
-        hostUuid = getIntent().getStringExtra("host_uuid");
-        if (hostUuid == null) {
+        try {
+            String requested = getIntent().getStringExtra(EXTRA_MODE);
+            mode = requested == null ? Mode.PC : Mode.valueOf(requested);
+        } catch (IllegalArgumentException e) {
             finish();
             return;
         }
-        caps = HostCapabilityCache.load(this, hostUuid);
+        hostUuid = getIntent().getStringExtra("host_uuid");
+        profileId = getIntent().getStringExtra(EXTRA_PROFILE_ID);
+        appUuid = getIntent().getStringExtra(EXTRA_APP_UUID);
+        appId = getIntent().getIntExtra(EXTRA_APP_ID, 0);
+        appName = getIntent().getStringExtra(EXTRA_APP_NAME);
+        StreamProfiles.Snapshot profiles = StreamProfiles.load(this);
+        if (mode == Mode.PROFILE ? !profiles.exists(profileId) : hostUuid == null) {
+            finish();
+            return;
+        }
+        caps = mode == Mode.PROFILE ? HostCapabilities.UNKNOWN : HostCapabilityCache.load(this, hostUuid);
         computer = new ComputerDetails();
         computer.uuid = hostUuid;
         computer.name = getIntent().getStringExtra("host_name");
         computer.caps = caps;
-        global = PreferenceConfiguration.readPreferences(this);
         PreferenceConfiguration.migratePcProfilesToOverrides(this);
-        HostStreamProfile saved = HostStreamProfile.load(this, hostUuid);
-        overrides = saved == null ? new HostStreamProfile() : saved;
+        StreamLayers.Input input = PreferenceConfiguration.layerInput(this, PreferenceConfiguration.readPreferences(this),
+                hostUuid, appUuid, appId);
+        // A stream's mobile data limit is not a stored value; these rows show what is stored.
+        input.mobileLimitKbps = 0;
+        if (mode == Mode.PROFILE) {
+            input.profiles = StreamProfiles.Snapshot.EMPTY;
+        } else {
+            StreamNetwork.fill(this, input);
+        }
+        if (mode != Mode.GAME) input.pcValues = null;
+        input.gameValues = null;
+        below = StreamLayers.resolve(input);
+        global = baseConfig();
+        overrides = loadOwn(profiles);
         savedProfile = overrides.serialize();
         if (state != null && state.getString("draft") != null) {
             try {
@@ -147,9 +200,12 @@ public class HostStreamSettings extends AppCompatActivity {
         }
         setContentView(R.layout.activity_host_stream_settings);
         // The PC is the page: its name is the title, the host software and version the subtitle.
-        setTitle(computer.name);
-        MaterialToolbar toolbar = TopAppBar.configure(this, R.id.host_profile_toolbar, computer.name, R.menu.host_profile);
-        toolbar.setSubtitle(caps.familyLabel(this));
+        // A profile or a game names the page the same way.
+        String title = mode == Mode.PROFILE ? profiles.name(profileId) : mode == Mode.GAME ? appName : computer.name;
+        setTitle(title);
+        MaterialToolbar toolbar = TopAppBar.configure(this, R.id.host_profile_toolbar, title, R.menu.host_profile);
+        toolbar.setSubtitle(mode == Mode.PROFILE ? getString(R.string.profiles_subtitle) :
+                mode == Mode.GAME ? getString(R.string.game_settings_subtitle, computer.name) : caps.familyLabel(this));
         TopAppBar.setUpNavigation(toolbar, R.id.host_profile_back, v -> leaveSettings());
         getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
             @Override
@@ -158,13 +214,17 @@ public class HostStreamSettings extends AppCompatActivity {
             }
         });
         toolbar.setOnMenuItemClickListener(item -> {
-            new MaterialAlertDialogBuilder(this).setTitle(R.string.pc_settings_title)
-                    .setMessage(R.string.host_profile_explanation).setPositiveButton(android.R.string.ok, null).show();
+            new MaterialAlertDialogBuilder(this).setTitle(mode == Mode.PROFILE ? R.string.profiles_title :
+                            mode == Mode.GAME ? R.string.game_settings_title : R.string.pc_settings_title)
+                    .setMessage(mode == Mode.PROFILE ? R.string.profile_settings_explanation :
+                            mode == Mode.GAME ? R.string.game_settings_explanation : R.string.host_profile_explanation)
+                    .setPositiveButton(android.R.string.ok, null).show();
             return true;
         });
         findViewById(R.id.host_profile_save).setOnClickListener(v -> {
-            overrides.save(this, hostUuid);
-            Toast.makeText(this, overrides.isEmpty() ? R.string.host_profile_reset_done : R.string.host_profile_saved,
+            saveOwn();
+            Toast.makeText(this, mode != Mode.PC ? R.string.layers_saved :
+                    overrides.isEmpty() ? R.string.host_profile_reset_done : R.string.host_profile_saved,
                     Toast.LENGTH_SHORT).show();
             finish();
         });
@@ -173,7 +233,53 @@ public class HostStreamSettings extends AppCompatActivity {
             getFragmentManager().beginTransaction().replace(R.id.host_profile_settings, new SettingsFragment()).commit();
         }
         UiHelper.notifyNewRootView(this);
-        managerBound = bindService(new Intent(this, ComputerManagerService.class), managerConnection, Service.BIND_AUTO_CREATE);
+        if (mode == Mode.PC) {
+            managerBound = bindService(new Intent(this, ComputerManagerService.class), managerConnection, Service.BIND_AUTO_CREATE);
+        }
+    }
+
+    /** The stored values edited here; unreadable ones are reported and start empty. */
+    private HostStreamProfile loadOwn(StreamProfiles.Snapshot profiles) {
+        String raw = mode == Mode.PROFILE ? profiles.rawValues(profileId) : mode == Mode.GAME ?
+                AppStreamSettings.raw(this, hostUuid, appUuid, appId) : HostStreamProfile.raw(this, hostUuid);
+        if (raw == null) return new HostStreamProfile();
+        try {
+            return HostStreamProfile.deserialize(raw);
+        } catch (IllegalArgumentException e) {
+            Toast.makeText(this, mode == Mode.PROFILE ?
+                    getString(R.string.layers_problem_profile_invalid, profiles.name(profileId)) :
+                    getString(mode == Mode.GAME ? R.string.layers_problem_game_invalid : R.string.layers_problem_pc_invalid),
+                    Toast.LENGTH_LONG).show();
+            return new HostStreamProfile();
+        }
+    }
+
+    private void saveOwn() {
+        switch (mode) {
+            case PROFILE: StreamProfiles.saveValues(this, profileId, overrides); break;
+            case GAME: AppStreamSettings.save(this, hostUuid, appUuid, appId, overrides); break;
+            default: overrides.save(this, hostUuid); break;
+        }
+    }
+
+    /** The main settings with the layers below this one on top: what a value not set here uses. */
+    private PreferenceConfiguration baseConfig() {
+        PreferenceConfiguration config = PreferenceConfiguration.readPreferences(this);
+        applyWithScreen(below.values, config);
+        return config;
+    }
+
+    private void applyWithScreen(HostStreamProfile values, PreferenceConfiguration config) {
+        boolean followedScreen = config.resolutionFollowsScreen;
+        values.applyTo(config);
+        if (config.resolutionFollowsScreen && !followedScreen) {
+            String nativeResolution = PreferenceConfiguration.nativeResolution(this);
+            if (nativeResolution != null) {
+                config.width = PreferenceConfiguration.getWidthFromResolutionString(nativeResolution);
+                config.height = PreferenceConfiguration.getHeightFromResolutionString(nativeResolution);
+            }
+        }
+        if (config.vrr) config.framePacing = PreferenceConfiguration.FRAME_PACING_MIN_LATENCY;
     }
 
     @Override
@@ -359,9 +465,9 @@ public class HostStreamSettings extends AppCompatActivity {
             return;
         }
         UiHelper.showDialog(this, new MaterialAlertDialogBuilder(this).setTitle(R.string.host_profile_unsaved_title)
-                .setMessage(R.string.host_profile_unsaved_message)
+                .setMessage(mode == Mode.PC ? R.string.host_profile_unsaved_message : R.string.layers_unsaved_message)
                 .setPositiveButton(R.string.host_profile_save, (dialog, which) -> {
-                    overrides.save(this, hostUuid);
+                    saveOwn();
                     finish();
                 })
                 .setNegativeButton(R.string.host_profile_discard, (dialog, which) -> finish())
@@ -371,22 +477,15 @@ public class HostStreamSettings extends AppCompatActivity {
     private void updateSaveState() {
         boolean changed = !savedProfile.equals(overrides.serialize());
         findViewById(R.id.host_profile_save).setEnabled(changed);
-        ((TextView) findViewById(R.id.host_profile_status)).setText(changed ?
+        ((TextView) findViewById(R.id.host_profile_status)).setText(mode != Mode.PC ?
+                (changed ? R.string.layers_unsaved_context : R.string.layers_saved_context) : changed ?
                 R.string.settings_profile_unsaved_context : R.string.settings_profile_saved_context);
     }
 
-    /** What the next stream from this PC uses: the global settings with this PC's values on top. */
+    /** What the next stream uses: the layers below with the values edited here on top. */
     private PreferenceConfiguration effective() {
-        PreferenceConfiguration config = PreferenceConfiguration.readPreferences(this);
-        boolean followedScreen = config.resolutionFollowsScreen;
-        overrides.applyTo(config);
-        if (config.resolutionFollowsScreen && !followedScreen) {
-            String nativeResolution = PreferenceConfiguration.nativeResolution(this);
-            if (nativeResolution != null) {
-                config.width = PreferenceConfiguration.getWidthFromResolutionString(nativeResolution);
-                config.height = PreferenceConfiguration.getHeightFromResolutionString(nativeResolution);
-            }
-        }
+        PreferenceConfiguration config = baseConfig();
+        applyWithScreen(overrides, config);
         return config;
     }
 
@@ -422,20 +521,24 @@ public class HostStreamSettings extends AppCompatActivity {
             row(stream, "sharpness", R.string.title_upscaling_sharpness, this::showSharpness);
             row(stream, "hdr", R.string.title_enable_hdr, () -> showSwitch("hdr", R.string.title_enable_hdr));
             row(stream, "vrr", R.string.title_vrr, () -> showSwitch("vrr", R.string.title_vrr));
+            row(stream, "pacing", R.string.title_frame_pacing, this::showPacing);
             row(stream, "yuv444", R.string.title_yuv444, () -> showSwitch("yuv444", R.string.title_yuv444));
             row(stream, "full_range", R.string.title_full_range, () -> showSwitch("full_range", R.string.title_full_range));
-            row(stream, "reset", R.string.host_profile_reset, () -> UiHelper.showDialog(activity,
-                    new MaterialAlertDialogBuilder(activity).setTitle(R.string.host_profile_reset)
-                            .setMessage(R.string.settings_profile_reset_message)
-                            .setPositiveButton(R.string.host_profile_reset, (dialog, which) -> {
+            boolean pc = activity.mode == Mode.PC;
+            int reset = pc ? R.string.host_profile_reset : R.string.layers_reset;
+            row(stream, "reset", reset, () -> UiHelper.showDialog(activity,
+                    new MaterialAlertDialogBuilder(activity).setTitle(reset)
+                            .setMessage(pc ? R.string.settings_profile_reset_message : R.string.layers_reset_message)
+                            .setPositiveButton(reset, (dialog, which) -> {
                                 activity.overrides = new HostStreamProfile();
                                 updateSummaries();
                             }).setNegativeButton(android.R.string.cancel, null).create()));
 
             // The picker for hosts with display modes, a virtual display switch for hosts with one;
             // neither for hosts that can never use them.
-            boolean displayModes = gate(HostCapabilities.Feature.HOST_DISPLAY_MODES).isVisible();
-            boolean virtualDisplay = gate(HostCapabilities.Feature.VIRTUAL_DISPLAY).isVisible();
+            // A profile serves every PC, so it leaves host displays alone; a game has no display mode of its own.
+            boolean displayModes = pc && gate(HostCapabilities.Feature.HOST_DISPLAY_MODES).isVisible();
+            boolean virtualDisplay = activity.mode != Mode.PROFILE && gate(HostCapabilities.Feature.VIRTUAL_DISPLAY).isVisible();
             if (displayModes || virtualDisplay) {
                 PreferenceCategory display = category(screen, R.string.pc_settings_display);
                 if (displayModes) {
@@ -449,13 +552,15 @@ public class HostStreamSettings extends AppCompatActivity {
             }
             Preference footer = new Preference(activity);
             footer.setLayoutResource(R.layout.settings_preference);
-            footer.setSummary(R.string.host_profile_footer);
+            footer.setSummary(pc ? R.string.host_profile_footer : R.string.layers_footer);
             footer.setSelectable(false);
             screen.addPreference(footer);
 
-            connection = category(screen, R.string.pc_settings_connection);
-            host = category(screen, R.string.pc_settings_host);
-            showActions();
+            if (pc) {
+                connection = category(screen, R.string.pc_settings_connection);
+                host = category(screen, R.string.pc_settings_host);
+                showActions();
+            }
             updateSummaries();
         }
 
@@ -486,6 +591,7 @@ public class HostStreamSettings extends AppCompatActivity {
          * Save only concerns the stream values above them.
          */
         void showActions() {
+            if (connection == null) return;
             HostStreamSettings screen = activity;
             ComputerDetails pc = screen.computer;
             boolean online = screen.isOnline();
@@ -531,9 +637,35 @@ public class HostStreamSettings extends AppCompatActivity {
             return getString(value ? R.string.host_profile_on : R.string.host_profile_off);
         }
 
-        /** The value, marked when it comes from the settings for all PCs. */
-        private String summary(boolean own, String value) {
-            return own ? value : getString(R.string.host_profile_follows, value);
+        /** The value, marked with where it comes from when it is not set here. */
+        private String summary(HostStreamProfile.Field field, boolean own, String value) {
+            if (own) return value;
+            StreamLayers.Source source = activity.below.source(field);
+            if (activity.mode == Mode.PC && source == StreamLayers.Source.MAIN) {
+                return getString(R.string.host_profile_follows, value);
+            }
+            return getString(R.string.layers_value_from, value, StreamLayersText.source(activity, activity.below, source));
+        }
+
+        /** The "not set here" choice, with the value it then has. */
+        private String sameAs(String value) {
+            return getString(activity.mode == Mode.PC ? R.string.host_profile_same_as_all_value :
+                    R.string.layers_not_set_value, value);
+        }
+
+        private static HostStreamProfile.Field switchField(String key) {
+            switch (key) {
+                case "hdr": return HostStreamProfile.Field.HDR;
+                case "vrr": return HostStreamProfile.Field.VRR;
+                case "virtual": return HostStreamProfile.Field.VIRTUAL_DISPLAY;
+                case "yuv444": return HostStreamProfile.Field.YUV444;
+                default: return HostStreamProfile.Field.FULL_RANGE;
+            }
+        }
+
+        private String pacingText(PreferenceConfiguration config) {
+            String[] names = getResources().getStringArray(R.array.video_frame_pacing_names);
+            return names[Math.max(0, Math.min(names.length - 1, config.framePacing))];
         }
 
         private String resolutionText(PreferenceConfiguration config) {
@@ -592,42 +724,46 @@ public class HostStreamSettings extends AppCompatActivity {
         private void updateSummaries() {
             PreferenceConfiguration config = activity.effective();
             HostStreamProfile own = activity.overrides;
-            findPreference("resolution").setSummary(summary(own.nativeResolution != null, resolutionText(config)) +
+            findPreference("resolution").setSummary(summary(HostStreamProfile.Field.RESOLUTION, own.nativeResolution != null, resolutionText(config)) +
                     "\n" + getString(R.string.summary_resolution_list));
-            findPreference("refresh").setSummary(summary(own.refreshRateX100 != null, refreshText(config)));
-            findPreference("bitrate").setSummary(summary(own.bitrate != null,
+            findPreference("refresh").setSummary(summary(HostStreamProfile.Field.REFRESH, own.refreshRateX100 != null, refreshText(config)));
+            findPreference("bitrate").setSummary(summary(HostStreamProfile.Field.BITRATE, own.bitrate != null,
                     HostStreamProfile.formatBitrateMbps(config.bitrate) + " Mbps"));
             String[] codecs = getResources().getStringArray(R.array.host_profile_codecs);
-            String codec = summary(own.codec != null, codecs[config.videoFormat.ordinal()]);
+            String codec = summary(HostStreamProfile.Field.CODEC, own.codec != null, codecs[config.videoFormat.ordinal()]);
             if (config.videoFormat == PreferenceConfiguration.FormatOption.FORCE_PYROWAVE &&
                     !activity.caps.mayHave(HostCapabilities.Feature.PYROWAVE)) {
                 codec += "\n" + getString(R.string.host_pyrowave_unavailable,
                         codecs[PreferenceConfiguration.codecWithoutPyroWave(activity.global.videoFormat).ordinal()]);
             }
             findPreference("codec").setSummary(codec);
-            findPreference("upscaling").setSummary(summary(own.upscalingMode != null, upscalingText(config)));
-            findPreference("sharpness").setSummary(summary(own.upscalingSharpness != null,
+            findPreference("upscaling").setSummary(summary(HostStreamProfile.Field.UPSCALING, own.upscalingMode != null, upscalingText(config)));
+            findPreference("sharpness").setSummary(summary(HostStreamProfile.Field.SHARPNESS, own.upscalingSharpness != null,
                     getString(R.string.upscaling_sharpness_value, config.upscalingSharpness)));
             findPreference("sharpness").setEnabled(config.upscalingMode == UpscalingPolicy.Mode.FSR1 ||
                     config.upscalingMode == UpscalingPolicy.Mode.SGSR1);
             for (String key : new String[] {"hdr", "vrr", "yuv444", "full_range"}) {
-                findPreference(key).setSummary(summary(switchOverride(key) != null, onOff(switchValue(config, key))));
+                findPreference(key).setSummary(summary(switchField(key), switchOverride(key) != null, onOff(switchValue(config, key))));
             }
+            String pacing = summary(HostStreamProfile.Field.PACING, own.pacing != null, pacingText(config));
+            findPreference("pacing").setSummary(config.vrr ? pacing + "\n" + getString(R.string.layers_pacing_vrr) : pacing);
             findPreference("vrr").setSummary(findPreference("vrr").getSummary() +
                     "\n" + getString(R.string.summary_vrr));
             Preference virtual = findPreference("virtual");
             Preference scale = findPreference("scale");
             if (virtual != null) {
-                virtual.setSummary(summary(switchOverride("virtual") != null, onOff(switchValue(config, "virtual"))));
-                scale.setSummary(summary(own.renderScale != null, config.virtualDisplayScale + "%") +
+                virtual.setSummary(summary(HostStreamProfile.Field.VIRTUAL_DISPLAY, switchOverride("virtual") != null, onOff(switchValue(config, "virtual"))));
+                scale.setSummary(summary(HostStreamProfile.Field.RENDER_SCALE, own.renderScale != null, config.virtualDisplayScale + "%") +
                         "\n" + getString(R.string.summary_virtual_display_scale));
             }
             findPreference("reset").setEnabled(!own.isEmpty());
-            findPreference("reset").setSummary(own.isEmpty() ? getString(R.string.host_profile_status_global) :
-                    getString(R.string.host_profile_status_custom));
+            boolean pc = activity.mode == Mode.PC;
+            findPreference("reset").setSummary(own.isEmpty() ?
+                    getString(pc ? R.string.host_profile_status_global : R.string.layers_status_empty) :
+                    getString(pc ? R.string.host_profile_status_custom : R.string.layers_status_custom));
             Preference display = findPreference("host_display");
             // Only a host with display modes receives the choice; elsewhere the switch decides.
-            HostDisplayChoice displayChoice = activity.caps.mayHave(HostCapabilities.Feature.HOST_DISPLAY_MODES) ?
+            HostDisplayChoice displayChoice = pc && activity.caps.mayHave(HostCapabilities.Feature.HOST_DISPLAY_MODES) ?
                     HostDisplayChoice.load(activity, activity.hostUuid) : HostDisplayChoice.HOST_DEFAULT;
             if (virtual != null) {
                 virtual.setEnabled(displayChoice == HostDisplayChoice.HOST_DEFAULT);
@@ -661,7 +797,7 @@ public class HostStreamSettings extends AppCompatActivity {
             boolean allPcs = switchValue(activity.global, key);
             Boolean own = switchOverride(key);
             CharSequence[] items = {
-                    getString(R.string.host_profile_same_as_all_value, onOff(allPcs)),
+                    sameAs(onOff(allPcs)),
                     getString(R.string.host_profile_on),
                     getString(R.string.host_profile_off)};
             int checked = own == null ? 0 : own ? 1 : 2;
@@ -673,13 +809,29 @@ public class HostStreamSettings extends AppCompatActivity {
                     }).setNegativeButton(android.R.string.cancel, null).show();
         }
 
+        private void showPacing() {
+            String[] names = getResources().getStringArray(R.array.video_frame_pacing_names);
+            String[] values = getResources().getStringArray(R.array.video_frame_pacing_values);
+            CharSequence[] items = new CharSequence[names.length + 1];
+            items[0] = sameAs(pacingText(activity.global));
+            System.arraycopy(names, 0, items, 1, names.length);
+            String own = activity.overrides.pacing;
+            int checked = own == null ? 0 : java.util.Arrays.asList(values).indexOf(own) + 1;
+            new MaterialAlertDialogBuilder(activity).setTitle(R.string.title_frame_pacing)
+                    .setSingleChoiceItems(items, checked, (dialog, which) -> {
+                        activity.overrides.pacing = which == 0 ? null : values[which - 1];
+                        updateSummaries();
+                        dialog.dismiss();
+                    }).setNegativeButton(android.R.string.cancel, null).show();
+        }
+
         private void showCodec() {
             String[] codecs = getResources().getStringArray(R.array.host_profile_codecs);
             // PyroWave is the last codec; a host that can never stream it doesn't offer it.
             int offered = gate(HostCapabilities.Feature.PYROWAVE).isVisible() ? codecs.length :
                     PreferenceConfiguration.FormatOption.FORCE_PYROWAVE.ordinal();
             CharSequence[] items = new CharSequence[offered + 1];
-            items[0] = getString(R.string.host_profile_same_as_all_value, codecs[activity.global.videoFormat.ordinal()]);
+            items[0] = sameAs(codecs[activity.global.videoFormat.ordinal()]);
             System.arraycopy(codecs, 0, items, 1, offered);
             PreferenceConfiguration.FormatOption own = activity.overrides.codec;
             int checked = own == null ? 0 : own.ordinal() < offered ? own.ordinal() + 1 : -1;
@@ -695,7 +847,7 @@ public class HostStreamSettings extends AppCompatActivity {
         private void showUpscaling() {
             String[] modes = getResources().getStringArray(R.array.upscaling_names);
             CharSequence[] items = new CharSequence[modes.length + 1];
-            items[0] = getString(R.string.host_profile_same_as_all_value, modes[activity.global.upscalingMode.ordinal()]);
+            items[0] = sameAs(modes[activity.global.upscalingMode.ordinal()]);
             System.arraycopy(modes, 0, items, 1, modes.length);
             UpscalingPolicy.Mode own = activity.overrides.upscalingMode;
             AlertDialog picker = new MaterialAlertDialogBuilder(activity).setTitle(R.string.title_upscaling)
@@ -765,7 +917,7 @@ public class HostStreamSettings extends AppCompatActivity {
         private MaterialCheckBox sameAsAll(LinearLayout form, String allPcsValue, boolean checked, View... fields) {
             MaterialCheckBox box = new MaterialCheckBox(activity);
             box.setId(R.id.host_profile_follow_all);
-            box.setText(getString(R.string.host_profile_same_as_all_value, allPcsValue));
+            box.setText(sameAs(allPcsValue));
             box.setChecked(checked);
             form.addView(box);
             CompoundButton.OnCheckedChangeListener listener = (button, isChecked) -> {

@@ -118,6 +118,27 @@
         <item>forcepyrowave</item>
     </string-array>
 
+    <string-array name="mobile_bitrate_names" translatable="false">
+        <item>@string/mobile_bitrate_off</item>
+        <item>3 Mbps</item>
+        <item>5 Mbps</item>
+        <item>10 Mbps</item>
+        <item>15 Mbps</item>
+        <item>20 Mbps</item>
+        <item>30 Mbps</item>
+        <item>50 Mbps</item>
+    </string-array>
+    <string-array name="mobile_bitrate_values" translatable="false">
+        <item>0</item>
+        <item>3000</item>
+        <item>5000</item>
+        <item>10000</item>
+        <item>15000</item>
+        <item>20000</item>
+        <item>30000</item>
+        <item>50000</item>
+    </string-array>
+
     <string-array name="video_frame_pacing_names">
         <item>@string/pacing_latency</item>
         <item>@string/pacing_balanced</item>

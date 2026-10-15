@@ -56,7 +56,7 @@ public class SettingsKeysTest {
     // Rows that open a screen or a dialog and store nothing under their key.
     private static final Set<String> ACTIONS = new HashSet<>(Arrays.asList(
             "gpu_driver", "host_display_location", "keyboard_shortcuts_editor", "controller_button_mapping",
-            "controller_test", "reset_osc", "help", "latency_benchmark", "report_problem", "about_app", "reset_all", "export_latency_csv",
+            "controller_test", "stream_profiles", "reset_osc", "help", "latency_benchmark", "report_problem", "about_app", "reset_all", "export_latency_csv",
             // The merged switch writes the three decoder switches and stores nothing itself.
             StreamSettings.LOW_LATENCY_DECODING_KEY));
     // Stored settings that are read outside PreferenceConfiguration.
@@ -112,6 +112,7 @@ public class SettingsKeysTest {
         reads.put("list_resolution", new Read("1280x720", "1920x1080", c -> c.width));
         reads.put("list_fps", new Read("30", "60", c -> c.fps));
         reads.put("seekbar_bitrate_kbps", new Read(10000, 45500, c -> c.bitrate));
+        reads.put("list_mobile_bitrate_kbps", new Read("0", "10000", c -> c.mobileBitrateLimit));
         reads.put("video_format", new Read("auto", "neverh265", c -> c.videoFormat));
         reads.put("adaptive_quality_mode", new Read("off", "motion", c -> c.adaptiveQualityMode));
         reads.put("adaptive_quality_min_resolution", new Read("720", "360", c -> c.qualityMinShortEdge));
@@ -304,5 +305,18 @@ public class SettingsKeysTest {
         for (String key : PreferenceConfiguration.LOW_LATENCY_DECODING_KEYS) {
             assertTrue(Arrays.asList(StreamPreset.LATENCY_SWITCHES).contains(key));
         }
+    }
+    @Test
+    public void profileStoreKeysKeepTheirNames() {
+        // Named profiles live in their own preferences file; these names are stored on devices.
+        assertEquals("StreamProfiles", StreamProfiles.PREFERENCES);
+        assertEquals(Arrays.asList("order", "next_id", "name.", "values.", "active", "auto", "rule.mobile",
+                "rule.home_wifi", "rule.wifi", "home_wifi"), Arrays.asList(StreamProfiles.ORDER, StreamProfiles.NEXT_ID,
+                StreamProfiles.NAME, StreamProfiles.VALUES, StreamProfiles.ACTIVE, StreamProfiles.AUTO,
+                StreamProfiles.RULE_MOBILE, StreamProfiles.RULE_HOME_WIFI, StreamProfiles.RULE_WIFI,
+                StreamProfiles.HOME_WIFI));
+        assertEquals("list_mobile_bitrate_kbps", PreferenceConfiguration.MOBILE_BITRATE_PREF_STRING);
+        assertEquals("pc1/uuid:game", AppStreamSettings.lookupKey("pc1", "game", 3));
+        assertEquals("pc1/id:3", AppStreamSettings.lookupKey("pc1", null, 3));
     }
 }

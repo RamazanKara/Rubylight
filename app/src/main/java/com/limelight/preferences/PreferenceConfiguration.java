@@ -43,6 +43,7 @@ public class PreferenceConfiguration {
     static final String BITRATE_PREF_STRING = "seekbar_bitrate_kbps";
     // Set only when the user picks a bitrate; defaults keep following resolution and frame rate.
     static final String BITRATE_USER_SET_PREF_STRING = "bitrate_user_set";
+    static final String MOBILE_BITRATE_PREF_STRING = "list_mobile_bitrate_kbps";
     static final String PREFS_VERSION_PREF_STRING = "prefs_version";
     static final int NATIVE_DEFAULTS_VERSION = 2;
     // From version 3 "native" is the screen a stream starts on, not a size saved earlier.
@@ -184,6 +185,8 @@ public class PreferenceConfiguration {
     public int width, height, fps;
     public int launchRefreshRateX100;
     public int bitrate;
+    // The bitrate limit on mobile data in kbps; 0 for none.
+    public int mobileBitrateLimit;
     public FormatOption videoFormat;
     public int deadzonePercentage;
     public int oscOpacity;
@@ -241,6 +244,10 @@ public class PreferenceConfiguration {
     // What this PC's displays do during the stream, and the PC's own stream values (for the log).
     public HostDisplayChoice hostDisplay;
     public String pcSettings;
+    // The layers this stream's values came from (named profile, PC, game); null for the main settings alone.
+    public StreamLayers.Result layers;
+    // The same, as the overlay shows it ("Settings: profile Hotel + this PC"); null for the main settings alone.
+    public String layersText;
     // PyroWave was chosen, but this PC has shown it has none; videoFormat holds the codec used instead.
     public boolean pyroWaveUnavailable;
     public UpscalingPolicy.Mode upscalingMode = UpscalingPolicy.Mode.OFF;
@@ -488,7 +495,19 @@ public class PreferenceConfiguration {
                     .apply();
         }
 
-        String str = prefs.getString(FRAME_PACING_PREF_STRING, DEFAULT_FRAME_PACING);
+        return framePacingValue(prefs.getString(FRAME_PACING_PREF_STRING, DEFAULT_FRAME_PACING));
+    }
+
+    static int mobileBitrateLimit(String stored) {
+        try {
+            int kbps = Integer.parseInt(stored.trim());
+            return kbps < 500 ? 0 : Math.min(kbps, HostStreamProfile.MAX_BITRATE_KBPS);
+        } catch (NumberFormatException e) {
+            return 0;
+        }
+    }
+
+    static int framePacingValue(String str) {
         if (str.equals("latency")) {
             return FRAME_PACING_MIN_LATENCY;
         }
@@ -565,15 +584,47 @@ public class PreferenceConfiguration {
 
     /** The settings for a stream from this PC, given what the PC last showed it can do. */
     public static PreferenceConfiguration readPreferences(Context context, String hostUuid, HostCapabilities caps) {
+        return readPreferences(context, hostUuid, caps, null, 0, StreamLayers.Network.OTHER);
+    }
+
+    /** What the layers below the main settings read from: profiles, this PC's and this game's values. */
+    static StreamLayers.Input layerInput(Context context, PreferenceConfiguration main, String hostUuid,
+                                         String appUuid, int appId) {
+        StreamLayers.Input input = new StreamLayers.Input();
+        input.profiles = StreamProfiles.load(context);
+        input.pcValues = HostStreamProfile.raw(context, hostUuid);
+        input.gameValues = AppStreamSettings.raw(context, hostUuid, appUuid, appId);
+        input.mobileLimitKbps = main.mobileBitrateLimit;
+        input.mainBitrate = main.bitrate;
+        return input;
+    }
+
+    /**
+     * The settings for a stream of a game from this PC: the main settings, then a named profile,
+     * this PC's values and this game's values (see {@link StreamLayers}). The network picks the
+     * profile when the player asked for that, and decides the mobile data limit; a null
+     * {@code network} reads the network now.
+     */
+    public static PreferenceConfiguration readPreferences(Context context, String hostUuid, HostCapabilities caps,
+                                                          String appUuid, int appId, StreamLayers.Network network) {
         PreferenceConfiguration config = readPreferences(context);
         FormatOption allPcsFormat = config.videoFormat;
         migratePcProfilesToOverrides(context);
         config.hostDisplay = hostUuid == null ? null : HostDisplayChoice.load(context, hostUuid);
-        HostStreamProfile profile = HostStreamProfile.load(context, hostUuid);
-        if (profile != null) {
+        StreamLayers.Input input = layerInput(context, config, hostUuid, appUuid, appId);
+        if (network == null) {
+            StreamNetwork.fill(context, input);
+        } else {
+            input.network = network;
+        }
+        StreamLayers.Result layers = StreamLayers.resolve(input);
+        config.layers = layers;
+        if (layers.layered()) {
+            HostStreamProfile profile = layers.values;
             boolean followedScreen = config.resolutionFollowsScreen;
             profile.applyTo(config);
-            config.fromPcProfile = profile.setsResolution();
+            StreamLayers.Source resolution = layers.source(HostStreamProfile.Field.RESOLUTION);
+            config.fromPcProfile = resolution == StreamLayers.Source.PC || resolution == StreamLayers.Source.GAME;
             if (config.resolutionFollowsScreen && !followedScreen) {
                 String nativeResolution = nativeResolution(context);
                 if (nativeResolution != null) {
@@ -581,9 +632,10 @@ public class PreferenceConfiguration {
                     config.height = getHeightFromResolutionString(nativeResolution);
                 }
             }
-            config.pcSettings = profile.serialize();
+            config.pcSettings = layers.pcApplied ? input.pcValues : null;
             SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
-            config.framePacing = config.vrr ? FRAME_PACING_MIN_LATENCY : getFramePacingValue(context);
+            config.framePacing = config.vrr ? FRAME_PACING_MIN_LATENCY :
+                    profile.pacing != null ? framePacingValue(profile.pacing) : getFramePacingValue(context);
             config.reduceRefreshRate = !config.vrr && prefs.getBoolean(REDUCE_REFRESH_RATE_PREF_STRING, DEFAULT_REDUCE_REFRESH_RATE);
             config.enableHdr &= !isShieldAtvFirmwareWithBrokenHdr();
             config.useTextureView = prefs.getBoolean(TEXTURE_VIEW_PREF_STRING, false) && !config.enableHdr &&
@@ -907,6 +959,7 @@ public class PreferenceConfiguration {
             config.audioConfiguration = MoonBridge.AUDIO_CONFIGURATION_STEREO;
         }
 
+        config.mobileBitrateLimit = mobileBitrateLimit(prefs.getString(MOBILE_BITRATE_PREF_STRING, "0"));
         config.videoFormat = getVideoFormatValue(context);
         config.framePacing = getFramePacingValue(context);
 

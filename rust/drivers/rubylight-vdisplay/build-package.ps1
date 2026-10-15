@@ -19,6 +19,8 @@ param(
     [ValidateSet('release', 'debug')]
     [string]$BuildProfile = 'release',
     [switch]$TestSign,
+    # With -TestSign: set the current test certificate's files aside and create a new one.
+    [switch]$NewTestCertificate,
     # DriverVer version (w.x.y.z); defaults to the driver crate's version plus a build number.
     [string]$Version,
     [int]$Jobs = 4
@@ -68,23 +70,38 @@ $pfx = "$signing\rubylight-vdisplay-test.pfx"
 $cer = "$signing\rubylight-vdisplay-test.cer"
 $secret = "$signing\rubylight-vdisplay-test.password"
 if ($TestSign) {
+    if ($NewTestCertificate -and (Test-Path $pfx)) {
+        # Keep the old files (their thumbprint is what an uninstall removes from the stores).
+        $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+        foreach ($old in $pfx, $cer, $secret) {
+            if (Test-Path $old) { Rename-Item -LiteralPath $old -NewName "$(Split-Path -Leaf $old).$stamp" }
+        }
+    }
     if (-not (Test-Path $pfx)) {
         New-Item -ItemType Directory -Force $signing | Out-Null
         # In memory only: CertificateRequest never touches a certificate store.
-        $rsa = [System.Security.Cryptography.RSA]::Create(3072)
+        #
+        # The profile is New-SelfSignedCertificate's CodeSigningCert, which Code Integrity
+        # accepts as a self-signed root once it is in LocalMachine\Root: RSA 2048, critical
+        # KeyUsage digitalSignature, non-critical code-signing EKU, a subject key identifier
+        # and NO basic constraints. WUDFHost loads UMDF drivers under Code Integrity, and CI
+        # rejected the first test certificate (critical "CA:FALSE" basic constraints and a
+        # critical EKU) as an invalid root (CodeIntegrity 3089, VerificationError 7) although
+        # CryptoAPI and Plug and Play accepted it.
+        $rsa = [System.Security.Cryptography.RSA]::Create(2048)
         $request = [System.Security.Cryptography.X509Certificates.CertificateRequest]::new(
             'CN=Rubylight Virtual Display Test Signing (not trusted)', $rsa,
             [System.Security.Cryptography.HashAlgorithmName]::SHA256,
             [System.Security.Cryptography.RSASignaturePadding]::Pkcs1)
-        $codeSigning = [System.Security.Cryptography.OidCollection]::new()
-        $codeSigning.Add([System.Security.Cryptography.Oid]::new('1.3.6.1.5.5.7.3.3')) | Out-Null
-        $request.CertificateExtensions.Add(
-            [System.Security.Cryptography.X509Certificates.X509EnhancedKeyUsageExtension]::new($codeSigning, $true))
-        $request.CertificateExtensions.Add(
-            [System.Security.Cryptography.X509Certificates.X509BasicConstraintsExtension]::new($false, $false, 0, $true))
         $request.CertificateExtensions.Add(
             [System.Security.Cryptography.X509Certificates.X509KeyUsageExtension]::new(
                 [System.Security.Cryptography.X509Certificates.X509KeyUsageFlags]::DigitalSignature, $true))
+        $codeSigning = [System.Security.Cryptography.OidCollection]::new()
+        $codeSigning.Add([System.Security.Cryptography.Oid]::new('1.3.6.1.5.5.7.3.3')) | Out-Null
+        $request.CertificateExtensions.Add(
+            [System.Security.Cryptography.X509Certificates.X509EnhancedKeyUsageExtension]::new($codeSigning, $false))
+        $request.CertificateExtensions.Add(
+            [System.Security.Cryptography.X509Certificates.X509SubjectKeyIdentifierExtension]::new($request.PublicKey, $false))
         $now = [DateTimeOffset]::UtcNow
         $cert = $request.CreateSelfSigned($now.AddDays(-1), $now.AddDays(90))
         $password = [Convert]::ToBase64String([System.Security.Cryptography.RandomNumberGenerator]::GetBytes(24))

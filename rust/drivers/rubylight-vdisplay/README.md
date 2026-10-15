@@ -75,12 +75,25 @@ into a certificate store. `cargo clippy` and `cargo fmt` work in this directory 
 
 ## Installing for a local test (needs the machine owner's consent)
 
-Microsoft documents that UMDF drivers need no kernel-mode code signing: user-mode binaries are
-not checked by kernel Code Integrity, so **test-signing mode and Secure Boot stay untouched**.
-Plug and Play still verifies the driver package's catalog signature, and installs it silently
-only when the signing certificate is in the local machine's Trusted Publishers store and
-chains to a trusted root. A self-signed certificate is its own root, so it goes into both
-`Root` and `TrustedPublisher` of the local machine.
+UMDF drivers need no kernel-mode driver signing, so **test-signing mode and Secure Boot stay
+untouched**. Two checks still apply:
+
+- Plug and Play verifies the package's catalog and installs it silently only when the signing
+  certificate is in the local machine's Trusted Publishers store and chains to a trusted root.
+  A self-signed certificate is its own root, so it goes into both `Root` and `TrustedPublisher`.
+- WUDFHost loads the DLL under Code Integrity (seen on Windows 11 build 26200 with Memory
+  Integrity on), and CI judges the root itself. It rejected the first test certificate,
+  although that certificate was in `Root` and PnP installed the package: the device failed with
+  code 31, UMDF log event 2007 reported `0x80070241` (ERROR_INVALID_IMAGE_HASH) and
+  CodeIntegrity/Operational logged 3004 plus 3089 with `VerificationError 7` (invalid root),
+  `KnownRoot 2` (self-signed). SudoVDA's self-signed certificate passes the same check on
+  the same PC. It has the `New-SelfSignedCertificate -Type CodeSigningCert` profile that
+  `build-package.ps1` now generates: RSA 2048, critical KeyUsage digitalSignature,
+  non-critical code-signing EKU, a subject key identifier and no basic constraints. The
+  rejected one had a critical `CA:FALSE` basic constraint, a critical EKU and RSA 3072, and was
+  added to `Root` after the last boot, so whether CI disliked its shape or has not re-read
+  `Root` since boot is still open. `.\build-package.ps1 -TestSign -NewTestCertificate`
+  replaces it (the old files are kept with a date suffix for the uninstall).
 
 References: [Trusted Publishers certificate store](https://learn.microsoft.com/windows-hardware/drivers/install/trusted-publishers-certificate-store),
 [Loading test-signed code](https://learn.microsoft.com/windows-hardware/drivers/install/the-testsigning-boot-configuration-option)
@@ -110,6 +123,12 @@ capture = idd-push
 
 `capture = auto` also uses the frame push for displays created by this driver; an explicit
 `wgc` or `ddx` keeps those. A failed frame push falls back to WGC with a console warning.
+
+If the device shows code 31, enable the UMDF log
+(`wevtutil sl Microsoft-Windows-DriverFrameworks-UserMode/Operational /e:true`), restart the
+device (`pnputil /restart-device <instance id>`) and read that log and
+`Microsoft-Windows-CodeIntegrity/Operational`. `setx /M RLVD_DEBUG_LOG 1` makes the driver
+itself log to `rlvd-driver.log` in LocalService's temp folder once it loads.
 
 The trusted test certificate lets anyone holding `rubylight-vdisplay-test.pfx` sign code
 this machine trusts, so remove it when the test is over.

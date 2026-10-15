@@ -78,6 +78,11 @@ share sheet. Canceling the sheet does not share the report. The report omits
 addresses, user-assigned host names, PINs, credentials and free-text diagnostic
 details. The receiving app controls what happens to the report afterward.
 
+The latency benchmark's **Share results** works the same way: nothing is sent
+unless you copy or share the text yourself. It describes the device, its
+decoder timings and the latest test, and leaves out PC names, addresses, serial
+numbers and account data. See [device results](devices.md#what-is-left-out).
+
 ## Backups and deletion
 
 Android backup and device transfer are enabled. Depending on your Android

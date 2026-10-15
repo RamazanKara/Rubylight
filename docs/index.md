@@ -12,6 +12,7 @@ Stream your PC games and desktop to the Android screen you want to use. Nightjar
 | Recover interruptions or adapt resolution and FPS | [Recovery and automatic quality](recovery-and-quality.md) |
 | Fix a problem or export a report | [Troubleshooting](TROUBLESHOOTING.md) |
 | Understand a stutter and try a reversible change | [Stream health](stream-health.md) |
+| Measure my device and share the results | [Device results](devices.md) |
 | Connect from outside my home | [Remote play setup](remote-setup.md) |
 | Build and sign an APK | [Building](building.md) |
 | Launch games from ES-DE, Daijisho or Pegasus | [Frontends](FRONTENDS.md) |

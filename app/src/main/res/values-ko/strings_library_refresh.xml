@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="library_search">게임 검색</string>
+    <string name="library_options">라이브러리 옵션</string>
+    <string name="library_more_for">%1$s 추가 옵션</string>
+    <string name="library_play">플레이</string>
+    <string name="library_open">라이브러리 열기</string>
+    <string name="library_loading">라이브러리를 불러오는 중…</string>
+    <string name="library_refresh">라이브러리 새로고침</string>
+    <string name="library_retry">다시 시도</string>
+    <string name="library_show_hidden">숨긴 게임 표시</string>
+    <string name="library_hide_hidden">숨긴 게임 숨기기</string>
+    <string name="library_no_matches">검색어와 일치하는 게임이 없습니다.</string>
+    <string name="library_clear_search">검색어 지우기</string>
+    <string name="library_all_hidden">모든 게임이 숨겨져 있습니다. 숨긴 게임 표시를 선택하면 다시 볼 수 있습니다.</string>
+    <string name="library_offline">이 PC는 오프라인입니다. 저장된 라이브러리는 그대로 있습니다. 플레이하려면 다시 연결하세요.</string>
+    <string name="library_hidden_notice">라이브러리에서 게임을 숨겼습니다</string>
+    <string name="library_undo">실행취소</string>
+    <string name="library_discovery_title">내 게임을 이 화면에서</string>
+    <string name="library_discovery_body">PC를 켜고 Apollo, Rubylight, Sunshine 같은 스트리밍 호스트를 실행하세요. 같은 네트워크에 있는 PC가 여기에 자동으로 표시됩니다.</string>
+    <string name="library_discovery_hint">다른 네트워크에 있나요? 주소로 PC를 추가하세요.</string>
+    <plurals name="library_results">
+        <item quantity="other">게임 %2$d개 중 %1$d개</item>
+    </plurals>
+    <plurals name="library_showing_hidden">
+        <item quantity="other">게임 %1$d개 · 숨긴 게임 포함</item>
+    </plurals>
+    <plurals name="library_app_count">
+        <item quantity="other">게임 %d개</item>
+    </plurals>
+</resources>

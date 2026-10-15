@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="library_computers">Bilgisayarlar</string>
+    <string name="pc_needs_pairing">Eşleştirilmedi</string>
+    <string name="pc_offline">Çevrimdışı</string>
+    <string name="pc_checking">Bağlantı kontrol ediliyor…</string>
+    <string name="app_running">Çalışıyor</string>
+    <string name="app_hidden">Gizli</string>
+    <string name="app_running_hidden">Çalışıyor · Gizli</string>
+    <string name="library_item_description">%1$s, %2$s</string>
+    <string name="add_pc_hint">Bir IP adresi veya bilgisayar adı girin; bağlantı noktası isteğe bağlıdır.</string>
+</resources>

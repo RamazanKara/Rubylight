@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string-array name="host_permission_names">
+        <item>コントローラ入力</item>
+        <item>タッチ入力</item>
+        <item>ペン入力</item>
+        <item>マウス入力</item>
+        <item>キーボード入力</item>
+        <item>クリップボードの送信</item>
+        <item>クリップボードの読み取り</item>
+        <item>サーバーコマンド</item>
+        <item>アプリの一覧表示</item>
+        <item>ストリームの表示</item>
+        <item>アプリの起動と終了</item>
+    </string-array>
+    <string-array name="language_names">
+        <item>システムのデフォルト</item>
+        <item>English</item>
+        <item>Deutsch</item>
+        <item>Español</item>
+        <item>Français</item>
+        <item>Italiano</item>
+        <item>Polski</item>
+        <item>Português (Brasil)</item>
+        <item>Tiếng Việt</item>
+        <item>Türkçe</item>
+        <item>Русский</item>
+        <item>Українська</item>
+        <item>日本語</item>
+        <item>한국어</item>
+        <item>简体中文</item>
+        <item>繁體中文</item>
+    </string-array>
+</resources>

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="add_pc_address_error">Bir IP adresi veya bilgisayar adı girin; isteğe bağlı olarak ardından bir bağlantı noktası ekleyin (örneğin 192.168.1.10:47989).</string>
+    <string name="add_pc_connecting">Bağlanılıyor…</string>
+    <string name="add_pc_service_unavailable">Bilgisayar keşfi başlatılamadı. Bu ekranı kapatıp tekrar deneyin.</string>
+    <string name="sheet_close">Menüyü kapat</string>
+</resources>

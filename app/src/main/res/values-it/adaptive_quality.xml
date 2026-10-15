@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_adaptive_quality">Qualità dello stream automatica</string>
+    <string name="summary_adaptive_quality">Riduce risoluzione o FPS in caso di congestione prolungata, decodifica lenta o surriscaldamento, poi recupera gradualmente. Usa il bitrate automatico se supportato. Richiede il supporto alla riconfigurazione da parte dell’host e un decoder adattivo; non disponibile con PyroWave.</string>
+    <string name="title_adaptive_quality_min_resolution">Risoluzione automatica minima</string>
+    <string name="summary_adaptive_quality_min_resolution">Lato corto minimo, mantenendo le proporzioni. La risoluzione dello stream selezionata resta il massimo. Una risoluzione iniziale più bassa non viene mai aumentata da questo limite.</string>
+    <string name="title_adaptive_quality_min_fps">Frame rate automatico minimo</string>
+    <string name="summary_adaptive_quality_min_fps">FPS minimi consentiti. Il frame rate dello stream selezionato resta il massimo. Si applica alla qualità automatica, inclusa la modalità batteria.</string>
+    <string name="quality_off">Disattivata</string>
+    <string name="quality_motion">Privilegia la fluidità</string>
+    <string name="quality_detail">Privilegia i dettagli</string>
+    <string name="quality_battery">Prolunga la batteria</string>
+    <string name="quality_use_settings">Usa impostazioni app</string>
+    <string name="quality_about">Come funziona</string>
+    <string name="quality_stream_help">Salvato per questo PC. Fluidità riduce prima la risoluzione; Dettagli riduce prima gli FPS. Batteria limita gradualmente il carico a un massimo di 60 FPS e a un lato corto di 1080 pixel, entro i tuoi limiti minimi. Codec, HDR e scelta del display restano quelli negoziati.</string>
+    <string name="quality_unavailable">Qualità automatica disattivata: questo PC o dispositivo non può cambiare risoluzione e frame rate durante uno stream.</string>
+    <string name="quality_request_failed">Qualità automatica interrotta: il PC non ha applicato la nuova dimensione. Lo stream continua; scegli un’altra modalità nel menu dello stream.</string>
+    <string name="quality_status">Qualità automatica: %1$s · %2$d × %3$d · obiettivo %4$d FPS</string>
+</resources>

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_checkbox_enable_mic">Wysyłaj mikrofon do komputera</string>
+    <string name="summary_checkbox_enable_mic">Gry i komunikatory na komputerze słyszą mikrofon tego urządzenia, jeśli host go przyjmuje</string>
+    <string name="mic_permission_denied">Nie zezwolono na dostęp do mikrofonu, więc mikrofon pozostaje wyłączony. Zezwól na to w ustawieniach Androida, aby rozmawiać przez komputer.</string>
+    <string name="mic_status_sending">Mikrofon: wysyłanie</string>
+    <string name="mic_status_muted">Mikrofon: wyciszony</string>
+    <string name="mic_status_not_offered">Mikrofon: nieobsługiwany przez hosta</string>
+    <string name="mic_status_unavailable">Mikrofon: niedostępny</string>
+    <string name="mic_status_no_permission">Mikrofon: wymagane uprawnienie</string>
+</resources>

@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="library_search">ゲームを検索</string>
+    <string name="library_options">ライブラリのオプション</string>
+    <string name="library_more_for">%1$s のその他のオプション</string>
+    <string name="library_play">プレイ</string>
+    <string name="library_open">ライブラリを開く</string>
+    <string name="library_loading">ライブラリを読み込んでいます…</string>
+    <string name="library_refresh">ライブラリを更新</string>
+    <string name="library_retry">再試行</string>
+    <string name="library_show_hidden">非表示のゲームを表示</string>
+    <string name="library_hide_hidden">非表示のゲームを隠す</string>
+    <string name="library_no_matches">検索に一致するゲームはありません。</string>
+    <string name="library_clear_search">検索をクリア</string>
+    <string name="library_all_hidden">すべてのゲームが非表示になっています。元に戻すには [非表示のゲームを表示] を選んでください。</string>
+    <string name="library_offline">この PC はオフラインです。保存済みのライブラリは引き続き表示されます。プレイするには再接続してください。</string>
+    <string name="library_hidden_notice">ゲームをライブラリで非表示にしました</string>
+    <string name="library_undo">元に戻す</string>
+    <string name="library_discovery_title">あなたのゲームをこの画面で</string>
+    <string name="library_discovery_body">PC の電源を入れ、Apollo、Rubylight、Sunshine などのストリーミング ホストを起動してください。同じネットワーク上の PC がここに自動的に表示されます。</string>
+    <string name="library_discovery_hint">別のネットワークにある場合は、アドレスを指定して PC を追加してください。</string>
+    <plurals name="library_results">
+        <item quantity="other">%2$d 本中 %1$d 本のゲーム</item>
+    </plurals>
+    <plurals name="library_showing_hidden">
+        <item quantity="other">%1$d 本のゲーム · 非表示を含む</item>
+    </plurals>
+    <plurals name="library_app_count">
+        <item quantity="other">%d 本のゲーム</item>
+    </plurals>
+</resources>

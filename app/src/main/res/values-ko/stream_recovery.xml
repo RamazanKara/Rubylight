@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_auto_reconnect">중단된 스트림 복구</string>
+    <string name="summary_auto_reconnect">일시적인 연결 오류 후 실행 중이던 같은 게임을 자동으로 다시 이어갑니다. 1분 동안 최대 5번 시도하며, 뒤로를 누르면 취소됩니다.</string>
+    <string name="stream_recovery_attempt">게임에 다시 연결하는 중… %2$d번 중 %1$d번째 시도. 뒤로를 누르면 취소됩니다.</string>
+    <string name="stream_recovery_session_changed">이전 게임 세션을 더 이상 사용할 수 없습니다. 게임을 새로 시작하거나 교체하지 않도록 자동 복구를 중지했습니다.</string>
+    <string name="stream_recovery_exhausted">자동 복구가 1분 안에 다시 연결하지 못했습니다. 게임은 종료되지 않았습니다. 연결을 확인한 후 다시 연결을 선택해 재시도하세요.</string>
+    <string name="stream_recovery_paused">스트림을 떠나서 자동 복구가 중지되었습니다. 계속하려면 다시 연결을 선택하세요.</string>
+</resources>

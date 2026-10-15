@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="frontend_export_menu">Añadir juegos a ES-DE</string>
+    <string name="frontend_export_roms_title">Elige tu carpeta de ROMs</string>
+    <string name="frontend_export_roms_message">Añade accesos directos a juegos en esta carpeta para ES-DE u otro frontend.</string>
+    <string name="frontend_export_esde_title">Elige tu carpeta de ES-DE</string>
+    <string name="frontend_export_esde_message">¿Añadir %1$s y las portadas de los juegos a ES-DE?\nOmite este paso para otros frontends.</string>
+    <string name="frontend_export_pick">Elegir carpeta</string>
+    <string name="frontend_export_skip">Omitir</string>
+    <string name="frontend_export_no_apps">Abre una vez los juegos de este PC y vuelve a intentarlo.</string>
+    <string name="frontend_export_no_picker">No hay ningún selector de carpetas disponible en este dispositivo.</string>
+    <string name="frontend_export_working">Añadiendo juegos…</string>
+    <plurals name="frontend_export_done">
+        <item quantity="one">%1$d juego añadido. Reinicia ES-DE para verlo.</item>
+        <item quantity="many">%1$d juegos añadidos. Reinicia ES-DE para verlos.</item>
+        <item quantity="other">%1$d juegos añadidos. Reinicia ES-DE para verlos.</item>
+    </plurals>
+    <string name="frontend_export_failed">No se han podido añadir los juegos.\nElige una carpeta local o de la tarjeta SD.</string>
+    <string name="scut_invalid_entry">Archivo del juego no disponible.\nVuelve a añadir los juegos en %1$s.</string>
+</resources>

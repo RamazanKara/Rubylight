@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="host_display_menu">电脑显示模式</string>
+    <string name="host_display_location">如需使用“独占”或“扩展”模式，请打开电脑的菜单 → 串流设置 → 电脑显示模式。显示模式按每台电脑单独保存，且需要主机支持。</string>
+    <string name="host_display_controls_virtual">由电脑显示模式控制：%1$s</string>
+    <string name="host_display_title">在 %1$s 上显示</string>
+    <string name="host_display_default">电脑自身的设置</string>
+    <string name="host_display_exclusive">独占 — 仅虚拟显示器（关闭电脑显示器）</string>
+    <string name="host_display_extended_primary">扩展 — 将虚拟显示器设为主显示器</string>
+    <string name="host_display_extended">扩展 — 保持电脑显示器为主显示器</string>
+    <string name="host_display_extended_isolated">扩展并分隔 — 电脑显示器保持为主显示器</string>
+    <string name="host_display_extended_primary_isolated">扩展并分隔 — 虚拟显示器为主显示器</string>
+    <string name="host_display_physical">物理显示器（无虚拟显示器）</string>
+    <string name="host_display_saved">已保存显示选择。将从下次串流开始生效。</string>
+    <string name="host_display_save">保存显示模式</string>
+    <string name="host_display_explanation">选择一种模式，然后点按“保存显示模式”。点按“取消”会保留当前选择。新模式将从下次串流开始生效。\n\n“保持电脑显示器为主显示器”会让你的显示器继续作为 Windows 主显示器。“将虚拟显示器设为主显示器”会把该角色移到串流的显示器上，游戏和新窗口通常会在那里打开。两种“扩展”选项都会让电脑的显示器保持开启。\n\n“电脑自身的设置”沿用“主机虚拟显示器”和电脑的显示设置。“独占”会在串流期间关闭电脑的显示器。“分隔”模式会在同一个 Windows 会话中，把串流的显示器放在桌面布局中远离其他显示器的位置。“物理显示器”会串流电脑的显示器，而不使用虚拟显示器。串流结束时，电脑会恢复其显示器。\n\n只有主机支持显示模式的电脑才提供此选项；在其他电脑上，由“主机虚拟显示器”决定。</string>
+    <string name="host_administration_menu">打开主机网页界面</string>
+    <string name="host_administration_help">在主机的网页界面中管理其应用、已配对设备和设置。请使用网页界面自己的帐号登录；配对不会让你登录。远程访问需要可访问的网页界面端口。\n\n%1$s</string>
+    <string name="host_administration_open">在浏览器中打开</string>
+    <string name="host_administration_no_browser">没有浏览器能打开主机的网页界面。请复制其地址并在其他设备上打开。</string>
+</resources>

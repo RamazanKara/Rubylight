@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string-array name="host_permission_names">
+        <item>Input controller</item>
+        <item>Input touch</item>
+        <item>Input penna</item>
+        <item>Input mouse</item>
+        <item>Input tastiera</item>
+        <item>Invio appunti</item>
+        <item>Lettura appunti</item>
+        <item>Comandi server</item>
+        <item>Elenco applicazioni</item>
+        <item>Visualizzazione stream</item>
+        <item>Avvio e chiusura applicazioni</item>
+    </string-array>
+    <string-array name="language_names">
+        <item>Predefinita di sistema</item>
+        <item>English</item>
+        <item>Deutsch</item>
+        <item>Español</item>
+        <item>Français</item>
+        <item>Italiano</item>
+        <item>Polski</item>
+        <item>Português (Brasil)</item>
+        <item>Tiếng Việt</item>
+        <item>Türkçe</item>
+        <item>Русский</item>
+        <item>Українська</item>
+        <item>日本語</item>
+        <item>한국어</item>
+        <item>简体中文</item>
+        <item>繁體中文</item>
+    </string-array>
+</resources>

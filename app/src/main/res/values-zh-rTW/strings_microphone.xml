@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_checkbox_enable_mic">將麥克風傳送至電腦</string>
+    <string name="summary_checkbox_enable_mic">當主機支援時，電腦上的遊戲和聊天應用程式可以聽到這部裝置的麥克風</string>
+    <string name="mic_permission_denied">未取得麥克風存取權，因此麥克風會保持關閉。請在 Android 設定中允許存取，才能透過電腦通話。</string>
+    <string name="mic_status_sending">麥克風：傳送中</string>
+    <string name="mic_status_muted">麥克風：已靜音</string>
+    <string name="mic_status_not_offered">麥克風：主機未提供</string>
+    <string name="mic_status_unavailable">麥克風：無法使用</string>
+    <string name="mic_status_no_permission">麥克風：需要權限</string>
+</resources>

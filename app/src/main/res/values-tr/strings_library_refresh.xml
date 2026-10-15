@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="library_search">Oyun ara</string>
+    <string name="library_options">Kitaplık seçenekleri</string>
+    <string name="library_more_for">%1$s için diğer seçenekler</string>
+    <string name="library_play">Oyna</string>
+    <string name="library_open">Kitaplığı aç</string>
+    <string name="library_loading">Kitaplığınız yükleniyor…</string>
+    <string name="library_refresh">Kitaplığı yenile</string>
+    <string name="library_retry">Tekrar dene</string>
+    <string name="library_show_hidden">Gizli oyunları göster</string>
+    <string name="library_hide_hidden">Gizli oyunları gizle</string>
+    <string name="library_no_matches">Aramanızla eşleşen oyun yok.</string>
+    <string name="library_clear_search">Aramayı temizle</string>
+    <string name="library_all_hidden">Oyunlarınız gizli. Geri getirmek için gizli oyunları gösterin.</string>
+    <string name="library_offline">Bu bilgisayar çevrimdışı. Kayıtlı kitaplığınız hâlâ burada. Oynamak için yeniden bağlanın.</string>
+    <string name="library_hidden_notice">Oyun kitaplığınızdan gizlendi</string>
+    <string name="library_undo">Geri al</string>
+    <string name="library_discovery_title">Oyunlarınız bu ekranda</string>
+    <string name="library_discovery_body">Bilgisayarınızı açın ve Apollo, Rubylight veya Sunshine gibi yayın sunucusunu başlatın. Aynı ağdaki bilgisayarlar burada otomatik olarak görünür.</string>
+    <string name="library_discovery_hint">Farklı bir ağda mısınız? Bilgisayarınızı adresiyle ekleyin.</string>
+    <plurals name="library_results">
+        <item quantity="one">%1$d / %2$d oyun</item>
+        <item quantity="other">%1$d / %2$d oyun</item>
+    </plurals>
+    <plurals name="library_showing_hidden">
+        <item quantity="one">%1$d oyun · gizliler dahil</item>
+        <item quantity="other">%1$d oyun · gizliler dahil</item>
+    </plurals>
+    <plurals name="library_app_count">
+        <item quantity="one">%d oyun</item>
+        <item quantity="other">%d oyun</item>
+    </plurals>
+</resources>

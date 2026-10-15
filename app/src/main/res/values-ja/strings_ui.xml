@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="library_computers">PC</string>
+    <string name="pc_needs_pairing">未ペアリング</string>
+    <string name="pc_offline">オフライン</string>
+    <string name="pc_checking">接続を確認しています…</string>
+    <string name="app_running">実行中</string>
+    <string name="app_hidden">非表示</string>
+    <string name="app_running_hidden">実行中 · 非表示</string>
+    <string name="library_item_description">%1$s、%2$s</string>
+    <string name="add_pc_hint">IP アドレスまたは PC 名を入力（ポートは任意）</string>
+</resources>

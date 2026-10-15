@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="frontend_export_menu">ES-DE にゲームを追加</string>
+    <string name="frontend_export_roms_title">ROM フォルダを選択</string>
+    <string name="frontend_export_roms_message">ES-DE などのフロントエンド用に、このフォルダへゲームのショートカットを追加します。</string>
+    <string name="frontend_export_esde_title">ES-DE フォルダを選択</string>
+    <string name="frontend_export_esde_message">%1$s とゲームのカバー画像を ES-DE に追加しますか？\n他のフロントエンドの場合はスキップしてください。</string>
+    <string name="frontend_export_pick">フォルダを選択</string>
+    <string name="frontend_export_skip">スキップ</string>
+    <string name="frontend_export_no_apps">この PC のゲーム一覧を一度開いてから、もう一度お試しください。</string>
+    <string name="frontend_export_no_picker">このデバイスにはフォルダ選択ツールがありません。</string>
+    <string name="frontend_export_working">ゲームを追加しています…</string>
+    <plurals name="frontend_export_done">
+        <item quantity="other">%1$d 本のゲームを追加しました。表示するには ES-DE を再起動してください。</item>
+    </plurals>
+    <string name="frontend_export_failed">ゲームを追加できませんでした。\n内部ストレージまたは SD カードのフォルダを選択してください。</string>
+    <string name="scut_invalid_entry">ゲームファイルを利用できません。\n%1$s でゲームをもう一度追加してください。</string>
+</resources>

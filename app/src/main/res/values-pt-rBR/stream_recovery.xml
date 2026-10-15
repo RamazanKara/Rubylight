@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_auto_reconnect">Recuperar transmissões interrompidas</string>
+    <string name="summary_auto_reconnect">Retoma automaticamente o mesmo jogo em execução após uma falha temporária de conexão. Até cinco tentativas em um minuto; pressione Voltar para cancelar.</string>
+    <string name="stream_recovery_attempt">Reconectando ao seu jogo… Tentativa %1$d de %2$d. Pressione Voltar para cancelar.</string>
+    <string name="stream_recovery_session_changed">A sessão de jogo anterior não está mais disponível. A recuperação automática foi interrompida para evitar iniciar ou substituir um jogo.</string>
+    <string name="stream_recovery_exhausted">A recuperação automática não conseguiu reconectar em um minuto. Seu jogo não foi encerrado. Verifique a conexão e escolha Reconectar para tentar novamente.</string>
+    <string name="stream_recovery_paused">A recuperação automática foi interrompida quando você saiu da transmissão. Escolha Reconectar para continuar.</string>
+</resources>

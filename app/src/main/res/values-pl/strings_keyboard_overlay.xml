@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="keyboard_keys_show">Dodatkowe klawisze</string>
+    <string name="keyboard_keys_hide">Ukryj klawisze</string>
+    <string name="keyboard_task_manager">Menedżer zadań</string>
+    <string name="keyboard_switch_window">Przełącz okno</string>
+    <string name="keyboard_close_window">Zamknij okno</string>
+    <string name="keyboard_arrow_left">Strzałka w lewo</string>
+    <string name="keyboard_arrow_up">Strzałka w górę</string>
+    <string name="keyboard_arrow_down">Strzałka w dół</string>
+    <string name="keyboard_arrow_right">Strzałka w prawo</string>
+</resources>

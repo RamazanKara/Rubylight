@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="library_search">Поиск игр</string>
+    <string name="library_options">Параметры библиотеки</string>
+    <string name="library_more_for">Другие действия для %1$s</string>
+    <string name="library_play">Играть</string>
+    <string name="library_open">Открыть библиотеку</string>
+    <string name="library_loading">Загрузка библиотеки…</string>
+    <string name="library_refresh">Обновить библиотеку</string>
+    <string name="library_retry">Повторить</string>
+    <string name="library_show_hidden">Показать скрытые игры</string>
+    <string name="library_hide_hidden">Не показывать скрытые игры</string>
+    <string name="library_no_matches">Нет игр, соответствующих запросу.</string>
+    <string name="library_clear_search">Очистить поиск</string>
+    <string name="library_all_hidden">Все игры скрыты. Включите показ скрытых игр, чтобы вернуть их.</string>
+    <string name="library_offline">Этот ПК не в сети. Сохранённая библиотека доступна. Подключитесь снова, чтобы играть.</string>
+    <string name="library_hidden_notice">Игра скрыта из библиотеки</string>
+    <string name="library_undo">Отменить</string>
+    <string name="library_discovery_title">Ваши игры на этом экране</string>
+    <string name="library_discovery_body">Включите ПК и запустите на нём хост для трансляции, например Apollo, Rubylight или Sunshine. ПК в той же сети появятся здесь автоматически.</string>
+    <string name="library_discovery_hint">В другой сети? Добавьте ПК по адресу.</string>
+    <plurals name="library_results">
+        <item quantity="one">%1$d из %2$d игры</item>
+        <item quantity="few">%1$d из %2$d игр</item>
+        <item quantity="many">%1$d из %2$d игр</item>
+        <item quantity="other">%1$d из %2$d игры</item>
+    </plurals>
+    <plurals name="library_showing_hidden">
+        <item quantity="one">%1$d игра · включая скрытые</item>
+        <item quantity="few">%1$d игры · включая скрытые</item>
+        <item quantity="many">%1$d игр · включая скрытые</item>
+        <item quantity="other">%1$d игры · включая скрытые</item>
+    </plurals>
+    <plurals name="library_app_count">
+        <item quantity="one">%d игра</item>
+        <item quantity="few">%d игры</item>
+        <item quantity="many">%d игр</item>
+        <item quantity="other">%d игры</item>
+    </plurals>
+</resources>

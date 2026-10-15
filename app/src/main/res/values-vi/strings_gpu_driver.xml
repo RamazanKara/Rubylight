@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="gpu_driver_title">Driver GPU Snapdragon</string>
+    <string name="gpu_driver_system">Driver GPU hệ thống</string>
+    <string name="gpu_driver_explanation">PyroWave có thể dùng tệp ZIP driver Adreno có meta.json và thư viện arm64. Hãy chọn gói đáng tin cậy, hỗ trợ GPU và phiên bản Android của bạn. Thay đổi áp dụng cho stream tiếp theo và chỉ ảnh hưởng đến ứng dụng này. Nếu tải thất bại, ứng dụng sẽ dùng driver hệ thống. Sau khi gặp sự cố với driver tùy chỉnh, lần khởi chạy tiếp theo sẽ quay về driver hệ thống. Khả năng tương thích và hiệu năng vẫn phụ thuộc vào điện thoại và driver của bạn.</string>
+    <string name="gpu_driver_unsupported">Driver tùy chỉnh yêu cầu Android 10 trở lên, ứng dụng arm64 64 bit và GPU Adreno. Thiết bị này dùng driver GPU hệ thống.</string>
+    <string name="gpu_driver_system_fallback">Đang dùng driver GPU hệ thống sau khi driver tùy chỉnh gặp lỗi.</string>
+    <string name="gpu_driver_import">Nhập tệp ZIP driver</string>
+    <string name="gpu_driver_no_picker">Hãy cài đặt một trình chọn tệp để nhập tệp ZIP driver.</string>
+    <string name="gpu_driver_remove">Xóa một driver</string>
+    <string name="gpu_driver_removed">Đã xóa driver.</string>
+    <string name="gpu_driver_imported">Đã nhập và chọn: %1$s</string>
+    <string name="gpu_driver_working">Đang kiểm tra driver…</string>
+    <string name="gpu_driver_error">Thao tác với driver thất bại: %1$s</string>
+</resources>

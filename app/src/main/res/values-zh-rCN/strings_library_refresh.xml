@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="library_search">搜索游戏</string>
+    <string name="library_options">游戏库选项</string>
+    <string name="library_more_for">%1$s 的更多选项</string>
+    <string name="library_play">开始玩</string>
+    <string name="library_open">打开游戏库</string>
+    <string name="library_loading">正在加载你的游戏库…</string>
+    <string name="library_refresh">刷新游戏库</string>
+    <string name="library_retry">重试</string>
+    <string name="library_show_hidden">显示隐藏的游戏</string>
+    <string name="library_hide_hidden">不显示隐藏的游戏</string>
+    <string name="library_no_matches">没有与搜索内容匹配的游戏。</string>
+    <string name="library_clear_search">清除搜索</string>
+    <string name="library_all_hidden">你的游戏都已隐藏。显示隐藏的游戏即可恢复。</string>
+    <string name="library_offline">此电脑处于离线状态。你保存的游戏库仍在此处。重新连接后即可开始玩。</string>
+    <string name="library_hidden_notice">已从游戏库中隐藏游戏</string>
+    <string name="library_undo">撤消</string>
+    <string name="library_discovery_title">你的游戏，尽在此屏幕</string>
+    <string name="library_discovery_body">请打开电脑并启动其串流主机，例如 Apollo、Rubylight 或 Sunshine。同一网络中的电脑会自动显示在这里。</string>
+    <string name="library_discovery_hint">在不同的网络中？请通过地址添加电脑。</string>
+    <plurals name="library_results">
+        <item quantity="other">%2$d 个游戏中的 %1$d 个</item>
+    </plurals>
+    <plurals name="library_showing_hidden">
+        <item quantity="other">%1$d 个游戏 · 包括隐藏的游戏</item>
+    </plurals>
+    <plurals name="library_app_count">
+        <item quantity="other">%d 个游戏</item>
+    </plurals>
+</resources>

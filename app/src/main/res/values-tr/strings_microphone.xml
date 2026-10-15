@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_checkbox_enable_mic">Mikrofonu bilgisayara gönder</string>
+    <string name="summary_checkbox_enable_mic">Ana bilgisayar destekliyorsa bilgisayardaki oyunlar ve sohbet uygulamaları bu cihazın mikrofonunu duyar</string>
+    <string name="mic_permission_denied">Mikrofon erişimine izin verilmediği için mikrofon kapalı kalıyor. Bilgisayar üzerinden konuşmak için Android ayarlarından izin verin.</string>
+    <string name="mic_status_sending">Mikrofon: gönderiliyor</string>
+    <string name="mic_status_muted">Mikrofon: sessizde</string>
+    <string name="mic_status_not_offered">Mikrofon: ana bilgisayar sunmuyor</string>
+    <string name="mic_status_unavailable">Mikrofon: kullanılamıyor</string>
+    <string name="mic_status_no_permission">Mikrofon: izin gerekli</string>
+</resources>

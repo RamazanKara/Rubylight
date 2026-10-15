@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_checkbox_enable_mic">Gửi micrô tới PC</string>
+    <string name="summary_checkbox_enable_mic">Trò chơi và ứng dụng trò chuyện trên PC nghe được micrô của thiết bị này, khi máy chủ hỗ trợ micrô</string>
+    <string name="mic_permission_denied">Quyền truy cập micrô chưa được cấp nên micrô vẫn tắt. Hãy cho phép trong phần cài đặt Android để nói chuyện qua PC.</string>
+    <string name="mic_status_sending">Micrô: đang gửi</string>
+    <string name="mic_status_muted">Micrô: đã tắt tiếng</string>
+    <string name="mic_status_not_offered">Micrô: máy chủ không hỗ trợ</string>
+    <string name="mic_status_unavailable">Micrô: không khả dụng</string>
+    <string name="mic_status_no_permission">Micrô: cần cấp quyền</string>
+</resources>

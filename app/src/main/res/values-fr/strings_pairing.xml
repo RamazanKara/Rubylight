@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="pair_otp_title">Associer avec un code PIN à usage unique</string>
+    <string name="pair_otp_help">Saisissez le code PIN et la phrase secrète de l’hôte.\nLe code PIN expire au bout de trois minutes.</string>
+    <string name="pair_otp_pin">Code PIN à usage unique</string>
+    <string name="pair_otp_passphrase">Phrase secrète</string>
+    <string name="pair_otp_invalid_pin">Saisissez le code PIN à quatre chiffres fourni par l’hôte.</string>
+    <string name="pair_otp_invalid_passphrase">Saisissez la phrase secrète de l’hôte (au moins quatre caractères).</string>
+    <string name="guide_title">Se connecter à votre PC</string>
+    <string name="guide_text">1. Lancez sur le PC un hôte compatible Moonlight, comme Apollo, Rubylight, Sunshine ou Vibepollo.\n2. Sur Android, sélectionnez le PC sur le même réseau.\n3. Saisissez le code PIN affiché sur Android dans les paramètres ou l’interface Web de votre hôte.</string>
+    <string name="guide_done">OK</string>
+    <string name="guide_troubleshooting">Aide</string>
+</resources>

@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="library_search">Пошук ігор</string>
+    <string name="library_options">Параметри бібліотеки</string>
+    <string name="library_more_for">Інші параметри для %1$s</string>
+    <string name="library_play">Грати</string>
+    <string name="library_open">Відкрити бібліотеку</string>
+    <string name="library_loading">Завантаження бібліотеки…</string>
+    <string name="library_refresh">Оновити бібліотеку</string>
+    <string name="library_retry">Повторити</string>
+    <string name="library_show_hidden">Показати приховані ігри</string>
+    <string name="library_hide_hidden">Сховати приховані ігри</string>
+    <string name="library_no_matches">Немає ігор, що відповідають запиту.</string>
+    <string name="library_clear_search">Очистити пошук</string>
+    <string name="library_all_hidden">Ваші ігри приховано. Увімкніть «Показати приховані ігри», щоб повернути їх.</string>
+    <string name="library_offline">Цей ПК не в мережі. Збережена бібліотека нікуди не зникла. Підключіться знову, щоб грати.</string>
+    <string name="library_hidden_notice">Гру приховано з бібліотеки</string>
+    <string name="library_undo">Скасувати</string>
+    <string name="library_discovery_title">Ваші ігри на цьому екрані</string>
+    <string name="library_discovery_body">Увімкніть ПК і запустіть на ньому хост для трансляції, наприклад Apollo, Rubylight або Sunshine. ПК у тій самій мережі з’являться тут автоматично.</string>
+    <string name="library_discovery_hint">В іншій мережі? Додайте ПК за адресою.</string>
+    <plurals name="library_results">
+        <item quantity="one">Ігор: %1$d з %2$d</item>
+        <item quantity="few">Ігор: %1$d з %2$d</item>
+        <item quantity="many">Ігор: %1$d з %2$d</item>
+        <item quantity="other">Ігор: %1$d з %2$d</item>
+    </plurals>
+    <plurals name="library_showing_hidden">
+        <item quantity="one">%1$d гра · разом із прихованими</item>
+        <item quantity="few">%1$d гри · разом із прихованими</item>
+        <item quantity="many">%1$d ігор · разом із прихованими</item>
+        <item quantity="other">%1$d гри · разом із прихованими</item>
+    </plurals>
+    <plurals name="library_app_count">
+        <item quantity="one">%d гра</item>
+        <item quantity="few">%d гри</item>
+        <item quantity="many">%d ігор</item>
+        <item quantity="other">%d гри</item>
+    </plurals>
+</resources>

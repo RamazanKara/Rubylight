@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_checkbox_enable_mic">PC로 마이크 보내기</string>
+    <string name="summary_checkbox_enable_mic">호스트가 마이크를 지원하면 PC의 게임과 채팅 앱에서 이 기기의 마이크 소리를 들을 수 있습니다</string>
+    <string name="mic_permission_denied">마이크 접근이 허용되지 않아 마이크가 꺼져 있습니다. PC를 통해 대화하려면 Android 설정에서 허용하세요.</string>
+    <string name="mic_status_sending">마이크: 전송 중</string>
+    <string name="mic_status_muted">마이크: 음소거됨</string>
+    <string name="mic_status_not_offered">마이크: 호스트에서 지원하지 않음</string>
+    <string name="mic_status_unavailable">마이크: 사용할 수 없음</string>
+    <string name="mic_status_no_permission">마이크: 권한 필요</string>
+</resources>

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="keyboard_keys_show">Tasti extra della tastiera</string>
+    <string name="keyboard_keys_hide">Nascondi tasti</string>
+    <string name="keyboard_task_manager">Gestione attività</string>
+    <string name="keyboard_switch_window">Cambia finestra</string>
+    <string name="keyboard_close_window">Chiudi finestra</string>
+    <string name="keyboard_arrow_left">Freccia sinistra</string>
+    <string name="keyboard_arrow_up">Freccia su</string>
+    <string name="keyboard_arrow_down">Freccia giù</string>
+    <string name="keyboard_arrow_right">Freccia destra</string>
+</resources>

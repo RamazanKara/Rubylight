@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="frontend_export_menu">Dodaj gry do ES-DE</string>
+    <string name="frontend_export_roms_title">Wybierz folder ROM-ów</string>
+    <string name="frontend_export_roms_message">Dodaj skróty gier do tego folderu dla ES-DE lub innego frontendu.</string>
+    <string name="frontend_export_esde_title">Wybierz folder ES-DE</string>
+    <string name="frontend_export_esde_message">Dodać %1$s i okładki gier do ES-DE?\nPomiń w przypadku innych frontendów.</string>
+    <string name="frontend_export_pick">Wybierz folder</string>
+    <string name="frontend_export_skip">Pomiń</string>
+    <string name="frontend_export_no_apps">Otwórz raz gry tego komputera, a potem spróbuj ponownie.</string>
+    <string name="frontend_export_no_picker">Na tym urządzeniu nie ma dostępnego selektora folderów.</string>
+    <string name="frontend_export_working">Dodawanie gier…</string>
+    <plurals name="frontend_export_done">
+        <item quantity="one">Dodano %1$d grę. Uruchom ponownie ES-DE, aby ją zobaczyć.</item>
+        <item quantity="few">Dodano %1$d gry. Uruchom ponownie ES-DE, aby je zobaczyć.</item>
+        <item quantity="many">Dodano %1$d gier. Uruchom ponownie ES-DE, aby je zobaczyć.</item>
+        <item quantity="other">Dodano %1$d gry. Uruchom ponownie ES-DE, aby je zobaczyć.</item>
+    </plurals>
+    <string name="frontend_export_failed">Nie udało się dodać gier.\nWybierz folder lokalny lub na karcie SD.</string>
+    <string name="scut_invalid_entry">Plik gry jest niedostępny.\nDodaj gry ponownie w %1$s.</string>
+</resources>

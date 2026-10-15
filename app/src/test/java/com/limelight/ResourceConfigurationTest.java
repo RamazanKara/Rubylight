@@ -8,8 +8,12 @@ import org.w3c.dom.Element;
 import org.w3c.dom.NodeList;
 
 import java.io.File;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.util.HashSet;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import javax.xml.parsers.DocumentBuilderFactory;
 
@@ -70,7 +74,24 @@ public class ResourceConfigurationTest {
         assertTrue(legacyLanguages.remove("default"));
         assertEquals(platformLanguages, legacyLanguages);
 
-        assertEquals(Set.of("en", "de"), platformLanguages);
+        Set<String> translated = new HashSet<>();
+        File[] dirs = new File("src/main/res").listFiles((dir, name) ->
+                name.matches("values-[a-z]{2}(-r[A-Z]{2})?") && new File(dir, name + "/strings.xml").exists());
+        assertNotNull(dirs);
+        for (File dir : dirs) {
+            translated.add(dir.getName().substring("values-".length()).replace("-r", "-"));
+        }
+        translated.add("en");
+        assertEquals(translated, platformLanguages);
+
+        Matcher filters = Pattern.compile("localeFilters \\+= \\[([^\\]]*)\\]")
+                .matcher(new String(Files.readAllBytes(new File("build.gradle").toPath()), StandardCharsets.UTF_8));
+        assertTrue(filters.find());
+        Set<String> packaged = new HashSet<>();
+        for (String filter : filters.group(1).split(",")) {
+            packaged.add(filter.trim().replace("'", "").replace("-r", "-"));
+        }
+        assertEquals(platformLanguages, packaged);
     }
 
     @Test

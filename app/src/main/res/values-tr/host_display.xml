@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="host_display_menu">Bilgisayar ekran modu</string>
+    <string name="host_display_location">Özel veya Genişletilmiş mod için bilgisayarınızın menüsünü açın → Yayın ayarları → Bilgisayar ekran modu. Ekran modu her bilgisayar için ayrı kaydedilir ve ana bilgisayar desteği gerektirir.</string>
+    <string name="host_display_controls_virtual">Bilgisayar ekran modu tarafından denetleniyor: %1$s</string>
+    <string name="host_display_title">%1$s üzerinde ekran</string>
+    <string name="host_display_default">Bilgisayarın kendi ayarı</string>
+    <string name="host_display_exclusive">Özel — yalnızca sanal ekran (bilgisayar monitörleri kapalı)</string>
+    <string name="host_display_extended_primary">Genişlet — sanal ekranı birincil yap</string>
+    <string name="host_display_extended">Genişlet — bilgisayar ekranı birincil kalsın</string>
+    <string name="host_display_extended_isolated">Genişletilmiş ve ayrık — bilgisayar birincil kalır</string>
+    <string name="host_display_extended_primary_isolated">Genişletilmiş ve ayrık — sanal ekran birincil</string>
+    <string name="host_display_physical">Fiziksel ekran (sanal ekran yok)</string>
+    <string name="host_display_saved">Ekran seçimi kaydedildi. Sonraki yayından itibaren geçerli olur.</string>
+    <string name="host_display_save">Ekran modunu kaydet</string>
+    <string name="host_display_explanation">Bir mod seçin, ardından Ekran modunu kaydet’e dokunun. İptal mevcut seçimi korur. Yeni mod sonraki yayından itibaren geçerli olur.\n\nBilgisayar ekranı birincil kalsın, monitörünüzü Windows birincil ekranı olarak bırakır. Sanal ekranı birincil yap, bu rolü oyunların ve yeni pencerelerin genellikle açıldığı yayınlanan ekrana taşır. Her iki Genişlet seçeneği de bilgisayarın monitörlerini açık tutar.\n\nBilgisayarın kendi ayarı, Ana bilgisayar sanal ekranı ayarını ve bilgisayarın ekran ayarlarını izler. Özel, yayın sırasında bilgisayarın monitörlerini kapatır. Ayrık modlar, yayınlanan ekranı aynı Windows oturumunda, masaüstü düzeninde diğer monitörlerden uzağa yerleştirir. Fiziksel ekran, bilgisayarın monitörünü sanal ekran olmadan yayınlar. Yayın bittiğinde bilgisayar ekranlarını geri yükler.\n\nBu seçenek yalnızca ana bilgisayar yazılımı ekran modlarını destekleyen bilgisayarlarda sunulur; diğer bilgisayarlarda Ana bilgisayar sanal ekranı ayarı belirleyicidir.</string>
+    <string name="host_administration_menu">Ana bilgisayar web arayüzünü aç</string>
+    <string name="host_administration_help">Ana bilgisayarın uygulamalarını, eşleştirilmiş cihazlarını ve ayarlarını web arayüzünden yönetin. Web arayüzünün kendi hesabıyla oturum açın; eşleştirme sizi oturum açmış saymaz. Uzaktan erişim için web arayüzü bağlantı noktasına erişilebilmesi gerekir.\n\n%1$s</string>
+    <string name="host_administration_open">Tarayıcıda aç</string>
+    <string name="host_administration_no_browser">Ana bilgisayarın web arayüzünü açabilecek bir tarayıcı bulunamadı. Adresini kopyalayıp başka bir cihazda açın.</string>
+</resources>

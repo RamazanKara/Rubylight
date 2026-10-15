@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="add_pc_address_error">Nhập địa chỉ IP hoặc tên PC, có thể kèm cổng (ví dụ: 192.168.1.10:47989).</string>
+    <string name="add_pc_connecting">Đang kết nối…</string>
+    <string name="add_pc_service_unavailable">Không thể bắt đầu tìm PC. Hãy đóng màn hình này và thử lại.</string>
+    <string name="sheet_close">Đóng menu</string>
+</resources>

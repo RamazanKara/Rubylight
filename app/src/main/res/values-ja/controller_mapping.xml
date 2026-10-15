@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="controller_mapping_title">コントローラのボタン</string>
+    <string name="controller_mapping_summary">コントローラのモデルごとにボタンを割り当て直します</string>
+    <string name="controller_mapping_intro">[ボタンを割り当て] をタップしてから、割り当て直すコントローラのボタンを押してください。\n変更は次回のストリームから適用されます。</string>
+    <string name="controller_mapping_waiting">コントローラを接続してから [ボタンを割り当て] をタップしてください。</string>
+    <string name="controller_mapping_unnamed">コントローラ</string>
+    <string name="controller_mapping_none">すべてのボタンがデフォルトの割り当てです。</string>
+    <string name="controller_mapping_row">%1$s を送信</string>
+    <string name="controller_mapping_choose">%1$s で送信する入力…</string>
+    <string name="controller_mapping_default">%1$s（デフォルト）</string>
+    <string name="controller_mapping_disabled">なし</string>
+    <string name="controller_mapping_reset">このコントローラをリセット</string>
+    <string name="controller_button_left_stick">左スティック押し込み</string>
+    <string name="controller_button_right_stick">右スティック押し込み</string>
+    <string name="controller_button_start">Start</string>
+    <string name="controller_button_select">Back</string>
+    <string name="controller_button_guide">Guide</string>
+    <string name="controller_button_number">ボタン %1$d</string>
+    <string name="pc_tap_to_pair">%1$s\nタップしてペアリング</string>
+</resources>

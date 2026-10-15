@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="keyboard_keys_show">Touches clavier supplémentaires</string>
+    <string name="keyboard_keys_hide">Masquer les touches</string>
+    <string name="keyboard_task_manager">Gestionnaire des tâches</string>
+    <string name="keyboard_switch_window">Changer de fenêtre</string>
+    <string name="keyboard_close_window">Fermer la fenêtre</string>
+    <string name="keyboard_arrow_left">Flèche gauche</string>
+    <string name="keyboard_arrow_up">Flèche haut</string>
+    <string name="keyboard_arrow_down">Flèche bas</string>
+    <string name="keyboard_arrow_right">Flèche droite</string>
+</resources>

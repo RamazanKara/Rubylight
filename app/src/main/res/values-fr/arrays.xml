@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string-array name="host_permission_names">
+        <item>Saisie manette</item>
+        <item>Saisie tactile</item>
+        <item>Saisie au stylet</item>
+        <item>Saisie souris</item>
+        <item>Saisie clavier</item>
+        <item>Envoyer le presse-papiers</item>
+        <item>Lire le presse-papiers</item>
+        <item>Commandes serveur</item>
+        <item>Lister les applications</item>
+        <item>Voir les streams</item>
+        <item>Lancer et quitter des applications</item>
+    </string-array>
+    <string-array name="language_names">
+        <item>Langue du système</item>
+        <item>English</item>
+        <item>Deutsch</item>
+        <item>Español</item>
+        <item>Français</item>
+        <item>Italiano</item>
+        <item>Polski</item>
+        <item>Português (Brasil)</item>
+        <item>Tiếng Việt</item>
+        <item>Türkçe</item>
+        <item>Русский</item>
+        <item>Українська</item>
+        <item>日本語</item>
+        <item>한국어</item>
+        <item>简体中文</item>
+        <item>繁體中文</item>
+    </string-array>
+</resources>

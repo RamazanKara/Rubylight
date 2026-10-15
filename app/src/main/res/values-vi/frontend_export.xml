@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="frontend_export_menu">Thêm trò chơi vào ES-DE</string>
+    <string name="frontend_export_roms_title">Chọn thư mục ROM của bạn</string>
+    <string name="frontend_export_roms_message">Thêm lối tắt trò chơi vào thư mục này cho ES-DE hoặc frontend khác.</string>
+    <string name="frontend_export_esde_title">Chọn thư mục ES-DE của bạn</string>
+    <string name="frontend_export_esde_message">Thêm %1$s và ảnh bìa trò chơi vào ES-DE?\nBỏ qua nếu dùng frontend khác.</string>
+    <string name="frontend_export_pick">Chọn thư mục</string>
+    <string name="frontend_export_skip">Bỏ qua</string>
+    <string name="frontend_export_no_apps">Hãy mở danh sách trò chơi của PC này một lần rồi thử lại.</string>
+    <string name="frontend_export_no_picker">Thiết bị này không có trình chọn thư mục.</string>
+    <string name="frontend_export_working">Đang thêm trò chơi…</string>
+    <plurals name="frontend_export_done">
+        <item quantity="other">Đã thêm %1$d trò chơi. Khởi động lại ES-DE để xem.</item>
+    </plurals>
+    <string name="frontend_export_failed">Không thể thêm trò chơi.\nHãy chọn thư mục trên bộ nhớ trong hoặc thẻ SD.</string>
+    <string name="scut_invalid_entry">Tệp trò chơi không khả dụng.\nHãy thêm lại các trò chơi trong %1$s.</string>
+</resources>

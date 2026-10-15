@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="remote_setup_title">Chơi khi không ở nhà</string>
+    <string name="remote_step">Bước %1$d/3</string>
+    <string name="remote_prepare">Chuẩn bị ở nhà\n\nGhép đôi thiết bị này với PC trong mạng gia đình và xác nhận stream bình thường hoạt động. Giữ PC luôn thức và máy chủ đang chạy.\n\nWake-on-LAN từ xa cần router tương thích hoặc một thiết bị luôn bật ở nhà; điện thoại không thể tự đánh thức một PC không truy cập được.</string>
+    <string name="remote_vpn">Kết nối các thiết bị\n\nMột VPN riêng như Tailscale có thể kết nối điện thoại và PC mà không để lộ giao diện web của máy chủ ra Internet. Hãy cài đặt trên cả hai thiết bị, đăng nhập bằng tài khoản của bạn và bật kết nối giữa chúng. Bạn cũng có thể dùng VPN sẵn có.\n\nLiên kết sẽ mở hướng dẫn tải xuống chính thức. Ứng dụng này không cài đặt phần mềm, tạo tài khoản, thay đổi cài đặt router hay bật chuyển tiếp cổng.</string>
+    <string name="remote_verify">Xác minh từ mạng khác\n\nThêm địa chỉ VPN của PC bằng Thêm địa chỉ, kèm cổng HTTP stream nếu đã tùy chỉnh. Thao tác này cập nhật PC đã lưu khi danh tính khớp. Sau đó quay lại đây.\n\nNgắt kết nối Wi-Fi gia đình và dùng dữ liệu di động hoặc mạng khác. Kiểm tra sẽ xác minh danh tính của PC đã ghép đôi và năm yêu cầu HTTPS nhỏ; không bắt đầu stream hay tải tệp kiểm tra tốc độ. Chỉ kiểm tra ở nhà thì không chứng minh được khả năng truy cập qua Internet.</string>
+    <string name="remote_get_vpn">Mở hướng dẫn thiết lập Tailscale</string>
+    <string name="remote_add_address">Thêm địa chỉ VPN hoặc địa chỉ từ xa</string>
+    <string name="remote_test">Kiểm tra PC này</string>
+    <string name="remote_previous">Trước</string>
+    <string name="remote_next">Tiếp</string>
+    <string name="remote_pair_first">Hãy ghép đôi PC này trong mạng nội bộ trước. Cần chứng chỉ đã lưu và cổng HTTPS của PC để xác minh địa chỉ từ xa dẫn đến đúng PC của bạn.</string>
+    <string name="remote_pair_revoked">PC đã phản hồi nhưng thiết bị này không còn được ghép đôi. Hãy ghép đôi lại ở nhà trước khi kiểm tra chơi từ xa.</string>
+    <string name="remote_permission_denied">PC đã ghép đôi có phản hồi nhưng thiết bị này không thể xem stream. Hãy cho phép thiết bị này xem hoặc mở ứng dụng trong cài đặt hoặc giao diện web của máy chủ.</string>
+    <string name="remote_running">Đang kiểm tra PC đã ghép đôi…</string>
+    <string name="remote_cancelled">Đã hủy kiểm tra. Không có cài đặt máy chủ hay mạng nào bị thay đổi.</string>
+    <string name="remote_failed">Không thể xác minh PC đã ghép đôi. Hãy kiểm tra PC đang thức, máy chủ và VPN đang chạy, địa chỉ đã lưu và các cổng stream đều đúng. Nếu việc ghép đôi đã thay đổi, hãy ghép đôi lại ở nhà. Bài kiểm tra này không phân biệt được PC đang ngủ với tuyến mạng bị chặn.</string>
+    <string name="remote_verified">PC đã ghép đôi có phản hồi trên mạng này. Tiếp theo, hãy thử stream bình thường với tốc độ bit vừa phải; khả năng truy cập HTTPS không xác minh được cổng UDP video/âm thanh hay hiệu năng stream lâu dài.</string>
+    <string name="remote_direct">Tailscale báo kết nối này dùng đường trực tiếp. Đường trực tiếp thường cho thông lượng và độ trễ tốt nhất.</string>
+    <string name="remote_relay">Tailscale báo đang dùng relay DERP. Relay này đảm bảo kết nối nhưng tốc độ stream có thể bị hạn chế. Hãy xem hướng dẫn kết nối của Tailscale hoặc cấu hình một peer relay phù hợp.</string>
+    <string name="remote_peer_relay">Tailscale báo đang dùng peer relay. Hiệu năng phụ thuộc vào relay đó và cả hai đường mạng; hãy so sánh bằng một stream thực tế.</string>
+    <string name="remote_unknown">Đường trực tiếp hay qua relay: không xác định. Máy chủ, VPN hoặc kết nối này không cung cấp phân loại tuyến hiện tại. Hãy kiểm tra trạng thái VPN; chỉ ping thấp không chứng minh được đường trực tiếp.</string>
+    <string name="remote_measurements">Trung bình yêu cầu HTTPS: %1$.1f ms\nYêu cầu thất bại: %2$.0f %%\nĐây là số đo yêu cầu ứng dụng, không phải mất gói video hay độ trễ đầu vào.</string>
+</resources>

@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="controller_mapping_capture">Attribuer un bouton</string>
+    <string name="controller_mapping_press">Appuyez sur le bouton de la manette à attribuer. Retour pour annuler.</string>
+</resources>

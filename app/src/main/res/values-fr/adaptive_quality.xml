@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_adaptive_quality">Qualité de stream automatique</string>
+    <string name="summary_adaptive_quality">Réduit la résolution ou les FPS en cas de congestion prolongée, de décodage lent ou de surchauffe, puis rétablit progressivement. Utilise le débit automatique s’il est pris en charge. Nécessite que l’hôte gère la reconfiguration et un décodeur adaptatif ; indisponible avec PyroWave.</string>
+    <string name="title_adaptive_quality_min_resolution">Résolution automatique minimale</string>
+    <string name="summary_adaptive_quality_min_resolution">Plus petit côté court, en conservant le format d’image. La résolution de stream sélectionnée reste le maximum. Une résolution de départ plus basse n’est jamais augmentée par cette limite.</string>
+    <string name="title_adaptive_quality_min_fps">Fréquence d’images automatique minimale</string>
+    <string name="summary_adaptive_quality_min_fps">FPS minimum autorisé. La fréquence d’images de stream sélectionnée reste le maximum. S’applique à la qualité automatique, y compris le mode batterie.</string>
+    <string name="quality_off">Désactivée</string>
+    <string name="quality_motion">Préserver la fluidité</string>
+    <string name="quality_detail">Préserver les détails</string>
+    <string name="quality_battery">Prolonger l’autonomie</string>
+    <string name="quality_use_settings">Utiliser les paramètres de l’appli</string>
+    <string name="quality_about">Fonctionnement</string>
+    <string name="quality_stream_help">Enregistré pour ce PC. Fluidité baisse d’abord la résolution ; Détails baisse d’abord les FPS. Batterie limite progressivement la charge à 60 FPS maximum et à un côté court de 1080 pixels, dans le respect de vos limites minimales. Le codec, le HDR et le choix d’affichage restent ceux négociés.</string>
+    <string name="quality_unavailable">Qualité automatique désactivée : ce PC ou cet appareil ne peut pas modifier la résolution et la fréquence d’images pendant un stream.</string>
+    <string name="quality_request_failed">Qualité automatique arrêtée : le PC n’a pas appliqué la nouvelle taille. Le stream continue ; choisissez un autre mode dans le menu du stream.</string>
+    <string name="quality_status">Qualité automatique : %1$s · %2$d × %3$d · cible %4$d FPS</string>
+</resources>

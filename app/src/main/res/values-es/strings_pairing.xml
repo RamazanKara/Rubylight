@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="pair_otp_title">Vincular con PIN de un solo uso</string>
+    <string name="pair_otp_help">Introduce el PIN y la frase de contraseña del servidor.\nEl PIN caduca a los tres minutos.</string>
+    <string name="pair_otp_pin">PIN de un solo uso</string>
+    <string name="pair_otp_passphrase">Frase de contraseña</string>
+    <string name="pair_otp_invalid_pin">Introduce el PIN de cuatro dígitos del servidor.</string>
+    <string name="pair_otp_invalid_passphrase">Introduce la frase de contraseña del servidor (al menos cuatro caracteres).</string>
+    <string name="guide_title">Conectar con tu PC</string>
+    <string name="guide_text">1. Inicia en el PC un servidor compatible con Moonlight, como Apollo, Rubylight, Sunshine o Vibepollo.\n2. En Android, selecciona el PC en la misma red.\n3. Introduce el PIN que aparece en Android en los ajustes o en la interfaz web de tu servidor.</string>
+    <string name="guide_done">Entendido</string>
+    <string name="guide_troubleshooting">Ayuda</string>
+</resources>

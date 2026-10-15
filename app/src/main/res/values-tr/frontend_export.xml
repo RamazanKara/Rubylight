@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="frontend_export_menu">Oyunları ES-DE’ye ekle</string>
+    <string name="frontend_export_roms_title">ROM klasörünüzü seçin</string>
+    <string name="frontend_export_roms_message">ES-DE veya başka bir ön yüz için bu klasöre oyun kısayolları ekleyin.</string>
+    <string name="frontend_export_esde_title">ES-DE klasörünüzü seçin</string>
+    <string name="frontend_export_esde_message">%1$s ve oyun kapakları ES-DE’ye eklensin mi?\nDiğer ön yüzler için atlayın.</string>
+    <string name="frontend_export_pick">Klasör seç</string>
+    <string name="frontend_export_skip">Atla</string>
+    <string name="frontend_export_no_apps">Bu bilgisayarın oyunlarını bir kez açın, ardından tekrar deneyin.</string>
+    <string name="frontend_export_no_picker">Bu cihazda klasör seçici yok.</string>
+    <string name="frontend_export_working">Oyunlar ekleniyor…</string>
+    <plurals name="frontend_export_done">
+        <item quantity="one">%1$d oyun eklendi. Görmek için ES-DE’yi yeniden başlatın.</item>
+        <item quantity="other">%1$d oyun eklendi. Görmek için ES-DE’yi yeniden başlatın.</item>
+    </plurals>
+    <string name="frontend_export_failed">Oyunlar eklenemedi.\nYerel bir klasör veya SD kart klasörü seçin.</string>
+    <string name="scut_invalid_entry">Oyun dosyası kullanılamıyor.\nOyunları %1$s içinde yeniden ekleyin.</string>
+</resources>

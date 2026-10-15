@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string-array name="host_permission_names">
+        <item>Đầu vào tay cầm điều khiển</item>
+        <item>Đầu vào cảm ứng</item>
+        <item>Đầu vào bút</item>
+        <item>Đầu vào chuột</item>
+        <item>Đầu vào bàn phím</item>
+        <item>Gửi bảng nhớ tạm</item>
+        <item>Đọc bảng nhớ tạm</item>
+        <item>Lệnh máy chủ</item>
+        <item>Liệt kê ứng dụng</item>
+        <item>Xem các stream</item>
+        <item>Mở và thoát ứng dụng</item>
+    </string-array>
+    <string-array name="language_names">
+        <item>Mặc định của hệ thống</item>
+        <item>English</item>
+        <item>Deutsch</item>
+        <item>Español</item>
+        <item>Français</item>
+        <item>Italiano</item>
+        <item>Polski</item>
+        <item>Português (Brasil)</item>
+        <item>Tiếng Việt</item>
+        <item>Türkçe</item>
+        <item>Русский</item>
+        <item>Українська</item>
+        <item>日本語</item>
+        <item>한국어</item>
+        <item>简体中文</item>
+        <item>繁體中文</item>
+    </string-array>
+</resources>

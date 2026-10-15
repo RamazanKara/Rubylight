@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_auto_reconnect">Kesilen yayınları kurtar</string>
+    <string name="summary_auto_reconnect">Geçici bir bağlantı hatasından sonra çalışan aynı oyunu otomatik olarak sürdürür. Bir dakika içinde en fazla beş deneme yapılır; iptal etmek için Geri’ye basın.</string>
+    <string name="stream_recovery_attempt">Oyununuza yeniden bağlanılıyor… Deneme %1$d / %2$d. İptal etmek için Geri’ye basın.</string>
+    <string name="stream_recovery_session_changed">Önceki oyun oturumu artık kullanılamıyor. Bir oyunun başlatılmasını veya değiştirilmesini önlemek için otomatik kurtarma durduruldu.</string>
+    <string name="stream_recovery_exhausted">Otomatik kurtarma bir dakika içinde yeniden bağlanamadı. Oyununuz kapatılmadı. Bağlantıyı kontrol edin, ardından tekrar denemek için Yeniden bağlan’ı seçin.</string>
+    <string name="stream_recovery_paused">Yayından ayrıldığınız için otomatik kurtarma durduruldu. Devam etmek için Yeniden bağlan’ı seçin.</string>
+</resources>

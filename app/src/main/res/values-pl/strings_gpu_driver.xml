@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="gpu_driver_title">Sterownik GPU Snapdragon</string>
+    <string name="gpu_driver_system">Systemowy sterownik GPU</string>
+    <string name="gpu_driver_explanation">PyroWave może używać sterownika Adreno w pliku ZIP z meta.json i bibliotekami arm64. Wybierz zaufany pakiet, który obsługuje Twój GPU i wersję Androida. Zmiany obowiązują od następnego strumienia i dotyczą tylko tej aplikacji. Jeśli wczytanie się nie powiedzie, aplikacja użyje sterownika systemowego. Po awarii z niestandardowym sterownikiem następne uruchomienie wraca do sterownika systemowego. Zgodność i wydajność nadal zależą od telefonu i sterownika.</string>
+    <string name="gpu_driver_unsupported">Niestandardowe sterowniki wymagają Androida 10 lub nowszego, 64-bitowej aplikacji arm64 i GPU Adreno. To urządzenie używa systemowego sterownika GPU.</string>
+    <string name="gpu_driver_system_fallback">Używany jest systemowy sterownik GPU po awarii niestandardowego sterownika.</string>
+    <string name="gpu_driver_import">Importuj sterownik ZIP</string>
+    <string name="gpu_driver_no_picker">Zainstaluj selektor plików, aby zaimportować sterownik ZIP.</string>
+    <string name="gpu_driver_remove">Usuń sterownik</string>
+    <string name="gpu_driver_removed">Sterownik usunięty.</string>
+    <string name="gpu_driver_imported">Zaimportowano i wybrano: %1$s</string>
+    <string name="gpu_driver_working">Sprawdzanie sterownika…</string>
+    <string name="gpu_driver_error">Operacja na sterowniku nie powiodła się: %1$s</string>
+</resources>

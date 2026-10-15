@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="stream_hdr_display_unsupported">Questo schermo non supporta l’HDR, quindi lo stream è in SDR.</string>
+    <string name="stream_hdr_android_unsupported">L’HDR richiede Android 7 o versioni successive, quindi lo stream è in SDR.</string>
+    <string name="stream_hdr_decoder_unsupported">Questo dispositivo non può riprodurre video HDR, quindi lo stream è in SDR.</string>
+    <string name="stream_hevc_decoder_missing">Questo dispositivo non può riprodurre HEVC, quindi lo stream usa un altro codec.</string>
+    <string name="stream_av1_decoder_missing">Questo dispositivo non può riprodurre AV1, quindi lo stream usa un altro codec.</string>
+    <string name="stream_mouse_mode_on">Modalità mouse del controller attivata</string>
+    <string name="stream_mouse_mode_off">Modalità mouse del controller disattivata</string>
+</resources>

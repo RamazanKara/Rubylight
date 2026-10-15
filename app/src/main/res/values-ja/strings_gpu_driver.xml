@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="gpu_driver_title">Snapdragon GPU ドライバ</string>
+    <string name="gpu_driver_system">システムの GPU ドライバ</string>
+    <string name="gpu_driver_explanation">PyroWave では、meta.json と arm64 ライブラリを含む Adreno ドライバの ZIP を使用できます。お使いの GPU と Android バージョンに対応した、信頼できるパッケージを選んでください。変更は次回のストリームから適用され、このアプリにのみ影響します。読み込みに失敗した場合はシステムのドライバを使用します。カスタムドライバでクラッシュした場合、次回の起動時にシステムのドライバに戻ります。互換性とパフォーマンスはお使いのスマートフォンとドライバによって異なります。</string>
+    <string name="gpu_driver_unsupported">カスタムドライバには Android 10 以降、64 ビット arm64 アプリ、Adreno GPU が必要です。このデバイスではシステムの GPU ドライバを使用します。</string>
+    <string name="gpu_driver_system_fallback">カスタムドライバでエラーが発生したため、システムの GPU ドライバを使用しています。</string>
+    <string name="gpu_driver_import">ドライバの ZIP をインポート</string>
+    <string name="gpu_driver_no_picker">ドライバの ZIP をインポートするには、ファイル選択アプリをインストールしてください。</string>
+    <string name="gpu_driver_remove">ドライバを削除</string>
+    <string name="gpu_driver_removed">ドライバを削除しました。</string>
+    <string name="gpu_driver_imported">インポートして選択しました: %1$s</string>
+    <string name="gpu_driver_working">ドライバを確認しています…</string>
+    <string name="gpu_driver_error">ドライバの操作に失敗しました: %1$s</string>
+</resources>

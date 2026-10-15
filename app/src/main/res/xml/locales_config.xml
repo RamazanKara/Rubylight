@@ -3,4 +3,17 @@
     <!-- Don't forget to update arrays.xml when you modify this file! -->
     <locale android:name="en"/>
     <locale android:name="de"/>
+    <locale android:name="es"/>
+    <locale android:name="fr"/>
+    <locale android:name="it"/>
+    <locale android:name="pl"/>
+    <locale android:name="pt-BR"/>
+    <locale android:name="vi"/>
+    <locale android:name="tr"/>
+    <locale android:name="ru"/>
+    <locale android:name="uk"/>
+    <locale android:name="ja"/>
+    <locale android:name="ko"/>
+    <locale android:name="zh-CN"/>
+    <locale android:name="zh-TW"/>
 </locale-config>

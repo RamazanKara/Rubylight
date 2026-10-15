@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="startup_host_message">ホストがこのストリームを開始できませんでした: %1$s（エラー %2$d）</string>
+    <string name="startup_launch_cancelled">起動をキャンセルしました。</string>
+    <string name="startup_confirmation_timed_out">確認がタイムアウトしました。もう一度タイルから起動してください。</string>
+    <string name="startup_confirmation_rejected">ホストのセッションが変わったか、確認の期限が切れました。もう一度タイルから起動してください。</string>
+</resources>

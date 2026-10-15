@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="remote_setup_title">Evden uzakta oyna</string>
+    <string name="remote_step">Adım %1$d / 3</string>
+    <string name="remote_prepare">Evde hazırlanın\n\nBu cihazı ev ağınızda bilgisayarınızla eşleştirin ve normal bir yayının çalıştığını doğrulayın. Bilgisayarı uyanık, ana bilgisayar yazılımını çalışır durumda tutun.\n\nUzaktan Wake-on-LAN için uyumlu bir yönlendirici veya evde sürekli açık bir cihaz gerekir; telefon, erişilemeyen bir bilgisayarı tek başına uyandıramaz.</string>
+    <string name="remote_vpn">Cihazlarınızı bağlayın\n\nTailscale gibi özel bir VPN, ana bilgisayarın web arayüzünü internete açmadan telefonunuzu ve bilgisayarınızı bağlayabilir. İki cihaza da yükleyin, kendi hesabınızla oturum açın ve bağlantılarını etkinleştirin. Mevcut VPN kurulumları da kullanılabilir.\n\nBağlantı, resmi indirme kılavuzunu açar. Bu uygulama yazılım yüklemez, hesap oluşturmaz, yönlendirici ayarlarını değiştirmez veya bağlantı noktası yönlendirmeyi etkinleştirmez.</string>
+    <string name="remote_verify">Başka bir ağdan doğrulayın\n\nAdres ekle ile bilgisayarın VPN adresini, özelleştirildiyse yayın HTTP bağlantı noktasıyla birlikte ekleyin. Kimliği eşleşirse kayıtlı bilgisayar güncellenir. Ardından buraya dönün.\n\nEv Wi-Fi’nizle bağlantıyı kesin ve mobil veri veya başka bir ağ kullanın. Test, eşleştirilmiş bilgisayarın kimliğini ve beş küçük HTTPS isteğini kontrol eder; yayın başlatmaz veya hız testi dosyası indirmez. Yalnızca evde yapılan bir test, internetten erişilebilirliği kanıtlamaz.</string>
+    <string name="remote_get_vpn">Tailscale kurulumunu aç</string>
+    <string name="remote_add_address">VPN veya uzak adres ekle</string>
+    <string name="remote_test">Bu bilgisayarı test et</string>
+    <string name="remote_previous">Önceki</string>
+    <string name="remote_next">Sonraki</string>
+    <string name="remote_pair_first">Önce bu bilgisayarı yerel olarak eşleştirin. Uzak adresin bilgisayarınıza ulaştığını doğrulamak için kayıtlı sertifikası ve HTTPS bağlantı noktası gerekir.</string>
+    <string name="remote_pair_revoked">Bilgisayar yanıt verdi, ancak bu cihaz artık eşleştirilmiş değil. Uzaktan oynamayı test etmeden önce evde yeniden eşleştirin.</string>
+    <string name="remote_permission_denied">Eşleştirilmiş bilgisayar yanıt verdi, ancak bu cihaz yayınları görüntüleyemiyor. Ana bilgisayarınızın ayarlarında veya web arayüzünde bu cihaz için uygulama görüntüleme veya başlatmayı etkinleştirin.</string>
+    <string name="remote_running">Eşleştirilmiş bilgisayarınız kontrol ediliyor…</string>
+    <string name="remote_cancelled">Test iptal edildi. Hiçbir ana bilgisayar veya ağ ayarı değiştirilmedi.</string>
+    <string name="remote_failed">Eşleştirilmiş bilgisayar doğrulanamadı. Bilgisayarın uyanık olduğunu, ana bilgisayar yazılımının ve VPN’in çalıştığını, kayıtlı adresin ve yayın bağlantı noktalarının doğru olduğunu kontrol edin. Eşleştirme değiştiyse evde yeniden eşleştirin. Bu test, uyku modundaki bir bilgisayarı engellenmiş bir rotadan ayırt edemez.</string>
+    <string name="remote_verified">Eşleştirilmiş bilgisayar bu ağda yanıt verdi. Şimdi makul bir bit hızında normal bir yayın deneyin; HTTPS erişilebilirliği video/ses UDP bağlantı noktalarını veya sürekli yayın performansını doğrulamaz.</string>
+    <string name="remote_direct">Tailscale bu bağlantı için doğrudan bir yol bildiriyor. Doğrudan yollar genellikle en iyi aktarım hızını ve gecikmeyi sağlar.</string>
+    <string name="remote_relay">Tailscale bir DERP aktarıcısı bildiriyor. Bağlantı sağlar, ancak yayın hızı sınırlı olabilir. Tailscale’in bağlantı kılavuzuna bakın veya uygun bir eş aktarıcı yapılandırın.</string>
+    <string name="remote_peer_relay">Tailscale bir eş aktarıcı bildiriyor. Performans bu aktarıcıya ve iki ağ yoluna bağlıdır; gerçek bir yayınla karşılaştırın.</string>
+    <string name="remote_unknown">Doğrudan veya aktarmalı yol: bilinmiyor. Bu ana bilgisayar, VPN veya bağlantı güncel bir rota sınıflandırması sunmuyor. VPN’inizin durumunu kontrol edin; düşük ping tek başına doğrudan bir yolu kanıtlamaz.</string>
+    <string name="remote_measurements">Ortalama HTTPS isteği: %1$.1f ms\nBaşarısız istekler: %%%2$.0f\nBunlar uygulama isteği ölçümleridir; video paket kaybı veya giriş gecikmesi değildir.</string>
+</resources>

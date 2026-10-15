@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string-array name="host_permission_names">
+        <item>컨트롤러 입력</item>
+        <item>터치 입력</item>
+        <item>펜 입력</item>
+        <item>마우스 입력</item>
+        <item>키보드 입력</item>
+        <item>클립보드 보내기</item>
+        <item>클립보드 읽기</item>
+        <item>서버 명령</item>
+        <item>앱 목록 보기</item>
+        <item>스트림 보기</item>
+        <item>앱 실행 및 종료</item>
+    </string-array>
+    <string-array name="language_names">
+        <item>시스템 기본값</item>
+        <item>English</item>
+        <item>Deutsch</item>
+        <item>Español</item>
+        <item>Français</item>
+        <item>Italiano</item>
+        <item>Polski</item>
+        <item>Português (Brasil)</item>
+        <item>Tiếng Việt</item>
+        <item>Türkçe</item>
+        <item>Русский</item>
+        <item>Українська</item>
+        <item>日本語</item>
+        <item>한국어</item>
+        <item>简体中文</item>
+        <item>繁體中文</item>
+    </string-array>
+</resources>

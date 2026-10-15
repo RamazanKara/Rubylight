@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_checkbox_enable_mic">Передавати мікрофон на ПК</string>
+    <string name="summary_checkbox_enable_mic">Ігри та чати на ПК чутимуть мікрофон цього пристрою, якщо хост його приймає</string>
+    <string name="mic_permission_denied">Доступ до мікрофона не надано, тому мікрофон залишається вимкненим. Дозвольте його в налаштуваннях Android, щоб говорити через ПК.</string>
+    <string name="mic_status_sending">Мікрофон: передається</string>
+    <string name="mic_status_muted">Мікрофон: вимкнено звук</string>
+    <string name="mic_status_not_offered">Мікрофон: хост не підтримує</string>
+    <string name="mic_status_unavailable">Мікрофон: недоступний</string>
+    <string name="mic_status_no_permission">Мікрофон: потрібен дозвіл</string>
+</resources>

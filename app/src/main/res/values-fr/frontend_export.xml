@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="frontend_export_menu">Ajouter les jeux à ES-DE</string>
+    <string name="frontend_export_roms_title">Choisissez votre dossier ROMs</string>
+    <string name="frontend_export_roms_message">Ajouter des raccourcis de jeux dans ce dossier pour ES-DE ou un autre frontend.</string>
+    <string name="frontend_export_esde_title">Choisissez votre dossier ES-DE</string>
+    <string name="frontend_export_esde_message">Ajouter %1$s et les jaquettes des jeux à ES-DE ?\nIgnorez pour les autres frontends.</string>
+    <string name="frontend_export_pick">Choisir le dossier</string>
+    <string name="frontend_export_skip">Ignorer</string>
+    <string name="frontend_export_no_apps">Ouvrez une fois les jeux de ce PC, puis réessayez.</string>
+    <string name="frontend_export_no_picker">Aucun sélecteur de dossier n’est disponible sur cet appareil.</string>
+    <string name="frontend_export_working">Ajout des jeux…</string>
+    <plurals name="frontend_export_done">
+        <item quantity="one">%1$d jeu ajouté. Redémarrez ES-DE pour le voir.</item>
+        <item quantity="many">%1$d de jeux ajoutés. Redémarrez ES-DE pour les voir.</item>
+        <item quantity="other">%1$d jeux ajoutés. Redémarrez ES-DE pour les voir.</item>
+    </plurals>
+    <string name="frontend_export_failed">Impossible d’ajouter les jeux.\nChoisissez un dossier local ou sur carte SD.</string>
+    <string name="scut_invalid_entry">Fichier de jeu indisponible.\nAjoutez de nouveau les jeux dans %1$s.</string>
+</resources>

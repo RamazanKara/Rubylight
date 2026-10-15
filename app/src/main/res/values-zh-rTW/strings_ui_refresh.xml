@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="add_pc_address_error">請輸入 IP 位址或電腦名稱，可在後面加上通訊埠 (例如 192.168.1.10:47989)。</string>
+    <string name="add_pc_connecting">正在連線…</string>
+    <string name="add_pc_service_unavailable">無法啟動電腦搜尋功能。請關閉這個畫面後再試一次。</string>
+    <string name="sheet_close">關閉選單</string>
+</resources>

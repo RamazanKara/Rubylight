@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="help_connect_title">PC 연결</string>
+    <string name="help_connect_body">Nightjar는 PC에서 실행 중인 모든 Moonlight 호환 호스트에서 스트리밍합니다. 호스트를 실행하고 두 기기를 같은 네트워크에 두면 PC가 목록에 표시됩니다. 표시되지 않으면 PC 추가를 탭하고 PC의 IP 주소를 입력하세요. 그래도 연결되지 않으면 PC 방화벽에서 호스트를 허용하세요.</string>
+    <string name="help_connect_link">설정 가이드</string>
+    <string name="help_pairing_title">페어링</string>
+    <string name="help_pairing_body">PC를 탭하고 PIN을 화면에 띄워 두세요. 그 PIN을 PC에 있는 호스트의 설정 또는 웹 페이지에 입력하세요. 호스트에 기기별 권한이 있다면 이 기기가 앱 목록을 보고 앱을 실행할 수 있도록 허용하세요.</string>
+    <string name="help_pairing_link">페어링 가이드</string>
+    <string name="help_controls_title">조작 및 스트림 메뉴</string>
+    <string name="help_controls_body">스트리밍 중에 뒤로를 누르면 스트림 메뉴가 열립니다: 키보드, 입력 모드, 오버레이, 비트레이트, 연결 끊기. 컨트롤러에서는 Start, Back, LB, RB를 함께 누르세요. 연결을 끊어도 게임은 PC에서 계속 실행되므로 나중에 이어서 할 수 있습니다.</string>
+    <string name="help_controls_link">조작 가이드</string>
+    <string name="help_problems_title">일반적인 문제 해결</string>
+    <string name="help_problems_body"><b>영상 없음:</b> HDR과 업스케일링을 끄고 720p H.264로 시도해 보세요.\n\n<b>끊김:</b> 비트레이트를 낮추거나, PC를 유선으로 연결하거나, 공유기에 더 가까이 가세요.\n\n<b>입력 지연:</b> 성능 오버레이를 켜서 지연이 어디서 생기는지 확인하고, 저지연 디코딩을 켜 두세요.\n\n<b>소리 없음:</b> 스테레오를 선택하고 PC의 오디오 출력을 확인한 후 다시 연결하세요.</string>
+    <string name="help_problems_link">문제 해결 가이드</string>
+    <string name="help_report_body">개인 정보를 제거한 로그를 공유합니다. 공유할 앱을 선택하기 전까지는 아무것도 전송되지 않습니다.</string>
+    <string name="help_report_link">포함할 내용</string>
+</resources>

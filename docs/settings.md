@@ -132,7 +132,7 @@ These tables include every preference, including actions, grouped as the Setting
 
 | Setting / preference key | Default | Choices and units | When to change or use |
 | --- | --- | --- | --- |
-| Language<br>`list_languages` | System default | System default; English; Deutsch | Choose the interface language. Android 13+ uses the system per-app language setting. |
+| Language<br>`list_languages` | System default | System default; English; Deutsch; Español; Français; Italiano; Polski; Português (Brasil); Tiếng Việt; Türkçe; Русский; Українська; 日本語; 한국어; 简体中文; 繁體中文 | Choose the interface language. Android 13+ uses the system per-app language setting. |
 | Use small box art<br>`checkbox_small_icon_mode` | On below 500 dp smallest screen width; Off on TVs and larger screens | On; Off | Enable to fit more games in the library grid. |
 | Help<br>`help` | No stored default | Action | Open the bundled help: connecting a PC, pairing, controls and the stream menu, common fixes and problem reports. Works offline; each topic links to these documents for detail. |
 | Report a problem<br>`report_problem` | No stored default | Action | Preview the explanation and share a redacted event/crash report through Android's share sheet. |

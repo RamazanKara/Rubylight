@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="controller_mapping_title">Pulsanti del controller</string>
+    <string name="controller_mapping_summary">Rimappa i pulsanti per ogni modello di controller</string>
+    <string name="controller_mapping_intro">Tocca «Mappa un pulsante», poi premi il pulsante del controller da rimappare.\nLe modifiche si applicano al prossimo stream.</string>
+    <string name="controller_mapping_waiting">Collega un controller, poi tocca «Mappa un pulsante».</string>
+    <string name="controller_mapping_unnamed">Controller</string>
+    <string name="controller_mapping_none">Tutti i pulsanti usano la mappatura predefinita.</string>
+    <string name="controller_mapping_row">Invia %1$s</string>
+    <string name="controller_mapping_choose">%1$s invia…</string>
+    <string name="controller_mapping_default">%1$s (predefinito)</string>
+    <string name="controller_mapping_disabled">Niente</string>
+    <string name="controller_mapping_reset">Ripristina questo controller</string>
+    <string name="controller_button_left_stick">Pressione levetta sinistra</string>
+    <string name="controller_button_right_stick">Pressione levetta destra</string>
+    <string name="controller_button_start">Start</string>
+    <string name="controller_button_select">Back</string>
+    <string name="controller_button_guide">Guide</string>
+    <string name="controller_button_number">Pulsante %1$d</string>
+    <string name="pc_tap_to_pair">%1$s\nTocca per accoppiare</string>
+</resources>

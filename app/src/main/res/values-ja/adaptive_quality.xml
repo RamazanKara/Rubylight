@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_adaptive_quality">ストリーム画質の自動調整</string>
+    <string name="summary_adaptive_quality">混雑、デコードの遅れ、発熱が続くと解像度または FPS を下げ、その後徐々に回復します。対応している場合は自動ビットレートを使用します。ホストの再設定機能と適応型デコーダーが必要です。PyroWave では使用できません。</string>
+    <string name="title_adaptive_quality_min_resolution">自動調整の最小解像度</string>
+    <string name="summary_adaptive_quality_min_resolution">短辺の最小値です（アスペクト比は維持）。選択したストリーム解像度が上限になります。開始時の解像度がこれより低くても、この制限によって引き上げられることはありません。</string>
+    <string name="title_adaptive_quality_min_fps">自動調整の最小フレームレート</string>
+    <string name="summary_adaptive_quality_min_fps">許可する最低 FPS です。選択したストリームのフレームレートが上限になります。バッテリーモードを含む自動画質調整に適用されます。</string>
+    <string name="quality_off">オフ</string>
+    <string name="quality_motion">動きを優先</string>
+    <string name="quality_detail">精細さを優先</string>
+    <string name="quality_battery">バッテリーを長持ち</string>
+    <string name="quality_use_settings">アプリの設定を使用</string>
+    <string name="quality_about">仕組み</string>
+    <string name="quality_stream_help">この PC 用に保存されます。[動き] は先に解像度を、[精細さ] は先に FPS を下げます。[バッテリー] は最小値の範囲内で、処理を最大 60 FPS、短辺 1080 ピクセルまで徐々に制限します。コーデック、HDR、ディスプレイの選択はネゴシエートされたまま変わりません。</string>
+    <string name="quality_unavailable">画質の自動調整はオフです: この PC またはデバイスはストリーム中に解像度とフレームレートを変更できません。</string>
+    <string name="quality_request_failed">画質の自動調整を停止しました: PC が新しいサイズを適用しませんでした。ストリームは続行されます。ストリームメニューで別のモードを選んでください。</string>
+    <string name="quality_status">画質の自動調整: %1$s · %2$d × %3$d · 目標 %4$d FPS</string>
+</resources>

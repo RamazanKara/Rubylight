@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="host_display_menu">Modo de tela do PC</string>
+    <string name="host_display_location">Para o modo Exclusivo ou Estendido, abra o menu do PC → Configurações de transmissão → Modo de tela do PC. O modo de tela é salvo separadamente para cada PC e requer suporte do host.</string>
+    <string name="host_display_controls_virtual">Controlado pelo modo de tela do PC: %1$s</string>
+    <string name="host_display_title">Tela em %1$s</string>
+    <string name="host_display_default">Configuração do próprio PC</string>
+    <string name="host_display_exclusive">Exclusivo — somente tela virtual (monitores do PC desligados)</string>
+    <string name="host_display_extended_primary">Estender — tornar a tela virtual principal</string>
+    <string name="host_display_extended">Estender — manter a tela do PC como principal</string>
+    <string name="host_display_extended_isolated">Estendido e separado — o PC continua principal</string>
+    <string name="host_display_extended_primary_isolated">Estendido e separado — tela virtual principal</string>
+    <string name="host_display_physical">Tela física (sem tela virtual)</string>
+    <string name="host_display_saved">Escolha de tela salva. Ela vale a partir da próxima transmissão.</string>
+    <string name="host_display_save">Salvar modo de tela</string>
+    <string name="host_display_explanation">Escolha um modo e toque em Salvar modo de tela. Cancelar mantém a escolha atual. O novo modo vale a partir da próxima transmissão.\n\nManter a tela do PC como principal deixa seu monitor como tela principal do Windows. Tornar a tela virtual principal passa essa função para a tela transmitida, onde jogos e novas janelas geralmente abrem. As duas opções Estender mantêm os monitores do PC ligados.\n\nConfiguração do próprio PC segue a Tela virtual do host e as configurações de tela do PC. Exclusivo desliga os monitores do PC durante a transmissão. Os modos separados colocam a tela transmitida longe dos outros monitores no layout da área de trabalho, na mesma sessão do Windows. Tela física transmite o monitor do PC sem tela virtual. O PC restaura suas telas quando a transmissão termina.\n\nSomente PCs cujo host suporta modos de tela oferecem esta escolha; nos outros PCs, a Tela virtual do host decide.</string>
+    <string name="host_administration_menu">Abrir interface web do host</string>
+    <string name="host_administration_help">Gerencie os aplicativos, os dispositivos pareados e as configurações do host na interface web dele. Entre com a conta da própria interface web; o pareamento não faz login. O acesso remoto requer uma porta da interface web acessível.\n\n%1$s</string>
+    <string name="host_administration_open">Abrir no navegador</string>
+    <string name="host_administration_no_browser">Nenhum navegador conseguiu abrir a interface web do host. Copie o endereço e abra em outro dispositivo.</string>
+</resources>

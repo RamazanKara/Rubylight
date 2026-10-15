@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="host_details_close">Kapat</string>
+    <string name="host_details_copy">Hata ayıklama bilgisini kopyala</string>
+    <string name="host_details_copied">Hata ayıklama bilgisi kopyalandı</string>
+    <string name="host_details_status">Durum</string>
+    <string name="host_details_state">Bağlantı</string>
+    <string name="host_details_pairing">Eşleştirme</string>
+    <string name="host_details_paired">Eşleştirildi</string>
+    <string name="host_details_not_paired">Eşleştirmek için bilgisayara dokunun.</string>
+    <string name="host_details_running">Çalışan uygulama</string>
+    <string name="host_details_running_none">Yok</string>
+    <string name="host_details_running_app">Uygulama %1$d</string>
+    <string name="host_details_host">Ana bilgisayar</string>
+    <string name="host_details_software">Ana bilgisayar yazılımı</string>
+    <string name="host_details_software_butterpollo">Rubylight %1$s</string>
+    <string name="host_details_software_gamestream">NVIDIA GameStream</string>
+    <string name="host_details_software_other">Sunshine uyumlu ana bilgisayar</string>
+    <string name="host_details_id">Ana bilgisayar kimliği</string>
+    <string name="host_details_network">Ağ</string>
+    <string name="host_details_active_address">Bağlantı adresi</string>
+    <string name="host_details_local_address">Yerel adres</string>
+    <string name="host_details_remote_address">İnternet adresi</string>
+    <string name="host_details_ipv6_address">IPv6 adresi</string>
+    <string name="host_details_manual_address">Girdiğiniz adres</string>
+    <string name="host_details_https_port">HTTPS bağlantı noktası</string>
+    <string name="host_details_mac">MAC adresi (Wake-on-LAN)</string>
+    <string name="host_details_permissions">Cihaz izinleri</string>
+</resources>

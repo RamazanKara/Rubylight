@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="startup_host_message">主機無法啟動這個串流：%1$s (錯誤 %2$d)</string>
+    <string name="startup_launch_cancelled">已取消啟動。</string>
+    <string name="startup_confirmation_timed_out">確認逾時。請再次啟動該圖塊以重試。</string>
+    <string name="startup_confirmation_rejected">主機工作階段已變更或確認已過期。請再次啟動該圖塊。</string>
+</resources>

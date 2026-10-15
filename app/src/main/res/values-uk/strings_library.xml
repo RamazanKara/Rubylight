@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="library_host_asks_named">ПК запитає підтвердження, перш ніж закрити %1$s</string>
+    <string name="library_host_asks">ПК запитає підтвердження, перш ніж закрити запущену гру</string>
+    <string name="library_quit_named_and_play">Закрити %1$s і грати</string>
+    <string name="library_quit_and_play">Закрити запущену гру і грати</string>
+    <string name="library_replace_message_named">Закрити %1$s і запустити %2$s?\nНезбережений прогрес буде втрачено.</string>
+    <string name="library_replace_message">Закрити запущену гру і запустити %1$s?\nНезбережений прогрес буде втрачено.</string>
+    <string name="library_replace_confirm">Закрити і грати</string>
+</resources>

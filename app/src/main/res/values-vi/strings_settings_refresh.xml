@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_global_context">Mặc định cho tất cả PC. Mỗi PC có thể dùng cài đặt stream riêng.</string>
+    <string name="settings_changes_saved">Thay đổi được lưu tự động</string>
+    <string name="settings_search_results">Kết quả tìm kiếm</string>
+    <string name="settings_back_to_search">Quay lại kết quả tìm kiếm</string>
+    <string name="settings_back_to_overview">Quay lại cài đặt</string>
+    <string name="settings_search_empty_help">Hãy thử từ khóa ngắn hơn, chẳng hạn độ phân giải, âm thanh hoặc tay cầm.</string>
+    <string name="settings_search_breadcrumb">%1$s · %2$s</string>
+    <plurals name="settings_search_count">
+        <item quantity="other">Tìm thấy %d cài đặt</item>
+    </plurals>
+    <string name="settings_profile_saved_context">Thay đổi áp dụng cho PC này sau khi bạn lưu.</string>
+    <string name="settings_profile_unsaved_context">Có thay đổi chưa lưu cho PC này</string>
+    <string name="settings_profile_reset_message">Dùng giá trị mặc định cho tất cả PC. Lưu để áp dụng thay đổi này cho PC này.</string>
+    <string name="settings_profile_display_immediate">Chế độ hiển thị được lưu riêng trong hộp thoại của nó.</string>
+</resources>

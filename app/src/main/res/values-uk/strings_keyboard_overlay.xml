@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="keyboard_keys_show">Додаткові клавіші</string>
+    <string name="keyboard_keys_hide">Сховати клавіші</string>
+    <string name="keyboard_task_manager">Диспетчер завдань</string>
+    <string name="keyboard_switch_window">Перемкнути вікно</string>
+    <string name="keyboard_close_window">Закрити вікно</string>
+    <string name="keyboard_arrow_left">Стрілка вліво</string>
+    <string name="keyboard_arrow_up">Стрілка вгору</string>
+    <string name="keyboard_arrow_down">Стрілка вниз</string>
+    <string name="keyboard_arrow_right">Стрілка вправо</string>
+</resources>

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="stream_hdr_display_unsupported">Цей екран не підтримує HDR, тому трансляція йде в SDR.</string>
+    <string name="stream_hdr_android_unsupported">Для HDR потрібен Android 7 або новіший, тому трансляція йде в SDR.</string>
+    <string name="stream_hdr_decoder_unsupported">Цей пристрій не відтворює HDR-відео, тому трансляція йде в SDR.</string>
+    <string name="stream_hevc_decoder_missing">Цей пристрій не відтворює HEVC, тому трансляція використовує інший кодек.</string>
+    <string name="stream_av1_decoder_missing">Цей пристрій не відтворює AV1, тому трансляція використовує інший кодек.</string>
+    <string name="stream_mouse_mode_on">Режим миші з контролера ввімкнено</string>
+    <string name="stream_mouse_mode_off">Режим миші з контролера вимкнено</string>
+</resources>

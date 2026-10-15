@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="pair_otp_title">일회용 PIN으로 페어링</string>
+    <string name="pair_otp_help">호스트의 PIN과 암호를 입력하세요.\nPIN은 3분 후에 만료됩니다.</string>
+    <string name="pair_otp_pin">일회용 PIN</string>
+    <string name="pair_otp_passphrase">암호</string>
+    <string name="pair_otp_invalid_pin">호스트에 표시된 4자리 PIN을 입력하세요.</string>
+    <string name="pair_otp_invalid_passphrase">호스트 암호를 입력하세요(4자 이상).</string>
+    <string name="guide_title">PC에 연결</string>
+    <string name="guide_text">1. PC에서 Apollo, Rubylight, Sunshine, Vibepollo 등 Moonlight 호환 호스트를 실행하세요.\n2. Android에서 같은 네트워크에 있는 PC를 선택하세요.\n3. Android에 표시된 PIN을 호스트의 설정 또는 웹 UI에 입력하세요.</string>
+    <string name="guide_done">확인</string>
+    <string name="guide_troubleshooting">도움말</string>
+</resources>

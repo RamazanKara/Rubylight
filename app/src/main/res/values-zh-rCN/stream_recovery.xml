@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_auto_reconnect">恢复中断的串流</string>
+    <string name="summary_auto_reconnect">连接暂时失败后，自动继续同一个正在运行的游戏。一分钟内最多尝试五次；按“返回”可取消。</string>
+    <string name="stream_recovery_attempt">正在重新连接到你的游戏… 第 %1$d 次尝试，共 %2$d 次。按“返回”可取消。</string>
+    <string name="stream_recovery_session_changed">之前的游戏会话已不可用。为避免启动或替换游戏，已停止自动恢复。</string>
+    <string name="stream_recovery_exhausted">自动恢复未能在一分钟内重新连接。你的游戏未被退出。请检查连接，然后选择“重新连接”再试一次。</string>
+    <string name="stream_recovery_paused">你离开串流后，自动恢复已停止。选择“重新连接”可继续。</string>
+</resources>

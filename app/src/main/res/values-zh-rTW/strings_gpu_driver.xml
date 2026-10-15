@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="gpu_driver_title">Snapdragon GPU 驅動程式</string>
+    <string name="gpu_driver_system">系統 GPU 驅動程式</string>
+    <string name="gpu_driver_explanation">PyroWave 可以使用含有 meta.json 和 arm64 程式庫的 Adreno 驅動程式 ZIP。請選擇你信任且支援你的 GPU 和 Android 版本的套件。變更會在下次串流時套用，且只會影響這個應用程式。如果載入失敗，應用程式會使用系統驅動程式。使用自訂驅動程式發生當機後，下次啟動時會改回系統驅動程式。相容性和效能仍取決於你的手機和驅動程式。</string>
+    <string name="gpu_driver_unsupported">自訂驅動程式需要 Android 10 以上版本、64 位元 arm64 應用程式和 Adreno GPU。這部裝置使用系統 GPU 驅動程式。</string>
+    <string name="gpu_driver_system_fallback">自訂驅動程式失敗，正在使用系統 GPU 驅動程式。</string>
+    <string name="gpu_driver_import">匯入驅動程式 ZIP</string>
+    <string name="gpu_driver_no_picker">請安裝檔案選擇器，以匯入驅動程式 ZIP。</string>
+    <string name="gpu_driver_remove">移除驅動程式</string>
+    <string name="gpu_driver_removed">已移除驅動程式。</string>
+    <string name="gpu_driver_imported">已匯入並選取：%1$s</string>
+    <string name="gpu_driver_working">正在檢查驅動程式…</string>
+    <string name="gpu_driver_error">驅動程式操作失敗：%1$s</string>
+</resources>

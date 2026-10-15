@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="controller_mapping_title">Boutons de la manette</string>
+    <string name="controller_mapping_summary">Réattribuer les boutons pour chaque modèle de manette</string>
+    <string name="controller_mapping_intro">Appuyez sur « Attribuer un bouton », puis sur le bouton de la manette à réattribuer.\nLes modifications s’appliquent au prochain stream.</string>
+    <string name="controller_mapping_waiting">Connectez une manette, puis appuyez sur « Attribuer un bouton ».</string>
+    <string name="controller_mapping_unnamed">Manette</string>
+    <string name="controller_mapping_none">Tous les boutons utilisent leur attribution par défaut.</string>
+    <string name="controller_mapping_row">Envoie %1$s</string>
+    <string name="controller_mapping_choose">%1$s envoie…</string>
+    <string name="controller_mapping_default">%1$s (par défaut)</string>
+    <string name="controller_mapping_disabled">Rien</string>
+    <string name="controller_mapping_reset">Réinitialiser cette manette</string>
+    <string name="controller_button_left_stick">Clic du stick gauche</string>
+    <string name="controller_button_right_stick">Clic du stick droit</string>
+    <string name="controller_button_start">Start</string>
+    <string name="controller_button_select">Back</string>
+    <string name="controller_button_guide">Guide</string>
+    <string name="controller_button_number">Bouton %1$d</string>
+    <string name="pc_tap_to_pair">%1$s\nAppuyez pour associer</string>
+</resources>

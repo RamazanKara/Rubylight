@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="controller_mapping_capture">Mappa un pulsante</string>
+    <string name="controller_mapping_press">Premi il pulsante del controller da mappare. Indietro annulla.</string>
+</resources>

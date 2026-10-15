@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="startup_host_message">Ana bilgisayar bu yayını başlatamadı: %1$s (hata %2$d)</string>
+    <string name="startup_launch_cancelled">Başlatma iptal edildi.</string>
+    <string name="startup_confirmation_timed_out">Onay zaman aşımına uğradı. Tekrar denemek için kutucuğu yeniden başlatın.</string>
+    <string name="startup_confirmation_rejected">Ana bilgisayar oturumu değişti veya onayın süresi doldu. Kutucuğu yeniden başlatın.</string>
+</resources>

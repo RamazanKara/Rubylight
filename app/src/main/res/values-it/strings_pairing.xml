@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="pair_otp_title">Accoppia con PIN monouso</string>
+    <string name="pair_otp_help">Inserisci il PIN e la passphrase dell’host.\nIl PIN scade dopo tre minuti.</string>
+    <string name="pair_otp_pin">PIN monouso</string>
+    <string name="pair_otp_passphrase">Passphrase</string>
+    <string name="pair_otp_invalid_pin">Inserisci il PIN di quattro cifre fornito dall’host.</string>
+    <string name="pair_otp_invalid_passphrase">Inserisci la passphrase dell’host (almeno quattro caratteri).</string>
+    <string name="guide_title">Connettiti al PC</string>
+    <string name="guide_text">1. Avvia sul PC un host compatibile con Moonlight, come Apollo, Rubylight, Sunshine o Vibepollo.\n2. Su Android, seleziona il PC sulla stessa rete.\n3. Inserisci il PIN mostrato su Android nelle impostazioni o nell’interfaccia web dell’host.</string>
+    <string name="guide_done">Ho capito</string>
+    <string name="guide_troubleshooting">Aiuto</string>
+</resources>

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="stream_auto_bitrate_enable">자동 비트레이트 사용</string>
+    <string name="stream_auto_bitrate_disable">자동 비트레이트 사용 안함</string>
+    <string name="stream_auto_bitrate_help">연결 상태에 맞게 비트레이트를 조정합니다.\n이 PC에 저장되며, 직접 변경하면 꺼집니다.</string>
+    <string name="stream_pyrowave_bitrate_help">이 PC의 PyroWave를 자동 조정합니다.\n비트레이트를 직접 설정하면 꺼집니다.</string>
+    <string name="stream_auto_bitrate_failed">비트레이트를 일시적으로 업데이트하지 못했습니다. 자동으로 다시 시도합니다.</string>
+    <string name="stream_auto_bitrate_unavailable">이 PC는 스트림 비트레이트를 알려주지 않습니다. 이 스트림에서는 자동 비트레이트가 꺼집니다.</string>
+    <string name="stream_auto_bitrate_status">자동 비트레이트: %1$.1f Mbps</string>
+    <string name="stream_bitrate_busy">호스트가 사용 중입니다. 잠시 후 다시 시도하세요.</string>
+</resources>

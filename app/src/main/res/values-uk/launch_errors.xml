@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="startup_host_message">Хосту не вдалося почати цю трансляцію: %1$s (помилка %2$d)</string>
+    <string name="startup_launch_cancelled">Запуск скасовано.</string>
+    <string name="startup_confirmation_timed_out">Час на підтвердження минув. Щоб повторити, знову запустіть плитку.</string>
+    <string name="startup_confirmation_rejected">Сеанс хоста змінився або підтвердження втратило чинність. Знову запустіть плитку.</string>
+</resources>

@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_adaptive_quality">Автоматична якість трансляції</string>
+    <string name="summary_adaptive_quality">Знижує роздільну здатність або FPS при тривалому перевантаженні мережі, повільному декодуванні чи перегріві, потім поступово відновлює. Використовує автоматичний бітрейт, якщо він підтримується. Потрібні підтримка переналаштування на хості та адаптивний декодер; недоступно з PyroWave.</string>
+    <string name="title_adaptive_quality_min_resolution">Мінімальна автоматична роздільна здатність</string>
+    <string name="summary_adaptive_quality_min_resolution">Найменша коротка сторона зі збереженням співвідношення сторін. Вибрана роздільна здатність трансляції лишається максимальною. Нижча початкова роздільна здатність ніколи не підвищується через це обмеження.</string>
+    <string name="title_adaptive_quality_min_fps">Мінімальна автоматична частота кадрів</string>
+    <string name="summary_adaptive_quality_min_fps">Найнижчий дозволений FPS. Вибрана частота кадрів трансляції лишається максимальною. Діє для автоматичної якості, зокрема в режимі економії заряду.</string>
+    <string name="quality_off">Вимкнено</string>
+    <string name="quality_motion">Плавність руху</string>
+    <string name="quality_detail">Деталізація</string>
+    <string name="quality_battery">Економія заряду</string>
+    <string name="quality_use_settings">Налаштування застосунку</string>
+    <string name="quality_about">Як це працює</string>
+    <string name="quality_stream_help">Зберігається для цього ПК. «Плавність руху» спершу знижує роздільну здатність; «Деталізація» спершу знижує FPS. «Економія заряду» поступово обмежує навантаження до 60 FPS і короткої сторони 1080 пікселів, у межах ваших мінімальних значень. Кодек, HDR і вибір дисплея лишаються такими, як узгоджено.</string>
+    <string name="quality_unavailable">Автоматичну якість вимкнено: цей ПК або пристрій не може змінювати роздільну здатність і частоту кадрів під час трансляції.</string>
+    <string name="quality_request_failed">Автоматичну якість зупинено: ПК не застосував новий розмір. Трансляція триває; виберіть інший режим у меню трансляції.</string>
+    <string name="quality_status">Автоматична якість: %1$s · %2$d × %3$d · ціль %4$d FPS</string>
+</resources>

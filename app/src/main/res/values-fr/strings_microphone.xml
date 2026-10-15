@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_checkbox_enable_mic">Envoyer le micro au PC</string>
+    <string name="summary_checkbox_enable_mic">Les jeux et applis de chat du PC entendent le micro de cet appareil, si l’hôte l’accepte</string>
+    <string name="mic_permission_denied">L’accès au micro n’a pas été autorisé : le micro reste désactivé. Autorisez-le dans les paramètres Android pour parler via le PC.</string>
+    <string name="mic_status_sending">Micro : envoi en cours</string>
+    <string name="mic_status_muted">Micro : coupé</string>
+    <string name="mic_status_not_offered">Micro : non proposé par l’hôte</string>
+    <string name="mic_status_unavailable">Micro : indisponible</string>
+    <string name="mic_status_no_permission">Micro : autorisation requise</string>
+</resources>

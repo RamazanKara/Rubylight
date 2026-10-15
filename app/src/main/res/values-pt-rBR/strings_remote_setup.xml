@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="remote_setup_title">Jogar longe de casa</string>
+    <string name="remote_step">Etapa %1$d de 3</string>
+    <string name="remote_prepare">Prepare em casa\n\nPareie este dispositivo com seu PC na rede de casa e confirme que uma transmissão normal funciona. Mantenha o PC ligado e o host em execução.\n\nO Wake-on-LAN remoto requer um roteador compatível ou um dispositivo sempre ligado em casa; o celular não consegue sozinho ligar um PC inacessível.</string>
+    <string name="remote_vpn">Conecte seus dispositivos\n\nUma VPN privada como o Tailscale pode conectar seu celular e seu PC sem expor a interface web do host à internet. Instale-a nos dois dispositivos, entre na sua própria conta e ative a conexão entre eles. VPNs já configuradas também podem ser usadas.\n\nO link abre o guia oficial de download. Este app não instala software, não cria contas, não altera configurações do roteador nem ativa o encaminhamento de portas.</string>
+    <string name="remote_verify">Verifique a partir de outra rede\n\nAdicione o endereço VPN do PC com Adicionar endereço, incluindo a porta HTTP de transmissão se ela for personalizada. Isso atualiza o PC salvo quando a identidade dele corresponde. Depois, volte aqui.\n\nDesconecte-se do Wi-Fi de casa e use dados móveis ou outra rede. O teste verifica a identidade do PC pareado e cinco pequenas solicitações HTTPS; ele não inicia uma transmissão nem baixa um arquivo de teste de velocidade. Um teste feito apenas em casa não comprova o acesso pela internet.</string>
+    <string name="remote_get_vpn">Abrir configuração do Tailscale</string>
+    <string name="remote_add_address">Adicionar endereço VPN ou remoto</string>
+    <string name="remote_test">Testar este PC</string>
+    <string name="remote_previous">Anterior</string>
+    <string name="remote_next">Próxima</string>
+    <string name="remote_pair_first">Pareie este PC localmente primeiro. O certificado salvo e a porta HTTPS dele são necessários para verificar se o endereço remoto chega ao seu PC.</string>
+    <string name="remote_pair_revoked">O PC respondeu, mas este dispositivo não está mais pareado. Pareie novamente em casa antes de testar o jogo remoto.</string>
+    <string name="remote_permission_denied">O PC pareado respondeu, mas este dispositivo não pode ver transmissões. Ative a visualização ou a inicialização de aplicativos para este dispositivo nas configurações ou na interface web do host.</string>
+    <string name="remote_running">Verificando seu PC pareado…</string>
+    <string name="remote_cancelled">Teste cancelado. Nenhuma configuração de host ou rede foi alterada.</string>
+    <string name="remote_failed">Não foi possível verificar o PC pareado. Confira se ele está ligado, se o host e a VPN estão em execução e se o endereço salvo e as portas de transmissão estão corretos. Se o pareamento mudou, pareie novamente em casa. Este teste não distingue um PC em suspensão de uma rota bloqueada.</string>
+    <string name="remote_verified">O PC pareado respondeu nesta rede. Em seguida, tente uma transmissão normal com uma taxa de bits moderada; o acesso HTTPS não verifica as portas UDP de vídeo/áudio nem o desempenho contínuo da transmissão.</string>
+    <string name="remote_direct">O Tailscale informa um caminho direto para esta conexão. Caminhos diretos geralmente oferecem a melhor taxa de transferência e latência.</string>
+    <string name="remote_relay">O Tailscale informa um relay DERP. Ele garante a conectividade, mas a velocidade da transmissão pode ser limitada. Consulte as orientações de conectividade do Tailscale ou configure um peer relay adequado.</string>
+    <string name="remote_peer_relay">O Tailscale informa um peer relay. O desempenho depende desse relay e dos dois caminhos de rede; compare com uma transmissão real.</string>
+    <string name="remote_unknown">Caminho direto ou via relay: indisponível. Este host, VPN ou conexão não expõe uma classificação atual da rota. Verifique o status da sua VPN; um ping baixo, por si só, não comprova um caminho direto.</string>
+    <string name="remote_measurements">Média das solicitações HTTPS: %1$.1f ms\nSolicitações com falha: %2$.0f %%\nEstas são medições de solicitações do aplicativo, não perda de pacotes de vídeo nem latência de entrada.</string>
+</resources>

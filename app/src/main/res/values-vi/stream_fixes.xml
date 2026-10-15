@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="stream_hdr_display_unsupported">Màn hình này không hiển thị được HDR nên stream dùng SDR.</string>
+    <string name="stream_hdr_android_unsupported">HDR cần Android 7 trở lên nên stream dùng SDR.</string>
+    <string name="stream_hdr_decoder_unsupported">Thiết bị này không phát được video HDR nên stream dùng SDR.</string>
+    <string name="stream_hevc_decoder_missing">Thiết bị này không phát được HEVC nên stream dùng codec khác.</string>
+    <string name="stream_av1_decoder_missing">Thiết bị này không phát được AV1 nên stream dùng codec khác.</string>
+    <string name="stream_mouse_mode_on">Đã bật chế độ chuột bằng tay cầm điều khiển</string>
+    <string name="stream_mouse_mode_off">Đã tắt chế độ chuột bằng tay cầm điều khiển</string>
+</resources>

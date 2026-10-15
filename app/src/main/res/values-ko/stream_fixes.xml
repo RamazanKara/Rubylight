@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="stream_hdr_display_unsupported">이 화면은 HDR을 표시할 수 없어 SDR로 스트리밍합니다.</string>
+    <string name="stream_hdr_android_unsupported">HDR에는 Android 7 이상이 필요하므로 SDR로 스트리밍합니다.</string>
+    <string name="stream_hdr_decoder_unsupported">이 기기는 HDR 동영상을 재생할 수 없어 SDR로 스트리밍합니다.</string>
+    <string name="stream_hevc_decoder_missing">이 기기는 HEVC를 재생할 수 없어 다른 코덱을 사용합니다.</string>
+    <string name="stream_av1_decoder_missing">이 기기는 AV1을 재생할 수 없어 다른 코덱을 사용합니다.</string>
+    <string name="stream_mouse_mode_on">컨트롤러 마우스 모드 사용</string>
+    <string name="stream_mouse_mode_off">컨트롤러 마우스 모드 사용 안함</string>
+</resources>

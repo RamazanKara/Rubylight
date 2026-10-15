@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_global_context">适用于所有电脑的默认设置。每台电脑都可以使用自己的串流设置。</string>
+    <string name="settings_changes_saved">更改会自动保存</string>
+    <string name="settings_search_results">搜索结果</string>
+    <string name="settings_back_to_search">返回搜索结果</string>
+    <string name="settings_back_to_overview">返回设置</string>
+    <string name="settings_search_empty_help">请尝试更短的字词，例如分辨率、音频或手柄。</string>
+    <string name="settings_search_breadcrumb">%1$s · %2$s</string>
+    <plurals name="settings_search_count">
+        <item quantity="other">找到 %d 项设置</item>
+    </plurals>
+    <string name="settings_profile_saved_context">保存后，更改将应用于此电脑。</string>
+    <string name="settings_profile_unsaved_context">此电脑有未保存的更改</string>
+    <string name="settings_profile_reset_message">使用适用于所有电脑的默认设置。保存后此更改将应用于此电脑。</string>
+    <string name="settings_profile_display_immediate">显示模式会在其对话框中单独保存。</string>
+</resources>

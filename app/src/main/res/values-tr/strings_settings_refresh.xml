@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_global_context">Tüm bilgisayarlar için varsayılanlar. Her bilgisayar kendi yayın ayarlarını kullanabilir.</string>
+    <string name="settings_changes_saved">Değişiklikler otomatik olarak kaydedilir</string>
+    <string name="settings_search_results">Arama sonuçları</string>
+    <string name="settings_back_to_search">Arama sonuçlarına dön</string>
+    <string name="settings_back_to_overview">Ayarlara dön</string>
+    <string name="settings_search_empty_help">Çözünürlük, ses veya kumanda gibi daha kısa bir terim deneyin.</string>
+    <string name="settings_search_breadcrumb">%1$s · %2$s</string>
+    <plurals name="settings_search_count">
+        <item quantity="one">%d ayar bulundu</item>
+        <item quantity="other">%d ayar bulundu</item>
+    </plurals>
+    <string name="settings_profile_saved_context">Değişiklikler kaydettikten sonra bu bilgisayara uygulanır.</string>
+    <string name="settings_profile_unsaved_context">Bu bilgisayar için kaydedilmemiş değişiklikler</string>
+    <string name="settings_profile_reset_message">Tüm bilgisayarlar için varsayılanları kullanın. Bu değişikliği bu bilgisayara uygulamak için kaydedin.</string>
+    <string name="settings_profile_display_immediate">Ekran modu kendi iletişim kutusunda ayrıca kaydedilir.</string>
+</resources>

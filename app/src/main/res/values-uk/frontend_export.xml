@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="frontend_export_menu">Додати ігри в ES-DE</string>
+    <string name="frontend_export_roms_title">Виберіть папку ROM</string>
+    <string name="frontend_export_roms_message">Додати ярлики ігор у цю папку для ES-DE або іншого фронтенду.</string>
+    <string name="frontend_export_esde_title">Виберіть папку ES-DE</string>
+    <string name="frontend_export_esde_message">Додати %1$s і обкладинки ігор в ES-DE?\nПропустіть для інших фронтендів.</string>
+    <string name="frontend_export_pick">Вибрати папку</string>
+    <string name="frontend_export_skip">Пропустити</string>
+    <string name="frontend_export_no_apps">Спершу відкрийте ігри цього ПК, потім спробуйте ще раз.</string>
+    <string name="frontend_export_no_picker">На цьому пристрої немає засобу вибору папок.</string>
+    <string name="frontend_export_working">Додавання ігор…</string>
+    <plurals name="frontend_export_done">
+        <item quantity="one">Додано %1$d гру. Перезапустіть ES-DE, щоб її побачити.</item>
+        <item quantity="few">Додано %1$d гри. Перезапустіть ES-DE, щоб їх побачити.</item>
+        <item quantity="many">Додано %1$d ігор. Перезапустіть ES-DE, щоб їх побачити.</item>
+        <item quantity="other">Додано %1$d гри. Перезапустіть ES-DE, щоб їх побачити.</item>
+    </plurals>
+    <string name="frontend_export_failed">Не вдалося додати ігри.\nВиберіть папку в пам’яті пристрою або на SD-карті.</string>
+    <string name="scut_invalid_entry">Файл гри недоступний.\nЗнову додайте ігри в %1$s.</string>
+</resources>

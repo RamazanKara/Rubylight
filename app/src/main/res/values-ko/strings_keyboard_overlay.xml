@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="keyboard_keys_show">추가 키보드 키</string>
+    <string name="keyboard_keys_hide">키 숨기기</string>
+    <string name="keyboard_task_manager">작업 관리자</string>
+    <string name="keyboard_switch_window">창 전환</string>
+    <string name="keyboard_close_window">창 닫기</string>
+    <string name="keyboard_arrow_left">왼쪽 화살표</string>
+    <string name="keyboard_arrow_up">위쪽 화살표</string>
+    <string name="keyboard_arrow_down">아래쪽 화살표</string>
+    <string name="keyboard_arrow_right">오른쪽 화살표</string>
+</resources>

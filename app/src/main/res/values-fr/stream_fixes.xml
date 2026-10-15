@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="stream_hdr_display_unsupported">Cet écran ne peut pas afficher le HDR : le stream est donc en SDR.</string>
+    <string name="stream_hdr_android_unsupported">Le HDR nécessite Android 7 ou version ultérieure : le stream est donc en SDR.</string>
+    <string name="stream_hdr_decoder_unsupported">Cet appareil ne peut pas lire de vidéo HDR : le stream est donc en SDR.</string>
+    <string name="stream_hevc_decoder_missing">Cet appareil ne peut pas lire le HEVC : le stream utilise donc un autre codec.</string>
+    <string name="stream_av1_decoder_missing">Cet appareil ne peut pas lire l’AV1 : le stream utilise donc un autre codec.</string>
+    <string name="stream_mouse_mode_on">Mode souris de la manette activé</string>
+    <string name="stream_mouse_mode_off">Mode souris de la manette désactivé</string>
+</resources>

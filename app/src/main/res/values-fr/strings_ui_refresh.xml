@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="add_pc_address_error">Saisissez une adresse IP ou un nom de PC, éventuellement suivi d’un port (par exemple, 192.168.1.10:47989).</string>
+    <string name="add_pc_connecting">Connexion…</string>
+    <string name="add_pc_service_unavailable">Impossible de lancer la détection des PC. Fermez cet écran et réessayez.</string>
+    <string name="sheet_close">Fermer le menu</string>
+</resources>

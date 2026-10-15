@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="pc_status_ready">Pronto</string>
+    <string name="pc_status_playing">Jogando %1$s</string>
+    <string name="pc_status_playing_unknown">Jogando</string>
+    <string name="pc_status_waking">Ligando…</string>
+    <string name="discovery_connect_help">Como conectar</string>
+    <string name="pc_menu_settings">Configurações do PC…</string>
+    <string name="pc_menu_resume_game">Retomar %1$s</string>
+    <string name="pc_menu_quit_game">Encerrar %1$s</string>
+</resources>

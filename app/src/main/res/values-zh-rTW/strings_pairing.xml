@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="pair_otp_title">使用一次性 PIN 碼配對</string>
+    <string name="pair_otp_help">請輸入主機的 PIN 碼和通關密語。\nPIN 碼會在三分鐘後失效。</string>
+    <string name="pair_otp_pin">一次性 PIN 碼</string>
+    <string name="pair_otp_passphrase">通關密語</string>
+    <string name="pair_otp_invalid_pin">請輸入主機上的四位數 PIN 碼。</string>
+    <string name="pair_otp_invalid_passphrase">請輸入主機的通關密語 (至少四個字元)。</string>
+    <string name="guide_title">連線至你的電腦</string>
+    <string name="guide_text">1. 在電腦上啟動與 Moonlight 相容的主機軟體，例如 Apollo、Rubylight、Sunshine 或 Vibepollo。\n2. 在 Android 裝置上選取同一網路中的電腦。\n3. 在主機的設定或網頁 UI 中輸入 Android 裝置上顯示的 PIN 碼。</string>
+    <string name="guide_done">我知道了</string>
+    <string name="guide_troubleshooting">說明</string>
+</resources>

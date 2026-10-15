@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="startup_host_message">호스트가 이 스트림을 시작하지 못했습니다: %1$s(오류 %2$d)</string>
+    <string name="startup_launch_cancelled">실행이 취소되었습니다.</string>
+    <string name="startup_confirmation_timed_out">확인 시간이 초과되었습니다. 타일을 다시 눌러 재시도하세요.</string>
+    <string name="startup_confirmation_rejected">호스트 세션이 변경되었거나 확인이 만료되었습니다. 타일을 다시 눌러 시작하세요.</string>
+</resources>

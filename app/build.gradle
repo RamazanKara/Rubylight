@@ -94,7 +94,7 @@ android {
     }
 
     androidResources {
-        localeFilters += ['en', 'de']
+        localeFilters += ['en', 'de', 'es', 'fr', 'it', 'ja', 'ko', 'pl', 'pt-rBR', 'ru', 'tr', 'uk', 'vi', 'zh-rCN', 'zh-rTW']
     }
 
     lint {

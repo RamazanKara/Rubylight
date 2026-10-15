@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="startup_host_message">El servidor no ha podido iniciar esta transmisión: %1$s (error %2$d)</string>
+    <string name="startup_launch_cancelled">Inicio cancelado.</string>
+    <string name="startup_confirmation_timed_out">Se ha agotado el tiempo de confirmación. Vuelve a iniciar el icono para reintentarlo.</string>
+    <string name="startup_confirmation_rejected">La sesión del servidor ha cambiado o la confirmación ha caducado. Vuelve a iniciar el icono.</string>
+</resources>

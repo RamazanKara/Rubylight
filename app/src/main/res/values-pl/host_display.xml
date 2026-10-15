@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="host_display_menu">Tryb ekranu komputera</string>
+    <string name="host_display_location">Aby użyć trybu Wyłączny lub Rozszerzony, otwórz menu komputera → Ustawienia strumienia → Tryb ekranu komputera. Tryb ekranu jest zapisywany osobno dla każdego komputera i wymaga obsługi przez host.</string>
+    <string name="host_display_controls_virtual">Zależy od trybu ekranu komputera: %1$s</string>
+    <string name="host_display_title">Ekran na %1$s</string>
+    <string name="host_display_default">Ustawienie komputera</string>
+    <string name="host_display_exclusive">Wyłączny — tylko ekran wirtualny (monitory komputera wyłączone)</string>
+    <string name="host_display_extended_primary">Rozszerz — ekran wirtualny jako główny</string>
+    <string name="host_display_extended">Rozszerz — ekran komputera pozostaje główny</string>
+    <string name="host_display_extended_isolated">Rozszerzony i odseparowany — komputer pozostaje główny</string>
+    <string name="host_display_extended_primary_isolated">Rozszerzony i odseparowany — ekran wirtualny główny</string>
+    <string name="host_display_physical">Ekran fizyczny (bez ekranu wirtualnego)</string>
+    <string name="host_display_saved">Wybór ekranu zapisany. Obowiązuje od następnego strumienia.</string>
+    <string name="host_display_save">Zapisz tryb ekranu</string>
+    <string name="host_display_explanation">Wybierz tryb, a potem kliknij Zapisz tryb ekranu. Anuluj zachowuje bieżący wybór. Nowy tryb obowiązuje od następnego strumienia.\n\nEkran komputera pozostaje główny: monitor pozostaje głównym ekranem Windows. Ekran wirtualny jako główny: tę rolę przejmuje strumieniowany ekran, na którym zwykle otwierają się gry i nowe okna. Obie opcje Rozszerz pozostawiają monitory komputera włączone.\n\nUstawienie komputera jest zgodne z opcją Wirtualny ekran hosta i ustawieniami ekranu komputera. Wyłączny wyłącza monitory komputera na czas strumienia. Tryby odseparowane umieszczają strumieniowany ekran daleko od pozostałych monitorów w układzie pulpitu, w tej samej sesji Windows. Ekran fizyczny strumieniuje monitor komputera bez ekranu wirtualnego. Po zakończeniu strumienia komputer przywraca swoje ekrany.\n\nTen wybór oferują tylko komputery, których host obsługuje tryby ekranu; na innych komputerach decyduje opcja Wirtualny ekran hosta.</string>
+    <string name="host_administration_menu">Otwórz interfejs WWW hosta</string>
+    <string name="host_administration_help">Zarządzaj aplikacjami hosta, sparowanymi urządzeniami i ustawieniami w jego interfejsie WWW. Zaloguj się na własne konto interfejsu WWW; parowanie nie loguje automatycznie. Dostęp zdalny wymaga osiągalnego portu interfejsu WWW.\n\n%1$s</string>
+    <string name="host_administration_open">Otwórz w przeglądarce</string>
+    <string name="host_administration_no_browser">Żadna przeglądarka nie mogła otworzyć interfejsu WWW hosta. Skopiuj jego adres i otwórz go na innym urządzeniu.</string>
+</resources>

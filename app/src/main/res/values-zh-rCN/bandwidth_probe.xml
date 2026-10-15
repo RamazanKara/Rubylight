@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="bandwidth_probe_start">开始测试</string>
+    <string name="bandwidth_probe_link">电脑链路 %1$d Mbps</string>
+</resources>

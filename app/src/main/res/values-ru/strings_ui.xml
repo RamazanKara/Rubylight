@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="library_computers">ПК</string>
+    <string name="pc_needs_pairing">Не сопряжён</string>
+    <string name="pc_offline">Не в сети</string>
+    <string name="pc_checking">Проверка подключения…</string>
+    <string name="app_running">Запущено</string>
+    <string name="app_hidden">Скрыто</string>
+    <string name="app_running_hidden">Запущено · Скрыто</string>
+    <string name="library_item_description">%1$s, %2$s</string>
+    <string name="add_pc_hint">Введите IP-адрес или имя ПК, при необходимости с портом.</string>
+</resources>

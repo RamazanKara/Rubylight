@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="controller_mapping_capture">對應按鈕</string>
+    <string name="controller_mapping_press">請按下要對應的控制器按鈕。按「返回」可取消。</string>
+</resources>

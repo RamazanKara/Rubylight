@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="keyboard_keys_show">Ek klavye tuşları</string>
+    <string name="keyboard_keys_hide">Tuşları gizle</string>
+    <string name="keyboard_task_manager">Görev Yöneticisi</string>
+    <string name="keyboard_switch_window">Pencere değiştir</string>
+    <string name="keyboard_close_window">Pencereyi kapat</string>
+    <string name="keyboard_arrow_left">Sol ok</string>
+    <string name="keyboard_arrow_up">Yukarı ok</string>
+    <string name="keyboard_arrow_down">Aşağı ok</string>
+    <string name="keyboard_arrow_right">Sağ ok</string>
+</resources>

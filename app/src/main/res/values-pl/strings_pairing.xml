@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="pair_otp_title">Parowanie jednorazowym kodem PIN</string>
+    <string name="pair_otp_help">Wpisz kod PIN i hasło hosta.\nKod PIN wygasa po trzech minutach.</string>
+    <string name="pair_otp_pin">Jednorazowy kod PIN</string>
+    <string name="pair_otp_passphrase">Hasło</string>
+    <string name="pair_otp_invalid_pin">Wpisz czterocyfrowy kod PIN z hosta.</string>
+    <string name="pair_otp_invalid_passphrase">Wpisz hasło hosta (co najmniej cztery znaki).</string>
+    <string name="guide_title">Połącz się z komputerem</string>
+    <string name="guide_text">1. Uruchom na komputerze host zgodny z Moonlight, np. Apollo, Rubylight, Sunshine lub Vibepollo.\n2. Na Androidzie wybierz komputer w tej samej sieci.\n3. Wpisz kod PIN wyświetlony na Androidzie w ustawieniach lub interfejsie WWW hosta.</string>
+    <string name="guide_done">OK</string>
+    <string name="guide_troubleshooting">Pomoc</string>
+</resources>

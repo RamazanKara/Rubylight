@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="host_details_close">关闭</string>
+    <string name="host_details_copy">复制调试信息</string>
+    <string name="host_details_copied">已复制调试信息</string>
+    <string name="host_details_status">状态</string>
+    <string name="host_details_state">连接</string>
+    <string name="host_details_pairing">配对</string>
+    <string name="host_details_paired">已配对</string>
+    <string name="host_details_not_paired">点按电脑即可配对。</string>
+    <string name="host_details_running">正在运行的应用</string>
+    <string name="host_details_running_none">无</string>
+    <string name="host_details_running_app">应用 %1$d</string>
+    <string name="host_details_host">主机</string>
+    <string name="host_details_software">主机软件</string>
+    <string name="host_details_software_butterpollo">Rubylight %1$s</string>
+    <string name="host_details_software_gamestream">NVIDIA GameStream</string>
+    <string name="host_details_software_other">兼容 Sunshine 的主机</string>
+    <string name="host_details_id">主机 ID</string>
+    <string name="host_details_network">网络</string>
+    <string name="host_details_active_address">连接方式</string>
+    <string name="host_details_local_address">本地地址</string>
+    <string name="host_details_remote_address">互联网地址</string>
+    <string name="host_details_ipv6_address">IPv6 地址</string>
+    <string name="host_details_manual_address">你输入的地址</string>
+    <string name="host_details_https_port">HTTPS 端口</string>
+    <string name="host_details_mac">MAC 地址（Wake-on-LAN）</string>
+    <string name="host_details_permissions">设备权限</string>
+</resources>

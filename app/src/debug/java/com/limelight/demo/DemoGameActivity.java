@@ -252,6 +252,11 @@ public final class DemoGameActivity extends Activity implements SurfaceHolder.Ca
     }
 
     private void play(SurfaceHolder holder) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
+            // The paced player needs MediaCodec callbacks (Android 6).
+            label.setText(R.string.demo_playback_error);
+            return;
+        }
         String codec = sample();
         player = new DemoSamplePlayer(getWindowManager().getDefaultDisplay().getRefreshRate(),
                 () -> playbackFailed(holder, codec));

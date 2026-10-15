@@ -3,7 +3,10 @@
 // peer timeout. Without a grace period that timeout stays at its default; with one, a silence
 // shorter than the grace period is ridden out and the host's later end message still arrives,
 // and a silence that outlasts it ends the stream with the usual transport error (-1).
-// The default timeout is shortened here so the test does not wait 10 seconds.
+// While a grace period rides out the silence, the control stream reports lost contact so the
+// input stream holds input back instead of queueing it in ENet, and wakes the input stream once
+// the host is heard again. The default timeout is shortened here so the test does not wait 10
+// seconds, and so is the time without a reply that counts as lost contact.
 #include "Limelight-internal.h"
 #include <arpa/inet.h>
 #include <netinet/in.h>
@@ -16,6 +19,7 @@
 #define CHECK(x) do { if (!(x)) { fprintf(stderr, "%s:%d: check failed: %s\n", __FILE__, __LINE__, #x); exit(1); } } while (0)
 
 #define CONTROL_PEER_TIMEOUT_MS 1000
+#define INPUT_CONTACT_LOST_MS 300
 #include "ControlStream.c"
 
 // Connection.c owns these for a real stream.
@@ -46,6 +50,18 @@ void BridgeClControllerHaptics(uint16_t controller, uint32_t sequence, const uin
 void BridgeClControllerAudio(uint16_t kind, const uint8_t* payload, int length) { CHECK(false); }
 void BridgeClHostTiming(const uint8_t* payload, int length) { CHECK(false); }
 void BridgeClCursorShape(const uint8_t* payload, int length) { CHECK(false); }
+
+// The receive thread asks the input stream to check for regained contact on every pass.
+static int contactLostPasses;
+static bool contactRegained;
+void wakeInputAfterContactLoss(void) {
+    if (isControlContactLost()) {
+        contactLostPasses++;
+    }
+    else if (contactLostPasses > 0) {
+        contactRegained = true;
+    }
+}
 
 // ControlStream.c also references streams and sockets this test does not run.
 bool ReferenceFrameInvalidationSupported;
@@ -112,6 +128,7 @@ struct SilentHost {
     ENetPeer* peer;
     int silenceMs;               // < 0: the network never comes back
     atomic_bool done;
+    atomic_bool lostDuringSilence; // isControlContactLost() 2 * INPUT_CONTACT_LOST_MS into the silence
 };
 
 // Answers normally, then loses every datagram from the client for the silence, then answers
@@ -137,9 +154,14 @@ static void* silentHost(void* context) {
 
     uint64_t silenceStarted = nowMs();
     uint8_t datagram[2048];
+    bool sampled = false;
     while (!atomic_load(&helper->done) &&
             (helper->silenceMs < 0 || nowMs() - silenceStarted < (uint64_t)helper->silenceMs)) {
         while (recv(helper->host->socket, datagram, sizeof(datagram), MSG_DONTWAIT) > 0) { }
+        if (!sampled && nowMs() - silenceStarted >= 2 * INPUT_CONTACT_LOST_MS) {
+            atomic_store(&helper->lostDuringSilence, isControlContactLost());
+            sampled = true;
+        }
         usleep(1000);
     }
 
@@ -159,7 +181,7 @@ static void* silentHost(void* context) {
 
 // silenceMs < 0 never ends the silence. Elapsed time is measured from the start of the silence.
 static void run(const char* name, int gracePeriodMs, int silenceMs, int expectedReason,
-        uint64_t minElapsedMs, uint64_t maxElapsedMs) {
+        uint64_t minElapsedMs, uint64_t maxElapsedMs, bool expectContactLost, bool expectContactRegained) {
     LiSetNetworkGracePeriodMs(gracePeriodMs);
 
     ENetAddress address;
@@ -170,6 +192,9 @@ static void run(const char* name, int gracePeriodMs, int silenceMs, int expected
 
     struct SilentHost helper = {host, hostPeer, silenceMs};
     atomic_init(&helper.done, false);
+    atomic_init(&helper.lostDuringSilence, false);
+    contactLostPasses = 0;
+    contactRegained = false;
     disconnectPending = false;
     reports = 0;
     reportedReason = 12345;
@@ -183,15 +208,20 @@ static void run(const char* name, int gracePeriodMs, int silenceMs, int expected
     CHECK(pthread_join(thread, NULL) == 0);
     elapsed = elapsed > 300 ? elapsed - 300 : 0;
 
+    bool lost = atomic_load(&helper.lostDuringSilence);
     bool passed = reports == 1 && reportedReason == expectedReason &&
-            elapsed >= minElapsedMs && elapsed <= maxElapsedMs;
-    printf("%s %s: expected %d, received %d (%d reports) %llu ms into the silence\n", passed ? "PASS" : "FAIL",
-           name, expectedReason, reportedReason, reports, (unsigned long long)elapsed);
+            elapsed >= minElapsedMs && elapsed <= maxElapsedMs &&
+            lost == expectContactLost && (contactLostPasses > 0) == expectContactLost &&
+            contactRegained == expectContactRegained;
+    printf("%s %s: expected %d, received %d (%d reports) %llu ms into the silence, "
+           "contact lost %d (%d passes), regained %d\n", passed ? "PASS" : "FAIL", name, expectedReason,
+           reportedReason, reports, (unsigned long long)elapsed, lost, contactLostPasses, contactRegained);
     failures += !passed;
 
     enet_host_destroy(client);
     client = NULL;
     peer = NULL;
+    CHECK(!isControlContactLost());
     enet_host_destroy(host);
 }
 
@@ -217,11 +247,11 @@ int main(void) {
     CHECK(controlPeerTimeoutMs() == CONTROL_PEER_TIMEOUT_MS + 1);
 
     run("no grace period: a silence longer than the default timeout ends the stream",
-        0, 2500, -1, CONTROL_PEER_TIMEOUT_MS - 100, 2400);
+        0, 2500, -1, CONTROL_PEER_TIMEOUT_MS - 100, 2400, false, false);
     run("grace period: the same silence is ridden out and the host's exit still arrives",
-        4000, 2500, ML_ERROR_GRACEFUL_TERMINATION, 2500, 3400);
+        4000, 2500, ML_ERROR_GRACEFUL_TERMINATION, 2500, 3400, true, true);
     run("grace period: a network that never returns ends the stream when it runs out",
-        2500, -1, -1, 2500 - 100, 2500 + 1500);
+        2500, -1, -1, 2500 - 100, 2500 + 1500, true, false);
 
     PltDeleteMutex(&enetMutex);
     enet_deinitialize();

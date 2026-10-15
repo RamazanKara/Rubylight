@@ -186,7 +186,7 @@ def verifyReleaseSigning = tasks.register('verifyReleaseSigning') {
 // the same list and stamp. Change the patches, not the submodule: local edits to src are discarded.
 def nativePatchNames = ['bughunt-stream.patch', 'bughunt-input.patch', 'controller-haptics.patch', 'host-termination.patch',
                         'disconnect-intercept.patch', 'control-payload.patch', 'control-teardown.patch', 'host-timing.patch',
-                        'network-grace.patch', 'cursor-shape.patch']
+                        'network-grace.patch', 'cursor-shape.patch', 'network-grace-input.patch']
 
 def prepareNativePatches = tasks.register('prepareNativePatches') {
     doLast {

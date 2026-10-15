@@ -13,7 +13,7 @@ mkdir -p "$out"
 patches=()
 for name in bughunt-stream.patch bughunt-input.patch controller-haptics.patch host-termination.patch \
     disconnect-intercept.patch control-payload.patch control-teardown.patch host-timing.patch network-grace.patch \
-    cursor-shape.patch; do
+    cursor-shape.patch network-grace-input.patch; do
     patches+=("$(pwd)/$core/patches/$name")
 done
 if [ ! -f "$common/src/Limelight.h" ]; then
@@ -61,7 +61,9 @@ for mode in plain sanitized; do
         -lcrypto -o "$out/microphone_packet-$mode"
     cc "${flags[@]}" "${extra[@]}" "$tests/input_queue_test.c" "$common/src/LinkedBlockingQueue.c" \
         "$common/src/Platform.c" "$common/src/PlatformCrypto.c" -lcrypto -lpthread -o "$out/input_queue-$mode"
-    for test in aaudio_queue control_negotiation controller_haptics dualsense_usb_audio networking rtsp_parser rtsp_receive evdev_ipc stun sdp_feature_flags rtsp_duplicate audio_reorder video_shutdown control_termination enet_termination network_grace control_send microphone_packet input_queue; do
+    cc "${flags[@]}" "${extra[@]}" "$tests/input_contact_test.c" "$common/src/LinkedBlockingQueue.c" \
+        "$common/src/Platform.c" "$common/src/PlatformCrypto.c" -lcrypto -lpthread -o "$out/input_contact-$mode"
+    for test in aaudio_queue control_negotiation controller_haptics dualsense_usb_audio networking rtsp_parser rtsp_receive evdev_ipc stun sdp_feature_flags rtsp_duplicate audio_reorder video_shutdown control_termination enet_termination network_grace control_send microphone_packet input_queue input_contact; do
         "$out/$test-$mode"
         echo "$test ($mode): passed"
     done

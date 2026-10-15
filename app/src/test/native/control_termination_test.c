@@ -134,7 +134,10 @@ int serviceEnetHost(ENetHost* host, ENetEvent* event, enet_uint32 timeout) {
 
 int enet_host_service(ENetHost* host, ENetEvent* event, enet_uint32 timeout) { CHECK(false); return -1; }
 int enet_socket_wait(ENetSocket socket, enet_uint32* condition, enet_uint32 timeout) { CHECK(false); return -1; }
+void enet_host_flush(ENetHost* host) { CHECK(false); }
+enet_uint32 enet_time_get(void) { CHECK(false); return 0; }
 int LbqOfferQueueItem(PLINKED_BLOCKING_QUEUE queue, void* data, PLINKED_BLOCKING_QUEUE_ENTRY entry) { CHECK(false); return -1; }
+void LbqSignalQueueUserWake(PLINKED_BLOCKING_QUEUE queue) { CHECK(false); }
 void BridgeClControllerHaptics(uint16_t controller, uint32_t sequence, const uint8_t* pcm, uint16_t frames) { CHECK(false); }
 void BridgeClControllerAudio(uint16_t kind, const uint8_t* payload, int length) { CHECK(false); }
 void BridgeClHostTiming(const uint8_t* payload, int length) { CHECK(false); }

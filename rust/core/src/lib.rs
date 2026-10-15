@@ -39,6 +39,7 @@ pub mod fec_status;
 pub mod framegen;
 pub mod haptics;
 pub mod hdr;
+pub mod host_timing;
 pub mod hotkey;
 pub mod input;
 pub mod input_policy;

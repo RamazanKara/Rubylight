@@ -159,14 +159,14 @@ impl Sender {
                 let micros = |d: Duration| d.as_micros().min(u128::from(u64::MAX)) as u64;
                 let latency = micros(encode);
                 s.stats.latency_us.store(latency, Ordering::Relaxed);
-                // Moonlight's host latency runs from the claim to the
-                // packet, as the previous host measured it. Waiting
-                // before the claim is recorded as frame age.
                 let captured = frame.presentation.unwrap_or(claimed);
                 let age = micros(claimed.saturating_duration_since(captured));
                 let dequeued = Instant::now();
                 let queue_wait = micros(dequeued.saturating_duration_since(polled));
-                let processing = micros(dequeued.saturating_duration_since(claimed));
+                // Moonlight's host latency runs from the picture's present
+                // stamp to the packet, as Sunshine's and punktfunk's do; a
+                // static repeat has none and starts at the claim.
+                let processing = micros(dequeued.saturating_duration_since(claim.map_or(claimed, |c| c.presented)));
                 let stamp = present_stamper.as_mut().map_or(captured, |stamper| stamper.stamp(captured, &s.output.read().unwrap())).max(last_stamp + Duration::from_nanos(11_112));
                 last_stamp = stamp;
                 // Wrap like the previous host; a saturating cast
@@ -318,10 +318,14 @@ impl Sender {
                 let mut performance = s.stats.performance.lock().unwrap();
                 performance.record_timing(sent,butterpollo_core::performance::Timing{period,encode:latency,host:processing,age,sent:micros(sent.saturating_duration_since(claimed))},frame_bytes);
                 // A frame abandoned on send never had its last packet sent.
-                if let Some(claim) = claim.filter(|_| !lost.unrecoverable()) {
-                    performance.record_stages(&claim.sent(polled, packetized, first_sent.unwrap_or(sent), sent), processing);
+                let stamps = claim.filter(|_| !lost.unrecoverable()).map(|claim| claim.sent(polled, packetized, first_sent.unwrap_or(sent), sent));
+                if let Some(stamps) = &stamps {
+                    performance.record_stages(stamps, processing);
                 }
                 drop(performance);
+                if let Some(stamps) = &stamps {
+                    s.host_timings.lock().unwrap().record(wire_frame, stamps);
+                }
                 // The interface lookup takes a moment: refresh the
                 // link speed after the frame is out, for the next one.
                 if Instant::now() >= link_due {

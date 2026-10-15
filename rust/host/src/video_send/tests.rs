@@ -777,6 +777,12 @@ fn the_sender_thread_records_where_a_new_pictures_time_went() {
         false,
     )
     .unwrap();
+    // A client that asked for host timing reports (0x5536).
+    let asked = butterpollo_core::host_timing::HostTimingRequest { enabled: true }.encode();
+    assert_eq!(
+        session.host_timings.lock().unwrap().on_request(&asked),
+        Some(true)
+    );
     // A picture presented 6 ms ago, held 1 ms, claimed 3 ms ago and encoded
     // in 2 ms, beside a static repeat that has no present.
     let now = Instant::now();
@@ -821,9 +827,31 @@ fn the_sender_thread_records_where_a_new_pictures_time_went() {
         .sum();
     assert!((parts - ms("present_to_sent")).abs() < 0.01);
     assert!(ms("present_to_sent") >= 6.);
-    // Moonlight's field for the same picture runs from the claim to packetization.
-    assert!(ms("moonlight_host") >= 3.);
+    // Moonlight's field for the same picture runs from its present stamp to
+    // this sender's dequeue, inside the queue stage, so it leaves out only
+    // the rest of the queue, packetizing and the send.
+    assert!(ms("moonlight_host") >= 6.);
     assert!(ms("moonlight_host") < ms("present_to_sent"));
+    assert!(
+        ms("present_to_sent") - ms("moonlight_host")
+            <= ms("queue") + ms("packetize") + ms("send") + 0.01
+    );
+    // The client that asked hears the whole span for the new picture alone,
+    // numbered as its packets are, with the same stages.
+    let report = session.host_timings.lock().unwrap().take_report().unwrap();
+    let records = butterpollo_core::host_timing::HostTiming::decode_report(&report).unwrap();
+    assert_eq!(records.len(), 1);
+    let record = records[0];
+    assert_eq!(record.frame, 1);
+    let us = |ms: f64| (ms * 1000.).round() as i64;
+    assert!((i64::from(record.host_us) - us(ms("present_to_sent"))).abs() <= 1);
+    assert_eq!(
+        i64::from(record.queue_us),
+        us(ms("capture") + ms("hold") + ms("claim") + ms("convert"))
+    );
+    assert!((i64::from(record.encode_us) - us(ms("encode"))).abs() <= 1);
+    assert!((i64::from(record.send_us) - us(ms("send"))).abs() <= 1);
+    assert_eq!(session.host_timings.lock().unwrap().take_report(), None);
 }
 
 #[test]

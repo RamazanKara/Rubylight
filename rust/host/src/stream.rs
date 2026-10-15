@@ -1493,14 +1493,14 @@ impl Media {
                             let encode = frame.latency.unwrap_or(call_latency);
                             let latency = micros(encode);
                             s.stats.latency_us.store(latency, Ordering::Relaxed);
-                            // Moonlight's host latency runs from the claim to the
-                            // packet, as the previous host measured it. Waiting
-                            // before the claim is recorded as frame age.
                             let claimed = polled.checked_sub(encode).unwrap_or(polled);
                             let captured = frame.presentation.unwrap_or(claimed);
                             let age = micros(claimed.saturating_duration_since(captured));
-                            let processing = micros(Instant::now().saturating_duration_since(claimed));
                             let claim = claims.borrow_mut().take(frame.presentation);
+                            // Moonlight's host latency runs from the picture's present
+                            // stamp to the packet, as Sunshine's and punktfunk's do; a
+                            // static repeat has none and starts at the claim.
+                            let processing = micros(Instant::now().saturating_duration_since(claim.map_or(claimed, |c| c.presented)));
                             let stamp_started = Instant::now();
                             let stamp = present_stamper.as_mut().map_or(captured, |stamper| stamper.stamp(captured, &prepared.output())).max(last_stamp + Duration::from_nanos(11_112));
                             let stamp_time = stamp_started.elapsed();
@@ -1662,7 +1662,9 @@ impl Media {
                                 performance.record_timing(sent,butterpollo_core::performance::Timing{period:stream_period.get(),encode:latency,host:processing,age,sent:micros(sent.saturating_duration_since(claimed))},frame_bytes);
                                 // A frame abandoned on send never had its last packet sent.
                                 if let Some(claim) = claim.filter(|_| !lost.unrecoverable()) {
-                                    performance.record_stages(&claim.sent(polled, packetize_started, first_sent.unwrap_or(sent), sent), processing);
+                                    let stamps = claim.sent(polled, packetize_started, first_sent.unwrap_or(sent), sent);
+                                    performance.record_stages(&stamps, processing);
+                                    s.host_timings.lock().unwrap().record(wire_frame, &stamps);
                                 }
                             }
                             let record_time = sent.elapsed();
@@ -2892,6 +2894,19 @@ impl Media {
                                     ),
                                 }
                             }
+                            butterpollo_core::host_timing::HOST_TIMING_MESSAGE_TYPE => {
+                                match s.host_timings.lock().unwrap().on_request(&payload) {
+                                    Some(enabled) => tracing::info!(
+                                        client = %s.launch.client.name,
+                                        enabled,
+                                        "host timing reports"
+                                    ),
+                                    None => tracing::debug!(
+                                        len = payload.len(),
+                                        "invalid host timing request"
+                                    ),
+                                }
+                            }
                             butterpollo_core::display_caps::DISPLAY_CAPS_MESSAGE_TYPE => {
                                 match s.record_display_caps(&payload) {
                                     Some(update) if update.changed => {
@@ -3049,6 +3064,25 @@ impl Media {
                             .is_ok()
                     {
                         p.hdr_metadata = Some(metadata);
+                    }
+                    // Present-to-sent reports for a client that asked (0x5536).
+                    // Unreliable: a lost one costs the client those samples only.
+                    loop {
+                        let report = s.host_timings.lock().unwrap().take_report();
+                        let Some(report) = report else { break };
+                        if let Ok(message) = p.encrypt(
+                            &s,
+                            butterpollo_core::host_timing::HOST_TIMING_MESSAGE_TYPE,
+                            &report,
+                        ) {
+                            let _ = host.peer_mut(*peer_id).send(
+                                0,
+                                &Packet::new(
+                                    message,
+                                    PacketKind::AlwaysUnreliable { sequenced: false },
+                                ),
+                            );
+                        }
                     }
                     if poll_feedback && let Some((old, new)) = s.tick_fec(Instant::now()) {
                         tracing::info!(

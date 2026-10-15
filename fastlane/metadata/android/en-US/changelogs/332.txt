@@ -1,0 +1,7 @@
+13 new interface languages.
+New touch modes: natural trackpad, Local cursor and Touch off.
+On-screen controls editor with sticks, triggers and D-pad, plus Artemis layout import.
+Video scaling, picture position and orientation choices.
+Named stream profiles, per-game settings and a mobile data bitrate cap.
+Controller test page, rumble off and an opt-in Switch Pro USB driver.
+Quick resume, quit on leave, Input-only on any PC and opt-in network drop tolerance.

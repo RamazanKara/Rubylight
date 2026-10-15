@@ -136,7 +136,7 @@ menu is scrolled to Quality.
 `-Only` takes still names, for example `-Only pc-settings,landscape-stream-menu`. PNG dimensions are checked
 after pulling. These files are created by the caller; no empty-app placeholders are substituted.
 
-`capture-video.ps1` records the nine [shots](shotlist.md) at 60 fps with `adb shell screenrecord` at 0.6 of the
+`capture-video.ps1` records the ten [shots](shotlist.md) at 60 fps with `adb shell screenrecord` at 0.6 of the
 screen size (648x1440 portrait, 1440x648 for the landscape stream shots 05, 15 and 16). Use an emulator with the
 host GPU (`-gpu host`): there the recorder keeps up with every 60 Hz refresh at that size. On a software-rendered
 emulator (swiftshader) or at full size it manages about 30, and the tour stutters. On a busy host, raising the
@@ -147,7 +147,7 @@ its length, with a second of handle either side. Before recording, the script op
 tap and opens each dialog or screen once (the first opening loads classes and can miss a frame on camera); where
 a list scrolls, it rehearses the same fling and checks where it stops. During the take it plays one action with a
 visible result, or two at most: a tap into the library, a fling and the display-mode picker, a tap on a game,
-Back for the stream menu, a long press on the overlay, a tap on a setting. Each shot is taken up
+Back for the stream menu, a long press on the overlay, a tap on a setting, Home for PiP. Each shot is taken up
 to three times and the take with the fewest missed refreshes is kept. The recorder's start-up delay is measured
 from the take itself (its second frame is the first action's first change), so the action lands on the planned
 time.
@@ -155,11 +155,28 @@ time.
 screenrecord writes a frame only when the screen changes, stamped with the time it was composed. The script puts
 every frame on the 60 fps grid at its time; a frame composed a little early, whose slot is already taken, moves
 to the next one, so every recorded frame is shown once and a still screen repeats its last frame. Clips go to
-`out/demo/clips/<shot-id>.mp4`, beside the recording as it came (`<shot-id>.raw.mp4`). The `pip` plan (dropped from the current cut) presses Home
+`out/demo/clips/<shot-id>.mp4`, beside the recording as it came (`<shot-id>.raw.mp4`). Shot 12 presses Home
 while recording and leaves the PiP window in Android's default bottom-right corner (the demo home's rings are
 centred there); for it the script enables the debug app's plain dark `DemoHomeActivity` as the home screen (so
 the window floats over a clean background, not third-party launcher icons) and restores the device's launcher
 afterwards. Recording is silent.
+`-HostCapture` records the emulator's window on the PC instead of using screenrecord in the device. Start the AVD
+with a window (drop `-no-window`, keep `-gpu host -no-audio`). The script runs `emulator-window.ps1`, which pins
+the window on top at a fixed place on the primary monitor and sizes it so its display area is `-WindowHeight`
+pixels tall (1320 by default, 594x1320, which fits a 1440-pixel monitor); it then grabs exactly that area with
+FFmpeg's Desktop Duplication source and encodes it on the GPU:
+
+```powershell
+ffmpeg -f lavfi -i ddagrab=output_idx=0:framerate=60:offset_x=X:offset_y=Y:video_size=WxH `
+    -vf hwdownload,format=bgra,format=nv12 -c:v h264_amf -quality quality -rc cqp -qp_i 16 -qp_p 18 take.mp4
+```
+
+The emulator draws a landscape app on its side inside the portrait window, so landscape takes are turned back
+(`transpose=2`). The grab has a frame every 1/60 s, so takes are scored by the repeats FFmpeg's `mpdecimate` finds
+while something moves. With the window open, the in-device recorder kept up less well than the host grab (about
+45 against 55 distinct frames per second on the busy capture host); on a quiet host both reach 60. The current
+tour's `12-pip` and `16-statistics` come from the host grab, the other shots from screenrecord. Close the
+emulator window when done.
 The older `capture.ps1` entry point forwards to this offline tour; its `-NoHost`
 option is now redundant.
 

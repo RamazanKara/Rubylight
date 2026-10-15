@@ -1,9 +1,9 @@
 # Nightjar demo shotlist
 
-Offline fixture tour: **63 seconds at 60 fps**, including a 3-second intro, 55
+Offline fixture tour: **69 seconds at 60 fps**, including a 3-second intro, 61
 seconds of UI and a 5-second outro. It leads with what sets Nightjar apart: host-aware
 PC settings, the stream menu, host telemetry, PyroWave, adaptive refresh, upscaling,
-the Snapdragon GPU driver and the DualSense driver. Shots are joined with hard cuts: a
+the Snapdragon GPU driver, the DualSense driver and picture-in-picture. Shots are joined with hard cuts: a
 crossfade would double the captions and UI text for a few frames. Each shot's heading,
 callout and caption fade in over 0.3 s; the intro and outro meet the first and last shot
 through the night background, and only the very start (fade in) and the very end (fade
@@ -28,7 +28,7 @@ ID can sit between older ones. The last column names the take's plan in `capture
 `hosts` taps from the PC list into the library, `pc-settings` scrolls Living-room PC's
 settings and opens the display-mode picker, `stream` taps a game in the landscape library,
 `menu` opens the stream menu, `statistics` long-presses the overlay, `codec-refresh`,
-`upscaling`, `gpu-driver` and `usb` go through the real settings, and `pip` (unused) presses Home.
+`upscaling`, `gpu-driver` and `usb` go through the real settings, and `pip` presses Home.
 `~` denotes a line break. Screenshot paths are relative to `docs/screenshots`. Every still
 comes from the populated debug demo. The Crop column is `full` (use the whole screen) or
 `crop=w:h:x:y` for the storyboard fallback only.
@@ -44,6 +44,7 @@ comes from the populated debug demo. The Crop column is `full` (use the whole sc
 | 09-upscaling | 5 | Crisp on any screen. | Make~it clear. | AMD FSR 1~Snapdragon GSR | demo/upscaling-options.png | full | upscaling |
 | 18-gpu-driver | 5 | Bring your own driver. | Snapdragon~ready. | Custom Adreno Vulkan drivers~Safe fallback | demo/gpu-driver.png | full | gpu-driver |
 | 19-dualsense | 5 | Your DualSense, fully featured. | Plug~and play. | DualSense driver over USB~Audio and haptics | demo/usb-controllers.png | full | usb |
+| 12-pip | 6 | Keep your stream in view. | Keep~it in view. | Picture in picture~Your stream floats on top | demo/pip.png | full | pip |
 
 Dropped shots (any clips and stills of them left on disk are not used: the
 render and capture scripts read only the table above):
@@ -58,9 +59,6 @@ render and capture scripts read only the table above):
 - `04-library` became the end of `01-launch`, which taps from the PC list into the
   library in one take, and `06-compact` became `05-stream`, which taps a game and
   plays the stream with the compact overlay.
-- `12-pip` (picture-in-picture) was dropped from this cut: on the capture emulator the
-  floating window played at about 40 frames per second, below the tour's 50 fps bar. Its
-  plan stays in `capture-video.ps1`; add the row back to retake it on a faster host.
 - The presets and controller-mapping screens are plain settings lists that read
   poorly in a short video.
 
@@ -104,6 +102,11 @@ Capture direction:
 9. `19-dualsense` flings Controls to USB controllers, where the USB DualSense driver
    and its audio and haptics are on. The emulator has no USB host support; the debug
    demo shows the group anyway.
+10. `12-pip` begins in the stream, then presses Home and verifies Android's pinned
+    window. The script enables the debug app's plain dark `DemoHomeActivity` as the home
+    screen for this shot, so the floating window is not over third-party launcher icons,
+    and restores the device's launcher afterwards. It and `16-statistics` were recorded
+    from the PC (`-HostCapture`, see the [demo README](README.md)).
 
 The source clip is 1080p60 SDR. The compact overlay's 119.9 FPS / 8 ms / 0.1% loss
 readings and the Statistics overlay's stream and host readings are scripted

@@ -9,7 +9,7 @@
 
 <div align="center">
 
-**[Download 2.3.1](https://github.com/RamazanKara/Rubylight/releases/tag/v2.3.1)** · **[Get started](docs/getting-started.md)** · [Website](https://ramazankara.github.io/Rubylight/) · [Docs](docs/README.md) · [Android client](https://github.com/RamazanKara/rubylight-android)
+**[Download 2.3.1](https://github.com/RamazanKara/Rubylight/releases/tag/v2.3.1)** · **[Get started](docs/getting-started.md)** · [Website](https://ramazankara.github.io/Rubylight/) · [Docs](docs/README.md) · [Nightjar for Android](https://github.com/RamazanKara/nightjar)
 
 <sub>Windows x64 · Free and open source · Formerly Butterpollo</sub>
 
@@ -25,7 +25,7 @@
 
 - **More room for your game.** Frame copies and colour conversion run on Radeon compute queues alongside your game's graphics work, with AMD's encoder driven natively.
 - **See every detail.** H.264, HEVC and AV1 streaming, with 10-bit HDR through HEVC and AV1 on supported hardware.
-- **Full colour with PyroWave.** 10-bit HDR 4:4:4 keeps fine coloured text and edges crisp. Use [Rubylight Android](https://github.com/RamazanKara/rubylight-android) or another PyroWave-capable client over a fast local network.
+- **Full colour with PyroWave.** 10-bit HDR 4:4:4 keeps fine coloured text and edges crisp. Use a PyroWave-capable client, such as [Nightjar](https://github.com/RamazanKara/nightjar) on Android, over a fast local network.
 - **A screen for each device.** Virtual displays match your client's resolution and refresh rate, with HDR and your monitor layout restored after the stream.
 - **Your library, ready to play.** Steam and Playnite sync, per-app settings, RTSS frame limits and Lossless Scaling integration.
 - **Your controls come with you.** Controllers, keyboard, mouse, touch and pen, plus surround audio and microphone passthrough with compatible clients.
@@ -35,7 +35,7 @@ Rubylight works with Moonlight and other Sunshine-compatible clients across PCs,
 
 **New in 2.2.19:** optional adaptive packet pacing, more reliable reconnects and audio recovery, fewer unnecessary encoder restarts, long-path file updates and USB/IP shutdown fixes. [Release notes](rust/RELEASE_NOTES.md#new-in-2219) describe validation and hardware coverage.
 
-**New in 2.2.16:** optional [host bitrate adaptation](docs/configuration.md#host-bitrate-adaptation) for H.264, HEVC and AV1, [game-only audio](docs/configuration.md#game-only-audio) on Windows build 20348 or newer, and [paired Tailscale route diagnostics](docs/network-path.md). Host bitrate adaptation is experimental and off by default; System audio remains the default. [DualSense USB audio and controller continuity](docs/dualsense-haptics.md) work with matching clients such as Rubylight Android 0.4.9.
+**New in 2.2.16:** optional [host bitrate adaptation](docs/configuration.md#host-bitrate-adaptation) for H.264, HEVC and AV1, [game-only audio](docs/configuration.md#game-only-audio) on Windows build 20348 or newer, and [paired Tailscale route diagnostics](docs/network-path.md). Host bitrate adaptation is experimental and off by default; System audio remains the default. [DualSense USB audio and controller continuity](docs/dualsense-haptics.md) work with matching clients such as Nightjar.
 
 [All features →](docs/features.md) · [How the frame pipeline works →](docs/architecture.md) · [Choose your stream format →](docs/getting-started.md#choose-your-stream-format)
 

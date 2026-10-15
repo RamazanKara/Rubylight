@@ -447,7 +447,7 @@ def pyrowave(t):
         txt(im, 1020, 644, 'Conversion + encoding under synthetic GPU load.', 24, MUTED, opacity=p)
     reveal(im, 104, 786, 'Same pixels, four colour samples: crisp coloured text and edges.', 34, t,
            at=2.3, color=RUBY, weight='semibold', rise=12)
-    reveal(im, 104, 870, 'Play it on Rubylight Android, our own client, over a fast local network.', 32, t,
+    reveal(im, 104, 870, 'Play it on Nightjar for Android over a fast local network.', 32, t,
            at=2.7, color=INK, weight='semibold', rise=12)
     foot(im, 'RX 7900 XT · PyroWave 1080p · 10-bit HDR 4:4:4 · 400 Mbps · synthetic GPU load · October 7, 2026',
          'Processing probe excludes capture, transport, decoding and display · chroma diagram is schematic · rust/PERFORMANCE.md')
@@ -458,7 +458,7 @@ def get_started(t):
     im = base(t+STARTS[5])
     title(im, 'Install. Pair. Play.', t, 'Start with Rubylight on your Windows gaming PC.')
     steps = (('Install Rubylight.', 'Run the installer and create your local account in the web console.'),
-             ('Pair your device.', 'Add your PC in Rubylight Android or Moonlight, then enter its PIN in Devices.'),
+             ('Pair your device.', 'Add your PC in Nightjar or Moonlight, then enter its PIN in Devices.'),
              ('Launch Desktop.', 'Choose your game, then make the stream settings your own.'))
     for i, (label, detail) in enumerate(steps):
         y = 366+i*166

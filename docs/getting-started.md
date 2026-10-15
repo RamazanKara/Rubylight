@@ -79,7 +79,7 @@ If pairing succeeds but launching is denied, check the device's enabled state an
 | H.264 | Establishing an SDR baseline or using a client without newer hardware decoders. |
 | HEVC | The client supports HEVC; its ten-bit profile supports HDR. |
 | AV1 | Both the host encoder and client decoder support AV1; its ten-bit profile also supports HDR. |
-| PyroWave | You want full-resolution chroma, including 10-bit HDR 4:4:4, on a fast local network. Use [Rubylight Android](https://github.com/RamazanKara/rubylight-android), our own client, or any PyroWave-capable Moonlight client; on a PC, a wired LAN. Start around 399 Mbps for 1080p60, with network headroom. |
+| PyroWave | You want full-resolution chroma, including 10-bit HDR 4:4:4, on a fast local network. Use [Nightjar](https://github.com/RamazanKara/nightjar), an Android client with PyroWave support, or any other PyroWave-capable Moonlight client; on a PC, a wired LAN. Start around 399 Mbps for 1080p60, with network headroom. |
 
 H.264, HEVC and AV1 use the standard Moonlight streaming path; the formats available to you depend on the host encoder, client software and decoder. PyroWave uses a separate codec path and needs substantially more bandwidth; its client can calibrate the connection before streaming.
 

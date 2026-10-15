@@ -71,7 +71,7 @@ HDR mastering and content-light metadata use each codec's bitstream units. Nativ
 
 **PyroWave provides full 10-bit HDR 4:4:4** through a separate encoder and shared D3D11/Vulkan path. D3D12 compute prepares its three planar textures; a shared fence orders conversion and Vulkan access, and the encoded bitstream returns to the CPU. If compute conversion is unavailable, PyroWave uses graphics-queue conversion. The [PyroWave integration](../rust/windows/src/pyrowave.rs) owns this handoff independently of AMF.
 
-Full-resolution chroma gives each pixel its own colour samples. Use [Rubylight Android](https://github.com/RamazanKara/rubylight-android), our own client, or on a PC [Nonary's compatible Moonlight client](https://github.com/Nonary/moonlight-qt), over a fast local network; [client selection](getting-started.md#choose-your-stream-format) explains the options.
+Full-resolution chroma gives each pixel its own colour samples. Use [Nightjar](https://github.com/RamazanKara/nightjar), an Android client with PyroWave support, or on a PC [Nonary's compatible Moonlight client](https://github.com/Nonary/moonlight-qt), over a fast local network; [client selection](getting-started.md#choose-your-stream-format) explains the options.
 
 ## Encoding beyond Radeon
 

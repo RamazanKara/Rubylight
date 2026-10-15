@@ -10,7 +10,7 @@ Everything Rubylight does, grouped by what you will notice while streaming. For 
 - **Adaptive AMF backlog.** The encoder learns the driver's required depth and times the next input to preserve conversion and network overlap. The [Radeon measurements](../rust/PERFORMANCE_WORK.md#october-13-adaptive-amf-backlog-candidate) show lower picture age under saturation; normal-load tails and broader compatibility remain unresolved.
 - **Radeon compute.** Frame copies, colour conversion and letterboxing run on D3D12 compute queues beside the game's graphics work, so your game and your stream stop waiting on each other.
 - **HDR from capture to screen.** Ten-bit BT.2020/PQ through HEVC and AV1, with HDR metadata in the keyframes, and ten-bit SDR where you want it.
-- **PyroWave HDR 4:4:4.** A colour sample for every pixel, so coloured text and fine edges stay crisp, on [Rubylight Android](https://github.com/RamazanKara/rubylight-android) or any PyroWave-capable Moonlight client over a fast local network.
+- **PyroWave HDR 4:4:4.** A colour sample for every pixel, so coloured text and fine edges stay crisp, on [Nightjar](https://github.com/RamazanKara/nightjar) for Android or any other PyroWave-capable Moonlight client over a fast local network.
 - **Loss recovery that skips the keyframe.** Lost frames are repaired with reference frame invalidation, and forward error correction covers short bursts of loss. When the host's own Wi-Fi briefly stops taking packets, the host sends a keyframe at once instead of waiting for the client to ask.
 - **Experimental host bitrate adaptation.** Opt-in adaptation for conventional Moonlight streams uses observed feedback, accounts for FEC and audio, and yields to client bitrate control. [Policy and limits](configuration.md#host-bitrate-adaptation).
 - **Optional adaptive packet pacing.** The existing fast route policy remains the default. Experimental adaptation starts conservatively and responds to reported loss without lowering picture bitrate, at the cost of slower startup and possible probe losses. A suitable fixed limit remains the simpler option for a known constrained path. [Pacing policy](configuration.md#capture-and-video).
@@ -38,7 +38,7 @@ NVIDIA NVENC, Intel Quick Sync and software encoders are included for other hard
 
 - **Keyboard, mouse, touch, pen and controllers.** Standard profiles use the signed VHF driver included in the installer.
 - **The right pad for the client.** PlayStation-type clients get a DualSense with adaptive triggers, Nintendo-type clients a Switch Pro, and others an Xbox Series pad. Two touchpads from a Steam Deck sit side by side on one surface.
-- **Steam Deck and DualSense advanced controls.** Steam Input handles gyro aiming and radial menus using forwarded motion and touchpads. DualSense USB support includes waveform haptics, adaptive triggers, speaker/headset audio and microphone input with matching updated Rubylight Android builds. Controller identities survive stream reconnects. [Setup and limits](dualsense-haptics.md).
+- **Steam Deck and DualSense advanced controls.** Steam Input handles gyro aiming and radial menus using forwarded motion and touchpads. DualSense USB support includes waveform haptics, adaptive triggers, speaker/headset audio and microphone input with a matching client such as [Nightjar](https://github.com/RamazanKara/nightjar). Controller identities survive stream reconnects. [Setup and limits](dualsense-haptics.md).
 - **Back grips.** Steam Deck L4/R4/L5/R5 and Xbox Elite paddles press the buttons you choose, under **Back grips**.
 - **A real Steam Deck controller.** With usbip-win2 installed, a Steam Deck client shows up on the host as a Steam Deck with trackpads, gyro and back grips.
 - **Audio.** Endpoint matching by id, name, description or adapter, Steam Streaming Speakers, and surround Opus.
@@ -72,6 +72,6 @@ NVIDIA NVENC, Intel Quick Sync and software encoders are included for other hard
 
 ## Clients
 
-Rubylight speaks the Moonlight protocol, so **Moonlight and every other Sunshine-compatible client works with it**: on Windows, macOS, Linux, Android, iOS, Apple TV, Android TV, game consoles and handhelds. H.264, HEVC and AV1 work in SDR and HDR wherever the client's device can decode them. PyroWave needs a PyroWave-capable client such as [Rubylight Android](https://github.com/RamazanKara/rubylight-android).
+Rubylight speaks the Moonlight protocol, so **Moonlight and every other Sunshine-compatible client works with it**: on Windows, macOS, Linux, Android, iOS, Apple TV, Android TV, game consoles and handhelds. H.264, HEVC and AV1 work in SDR and HDR wherever the client's device can decode them. PyroWave needs a PyroWave-capable client such as [Nightjar](https://github.com/RamazanKara/nightjar) on Android.
 
 See [Getting started](getting-started.md#choose-your-stream-format) to pick a stream format.

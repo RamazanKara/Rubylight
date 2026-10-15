@@ -8,6 +8,7 @@ No display-mode, HDR or default-audio change; the installed host must be idle.
 
 usage: e2e.py --package DIR --work DIR --client EXE --codec CODEC [--mode 1280x720x60] [--seconds 12]
               [--vrr] [--recovery N] [--motion-at-rate] [--name NAME] [--noise-height PIXELS] [--hw-decoder TYPE]
+              [--launch-fps FPS]
 Writes WORK/e2e-NAME/result.json, NAME defaulting to CODEC[-vrr][-recovery|-at-rate].
 A mode faster than the captured display refreshes is recorded as skipped.
 
@@ -47,6 +48,7 @@ parser.add_argument('--recovery', type=int, default=0, metavar='N', help='keyfra
 parser.add_argument('--motion-at-rate', action='store_true', help='the strip at the stream rate without requests: the control for --recovery')
 parser.add_argument('--name', help='the case name, e.g. hevc-120; defaults to the codec and options')
 parser.add_argument('--hw-decoder', metavar='TYPE', help="the receiver decodes on the GPU, e.g. d3d11va; FFmpeg's software HEVC decoder takes about 14 ms a 1440p frame")
+parser.add_argument('--launch-fps', metavar='FPS', help="launch at this rate and ask for the mode's in the stream request, as Artemis's Warp frame pacing does")
 parser.add_argument('--noise-height', type=int, default=0, metavar='PIXELS',
                     help='a taller strip with fresh per-pixel noise above its bottom 128 rows, for high bitrates')
 args = parser.parse_args()
@@ -110,6 +112,8 @@ try:
     client_env = receiver_environment(env, display, args.mode, args.client, args.vrr)
     if args.hw_decoder:
         client_env['BUTTERPOLLO_TEST_HW_DECODER'] = args.hw_decoder
+    if args.launch_fps:
+        client_env['BUTTERPOLLO_TEST_LAUNCH_FPS'] = args.launch_fps
     if args.recovery:
         client_env.update(BUTTERPOLLO_TEST_IDR_PROBE=str(args.recovery),
                           BUTTERPOLLO_TEST_IDR_PROBE_INTERVAL_MS=str(RECOVERY_INTERVAL_MS))
@@ -135,6 +139,8 @@ result = evaluate(client, rc, args.codec, args.mode, args.vrr, recovery=args.rec
                   host_frames=host_frames(case / 'receiver'),
                   claim_trace='pacing=trace' in env.get('RUST_LOG', ''))
 result = dict(case=name, **result)
+if args.launch_fps:
+    result['launch_fps'] = args.launch_fps
 (case / 'result.json').write_text(json.dumps(result, indent=2))
 print(json.dumps(result))
 sys.exit(0 if result['passed'] else 1)

@@ -119,18 +119,20 @@ class ReleaseMeasurements(unittest.TestCase):
                 text = RECOVERY if recovery else text
                 (case / 'result.json').write_text(json.dumps(
                     evaluate(text, 0, codec, '1920x1080x60', vrr, recovery=recovery, host_log=CLAIMS)))
-            # The 120 FPS case on a 60 Hz release monitor: recorded, not failed.
+            # The 120 FPS cases on a 60 Hz release monitor: recorded, not failed.
+            for name in ('hevc-120', 'hevc-warp'):
+                skipped = work / f'e2e-{name}'
+                skipped.mkdir()
+                (skipped / 'result.json').write_text(json.dumps(dict(
+                    case=name, codec='hevc', mode='2560x1440x120', vrr=False, passed=True,
+                    skipped='the display refreshes at 60 Hz, below the requested 120 FPS')))
             fast = work / 'e2e-hevc-120'
-            fast.mkdir()
-            (fast / 'result.json').write_text(json.dumps(dict(
-                case='hevc-120', codec='hevc', mode='2560x1440x120', vrr=False, passed=True,
-                skipped='the display refreshes at 60 Hz, below the requested 120 FPS')))
             command = [sys.executable, str(pathlib.Path(__file__).with_name('validation.py')), '--version', 'test',
                        '--package', str(package), '--work', str(work), '--out', str(root / 'VALIDATION.json')]
             result = subprocess.run(command, capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stderr)
             validation = json.loads((root / 'VALIDATION.json').read_text())['end_to_end']
-            self.assertEqual([s['case'] for s in validation['skipped_for_display']], ['hevc-120'])
+            self.assertEqual([s['case'] for s in validation['skipped_for_display']], ['hevc-120', 'hevc-warp'])
             self.assertNotIn('hevc-120', [s.get('case') for s in validation['streams']])
             fast.rename(work / 'held-120')
             run = subprocess.run(command, capture_output=True, text=True)
@@ -139,6 +141,12 @@ class ReleaseMeasurements(unittest.TestCase):
             run = subprocess.run(command + ['--skipped', 'hevc-120'], capture_output=True, text=True)
             self.assertEqual(run.returncode, 0, run.stderr)
             (work / 'held-120').rename(fast)
+            warp = work / 'e2e-hevc-warp'
+            warp.rename(work / 'held-warp')
+            run = subprocess.run(command, capture_output=True, text=True)
+            self.assertNotEqual(run.returncode, 0)
+            self.assertIn('Warp-style', run.stderr)
+            (work / 'held-warp').rename(warp)
             # The keyframe-request stream is required unless skipped on purpose.
             recovery = work / 'e2e-hevc-False-16'
             recovery.rename(work / 'held')

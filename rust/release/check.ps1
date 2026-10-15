@@ -12,8 +12,9 @@ the release workstation can do, run when its installed host is idle:
 2. Streams H.264, HEVC, HEVC VRR, AV1 and PyroWave (SDR and HDR 4:4:4)
    through the packaged host with the independent moonlight-common-c client,
    plus HEVC with keyframe requests from the client while the picture moves
-   at the stream rate and HEVC at 1440p120 with 80 Mbps (skipped below a
-   120 Hz display), then runs the protocol checks (e2e.py, protocol.py).
+   at the stream rate, HEVC at 1440p120 with 80 Mbps, and the same launched
+   at 60 as Artemis's Warp does (both skipped below a 120 Hz display), then
+   runs the protocol checks (e2e.py, protocol.py).
 3. The display self-test as SYSTEM and a quiet install over the running host
    (elevated.ps1): directly from an elevated shell, otherwise through the task
    elevation.ps1 installs, otherwise after one UAC prompt.
@@ -102,9 +103,9 @@ Copy-Item "$checkout\target\ship\release\examples\audio_probe.exe", "$checkout\t
     "$checkout\target\ship\release\examples\udp_shaper.exe" $fixtures
 $client = "$fixtures\moonlight-client.exe"
 
-foreach ($case in 'h264', 'hevc', 'av1', 'hevc-vrr', 'hevc-recovery', 'hevc-120', 'pyrowave', 'pyrowave-hdr-444') {
+foreach ($case in 'h264', 'hevc', 'av1', 'hevc-vrr', 'hevc-recovery', 'hevc-120', 'hevc-warp', 'pyrowave', 'pyrowave-hdr-444') {
     if ($SkipStreams -contains $case) { Write-Warning "stream $case skipped (-SkipStreams); recorded in VALIDATION.json"; continue }
-    $codec = $case -replace '-(vrr|recovery|120)$'
+    $codec = $case -replace '-(vrr|recovery|120|warp)$'
     # 12 s of streaming each: enough for the steady-rate, motion and audio checks.
     $stream = @('--package', $package, '--work', $run, '--client', $client, '--codec', $codec, '--seconds', '12')
     if ($case.EndsWith('-vrr')) { $stream += '--vrr' }
@@ -112,6 +113,11 @@ foreach ($case in 'h264', 'hevc', 'av1', 'hevc-vrr', 'hevc-recovery', 'hevc-120'
     # The receiver decodes on the GPU: software HEVC managed about 65 FPS here.
     if ($case.EndsWith('-120')) {
         $stream += '--mode', '2560x1440x120', '--bitrate', '80000', '--name', $case, '--hw-decoder', 'd3d11va'
+    }
+    # Artemis's Warp frame pacing: launched at 60, asking for 120. The stream
+    # runs at the request's rate (60 before 2.3.1).
+    if ($case.EndsWith('-warp')) {
+        $stream += '--mode', '2560x1440x120', '--bitrate', '80000', '--name', $case, '--hw-decoder', 'd3d11va', '--launch-fps', '60'
     }
     # A client losing packets: 16 keyframe requests, one every 0.5 s, must
     # not send pictures twice or skip new frames (rc.27-rc.28 did).

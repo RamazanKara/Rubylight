@@ -334,6 +334,30 @@ export interface PerfSample {
   host_processing_max_ms: number;
   frame_age_mean_ms: number;
 }
+/** Milliseconds a stage took, over the new pictures in the stage window. */
+export interface StageTiming {
+  mean_ms: number;
+  p95_ms: number;
+  p99_ms: number;
+}
+/** Where new pictures' time went on the host, from Windows' present to the last packet sent. */
+export interface StageTimings {
+  /** New pictures sent in the window; static repeats are not counted. */
+  frames: number;
+  window_seconds: number;
+  capture: StageTiming;
+  hold: StageTiming;
+  claim: StageTiming;
+  convert: StageTiming;
+  encode: StageTiming;
+  queue: StageTiming;
+  packetize: StageTiming;
+  send: StageTiming;
+  /** Present to the last packet sent: the stages above added up. */
+  present_to_sent: StageTiming;
+  /** The host latency Moonlight shows, for the same pictures. */
+  moonlight_host: StageTiming;
+}
 export interface Performance {
   fps: number;
   bitrate_mbps: number;
@@ -348,6 +372,7 @@ export interface Performance {
   frame_age_p95_ms: number;
   present_to_send_mean_ms: number;
   send_interval_p99_ms: number;
+  stages?: StageTimings;
   sample_frames: number;
   history: PerfSample[];
 }

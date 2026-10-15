@@ -15,6 +15,10 @@
   const perf = $derived(stream.performance);
   // No frames in the last two seconds: the averages are zeros, not measurements.
   const measured = $derived(perf.sample_frames > 0);
+  // A still picture sends only repeats, which have no present to time from.
+  const presentToSent = $derived(
+    measured && perf.stages && perf.stages.frames > 0 ? perf.stages.present_to_sent : null,
+  );
   const codec = $derived((CODEC_NAMES as readonly string[])[stream.video_format] ?? 'Unknown video format');
   const mbps = $derived(stream.encoder_bitrate_kbps / 1000);
   const starved = $derived(
@@ -107,6 +111,20 @@
       <dd class="value num">{timing(perf.frame_age_mean_ms)}</dd>
       <dd class="sub">Average</dd>
     </div>
+    <div class="whole">
+      <dt>Present to sent</dt>
+      <dd class="value num">{presentToSent ? ms(presentToSent.mean_ms) : '–'}</dd>
+      <dd class="sub">
+        {#if presentToSent}
+          Average from Windows' present to the last packet sent, for new pictures; 99% below
+          <span class="num">{ms(presentToSent.p99_ms)}</span>. Host processing, Moonlight's figure, leaves out
+          capture and sending.
+        {:else}
+          From Windows' present to the last packet sent.
+          {#if measured}No new pictures in the last <span class="num">{perf.stages?.window_seconds ?? 5}</span> seconds.{/if}
+        {/if}
+      </dd>
+    </div>
   </dl>
   {#if !measured && !stopping}
     <p class="note muted">No frames sent in the last 2 seconds.</p>
@@ -182,6 +200,9 @@
     .metrics {
       grid-template-columns: repeat(2, minmax(0, 1fr));
     }
+  }
+  .metrics .whole {
+    grid-column: 1 / -1;
   }
   .metrics div {
     padding: var(--space-2) var(--space-3);

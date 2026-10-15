@@ -47,3 +47,27 @@ test('PyroWave quality warning uses the current encoder bitrate', () => {
 test('the disconnect button names the device whose stream it ends', () => {
   assert.match(html(), /Disconnect(<!---->)?<span class="visually-hidden[^"]*">\s*Test client<\/span>/);
 });
+
+const spread = (mean_ms, p99_ms) => ({ mean_ms, p95_ms: p99_ms, p99_ms });
+const measured = (frames) => ({
+  sample_frames: 240, history: [], fps: 120, encode_p95_ms: 2.5,
+  host_processing_mean_ms: 3.1, host_processing_p99_ms: 4.2, frame_age_mean_ms: 1.2,
+  stages: { frames, window_seconds: 5, present_to_sent: spread(9.84, 12.31), moonlight_host: spread(3.1, 4.2) },
+});
+
+test('present to sent shows new pictures from Windows present to the last packet beside Moonlight host processing', () => {
+  const result = html({ performance: measured(600) });
+  assert.match(result, /<dt[^>]*>Present to sent<\/dt>/);
+  assert.match(result, /Present to sent<\/dt>\s*<dd class="value num[^"]*">9\.8 ms</);
+  assert.match(result, /Windows' present to the last packet sent, for new pictures; 99% below\s*<span class="num[^"]*">12 ms<\/span>/);
+  assert.match(result, /Host processing, Moonlight's figure, leaves out\s+capture and sending/);
+});
+
+test('present to sent is not invented for a still picture or a stream without frames', () => {
+  const still = html({ performance: measured(0) });
+  assert.match(still, /Present to sent<\/dt>\s*<dd class="value num[^"]*">–<\/dd>/);
+  assert.match(still, /No new pictures in the last <span class="num[^"]*">5<\/span> seconds/);
+  const idle = html();
+  assert.match(idle, /Present to sent<\/dt>\s*<dd class="value num[^"]*">–<\/dd>/);
+  assert.doesNotMatch(idle, /No new pictures/);
+});

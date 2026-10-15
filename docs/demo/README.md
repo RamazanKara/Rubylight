@@ -8,13 +8,15 @@ the real computer manager and streaming connection.
 
 ## Build
 
-`local.properties` and the native submodule must be present (copy the missing
-files from `C:\src\bp-T5` if needed). Build from the repository root:
+`ANDROID_HOME` (or `sdk.dir` in `local.properties`) and the native submodule must be
+present. Build from the repository root:
 
 ```powershell
-$env:JAVA_HOME = 'C:\jdk17'
+$env:JAVA_HOME = 'C:\Program Files\Microsoft\jdk-21.0.12.101-hotspot'  # any JDK 21; see docs/building.md
 .\gradlew.bat :app:assembleNonRootDebug :app:testNonRootDebugUnitTest :app:lintNonRootDebug --no-daemon --max-workers=2
 ```
+
+The unit tests need JDK 21: Robolectric's Android 16 tests stop with `UnsupportedOperationException` on JDK 17.
 
 APK: `app/build/outputs/apk/nonRoot/debug/app-nonRoot-debug.apk`.
 No extra flavor or dependency is required. If the build user's home is read-only,
@@ -27,13 +29,15 @@ adb; these instructions and scripts do not start an emulator.
 
 ```powershell
 adb install -r app/build/outputs/apk/nonRoot/debug/app-nonRoot-debug.apk
-adb shell am start -n com.butterpollo.client/com.limelight.demo.DemoLauncherActivity
-adb shell am start -n com.butterpollo.client/com.limelight.demo.DemoLauncherActivity --es state library
+adb shell am start -n com.butterpollo.client.debug/com.limelight.demo.DemoLauncherActivity
+adb shell am start -n com.butterpollo.client.debug/com.limelight.demo.DemoLauncherActivity --es state library
+adb shell am start -n com.butterpollo.client.debug/com.limelight.demo.DemoLauncherActivity --es state pc-settings
 ```
 
 | `state` extra | Screen |
 | --- | --- |
 | `hosts` (default) | Real PcView cards: Living-room PC online/paired, Studio PC online/unpaired, Laptop offline with Wake PC action |
+| `pc-settings` | Real per-PC settings for Living-room PC: Video, Display on the PC, Connection and Host groups |
 | `library` | Real AppView, ten original 3:4 covers, Racing Game marked running |
 | `stream`, `compact` | Looping sample in the Game layout's StreamView with the compact performance overlay |
 | `statistics` | Same sample with the Statistics overlay |
@@ -42,6 +46,13 @@ adb shell am start -n com.butterpollo.client/com.limelight.demo.DemoLauncherActi
 | `pip` | Sample ready for PiP; press Home to enter it |
 | `settings` | Real settings and presets, with isolated demo preferences |
 | `controller` | Real controller mapping screen, populated with a demo controller |
+
+Living-room PC's host is a fixture of a paired Rubylight 2.2.21 with every permission and no
+PyroWave. Its capabilities are cached in the demo preferences, so its PC settings (`pc-settings`, or
+PC settings… in its menu) show the rows that host supports, with the host family as the subtitle,
+and the stream menu lists its Quality and Host sections. Nothing is read from a host. The PC
+settings screen alone sees the PC at the documentation address `192.0.2.10` (RFC 5737), so its
+rows read as for an online PC; its remote setup, export and web UI actions stay in the fixture.
 
 Tap Living-room PC to enter its library; tap any title to play the sample.
 Long-press the performance overlay to cycle Compact, Statistics and Debug. Tap the
@@ -95,19 +106,24 @@ preset first (confirming its dialog), so a preset is selected; every launch writ
 
 Stills go to `docs/screenshots/demo/`: `pc-list.png`, `library.png`, `stream.png`,
 `stream-compact.png`, `stream-advanced.png`, `settings-presets.png`,
-`upscaling-options.png`, `controller.png`, `touch-controller.png`, `pip.png`.
+`upscaling-options.png`, `controller.png`, `touch-controller.png`, `pip.png`, `pc-settings.png`.
 The script then rotates to landscape and also saves `landscape-stream.png`, `landscape-compact.png`,
-`landscape-advanced.png` and `landscape-touch.png` (2400x1080), where the sample fills the screen and the real
-on-screen controller is laid out for it. PNG dimensions are checked after pulling. These files are created by
-the caller; no empty-app placeholders are substituted.
+`landscape-advanced.png`, `landscape-touch.png` and `landscape-stream-menu.png` (2400x1080), where the sample
+fills the screen, the real on-screen controller is laid out for it and the stream menu is scrolled to Quality.
+`-Only` takes still names, for example `-Only pc-settings,landscape-stream-menu`. PNG dimensions are checked
+after pulling. These files are created by the caller; no empty-app placeholders are substituted.
 
 `capture-video.ps1` records all eight [shots](shotlist.md) with
-`adb shell screenrecord` at half resolution (540x1200 portrait, 1200x540 landscape for the stream shots 05 and 06;
+`adb shell screenrecord` at half resolution (540x1200 portrait, 1200x540 landscape for the stream shots 05, 06 and 15;
 the emulator's software encoder cannot keep up at full size). screenrecord writes variable-rate video and a single
 frame for a static screen, so FFmpeg normalizes each take to 30 fps and holds the last frame. Clips go to
 `out/demo/clips/<shot-id>.mp4`, with one second of handles at each end. Shot 04
 shows the library directly (taps on a PC card do not navigate under `adb input` on the emulator), and shot 05 taps
-Racing Game while recording. Shot 12 presses Home while recording and leaves the PiP window in Android's default bottom-right corner (the demo home's rings are centred there); for it the script enables the debug app's plain dark `DemoHomeActivity` as the home screen (so the window floats over a clean background, not third-party launcher icons) and restores the device's launcher afterwards. The advanced overlay, touch controls and performance panel shots (07, 11, 13) were dropped from the tour after review, see the [shotlist](shotlist.md); their clips are not rendered. Logs stay beside the clips. Recording is silent.
+Racing Game while recording. Shot 14 opens on Living-room PC's Display on the PC group, which the script scrolls
+into place and checks before recording, then flicks to the end of the page (Connection and Host), where the list
+stops the same way every take. Shot 15 presses Back in the compact stream before recording, so it opens on the
+stream menu, then scrolls it to Quality with two slow strokes (a fling would stop somewhere different each take).
+Shot 12 presses Home while recording and leaves the PiP window in Android's default bottom-right corner (the demo home's rings are centred there); for it the script enables the debug app's plain dark `DemoHomeActivity` as the home screen (so the window floats over a clean background, not third-party launcher icons) and restores the device's launcher afterwards. The advanced overlay, touch controls and performance panel shots (07, 11, 13) were dropped from the tour after review, and discovery and pairing (02, 03), which repeated the PC list, gave way to shots 14 and 15; see the [shotlist](shotlist.md). Dropped shots are not captured or rendered. Logs stay beside the clips. Recording is silent.
 The older `capture.ps1` entry point forwards to this offline tour; its `-NoHost`
 option is now redundant.
 
@@ -128,8 +144,8 @@ The picture uses the Nightjar palette (amber moon #F2A93B on night #14161F) and 
 (`scripts/demo/assets/nightjar-tile.png`, the README banner's mark), joins shots with hard cuts
 (a crossfade would double the captions and UI text for a few frames) and keeps the 9:16 cut inside the usual
 platform safe areas: wordmark and headline below y=290, captions ending by y=1440, no text in the right 120 px.
-It writes `demo-16x9.mp4` (1920x1080) and `demo-9x16.mp4` (1080x1920), posters, eight review frames per video in
-`out/demo/frames-v2/` and `segments.json` (each shot's start time).
+It writes `demo-16x9.mp4` (1920x1080) and `demo-9x16.mp4` (1080x1920), posters, ten review frames per video in
+`out/demo/frames-v3/` (both title cards and one frame of each shot) and `segments.json` (each shot's start time).
 
 ## README assets
 

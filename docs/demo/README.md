@@ -150,7 +150,7 @@ $env:JAVA_HOME = 'C:\jdk17'
 The generator finds FFmpeg on PATH or under
 `%LOCALAPPDATA%\Microsoft\WinGet\Packages\Gyan.FFmpeg_*\*\bin`; it downloads
 nothing. `GenerateAssets.java` uses JDK 17 Java2D and system Segoe UI fonts to
-make ten ruby/slate gradient covers and an original ten-second seamless flight
+make ten slate gradient covers (one accent colour and genre per title, no app name) and an original ten-second seamless flight
 animation: parallax mountains, a neon ground grid, towers, particles, a moving
 ship and HUD. Raw frames are piped to FFmpeg at 1920x1080/60. H.264 is mandatory;
 HEVC and AV1 10-bit SDR copies are encoded when their software encoders are

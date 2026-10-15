@@ -8,12 +8,15 @@ import java.util.Random;
 import javax.imageio.ImageIO;
 
 public class GenerateAssets {
-    static final Color RUBY = new Color(255, 64, 108), INK = new Color(17, 26, 31);
+    static final Color ROSE = new Color(255, 64, 108), INK = new Color(17, 26, 31);
     static final String[] TITLES = {"Desktop", "Racing Game", "Open World", "Space Sim", "Puzzle Night",
             "Retro Arcade", "Strategy", "Music Studio", "Ocean Explorer", "Skybound"};
     static final String[] GLYPHS = {"D", "R", "O", "S", "P", "A", "S", "M", "O", "S"};
-    static final Color[] ACCENTS = {RUBY, new Color(255, 122, 81), new Color(108, 226, 187),
-            new Color(147, 135, 255), new Color(247, 199, 108), RUBY, new Color(109, 197, 228),
+    // Each cover names a genre, not the app, so the art reads as a game library on any client.
+    static final String[] GENRES = {"FULL DESKTOP", "ARCADE RACING", "ADVENTURE", "SIMULATION", "PUZZLE",
+            "CLASSIC ARCADE", "REAL-TIME STRATEGY", "MUSIC CREATION", "EXPLORATION", "FLIGHT ACTION"};
+    static final Color[] ACCENTS = {ROSE, new Color(255, 122, 81), new Color(108, 226, 187),
+            new Color(147, 135, 255), new Color(247, 199, 108), ROSE, new Color(109, 197, 228),
             new Color(197, 126, 227), new Color(62, 208, 209), new Color(249, 136, 156)};
 
     static Graphics2D graphics(BufferedImage image) {
@@ -69,13 +72,12 @@ public class GenerateAssets {
             g.setTransform(original);
             g.setPaint(new GradientPaint(0, 520, new Color(17, 26, 31, 0), 0, 800, INK));
             g.fillRect(0, 520, 600, 280);
-            text(g, "R U B Y L I G H T", 19, 38, 55, new Color(240, 243, 244));
             text(g, String.format("%02d  /  COLLECTION", index + 1), 16, 40, 578, accent);
             String[] words = TITLES[index].toUpperCase(java.util.Locale.ROOT).split(" ");
             for (int word = 0; word < words.length; word++) text(g, words[word], 52, 38, 643 + word * 58, Color.WHITE);
             g.setColor(accent);
             g.fillRoundRect(40, 751, 52, 5, 3, 3);
-            text(g, "YOUR GAMES. YOUR SCREEN.", 14, 112, 759, new Color(188, 200, 206));
+            text(g, GENRES[index], 14, 112, 759, new Color(188, 200, 206));
             g.dispose();
             ImageIO.write(image, "png", directory.resolve((index + 1) + ".png").toFile());
         }
@@ -144,7 +146,7 @@ public class GenerateAssets {
             int width = (int) (45 * scale), height = (int) ((130 + i % 4 * 30) * scale);
             g.setColor(new Color(19, 28, 43));
             g.fillRect(x, base - height, width, height);
-            g.setColor(i % 3 == 0 ? RUBY : new Color(76, 189, 204));
+            g.setColor(i % 3 == 0 ? ROSE : new Color(76, 189, 204));
             g.fillRect(x, base - height, Math.max(2, width / 9), height);
             g.setColor(new Color(232, 146, 165, 150));
             g.fillRect(x, base - height, width, 3);
@@ -169,12 +171,12 @@ public class GenerateAssets {
         g.setColor(new Color(179, 231, 234));
         g.setStroke(new BasicStroke(3));
         g.draw(hull);
-        g.setColor(RUBY);
+        g.setColor(ROSE);
         g.fill(new Polygon(new int[] {shipX, shipX + 20, shipX - 20}, new int[] {shipY - 68, shipY + 8, shipY + 8}, 3));
         g.setColor(new Color(10, 18, 28, 195));
         g.fillRoundRect(70, 64, 420, 122, 20, 20);
         text(g, "SKYBOUND", 35, 96, 111, Color.WHITE);
-        text(g, "SECTOR 07  /  RUBY COAST", 18, 98, 151, new Color(138, 208, 217));
+        text(g, "SECTOR 07  /  OUTER RIM", 18, 98, 151, new Color(138, 208, 217));
         g.setColor(new Color(10, 18, 28, 195));
         g.fillRoundRect(1440, 65, 390, 115, 20, 20);
         text(g, "CRUISE", 17, 1465, 101, new Color(188, 200, 206));
@@ -185,7 +187,7 @@ public class GenerateAssets {
         text(g, "SHIELD", 17, 94, 914, new Color(188, 200, 206));
         g.setColor(new Color(57, 78, 86));
         g.fillRoundRect(96, 936, 330, 12, 6, 6);
-        g.setColor(RUBY);
+        g.setColor(ROSE);
         g.fillRoundRect(96, 936, 285 + (int) (18 * Math.sin(phase)), 12, 6, 6);
         g.setColor(new Color(138, 225, 224, 120));
         g.setStroke(new BasicStroke(2));
@@ -200,7 +202,7 @@ public class GenerateAssets {
         g.drawOval(1630, 830, 175, 175);
         g.drawOval(1674, 874, 87, 87);
         g.drawLine(1717, 917, 1717 + (int) (Math.cos(phase) * 84), 917 + (int) (Math.sin(phase) * 84));
-        g.setColor(RUBY);
+        g.setColor(ROSE);
         g.fillOval(1680 + (int) (Math.sin(phase) * 20), 888, 9, 9);
     }
 

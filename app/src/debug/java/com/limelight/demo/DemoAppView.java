@@ -14,6 +14,6 @@ public final class DemoAppView extends AppView {
     @Override public void receiveAbsListView(AbsListView list) {
         super.receiveAbsListView(list);
         list.setOnItemClickListener((parent, view, position, id) -> startActivity(
-                new Intent(this, DemoGameActivity.class).putExtra("state", "statistics")));
+                new Intent(this, DemoGameActivity.class).putExtra("state", "compact")));
     }
 }

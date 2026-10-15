@@ -45,7 +45,7 @@ public final class DemoGameActivity extends Activity implements SurfaceHolder.Ca
     private VirtualController controls;
     private DemoSamplePlayer player;
     private String mode;
-    private boolean showControls, prepared, started, fallback;
+    private boolean showControls, prepared, started, fallback, microphoneMuted;
     private long positionUs;
     private long tick;
     private StreamMenu menu;
@@ -151,7 +151,8 @@ public final class DemoGameActivity extends Activity implements SurfaceHolder.Ca
 
     @Override public void onPerfUpdate(String video, String network, String decode, CharSequence statisticsText,
                                        CharSequence compactText) {
-        overlay.setText(PerformanceOverlay.MODE_DEBUG.equals(mode) ? PerformanceOverlay.debugText(this, video, network, decode) :
+        overlay.setText(PerformanceOverlay.MODE_DEBUG.equals(mode) ? PerformanceOverlay.withHardwareMetrics(this,
+                PerformanceOverlay.debugText(this, video, network, decode), DemoMetrics.hardware(tick), true) :
                 PerformanceOverlay.MODE_STATISTICS.equals(mode) ? statisticsText : compactText);
         overlay.setContentDescription(PerformanceOverlay.MODE_COMPACT.equals(mode) ?
                 PerformanceOverlay.describeCompact(this, compactText) : null);
@@ -170,6 +171,9 @@ public final class DemoGameActivity extends Activity implements SurfaceHolder.Ca
         options.pictureInPicture = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
                 getPackageManager().hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE);
         options.automaticQuality = true;
+        // As for a host that takes this device's microphone; the demo records nothing.
+        options.microphoneOffered = true;
+        options.microphoneMuted = microphoneMuted;
         options.webUiAddress = true;
         return options;
     }
@@ -191,6 +195,7 @@ public final class DemoGameActivity extends Activity implements SurfaceHolder.Ca
                 overlayScroll.setVisibility(overlayScroll.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE);
                 return;
             case MICROPHONE:
+                microphoneMuted = !microphoneMuted;
                 return;
             default:
                 break;

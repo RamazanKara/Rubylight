@@ -15,6 +15,7 @@ import android.preference.PreferenceManager;
 import android.widget.TextView;
 
 import com.google.android.material.appbar.MaterialToolbar;
+import com.google.android.material.button.MaterialButton;
 
 import com.limelight.AppView;
 import com.limelight.R;
@@ -31,6 +32,7 @@ import com.limelight.nvstream.http.NvApp;
 import com.limelight.nvstream.http.NvHTTP;
 import com.limelight.nvstream.http.PairingManager.PairState;
 import com.limelight.preferences.GlPreferences;
+import com.limelight.ui.StreamMenu;
 
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -212,9 +214,28 @@ public class DemoModeTest {
             assertFalse(overlay.getText().toString().contains("\n"));
             overlay.performLongClick();
             assertEquals(Integer.MAX_VALUE, overlay.getMaxLines());
-            assertEquals(6, overlay.getText().toString().split("\n").length);
+            // Six stream lines, then the host's CPU and GPU, as a Rubylight host's hardware readings show them.
+            String[] lines = overlay.getText().toString().split("\n");
+            assertEquals(8, lines.length);
             assertTrue(overlay.getText().toString().contains("119.9 FPS"));
+            assertTrue(lines[6], lines[6].startsWith("Host CPU: "));
+            assertTrue(lines[7], lines[7].startsWith("Host GPU 0: "));
             assertFalse(overlay.getText().toString().contains("p95"));
         } finally { restored.destroy(); }
+    }
+
+    @Test public void streamMenuOffersTheMicrophoneAndTogglesItWithoutRecording() {
+        Intent intent = new Intent(RuntimeEnvironment.getApplication(), DemoGameActivity.class).putExtra("state", "compact");
+        var stream = Robolectric.buildActivity(DemoGameActivity.class, intent).create();
+        try {
+            stream.get().onBackPressed();
+            StreamMenu menu = ReflectionHelpers.getField(stream.get(), "menu");
+            MaterialButton microphone = menu.row(StreamMenu.Item.MICROPHONE);
+            assertNotNull(microphone);
+            assertTrue(microphone.isChecked());
+            microphone.performClick();
+            assertFalse(menu.row(StreamMenu.Item.MICROPHONE).isChecked());
+            assertTrue(menu.sheet().isShowing());
+        } finally { stream.destroy(); }
     }
 }

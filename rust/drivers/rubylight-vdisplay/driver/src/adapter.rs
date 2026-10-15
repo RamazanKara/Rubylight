@@ -131,10 +131,11 @@ static RENDER_PIN: Mutex<Option<(i64, u32)>> = Mutex::new(None);
 /// Pin the GPU that renders the swap chains. On a hybrid PC Windows may otherwise render on
 /// the integrated GPU, where the frame ring's textures (created on the selected GPU) cannot
 /// open. Moving the pin flaps every live swap chain, so another owner's different GPU is
-/// refused with `STATUS_ACCESS_DENIED` while the pinning owner still has a monitor.
+/// refused with `STATUS_ACCESS_DENIED` while the pinning owner still has a monitor. Busy
+/// until the adapter exists, so the host retries instead of giving up on the pin.
 pub fn set_render_adapter(owner: u32, luid_low: u32, luid_high: i32) -> NTSTATUS {
     let Some(adapter) = adapter() else {
-        return crate::STATUS_NOT_FOUND;
+        return crate::STATUS_DEVICE_BUSY;
     };
     let packed = (i64::from(luid_high) << 32) | i64::from(luid_low);
     let pin = *crate::registry::lock(&RENDER_PIN);

@@ -84,7 +84,13 @@ pub unsafe fn dispatch(request: WDFREQUEST, ioctl_code: u32) {
                 RenderAdapterRequest::SIZE,
                 RenderAdapterRequest::decode,
             ) {
-                Ok(r) => crate::adapter::set_render_adapter(owner, r.luid_low, r.luid_high),
+                Ok(r) => {
+                    // As for ADD: a refused adapter init gets its second chance here.
+                    if crate::adapter::adapter().is_none() {
+                        crate::adapter::retry_init();
+                    }
+                    crate::adapter::set_render_adapter(owner, r.luid_low, r.luid_high)
+                }
                 Err(st) => st,
             };
             request.complete(st);
@@ -112,7 +118,12 @@ pub unsafe fn dispatch(request: WDFREQUEST, ioctl_code: u32) {
         }
         control::IOCTL_DRAIN_LOG => {
             let lines = crate::log::drain(request.output_buffer_len());
-            let st = request.copy_to_output(&lines);
+            // Nothing queued completes with zero bytes rather than a zero-length copy.
+            let st = if lines.is_empty() {
+                STATUS_SUCCESS
+            } else {
+                request.copy_to_output(&lines)
+            };
             request.complete(st);
         }
         code if ENCODE_FUNCTIONS.contains(&control::function_of(code)) => {

@@ -51,6 +51,23 @@ Scaling is a view transform only: the decoder, its buffers and the frame path ar
 
 Older versions only know **Stretch to fill screen** (`checkbox_stretch_video`). Nightjar keeps writing that switch (on only for Stretch), so after a downgrade Fill and 1:1 show as Fit, and a change made in an older version wins after the next upgrade.
 
+## Orientation
+
+**Settings → Display & image → Orientation** decides which way the stream screen may turn. It is off by default: **Automatic** keeps the earlier behaviour, with phones in landscape and tablets, squarish screens, desktop-class devices, split-screen or desktop windows and external displays free to turn.
+
+| Choice | Screen | Stream shape |
+| --- | --- | --- |
+| Automatic (default) | Phones in landscape; the others turn freely. | Unchanged. |
+| Landscape | Locked to landscape, either way up. | Unchanged. |
+| Portrait | Locked to portrait, either way up. | Portrait from the start on a host streaming from its virtual display. |
+| Rotate with device | Follows the device, unless the system rotation lock is on. | Starts in the screen's shape on a host streaming from its virtual display, and turns with the device where that host also resizes a running stream. |
+
+Only a host that draws the stream on its own virtual display can give it a portrait shape (Apollo, Rubylight and Vibepollo with the virtual display on; see [host support](PARITY-MATRIX.md)). With **Rotate with device**, Nightjar then asks the host for the turned size during the stream, through the same in-place resize used for foldables (control message `0x5532`). A turn waits one second for the device to settle, so turning the phone over and straight back sends nothing. As for foldables, the decoder is readied for the new size before the host is asked, and nothing waits on the video path. A fixed resolution is turned as it is (1920×1080 becomes 1080×1920); a native one follows the panel. Sizes are rounded down to even numbers and to the decoder's alignment, and shrunk with their shape kept if the decoder cannot take the turned size at full height.
+
+Every other host, and a host that cannot resize a running stream, keeps the stream's size: the picture is placed in the turned screen by [Video scaling](#video-scaling), with bars or cropping as chosen, and Nightjar says so once per stream. The same notice appears if the device's decoder cannot switch to the turned size. A stream on an external display ignores the phone's orientation, and the setting is hidden on TVs.
+
+Touch, mouse, pinch zoom, the Local cursor and on-screen controls map through the laid-out picture, so they stay aligned after a turn. The on-screen controls are laid out again for the new screen shape; their layout was designed for landscape and is roomier there.
+
 ## Upscaling
 
 Choose **Settings → Display & image → Client-side upscaling** or override it in a PC profile. First lower **Stream resolution**, for example to 720p on a 1080p screen. A PC profile also accepts a custom stream resolution. This reduces transmitted pixels and decode work; upscaling reconstructs that smaller video at the Android output size. **Host render scale** changes the PC's render resolution, not the transmitted video size.

@@ -181,12 +181,27 @@ the device restarted with status OK and no CodeIntegrity events, and an idd-push
 at 2560x1440 and 240 Hz. Not covered: Windows in S mode or with Smart App Control on (both
 refuse unknown signers, as they refuse the Sunshine driver), and WDAC-managed PCs.
 
-The setup program does not call it yet. To ship: put the unsigned package and
-`install-local.ps1` under `driversubylight-display` in the package, run it from setup when
-the user turns on the Rubylight display, and run `-Uninstall` from the uninstaller. Once
-SignPath signs the catalog, setup installs that package instead and keeps only the
-publisher certificate in `TrustedPublisher` (below); `-Uninstall` cleans up a locally
-signed install either way.
+### In the Rubylight package
+
+`rust/build.ps1 -Package` builds the package with `build-package.ps1` (unsigned) and puts it
+under `drivers\rubylight-display` with `install-local.ps1` and the bundled `nefconc.exe`. The
+console's **Virtual display driver** setting (`virtual_display_driver = rubylight`) decides
+whether it is installed:
+
+- Setup, an in-app update and the service's driver repair run
+  `install-local.ps1 -InstallerBestEffort` as SYSTEM while the setting selects it, and
+  `-Uninstall` once it no longer does but the driver is still installed (the
+  `HKLM\SOFTWARE\Rubylight\VirtualDisplay` key). A failure becomes a setup note and the host
+  keeps the standard driver, like the Sunshine driver's `install.ps1 -InstallerBestEffort`.
+- The service checks every minute: when the setting selects the driver and it does not open,
+  or deselects it while it is installed, it runs `butterpollo-setup.exe --rubylight-display`.
+  That waits for no stream and tries at most once a day per version and choice.
+- The uninstaller always runs `-Uninstall`, also when the other drivers stay.
+
+A signed release replaces the catalog with the one SignPath signed
+(`rust/release/sign-artifacts.ps1`). `install-local.ps1` then installs it as it is and adds
+only that signer to `TrustedPublisher` (removed again by `-Uninstall` if it added it), and
+deletes a locally signed install's packages and certificate.
 
 ## Release signing
 

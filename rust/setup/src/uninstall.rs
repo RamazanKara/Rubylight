@@ -1,4 +1,5 @@
-//! Removing Rubylight. Settings and drivers stay unless asked otherwise.
+//! Removing Rubylight. Settings and drivers stay unless asked otherwise,
+//! except Rubylight's own display driver.
 use crate::{
     detect::{self, SERVICE, UNINSTALL},
     install::{
@@ -61,12 +62,40 @@ pub fn uninstall(options: &Options, progress: &Progress) -> Result<()> {
     system::firewall_remove(LEGACY_FIREWALL_RULE);
     remove_layers(&install);
 
+    let powershell = format!(
+        "{}\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+        std::env::var("SystemRoot").unwrap_or_else(|_| "C:\\Windows".into())
+    );
+    // Rubylight's own display driver serves only Rubylight, and the
+    // certificate it trusted must not outlive it: it goes even when the
+    // other drivers stay.
+    let rubylight_display = install.join(crate::install::RUBYLIGHT_DISPLAY_SCRIPT);
+    if rubylight_display.is_file() {
+        progress.set("Removing the Rubylight display driver…");
+        let path = rubylight_display.display().to_string();
+        let arguments = [
+            "-NoLogo",
+            "-NonInteractive",
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            path.as_str(),
+            "-Uninstall",
+            "-InstallerBestEffort",
+        ];
+        match system::run_as_system(&powershell, &arguments, Duration::from_secs(600)) {
+            Ok((code, output)) if code != 0 || output.contains("DRIVER_WARNING") => line(format!(
+                "warning: removing the Rubylight display driver: {output}"
+            )),
+            Ok(_) => {}
+            Err(error) => line(format!(
+                "warning: removing the Rubylight display driver: {error:#}"
+            )),
+        }
+    }
     if options.remove_drivers {
         progress.set("Removing the virtual drivers…");
-        let powershell = format!(
-            "{}\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
-            std::env::var("SystemRoot").unwrap_or_else(|_| "C:\\Windows".into())
-        );
         for (script, args) in [
             (
                 "drivers\\gamepad\\cleanup.ps1",

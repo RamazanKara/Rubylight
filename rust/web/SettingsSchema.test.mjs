@@ -106,6 +106,7 @@ test('spellings the host reads as an option show as that option', () => {
     ['frame_pacing', 'fixed', 'grid'],
     ['virtual_display_layout', 'Extended-Primary', 'extended_primary'],
     ['virtual_display_layout', 'ensure_only_display', 'exclusive'],
+    ['virtual_display_driver', 'Rubylight', 'rubylight'],
     ['gamepad', 'ds5', 'vhf_ds5'],
     ['gamepad', 'x360', 'vhf_xbox_one'],
     ['amd_coder', 'vlc', 'cavlc'],

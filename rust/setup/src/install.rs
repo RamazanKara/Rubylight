@@ -966,6 +966,7 @@ fn run_drivers(
             "Vulkan layer",
         );
     }
+    restart_needed |= rubylight_display_driver(install, progress, notes);
     if gamepad && install.join("drivers\\gamepad\\install.ps1").is_file() {
         progress.set("Installing the virtual gamepad driver…");
         restart_needed |= run_driver_script(
@@ -988,6 +989,137 @@ fn run_drivers(
     restart_needed
 }
 
+/// The installer of Rubylight's own display driver in a package.
+pub(crate) const RUBYLIGHT_DISPLAY_SCRIPT: &str = "drivers\\rubylight-display\\install-local.ps1";
+/// What install-local.ps1 records about its install, removed by -Uninstall.
+const RUBYLIGHT_DISPLAY_STATE: &str = "SOFTWARE\\Rubylight\\VirtualDisplay";
+#[derive(Debug, PartialEq, Eq)]
+enum RubylightDisplay {
+    Install,
+    Remove,
+    Missing,
+}
+/// Whether the host is set to `virtual_display_driver = rubylight`, as
+/// rubylight_vdd::VirtualDriver::configured reads it.
+/// The first value that is not empty counts, as the host reads it.
+pub(crate) fn rubylight_display_selected(conf: &str) -> bool {
+    conf.lines()
+        .find_map(|line| {
+            let (key, value) = line.split_once('=')?;
+            let value = value.split('#').next()?.trim();
+            (key.trim() == "virtual_display_driver" && !value.is_empty()).then_some(value)
+        })
+        .is_some_and(|value| value.eq_ignore_ascii_case("rubylight"))
+}
+fn rubylight_display_installed() -> bool {
+    system::open_key(
+        HKEY_LOCAL_MACHINE,
+        RUBYLIGHT_DISPLAY_STATE,
+        windows::Win32::System::Registry::KEY_READ
+            | windows::Win32::System::Registry::KEY_WOW64_64KEY,
+    )
+    .is_some()
+}
+/// Rubylight's own display driver follows the console's choice, not the
+/// driver options: it is set up only while the host is told to use it.
+/// Returns whether Windows needs a restart.
+fn rubylight_display_driver(install: &Path, progress: &Progress, notes: &mut Vec<String>) -> bool {
+    let script = install.join(RUBYLIGHT_DISPLAY_SCRIPT);
+    match rubylight_display_step(
+        &conf_text(&profile()),
+        rubylight_display_installed(),
+        script.is_file(),
+    ) {
+        Some(RubylightDisplay::Install) => {
+            progress.set("Installing the Rubylight display driver…");
+            run_driver_script(
+                &script,
+                &["-InstallerBestEffort"],
+                notes,
+                "Rubylight display",
+            )
+        }
+        Some(RubylightDisplay::Remove) => {
+            progress.set("Removing the Rubylight display driver…");
+            run_driver_script(
+                &script,
+                &["-Uninstall", "-InstallerBestEffort"],
+                notes,
+                "Rubylight display",
+            )
+        }
+        Some(RubylightDisplay::Missing) => {
+            notes.push("The Rubylight display driver is selected but missing from this package. Run the complete Rubylight installer to add it.".into());
+            false
+        }
+        None => false,
+    }
+}
+const RUBYLIGHT_DISPLAY_RECORD: &str = "rubylight-display.json";
+/// `butterpollo-setup.exe --rubylight-display`, which the service runs when
+/// the console's display driver choice and the installed driver disagree:
+/// the Rubylight display was selected and its driver does not open, or it
+/// was deselected and is still installed. Never during a stream, and at
+/// most once a day per version and choice. Returns whether Windows must
+/// restart.
+pub fn apply_rubylight_display(progress: &Progress) -> Result<bool> {
+    let exe = std::env::current_exe()?;
+    let install = system::win32_path(exe.parent().context("setup folder unavailable")?)?;
+    let profile = profile();
+    let selected = rubylight_display_selected(&conf_text(&profile));
+    let record = profile.join(RUBYLIGHT_DISPLAY_RECORD);
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)?
+        .as_secs();
+    let version = env!("CARGO_PKG_VERSION");
+    if rubylight_display_tried(
+        std::fs::read(&record).ok().as_deref(),
+        version,
+        selected,
+        now,
+    ) {
+        line("not changing the Rubylight display driver: this version already tried today");
+        return Ok(false);
+    }
+    let Some(_turn) = driver_lock(Duration::ZERO) else {
+        return Ok(false);
+    };
+    ensure_idle(probe(&profile), false)?;
+    std::fs::write(
+        &record,
+        serde_json::to_vec(
+            &serde_json::json!({"version": version, "unix": now, "selected": selected}),
+        )?,
+    )?;
+    let mut notes = Vec::new();
+    let restart = rubylight_display_driver(&install, progress, &mut notes);
+    for note in notes {
+        line(format!("note: {note}"));
+    }
+    Ok(restart)
+}
+fn rubylight_display_tried(record: Option<&[u8]>, version: &str, selected: bool, now: u64) -> bool {
+    record
+        .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(bytes).ok())
+        .is_some_and(|record| {
+            record["version"] == version
+                && record["selected"] == selected
+                && record["unix"]
+                    .as_u64()
+                    .is_some_and(|at| now.saturating_sub(at) < 86_400)
+        })
+}
+/// The Rubylight display driver step: set it up (again, which also updates
+/// it) while the console selects it, and remove it once it no longer does,
+/// so no certificate it trusted outlives the choice.
+fn rubylight_display_step(conf: &str, installed: bool, packaged: bool) -> Option<RubylightDisplay> {
+    match (rubylight_display_selected(conf), installed, packaged) {
+        (true, _, true) => Some(RubylightDisplay::Install),
+        (true, _, false) => Some(RubylightDisplay::Missing),
+        (false, true, true) => Some(RubylightDisplay::Remove),
+        _ => None,
+    }
+}
 /// Run a Vibepollo driver script as SYSTEM. A failure is reported, not
 /// fatal: the host still starts without the driver. Returns whether Windows
 /// needs a restart.
@@ -1411,6 +1543,105 @@ mod tests {
         assert!(!is_nsis(&other));
         assert!(!is_nsis(&folder.path().join("missing.exe")));
         Ok(())
+    }
+    #[test]
+    fn the_rubylight_display_driver_follows_the_console_choice() {
+        let selected = "virtual_display_driver = Rubylight \n";
+        assert!(rubylight_display_selected(selected));
+        assert!(!rubylight_display_selected(""));
+        assert!(!rubylight_display_selected(
+            "virtual_display_driver = vdd\n"
+        ));
+        assert!(!rubylight_display_selected(
+            "# virtual_display_driver = rubylight\n"
+        ));
+        // Setup reads the choice as the host does.
+        for conf in [
+            selected,
+            "virtual_display_driver=\"rubylight\"\n",
+            "virtual_display_driver = rubylight # preview\n",
+            "virtual_display_driver = rubylight\nvirtual_display_driver = vdd\n",
+            "virtual_display_driver = vdd\nvirtual_display_driver = rubylight\n",
+            "virtual_display_driver = \nvirtual_display_driver = rubylight\n",
+            "virtual_display_driver = rubylightx\n",
+            "port = 47989\n",
+        ] {
+            let host = butterpollo_core::config::Config::parse(conf).unwrap();
+            assert_eq!(
+                rubylight_display_selected(conf),
+                host.get("virtual_display_driver", "")
+                    .trim()
+                    .eq_ignore_ascii_case("rubylight"),
+                "{conf:?}"
+            );
+        }
+        // Selected: installed (again) from the package, or reported missing.
+        assert_eq!(
+            rubylight_display_step(selected, false, true),
+            Some(RubylightDisplay::Install)
+        );
+        assert_eq!(
+            rubylight_display_step(selected, true, true),
+            Some(RubylightDisplay::Install)
+        );
+        assert_eq!(
+            rubylight_display_step(selected, true, false),
+            Some(RubylightDisplay::Missing)
+        );
+        // Not selected: removed only when installed, never installed.
+        assert_eq!(
+            rubylight_display_step("", true, true),
+            Some(RubylightDisplay::Remove)
+        );
+        assert_eq!(rubylight_display_step("", false, true), None);
+        assert_eq!(rubylight_display_step("", true, false), None);
+        assert_eq!(rubylight_display_step("", false, false), None);
+    }
+    #[test]
+    fn the_rubylight_display_is_tried_once_a_day_per_version_and_choice() {
+        let record = br#"{"version":"1.0","unix":1000,"selected":true}"#.as_slice();
+        assert!(!rubylight_display_tried(None, "1.0", true, 1000));
+        assert!(rubylight_display_tried(
+            Some(record),
+            "1.0",
+            true,
+            1000 + 86_399
+        ));
+        assert!(!rubylight_display_tried(
+            Some(record),
+            "1.0",
+            true,
+            1000 + 86_400
+        ));
+        assert!(!rubylight_display_tried(Some(record), "1.1", true, 1000));
+        // Turning it off again is a new choice, tried at once.
+        assert!(!rubylight_display_tried(Some(record), "1.0", false, 1000));
+        assert!(!rubylight_display_tried(
+            Some(b"interrupted write"),
+            "1.0",
+            true,
+            1000
+        ));
+    }
+    #[test]
+    fn a_failed_rubylight_display_install_becomes_a_setup_note() {
+        let mut notes = Vec::new();
+        let output = "WARNING: [RubylightVirtualDisplay] DRIVER_WARNING: Rubylight display driver setup did not complete.\nWARNING: [RubylightVirtualDisplay] Installer best-effort driver action failed: pnputil /add-driver failed with exit code 5\n";
+        assert!(!driver_result(0, output, &mut notes, "Rubylight display"));
+        assert_eq!(
+            notes,
+            [
+                "The Rubylight display driver could not be set up: pnputil /add-driver failed with exit code 5 Rubylight tries again when its service starts; the setup log has the details."
+            ]
+        );
+        let mut notes = Vec::new();
+        assert!(driver_result(
+            0,
+            "RESTART_REQUIRED\n",
+            &mut notes,
+            "Rubylight display"
+        ));
+        assert!(notes.is_empty());
     }
     #[test]
     fn the_display_driver_is_repaired_once_a_day_per_version_unless_declined() {

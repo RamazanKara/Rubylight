@@ -8,6 +8,7 @@
 //!                       [--no-start] [--end-streams]
 //! rubylight-setup.exe --uninstall [--quiet] [--factory-reset] [--remove-drivers]
 //! rubylight-setup.exe --repair-drivers (the service runs this one)
+//! rubylight-setup.exe --rubylight-display (and this one)
 #![warn(clippy::undocumented_unsafe_blocks)]
 
 mod detect;
@@ -48,6 +49,9 @@ struct Arguments {
     remove_drivers: bool,
     /// The service found no virtual display driver: set it up again.
     repair_drivers: bool,
+    /// The console's choice of the Rubylight display driver changed: install
+    /// or remove that driver.
+    rubylight_display: bool,
     /// Diagnostics: write what setup found to this file and exit.
     detect: Option<PathBuf>,
     /// Diagnostics: unpack and verify the package into this folder and exit.
@@ -80,6 +84,7 @@ fn arguments() -> Result<Arguments, String> {
             "--factory-reset" => parsed.factory_reset = true,
             "--remove-drivers" => parsed.remove_drivers = true,
             "--repair-drivers" => parsed.repair_drivers = true,
+            "--rubylight-display" => parsed.rubylight_display = true,
             "--detect" => {
                 parsed.detect = Some(PathBuf::from(args.next().ok_or("--detect needs a file")?))
             }
@@ -140,7 +145,7 @@ fn main() {
     if !system::elevated() {
         std::process::exit(system::relaunch_elevated().unwrap_or(1));
     }
-    if args.repair_drivers {
+    if args.repair_drivers || args.rubylight_display {
         // Run as SYSTEM, whose %TEMP% nobody looks in: log with the host.
         log::open_at(
             install::profile().join("logs").join("driver-repair.log"),
@@ -149,7 +154,18 @@ fn main() {
     } else {
         log::open();
     }
-    let code = if args.repair_drivers {
+    let code = if args.rubylight_display {
+        match ui::progress(
+            TITLE,
+            "Setting up the Rubylight display",
+            true,
+            |progress| install::apply_rubylight_display(&progress),
+        ) {
+            Ok(true) => 3010,
+            Ok(false) => 0,
+            Err(error) => failed(true, "The Rubylight display could not be set up", &error),
+        }
+    } else if args.repair_drivers {
         match ui::progress(TITLE, "Repairing the drivers", true, |progress| {
             install::repair_drivers(&progress)
         }) {

@@ -150,7 +150,11 @@ impl DualSense {
         self.pcm.retain_controllers(0);
     }
     pub fn take_pcm(&mut self) -> Vec<haptics::Frame> {
-        self.pcm.drain(Instant::now()).collect()
+        self.take_pcm_at(Instant::now())
+    }
+    /// The PCM still fresh at `now` (frames older than `haptics::MAX_AGE` are dropped).
+    pub fn take_pcm_at(&mut self, now: Instant) -> Vec<haptics::Frame> {
+        self.pcm.drain(now).collect()
     }
     /// Apply Moonlight state without requiring a VHF device.
     pub fn apply(&mut self, event: &Input) {

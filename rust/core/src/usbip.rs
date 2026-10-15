@@ -804,6 +804,9 @@ mod tests {
                 wire.extend_from_slice(&n.to_be_bytes());
             }
         }
+        // The export stamps the PCM after this; draining as of now keeps a
+        // loaded test machine's delay out of the queue's 20 ms freshness limit.
+        let submitted = std::time::Instant::now();
         client.write_all(&wire).unwrap();
         let mut reply = [0; 48 + 5 * 16];
         client.read_exact(&mut reply).unwrap();
@@ -817,7 +820,7 @@ mod tests {
             assert_eq!(be32(descriptor, 8), packet_size as u32);
             assert_eq!(be32(descriptor, 12), 0);
         }
-        let frames = export.with(crate::dualsense::DualSense::take_pcm);
+        let frames = export.with(|pad| pad.take_pcm_at(submitted));
         assert_eq!(frames.len(), 1);
         assert_eq!(frames[0].samples, [1, 0x80, 2, 0x7f].repeat(240));
         // The next HID control request still parses after isochronous metadata.

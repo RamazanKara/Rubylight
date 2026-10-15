@@ -299,12 +299,23 @@ public final class TouchLayoutImport {
 
     private static TouchLayout placeCustomKeys(JSONObject file, Map<String, JSONObject> keys,
                                                int surfaceWidth, int surfaceHeight, List<Skipped> skipped) {
-        // The Custom Keys file has no positions. Lay the keys out as Artemis does: square keys in rows.
-        float h = ARTEMIS_KEY, w = Math.min(.8f, ARTEMIS_KEY * surfaceHeight / surfaceWidth);
-        int perRow = Math.max(1, (int) ((1 - .02f) / w));
+        // The Custom Keys file has no positions. Lay the keys out as Artemis does, square keys in rows
+        // below a free first row, shrinking them (down to Nightjar's 4% minimum) until every row fits.
+        JSONArray data = file.optJSONArray("data");
+        int count = Math.max(1, Math.min(TouchLayout.MAX_BUTTONS, data == null ? 0 : data.length()));
+        float size = ARTEMIS_KEY, w, h, top;
+        int perRow;
+        for (;;) {
+            h = Math.max(.04f, size);
+            w = Math.max(.04f, Math.min(.8f, h * surfaceHeight / surfaceWidth));
+            perRow = Math.max(1, (int) ((1 - .02f) / w));
+            top = Math.min(ARTEMIS_KEY, h);
+            int rows = (count + perRow - 1) / perRow;
+            if (top + rows * h <= 1 || h <= .04f) break;
+            size = h * .95f;
+        }
         List<TouchLayout.Button> buttons = new ArrayList<>();
         Set<String> ids = new HashSet<>();
-        JSONArray data = file.optJSONArray("data");
         for (int i = 0; data != null && i < data.length(); i++) {
             JSONObject key = data.optJSONObject(i);
             if (key == null) continue;
@@ -312,8 +323,8 @@ public final class TouchLayoutImport {
             if (artemisId.isEmpty()) artemisId = Integer.toString(i);
             String name = label(key.optString("name", ""), artemisId);
             int index = buttons.size();
-            float x = .01f + (index % perRow) * w, y = Math.min(1 - h, ARTEMIS_KEY + (index / perRow) * h);
-            if (index == TouchLayout.MAX_BUTTONS) {
+            float x = .01f + (index % perRow) * w, y = top + (index / perRow) * h;
+            if (index == TouchLayout.MAX_BUTTONS || y + h > 1.0001f) {
                 skipped.add(new Skipped(name, Skip.TOO_MANY));
                 continue;
             }

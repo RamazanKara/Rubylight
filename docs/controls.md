@@ -211,7 +211,7 @@ To move a layout from Artemis, export it there (**Export keyboard layout** for t
 | Touchpad areas (`m_9`, `m_10`, `m_11`) | Skipped: no equivalent |
 | Elements turned off or hidden in Artemis | Left out, and counted in the summary |
 
-Artemis saves pixel positions without the screen size, so Nightjar reads them against this device's screen in landscape. A layout made on a larger screen is scaled down to fit, and the summary says so; check the placement either way. A Custom Keys file on its own has no positions, so its keys are laid out in rows as Artemis does. Custom keys placed in a layout file need the Custom Keys file picked together with it; otherwise they are listed as skipped. Layouts of Artemis's fixed virtual gamepad are not exported by Artemis and so cannot be imported.
+Artemis saves pixel positions without the screen size, so Nightjar reads them against this device's screen in landscape. A layout made on a larger screen is scaled down to fit, and the summary says so; check the placement either way. A Custom Keys file on its own has no positions, so its keys are laid out in rows as Artemis does, made smaller where needed (as on a portrait screen) so that every key fits without covering another. Custom keys placed in a layout file need the Custom Keys file picked together with it; otherwise they are listed as skipped. Layouts of Artemis's fixed virtual gamepad are not exported by Artemis and so cannot be imported.
 
 ### Tablet zoom and external displays
 

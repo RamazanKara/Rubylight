@@ -149,6 +149,37 @@ public class TouchLayoutImportTest {
         assertEquals(file, result.layout.encode());
     }
 
+    private static String customKeysFile(int count) {
+        StringBuilder file = new StringBuilder("{\"data\":[");
+        for (int i = 0; i < count; i++) {
+            String key = i < 26 ? String.valueOf((char) ('A' + i)) : String.valueOf((char) ('0' + i - 26));
+            file.append(i == 0 ? "" : ",").append("{\"id\":\"k").append(i).append("\",\"name\":\"").append(key)
+                    .append("\",\"keys\":[\"VK_").append(key).append("\"]}");
+        }
+        return file.append("]}").toString();
+    }
+
+    @Test public void customKeysFitTheSurfaceWithoutOverlapping() {
+        String file = customKeysFile(TouchLayout.MAX_BUTTONS);
+        for (int[] size : new int[][] {{1080, 2400}, {720, 1600}, {1080, 1080}, {2400, 1080}, {5120, 1080}, {12000, 800}}) {
+            String surface = size[0] + "x" + size[1];
+            TouchLayoutImport.Result result = TouchLayoutImport.importFiles(Collections.singletonList(file), size[0], size[1]);
+            assertEquals(surface, TouchLayout.MAX_BUTTONS, result.layout.buttons.size());
+            assertTrue(surface, result.skipped.isEmpty());
+            List<TouchLayout.Button> buttons = result.layout.buttons;
+            for (TouchLayout.Button a : buttons) {
+                assertTrue(surface + " " + a.name, a.width >= .04f && a.height >= .04f);
+                assertTrue(surface + " " + a.name, a.x >= 0 && a.y >= 0 && a.x + a.width <= 1.00001f && a.y + a.height <= 1.00001f);
+                for (TouchLayout.Button b : buttons) {
+                    if (a == b) continue;
+                    boolean overlap = a.x + a.width > b.x + 1e-4f && b.x + b.width > a.x + 1e-4f &&
+                            a.y + a.height > b.y + 1e-4f && b.y + b.height > a.y + 1e-4f;
+                    assertFalse(surface + ": " + a.name + " covers " + b.name, overlap);
+                }
+            }
+        }
+    }
+
     @Test public void unknownOrMixedFilesAreRejectedWithAReason() throws IOException {
         TouchLayout.InvalidLayoutException e = assertThrows(TouchLayout.InvalidLayoutException.class,
                 () -> TouchLayoutImport.importFiles(Collections.singletonList("{\"hello\": 1}"), 2400, 1080));

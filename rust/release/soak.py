@@ -7,11 +7,17 @@ from types import SimpleNamespace
 import requests, urllib3
 from e2e_host import INSTALLED_LOG, installed_idle, prepare, receiver_environment, stage_fault_host
 from e2e_result import evaluate
+from gpu_hang import Guard
 from soak_result import audio_windows, fault_outcome, load_limit, resource_growth, video_windows
 
 ROOT = pathlib.Path(__file__).resolve().parent
 PORT = 48723
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+
+class GpuHang(RuntimeError):
+    """The video engine hung (gpu_hang.py): the soak stops instead of running
+    its remaining cases on a GPU that Windows is resetting."""
 
 
 def write(path, value):
@@ -234,6 +240,7 @@ def main():
             injected_at = None
             repeated_fault = False
             log_start = host_log.stat().st_size
+            guard = Guard(host_log)
             try:
                 response = admin.patch(web + '/api/config', json={'minimum_fps_target': str(fps)}, timeout=10)
                 response.raise_for_status()
@@ -300,6 +307,9 @@ def main():
                         if case.get('fault') == 'encoder failure' and injected_at is not None and elapsed >= injected_at + 4 and not repeated_fault:
                             (fault_dir / case['fault']).touch()
                             repeated_fault = True
+                        hang = guard.check()
+                        if hang:
+                            raise GpuHang(hang)
                         if host.poll() is not None:
                             raise RuntimeError('isolated host exited during the stream')
                         if tone.poll() is not None or motion.poll() is not None or (load is not None and load.poll() is not None):
@@ -349,13 +359,18 @@ def main():
                         break
             except Exception as error:
                 result['passed'] = False; result['failures'].append(f'{type(error).__name__}: {error}')
+                if isinstance(error, GpuHang):
+                    result['gpu_hang'] = str(error)
             finally:
                 stop(receiver); stop(load); stop(motion); stop(tone)
                 if case.get('fault'):
                     (fault_dir / case['fault']).unlink(missing_ok=True)
                 # Keep the application for /resume; cancel after every second
                 # churn session to exercise both teardown paths on one host.
-                if not case.get('churn') or case.get('resume') or not result['passed']:
+                # After a hang the host's session thread is blocked in the
+                # driver: skip the teardown checks, the soak stops below.
+                hung = result.get('gpu_hang')
+                if not hung and (not case.get('churn') or case.get('resume') or not result['passed']):
                     try:
                         response = client.get(https + '/cancel', timeout=10)
                         if ET.fromstring(response.text).attrib.get('status_code') != '200':
@@ -364,13 +379,13 @@ def main():
                         result['passed'] = False; result['failures'].append(f'cancel: {error}')
                 try:
                     deadline = time.monotonic() + 10
-                    while admin.get(web + '/api/rtsp/sessions', timeout=3).json().get('sessions'):
+                    while not hung and admin.get(web + '/api/rtsp/sessions', timeout=3).json().get('sessions'):
                         if time.monotonic() > deadline:
                             raise TimeoutError('session did not drain within 10 seconds')
                         time.sleep(.1)
                     # Do not put inventory queries between disconnect and the
                     # immediate resume; those queries can take several seconds.
-                    if not case.get('churn') or case.get('resume'):
+                    if not hung and (not case.get('churn') or case.get('resume')):
                         state = snapshot(host.pid)
                         result['settled'] = state
                         if case.get('churn'):
@@ -393,6 +408,10 @@ def main():
                 write(run / 'result.json', report)
                 status = 'PASS ' if result['passed'] else 'LIMITED ' if result.get('limited') else 'FAIL '
                 print(status + case['name'] + ': ' + (result.get('limited') or '; '.join(result['failures'])), flush=True)
+            if result.get('gpu_hang'):
+                report['gpu_hang'] = result['gpu_hang']
+                raise GpuHang(f"{case['name']}: {result['gpu_hang']}. The remaining cases did not run; reboot if "
+                              'Device Manager shows the Radeon with Code 31')
         report['resource_growth'] = resource_growth(resources)
         reconnects = [r['reconnect_seconds'] for r in report['results'] if 'reconnect_seconds' in r]
         report['quick_reconnect'] = dict(passed=bool(reconnects) and min(reconnects) <= 2, seconds=reconnects)
@@ -408,12 +427,18 @@ def main():
                 report['cleanup_error'] = str(error)
         kernel.CloseHandle(job)
         for process, output in reversed(owned):
-            process.wait(timeout=10); output.close()
+            try:
+                # A host blocked in the driver exits once the GPU reset returns its call.
+                process.wait(timeout=120 if report.get('gpu_hang') else 10)
+            except subprocess.TimeoutExpired:
+                report.setdefault('stuck_processes', []).append(process.pid)
+            output.close()
         report['finished_utc'] = datetime.now(timezone.utc).isoformat()
         complete = (len(report['results']) == len(cases(args.mode))
                     and report.get('resource_growth', {}).get('passed', False)
                     and report.get('quick_reconnect', {}).get('passed', False)
-                    and not report.get('fatal') and not report.get('cleanup_error'))
+                    and not report.get('fatal') and not report.get('cleanup_error')
+                    and not report.get('stuck_processes'))
         report['passed'] = complete and all(r['passed'] for r in report['results'])
         if complete and not report['passed'] and all(r['passed'] or r.get('limited') for r in report['results']):
             report['limited'] = next(r['limited'] for r in report['results'] if r.get('limited'))

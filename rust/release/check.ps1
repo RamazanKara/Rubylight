@@ -130,9 +130,15 @@ foreach ($case in 'h264', 'hevc', 'av1', 'hevc-vrr', 'hevc-recovery', 'hevc-120'
     try {
         & $python "$tools\e2e.py" @stream
     } catch {
+        $resultPath = Join-Path $run "e2e-$case\result.json"
+        # e2e.py stopped at an AMD video engine hang (gpu_hang.py). Windows is
+        # resetting the GPU; a retry would stream on it and hang or fail again.
+        if ($LASTEXITCODE -eq 3) {
+            $hang = (Get-Content -LiteralPath $resultPath -Raw | ConvertFrom-Json).gpu_hang
+            throw "stream $case stopped at an AMD video engine hang: $hang. Not retried: reboot if Device Manager shows the Radeon with Code 31, then run the check again."
+        }
         # Shared-machine load can starve the tone or motion fixture too. Keep
         # the evidence: a passing retry does not explain the first failure.
-        $resultPath = Join-Path $run "e2e-$case\result.json"
         if (Test-Path -LiteralPath $resultPath) {
             $result = Get-Content -LiteralPath $resultPath -Raw | ConvertFrom-Json
             Write-Warning ("stream $case failed: " + ($result.failures -join '; '))

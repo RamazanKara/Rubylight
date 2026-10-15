@@ -27,12 +27,16 @@ stream rate repeats and skips some pictures by itself.
 requests, the control for --recovery. BUTTERPOLLO_E2E_RUST_LOG replaces the
 host's RUST_LOG; without pacing=trace in it the claim check is reported as
 not measured (host_claims null) instead of failing.
+
+The stream stops at the first sign of an AMD video-engine hang (gpu_hang.py)
+and exits with EXIT_GPU_HANG, its result.json naming the evidence in gpu_hang.
 """
 import argparse, json, pathlib, subprocess, sys, time
 import xml.etree.ElementTree as ET
 import requests
 from e2e_result import evaluate, host_frames
 from e2e_host import installed_idle, prepare, receiver_environment
+from gpu_hang import EXIT_GPU_HANG, Guard, hang_result
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--package', required=True, type=pathlib.Path)
@@ -90,12 +94,19 @@ def spawn(command, name, **kw):
     f = (case / name).open('w')
     p = subprocess.Popen(command, stdout=f, stderr=subprocess.STDOUT, creationflags=subprocess.CREATE_NO_WINDOW, **kw)
     owned.append((p, f)); return p
+class Hang(Exception): pass
+log = profile / 'logs' / 'butterpollo.log'
+guard = Guard(log)
+def watch():
+    evidence = guard.check()
+    if evidence: raise Hang(evidence)
+hang = None
 try:
     host = spawn([str(host_exe), '--config-dir', str(profile), '--assets', str(args.package / 'assets' / 'web'), '--bind', '127.0.0.1', '--no-tray'], 'host.stdout.log', cwd=case, env=env)
-    log = profile / 'logs' / 'butterpollo.log'
     deadline = time.monotonic() + 60
     while True:
         assert host.poll() is None, 'host exited'
+        watch()
         if log.exists() and 'encoder capability probe completed' in log.read_text(errors='replace'):
             try:
                 if plain.get('http://127.0.0.1:48523/serverinfo', timeout=1).ok: break
@@ -119,13 +130,32 @@ try:
                           BUTTERPOLLO_TEST_IDR_PROBE_INTERVAL_MS=str(RECOVERY_INTERVAL_MS))
     (case / 'receiver').mkdir()
     receiver = spawn([sys.executable, str(interop), str(case / 'receiver'), args.codec, width, height, fps, args.seconds, args.bitrate, '4'], 'client.log', env=client_env)
-    rc = receiver.wait(timeout=int(args.seconds) + 120)
+    deadline = time.monotonic() + int(args.seconds) + 120
+    while receiver.poll() is None:
+        watch()
+        if time.monotonic() > deadline: raise subprocess.TimeoutExpired(receiver.args, int(args.seconds) + 120)
+        time.sleep(.25)
+    rc = receiver.returncode
+except Hang as error:
+    hang = str(error)
 finally:
     for p, f in reversed(owned):
         if p.poll() is None: p.terminate()
         try: p.wait(timeout=10)
-        except subprocess.TimeoutExpired: p.kill(); p.wait()
+        except subprocess.TimeoutExpired:
+            p.kill()
+            # A host blocked in the driver exits only once the GPU reset returns its call.
+            try: p.wait(timeout=120)
+            except subprocess.TimeoutExpired: print(f'{name}: process {p.pid} did not exit', file=sys.stderr)
         f.close()
+
+# A watchdog report can land after the receiver gave up on a frozen stream.
+hang = hang or guard.check()
+if hang:
+    result = hang_result(name, args.codec, args.mode, args.vrr, hang)
+    (case / 'result.json').write_text(json.dumps(result, indent=2))
+    print(json.dumps(result))
+    sys.exit(EXIT_GPU_HANG)
 
 client = (case / 'client.log').read_text(errors='replace')
 config = dict(line.split('=', 1) for line in (profile / 'sunshine.conf').read_text().splitlines() if '=' in line)

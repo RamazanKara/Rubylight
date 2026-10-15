@@ -647,7 +647,12 @@ public class NvConnection {
         // Decide on negotiated stream parameters now
         //
         
-        if (app.getRole() == NvApp.Role.INPUT_ONLY || app.isControlAction()) {
+        if (app.isSmallStreamInputOnly()) {
+            // An ordinary stream to the host at the size the caller chose; this device drops it.
+            context.negotiatedWidth = context.streamConfig.getWidth();
+            context.negotiatedHeight = context.streamConfig.getHeight();
+            context.negotiatedVideoFormats = MoonBridge.VIDEO_FORMAT_H264;
+        } else if (app.getRole() == NvApp.Role.INPUT_ONLY || app.isControlAction()) {
             // The host still negotiates RTSP, but input-only never starts media streams.
             context.negotiatedWidth = 1280;
             context.negotiatedHeight = 720;
@@ -735,6 +740,10 @@ public class NvConnection {
                         context.connListener.displayMessage(appContext.getString(R.string.startup_resume_failed));
                         return false;
                     }
+                } else if (app.isSmallStreamInputOnly()) {
+                    // Joining as a controller must never quit the game someone is playing.
+                    context.connListener.displayMessage(appContext.getString(R.string.input_only_other_game));
+                    return false;
                 } else if (details.caps.has(HostCapabilities.Feature.HOST_CONFIRMS_REPLACEMENT)) {
                     // The host resolves control tiles and confirms replacement itself. Cancelling
                     // first would terminate the game when selecting its Resume or Remote Input tile.
@@ -950,7 +959,8 @@ public class NvConnection {
                                 context.streamConfig.getColorSpace(),
                                 context.streamConfig.getColorRange(), prefs.unbatchedInput, prefs.networkPriority,
                                 hostDetails.caps.nativeFeatures(),
-                                context.streamConfig.getApp().getRole() == NvApp.Role.INPUT_ONLY,
+                                context.streamConfig.getApp().getRole() == NvApp.Role.INPUT_ONLY &&
+                                        !context.streamConfig.getApp().isSmallStreamInputOnly(),
                                 context.streamConfig.getApp().getRole() == NvApp.Role.REMOTE_MONITOR,
                                 micPermitted, prefs.usbDualSenseHaptics);
                         if (ret != 0) {

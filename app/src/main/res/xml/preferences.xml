@@ -461,6 +461,11 @@
             android:dialogMessage="@string/summary_auto_reconnect"
             android:defaultValue="false" />
         <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_input_only_any_host"
+            android:title="@string/title_checkbox_input_only_any_host"
+            android:dialogMessage="@string/summary_checkbox_input_only_any_host"
+            android:defaultValue="false" />
+        <com.limelight.preferences.MaterialSwitchPreference
             android:key="checkbox_disable_warnings"
             android:title="@string/title_checkbox_disable_warnings"
             android:dialogMessage="@string/summary_checkbox_disable_warnings"

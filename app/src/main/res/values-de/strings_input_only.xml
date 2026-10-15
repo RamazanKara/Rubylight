@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_checkbox_input_only_any_host">Steuern an jedem PC</string>
+    <string name="summary_checkbox_input_only_any_host">Fügt „Steuern“ dem Menü eines Spiels hinzu, wenn der Host keinen eigenen Nur-Steuern-Modus hat. Der PC sendet trotzdem Video und Ton in kleinster Größe, unter 1 Mbit/s; Nightjar zeigt und spielt sie nicht. Hosts mit eigenem Modus nutzen weiter diesen.</string>
+    <string name="input_only_start">Steuern</string>
+    <string name="input_only_small_stream_note">Video läuft weiter in kleinster Größe, etwa %1$.1f Mbit/s (%2$d MB pro Stunde), wird aber nicht gezeigt</string>
+    <string name="input_only_reason_input_permission">Erlaube diesem Gerät am Host Eingaben</string>
+    <string name="input_only_small_stream_status">Nur steuern\nTouch, Tastatur oder Controller.\nDer PC streamt weiter kleines Video (etwa %1$.1f Mbit/s); es wird nicht gezeigt.\nZurück öffnet das Stream-Menü.</string>
+    <string name="input_only_small_stream_refused">Steuern nutzt an diesem PC einen kleinen normalen Stream, und der Host hat ihn abgelehnt. Manche Hosts erlauben nur einen Stream gleichzeitig: Beende den anderen Stream oder erlaube mehr in den Host-Einstellungen.</string>
+    <string name="input_only_other_game">Auf dem PC läuft ein anderes Spiel. Steuern tritt dem laufenden Spiel bei und beendet es nie: Wähle dieses Spiel oder beende es zuerst.</string>
+</resources>

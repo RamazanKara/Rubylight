@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_checkbox_input_only_any_host">Somente entrada em qualquer PC</string>
+    <string name="summary_checkbox_input_only_any_host">Adiciona Somente entrada ao menu de um jogo em PCs cujo host não tem um modo próprio de somente entrada. O PC continua enviando vídeo e áudio no menor tamanho, menos de 1 Mbit/s; o Nightjar não os mostra nem reproduz. Hosts com modo próprio continuam a usá-lo.</string>
+    <string name="input_only_start">Somente entrada</string>
+    <string name="input_only_small_stream_note">O vídeo continua sendo transmitido no menor tamanho, cerca de %1$.1f Mbit/s (%2$d MB por hora), mas não é mostrado</string>
+    <string name="input_only_reason_input_permission">Permita a entrada deste dispositivo no host</string>
+    <string name="input_only_small_stream_status">Somente entrada\nUse toque, teclas ou um controle.\nO PC continua transmitindo um vídeo pequeno (cerca de %1$.1f Mbit/s); ele não é mostrado.\nVoltar abre o menu da transmissão.</string>
+    <string name="input_only_small_stream_refused">Neste PC, Somente entrada usa uma transmissão comum pequena, e o host a recusou. Alguns hosts permitem só uma transmissão por vez: encerre a outra transmissão ou permita mais nas configurações do host.</string>
+    <string name="input_only_other_game">Outro jogo está em execução no PC. Somente entrada entra no jogo em execução e nunca o fecha: escolha esse jogo ou feche-o antes.</string>
+</resources>

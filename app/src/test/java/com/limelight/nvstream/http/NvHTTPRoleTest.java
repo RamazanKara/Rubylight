@@ -228,6 +228,47 @@ public class NvHTTPRoleTest {
     }
 
     @Test
+    public void smallStreamInputOnlyIsAnOrdinarySmallStreamToTheHost() {
+        NvApp app = new NvApp("Game", 73, true);
+        app.setSmallStreamInputOnly(true);
+        for (String host : new String[] {"sunshine-serverinfo.xml", "gamestream-serverinfo.xml", "apollo-serverinfo.xml"}) {
+            app.setHostCapabilities(TestHosts.fixture(host));
+            assertEquals(host, NvApp.Role.INPUT_ONLY, app.getRole());
+            ConnectionContext context = context(app);
+            context.hostCaps = TestHosts.fixture(host);
+            context.negotiatedWidth = 640;
+            context.negotiatedHeight = 360;
+            for (String verb : new String[] {"launch", "resume"}) {
+                HttpUrl query = query(context, verb);
+                assertNull(host, query.queryParameter("input_only"));
+                assertNull(host, query.queryParameter("remote_monitor"));
+                assertNull(host, query.queryParameter("hdrMode"));
+                assertNull(host, query.queryParameter("virtualDisplay"));
+                assertNull(host, query.queryParameter("clientVrrRequested"));
+                assertEquals(host, "640x360x60", query.queryParameter("mode"));
+                assertEquals(host, "3", query.queryParameter("gcmap"));
+            }
+        }
+    }
+
+    @Test
+    public void controlTilesIgnoreTheSmallStream() throws Exception {
+        NvApp tile = apps("remote-applist").get(1);
+        assertEquals(NvApp.Role.INPUT_ONLY, tile.getRole());
+        tile.setSmallStreamInputOnly(true);
+        assertFalse(tile.isSmallStreamInputOnly());
+        assertEquals("1", query(context(tile), "launch").queryParameter("input_only"));
+
+        NvApp monitor = apps("remote-applist").get(2);
+        monitor.setSmallStreamInputOnly(true);
+        assertEquals(NvApp.Role.REMOTE_MONITOR, monitor.getRole());
+
+        NvApp game = new NvApp("Game", 73, true);
+        assertFalse(game.isSmallStreamInputOnly());
+        assertEquals(NvApp.Role.STREAM, game.getRole());
+    }
+
+    @Test
     public void ordinaryLaunchKeepsItsDisplayAndControllerParameters() {
         HttpUrl query = query(context(new NvApp("Game", 73, true)), "launch");
         assertNull(query.queryParameter("remote_monitor"));

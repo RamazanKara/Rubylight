@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_checkbox_input_only_any_host">どの PC でも入力専用</string>
+    <string name="summary_checkbox_input_only_any_host">ホストに独自の入力専用モードがない PC で、ゲームのメニューに入力専用を追加します。PC は最小サイズの映像と音声を引き続き送信します (1 Mbit/s 未満)。Nightjar はそれを表示も再生もしません。独自のモードがあるホストでは引き続きそのモードを使います。</string>
+    <string name="input_only_start">入力専用</string>
+    <string name="input_only_small_stream_note">映像は最小サイズで引き続きストリーミングされます (約 %1$.1f Mbit/s、1 時間あたり %2$d MB) が、表示されません</string>
+    <string name="input_only_reason_input_permission">ホストでこのデバイスに入力を許可してください</string>
+    <string name="input_only_small_stream_status">入力のみ\nタッチ、キー、コントローラを使用します。\nPC は小さな映像を引き続きストリーミングします (約 %1$.1f Mbit/s)。表示はされません。\n[戻る] でストリームメニューが開きます。</string>
+    <string name="input_only_small_stream_refused">この PC の入力専用は小さな通常のストリームを使いますが、ホストに拒否されました。一部のホストは一度に 1 つのストリームしか許可しません。もう一方のストリームを終了するか、ホストの設定で同時ストリーム数を増やしてください。</string>
+    <string name="input_only_other_game">PC で別のゲームが実行中です。入力専用は実行中のゲームに参加し、終了させることはありません。そのゲームを選ぶか、先に終了してください。</string>
+</resources>

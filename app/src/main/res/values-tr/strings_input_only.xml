@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_checkbox_input_only_any_host">Her bilgisayarda yalnızca giriş</string>
+    <string name="summary_checkbox_input_only_any_host">Ana bilgisayarında kendi yalnızca giriş modu olmayan bilgisayarlarda oyun menüsüne Yalnızca giriş ekler. Bilgisayar yine de görüntüyü ve sesi en küçük boyutta, 1 Mbit/sn altında gönderir; Nightjar bunları göstermez ve çalmaz. Kendi modu olan ana bilgisayarlar onu kullanmaya devam eder.</string>
+    <string name="input_only_start">Yalnızca giriş</string>
+    <string name="input_only_small_stream_note">Görüntü yine en küçük boyutta aktarılır, yaklaşık %1$.1f Mbit/sn (saatte %2$d MB), ama gösterilmez</string>
+    <string name="input_only_reason_input_permission">Ana bilgisayarda bu cihaz için girişe izin verin</string>
+    <string name="input_only_small_stream_status">Yalnızca giriş\nDokunma, tuşlar veya kumanda kullanın.\nBilgisayar küçük görüntüyü aktarmaya devam eder (yaklaşık %1$.1f Mbit/sn); gösterilmez.\nGeri, yayın menüsünü açar.</string>
+    <string name="input_only_small_stream_refused">Bu bilgisayarda Yalnızca giriş küçük bir normal yayın kullanır ve ana bilgisayar bunu reddetti. Bazı ana bilgisayarlar aynı anda yalnızca bir yayına izin verir: diğer yayını sonlandırın veya ana bilgisayarın ayarlarından daha fazlasına izin verin.</string>
+    <string name="input_only_other_game">Bilgisayarda başka bir oyun çalışıyor. Yalnızca giriş çalışan oyuna katılır ve onu asla kapatmaz: o oyunu seçin veya önce kapatın.</string>
+</resources>

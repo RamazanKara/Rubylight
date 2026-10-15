@@ -3,6 +3,7 @@ package com.limelight;
 
 import com.limelight.binding.PlatformBinding;
 import com.limelight.binding.audio.AndroidAudioRenderer;
+import com.limelight.binding.audio.SilentAudioRenderer;
 import com.limelight.binding.audio.MicrophoneStatus;
 import com.limelight.binding.input.ControllerHandler;
 import com.limelight.binding.input.KeyboardTranslator;
@@ -22,6 +23,7 @@ import com.limelight.binding.input.evdev.EvdevListener;
 import com.limelight.binding.input.touch.TouchContext;
 import com.limelight.binding.input.virtual_controller.VirtualController;
 import com.limelight.binding.video.CrashListener;
+import com.limelight.binding.video.DiscardingDecoderRenderer;
 import com.limelight.binding.video.DisplayCapsReporter;
 import com.limelight.binding.video.LatencyProbe;
 import com.limelight.binding.video.MediaCodecDecoderRenderer;
@@ -531,6 +533,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     public static final String EXTRA_APP_ID = "AppId";
     public static final String EXTRA_APP_UUID = "AppUuid";
     public static final String EXTRA_MONITOR_RESUME = "MonitorResume";
+    public static final String EXTRA_SMALL_STREAM_INPUT_ONLY = "SmallStreamInputOnly";
     public static final String EXTRA_UNIQUEID = "UniqueId";
     public static final String EXTRA_PC_UUID = "UUID";
     public static final String EXTRA_PC_NAME = "PcName";
@@ -757,6 +760,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         app = new NvApp(appName != null ? appName : "app", appId, appSupportsHdr);
         app.setAppUuid(getIntent().getStringExtra(EXTRA_APP_UUID));
         app.setMonitorResume(getIntent().getBooleanExtra(EXTRA_MONITOR_RESUME, false));
+        app.setSmallStreamInputOnly(getIntent().getBooleanExtra(EXTRA_SMALL_STREAM_INPUT_ONLY, false));
         // Until the host answers, its last known capabilities decide whether this is a control tile.
         HostCapabilities cachedCaps = HostCapabilityCache.load(this, getIntent().getStringExtra(EXTRA_PC_UUID));
         app.setHostCapabilities(cachedCaps);
@@ -923,26 +927,30 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         streamFps = chosenFrameRate;
         streamPanelHz = panelMaxRefreshRate;
 
+        // Input-only without the host's own mode: the smallest ordinary stream, which leaves the
+        // PC's display mode and its speakers alone.
+        boolean smallStream = app.isSmallStreamInputOnly();
         StreamConfiguration config = new StreamConfiguration.Builder()
-                .setResolution(prefConfig.width, prefConfig.height)
-                .setLaunchRefreshRate(prefConfig.fps)
-                .setLaunchRefreshRateX100(prefConfig.launchRefreshRateX100)
-                .setRefreshRate(chosenFrameRate)
+                .setResolution(smallStream ? InputOnlyPolicy.SMALL_WIDTH : prefConfig.width,
+                        smallStream ? InputOnlyPolicy.SMALL_HEIGHT : prefConfig.height)
+                .setLaunchRefreshRate(smallStream ? InputOnlyPolicy.SMALL_FPS : prefConfig.fps)
+                .setLaunchRefreshRateX100(smallStream ? 0 : prefConfig.launchRefreshRateX100)
+                .setRefreshRate(smallStream ? InputOnlyPolicy.SMALL_FPS : chosenFrameRate)
                 .setApp(app)
                 .setResumeOnly(isResumeOnlyStream())
                 .setAllowIdleSessionEnd(!getIntent().getBooleanExtra(EXTRA_RECOVERY_MEDIA_FAILURE, false))
-                .setBitrate(prefConfig.bitrate)
-                .setEnableSops(prefConfig.enableSops)
-                .enableLocalAudioPlayback(prefConfig.playHostAudio)
+                .setBitrate(smallStream ? InputOnlyPolicy.SMALL_BITRATE_KBPS : prefConfig.bitrate)
+                .setEnableSops(!smallStream && prefConfig.enableSops)
+                .enableLocalAudioPlayback(smallStream || prefConfig.playHostAudio)
                 .setMaxPacketSize(1392)
                 .setRemoteConfiguration(StreamConfiguration.STREAM_CFG_AUTO) // NvConnection will perform LAN and VPN detection
                 .setSupportedVideoFormats(supportedVideoFormats)
                 .setAttachedGamepadMask(gamepadMask)
                 .setClientRefreshRateX100(Math.round(desiredRefreshRate * 100))
-                .setVirtualDisplay(prefConfig.virtualDisplay, prefConfig.virtualDisplayScale)
-                .setVrr(prefConfig.vrr)
+                .setVirtualDisplay(!smallStream && prefConfig.virtualDisplay, prefConfig.virtualDisplayScale)
+                .setVrr(!smallStream && prefConfig.vrr)
                 .setHostDisplay(prefConfig.hostDisplay)
-                .setAudioConfiguration(prefConfig.audioConfiguration)
+                .setAudioConfiguration(smallStream ? MoonBridge.AUDIO_CONFIGURATION_STEREO : prefConfig.audioConfiguration)
                 .setColorSpace(decoderRenderer.getPreferredColorSpace())
                 .setColorRange(decoderRenderer.getPreferredColorRange())
                 .setPersistGamepadsAfterDisconnect(!prefConfig.multiController)
@@ -5042,6 +5050,10 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                         dialogText += "\n\n" + getResources().getString(R.string.nettest_text_blocked);
                     }
 
+                    if (app.isSmallStreamInputOnly()) {
+                        dialogText += "\n\n" + getString(R.string.input_only_small_stream_refused);
+                    }
+
                     stopConnection();
                     showReconnectDialog(R.string.conn_error_title, dialogText);
                 }
@@ -5267,6 +5279,10 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                     controllerHandler.stop();
                     setInputGrabState(false);
                 }
+                if (app.isSmallStreamInputOnly() && externalPresentation == null) {
+                    ((TextView) findViewById(R.id.inputOnlyStatus)).setText(getString(
+                            R.string.input_only_small_stream_status, InputOnlyPolicy.estimatedKbps() / 1000f));
+                }
                 findViewById(R.id.inputOnlyStatus).setVisibility(
                         app.getRole() == NvApp.Role.INPUT_ONLY || externalPresentation != null ? View.VISIBLE : View.GONE);
                 currentBitrate = prefConfig.bitrate;
@@ -5478,9 +5494,13 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             UiHelper.notifyStreamConnecting(Game.this);
 
             decoderRenderer.setRenderTarget(videoSurface, renderView.getWidth(), renderView.getHeight());
-            conn.start(new AndroidAudioRenderer(Game.this, prefConfig.enableAudioFx,
-                            prefConfig.usbDualSenseHaptics ? controllerHandler.headphoneAudioSink() : null),
-                    decoderRenderer, Game.this);
+            if (app.isSmallStreamInputOnly()) {
+                conn.start(new SilentAudioRenderer(), new DiscardingDecoderRenderer(), Game.this);
+            } else {
+                conn.start(new AndroidAudioRenderer(Game.this, prefConfig.enableAudioFx,
+                                prefConfig.usbDualSenseHaptics ? controllerHandler.headphoneAudioSink() : null),
+                        decoderRenderer, Game.this);
+            }
         }
     }
 

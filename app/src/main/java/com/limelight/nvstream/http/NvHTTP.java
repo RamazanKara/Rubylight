@@ -1128,7 +1128,8 @@ public class NvHTTP {
                     "&" + new HttpUrl.Builder().scheme("https").host("host")
                             .addQueryParameter("appuuid", context.streamConfig.getApp().getAppUuid())
                             .build().encodedQuery()) +
-            (role == NvApp.Role.REMOTE_MONITOR ? "&remote_monitor=1" : inputOnly ? "&input_only=1" : "") +
+            (role == NvApp.Role.REMOTE_MONITOR ? "&remote_monitor=1" :
+                    inputOnly && !context.streamConfig.getApp().isSmallStreamInputOnly() ? "&input_only=1" : "") +
             "&mode=" + context.negotiatedWidth + "x" + context.negotiatedHeight + "x" + launchRate +
             (virtualDisplay ? "&virtualDisplay=1&scaleFactor=" + context.streamConfig.getVirtualDisplayScale() : "") +
             (hostDisplay.wireValue == null ? "" :

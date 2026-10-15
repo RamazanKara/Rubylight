@@ -632,6 +632,7 @@ public class AppView extends AppCompatActivity implements AdapterFragmentCallbac
             addAppAction(sheet, selectedApp, selectedView, START_OR_RESUME_ID,
                     R.drawable.ic_play, getString(R.string.library_play));
         }
+        addSmallStreamInputOnlyAction(sheet, selectedApp);
         if (LaunchPolicy.offersQuitOnLeave(canLaunch, selectedApp.app.getControl(), selectedApp.app.getRole())) {
             addQuitOnLeaveAction(sheet, selectedApp);
         }
@@ -717,6 +718,43 @@ public class AppView extends AppCompatActivity implements AdapterFragmentCallbac
                     Toast.makeText(this, R.string.library_import_controls_saved, Toast.LENGTH_SHORT).show();
                 })
                 .setNegativeButton(android.R.string.cancel, null).create());
+    }
+
+    /**
+     * Input-only on a PC whose host has no Input-only mode of its own, when the setting is on: a
+     * small stream this device does not show. It joins the running game or starts one on an idle
+     * PC, and never replaces a game that runs.
+     */
+    private void addSmallStreamInputOnlyAction(ActionSheet sheet, AppObject app) {
+        if (app.app.getControl() != NvApp.Control.NONE ||
+                !InputOnlyPolicy.keepsRunningGame(hostRunningGame, app.isRunning)) {
+            return;
+        }
+        boolean hostListsInputOnly = false;
+        for (AppObject listed : appGridAdapter.getAllApps()) {
+            if (listed.app.getRole() == NvApp.Role.INPUT_ONLY) {
+                hostListsInputOnly = true;
+                break;
+            }
+        }
+        if (InputOnlyPolicy.mode(PreferenceConfiguration.readPreferences(this).inputOnlyAnyHost, computer.caps,
+                hostListsInputOnly) != InputOnlyPolicy.Mode.SMALL_STREAM) {
+            return;
+        }
+        int blocker = InputOnlyPolicy.smallStreamBlocker(computer);
+        com.google.android.material.button.MaterialButton action = sheet.addAction(R.drawable.ic_input_only,
+                getString(R.string.input_only_start), blocker != 0 ? getString(blocker) :
+                        getString(R.string.input_only_small_stream_note, InputOnlyPolicy.estimatedKbps() / 1000f,
+                                InputOnlyPolicy.estimatedMegabytesPerHour()));
+        action.setEnabled(blocker == 0);
+        action.setOnClickListener(v -> {
+            sheet.dismiss();
+            if (managerBinder == null || computer.state == ComputerDetails.State.OFFLINE) {
+                showAppListStatus(R.string.library_offline);
+                return;
+            }
+            ServerHelper.doStart(this, app.app, computer, managerBinder, true);
+        });
     }
 
     /** Turns quit on leave on or off for this game in place; the sheet stays open and says what leaving now does. */

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_checkbox_input_only_any_host">在任何電腦上僅限輸入</string>
+    <string name="summary_checkbox_input_only_any_host">在主機沒有內建僅限輸入模式的電腦上，於遊戲選單加入「僅限輸入」。電腦仍會以最小尺寸傳送影像和音訊（低於 1 Mbit/s）；Nightjar 不會顯示或播放。內建此模式的主機會繼續使用內建模式。</string>
+    <string name="input_only_start">僅限輸入</string>
+    <string name="input_only_small_stream_note">影像仍以最小尺寸串流，約 %1$.1f Mbit/s（每小時 %2$d MB），但不會顯示</string>
+    <string name="input_only_reason_input_permission">請在主機上允許這部裝置輸入</string>
+    <string name="input_only_small_stream_status">僅限輸入\n使用觸控、按鍵或控制器。\n電腦仍在串流小尺寸影像（約 %1$.1f Mbit/s），但不會顯示。\n按「返回」可開啟串流選單。</string>
+    <string name="input_only_small_stream_refused">這部電腦上的「僅限輸入」使用小尺寸的一般串流，但主機拒絕了。有些主機同時只允許一個串流：請結束另一個串流，或在主機設定中允許更多串流。</string>
+    <string name="input_only_other_game">電腦上正在執行另一款遊戲。「僅限輸入」會加入執行中的遊戲，絕不會結束它：請選擇該遊戲，或先結束它。</string>
+</resources>

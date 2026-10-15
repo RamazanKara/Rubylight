@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_checkbox_input_only_any_host">Saisie uniquement sur tout PC</string>
+    <string name="summary_checkbox_input_only_any_host">Ajoute Saisie uniquement au menu d’un jeu sur les PC dont l’hôte n’a pas son propre mode de saisie uniquement. Le PC envoie quand même la vidéo et le son à la plus petite taille, moins de 1 Mbit/s ; Nightjar ne les affiche ni ne les lit. Les hôtes qui ont leur propre mode continuent de l’utiliser.</string>
+    <string name="input_only_start">Saisie uniquement</string>
+    <string name="input_only_small_stream_note">La vidéo est toujours diffusée à la plus petite taille, environ %1$.1f Mbit/s (%2$d Mo par heure), mais n’est pas affichée</string>
+    <string name="input_only_reason_input_permission">Autorisez la saisie pour cet appareil sur l’hôte</string>
+    <string name="input_only_small_stream_status">Saisie uniquement\nUtilisez le tactile, le clavier ou une manette.\nLe PC diffuse toujours une petite vidéo (environ %1$.1f Mbit/s) ; elle n’est pas affichée.\nRetour ouvre le menu du stream.</string>
+    <string name="input_only_small_stream_refused">Sur ce PC, Saisie uniquement utilise un petit stream ordinaire, et l’hôte l’a refusé. Certains hôtes n’autorisent qu’un stream à la fois : arrêtez l’autre stream ou autorisez-en davantage dans les paramètres de l’hôte.</string>
+    <string name="input_only_other_game">Un autre jeu est en cours sur le PC. Saisie uniquement rejoint le jeu en cours et ne le quitte jamais : choisissez ce jeu ou fermez-le d’abord.</string>
+</resources>

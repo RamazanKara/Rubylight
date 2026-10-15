@@ -24,6 +24,7 @@ public class NvApp {
     private boolean monitorResume;
     private boolean controlTiles = true;
     private boolean apolloApps = true;
+    private boolean smallStreamInputOnly;
     
     public NvApp() {}
     
@@ -103,7 +104,11 @@ public class NvApp {
     }
 
     public Role getRole() {
-        switch (getControl()) {
+        Control control = getControl();
+        if (smallStreamInputOnly && control == Control.NONE) {
+            return Role.INPUT_ONLY;
+        }
+        switch (control) {
             case MONITOR:
             case DISCONNECT_MONITOR:
                 return Role.REMOTE_MONITOR;
@@ -115,6 +120,18 @@ public class NvApp {
             default:
                 return Role.STREAM;
         }
+    }
+
+    /**
+     * Joins this game as Input-only on a host without its own Input-only mode: the host streams
+     * it as usual at a small size, and this device shows none of it. Control tiles ignore it.
+     */
+    public void setSmallStreamInputOnly(boolean smallStreamInputOnly) {
+        this.smallStreamInputOnly = smallStreamInputOnly;
+    }
+
+    public boolean isSmallStreamInputOnly() {
+        return smallStreamInputOnly && getControl() == Control.NONE;
     }
 
     public void setMonitorResume(boolean monitorResume) {

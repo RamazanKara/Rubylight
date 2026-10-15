@@ -86,6 +86,7 @@ public class PreferenceConfiguration {
     private static final String RIGHT_ALT_AS_META_PREF_STRING = "checkbox_right_alt_as_meta";
     private static final String ANALOG_SCROLLING_PREF_STRING = "analog_scrolling";
     private static final String MOUSE_NAV_BUTTONS_STRING = "checkbox_mouse_nav_buttons";
+    static final String INPUT_ONLY_ANY_HOST_PREF_STRING = "checkbox_input_only_any_host";
     static final String UNLOCK_FPS_STRING = "checkbox_unlock_fps";
     private static final String VIBRATE_OSC_PREF_STRING = "checkbox_vibrate_osc";
     private static final String VIBRATE_FALLBACK_PREF_STRING = "checkbox_vibrate_fallback";
@@ -152,6 +153,7 @@ public class PreferenceConfiguration {
     private static final boolean DEFAULT_MOUSE_EMULATION = true;
     private static final String DEFAULT_ANALOG_STICK_FOR_SCROLLING = "right";
     private static final boolean DEFAULT_MOUSE_NAV_BUTTONS = false;
+    private static final boolean DEFAULT_INPUT_ONLY_ANY_HOST = false;
     private static final boolean DEFAULT_UNLOCK_FPS = false;
     private static final boolean DEFAULT_VIBRATE_OSC = true;
     private static final boolean DEFAULT_VIBRATE_FALLBACK = false;
@@ -220,6 +222,8 @@ public class PreferenceConfiguration {
     public boolean rightAltAsMeta;
     public AnalogStickForScrolling analogStickForScrolling;
     public boolean mouseNavButtons;
+    /** Offer Input-only over a small stream on PCs whose host has no Input-only mode. */
+    public boolean inputOnlyAnyHost;
     public boolean unlockFps;
     public boolean vibrateOsc;
     public boolean vibrateFallbackToDevice;
@@ -1018,6 +1022,7 @@ public class PreferenceConfiguration {
         config.backAsMeta = prefs.getBoolean(BACK_AS_META_PREF_STRING, false);
         config.rightAltAsMeta = prefs.getBoolean(RIGHT_ALT_AS_META_PREF_STRING, false);
         config.mouseNavButtons = prefs.getBoolean(MOUSE_NAV_BUTTONS_STRING, DEFAULT_MOUSE_NAV_BUTTONS);
+        config.inputOnlyAnyHost = prefs.getBoolean(INPUT_ONLY_ANY_HOST_PREF_STRING, DEFAULT_INPUT_ONLY_ANY_HOST);
         config.unlockFps = prefs.getBoolean(UNLOCK_FPS_STRING, DEFAULT_UNLOCK_FPS);
         config.vibrateOsc = prefs.getBoolean(VIBRATE_OSC_PREF_STRING, DEFAULT_VIBRATE_OSC);
         config.vibrateFallbackToDevice = prefs.getBoolean(VIBRATE_FALLBACK_PREF_STRING, DEFAULT_VIBRATE_FALLBACK);

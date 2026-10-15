@@ -101,11 +101,21 @@ public class ServerHelper {
 
     public static void doStart(Activity parent, NvApp app, ComputerDetails computer,
                                ComputerManagerService.ComputerManagerBinder managerBinder) {
+        doStart(parent, app, computer, managerBinder, false);
+    }
+
+    /** Starts the game; with {@code smallStreamInputOnly}, as Input-only over a small stream this device does not show. */
+    public static void doStart(Activity parent, NvApp app, ComputerDetails computer,
+                               ComputerManagerService.ComputerManagerBinder managerBinder, boolean smallStreamInputOnly) {
         if (computer.state == ComputerDetails.State.OFFLINE || computer.activeAddress == null) {
             Toast.makeText(parent, parent.getResources().getString(R.string.pair_pc_offline), Toast.LENGTH_SHORT).show();
             return;
         }
-        parent.startActivity(createStartIntent(parent, app, computer, managerBinder));
+        Intent intent = createStartIntent(parent, app, computer, managerBinder);
+        if (smallStreamInputOnly) {
+            intent.putExtra(Game.EXTRA_SMALL_STREAM_INPUT_ONLY, true);
+        }
+        parent.startActivity(intent);
     }
 
     public static void doQuit(final Activity parent,

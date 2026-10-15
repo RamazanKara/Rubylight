@@ -27,6 +27,7 @@ public class LatencyOverlaySmokeActivity extends Activity {
     private com.limelight.binding.input.virtual_controller.VirtualController controls;
     private final HardwareMetrics hardwareMetrics = previewHardwareMetrics();
     private com.limelight.utils.WifiFacts wifi;
+    private android.app.Dialog healthDialog;
     private static final long RHYTHM_MS = 120_000;
 
     private static HardwareMetrics previewHardwareMetrics() {
@@ -56,9 +57,10 @@ public class LatencyOverlaySmokeActivity extends Activity {
         stream.initializeSurface(false);
         mode = savedInstanceState != null ? savedInstanceState.getString("mode") : getIntent().getStringExtra("mode");
         wifi = com.limelight.utils.WifiDiagnostics.read(this);
-        if ("health".equals(mode)) {
+        // The dialog does not survive recreation; the launch intent decides, so rotation shows it again.
+        if ("health".equals(getIntent().getStringExtra("mode"))) {
             showHealth();
-            mode = PerformanceOverlay.MODE_DEBUG;
+            if ("health".equals(mode)) mode = PerformanceOverlay.MODE_DEBUG;
         }
         mode = mode == null ? PerformanceOverlay.MODE_STATISTICS : PerformanceOverlay.normalizeMode(mode);
         TextView message = findViewById(R.id.inputOnlyStatus);
@@ -100,9 +102,15 @@ public class LatencyOverlaySmokeActivity extends Activity {
                     4.6f, 2.1f, 1.2f, 60, 60, 60, 0));
         }
         com.limelight.utils.StreamHealth.Report report = health.report(600_000);
-        new com.google.android.material.dialog.MaterialAlertDialogBuilder(this).setTitle(R.string.health_title)
+        healthDialog = new com.google.android.material.dialog.MaterialAlertDialogBuilder(this).setTitle(R.string.health_title)
                 .setMessage(Game.healthText(this, report, com.limelight.utils.WifiDiagnostics.describe(this, wifi, lock(), 0)))
                 .setPositiveButton(android.R.string.ok, null).show();
+    }
+
+    @Override
+    protected void onDestroy() {
+        if (healthDialog != null) healthDialog.dismiss();
+        super.onDestroy();
     }
 
     @Override

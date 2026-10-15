@@ -693,9 +693,11 @@ def stream_health_checks():
     """The real stream doctor text over a scripted two-minute stall rhythm."""
     adb("shell", "am", "force-stop", PACKAGE)
     for rotation, suffix in ((0, ""), (1, "-landscape")):
-        set_rotation(rotation)
+        # As for the overlay above: lock the rotation once the stream-themed activity is in front.
         adb("shell", "am", "start", "-W", "-n", f"{PACKAGE}/com.limelight.LatencyOverlaySmokeActivity",
             "--es", "mode", "health")
+        set_rotation(rotation)
+        time.sleep(1)
         find("Why did my stream stutter?")
         node = find_text(r"Repeating stalls: 5 network stalls in the last 20 minutes started about every 2 min")
         text = node.get("text", "")

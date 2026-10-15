@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="touch_layout_kind_button">Przycisk klawiatury lub myszy</string>
+    <string name="touch_layout_kind_gamepad">Przycisk kontrolera</string>
+    <string name="touch_layout_kind_stick">Gałka analogowa</string>
+    <string name="touch_layout_kind_trigger">Spust analogowy</string>
+    <string name="touch_layout_kind_dpad">D-pad</string>
+    <string name="touch_layout_kind_wasd">Gałka WASD (wysyła klawisze)</string>
+    <string name="touch_layout_side">Strona</string>
+    <string name="touch_layout_side_left">Lewa</string>
+    <string name="touch_layout_side_right">Prawa</string>
+    <string name="touch_layout_floating">Pływająca: środek tam, gdzie opiera się kciuk</string>
+    <string name="touch_layout_deadzone">Martwa strefa (% wychylenia gałki, 0–50)</string>
+    <string name="touch_layout_wasd_keys">Klawisze w górę, w lewo, w dół i w prawo</string>
+    <string name="touch_layout_wasd_help">Cztery różne klawisze w tej kolejności, na przykład W + A + S + D lub UP + LEFT + DOWN + RIGHT.</string>
+    <string name="touch_layout_diagonal">Przekątne (stopnie, 0–90): 0 nigdy nie trzyma dwóch klawiszy, 45 daje osiem równych kierunków</string>
+    <string name="touch_layout_snap">Przyciągaj do siatki: %1$s</string>
+    <string name="touch_layout_snap_title">Przyciągaj do siatki</string>
+    <string name="touch_layout_error_json">To nie jest układ Nightjar, układ klawiatury Artemis ani plik własnych klawiszy Artemis.</string>
+    <string name="touch_layout_error_version">Ten układ ma wersję %1$s. Ta wersja Nightjar czyta układy w wersjach 1 i 2; zaktualizuj Nightjar, aby go zaimportować.</string>
+    <string name="touch_layout_error_size">Układy są ograniczone do 32 elementów sterujących i 64 KiB.</string>
+    <string name="touch_layout_error_duplicate">Dwa elementy sterujące mają ten sam identyfikator %1$s. Każdy element potrzebuje własnego.</string>
+    <string name="touch_layout_error_control">Element sterujący %1$d (%2$s) ma nieobsługiwany typ, klawisz, przycisk lub rozmiar.</string>
+    <string name="touch_layout_import_done">Zaimportowano układ</string>
+    <plurals name="touch_layout_imported">
+        <item quantity="one">Zaimportowano %d element sterujący.</item>
+        <item quantity="few">Zaimportowano %d elementy sterujące.</item>
+        <item quantity="many">Zaimportowano %d elementów sterujących.</item>
+        <item quantity="other">Zaimportowano %d elementu sterującego.</item>
+    </plurals>
+    <string name="touch_layout_import_pixels">Artemis zapisuje pozycje w pikselach bez rozmiaru ekranu, więc odczytano je dla tego ekranu. Sprawdź rozmieszczenie.</string>
+    <string name="touch_layout_import_scaled">Układ Artemis wychodził poza ten ekran i został zmniejszony, aby się zmieścić. Sprawdź rozmieszczenie.</string>
+    <plurals name="touch_layout_import_hidden">
+        <item quantity="one">Pominięto %d element wyłączony lub ukryty w Artemis.</item>
+        <item quantity="few">Pominięto %d elementy wyłączone lub ukryte w Artemis.</item>
+        <item quantity="many">Pominięto %d elementów wyłączonych lub ukrytych w Artemis.</item>
+        <item quantity="other">Pominięto %d elementu wyłączonego lub ukrytego w Artemis.</item>
+    </plurals>
+    <string name="touch_layout_import_skipped">Nie zaimportowano:</string>
+    <string name="touch_layout_skip_no_equivalent">%1$s: Nightjar nie ma odpowiednika (np. obszaru touchpada Artemis)</string>
+    <string name="touch_layout_skip_key">%1$s: klawisz lub klawisze z przyciskami myszy, których Nightjar nie może wysłać</string>
+    <string name="touch_layout_skip_custom">%1$s: własny klawisz; wybierz jego plik własnych klawiszy razem z plikiem układu</string>
+    <string name="touch_layout_skip_center">%1$s: klawisz środka gałki wywoływany podwójnym dotknięciem (sama gałka została zaimportowana jako gałka WASD)</string>
+    <string name="touch_layout_skip_too_many">%1$s: ponad limit 32 elementów sterujących</string>
+    <string name="touch_layout_skip_size">%1$s: nieprawidłowy rozmiar</string>
+    <string name="library_import_controls">Importuj sterowanie gry</string>
+    <string name="library_import_controls_note">Układ Nightjar albo układ klawiatury i plik własnych klawiszy z Artemis</string>
+    <string name="library_import_controls_title">Sterowanie dla %1$s</string>
+    <string name="library_import_controls_replace">Zastąpić sterowanie ekranowe tej gry na tym komputerze?</string>
+    <string name="library_import_controls_saved">Zapisano sterowanie. Pojawi się w następnej transmisji tej gry.</string>
+    <string name="library_import_controls_error">Nie można odczytać pliku.</string>
+</resources>

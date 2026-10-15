@@ -634,6 +634,19 @@ public class AppView extends AppCompatActivity implements AdapterFragmentCallbac
         if (selectedApp.app.getControl() == NvApp.Control.NONE) {
             addGameSettingsAction(sheet, selectedApp);
         }
+        if (selectedApp.app.getRole() != NvApp.Role.REMOTE_MONITOR) {
+            sheet.addAction(R.drawable.ic_touch_controls, getString(R.string.library_import_controls),
+                    getString(R.string.library_import_controls_note)).setOnClickListener(v -> {
+                sheet.dismiss();
+                controlsTarget = selectedApp.app;
+                try {
+                    controlsPicker.launch(new String[] {"*/*"});
+                } catch (android.content.ActivityNotFoundException e) {
+                    controlsTarget = null;
+                    Toast.makeText(this, R.string.library_import_controls_error, Toast.LENGTH_LONG).show();
+                }
+            });
+        }
         if (!selectedApp.isRunning || selectedApp.isHidden) {
             addAppAction(sheet, selectedApp, selectedView, HIDE_APP_ID,
                     selectedApp.isHidden ? R.drawable.ic_visibility : R.drawable.ic_visibility_off,
@@ -651,6 +664,53 @@ public class AppView extends AppCompatActivity implements AdapterFragmentCallbac
             if (poller != null && inForeground) poller.pollNow();
         });
         sheet.show();
+    }
+
+    // A Nightjar layout, or an Artemis keyboard layout and/or Custom Keys file, for the game the menu was opened on.
+    private NvApp controlsTarget;
+    private final androidx.activity.result.ActivityResultLauncher<String[]> controlsPicker = registerForActivityResult(
+            new androidx.activity.result.contract.ActivityResultContracts.OpenMultipleDocuments(), this::importControls);
+
+    private void importControls(List<android.net.Uri> files) {
+        NvApp app = controlsTarget;
+        controlsTarget = null;
+        if (app == null || files == null || files.isEmpty()) return;
+        java.util.ArrayList<String> texts = new java.util.ArrayList<>();
+        try {
+            for (android.net.Uri file : files) {
+                try (java.io.InputStream input = getContentResolver().openInputStream(file)) {
+                    texts.add(com.limelight.binding.input.TouchLayout.readText(input));
+                }
+            }
+        } catch (IOException | SecurityException e) {
+            Toast.makeText(this, R.string.library_import_controls_error, Toast.LENGTH_LONG).show();
+            return;
+        }
+        // Artemis stores pixels; read them against this screen held the way a stream holds it.
+        android.util.DisplayMetrics screen = new android.util.DisplayMetrics();
+        getWindowManager().getDefaultDisplay().getRealMetrics(screen);
+        int width = Math.max(screen.widthPixels, screen.heightPixels), height = Math.min(screen.widthPixels, screen.heightPixels);
+        com.limelight.binding.input.TouchLayoutImport.Result result;
+        try {
+            result = com.limelight.binding.input.TouchLayoutImport.importFiles(texts, width, height);
+        } catch (IllegalArgumentException e) {
+            UiHelper.showDialog(this, new com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+                    .setTitle(getString(R.string.library_import_controls_title, app.getAppName()))
+                    .setMessage(com.limelight.ui.GameTouchControls.errorMessage(this, e))
+                    .setPositiveButton(android.R.string.ok, null).create());
+            return;
+        }
+        String profile = com.limelight.binding.input.TouchLayout.profileKey(uuidString, app.getAppUuid(), app.getAppId());
+        UiHelper.showDialog(this, new com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+                .setTitle(getString(R.string.library_import_controls_title, app.getAppName()))
+                .setMessage(com.limelight.ui.GameTouchControls.importSummary(this, result) + "\n\n" +
+                        getString(R.string.library_import_controls_replace))
+                .setPositiveButton(R.string.keyboard_shortcuts_replace_button, (dialog, which) -> {
+                    result.layout.save(this, profile);
+                    com.limelight.binding.input.TouchLayout.setEnabled(this, profile, true);
+                    Toast.makeText(this, R.string.library_import_controls_saved, Toast.LENGTH_SHORT).show();
+                })
+                .setNegativeButton(android.R.string.cancel, null).create());
     }
 
     /** Turns quit on leave on or off for this game in place; the sheet stays open and says what leaving now does. */

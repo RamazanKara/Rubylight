@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="touch_layout_kind_button">키보드 또는 마우스 버튼</string>
+    <string name="touch_layout_kind_gamepad">게임패드 버튼</string>
+    <string name="touch_layout_kind_stick">아날로그 스틱</string>
+    <string name="touch_layout_kind_trigger">아날로그 트리거</string>
+    <string name="touch_layout_kind_dpad">방향 패드</string>
+    <string name="touch_layout_kind_wasd">WASD 스틱(키 전송)</string>
+    <string name="touch_layout_side">방향</string>
+    <string name="touch_layout_side_left">왼쪽</string>
+    <string name="touch_layout_side_right">오른쪽</string>
+    <string name="touch_layout_floating">플로팅: 엄지가 닿은 곳을 중심으로</string>
+    <string name="touch_layout_deadzone">데드존(스틱 이동 거리의 %, 0–50)</string>
+    <string name="touch_layout_wasd_keys">위, 왼쪽, 아래, 오른쪽 키</string>
+    <string name="touch_layout_wasd_help">이 순서대로 서로 다른 키 4개. 예: W + A + S + D 또는 UP + LEFT + DOWN + RIGHT</string>
+    <string name="touch_layout_diagonal">대각선(도, 0–90): 0은 두 키를 동시에 누르지 않음, 45는 8방향 균등</string>
+    <string name="touch_layout_snap">격자에 맞추기: %1$s</string>
+    <string name="touch_layout_snap_title">격자에 맞추기</string>
+    <string name="touch_layout_error_json">Nightjar 레이아웃, Artemis 키보드 레이아웃, Artemis 사용자 지정 키 파일이 아닙니다.</string>
+    <string name="touch_layout_error_version">이 레이아웃은 버전 %1$s입니다. 이 Nightjar 버전은 레이아웃 버전 1과 2를 읽습니다. 가져오려면 Nightjar를 업데이트하세요.</string>
+    <string name="touch_layout_error_size">레이아웃은 컨트롤 32개, 64 KiB로 제한됩니다.</string>
+    <string name="touch_layout_error_duplicate">두 컨트롤이 ID %1$s을(를) 함께 사용합니다. 컨트롤마다 고유한 ID가 필요합니다.</string>
+    <string name="touch_layout_error_control">컨트롤 %1$d(%2$s)의 유형, 키, 버튼 또는 크기가 지원되지 않습니다.</string>
+    <string name="touch_layout_import_done">레이아웃을 가져왔습니다</string>
+    <plurals name="touch_layout_imported">
+        <item quantity="other">컨트롤 %d개를 가져왔습니다.</item>
+    </plurals>
+    <string name="touch_layout_import_pixels">Artemis는 화면 크기 없이 픽셀 위치를 저장하므로 이 화면 기준으로 읽었습니다. 배치를 확인하세요.</string>
+    <string name="touch_layout_import_scaled">Artemis 레이아웃이 이 화면을 벗어나서 맞도록 축소했습니다. 배치를 확인하세요.</string>
+    <plurals name="touch_layout_import_hidden">
+        <item quantity="other">Artemis에서 꺼져 있거나 숨겨진 요소 %d개는 제외했습니다.</item>
+    </plurals>
+    <string name="touch_layout_import_skipped">가져오지 않음:</string>
+    <string name="touch_layout_skip_no_equivalent">%1$s: Nightjar에 대응하는 컨트롤이 없음(예: Artemis 터치패드 영역)</string>
+    <string name="touch_layout_skip_key">%1$s: Nightjar가 보낼 수 없는 키 또는 키와 마우스 버튼 조합</string>
+    <string name="touch_layout_skip_custom">%1$s: 사용자 지정 키. 레이아웃 파일과 함께 사용자 지정 키 파일을 선택하세요</string>
+    <string name="touch_layout_skip_center">%1$s: 스틱 가운데를 두 번 탭하는 키(스틱 자체는 WASD 스틱으로 가져옴)</string>
+    <string name="touch_layout_skip_too_many">%1$s: 컨트롤 32개 제한 초과</string>
+    <string name="touch_layout_skip_size">%1$s: 잘못된 크기</string>
+    <string name="library_import_controls">게임 컨트롤 가져오기</string>
+    <string name="library_import_controls_note">Nightjar 레이아웃 또는 Artemis 키보드 레이아웃과 사용자 지정 키 파일</string>
+    <string name="library_import_controls_title">%1$s 컨트롤</string>
+    <string name="library_import_controls_replace">이 PC에서 이 게임의 화면 컨트롤을 바꿀까요?</string>
+    <string name="library_import_controls_saved">컨트롤을 저장했습니다. 이 게임의 다음 스트림에 표시됩니다.</string>
+    <string name="library_import_controls_error">파일을 읽을 수 없습니다.</string>
+</resources>

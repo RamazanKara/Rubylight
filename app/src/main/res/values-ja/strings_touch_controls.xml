@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="touch_layout_kind_button">キーボードまたはマウスのボタン</string>
+    <string name="touch_layout_kind_gamepad">ゲームパッドのボタン</string>
+    <string name="touch_layout_kind_stick">アナログスティック</string>
+    <string name="touch_layout_kind_trigger">アナログトリガー</string>
+    <string name="touch_layout_kind_dpad">十字キー</string>
+    <string name="touch_layout_kind_wasd">WASD スティック（キーを送信）</string>
+    <string name="touch_layout_side">左右</string>
+    <string name="touch_layout_side_left">左</string>
+    <string name="touch_layout_side_right">右</string>
+    <string name="touch_layout_floating">フローティング：親指を置いた位置が中心になる</string>
+    <string name="touch_layout_deadzone">デッドゾーン（スティックの移動量に対する %、0～50）</string>
+    <string name="touch_layout_wasd_keys">上、左、下、右のキー</string>
+    <string name="touch_layout_wasd_help">この順に異なる 4 つのキー。例：W + A + S + D または UP + LEFT + DOWN + RIGHT</string>
+    <string name="touch_layout_diagonal">斜め（度、0～90）：0 は 2 つのキーを同時に押さない、45 は 8 方向が均等</string>
+    <string name="touch_layout_snap">グリッドに合わせる：%1$s</string>
+    <string name="touch_layout_snap_title">グリッドに合わせる</string>
+    <string name="touch_layout_error_json">Nightjar レイアウト、Artemis のキーボードレイアウト、Artemis のカスタムキーファイルのいずれでもありません。</string>
+    <string name="touch_layout_error_version">このレイアウトはバージョン %1$s です。この Nightjar が読めるのはバージョン 1 と 2 です。インポートするには Nightjar を更新してください。</string>
+    <string name="touch_layout_error_size">レイアウトはコントロール 32 個、64 KiB までです。</string>
+    <string name="touch_layout_error_duplicate">2 つのコントロールが ID %1$s を共有しています。コントロールごとに別の ID が必要です。</string>
+    <string name="touch_layout_error_control">コントロール %1$d（%2$s）の種類、キー、ボタン、またはサイズに対応していません。</string>
+    <string name="touch_layout_import_done">レイアウトをインポートしました</string>
+    <plurals name="touch_layout_imported">
+        <item quantity="other">%d 個のコントロールをインポートしました。</item>
+    </plurals>
+    <string name="touch_layout_import_pixels">Artemis は画面サイズなしでピクセル位置を保存するため、この画面に合わせて読み込みました。配置を確認してください。</string>
+    <string name="touch_layout_import_scaled">Artemis のレイアウトがこの画面からはみ出していたため、収まるように縮小しました。配置を確認してください。</string>
+    <plurals name="touch_layout_import_hidden">
+        <item quantity="other">Artemis でオフまたは非表示だった %d 個の要素は除外しました。</item>
+    </plurals>
+    <string name="touch_layout_import_skipped">インポートされなかったもの：</string>
+    <string name="touch_layout_skip_no_equivalent">%1$s：Nightjar に対応するコントロールがありません（Artemis のタッチパッド領域など）</string>
+    <string name="touch_layout_skip_key">%1$s：Nightjar が送信できないキー、またはキーとマウスボタンの組み合わせ</string>
+    <string name="touch_layout_skip_custom">%1$s：カスタムキー。レイアウトファイルと一緒にカスタムキーファイルを選択してください</string>
+    <string name="touch_layout_skip_center">%1$s：スティック中央のダブルタップキー（スティック自体は WASD スティックとしてインポート）</string>
+    <string name="touch_layout_skip_too_many">%1$s：コントロール 32 個の上限を超えています</string>
+    <string name="touch_layout_skip_size">%1$s：無効なサイズ</string>
+    <string name="library_import_controls">ゲームの操作をインポート</string>
+    <string name="library_import_controls_note">Nightjar レイアウト、または Artemis のキーボードレイアウトとカスタムキーファイル</string>
+    <string name="library_import_controls_title">%1$s の操作</string>
+    <string name="library_import_controls_replace">この PC のこのゲームのオンスクリーンコントロールを置き換えますか？</string>
+    <string name="library_import_controls_saved">操作を保存しました。このゲームの次のストリームで表示されます。</string>
+    <string name="library_import_controls_error">ファイルを読み込めませんでした。</string>
+</resources>

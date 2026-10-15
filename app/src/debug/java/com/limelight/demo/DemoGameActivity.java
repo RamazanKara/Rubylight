@@ -43,6 +43,7 @@ public final class DemoGameActivity extends Activity implements SurfaceHolder.Ca
     private StreamView stream;
     private TextView overlay, label;
     private VirtualController controls;
+    private com.limelight.ui.GameTouchControls gameControls;
     private DemoSamplePlayer player;
     private String mode;
     private boolean showControls, prepared, started, fallback, microphoneMuted;
@@ -110,6 +111,25 @@ public final class DemoGameActivity extends Activity implements SurfaceHolder.Ca
         controls = new VirtualController(null, container, this);
         com.limelight.ui.OverlayPlacement.attach(findViewById(R.id.performanceOverlayScroll), container,
                 out -> controls.collectVisibleBounds(out));
+        // The per-game layout editor with a demo profile; what the controls send goes to the log.
+        gameControls = new com.limelight.ui.GameTouchControls(this, "demo", new com.limelight.binding.input.HeldInputState.Sink() {
+            @Override public void key(int key, boolean down) { android.util.Log.i("DemoGameControls", "key " + key + " " + down); }
+            @Override public void mouse(int button, boolean down) { android.util.Log.i("DemoGameControls", "mouse " + button + " " + down); }
+            @Override public void gamepad(int buttons, short leftX, short leftY, short rightX, short rightY,
+                                          byte leftTrigger, byte rightTrigger) {
+                android.util.Log.i("DemoGameControls", "gamepad " + Integer.toHexString(buttons) + " " + leftX + "," + leftY +
+                        " " + rightX + "," + rightY + " " + (leftTrigger & 0xFF) + "," + (rightTrigger & 0xFF));
+            }
+        }, () -> menu == null, dialog -> com.limelight.utils.UiHelper.showDialog(this, dialog));
+        gameControls.setStreamTouchListener((view, event) -> {
+            if (event.getActionMasked() == android.view.MotionEvent.ACTION_UP) {
+                view.performClick();
+                showMenu();
+            }
+            return true;
+        });
+        container.addView(gameControls, new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT));
         controls.refreshLayout();
         controls.setOpacity(65);
         if (showControls) controls.show(); else controls.hide();
@@ -184,6 +204,7 @@ public final class DemoGameActivity extends Activity implements SurfaceHolder.Ca
         options.microphoneOffered = true;
         options.microphoneMuted = microphoneMuted;
         options.webUiAddress = true;
+        options.gameControls = true;
         return options;
     }
 
@@ -227,6 +248,7 @@ public final class DemoGameActivity extends Activity implements SurfaceHolder.Ca
                 androidx.core.view.ViewCompat.requestApplyInsets(findViewById(android.R.id.content));
                 break;
             case PICTURE_IN_PICTURE: enterPip(); break;
+            case GAME_CONTROLS: gameControls.showMenu(); break;
             case DISCONNECT:
             case QUIT_GAME: finish(); break;
             default:
@@ -301,6 +323,16 @@ public final class DemoGameActivity extends Activity implements SurfaceHolder.Ca
     @Override public void surfaceChanged(SurfaceHolder holder, int format, int width, int height) { }
     @Override public void surfaceDestroyed(SurfaceHolder holder) { releasePlayer(); }
 
+    @Override protected void onPause() {
+        super.onPause();
+        gameControls.releaseInput();
+    }
+
+    @Override public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        if (!hasFocus) gameControls.releaseInput();
+    }
+
     @Override protected void onStart() {
         super.onStart();
         started = true;
@@ -354,6 +386,7 @@ public final class DemoGameActivity extends Activity implements SurfaceHolder.Ca
         findViewById(R.id.performanceOverlayScroll).setVisibility(pip ? View.GONE : View.VISIBLE);
         label.setVisibility(pip ? View.GONE : View.VISIBLE);
         if (pip || !showControls) controls.hide(); else controls.show();
+        gameControls.hideForPip(pip);
     }
 
     @Override public boolean usesFullDisplayForVideo() {

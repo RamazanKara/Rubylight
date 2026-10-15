@@ -316,6 +316,57 @@ public class GameTouchControlsTest {
         }
     }
 
+    @Test public void pauseFocusLossAndDisconnectReleaseSticksTriggersButtonsAndWasdKeys() {
+        try (ActivityController<Screen> controller = Robolectric.buildActivity(Screen.class).setup()) {
+            Screen screen = controller.get();
+            new TouchLayout(Arrays.asList(
+                    TouchLayout.Button.gamepad("a", "A", com.limelight.nvstream.input.ControllerPacket.A_FLAG, false, .05f, .05f, .1f, .2f),
+                    TouchLayout.Button.stick("look", "Look", TouchLayout.LEFT, false, 0, .3f, .3f, .3f, .6f),
+                    TouchLayout.Button.wasd("walk", "Walk", new int[] {51, 29, 47, 32}, false, 0, 45, .65f, .3f, .3f, .6f),
+                    TouchLayout.Button.trigger("rt", "RT", TouchLayout.RIGHT, true, .3f, .05f, .1f, .2f)))
+                    .save(screen, "pad");
+            TouchLayout.setEnabled(screen, "pad", true);
+            List<String> keys = new ArrayList<>(), reports = new ArrayList<>();
+            GameTouchControls controls = new GameTouchControls(screen, "pad", new HeldInputState.Sink() {
+                public void key(int key, boolean down) { keys.add(key + ":" + down); }
+                public void mouse(int button, boolean down) { fail("No mouse controls"); }
+                public void gamepad(int buttons, short lx, short ly, short rx, short ry, byte lt, byte rt) {
+                    reports.add(Integer.toHexString(buttons) + " " + lx + "," + ly + " " + (rt & 0xFF));
+                }
+            }, () -> true, dialog -> { });
+            controls.layout(0, 0, 800, 400);
+            layOut(controls);
+            View a = controls.getChildAt(1), stick = controls.getChildAt(2), walk = controls.getChildAt(3);
+            View trigger = controls.getChildAt(4);
+            assertEquals(240, stick.getWidth());
+            dispatch(stick, MotionEvent.ACTION_DOWN, 0, new int[] {0}, new float[] {120, 120});
+            dispatch(stick, MotionEvent.ACTION_MOVE, 0, new int[] {0}, new float[] {240, 120});
+            dispatch(walk, MotionEvent.ACTION_DOWN, 0, new int[] {0}, new float[] {120, 120});
+            dispatch(walk, MotionEvent.ACTION_MOVE, 0, new int[] {0}, new float[] {0, 0});
+            dispatch(a, MotionEvent.ACTION_DOWN, 0, new int[] {0}, new float[] {5, 5});
+            // A toggled trigger stays pulled after the finger lifts.
+            dispatch(trigger, MotionEvent.ACTION_DOWN, 0, new int[] {0}, new float[] {5, 5});
+            dispatch(trigger, MotionEvent.ACTION_UP, 0, new int[] {0}, new float[] {5, 5});
+            assertEquals("1000 32766,0 255", reports.get(reports.size() - 1));
+            assertEquals(Arrays.asList("51:true", "29:true"), keys);
+
+            controls.releaseInput();
+            assertEquals("0 0,0 0", reports.get(reports.size() - 1));
+            assertEquals(Arrays.asList("51:true", "29:true", "29:false", "51:false"), keys);
+            // The rest of the old gesture changes nothing.
+            int sent = reports.size();
+            dispatch(stick, MotionEvent.ACTION_MOVE, 0, new int[] {0}, new float[] {0, 120});
+            dispatch(walk, MotionEvent.ACTION_MOVE, 0, new int[] {0}, new float[] {240, 120});
+            dispatch(a, MotionEvent.ACTION_UP, 0, new int[] {0}, new float[] {5, 5});
+            assertEquals(sent, reports.size());
+            assertEquals(4, keys.size());
+            // The fixed gamepad's retransmission covers the centring report too.
+            ShadowLooper.idleMainLooper(100, TimeUnit.MILLISECONDS);
+            assertEquals("0 0,0 0", reports.get(reports.size() - 1));
+            assertTrue(reports.size() > sent);
+        }
+    }
+
     private static View button(GameTouchControls controls) {
         // Child 0 is the full-size layer that forwards touches beside the controls to the stream.
         return controls.getChildAt(1);

@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="touch_layout_kind_button">Pulsante tastiera o mouse</string>
+    <string name="touch_layout_kind_gamepad">Pulsante del controller</string>
+    <string name="touch_layout_kind_stick">Levetta analogica</string>
+    <string name="touch_layout_kind_trigger">Grilletto analogico</string>
+    <string name="touch_layout_kind_dpad">Croce direzionale</string>
+    <string name="touch_layout_kind_wasd">Levetta WASD (invia tasti)</string>
+    <string name="touch_layout_side">Lato</string>
+    <string name="touch_layout_side_left">Sinistro</string>
+    <string name="touch_layout_side_right">Destro</string>
+    <string name="touch_layout_floating">Mobile: si centra dove appoggi il pollice</string>
+    <string name="touch_layout_deadzone">Zona morta (% della corsa della levetta, 0–50)</string>
+    <string name="touch_layout_wasd_keys">Tasti per su, sinistra, giù e destra</string>
+    <string name="touch_layout_wasd_help">Quattro tasti diversi in quest’ordine, per esempio W + A + S + D o UP + LEFT + DOWN + RIGHT.</string>
+    <string name="touch_layout_diagonal">Diagonali (gradi, 0–90): con 0 mai due tasti insieme, 45 dà otto direzioni uguali</string>
+    <string name="touch_layout_snap">Allinea alla griglia: %1$s</string>
+    <string name="touch_layout_snap_title">Allinea alla griglia</string>
+    <string name="touch_layout_error_json">Non è un layout Nightjar, né un layout tastiera o un file di tasti personalizzati di Artemis.</string>
+    <string name="touch_layout_error_version">Questo layout è alla versione %1$s. Questa versione di Nightjar legge i layout delle versioni 1 e 2; aggiorna Nightjar per importarlo.</string>
+    <string name="touch_layout_error_size">I layout sono limitati a 32 controlli e 64 KiB.</string>
+    <string name="touch_layout_error_duplicate">Due controlli condividono l’ID %1$s. Ogni controllo deve avere un ID proprio.</string>
+    <string name="touch_layout_error_control">Il controllo %1$d (%2$s) ha un tipo, un tasto, un pulsante o una dimensione non supportati.</string>
+    <string name="touch_layout_import_done">Layout importato</string>
+    <plurals name="touch_layout_imported">
+        <item quantity="one">%d controllo importato.</item>
+        <item quantity="many">%d controlli importati.</item>
+        <item quantity="other">%d controlli importati.</item>
+    </plurals>
+    <string name="touch_layout_import_pixels">Artemis salva posizioni in pixel senza la dimensione dello schermo, quindi sono state lette per questo schermo. Controlla la disposizione.</string>
+    <string name="touch_layout_import_scaled">Il layout di Artemis andava oltre questo schermo ed è stato ridotto per adattarlo. Controlla la disposizione.</string>
+    <plurals name="touch_layout_import_hidden">
+        <item quantity="one">%d elemento disattivato o nascosto in Artemis è stato escluso.</item>
+        <item quantity="many">%d elementi disattivati o nascosti in Artemis sono stati esclusi.</item>
+        <item quantity="other">%d elementi disattivati o nascosti in Artemis sono stati esclusi.</item>
+    </plurals>
+    <string name="touch_layout_import_skipped">Non importato:</string>
+    <string name="touch_layout_skip_no_equivalent">%1$s: Nightjar non ha un controllo corrispondente (come un’area touchpad di Artemis)</string>
+    <string name="touch_layout_skip_key">%1$s: un tasto, o tasti misti a pulsanti del mouse, che Nightjar non può inviare</string>
+    <string name="touch_layout_skip_custom">%1$s: tasto personalizzato; scegli il suo file di tasti personalizzati insieme al file del layout</string>
+    <string name="touch_layout_skip_center">%1$s: il tasto centrale della levetta a doppio tocco (la levetta è stata importata come levetta WASD)</string>
+    <string name="touch_layout_skip_too_many">%1$s: oltre il limite di 32 controlli</string>
+    <string name="touch_layout_skip_size">%1$s: dimensione non valida</string>
+    <string name="library_import_controls">Importa controlli del gioco</string>
+    <string name="library_import_controls_note">Layout Nightjar, oppure layout tastiera e file di tasti personalizzati di Artemis</string>
+    <string name="library_import_controls_title">Controlli per %1$s</string>
+    <string name="library_import_controls_replace">Sostituire i controlli a schermo di questo gioco su questo PC?</string>
+    <string name="library_import_controls_saved">Controlli salvati. Compariranno nel prossimo streaming di questo gioco.</string>
+    <string name="library_import_controls_error">Impossibile leggere il file.</string>
+</resources>

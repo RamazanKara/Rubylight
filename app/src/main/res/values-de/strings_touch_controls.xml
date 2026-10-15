@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="touch_layout_kind_button">Tastatur- oder Maustaste</string>
+    <string name="touch_layout_kind_gamepad">Gamepad-Taste</string>
+    <string name="touch_layout_kind_stick">Analogstick</string>
+    <string name="touch_layout_kind_trigger">Analoger Trigger</string>
+    <string name="touch_layout_kind_dpad">Steuerkreuz</string>
+    <string name="touch_layout_kind_wasd">WASD-Stick (sendet Tasten)</string>
+    <string name="touch_layout_side">Seite</string>
+    <string name="touch_layout_side_left">Links</string>
+    <string name="touch_layout_side_right">Rechts</string>
+    <string name="touch_layout_floating">Schwebend: Mitte dort, wo der Daumen aufsetzt</string>
+    <string name="touch_layout_deadzone">Deadzone (% des Stickwegs, 0–50)</string>
+    <string name="touch_layout_wasd_keys">Tasten für oben, links, unten und rechts</string>
+    <string name="touch_layout_wasd_help">Vier verschiedene Tasten in dieser Reihenfolge, zum Beispiel W + A + S + D oder UP + LEFT + DOWN + RIGHT.</string>
+    <string name="touch_layout_diagonal">Diagonalen (Grad, 0–90): Bei 0 nie zwei Tasten gleichzeitig, 45 ergibt acht gleiche Richtungen</string>
+    <string name="touch_layout_snap">Am Raster ausrichten: %1$s</string>
+    <string name="touch_layout_snap_title">Am Raster ausrichten</string>
+    <string name="touch_layout_error_json">Das ist weder ein Nightjar-Layout noch ein Artemis-Tastaturlayout oder eine Artemis-Datei mit eigenen Tasten.</string>
+    <string name="touch_layout_error_version">Dieses Layout hat Version %1$s. Diese Nightjar-Version liest Layouts der Versionen 1 und 2; aktualisiere Nightjar, um es zu importieren.</string>
+    <string name="touch_layout_error_size">Layouts sind auf 32 Steuerelemente und 64 KiB begrenzt.</string>
+    <string name="touch_layout_error_duplicate">Zwei Steuerelemente haben die ID %1$s. Jedes Steuerelement braucht eine eigene ID.</string>
+    <string name="touch_layout_error_control">Steuerelement %1$d (%2$s) hat einen nicht unterstützten Typ, eine nicht unterstützte Taste oder Größe.</string>
+    <string name="touch_layout_import_done">Layout importiert</string>
+    <plurals name="touch_layout_imported">
+        <item quantity="one">%d Steuerelement importiert.</item>
+        <item quantity="other">%d Steuerelemente importiert.</item>
+    </plurals>
+    <string name="touch_layout_import_pixels">Artemis speichert Pixelpositionen ohne Bildschirmgröße, deshalb wurden sie für diesen Bildschirm gelesen. Prüfe die Anordnung.</string>
+    <string name="touch_layout_import_scaled">Das Artemis-Layout ragte über diesen Bildschirm hinaus und wurde passend verkleinert. Prüfe die Anordnung.</string>
+    <plurals name="touch_layout_import_hidden">
+        <item quantity="one">%d in Artemis ausgeschaltetes oder ausgeblendetes Element wurde ausgelassen.</item>
+        <item quantity="other">%d in Artemis ausgeschaltete oder ausgeblendete Elemente wurden ausgelassen.</item>
+    </plurals>
+    <string name="touch_layout_import_skipped">Nicht importiert:</string>
+    <string name="touch_layout_skip_no_equivalent">%1$s: Nightjar hat kein passendes Steuerelement (etwa ein Artemis-Touchpad-Bereich)</string>
+    <string name="touch_layout_skip_key">%1$s: eine Taste oder Tasten mit Maustasten gemischt, die Nightjar nicht senden kann</string>
+    <string name="touch_layout_skip_custom">%1$s: eigene Taste; wähle ihre Artemis-Datei mit eigenen Tasten zusammen mit der Layoutdatei</string>
+    <string name="touch_layout_skip_center">%1$s: die Doppeltipp-Taste in der Stickmitte (der Stick selbst wurde als WASD-Stick importiert)</string>
+    <string name="touch_layout_skip_too_many">%1$s: über der Grenze von 32 Steuerelementen</string>
+    <string name="touch_layout_skip_size">%1$s: ungültige Größe</string>
+    <string name="library_import_controls">Spielsteuerung importieren</string>
+    <string name="library_import_controls_note">Nightjar-Layout oder Artemis-Tastaturlayout und Datei mit eigenen Tasten</string>
+    <string name="library_import_controls_title">Steuerung für %1$s</string>
+    <string name="library_import_controls_replace">Die Bildschirmsteuerung dieses Spiels auf diesem PC ersetzen?</string>
+    <string name="library_import_controls_saved">Steuerung gespeichert. Sie erscheint beim nächsten Stream dieses Spiels.</string>
+    <string name="library_import_controls_error">Die Datei konnte nicht gelesen werden.</string>
+</resources>

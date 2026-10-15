@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="touch_layout_kind_button">Keyboard or mouse button</string>
+    <string name="touch_layout_kind_gamepad">Gamepad button</string>
+    <string name="touch_layout_kind_stick">Analog stick</string>
+    <string name="touch_layout_kind_trigger">Analog trigger</string>
+    <string name="touch_layout_kind_dpad">D-pad</string>
+    <string name="touch_layout_kind_wasd">WASD stick (sends keys)</string>
+    <string name="touch_layout_side">Side</string>
+    <string name="touch_layout_side_left">Left</string>
+    <string name="touch_layout_side_right">Right</string>
+    <string name="touch_layout_floating">Floating: center where the thumb lands</string>
+    <string name="touch_layout_deadzone">Deadzone (% of stick travel, 0–50)</string>
+    <string name="touch_layout_wasd_keys">Keys for up, left, down and right</string>
+    <string name="touch_layout_wasd_help">Four different keys in that order, for example W + A + S + D or UP + LEFT + DOWN + RIGHT.</string>
+    <string name="touch_layout_diagonal">Diagonals (degrees, 0–90): 0 never holds two keys, 45 gives eight equal directions</string>
+    <string name="touch_layout_snap">Snap to grid: %1$s</string>
+    <string name="touch_layout_snap_title">Snap to grid</string>
+    <string name="touch_layout_error_json">This is not a Nightjar layout, an Artemis keyboard layout or an Artemis Custom Keys file.</string>
+    <string name="touch_layout_error_version">This layout is version %1$s. This version of Nightjar reads layout versions 1 and 2; update Nightjar to import it.</string>
+    <string name="touch_layout_error_size">Layouts are limited to 32 controls and 64 KiB.</string>
+    <string name="touch_layout_error_duplicate">Two controls share the ID %1$s. Each control needs its own ID.</string>
+    <string name="touch_layout_error_control">Control %1$d (%2$s) has an unsupported type, key, button or size.</string>
+    <string name="touch_layout_import_done">Layout imported</string>
+    <plurals name="touch_layout_imported">
+        <item quantity="one">%d control imported.</item>
+        <item quantity="other">%d controls imported.</item>
+    </plurals>
+    <string name="touch_layout_import_pixels">Artemis stores pixel positions without the screen size, so they were read for this screen. Check the placement.</string>
+    <string name="touch_layout_import_scaled">The Artemis layout reached past this screen and was scaled down to fit. Check the placement.</string>
+    <plurals name="touch_layout_import_hidden">
+        <item quantity="one">%d element that was off or hidden in Artemis was left out.</item>
+        <item quantity="other">%d elements that were off or hidden in Artemis were left out.</item>
+    </plurals>
+    <string name="touch_layout_import_skipped">Not imported:</string>
+    <string name="touch_layout_skip_no_equivalent">%1$s: Nightjar has no matching control (such as an Artemis touchpad area)</string>
+    <string name="touch_layout_skip_key">%1$s: a key, or keys mixed with mouse buttons, that Nightjar cannot send</string>
+    <string name="touch_layout_skip_custom">%1$s: custom key; choose its Custom Keys file together with the layout file</string>
+    <string name="touch_layout_skip_center">%1$s: the stick’s double-tap center key (the stick itself was imported as a WASD stick)</string>
+    <string name="touch_layout_skip_too_many">%1$s: over the 32-control limit</string>
+    <string name="touch_layout_skip_size">%1$s: invalid size</string>
+    <string name="library_import_controls">Import game controls</string>
+    <string name="library_import_controls_note">Nightjar layout, or Artemis keyboard layout and Custom Keys files</string>
+    <string name="library_import_controls_title">Controls for %1$s</string>
+    <string name="library_import_controls_replace">Replace this game’s on-screen controls on this PC?</string>
+    <string name="library_import_controls_saved">Controls saved. They appear in this game’s next stream.</string>
+    <string name="library_import_controls_error">The file could not be read.</string>
+</resources>

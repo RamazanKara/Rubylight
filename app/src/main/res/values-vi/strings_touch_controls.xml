@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="touch_layout_kind_button">Nút bàn phím hoặc chuột</string>
+    <string name="touch_layout_kind_gamepad">Nút tay cầm</string>
+    <string name="touch_layout_kind_stick">Cần analog</string>
+    <string name="touch_layout_kind_trigger">Cò analog</string>
+    <string name="touch_layout_kind_dpad">D-pad</string>
+    <string name="touch_layout_kind_wasd">Cần WASD (gửi phím)</string>
+    <string name="touch_layout_side">Bên</string>
+    <string name="touch_layout_side_left">Trái</string>
+    <string name="touch_layout_side_right">Phải</string>
+    <string name="touch_layout_floating">Nổi: lấy tâm tại chỗ ngón cái chạm</string>
+    <string name="touch_layout_deadzone">Vùng chết (phần trăm hành trình của cần, 0–50)</string>
+    <string name="touch_layout_wasd_keys">Phím lên, trái, xuống và phải</string>
+    <string name="touch_layout_wasd_help">Bốn phím khác nhau theo thứ tự đó, ví dụ W + A + S + D hoặc UP + LEFT + DOWN + RIGHT.</string>
+    <string name="touch_layout_diagonal">Đường chéo (độ, 0–90): 0 không bao giờ giữ hai phím, 45 cho tám hướng đều nhau</string>
+    <string name="touch_layout_snap">Bám lưới: %1$s</string>
+    <string name="touch_layout_snap_title">Bám lưới</string>
+    <string name="touch_layout_error_json">Đây không phải bố cục Nightjar, bố cục bàn phím Artemis hay tệp Phím tùy chỉnh Artemis.</string>
+    <string name="touch_layout_error_version">Bố cục này là phiên bản %1$s. Phiên bản Nightjar này đọc bố cục phiên bản 1 và 2; hãy cập nhật Nightjar để nhập.</string>
+    <string name="touch_layout_error_size">Bố cục giới hạn ở 32 điều khiển và 64 KiB.</string>
+    <string name="touch_layout_error_duplicate">Hai điều khiển dùng chung ID %1$s. Mỗi điều khiển cần ID riêng.</string>
+    <string name="touch_layout_error_control">Điều khiển %1$d (%2$s) có loại, phím, nút hoặc kích thước không được hỗ trợ.</string>
+    <string name="touch_layout_import_done">Đã nhập bố cục</string>
+    <plurals name="touch_layout_imported">
+        <item quantity="other">Đã nhập %d điều khiển.</item>
+    </plurals>
+    <string name="touch_layout_import_pixels">Artemis lưu vị trí theo pixel mà không có kích thước màn hình, nên chúng được đọc theo màn hình này. Hãy kiểm tra vị trí.</string>
+    <string name="touch_layout_import_scaled">Bố cục Artemis vượt ra ngoài màn hình này và đã được thu nhỏ cho vừa. Hãy kiểm tra vị trí.</string>
+    <plurals name="touch_layout_import_hidden">
+        <item quantity="other">Đã bỏ qua %d phần tử bị tắt hoặc ẩn trong Artemis.</item>
+    </plurals>
+    <string name="touch_layout_import_skipped">Không được nhập:</string>
+    <string name="touch_layout_skip_no_equivalent">%1$s: Nightjar không có điều khiển tương ứng (như vùng touchpad của Artemis)</string>
+    <string name="touch_layout_skip_key">%1$s: phím, hoặc phím kèm nút chuột, mà Nightjar không gửi được</string>
+    <string name="touch_layout_skip_custom">%1$s: phím tùy chỉnh; hãy chọn tệp Phím tùy chỉnh cùng với tệp bố cục</string>
+    <string name="touch_layout_skip_center">%1$s: phím chạm hai lần ở giữa cần (bản thân cần đã được nhập thành cần WASD)</string>
+    <string name="touch_layout_skip_too_many">%1$s: vượt quá giới hạn 32 điều khiển</string>
+    <string name="touch_layout_skip_size">%1$s: kích thước không hợp lệ</string>
+    <string name="library_import_controls">Nhập điều khiển trò chơi</string>
+    <string name="library_import_controls_note">Bố cục Nightjar, hoặc bố cục bàn phím và tệp Phím tùy chỉnh của Artemis</string>
+    <string name="library_import_controls_title">Điều khiển cho %1$s</string>
+    <string name="library_import_controls_replace">Thay thế điều khiển trên màn hình của trò chơi này trên PC này?</string>
+    <string name="library_import_controls_saved">Đã lưu điều khiển. Chúng sẽ xuất hiện trong lần phát tiếp theo của trò chơi này.</string>
+    <string name="library_import_controls_error">Không đọc được tệp.</string>
+</resources>

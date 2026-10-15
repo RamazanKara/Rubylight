@@ -27,6 +27,7 @@ public class HelpTopicsActivity extends AppCompatActivity {
         link(topics, R.id.help_connect_link, "quick-start.md", canOpenLinks);
         link(topics, R.id.help_pairing_link, "pairing.md", canOpenLinks);
         link(topics, R.id.help_controls_link, "controls.md", canOpenLinks);
+        link(topics, R.id.help_profiles_link, "settings.md#named-profiles-and-game-settings", canOpenLinks);
         link(topics, R.id.help_problems_link, "TROUBLESHOOTING.md", canOpenLinks);
         link(topics, R.id.help_report_link, "TROUBLESHOOTING.md#export-a-problem-report", canOpenLinks);
         topics.findViewById(R.id.help_report).setOnClickListener(v -> ProblemReport.show(this));

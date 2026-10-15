@@ -14,6 +14,17 @@ identifiers and host certificates. It also stores the client certificate and
 private key used for pairing, a locally generated client identifier, app and
 per-PC settings, controller mappings, and cached app lists and artwork.
 
+If you list a home Wi-Fi for named profiles, Nightjar stores that Wi-Fi name
+on this device to tell your home Wi-Fi from other Wi-Fi when a stream starts.
+Android shows the name of the Wi-Fi you are on only to apps with location
+access, so Nightjar asks for location access when you add the Wi-Fi you are
+on, after explaining why. Nightjar reads no location with it, reads the Wi-Fi
+name only on the Profiles screen and when a stream starts while a home Wi-Fi is
+listed, and never sends, logs or includes Wi-Fi names in reports. Without the
+access, every Wi-Fi counts as other Wi-Fi. Turn it off in Android's app
+settings at any time, and remove listed names under **Settings → Video →
+Profiles**.
+
 A short, redacted event log is kept in memory. A redacted record of the latest
 crash or abnormal exit is saved locally. Frame-timing measurements are saved in
 a local CSV file that you can export. Preparing a problem report creates a temporary
@@ -75,7 +86,7 @@ latency files, may be backed up or transferred by Android. Client certificates,
 private keys, the client identifier and preferences are excluded. Crash records
 and temporary report files are kept outside Android backup.
 
-Remove a saved PC in Nightjar to remove its saved-host entry, per-PC settings, hidden-app choices,
+Remove a saved PC in Nightjar to remove its saved-host entry, per-PC and per-game settings, hidden-app choices,
 cached app list and artwork. Revoke pairing
 on the PC to remove that device's access there. Clear Nightjar's app storage
 or uninstall it to remove its local data. Separately delete any exported logs,

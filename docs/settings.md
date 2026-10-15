@@ -18,9 +18,11 @@ These tables include every preference, including actions, grouped as the Setting
 
 | Setting / preference key | Default | Choices and units | When to change or use |
 | --- | --- | --- | --- |
+| Profiles<br>`stream_profiles` | No stored default | Action | Open to create, rename, duplicate or delete named profiles (sets of stream values such as Home 4K120 or Hotel), pick the profile in use, and optionally let the network pick one when a stream starts. A profile sets only the values chosen in it. See [named profiles](#named-profiles-and-game-settings). |
 | Stream resolution<br>`list_resolution` | This screen's native resolution; follows the screen used for each stream | 360p (640 × 360 pixels); 480p (854 × 480 pixels); 720p (1280 × 720 pixels); 1080p (1920 × 1080 pixels); 1440p (2560 × 1440 pixels); 4K (3840 × 2160 pixels) | Raise for fine detail; lower when decode time or network load is high. The picker starts with this screen's size, plus the size beside the camera cutout where there is one; fixed sizes larger than the screen are left out unless already chosen. |
 | Video frame rate<br>`list_fps` | Screen maximum (rounded, 1–1000 FPS) | 30 FPS; 60 FPS; 90 FPS; 120 FPS | Raise for smoother motion on a fast screen. The screen's own refresh rate is added as Screen refresh rate. Changing resolution or FPS preserves an explicitly chosen bitrate. |
 | Video bitrate<br>`seekbar_bitrate_kbps` | Calculated for the native resolution and screen maximum FPS; follows changes until bitrate is chosen explicitly | 0.5 Mbps–500 Mbps; step 0.5 Mbps; buttons 1 Mbps; presets 10 Mbps, 20 Mbps, 40 Mbps, 80 Mbps, 150 Mbps, 280 Mbps | Raise for image quality on a stable link; lower for network loss. The slider is logarithmic; the buttons make fine adjustments. |
+| Bitrate on mobile data<br>`list_mobile_bitrate_kbps` | Off | Off; 3 Mbps; 5 Mbps; 10 Mbps; 15 Mbps; 20 Mbps; 30 Mbps; 50 Mbps | Choose a cap for streams that start on mobile data or on Wi-Fi that Android marks as metered, such as a phone's hotspot. It caps the bitrate from every layer, including profiles, PC and game values; Off uses the same bitrate on every network. Read once at stream start. See [named profiles](#named-profiles-and-game-settings). |
 | Video codec<br>`video_format` | Automatic (recommended) | Automatic (recommended); Prefer AV1; Prefer HEVC; H.264; PyroWave (host support required) | Start with Automatic. Choose a specific codec to compare decoder performance; Prefer AV1 and Prefer HEVC fall back when the PC or device lacks them. PyroWave requires a host that supports it (Rubylight, or Vibepollo with PyroWave available) and Vulkan capabilities; on a PC whose host has none, that PC uses the setting for all PCs or Automatic instead. |
 | HDR<br>`checkbox_enable_hdr` | Off | On; Off | Enable with an HDR10 screen, a compatible decoder and HDR configured on the host display. Availability is device-filtered. |
 | Automatic stream quality<br>`adaptive_quality_mode` | Off | Off; Preserve motion; Preserve detail; Extend battery life | Off by default. Motion preserves FPS first, Detail preserves resolution first, and Battery also reduces work on healthy links. Requires the host's reconfigure capability and an adaptive decoder; PyroWave is unsupported. The stream menu can override the mode per PC. |
@@ -198,7 +200,7 @@ Hidden until the version in **App → About** is tapped seven times. Values chan
 
 ## Presets
 
-Both presets stream at this screen's own resolution and keep the selected codec, HDR and 4:4:4 choices. Saved PC profiles take priority. The selected chip says Custom when values do not match a preset.
+Both presets stream at this screen's own resolution and keep the selected codec, HDR and 4:4:4 choices. Named profiles and saved PC and game values take priority. The selected chip says Custom when values do not match a preset.
 
 | Setting | Native (recommended) | Battery saver |
 | --- | --- | --- |
@@ -218,7 +220,7 @@ Native also turns these back on: Android low-latency mode, Chipset low-latency m
 
 ## Per-PC stream profiles
 
-Long-press a PC and choose **PC settings…**; the screen is titled with the PC name. Every value under **Stream** starts as **Same as all PCs**, which follows the main stream settings, including later changes. Pick a value to give this PC its own; pick **Same as all PCs** again to follow the main settings. **Same as all PCs for everything** clears every value of this PC. Choose **Save** to keep the changes; leaving without saving discards them.
+Long-press a PC and choose **PC settings…**; the screen is titled with the PC name. Every value under **Stream** starts as **Same as all PCs**, which follows the main stream settings and the [named profile](#named-profiles-and-game-settings) in use, including later changes. A value that comes from a profile says so, for example *from profile Hotel*. Pick a value to give this PC its own; pick **Same as all PCs** again to follow the main settings. **Same as all PCs for everything** clears every value of this PC. Choose **Save** to keep the changes; leaving without saving discards them.
 
 These controls are created in [HostStreamSettings.java](../app/src/main/java/com/limelight/preferences/HostStreamSettings.java), with validation in [HostStreamProfile.java](../app/src/main/java/com/limelight/preferences/HostStreamProfile.java).
 
@@ -230,12 +232,59 @@ These controls are created in [HostStreamSettings.java](../app/src/main/java/com
 | Video codec | Same as all PCs, Automatic, Prefer AV1, Prefer HEVC, H.264, PyroWave | Compare codecs on this PC and device. |
 | Upscaling / sharpening | Same as all PCs, or a mode with 0–100% sharpness | Choose a scaler for this PC's lower-resolution SDR stream. |
 | HDR / Adaptive refresh (ARR / VRR) | Same as all PCs, On, Off | Enable for a compatible host and screen. |
+| Frame pacing | Same as all PCs, Lowest latency, Balanced, Balanced with FPS limit, Smoothest video | Pick this PC's trade-off between latency and smoothness. Adaptive refresh replaces it with Lowest latency. |
 | Host virtual display | Same as all PCs, On, Off | On asks the PC for a display matching this stream. Off leaves it to the PC's display settings. |
 | Host render scale | Same as all PCs, or 50–200% | Change host render pixels relative to stream pixels. Used with the virtual-display request. |
 | Prefer YUV 4:4:4 / Force full-range video | Same as all PCs, On, Off | Request supported chroma/range behavior for this PC. |
 | Save | Action | Stores this PC's own values. Takes effect next stream. |
 
 Profiles saved by builds up to test.10 copied every main setting. They now keep only the values that differ from the main settings, and VRR follows the main setting. Host device/app policy may override a request. The performance overlay and the log show the PC's own values and the display choice for each stream.
+
+## Named profiles and game settings
+
+A named profile is a set of stream values with a name, such as *Home 4K120*, *Hotel* or *Mobile data*. Open **Settings → Video → Profiles** to manage them. They are created in [StreamProfilesActivity.java](../app/src/main/java/com/limelight/preferences/StreamProfilesActivity.java), stored by [StreamProfiles.java](../app/src/main/java/com/limelight/preferences/StreamProfiles.java) and combined by [StreamLayers.java](../app/src/main/java/com/limelight/preferences/StreamLayers.java).
+
+### Which value a stream uses
+
+When a stream starts, each value comes from the first of these layers that sets it:
+
+1. **This game**: the game's own values on this PC (game menu → **Stream settings for this game**).
+2. **This PC**: the PC's own values (**PC settings…**, see [per-PC stream profiles](#per-pc-stream-profiles)).
+3. **The profile**: the profile the network picked, or else the profile in use.
+4. **The main settings**: everything under **Settings**.
+
+On mobile data, **Bitrate on mobile data** then caps the bitrate, whatever layer set it. A layer that sets nothing leaves every value to the layers below. Profiles, PC and game values apply when a stream starts and never change during it; a reconnect keeps the network, and so the profile, that the stream started with.
+
+Every value screen says where a value it doesn't set comes from: *from the main settings*, *from profile Hotel*, *set for this PC*. The Debug overlay and the Statistics status line show which layers a stream used, for example *Settings: profile Hotel, chosen for Mobile data + this game*. A profile picked by the network is also announced when the stream starts.
+
+### Profiles
+
+| Control | What it does |
+| --- | --- |
+| New profile | Asks for a name (1–32 characters, unique) and opens the new, empty profile. Set only the values it should change. |
+| A profile → Edit values | The same rows as a PC's stream values: resolution, frame rate, bitrate, codec, upscaling and sharpness, HDR, adaptive refresh, frame pacing, YUV 4:4:4 and full-range video. Unset values say **Not set** and follow the main settings. A profile leaves host display choices to each PC. |
+| A profile → Rename / Duplicate / Delete | Duplicate copies the values under a new name. Delete also clears the profile from **Profile in use** and every network choice; streams use the main settings instead. |
+| Profile in use | The profile every stream uses when no network choice applies. **None** uses the main settings. |
+| Choose by network | Off by default. On, the network a stream starts on picks the profile below; Ethernet and networks without a choice use the profile in use. |
+| Mobile data | Mobile data, and Wi-Fi that Android marks as metered, such as a phone's hotspot. |
+| Home Wi-Fi | The Wi-Fi networks listed under **Home Wi-Fi**. |
+| Other Wi-Fi | Every other Wi-Fi, or every Wi-Fi while no home Wi-Fi is listed or the Wi-Fi name can't be read. |
+| Home Wi-Fi → Add this Wi-Fi / Type a Wi-Fi name | Lists a home Wi-Fi by name. Select a listed name to remove it. |
+| Next stream on this network | What a stream started now would use. |
+
+Android shows the Wi-Fi name only to apps with location access. Nightjar asks for it only when you add the Wi-Fi you're on, after explaining why; typing a name needs no access at that point. Without access, home Wi-Fi can't be recognized when a stream starts: the Wi-Fi counts as other Wi-Fi and the stream says so. Mobile data and metered Wi-Fi are recognized without any permission. Wi-Fi names stay on this device and are never sent or logged; see [privacy](PRIVACY.md).
+
+### Fallbacks
+
+Nothing falls back silently. When the profile picked no longer exists or has a value this version can't read, the main settings apply and the stream says which profile was skipped. When a PC's or a game's stored values can't be read, that layer is skipped with a message and the layers below apply.
+
+### Game settings
+
+Open a game's menu and choose **Stream settings for this game**. The note under it says how many values the game sets. The screen has the same stream rows as a PC, plus the PC's virtual display rows where the host has them; values not set come from this PC, the profile and the main settings, in that order. Removing a PC removes its game values too.
+
+### Bitrate on mobile data
+
+**Settings → Video → Bitrate on mobile data** (Off, 3–50 Mbps) caps the bitrate of a stream that starts on mobile data or metered Wi-Fi. It is separate from the profiles, so it protects a data plan whatever profile, PC or game value applies. The cap is decided at stream start; switching networks during a stream doesn't change it.
 
 ## Display on the PC
 
@@ -266,4 +315,4 @@ The PC puts its displays back when the stream ends. Separated displays still sha
 
 ## Reset scope
 
-**Settings → App → Reset all settings** restores the global preferences and touch-mode flags and hides Developer options. It keeps paired PCs, per-PC stream profiles and display choices, controller button mappings, the on-screen layout and the selected app language. Reset a PC profile in its own screen, a controller in **Controller buttons**, and the layout with **Reset controls layout**.
+**Settings → App → Reset all settings** restores the global preferences and touch-mode flags and hides Developer options. It keeps paired PCs, per-PC stream profiles and display choices, named profiles and their network choices, game stream settings, controller button mappings, the on-screen layout and the selected app language. Reset a PC profile in its own screen, a controller in **Controller buttons**, and the layout with **Reset controls layout**.

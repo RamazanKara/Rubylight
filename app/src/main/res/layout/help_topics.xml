@@ -19,6 +19,10 @@
     <TextView style="@style/HelpTopic.Body" android:text="@string/help_controls_body" />
     <Button android:id="@+id/help_controls_link" style="@style/HelpTopic.Link" android:text="@string/help_controls_link" />
 
+    <TextView style="@style/HelpTopic.Heading" android:text="@string/help_profiles_title" android:accessibilityHeading="true" tools:targetApi="p" />
+    <TextView style="@style/HelpTopic.Body" android:text="@string/help_profiles_body" />
+    <Button android:id="@+id/help_profiles_link" style="@style/HelpTopic.Link" android:text="@string/help_profiles_link" />
+
     <TextView style="@style/HelpTopic.Heading" android:text="@string/help_problems_title" android:accessibilityHeading="true" tools:targetApi="p" />
     <TextView style="@style/HelpTopic.Body" android:text="@string/help_problems_body" />
     <Button android:id="@+id/help_problems_link" style="@style/HelpTopic.Link" android:text="@string/help_problems_link" />

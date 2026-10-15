@@ -36,7 +36,7 @@ public class TranslationResourcesTest {
             "host_profile_save", "latency_benchmark_start", "library_retry",
             "remote_next", "remote_previous", "remote_test", "report_problem_share",
             "help", "settings", "library_search", "library_options",
-            "help_connect_link", "help_pairing_link", "help_controls_link",
+            "help_connect_link", "help_pairing_link", "help_controls_link", "help_profiles_link",
             "help_problems_link", "help_report_link");
 
     /** A translated tight label may be at most this many times as wide as the English one ... */

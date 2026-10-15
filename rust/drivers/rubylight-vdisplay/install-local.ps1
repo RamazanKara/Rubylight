@@ -16,6 +16,10 @@
 # certificate goes into TrustedPublisher (so Windows does not ask), and a locally signed
 # install before it is cleaned up as above.
 #
+# On a PC whose policy refuses a driver signed here (Smart App Control, S mode, App Control),
+# it installs nothing, removes an earlier install and records why (Problem) for setup and the
+# console. A failed fresh install is rolled back and recorded the same way.
+#
 # -Uninstall removes the device, the packages and the certificates this script added.
 # -InstallerBestEffort reports a failure as a DRIVER_WARNING line and exits 0, as the Sunshine
 # driver's install.ps1 does for setup.
@@ -92,31 +96,48 @@ function Protect-Catalog([string] $catalog) {
     $signer
 }
 
-# Why Windows will not load a driver signed on this PC, or nothing: Smart App Control (on, not
-# evaluating), S mode, or an App Control for Business (WDAC) policy enforcing user-mode code
-# integrity. Each admits only publishers it already knows, never a certificate made here.
+# Why Windows will not load a driver signed on this PC, and what the user can do, or nothing:
+# Smart App Control (on, not evaluating), S mode, or an App Control for Business (WDAC) policy
+# enforcing user-mode code integrity. Each admits only publishers it already knows, never a
+# certificate made here. The text is what setup's note and the console show.
 function Get-Refusal {
     $policy = Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\CI\Policy' -ErrorAction SilentlyContinue
-    if ($policy.VerifiedAndReputablePolicyState -eq 1) { return 'Smart App Control is on' }
-    if ($policy.SkuPolicyRequired -eq 1) { return 'Windows runs in S mode' }
+    if ($policy.VerifiedAndReputablePolicyState -eq 1) {
+        return 'Smart App Control is on, and it refuses a display driver signed on this PC, so streams use a physical display. A signed Rubylight release will install the driver. Turning Smart App Control off (Windows Security, App and browser control) and running the Rubylight installer again installs it now, but Windows cannot turn Smart App Control back on without a reset.'
+    }
+    if ($policy.SkuPolicyRequired -eq 1) {
+        return 'Windows runs in S mode, which refuses a display driver signed on this PC, so streams use a physical display. Switching out of S mode (free, in the Microsoft Store) and running the Rubylight installer again installs it.'
+    }
     $guard = Get-CimInstance -Namespace root\Microsoft\Windows\DeviceGuard -ClassName Win32_DeviceGuard -ErrorAction SilentlyContinue
-    if ($guard.UsermodeCodeIntegrityPolicyEnforcementStatus -eq 2) { return 'an App Control policy enforces signed code' }
+    if ($guard.UsermodeCodeIntegrityPolicyEnforcementStatus -eq 2) {
+        return 'An App Control policy on this PC refuses a display driver signed on this PC, so streams use a physical display. Ask whoever manages this PC to allow Rubylight''s display driver, then run the Rubylight installer again.'
+    }
 }
+# Remove the device, every package and the certificates a recorded install added.
+function Remove-Install($recorded) {
+    # 3010: removed, but a device in use (a display the host still drives) goes at the
+    # next restart.
+    Get-Device | ForEach-Object { Invoke-Restartable @('/remove-device', $_.InstanceId) }
+    foreach ($inf in Get-Packages) { Invoke-Restartable @('/delete-driver', $inf, '/uninstall', '/force') }
+    Remove-Trust $recorded.LocalSigner
+    if ($recorded.PublisherAdded) {
+        Get-Item "Cert:\LocalMachine\TrustedPublisher\$($recorded.PublisherAdded)" -ErrorAction SilentlyContinue | Remove-Item
+    }
+    Remove-Item $state -ErrorAction SilentlyContinue
+}
+# Why there is no driver, for the console (the host reads it when the driver does not open).
+function Set-Problem([string] $text) {
+    New-Item $state -Force | Out-Null
+    Set-ItemProperty $state Problem $text
+}
+$script:unsupported = $null
 $script:unsupported = $null
 
 function Install-Package {
     $recorded = Get-ItemProperty $state -ErrorAction SilentlyContinue
     $previous = $recorded.LocalSigner
     if ($Uninstall) {
-        # 3010: removed, but a device in use (a display the host still drives) goes at the
-        # next restart.
-        Get-Device | ForEach-Object { Invoke-Restartable @('/remove-device', $_.InstanceId) }
-        foreach ($inf in Get-Packages) { Invoke-Restartable @('/delete-driver', $inf, '/uninstall', '/force') }
-        Remove-Trust $previous
-        if ($recorded.PublisherAdded) {
-            Get-Item "Cert:\LocalMachine\TrustedPublisher\$($recorded.PublisherAdded)" -ErrorAction SilentlyContinue | Remove-Item
-        }
-        Remove-Item $state -ErrorAction SilentlyContinue
+        Remove-Install $recorded
         return
     }
 
@@ -125,8 +146,11 @@ function Install-Package {
     if ($status -notin 'NotSigned', 'Valid') { throw "$catalog has a signature Windows rejects ($status)" }
     $refusal = if ($status -eq 'NotSigned') { Get-Refusal }
     if ($refusal) {
-        # Before any certificate exists: nothing to undo, and setup names the cause.
-        $script:unsupported = "This PC refuses a display driver signed on the PC ($refusal). A signed Rubylight release installs it; until then streams use a physical display."
+        # Before any certificate is made. An earlier install (Smart App Control can be on
+        # since) leaves no device that cannot load behind.
+        if ($recorded -or (Get-Device) -or (Get-Packages)) { Remove-Install $recorded }
+        Set-Problem $refusal
+        $script:unsupported = $refusal
         return
     }
     $work = Join-Path ([IO.Path]::GetTempPath()) "rubylight-vdisplay-$([guid]::NewGuid())"
@@ -134,6 +158,9 @@ function Install-Package {
     foreach ($extension in 'inf', 'dll', 'cat') { Copy-Item -LiteralPath (Join-Path $Package "rubylight_vdisplay.$extension") $work }
     $signer = $null
     $publisherAdded = $recorded.PublisherAdded
+    # What a failed install takes back: the packages and the device it added.
+    $before = @(Get-Packages)
+    $hadDevice = [bool](Get-Device)
     try {
         if ($status -eq 'Valid') {
             # Signed by SignPath: trust that publisher for driver installs, nothing more.
@@ -166,9 +193,28 @@ function Install-Package {
             Add-Package $inf
             if (-not $script:restart -and (Get-CurrentPackage) -ne $ours) { throw "the device uses $(Get-CurrentPackage), not $ours" }
         }
+        # A device that cannot start (a policy this script did not recognise refused the
+        # driver) counts as a failed install: nothing half-installed stays.
+        $device = @(Get-Device)[0]
+        $device | Format-List InstanceId, Status, Problem | Out-Host
+        if (-not $script:restart -and $device.Status -ne 'OK') {
+            throw "Windows did not start the display driver ($($device.Status), problem $($device.Problem))"
+        }
     } catch {
+        $failure = $_
+        try {
+            if (-not $hadDevice) { Get-Device | ForEach-Object { pnputil /remove-device $_.InstanceId | Out-Null } }
+            foreach ($added in @(Get-Packages | Where-Object { $_ -notin $before })) {
+                pnputil /delete-driver $added /uninstall /force | Out-Null
+            }
+        } catch { Write-Host "rolling back the display driver install: $_" }
         if ($signer) { Remove-Trust $signer.Thumbprint }
-        throw
+        if (-not $hadDevice) {
+            $reason = $failure.Exception
+            while ($reason.InnerException) { $reason = $reason.InnerException }
+            Set-Problem "Rubylight's display driver could not be installed ($($reason.Message -replace '\s+', ' ')), so streams use a physical display. Run the Rubylight installer again; its log has the details."
+        }
+        throw $failure
     } finally {
         Remove-Item -Recurse -Force $work
     }
@@ -184,11 +230,6 @@ function Install-Package {
     # Older packages were signed by the previous local signer: delete them before its trust goes.
     foreach ($other in @(Get-Packages | Where-Object { $_ -ne $ours })) { pnputil /delete-driver $other | Out-Null }
     if ($previous -and $previous -ne $signer.Thumbprint) { Remove-Trust $previous }
-    $device = @(Get-Device)[0]
-    $device | Format-List InstanceId, Status, Problem | Out-Host
-    if (-not $script:restart -and $device.Status -ne 'OK') {
-        throw "the Rubylight display device reports $($device.Status) (problem $($device.Problem))"
-    }
 }
 
 try {

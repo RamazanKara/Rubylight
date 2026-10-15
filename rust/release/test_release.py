@@ -233,6 +233,53 @@ class Signing(unittest.TestCase):
             self.assertIn(check, installer)
         self.assertLess(installer.index('$refusal = if'), installer.index('Protect-Catalog (Join-Path $work'))
         self.assertIn("Get-Packages | Where-Object { $_ -ne $ours }", installer)
+        # No half-installed device: a refusing PC loses an earlier install,
+        # and a failed fresh install takes back what it added; both record
+        # why for the console.
+        refusal = installer[installer.index('$refusal = if'):installer.index('Protect-Catalog (Join-Path $work')]
+        self.assertLess(refusal.index('Remove-Install $recorded'), refusal.index('Set-Problem $refusal'))
+        rollback = installer[installer.index('    } catch {\n        $failure = $_'):]
+        for step in ("pnputil /remove-device", "Where-Object { $_ -notin $before }", "Remove-Trust $signer.Thumbprint", "Set-Problem"):
+            self.assertIn(step, rollback)
+
+
+@unittest.skipUnless(os.name == 'nt', 'Windows PowerShell')
+class DisplayDriverPolicy(unittest.TestCase):
+    """install-local.ps1's Get-Refusal against the policies that refuse a
+    driver signed on the PC, with the registry and WMI answers mocked."""
+
+    def refusal(self, sac=0, sku=0, umci=0):
+        installer = (ROOT / 'rust/drivers/rubylight-vdisplay/install-local.ps1').read_text(encoding='utf-8')
+        start = installer.index('function Get-Refusal {')
+        function = installer[start:installer.index('\n}\n', start) + 3]
+        script = textwrap.dedent(f"""
+            function Get-ItemProperty {{ [pscustomobject]@{{ VerifiedAndReputablePolicyState = {sac}; SkuPolicyRequired = {sku} }} }}
+            function Get-CimInstance {{ [pscustomobject]@{{ UsermodeCodeIntegrityPolicyEnforcementStatus = {umci}; CodeIntegrityPolicyEnforcementStatus = 2 }} }}
+            """) + function + "\n$r = Get-Refusal\nif ($r) { $r } else { 'NONE' }\n"
+        result = subprocess.run(['powershell.exe', '-NoProfile', '-NonInteractive', '-Command', '-'],
+                                input=script, capture_output=True, text=True, timeout=60)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return result.stdout.strip()
+
+    def test_smart_app_control_on_refuses_and_says_what_to_do(self):
+        text = self.refusal(sac=1)
+        self.assertTrue(text.startswith('Smart App Control is on'), text)
+        self.assertIn('signed Rubylight release', text)
+        self.assertIn('physical display', text)
+
+    def test_smart_app_control_evaluating_does_not_refuse(self):
+        self.assertEqual(self.refusal(sac=2), 'NONE')
+
+    def test_s_mode_refuses(self):
+        self.assertTrue(self.refusal(sku=1).startswith('Windows runs in S mode'))
+
+    def test_an_enforced_app_control_policy_refuses(self):
+        self.assertTrue(self.refusal(umci=2).startswith('An App Control policy'))
+
+    def test_memory_integrity_alone_does_not_refuse(self):
+        # Kernel-mode code integrity (HVCI) is on in the mock; the driver
+        # installs there, as on the development PC.
+        self.assertEqual(self.refusal(), 'NONE')
 
 
 NS = '{http://signpath.io/artifact-configuration/v1}'

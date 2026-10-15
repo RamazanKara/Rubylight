@@ -201,6 +201,14 @@ say) so it outranks the 0.1.0.x development builds, and puts it under
 in the driver store, and deletes the others before it removes their signer's trust. A
 `pnputil` exit code of 3010 is a restart, not a failure.
 
+Smart App Control, S mode and App Control (WDAC) policies refuse a driver signed on the PC.
+`install-local.ps1` checks for them before it makes a certificate: it installs nothing,
+removes an earlier install so no device that cannot start stays, and records why in
+`HKLM\SOFTWARE\Rubylight\VirtualDisplay` (`Problem`), with what the user can do. Setup shows
+that as its note and the console as the reason there is no virtual display; streams use a
+physical display. A fresh install that fails, or whose device does not start, is rolled back
+and recorded the same way. A SignPath-signed release installs on Smart App Control PCs.
+
 A signed release replaces the catalog with the one SignPath signed
 (`rust/release/sign-artifacts.ps1`). `install-local.ps1` then installs it as it is and adds
 only that signer to `TrustedPublisher` (removed again by `-Uninstall` if it added it), and

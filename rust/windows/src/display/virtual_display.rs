@@ -61,7 +61,21 @@ pub fn virtual_display_status() -> serde_json::Value {
 }
 /// What the console says when the driver cannot be opened.
 fn driver_problem(error: &anyhow::Error) -> String {
+    let recorded = crate::steam::registry_string(
+        windows::Win32::System::Registry::HKEY_LOCAL_MACHINE,
+        "SOFTWARE\\Rubylight\\VirtualDisplay",
+        "Problem",
+    );
+    problem_text(error, recorded)
+}
+/// Why the driver is missing as setup recorded it (a Smart App Control, S mode or App Control
+/// policy refusing the driver signed on the PC, or a failed install) comes first: it says what
+/// the user can do. Otherwise the error explains it.
+fn problem_text(error: &anyhow::Error, recorded: Option<String>) -> String {
     use windows::Win32::Foundation::{ERROR_ACCESS_DENIED, ERROR_NO_MORE_ITEMS};
+    if let Some(recorded) = recorded.filter(|text| !text.trim().is_empty()) {
+        return recorded;
+    }
     let code = error
         .downcast_ref::<windows::core::Error>()
         .map(|e| e.code());
@@ -672,6 +686,21 @@ impl Drop for VirtualDisplay {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn the_console_names_why_setup_did_not_install_the_driver() {
+        use windows::Win32::Foundation::ERROR_NO_MORE_ITEMS;
+        let missing =
+            anyhow::Error::new(windows::core::Error::from(ERROR_NO_MORE_ITEMS.to_hresult()));
+        let refused = "Smart App Control is on, and it refuses a display driver signed on this PC, so streams use a physical display.";
+        assert_eq!(super::problem_text(&missing, Some(refused.into())), refused);
+        // Nothing recorded, or an empty value: the error explains it.
+        for recorded in [None, Some(" ".into())] {
+            assert!(
+                super::problem_text(&missing, recorded)
+                    .starts_with("Rubylight's display driver is not installed")
+            );
+        }
+    }
     use super::super::modes::timing_matches;
     use super::*;
     #[test]

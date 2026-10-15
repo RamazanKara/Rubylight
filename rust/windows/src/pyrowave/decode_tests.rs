@@ -1014,6 +1014,128 @@ fn pyrowave_decoded_end_to_end() -> Result<()> {
     Ok(())
 }
 
+/// The SDK keeps the encoder's plane views between frames
+/// (`0004-encoder-cached-plane-views`). A new capture format rebuilds the
+/// planes, and the driver can give the new images the handles of the ones
+/// just destroyed, so every picture must still decode to its own reference.
+#[test]
+#[ignore = "requires AMD D3D12 compute, Vulkan and the pinned PyroWave DLL; see rust/PERFORMANCE.md"]
+fn pyrowave_encoder_follows_rebuilt_planes() -> Result<()> {
+    let _com = ComGuard::new()?;
+    let gpu = Device::new("")?;
+    ensure!(
+        crate::compute::copies_on(&gpu.device),
+        "this test requires an AMD adapter"
+    );
+    println!("PYROWAVE_REBUILD_STREAM {}", stream_status()?);
+    let config = Negotiated {
+        width: 1920,
+        height: 1080,
+        codec: 3,
+        hdr: true,
+        yuv444: true,
+        csc_mode: 3,
+        packet_size: 1392,
+        fps: 60,
+        bitrate_kbps: 1_000_000,
+        ..Default::default()
+    };
+    // HDR pictures alternate RgbaF16 and Rgba10Pq sources, and each change of
+    // source format rebuilds the encoder's planes.
+    let pictures = (0..2)
+        .map(|phase| {
+            let (source, reference) = picture(&config, phase, Scene::Chart);
+            Ok((GpuImage::upload(&gpu, &source)?, reference))
+        })
+        .collect::<Result<Vec<_>>>()?;
+    ensure!(
+        pictures[0].0.pixel != pictures[1].0.pixel,
+        "the pictures must use different source formats"
+    );
+    let mut decoder = Decoder::new(&gpu, &config)?;
+    let mut encoder =
+        Encoder::new_gpu_options(&config, "auto", &pictures[0].0, &Config::default())?;
+    let mut first: Vec<Option<Vec<Vec<u16>>>> = vec![None, None];
+    let (mut planes, mut destroyed) = (Vec::<usize>::new(), Vec::new());
+    let (mut rebuilds, mut reused, mut identical) = (0, 0, 0);
+    let mut previous = None;
+    for (frame, phase) in [0, 0, 1, 1, 0, 1, 0, 1, 1, 0, 0, 1].into_iter().enumerate() {
+        let (source, reference) = &pictures[phase];
+        let Encoder::Pyrowave(native) = &mut encoder else {
+            unreachable!()
+        };
+        native.restart_interval();
+        let frames = encoder.encode_gpu(source, true, config.bitrate_kbps)?;
+        ensure!(frames.len() == 1, "encoder dropped frame {frame}");
+        let Encoder::Pyrowave(native) = &encoder else {
+            unreachable!()
+        };
+        let current: Vec<usize> = native
+            .interop
+            .iter()
+            .map(|i| i.view.image as usize)
+            .collect();
+        // A new source format destroys the planes before it creates new ones.
+        if previous.is_some_and(|previous| previous != phase) {
+            destroyed.append(&mut planes);
+            rebuilds += 1;
+            reused += current.iter().filter(|h| destroyed.contains(*h)).count();
+            // Where a cache keyed on the VkImage handles alone would keep
+            // views of the destroyed images.
+            identical += usize::from(destroyed.ends_with(&current));
+        }
+        planes = current;
+        previous = Some(phase);
+        let mut wire = VideoPacketizer {
+            sequence: 0,
+            iv_counter: 0,
+            frame: frame as u32 + 1,
+            packet_size: config.packet_size,
+            fec_percent: 0,
+            min_fec: 2,
+            key: None,
+        };
+        let packets = wire.encode_pyrowave(
+            &frames[0].bytes,
+            9000,
+            500,
+            PyrowaveFec {
+                records: false,
+                critical_percentage: 20,
+                detail_percentage: 0,
+                wire_budget: 0,
+                ipv6: false,
+            },
+        )?;
+        let decoded = decoder.decode(&gpu, &codec_packets(&receive(&packets)?, false)?)?;
+        let psnr: Vec<f64> = decoded
+            .iter()
+            .zip(reference)
+            .map(|(a, b)| compare(a, b, true, config.width as usize)[0].psnr)
+            .collect();
+        println!(
+            "PYROWAVE_REBUILD {}",
+            serde_json::json!({"frame":frame,"phase":phase,"source":format!("{:?}",source.pixel),"psnr":psnr})
+        );
+        ensure!(
+            psnr.iter().all(|&p| p >= 40.),
+            "frame {frame} (phase {phase}) does not match its picture: {psnr:?} dB"
+        );
+        match &first[phase] {
+            Some(first) => ensure!(
+                &decoded == first,
+                "frame {frame} (phase {phase}) decoded differently from the first encode of its picture"
+            ),
+            None => first[phase] = Some(decoded),
+        }
+    }
+    println!(
+        "PYROWAVE_REBUILD_HANDLES {}",
+        serde_json::json!({"rebuilds":rebuilds,"new_planes":rebuilds * 3,"reused_handles":reused,"rebuilds_with_the_previous_handles":identical})
+    );
+    Ok(())
+}
+
 fn quality_sweep(width: u32, height: u32, critical_fec: usize) -> Result<()> {
     println!("PYROWAVE_QUALITY_START {}", stream_status()?);
     let _com = ComGuard::new()?;

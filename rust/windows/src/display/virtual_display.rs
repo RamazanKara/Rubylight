@@ -6,6 +6,7 @@ use super::modes::{
 use super::rubylight_vdd::{self, VirtualDriver};
 use super::topology::activate_target;
 use super::*;
+use butterpollo_core::virtual_output::{DisplayProvider, Mode};
 
 const NAMESPACE: [u8; 16] = [
     0x84, 0x42, 0x86, 0xa2, 0xfe, 0x77, 0x36, 0x43, 0xa8, 0x28, 0, 0xfe, 0xec, 0x89, 0xeb, 0xac,
@@ -316,6 +317,8 @@ impl Transport {
             }
         }
     }
+}
+impl DisplayProvider for Transport {
     /// Renew the lease; `ERROR_NOT_FOUND` when the driver no longer has the display.
     fn renew(&self, lease: u64, id: u64) -> Result<()> {
         match self {
@@ -335,7 +338,8 @@ impl Transport {
     }
     /// Offer `mode` on the live display before Windows is asked to set it. libvirtualdisplay
     /// offers its own fixed list; Rubylight's driver advertises what it is told.
-    fn offer_mode(&self, id: u64, mode: (u32, u32, u32)) {
+    fn offer_mode(&self, id: u64, mode: Mode) {
+        let mode = (mode.width, mode.height, mode.refresh_mhz);
         if let Self::Rubylight(control) = self
             && let Err(error) = control.update_modes(id, mode)
         {
@@ -374,6 +378,9 @@ impl Transport {
                 control.drain_log();
             }
         }
+    }
+    fn pushes_frames(&self) -> bool {
+        matches!(self, Self::Rubylight(_))
     }
 }
 fn temporary_request(
@@ -915,7 +922,8 @@ impl VirtualDisplay {
         }
         let previous = self.mode;
         self.mode.2 = rate;
-        self.driver.offer_mode(self.id, self.mode);
+        self.driver
+            .offer_mode(self.id, Mode::new(self.mode.0, self.mode.1, self.mode.2));
         if self.apply_mode("stream request") {
             return Some(rate);
         }

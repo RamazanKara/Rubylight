@@ -67,8 +67,9 @@ foreach ($stale in 'overlay.png', 'presets.png') {
 }
 if ($SkipGif) { return }
 
-# demo.gif: library, tap to play, compact overlay and picture-in-picture, cut from the rendered 9:16 video and cropped
-# to the phone column (x 120 to 960), so the app is large enough to read when the GIF is shown 360 px wide on a phone.
+# demo.gif: library, tap to play, compact overlay, the stream menu's Quality and Host sections and picture-in-picture,
+# cut from the rendered 9:16 video and cropped to the phone column (x 120 to 960), so the app is large enough to read
+# when the GIF is shown 360 px wide on a phone.
 function Find-FFmpeg {
     $command = Get-Command ffmpeg.exe -ErrorAction SilentlyContinue
     if ($command) { return $command.Source }
@@ -92,7 +93,8 @@ if ((Test-Path -LiteralPath $video) -and (Test-Path -LiteralPath $segmentsJson))
         if ($line -match '^\| (\d{2}-[a-z-]+) \| (\d+) \|') { $segments[$Matches[1]] = $at; $at += [int]$Matches[2] }
     }
 }
-$cut = @(@('04-library', 0.5, 2.4), @('05-stream', 0.3, 2.6), @('06-compact', 0.4, 2.4), @('12-pip', 0.5, 2.4))
+$cut = @(@('04-library', 0.5, 2.4), @('05-stream', 0.3, 2.6), @('06-compact', 0.4, 2.4), @('15-stream-menu', 3.4, 2.4),
+    @('12-pip', 0.5, 2.4))
 $chains = @(); $joined = ''
 for ($i = 0; $i -lt $cut.Count; $i++) {
     $start = [double]$segments.($cut[$i][0]) + $cut[$i][1]

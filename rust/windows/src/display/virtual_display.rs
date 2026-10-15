@@ -1164,10 +1164,9 @@ mod tests {
     #[test]
     fn the_rubylight_driver_leaves_libvirtualdisplays_permanent_displays_alone() {
         use butterpollo_core::config::Config;
-        let config = Config::parse(
-            "virtual_display_driver=rubylight\ndd_virtual_display_permanent_count=2",
-        )
-        .unwrap();
+        let config =
+            Config::parse("virtual_display_driver=rubylight\ndd_virtual_display_permanent_count=2")
+                .unwrap();
         assert_eq!(configured_permanent_count(&config).unwrap(), None);
     }
     #[test]

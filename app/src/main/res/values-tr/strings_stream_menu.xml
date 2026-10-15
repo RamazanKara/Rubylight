@@ -17,8 +17,6 @@
     <string name="stream_cursor_show">Fare imlecini göster</string>
     <string name="stream_cursor_hide">Fare imlecini gizle</string>
     <string name="stream_keyboard_keys_hide">Ek klavye tuşlarını gizle</string>
-    <string name="stream_stretch_on">Videoyu ekranı dolduracak şekilde uzat</string>
-    <string name="stream_stretch_off">Videoyu ekrana sığdır</string>
     <string name="stream_overlay_page">Katman ve tanılama</string>
     <string name="stream_picture_in_picture">Pencere içinde pencere</string>
     <string name="stream_quit_game">Oyundan çık</string>

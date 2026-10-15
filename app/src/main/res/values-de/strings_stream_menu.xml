@@ -18,8 +18,6 @@
     <string name="stream_cursor_show">Mauszeiger einblenden</string>
     <string name="stream_cursor_hide">Mauszeiger ausblenden</string>
     <string name="stream_keyboard_keys_hide">Zusatztasten ausblenden</string>
-    <string name="stream_stretch_on">Video auf den ganzen Bildschirm strecken</string>
-    <string name="stream_stretch_off">Video in den Bildschirm einpassen</string>
     <string name="stream_overlay_page">Overlay und Diagnose</string>
     <string name="stream_picture_in_picture">Bild-im-Bild</string>
     <string name="stream_quit_game">Spiel beenden</string>

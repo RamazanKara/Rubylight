@@ -12,7 +12,6 @@
     <string name="stream_restore_help">Stream interrupted.\nOpen your PC’s app list to resume.</string>
     <string name="stream_presets">Presets</string>
     <string name="stream_presets_help">Native streams at this screen\'s resolution and refresh rate with every latency setting on.\nBattery saver keeps that resolution at 30 fps.\nPC profiles still take priority.</string>
-    <string name="summary_stretch_video">Fill the screen; the image may look wider or taller.</string>
     <string name="summary_frame_pacing">Balance response time and smoothness when VRR is off.</string>
     <string name="summary_language">Choose the language used by the app.</string>
     <string name="overlay_mode">Performance overlay mode</string>

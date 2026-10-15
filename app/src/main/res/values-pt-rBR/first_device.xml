@@ -12,7 +12,6 @@
     <string name="stream_restore_help">Transmissão interrompida.\nAbra a lista de apps do seu PC para retomar.</string>
     <string name="stream_presets">Predefinições</string>
     <string name="stream_presets_help">Nativo transmite na resolução e taxa de atualização desta tela com todas as configurações de latência ativadas.\nEconomia de bateria mantém essa resolução a 30 fps.\nOs perfis de PC continuam tendo prioridade.</string>
-    <string name="summary_stretch_video">Preencher a tela; a imagem pode parecer mais larga ou mais alta.</string>
     <string name="summary_frame_pacing">Equilibra o tempo de resposta e a fluidez quando o VRR está desativado.</string>
     <string name="summary_language">Escolha o idioma usado pelo app.</string>
     <string name="overlay_mode">Modo da sobreposição de desempenho</string>

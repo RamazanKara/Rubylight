@@ -12,7 +12,6 @@
     <string name="stream_restore_help">Stream interrotto.\nApri l’elenco delle app del PC per riprendere.</string>
     <string name="stream_presets">Preset</string>
     <string name="stream_presets_help">Nativo trasmette alla risoluzione e alla frequenza di aggiornamento di questo schermo con tutte le impostazioni di latenza attive.\nRisparmio batteria mantiene quella risoluzione a 30 fps.\nI profili dei PC hanno comunque la priorità.</string>
-    <string name="summary_stretch_video">Riempi lo schermo; l’immagine potrebbe apparire più larga o più alta.</string>
     <string name="summary_frame_pacing">Bilancia tempo di risposta e fluidità quando il VRR è disattivato.</string>
     <string name="summary_language">Scegli la lingua usata dall’app.</string>
     <string name="overlay_mode">Modalità overlay prestazioni</string>

@@ -124,7 +124,6 @@
     <string name="seekbar_increase">Erhöhen</string>
     <string name="seekbar_presets">Vorgaben</string>
     <string name="seekbar_presets_unit">Vorgaben (%1$s)</string>
-    <string name="title_checkbox_stretch_video">Bildschirm ausfüllen</string>
     <string name="fps_suffix_fps">FPS</string>
     <string name="title_audio_config_list">Surround-Sound</string>
     <string name="summary_audio_config_list">Nutze 5.1- oder 7.1-Sound im Heimkino.</string>

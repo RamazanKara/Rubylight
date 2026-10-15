@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="video_scaling_title">Ridimensionamento video</string>
+    <string-array name="video_scaling_modes">
+        <item>Adatta</item>
+        <item>Riempi (ritaglia)</item>
+        <item>Allunga</item>
+        <item>Pixel 1:1</item>
+    </string-array>
+    <string name="video_scaling_help">Adatta: l’immagine intera, con bande se lo schermo ha un’altra forma.\nRiempi (ritaglia): riempie lo schermo senza deformare l’immagine; i bordi in eccesso vengono tagliati.\nAllunga: riempie lo schermo; le forme possono apparire più larghe o più alte.\nPixel 1:1: un pixel dello stream per ogni pixel dello schermo. Uno stream più piccolo ha un bordo; uno più grande viene ritagliato.\nPosizione video sposta in alto un’immagine Adatta o 1:1. Lo zoom con pizzico funziona in ogni modalità e il picture in picture mostra sempre l’immagine intera.</string>
+    <string name="title_video_alignment">Posizione video</string>
+    <string name="summary_video_alignment">Dove si trova un’immagine Adatta o 1:1 quando avanza spazio. In alto lascia libero lo spazio sotto per la tastiera o la metà inferiore di un telefono piegato. Riempi e Allunga coprono tutto lo schermo, quindi lì non cambia nulla.</string>
+    <string-array name="video_alignment_names">
+        <item>Centro</item>
+        <item>In alto</item>
+    </string-array>
+</resources>

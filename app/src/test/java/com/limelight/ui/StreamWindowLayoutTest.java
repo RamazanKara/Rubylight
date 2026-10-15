@@ -44,7 +44,7 @@ public class StreamWindowLayoutTest {
         PreferenceConfiguration preferences = ReflectionHelpers.getField(game, "prefConfig");
         preferences.width = width;
         preferences.height = height;
-        preferences.stretchVideo = stretch;
+        preferences.setVideoScaling(stretch ? VideoScaling.STRETCH : VideoScaling.FIT);
         return game;
     }
 
@@ -55,7 +55,8 @@ public class StreamWindowLayoutTest {
         content.removeAllViews();
         View background = new View(game);
         StreamView video = new StreamView(game);
-        if (!stretch) video.setDesiredAspectRatio((double) preferences.width / preferences.height);
+        video.setVideoScaling(stretch ? VideoScaling.STRETCH : VideoScaling.FIT, VideoScaling.CENTER,
+                preferences.width, preferences.height);
         content.addView(background, new FrameLayout.LayoutParams(-1, -1, android.view.Gravity.CENTER));
         content.addView(video, new FrameLayout.LayoutParams(-1, -1, android.view.Gravity.CENTER));
         ReflectionHelpers.setField(game, "streamView", video);
@@ -233,11 +234,38 @@ public class StreamWindowLayoutTest {
         applyInsets(root, Insets.of(80, 0, 0, 0));
         assertPadding(root, 80, 0, 0, 0);
         StreamView video = new StreamView(game);
-        video.setDesiredAspectRatio(16.0 / 9.0);
+        video.setVideoScaling(VideoScaling.FIT, VideoScaling.CENTER, 1920, 1080);
         video.measure(View.MeasureSpec.makeMeasureSpec(2320, View.MeasureSpec.EXACTLY),
                 View.MeasureSpec.makeMeasureSpec(1080, View.MeasureSpec.EXACTLY));
         assertEquals(1920, video.getMeasuredWidth());
         assertEquals(1080, video.getMeasuredHeight());
+    }
+
+    @Test
+    public void everyScalingModeLaysTheViewOutWhereTheMathPutsIt() {
+        Game game = game(false);
+        VideoScaling expected = new VideoScaling();
+        int[][] cases = {{1920, 1080, 2400, 1080}, {1920, 1080, 1080, 2400}, {1280, 720, 2400, 1080},
+                {2560, 1600, 2208, 1768}, {800, 600, 2400, 1080}};
+        for (int[] c : cases) {
+            for (int mode = VideoScaling.FIT; mode <= VideoScaling.NATIVE; mode++) {
+                for (int alignment : new int[] {VideoScaling.CENTER, VideoScaling.TOP}) {
+                    FrameLayout parent = new FrameLayout(game);
+                    StreamView video = new StreamView(game);
+                    parent.addView(video, new FrameLayout.LayoutParams(-1, -1, android.view.Gravity.CENTER));
+                    video.setVideoScaling(mode, alignment, c[0], c[1]);
+                    parent.measure(View.MeasureSpec.makeMeasureSpec(c[2], View.MeasureSpec.EXACTLY),
+                            View.MeasureSpec.makeMeasureSpec(c[3], View.MeasureSpec.EXACTLY));
+                    parent.layout(0, 0, c[2], c[3]);
+                    expected.layout(mode, alignment, c[0], c[1], c[2], c[3]);
+                    String label = java.util.Arrays.toString(c) + " mode=" + mode + " alignment=" + alignment;
+                    assertEquals(label, expected.left(), video.getLeft());
+                    assertEquals(label, expected.top(), video.getTop());
+                    assertEquals(label, expected.width(), video.getWidth());
+                    assertEquals(label, expected.height(), video.getHeight());
+                }
+            }
+        }
     }
 
     @Test
@@ -306,7 +334,7 @@ public class StreamWindowLayoutTest {
         preferences.width = width;
         preferences.height = height;
         preferences.fromPcProfile = pcProfile;
-        preferences.stretchVideo = stretch;
+        preferences.setVideoScaling(stretch ? VideoScaling.STRETCH : VideoScaling.FIT);
         // This flag is also true for the safe Native entry and any custom nonstandard size.
         ReflectionHelpers.setField(game, "nativeResolutionStream", true);
         Display display = game.getWindowManager().getDefaultDisplay();

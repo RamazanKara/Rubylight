@@ -149,7 +149,6 @@
     <string name="seekbar_increase">Increase</string>
     <string name="seekbar_presets">Presets</string>
     <string name="seekbar_presets_unit">Presets (%1$s)</string>
-    <string name="title_checkbox_stretch_video">Stretch to fill screen</string>
     <string name="fps_suffix_fps">FPS</string>
 
     <string name="title_audio_config_list">Surround sound</string>

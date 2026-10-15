@@ -60,6 +60,7 @@ import com.limelight.binding.video.PyroWaveDecoderRenderer;
 import com.limelight.utils.Dialog;
 import com.limelight.utils.UiHelper;
 import com.limelight.ui.TopAppBar;
+import com.limelight.ui.VideoScaling;
 import com.google.android.material.appbar.MaterialToolbar;
 
 import java.io.File;
@@ -749,6 +750,8 @@ public class StreamSettings extends AppCompatActivity {
                 } else if ("checkbox_touchscreen_trackpad".equals(pref.getKey())) {
                     int mode = storedTouchMode(prefs);
                     value = getResources().getStringArray(R.array.stream_touch_modes)[mode];
+                } else if (VideoScaling.STRETCH_PREF.equals(pref.getKey())) {
+                    value = getResources().getStringArray(R.array.video_scaling_modes)[storedVideoScaling(prefs)];
                 } else if (LOW_LATENCY_DECODING_KEY.equals(pref.getKey())) {
                     // On only when every part is on; a part turned off in Developer options says so here.
                     int on = PreferenceConfiguration.lowLatencyDecodingCount(prefs);
@@ -1091,6 +1094,11 @@ public class StreamSettings extends AppCompatActivity {
                     prefs.getBoolean(TouchMode.TRACKPAD_PREF, true), prefs.getBoolean(TouchMode.NATIVE_TOUCH_PREF, false));
         }
 
+        private static int storedVideoScaling(SharedPreferences prefs) {
+            return VideoScaling.resolve(prefs.getString(VideoScaling.PREF, null),
+                    prefs.getBoolean(VideoScaling.STRETCH_PREF, false));
+        }
+
         private void confirmReset() {
             AlertDialog confirm = new MaterialAlertDialogBuilder(getActivity()).setTitle(R.string.dialog_reset_settings_title)
                     .setMessage(R.string.dialog_reset_settings_text)
@@ -1231,6 +1239,21 @@ public class StreamSettings extends AppCompatActivity {
                 // Like the other pickers, Help explains the choices without closing the list.
                 picker.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(view ->
                         showInfo(R.string.stream_touch_mode, R.string.settings_touch_mode_help));
+                return true;
+            });
+            findPreference(VideoScaling.STRETCH_PREF).setOnPreferenceClickListener(preference -> {
+                SharedPreferences prefs = getPreferenceManager().getSharedPreferences();
+                AlertDialog picker = new MaterialAlertDialogBuilder(getActivity()).setTitle(R.string.video_scaling_title)
+                        .setSingleChoiceItems(R.array.video_scaling_modes, storedVideoScaling(prefs), (dialog, which) -> {
+                            SharedPreferences.Editor editor = prefs.edit();
+                            VideoScaling.save(editor, which);
+                            editor.apply();
+                            dialog.dismiss();
+                        }).setNeutralButton(R.string.help, null)
+                        .setNegativeButton(android.R.string.cancel, null).create();
+                UiHelper.showDialog(getActivity(), picker);
+                picker.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(view ->
+                        showInfo(R.string.video_scaling_title, R.string.video_scaling_help));
                 return true;
             });
             findPreference("controller_button_mapping").setOnPreferenceClickListener(preference -> {

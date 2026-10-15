@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="video_scaling_title">영상 크기 조정</string>
+    <string-array name="video_scaling_modes">
+        <item>화면에 맞추기</item>
+        <item>채우기(자르기)</item>
+        <item>늘이기</item>
+        <item>1:1 픽셀</item>
+    </string-array>
+    <string name="video_scaling_help">화면에 맞추기: 영상 전체를 표시하며, 화면 비율이 다르면 검은 띠가 생깁니다.\n채우기(자르기): 영상을 왜곡하지 않고 화면을 채우며, 넘치는 가장자리는 잘립니다.\n늘이기: 화면을 가득 채웁니다. 이미지가 더 넓거나 길어 보일 수 있습니다.\n1:1 픽셀: 스트림 픽셀 하나를 화면 픽셀 하나로 표시합니다. 더 작은 스트림은 테두리가 생기고, 더 큰 스트림은 잘립니다.\n영상 위치로 화면에 맞추기 또는 1:1 영상을 위쪽에 둘 수 있습니다. 핀치 확대/축소는 모든 모드에서 작동하며, PIP 모드에서는 항상 영상 전체를 표시합니다.</string>
+    <string name="title_video_alignment">영상 위치</string>
+    <string name="summary_video_alignment">화면에 맞추기 또는 1:1 영상에 여백이 있을 때의 위치입니다. 위쪽을 선택하면 아래 공간이 비어 키보드나 접힌 휴대전화의 아래쪽 절반에 쓸 수 있습니다. 채우기와 늘이기는 화면 전체를 덮으므로 영향을 받지 않습니다.</string>
+    <string-array name="video_alignment_names">
+        <item>가운데</item>
+        <item>위쪽</item>
+    </string-array>
+</resources>

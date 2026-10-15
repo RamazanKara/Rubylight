@@ -19,6 +19,7 @@ import com.limelight.nvstream.jni.MoonBridge;
 import com.limelight.binding.video.DisplayFrameRatePolicy;
 import com.limelight.binding.video.PerformanceOverlay;
 import com.limelight.binding.video.UpscalingPolicy;
+import com.limelight.ui.VideoScaling;
 
 public class PreferenceConfiguration {
     public enum FormatOption {
@@ -52,7 +53,7 @@ public class PreferenceConfiguration {
     static final int PROFILE_NATIVE_VERSION = 4;
     static final String RESOLUTION_FOLLOWS_SCREEN_PREF_STRING = "resolution_follows_screen";
     static final String BITRATE_PREF_OLD_STRING = "seekbar_bitrate";
-    private static final String STRETCH_PREF_STRING = "checkbox_stretch_video";
+    private static final String STRETCH_PREF_STRING = VideoScaling.STRETCH_PREF;
     private static final String SOPS_PREF_STRING = "checkbox_enable_sops";
     private static final String DISABLE_TOASTS_PREF_STRING = "checkbox_disable_warnings";
     private static final String HOST_AUDIO_PREF_STRING = "checkbox_host_audio";
@@ -190,7 +191,9 @@ public class PreferenceConfiguration {
     public FormatOption videoFormat;
     public int deadzonePercentage;
     public int oscOpacity;
+    // stretchVideo mirrors videoScaling == STRETCH for the renderers; change both with setVideoScaling.
     public boolean stretchVideo, enableSops, playHostAudio, disableWarnings;
+    public int videoScaling = VideoScaling.FIT, videoAlignment = VideoScaling.CENTER;
     // Send this device's microphone to the host when the host offers to take it.
     public boolean enableMic;
     public String language;
@@ -567,6 +570,11 @@ public class PreferenceConfiguration {
         // Put our language option back to default which tells us that we've already migrated it
         SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
         prefs.edit().putString(LANGUAGE_PREF_STRING, DEFAULT_LANGUAGE).apply();
+    }
+
+    public void setVideoScaling(int mode) {
+        videoScaling = mode;
+        stretchVideo = mode == VideoScaling.STRETCH;
     }
 
     public static boolean isShieldAtvFirmwareWithBrokenHdr() {
@@ -974,7 +982,9 @@ public class PreferenceConfiguration {
         // Checkbox preferences
         config.disableWarnings = prefs.getBoolean(DISABLE_TOASTS_PREF_STRING, DEFAULT_DISABLE_TOASTS);
         config.enableSops = prefs.getBoolean(SOPS_PREF_STRING, DEFAULT_SOPS);
-        config.stretchVideo = prefs.getBoolean(STRETCH_PREF_STRING, DEFAULT_STRETCH);
+        config.setVideoScaling(VideoScaling.resolve(prefs.getString(VideoScaling.PREF, null),
+                prefs.getBoolean(STRETCH_PREF_STRING, DEFAULT_STRETCH)));
+        config.videoAlignment = VideoScaling.alignment(prefs.getString(VideoScaling.ALIGNMENT_PREF, null));
         config.playHostAudio = prefs.getBoolean(HOST_AUDIO_PREF_STRING, DEFAULT_HOST_AUDIO);
         config.enableMic = prefs.getBoolean(ENABLE_MIC_PREF_STRING, DEFAULT_ENABLE_MIC);
         config.smallIconMode = prefs.getBoolean(SMALL_ICONS_PREF_STRING, getDefaultSmallMode(context));

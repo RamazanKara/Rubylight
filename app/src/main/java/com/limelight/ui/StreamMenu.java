@@ -27,7 +27,7 @@ public final class StreamMenu {
     public enum Item {
         KEYBOARD, OVERLAY, MICROPHONE,
         TOUCH_MODE, MOUSE_CURSOR, ONSCREEN_CONTROLS, CONTROLS_LAYOUT, GAME_CONTROLS, KEYBOARD_KEYS,
-        STRETCH, ZOOM, ZOOM_RESET, OVERLAY_PAGE, PICTURE_IN_PICTURE, VIDEO_OUTPUT,
+        VIDEO_SCALING, ZOOM, ZOOM_RESET, OVERLAY_PAGE, PICTURE_IN_PICTURE, VIDEO_OUTPUT,
         BITRATE, AUTOMATIC_QUALITY, AUTOMATIC_BITRATE,
         SERVER_COMMANDS, CLIPBOARD_SEND, CLIPBOARD_RECEIVE, HOST_WEB_UI, HOST_STATUS,
         RECONNECT, DISCONNECT, QUIT_GAME, END_SESSION,
@@ -61,7 +61,7 @@ public final class StreamMenu {
         public boolean mouseConnected, cursorVisible;
         public boolean onscreenControls, gameControls, keyboardKeysShown;
         /** Stretching can change live: local MediaCodec video without an upscaler. */
-        public boolean stretchAvailable, stretched;
+        public boolean scalingAvailable;
         public boolean zoomEnabled;
         public boolean pictureInPicture;
         public boolean externalDisplays;
@@ -154,9 +154,8 @@ public final class StreamMenu {
         }
 
         if (o.mediaStream()) {
-            if (o.stretchAvailable && o.localOutput) {
-                entries.add(action(Section.DISPLAY, Item.STRETCH, o.stretched ?
-                        R.string.stream_stretch_off : R.string.stream_stretch_on, R.drawable.ic_stretch));
+            if (o.scalingAvailable && o.localOutput) {
+                entries.add(action(Section.DISPLAY, Item.VIDEO_SCALING, R.string.video_scaling_title, R.drawable.ic_stretch));
             }
             if (o.localOutput) {
                 entries.add(action(Section.DISPLAY, Item.ZOOM, o.zoomEnabled ?

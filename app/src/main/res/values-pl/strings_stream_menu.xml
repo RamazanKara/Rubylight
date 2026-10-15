@@ -17,8 +17,6 @@
     <string name="stream_cursor_show">Pokaż kursor myszy</string>
     <string name="stream_cursor_hide">Ukryj kursor myszy</string>
     <string name="stream_keyboard_keys_hide">Ukryj dodatkowe klawisze</string>
-    <string name="stream_stretch_on">Rozciągnij wideo na cały ekran</string>
-    <string name="stream_stretch_off">Dopasuj wideo do ekranu</string>
     <string name="stream_overlay_page">Nakładka i diagnostyka</string>
     <string name="stream_picture_in_picture">Obraz w obrazie</string>
     <string name="stream_quit_game">Zamknij grę</string>

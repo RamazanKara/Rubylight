@@ -17,8 +17,6 @@
     <string name="stream_cursor_show">Mostrar cursor del ratón</string>
     <string name="stream_cursor_hide">Ocultar cursor del ratón</string>
     <string name="stream_keyboard_keys_hide">Ocultar teclas adicionales</string>
-    <string name="stream_stretch_on">Estirar el vídeo para llenar la pantalla</string>
-    <string name="stream_stretch_off">Ajustar el vídeo a la pantalla</string>
     <string name="stream_overlay_page">Superposición y diagnóstico</string>
     <string name="stream_picture_in_picture">Imagen en imagen</string>
     <string name="stream_quit_game">Cerrar juego</string>

@@ -124,7 +124,6 @@
     <string name="seekbar_increase">增大</string>
     <string name="seekbar_presets">预设</string>
     <string name="seekbar_presets_unit">预设（%1$s）</string>
-    <string name="title_checkbox_stretch_video">拉伸以填满屏幕</string>
     <string name="fps_suffix_fps">FPS</string>
     <string name="title_audio_config_list">环绕声</string>
     <string name="summary_audio_config_list">配合家庭影院使用 5.1 或 7.1 声道。</string>

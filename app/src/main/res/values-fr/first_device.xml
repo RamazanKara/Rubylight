@@ -12,7 +12,6 @@
     <string name="stream_restore_help">Stream interrompu.\nOuvrez la liste des applications de votre PC pour reprendre.</string>
     <string name="stream_presets">Préréglages</string>
     <string name="stream_presets_help">Native diffuse à la résolution et à la fréquence de rafraîchissement de cet écran, avec tous les réglages de latence activés.\nÉconomiseur de batterie garde cette résolution à 30 FPS.\nLes profils de PC restent prioritaires.</string>
-    <string name="summary_stretch_video">Remplir l’écran ; l’image peut paraître plus large ou plus haute.</string>
     <string name="summary_frame_pacing">Équilibre entre réactivité et fluidité quand le VRR est désactivé.</string>
     <string name="summary_language">Choisissez la langue utilisée par l’application.</string>
     <string name="overlay_mode">Mode de la superposition des performances</string>

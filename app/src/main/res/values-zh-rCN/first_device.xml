@@ -12,7 +12,6 @@
     <string name="stream_restore_help">串流已中断。\n打开电脑的应用列表即可继续。</string>
     <string name="stream_presets">预设</string>
     <string name="stream_presets_help">“原生”以此屏幕的分辨率和刷新率串流，并开启所有延迟设置。\n“省电”保持该分辨率，帧率为 30 fps。\n电脑配置仍然优先。</string>
-    <string name="summary_stretch_video">填满屏幕；画面可能会显得更宽或更高。</string>
     <string name="summary_frame_pacing">在 VRR 关闭时平衡响应速度和流畅度。</string>
     <string name="summary_language">选择应用使用的语言。</string>
     <string name="overlay_mode">性能叠加层模式</string>

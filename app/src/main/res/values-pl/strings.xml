@@ -124,7 +124,6 @@
     <string name="seekbar_increase">Zwiększ</string>
     <string name="seekbar_presets">Wartości wstępne</string>
     <string name="seekbar_presets_unit">Wartości wstępne (%1$s)</string>
-    <string name="title_checkbox_stretch_video">Rozciągnij na cały ekran</string>
     <string name="fps_suffix_fps">FPS</string>
     <string name="title_audio_config_list">Dźwięk przestrzenny</string>
     <string name="summary_audio_config_list">Używaj dźwięku 5.1 lub 7.1 z zestawem kina domowego.</string>

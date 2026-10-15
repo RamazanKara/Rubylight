@@ -12,7 +12,6 @@
     <string name="stream_restore_help">Stream bị gián đoạn.\nMở danh sách ứng dụng của PC để tiếp tục.</string>
     <string name="stream_presets">Cấu hình sẵn</string>
     <string name="stream_presets_help">Gốc stream ở độ phân giải và tần số quét của màn hình này, bật mọi cài đặt độ trễ.\nTiết kiệm pin giữ độ phân giải đó ở 30 fps.\nCấu hình riêng của PC vẫn được ưu tiên.</string>
-    <string name="summary_stretch_video">Lấp đầy màn hình; hình ảnh có thể trông rộng hơn hoặc cao hơn.</string>
     <string name="summary_frame_pacing">Cân bằng thời gian phản hồi và độ mượt khi VRR tắt.</string>
     <string name="summary_language">Chọn ngôn ngữ dùng trong ứng dụng.</string>
     <string name="overlay_mode">Chế độ lớp phủ hiệu năng</string>

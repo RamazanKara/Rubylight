@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="video_scaling_title">Skalowanie wideo</string>
+    <string-array name="video_scaling_modes">
+        <item>Dopasuj</item>
+        <item>Wypełnij (przytnij)</item>
+        <item>Rozciągnij</item>
+        <item>Piksele 1:1</item>
+    </string-array>
+    <string name="video_scaling_help">Dopasuj: cały obraz, z pasami, gdy ekran ma inny kształt.\nWypełnij (przytnij): wypełnia ekran bez zniekształceń; krawędzie, które się nie mieszczą, są obcinane.\nRozciągnij: wypełnia ekran; kształty mogą wyglądać na szersze lub wyższe.\nPiksele 1:1: jeden piksel strumienia na jeden piksel ekranu. Mniejszy strumień ma ramkę, większy jest przycinany.\nPozycja wideo przesuwa obraz w trybie Dopasuj lub 1:1 do góry. Powiększanie gestem działa w każdym trybie, a Obraz w obrazie zawsze pokazuje cały obraz.</string>
+    <string name="title_video_alignment">Pozycja wideo</string>
+    <string name="summary_video_alignment">Gdzie znajduje się obraz w trybie Dopasuj lub 1:1, gdy zostaje wolne miejsce. Góra zostawia wolne miejsce poniżej na klawiaturę lub dolną połowę złożonego telefonu. Wypełnij i Rozciągnij zajmują cały ekran, więc tam nic się nie zmienia.</string>
+    <string-array name="video_alignment_names">
+        <item>Środek</item>
+        <item>Góra</item>
+    </string-array>
+</resources>

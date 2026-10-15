@@ -106,7 +106,7 @@ public class StreamMenuTest {
         options.mouseConnected = true;
         options.onscreenControls = true;
         options.gameControls = true;
-        options.stretchAvailable = true;
+        options.scalingAvailable = true;
         options.zoomEnabled = true;
         options.pictureInPicture = true;
         options.externalDisplays = true;
@@ -116,7 +116,7 @@ public class StreamMenuTest {
             if (entry.section != StreamMenu.Section.OVERLAY_STYLE) entries.add(entry);
         }
         assertTrue(items(entries).containsAll(Arrays.asList(TOUCH_MODE, MOUSE_CURSOR, ONSCREEN_CONTROLS, CONTROLS_LAYOUT,
-                GAME_CONTROLS, KEYBOARD_KEYS, STRETCH, ZOOM, ZOOM_RESET, PICTURE_IN_PICTURE, VIDEO_OUTPUT,
+                GAME_CONTROLS, KEYBOARD_KEYS, VIDEO_SCALING, ZOOM, ZOOM_RESET, PICTURE_IN_PICTURE, VIDEO_OUTPUT,
                 OVERLAY_COPY, STREAM_HEALTH, LATENCY_TEST)));
         Map<Integer, StreamMenu.Item> seen = new LinkedHashMap<>();
         for (StreamMenu.Entry entry : entries) {
@@ -185,14 +185,14 @@ public class StreamMenuTest {
         options.onscreenControls = true;
         options.gameControls = true;
         options.keyboardKeysShown = true;
-        options.stretchAvailable = true;
+        options.scalingAvailable = true;
         options.zoomEnabled = true;
         options.pictureInPicture = true;
         options.externalDisplays = true;
         Map<StreamMenu.Section, List<StreamMenu.Item>> menu = sections(StreamMenu.mainPage(options));
         assertEquals(Arrays.asList(TOUCH_MODE, MOUSE_CURSOR, ONSCREEN_CONTROLS, CONTROLS_LAYOUT, GAME_CONTROLS, KEYBOARD_KEYS),
                 menu.get(StreamMenu.Section.INPUT));
-        assertEquals(Arrays.asList(STRETCH, ZOOM, ZOOM_RESET, OVERLAY_PAGE, PICTURE_IN_PICTURE, VIDEO_OUTPUT),
+        assertEquals(Arrays.asList(VIDEO_SCALING, ZOOM, ZOOM_RESET, OVERLAY_PAGE, PICTURE_IN_PICTURE, VIDEO_OUTPUT),
                 menu.get(StreamMenu.Section.DISPLAY));
         // Video on an external display: this device is a touchpad, so its own display items go.
         options.localOutput = false;
@@ -208,7 +208,7 @@ public class StreamMenuTest {
             StreamMenu.Options options = options("rubylight-serverinfo.xml", role);
             options.automaticQuality = true;
             options.microphoneOffered = options.mouseConnected = options.onscreenControls = options.gameControls = true;
-            options.stretchAvailable = options.zoomEnabled = options.pictureInPicture = options.externalDisplays = true;
+            options.scalingAvailable = options.zoomEnabled = options.pictureInPicture = options.externalDisplays = true;
             reachable.addAll(items(StreamMenu.mainPage(options)));
             reachable.addAll(items(StreamMenu.overlayPage(options)));
         }

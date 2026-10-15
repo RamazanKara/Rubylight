@@ -12,7 +12,6 @@
     <string name="stream_restore_help">串流已中斷。\n請開啟電腦的應用程式清單以繼續。</string>
     <string name="stream_presets">預設組合</string>
     <string name="stream_presets_help">「原生」會以這個螢幕的解析度和更新率串流，並開啟所有延遲設定。\n「省電模式」會以該解析度維持 30 fps。\n電腦設定檔仍然優先。</string>
-    <string name="summary_stretch_video">填滿螢幕；影像可能看起來較寬或較高。</string>
     <string name="summary_frame_pacing">在 VRR 關閉時平衡回應時間和流暢度。</string>
     <string name="summary_language">選擇應用程式使用的語言。</string>
     <string name="overlay_mode">效能覆蓋層模式</string>

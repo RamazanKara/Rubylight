@@ -12,7 +12,6 @@
     <string name="stream_restore_help">Трансляция прервана.\nОткройте список приложений ПК, чтобы продолжить.</string>
     <string name="stream_presets">Пресеты</string>
     <string name="stream_presets_help">«Нативный» транслирует в разрешении и с частотой обновления этого экрана со всеми настройками задержки.\n«Экономия заряда» сохраняет это разрешение при 30 FPS.\nПрофили ПК по-прежнему имеют приоритет.</string>
-    <string name="summary_stretch_video">Заполнить экран; изображение может выглядеть шире или выше.</string>
     <string name="summary_frame_pacing">Баланс между отзывчивостью и плавностью, когда VRR выключен.</string>
     <string name="summary_language">Выберите язык приложения.</string>
     <string name="overlay_mode">Режим оверлея производительности</string>

@@ -20,8 +20,6 @@
     <string name="stream_cursor_show">Show mouse cursor</string>
     <string name="stream_cursor_hide">Hide mouse cursor</string>
     <string name="stream_keyboard_keys_hide">Hide extra keyboard keys</string>
-    <string name="stream_stretch_on">Stretch video to fill the screen</string>
-    <string name="stream_stretch_off">Fit video to the screen</string>
     <string name="stream_overlay_page">Overlay and diagnostics</string>
     <string name="stream_picture_in_picture">Picture-in-picture</string>
     <string name="stream_quit_game">Quit game</string>

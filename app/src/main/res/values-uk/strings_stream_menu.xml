@@ -17,8 +17,6 @@
     <string name="stream_cursor_show">Показати курсор миші</string>
     <string name="stream_cursor_hide">Сховати курсор миші</string>
     <string name="stream_keyboard_keys_hide">Сховати додаткові клавіші</string>
-    <string name="stream_stretch_on">Розтягнути відео на весь екран</string>
-    <string name="stream_stretch_off">Вписати відео в екран</string>
     <string name="stream_overlay_page">Оверлей і діагностика</string>
     <string name="stream_picture_in_picture">Картинка в картинці</string>
     <string name="stream_quit_game">Закрити гру</string>

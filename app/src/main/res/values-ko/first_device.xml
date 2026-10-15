@@ -12,7 +12,6 @@
     <string name="stream_restore_help">스트림이 중단되었습니다.\n다시 이어가려면 PC의 앱 목록을 여세요.</string>
     <string name="stream_presets">사전 설정</string>
     <string name="stream_presets_help">기본 해상도는 모든 지연 시간 설정을 켠 상태로 이 화면의 해상도와 주사율로 스트리밍합니다.\n배터리 절약은 같은 해상도를 30fps로 유지합니다.\nPC 프로필이 여전히 우선 적용됩니다.</string>
-    <string name="summary_stretch_video">화면을 가득 채웁니다. 이미지가 더 넓거나 길어 보일 수 있습니다.</string>
     <string name="summary_frame_pacing">VRR이 꺼져 있을 때 응답 속도와 부드러움의 균형을 조정합니다.</string>
     <string name="summary_language">앱에서 사용할 언어를 선택합니다.</string>
     <string name="overlay_mode">성능 오버레이 모드</string>

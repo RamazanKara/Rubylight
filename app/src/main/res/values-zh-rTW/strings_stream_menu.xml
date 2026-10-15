@@ -17,8 +17,6 @@
     <string name="stream_cursor_show">顯示滑鼠游標</string>
     <string name="stream_cursor_hide">隱藏滑鼠游標</string>
     <string name="stream_keyboard_keys_hide">隱藏額外鍵盤按鍵</string>
-    <string name="stream_stretch_on">延展影像以填滿螢幕</string>
-    <string name="stream_stretch_off">讓影像符合螢幕大小</string>
     <string name="stream_overlay_page">覆蓋層和診斷</string>
     <string name="stream_picture_in_picture">子母畫面</string>
     <string name="stream_quit_game">結束遊戲</string>

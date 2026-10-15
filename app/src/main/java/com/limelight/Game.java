@@ -54,6 +54,7 @@ import com.limelight.preferences.PreferenceConfiguration;
 import com.limelight.ui.GameGestures;
 import com.limelight.ui.KeyboardOverlay;
 import com.limelight.ui.StreamView;
+import com.limelight.ui.VideoScaling;
 import com.limelight.utils.Dialog;
 import com.limelight.utils.ServerHelper;
 import com.limelight.utils.ShortcutHelper;
@@ -1113,24 +1114,43 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 .getDisplays(android.hardware.display.DisplayManager.DISPLAY_CATEGORY_PRESENTATION).length > 0;
     }
 
-    // The view stretches or keeps the stream's shape at once. An upscaler or PyroWave sets its own
-    // output rectangle when the stream starts, so for those the choice waits for the next stream.
-    private boolean canStretchLive() {
+    // The view changes its scaling at once. An upscaler or PyroWave sets its own output rectangle
+    // when the stream starts, so for those the choice waits for the next stream.
+    private boolean canScaleLive() {
         return externalPresentation == null && decoderRenderer != null &&
                 prefConfig.upscalingMode == UpscalingPolicy.Mode.OFF &&
                 (decoderRenderer.getActiveVideoFormat() & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) == 0;
     }
 
-    private void toggleStretch() {
-        if (!canStretchLive()) return;
-        prefConfig.stretchVideo = !prefConfig.stretchVideo;
-        PreferenceManager.getDefaultSharedPreferences(this).edit()
-                .putBoolean("checkbox_stretch_video", prefConfig.stretchVideo).apply();
-        renderView.setDesiredAspectRatio(prefConfig.stretchVideo ? 0 : (double) prefConfig.width / prefConfig.height);
-        renderView.requestLayout();
-        // A stretched stream spans the cutout too; the safe area follows.
+    private void showVideoScalingDialog() {
+        if (!canScaleLive()) return;
+        showStreamDialog(new MaterialAlertDialogBuilder(this).setTitle(R.string.video_scaling_title)
+                .setSingleChoiceItems(R.array.video_scaling_modes, prefConfig.videoScaling, (dialog, which) -> {
+                    dialog.dismiss();
+                    setVideoScaling(which);
+                }).setNegativeButton(android.R.string.cancel, null).create());
+    }
+
+    private void setVideoScaling(int mode) {
+        if (mode == prefConfig.videoScaling || !canScaleLive()) return;
+        prefConfig.setVideoScaling(mode);
+        SharedPreferences.Editor editor = PreferenceManager.getDefaultSharedPreferences(this).edit();
+        VideoScaling.save(editor, mode);
+        editor.apply();
+        applyVideoScaling();
+        // Fill and Stretch span the cutout too; the safe area follows.
         configureStreamWindow();
         updatePipAutoEnter();
+    }
+
+    /** Sizes the video view for the scaling mode; picture-in-picture always shows the whole stream. */
+    private void applyVideoScaling() {
+        if (renderView == null || prefConfig == null) return;
+        int mode = prefConfig.videoScaling;
+        if (renderView == streamView && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && isInPictureInPictureMode()) {
+            mode = VideoScaling.forPictureInPicture(mode);
+        }
+        renderView.setVideoScaling(mode, prefConfig.videoAlignment, prefConfig.width, prefConfig.height);
     }
 
     private boolean canEnterPictureInPicture() {
@@ -1236,6 +1256,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             // Refresh layout of OSC for possible new screen size
             virtualController.refreshLayout();
         }
+
+        applyVideoScaling();
 
         // Hide on-screen overlays in PiP mode
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -1505,7 +1527,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     public boolean usesFullDisplayForVideo() {
         // nativeResolutionStream also includes custom sizes and the explicit cutout-safe
         // Native entry. Only the user's fill/follow choice or an exact panel size spans a notch.
-        return prefConfig != null && (prefConfig.stretchVideo ||
+        return prefConfig != null && (VideoScaling.coversArea(prefConfig.videoScaling) ||
                 prefConfig.resolutionFollowsScreen || shouldIgnoreInsetsForResolution(prefConfig.width, prefConfig.height));
     }
 
@@ -1704,10 +1726,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             // Keep decoder buffers at stream resolution; the compositor scales them to the view.
             renderView.getHolder().setFixedSize(prefConfig.width, prefConfig.height);
         }
-        if (!prefConfig.stretchVideo) {
-            // Set the surface to scale based on the aspect ratio of the stream
-            renderView.setDesiredAspectRatio((double)prefConfig.width / (double)prefConfig.height);
-        }
+        applyVideoScaling();
 
         // Set the desired refresh rate that will get passed into setFrameRate() later
         desiredRefreshRate = displayRefreshRate;
@@ -2003,10 +2022,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 renderView.getHolder().setFixedSize(width, height);
             }
         }
-        if (!prefConfig.stretchVideo) {
-            renderView.setDesiredAspectRatio((double) width / (double) height);
-            renderView.requestLayout();
-        }
+        applyVideoScaling();
         if (prefConfig.touchscreenTrackpad && conn != null) {
             // Trackpad motion is scaled to the stream size.
             cancelTouchInput();
@@ -2284,8 +2300,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         options.onscreenControls = prefConfig.onscreenController;
         options.gameControls = gameTouchControls != null;
         options.keyboardKeysShown = isKeyboardOverlayVisible();
-        options.stretchAvailable = canStretchLive();
-        options.stretched = prefConfig.stretchVideo;
+        options.scalingAvailable = canScaleLive();
         options.zoomEnabled = desktopGestures != null && desktopGestures.enabled();
         options.pictureInPicture = canEnterPictureInPicture();
         options.externalDisplays = hasPresentationDisplays();
@@ -2312,7 +2327,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             case CONTROLS_LAYOUT: action = this::showControllerLayoutDialog; break;
             case GAME_CONTROLS: action = gameTouchControls == null ? null : gameTouchControls::showMenu; break;
             case KEYBOARD_KEYS: action = this::toggleKeyboardOverlay; break;
-            case STRETCH: action = this::toggleStretch; break;
+            case VIDEO_SCALING: action = this::showVideoScalingDialog; break;
             case ZOOM: action = this::toggleDesktopZoom; break;
             case ZOOM_RESET: action = () -> {
                 desktopGestures.reset();

@@ -124,7 +124,6 @@
     <string name="seekbar_increase">上げる</string>
     <string name="seekbar_presets">プリセット</string>
     <string name="seekbar_presets_unit">プリセット（%1$s）</string>
-    <string name="title_checkbox_stretch_video">画面全体に拡大</string>
     <string name="fps_suffix_fps">FPS</string>
     <string name="title_audio_config_list">サラウンド</string>
     <string name="summary_audio_config_list">ホームシアターで 5.1 または 7.1 の音声を使用します。</string>

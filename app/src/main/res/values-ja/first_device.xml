@@ -12,7 +12,6 @@
     <string name="stream_restore_help">ストリームが中断されました。\n再開するには PC のアプリ一覧を開いてください。</string>
     <string name="stream_presets">プリセット</string>
     <string name="stream_presets_help">[ネイティブ] は、この画面の解像度とリフレッシュレートで、遅延に関する設定をすべてオンにしてストリーミングします。\n[バッテリー セーバー] は同じ解像度で 30 fps に抑えます。\nPC ごとのプロファイルが引き続き優先されます。</string>
-    <string name="summary_stretch_video">画面全体に表示します。映像が横長または縦長に見える場合があります。</string>
     <string name="summary_frame_pacing">VRR がオフのときの応答速度と滑らかさのバランスを調整します。</string>
     <string name="summary_language">アプリで使用する言語を選択します。</string>
     <string name="overlay_mode">パフォーマンス オーバーレイのモード</string>

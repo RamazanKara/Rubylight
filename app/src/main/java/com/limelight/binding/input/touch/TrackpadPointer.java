@@ -6,6 +6,7 @@ import android.view.View;
 import com.limelight.nvstream.NvConnection;
 import com.limelight.ui.DesktopViewport;
 import com.limelight.ui.LocalCursorView;
+import com.limelight.ui.VideoScaling;
 
 /**
  * Where relative finger movement goes: to the host as mouse moves, or, in Local cursor mode, to a
@@ -150,8 +151,9 @@ public final class TrackpadPointer {
             panX = viewport.x();
             panY = viewport.y();
         }
-        float x = streamView.getX() + panX + cursorX / referenceWidth * streamView.getWidth() * scale;
-        float y = streamView.getY() + panY + cursorY / referenceHeight * streamView.getHeight() * scale;
+        // The stream view is the video's rectangle in every scaling mode, so this holds for all of them.
+        float x = VideoScaling.toScreen(cursorX, referenceWidth, streamView.getX(), streamView.getWidth(), scale, panX);
+        float y = VideoScaling.toScreen(cursorY, referenceHeight, streamView.getY(), streamView.getHeight(), scale, panY);
         cursorView.moveTo(x, y);
     }
 

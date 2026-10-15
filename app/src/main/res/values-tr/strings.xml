@@ -124,7 +124,6 @@
     <string name="seekbar_increase">Artır</string>
     <string name="seekbar_presets">Hazır ayarlar</string>
     <string name="seekbar_presets_unit">Hazır ayarlar (%1$s)</string>
-    <string name="title_checkbox_stretch_video">Ekranı dolduracak şekilde uzat</string>
     <string name="fps_suffix_fps">FPS</string>
     <string name="title_audio_config_list">Çevresel ses</string>
     <string name="summary_audio_config_list">Ev sinema sisteminizle 5.1 veya 7.1 ses kullanın.</string>

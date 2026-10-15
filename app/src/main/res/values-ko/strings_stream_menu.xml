@@ -17,8 +17,6 @@
     <string name="stream_cursor_show">마우스 커서 표시</string>
     <string name="stream_cursor_hide">마우스 커서 숨기기</string>
     <string name="stream_keyboard_keys_hide">추가 키보드 키 숨기기</string>
-    <string name="stream_stretch_on">영상을 화면에 꽉 차게 늘이기</string>
-    <string name="stream_stretch_off">영상을 화면에 맞추기</string>
     <string name="stream_overlay_page">오버레이 및 진단</string>
     <string name="stream_picture_in_picture">PIP 모드</string>
     <string name="stream_quit_game">게임 종료</string>

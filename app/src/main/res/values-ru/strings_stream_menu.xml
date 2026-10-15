@@ -17,8 +17,6 @@
     <string name="stream_cursor_show">Показать курсор мыши</string>
     <string name="stream_cursor_hide">Скрыть курсор мыши</string>
     <string name="stream_keyboard_keys_hide">Скрыть доп. клавиши клавиатуры</string>
-    <string name="stream_stretch_on">Растянуть видео на весь экран</string>
-    <string name="stream_stretch_off">Вписать видео в экран</string>
     <string name="stream_overlay_page">Оверлей и диагностика</string>
     <string name="stream_picture_in_picture">Картинка в картинке</string>
     <string name="stream_quit_game">Закрыть игру</string>

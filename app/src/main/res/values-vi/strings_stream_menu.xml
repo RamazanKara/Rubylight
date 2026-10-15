@@ -17,8 +17,6 @@
     <string name="stream_cursor_show">Hiện con trỏ chuột</string>
     <string name="stream_cursor_hide">Ẩn con trỏ chuột</string>
     <string name="stream_keyboard_keys_hide">Ẩn phím bàn phím bổ sung</string>
-    <string name="stream_stretch_on">Kéo giãn video ra toàn màn hình</string>
-    <string name="stream_stretch_off">Vừa video với màn hình</string>
     <string name="stream_overlay_page">Lớp phủ và chẩn đoán</string>
     <string name="stream_picture_in_picture">Hình trong hình</string>
     <string name="stream_quit_game">Thoát trò chơi</string>

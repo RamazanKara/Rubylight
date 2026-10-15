@@ -29,7 +29,8 @@ ADVICE = {
     "host_display_location": "Explains where the mode is set: open the PC's menu, choose a mode and confirm Save display mode. Keep PC display primary preserves the monitor's primary role; make virtual display primary moves it to the stream. Saved separately per PC.",
     "seekbar_virtual_display_scale": "Change the host render pixel count relative to the stream. Desktop text size stays as set on the host.",
     "checkbox_yuv444": "Enable for colored text and desktop detail when both ends support it. Otherwise 4:2:0 is used; HDR takes priority.",
-    "checkbox_stretch_video": "Enable to fill a screen with a different aspect ratio; shapes will stretch.",
+    "checkbox_stretch_video": "How the stream fills a screen of another shape: Fit shows all of it with bars, Fill (crop) fills the screen and cuts off the edges that do not fit, Stretch fills it and distorts shapes, 1:1 pixels shows the stream at its own size, centred. The key is the older Stretch switch, still written (on only for Stretch) so older versions behave sensibly; the mode itself is stored as `video_scaling`. Also in the stream menu. See [video scaling](video-and-latency.md#video-scaling).",
+    "video_alignment": "Top places a Fit or 1:1 picture at the top of the screen, leaving the space below for the soft keyboard or the lower half of a half-folded phone. No effect on Fill and Stretch, which cover the whole screen.",
     "seekbar_deadzone": "Raise to suppress stick drift; lower for small movements. Games can add their own deadzone on top.",
     "checkbox_multi_controller": "Leave on so each controller is its own player and the PC sees controllers as they connect. Turn off to make every controller player 1 and keep one controller present on the PC, for games that need one before any connects.",
     "controller_button_mapping": "Open Controller buttons, press a digital button and choose its output or Nothing. Mappings default to the original button, are saved per controller model and apply next stream.",
@@ -206,6 +207,9 @@ def generate():
             trackpad = re.search(r"DEFAULT_TOUCHSCREEN_TRACKPAD = (true|false)", config)[1] == "true"
             default = array("@array/stream_touch_modes")[0 if trackpad else 1]
             choices = "; ".join(array("@array/stream_touch_modes"))
+        elif key == "checkbox_stretch_video":
+            default = array("@array/video_scaling_modes")[0]
+            choices = "; ".join(array("@array/video_scaling_modes"))
         elif key == "low_latency_decoding":
             default = "On (not stored: on while " + ", ".join(merged_titles) + " are all on)"
         else:

@@ -12,7 +12,6 @@
     <string name="stream_restore_help">Yayın kesildi.\nSürdürmek için bilgisayarınızın uygulama listesini açın.</string>
     <string name="stream_presets">Hazır ayarlar</string>
     <string name="stream_presets_help">Yerel, tüm gecikme ayarları açıkken bu ekranın çözünürlüğünde ve yenileme hızında yayın yapar.\nPil tasarrufu aynı çözünürlüğü 30 fps’de tutar.\nBilgisayar profilleri yine önceliklidir.</string>
-    <string name="summary_stretch_video">Ekranı doldurur; görüntü daha geniş veya daha uzun görünebilir.</string>
     <string name="summary_frame_pacing">VRR kapalıyken tepki süresi ile akıcılık arasında denge kurar.</string>
     <string name="summary_language">Uygulamanın kullandığı dili seçin.</string>
     <string name="overlay_mode">Performans katmanı modu</string>

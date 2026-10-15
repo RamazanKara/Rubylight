@@ -124,7 +124,6 @@
     <string name="seekbar_increase">Augmenter</string>
     <string name="seekbar_presets">Préréglages</string>
     <string name="seekbar_presets_unit">Préréglages (%1$s)</string>
-    <string name="title_checkbox_stretch_video">Étirer pour remplir l’écran</string>
     <string name="fps_suffix_fps">FPS</string>
     <string name="title_audio_config_list">Son surround</string>
     <string name="summary_audio_config_list">Utilisez le son 5.1 ou 7.1 avec votre home cinéma.</string>

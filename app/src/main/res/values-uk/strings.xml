@@ -124,7 +124,6 @@
     <string name="seekbar_increase">Збільшити</string>
     <string name="seekbar_presets">Пресети</string>
     <string name="seekbar_presets_unit">Пресети (%1$s)</string>
-    <string name="title_checkbox_stretch_video">Розтягнути на весь екран</string>
     <string name="fps_suffix_fps">FPS</string>
     <string name="title_audio_config_list">Об’ємний звук</string>
     <string name="summary_audio_config_list">Використовуйте звук 5.1 або 7.1 з домашнім кінотеатром.</string>

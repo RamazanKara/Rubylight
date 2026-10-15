@@ -124,7 +124,6 @@
     <string name="seekbar_increase">增加</string>
     <string name="seekbar_presets">預設組合</string>
     <string name="seekbar_presets_unit">預設組合 (%1$s)</string>
-    <string name="title_checkbox_stretch_video">延展以填滿螢幕</string>
     <string name="fps_suffix_fps">FPS</string>
     <string name="title_audio_config_list">環繞音效</string>
     <string name="summary_audio_config_list">搭配家庭劇院使用 5.1 或 7.1 聲道音效。</string>

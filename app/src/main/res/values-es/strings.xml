@@ -124,7 +124,6 @@
     <string name="seekbar_increase">Aumentar</string>
     <string name="seekbar_presets">Valores predefinidos</string>
     <string name="seekbar_presets_unit">Valores predefinidos (%1$s)</string>
-    <string name="title_checkbox_stretch_video">Estirar para llenar la pantalla</string>
     <string name="fps_suffix_fps">FPS</string>
     <string name="title_audio_config_list">Sonido envolvente</string>
     <string name="summary_audio_config_list">Usa sonido 5.1 o 7.1 con tu equipo de cine en casa.</string>

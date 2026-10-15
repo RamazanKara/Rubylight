@@ -17,8 +17,6 @@
     <string name="stream_cursor_show">显示鼠标光标</string>
     <string name="stream_cursor_hide">隐藏鼠标光标</string>
     <string name="stream_keyboard_keys_hide">隐藏额外键盘按键</string>
-    <string name="stream_stretch_on">拉伸视频以填满屏幕</string>
-    <string name="stream_stretch_off">使视频适应屏幕</string>
     <string name="stream_overlay_page">叠加层和诊断</string>
     <string name="stream_picture_in_picture">画中画</string>
     <string name="stream_quit_game">退出游戏</string>

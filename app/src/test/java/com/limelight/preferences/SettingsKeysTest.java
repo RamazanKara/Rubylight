@@ -123,7 +123,8 @@ public class SettingsKeysTest {
         reads.put("checkbox_reduce_refresh_rate", new Read(false, true, c -> c.reduceRefreshRate));
         reads.put("upscaling_mode", new Read("off", "fsr1", c -> c.upscalingMode));
         reads.put("upscaling_sharpness", new Read(50, 80, c -> c.upscalingSharpness));
-        reads.put("checkbox_stretch_video", new Read(false, true, c -> c.stretchVideo));
+        reads.put("checkbox_stretch_video", new Read(false, true, c -> c.videoScaling));
+        reads.put("video_alignment", new Read("center", "top", c -> c.videoAlignment));
         reads.put("checkbox_yuv444", new Read(false, true, c -> c.enableYuv444));
         reads.put("checkbox_full_range", new Read(false, true, c -> c.fullRange));
         reads.put("checkbox_virtual_display", new Read(false, true, c -> c.virtualDisplay));
@@ -285,6 +286,42 @@ public class SettingsKeysTest {
             assertEquals(mode != com.limelight.binding.input.touch.TouchMode.DIRECT, config.touchscreenTrackpad);
             assertFalse(prefs().getBoolean("checkbox_native_touch", true));
         }
+    }
+
+    @Test
+    public void videoScalingKeepsTheOlderStretchSwitchAndAddsTheNewerModes() {
+        Application app = RuntimeEnvironment.getApplication();
+        PreferenceConfiguration config = PreferenceConfiguration.readPreferences(app);
+        assertEquals(com.limelight.ui.VideoScaling.FIT, config.videoScaling);
+        assertFalse(config.stretchVideo);
+        assertEquals(com.limelight.ui.VideoScaling.CENTER, config.videoAlignment);
+
+        // An install from before the scaling modes: the switch alone decides.
+        prefs().edit().putBoolean("checkbox_stretch_video", true).commit();
+        config = PreferenceConfiguration.readPreferences(app);
+        assertEquals(com.limelight.ui.VideoScaling.STRETCH, config.videoScaling);
+        assertTrue(config.stretchVideo);
+
+        for (int mode = com.limelight.ui.VideoScaling.FIT; mode <= com.limelight.ui.VideoScaling.NATIVE; mode++) {
+            SharedPreferences.Editor editor = prefs().edit();
+            com.limelight.ui.VideoScaling.save(editor, mode);
+            editor.commit();
+            config = PreferenceConfiguration.readPreferences(app);
+            assertEquals(mode, config.videoScaling);
+            // Older versions read the same switch as before: only Stretch stretches there.
+            boolean stretch = mode == com.limelight.ui.VideoScaling.STRETCH;
+            assertEquals(stretch, prefs().getBoolean("checkbox_stretch_video", !stretch));
+            assertEquals(stretch, config.stretchVideo);
+        }
+
+        // Fill was saved, then an older version turned Stretch on: the older choice wins.
+        SharedPreferences.Editor editor = prefs().edit();
+        com.limelight.ui.VideoScaling.save(editor, com.limelight.ui.VideoScaling.FILL);
+        editor.putBoolean("checkbox_stretch_video", true).commit();
+        assertEquals(com.limelight.ui.VideoScaling.STRETCH, PreferenceConfiguration.readPreferences(app).videoScaling);
+
+        prefs().edit().putString("video_alignment", "top").commit();
+        assertEquals(com.limelight.ui.VideoScaling.TOP, PreferenceConfiguration.readPreferences(app).videoAlignment);
     }
 
     @Test

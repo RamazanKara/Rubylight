@@ -12,7 +12,6 @@
     <string name="stream_restore_help">Strumień przerwany.\nOtwórz listę aplikacji komputera, aby wznowić.</string>
     <string name="stream_presets">Profile</string>
     <string name="stream_presets_help">Natywny strumieniuje w rozdzielczości i częstotliwości odświeżania tego ekranu ze wszystkimi ustawieniami niskiego opóźnienia włączonymi.\nOszczędzanie baterii zachowuje tę rozdzielczość przy 30 FPS.\nProfile komputerów nadal mają pierwszeństwo.</string>
-    <string name="summary_stretch_video">Wypełnij ekran; obraz może wyglądać na szerszy lub wyższy.</string>
     <string name="summary_frame_pacing">Równoważy czas reakcji i płynność, gdy VRR jest wyłączone.</string>
     <string name="summary_language">Wybierz język aplikacji.</string>
     <string name="overlay_mode">Tryb nakładki wydajności</string>

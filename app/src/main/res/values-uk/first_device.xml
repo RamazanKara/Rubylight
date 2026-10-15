@@ -12,7 +12,6 @@
     <string name="stream_restore_help">Трансляцію перервано.\nВідкрийте список застосунків ПК, щоб продовжити.</string>
     <string name="stream_presets">Пресети</string>
     <string name="stream_presets_help">«Рідна» транслює з роздільною здатністю й частотою оновлення цього екрана з усіма налаштуваннями затримки ввімкненими.\n«Економія заряду» зберігає цю роздільну здатність при 30 FPS.\nПрофілі ПК усе одно мають пріоритет.</string>
-    <string name="summary_stretch_video">Заповнити екран; зображення може виглядати ширшим або вищим.</string>
     <string name="summary_frame_pacing">Баланс між часом відгуку й плавністю, коли VRR вимкнено.</string>
     <string name="summary_language">Виберіть мову застосунку.</string>
     <string name="overlay_mode">Режим оверлея продуктивності</string>

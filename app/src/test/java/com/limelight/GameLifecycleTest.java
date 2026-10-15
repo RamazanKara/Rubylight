@@ -13,6 +13,7 @@ import com.limelight.binding.input.KeyboardTranslator;
 import com.limelight.binding.video.UpscalingPolicy;
 import com.limelight.preferences.PreferenceConfiguration;
 import com.limelight.ui.StreamView;
+import com.limelight.ui.VideoScaling;
 
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -337,7 +338,7 @@ public class GameLifecycleTest {
                 prefs.height = 720;
                 prefs.fps = 60;
                 prefs.upscalingMode = mode;
-                prefs.stretchVideo = stretch;
+                prefs.setVideoScaling(stretch ? VideoScaling.STRETCH : VideoScaling.FIT);
                 int[] bufferSize = new int[2];
                 SurfaceHolder holder = new org.robolectric.shadows.ShadowSurfaceView.FakeSurfaceHolder() {
                     @Override public void setFixedSize(int width, int height) {

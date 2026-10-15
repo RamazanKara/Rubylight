@@ -124,7 +124,6 @@
     <string name="seekbar_increase">Tăng</string>
     <string name="seekbar_presets">Cấu hình sẵn</string>
     <string name="seekbar_presets_unit">Cấu hình sẵn (%1$s)</string>
-    <string name="title_checkbox_stretch_video">Kéo giãn ra toàn màn hình</string>
     <string name="fps_suffix_fps">FPS</string>
     <string name="title_audio_config_list">Âm thanh vòm</string>
     <string name="summary_audio_config_list">Dùng âm thanh 5.1 hoặc 7.1 với dàn âm thanh tại gia.</string>

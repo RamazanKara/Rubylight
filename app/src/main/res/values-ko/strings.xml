@@ -124,7 +124,6 @@
     <string name="seekbar_increase">높이기</string>
     <string name="seekbar_presets">사전 설정</string>
     <string name="seekbar_presets_unit">사전 설정(%1$s)</string>
-    <string name="title_checkbox_stretch_video">화면에 맞게 늘이기</string>
     <string name="fps_suffix_fps">FPS</string>
     <string name="title_audio_config_list">서라운드 사운드</string>
     <string name="summary_audio_config_list">홈 시어터에서 5.1 또는 7.1 사운드를 사용합니다.</string>

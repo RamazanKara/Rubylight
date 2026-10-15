@@ -33,6 +33,7 @@ import com.limelight.ui.StreamMenuHint;
 import com.limelight.ui.AdaptiveLayout;
 import com.limelight.ui.StreamWindow;
 import com.limelight.ui.StreamView;
+import com.limelight.ui.VideoScaling;
 
 import java.io.IOException;
 
@@ -52,6 +53,9 @@ public final class DemoGameActivity extends Activity implements SurfaceHolder.Ca
     private StreamMenu menu;
     private DemoTouchpad touchpad;
     private String fit;
+    private int alignment;
+    // The bundled samples are 1920x1080.
+    private static final int SAMPLE_WIDTH = 1920, SAMPLE_HEIGHT = 1080;
     private final Runnable metrics = new Runnable() {
         @Override public void run() {
             DemoMetrics.update(DemoGameActivity.this, DemoGameActivity.this, tick++);
@@ -75,10 +79,12 @@ public final class DemoGameActivity extends Activity implements SurfaceHolder.Ca
         showControls = state == null ? "touch".equals(getIntent().getStringExtra("state")) : state.getBoolean("controls");
         positionUs = state == null ? 0 : state.getLong("positionUs");
         stream = findViewById(R.id.surfaceView);
-        // "--es fit stretch" fills the panel, "--es fit safe" keeps the cutout-safe area like the
-        // inset-excluded Native preset; the default is a native full-panel stream.
+        // "--es fit stretch", "fill" or "native" pick that video scaling, "--es fit safe" keeps the
+        // cutout-safe area like the inset-excluded Native preset; the default is a native full-panel
+        // stream. "--es align top" moves a Fit or 1:1 picture to the top.
         fit = getIntent().getStringExtra("fit");
-        stream.setDesiredAspectRatio("stretch".equals(fit) ? 0 : 16.0 / 9.0);
+        alignment = "top".equals(getIntent().getStringExtra("align")) ? VideoScaling.TOP : VideoScaling.CENTER;
+        applyScaling();
         // The same window setup and safe-area handling as Game, so cutout and fold layouts can be checked here.
         androidx.core.view.WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
@@ -195,8 +201,7 @@ public final class DemoGameActivity extends Activity implements SurfaceHolder.Ca
         options.overlayShown = findViewById(R.id.performanceOverlayScroll).getVisibility() == View.VISIBLE;
         options.overlayMode = mode;
         options.onscreenControls = showControls;
-        options.stretchAvailable = true;
-        options.stretched = "stretch".equals(fit);
+        options.scalingAvailable = true;
         options.pictureInPicture = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
                 getPackageManager().hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE);
         options.automaticQuality = true;
@@ -241,10 +246,10 @@ public final class DemoGameActivity extends Activity implements SurfaceHolder.Ca
                 // Showing controls changes no layout; ask for one so the overlay moves clear of them.
                 overlayScroll.requestLayout();
                 break;
-            case STRETCH:
-                fit = "stretch".equals(fit) ? null : "stretch";
-                stream.setDesiredAspectRatio("stretch".equals(fit) ? 0 : 16.0 / 9.0);
-                stream.requestLayout();
+            case VIDEO_SCALING:
+                // The demo cycles through the modes instead of showing the picker.
+                fit = VideoScaling.value((scalingMode() + 1) % (VideoScaling.NATIVE + 1));
+                applyScaling();
                 androidx.core.view.ViewCompat.requestApplyInsets(findViewById(android.R.id.content));
                 break;
             case PICTURE_IN_PICTURE: enterPip(); break;
@@ -308,6 +313,17 @@ public final class DemoGameActivity extends Activity implements SurfaceHolder.Ca
         } else {
             label.setText(R.string.demo_playback_error);
         }
+    }
+
+    private int scalingMode() {
+        for (int mode = VideoScaling.FIT; mode <= VideoScaling.NATIVE; mode++) {
+            if (VideoScaling.value(mode).equals(fit)) return mode;
+        }
+        return VideoScaling.FIT;
+    }
+
+    private void applyScaling() {
+        stream.setVideoScaling(scalingMode(), alignment, SAMPLE_WIDTH, SAMPLE_HEIGHT);
     }
 
     private void releasePlayer() {

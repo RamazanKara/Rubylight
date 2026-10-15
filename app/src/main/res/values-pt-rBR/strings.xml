@@ -124,7 +124,6 @@
     <string name="seekbar_increase">Aumentar</string>
     <string name="seekbar_presets">Predefinições</string>
     <string name="seekbar_presets_unit">Predefinições (%1$s)</string>
-    <string name="title_checkbox_stretch_video">Esticar para preencher a tela</string>
     <string name="fps_suffix_fps">FPS</string>
     <string name="title_audio_config_list">Som surround</string>
     <string name="summary_audio_config_list">Use som 5.1 ou 7.1 com seu home theater.</string>

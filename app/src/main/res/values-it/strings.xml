@@ -124,7 +124,6 @@
     <string name="seekbar_increase">Aumenta</string>
     <string name="seekbar_presets">Preset</string>
     <string name="seekbar_presets_unit">Preset (%1$s)</string>
-    <string name="title_checkbox_stretch_video">Allunga a schermo intero</string>
     <string name="fps_suffix_fps">FPS</string>
     <string name="title_audio_config_list">Audio surround</string>
     <string name="summary_audio_config_list">Usa l’audio 5.1 o 7.1 con il tuo home theater.</string>

@@ -4,18 +4,22 @@ import android.content.Context;
 import android.os.SystemClock;
 import android.text.InputType;
 import android.util.AttributeSet;
+import android.view.Gravity;
 import android.view.KeyCharacterMap;
 import android.view.KeyEvent;
 import android.view.SurfaceView;
 import android.view.SurfaceHolder;
 import android.view.TextureView;
+import android.view.ViewGroup;
 import android.view.inputmethod.BaseInputConnection;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputConnection;
 import android.widget.FrameLayout;
 
 public class StreamView extends FrameLayout {
-    private double desiredAspectRatio;
+    private final VideoScaling scaling = new VideoScaling();
+    private int scalingMode = VideoScaling.STRETCH, alignment = VideoScaling.CENTER;
+    private int videoWidth, videoHeight;
     private InputCallbacks inputCallbacks;
     private SurfaceView surfaceView;
     private TextureView textureView;
@@ -46,8 +50,40 @@ public class StreamView extends FrameLayout {
         video.setTranslationX(x); video.setTranslationY(y);
     }
 
-    public void setDesiredAspectRatio(double aspectRatio) {
-        this.desiredAspectRatio = aspectRatio;
+    /**
+     * Sizes this view to the video's rectangle in the space its parent gives it, which may be larger
+     * than that space (Fill, 1:1). Touch and pointer mapping work in this view's coordinates, so they
+     * follow every mode without their own transform.
+     */
+    public void setVideoScaling(int mode, int alignment, int videoWidth, int videoHeight) {
+        if (mode == scalingMode && alignment == this.alignment &&
+                videoWidth == this.videoWidth && videoHeight == this.videoHeight) {
+            return;
+        }
+        scalingMode = mode;
+        this.alignment = alignment;
+        this.videoWidth = videoWidth;
+        this.videoHeight = videoHeight;
+        applyGravity();
+        requestLayout();
+    }
+
+    @Override
+    protected void onAttachedToWindow() {
+        super.onAttachedToWindow();
+        applyGravity();
+    }
+
+    private void applyGravity() {
+        ViewGroup.LayoutParams params = getLayoutParams();
+        if (!(params instanceof FrameLayout.LayoutParams)) return;
+        FrameLayout.LayoutParams frame = (FrameLayout.LayoutParams) params;
+        int gravity = VideoScaling.alignsTop(scalingMode, alignment) ?
+                Gravity.TOP | Gravity.CENTER_HORIZONTAL : Gravity.CENTER;
+        if (frame.gravity != gravity) {
+            frame.gravity = gravity;
+            setLayoutParams(frame);
+        }
     }
 
     public void setInputCallbacks(InputCallbacks callbacks) {
@@ -118,29 +154,14 @@ public class StreamView extends FrameLayout {
 
     @Override
     protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
-        // If no fixed aspect ratio has been provided, simply use the default onMeasure() behavior
-        if (desiredAspectRatio == 0) {
+        if (scalingMode == VideoScaling.STRETCH || videoWidth <= 0 || videoHeight <= 0) {
             super.onMeasure(widthMeasureSpec, heightMeasureSpec);
             return;
         }
-
-        // Based on code from: https://www.buzzingandroid.com/2012/11/easy-measuring-of-custom-views-with-specific-aspect-ratio/
-        int widthSize = MeasureSpec.getSize(widthMeasureSpec);
-        int heightSize = MeasureSpec.getSize(heightMeasureSpec);
-
-        // Round, never truncate, and never exceed the space: a stream of the panel's exact size
-        // (2184 / 1968 is not exact in floating point) must fill it rather than leave a 1 px line.
-        int measuredHeight, measuredWidth;
-        if (widthSize > heightSize * desiredAspectRatio) {
-            measuredHeight = heightSize;
-            measuredWidth = Math.min(widthSize, (int) Math.round(measuredHeight * desiredAspectRatio));
-        } else {
-            measuredWidth = widthSize;
-            measuredHeight = Math.min(heightSize, (int) Math.round(measuredWidth / desiredAspectRatio));
-        }
-
-        super.onMeasure(MeasureSpec.makeMeasureSpec(measuredWidth, MeasureSpec.EXACTLY),
-                MeasureSpec.makeMeasureSpec(measuredHeight, MeasureSpec.EXACTLY));
+        scaling.layout(scalingMode, alignment, videoWidth, videoHeight,
+                MeasureSpec.getSize(widthMeasureSpec), MeasureSpec.getSize(heightMeasureSpec));
+        super.onMeasure(MeasureSpec.makeMeasureSpec(scaling.width(), MeasureSpec.EXACTLY),
+                MeasureSpec.makeMeasureSpec(scaling.height(), MeasureSpec.EXACTLY));
     }
 
     @Override

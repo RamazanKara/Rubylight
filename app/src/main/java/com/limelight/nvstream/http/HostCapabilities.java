@@ -54,6 +54,7 @@ public final class HostCapabilities {
         CONTROLLER_PREPARATION(R.string.host_feature_controller_preparation),
         REMOTE_SESSION_TILES(R.string.host_feature_remote_sessions),
         HOST_CONFIRMS_REPLACEMENT(0),
+        HOST_TIMING(0),
         WEB_UI(R.string.host_feature_web_ui);
 
         @StringRes public final int label;
@@ -552,6 +553,10 @@ public final class HostCapabilities {
                 case FRACTIONAL_REFRESH:
                     // Rubylight, Apollo and Vibepollo read "59.94"; Sunshine truncates it to 59.
                     return vibepolloExtensions() || permission != -1 ? Availability.SUPPORTED : absent(false);
+                case HOST_TIMING:
+                    // The host names 0x5536 in its stream description, which serverinfo cannot show.
+                    // Rubylight is the host that sends the reports; the stream checks the announcement.
+                    return rustHostVersion != null ? Availability.SUPPORTED : absent(false);
                 case HOST_VRR:
                 case REMOTE_SESSION_TILES:
                 case HOST_CONFIRMS_REPLACEMENT:

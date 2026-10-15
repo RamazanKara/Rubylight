@@ -22,6 +22,7 @@ import org.jcodec.codecs.h264.io.model.VUIParameters;
 import com.limelight.BuildConfig;
 import com.limelight.LimeLog;
 import com.limelight.R;
+import com.limelight.nvstream.av.video.HostTimingReport;
 import com.limelight.nvstream.av.video.VideoDecoderRenderer;
 import com.limelight.nvstream.jni.MoonBridge;
 import com.limelight.preferences.PreferenceConfiguration;
@@ -198,6 +199,11 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         }
     };
 
+    @Override
+    public void onHostTiming(HostTimingReport report) {
+        frameLatencyStats.onHostTiming(report, System.nanoTime());
+    }
+
     public static String formatLatencyOverlay(Context context, double[][] summary) {
         int[] labels = { R.string.latency_receive_render, R.string.latency_queue_wait,
                 R.string.latency_input_output, R.string.latency_output_render,
@@ -216,6 +222,11 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                 text.append(context.getString(R.string.latency_values, summary[stage][1],
                         summary[stage][2], summary[stage][3], (int) summary[stage][0]));
             }
+        }
+        // Only a host that sends timing reports has the queue, encode and send split.
+        if (summary.length > 7 && summary[5][0] > 0 && summary[6][0] > 0 && summary[7][0] > 0) {
+            text.append('\n').append(context.getString(R.string.latency_host_split,
+                    summary[5][1], summary[6][1], summary[7][1]));
         }
         return text.toString();
     }

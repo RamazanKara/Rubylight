@@ -356,6 +356,17 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     private boolean streamHdr;
     private DisplayCapsReporter displayCapsReporter;
 
+    // Asks a host that sends per-frame timing reports (0x5536) for them, once per connection.
+    // Feeds the overlay's host latency line and the latency CSV; the stream description's
+    // announcement is the final say, the capability only keeps other hosts from being asked.
+    private void requestHostTiming() {
+        if (conn == null || !conn.getHostDetails().caps.has(HostCapabilities.Feature.HOST_TIMING) ||
+                !MoonBridge.hostSupportsControlMessage(MoonBridge.CONTROL_MESSAGE_HOST_TIMING)) {
+            return;
+        }
+        MoonBridge.sendHostTimingRequest(true);
+    }
+
     // Reports the output's HDR capabilities to Rubylight 2.2.0+ hosts. Keep luminance fixed on
     // that output: brightness changes must not reconfigure HDR on older hosts.
     private void reportDisplayCaps() {
@@ -5045,6 +5056,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                     reportDisplayCaps();
                 }
                 startReconfigureTracking();
+                requestHostTiming();
                 if (!conn.canSendInput()) {
                     if (gameTouchControls != null) gameTouchControls.hideForPip(true);
                     if (virtualController != null) {

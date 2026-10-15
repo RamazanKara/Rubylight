@@ -1,9 +1,12 @@
 package com.limelight.binding.video;
 
+import com.limelight.nvstream.av.video.HostTimingReport;
+
 import java.io.IOException;
 import java.io.Writer;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -17,20 +20,37 @@ class FrameLatencyStats {
     private static final int MAX_COMPLETED = 4096;
     private static final long CALLBACK_TIMEOUT_NS = 5000000000L;
     private static final long FPS_WINDOW_NS = 2000000000L;
+    // Sample stages: 0 queue wait, 1 decode, 2 display wait, 3 client latency, 4 host latency,
+    // then the host's queue, encode and send split (only from host timing reports).
+    private static final int STAGES = 8;
+    private static final int HOST_STAGE = 4;
+    // Reports that arrive before their frame, and frames finished before their report, are matched
+    // within these bounds; a report older than that is dropped.
+    private static final int MAX_EARLY_REPORTS = 256;
+    private static final int MAX_COMPLETED_SCAN = 512;
+    // Host timing reports replace the frame header's host latency while they keep arriving.
+    private static final long HOST_TIMING_FRESH_NS = 2000000000L;
+    private static final int SOURCE_NONE = 0;
+    private static final int SOURCE_HEADER = 1;
+    private static final int SOURCE_REPORTS = 2;
     static final String CSV_HEADER = "frame_number,pts_us,receive_ns,decoder_input_ns,decoder_output_ns," +
             "render_ns,release_ns,status,receive_to_input_ms,input_to_output_ms,output_to_render_ms," +
             "receive_to_render_ms,csv_rows_lost,host_processing_ms," +
             "decode_to_present_ms,receive_to_present_ms," +
             "decode_to_release_ms,decode_interval_ms,release_interval_ms," +
-            "fps_sample_ns,received_fps,released_fps,shown_fps,present_drops,enqueue_ns,queue_wait_ms\n";
+            "fps_sample_ns,received_fps,released_fps,shown_fps,present_drops,enqueue_ns,queue_wait_ms," +
+            "host_present_to_sent_ms,host_queue_ms,host_encode_ms,host_send_ms\n";
 
     private final LinkedHashMap<Long, Frame> pending = new LinkedHashMap<>();
     private final HashMap<Integer, Frame> outputs = new HashMap<>();
     private final ArrayDeque<Frame> completed = new ArrayDeque<>();
-    private final long[][] samples = new long[5][WINDOW_SIZE];
-    private final long[][] sampleTimes = new long[5][WINDOW_SIZE];
-    private final int[] counts = new int[5];
-    private final int[] positions = new int[5];
+    private final long[][] samples = new long[STAGES][WINDOW_SIZE];
+    private final long[][] sampleTimes = new long[STAGES][WINDOW_SIZE];
+    private final int[] counts = new int[STAGES];
+    private final int[] positions = new int[STAGES];
+    private final LinkedHashMap<Integer, HostTimingReport.Record> earlyReports = new LinkedHashMap<>();
+    private long lastHostTimingNs;
+    private int hostSource = SOURCE_NONE;
     private long csvRowsLost;
     private final boolean vrr;
     private long lastOutputNs;
@@ -66,6 +86,7 @@ class FrameLatencyStats {
         long renderNs;
         long releaseNs;
         long hostProcessingNs;
+        HostTimingReport.Record hostTiming;
         long previousOutputNs;
         long previousReleaseNs;
         boolean awaitingRender;
@@ -94,9 +115,68 @@ class FrameLatencyStats {
         // The unsigned wire value is in 100 us units; zero means unavailable.
         frame.hostProcessingNs = hostProcessingLatency * 100000L;
         pending.put(ptsUs, frame);
-        if (frame.hostProcessingNs != 0) {
-            addDuration(4, frame.hostProcessingNs, inputNs);
+        frame.hostTiming = earlyReports.remove(frameNumber);
+        boolean reportsFresh = lastHostTimingNs != 0 && inputNs - lastHostTimingNs < HOST_TIMING_FRESH_NS;
+        if (frame.hostProcessingNs != 0 && !reportsFresh) {
+            useHostSource(SOURCE_HEADER);
+            addDuration(HOST_STAGE, frame.hostProcessingNs, inputNs);
         }
+    }
+
+    // A host timing report (0x5536), which arrives on the native control thread. Its present to
+    // last-packet-sent time is the host latency; the frame header's value stops at the first
+    // packet. The reports take over the host latency samples for as long as they keep arriving.
+    synchronized void onHostTiming(HostTimingReport report, long nowNs) {
+        lastHostTimingNs = nowNs;
+        useHostSource(SOURCE_REPORTS);
+        for (int i = 0; i < report.size(); i++) {
+            HostTimingReport.Record record = report.get(i);
+            addDuration(HOST_STAGE, record.hostUs * 1000L, nowNs);
+            addDuration(HOST_STAGE + 1, record.queueUs * 1000L, nowNs);
+            addDuration(HOST_STAGE + 2, record.encodeUs * 1000L, nowNs);
+            addDuration(HOST_STAGE + 3, record.sendUs * 1000L, nowNs);
+            Frame frame = findFrame(record.frame);
+            if (frame != null) {
+                frame.hostTiming = record;
+            } else {
+                if (earlyReports.size() == MAX_EARLY_REPORTS) {
+                    Iterator<Integer> oldest = earlyReports.keySet().iterator();
+                    oldest.next();
+                    oldest.remove();
+                }
+                earlyReports.put(record.frame, record);
+            }
+        }
+    }
+
+    // A window never mixes the two sources of host latency: switching starts it afresh.
+    private void useHostSource(int source) {
+        if (hostSource == source) {
+            return;
+        }
+        if (hostSource != SOURCE_NONE) {
+            for (int stage = HOST_STAGE; stage < STAGES; stage++) {
+                counts[stage] = 0;
+                positions[stage] = 0;
+            }
+        }
+        hostSource = source;
+    }
+
+    private Frame findFrame(int frameNumber) {
+        for (Frame frame : pending.values()) {
+            if (frame.number == frameNumber) {
+                return frame;
+            }
+        }
+        int scanned = 0;
+        for (Iterator<Frame> newest = completed.descendingIterator(); newest.hasNext() && scanned < MAX_COMPLETED_SCAN; scanned++) {
+            Frame frame = newest.next();
+            if (frame.number == frameNumber) {
+                return frame;
+            }
+        }
+        return null;
     }
 
     // queueInputBuffer() has returned: decode time starts here, like other Moonlight clients count
@@ -355,8 +435,15 @@ class FrameLatencyStats {
                     duration(frame.previousOutputNs, frame.outputNs) + "," +
                     duration(frame.previousReleaseNs, frame.releaseNs) + "," + sampleNs + "," +
                     frameRates + "," + dropped + "," +
-                    timestamp(frame.enqueueNs) + "," + duration(frame.enqueueNs, frame.inputNs) + "\n");
+                    timestamp(frame.enqueueNs) + "," + duration(frame.enqueueNs, frame.inputNs) +
+                    hostTimingColumns(frame.hostTiming) + "\n");
         }
+    }
+
+    private static String hostTimingColumns(HostTimingReport.Record record) {
+        return record == null ? ",,,," : "," + milliseconds(record.hostUs * 1000L) +
+                "," + milliseconds(record.queueUs * 1000L) + "," + milliseconds(record.encodeUs * 1000L) +
+                "," + milliseconds(record.sendUs * 1000L);
     }
 
     private static String timestamp(long timeNs) {

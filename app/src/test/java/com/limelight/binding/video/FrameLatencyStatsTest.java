@@ -1,5 +1,7 @@
 package com.limelight.binding.video;
 
+import com.limelight.nvstream.av.video.HostTimingReport;
+
 import org.junit.Test;
 
 import java.io.StringWriter;
@@ -398,6 +400,104 @@ public class FrameLatencyStatsTest {
         assertEquals(FrameLatencyStats.CSV_HEADER.trim().split(",").length, csv.toString().trim().split(",", -1).length);
     }
 
+    private static HostTimingReport report(long[]... records) {
+        byte[] data = new byte[4 + 20 * records.length];
+        data[0] = 1;
+        data[1] = (byte) records.length;
+        for (int i = 0; i < records.length; i++) {
+            for (int field = 0; field < 5; field++) {
+                for (int b = 0; b < 4; b++) data[4 + 20 * i + 4 * field + b] = (byte) (records[i][field] >> (8 * b));
+            }
+        }
+        return HostTimingReport.parse(data);
+    }
+
+    private static void renderFrame(FrameLatencyStats stats, int number, long ptsUs, char headerLatency) {
+        stats.onDecoderInput(number, ptsUs, 1000000, 1000000, 2000000, headerLatency);
+        stats.onDecoderQueued(ptsUs, 2000000);
+        stats.onDecoderOutput(0, ptsUs, 5000000);
+        stats.onOutputReleased(0, 6000000, true, true);
+        stats.onFrameRendered(ptsUs, 7000000);
+    }
+
+    @Test
+    public void hostTimingReportsReplaceTheHeaderLatencyAndFillTheCsvColumns() throws Exception {
+        FrameLatencyStats stats = new FrameLatencyStats();
+        // The report can arrive before or after its frame; the header says 5 ms (50 x 100 us).
+        stats.onHostTiming(report(new long[] {42, 12000, 3000, 5000, 2500}), 1000000000L);
+        renderFrame(stats, 42, 123, (char) 50);
+        stats.onDecoderInput(43, 124, 1000000, 1000000, 2000000, (char) 50);
+        stats.onHostTiming(report(new long[] {43, 8000, 1000, 2000, 3000}), 1000000100L);
+
+        double[][] summary = stats.summarize();
+        assertArrayEquals(new double[] {2, 10, 12, 12}, summary[4], 0);
+        assertEquals(2, summary[5][1], 0);
+        assertEquals(3.5, summary[6][1], 0);
+        assertEquals(2.75, summary[7][1], 0);
+
+        StringWriter csv = new StringWriter();
+        stats.writeCsv(csv);
+        String[] rows = csv.toString().trim().split("\n");
+        assertEquals(1, rows.length);
+        String[] fields = rows[0].split(",", -1);
+        assertEquals(FrameLatencyStats.CSV_HEADER.trim().split(",").length, fields.length);
+        assertEquals("5.000000", fields[13]);
+        assertEquals("12.000000", fields[26]);
+        assertEquals("3.000000", fields[27]);
+        assertEquals("5.000000", fields[28]);
+        assertEquals("2.500000", fields[29]);
+
+        // A frame finished before its report arrived is still matched.
+        stats.onDecoderOutput(1, 124, 5000000);
+        stats.onOutputReleased(1, 6000000, true, true);
+        stats.onFrameRendered(124, 7000000);
+        csv = new StringWriter();
+        stats.writeCsv(csv);
+        fields = csv.toString().trim().split(",", -1);
+        assertEquals("43", fields[0]);
+        assertEquals("8.000000", fields[26]);
+        assertEquals("3.000000", fields[29]);
+    }
+
+    @Test
+    public void headerLatencyReturnsWhenReportsStopAndWindowsNeverMix() {
+        FrameLatencyStats stats = new FrameLatencyStats();
+        stats.onDecoderInput(1, 1, 1000000, 1000000, 2000000, (char) 100);
+        assertArrayEquals(new double[] {1, 10, 10, 10}, stats.summarize()[4], 0);
+
+        stats.onHostTiming(report(new long[] {1, 4000, 1000, 1000, 1000}), 3000000000L);
+        assertArrayEquals(new double[] {1, 4, 4, 4}, stats.summarize()[4], 0);
+        // While reports are fresh the header value is ignored.
+        stats.onDecoderInput(2, 2, 3100000000L, 3100000000L, 3100000000L, (char) 100);
+        assertEquals(1, stats.summarize()[4][0], 0);
+        // Two seconds without a report: the header is used again, on a fresh window, and the
+        // split (which only reports carry) is gone.
+        stats.onDecoderInput(3, 3, 6000000000L, 6000000000L, 6000000000L, (char) 70);
+        assertArrayEquals(new double[] {1, 7, 7, 7}, stats.summarize()[4], 0);
+        assertEquals(0, stats.summarize()[5][0], 0);
+    }
+
+    @Test
+    public void unmatchedReportsStayBoundedAndHeaderOnlyStreamsHaveBlankSplitColumns() throws Exception {
+        FrameLatencyStats stats = new FrameLatencyStats();
+        for (int i = 0; i < 1000; i++) {
+            stats.onHostTiming(report(new long[] {i, 10, 1, 1, 1}), 1000L + i);
+        }
+        // The oldest were dropped, so frame 0 gets nothing but frame 999 does.
+        renderFrame(stats, 0, 1, (char) 0);
+        StringWriter csv = new StringWriter();
+        stats.writeCsv(csv);
+        String[] fields = csv.toString().trim().split(",", -1);
+        assertEquals("", fields[26]);
+        assertEquals("", fields[29]);
+        assertEquals(FrameLatencyStats.CSV_HEADER.trim().split(",").length, fields.length);
+
+        renderFrame(stats, 999, 2, (char) 0);
+        csv = new StringWriter();
+        stats.writeCsv(csv);
+        assertEquals("0.010000", csv.toString().trim().split(",", -1)[26]);
+    }
+
     @Test
     public void missingHostTimingIsBlankNotZeroLatency() throws Exception {
         FrameLatencyStats stats = new FrameLatencyStats();
@@ -441,7 +541,8 @@ public class FrameLatencyStatsTest {
                 "render_ns,release_ns,status,receive_to_input_ms,input_to_output_ms,output_to_render_ms," +
                 "receive_to_render_ms,csv_rows_lost,host_processing_ms,decode_to_present_ms,receive_to_present_ms," +
                 "decode_to_release_ms,decode_interval_ms,release_interval_ms," +
-                "fps_sample_ns,received_fps,released_fps,shown_fps,present_drops,enqueue_ns,queue_wait_ms\n",
+                "fps_sample_ns,received_fps,released_fps,shown_fps,present_drops,enqueue_ns,queue_wait_ms," +
+                "host_present_to_sent_ms,host_queue_ms,host_encode_ms,host_send_ms\n",
                 FrameLatencyStats.CSV_HEADER);
         FrameLatencyStats stats = new FrameLatencyStats();
         stats.onDecoderInput(42, 123, 1000000, 1000000, 2000000, (char) 123);
@@ -453,7 +554,7 @@ public class FrameLatencyStatsTest {
         stats.writeCsv(csv);
         assertTrue(csv.toString().startsWith("42,123,1000000,2000000,5000000,9000000,6000000,rendered," +
                 "1.000000,3.000000,4.000000,8.000000,0,12.300000,4.000000,8.000000,,,,"));
-        assertEquals(26, csv.toString().trim().split(",", -1).length);
+        assertEquals(30, csv.toString().trim().split(",", -1).length);
     }
 
     @Test
@@ -498,7 +599,7 @@ public class FrameLatencyStatsTest {
         assertEquals(3, rows.length);
         for (String row : rows) {
             String[] fields = row.split(",", -1);
-            assertEquals(26, fields.length);
+            assertEquals(30, fields.length);
             for (int column : new int[] {5, 10, 11, 14, 15}) assertEquals("", fields[column]);
         }
         assertEquals(0, stats.summarize()[2][0], 0);
@@ -645,7 +746,7 @@ public class FrameLatencyStatsTest {
         int unobserved = 0;
         for (String row : csv.toString().split("\n")) {
             String[] fields = row.split(",", -1);
-            assertEquals(26, fields.length);
+            assertEquals(30, fields.length);
             assertTrue(Long.parseLong(fields[19]) > 0);
             assertEquals("120", fields[23]);
             if (fields[7].equals("render_unobserved")) unobserved++;

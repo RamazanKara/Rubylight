@@ -89,8 +89,15 @@ These tables include every preference, including actions, grouped as the Setting
 
 | Setting / preference key | Default | Choices and units | When to change or use |
 | --- | --- | --- | --- |
-| Touch mode<br>`checkbox_touchscreen_trackpad` | Trackpad | Trackpad; Direct mouse; Multi-touch | Use Trackpad for relative cursor movement, Direct mouse to point at a screen location, or Multi-touch for host touch input. Unsupported native touch falls back to Direct mouse. The picker's Help explains each mode. |
-| Trackpad speed<br>`seekbar_trackpad_speed` | 100% | 25%–400%; step 1% | Adjust relative touchscreen movement; 100% is normal speed. |
+| Touch mode<br>`checkbox_touchscreen_trackpad` | Trackpad | Trackpad; Direct mouse; Multi-touch; Local cursor; Touch off | Use Trackpad for relative cursor movement, Direct mouse to point at a screen location, Multi-touch for host touch input, Local cursor for a pointer drawn on this device with no round trip, or Touch off to ignore fingers while playing with a controller (Back still opens the stream menu). Unsupported native touch falls back to Direct mouse. The picker's Help explains each mode. See [touch modes](controls.md#touch-modes). |
+| Trackpad speed<br>`seekbar_trackpad_speed` | 100% | 25%–400%; step 1% | Adjust Trackpad movement; 100% is normal speed. |
+| Local cursor speed<br>`seekbar_local_cursor_speed` | 100% | 25%–400%; step 1% | Adjust Local cursor movement; at 100% the drawn pointer moves as far as your finger. |
+| Pointer acceleration<br>`checkbox_trackpad_acceleration` | Off | On; Off | Enable so slow finger movement aims precisely and fast swipes cover more distance. Trackpad and Local cursor; applies from the next stream. |
+| Acceleration strength<br>`list_trackpad_acceleration_curve` | Medium | Gentle; Medium; Strong | Choose how strongly fast swipes are sped up. Requires Pointer acceleration On. |
+| Glide after a flick<br>`checkbox_trackpad_momentum` | Off | On; Off | Enable so the pointer keeps gliding after a quick flick. A new touch, a mode change, the stream menu, picture-in-picture and disconnecting stop it at once. Trackpad and Local cursor. |
+| Glide distance<br>`list_trackpad_momentum_glide` | Medium | Short; Medium; Long | Choose how far the pointer glides. Requires Glide after a flick On. |
+| Trackpad area<br>`list_trackpad_area` | Full screen | Full screen; Right half; Left half; Bottom half; Top half | Limit where Trackpad and Local cursor gestures may start, for example to rest a thumb on one side; touches that start elsewhere are ignored. |
+| Three-finger tap<br>`list_three_finger_tap` | Open the keyboard | Open the keyboard; Middle click | Choose whether a quick three-finger tap opens Android's keyboard or sends a middle click. Trackpad, Direct mouse and Local cursor. |
 | Mouse speed<br>`seekbar_mouse_speed` | 100% | 25%–400%; step 1% | Adjust physical relative mouse movement; 100% is normal speed. |
 | Mouse back/forward buttons<br>`checkbox_mouse_nav_buttons` | Off | On; Off | Enable to send mouse Back/Forward buttons. Disable if it interferes with right-click. |
 | Desktop mouse mode<br>`checkbox_absolute_mouse_mode` | Off | On; Off | Enable for desktop pointer acceleration. Leave off for game mouse look. Available on Android 8+ except devices using the separate raw pointer path. |

@@ -76,8 +76,21 @@ Choose **Settings → Controls → Touch mode**, or **stream menu → Input → 
 | Trackpad (default) | Drag to move the pointer relatively. Tap with one finger for left-click, two for right-click. Hold then drag to drag with a mouse button; move two fingers to scroll. |
 | Direct mouse | Tap a location to click there, drag to move while holding the left button, and hold still for right-click. A second finger scrolls. |
 | Multi-touch | Send fingers directly to the host touch interface. If native touch is unavailable, Nightjar uses Direct mouse. Use the stream menu for the keyboard. |
+| Local cursor | Like Trackpad, but Nightjar draws the pointer on this device, so it follows your finger with no round trip to the PC. The pointer's position goes to the host as an absolute position, so a tap clicks exactly where the drawn arrow points, including while pinch zoom is on. Tap, two-finger tap, hold-then-drag and two-finger scroll work as in Trackpad. The drawn pointer is a plain arrow; the PC's own cursor may still show in the video. |
+| Touch off | The stream ignores fingers, for playing with a controller without stray touches. Android's Back gesture or Back button still opens the stream menu, where you can switch the mode back. On-screen controls, per-game touch buttons, pinch zoom (if you turned it on), a mouse and a pen keep working. |
 
-**Trackpad speed** changes relative touch movement from 25–400%, with 100% as the default. Native pen input is forwarded when supported and permitted by the host.
+**Trackpad speed** changes Trackpad movement and **Local cursor speed** changes Local cursor movement, each from 25–400% with 100% as the default. At 100%, the local pointer moves as far as your finger. Native pen input is forwarded when supported and permitted by the host.
+
+These options in **Settings → Controls** shape Trackpad and Local cursor movement. All are off or unchanged by default and apply from the next stream:
+
+- **Pointer acceleration** with **Acceleration strength** (Gentle, Medium or Strong): slow finger movement moves the pointer less, for precise aiming, and fast swipes move it farther.
+- **Glide after a flick** with **Glide distance** (Short, Medium or Long): after a quick flick, the pointer keeps moving and slows down. Touching the screen stops it at once, and so do changing the touch mode, opening the stream menu, picture-in-picture, leaving the app and disconnecting. A finger that rests before lifting, a drag and a two-finger scroll do not glide.
+- **Trackpad area** (Full screen, Right half, Left half, Bottom half or Top half): Trackpad and Local cursor gestures count only when the first finger lands in that part of the screen; a gesture that starts elsewhere is ignored until every finger lifts. Use it to keep a thumb resting on one side, for example in strategy games.
+- **Three-finger tap**: a quick tap with three fingers opens Android's keyboard (the default) or sends a middle click. It works in Trackpad, Direct mouse and Local cursor; a tap with four fingers or one where the fingers travel does not count.
+
+With an external display, the phone always works as a Trackpad (or stays off with Touch off), since a pointer drawn on the phone would not match the external screen.
+
+How acceleration and glide feel depends on the touch screen's sampling rate; try the strengths on your device.
 
 Direct mouse, native touch and pen positions follow the streamed image, including when cutouts, fold panes or window padding shift it. Touch permission and a working host touch interface are still required for Multi-touch.
 
@@ -156,7 +169,7 @@ Layouts and their visibility are saved separately for each PC and game, using th
 
 ### Tablet zoom and external displays
 
-Choose **stream menu → Display → Enable pinch zoom and pan**. Pinch to zoom from 1× to 4× and drag two fingers to pan within the desktop. One finger continues to use the selected touch mode; direct mouse, native touch, pen and absolute mouse positions use the inverse video transform. Trackpad movement stays relative. While enabled, the two-finger gesture controls the view instead of scrolling the PC. **Reset zoom** restores the full image. Android 5/6 require TextureView; Android 7+ support the SurfaceView path as well.
+Choose **stream menu → Display → Enable pinch zoom and pan**. Pinch to zoom from 1× to 4× and drag two fingers to pan within the desktop. One finger continues to use the selected touch mode; direct mouse, native touch, pen and absolute mouse positions use the inverse video transform. Trackpad movement stays relative; in Local cursor mode the drawn pointer stays over the same spot of the zoomed image and moves as far as your finger. While enabled, the two-finger gesture controls the view instead of scrolling the PC. **Reset zoom** restores the full image. Android 5/6 require TextureView; Android 7+ support the SurfaceView path as well.
 
 For a dock, USB-C/HDMI monitor or Android presentation-capable wireless display, choose **stream menu → Display → Video output** and select the display. The item appears while Android offers such a display, and while video is on one. Switching output safely disconnects/reconnects the client while preserving the PC application, and starts the decoder on a dedicated presentation surface. Game streams resume only the captured application: if it stops or another application replaces it during handoff, the reconnect fails without launching or quitting an application. This guard is independent of automatic network recovery. Remote Monitor keeps its dedicated view-only host operation. Video goes to the monitor; the device remains a touchpad with its keyboard toolbar, game buttons and stream menu. This works with any Moonlight-compatible host and does not ask the host to change its display layout. Android determines which attached outputs support presentations; mirroring-only outputs cannot be selected.
 
@@ -201,7 +214,7 @@ In Settings, Right opens the selected switch's help (Left in RTL). TV settings p
 | Start+LB when the controller has no Select/Back button | Send Select/Back. |
 | Start+Select when the controller has no Guide button | Send Guide; without Select, use Start+RB. |
 | Select+LB when device-motion fallback emulates a touchpad-capable controller | Send a touchpad click. |
-| Three-finger tap in Trackpad/Direct mouse mode | Toggle the on-screen keyboard. |
+| Three-finger tap in Trackpad, Direct mouse or Local cursor mode | Toggle the on-screen keyboard, or middle-click when **Three-finger tap** is set to Middle click. |
 | Stream menu → Overlay (top row) | Show or hide the overlay. **Display → Overlay and diagnostics** chooses Compact, Statistics or Debug. |
 
 Nightjar can also pin app shortcuts to the Android launcher. For external game libraries and intent-based shortcuts, see [frontends](FRONTENDS.md).

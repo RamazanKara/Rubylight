@@ -1,0 +1,26 @@
+# The binary contract between the Rubylight host and the Rubylight virtual display
+# driver (rust/drivers/rubylight-vdisplay): control IOCTLs, the frame-push ring and the
+# mode/EDID arithmetic the driver advertises.
+#
+# Self-contained on purpose: no dependencies and no workspace inheritance, because it is a
+# member of the main workspace (the host and CI test it) AND a path dependency of the
+# driver's own workspace, which builds under the WDK toolchain.
+#
+# Based on punktfunk's pf-driver-proto by Enrico Bühler (unom), MIT OR Apache-2.0.
+[package]
+name = "rubylight-vdisplay-proto"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+license = "MIT OR Apache-2.0"
+description = "Host-driver contract of the Rubylight virtual display driver"
+publish = false
+
+[lints.rust]
+unsafe_code = "forbid"
+unsafe_op_in_unsafe_fn = "deny"
+
+[lints.clippy]
+dbg_macro = "warn"
+todo = "warn"
+unimplemented = "warn"

@@ -4,6 +4,7 @@ use std::{
     collections::VecDeque,
     time::{Duration, Instant},
 };
+#[derive(Clone, Copy)]
 struct Frame {
     at: Instant,
     latency: u64,
@@ -12,6 +13,22 @@ struct Frame {
     sent: u64,
     interval: Option<u64>,
     bytes: u64,
+}
+/// One second's totals for the history graph.
+#[derive(Clone, Copy)]
+struct Second {
+    fps: f64,
+    bitrate_mbps: f64,
+    encode_mean_ms: f64,
+    encode_max_ms: f64,
+    host_processing_mean_ms: f64,
+    host_processing_max_ms: f64,
+    frame_age_mean_ms: f64,
+}
+impl Second {
+    fn json(&self) -> Value {
+        json!({"fps":self.fps,"bitrate_mbps":self.bitrate_mbps,"encode_mean_ms":self.encode_mean_ms,"encode_max_ms":self.encode_max_ms,"host_processing_mean_ms":self.host_processing_mean_ms,"host_processing_max_ms":self.host_processing_max_ms,"frame_age_mean_ms":self.frame_age_mean_ms})
+    }
 }
 struct FecFrame {
     index: u32,
@@ -178,7 +195,7 @@ struct StageSample {
 pub struct Performance {
     frames: VecDeque<Frame>,
     stages: VecDeque<StageSample>,
-    history: VecDeque<Value>,
+    history: VecDeque<Second>,
     bucket: Option<Instant>,
     count: u64,
     bytes: u64,
@@ -300,7 +317,15 @@ impl Performance {
         {
             let elapsed = now.duration_since(start).as_secs_f64();
             let count = self.count.max(1) as f64;
-            self.history.push_back(json!({"fps":self.count as f64/elapsed,"bitrate_mbps":self.bytes as f64*8./elapsed/1_000_000.,"encode_mean_ms":self.latency as f64/count/1000.,"encode_max_ms":self.maximum as f64/1000.,"host_processing_mean_ms":self.processing as f64/count/1000.,"host_processing_max_ms":self.processing_maximum as f64/1000.,"frame_age_mean_ms":self.age as f64/count/1000.}));
+            self.history.push_back(Second {
+                fps: self.count as f64 / elapsed,
+                bitrate_mbps: self.bytes as f64 * 8. / elapsed / 1_000_000.,
+                encode_mean_ms: self.latency as f64 / count / 1000.,
+                encode_max_ms: self.maximum as f64 / 1000.,
+                host_processing_mean_ms: self.processing as f64 / count / 1000.,
+                host_processing_max_ms: self.processing_maximum as f64 / 1000.,
+                frame_age_mean_ms: self.age as f64 / count / 1000.,
+            });
             if self.history.len() > 120 {
                 self.history.pop_front();
             }
@@ -387,16 +412,58 @@ impl Performance {
             self.stages.pop_front();
         }
     }
+    /// Copies what `snapshot` reports. The send path records into this under
+    /// the same lock, so callers take the window, release the lock, and sort
+    /// and build the JSON after.
+    pub fn window(&self, now: Instant) -> Window {
+        Window {
+            now,
+            frames: self
+                .frames
+                .iter()
+                .filter(|f| now.duration_since(f.at) <= Duration::from_secs(2))
+                .copied()
+                .collect(),
+            stages: self
+                .stages
+                .iter()
+                .filter(|s| now.saturating_duration_since(s.at) <= STAGE_WINDOW)
+                .map(|s| s.micros)
+                .collect(),
+            history: self.history.iter().copied().collect(),
+            send_stutters: self.send_stutters,
+            fec_reports: self.fec_reports,
+            fec_invalid_reports: self.fec_invalid_reports,
+            fec_duplicate_reports: self.fec_duplicate_reports,
+            fec_recovered_frames: self.fec_recovered_frames,
+            fec_unrecoverable_frames: self.fec_unrecoverable_frames,
+            fec_missing_packets: self.fec_missing_packets,
+        }
+    }
+    pub fn snapshot(&self, now: Instant) -> Value {
+        self.window(now).snapshot()
+    }
+}
+/// The measurements a snapshot covers, copied out of `Performance`.
+pub struct Window {
+    now: Instant,
+    frames: Vec<Frame>,
+    stages: Vec<[u32; STAGES.len() + 2]>,
+    history: Vec<Second>,
+    send_stutters: u64,
+    fec_reports: u64,
+    fec_invalid_reports: u64,
+    fec_duplicate_reports: u64,
+    fec_recovered_frames: u64,
+    fec_unrecoverable_frames: u64,
+    fec_missing_packets: u64,
+}
+impl Window {
     /// Mean, p95 and p99 of each stage over the last five seconds' new
     /// pictures, in milliseconds.
-    fn stage_snapshot(&self, now: Instant) -> Value {
-        let samples: Vec<_> = self
-            .stages
-            .iter()
-            .filter(|s| now.saturating_duration_since(s.at) <= STAGE_WINDOW)
-            .collect();
+    fn stage_snapshot(&self) -> Value {
         let spread = |index: usize| {
-            let mut values: Vec<u32> = samples.iter().map(|s| s.micros[index]).collect();
+            let mut values: Vec<u32> = self.stages.iter().map(|s| s[index]).collect();
             values.sort_unstable();
             let ms = |us: u32| f64::from(us) / 1000.;
             let at = |percent: usize| {
@@ -413,7 +480,7 @@ impl Performance {
             })
         };
         let mut stages = serde_json::Map::new();
-        stages.insert("frames".into(), samples.len().into());
+        stages.insert("frames".into(), self.stages.len().into());
         stages.insert("window_seconds".into(), STAGE_WINDOW.as_secs().into());
         for (index, name) in STAGES.iter().enumerate() {
             stages.insert((*name).into(), spread(index));
@@ -422,17 +489,13 @@ impl Performance {
         stages.insert("moonlight_host".into(), spread(STAGES.len() + 1));
         Value::Object(stages)
     }
-    pub fn snapshot(&self, now: Instant) -> Value {
-        let frames: Vec<_> = self
-            .frames
-            .iter()
-            .filter(|f| now.duration_since(f.at) <= Duration::from_secs(2))
-            .collect();
+    pub fn snapshot(&self) -> Value {
+        let frames = &self.frames;
         let seconds = frames
             .first()
-            .map_or(0., |f| now.duration_since(f.at).as_secs_f64());
+            .map_or(0., |f| self.now.duration_since(f.at).as_secs_f64());
         let sorted = |value: fn(&Frame) -> u64| {
-            let mut values: Vec<_> = frames.iter().map(|f| value(f)).collect();
+            let mut values: Vec<_> = frames.iter().map(value).collect();
             values.sort_unstable();
             values
         };
@@ -485,8 +548,8 @@ impl Performance {
             "fec_recovered_frames":self.fec_recovered_frames,
             "fec_unrecoverable_frames":self.fec_unrecoverable_frames,
             "fec_missing_packets":self.fec_missing_packets,
-            "stages":self.stage_snapshot(now),
-            "sample_frames":frames.len(),"history":self.history
+            "stages":self.stage_snapshot(),
+            "sample_frames":frames.len(),"history":self.history.iter().map(Second::json).collect::<Vec<_>>()
         })
     }
 }
@@ -875,5 +938,22 @@ mod tests {
         assert_eq!(s["history"].as_array().unwrap().len(), 120);
         assert!(p.frames.len() <= 1024);
         assert_eq!(p.snapshot(now + Duration::from_secs(3))["fps"], 0.);
+    }
+    #[test]
+    fn a_window_is_a_copy_that_frames_recorded_after_it_do_not_change() {
+        let start = Instant::now();
+        let mut p = Performance::default();
+        for i in 0..300 {
+            p.record(start + Duration::from_millis(i * 10), 2000, 10000);
+        }
+        let now = start + Duration::from_millis(2990);
+        let window = p.window(now);
+        let expected = p.snapshot(now);
+        for i in 300..400 {
+            p.record(start + Duration::from_millis(i * 10), 9000, 10000);
+        }
+        assert_eq!(window.snapshot(), expected);
+        assert_eq!(expected["history"].as_array().unwrap().len(), 2);
+        assert_eq!(expected["history"][0]["encode_mean_ms"], 2.);
     }
 }

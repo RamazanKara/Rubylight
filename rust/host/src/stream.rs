@@ -1728,7 +1728,9 @@ impl Media {
                                 if Instant::now() >= timing_due {
                                     timing_due = Instant::now() + Duration::from_secs(5);
                                     if timings_logged {
-                                        let timing = s.stats.performance.lock().unwrap().snapshot(Instant::now());
+                                        // Sorted after the lock the sender records into is released.
+                                        let window = s.stats.performance.lock().unwrap().window(Instant::now());
+                                        let timing = window.snapshot();
                                         let ms = |key: &str| timing[key].as_f64().unwrap_or(0.);
                                         let split = |pick: fn(&(u64, u64)) -> u64| {
                                             let mut values: Vec<u64> = claim_ages.iter().map(pick).collect();

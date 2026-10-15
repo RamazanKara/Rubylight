@@ -1,0 +1,56 @@
+# Rubylight's UMDF IddCx virtual display driver, as its own cargo workspace.
+#
+# Separate from the main workspace (which excludes this directory) because a UMDF driver is
+# a cdylib built for x86_64-pc-windows-msvc with the static CRT, against the Windows Driver
+# Kit, by windows-drivers-rs (wdk-build / wdk-sys). The main build and CI never see it;
+# build-package.ps1 builds, packages and test-signs it.
+#
+# Based on punktfunk's driver workspace (packaging/windows/drivers) by Enrico Bühler (unom),
+# MIT OR Apache-2.0. The shared host-driver contract is a member of the main workspace and a
+# path dependency here.
+[workspace]
+resolver = "2"
+members = ["driver", "wdk-iddcx"]
+
+[workspace.package]
+edition = "2024"
+version = "0.1.0"
+license = "MIT OR Apache-2.0"
+publish = false
+
+# The same unsafe discipline punktfunk's drivers run: an `unsafe fn` body is not one big
+# unsafe block, and every `unsafe {}` states its proof.
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+
+[workspace.lints.clippy]
+undocumented_unsafe_blocks = "deny"
+ptr_cast_constness = "deny"
+unnecessary_safety_doc = "deny"
+unnecessary_safety_comment = "deny"
+cast_ptr_alignment = "warn"
+
+[workspace.dependencies]
+wdk-sys = "0.5.1"
+wdk-build = "0.5.1"
+wdk-iddcx = { path = "wdk-iddcx" }
+rubylight-vdisplay-proto = { path = "../rubylight-vdisplay-proto" }
+
+# windows-drivers-rs 0.5.1 with punktfunk's added `iddcx` API subset (bindgen over
+# iddcx/1.10/IddCx.h), vendored. Every wdk-sys / wdk-build reference resolves to these.
+[patch.crates-io]
+wdk-build = { path = "vendor/wdk-build" }
+wdk-sys = { path = "vendor/wdk-sys" }
+
+# wdk-sys reads the driver model from the workspace metadata.
+[workspace.metadata.wdk.driver-model]
+driver-type = "UMDF"
+umdf-version-major = 2
+target-umdf-version-minor = 31
+
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+panic = "abort"
+lto = true

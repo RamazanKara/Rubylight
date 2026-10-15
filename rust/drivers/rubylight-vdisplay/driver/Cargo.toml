@@ -1,0 +1,49 @@
+# rubylight-vdisplay: Rubylight's UMDF IddCx virtual display driver. It creates virtual
+# monitors on the host's request and pushes every composed frame into a texture ring the host
+# shares with it (rubylight-vdisplay-proto's `ring`), so the host encodes them without WGC or
+# Desktop Duplication.
+#
+# Based on punktfunk's pf-vdisplay by Enrico Bühler (unom), MIT OR Apache-2.0. The in-driver
+# encoder, hardware cursor and remote-session (seat) adapter of that driver are not part of
+# this phase.
+[package]
+name = "rubylight-vdisplay"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+publish = false
+
+[package.metadata.wdk.driver-model]
+driver-type = "UMDF"
+umdf-version-major = 2
+target-umdf-version-minor = 31
+
+[lib]
+crate-type = ["cdylib"]
+
+[build-dependencies]
+wdk-build.workspace = true
+
+[dependencies]
+wdk-sys = { workspace = true, features = ["iddcx"] }
+wdk-iddcx.workspace = true
+rubylight-vdisplay-proto.workspace = true
+
+# 0.58 matches the `windows` wdk-build itself depends on.
+[dependencies.windows]
+version = "0.58.0"
+features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_System_Memory",
+    "Win32_System_Performance",
+    "Win32_System_Registry",
+    "Win32_System_Threading",
+    "Win32_Graphics_Direct3D",
+    "Win32_Graphics_Direct3D11",
+    "Win32_Graphics_Dxgi",
+    "Win32_Graphics_Dxgi_Common",
+]
+
+[lints]
+workspace = true

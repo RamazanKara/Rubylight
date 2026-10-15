@@ -1,0 +1,87 @@
+;/*++
+; rubylight_vdisplay.inx - Rubylight Virtual Display, UMDF2 IddCx driver INF template.
+; build-package.ps1 stamps it (stampinf) into rubylight_vdisplay.inf.
+;
+; Based on punktfunk's pf_vdisplay.inx by Enrico Buehler (unom), MIT OR Apache-2.0, itself
+; adapted from MolotovCherry/virtual-display-rs (MIT) and SudoVDA's control-device DACL.
+; The driver registers its control interface GUID in code (WdfDeviceCreateDeviceInterface),
+; so this INF carries no GUID of its own.
+;
+; Identity, distinct from libvirtualdisplay and punktfunk so all three can coexist:
+;   hardware ID  Root\RubylightVDisplay
+;   UMDF service RubylightVDisplay
+;   binary       rubylight_vdisplay.dll
+;--*/
+[Version]
+PnpLockdown=1
+Signature="$Windows NT$"
+ClassGUID={4D36E968-E325-11CE-BFC1-08002BE10318}
+Class=Display
+ClassVer=2.0
+Provider=%ManufacturerName%
+CatalogFile=rubylight_vdisplay.cat
+DriverVer=
+
+[Manufacturer]
+%ManufacturerName%=Standard,NT$ARCH$
+
+[Standard.NT$ARCH$]
+%DeviceName%=RubylightVDisplay_Install, Root\RubylightVDisplay
+
+[SourceDisksFiles]
+rubylight_vdisplay.dll=1
+
+[SourceDisksNames]
+1=%DiskName%
+
+[RubylightVDisplay_Install.NT]
+CopyFiles=UMDriverCopy
+
+[RubylightVDisplay_Install.NT.hw]
+AddReg=RubylightVDisplay_HardwareDeviceSettings
+
+[RubylightVDisplay_HardwareDeviceSettings]
+HKR, , "UpperFilters", %REG_MULTI_SZ%, "IndirectKmd"
+; Only SYSTEM (the Rubylight service) and administrators may open the control device: it
+; creates and removes displays and receives frame-ring handles.
+HKR, , "Security", , "D:P(A;;GA;;;SY)(A;;GA;;;BA)"
+
+[RubylightVDisplay_Install.NT.Services]
+AddService=WUDFRd,0x000001fa,WUDFRD_ServiceInstall
+
+[RubylightVDisplay_Install.NT.Wdf]
+UmdfService=RubylightVDisplay, RubylightVDisplay_Install
+UmdfServiceOrder=RubylightVDisplay
+UmdfKernelModeClientPolicy=AllowKernelModeClients
+; A dedicated WUDFHost: the host duplicates the ring's handles into exactly this process,
+; whose pid the ADD reply reports.
+UmdfHostProcessSharing=ProcessSharingDisabled
+UmdfFileObjectPolicy=AllowNullAndUnknownFileObjects
+
+[RubylightVDisplay_Install]
+UmdfLibraryVersion=$UMDFVERSION$
+ServiceBinary=%12%\UMDF\rubylight_vdisplay.dll
+; "IddCx0102" is the extension's registered identity string, kept by every IddCx release.
+; The real floor is the binary's exported IddMinimumVersionRequired = 10 (IddCx 1.10).
+UmdfExtensions=IddCx0102
+
+[WUDFRD_ServiceInstall]
+DisplayName=%WudfRdDisplayName%
+ServiceType=1
+StartType=3
+ErrorControl=1
+ServiceBinary=%12%\WUDFRd.sys
+
+[DestinationDirs]
+UMDriverCopy=12,UMDF
+
+[UMDriverCopy]
+rubylight_vdisplay.dll
+
+[Strings]
+ManufacturerName="Rubylight"
+DiskName="Rubylight Virtual Display Installation Disk"
+WudfRdDisplayName="Windows Driver Foundation - User-mode Driver Framework Reflector"
+DeviceName="Rubylight Virtual Display"
+
+REG_MULTI_SZ=0x00010000

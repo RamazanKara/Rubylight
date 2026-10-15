@@ -1,0 +1,15 @@
+# Typed wrappers over the wdk-sys IddCx DDIs (table dispatch), with compile-time checks that
+# the iddcx bindgen surface still resolves. From punktfunk's wdk-iddcx by Enrico Bühler
+# (unom), MIT OR Apache-2.0.
+[package]
+name = "wdk-iddcx"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+wdk-sys = { workspace = true, features = ["iddcx"] }
+
+[lints]
+workspace = true

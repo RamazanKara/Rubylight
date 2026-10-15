@@ -1,0 +1,5 @@
+# The driver links with the MSVC toolchain and the WDK; the host's GNU toolchain is not used.
+[toolchain]
+channel = "1.98.1-x86_64-pc-windows-msvc"
+profile = "minimal"
+components = ["rustfmt", "clippy"]

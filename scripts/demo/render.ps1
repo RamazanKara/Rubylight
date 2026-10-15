@@ -15,11 +15,13 @@ $outroFade = 0.8
 $repoUrl = 'github.com/RamazanKara/nightjar-android'
 $tilePath = Join-Path $PSScriptRoot 'assets/nightjar-tile.png'
 
-# Palette: the Nightjar brand, an amber moon (#F2A93B) on night (#14161F), as in the README banner.
+# Palette: the Nightjar brand, an amber moon (#F2A93B) on flat night (#14161F) with ink text (#F4EFE6), as in the
+# README banner; secondary text uses the app's night on-surface roles. No gradients or glow.
 $accent = '#F2A93B'
 $night = '#14161F'
 $white = 'F4EFE6'
-$muted = 'B9B3C2'
+$muted = 'C1C4D2'
+$soft = 'E3E4EE'
 
 function Find-FFmpeg {
     $command = Get-Command ffmpeg.exe -ErrorAction SilentlyContinue
@@ -137,16 +139,16 @@ function New-Card([string]$Name, [int]$Width, [int]$Height, [scriptblock]$Draw) 
 
 function Draw-Backdrop([Drawing.Graphics]$Graphics, [int]$Width, [int]$Height, [double]$RingX, [double]$RingY, [double]$RingStep) {
     $rect = New-Object Drawing.Rectangle(0, 0, $Width, $Height)
-    $gradient = New-Object Drawing.Drawing2D.LinearGradientBrush($rect, (Hex '#1E2130'), (Hex '#0E1016'), 35.0)
+    $fill = New-Object Drawing.SolidBrush((Hex $night))
     # Concentric rings echo the README banner.
     $pen = New-Object Drawing.Pen([Drawing.Color]::FromArgb(54, 242, 169, 59), 2)
     try {
-        $Graphics.FillRectangle($gradient, $rect)
+        $Graphics.FillRectangle($fill, $rect)
         for ($ring = 1; $ring -le 5; $ring++) {
             $radius = $ring * $RingStep
             $Graphics.DrawEllipse($pen, [single]($RingX - $radius), [single]($RingY - $radius), [single](2 * $radius), [single](2 * $radius))
         }
-    } finally { $pen.Dispose(); $gradient.Dispose() }
+    } finally { $pen.Dispose(); $fill.Dispose() }
 }
 
 function Draw-Tile([Drawing.Graphics]$Graphics, [Drawing.Image]$Tile, [double]$X, [double]$Y, [double]$Size) {
@@ -168,7 +170,7 @@ function New-TitleCard([string]$Name, [int]$Width, [int]$Height, [string]$Card, 
         param($g, $w, $h)
         $whiteBrush = New-Object Drawing.SolidBrush((Hex "#$white"))
         $mutedBrush = New-Object Drawing.SolidBrush((Hex "#$muted"))
-        $softBrush = New-Object Drawing.SolidBrush((Hex '#D9D4E0'))
+        $softBrush = New-Object Drawing.SolidBrush((Hex "#$soft"))
         $accentBrush = New-Object Drawing.SolidBrush((Hex $accent))
         $nightBrush = New-Object Drawing.SolidBrush((Hex $night))
         $fonts = @()
@@ -253,7 +255,7 @@ function Get-Layout([bool]$Vertical, [bool]$Landscape, [int]$SourceW, [int]$Sour
 }
 
 function New-ShotArt([string]$Id, $Layout, [bool]$Vertical, [bool]$Landscape, [Drawing.Image]$Tile) {
-    # Backdrop (gradient, rings, brand row, accent bar, phone body) and a separate bezel with rounded display corners.
+    # Backdrop (flat night, rings, brand row, accent bar, phone body) and a separate bezel with rounded display corners.
     New-Card "$Id-bg.png" $Layout.Width $Layout.Height {
         param($g, $w, $h)
         Draw-Backdrop $g $w $h ($Layout.X + $Layout.ScreenW / 2) ($Layout.Y + $Layout.ScreenH / 2) 200

@@ -1869,7 +1869,10 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         int[] size = decoderRenderer.getStreamSize();
         streamStartedLandscape = size[0] >= size[1];
         int fpsMillihz = streamFps * 1000;
-        int[] offered = offeredStream(size[0], size[1], fpsMillihz);
+        // What the phone offered when the stream was asked for, in the window shape it had then: a
+        // turn while the stream connected was not seen, so the settled check below still asks for it.
+        boolean launchLandscape = launchWidth > 0 && launchHeight > 0 ? launchWidth >= launchHeight : windowLandscape();
+        int[] offered = offeredStream(size[0], size[1], fpsMillihz, launchLandscape);
         if (offered == null) {
             offered = new int[] {size[0], size[1], fpsMillihz};
         }
@@ -1877,6 +1880,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         qualityMaxWidth = size[0];
         qualityMaxHeight = size[1];
         qualityMaxFps = streamFps;
+        scheduleReconfigureCheck();
     }
 
     private void checkStreamReconfigure() {
@@ -1955,6 +1959,10 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     // What this phone offers a stream that follows it, {width, height, fps in millihertz}, given
     // the stream's current values; null when this stream cannot change in place.
     private int[] offeredStream(int width, int height, int fpsMillihz) {
+        return offeredStream(width, height, fpsMillihz, windowLandscape());
+    }
+
+    private int[] offeredStream(int width, int height, int fpsMillihz, boolean windowLandscape) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
             return null;
         }
@@ -1962,16 +1970,16 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         if (limits == null) {
             return null;
         }
-        int[] size = nativeResolutionStream ? nativeStreamSize(limits) :
+        int[] size = nativeResolutionStream ? nativeStreamSize(limits, windowLandscape) :
                 StreamOrientation.followsRotation(streamOrientation, hostShapesStream) && !isInMultiWindowMode() ?
-                StreamOrientation.turnedSize(launchWidth, launchHeight, windowLandscape(), limits[0], limits[1],
+                StreamOrientation.turnedSize(launchWidth, launchHeight, windowLandscape, limits[0], limits[1],
                         limits[2], limits[3]) : null;
         int fps = StreamResizePolicy.targetFpsMillihz(fpsFollowsDisplay, fpsMillihz, streamPanelHz, panelMaxRefreshRate);
         return size == null ? new int[] {width, height, fps} : new int[] {size[0], size[1], fps};
     }
 
     @TargetApi(Build.VERSION_CODES.O)
-    private int[] nativeStreamSize(int[] limits) {
+    private int[] nativeStreamSize(int[] limits, boolean windowLandscape) {
         if (isInMultiWindowMode()) {
             // Split screen or a desktop window: the stream fills the window's pane, in panel pixels.
             View pane = findViewById(android.R.id.content);
@@ -1998,7 +2006,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         String[] parts = nativeResolution.split("x");
         return StreamResizePolicy.nativeSize(Integer.parseInt(parts[0]), Integer.parseInt(parts[1]), 1,
                 StreamOrientation.streamOrientation(streamOrientation, hostShapesStream, streamStartedLandscape,
-                        windowLandscape()),
+                        windowLandscape),
                 limits[0], limits[1], limits[2], limits[3]);
     }
 

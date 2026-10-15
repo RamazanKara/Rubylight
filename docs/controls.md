@@ -29,7 +29,7 @@ Use **Controller buttons** to press a digital button and choose what it sends, i
 
 Open **Sticks, triggers and D-pad** after selecting a controller. Each output stick axis can read either stick's horizontal or vertical axis, optionally inverted, or be disabled. Triggers can read either physical trigger or be disabled; their full analog range is preserved. Each D-pad direction can send another direction, a gamepad button, or nothing. These mappings apply to normalized Android and direct-USB reports, after deadzones, and also apply from the next stream. D-pad directions mapped to the same button stay held until every contributing source is released. Reset restores both digital and axis mappings. Axis mappings do not convert a stick into a trigger or emulate keyboard keys.
 
-**Flip face buttons** swaps A/B and X/Y. Raise the stick deadzone if a stationary stick drifts. **Vibrate device for rumble** gives you rumble on the phone or tablet when the controller has no motors. **Disable rumble** (off by default) stops every vibration the host asks for: controller and trigger rumble, USB DualSense waveform haptics and the device vibration above. It applies from the next stream.
+**Flip face buttons** swaps A/B and X/Y. Raise the stick deadzone if a stationary stick drifts. **Vibrate device for rumble** gives you rumble on the phone or tablet when the controller has no motors. **Disable rumble** (off by default) stops every vibration the host asks for: controller and trigger rumble (including the USB Switch Pro driver), USB DualSense waveform haptics and the device vibration above. It applies from the next stream.
 
 ### Controller test
 
@@ -60,6 +60,20 @@ Enable **USB DualSense audio and haptics**, then reconnect the controller and st
 For gyro aiming and radial menus, use the game’s **Steam Input** controller layout on the host and enable controller motion in Nightjar. The client forwards motion and touchpad input; Steam supplies the aiming behavior and menu overlay. Games using native DualSense effects may need Steam Input disabled for that game.
 
 The separate **USB controller driver** setting supplies Xbox USB support. **Always use the USB driver** prefers that path even if Android already recognizes the controller.
+
+### Switch Pro over USB
+
+**Untested on hardware.** This driver was written from the published protocol notes and has not yet been tried with a real controller. If it misbehaves, turn it off; Android's own input path keeps working.
+
+Android reads a Switch Pro Controller through its own input path; what that offers for motion, rumble and the Capture button depends on the device and Android version. For the direct USB driver:
+
+1. Enable **Settings → Controls → USB Switch Pro driver** (off by default).
+2. Connect a Nintendo Switch Pro Controller by USB and start a stream.
+3. Allow Android's USB access request. Denying it keeps the ordinary Android input path; unplug and reconnect to retry.
+
+The driver reads the factory or user stick calibration and motion calibration from the controller, then sends all buttons including **Home** (Guide) and **Capture** (sent as the Misc button), both sticks, ZL/ZR as fully pressed or released triggers, gyro and accelerometer in the same axes as a DualSense, battery state and rumble. The face buttons follow their position, like Android's own Switch driver: the bottom button (B on the Switch) is A. Use **Flip face buttons** or **Controller buttons** to match the labels instead. The stream's stick deadzone applies as for any controller, the player lights show the controller's slot, and **Disable rumble** silences it. The host's two rumble motors map to the controller's low and high band at a fixed 150 Hz; the host's HD rumble waveforms are not used.
+
+Unplugging the controller releases every button and stops motion on the host; ending the stream stops rumble, turns the motion sensors off and hands the controller back to Android. Joy-Con and the Joy-Con Charging Grip are not claimed by this driver and stay on Android's input path. Third-party Switch controllers with other USB IDs are not claimed either. The **Controller test** page reads the controller through this driver when it is on.
 
 ### Controller mouse mode
 

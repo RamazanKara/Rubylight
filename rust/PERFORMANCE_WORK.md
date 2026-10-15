@@ -10,6 +10,94 @@ entry may have been measured in a later one. Results to a real laptop over
 Wi-Fi are in "October 8 real-client picture age over Wi-Fi"; the
 [performance overview](../docs/performance.md) carries the current numbers.
 
+## October 15 RX 7900 XT video engine resets: no host trigger found
+
+Question: what makes the RX 7900 XT's driver reset during tests and streams.
+Read-only: dumps, Windows events and logs. No stream, no forced hang.
+
+**Dumps.** Every `C:\Windows\LiveKernelReports\WATCHDOG` dump on this PC
+(Oct 9-14) read with cdb `!analyze -v` and public symbols. Each incident is
+the same chain:
+
+1. `0x141 VIDEO_ENGINE_TIMEOUT_DETECTED`, raised by
+   `dxgmms2!VidSchiCheckHwProgress` → `VidSchiResetEngine`: one engine
+   stopped, Windows tried an engine reset. Owner tag `amdkmdag+0x1d0fb0` on
+   32.0.31041.1004 (Adrenalin 26.10.41.01), `amdkmdag+0x1c02d0` on
+   32.0.32015.2008 (26.20.15.02, installed October 10 15:52). The dxgkrnl TDR
+   record has the same fixed fields in all eight; the AMD part (`AMD0AMD1`,
+   compressed) only AMD can read, and its log names `butterpollo.exe` at the
+   second the host's encoder stalled.
+2. `0x193 VIDEO_DXGKRNL_LIVEDUMP` reason 0x815 (watchdog) or 0x810
+   (`ProcessDeadlockThread`) 10 s to 2 min later: a thread stuck in the driver.
+3. `0x1B0 VIDEO_MINIPORT_FAILED_LIVEDUMP` "Add device failed",
+   `STATUS_UNSUCCESSFUL`, then on two days "Start device failed": the adapter
+   never came back. Code 31 until a reboot, every time.
+
+Windows Error Reporting has the same chain since July (0x141 on July 9, 11,
+12, August 22, September 3, 26, 30, October 6 and 8). The July to September
+ones predate the installed Rust host; on September 26 and 30 the installed
+host was Vibepollo with its C++ AMF path (same phone, AV1 HDR 1968x2184 at
+120 fps, LTR 0, 1.7-7.7 Mb/s).
+
+**Incidents** (local time; host logs; 0x141 dump written 4-6 s after the
+encoder stopped):
+
+| Dump | Host, case | Client | Codec | Mode | Mb/s | LTR | Recovery before | VRR | Capture | Display |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 10-09 02:47 | test, job 7 base run 5 | probe | HEVC HDR | 1968x2184@120 | 63 | off | none, 19 s in | off | DDX | virtual |
+| 10-09 23:33 | test, HEVC recovery soak | probe | HEVC SDR | 5120x1440@120 | 63 | off | 2 keyframes/s | off | WGC | physical |
+| 10-10 09:21 | test, c8-h264-5-A | probe | H.264 SDR | 2560x1440@120 | 63 | off | 80 ms outage every 1.5 s, 5 s in | off | WGC | physical |
+| 10-10 10:20 | test, HEVC LTR branch | probe | HEVC SDR | 2560x1440@120 | 63 | on (4) | none, 6 s in | off | WGC | physical |
+| 10-10 14:00 | installed | Legacy Moonlight | HEVC HDR | 3840x2160@120 (19 fps game) | 89 | off | none, 24 min in | off | WGC | virtual |
+| 10-11 17:20 | a test host; no log survives | ? | ? | ? | ? | ? | ? | ? | ? | ? |
+| 10-13 01:03 | installed | lap (Warhammer 3) | AV1 HDR | 2880x1800, ~120 fps | 69 | on (4) | none in the last minute, 100 min in | off | WGC | virtual |
+| 10-14 08:41 | installed | SM-F966B | AV1 HDR | 1968x2184@120 | 399 | on (4) | none, 10 s in | on | WGC | virtual |
+
+`MultiHwInstanceEncode` read 1 (driver default) in every HEVC and AV1 row;
+H.264 has no such property. Every stream converted on the D3D12 compute
+queue at high priority, with the GPU process at realtime priority. On
+October 14 the client lowered the bitrate to 319 Mb/s 3 s after the encoder
+stopped, with the hung SubmitInput already under way; no other row had a
+bitrate change.
+
+**Common factors.** Varied across the incidents, so not required: codec
+(H.264, HEVC, AV1), HDR, LTR, bitrate (63-399 Mb/s), keyframe bursts, VRR,
+capture (WGC, DDX), virtual or physical display, game or test pattern, the
+split-frame property. Common to all: AMF encoding on this RX 7900 XT at 120
+fps class rates, on two drivers and two host code bases. In the two test runs
+that logged the probe (09:21, 10:20) the GPU's trivial query kept answering
+while the encoder stalled, so the video engine hung alone; in the installed
+host's three the query also waited ~3 s (and the audio thread 3 s in the
+23:33 soak), which fits the engine reset pausing the GPU, not a 3D hang.
+The installed host log (October 2-15, 14.5 h of AMF streams, 3.9 M frames)
+has three resets: 2 in 3.2 h of AV1 with LTR, 1 in 11.3 h of everything
+else, not significant with three events (p ≈ 0.12), and the test runs above
+hung with LTR off and on H.264. Confidence: high that
+none of LTR, AV1, HDR, VRR, bitrate changes or keyframe bursts is necessary;
+medium that the trigger is in the driver or firmware; open whether the
+realtime GPU priority or the split-frame default raise the rate.
+
+**Ending the stream early does not help.** The research runner killed the
+09:21 and 10:20 runs about 1 s and 6 s after the encoder stalled; both still
+went 0x141 → 0x193 → 0x1B0 → Code 31. A thread blocked in SubmitInput cannot
+leave the driver before the reset (the hung calls returned
+`DXGI_ERROR_DEVICE_RESET` after 33.8-34.2 s), terminating AMF from another
+thread would race that call on the same component, and AMF Terminate took
+6 s on the reset GPU. Shipped instead: `rust/release/gpu_hang.py` stops e2e
+and soak runs at the first hang evidence so `check.ps1` does not retry onto a
+resetting GPU (see the release README).
+
+**No default changed.** Split-frame has no measured benefit here (October 7:
+one engine per stream whatever the property; six of 630 runs stalled, all with
+the property on, p ≈ 0.09) but H.264 hangs without it. AV1 LTR shortens a
+loss stall by 4-7 ms and shrinks the recovery frame from ~100 to ~20 KB
+(October 10), and the hangs also happen without it. Proposed guarded A/B,
+after a driver change is tried: alternate 30-minute AV1 1968x2184@120 HDR
+blocks at 80 Mb/s (a) as now, (b) `amd_split_frame=disabled`, (c) GPU process
+priority high instead of realtime, under `gpu_hang.py`, stopping at the first
+hang and rebooting; at about one hang per 5 h of streaming it takes tens of
+hours per arm to see even a threefold difference.
+
 ## October 13 adaptive AMF backlog candidate
 
 The implementation in 2.2.12 adapts the application-depth learning rule from

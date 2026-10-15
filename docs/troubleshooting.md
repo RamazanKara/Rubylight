@@ -133,12 +133,21 @@ Windows logs a `LiveKernelEvent` 141 (VIDEO_ENGINE_TIMEOUT_DETECTED) and the
 Radeon may stay in Device Manager error Code 31 until a reboot. This is the
 AMD driver's video encoder hanging inside an encode call. Rubylight's stall
 watch then logs `stream thread stopped making progress` with
-`phase=encoding`, while its GPU query probe still answers. No host process
-can end a call blocked in the kernel driver; only Windows' timeout reset does.
+`phase=encoding`; its GPU query probe may answer or wait about 3 s while
+Windows resets the engine. About 34 s later the encode call returns
+`DXGI_ERROR_DEVICE_RESET`. No host process can end a call blocked in the
+kernel driver, and ending the stream does not stop the reset.
+
+On the test RX 7900 XT this happened with H.264, HEVC and AV1, SDR and HDR,
+with and without long-term references, at 63 to 399 Mb/s, on drivers
+32.0.31041.1004 and 32.0.32015.2008, and every time the driver then failed
+to bring the adapter back (live kernel events 193 and 1B0, Code 31).
 
 If it happens on your PC:
 
 - Reboot if the Radeon shows Code 31.
+- Send the report the AMD Bug Report Tool offers after the reset; it carries
+  the driver's own hang record, which only AMD can read.
 - Keep the bitrate at what the link can carry, so the client needs fewer
   recovery keyframes. On Wi-Fi, use AV1 when the client decodes it: it
   recovers from loss with a small frame instead of a keyframe.

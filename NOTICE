@@ -57,3 +57,14 @@ Steam Deck and DualSense USB audio and haptics support. Copyright (c) 2021-2026
 Vadym Hrynchyshyn. BSD 2-Clause; the full notice is included in
 licenses/usbip-win2.txt and drivers/usbip/LICENSE.txt.
 https://github.com/vadimgrn/usbip-win2/tree/v.0.9.8.1
+
+Rubylight virtual display driver
+
+The Rubylight virtual display driver (rust/drivers/rubylight-vdisplay), its protocol
+crate (rust/drivers/rubylight-vdisplay-proto) and the host's idd-push capture are
+based on punktfunk's pf-vdisplay driver and pf-driver-proto by Enrico Bühler (unom),
+https://github.com/unom/punktfunk, MIT OR Apache-2.0, Copyright (c) 2026 unom -
+Enrico Bühler. The driver vendors microsoft/windows-drivers-rs 0.5.1 (Copyright (c)
+Microsoft Corporation, MIT OR Apache-2.0). License texts are in
+rust/drivers/rubylight-vdisplay/LICENSE-MIT and LICENSE-APACHE and in
+rust/THIRD_PARTY.md.

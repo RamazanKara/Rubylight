@@ -48,6 +48,10 @@ SOFTWARE.
 
 The PyroWave SDK patches `0002-payload-data-444-sizing` and `0003-decoder-reject-short-block` in `rust/codec-patches/pyrowave` are adapted from patches 0001 and 0008 of [Punktfunk](https://git.unom.io/unom/punktfunk) (MIT OR Apache-2.0), used here under the MIT License. They are compiled into the shipped `libpyrowave-shared-1.dll`.
 
+## Rubylight virtual display driver
+
+`rust/drivers/rubylight-vdisplay` (the UMDF IddCx driver), `rust/drivers/rubylight-vdisplay-proto` (its host-driver protocol, used by the host) and the host's `idd-push` capture are based on punktfunk's `pf-vdisplay`, `wdk-iddcx`, `pf-umdf-util` and `pf-driver-proto` by Enrico Bühler (unom), [punktfunk 0.44.0, commit c5ed113](https://github.com/unom/punktfunk), forked on 2026-10-15 under MIT OR Apache-2.0 and kept under those licenses; the full texts are in `rust/drivers/rubylight-vdisplay/LICENSE-MIT` and `LICENSE-APACHE`. Rubylight changed the driver's identity, control protocol and video transport (a host-shared texture ring instead of in-driver encoding) and removed its encoder, hardware cursor and remote-session adapter. punktfunk's INF was itself adapted from [MolotovCherry/virtual-display-rs](https://github.com/MolotovCherry/virtual-display-rs) (MIT) and SudoVDA's control-device DACL. The driver workspace vendors [microsoft/windows-drivers-rs](https://github.com/microsoft/windows-drivers-rs) 0.5.1 (`wdk-build`, `wdk-sys`; Copyright (c) Microsoft Corporation, MIT OR Apache-2.0) with punktfunk's added IddCx bindings. The driver is not part of the installer yet.
+
 MIT License
 
 Copyright (c) 2026 unom - Enrico Bühler

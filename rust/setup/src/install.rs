@@ -427,6 +427,8 @@ pub fn install(options: &Options, progress: &Progress) -> Result<Outcome> {
         system::program_data()
             .join("Microsoft\\Windows\\Start Menu\\Programs\\Butterpollo Rust.lnk"),
     );
+    crate::uninstall::remove_stale_layers();
+    crate::uninstall::remove_earlier_folder(&install);
     register(&install, &entries)?;
 
     let web_port = web_port(&profile);
@@ -561,6 +563,7 @@ fn move_install(
     // The host registers its HDR layer from the folder it runs from; every
     // Vulkan program would still load the old folder's copy.
     crate::uninstall::remove_layers(old);
+    crate::uninstall::remove_earlier_folder(install);
     if let Err(error) = register(install, &entries) {
         notes.push(format!("Rubylight could not be listed in Apps: {error:#}"));
     }

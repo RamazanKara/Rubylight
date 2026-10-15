@@ -61,6 +61,7 @@ pub fn uninstall(options: &Options, progress: &Progress) -> Result<()> {
     system::firewall_remove(FIREWALL_RULE);
     system::firewall_remove(LEGACY_FIREWALL_RULE);
     remove_layers(&install);
+    remove_earlier_folder(&install);
 
     let powershell = format!(
         "{}\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
@@ -158,15 +159,74 @@ pub fn uninstall(options: &Options, progress: &Progress) -> Result<()> {
 }
 /// The HDR Vulkan layer that the host registers from `install` while it runs.
 pub(crate) fn remove_layers(install: &Path) {
-    let layers = "SOFTWARE\\Khronos\\Vulkan\\ImplicitLayers";
-    // With the separator, so removing ...\Butterpollo keeps ...\Butterpollo2's layer.
-    let prefix =
-        format!("{}\\", install.display().to_string().trim_end_matches('\\')).to_ascii_lowercase();
-    for value in system::values(HKEY_LOCAL_MACHINE, layers, KEY_WOW64_64KEY) {
-        if value.to_ascii_lowercase().starts_with(&prefix) {
-            system::delete_value(HKEY_LOCAL_MACHINE, layers, &value, KEY_WOW64_64KEY);
+    for value in system::values(HKEY_LOCAL_MACHINE, LAYERS, KEY_WOW64_64KEY) {
+        if layer_in(&value, install) {
+            system::delete_value(HKEY_LOCAL_MACHINE, LAYERS, &value, KEY_WOW64_64KEY);
         }
     }
+    remove_stale_layers();
+}
+const LAYERS: &str = "SOFTWARE\\Khronos\\Vulkan\\ImplicitLayers";
+const LAYER_MANIFEST: &str = "VkLayer_butterpollo_hdr.json";
+/// Earlier install folders' HDR layers whose manifest is gone (the
+/// ButterpolloRust folder before the rename): every Vulkan program would
+/// still look for them.
+pub(crate) fn remove_stale_layers() {
+    for value in system::values(HKEY_LOCAL_MACHINE, LAYERS, KEY_WOW64_64KEY) {
+        if stale_layer(&value, |path| path.exists()) {
+            system::delete_value(HKEY_LOCAL_MACHINE, LAYERS, &value, KEY_WOW64_64KEY);
+        }
+    }
+}
+/// A layer value as a plain path: the host registers the folder it runs
+/// from, which is verbatim (`\\?\C:\...`) when the service started it so.
+fn plain(value: &str) -> String {
+    match value.strip_prefix(r"\\?\UNC\") {
+        Some(share) => format!(r"\\{share}"),
+        None => value.strip_prefix(r"\\?\").unwrap_or(value).to_owned(),
+    }
+}
+fn layer_in(value: &str, install: &Path) -> bool {
+    // With the separator, so removing ...\Butterpollo keeps ...\Butterpollo2's layer.
+    let prefix = format!(
+        "{}\\",
+        plain(&install.display().to_string()).trim_end_matches('\\')
+    )
+    .to_ascii_lowercase();
+    plain(value).to_ascii_lowercase().starts_with(&prefix)
+}
+fn stale_layer(value: &str, exists: impl Fn(&Path) -> bool) -> bool {
+    let path = PathBuf::from(plain(value));
+    path.file_name()
+        .is_some_and(|name| name.eq_ignore_ascii_case(LAYER_MANIFEST))
+        && !exists(&path)
+}
+/// The folder Rubylight installed into before its rename. Once nothing runs
+/// from it, what can remain is empty folders (files deleted at a restart
+/// leave theirs behind); they go, anything else in it stays.
+pub(crate) fn remove_earlier_folder(install: &Path) {
+    let earlier = system::program_files().join("ButterpolloRust");
+    if !plain(&install.display().to_string()).eq_ignore_ascii_case(&earlier.display().to_string())
+        && !is_package(&earlier)
+    {
+        remove_empty_folders(&earlier);
+    }
+}
+/// Delete `folder` and its subfolders, deepest first, as long as they are
+/// empty; a folder holding any file stays, with the folders above it. Links
+/// are not followed: an empty folder elsewhere is not ours.
+fn remove_empty_folders(folder: &Path) {
+    if !std::fs::symlink_metadata(folder).is_ok_and(|meta| meta.is_dir()) {
+        return;
+    }
+    if let Ok(entries) = std::fs::read_dir(folder) {
+        for entry in entries.flatten() {
+            if entry.file_type().is_ok_and(|kind| kind.is_dir()) {
+                remove_empty_folders(&entry.path());
+            }
+        }
+    }
+    let _ = std::fs::remove_dir(folder);
 }
 /// Delete what the installer put in `install`: the manifest's files, the
 /// manifest, the uninstaller and driver folders carried over from Vibepollo.
@@ -299,6 +359,60 @@ mod tests {
                 b"user profile"
             );
         }
+    }
+    #[test]
+    fn the_hdr_layer_the_host_registered_verbatim_goes_with_its_folder() {
+        let install = Path::new(r"C:\Program Files\ButterpolloRust");
+        for registered in [
+            r"\\?\C:\Program Files\ButterpolloRust\vulkan-layer\VkLayer_butterpollo_hdr.json",
+            r"C:\Program Files\ButterpolloRust\vulkan-layer/VkLayer_butterpollo_hdr.json",
+            r"c:\program files\butterpollorust\vulkan-layer\VkLayer_butterpollo_hdr.json",
+        ] {
+            assert!(layer_in(registered, install), "{registered} stays");
+        }
+        assert!(layer_in(
+            r"\\?\UNC\server\share\Rubylight\vulkan-layer\VkLayer_butterpollo_hdr.json",
+            Path::new(r"\\server\share\Rubylight")
+        ));
+        for other in [
+            r"\\?\C:\Program Files\ButterpolloRust2\vulkan-layer\VkLayer_butterpollo_hdr.json",
+            r"C:\Program Files\Rubylight\vulkan-layer/VkLayer_butterpollo_hdr.json",
+            r"C:\games\Steam\SteamOverlayVulkanLayer64.json",
+        ] {
+            assert!(!layer_in(other, install), "{other} was removed");
+        }
+    }
+    #[test]
+    fn an_earlier_folders_hdr_layer_goes_once_its_manifest_is_gone() {
+        let gone = |_: &Path| false;
+        assert!(stale_layer(
+            r"\\?\C:\Program Files\ButterpolloRust\vulkan-layer\VkLayer_butterpollo_hdr.json",
+            gone
+        ));
+        assert!(!stale_layer(
+            r"C:\Program Files\Rubylight\vulkan-layer/VkLayer_butterpollo_hdr.json",
+            |_| true
+        ));
+        // Other programs' layers stay, even with their files gone.
+        assert!(!stale_layer(
+            r"C:\games\Steam\SteamOverlayVulkanLayer64.json",
+            gone
+        ));
+    }
+    #[test]
+    fn an_earlier_folder_goes_when_only_empty_folders_remain() {
+        let temp = tempfile::tempdir().unwrap();
+        let earlier = temp.path().join("ButterpolloRust");
+        std::fs::create_dir_all(earlier.join("drivers\\display\\vulkan-layer")).unwrap();
+        std::fs::create_dir_all(earlier.join("drivers\\rubylight-display")).unwrap();
+        remove_empty_folders(&earlier);
+        assert!(!earlier.exists());
+        let kept = temp.path().join("Kept");
+        std::fs::create_dir_all(kept.join("drivers\\display\\vulkan-layer")).unwrap();
+        write(&kept.join("drivers\\rubylight-display\\notes.txt"), "mine");
+        remove_empty_folders(&kept);
+        assert!(!kept.join("drivers\\display").exists());
+        assert!(kept.join("drivers\\rubylight-display\\notes.txt").exists());
     }
     #[test]
     fn an_installation_of_only_the_package_leaves_nothing_behind() {

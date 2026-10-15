@@ -1492,3 +1492,30 @@ fn native_reference_recovery_decodes_after_dropping_the_invalidated_packets() ->
     eprintln!("{}", serde_json::to_string(&reports)?);
     Ok(())
 }
+
+#[test]
+fn amf_d3d12_waits_for_d3d11_to_offer_the_codec_on_that_gpu() {
+    // Issue #28: D3D11 refused H.264 on a Radeon R7 M370 with AMF error 10,
+    // and D3D12 then crashed the host. The refusal is kept per GPU and codec,
+    // so later streams go to the other hardware encoders without probing.
+    let m370 = ((0x0001_2345, 0), "AMFVideoEncoderVCE_AVC".to_owned());
+    let mut probes = 0;
+    let refused = checked_once(m370.clone(), || {
+        probes += 1;
+        bail!("AMF CreateComponent AMFVideoEncoderVCE_AVC: AMF error 10")
+    })
+    .unwrap_err();
+    assert!(format!("{refused:#}").contains("AMF error 10"));
+    assert!(format!("{refused:#}").contains("AMF D3D12 not tried"));
+    let again = checked_once(m370, || {
+        probes += 1;
+        Ok(())
+    });
+    assert!(again.is_err());
+    assert_eq!(probes, 1);
+
+    // Another codec or GPU is asked on its own, and an offer is kept too.
+    let hevc = ((0x0001_2345, 0), "AMFVideoEncoderHW_HEVC".to_owned());
+    checked_once(hevc.clone(), || Ok(())).unwrap();
+    checked_once(hevc, || bail!("not asked again")).unwrap();
+}

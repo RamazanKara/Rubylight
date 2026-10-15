@@ -50,6 +50,97 @@ pub(crate) fn check(n: AMF_RESULT) -> Result<()> {
     }
     Ok(())
 }
+/// AMF's D3D12 path is opened only where D3D11 offers the codec on that GPU.
+/// On a Radeon R7 M370 (GCN 1, legacy driver; issue #28) D3D11 refuses
+/// AMFVideoEncoderVCE_AVC with AMF_NOT_SUPPORTED, but D3D12 crashed the host
+/// inside the AMF runtime instead of returning an error. Checked once per GPU
+/// and codec on a separate context; an error goes back to Automatic, which
+/// then tries D3D11 and the other hardware encoders.
+///
+/// # Safety
+/// `factory` is the live factory returned by AMFInit.
+unsafe fn d3d11_offers(factory: *mut AMFFactory, device: &Device, name: &str) -> Result<()> {
+    use windows::Win32::Graphics::Dxgi::IDXGIDevice;
+    // SAFETY: The device is live; GetAdapter and GetDesc return owned values.
+    let luid = unsafe {
+        device
+            .device
+            .cast::<IDXGIDevice>()
+            .and_then(|d| d.GetAdapter())
+            .and_then(|a| a.GetDesc())
+            .map(|desc| (desc.AdapterLuid.LowPart, desc.AdapterLuid.HighPart))
+            .ok()
+    };
+    // SAFETY: Forwarded from the caller; `device` outlives the probe.
+    let probe = || unsafe { d3d11_component(factory, device, name) };
+    match luid {
+        Some(luid) => checked_once((luid, name.to_owned()), probe),
+        None => probe(),
+    }
+}
+type Offer = ((u32, i32), String);
+/// The first answer for a GPU and codec is kept for the process: the driver's
+/// codec support does not change while it runs.
+fn checked_once(key: Offer, probe: impl FnOnce() -> Result<()>) -> Result<()> {
+    use std::{
+        collections::HashMap,
+        sync::{Mutex, OnceLock},
+    };
+    static OFFERS: OnceLock<Mutex<HashMap<Offer, std::result::Result<(), String>>>> =
+        OnceLock::new();
+    let mut offers = OFFERS
+        .get_or_init(Default::default)
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let answer = match offers.get(&key) {
+        Some(answer) => answer.clone(),
+        None => {
+            let answer = probe().map_err(|error| format!("{error:#}"));
+            if let Err(error) = &answer {
+                tracing::warn!(%error, codec = %key.1, "AMF does not offer this codec on the GPU through D3D11; its D3D12 path is not opened");
+            }
+            offers.insert(key, answer.clone());
+            answer
+        }
+    };
+    answer.map_err(|error| anyhow::anyhow!("{error}; AMF D3D12 not tried on this GPU"))
+}
+/// # Safety
+/// `factory` is the live factory returned by AMFInit.
+unsafe fn d3d11_component(factory: *mut AMFFactory, device: &Device, name: &str) -> Result<()> {
+    // SAFETY: The context and component are owned here and released on every
+    // path; AMF copies the wide name synchronously.
+    unsafe {
+        let mut context = ptr::null_mut();
+        check(((*(*factory).pVtbl).CreateContext.unwrap())(
+            factory,
+            &mut context,
+        ))?;
+        let result = (|| -> Result<()> {
+            check(((*(*context).pVtbl).InitDX11.unwrap())(
+                context,
+                device.device.as_raw(),
+                AMF_DX_VERSION_AMF_DX11_1,
+            ))
+            .context("AMF InitDX11")?;
+            let mut component = ptr::null_mut();
+            check(((*(*factory).pVtbl).CreateComponent.unwrap())(
+                factory,
+                context,
+                to_wide(name).as_ptr(),
+                &mut component,
+            ))
+            .with_context(|| format!("AMF CreateComponent {name}"))?;
+            if !component.is_null() {
+                ((*(*component).pVtbl).Release.unwrap())(component);
+            }
+            Ok(())
+        })();
+        ((*(*context).pVtbl).Terminate.unwrap())(context);
+        ((*(*context).pVtbl).Release.unwrap())(context);
+        result
+    }
+}
 pub(crate) fn int(n: i64) -> AMFVariantStruct {
     AMFVariantStruct {
         type_: AMF_VARIANT_TYPE_AMF_VARIANT_INT64,
@@ -278,7 +369,14 @@ impl Encoder {
             let mut component = ptr::null_mut();
             let mut d3d12 = None;
             let result = (|| -> Result<()> {
+                let name = match config.codec {
+                    0 => "AMFVideoEncoderVCE_AVC",
+                    1 => "AMFVideoEncoderHW_HEVC",
+                    2 => "AMFVideoEncoderHW_AV1",
+                    _ => bail!("unsupported AMF codec"),
+                };
                 if let Some(compute) = &compute {
+                    d3d11_offers(factory, &device, name)?;
                     let interface = gpu::D3d12Context::new(context)?;
                     interface.init(&compute.device)?;
                     d3d12 = Some(interface);
@@ -290,12 +388,6 @@ impl Encoder {
                     ))
                     .context("AMF InitDX11")?;
                 }
-                let name = match config.codec {
-                    0 => "AMFVideoEncoderVCE_AVC",
-                    1 => "AMFVideoEncoderHW_HEVC",
-                    2 => "AMFVideoEncoderHW_AV1",
-                    _ => bail!("unsupported AMF codec"),
-                };
                 check(((*(*factory).pVtbl).CreateComponent.unwrap())(
                     factory,
                     context,

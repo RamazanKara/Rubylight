@@ -3,6 +3,7 @@ package com.limelight.preferences;
 import android.app.Activity;
 import android.content.Context;
 import android.preference.Preference;
+import android.text.TextUtils;
 import android.util.AttributeSet;
 import android.view.View;
 import android.widget.TextView;
@@ -58,6 +59,7 @@ public class PresetPreference extends Preference {
             Chip chip = new Chip(getContext());
             chip.setId(View.generateViewId());
             chip.setText(names[preset.ordinal()]);
+            chip.setEllipsize(TextUtils.TruncateAt.END);
             chip.setCheckable(true);
             chip.setEnsureMinTouchTargetSize(true);
             group.addView(chip);

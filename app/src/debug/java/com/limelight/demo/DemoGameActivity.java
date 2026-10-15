@@ -49,6 +49,7 @@ public final class DemoGameActivity extends Activity implements SurfaceHolder.Ca
     private long positionUs;
     private long tick;
     private StreamMenu menu;
+    private DemoTouchpad touchpad;
     private String fit;
     private final Runnable metrics = new Runnable() {
         @Override public void run() {
@@ -95,8 +96,16 @@ public final class DemoGameActivity extends Activity implements SurfaceHolder.Ca
                     PerformanceOverlay.MODE_STATISTICS.equals(mode) ? PerformanceOverlay.MODE_DEBUG : PerformanceOverlay.MODE_COMPACT);
             return true;
         });
-        findViewById(R.id.backgroundTouchView).setOnClickListener(view -> showMenu());
-        stream.setOnClickListener(view -> showMenu());
+        String touch = getIntent().getStringExtra("touch");
+        if (touch != null) {
+            // Fingers drive the trackpad; Back opens the menu.
+            touchpad = new DemoTouchpad(this, stream, findViewById(R.id.localCursor), touch);
+            findViewById(R.id.backgroundTouchView).setOnTouchListener(touchpad);
+            stream.setOnTouchListener(touchpad);
+        } else {
+            findViewById(R.id.backgroundTouchView).setOnClickListener(view -> showMenu());
+            stream.setOnClickListener(view -> showMenu());
+        }
         FrameLayout container = (FrameLayout) stream.getParent();
         controls = new VirtualController(null, container, this);
         com.limelight.ui.OverlayPlacement.attach(findViewById(R.id.performanceOverlayScroll), container,
@@ -304,6 +313,7 @@ public final class DemoGameActivity extends Activity implements SurfaceHolder.Ca
         handler.removeCallbacksAndMessages(null);
         if (prepared) player.setRunning(false);
         controls.releaseInput();
+        if (touchpad != null) touchpad.stop();
         if (menu != null) menu.sheet().dismiss();
         super.onStop();
     }

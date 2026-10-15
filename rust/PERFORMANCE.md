@@ -6382,9 +6382,12 @@ A code review of the path from the driver to the socket found the encoder
 (ultra-low-latency usage, no pre-analysis or B-frames, output queried every
 100 us), the conversion (a GPU fence, 0.18 ms) and the driver loop (event
 waits, one copy) already lean, and four candidates. One A/B round, HEVC unless
-named, after the driver from main was installed (`runs-ab`, `cases-ab.ps1`;
-render to received was about 4 ms lower than in the runs above, so compare
-within this table only):
+named (`runs-ab`, `cases-ab.ps1`). Before it, setup installed package
+2.3.1.6905 (main at 60d16e62) to `C:\Program Files\Rubylight`, replacing
+the branch-built driver and service and removing libvirtualdisplay's HDR layer
+and device. Render to received at 120 fps fell from about 12.7 to 8.7 ms
+(60 fps 13.2 to 11.1) with the host and harness unchanged; which of those
+changes did it is not known. Compare within this table only:
 
 | Render to received, mean / p95 ms | 60 fps | 120 fps |
 | --- | ---: | ---: |

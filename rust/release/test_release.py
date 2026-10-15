@@ -187,17 +187,26 @@ class Signing(unittest.TestCase):
         self.assertIn(r"$distribution 'drivers\rubylight-display'", build)
         self.assertIn("'install-local.ps1'", build)
         self.assertIn(r"'sunshine\nefconc.exe'", build)
+        self.assertIn(r"'rust\setup\remove-libvirtualdisplay.ps1'", build)
+        # Rubylight's own driver replaced libvirtualdisplay, which is no
+        # longer packaged; setup removes it from earlier installations.
+        self.assertNotIn(r"'drivers\display'", build)
+        self.assertNotIn('libvirtualdisplay v1.6.3', build)
+        install = (ROOT / 'rust/setup/src/install.rs').read_text(encoding='utf-8')
+        self.assertIn(r'"drivers\\rubylight-display\\remove-libvirtualdisplay.ps1"', install)
+        self.assertNotIn(r'"drivers\\display\\install.ps1"', install)
         # A default build number lost to an installed development build: the
         # packaged driver carries the release version.
         self.assertIn("'build-package.ps1') -Version $driverVersion", build)
         script = r'drivers\\rubylight-display\\install-local.ps1'
         self.assertIn(f'"{script}"', (ROOT / 'rust/setup/src/install.rs').read_text(encoding='utf-8'))
-        # The service never installs or removes it on its own: an unattended
-        # uninstall after a settings edit broke measurements on the
-        # development PC.
+        # The service sets the driver up again only when it is missing
+        # (--repair-drivers), never after a settings edit: an unattended
+        # uninstall after one broke measurements on the development PC.
         service = (ROOT / 'rust/windows/src/service.rs').read_text(encoding='utf-8')
-        self.assertNotIn('rubylight-display', service)
+        self.assertIn(r'"drivers\\rubylight-display\\install-local.ps1"', service)
         self.assertNotIn('--rubylight-display', service)
+        self.assertNotIn('virtual_display_driver', service)
         signing = (ROOT / 'rust/release/sign-artifacts.ps1').read_text(encoding='utf-8')
         self.assertIn(r"$distribution 'drivers\rubylight-display'", signing)
         workflow = (ROOT / '.github/workflows/rust-windows.yml').read_text(encoding='utf-8')

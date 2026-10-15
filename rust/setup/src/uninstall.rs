@@ -101,7 +101,12 @@ pub fn uninstall(options: &Options, progress: &Progress) -> Result<()> {
                 "drivers\\gamepad\\cleanup.ps1",
                 vec!["-InstallerBestEffort", "-RemoveDriverStorePackage:1"],
             ),
+            // Left by an installation from before Rubylight's own driver.
             ("drivers\\display\\install.ps1", vec!["-Uninstall"]),
+            (
+                crate::install::LIBVIRTUALDISPLAY_REMOVAL,
+                vec!["-InstallerBestEffort"],
+            ),
         ] {
             let path = install.join(script);
             if path.is_file() {

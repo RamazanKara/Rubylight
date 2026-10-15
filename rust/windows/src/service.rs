@@ -91,9 +91,9 @@ fn status(state: ServiceState, checkpoint: u32) -> ServiceStatus {
         process_id: None,
     }
 }
-/// Setup installs the virtual display driver, but an old host's uninstaller,
-/// an in-app update before rc.27 or a failed driver step can leave it
-/// missing, and Artemis then reports its "SudoVDA" driver as not installed.
+/// Setup installs Rubylight's virtual display driver, but a failed driver
+/// step, an uninstalled device or a driver package Windows dropped can leave
+/// it missing, and Artemis then reports its "SudoVDA" driver as not installed.
 /// When the driver is still missing a minute after the service starts (it
 /// can come up after the service at boot), setup sets it up again from this
 /// installation. Setup does that at most once a day per version and never
@@ -101,7 +101,11 @@ fn status(state: ServiceState, checkpoint: u32) -> ServiceStatus {
 fn repair_display_driver(install: &std::path::Path, stop: Arc<AtomicBool>) {
     use std::os::windows::process::CommandExt;
     let setup = install.join("uninstall.exe");
-    if !setup.is_file() || !install.join("drivers\\display\\install.ps1").is_file() {
+    if !setup.is_file()
+        || !install
+            .join("drivers\\rubylight-display\\install-local.ps1")
+            .is_file()
+    {
         return;
     }
     std::thread::spawn(move || {

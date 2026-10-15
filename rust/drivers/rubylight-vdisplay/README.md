@@ -8,7 +8,9 @@ through shared GPU textures, so the host converts and encodes them without WGC o
 Duplication.
 
 It is the host's only virtual display driver: every display the host creates for a stream
-comes from it, and the host reads those displays through its frame push.
+comes from it, and the host reads those displays through its frame push. Setup installs it
+with `install-local.ps1` (see [In the Rubylight package](#in-the-rubylight-package)) and
+removes the libvirtualdisplay driver earlier versions used.
 
 | | |
 |---|---|
@@ -177,20 +179,22 @@ refuse unknown signers, as they refuse the Sunshine driver), and WDAC-managed PC
 
 ### In the Rubylight package
 
-`rust/build.ps1 -Package` builds the package with `build-package.ps1` (unsigned), stamped
-with the release version and the build hour (2.3.1.7020, say) so it outranks the 0.1.0.x
-development builds, and puts it under `drivers\rubylight-display` with `install-local.ps1`
-and the bundled `nefconc.exe`. The console's **Virtual display driver** setting
-(`virtual_display_driver = rubylight`) decides whether it is installed, and only when someone
-runs setup:
+Rubylight's only virtual display driver. `rust/build.ps1 -Package` builds the package with
+`build-package.ps1` (unsigned), stamped with the release version and the build hour (2.3.1.7020,
+say) so it outranks the 0.1.0.x development builds, and puts it under
+`drivers\rubylight-display` with `install-local.ps1`, the bundled `nefconc.exe` and setup's
+`remove-libvirtualdisplay.ps1`:
 
-- Setup and an in-app update run `install-local.ps1 -InstallerBestEffort` as SYSTEM while the
-  setting selects it, and `-Uninstall` once it no longer does but the driver is still installed
-  (the `HKLM\SOFTWARE\Rubylight\VirtualDisplay` key). A failure becomes a setup note and the
-  host keeps the standard driver, like the Sunshine driver's `install.ps1 -InstallerBestEffort`.
-- `butterpollo-setup.exe --rubylight-display` does the same on request, never during a stream,
-  for a console action the user confirms. Nothing runs it on its own: neither the service nor
-  its display driver repair installs or removes this driver after a settings change.
+- Setup and an in-app update run `install-local.ps1 -InstallerBestEffort` as SYSTEM unless
+  setup ran with `--no-display-driver`. A failure becomes a setup note, like the gamepad
+  driver's.
+- They also run `remove-libvirtualdisplay.ps1 -InstallerBestEffort`, which removes the
+  libvirtualdisplay device, driver packages and HDR layer earlier versions installed (a note
+  when it cannot; the SignPath certificate stays, the gamepad driver needs it).
+- When the host has had no virtual display driver for a minute after the service starts, the
+  service runs `butterpollo-setup.exe --repair-drivers`, which installs it again: at most once
+  a day per version, never during a stream. Nothing installs or removes it after a settings
+  change.
 - The uninstaller always runs `-Uninstall`, also when the other drivers stay.
 
 `install-local.ps1` makes the device take the package it installs, even when a newer one is

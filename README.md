@@ -27,13 +27,19 @@
 
 **It learns your host.** Every host supports a different set of extras. Nightjar reads what yours reports and only shows the options that work there, with a short reason when something needs a host setting or an update. Offline PCs keep what they last reported, and a "not supported" note appears once per PC instead of on every stream.
 
-**It works hard on latency.** Decoders get per-chip low-latency tuning, frames are paced to your display, including Android's adaptive refresh on newer phones, and stereo audio uses low-latency AAudio. On hosts that support it, Nightjar tells the host how long frames wait for your screen so it can time them, and adapts bitrate, resolution and frame rate to packet loss, network jitter and how busy your phone's decoder is.
+**Quality that adjusts itself.** Automatic bitrate follows packet loss, network jitter and how much headroom your phone's decoder has left, up to 500 Mbps. Automatic quality goes further and changes resolution and frame rate mid-stream, with three goals to pick from: keep motion smooth, keep detail sharp, or save battery. Both watch your phone's temperature and back off before it starts throttling. (Bitrate and quality control: Rubylight. Manual bitrate changes during a stream: Rubylight and Vibepollo.)
+
+**It works hard on latency.** Decoders get per-chip low-latency tuning, frames are paced to your display, including Android's adaptive refresh on newer phones, and stereo audio uses low-latency AAudio. On Rubylight, Nightjar tells the host how long frames wait for your screen so it can time them to arrive just in time.
 
 **PyroWave, upscaling and your own GPU driver.** On hosts with PyroWave (currently Rubylight, and Vibepollo with PyroWave enabled), Nightjar decodes the wavelet codec on the GPU through Vulkan, including full-colour 4:4:4. Any SDR stream can be sent at a lower resolution and upscaled on the phone with FSR 1 or Snapdragon GSR. On Snapdragon phones you can load a newer Adreno Vulkan driver for PyroWave, and Nightjar falls back to the system driver if it fails.
 
-**You can see what is going on.** A one-line overlay shows frame rate, network round trip, loss and a health dot. The Statistics and Debug views break the delay into stages, "Why did my stream stutter?" points at the likely cause, and a built-in test measures input-to-screen latency. A decoder benchmark runs without any host at all.
+**You can see everything.** A one-line overlay shows frame rate, network round trip, loss and a health dot. Statistics and Debug views break the delay into stages, and with host telemetry turned on (Rubylight) they add the PC's CPU usage and AMD GPU usage, temperatures, power, clocks and VRAM. "Why did my stream stutter?" points at the likely cause, whether that's the network, the decoder, the host, the display or heat, and can run a reversible bitrate test. A built-in test measures input-to-screen latency, a decoder benchmark runs without any host, and frame timings export as CSV.
 
-**DualSense support goes all the way.** Over USB you get adaptive triggers, rumble, the lightbar and Edge paddles, and on hosts that support them, waveform haptics plus the controller's speaker, headset and microphone. Xbox USB controllers work through a built-in driver.
+**Talk and play.** Send your phone's microphone to the PC for voice chat and mute it from the stream menu (Rubylight). Over USB, a DualSense gets adaptive triggers, rumble, the lightbar and Edge paddles; on hosts that support it, also waveform haptics (Rubylight, Vibepollo) and the controller's speaker, headset and microphone (Rubylight). Controllers keep their identity across reconnects on Rubylight, and Xbox USB controllers work through a built-in driver.
+
+**Your PC, your way.** Pick per PC whether the stream gets its own virtual display at your phone's resolution (Apollo, Rubylight, Vibepollo), and on Rubylight whether your monitors stay on, switch off or sit beside it. Watch a PC without taking over its input with Remote Monitor, or control it without video with Input-only (Rubylight, Vibepollo; Input-only also on Apollo). Copy text in both directions, run the host's commands and pair with a one-time PIN on Apollo, Rubylight and Vibepollo, and open your host's web UI from the app.
+
+**Play away from home.** A built-in guide sets up a private Tailscale connection and tests the paired PC from wherever you are. On Rubylight it also shows whether the connection runs direct or through a relay.
 
 ## Everything else
 
@@ -41,13 +47,12 @@
 - Touch, trackpad, mouse, pen and keyboard, with editable keyboard shortcuts and per-game touch controls you can export and share ([controls](docs/controls.md))
 - Desktop tools: pinch zoom, and video on an external display with the phone as a touchpad
 - Settings per PC, Native and Battery saver presets, Wake-on-LAN and automatic discovery
-- PC display modes on hosts that support them (currently Rubylight): exclusive, extended or separated virtual displays, chosen per PC
 - Phones, foldables, tablets and Android TV with D-pad navigation, plus picture-in-picture
 - Launcher entries for ES-DE, Daijisho and Pegasus
 - Built-in help that works offline, and problem reports that stay on your phone until you share them
 - No ads, no analytics, no accounts
 
-See the [host feature matrix](docs/PARITY-MATRIX.md) for what each host provides.
+See the [host feature matrix](docs/PARITY-MATRIX.md) for exactly what each host provides.
 
 ## Quick start
 

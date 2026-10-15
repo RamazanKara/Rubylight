@@ -639,6 +639,8 @@ public final class GameTouchControls extends FrameLayout {
                         pointerId = event.getPointerId(0);
                         downX = event.getRawX(); downY = event.getRawY(); startX = v.getX(); startY = v.getY();
                         if (editing) return true;
+                        // As the stream view does: deliver this finger's events as they come, not at vsync.
+                        v.requestUnbufferedDispatch(event);
                         if (pad != null) {
                             pad.stick.down(event.getX(), event.getY(), v.getWidth(), v.getHeight(), pad.radius());
                             steer(pad, slot, directionKeys);

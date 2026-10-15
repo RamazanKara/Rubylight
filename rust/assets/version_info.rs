@@ -5,11 +5,17 @@
 // (see .signpath/ and docs/code-signing.md).
 
 /// The release version: the workspace version in the repository's
-/// Cargo.toml. The TrueHDR adapter is outside the workspace and has its own
-/// crate version, so the version comes from here rather than from Cargo.
+/// Cargo.toml. The TrueHDR adapter and the display driver are outside the
+/// workspace and have their own crate versions, so the version comes from
+/// here rather than from Cargo. The repository is the nearest folder above
+/// the crate that holds this file.
 fn release_version() -> String {
     let manifest = std::path::PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
-    let cargo = manifest.join("../../Cargo.toml");
+    let repository = manifest
+        .ancestors()
+        .find(|folder| folder.join("rust/assets/version_info.rs").is_file())
+        .expect("the repository holding rust/assets/version_info.rs");
+    let cargo = repository.join("Cargo.toml");
     println!("cargo:rerun-if-changed={}", cargo.display());
     let text = std::fs::read_to_string(&cargo).unwrap();
     text.lines()

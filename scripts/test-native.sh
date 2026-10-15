@@ -15,6 +15,10 @@ for name in bughunt-stream.patch bughunt-input.patch controller-haptics.patch ho
     disconnect-intercept.patch control-payload.patch control-teardown.patch; do
     patches+=("$(pwd)/$core/patches/$name")
 done
+if [ ! -f "$common/src/Limelight.h" ]; then
+    echo "moonlight-common-c is not checked out. Run: git submodule update --init --recursive" >&2
+    exit 1
+fi
 stamp_file=app/build/native-patches.stamp
 stamp="$(cat "${patches[@]}" | sha256sum | cut -d' ' -f1)"
 if [ "$(cat "$stamp_file" 2>/dev/null || true)" != "$stamp" ]; then

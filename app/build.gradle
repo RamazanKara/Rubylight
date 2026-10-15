@@ -190,6 +190,9 @@ def prepareNativePatches = tasks.register('prepareNativePatches') {
     doLast {
         def core = file('src/main/jni/moonlight-core')
         def common = new File(core, 'moonlight-common-c')
+        if (!new File(common, 'src/Limelight.h').exists()) {
+            throw new GradleException('moonlight-common-c is not checked out. Run: git submodule update --init --recursive')
+        }
         def patches = nativePatchNames.collect { new File(core, "patches/$it") }
         def digest = java.security.MessageDigest.getInstance('SHA-256')
         patches.each { digest.update(it.bytes) }

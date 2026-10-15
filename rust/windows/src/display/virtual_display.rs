@@ -441,6 +441,11 @@ pub fn configure_permanent(config: &butterpollo_core::config::Config) -> Result<
     set_permanent_display_count(count)
 }
 fn configured_permanent_count(config: &butterpollo_core::config::Config) -> Result<Option<u32>> {
+    // Permanent displays are libvirtualdisplay's; Rubylight's driver creates displays only
+    // for streams, and libvirtualdisplay may not be installed beside it.
+    if VirtualDriver::configured(config) == VirtualDriver::Rubylight {
+        return Ok(None);
+    }
     // Config reads dd_vdd_static_monitor_count, the key's older name, as this.
     let Some(value) = config.values.get("dd_virtual_display_permanent_count") else {
         return Ok(None);
@@ -1155,6 +1160,15 @@ mod tests {
             )
             .is_err()
         );
+    }
+    #[test]
+    fn the_rubylight_driver_leaves_libvirtualdisplays_permanent_displays_alone() {
+        use butterpollo_core::config::Config;
+        let config = Config::parse(
+            "virtual_display_driver=rubylight\ndd_virtual_display_permanent_count=2",
+        )
+        .unwrap();
+        assert_eq!(configured_permanent_count(&config).unwrap(), None);
     }
     #[test]
     fn permanent_display_count_accepts_quoted_numbers_like_other_config_integers() {

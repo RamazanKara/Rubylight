@@ -20,7 +20,9 @@ import numpy as np
 
 RATE = 48_000
 SEED = 20261019
-TRANSITIONS = [0, 7, 17, 27, 36, 45, 53, 60]
+TRANSITIONS = [0, 6, 24, 38, 46, 53, 60]
+# The moment the cold open's picture reaches the laptop.
+ARRIVAL = 3.1
 
 
 def smooth(value: np.ndarray) -> np.ndarray:
@@ -141,12 +143,11 @@ def render(duration: float) -> tuple[np.ndarray, dict]:
     rhythm = np.zeros_like(pads)
     bass = np.zeros_like(pads)
     air = np.zeros_like(pads)
-    # One chord per scene. The comparison stays restrained, compute and
-    # PyroWave open out, and setup leads into the final C major chord.
+    # One chord per scene. The console moves, the comparison stays
+    # restrained, compute and colour open out into the final C major chord.
     chords = [([45, 52, 55, 59, 64], 33), ([41, 48, 52, 55, 60], 29),
               ([45, 52, 55, 59, 64], 33), ([48, 55, 60, 62, 64], 36),
-              ([41, 48, 52, 55, 60], 29), ([50, 53, 57, 60, 64], 38),
-              ([48, 55, 59, 62, 67], 36)]
+              ([50, 53, 57, 60, 64], 38), ([48, 55, 59, 62, 67], 36)]
     changes = TRANSITIONS
     for index, (notes, _) in enumerate(chords):
         begin = max(0, changes[index] * scale - .9)
@@ -169,13 +170,13 @@ def render(duration: float) -> tuple[np.ndarray, dict]:
         notes, root = chords[part]
         if film_time >= 59:
             continue
-        # Arpeggio: sparse in the opening and the comparison, on every
-        # eighth where the film moves fastest.
-        every = {0: 4, 2: 2, 6: 4}.get(part, 1)
+        # Arpeggio: sparse in the opening, the comparison and the ending,
+        # on every eighth where the film moves fastest.
+        every = {0: 4, 2: 2, 5: 4}.get(part, 1)
         if step % every == 0 and film_time < 57:
             order = [0, 2, 4, 3, 1, 3, 2, 4]
-            note = notes[order[step % 8]] + (12 if part in (3, 4, 5) and step % 8 == 6 else 0)
-            level = (.05 if part in (0, 6) else .068) * (1 + rng.uniform(-.06, .06))
+            note = notes[order[step % 8]] + (12 if part in (3, 4) and step % 8 == 6 else 0)
+            level = (.05 if part in (0, 5) else .068) * (1 + rng.uniform(-.06, .06))
             add(pulses, tone(note, .7, rng) * level, at + (.007 if step % 2 else 0),
                 .3 * math.sin(step * .53))
         if changes[1] <= film_time < changes[-2]:
@@ -193,7 +194,7 @@ def render(duration: float) -> tuple[np.ndarray, dict]:
             if film_time >= changes[2] and step % 2 == 1:
                 add(air, noise(.06, rng, .018, 2) * .03 * (1 + rng.uniform(-.1, .1)), at,
                     .35 if step % 4 == 1 else -.35)
-            if part in (3, 4, 5) and step % 4 == 2:
+            if part in (3, 4) and step % 4 == 2:
                 add(air, noise(.22, rng, .06, 1) * .05, at, .08)
     # A soft swish under each scene change, timed with the diagonal wipe.
     for change in changes[1:-1]:
@@ -201,6 +202,9 @@ def render(duration: float) -> tuple[np.ndarray, dict]:
         swish = noise(.9, rng, 10, 1) * smooth(t / .45) * smooth((.9 - t) / .4)
         add(air, lowpass(np.stack([swish, swish[::-1]], 1), 3200)[:, 0] * .05,
             change * scale - .35, 0)
+    # A soft chime as the first picture lands on the laptop.
+    for i, note in enumerate([69, 76]):
+        add(pulses, tone(note + 12, 1.6, rng) * .045, ARRIVAL * scale + i * .06, (i - .5) * .3)
     # A last bell on the ending chord.
     for i, note in enumerate([60, 64, 67, 71]):
         add(pulses, tone(note + 12, 3.2, rng) * .05, (changes[-2] + .15) * scale + i * .09, (i - 1.5) * .25)

@@ -153,7 +153,10 @@ jobs:
           Enter-VsDevShell -VsInstallPath $vs -SkipAutomaticLocation -DevCmdArguments '-arch=x64 -host_arch=x64'
           # Signed releases leave out NVIDIA's proprietary TrueHDR runtime: the
           # SignPath Foundation signs only open-source packages.
-          $trueHdr = if ($env:SIGNPATH_ENABLED -eq 'true') { @('-SkipTrueHdr') } else { @() }
+          # A hashtable splat: an empty array from an if-expression becomes
+          # $null, which splats as a stray positional argument.
+          $trueHdr = @{}
+          if ($env:SIGNPATH_ENABLED -eq 'true') { $trueHdr.SkipTrueHdr = $true }
           .\rust\build.ps1 -MsysRoot '${{ steps.msys.outputs.msys2-location }}' -FetchDependencies -Package -TargetDirectory "$env:RUNNER_TEMP\butterpollo-rust-target" @trueHdr
       # SignPath signs a file only when its version information names
       # Rubylight and the release; every build checks that it would.

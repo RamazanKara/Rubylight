@@ -173,15 +173,16 @@ public class GenerateAssets {
         g.draw(hull);
         g.setColor(ROSE);
         g.fill(new Polygon(new int[] {shipX, shipX + 20, shipX - 20}, new int[] {shipY - 68, shipY + 8, shipY + 8}, 3));
+        // The top panels sit 112 px down: the client's performance overlay takes the top corner of the screen.
         g.setColor(new Color(10, 18, 28, 195));
-        g.fillRoundRect(70, 64, 420, 122, 20, 20);
-        text(g, "SKYBOUND", 35, 96, 111, Color.WHITE);
-        text(g, "SECTOR 07  /  OUTER RIM", 18, 98, 151, new Color(138, 208, 217));
+        g.fillRoundRect(70, 112, 420, 122, 20, 20);
+        text(g, "SKYBOUND", 35, 96, 159, Color.WHITE);
+        text(g, "SECTOR 07  /  OUTER RIM", 18, 98, 199, new Color(138, 208, 217));
         g.setColor(new Color(10, 18, 28, 195));
-        g.fillRoundRect(1440, 65, 390, 115, 20, 20);
-        text(g, "CRUISE", 17, 1465, 101, new Color(188, 200, 206));
+        g.fillRoundRect(1440, 113, 390, 115, 20, 20);
+        text(g, "CRUISE", 17, 1465, 149, new Color(188, 200, 206));
         text(g, String.format(java.util.Locale.ROOT, "%03d  KM/H", 280 + (int) (18 * Math.sin(phase))), 35,
-                1465, 149, Color.WHITE);
+                1465, 197, Color.WHITE);
         g.setColor(new Color(11, 22, 31, 210));
         g.fillRoundRect(70, 880, 385, 110, 20, 20);
         text(g, "SHIELD", 17, 94, 914, new Color(188, 200, 206));

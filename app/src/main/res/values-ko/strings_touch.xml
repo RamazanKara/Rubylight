@@ -33,4 +33,5 @@
         <item>키보드 열기</item>
         <item>가운데 클릭</item>
     </string-array>
+    <string name="stream_cursor_shape_rejected">Nightjar가 PC의 커서 모양을 그릴 수 없어 기본 화살표를 표시합니다.</string>
 </resources>

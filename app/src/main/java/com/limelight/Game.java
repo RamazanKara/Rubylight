@@ -55,6 +55,7 @@ import com.limelight.preferences.GlPreferences;
 import com.limelight.preferences.HostDisplayChoice;
 import com.limelight.preferences.PreferenceConfiguration;
 import com.limelight.ui.GameGestures;
+import com.limelight.ui.HostCursorShapes;
 import com.limelight.ui.KeyboardOverlay;
 import com.limelight.ui.StreamOrientation;
 import com.limelight.ui.StreamView;
@@ -160,6 +161,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     private final ThreeFingerTap threeFingerTap = new ThreeFingerTap();
     private TrackpadPointer trackpadPointer;
     private TrackpadArea trackpadArea;
+    // Set while the host sends its cursor shapes for the Local cursor; read on the control thread.
+    private volatile HostCursorShapes hostCursorShapes;
     // The current finger gesture started outside the trackpad area or while touch is off.
     private boolean touchGestureIgnored;
     private boolean middleButtonUpPending;
@@ -2947,12 +2950,49 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         trackpadPointer.stopMomentum();
         trackpadPointer.setReferenceSize(prefConfig.width, prefConfig.height);
         trackpadPointer.setLocalCursor(touchMode() == TouchMode.LOCAL_CURSOR);
+        updateHostCursorShapes();
         for (int i = 0; i < touchContextMap.length; i++) {
             touchContextMap[i] = prefConfig.touchscreenTrackpad ?
                     new RelativeTouchContext(conn, i, prefConfig.width, prefConfig.height, streamView, prefConfig,
                             trackpadPointer) :
                     new AbsoluteTouchContext(conn, i, streamView);
         }
+    }
+
+    /**
+     * Asks a host that offers cursor shapes for them while the Local cursor is in use, and stops
+     * them when it is not. Without host support the Local cursor stays Nightjar's arrow.
+     */
+    private void updateHostCursorShapes() {
+        ComputerDetails details = conn != null ? conn.getHostDetails() : null;
+        boolean wanted = connected && trackpadPointer != null && trackpadPointer.isLocalCursor() && details != null &&
+                details.caps.has(HostCapabilities.Feature.CURSOR_SHAPE) &&
+                MoonBridge.hostSupportsControlMessage(MoonBridge.CONTROL_MESSAGE_CURSOR_SHAPE_REQUEST);
+        HostCursorShapes current = hostCursorShapes;
+        if (wanted == (current != null)) return;
+        if (wanted) {
+            HostCursorShapes shapes = new HostCursorShapes(getResources(), findViewById(R.id.localCursor), trackpadPointer,
+                    () -> messages.alert(R.string.stream_cursor_shape_rejected, Toast.LENGTH_LONG));
+            hostCursorShapes = shapes;
+            if (MoonBridge.sendCursorShapeRequest(true)) {
+                LimeLog.info("Host cursor shapes requested");
+                return;
+            }
+            LimeLog.warning("Host cursor shape request could not be sent; keeping the local arrow");
+            hostCursorShapes = null;
+            shapes.close();
+        } else {
+            hostCursorShapes = null;
+            MoonBridge.sendCursorShapeRequest(false);
+            current.close();
+        }
+    }
+
+    private void stopHostCursorShapes() {
+        HostCursorShapes shapes = hostCursorShapes;
+        if (shapes == null) return;
+        hostCursorShapes = null;
+        runOnUiThread(shapes::close);
     }
 
     /** The finger touch mode in effect; external displays and tests change the switches directly. */
@@ -4971,6 +5011,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         if (wifiDiagnostics != null) wifiDiagnostics.stop();
         pyroWaveBitrate = null;
         displayCapsReporter = null;
+        stopHostCursorShapes();
         if (usbDriverBinder != null) {
             usbDriverBinder.setListener(null);
             usbDriverBinder.setStateListener(null);
@@ -5277,6 +5318,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 }
                 startReconfigureTracking();
                 requestHostTiming();
+                updateHostCursorShapes();
                 if (!conn.canSendInput()) {
                     if (gameTouchControls != null) gameTouchControls.hideForPip(true);
                     if (virtualController != null) {
@@ -5455,6 +5497,12 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     @Override
     public void setControllerLED(short controllerNumber, byte r, byte g, byte b) {
         controllerHandler.handleSetControllerLED(controllerNumber, r, g, b);
+    }
+
+    @Override
+    public void cursorShape(byte[] message) {
+        HostCursorShapes shapes = hostCursorShapes;
+        if (shapes != null) shapes.accept(message);
     }
 
     @Override

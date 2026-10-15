@@ -33,4 +33,5 @@
         <item>Відкрити клавіатуру</item>
         <item>Середнє клацання</item>
     </string-array>
+    <string name="stream_cursor_shape_rejected">Nightjar не може намалювати форму курсора ПК і показує стандартну стрілку.</string>
 </resources>

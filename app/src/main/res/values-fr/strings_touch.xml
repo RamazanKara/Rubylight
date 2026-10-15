@@ -33,4 +33,5 @@
         <item>Ouvrir le clavier</item>
         <item>Clic du milieu</item>
     </string-array>
+    <string name="stream_cursor_shape_rejected">Nightjar ne peut pas dessiner la forme du curseur du PC et affiche la flèche par défaut.</string>
 </resources>

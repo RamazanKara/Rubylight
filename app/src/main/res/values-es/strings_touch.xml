@@ -33,4 +33,5 @@
         <item>Abrir el teclado</item>
         <item>Clic central</item>
     </string-array>
+    <string name="stream_cursor_shape_rejected">Nightjar no puede dibujar la forma del cursor del PC y muestra la flecha predeterminada.</string>
 </resources>

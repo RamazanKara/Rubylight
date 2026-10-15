@@ -33,4 +33,5 @@
         <item>Otwórz klawiaturę</item>
         <item>Kliknięcie środkowe</item>
     </string-array>
+    <string name="stream_cursor_shape_rejected">Nightjar nie może narysować kształtu kursora z komputera, więc pokazuje domyślną strzałkę.</string>
 </resources>

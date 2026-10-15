@@ -33,4 +33,5 @@
         <item>Открыть клавиатуру</item>
         <item>Средний щелчок</item>
     </string-array>
+    <string name="stream_cursor_shape_rejected">Nightjar не может нарисовать форму курсора ПК и показывает стандартную стрелку.</string>
 </resources>

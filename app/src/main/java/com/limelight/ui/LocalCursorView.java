@@ -15,6 +15,7 @@ import com.limelight.R;
 public class LocalCursorView extends View {
     private Drawable cursor;
     private float hotspotX, hotspotY;
+    private float pointerX = Float.NaN, pointerY = Float.NaN;
 
     public LocalCursorView(Context context) {
         this(context, null);
@@ -25,12 +26,20 @@ public class LocalCursorView extends View {
         setClickable(false);
         setFocusable(false);
         setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);
-        // The arrow's tip sits 1dp inside the image so its outline is not clipped.
-        float tip = getResources().getDisplayMetrics().density;
-        setCursor(context.getDrawable(R.drawable.ic_local_cursor), tip, tip);
+        setDefaultCursor();
     }
 
-    /** Draws cursor with its hotspot, in pixels from its top-left corner, at the pointer position. */
+    /** Back to Nightjar's own arrow. */
+    public void setDefaultCursor() {
+        // The arrow's tip sits 1dp inside the image so its outline is not clipped.
+        float tip = getResources().getDisplayMetrics().density;
+        setCursor(getContext().getDrawable(R.drawable.ic_local_cursor), tip, tip);
+    }
+
+    /**
+     * Draws cursor with its hotspot, in pixels from its top-left corner, at the pointer position.
+     * The hotspot stays where the pointer was, so a new shape does not jump.
+     */
     public void setCursor(Drawable cursor, float hotspotX, float hotspotY) {
         this.cursor = cursor;
         this.hotspotX = hotspotX;
@@ -38,10 +47,13 @@ public class LocalCursorView extends View {
         if (cursor != null) cursor.setBounds(0, 0, cursor.getIntrinsicWidth(), cursor.getIntrinsicHeight());
         requestLayout();
         invalidate();
+        if (!Float.isNaN(pointerX)) moveTo(pointerX, pointerY);
     }
 
     /** Puts the hotspot at (x, y) in the parent's coordinates. */
     public void moveTo(float x, float y) {
+        pointerX = x;
+        pointerY = y;
         setTranslationX(x - getLeft() - hotspotX);
         setTranslationY(y - getTop() - hotspotY);
     }

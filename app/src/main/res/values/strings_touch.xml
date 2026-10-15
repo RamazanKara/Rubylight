@@ -55,4 +55,5 @@
         <item>keyboard</item>
         <item>middle_click</item>
     </string-array>
+    <string name="stream_cursor_shape_rejected">Nightjar can’t draw the PC’s cursor shape, so it shows the default arrow.</string>
 </resources>

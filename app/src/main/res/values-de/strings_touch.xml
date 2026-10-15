@@ -33,4 +33,5 @@
         <item>Tastatur öffnen</item>
         <item>Mittelklick</item>
     </string-array>
+    <string name="stream_cursor_shape_rejected">Nightjar kann die Mauszeigerform des PCs nicht zeichnen und zeigt den Standardpfeil.</string>
 </resources>

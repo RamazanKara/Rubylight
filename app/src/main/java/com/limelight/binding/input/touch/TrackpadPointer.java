@@ -23,6 +23,7 @@ public final class TrackpadPointer {
     private DesktopViewport viewport;
     private boolean localCursor;
     private boolean cursorShown;
+    private boolean hostCursorHidden;
     private int referenceWidth = 1, referenceHeight = 1;
     private float cursorX, cursorY;
     private boolean frameScheduled;
@@ -90,8 +91,14 @@ public final class TrackpadPointer {
     public void setCursorShown(boolean shown) {
         cursorShown = shown && localCursor;
         if (cursorView == null) return;
-        cursorView.setVisibility(cursorShown ? View.VISIBLE : View.GONE);
+        cursorView.setVisibility(cursorShown && !hostCursorHidden ? View.VISIBLE : View.GONE);
         if (cursorShown) syncCursor();
+    }
+
+    /** The host hid its cursor (host cursor shapes): draw nothing until it shows one again. */
+    public void setHostCursorHidden(boolean hidden) {
+        hostCursorHidden = hidden;
+        setCursorShown(cursorShown);
     }
 
     /** Zoom of the desktop view, so the drawn pointer can follow the finger one to one. */

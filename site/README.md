@@ -41,12 +41,13 @@ It also fails when the assets, excluding video, exceed 6 MB.
   launcher icon `app/src/main/res/mipmap-anydpi/ic_launcher.xml` (night circle,
   amber moon, bird), rendered as SVG with a transparent background outside the circle.
 - `assets/og.png`: the 1200 × 630 raster export of `assets/og.svg`.
-- `assets/demo-16x9.mp4` and `assets/demo-9x16.mp4`: the 51 s tour (PCs, PC
-  settings, library, stream, compact overlay, stream menu, upscaling and
-  picture-in-picture), H.264 with a quiet synthesized AAC ambient track and the
-  metadata at the start of the file. They are also attached to
+- `assets/demo-16x9.mp4` and `assets/demo-9x16.mp4`: the 63 s tour (PCs and
+  library, PC settings, stream with the compact overlay, stream menu, Statistics
+  with host telemetry, PyroWave and adaptive refresh, upscaling, the Snapdragon GPU
+  driver and the DualSense driver), H.264 at 60 fps with the
+  metadata at the start of the file and no audio track. They are also attached to
   the latest release. `assets/poster-16x9.webp` and `poster-9x16.webp` are the
-  posters, resized from the matching PNG frames.
+  posters: a frame of the stream shot, resized from the matching PNG frames.
 - Keep everything in `assets/` other than video under 6 MB in total. The link
   checker enforces this.
 

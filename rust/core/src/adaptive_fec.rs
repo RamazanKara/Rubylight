@@ -87,6 +87,11 @@ impl AdaptiveFec {
         usize::from(self.current)
     }
 
+    /// The configured percentage, which the current one never exceeds.
+    pub fn ceiling(&self) -> usize {
+        usize::from(self.ceiling)
+    }
+
     /// Applies one block report.
     pub fn on_block(&mut self, now: Instant, block: Block) {
         if !self.enabled {

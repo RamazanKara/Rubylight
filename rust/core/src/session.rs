@@ -487,6 +487,14 @@ mod tests {
         assert!(on.fec_percent() > decayed);
         on.record_fec_status(&fec_report(21, 7, 1));
         assert_eq!(on.fec_percent(), 20);
+        // Recovery frames keep the configured percentage on a decayed link.
+        on.tick_fec(later + Duration::from_secs(120));
+        let decayed = on.fec_percent();
+        assert!(decayed < 20);
+        assert_eq!(on.frame_fec_percent(false), decayed);
+        assert_eq!(on.frame_fec_percent(true), 20);
+        assert_eq!(off.frame_fec_percent(true), 20);
+        assert_eq!(quiet.frame_fec_percent(false), 30);
         // PyroWave does not use it, and does not show it.
         let pyrowave = Session::new(
             launch("pyrowave-fec", Role::Stream),
@@ -1457,6 +1465,20 @@ impl<P, A> Session<P, A> {
     /// The FEC percentage for the next video frame.
     pub fn fec_percent(&self) -> usize {
         self.fec_percent.load(Ordering::Acquire) as usize
+    }
+    /// The FEC percentage for a video frame about to be packetized. A
+    /// keyframe or the frame after a reference invalidation (`recovery`)
+    /// repairs a loss the client is waiting on, and a keyframe is several
+    /// frames' worth of packets: losing it costs another round trip and
+    /// another keyframe. Such a frame gets the configured percentage, however
+    /// far a clean link let adaptive FEC fall (to 5%) before the loss.
+    pub fn frame_fec_percent(&self, recovery: bool) -> usize {
+        let current = self.fec_percent();
+        if recovery {
+            current.max(self.adaptive_fec.lock().unwrap().ceiling())
+        } else {
+            current
+        }
     }
     pub fn configure_adaptive_bitrate(&self, enabled: bool, maximum_kbps: u32) {
         self.adaptive_bitrate.lock().unwrap().configure(

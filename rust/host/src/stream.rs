@@ -1511,7 +1511,7 @@ impl Media {
                             if frame.bytes.is_empty() {
                                 continue;
                             }
-                            packetizer.fec_percent = s.fec_percent();
+                            packetizer.fec_percent = s.frame_fec_percent(frame.idr || frame.after_invalidation);
                             let wire_frame = packetizer.frame;
                             let block_layout = packetizer.block_layout(frame.bytes.len());
                             let fec_limited = packetizer.fec_limited(frame.bytes.len());

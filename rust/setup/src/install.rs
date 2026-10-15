@@ -950,11 +950,16 @@ fn run_drivers(
 ) -> bool {
     let mut restart_needed = false;
     if display {
-        restart_needed |= rubylight_display_driver(install, progress, notes);
+        let before = notes.len();
+        let restart = rubylight_display_driver(install, progress, notes);
+        restart_needed |= restart;
+        // Rubylight's own driver replaced libvirtualdisplay. The old one goes
+        // once the new device runs; where Windows refused the new driver or
+        // its install failed, nothing uses the old one and it stays.
+        if libvirtualdisplay_replaced(notes.len() > before, restart) {
+            restart_needed |= remove_libvirtualdisplay(install, progress, notes);
+        }
     }
-    // Rubylight's own driver replaced libvirtualdisplay: the old one goes
-    // whatever the options, so no second virtual display driver stays behind.
-    restart_needed |= remove_libvirtualdisplay(install, progress, notes);
     if gamepad && install.join("drivers\\gamepad\\install.ps1").is_file() {
         progress.set("Installing the virtual gamepad driver…");
         restart_needed |= run_driver_script(
@@ -994,6 +999,12 @@ fn rubylight_display_driver(install: &Path, progress: &Progress, notes: &mut Vec
     }
     progress.set("Installing the virtual display driver…");
     run_driver_script(&script, &["-InstallerBestEffort"], notes, "virtual display")
+}
+/// Whether Rubylight's display driver step left a running device: no note
+/// (a refusing policy, a failed install, a missing package) and no restart
+/// still pending before the device starts.
+fn libvirtualdisplay_replaced(noted: bool, restart_pending: bool) -> bool {
+    !noted && !restart_pending
 }
 /// Remove libvirtualdisplay's device, driver packages and HDR layer, best
 /// effort. Returns whether Windows needs a restart.
@@ -1465,6 +1476,24 @@ mod tests {
                 "The virtual display driver was not installed: This PC refuses a display driver signed on the PC (Smart App Control is on). A signed Rubylight release installs it; until then streams use a physical display."
             ]
         );
+    }
+    #[test]
+    fn libvirtualdisplay_goes_only_once_rubylights_device_runs() {
+        assert!(libvirtualdisplay_replaced(false, false));
+        // Smart App Control, S mode, App Control or a failed install: the
+        // driver step added a note, and the old driver stays.
+        let mut notes = Vec::new();
+        let refused = "WARNING: [RubylightVirtualDisplay] DRIVER_UNSUPPORTED: Smart App Control is on, and it refuses a display driver signed on this PC, so streams use a physical display.\n";
+        let restart = driver_result(0, refused, &mut notes, "virtual display");
+        assert!(!libvirtualdisplay_replaced(!notes.is_empty(), restart));
+        let mut notes = Vec::new();
+        let failed = "WARNING: [RubylightVirtualDisplay] DRIVER_WARNING: Rubylight display driver setup did not complete.\nWARNING: [RubylightVirtualDisplay] Installer best-effort driver action failed: Windows did not start the display driver (Error, problem 31)\n";
+        let restart = driver_result(0, failed, &mut notes, "virtual display");
+        assert!(!libvirtualdisplay_replaced(!notes.is_empty(), restart));
+        // Installed, but the device starts only after a restart.
+        let mut notes = Vec::new();
+        let restart = driver_result(3010, "RESTART_REQUIRED\n", &mut notes, "virtual display");
+        assert!(!libvirtualdisplay_replaced(!notes.is_empty(), restart));
     }
     #[test]
     fn a_failed_libvirtualdisplay_removal_is_a_note_about_removing_it() {

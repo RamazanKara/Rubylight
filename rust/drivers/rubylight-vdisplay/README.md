@@ -188,9 +188,11 @@ say) so it outranks the 0.1.0.x development builds, and puts it under
 - Setup and an in-app update run `install-local.ps1 -InstallerBestEffort` as SYSTEM unless
   setup ran with `--no-display-driver`. A failure becomes a setup note, like the gamepad
   driver's.
-- They also run `remove-libvirtualdisplay.ps1 -InstallerBestEffort`, which removes the
-  libvirtualdisplay device, driver packages and HDR layer earlier versions installed (a note
-  when it cannot; the SignPath certificate stays, the gamepad driver needs it).
+- Once Rubylight's device runs (no note, no restart pending), they also run
+  `remove-libvirtualdisplay.ps1 -InstallerBestEffort`, which removes the libvirtualdisplay
+  device, driver packages and HDR layer earlier versions installed (a note when it cannot; the
+  SignPath certificate stays, the gamepad driver needs it). Where the new driver was refused or
+  failed, the old one stays; nothing uses it.
 - When the host has had no virtual display driver for a minute after the service starts, the
   service runs `butterpollo-setup.exe --repair-drivers`, which installs it again: at most once
   a day per version, never during a stream. Nothing installs or removes it after a settings

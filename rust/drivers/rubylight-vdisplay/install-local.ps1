@@ -100,6 +100,17 @@ function Protect-Catalog([string] $catalog) {
 # Smart App Control (on, not evaluating), S mode, or an App Control for Business (WDAC) policy
 # enforcing user-mode code integrity. Each admits only publishers it already knows, never a
 # certificate made here. The text is what setup's note and the console show.
+#   SkuPolicyRequired (HKLM\SYSTEM\CurrentControlSet\Control\CI\Policy): 1 = S mode, 0 or
+#     absent = not; Microsoft-Windows-CodeIntegrity-SkuPolicyRequired, learn.microsoft.com/
+#     windows-hardware/customize/desktop/unattend/microsoft-windows-codeintegrity-skupolicyrequired
+#   Win32_DeviceGuard.UsermodeCodeIntegrityPolicyEnforcementStatus: 0 off, 1 audit, 2 enforced,
+#     as its CodeIntegrityPolicyEnforcementStatus sibling on learn.microsoft.com/windows/
+#     security/hardware-security/enable-virtualization-based-protection-of-code-integrity
+#     (the user-mode field itself is named in DISA's Windows STIG checks, not on that page).
+#     Memory Integrity alone enforces only the kernel-mode one, which this does not read.
+#   VerifiedAndReputablePolicyState (same key): 0 off, 1 on (enforce), 2 evaluation. Microsoft
+#     does not document this value; the meaning is the one Windows Security's own toggle
+#     writes and that published guides agree on. Evaluation never blocks, so only 1 counts.
 function Get-Refusal {
     $policy = Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\CI\Policy' -ErrorAction SilentlyContinue
     if ($policy.VerifiedAndReputablePolicyState -eq 1) {

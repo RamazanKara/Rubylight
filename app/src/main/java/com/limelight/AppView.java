@@ -359,6 +359,8 @@ public class AppView extends AppCompatActivity implements AdapterFragmentCallbac
                 getIntent().getBooleanExtra(SHOW_HIDDEN_APPS_EXTRA, false);
         if (savedInstanceState != null) {
             searchQuery = savedInstanceState.getString("libraryQuery", "");
+            controlsProfile = savedInstanceState.getString("controlsProfile");
+            controlsGame = savedInstanceState.getString("controlsGame");
             librarySearch.setQuery(searchQuery, false);
             librarySearch.setVisibility(savedInstanceState.getBoolean("librarySearchVisible") ? View.VISIBLE : View.GONE);
             librarySearch.clearFocus();
@@ -525,6 +527,8 @@ public class AppView extends AppCompatActivity implements AdapterFragmentCallbac
     @Override protected void onSaveInstanceState(Bundle state) {
         super.onSaveInstanceState(state);
         state.putString("libraryQuery", searchQuery);
+        state.putString("controlsProfile", controlsProfile);
+        state.putString("controlsGame", controlsGame);
         state.putBoolean("showHiddenApps", showHiddenApps);
         state.putBoolean("librarySearchVisible", librarySearch != null && librarySearch.getVisibility() == View.VISIBLE);
     }
@@ -638,11 +642,13 @@ public class AppView extends AppCompatActivity implements AdapterFragmentCallbac
             sheet.addAction(R.drawable.ic_touch_controls, getString(R.string.library_import_controls),
                     getString(R.string.library_import_controls_note)).setOnClickListener(v -> {
                 sheet.dismiss();
-                controlsTarget = selectedApp.app;
+                controlsProfile = com.limelight.binding.input.TouchLayout.profileKey(uuidString,
+                        selectedApp.app.getAppUuid(), selectedApp.app.getAppId());
+                controlsGame = selectedApp.app.getAppName();
                 try {
                     controlsPicker.launch(new String[] {"*/*"});
                 } catch (android.content.ActivityNotFoundException e) {
-                    controlsTarget = null;
+                    controlsProfile = null;
                     Toast.makeText(this, R.string.library_import_controls_error, Toast.LENGTH_LONG).show();
                 }
             });
@@ -667,14 +673,15 @@ public class AppView extends AppCompatActivity implements AdapterFragmentCallbac
     }
 
     // A Nightjar layout, or an Artemis keyboard layout and/or Custom Keys file, for the game the menu was opened on.
-    private NvApp controlsTarget;
+    // Kept across recreation while the picker is open.
+    private String controlsProfile, controlsGame;
     private final androidx.activity.result.ActivityResultLauncher<String[]> controlsPicker = registerForActivityResult(
             new androidx.activity.result.contract.ActivityResultContracts.OpenMultipleDocuments(), this::importControls);
 
     private void importControls(List<android.net.Uri> files) {
-        NvApp app = controlsTarget;
-        controlsTarget = null;
-        if (app == null || files == null || files.isEmpty()) return;
+        String profile = controlsProfile, game = controlsGame;
+        controlsProfile = null;
+        if (profile == null || files == null || files.isEmpty()) return;
         java.util.ArrayList<String> texts = new java.util.ArrayList<>();
         try {
             for (android.net.Uri file : files) {
@@ -695,14 +702,13 @@ public class AppView extends AppCompatActivity implements AdapterFragmentCallbac
             result = com.limelight.binding.input.TouchLayoutImport.importFiles(texts, width, height);
         } catch (IllegalArgumentException e) {
             UiHelper.showDialog(this, new com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
-                    .setTitle(getString(R.string.library_import_controls_title, app.getAppName()))
+                    .setTitle(getString(R.string.library_import_controls_title, game))
                     .setMessage(com.limelight.ui.GameTouchControls.errorMessage(this, e))
                     .setPositiveButton(android.R.string.ok, null).create());
             return;
         }
-        String profile = com.limelight.binding.input.TouchLayout.profileKey(uuidString, app.getAppUuid(), app.getAppId());
         UiHelper.showDialog(this, new com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
-                .setTitle(getString(R.string.library_import_controls_title, app.getAppName()))
+                .setTitle(getString(R.string.library_import_controls_title, game))
                 .setMessage(com.limelight.ui.GameTouchControls.importSummary(this, result) + "\n\n" +
                         getString(R.string.library_import_controls_replace))
                 .setPositiveButton(R.string.keyboard_shortcuts_replace_button, (dialog, which) -> {

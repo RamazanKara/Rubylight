@@ -183,20 +183,25 @@ refuse unknown signers, as they refuse the Sunshine driver), and WDAC-managed PC
 
 ### In the Rubylight package
 
-`rust/build.ps1 -Package` builds the package with `build-package.ps1` (unsigned) and puts it
-under `drivers\rubylight-display` with `install-local.ps1` and the bundled `nefconc.exe`. The
-console's **Virtual display driver** setting (`virtual_display_driver = rubylight`) decides
-whether it is installed:
+`rust/build.ps1 -Package` builds the package with `build-package.ps1` (unsigned), stamped
+with the release version and the build hour (2.3.1.7020, say) so it outranks the 0.1.0.x
+development builds, and puts it under `drivers\rubylight-display` with `install-local.ps1`
+and the bundled `nefconc.exe`. The console's **Virtual display driver** setting
+(`virtual_display_driver = rubylight`) decides whether it is installed, and only when someone
+runs setup:
 
-- Setup, an in-app update and the service's driver repair run
-  `install-local.ps1 -InstallerBestEffort` as SYSTEM while the setting selects it, and
-  `-Uninstall` once it no longer does but the driver is still installed (the
-  `HKLM\SOFTWARE\Rubylight\VirtualDisplay` key). A failure becomes a setup note and the host
-  keeps the standard driver, like the Sunshine driver's `install.ps1 -InstallerBestEffort`.
-- The service checks every minute: when the setting selects the driver and it does not open,
-  or deselects it while it is installed, it runs `butterpollo-setup.exe --rubylight-display`.
-  That waits for no stream and tries at most once a day per version and choice.
+- Setup and an in-app update run `install-local.ps1 -InstallerBestEffort` as SYSTEM while the
+  setting selects it, and `-Uninstall` once it no longer does but the driver is still installed
+  (the `HKLM\SOFTWARE\Rubylight\VirtualDisplay` key). A failure becomes a setup note and the
+  host keeps the standard driver, like the Sunshine driver's `install.ps1 -InstallerBestEffort`.
+- `butterpollo-setup.exe --rubylight-display` does the same on request, never during a stream,
+  for a console action the user confirms. Nothing runs it on its own: neither the service nor
+  its display driver repair installs or removes this driver after a settings change.
 - The uninstaller always runs `-Uninstall`, also when the other drivers stay.
+
+`install-local.ps1` makes the device take the package it installs, even when a newer one is
+in the driver store, and deletes the others before it removes their signer's trust. A
+`pnputil` exit code of 3010 is a restart, not a failure.
 
 A signed release replaces the catalog with the one SignPath signed
 (`rust/release/sign-artifacts.ps1`). `install-local.ps1` then installs it as it is and adds

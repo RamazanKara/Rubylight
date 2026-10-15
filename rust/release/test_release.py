@@ -180,16 +180,24 @@ class Signing(unittest.TestCase):
         includes = {element.get('path') for element in self.configurations['binaries'].iter(f'{NS}include')}
         self.assertEqual(includes - {'drivers/rubylight-display/*.dll'}, staged)
 
-    def test_the_display_driver_is_packaged_where_setup_signing_and_the_service_look(self):
-        # rust/build.ps1 lays the package out; setup, the service and the
-        # signing steps each name the same folder.
+    def test_the_display_driver_is_packaged_where_setup_and_signing_look(self):
+        # rust/build.ps1 lays the package out; setup and the signing steps
+        # each name the same folder.
         build = (ROOT / 'rust/build.ps1').read_text(encoding='utf-8')
         self.assertIn(r"$distribution 'drivers\rubylight-display'", build)
         self.assertIn("'install-local.ps1'", build)
         self.assertIn(r"'sunshine\nefconc.exe'", build)
+        # A default build number lost to an installed development build: the
+        # packaged driver carries the release version.
+        self.assertIn("'build-package.ps1') -Version $driverVersion", build)
         script = r'drivers\\rubylight-display\\install-local.ps1'
         self.assertIn(f'"{script}"', (ROOT / 'rust/setup/src/install.rs').read_text(encoding='utf-8'))
-        self.assertIn(f'"{script}"', (ROOT / 'rust/windows/src/service.rs').read_text(encoding='utf-8'))
+        # The service never installs or removes it on its own: an unattended
+        # uninstall after a settings edit broke measurements on the
+        # development PC.
+        service = (ROOT / 'rust/windows/src/service.rs').read_text(encoding='utf-8')
+        self.assertNotIn('rubylight-display', service)
+        self.assertNotIn('--rubylight-display', service)
         signing = (ROOT / 'rust/release/sign-artifacts.ps1').read_text(encoding='utf-8')
         self.assertIn(r"$distribution 'drivers\rubylight-display'", signing)
         workflow = (ROOT / '.github/workflows/rust-windows.yml').read_text(encoding='utf-8')

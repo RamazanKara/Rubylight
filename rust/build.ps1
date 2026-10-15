@@ -236,8 +236,13 @@ try {
         # the user's PC. A signed release replaces the catalog with SignPath's
         # (rust/release/sign-artifacts.ps1), which install-local.ps1 then keeps.
         # A child PowerShell: the driver's MSVC environment stays out of this one.
+        # DriverVer is the release (2.4.0-rc.1 is 2.4.0) plus the build hour, so a release's
+        # driver outranks the 0.1.0.x development builds and each earlier release.
         $vdisplay = Join-Path $repo 'rust\drivers\rubylight-vdisplay'
-        & (Get-Process -Id $PID).Path -NoProfile -ExecutionPolicy Bypass -File (Join-Path $vdisplay 'build-package.ps1')
+        $release = (Select-String -LiteralPath (Join-Path $repo 'Cargo.toml') -Pattern '^version = "(\d+)\.(\d+)\.(\d+)').Matches[0].Groups
+        $hour = [int]((Get-Date).ToUniversalTime() - [datetime]'2026-01-01').TotalHours
+        $driverVersion = "$($release[1].Value).$($release[2].Value).$($release[3].Value).$hour"
+        & (Get-Process -Id $PID).Path -NoProfile -ExecutionPolicy Bypass -File (Join-Path $vdisplay 'build-package.ps1') -Version $driverVersion
         Assert-NativeExit 'Display driver build'
         $displayDriver = Join-Path $distribution 'drivers\rubylight-display'
         New-Item -ItemType Directory -Path $displayDriver -Force | Out-Null

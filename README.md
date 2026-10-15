@@ -4,7 +4,7 @@
 
 <p align="center">
   Stream your PC games and desktop to a laptop, TV, phone or handheld.<br>
-  A free Windows host built around AMD Radeon, ready for Moonlight and Sunshine-compatible clients.
+  A free Windows host built for AMD Radeon and Moonlight, written in Rust.
 </p>
 
 <div align="center">
@@ -21,38 +21,22 @@
 
 <p align="center"><a href="docs/media/demo.mp4">Watch the full demo →</a> · 60 seconds · 1080p · 60 fps</p>
 
-## Features
+- **13.5 ms** from a rendered picture to a laptop over Wi-Fi, at 1968×2184 AV1 HDR and 120 fps, with all 120 pictures a second arriving.
+- **About 14 ms** average picture age beside a game, in HEVC and AV1 HDR at 120 fps on an RX 7900 XT.
+- **7.4 ms sooner than Vibepollo 2.0** on average beside a game, on the same GPU with identical settings.
+- **120 and 240 fps** for clients that ask for more frames than they launch with, such as Artemis with Warp frame pacing.
 
-- **More room for your game.** Frame copies and colour conversion run on Radeon compute queues alongside your game's graphics work, with AMD's encoder driven natively.
-- **See every detail.** H.264, HEVC and AV1 streaming, with 10-bit HDR through HEVC and AV1 on supported hardware.
-- **Full colour with PyroWave.** 10-bit HDR 4:4:4 keeps fine coloured text and edges crisp. Use a PyroWave-capable client, such as [Nightjar](https://github.com/RamazanKara/nightjar) on Android, over a fast local network.
-- **A screen for each device.** Virtual displays match your client's resolution and refresh rate, with HDR and your monitor layout restored after the stream.
-- **Your library, ready to play.** Steam and Playnite sync, per-app settings, RTSS frame limits and Lossless Scaling integration.
-- **Your controls come with you.** Controllers, keyboard, mouse, touch and pen, plus surround audio and microphone passthrough with compatible clients.
-- **Everything in one console.** Pair devices, manage games and watch frame rate, bitrate and encoder timing from your browser. Stream from the lock screen or a headless PC, too.
+[How these were measured →](#measured-on-real-hardware)
 
-Rubylight works with Moonlight and other Sunshine-compatible clients across PCs, phones, tablets, TVs, consoles and handhelds. Available codecs, HDR and extra controls depend on your hardware and client. NVIDIA NVENC, Intel Quick Sync and software encoding are also included but Rubylight's tuning and measurements focus on Radeon.
+## The mission
 
-**New in 2.2.19:** optional adaptive packet pacing, more reliable reconnects and audio recovery, fewer unnecessary encoder restarts, long-path file updates and USB/IP shutdown fixes. [Release notes](rust/RELEASE_NOTES.md#new-in-2219) describe validation and hardware coverage.
+AMD rarely gets any love in this space. The protocol started as NVIDIA's GameStream, and even after NVIDIA dropped GameStream in 2023, the hosts that replaced it kept NVIDIA first. Upstream Sunshine has had a native NVENC encoder since 2023, while AMD still goes through FFmpeg's generic AMF wrapper. AMD hasn't helped itself either. It shut down its own streaming app, AMD Link, in 2024, saying there are plenty of other ways to stream, and its drivers still have quirks like an RDNA4 freeze that hosts have to work around.
 
-**New in 2.2.16:** optional [host bitrate adaptation](docs/configuration.md#host-bitrate-adaptation) for H.264, HEVC and AV1, [game-only audio](docs/configuration.md#game-only-audio) on Windows build 20348 or newer, and [paired Tailscale route diagnostics](docs/network-path.md). Host bitrate adaptation is experimental and off by default; System audio remains the default. [DualSense USB audio and controller continuity](docs/dualsense-haptics.md) work with matching clients such as Nightjar.
+So Radeon owners have spent years hearing their cards are just worse at streaming. That is where Rubylight comes into play, and it is the sole reason Rubylight exists. Most of the time the card was never the problem. Nobody had sat down with it.
 
-[All features →](docs/features.md) · [How the frame pipeline works →](docs/architecture.md) · [Choose your stream format →](docs/getting-started.md#choose-your-stream-format)
+In practice that means a native AMF encoder instead of a generic wrapper, frame copies and colour conversion on Radeon compute queues, and someone reading AMD's driver release notes so you don't have to. When a driver freezes the stream, Rubylight works around it. When AMD fixes it, Rubylight removes the workaround and pretends nothing happened.
 
-### Radeon-specific features
-
-- **Native AMD AMF.** Direct hardware encoding for H.264, HEVC and AV1, with captured pictures kept in GPU memory through colour conversion and encoding. HEVC and AV1 support 10-bit HDR on capable hardware.
-- **Asynchronous D3D12 compute.** Frame copies, colour conversion, resizing and letterboxing can run alongside your game's graphics work. PyroWave colour conversion uses this compute path too; unsupported capture textures fall back to the graphics path.
-- **Fresh pictures under load.** Bounded encoder and video-send queues keep old pictures from piling up. When capacity returns, Rubylight takes the newest available picture.
-- **Split-frame encoding.** On Radeon GPUs with two encoder engines, Rubylight can ask AMF to split a HEVC or AV1 frame across both. Automatic, On and Off controls are available; the driver decides whether to split. H.264 and single-engine GPUs do not use this feature.
-- **SmartAccess Video controls.** Exposes the driver's option to share encoding between AMD integrated and discrete graphics on supported systems. Rubylight prevents explicitly enabling it together with forced H.264/HEVC internal low-latency mode.
-- **AMF quality and bitrate tuning.** Defaults are tuned per codec from VMAF measurements, with controls for quality presets, adaptive quantization, high-motion quality boost, rate control, peak bitrate, buffer size and maximum frame size. Optional pre-analysis and quality rate-control modes require 8-bit SDR input.
-- **AV1 tools and loss recovery.** Controls for screen-content coding, tiles and latency modes, plus long-term reference frames that can repair packet loss with a smaller recovery frame when the client's reference budget allows. H.264 and HEVC use keyframes for reference-loss recovery.
-- **AMD GPU readings for client overlays.** Compatible clients can request GPU usage, clocks, temperatures, power, voltage, fan speed and VRAM usage through ADLX, where the GPU and driver expose them. Collection is off by default and only happens on request during that client's stream.
-
-Encoder controls are under **Settings → Encoders → AMD AMF**. Native AMF supplies 4:2:0 colour; full 10-bit HDR 4:4:4 on Radeon uses **PyroWave**, a compatible client and a fast local network.
-
-[Radeon settings and defaults →](docs/configuration.md#capture-and-video) · [GPU overlay setup →](docs/hardware-metrics.md#enable-on-the-host)
+Rubylight is not here to win a big userbase. There is no growth plan and no campaign to convert the NVIDIA crowd. As long as AMD users are happy, Rubylight is happy.
 
 ## Install. Pair. Play.
 
@@ -60,66 +44,73 @@ Encoder controls are under **Settings → Encoders → AMD AMF**. Native AMF sup
 2. **Open your console.** Visit **`https://localhost:47990`** on the host PC and create your local account.
 3. **Pair and play.** Open Moonlight on a device on the same network, select your PC, enter its PIN in Rubylight's **Devices** page, then launch **Desktop**.
 
-Coming from Apollo or Vibepollo? Rubylight can import your settings, paired devices and app library. After an import, sign in with your existing console account. Updates notify you first; automatic installation is opt-in.
+Coming from Apollo or Vibepollo? Rubylight imports your settings, paired devices and app library. Upgrades keep them too. Updates notify you first; automatic installation is opt-in.
 
 [First-stream walkthrough, portable setup and migration →](docs/getting-started.md)
 
-## Radeon performance
+## What's new in 2.3
 
-**Nearly 120 fresh HDR pictures per second under GPU load.** Rubylight 2.2.9 delivered **14.34 ms average picture age with HEVC** and **13.65 ms with AV1**, measured from rendering through local hardware decoding on an RX 7900 XT.
+2.3 is a fresh start. The 2.2 line shipped too many quick updates, so every change since 2.2.1 was reviewed, the regressions found were fixed with tests, and the web console was reworked to be calmer and clearer.
 
-| Native HDR under GPU load | Average picture age | p95 picture age | Fresh pictures/s |
+2.3.1 streams at the frame rate your device asks for, so Artemis's Warp modes get 120 or 240 fps instead of 60, at the bitrate you set. TV boxes behind 100 Mbps Ethernet, such as the Onn 4K Pro, get a picture instead of a frozen screen. [Release notes →](rust/RELEASE_NOTES.md#new-in-231)
+
+## Why Rubylight
+
+| What you get | How it helps |
+| --- | --- |
+| **Radeon compute** | Frame copies and colour conversion run on D3D12 compute queues beside your game's graphics work, so the stream takes less from the game. |
+| **Native AMD encoding** | AMF drives the encoder directly for H.264, HEVC and AV1, with defaults tuned per codec. AV1 can repair packet loss with a small recovery frame instead of a keyframe. |
+| **HDR, and full colour with PyroWave** | HEVC and AV1 carry 10-bit HDR. PyroWave adds 10-bit HDR 4:4:4, which keeps coloured text and fine edges crisp, over a fast local network. |
+| **A screen for each device** | Virtual displays match each client's resolution and refresh rate. Your monitor layout and HDR come back after the stream. |
+| **One calm console** | Pair devices, manage games and per-app settings, and watch frame rate, bitrate and encoder timing from your browser. |
+
+Also built in: Steam and Playnite library sync, RTSS frame limits, Lossless Scaling, VRR, controllers (including DualSense haptics and a real Steam Deck controller), keyboard, mouse, touch and pen, surround audio, microphone passthrough, and streaming from the lock screen or a headless PC.
+
+Rubylight is built for Radeon. NVIDIA NVENC, Intel Quick Sync and software encoding are included, but the tuning and the measurements are Radeon-only. On NVIDIA, Vibepollo is the better fit.
+
+[All features →](docs/features.md) · [Radeon settings and defaults →](docs/configuration.md#capture-and-video) · [How the frame pipeline works →](docs/architecture.md)
+
+## Measured on real hardware
+
+**Nearly 120 fresh HDR pictures a second beside a game.** Rubylight 2.2.9 averaged **14.34 ms** picture age with HEVC and **13.65 ms** with AV1, from rendering to local hardware decoding on an RX 7900 XT.
+
+| Native HDR beside a game-like GPU load | Average picture age | p95 picture age | Fresh pictures/s |
 | --- | ---: | ---: | ---: |
 | HEVC | **14.34 ms** | **16.03 ms** | **119.99** |
 | AV1 | **13.65 ms** | **18.00 ms** | **119.98** |
 
-<sub>October 12, 2026 · Rubylight 2.2.9 · 1968×2184 native virtual HDR at 120 fps · 80 Mbps · Desktop Duplication · synthetic GPU load capped at 60 fps · each figure averages two runs' corresponding statistics.</sub>
+<sub>October 12, 2026 · 1968×2184 virtual HDR display at 120 fps · 80 Mbps · synthetic GPU load capped at 60 fps · each figure averages two runs.</sub>
 
-[![Rubylight 2.2.9 measured October 12 and historical Vibepollo 2.0 measured October 8: average and p95 picture age under GPU load.](docs/media/gaming-latency.svg)](docs/performance.md#october-12-229-measurements)
+[![Picture age beside a game: Rubylight 2.2.9 against Vibepollo 2.0.](docs/media/gaming-latency.svg)](docs/performance.md#october-12-229-measurements)
 
-<sub>Chart provenance: Rubylight on October 12 with a 5120×1440/240 Hz physical desktop; historical Vibepollo on October 8 with a 2560×1440/120 Hz physical desktop. Both use a 120 Hz virtual HDR source.</sub>
-
-- **Smooth on stock Moonlight over Wi-Fi.** Official Moonlight 6.2.0 rendered **59.99 FPS in both 165-second 1080p60 HEVC SDR sessions** on a Radeon 780M laptop, with **0.50–0.59 ms average decoding time** across the two runs. [Real-client results →](rust/PERFORMANCE_WORK.md#stock-moonlight-620-over-wi-fi-october-12)
-- **Native HDR verified.** **28/28 stream and timing checks** passed across Desktop Duplication and Windows Graphics Capture, together with **4/4 HDR pixel checks**. [HDR results →](rust/PERFORMANCE_WORK.md#native-virtual-hdr-headline-streams-october-12)
-
-[Full October 12 measurement record, settings and methods →](docs/performance.md#october-12-229-measurements)
-
-<details>
-<summary><strong>See the historical October 8 comparison and other dated measurements</strong></summary>
-
-**Recorded with Rubylight rc.24 on October 8: 43–48% lower p95 picture age under game-like GPU load.** In matched 120 fps HDR tests against Vibepollo 2.0, Rubylight reduced average picture age by **7.4 ms** in both HEVC and AV1. The slower frames improved too: HEVC p95 fell from **37.62 to 21.56 ms**, and AV1 from **36.77 to 18.96 ms**.
-
-### While a game runs
-
-The fixture draws a timestamped picture while a separate GPU workload simulates a game. Each cell is the mean of two runs' corresponding metrics; p95 and p99 describe the slower frames.
-
-| Picture age under GPU load | Rubylight rc.24 | Vibepollo 2.0 |
-| --- | ---: | ---: |
-| HEVC average / p95 / p99 | **19.61 / 21.56 / 23.10 ms** | 26.96 / 37.62 / 39.25 ms |
-| AV1 average / p95 / p99 | **17.15 / 18.96 / 22.18 ms** | 24.53 / 36.77 / 38.05 ms |
-
-Rubylight delivered **117–120 fresh pictures per second**; Vibepollo delivered 103–118 in HEVC and 106–111 in AV1. These gains belong to this GPU and workload. With no game load at 1440p, the two hosts were effectively equal. [Recorded runs and settings →](rust/PERFORMANCE_WORK.md#rc24-against-vibepollo-20-on-the-same-gpu)
-
-### Radeon compute and encoder queues
-
-Two separate tests show where frame preparation and queueing matter:
-
-- **PyroWave processing under load:** moving colour conversion to compute reduced repeat-frame processing through conversion and encoding from **5.7 to 0.55 ms** at 1080p HDR 4:4:4. This component probe excludes capture, transport, decoding and display.
-- **An encoder at its limit:** at 5120×1440 HEVC with 240 fps requested, a smaller queue cut average present-to-send time from **42.7 to 11.1 ms**, while throughput stayed at 220 fps.
-
-<sub>RX 7900 XT, October 7, 2026. Separate before/after fixtures; their timings cover different parts of the frame journey. [Methods and scope](docs/performance.md#radeon-under-pressure).</sub>
+- **Over Wi-Fi to a real laptop.** A rendered picture reached a Radeon 780M laptop on 5 GHz Wi-Fi in **13.5 ms** on average at 1968×2184 AV1 HDR, 120 fps. [Method →](rust/PERFORMANCE_WORK.md#october-8-real-client-picture-age-over-wi-fi-rc24-laptop)
+- **Next to Vibepollo 2.0.** On the same GPU with identical settings, pictures arrived **7.4 ms sooner** on average beside a game, and p95 picture age fell by 43–48%. With no game running the two were close. [Runs and settings →](rust/PERFORMANCE_WORK.md#rc24-against-vibepollo-20-on-the-same-gpu)
+- **Stock Moonlight.** Moonlight 6.2.0 rendered **59.99 fps** in two 165-second 1080p60 HEVC sessions over Wi-Fi. [Results →](rust/PERFORMANCE_WORK.md#stock-moonlight-620-over-wi-fi-october-12)
+- **Light at idle.** About **16.6 MB** of memory for host and service together, with 0% CPU.
 
 [All benchmarks, Wi-Fi tests and HDR checks →](docs/performance.md)
 
-</details>
+## Works with
 
-**Light at idle.** An October 12, 2026 Windows Task Manager snapshot on the author's PC showed about **16.6 MB of memory** for the host and service combined (13.8 MB + 2.8 MB), with **0% CPU reported** for both.
+| Client | What you get |
+| --- | --- |
+| **Moonlight PC** | H.264, HEVC and AV1, in SDR and HDR, over Wi-Fi or wired |
+| **Moonlight for Xbox** | HDR at 3840×2160, 120 Hz |
+| **Moonlight and Artemis on Android** | Up to the phone's native resolution at 120 Hz, HDR, on its own virtual display |
+| **[Nightjar](https://github.com/RamazanKara/nightjar)** | PyroWave HDR 4:4:4 on Vulkan phones and tablets, plus DualSense audio |
+| **[Nonary's Moonlight](https://github.com/Nonary/moonlight-qt)** | PyroWave and 1000 Hz VRR on a PC |
+
+Rubylight streams from RX 7900 XT, RX 9070 XT, RX 6900 XT and Radeon 890M systems, among others. Codecs, HDR and extra controls depend on your GPU and client. [Pick the client and stream format for your setup →](docs/getting-started.md#choose-your-stream-format)
 
 ## What users say
 
 > From 10 ms encoding to 5 ms in 4K 60 fps, btw :) I tried it with PyroWave and it was close to native. Really impressive.
 >
 > **u/3stwie4** on Reddit
+
+> Dude... What the fuck is this host? I could not believe it. It's the lowest latency I got after testing a ton of hosts. Congratulations, dude.
+>
+> **u/LukasSTM** on Reddit
 
 <details>
 <summary><strong>More from the community</strong></summary>
@@ -134,10 +125,6 @@ Quotes from Reddit, lightly edited for typos and length. Several were written wh
 >
 > **u/astero-dax** on Reddit
 
-> Dude... What the fuck is this host? I could not believe it. It's the lowest latency I got after testing a ton of hosts. Congratulations, dude.
->
-> **u/LukasSTM** on Reddit
-
 > Fantastic job! Host processing latency has never been this low 🎉 Clean UI too 🔥 Well done! Thanks for your time and the effort you put into this! I'll report feedback if I find any issue.
 >
 > **u/Short_Dimension7967** on Reddit
@@ -149,7 +136,6 @@ Quotes from Reddit, lightly edited for typos and length. Several were written wh
 > Running pretty good so far, no framedrops, no stutter, and a good migration from Vibepollo. And I love that it is written in Rust, one of the best optimized languages! Thank you for the work!
 >
 > **u/almosgeci** on Reddit
-
 
 </details>
 
@@ -163,7 +149,7 @@ Quotes from Reddit, lightly edited for typos and length. Several were written wh
 | See everything it does and how fast | [Features](docs/features.md) · [Performance](docs/performance.md) · [Architecture](docs/architecture.md) |
 | Build or integrate Rubylight | [Build guide](docs/building.md) · [Developer guide](rust/README.md) · [API reference](docs/api.md) |
 
-[Release notes](rust/RELEASE_NOTES.md) · Share your setup, games and results in [Issues](https://github.com/RamazanKara/Rubylight/issues).
+[Release notes](rust/RELEASE_NOTES.md) · Share your Radeon setup, games and results in [Issues](https://github.com/RamazanKara/Rubylight/issues). The [troubleshooting guide](docs/troubleshooting.md) explains which logs make a report useful.
 
 ## Credits and license
 

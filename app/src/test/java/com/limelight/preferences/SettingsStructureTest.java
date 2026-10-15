@@ -145,7 +145,7 @@ public class SettingsStructureTest {
             assertEquals(Arrays.asList("category_gamepad_settings", "category_usb_controllers", "category_input_settings",
                     "category_onscreen_controls", "category_keyboard_shortcuts"), keys(controls));
             assertEquals(Arrays.asList("checkbox_usb_driver", "checkbox_usb_bind_all", "checkbox_usb_dualsense",
-                    "checkbox_usb_dualsense_haptics"), keys((PreferenceGroup) controls.getPreference(1)));
+                    "checkbox_usb_dualsense_haptics", "checkbox_usb_switch_pro"), keys((PreferenceGroup) controls.getPreference(1)));
             PreferenceGroup image = (PreferenceGroup) open(screen, "display").getPreferenceScreen().findPreference("category_upscaling");
             assertTrue(keys(image).containsAll(Arrays.asList("checkbox_yuv444", "checkbox_full_range")));
             PreferenceScreen advanced = open(screen, "advanced").getPreferenceScreen();

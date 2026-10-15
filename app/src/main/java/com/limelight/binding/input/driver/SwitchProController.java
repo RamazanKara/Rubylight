@@ -88,9 +88,10 @@ public class SwitchProController extends AbstractController {
     }
 
     private int awaitReply(byte[] buffer, Reply reply) {
-        long deadline = SystemClock.uptimeMillis() + REPLY_WAIT_MS;
+        // Wall time, not the uptime clock: the wait must end even where that clock stands still.
+        long deadline = System.nanoTime() + REPLY_WAIT_MS * 1000000L;
         while (!stopped) {
-            long left = deadline - SystemClock.uptimeMillis();
+            long left = (deadline - System.nanoTime()) / 1000000L;
             if (left <= 0) {
                 return -1;
             }

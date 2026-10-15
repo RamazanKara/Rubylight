@@ -6385,9 +6385,11 @@ waits, one copy) already lean, and four candidates. One A/B round, HEVC unless
 named (`runs-ab`, `cases-ab.ps1`). Before it, setup installed package
 2.3.1.6905 (main at 60d16e62) to `C:\Program Files\Rubylight`, replacing
 the branch-built driver and service and removing libvirtualdisplay's HDR layer
-and device. Render to received at 120 fps fell from about 12.7 to 8.7 ms
-(60 fps 13.2 to 11.1) with the host and harness unchanged; which of those
-changes did it is not known. Compare within this table only:
+and device, and the main monitor was switched back to its morning mode. Render
+to received at 120 fps fell from about 12.7 to 8.7 ms (60 fps 13.2 to 11.1)
+with the host and harness unchanged: the monitor mode, as the morning's 8 ms
+suggests, sets the time before the driver's acquire. Compare within this
+table only:
 
 | Render to received, mean / p95 ms | 60 fps | 120 fps |
 | --- | ---: | ---: |
@@ -6397,10 +6399,28 @@ changes did it is not known. Compare within this table only:
 | Pushed frames claimed half a period apart, 1 ms detection | 9.56 / 16.92 | 8.85 / 9.47 |
 | AV1, 8-bit | | 8.57 / 8.97 |
 
-- **Wired pacing at 950 Mbps on a gigabit host link** (from 800 Mbps) shipped:
-  an 80 Mbps frame at 60 fps (about 200 KB with FEC) leaves 0.3 ms sooner, a
-  keyframe several times that. The harness streams over loopback, whose link
-  speed is unknown, so it does not show here.
+- **Wired pacing at 950 Mbps on a gigabit host link** (from 800 Mbps) was
+  shipped and reverted. The harness streams over loopback, so it was measured
+  on the LAN instead: `pacing_link_probe` sends frame-sized bursts through the
+  stream's packet pacer from this PC (2.5 GbE) to `pacing_receiver` on the
+  gigabit NUC at 192.168.4.10, which records kernel arrival times; a keyframe
+  eight times the size every five seconds, 10 s per case, two rounds in
+  alternating order (`C:\src\butterpollo-release\pacing-nuc`):
+
+  | Wire rate | Pacing | P-frame arrival span, mean ms | Packets lost |
+  | --- | ---: | ---: | ---: |
+  | 100 Mbps, 60 fps | 800 Mbps | 1.87 / 1.91 | 0 / 0 |
+  | | 950 Mbps | 1.87 / 2.06 | 0 / 0 |
+  | 100 Mbps, 120 fps | 800 Mbps | 0.96 / 0.95 | 0 / 0 |
+  | | 950 Mbps | 0.95 / 0.99 | 0 / 359 |
+  | 150 Mbps, 60 fps | 800 Mbps | 3.01 / 3.19 | 125 / 431 |
+  | | 950 Mbps | 2.79 / 2.81 | 283 / 46 |
+
+  The receiver's gigabit port, not the pacing, sets when a frame's last
+  packet arrives at ordinary bitrates; keyframes arrived 2-3 ms sooner at
+  60 fps and 150 Mbps frames 0.2-0.4 ms. Every loss was the receiver's
+  416 KB socket buffer overflowing, and 950 Mbps lost 359 packets in a round
+  where 800 Mbps lost none, so 800 Mbps stays.
 - **The display layout** moves the time before the driver's acquire by
   0.4-0.5 ms at 120 fps and 1-2 ms the other way at 60 fps: no consistent
   gain, and the harness's extended layout stands in for the shipped default.

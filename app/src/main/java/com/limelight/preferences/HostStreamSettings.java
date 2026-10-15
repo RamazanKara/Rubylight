@@ -66,7 +66,7 @@ import java.io.IOException;
  * main Stream settings, so a global change reaches every PC that doesn't set it. Save keeps the
  * stream values; the other rows act at once.
  */
-public final class HostStreamSettings extends AppCompatActivity {
+public class HostStreamSettings extends AppCompatActivity {
     private static final int PICK_ROMS_REQUEST = 1;
     private static final int PICK_ESDE_REQUEST = 2;
 

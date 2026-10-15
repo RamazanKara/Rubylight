@@ -9,18 +9,24 @@ import android.content.SharedPreferences;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Looper;
+import android.preference.Preference;
+import android.preference.PreferenceFragment;
 import android.preference.PreferenceManager;
 import android.widget.TextView;
+
+import com.google.android.material.appbar.MaterialToolbar;
 
 import com.limelight.AppView;
 import com.limelight.R;
 import com.limelight.PcViewLifecycleTest;
 import com.limelight.computers.ComputerManagerService;
+import com.limelight.computers.HostCapabilityCache;
 import com.limelight.grid.AppGridAdapter;
 import com.limelight.grid.PcGridAdapter;
 import com.limelight.grid.assets.CachedAppAssetLoader;
 import com.limelight.grid.assets.DiskAssetLoader;
 import com.limelight.nvstream.http.ComputerDetails;
+import com.limelight.nvstream.http.HostCapabilities;
 import com.limelight.nvstream.http.NvApp;
 import com.limelight.nvstream.http.NvHTTP;
 import com.limelight.nvstream.http.PairingManager.PairState;
@@ -80,6 +86,50 @@ public class DemoModeTest {
         binder.waitForPollingStopped();
         assertNull(shadowOf(RuntimeEnvironment.getApplication()).getNextStartedService());
         service.destroy();
+    }
+
+    @Test public void pcSettingsShowLivingRoomPcAsAnOnlineRubylightHost() throws Exception {
+        Context normal = RuntimeEnvironment.getApplication();
+        DemoContext demo = new DemoContext(normal);
+        DemoFixtures.prepare(demo);
+        assertEquals(HostCapabilities.Family.RUBYLIGHT, HostCapabilityCache.load(demo, DemoFixtures.PC_UUID).family());
+        assertFalse(HostCapabilityCache.load(normal, DemoFixtures.PC_UUID).isKnown());
+
+        var service = Robolectric.buildService(DemoComputerManagerService.class).create();
+        var plain = (ComputerManagerService.ComputerManagerBinder) service.get().onBind(new Intent());
+        var settings = (ComputerManagerService.ComputerManagerBinder) service.get()
+                .onBind(new Intent(DemoComputerManagerService.ACTION_PC_SETTINGS));
+        // Only the PC settings screen sees an address, and only for the online PC.
+        assertNull(plain.getComputer(DemoFixtures.PC_UUID).activeAddress);
+        ComputerDetails pc = settings.getComputer(DemoFixtures.PC_UUID);
+        assertEquals(DemoComputerManagerService.SETTINGS_ADDRESS, pc.activeAddress.address);
+        assertNull(settings.getComputer(DemoFixtures.computers().get(2).uuid).activeAddress);
+        for (HostCapabilities.Feature feature : new HostCapabilities.Feature[] {HostCapabilities.Feature.HOST_DISPLAY_MODES,
+                HostCapabilities.Feature.VIRTUAL_DISPLAY, HostCapabilities.Feature.RUNTIME_BITRATE, HostCapabilities.Feature.WEB_UI}) {
+            assertTrue(feature.name(), pc.caps.has(feature));
+        }
+        service.destroy();
+
+        Intent intent = new Intent(demo, DemoHostStreamSettings.class)
+                .putExtra("host_uuid", DemoFixtures.PC_UUID).putExtra("host_name", "Living-room PC");
+        var page = Robolectric.buildActivity(DemoHostStreamSettings.class, intent).setup();
+        try {
+            MaterialToolbar toolbar = page.get().findViewById(R.id.host_profile_toolbar);
+            assertEquals("Living-room PC", toolbar.getTitle().toString());
+            assertEquals("Rubylight 2.2.21", toolbar.getSubtitle().toString());
+            PreferenceFragment fragment = (PreferenceFragment) page.get().getFragmentManager()
+                    .findFragmentById(R.id.host_profile_settings);
+            List<String> groups = new ArrayList<>();
+            for (int i = 0; i < fragment.getPreferenceScreen().getPreferenceCount(); i++) {
+                Preference preference = fragment.getPreferenceScreen().getPreference(i);
+                if (preference instanceof android.preference.PreferenceCategory) groups.add(preference.getTitle().toString());
+            }
+            assertEquals(List.of(demo.getString(R.string.settings_section_video), demo.getString(R.string.pc_settings_display),
+                    demo.getString(R.string.pc_settings_connection), demo.getString(R.string.pc_settings_host)), groups);
+            for (String key : new String[] {"host_display", "virtual", "scale", "web_ui"}) {
+                assertNotNull(key, fragment.findPreference(key));
+            }
+        } finally { page.pause().stop().destroy(); }
     }
 
     @Test public void realPcAndAppAdaptersReceiveDemoRowsAndRunningState() throws Exception {

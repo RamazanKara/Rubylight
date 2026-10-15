@@ -44,7 +44,9 @@ public final class DemoContext extends ContextWrapper {
     @Override public boolean bindService(Intent intent, ServiceConnection connection, int flags) {
         if (intent.getComponent() != null &&
                 ComputerManagerService.class.getName().equals(intent.getComponent().getClassName())) {
-            return super.bindService(new Intent(this, DemoComputerManagerService.class), connection, flags);
+            // Keep the action: the PC settings screen asks for its own view of the fixtures with it.
+            return super.bindService(new Intent(this, DemoComputerManagerService.class).setAction(intent.getAction()),
+                    connection, flags);
         }
         return false;
     }

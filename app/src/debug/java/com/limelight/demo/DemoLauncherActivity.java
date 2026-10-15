@@ -37,6 +37,7 @@ public final class DemoLauncherActivity extends Activity {
         Class<?> target;
         if ("library".equals(screen)) target = DemoAppView.class;
         else if ("settings".equals(screen)) target = DemoStreamSettings.class;
+        else if ("pc-settings".equals(screen)) target = DemoHostStreamSettings.class;
         else if ("controller".equals(screen)) target = DemoControllerMappingActivity.class;
         else if ("stream".equals(screen) || "compact".equals(screen) || "statistics".equals(screen) ||
                 "advanced".equals(screen) || "debug".equals(screen) || "touch".equals(screen) ||
@@ -45,7 +46,8 @@ public final class DemoLauncherActivity extends Activity {
         DemoGameActivity.forceH264 = "h264".equals(getIntent().getStringExtra("codec"));
         Intent intent = new Intent(this, target).putExtra("state", screen).putExtra("fit", getIntent().getStringExtra("fit"))
                 .putExtra("hint", getIntent().getBooleanExtra("hint", false))
-                .putExtra(AppView.UUID_EXTRA, DemoFixtures.PC_UUID).putExtra(AppView.NAME_EXTRA, "Living-room PC");
+                .putExtra(AppView.UUID_EXTRA, DemoFixtures.PC_UUID).putExtra(AppView.NAME_EXTRA, "Living-room PC")
+                .putExtra("host_uuid", DemoFixtures.PC_UUID).putExtra("host_name", "Living-room PC");
         startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK));
         finish();
     }

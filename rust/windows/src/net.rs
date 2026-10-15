@@ -242,8 +242,25 @@ pub fn datagram_lost(error: &std::io::Error) -> bool {
             transient(code) || code == WSAEMSGSIZE
         })
 }
-/// How long a send waits for room in a full socket buffer before dropping.
-const WRITABLE_WAIT_MS: i32 = 4;
+/// How long one send, or all of one batch's sends together, wait for room in
+/// a full socket buffer before dropping. Per datagram, 64 refused datagrams
+/// would hold the sender for 256 ms.
+const WRITABLE_WAIT: std::time::Duration = std::time::Duration::from_millis(4);
+/// The writable wait left to one send call, started at its first full buffer.
+#[derive(Default)]
+struct WaitBudget {
+    deadline: Option<std::time::Instant>,
+}
+impl WaitBudget {
+    /// Milliseconds to wait for a full buffer now; 0 once the budget is spent.
+    fn take(&mut self, now: std::time::Instant) -> i32 {
+        let left = self
+            .deadline
+            .get_or_insert(now + WRITABLE_WAIT)
+            .saturating_duration_since(now);
+        left.as_micros().div_ceil(1000) as i32
+    }
+}
 /// Wait until `socket` has a datagram to read, or `timeout_ms` passes;
 /// returns whether one is there. Unlike a fixed sleep, input waiting on the
 /// socket is handled the moment it arrives.
@@ -285,7 +302,15 @@ pub struct WritableWaits {
     pub count: u64,
     pub elapsed: std::time::Duration,
 }
-fn writable(socket: &UdpSocket, trace: Option<&mut WritableWaits>) -> bool {
+fn writable(
+    socket: &UdpSocket,
+    budget: &mut WaitBudget,
+    trace: Option<&mut WritableWaits>,
+) -> bool {
+    let timeout_ms = budget.take(std::time::Instant::now());
+    if timeout_ms == 0 {
+        return false;
+    }
     let started = trace.as_ref().map(|_| std::time::Instant::now());
     let mut poll = [WSAPOLLFD {
         fd: SOCKET(socket.as_raw_socket() as usize),
@@ -294,7 +319,7 @@ fn writable(socket: &UdpSocket, trace: Option<&mut WritableWaits>) -> bool {
     }];
     // SAFETY: `poll` is a one-element array that outlives the call, for a socket the borrow keeps
     // open.
-    let ready = (unsafe { WSAPoll(poll.as_mut_ptr(), 1, WRITABLE_WAIT_MS) }) > 0
+    let ready = (unsafe { WSAPoll(poll.as_mut_ptr(), 1, timeout_ms) }) > 0
         && poll[0].revents.0 & POLLWRNORM.0 != 0;
     if let (Some(trace), Some(started)) = (trace, started) {
         trace.count += 1;
@@ -302,12 +327,13 @@ fn writable(socket: &UdpSocket, trace: Option<&mut WritableWaits>) -> bool {
     }
     ready
 }
-/// One datagram, retried once when the socket buffer is full. The inner
-/// error is Winsock's.
+/// One datagram, retried once when the socket buffer is full and frees up
+/// within `budget`. The inner error is Winsock's.
 fn send_one(
     socket: &UdpSocket,
     packet: &[u8],
     peer: SocketAddr,
+    budget: &mut WaitBudget,
     trace: Option<&mut WritableWaits>,
 ) -> Result<std::result::Result<(), WSA_ERROR>> {
     let send = || {
@@ -316,7 +342,7 @@ fn send_one(
             .map_err(|e| WSA_ERROR(e.raw_os_error().unwrap_or(WSAEINVAL.0)))
     };
     let mut result = send();
-    if result == Err(WSAEWOULDBLOCK) && writable(socket, trace) {
+    if result == Err(WSAEWOULDBLOCK) && writable(socket, budget, trace) {
         result = send();
     }
     Ok(match result {
@@ -332,7 +358,7 @@ fn send_one(
 }
 /// One datagram; `Ok(false)` when a transient error dropped it.
 pub fn send_datagram(socket: &UdpSocket, packet: &[u8], peer: SocketAddr) -> Result<bool> {
-    match send_one(socket, packet, peer, None)? {
+    match send_one(socket, packet, peer, &mut WaitBudget::default(), None)? {
         Ok(()) => Ok(true),
         Err(error) if transient(error) => Ok(false),
         Err(error) => Err(std::io::Error::from_raw_os_error(error.0).into()),
@@ -620,7 +646,9 @@ impl Batch {
         self.dropped(count, WSAEWOULDBLOCK);
     }
     /// Bytes handed to Winsock. Datagrams that hit a transient error are
-    /// dropped, as Vibepollo does, rather than ending the stream.
+    /// dropped, as Vibepollo does, rather than ending the stream. The batch
+    /// shares one writable wait: under congestion it drops rather than
+    /// holding the frame for a wait per datagram.
     pub fn send(
         &mut self,
         socket: &UdpSocket,
@@ -630,12 +658,13 @@ impl Batch {
         if packets.is_empty() {
             return Ok(0);
         }
+        let mut budget = WaitBudget::default();
         if self.offload
             && packets.len() > 1
             && packets.len() <= 64
             && packets.iter().all(|p| p.len() == packets[0].len())
         {
-            match self.send_segmented(socket, packets, peer)? {
+            match self.send_segmented(socket, packets, peer, &mut budget)? {
                 Ok(sent) => return Ok(sent),
                 Err(error)
                     if [WSAEINVAL, WSAENOPROTOOPT, WSAEOPNOTSUPP, WSAEMSGSIZE].contains(&error) =>
@@ -656,7 +685,7 @@ impl Batch {
         let mut sent = 0;
         for packet in packets {
             self.system_calls += 1;
-            match send_one(socket, packet, peer, self.waits.as_mut())? {
+            match send_one(socket, packet, peer, &mut budget, self.waits.as_mut())? {
                 Ok(()) => sent += packet.len(),
                 Err(error) if transient(error) => self.dropped(1, error),
                 Err(error) => return Err(std::io::Error::from_raw_os_error(error.0).into()),
@@ -665,12 +694,13 @@ impl Batch {
         Ok(sent)
     }
     /// One WSASendMsg with UDP segmentation, retried once when the socket
-    /// buffer is full. The inner error is Winsock's.
+    /// buffer is full and frees up within `budget`. The inner error is Winsock's.
     fn send_segmented(
         &mut self,
         socket: &UdpSocket,
         packets: &[Vec<u8>],
         peer: SocketAddr,
+        budget: &mut WaitBudget,
     ) -> Result<std::result::Result<usize, WSA_ERROR>> {
         #[repr(C)]
         struct Control {
@@ -732,7 +762,10 @@ impl Batch {
             }
             // SAFETY: WSAGetLastError only reads this thread's last Winsock error.
             let error = unsafe { WSAGetLastError() };
-            if error != WSAEWOULDBLOCK || attempt == 1 || !writable(socket, self.waits.as_mut()) {
+            if error != WSAEWOULDBLOCK
+                || attempt == 1
+                || !writable(socket, budget, self.waits.as_mut())
+            {
                 return Ok(Err(error));
             }
         }
@@ -748,13 +781,41 @@ mod tests {
     fn writable_waits_are_counted_only_when_traced() -> Result<()> {
         let socket = UdpSocket::bind("127.0.0.1:0")?;
         assert!(Batch::default().waits.is_none());
-        assert!(writable(&socket, None));
+        assert!(writable(&socket, &mut WaitBudget::default(), None));
         let mut waits = WritableWaits::default();
         let started = std::time::Instant::now();
-        assert!(writable(&socket, Some(&mut waits)));
-        assert!(writable(&socket, Some(&mut waits)));
+        assert!(writable(
+            &socket,
+            &mut WaitBudget::default(),
+            Some(&mut waits)
+        ));
+        assert!(writable(
+            &socket,
+            &mut WaitBudget::default(),
+            Some(&mut waits)
+        ));
         assert_eq!(waits.count, 2);
         assert!(waits.elapsed <= started.elapsed());
+        Ok(())
+    }
+    #[test]
+    fn a_batch_shares_one_writable_wait_instead_of_one_per_datagram() -> Result<()> {
+        let start = std::time::Instant::now();
+        let ms = std::time::Duration::from_micros;
+        let mut budget = WaitBudget::default();
+        assert_eq!(budget.take(start), 4);
+        assert_eq!(budget.take(start + ms(2_500)), 2);
+        assert_eq!(budget.take(start + ms(3_999)), 1);
+        assert_eq!(budget.take(start + ms(4_000)), 0);
+        assert_eq!(budget.take(start + ms(250_000)), 0);
+        // A spent budget refuses at once, without polling the socket.
+        let socket = UdpSocket::bind("127.0.0.1:0")?;
+        let mut spent = WaitBudget {
+            deadline: Some(std::time::Instant::now()),
+        };
+        let mut waits = WritableWaits::default();
+        assert!(!writable(&socket, &mut spent, Some(&mut waits)));
+        assert_eq!(waits.count, 0);
         Ok(())
     }
 

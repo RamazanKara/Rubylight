@@ -1,17 +1,21 @@
-# Rubylight 2.3.0 for Windows
+# Rubylight 2.3.1 for Windows
 
 [Documentation](../docs/README.md) · [Install and migrate](../docs/getting-started.md) · [Configuration](../docs/configuration.md) · [Features](../docs/features.md)
 
-**Release history:** [2.3.0](#new-in-230) · [2.2.2 – 2.2.21](#new-in-2221) · [2.2.1](#new-in-221) · [2.2.0](#new-in-220) · [2.1.0](#new-in-210) · [2.0.x](#new-in-201) · [release candidates](#new-in-rc30)
+**Release history:** [2.3.1](#new-in-231) · [2.3.0](#new-in-230) · [2.2.2 – 2.2.21](#new-in-2221) · [2.2.1](#new-in-221) · [2.2.0](#new-in-220) · [2.1.0](#new-in-210) · [2.0.x](#new-in-201) · [release candidates](#new-in-rc30)
 
-Rubylight, called Butterpollo until rc.29, is written in Rust: host, native helpers, service and setup, with a Svelte web console. The 2.3.0 installer is named `rubylight-setup-2.3.0.exe` and upgrades an existing Vibepollo or Butterpollo installation in place, keeping settings, paired devices, the app library and covers. Codec SDKs and Windows drivers remain external components; the setup installs the drivers.
+Rubylight, called Butterpollo until rc.29, is written in Rust: host, native helpers, service and setup, with a Svelte web console. The 2.3.1 installer is named `rubylight-setup-2.3.1.exe` and upgrades an existing Vibepollo or Butterpollo installation in place, keeping settings, paired devices, the app library and covers. Codec SDKs and Windows drivers remain external components; the setup installs the drivers.
 
-## Unreleased
+## New in 2.3.1
+
+Frame rate and slow-network fixes, measured on an RX 7900 XT host: Warp-style requests now get the frame rate they ask for, and TV boxes with 100 Mbps Ethernet get a picture.
 
 - **A picture on TV boxes with 100 Mbps Ethernet.** Behind a port slower than the host and a switch with a shallow queue, every keyframe sent at the fast wired pacing rate (up to 800 Mbps) overflowed the queue. The client asked for another, which was lost the same way, and the picture froze. Through a 100 Mbps loopback bottleneck with a 16 or 64 KiB queue, 1440p60 AV1 and HEVC streams at 40 and 60 Mbps delivered no frame in 20 seconds, in 2.2.1 too. Now, once a keyframe is lost, the rest of the stream is paced like Wi-Fi (twice the encoder bitrate), and the picture arrived within about a tenth of a second. Devices that never lose a keyframe keep the fast rate. **Settings → Video → Slow down after lost keyframes** (`keyframe_loss_pacing`) turns it off.
 - **Streams run at the frame rate the device asks for.** Artemis's Warp frame pacing launches at 60 fps and asks for 120 or 240 in its stream request; the host streamed 60, so the frame rate would not go above 60 whatever Warp setting was chosen. The stream now runs at the requested rate, as in Vibepollo: a virtual display's refresh is raised for it and the frame limiter follows it. The bitrate you set stays the stream's budget, so each frame gets less of it than in Vibepollo at the same setting; raise the bitrate if your network allows. **Use the launch frame rate** (`limit_framerate`), now off by default, keeps the launch rate.
 - **The console shows the frame rate the stream is encoded at.** With **Use the launch frame rate** on, a device that launches at 60 fps and asks for 120 in its stream request is streamed at 60 fps, but the stream card showed 120 as the target. It now shows 60 and the rate the device asked for.
 - **Send Artemis's Warp streams at the bitrate you set.** With Artemis's Frame pacing set to Warp Drive or Warp 2, the host multiplied the client's bitrate by 2 or 4 but still encoded at the launch frame rate, so a 40 Mbps setting sent about 84 or 168 Mbps. On a TV box with a 100 Mbps Ethernet port, such as the Onn 4K Pro, nearly every frame was lost. The bitrate you set is now the stream's budget whatever the frame pacing. The log's stream lines also show the requested frame rate, the configured and encoder bitrates and the rate actually sent.
+
+Measured with isolated test hosts and the independent moonlight-common-c receiver: a request launched at 60 fps that asks for 120 delivered 120.0 fps on a virtual display (2.3.0: 60.0), and 120 → 240 delivered 240.0 fps; the virtual display's refresh was raised in place and the bitrate stayed at the client's setting. Through a 100 Mbps loopback bottleneck with a 16 or 64 KiB queue, every frame of 1440p60 AV1 and HEVC arrived (2.3.0 and 2.2.1: none). A real Onn 4K Pro and Artemis have not been tested.
 
 ## New in 2.3.0
 

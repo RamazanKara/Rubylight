@@ -40,11 +40,12 @@ adb shell am start -n com.butterpollo.client.debug/com.limelight.demo.DemoLaunch
 | `pc-settings` | Real per-PC settings for Living-room PC: Video, Display on the PC, Connection and Host groups |
 | `library` | Real AppView, ten original 3:4 covers, Racing Game marked running |
 | `stream`, `compact` | Looping sample in the Game layout's StreamView with the compact performance overlay |
-| `statistics` | Same sample with the Statistics overlay |
+| `statistics` | Same sample with the Statistics overlay, including the host's CPU and GPU |
 | `advanced`, `debug` | Same sample with the Debug overlay |
 | `touch` | Same sample with the real on-screen controller and its layout editor |
 | `pip` | Sample ready for PiP; press Home to enter it |
 | `settings` | Real settings and presets, with isolated demo preferences |
+| `gpu-driver` | Real Snapdragon GPU driver screen, shown as on an arm64 Adreno phone |
 | `controller` | Real controller mapping screen, populated with a demo controller |
 
 Living-room PC's host is a fixture of a paired Rubylight 2.2.21 with every permission and no
@@ -54,28 +55,47 @@ and the stream menu lists its Quality and Host sections. Nothing is read from a 
 settings screen alone sees the PC at the documentation address `192.0.2.10` (RFC 5737), so its
 rows read as for an online PC; its remote setup, export and web UI actions stay in the fixture.
 
-Tap Living-room PC to enter its library; tap any title to play the sample.
+Tap Living-room PC to enter its library; tap any title to play the sample with the compact overlay.
 Long-press the performance overlay to cycle Compact, Statistics and Debug. Tap the
 stream, its background or Back for the real stream menu; Disconnect leaves. Add
 `--ez hint true` to keep the first-stream hint up until it is tapped. Studio pairing and
 Laptop Wake PC are offline demonstration actions; no pairing request or magic
 packet is sent. The fixture binder never discovers or polls hosts and creates
-no launcher shortcuts. Preferences use `demo_` names and cached art stays under
-`cache/demo`; the user's computer database and normal preferences are untouched.
+no launcher shortcuts. Preferences use `demo_` names, cached art stays under
+`cache/demo` and the GPU driver screen lists `no_backup/demo`; the user's computer database,
+normal preferences and imported drivers are untouched.
 Force-stop the app and open its normal launcher to leave the demo.
 
-The network decoder requires a real host handshake, so demo playback uses
-MediaPlayer in the same `activity_game` / `StreamView` surface container. The
-production `PerfOverlayListener`, `PerformanceOverlay` formatters, Material
+The network decoder requires a real host handshake, so demo playback decodes the sample
+with MediaCodec into the same `activity_game` / `StreamView` surface container. It shows one
+sample frame per sixtieth of a second of display refreshes, counted on Choreographer, so an
+emulator whose refreshes drift against the media clock does not repeat and skip frames on
+camera. The production `PerfOverlayListener`, `PerformanceOverlay` formatters, Material
 ActionSheet and `VirtualController` render its UI. Supported AV1/HEVC samples
 are preferred, with H.264 fallback. PiP is Android's actual floating video window
 (Android 8+ with PiP support), not a composited image.
 
+Some screens need hardware or a host the demo does not have. The debug build shows them as
+they look where they apply, and only in demo mode:
+
+- The demo preferences turn on adaptive refresh (ARR / VRR), the low-latency decoding switches
+  and the USB DualSense driver with its audio and haptics.
+- `DemoStreamSettings` shows the Snapdragon GPU driver row and the USB controllers group on any
+  device, and the driver row opens `DemoGpuDriverSettings`. That screen reads as on an arm64
+  Adreno phone, lists the demo's own empty driver folder, imports nothing and never loads a
+  driver. The release classes carry the seams: `StreamSettings.supportsGpuDrivers()` and
+  `supportsUsbHost()`, and a non-final `GpuDriverSettings` with `supportsDrivers()`. In
+  release builds each returns the same check as before.
+- The stream menu offers the Microphone toggle, as for a host that takes the phone's
+  microphone. The toggle only changes its own state; the demo records nothing.
+
 **All performance readings are scripted illustrations, not measurements.** The
 sample is 1080p60 SDR; the displayed 119.9 FPS, approximately 6 ms decode, 0.1%
-loss, AV1 10-bit HDR and FSR 1 profile are synthetic. The stream carries a small
-DEMO label. Keep that distinction in published captions; use real-host footage
-for claims about measured performance, HDR or upscaling quality.
+loss, AV1 10-bit HDR and FSR 1 profile are synthetic, and so are the host's CPU and
+GPU readings (an AMD Radeon RX 7900 XT at about 72% load, 64 °C and 231 W) in the
+Statistics and Debug overlays. The stream carries a small DEMO label. Keep that
+distinction in published captions; use real-host footage for claims about measured
+performance, HDR or upscaling quality.
 
 ## Capture stills and the guided tour
 
@@ -87,43 +107,59 @@ the app. No host or physical controller is needed.
 .\scripts\demo\capture-stills.ps1
 .\scripts\demo\capture-video.ps1
 # Optional retakes, using the existing shot IDs:
-.\scripts\demo\capture-video.ps1 -Shot 04-library,05-stream,12-pip
+.\scripts\demo\capture-video.ps1 -Shot 05-stream,16-statistics
 ```
 
 Run them with PowerShell 7 (`pwsh`). The scripts temporarily set 1080x2400, density 420, portrait rotation,
 the dark system theme (`-Theme light` captures the day palette instead), a fixed status bar (SystemUI demo mode:
-10:30, full battery and signal, no notification icons) and no soft keyboard for the emulator's virtual hardware
-keyboard, then restore the prior values in `finally`. The published stills, store screenshots and video use the
-dark theme: its night surfaces and amber accents are the Nightjar identity, and they sit in the site's dark phone frames.
+10:30, full battery and signal, no notification icons), no soft keyboard for the emulator's virtual hardware
+keyboard and no "Viewing full screen" confirmation, then restore the prior values in `finally`. The published
+stills, store screenshots and video use the dark theme: its night surfaces and amber accents are the Nightjar
+identity, and they sit in the site's dark phone frames.
 On an emulator, software AV1/HEVC 10-bit playback can render corrupt, so every state is launched with
 `--es codec h264` to use the 8-bit sample (the codec extra is debug-only and sticks for the process).
 They force-stop only this package
 between states and at exit. They do not clear app data. Settings navigation and
-the library/stream tour taps use UIAutomator resource IDs, text and discovered
+the tour's taps use UIAutomator resource IDs, text and discovered
 bounds; missing UI stops capture and preserves `out/demo/capture/last-ui.xml`.
 PiP capture checks that Android actually entered pinned window mode. The presets still applies the Native
 preset first (confirming its dialog), so a preset is selected; every launch writes the demo preferences again.
 
 Stills go to `docs/screenshots/demo/`: `pc-list.png`, `library.png`, `stream.png`,
 `stream-compact.png`, `stream-advanced.png`, `settings-presets.png`,
-`upscaling-options.png`, `controller.png`, `touch-controller.png`, `pip.png`, `pc-settings.png`.
+`upscaling-options.png`, `controller.png`, `touch-controller.png`, `pip.png`, `pc-settings.png`,
+`video-codecs.png`, `gpu-driver.png`, `usb-controllers.png`.
 The script then rotates to landscape and also saves `landscape-stream.png`, `landscape-compact.png`,
-`landscape-advanced.png`, `landscape-touch.png` and `landscape-stream-menu.png` (2400x1080), where the sample
-fills the screen, the real on-screen controller is laid out for it and the stream menu is scrolled to Quality.
+`landscape-advanced.png`, `landscape-touch.png`, `landscape-stream-menu.png` and `landscape-statistics.png`
+(2400x1080), where the sample fills the screen, the real on-screen controller is laid out for it and the stream
+menu is scrolled to Quality.
 `-Only` takes still names, for example `-Only pc-settings,landscape-stream-menu`. PNG dimensions are checked
 after pulling. These files are created by the caller; no empty-app placeholders are substituted.
 
-`capture-video.ps1` records all eight [shots](shotlist.md) with
-`adb shell screenrecord` at half resolution (540x1200 portrait, 1200x540 landscape for the stream shots 05, 06 and 15;
-the emulator's software encoder cannot keep up at full size). screenrecord writes variable-rate video and a single
-frame for a static screen, so FFmpeg normalizes each take to 30 fps and holds the last frame. Clips go to
-`out/demo/clips/<shot-id>.mp4`, with one second of handles at each end. Shot 04
-shows the library directly (taps on a PC card do not navigate under `adb input` on the emulator), and shot 05 taps
-Racing Game while recording. Shot 14 opens on Living-room PC's Display on the PC group, which the script scrolls
-into place and checks before recording, then flicks to the end of the page (Connection and Host), where the list
-stops the same way every take. Shot 15 presses Back in the compact stream before recording, so it opens on the
-stream menu, then scrolls it to Quality with two slow strokes (a fling would stop somewhere different each take).
-Shot 12 presses Home while recording and leaves the PiP window in Android's default bottom-right corner (the demo home's rings are centred there); for it the script enables the debug app's plain dark `DemoHomeActivity` as the home screen (so the window floats over a clean background, not third-party launcher icons) and restores the device's launcher afterwards. The advanced overlay, touch controls and performance panel shots (07, 11, 13) were dropped from the tour after review, and discovery and pairing (02, 03), which repeated the PC list, gave way to shots 14 and 15; see the [shotlist](shotlist.md). Dropped shots are not captured or rendered. Logs stay beside the clips. Recording is silent.
+`capture-video.ps1` records the nine [shots](shotlist.md) at 60 fps with `adb shell screenrecord` at 0.6 of the
+screen size (648x1440 portrait, 1440x648 for the landscape stream shots 05, 15 and 16). Use an emulator with the
+host GPU (`-gpu host`): there the recorder keeps up with every 60 Hz refresh at that size. On a software-rendered
+emulator (swiftshader) or at full size it manages about 30, and the tour stutters. On a busy host, raising the
+emulator process's priority helps.
+
+Each take follows a plan on a clock that starts with the recording: the shot is the window from 1 s to 1 s plus
+its length, with a second of handle either side. Before recording, the script opens the screen, finds what to
+tap and opens each dialog or screen once (the first opening loads classes and can miss a frame on camera); where
+a list scrolls, it rehearses the same fling and checks where it stops. During the take it plays one action with a
+visible result, or two at most: a tap into the library, a fling and the display-mode picker, a tap on a game,
+Back for the stream menu, a long press on the overlay, a tap on a setting. Each shot is taken up
+to three times and the take with the fewest missed refreshes is kept. The recorder's start-up delay is measured
+from the take itself (its second frame is the first action's first change), so the action lands on the planned
+time.
+
+screenrecord writes a frame only when the screen changes, stamped with the time it was composed. The script puts
+every frame on the 60 fps grid at its time; a frame composed a little early, whose slot is already taken, moves
+to the next one, so every recorded frame is shown once and a still screen repeats its last frame. Clips go to
+`out/demo/clips/<shot-id>.mp4`, beside the recording as it came (`<shot-id>.raw.mp4`). The `pip` plan (dropped from the current cut) presses Home
+while recording and leaves the PiP window in Android's default bottom-right corner (the demo home's rings are
+centred there); for it the script enables the debug app's plain dark `DemoHomeActivity` as the home screen (so
+the window floats over a clean background, not third-party launcher icons) and restores the device's launcher
+afterwards. Recording is silent.
 The older `capture.ps1` entry point forwards to this offline tour; its `-NoHost`
 option is now redundant.
 
@@ -134,18 +170,28 @@ The existing edit remains available after capture:
 .\scripts\demo\render.ps1
 ```
 
-It uses the shotlist's new demo stills or the matching recorded clips and writes
-landscape/portrait exports, posters, review frames and `sources.json` under
+It uses the shotlist's demo stills or the matching recorded clips and writes
+landscape/portrait exports, posters, review frames, contact sheets, a smoothness report and `sources.json` under
 `out/demo/`. Review the outputs before using them in README/site/video assets.
 Stream shots preserve the real 16:9 surface inside the portrait viewport; landscape clips get a landscape phone frame.
 The renderer needs an FFmpeg that supports `-/filter_complex` (FFmpeg 8 and later).
 
 The picture uses the Nightjar palette (amber moon #F2A93B on night #14161F) and the moon-and-nightjar tile
-(`scripts/demo/assets/nightjar-tile.png`, the README banner's mark), joins shots with hard cuts
-(a crossfade would double the captions and UI text for a few frames) and keeps the 9:16 cut inside the usual
-platform safe areas: wordmark and headline below y=290, captions ending by y=1440, no text in the right 120 px.
-It writes `demo-16x9.mp4` (1920x1080) and `demo-9x16.mp4` (1080x1920), posters, ten review frames per video in
-`out/demo/frames-v3/` (both title cards and one frame of each shot) and `segments.json` (each shot's start time).
+(`scripts/demo/assets/nightjar-tile.png`, the README banner's mark). It runs at 60 fps. The clips are only scaled
+down into a still phone frame: there is no zoom or pan, so the screen never moves by itself. Shots meet with hard
+cuts (a crossfade would double the captions and UI text for a few frames); each shot's heading, callout and
+caption fade in over 0.3 s, and the title cards meet the first and last shot through the night background. The
+9:16 cut stays inside the usual platform safe areas: wordmark and headline below y=290, captions ending by
+y=1440, no text in the right 120 px; the renderer checks every line's width.
+It writes `demo-16x9.mp4` (1920x1080) and `demo-9x16.mp4` (1080x1920), H.264 High at 60 fps with the
+metadata at the start of the file and no audio track (add licensed music when posting the video), and validates
+both. The posters are a frame of the stream shot (game moving, compact overlay in view) as PNG and as the site's
+1280x720 and 720x1280 WebP. Review frames (both title cards and the end of every shot) go to `out/demo/frames/`,
+contact sheets (three frames of every shot) to `out/demo/contact-*.png`, and `segments.json` records each
+shot's start time.
+`smoothness-*.txt` lists, for every second of every shot, how many distinct frames it shows, by FFmpeg's
+`mpdecimate=hi=64*4:lo=64*2:frac=0.2`. Motion (a scroll, a transition, the game) should stay close to 60; a
+still screen shows 1.
 
 ## README assets
 
@@ -155,9 +201,11 @@ It writes `demo-16x9.mp4` (1920x1080) and `demo-9x16.mp4` (1080x1920), posters, 
 ```
 
 `readme-assets.ps1` builds the four phone shots (PCs, library, the landscape stream's top-left slice with the
-compact overlay, picture-in-picture) from the stills, and `demo.gif` from the rendered 9:16 video cropped to the phone
-column. It uses `out/demo` from a fresh render and otherwise the published `site/assets/demo-9x16.mp4`, with shot start
-times worked out from the shotlist. `readme-preview.ps1` renders the README with GitHub's own markdown renderer
+compact overlay, picture-in-picture) from the stills, and `demo.gif` from the rendered 9:16 video cropped to the
+phone column: the tour's strongest motion (the tap into the library, the tap into a stream, the stream menu and the
+switch to Statistics) at 30 fps and 360 px wide, about 2 MB. It uses `out/demo` from a fresh render and
+otherwise the published `site/assets/demo-9x16.mp4`, with shot start times worked out from the shotlist.
+`readme-preview.ps1` renders the README with GitHub's own markdown renderer
 (read-only) in headless Edge so legibility can be checked at phone width before pushing.
 
 ## Regenerate bundled assets

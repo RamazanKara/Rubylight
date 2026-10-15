@@ -43,6 +43,8 @@ try {
             '--size', $size, '--bit-rate', '8000000', '--time-limit', "$seconds", $remoteClip) `
             -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path $output "$($take.Id).record.log") `
             -RedirectStandardError (Join-Path $output "$($take.Id).record-error.log")
+        # PowerShell 7 leaves ExitCode empty for a -PassThru process unless its handle was opened before it exited.
+        $null = $recording.Handle
         try {
             Start-Sleep -Seconds 1
             if ($node) { Tap-Node $node; Hide-Ime -WaitForShow }

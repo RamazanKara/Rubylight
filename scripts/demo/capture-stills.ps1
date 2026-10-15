@@ -9,6 +9,7 @@ $states = [ordered]@{
     'stream-compact' = 'compact'; 'stream-advanced' = 'advanced';
     'settings-presets' = 'settings'; 'upscaling-options' = 'upscaling';
     'controller' = 'controller'; 'touch-controller' = 'touch'; 'pip' = 'pip'; 'pc-settings' = 'pc-settings'
+    'video-codecs' = 'codecs'; 'gpu-driver' = 'gpu-driver'; 'usb-controllers' = 'usb'
 }
 try {
     Initialize-Capture $Theme
@@ -32,7 +33,8 @@ try {
     # Landscape stream stills: the sample fills the screen and the real on-screen controller is laid out for it.
     Set-Orientation $true
     foreach ($shot in ([ordered]@{ 'landscape-stream' = 'stream'; 'landscape-compact' = 'compact';
-            'landscape-advanced' = 'advanced'; 'landscape-touch' = 'touch'; 'landscape-stream-menu' = 'menu' }).GetEnumerator()) {
+            'landscape-advanced' = 'advanced'; 'landscape-touch' = 'touch'; 'landscape-stream-menu' = 'menu'
+            'landscape-statistics' = 'statistics' }).GetEnumerator()) {
         if ($Only -and $shot.Key -notin $Only) { continue }
         Open-DemoState $(if ($shot.Value -eq 'menu') { 'compact' } else { $shot.Value })
         # The stream menu scrolled to its Quality and Host sections, as in the video's stream menu shot.

@@ -33,16 +33,22 @@ function Find-FFmpeg {
 
 # Labels the capture looks up that differ per app language (Set-CaptureLocale switches them).
 $script:labels = @{ 'Presets' = 'Presets'; 'Native preset' = 'Native (recommended)'; 'Display & image' = 'Display & image'
-    'Client-side upscaling' = 'Client-side upscaling'; 'Display on the PC' = 'Display on the PC' }
+    'Client-side upscaling' = 'Client-side upscaling'; 'Display on the PC' = 'Display on the PC'; 'Video' = 'Video'
+    'Video codec' = 'Video codec'; 'Controls' = 'Controls'; 'Advanced' = 'Advanced'; 'GPU driver' = 'Snapdragon GPU driver'
+    'PC display mode' = 'PC display mode'; 'USB controllers' = 'USB controllers' }
 
 function Set-CaptureLocale([string]$Locale) {
     # Per-app language (Android 13+), so the system UI and launcher stay as they are.
     $null = Invoke-Adb @('shell', 'cmd', 'locale', 'set-app-locales', $package, '--user', '0', '--locales', $Locale)
     $script:labels = switch ($Locale) {
         'de' { @{ 'Presets' = 'Vorgaben'; 'Native preset' = 'Nativ (empfohlen)'; 'Display & image' = 'Display und Bild'
-            'Client-side upscaling' = 'Hochskalierung auf dem Gerät'; 'Display on the PC' = 'Anzeige am PC' } }
+            'Client-side upscaling' = 'Hochskalierung auf dem Gerät'; 'Display on the PC' = 'Anzeige am PC'; 'Video' = 'Video'
+            'Video codec' = 'Videocodec'; 'Controls' = 'Steuerung'; 'Advanced' = 'Erweitert'; 'GPU driver' = 'Snapdragon-GPU-Treiber'
+            'PC display mode' = 'PC-Displaymodus'; 'USB controllers' = 'USB-Controller' } }
         default { @{ 'Presets' = 'Presets'; 'Native preset' = 'Native (recommended)'; 'Display & image' = 'Display & image'
-            'Client-side upscaling' = 'Client-side upscaling'; 'Display on the PC' = 'Display on the PC' } }
+            'Client-side upscaling' = 'Client-side upscaling'; 'Display on the PC' = 'Display on the PC'; 'Video' = 'Video'
+            'Video codec' = 'Video codec'; 'Controls' = 'Controls'; 'Advanced' = 'Advanced'; 'GPU driver' = 'Snapdragon GPU driver'
+            'PC display mode' = 'PC display mode'; 'USB controllers' = 'USB controllers' } }
     }
 }
 
@@ -125,8 +131,14 @@ function Hide-Ime([switch]$WaitForShow) {
     }
 }
 
+# States beyond the launcher's own: settings sections and dialogs reached through the real settings UI, and the stream
+# with its menu open.
+$script:settingsSections = @{ 'settings-video' = 'Video'; 'codecs' = 'Video'; 'settings-display' = 'Display & image'
+    'upscaling' = 'Display & image'; 'settings-controls' = 'Controls'; 'usb' = 'Controls'; 'settings-advanced' = 'Advanced' }
+
 function Open-DemoState([string]$State) {
-    $launchState = if ($State -eq 'upscaling') { 'settings' } else { $State }
+    $launchState = if ($script:settingsSections.ContainsKey($State)) { 'settings' } elseif ($State -eq 'menu') { 'compact' }
+        else { $State }
     $null = Invoke-Adb @('shell', 'am', 'force-stop', $package)
     # Key events (Back, D-pad) switch Android out of touch mode, which draws focus rings on the next screen; a tap on empty
     # launcher wallpaper switches it back.
@@ -152,16 +164,24 @@ function Open-DemoState([string]$State) {
         'controller' { $null = Find-Ui 'Demo wireless controller' }
         # Living-room PC's settings: the Save bar is at the bottom of the screen whatever the app language.
         'pc-settings' { $null = Find-Ui "${package}:id/host_profile_save"; Start-Sleep -Milliseconds 700 }
-        'upscaling' {
-            Tap-Ui $script:labels['Display & image'] -Scroll
-            Tap-Ui $script:labels['Client-side upscaling'] -Scroll
-            $null = Find-Ui 'FSR 1.0'
+        { $script:settingsSections.ContainsKey($_) } {
+            $null = Find-Ui $script:labels['Presets']
+            Tap-Ui $script:labels[$script:settingsSections[$State]] -Scroll
+            Start-Sleep -Milliseconds 900
+            switch ($State) {
+                'codecs' { Tap-Ui $script:labels['Video codec'] -Scroll; $null = Find-Ui 'PyroWave (host support required)' }
+                'upscaling' { Tap-Ui $script:labels['Client-side upscaling'] -Scroll; $null = Find-Ui 'FSR 1.0' }
+                'usb' { Show-UsbControllers }
+            }
+            Start-Sleep -Milliseconds 600
         }
+        'gpu-driver' { $null = Find-Ui $script:labels['GPU driver']; Start-Sleep -Milliseconds 600 }
         default {
             $dot = [string][char]0x00B7
             $null = Find-Ui "DEMO $dot local sample $dot scripted stats"
             Hide-Ime
             Start-Sleep -Seconds 2
+            if ($State -eq 'menu') { Open-StreamMenu; Show-StreamMenuSections; Start-Sleep -Milliseconds 800 }
         }
     }
 }
@@ -247,27 +267,22 @@ function Show-StreamMenuSections {
     $null = Invoke-Adb @('shell', 'input swipe 1260 1050 1260 250 800; input swipe 1260 1050 1260 250 800')
 }
 
-function Set-PcSettingsStart {
-    # Before recording: one fling brings Display on the PC up, then drags too slow to fling put its header 480 px from the
-    # top, with the end of the Video group above it and the Connection header below.
-    $label = $script:labels['Display on the PC']
-    $null = Invoke-Adb @('shell', 'input', 'swipe', '540', '1900', '540', '400', '380')
-    Start-Sleep -Milliseconds 1200
-    for ($attempt = 0; $attempt -lt 5; $attempt++) {
-        $offset = (Get-Bounds (Find-Ui $label))[1] - 480
-        if ([Math]::Abs($offset) -le 30) { Start-Sleep -Milliseconds 600; return }
-        # Dragging up scrolls down; the list first takes up the touch slop.
-        $distance = [Math]::Min([Math]::Abs($offset) + 24, 1200)
-        if ($offset -gt 0) { $from = 1700; $to = 1700 - $distance } else { $from = 500; $to = 500 + $distance }
-        $null = Invoke-Adb @('shell', 'input', 'swipe', '540', "$from", '540', "$to", "$([Math]::Max(1200, $distance * 4))")
-        Start-Sleep -Milliseconds 900
-    }
-    throw "Could not place '$label' for the PC settings shot; inspect out/demo/capture/last-ui.xml."
+function Invoke-Fling([int]$From, [int]$To, [int]$Milliseconds = 300) {
+    # A drag that ends moving, so the list flings and settles with Android's own deceleration. With the same stroke the
+    # list stops within a few dozen pixels of the same place every take.
+    $null = Invoke-Adb @('shell', 'input', 'swipe', '540', "$From", '540', "$To", "$Milliseconds")
 }
 
-function Show-PcSettingsEnd {
-    # Two flicks reach the end of the list, where it stops every take: Connection and Host.
-    $null = Invoke-Adb @('shell', 'input swipe 540 1900 540 400 250; input swipe 540 1900 540 400 250')
+function Reset-ListToTop {
+    # Two quick strokes down bring a settings list back to its first row.
+    $null = Invoke-Adb @('shell', 'input swipe 540 700 540 2200 120; input swipe 540 700 540 2200 120')
+    Start-Sleep -Milliseconds 1300
+}
+
+function Show-UsbControllers {
+    # From the top of Controls, one fling brings the USB controllers group up under the toolbar.
+    Invoke-Fling 2150 700 450
+    Start-Sleep -Milliseconds 1800
 }
 
 function Initialize-Capture([string]$Theme = 'dark') {
@@ -287,6 +302,9 @@ function Initialize-Capture([string]$Theme = 'dark') {
     $script:oldImeSetting = (Invoke-Adb @('shell', 'settings', 'get', 'secure', 'show_ime_with_hard_keyboard')).Trim()
     $null = Invoke-Adb @('shell', 'settings', 'put', 'secure', 'show_ime_with_hard_keyboard', '0')
     $null = Invoke-Adb @('shell', 'wm', 'user-rotation', 'lock', '0')
+    # Android confirms full screen the first time an app enters it ("Viewing full screen"), which would cover a stream.
+    $script:oldImmersive = (Invoke-Adb @('shell', 'settings', 'get', 'secure', 'immersive_mode_confirmations')).Trim()
+    $null = Invoke-Adb @('shell', 'settings', 'put', 'secure', 'immersive_mode_confirmations', 'confirmed')
     Enter-CleanStatusBar
 }
 
@@ -317,6 +335,10 @@ function Restore-Capture {
     Disable-DemoHome
     Exit-CleanStatusBar
     if ($null -ne $script:oldNightMode) { $null = Invoke-Adb @('shell', 'cmd', 'uimode', 'night', $script:oldNightMode) }
+    if ($null -ne $script:oldImmersive) {
+        if ($script:oldImmersive -eq 'null') { $null = Invoke-Adb @('shell', 'settings', 'delete', 'secure', 'immersive_mode_confirmations') }
+        else { $null = Invoke-Adb @('shell', 'settings', 'put', 'secure', 'immersive_mode_confirmations', $script:oldImmersive) }
+    }
     if ($null -ne $script:oldImeSetting) {
         if ($script:oldImeSetting -eq 'null') { $null = Invoke-Adb @('shell', 'settings', 'delete', 'secure', 'show_ime_with_hard_keyboard') }
         else { $null = Invoke-Adb @('shell', 'settings', 'put', 'secure', 'show_ime_with_hard_keyboard', $script:oldImeSetting) }

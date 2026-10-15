@@ -1078,12 +1078,21 @@ impl Drop for Prepared {
     }
 }
 
+/// What `retime` could do with the launch's display.
+enum Raise {
+    /// No owned virtual display: a physical or shared one.
+    NotOwned,
+    /// Windows refused this refresh on the owned virtual display.
+    Refused(Rate),
+    Raised(u32),
+}
 /// The launch prepared the display for its own rate and the stream asks for
 /// another, as Artemis's Warp frame pacing does (launch at 60, ask for 120 or
 /// 240). An owned virtual display keeps running, so a game on it stays put:
 /// its refresh is raised where the stream needs more, and the frame limiter
-/// follows the stream's rate. Any other difference, or a display that cannot
-/// be raised, comes back as `Err` to be prepared again.
+/// follows the stream's rate. One Windows will not raise is kept as it is.
+/// Any other difference, or a display the host does not own, comes back as
+/// `Err` to be prepared again.
 pub fn retime(
     preparation: StreamPreparation,
     h: &Shared,
@@ -1111,10 +1120,10 @@ pub fn retime(
         .find(|a| a.id() == launch.app_id || a.aliases.contains(&launch.app_id))
         .cloned();
     let (framegen, device_mode) = frame_policy(app.as_ref(), launch, stream, config, true)?;
-    let raised = butterpollo_windows::input::on_input_desktop(|| -> Result<Option<u32>> {
+    let raised = butterpollo_windows::input::on_input_desktop(|| -> Result<Raise> {
         let mut prepared = display._state.lock().unwrap();
         let Some(guard) = &prepared.display else {
-            return Ok(None);
+            return Ok(Raise::NotOwned);
         };
         let (display_width, display_height) = prepared.recovery_dimensions;
         let request = config.display_request_rate(
@@ -1131,7 +1140,7 @@ pub fn retime(
             Rate(request.refresh.unwrap_or(framegen.display_rate.0))
         };
         let Some(applied) = guard.raise_virtual_rate(rate) else {
-            return Ok(None);
+            return Ok(Raise::Refused(rate));
         };
         prepared.framegen = framegen.clone();
         prepared.mode_report.retime(
@@ -1143,10 +1152,24 @@ pub fn retime(
             stream.fps_millihz(),
         );
         prepared.mode_report.publish(applied_mode(&prepared.output));
-        Ok(Some(applied))
+        Ok(Raise::Raised(applied))
     })?;
-    let Some(refresh) = raised else {
-        return Ok(Err(preparation));
+    let refresh = match raised {
+        Raise::Raised(refresh) => refresh,
+        Raise::NotOwned => return Ok(Err(preparation)),
+        // Preparing the display again would recreate the virtual display
+        // under a game that is already running on it. Keep it; the stream
+        // gets the frames its refresh gives, as before this change.
+        Raise::Refused(rate) => {
+            tracing::warn!(
+                client = %launch.client.name,
+                launch_millihz = launch_rate,
+                stream_millihz = stream.fps_millihz(),
+                wanted = %rate,
+                "the virtual display could not be raised to the stream's rate; keeping it, so the stream runs at its refresh"
+            );
+            return Ok(Ok(preparation));
+        }
     };
     tracing::info!(
         client = %launch.client.name,

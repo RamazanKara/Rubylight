@@ -85,6 +85,13 @@ public final class DemoGameActivity extends Activity implements SurfaceHolder.Ca
         fit = getIntent().getStringExtra("fit");
         alignment = "top".equals(getIntent().getStringExtra("align")) ? VideoScaling.TOP : VideoScaling.CENTER;
         applyScaling();
+        // "--es orientation landscape", "portrait" or "rotate" applies that Orientation setting to the
+        // landscape sample, which keeps its size like a stream on a host that cannot turn it.
+        String orientation = getIntent().getStringExtra("orientation");
+        if (orientation != null) {
+            setRequestedOrientation(com.limelight.ui.StreamOrientation.requested(
+                    com.limelight.ui.StreamOrientation.fromValue(orientation), false, false, false, false, false, 1920, 1080));
+        }
         // The same window setup and safe-area handling as Game, so cutout and fold layouts can be checked here.
         androidx.core.view.WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {

@@ -60,6 +60,7 @@ import com.limelight.binding.video.PyroWaveDecoderRenderer;
 import com.limelight.utils.Dialog;
 import com.limelight.utils.UiHelper;
 import com.limelight.ui.TopAppBar;
+import com.limelight.ui.StreamOrientation;
 import com.limelight.ui.VideoScaling;
 import com.google.android.material.appbar.MaterialToolbar;
 
@@ -1282,6 +1283,11 @@ public class StreamSettings extends AppCompatActivity {
                     return true;
                 }
             });
+
+            // A TV does not turn.
+            if (getActivity().getPackageManager().hasSystemFeature(PackageManager.FEATURE_LEANBACK)) {
+                removeSetting(StreamOrientation.PREF);
+            }
 
             // hide on-screen controls category on non touch screen devices
             if (!getActivity().getPackageManager().hasSystemFeature(PackageManager.FEATURE_TOUCHSCREEN)) {

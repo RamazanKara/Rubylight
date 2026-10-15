@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_stream_orientation">Yönlendirme</string>
+    <string name="summary_stream_orientation">Otomatik, telefonları yatay tutar ve tabletlerin serbestçe dönmesine izin verir. Yatay ve Dikey ekranı kilitler. Cihazla döndür, sistemin döndürme kilidi açık değilse cihazı izler.\nSanal ekranından yayın yapan bir ana bilgisayar, yayını ekranın biçiminde başlatır ve yayın sırasında boyutu değiştirebiliyorsa cihazla birlikte döndürür. Diğer ana bilgisayarlar yayının boyutunu korur; görüntü Video ölçekleme ayarına göre sığdırılır.</string>
+    <string-array name="stream_orientation_names">
+        <item>Otomatik</item>
+        <item>Yatay</item>
+        <item>Dikey</item>
+        <item>Cihazla döndür</item>
+    </string-array>
+    <string name="stream_orientation_scaled">Bu ana bilgisayar yayın sürerken biçimini korur; görüntü döndürülmüş ekrana sığdırılır.</string>
+    <string name="stream_orientation_decoder_limit">Bu cihazın kod çözücüsü döndürülmüş boyutu desteklemiyor; yayın biçimini korur ve ekrana sığdırılır.</string>
+</resources>

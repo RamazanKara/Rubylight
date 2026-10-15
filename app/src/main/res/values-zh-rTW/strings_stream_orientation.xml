@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_stream_orientation">螢幕方向</string>
+    <string name="summary_stream_orientation">自動：手機保持橫向，平板可自由旋轉。橫向和直向會鎖定螢幕方向。隨裝置旋轉會跟隨裝置方向，除非已開啟系統的旋轉鎖定。\n從虛擬顯示器串流的主機會依螢幕形狀開始串流，並在串流中可以變更尺寸時隨裝置旋轉。其他主機保持串流尺寸，畫面依「影像縮放」中的選擇符合螢幕。</string>
+    <string-array name="stream_orientation_names">
+        <item>自動</item>
+        <item>橫向</item>
+        <item>直向</item>
+        <item>隨裝置旋轉</item>
+    </string-array>
+    <string name="stream_orientation_scaled">此主機在串流期間保持串流形狀，因此畫面會符合旋轉後的螢幕。</string>
+    <string name="stream_orientation_decoder_limit">此裝置的解碼器不支援旋轉後的尺寸，因此串流保持原有形狀並符合螢幕。</string>
+</resources>

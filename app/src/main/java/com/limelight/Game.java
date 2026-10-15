@@ -50,9 +50,11 @@ import com.limelight.nvstream.input.MouseButtonPacket;
 import com.limelight.nvstream.jni.MoonBridge;
 import com.limelight.preferences.AppQuitOnLeave;
 import com.limelight.preferences.GlPreferences;
+import com.limelight.preferences.HostDisplayChoice;
 import com.limelight.preferences.PreferenceConfiguration;
 import com.limelight.ui.GameGestures;
 import com.limelight.ui.KeyboardOverlay;
+import com.limelight.ui.StreamOrientation;
 import com.limelight.ui.StreamView;
 import com.limelight.ui.VideoScaling;
 import com.limelight.utils.Dialog;
@@ -85,7 +87,6 @@ import android.content.ClipboardManager;
 import android.content.Intent;
 import android.content.ServiceConnection;
 import android.content.SharedPreferences;
-import android.content.pm.ActivityInfo;
 import android.content.pm.PackageManager;
 import android.content.res.Configuration;
 import android.graphics.Point;
@@ -347,6 +348,13 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     private int streamFps;
     private float streamPanelHz;
     private boolean streamStartedLandscape = true;
+    // The Orientation setting, and whether the host draws this stream at the shape asked for (its
+    // virtual display), so a turned window can ask for a turned stream.
+    private int streamOrientation = StreamOrientation.AUTO;
+    private boolean hostShapesStream;
+    private int launchWidth, launchHeight;
+    private int lastWindowOrientation = Configuration.ORIENTATION_UNDEFINED;
+    private boolean orientationNoticeShown;
     private String displaySignature = "";
     private int lastPaneWidth, lastPaneHeight;
     private final StreamReconfigureRequester reconfigureRequester = new StreamReconfigureRequester();
@@ -627,8 +635,10 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         nativeTouchEnabled = !prefConfig.touchscreenTrackpad &&
                 PreferenceManager.getDefaultSharedPreferences(this).getBoolean("checkbox_native_touch", false);
         tombstonePrefs = Game.this.getSharedPreferences("DecoderTombstone", 0);
+        streamOrientation = prefConfig.streamOrientation;
+        lastWindowOrientation = getResources().getConfiguration().orientation;
 
-        // Enter landscape unless we're on a square screen
+        // Landscape on phones unless the Orientation setting says otherwise
         setPreferredOrientationForCurrentDisplay();
 
         configureStreamWindow();
@@ -748,8 +758,10 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         app.setAppUuid(getIntent().getStringExtra(EXTRA_APP_UUID));
         app.setMonitorResume(getIntent().getBooleanExtra(EXTRA_MONITOR_RESUME, false));
         // Until the host answers, its last known capabilities decide whether this is a control tile.
-        app.setHostCapabilities(HostCapabilityCache.load(this, getIntent().getStringExtra(EXTRA_PC_UUID)));
+        HostCapabilities cachedCaps = HostCapabilityCache.load(this, getIntent().getStringExtra(EXTRA_PC_UUID));
+        app.setHostCapabilities(cachedCaps);
         boolean mediaStream = app.getRole() != NvApp.Role.INPUT_ONLY && !app.isControlAction();
+        startInWindowShape(cachedCaps, mediaStream);
 
         X509Certificate serverCert = null;
         try {
@@ -1187,49 +1199,35 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     }
 
     private void setPreferredOrientationForCurrentDisplay() {
-        if (getIntent().getIntExtra(EXTRA_OUTPUT_DISPLAY, Display.DEFAULT_DISPLAY) != Display.DEFAULT_DISPLAY ||
-                (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && isInMultiWindowMode()) ||
-                getResources().getConfiguration().smallestScreenWidthDp >= 600 ||
-                getPackageManager().hasSystemFeature("android.hardware.type.pc")) {
-            setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_FULL_USER);
-            return;
+        boolean freeWindow = getIntent().getIntExtra(EXTRA_OUTPUT_DISPLAY, Display.DEFAULT_DISPLAY) != Display.DEFAULT_DISPLAY ||
+                (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && isInMultiWindowMode());
+        boolean largeScreen = getResources().getConfiguration().smallestScreenWidthDp >= 600 ||
+                getPackageManager().hasSystemFeature("android.hardware.type.pc");
+        boolean squarish = !freeWindow && !largeScreen &&
+                PreferenceConfiguration.isSquarishScreen(getWindowManager().getDefaultDisplay());
+        PreferenceConfiguration config = prefConfig != null ? prefConfig : new PreferenceConfiguration();
+        setRequestedOrientation(StreamOrientation.requested(streamOrientation, freeWindow, largeScreen, squarish,
+                config.onscreenController, nativeResolutionStream, config.width, config.height));
+    }
+
+    // A host that draws the stream on its virtual display starts it in the shape the Orientation
+    // setting gives the window; any other host keeps the size and the video is scaled into it.
+    private void startInWindowShape(HostCapabilities caps, boolean mediaStream) {
+        HostDisplayChoice display = prefConfig.hostDisplay == null || !caps.has(HostCapabilities.Feature.HOST_DISPLAY_MODES) ?
+                HostDisplayChoice.HOST_DEFAULT : prefConfig.hostDisplay.forRole(app.getRole());
+        hostShapesStream = mediaStream && externalPresentation == null && app.getRole() == NvApp.Role.STREAM &&
+                caps.has(HostCapabilities.Feature.VIRTUAL_DISPLAY) && display.requestsVirtualDisplay(prefConfig.virtualDisplay);
+        boolean windowPortrait = getResources().getConfiguration().orientation == Configuration.ORIENTATION_PORTRAIT;
+        int[] size = StreamOrientation.launchSize(streamOrientation, hostShapesStream, windowPortrait,
+                prefConfig.width, prefConfig.height);
+        if (size[0] != prefConfig.width || size[1] != prefConfig.height) {
+            LimeLog.info("Orientation " + StreamOrientation.value(streamOrientation) + ": stream request turned to " +
+                    size[0] + "x" + size[1]);
+            prefConfig.width = size[0];
+            prefConfig.height = size[1];
         }
-        Display display = getWindowManager().getDefaultDisplay();
-
-        // For semi-square displays, we use more complex logic to determine which orientation to use (if any)
-        if (PreferenceConfiguration.isSquarishScreen(display)) {
-            int desiredOrientation = Configuration.ORIENTATION_UNDEFINED;
-
-            // OSC doesn't properly support portrait displays, so don't use it in portrait mode by default
-            if (prefConfig.onscreenController) {
-                desiredOrientation = Configuration.ORIENTATION_LANDSCAPE;
-            }
-
-            // For native resolution, we will lock the orientation to the one that matches the specified resolution
-            if (nativeResolutionStream) {
-                if (prefConfig.width > prefConfig.height) {
-                    desiredOrientation = Configuration.ORIENTATION_LANDSCAPE;
-                }
-                else {
-                    desiredOrientation = Configuration.ORIENTATION_PORTRAIT;
-                }
-            }
-
-            if (desiredOrientation == Configuration.ORIENTATION_LANDSCAPE) {
-                setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_USER_LANDSCAPE);
-            }
-            else if (desiredOrientation == Configuration.ORIENTATION_PORTRAIT) {
-                setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_USER_PORTRAIT);
-            }
-            else {
-                // If we don't have a reason to lock to portrait or landscape, allow any orientation
-                setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_FULL_USER);
-            }
-        }
-        else {
-            // For regular displays, we always request landscape
-            setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_USER_LANDSCAPE);
-        }
+        launchWidth = prefConfig.width;
+        launchHeight = prefConfig.height;
     }
 
     static boolean isValidLaunch(String host, int port, String uniqueId, int appId, String appUuid) {
@@ -1250,7 +1248,11 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         setPreferredOrientationForCurrentDisplay();
 
         // A fold, rotation or window change may change the native size
-        scheduleReconfigureCheck();
+        boolean turned = newConfig.orientation != lastWindowOrientation;
+        lastWindowOrientation = newConfig.orientation;
+        if (turned) noteRotationWithoutReconfigure();
+        scheduleReconfigureCheck(StreamOrientation.settleMs(streamOrientation, hostShapesStream, turned,
+                StreamReconfigureRequester.SETTLE_MS));
 
         if (virtualController != null && prefConfig.onscreenController) {
             // Refresh layout of OSC for possible new screen size
@@ -1825,11 +1827,26 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     // refresh rate follows a panel whose top rate changes. Fixed presets, PyroWave and decoders
     // without adaptive playback never ask.
     private void scheduleReconfigureCheck() {
+        scheduleReconfigureCheck(StreamReconfigureRequester.SETTLE_MS);
+    }
+
+    private void scheduleReconfigureCheck(long settleMs) {
         if (!connected || isFinishing()) {
             return;
         }
         bitrateHandler.removeCallbacks(checkReconfigure);
-        bitrateHandler.postDelayed(checkReconfigure, reconfigureRequester.onChange(SystemClock.uptimeMillis()));
+        bitrateHandler.postDelayed(checkReconfigure, reconfigureRequester.onChange(SystemClock.uptimeMillis(), settleMs));
+    }
+
+    // Rotate on a host that cannot turn this stream: say once that the picture is scaled instead.
+    private void noteRotationWithoutReconfigure() {
+        if (streamOrientation != StreamOrientation.ROTATE || orientationNoticeShown || !connected ||
+                externalPresentation != null || app == null || app.getRole() == NvApp.Role.INPUT_ONLY ||
+                (hostShapesStream && MoonBridge.hostSupportsControlMessage(MoonBridge.CONTROL_MESSAGE_RECONFIGURE))) {
+            return;
+        }
+        orientationNoticeShown = true;
+        messages.alert(R.string.stream_orientation_scaled, Toast.LENGTH_LONG);
     }
 
     private void startReconfigureTracking() {
@@ -1851,7 +1868,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     }
 
     private void checkStreamReconfigure() {
-        if (!connected || isFinishing() || decoderRenderer == null || (!nativeResolutionStream && !fpsFollowsDisplay)) {
+        if (!connected || isFinishing() || decoderRenderer == null || (!nativeResolutionStream && !fpsFollowsDisplay &&
+                !StreamOrientation.followsRotation(streamOrientation, hostShapesStream))) {
             return;
         }
         long now = SystemClock.uptimeMillis();
@@ -1898,6 +1916,10 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         if (!decoderRenderer.prepareForReconfigure(request[0], request[1])) {
             LimeLog.warning("Reconfigure: the decoder cannot switch to " + request[0] + "x" + request[1] +
                     "; the stream stays as it is");
+            if (StreamOrientation.followsRotation(streamOrientation, hostShapesStream) && !orientationNoticeShown) {
+                orientationNoticeShown = true;
+                messages.alert(R.string.stream_orientation_decoder_limit, Toast.LENGTH_LONG);
+            }
             return false;
         }
         if (!MoonBridge.requestReconfigure(request[0], request[1], request[2])) {
@@ -1928,7 +1950,10 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         if (limits == null) {
             return null;
         }
-        int[] size = nativeResolutionStream ? nativeStreamSize(limits) : null;
+        int[] size = nativeResolutionStream ? nativeStreamSize(limits) :
+                StreamOrientation.followsRotation(streamOrientation, hostShapesStream) && !isInMultiWindowMode() ?
+                StreamOrientation.turnedSize(launchWidth, launchHeight, windowLandscape(), limits[0], limits[1],
+                        limits[2], limits[3]) : null;
         int fps = StreamResizePolicy.targetFpsMillihz(fpsFollowsDisplay, fpsMillihz, streamPanelHz, panelMaxRefreshRate);
         return size == null ? new int[] {width, height, fps} : new int[] {size[0], size[1], fps};
     }
@@ -1952,15 +1977,23 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                     limits[0], limits[1], limits[2], limits[3]);
         }
         // Full screen: the same native resolution the stream starts with, in the orientation it
-        // started in, even after a split-screen window turned it.
+        // started in, even after a split-screen window turned it; with Rotate on a host that
+        // draws the stream at its shape, in the window's orientation.
         String nativeResolution = PreferenceConfiguration.nativeResolution(this);
         if (nativeResolution == null) {
             return null;
         }
         String[] parts = nativeResolution.split("x");
         return StreamResizePolicy.nativeSize(Integer.parseInt(parts[0]), Integer.parseInt(parts[1]), 1,
-                streamStartedLandscape ? StreamResizePolicy.ORIENTATION_LANDSCAPE : StreamResizePolicy.ORIENTATION_PORTRAIT,
+                StreamOrientation.streamOrientation(streamOrientation, hostShapesStream, streamStartedLandscape,
+                        windowLandscape()),
                 limits[0], limits[1], limits[2], limits[3]);
+    }
+
+    private boolean windowLandscape() {
+        Point real = new Point();
+        getWindowManager().getDefaultDisplay().getRealSize(real);
+        return real.x >= real.y;
     }
 
     private String displaySignature() {

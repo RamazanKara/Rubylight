@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_stream_orientation">Orientacja</string>
+    <string name="summary_stream_orientation">Automatyczna utrzymuje telefony w poziomie, a tablety pozwala swobodnie obracać. Poziomo i Pionowo blokują ekran. Obracaj z urządzeniem podąża za urządzeniem, chyba że systemowa blokada obrotu jest włączona.\nHost, który streamuje ze swojego ekranu wirtualnego, uruchamia stream w kształcie ekranu i obraca go razem z urządzeniem, jeśli potrafi zmienić rozmiar w trakcie streamu. Inne hosty zachowują rozmiar streamu, a obraz jest dopasowywany zgodnie z ustawieniem Skalowanie wideo.</string>
+    <string-array name="stream_orientation_names">
+        <item>Automatyczna</item>
+        <item>Poziomo</item>
+        <item>Pionowo</item>
+        <item>Obracaj z urządzeniem</item>
+    </string-array>
+    <string name="stream_orientation_scaled">Ten host zachowuje kształt streamu w trakcie jego trwania, więc obraz jest dopasowywany do obróconego ekranu.</string>
+    <string name="stream_orientation_decoder_limit">Dekoder tego urządzenia nie obsługuje obróconego rozmiaru, więc stream zachowuje swój kształt i jest dopasowywany.</string>
+</resources>

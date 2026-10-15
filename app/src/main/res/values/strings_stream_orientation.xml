@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_stream_orientation">Orientation</string>
+    <string name="summary_stream_orientation">Automatic keeps phones in landscape and lets tablets turn freely. Landscape and Portrait lock the screen. Rotate with device follows the device unless the system rotation lock is on.\nA host that streams from its virtual display starts the stream in the screen\'s shape, and turns it with the device if it can change the stream size during a stream. Other hosts keep the stream\'s size, and the picture is scaled to fit as chosen in Video scaling.</string>
+    <string-array name="stream_orientation_names">
+        <item>Automatic</item>
+        <item>Landscape</item>
+        <item>Portrait</item>
+        <item>Rotate with device</item>
+    </string-array>
+    <string-array name="stream_orientation_values" translatable="false">
+        <item>auto</item>
+        <item>landscape</item>
+        <item>portrait</item>
+        <item>rotate</item>
+    </string-array>
+    <string name="stream_orientation_scaled">This host keeps the stream\'s shape while it runs, so the picture is scaled to fit the turned screen.</string>
+    <string name="stream_orientation_decoder_limit">This device\'s decoder cannot take the turned size, so the stream keeps its shape and is scaled to fit.</string>
+</resources>

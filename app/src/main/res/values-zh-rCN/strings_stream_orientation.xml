@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_stream_orientation">屏幕方向</string>
+    <string name="summary_stream_orientation">自动：手机保持横屏，平板可自由旋转。横屏和竖屏会锁定屏幕方向。随设备旋转会跟随设备方向，除非已开启系统的旋转锁定。\n从虚拟显示器串流的主机会按屏幕形状开始串流，并在串流中可以更改尺寸时随设备旋转。其他主机保持串流尺寸，画面按“视频缩放”中的选择适应屏幕。</string>
+    <string-array name="stream_orientation_names">
+        <item>自动</item>
+        <item>横屏</item>
+        <item>竖屏</item>
+        <item>随设备旋转</item>
+    </string-array>
+    <string name="stream_orientation_scaled">此主机在串流期间保持串流形状，因此画面会适应旋转后的屏幕。</string>
+    <string name="stream_orientation_decoder_limit">此设备的解码器不支持旋转后的尺寸，因此串流保持原有形状并适应屏幕。</string>
+</resources>

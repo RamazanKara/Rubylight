@@ -125,6 +125,7 @@ public class SettingsKeysTest {
         reads.put("upscaling_sharpness", new Read(50, 80, c -> c.upscalingSharpness));
         reads.put("checkbox_stretch_video", new Read(false, true, c -> c.videoScaling));
         reads.put("video_alignment", new Read("center", "top", c -> c.videoAlignment));
+        reads.put("stream_orientation", new Read("auto", "rotate", c -> c.streamOrientation));
         reads.put("checkbox_yuv444", new Read(false, true, c -> c.enableYuv444));
         reads.put("checkbox_full_range", new Read(false, true, c -> c.fullRange));
         reads.put("checkbox_virtual_display", new Read(false, true, c -> c.virtualDisplay));
@@ -322,6 +323,17 @@ public class SettingsKeysTest {
 
         prefs().edit().putString("video_alignment", "top").commit();
         assertEquals(com.limelight.ui.VideoScaling.TOP, PreferenceConfiguration.readPreferences(app).videoAlignment);
+    }
+
+    @Test
+    public void orientationIsAutomaticUntilChosen() {
+        Application app = RuntimeEnvironment.getApplication();
+        assertEquals(com.limelight.ui.StreamOrientation.AUTO, PreferenceConfiguration.readPreferences(app).streamOrientation);
+        prefs().edit().putString("stream_orientation", "portrait").commit();
+        assertEquals(com.limelight.ui.StreamOrientation.PORTRAIT, PreferenceConfiguration.readPreferences(app).streamOrientation);
+        // A value from a newer version falls back to the long-standing behaviour.
+        prefs().edit().putString("stream_orientation", "upside_down").commit();
+        assertEquals(com.limelight.ui.StreamOrientation.AUTO, PreferenceConfiguration.readPreferences(app).streamOrientation);
     }
 
     @Test

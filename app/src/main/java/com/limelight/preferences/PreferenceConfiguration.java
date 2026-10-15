@@ -19,6 +19,7 @@ import com.limelight.nvstream.jni.MoonBridge;
 import com.limelight.binding.video.DisplayFrameRatePolicy;
 import com.limelight.binding.video.PerformanceOverlay;
 import com.limelight.binding.video.UpscalingPolicy;
+import com.limelight.ui.StreamOrientation;
 import com.limelight.ui.VideoScaling;
 
 public class PreferenceConfiguration {
@@ -194,6 +195,7 @@ public class PreferenceConfiguration {
     // stretchVideo mirrors videoScaling == STRETCH for the renderers; change both with setVideoScaling.
     public boolean stretchVideo, enableSops, playHostAudio, disableWarnings;
     public int videoScaling = VideoScaling.FIT, videoAlignment = VideoScaling.CENTER;
+    public int streamOrientation = StreamOrientation.AUTO;
     // Send this device's microphone to the host when the host offers to take it.
     public boolean enableMic;
     public String language;
@@ -985,6 +987,8 @@ public class PreferenceConfiguration {
         config.setVideoScaling(VideoScaling.resolve(prefs.getString(VideoScaling.PREF, null),
                 prefs.getBoolean(STRETCH_PREF_STRING, DEFAULT_STRETCH)));
         config.videoAlignment = VideoScaling.alignment(prefs.getString(VideoScaling.ALIGNMENT_PREF, null));
+        config.streamOrientation = StreamOrientation.fromValue(
+                prefs.getString(StreamOrientation.PREF, null));
         config.playHostAudio = prefs.getBoolean(HOST_AUDIO_PREF_STRING, DEFAULT_HOST_AUDIO);
         config.enableMic = prefs.getBoolean(ENABLE_MIC_PREF_STRING, DEFAULT_ENABLE_MIC);
         config.smallIconMode = prefs.getBoolean(SMALL_ICONS_PREF_STRING, getDefaultSmallMode(context));

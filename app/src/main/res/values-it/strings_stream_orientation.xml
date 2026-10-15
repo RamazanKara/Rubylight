@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_stream_orientation">Orientamento</string>
+    <string name="summary_stream_orientation">Automatico tiene i telefoni in orizzontale e lascia ruotare liberamente i tablet. Orizzontale e Verticale bloccano lo schermo. Ruota con il dispositivo segue il dispositivo, salvo che il blocco della rotazione di sistema sia attivo.\nUn host che trasmette dal suo display virtuale avvia lo stream nella forma dello schermo e lo ruota con il dispositivo se può cambiare la dimensione durante uno stream. Gli altri host mantengono la dimensione dello stream e l’immagine viene adattata come scelto in Ridimensionamento video.</string>
+    <string-array name="stream_orientation_names">
+        <item>Automatico</item>
+        <item>Orizzontale</item>
+        <item>Verticale</item>
+        <item>Ruota con il dispositivo</item>
+    </string-array>
+    <string name="stream_orientation_scaled">Questo host mantiene la forma dello stream finché è attivo, quindi l’immagine viene adattata allo schermo ruotato.</string>
+    <string name="stream_orientation_decoder_limit">Il decoder di questo dispositivo non supporta la dimensione ruotata, quindi lo stream mantiene la sua forma e viene adattato.</string>
+</resources>

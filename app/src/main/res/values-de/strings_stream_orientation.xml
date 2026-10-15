@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_stream_orientation">Ausrichtung</string>
+    <string name="summary_stream_orientation">Automatisch hält Smartphones im Querformat und lässt Tablets frei drehen. Querformat und Hochformat sperren den Bildschirm. Mit dem Gerät drehen folgt dem Gerät, außer die automatische Drehung des Systems ist gesperrt.\nEin Host, der von seinem virtuellen Display streamt, startet den Stream im Format des Bildschirms und dreht ihn mit dem Gerät, wenn er die Stream-Größe während eines Streams ändern kann. Andere Hosts behalten die Größe des Streams; das Bild wird wie unter Videoskalierung gewählt eingepasst.</string>
+    <string-array name="stream_orientation_names">
+        <item>Automatisch</item>
+        <item>Querformat</item>
+        <item>Hochformat</item>
+        <item>Mit dem Gerät drehen</item>
+    </string-array>
+    <string name="stream_orientation_scaled">Dieser Host behält das Format des Streams, solange er läuft; das Bild wird in den gedrehten Bildschirm eingepasst.</string>
+    <string name="stream_orientation_decoder_limit">Der Decoder dieses Geräts kann die gedrehte Größe nicht übernehmen; der Stream behält sein Format und wird eingepasst.</string>
+</resources>

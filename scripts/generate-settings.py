@@ -78,6 +78,7 @@ ADVICE = {
     "checkbox_enable_post_stream_toast": "Enable to see the average decode time after a session ends; it is not end-to-end latency.",
     "checkbox_enable_pip": "Enable to keep a small video window when leaving the app. Input and overlay are hidden there; requires device support.",
     "checkbox_auto_reconnect": "Resume the same running game after transport failures or returning from screen lock, up to five attempts within one minute. Back or leaving during a retry cancels it. Graceful termination, pairing, permissions and decoder failures stay manual; recovery never launches or replaces a game.",
+    "list_network_grace": "Off by default: the stream ends after 10 seconds without contact, as before. 20, 30 or 60 seconds keeps it open through a Wi-Fi roam, a short dropout or a VPN moving between Wi-Fi and mobile data; the picture freezes until the network returns. Longer waits only help if the host waits too, so raise its own client timeout. When the wait runs out the stream ends with a message saying so, and Recover interrupted streams, if on, then reconnects. See [network drops](video-and-latency.md#network-drops).",
     "list_languages": "Choose the interface language. Android 13+ uses the system per-app language setting.",
     "checkbox_small_icon_mode": "Enable to fit more games in the library grid.",
     "checkbox_quick_resume": "Enable to go straight back into the running game when you tap its PC, skipping the library. Use the PC's menu for the library while a game runs. Off keeps the tap opening the library.",

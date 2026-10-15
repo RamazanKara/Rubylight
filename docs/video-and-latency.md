@@ -137,6 +137,18 @@ The host's **Hardware metrics selection** controls which readings it sends; an e
 
 Requests use the paired streaming HTTPS connection, independently of video decoding. Android polls at most once every two seconds, or less often when the host's sampling interval is longer. Polling stops when the overlay is hidden, the app is paused or in picture in picture, or the stream ends. Temporary failures clear the values and retry with backoff; denied access, an unavailable endpoint or an unsupported schema stop telemetry for that session. After enabling the host setting or restoring permissions, reconnect to rediscover support. **Copy stats** includes available hardware readings and GPU names. See the host's [hardware metrics protocol](https://github.com/RamazanKara/Rubylight/blob/main/docs/hardware-metrics.md) for field definitions and units.
 
+## Network drops
+
+When the network goes silent for a moment (a phone roaming between Wi-Fi access points, a short dropout, a VPN such as Tailscale moving between Wi-Fi and mobile data), the stream does not end straight away. Sends that find no route are treated as lost packets and resent. What ends the stream is the control connection's timeout: by default, 10 seconds without hearing from the host.
+
+**Settings → Streaming → Ride out network drops** raises that timeout to 20, 30 or 60 seconds. It is off by default, because a longer timeout also keeps a stream that is really gone on screen for longer. While the network is silent the picture freezes. Input sent meanwhile can reach the host late, once the network returns, or not at all, so let go of keys and sticks until the picture moves again; the next video frames resume it.
+
+The host has its own timeout for a silent client, usually also 10 seconds, and it ends the session on its side when that runs out. A wait longer than 10 seconds therefore only helps if the host is set to wait as long. Sunshine and its forks (Apollo, Vibepollo) call this `ping_timeout` in the host configuration, in milliseconds; NVIDIA GameStream has no such setting.
+
+If the network does not come back in time, the stream ends with an error that says the drop tolerance ran out (or that the host may have ended the session first). With [**Recover interrupted streams**](recovery-and-quality.md#recovering-a-connection) also on, Nightjar then reconnects to the same running game within its usual one-minute budget.
+
+The setting covers the network path staying the same, which is the case for roaming within one Wi-Fi network and for a VPN that keeps its address. A change of the device's address that the host can see, such as leaving Wi-Fi for mobile data without a VPN, needs the host to accept the client from its new address; that is a [proposal for hosts](protocol/client-roaming.md), not something Nightjar can do alone.
+
 ## Automatic bitrate and diagnostics
 
 For bounded reconnects and opt-in resolution/FPS adaptation, see [stream recovery and automatic quality](recovery-and-quality.md).

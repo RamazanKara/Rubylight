@@ -7,9 +7,8 @@ Rubylight host's request and pushes every frame Windows composes for them to the
 through shared GPU textures, so the host converts and encodes them without WGC or Desktop
 Duplication.
 
-It is off by default (`virtual_display_driver = rubylight`) and not yet part of the
-installer. It runs on the development PC (RX 7900 XT, Windows 26200, Memory Integrity on),
-installed with `install-local.ps1`.
+It is the host's only virtual display driver: every display the host creates for a stream
+comes from it, and the host reads those displays through its frame push.
 
 | | |
 |---|---|
@@ -18,8 +17,8 @@ installed with `install-local.ps1`.
 | Files | `rubylight_vdisplay.inf`, `rubylight_vdisplay.dll`, `rubylight_vdisplay.cat` |
 | Control interface | `{5e240e6b-b196-4295-81c3-533c10000c59}`, IOCTL functions `0xB00`-`0xB0A` |
 
-None of these collide with libvirtualdisplay (Vibepollo) or punktfunk, so all three can be
-installed side by side.
+None of these collide with libvirtualdisplay (Vibepollo) or punktfunk, so an old
+installation of either does not stand in its way.
 
 ## Layout
 
@@ -35,7 +34,7 @@ for `x86_64-pc-windows-msvc` with the static CRT and the Windows Driver Kit.
 
 ## How frames reach the host
 
-1. The host (`virtual_display_driver = rubylight`) creates the display with `IOCTL_ADD` and
+1. The host creates the display with `IOCTL_ADD` and
    keeps it alive with `IOCTL_HEARTBEAT` every second. A monitor belongs to the process that
    created it and departs when that process closes its handles or goes silent for 10 s.
 2. The capture backend `idd-push` creates four `SHARED_NTHANDLE | SHARED_KEYEDMUTEX` textures
@@ -118,15 +117,10 @@ pnputil /enum-devices /deviceid "Root\RubylightVDisplay" /drivers
 ```
 
 `pnputil` has no command that creates a root-enumerated device, so `devcon install` creates
-the `Root\RubylightVDisplay` devnode and binds the driver. Then, in the host's config:
-
-```
-virtual_display_driver = rubylight
-capture = idd-push
-```
-
-`capture = auto` also uses the frame push for displays created by this driver; an explicit
-`wgc` or `ddx` keeps those. A failed frame push falls back to WGC with a console warning.
+the `Root\RubylightVDisplay` devnode and binds the driver. The host needs no setting:
+`capture = auto` (the default) uses the frame push for the displays it creates, and an
+explicit `capture = wgc` or `ddx` keeps those. A failed frame push falls back to WGC with a
+console warning.
 
 If the device shows code 31, enable the UMDF log
 (`wevtutil sl Microsoft-Windows-DriverFrameworks-UserMode/Operational /e:true`), restart the
@@ -148,7 +142,7 @@ certutil -delstore TrustedPublisher $thumb
 certutil -delstore Root $thumb
 ```
 
-and remove `virtual_display_driver` and `capture = idd-push` from the config. The driver keeps
+The host then has no virtual displays. The driver keeps
 no state of its own beyond what its INF installs, which `pnputil /delete-driver /uninstall`
 removes; its optional debug log (`RLVD_DEBUG_LOG`) is
 `C:\Windows\ServiceProfiles\LocalService\AppData\Local\Temp\rlvd-driver.log`.

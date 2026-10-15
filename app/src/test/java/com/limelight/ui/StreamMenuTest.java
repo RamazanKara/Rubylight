@@ -100,6 +100,32 @@ public class StreamMenuTest {
     }
 
     @Test
+    public void everyRowHasItsOwnIcon() {
+        StreamMenu.Options options = options("rubylight-serverinfo.xml", NvApp.Role.STREAM);
+        options.microphoneOffered = true;
+        options.mouseConnected = true;
+        options.onscreenControls = true;
+        options.gameControls = true;
+        options.stretchAvailable = true;
+        options.zoomEnabled = true;
+        options.pictureInPicture = true;
+        options.externalDisplays = true;
+        List<StreamMenu.Entry> entries = new ArrayList<>(StreamMenu.mainPage(options));
+        // The overlay modes are one choice that marks the chosen mode with a check.
+        for (StreamMenu.Entry entry : StreamMenu.overlayPage(options)) {
+            if (entry.section != StreamMenu.Section.OVERLAY_STYLE) entries.add(entry);
+        }
+        assertTrue(items(entries).containsAll(Arrays.asList(TOUCH_MODE, MOUSE_CURSOR, ONSCREEN_CONTROLS, CONTROLS_LAYOUT,
+                GAME_CONTROLS, KEYBOARD_KEYS, STRETCH, ZOOM, ZOOM_RESET, PICTURE_IN_PICTURE, VIDEO_OUTPUT,
+                OVERLAY_COPY, STREAM_HEALTH, LATENCY_TEST)));
+        Map<Integer, StreamMenu.Item> seen = new LinkedHashMap<>();
+        for (StreamMenu.Entry entry : entries) {
+            StreamMenu.Item before = seen.put(entry.icon, entry.item);
+            assertNull(entry.item + " has the same icon as " + before, before);
+        }
+    }
+
+    @Test
     public void automaticQualityNeedsAHostThatChangesTheStreamInPlace() {
         StreamMenu.Options options = options("rubylight-serverinfo.xml", NvApp.Role.STREAM);
         options.automaticQuality = false;

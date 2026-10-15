@@ -128,7 +128,7 @@ public final class StreamMenu {
         // Keyboard opens Android's keyboard and closes the menu: an action, not a switch.
         if (o.canSendInput) entries.add(action(Section.QUICK, Item.KEYBOARD, R.string.stream_keyboard, R.drawable.ic_keyboard));
         if (o.mediaStream()) {
-            entries.add(entry(Section.QUICK, Item.OVERLAY, R.string.stream_overlay_menu, R.drawable.ic_remote_monitor, o.overlayShown));
+            entries.add(entry(Section.QUICK, Item.OVERLAY, R.string.stream_overlay_menu, R.drawable.ic_overlay, o.overlayShown));
         }
         if (o.microphoneOffered) {
             entries.add(entry(Section.QUICK, Item.MICROPHONE, R.string.stream_microphone,
@@ -136,50 +136,50 @@ public final class StreamMenu {
         }
 
         if (o.canSendInput) {
-            if (o.localOutput) entries.add(action(Section.INPUT, Item.TOUCH_MODE, R.string.stream_touch_mode, R.drawable.ic_input_only));
+            if (o.localOutput) entries.add(action(Section.INPUT, Item.TOUCH_MODE, R.string.stream_touch_mode, R.drawable.ic_touch));
             if (o.mouseConnected) {
                 entries.add(action(Section.INPUT, Item.MOUSE_CURSOR, o.cursorVisible ?
-                        R.string.stream_cursor_hide : R.string.stream_cursor_show, R.drawable.ic_input_only));
+                        R.string.stream_cursor_hide : R.string.stream_cursor_show, R.drawable.ic_mouse_pointer));
             }
             entries.add(action(Section.INPUT, Item.ONSCREEN_CONTROLS, o.onscreenControls ?
-                    R.string.stream_controls_hide : R.string.stream_controls_show, R.drawable.ic_input_only));
+                    R.string.stream_controls_hide : R.string.stream_controls_show, R.drawable.ic_gamepad));
             if (o.onscreenControls) {
-                entries.add(action(Section.INPUT, Item.CONTROLS_LAYOUT, R.string.stream_controls_layout, R.drawable.ic_settings));
+                entries.add(action(Section.INPUT, Item.CONTROLS_LAYOUT, R.string.stream_controls_layout, R.drawable.ic_edit));
             }
             if (o.gameControls) {
-                entries.add(action(Section.INPUT, Item.GAME_CONTROLS, R.string.touch_layout_title, R.drawable.ic_keyboard));
+                entries.add(action(Section.INPUT, Item.GAME_CONTROLS, R.string.touch_layout_title, R.drawable.ic_touch_controls));
             }
             entries.add(action(Section.INPUT, Item.KEYBOARD_KEYS, o.keyboardKeysShown ?
-                    R.string.stream_keyboard_keys_hide : R.string.keyboard_keys_show, R.drawable.ic_keyboard));
+                    R.string.stream_keyboard_keys_hide : R.string.keyboard_keys_show, R.drawable.ic_keys));
         }
 
         if (o.mediaStream()) {
             if (o.stretchAvailable && o.localOutput) {
                 entries.add(action(Section.DISPLAY, Item.STRETCH, o.stretched ?
-                        R.string.stream_stretch_off : R.string.stream_stretch_on, R.drawable.ic_remote_monitor));
+                        R.string.stream_stretch_off : R.string.stream_stretch_on, R.drawable.ic_stretch));
             }
             if (o.localOutput) {
                 entries.add(action(Section.DISPLAY, Item.ZOOM, o.zoomEnabled ?
-                        R.string.desktop_zoom_disable : R.string.desktop_zoom_enable, R.drawable.ic_remote_monitor));
+                        R.string.desktop_zoom_disable : R.string.desktop_zoom_enable, R.drawable.ic_zoom_in));
                 if (o.zoomEnabled) {
-                    entries.add(action(Section.DISPLAY, Item.ZOOM_RESET, R.string.desktop_zoom_reset, R.drawable.ic_remote_monitor));
+                    entries.add(action(Section.DISPLAY, Item.ZOOM_RESET, R.string.desktop_zoom_reset, R.drawable.ic_zoom_out));
                 }
             }
-            entries.add(action(Section.DISPLAY, Item.OVERLAY_PAGE, R.string.stream_overlay_page, R.drawable.ic_help));
+            entries.add(action(Section.DISPLAY, Item.OVERLAY_PAGE, R.string.stream_overlay_page, R.drawable.ic_chart));
             if (o.pictureInPicture && o.localOutput) {
-                entries.add(action(Section.DISPLAY, Item.PICTURE_IN_PICTURE, R.string.stream_picture_in_picture, R.drawable.ic_remote_monitor));
+                entries.add(action(Section.DISPLAY, Item.PICTURE_IN_PICTURE, R.string.stream_picture_in_picture, R.drawable.ic_picture_in_picture));
             }
             if (o.externalDisplays || !o.localOutput) {
-                entries.add(action(Section.DISPLAY, Item.VIDEO_OUTPUT, R.string.desktop_output, R.drawable.ic_remote_monitor));
+                entries.add(action(Section.DISPLAY, Item.VIDEO_OUTPUT, R.string.desktop_output, R.drawable.ic_monitor));
             }
 
             // Bitrate and automatic quality change the host's encoder: they need its runtime bitrate
             // control and permission to view and launch.
             if (caps.has(HostCapabilities.Feature.RUNTIME_BITRATE) &&
                     host.hasPermission(ComputerDetails.PERMISSION_VIEW | ComputerDetails.PERMISSION_LAUNCH)) {
-                entries.add(action(Section.QUALITY, Item.BITRATE, R.string.stream_bitrate_manual, R.drawable.ic_network));
+                entries.add(action(Section.QUALITY, Item.BITRATE, R.string.stream_bitrate_manual, R.drawable.ic_speed));
                 if (o.automaticQuality && o.role == NvApp.Role.STREAM) {
-                    entries.add(action(Section.QUALITY, Item.AUTOMATIC_QUALITY, R.string.title_adaptive_quality, R.drawable.ic_network));
+                    entries.add(action(Section.QUALITY, Item.AUTOMATIC_QUALITY, R.string.title_adaptive_quality, R.drawable.ic_tune));
                 }
                 if (host.encoderBitrateSupported) {
                     entries.add(action(Section.QUALITY, Item.AUTOMATIC_BITRATE, o.automaticBitrateOn ?
@@ -192,20 +192,20 @@ public final class StreamMenu {
             entries.add(action(Section.HOST, Item.SERVER_COMMANDS, R.string.stream_server_commands, R.drawable.ic_terminal));
         }
         if (o.role != NvApp.Role.REMOTE_MONITOR && host.canWriteClipboard()) {
-            entries.add(action(Section.HOST, Item.CLIPBOARD_SEND, R.string.stream_clipboard_send, R.drawable.ic_clipboard));
+            entries.add(action(Section.HOST, Item.CLIPBOARD_SEND, R.string.stream_clipboard_send, R.drawable.ic_clipboard_send));
         }
         if (host.canReadClipboard()) {
-            entries.add(action(Section.HOST, Item.CLIPBOARD_RECEIVE, R.string.stream_clipboard_receive, R.drawable.ic_clipboard));
+            entries.add(action(Section.HOST, Item.CLIPBOARD_RECEIVE, R.string.stream_clipboard_receive, R.drawable.ic_clipboard_receive));
         }
         if (o.webUiAddress && caps.mayHave(HostCapabilities.Feature.WEB_UI)) {
-            entries.add(action(Section.HOST, Item.HOST_WEB_UI, R.string.host_administration_menu, R.drawable.ic_settings));
+            entries.add(action(Section.HOST, Item.HOST_WEB_UI, R.string.host_administration_menu, R.drawable.ic_web));
         }
         // Without device permissions or a frame limiter the host has no status to show.
         if (host.permission != -1 || caps.has(HostCapabilities.Feature.FRAME_LIMITER_STATUS)) {
-            entries.add(action(Section.HOST, Item.HOST_STATUS, R.string.stream_host_status, R.drawable.ic_help));
+            entries.add(action(Section.HOST, Item.HOST_STATUS, R.string.stream_host_status, R.drawable.ic_info));
         }
 
-        entries.add(action(Section.SESSION, Item.RECONNECT, R.string.stream_reconnect, R.drawable.ic_play));
+        entries.add(action(Section.SESSION, Item.RECONNECT, R.string.stream_reconnect, R.drawable.ic_refresh));
         entries.add(action(Section.SESSION, Item.DISCONNECT, R.string.stream_disconnect, R.drawable.ic_close));
         if (host.hasPermission(ComputerDetails.PERMISSION_LAUNCH)) {
             if (o.role == NvApp.Role.STREAM) {
@@ -226,10 +226,10 @@ public final class StreamMenu {
         for (int i = 0; i < modes.length; i++) {
             entries.add(entry(Section.OVERLAY_STYLE, items[i], labels[i], R.drawable.ic_check, modes[i].equals(o.overlayMode)));
         }
-        entries.add(action(Section.DIAGNOSTICS, Item.OVERLAY_COPY, R.string.overlay_copy, R.drawable.ic_clipboard));
-        entries.add(action(Section.DIAGNOSTICS, Item.STREAM_HEALTH, R.string.health_title, R.drawable.ic_help));
+        entries.add(action(Section.DIAGNOSTICS, Item.OVERLAY_COPY, R.string.overlay_copy, R.drawable.ic_copy));
+        entries.add(action(Section.DIAGNOSTICS, Item.STREAM_HEALTH, R.string.health_title, R.drawable.ic_pulse));
         if (o.canSendInput) {
-            entries.add(action(Section.DIAGNOSTICS, Item.LATENCY_TEST, R.string.latency_test, R.drawable.ic_network));
+            entries.add(action(Section.DIAGNOSTICS, Item.LATENCY_TEST, R.string.latency_test, R.drawable.ic_timer));
         }
         return entries;
     }

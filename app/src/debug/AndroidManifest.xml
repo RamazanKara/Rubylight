@@ -8,6 +8,7 @@
         <activity android:name="com.limelight.demo.DemoHostStreamSettings" android:exported="false"
             android:windowSoftInputMode="adjustResize" />
         <activity android:name="com.limelight.demo.DemoControllerMappingActivity" android:exported="false" />
+        <activity android:name="com.limelight.demo.DemoGpuDriverSettings" android:exported="false" />
         <activity android:name="com.limelight.demo.DemoGameActivity" android:exported="false"
             android:supportsPictureInPicture="true" android:resizeableActivity="true"
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout"

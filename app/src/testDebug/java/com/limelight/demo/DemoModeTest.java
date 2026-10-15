@@ -12,6 +12,7 @@ import android.os.Looper;
 import android.preference.Preference;
 import android.preference.PreferenceFragment;
 import android.preference.PreferenceManager;
+import android.widget.LinearLayout;
 import android.widget.TextView;
 
 import com.google.android.material.appbar.MaterialToolbar;
@@ -32,6 +33,7 @@ import com.limelight.nvstream.http.NvApp;
 import com.limelight.nvstream.http.NvHTTP;
 import com.limelight.nvstream.http.PairingManager.PairState;
 import com.limelight.preferences.GlPreferences;
+import com.limelight.preferences.StreamSettings;
 import com.limelight.ui.StreamMenu;
 
 import org.junit.Test;
@@ -39,11 +41,14 @@ import org.junit.runner.RunWith;
 import org.robolectric.Robolectric;
 import org.robolectric.RuntimeEnvironment;
 import org.robolectric.annotation.Config;
+import org.robolectric.shadows.ShadowLooper;
 import org.robolectric.util.ReflectionHelpers;
 
 import java.io.StringReader;
 import java.util.ArrayList;
+import java.io.File;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.Assert.*;
 import static org.robolectric.Shadows.shadowOf;
@@ -222,6 +227,46 @@ public class DemoModeTest {
             assertTrue(lines[7], lines[7].startsWith("Host GPU 0: "));
             assertFalse(overlay.getText().toString().contains("p95"));
         } finally { restored.destroy(); }
+    }
+
+    @Test public void settingsShowTheDriverAndUsbControllerRowsOnAnyDevice() {
+        var controller = Robolectric.buildActivity(DemoStreamSettings.class).setup();
+        try {
+            StreamSettings screen = controller.get();
+            // Robolectric's device has neither an Adreno GPU nor USB host support: the release checks hide both rows.
+            for (String[] row : new String[][] {{"input", "category_usb_controllers"}, {"advanced", "gpu_driver"}}) {
+                ReflectionHelpers.callInstanceMethod(screen, "showSection", ReflectionHelpers.ClassParameter.from(String.class, row[0]));
+                ShadowLooper.idleMainLooper(150, TimeUnit.MILLISECONDS);
+                screen.getFragmentManager().executePendingTransactions();
+                PreferenceFragment fragment = (PreferenceFragment) screen.getFragmentManager().findFragmentById(R.id.stream_settings);
+                assertNotNull(row[1], fragment.findPreference(row[1]));
+            }
+            PreferenceFragment advanced = (PreferenceFragment) screen.getFragmentManager().findFragmentById(R.id.stream_settings);
+            Preference driver = advanced.findPreference("gpu_driver");
+            driver.getOnPreferenceClickListener().onPreferenceClick(driver);
+            assertEquals(DemoGpuDriverSettings.class.getName(), shadowOf(screen).getNextStartedActivity().getComponent().getClassName());
+        } finally { controller.pause().stop().destroy(); }
+    }
+
+    @Test public void driverScreenReadsAsOnASupportedPhoneAndImportsNothing() {
+        var controller = Robolectric.buildActivity(DemoGpuDriverSettings.class).setup();
+        try {
+            LinearLayout content = controller.get().findViewById(R.id.gpu_driver_content);
+            assertEquals(controller.get().getString(R.string.gpu_driver_explanation),
+                    ((TextView) content.getChildAt(0)).getText().toString());
+            MaterialButton importButton = null;
+            for (int i = 0; i < content.getChildCount(); i++) {
+                if (content.getChildAt(i) instanceof MaterialButton && ((MaterialButton) content.getChildAt(i)).getText().toString()
+                        .equals(controller.get().getString(R.string.gpu_driver_import))) importButton = (MaterialButton) content.getChildAt(i);
+            }
+            assertNotNull(importButton);
+            assertTrue(importButton.isEnabled());
+            importButton.performClick();
+            assertNull(shadowOf(controller.get()).getNextStartedActivityForResult());
+            // The demo lists its own driver folder, never the user's drivers.
+            Context normal = RuntimeEnvironment.getApplication();
+            assertEquals(new File(normal.getNoBackupFilesDir(), "demo"), new DemoContext(normal).getNoBackupFilesDir());
+        } finally { controller.pause().stop().destroy(); }
     }
 
     @Test public void streamMenuOffersTheMicrophoneAndTogglesItWithoutRecording() {

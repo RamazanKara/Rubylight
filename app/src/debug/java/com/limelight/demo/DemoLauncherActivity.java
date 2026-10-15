@@ -39,6 +39,7 @@ public final class DemoLauncherActivity extends Activity {
         else if ("settings".equals(screen)) target = DemoStreamSettings.class;
         else if ("pc-settings".equals(screen)) target = DemoHostStreamSettings.class;
         else if ("controller".equals(screen)) target = DemoControllerMappingActivity.class;
+        else if ("gpu-driver".equals(screen)) target = DemoGpuDriverSettings.class;
         else if ("stream".equals(screen) || "compact".equals(screen) || "statistics".equals(screen) ||
                 "advanced".equals(screen) || "debug".equals(screen) || "touch".equals(screen) ||
                 "pip".equals(screen)) target = DemoGameActivity.class;

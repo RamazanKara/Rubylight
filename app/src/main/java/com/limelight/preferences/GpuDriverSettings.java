@@ -34,7 +34,7 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-public final class GpuDriverSettings extends AppCompatActivity {
+public class GpuDriverSettings extends AppCompatActivity {
     private static final int IMPORT_DRIVER = 1;
     private DriverWork work;
 
@@ -66,7 +66,7 @@ public final class GpuDriverSettings extends AppCompatActivity {
         LinearLayout content = findViewById(R.id.gpu_driver_content);
         content.removeAllViews();
         boolean busy = Boolean.TRUE.equals(work.busy.getValue());
-        boolean supported = GpuDriverStore.isSupported();
+        boolean supported = supportsDrivers();
         addText(content, getString(supported ? R.string.gpu_driver_explanation : R.string.gpu_driver_unsupported));
         GpuDriverStore.Driver selected = GpuDriverStore.selected(this);
         List<GpuDriverStore.Driver> drivers = GpuDriverStore.list(this);
@@ -111,6 +111,11 @@ public final class GpuDriverSettings extends AppCompatActivity {
                         return app.getString(R.string.gpu_driver_removed);
                     });
                 }).setNegativeButton(android.R.string.cancel, null).show());
+    }
+
+    /** Whether custom drivers can load here. The debug build's demo mode shows the screen as on a supported phone. */
+    protected boolean supportsDrivers() {
+        return GpuDriverStore.isSupported();
     }
 
     private void addChoice(RadioGroup group, String label, GpuDriverStore.Driver driver, boolean checked, boolean enabled) {

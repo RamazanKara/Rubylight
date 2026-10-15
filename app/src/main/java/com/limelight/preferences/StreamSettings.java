@@ -115,6 +115,16 @@ public class StreamSettings extends AppCompatActivity {
     private final Handler navigationHandler = new Handler();
     private final Runnable searchUpdate = this::renderSearch;
 
+    /** Whether custom GPU drivers can load here. The debug build's demo mode shows their screen anyway. */
+    protected boolean supportsGpuDrivers() {
+        return GpuDriverStore.isSupported();
+    }
+
+    /** Whether USB controllers can connect here. The debug build's demo mode shows their settings anyway. */
+    protected boolean supportsUsbHost() {
+        return getPackageManager().hasSystemFeature(PackageManager.FEATURE_USB_HOST);
+    }
+
     static boolean developerOptionsShown(Context context) {
         return PreferenceManager.getDefaultSharedPreferences(context).getBoolean(DEVELOPER_OPTIONS_PREF_STRING, false);
     }
@@ -1108,7 +1118,7 @@ public class StreamSettings extends AppCompatActivity {
                 removeSetting(PreferenceConfiguration.GPU_MAX_CLOCKS_PREF_STRING);
             }
             // The same check as the driver screen: custom drivers load on arm64 Adreno devices only.
-            if (!GpuDriverStore.isSupported()) {
+            if (!((StreamSettings) getActivity()).supportsGpuDrivers()) {
                 removeSetting("gpu_driver");
             }
             findPreference(LOW_LATENCY_DECODING_KEY).setOnPreferenceChangeListener((preference, value) -> {
@@ -1276,7 +1286,7 @@ public class StreamSettings extends AppCompatActivity {
             });
 
             // Hide USB driver options on devices without USB host support
-            if (!getActivity().getPackageManager().hasSystemFeature(PackageManager.FEATURE_USB_HOST)) {
+            if (!((StreamSettings) getActivity()).supportsUsbHost()) {
                 screen.removePreference(findPreference("category_usb_controllers"));
             }
 

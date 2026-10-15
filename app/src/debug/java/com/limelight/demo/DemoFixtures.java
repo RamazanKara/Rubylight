@@ -78,12 +78,13 @@ public final class DemoFixtures {
                 .putString("list_resolution", "1920x1080").putString("list_fps", Integer.toString(fps))
                 .putInt("seekbar_bitrate_kbps", 40000).putString("video_format", "auto")
                 .putString("frame_pacing", "balanced").putString("upscaling_mode", "fsr1")
-                .putBoolean("checkbox_vrr", false).putBoolean("checkbox_enable_hdr", false)
+                .putBoolean("checkbox_vrr", true).putBoolean("checkbox_enable_hdr", false)
                 .putBoolean("checkbox_drop_late_frames", false).putBoolean("checkbox_reduce_refresh_rate", false)
-                .putBoolean("checkbox_codec_performance", true).putBoolean("checkbox_phone_performance_hints", false)
+                .putBoolean("checkbox_codec_performance", true).putBoolean("checkbox_phone_performance_hints", true)
                 .putBoolean("checkbox_small_icon_mode", true)
                 .putBoolean("checkbox_enable_pip", true).putBoolean("checkbox_show_onscreen_controls", true)
-                .putBoolean("checkbox_enable_perf_overlay", true).apply();
+                .putBoolean("checkbox_enable_perf_overlay", true)
+                .putBoolean("checkbox_usb_dualsense", true).putBoolean("checkbox_usb_dualsense_haptics", true).apply();
         // As if Living-room PC had answered before: its PC settings know the host from the first frame.
         HostCapabilityCache.save(context, PC_UUID, hostCapabilities());
         try (OutputStream output = CacheHelper.openCacheFileForOutput(context.getCacheDir(), "applist", PC_UUID)) {

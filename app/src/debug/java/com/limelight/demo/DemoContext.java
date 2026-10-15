@@ -35,6 +35,13 @@ public final class DemoContext extends ContextWrapper {
         return directory;
     }
 
+    // GPU drivers live here: the demo's driver screen lists its own (empty) folder, not the user's drivers.
+    @Override public File getNoBackupFilesDir() {
+        File directory = new File(getBaseContext().getNoBackupFilesDir(), "demo");
+        directory.mkdirs();
+        return directory;
+    }
+
     @Override public File getFilesDir() {
         File directory = new File(getBaseContext().getFilesDir(), "demo");
         directory.mkdirs();

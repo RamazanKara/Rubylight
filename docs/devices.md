@@ -12,7 +12,7 @@ You need no PC for either tool.
 
 1. **Decoder benchmark.** Nightjar times each hardware decoder once per app version on Android 10 and later. It decodes a short 1920×1080, 60 FPS game-like clip in H.264, HEVC and AV1 with the same low-latency settings a stream uses, one frame at a time, and keeps the median decode time per frame. It runs quietly in the background when the home screen opens, but only after a first stream, because the decoder choice depends on the GPU that the first stream records. Once it has run, the help text of **Settings → Video → Video codec** shows the measured times.
 2. **Latency benchmark.** Tap the version in **Settings → App → About** seven times to show **Developer options**, then open **Latency benchmark** and tap **Start 10-second test**. Touch the screen, move a mouse or press controller buttons during the test so that it also collects input samples. Close other apps first and keep the device plugged in, as power saving changes the timing.
-3. Tap **Share results** on the same screen. Nightjar shows the exact text it would share, then lets you **Copy** it or **Share** it through Android's share sheet.
+3. Tap **Share results** on the same screen. Nightjar shows the exact text it would share, then lets you **Copy** it, **Share** it through Android's share sheet, or **Open report form**, which copies it and opens the public GitHub form for device results in your browser.
 
 Run the latency test before you tap **Share results**; otherwise the text includes the decoder benchmark only. If the decoder benchmark has not run yet, stream once, return to the home screen, wait a minute and open the latency benchmark again.
 
@@ -45,13 +45,17 @@ The text never contains PC names, addresses, MAC addresses, serial numbers, the 
 
 ## Send results
 
-Open a new issue at [github.com/RamazanKara/nightjar/issues](https://github.com/RamazanKara/nightjar/issues/new/choose) titled `Device results: <device name>`, and paste the text inside a code block. Add anything the tools cannot see:
+Tap **Open report form** in the **Share results** dialog, or open the [device results form](https://github.com/RamazanKara/nightjar/issues/new?template=device-results.yml) yourself. The link names the form only and carries no device data. Enter the device's name, paste the copied text into **Results text**, and add anything the tools cannot see:
 
 - whether the device was plugged in and how warm it was;
 - for a TV or TV box, the output resolution and refresh rate set in Android;
 - for a stream on the same device, the codec, resolution, frame rate and the decode timing from the Debug overlay (see [performance overlay](video-and-latency.md#performance-overlay)).
 
-Shared results are public once posted. The maintainers add them to the table below.
+**Posted results are public.** Anyone can read the issue, and the maintainers copy the results text into the [device results page](https://ramazankara.github.io/nightjar/devices.html) on the Nightjar website. Remove any line you do not want to publish before you post. To take results down, comment on the issue or open a new one.
+
+### For maintainers
+
+Save the results text from the issue to a file and run `node scripts/add-device-results.mjs results.txt --issue <number> --name "<device>"` (add `--dry-run` first to see the entry). The script accepts format version 1 only, keeps only the fields documented above, and refuses text that looks like an address, e-mail address, ID, token, file path or markup. It appends the entry to `site/data/device-results.json`, which the site renders. Then update the table below, close the issue and publish the site.
 
 ## Devices
 

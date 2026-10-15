@@ -79,9 +79,21 @@ addresses, user-assigned host names, PINs, credentials and free-text diagnostic
 details. The receiving app controls what happens to the report afterward.
 
 The latency benchmark's **Share results** works the same way: nothing is sent
-unless you copy or share the text yourself. It describes the device, its
-decoder timings and the latest test, and leaves out PC names, addresses, serial
-numbers and account data. See [device results](devices.md#what-is-left-out).
+unless you copy or share the text yourself. The text lists the device's
+manufacturer, model and codename, SoC maker and model, hardware and board
+names, GPU name, Android version and API level, the Nightjar version, the
+decoder names, timings and low-latency switches from the decoder benchmark,
+and the display, audio and timing figures of the latest latency test. It leaves
+out PC names, addresses, serial numbers, the build fingerprint, account data
+and anything about your streams. See
+[device results](devices.md#what-is-left-out).
+
+**Open report form** copies that text and opens the public GitHub issue form
+for device results in your browser. The link carries no device data, and the
+form holds none until you paste the text. If you post it, the issue is public on
+GitHub under your account, and the maintainers copy the results into the
+public device table on the Nightjar website. GitHub's own privacy practices
+apply to the issue. Nightjar makes no network request for this.
 
 ## Backups and deletion
 

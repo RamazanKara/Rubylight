@@ -12,7 +12,8 @@ mkdir -p "$out"
 # reset moonlight-common-c/src to the pinned commit and apply them all again.
 patches=()
 for name in bughunt-stream.patch bughunt-input.patch controller-haptics.patch host-termination.patch \
-    disconnect-intercept.patch control-payload.patch control-teardown.patch host-timing.patch network-grace.patch; do
+    disconnect-intercept.patch control-payload.patch control-teardown.patch host-timing.patch network-grace.patch \
+    cursor-shape.patch; do
     patches+=("$(pwd)/$core/patches/$name")
 done
 if [ ! -f "$common/src/Limelight.h" ]; then

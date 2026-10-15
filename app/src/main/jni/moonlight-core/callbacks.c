@@ -12,6 +12,7 @@
 #include "control_negotiation.h"
 #include "android_microphone.h"
 #include "ControllerHaptics.h"
+#include "cursor_shape.h"
 
 #include <opus_multistream.h>
 #include <android/log.h>
@@ -50,6 +51,7 @@ static jmethodID BridgeClSetAdaptiveTriggersMethod;
 static jmethodID BridgeClControllerHapticsMethod;
 static jmethodID BridgeClControllerAudioMethod;
 static jmethodID BridgeClHostTimingMethod;
+static jmethodID BridgeClCursorShapeMethod;
 static jbyteArray DecodedFrameBuffer;
 static jshortArray DecodedAudioBuffer;
 
@@ -117,6 +119,7 @@ Java_com_limelight_nvstream_jni_MoonBridge_init(JNIEnv *env, jclass clazz) {
     BridgeClControllerAudioMethod = (*env)->GetStaticMethodID(env, clazz, "bridgeClControllerAudio", "(I[B)V");
     BridgeClControllerHapticsMethod = (*env)->GetStaticMethodID(env, clazz, "bridgeClControllerHaptics", "(SI[B)V");
     BridgeClHostTimingMethod = (*env)->GetStaticMethodID(env, clazz, "bridgeClHostTiming", "([B)V");
+    BridgeClCursorShapeMethod = (*env)->GetStaticMethodID(env, clazz, "bridgeClCursorShape", "([B)V");
     BridgeClSetAdaptiveTriggersMethod = (*env)->GetStaticMethodID(env, clazz, "bridgeClSetAdaptiveTriggers", "(SBBB[B[B)V");
 }
 
@@ -499,6 +502,20 @@ void BridgeClControllerHaptics(uint16_t controller, uint32_t sequence, const uin
     }
 }
 
+void BridgeClCursorShape(const uint8_t* payload, int length) {
+    if (!cursorShapesRequested()) {
+        __android_log_print(ANDROID_LOG_WARN, "moonlight-core", "Dropping cursor shape the client did not ask for");
+        return;
+    }
+    JNIEnv* env = GetThreadEnv();
+    jbyteArray bytes = (*env)->NewByteArray(env, length);
+    if (!bytes) { (*env)->ExceptionClear(env); return; }
+    (*env)->SetByteArrayRegion(env, bytes, 0, length, (const jbyte*)payload);
+    (*env)->CallStaticVoidMethod(env, GlobalBridgeClass, BridgeClCursorShapeMethod, bytes);
+    (*env)->DeleteLocalRef(env, bytes);
+    if ((*env)->ExceptionCheck(env)) (*env)->ExceptionClear(env);
+}
+
 void BridgeClLogMessage(const char* format, ...) {
     va_list va;
     va_start(va, format);
@@ -595,6 +612,7 @@ Java_com_limelight_nvstream_jni_MoonBridge_startConnection(JNIEnv *env, jclass c
     resetPhaseLockReports();
     // Filled from this connection's DESCRIBE answer (a=x-rl-control).
     resetHostControlMessages();
+    resetCursorShapes();
     PyroWaveRecordsEnabled = 0;
     atomic_store(&AndroidUnbatchedInput, unbatchedInput);
     atomic_store(&AndroidNetworkPriority, networkPriority);

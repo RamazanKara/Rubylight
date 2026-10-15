@@ -29,6 +29,7 @@ public interface NvConnectionListener {
 
     default void controllerAudio(int kind, byte[] payload) {}
     default void controllerHaptics(short controllerNumber, int sequence, byte[] pcm) {}
+    default void cursorShape(byte[] message) {}
 
     default void setAdaptiveTriggers(short controllerNumber, byte eventFlags, byte typeLeft,
                                      byte typeRight, byte[] left, byte[] right) {}

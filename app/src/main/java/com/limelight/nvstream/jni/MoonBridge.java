@@ -364,6 +364,12 @@ public class MoonBridge {
         }
     }
 
+    // Host cursor shape message (0x5541, docs/protocol/cursor-shape.md), on the control stream's
+    // receive thread; only between an accepted sendCursorShapeRequest(true) and the next false.
+    public static void bridgeClCursorShape(byte[] message) {
+        if (connectionListener != null) connectionListener.cursorShape(message);
+    }
+
     public static native boolean sendControllerAudio(int kind, byte[] payload);
     public static native long openUsbMicrophone(int fd, int endpoint, int interval);
     public static native int readUsbMicrophone(long handle, byte[] samples);
@@ -527,4 +533,12 @@ public class MoonBridge {
     // Asks the host to report each frame's present-to-sent time (or stop). Only call when
     // hostSupportsControlMessage(CONTROL_MESSAGE_HOST_TIMING); false when it could not be sent.
     public static native boolean sendHostTimingRequest(boolean enabled);
+
+    // Host cursor shapes, client to host (docs/protocol/cursor-shape.md).
+    public static final int CONTROL_MESSAGE_CURSOR_SHAPE_REQUEST = 0x5540;
+
+    // Asks the host to send its cursor image and leave it out of the video (true), or to stop
+    // (false). Only call when hostSupportsControlMessage(CONTROL_MESSAGE_CURSOR_SHAPE_REQUEST).
+    // Returns false when the request could not be sent.
+    public static native boolean sendCursorShapeRequest(boolean enabled);
 }

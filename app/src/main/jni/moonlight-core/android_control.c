@@ -193,3 +193,37 @@ Java_com_limelight_nvstream_jni_MoonBridge_sendHostTimingRequest(JNIEnv *env, jc
                                 CTRL_CHANNEL_GENERIC, ENET_PACKET_FLAG_RELIABLE, false)
         ? JNI_TRUE : JNI_FALSE;
 }
+
+// Host cursor shapes (docs/protocol/cursor-shape.md): asks a host that named 0x5540 in its
+// DESCRIBE answer to send its cursor image as 0x5541 and leave it out of the video, or to stop.
+#include "cursor_shape.h"
+
+static atomic_bool cursorShapesOn;
+
+void resetCursorShapes(void) {
+    atomic_store(&cursorShapesOn, false);
+}
+
+bool cursorShapesRequested(void) {
+    return atomic_load(&cursorShapesOn);
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_limelight_nvstream_jni_MoonBridge_sendCursorShapeRequest(JNIEnv *env, jclass clazz, jboolean enabled) {
+    (void)env; (void)clazz;
+    if (!hostSupportsControlMessage(RL_CURSOR_SHAPE_REQUEST_TYPE) ||
+        !encryptedControlStream || stopping || peer == NULL) {
+        return JNI_FALSE;
+    }
+    uint8_t request[RL_CURSOR_SHAPE_REQUEST_BYTES] = {
+        RL_CURSOR_SHAPE_VERSION, enabled ? 1 : 0,
+        (uint8_t)(RL_CURSOR_SHAPE_MAX_EDGE & 0xFF), (uint8_t)(RL_CURSOR_SHAPE_MAX_EDGE >> 8)
+    };
+    // Shapes are accepted from just before an enable goes out, so the host's first answer is not
+    // dropped, and refused from just before a disable, so none arrives after Java let go.
+    atomic_store(&cursorShapesOn, enabled ? true : false);
+    bool sent = sendMessageAndForget(RL_CURSOR_SHAPE_REQUEST_TYPE, (short)sizeof(request), request,
+                                     CTRL_CHANNEL_GENERIC, ENET_PACKET_FLAG_RELIABLE, false);
+    if (!sent) atomic_store(&cursorShapesOn, false);
+    return sent ? JNI_TRUE : JNI_FALSE;
+}

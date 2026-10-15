@@ -42,6 +42,7 @@ int LbqOfferQueueItem(PLINKED_BLOCKING_QUEUE queue, void* data, PLINKED_BLOCKING
 void BridgeClControllerHaptics(uint16_t controller, uint32_t sequence, const uint8_t* pcm, uint16_t frames) { CHECK(false); }
 void BridgeClControllerAudio(uint16_t kind, const uint8_t* payload, int length) { CHECK(false); }
 void BridgeClHostTiming(const uint8_t* payload, int length) { CHECK(false); }
+void BridgeClCursorShape(const uint8_t* payload, int length) { CHECK(false); }
 
 // stopControlStream() also reaches into streams and sockets this test does not run.
 bool ReferenceFrameInvalidationSupported;

@@ -44,7 +44,7 @@ Hosts with per-device permissions (e.g. Apollo or Rubylight) set them in the hos
 | Read clipboard | Request text from the PC. |
 | Server commands | Send a command configured by the host administrator. |
 
-Grant list, view, launch and the relevant input permissions for normal play. A view-only device can display video without controlling it. **Remote Monitor** is a view-only role; **Input-only** sends controls without starting video/audio decoders. These entries appear only on hosts that list them (Rubylight and Vibepollo; Apollo lists a Remote Input entry when its input-only mode is on).
+Grant list, view, launch and the relevant input permissions for normal play. A view-only device can display video without controlling it. **Remote Monitor** is a view-only role; **Input-only** sends controls without starting video/audio decoders. These entries appear only on hosts that list them (Rubylight and Vibepollo; Apollo lists a Remote Input entry when its input-only mode is on). On other hosts, [Input-only on any PC](controls.md#input-only-on-any-pc) offers Input-only over a small stream; it needs view and input permission.
 
 During a stream, **stream menu → Host → Permissions and frame limits** provides host status and device-permission information. Host application restrictions can further limit an action.
 

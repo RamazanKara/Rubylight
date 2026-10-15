@@ -217,6 +217,22 @@ The JSON validator and its version 1 fixtures, the Artemis import mapping, stick
 
 Every [video scaling](video-and-latency.md#video-scaling) mode maps touch and mouse input to the stream pixel under your finger. Direct mouse, Multi-touch, a pen and an absolute mouse go through the video's rectangle and then pinch zoom, so a tap lands on what you see in Fit, Fill, Stretch and 1:1 alike. A touch on a border beside a Fit or 1:1 picture goes to the nearest edge of the stream. In Fill, the cropped edges are still part of the stream: Trackpad and Local cursor can move the pointer there, and the drawn pointer then leaves the screen until you move it back. Trackpad speed follows the picture's size on screen, so the pointer keeps pace with your finger in every mode. On-screen controls and per-game touch buttons stay where you placed them; they belong to the screen, not the video. When the screen turns ([orientation](video-and-latency.md#orientation)), touch buttons keep their place as a share of the screen's width and height, the on-screen gamepad is laid out again, and input maps through the new picture rectangle.
 
+## Input-only on any PC
+
+Input-only turns the phone into a controller, keyboard or touchpad for a game shown elsewhere, for example on the PC's own screen or on another device's stream. Rubylight and Vibepollo list an Input-only tile, and Apollo lists its Remote Input app while its input-only mode is on; those start no video or audio at all.
+
+Other hosts (Sunshine, GameStream, Apollo with its input-only mode off) have no such mode. Turn on **Settings → Streaming → Input-only on any PC** (off by default), then long-press a game in the library and choose **Input-only**. Nightjar then starts an ordinary stream at the smallest size every host accepts and discards it on the phone:
+
+- The PC still encodes and sends video at 640x360, 30 FPS and 500 kbps, plus stereo audio: about 0.7 Mbit/s with error correction, or roughly 310 MB an hour. The row in the game's menu and the stream screen say so.
+- The phone does not decode or show the video (no decoder starts) and does not play the audio. Its video and audio still arrive, so the host sees a healthy client.
+- The stream asks the PC to keep its own sound and its display mode: no optimal game settings, virtual display, HDR or VRR.
+- The row appears only for the running game, or for any game while the PC runs none. It never quits a running game; if another game started meanwhile, the stream stops with a message instead.
+- The row is disabled, with the reason, until this device is paired and the host allows it to view streams and send input.
+- If the host refuses the stream, the error says so. A host that allows only one stream at a time refuses it while another device streams: end that stream or raise the host's limit on simultaneous streams.
+- Hosts that set their display to the client's resolution in their own display settings may switch to 640x360; turn that off on the host for Input-only.
+
+The stream menu and Back behave as for the host's own Input-only. Disconnect leaves the game running.
+
 ## Leaving a game
 
 Disconnect ends the stream on this device and leaves the game running on the PC, so you can resume it later. To choose per game:

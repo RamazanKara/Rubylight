@@ -96,7 +96,7 @@ $pyrowaveIdentity = Get-Content -LiteralPath $pyrowaveInfo -Raw
 foreach ($identity in @(
     'pyrowave_commit=502a3b52a39312ab82c85b1e2fc0e746faee91a4',
     'granite_commit=fb178c8080d163419e8d20f10715c61c53c1ec9b',
-    'patches=0002-payload-data-444-sizing,0003-decoder-reject-short-block'
+    'patches=0002-payload-data-444-sizing,0003-decoder-reject-short-block,0004-encoder-cached-plane-views'
 )) {
     if ($pyrowaveIdentity -notmatch ('(?m)^' + [regex]::Escape($identity) + '\r?$')) {
         throw "PyroWave SDK does not match the pinned build: expected $identity. Rebuild using -FetchDependencies without -PyrowaveRoot."

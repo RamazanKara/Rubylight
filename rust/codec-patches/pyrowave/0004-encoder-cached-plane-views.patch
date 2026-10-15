@@ -1,0 +1,181 @@
+Keep the encoder's plane views across frames.
+
+pyrowave_encoder_encode_gpu() wraps the three plane images and creates three
+image views on every call, and the frame context destroys them again. The
+host passes the same three imported planes every frame, so the views only
+change when it rebuilds the planes for a new capture format or size.
+
+The views now live on the encoder and are wrapped again only when a plane
+changes. Unlike Punktfunk's version, a plane is identified by an id the
+device gives each pyrowave_image, not by its VkImage handle alone. The host
+destroys and recreates its planes when the capture format changes, and
+pyrowave_image_destroy() pumps the frame contexts, so the old VkImages can
+be freed before the new ones are created and the driver may hand back the
+same handle; a handle-only key would then bind a view of the freed image.
+Planes of images pyrowave_image_create() did not make are still wrapped for
+each frame.
+
+From Punktfunk patch 0010 (encoder-cached-plane-views).
+Copyright (c) 2026 unom - Enrico Bühler, https://git.unom.io/unom/punktfunk
+Licensed under MIT OR Apache-2.0; used here under the MIT License, whose
+notice is in rust/THIRD_PARTY.md.
+
+diff --git a/pyrowave_c.cpp b/pyrowave_c.cpp
+index 5489596..6b0a553 100644
+--- a/pyrowave_c.cpp
++++ b/pyrowave_c.cpp
+@@ -12,6 +12,8 @@
+ #include "slangmosh_scaler.hpp"
+ #include "scaler.hpp"
+ #include "thread_id.hpp"
++#include <mutex>
++#include <unordered_map>
+ 
+ using namespace Granite;
+ using namespace Vulkan;
+@@ -45,6 +47,13 @@ struct pyrowave_device_opaque
+ 	Device device;
+ 	VkCommandBuffer cmd = VK_NULL_HANDLE;
+ 	CommandBuffer::Type queue_type = CommandBuffer::Type::Generic;
++
++	// Live pyrowave_image objects by VkImage. Each gets an id that is never
++	// reused, so an encoder can tell a new image from a destroyed one that
++	// happens to get the same VkImage handle back from the driver.
++	std::mutex image_lock;
++	std::unordered_map<VkImage, uint64_t> image_ids;
++	uint64_t next_image_id = 0;
+ };
+ 
+ void pyrowave_device_set_command_buffer(pyrowave_device device, VkCommandBuffer cmd)
+@@ -570,6 +579,7 @@ void pyrowave_sync_object_destroy(pyrowave_sync_object sync)
+ struct pyrowave_image_opaque
+ {
+ 	Device *device = nullptr;
++	pyrowave_device pyro_device = nullptr;
+ 	ImageHandle img;
+ };
+ 
+@@ -640,8 +650,14 @@ pyrowave_result pyrowave_image_create(const pyrowave_image_create_info *info, py
+ 
+ 	auto *image = new pyrowave_image_opaque();
+ 	image->device = &device;
++	image->pyro_device = info->device;
+ 	image->img = std::move(img);
+ 
++	{
++		std::lock_guard<std::mutex> holder{info->device->image_lock};
++		info->device->image_ids[image->img->get_image()] = ++info->device->next_image_id;
++	}
++
+ 	*out_image = image;
+ 	return PYROWAVE_SUCCESS;
+ }
+@@ -853,6 +869,10 @@ void pyrowave_image_destroy(pyrowave_image image)
+ {
+ 	auto *device = image->device;
+ 	Util::set_thread_logging_interface(&null_logger);
++	{
++		std::lock_guard<std::mutex> holder{image->pyro_device->image_lock};
++		image->pyro_device->image_ids.erase(image->img->get_image());
++	}
+ 	delete image;
+ 
+ 	// Pump frame contexts through to make sure memory gets freed eventually.
+@@ -874,6 +894,15 @@ struct pyrowave_encoder_opaque
+ 	ImageHandle scaler_planes[3];
+ 	VideoScaler scaler;
+ 
++	// Plane views for pyrowave_encoder_encode_gpu, kept while the caller passes
++	// the same planes of the same live pyrowave_images (image_ids). Holding the
++	// handles here keeps next_frame_context() from recycling a view the next
++	// encode still binds.
++	ImageHandle plane_images[3];
++	ImageViewHandle plane_views[3];
++	pyrowave_image_view plane_keys[3] = {};
++	uint64_t plane_ids[3] = {};
++
+ 	int context = 0;
+ 
+ 	struct
+@@ -984,6 +1013,63 @@ bool WrappedViewBuffers::wrap(Device *device, const pyrowave_gpu_buffers *buffer
+ 	return true;
+ }
+ 
++static bool same_plane(const pyrowave_image_view &a, const pyrowave_image_view &b)
++{
++	return a.image == b.image && a.width == b.width && a.height == b.height &&
++	       a.image_format == b.image_format && a.view_format == b.view_format &&
++	       a.mip_level == b.mip_level && a.layer == b.layer && a.aspect == b.aspect &&
++	       a.swizzle == b.swizzle && a.layout == b.layout;
++}
++
++// The encoder's plane views, wrapped when the caller first passes these planes
++// and reused while it passes the same planes of the same live pyrowave_images.
++// Returns false for planes of images pyrowave_image_create did not make: the
++// device cannot see when those are destroyed, so a new image could reuse a
++// cached VkImage handle. The caller wraps those for this frame only.
++static bool cached_plane_views(pyrowave_encoder encoder, const pyrowave_gpu_buffers *buffers,
++                               ViewBuffers &views)
++{
++	uint64_t ids[3];
++	{
++		auto *pyro_device = encoder->pyro_device;
++		std::lock_guard<std::mutex> holder{pyro_device->image_lock};
++		for (int i = 0; i < 3; i++)
++		{
++			auto itr = pyro_device->image_ids.find(buffers->planes[i].image);
++			if (itr == pyro_device->image_ids.end())
++				return false;
++			ids[i] = itr->second;
++		}
++	}
++
++	bool same = true;
++	for (int i = 0; same && i < 3; i++)
++	{
++		same = bool(encoder->plane_views[i]) && encoder->plane_ids[i] == ids[i] &&
++		       same_plane(encoder->plane_keys[i], buffers->planes[i]);
++	}
++
++	if (!same)
++	{
++		WrappedViewBuffers fresh = {};
++		if (!fresh.wrap(encoder->device, buffers, VK_IMAGE_USAGE_SAMPLED_BIT))
++			return false;
++		for (int i = 0; i < 3; i++)
++		{
++			// Views before the images they were made from, as WrappedViewBuffers
++			// releases them.
++			encoder->plane_views[i] = std::move(fresh.image_views[i]);
++			encoder->plane_images[i] = std::move(fresh.wrapped_images[i]);
++			encoder->plane_keys[i] = buffers->planes[i];
++			encoder->plane_ids[i] = ids[i];
++		}
++	}
++
++	for (int i = 0; i < 3; i++)
++		views.planes[i] = encoder->plane_views[i].get();
++	return true;
++}
++
+ static void pyrowave_device_wait_semaphore(Device *device, CommandBuffer::Type queue_type, const pyrowave_gpu_sync_operation *acquire, VkPipelineStageFlags2 stages)
+ {
+ 	if (acquire && acquire->sync.semaphore != VK_NULL_HANDLE)
+@@ -1163,9 +1249,14 @@ pyrowave_encoder_encode_gpu(pyrowave_encoder encoder,
+                             const pyrowave_rate_control *rate_control)
+ {
+ 	auto *device = encoder->device;
+-	WrappedViewBuffers views = {};
+-	if (!views.wrap(device, buffers, VK_IMAGE_USAGE_SAMPLED_BIT))
+-		return PYROWAVE_ERROR_OUT_OF_HOST_MEMORY;
++	WrappedViewBuffers wrapped = {};
++	ViewBuffers views = {};
++	if (!cached_plane_views(encoder, buffers, views))
++	{
++		if (!wrapped.wrap(device, buffers, VK_IMAGE_USAGE_SAMPLED_BIT))
++			return PYROWAVE_ERROR_OUT_OF_HOST_MEMORY;
++		views = wrapped;
++	}
+ 	views.range_scale = encoder->ycbcr_scaling_factor;
+ 	device->next_frame_context();
+ 	pyrowave_device_wait_semaphore(device, encoder->pyro_device->queue_type, acquire, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);

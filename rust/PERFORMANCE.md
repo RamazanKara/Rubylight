@@ -6421,6 +6421,17 @@ table only:
   60 fps and 150 Mbps frames 0.2-0.4 ms. Every loss was the receiver's
   416 KB socket buffer overflowing, and 950 Mbps lost 359 packets in a round
   where 800 Mbps lost none, so 800 Mbps stays.
+- **Recovery frames get the configured FEC.** Adaptive FEC falls to 5% on a
+  clean link, and a Wi-Fi dropout that loses whole frames leaves the client
+  no partial frame to report, so the keyframe or invalidation frame that
+  repairs it went out at 5%, on a link that had just failed. Keyframes and
+  the frame after an invalidation now get `fec_percentage` (20% by default);
+  other frames keep the adaptive percentage. A 60 s HEVC 120 fps stream with
+  an 80 ms dropout at 45 s, after adaptive FEC had decayed (`runs-fec`),
+  recovered alike with and without it: every frame decoded, picture age p95
+  17.3 against 17.6 ms, longest gap 88 against 97 ms. Loopback loses nothing
+  after the dropout, so the gain, keyframes surviving the loss that follows
+  one, is not measured here.
 - **The display layout** moves the time before the driver's acquire by
   0.4-0.5 ms at 120 fps and 1-2 ms the other way at 60 fps: no consistent
   gain, and the harness's extended layout stands in for the shipped default.

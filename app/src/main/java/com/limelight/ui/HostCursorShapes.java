@@ -49,6 +49,12 @@ public final class HostCursorShapes {
     private final CursorShapeCache<Shape> cache = new CursorShapeCache<>();
     private boolean rejectionReported;
     private volatile boolean closed;
+    // What the UI thread shows next. Every message updates the cache in order, but a burst only
+    // reaches the UI as its newest state: one post, one swap.
+    private final Object displayLock = new Object();
+    private boolean displayPosted, displayShape, displayHidden;
+    private Shape displayed;
+    private final Runnable display = this::display;
 
     /** rejected runs on the UI thread, at most once, after the first message that could not be drawn. */
     public HostCursorShapes(Resources resources, LocalCursorView cursorView, TrackpadPointer pointer, Runnable rejected) {
@@ -154,14 +160,35 @@ public final class HostCursorShapes {
 
     /** Hidden draws nothing and keeps the current image; otherwise a null shape is Nightjar's arrow. */
     private void show(Shape shape, boolean hidden) {
-        ui.post(() -> {
-            if (closed) return;
-            if (!hidden && shape == null) {
-                cursorView.setDefaultCursor();
-            } else if (!hidden) {
-                cursorView.setCursor(shape.drawable, shape.hotspotX, shape.hotspotY);
+        synchronized (displayLock) {
+            if (!hidden) {
+                displayShape = true;
+                displayed = shape;
             }
-            pointer.setHostCursorHidden(hidden);
-        });
+            displayHidden = hidden;
+            if (displayPosted) return;
+            displayPosted = true;
+        }
+        ui.post(display);
+    }
+
+    private void display() {
+        boolean setShape, hidden;
+        Shape shape;
+        synchronized (displayLock) {
+            displayPosted = false;
+            setShape = displayShape;
+            displayShape = false;
+            shape = displayed;
+            displayed = null;
+            hidden = displayHidden;
+        }
+        if (closed) return;
+        if (setShape && shape == null) {
+            cursorView.setDefaultCursor();
+        } else if (setShape) {
+            cursorView.setCursor(shape.drawable, shape.hotspotX, shape.hotspotY);
+        }
+        pointer.setHostCursorHidden(hidden);
     }
 }

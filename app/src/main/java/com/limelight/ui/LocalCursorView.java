@@ -15,6 +15,7 @@ import com.limelight.R;
 public class LocalCursorView extends View {
     private Drawable cursor;
     private float hotspotX, hotspotY;
+    private int cursorWidth = -1, cursorHeight = -1;
     private float pointerX = Float.NaN, pointerY = Float.NaN;
 
     public LocalCursorView(Context context) {
@@ -44,8 +45,15 @@ public class LocalCursorView extends View {
         this.cursor = cursor;
         this.hotspotX = hotspotX;
         this.hotspotY = hotspotY;
-        if (cursor != null) cursor.setBounds(0, 0, cursor.getIntrinsicWidth(), cursor.getIntrinsicHeight());
-        requestLayout();
+        int width = cursor != null ? cursor.getIntrinsicWidth() : 0;
+        int height = cursor != null ? cursor.getIntrinsicHeight() : 0;
+        if (cursor != null) cursor.setBounds(0, 0, width, height);
+        // A shape of the same size only needs a redraw; most cursor changes keep the size.
+        if (width != cursorWidth || height != cursorHeight) {
+            cursorWidth = width;
+            cursorHeight = height;
+            requestLayout();
+        }
         invalidate();
         if (!Float.isNaN(pointerX)) moveTo(pointerX, pointerY);
     }

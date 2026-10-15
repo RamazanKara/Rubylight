@@ -12,3 +12,6 @@ $llvm = @("$env:ProgramFiles\LLVM\bin", "${env:ProgramFiles(x86)}\LLVM\bin") | W
 if (-not $llvm) { throw 'LLVM (libclang.dll) is required: winget install LLVM.LLVM' }
 $env:LIBCLANG_PATH = $llvm
 $env:PATH = "$env:USERPROFILE\.cargo\bin;" + $env:PATH
+# rust\build.ps1 points CARGO_TARGET_DIR at the host's target folder. The driver keeps its own:
+# build-package.ps1 reads target\ here, and wdk-build finds the workspace's WDK metadata from it.
+Remove-Item Env:CARGO_TARGET_DIR -ErrorAction SilentlyContinue

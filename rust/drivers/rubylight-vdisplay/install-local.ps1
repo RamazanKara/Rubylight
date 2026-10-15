@@ -62,9 +62,16 @@ function Invoke-Checked([string] $exe, [string[]] $arguments, [int[]] $ok = @(0)
     & $exe @arguments | Out-Host
     if ($LASTEXITCODE -notin $ok) { throw "$(Split-Path -Leaf $exe) $($arguments -join ' ') failed with exit code $LASTEXITCODE" }
 }
-function Add-Package([string] $inf) {
-    Invoke-Checked pnputil @('/add-driver', $inf, '/install') @(0, 259, 3010)
+# pnputil, where 3010 means done once Windows restarts.
+function Invoke-Restartable([string[]] $arguments, [int[]] $ok = @(0, 3010)) {
+    Invoke-Checked pnputil $arguments $ok
     if ($LASTEXITCODE -eq 3010) { $script:restart = $true }
+}
+function Get-CurrentPackage {
+    (Get-Device | Get-PnpDeviceProperty -KeyName DEVPKEY_Device_DriverInfPath).Data
+}
+function Add-Package([string] $inf) {
+    Invoke-Restartable @('/add-driver', $inf, '/install') @(0, 259, 3010)
 }
 # Signs the catalog with a new key that is deleted before this returns; returns the certificate.
 function Protect-Catalog([string] $catalog) {
@@ -89,8 +96,10 @@ function Install-Package {
     $recorded = Get-ItemProperty $state -ErrorAction SilentlyContinue
     $previous = $recorded.LocalSigner
     if ($Uninstall) {
-        Get-Device | ForEach-Object { Invoke-Checked pnputil @('/remove-device', $_.InstanceId) }
-        foreach ($inf in Get-Packages) { Invoke-Checked pnputil @('/delete-driver', $inf, '/uninstall', '/force') }
+        # 3010: removed, but a device in use (a display the host still drives) goes at the
+        # next restart.
+        Get-Device | ForEach-Object { Invoke-Restartable @('/remove-device', $_.InstanceId) }
+        foreach ($inf in Get-Packages) { Invoke-Restartable @('/delete-driver', $inf, '/uninstall', '/force') }
         Remove-Trust $previous
         if ($recorded.PublisherAdded) {
             Get-Item "Cert:\LocalMachine\TrustedPublisher\$($recorded.PublisherAdded)" -ErrorAction SilentlyContinue | Remove-Item
@@ -118,12 +127,26 @@ function Install-Package {
         } else {
             $signer = Protect-Catalog (Join-Path $work 'rubylight_vdisplay.cat')
         }
-        $before = @(Get-Packages)
-        Add-Package (Join-Path $work 'rubylight_vdisplay.inf')
+        $inf = Join-Path $work 'rubylight_vdisplay.inf'
+        Add-Package $inf
         if (-not (Get-Device)) {
             if (-not $NefConc) { throw "no $hardwareId device: pass -NefConc to create it" }
             Invoke-Checked $NefConc @('--create-device-node', '--class-name', 'Display', '--class-guid', $classGuid, '--hardware-id', $hardwareId)
-            Add-Package (Join-Path $work 'rubylight_vdisplay.inf')
+            Add-Package $inf
+        }
+        # The driver store keeps the INF as it is: this package is the one with its hash.
+        $hash = (Get-FileHash -LiteralPath $inf).Hash
+        $ours = Get-Packages | Where-Object { (Get-FileHash -LiteralPath "$env:SystemRoot\INF\$_").Hash -eq $hash } | Select-Object -First 1
+        if (-not $ours) { throw 'the package is missing from the driver store after pnputil added it' }
+        if ((Get-CurrentPackage) -ne $ours) {
+            # A package that ranks higher (a newer build, or the newer Rubylight's after a
+            # downgrade) keeps the device. Remove the others so it takes this one: the device
+            # must not stay on a package whose signer loses its trust below.
+            foreach ($other in @(Get-Packages | Where-Object { $_ -ne $ours })) {
+                Invoke-Restartable @('/delete-driver', $other, '/uninstall', '/force')
+            }
+            Add-Package $inf
+            if (-not $script:restart -and (Get-CurrentPackage) -ne $ours) { throw "the device uses $(Get-CurrentPackage), not $ours" }
         }
     } catch {
         if ($signer) { Remove-Trust $signer.Thumbprint }
@@ -141,8 +164,7 @@ function Install-Package {
     }
     if ($publisherAdded) { Set-ItemProperty $state PublisherAdded $publisherAdded }
     # Older packages were signed by the previous local signer: delete them before its trust goes.
-    $current = (Get-Device | Get-PnpDeviceProperty -KeyName DEVPKEY_Device_DriverInfPath).Data
-    foreach ($inf in $before | Where-Object { $_ -ne $current }) { pnputil /delete-driver $inf | Out-Null }
+    foreach ($other in @(Get-Packages | Where-Object { $_ -ne $ours })) { pnputil /delete-driver $other | Out-Null }
     if ($previous -and $previous -ne $signer.Thumbprint) { Remove-Trust $previous }
     $device = @(Get-Device)[0]
     $device | Format-List InstanceId, Status, Problem | Out-Host
@@ -153,9 +175,13 @@ function Install-Package {
 
 try {
     Install-Package
-    if ($script:restart) { Write-Output 'RESTART_REQUIRED' }
 } catch {
     if (-not $InstallerBestEffort) { throw }
     Write-Warning '[RubylightVirtualDisplay] DRIVER_WARNING: Rubylight display driver setup did not complete.'
-    Write-Warning "[RubylightVirtualDisplay] Installer best-effort driver action failed: $($_.Exception.Message)"
+    # One line: setup quotes the reason from it. The innermost message names the failed step.
+    $reason = $_.Exception
+    while ($reason.InnerException) { $reason = $reason.InnerException }
+    Write-Warning "[RubylightVirtualDisplay] Installer best-effort driver action failed: $($reason.Message -replace '\s+', ' ')"
 }
+# Also after a failure: what pnputil did may still need the restart.
+if ($script:restart) { Write-Output 'RESTART_REQUIRED' }

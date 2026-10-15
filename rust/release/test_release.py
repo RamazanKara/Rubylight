@@ -198,6 +198,17 @@ class Signing(unittest.TestCase):
         installer = (ROOT / 'rust/drivers/rubylight-vdisplay/install-local.ps1').read_text(encoding='utf-8')
         self.assertIn("Join-Path $PSScriptRoot 'rubylight_vdisplay.inf'", installer)
         self.assertIn("Join-Path $PSScriptRoot 'nefconc.exe'", installer)
+        # Removing a device the host still drives returns 3010: done at the
+        # next restart, not a failure (setup's first removal on the
+        # development PC failed on it).
+        self.assertIn("Invoke-Restartable @('/remove-device'", installer)
+        self.assertIn("Invoke-Restartable @('/delete-driver'", installer)
+        self.assertNotRegex(installer, r"Invoke-Checked pnputil @\('/(remove-device|delete-driver)'")
+        # A newer package in the driver store kept the device while its
+        # signer lost its trust: the device must end on the package just
+        # added, found by its INF's hash.
+        self.assertIn('(Get-CurrentPackage) -ne $ours', installer)
+        self.assertIn("Get-Packages | Where-Object { $_ -ne $ours }", installer)
 
 
 NS = '{http://signpath.io/artifact-configuration/v1}'

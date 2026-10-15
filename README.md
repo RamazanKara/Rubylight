@@ -37,7 +37,7 @@
 
 **Talk and play.** Send your phone's microphone to the PC for voice chat and mute it from the stream menu (Rubylight). Over USB, a DualSense gets adaptive triggers, rumble, the lightbar and Edge paddles; on hosts that support it, also waveform haptics (Rubylight, Vibepollo) and the controller's speaker, headset and microphone (Rubylight). Controllers keep their identity across reconnects on Rubylight, and Xbox USB controllers work through a built-in driver.
 
-**Your PC, your way.** Pick per PC whether the stream gets its own virtual display at your phone's resolution (Apollo, Rubylight, Vibepollo), and on Rubylight whether your monitors stay on, switch off or sit beside it. Watch a PC without taking over its input with Remote Monitor, or control it without video with Input-only (Rubylight, Vibepollo; Input-only also on Apollo). Copy text in both directions, run the host's commands and pair with a one-time PIN on Apollo, Rubylight and Vibepollo, and open your host's web UI from the app.
+**Your PC, your way.** Pick per PC whether the stream gets its own virtual display at your phone's resolution (Apollo, Rubylight, Vibepollo), and on Rubylight whether your monitors stay on, switch off or sit beside it. Watch a PC without taking over its input with Remote Monitor, or control it without video with Input-only (Rubylight, Vibepollo; Input-only also on Apollo, and on any other host as a small hidden stream if you turn it on). Copy text in both directions, run the host's commands and pair with a one-time PIN on Apollo, Rubylight and Vibepollo, and open your host's web UI from the app.
 
 **Play away from home.** A built-in guide sets up a private Tailscale connection and tests the paired PC from wherever you are. On Rubylight it also shows whether the connection runs direct or through a relay.
 
@@ -45,6 +45,12 @@
 
 - AV1, HEVC and H.264 with HDR10, and 4:4:4 where the host offers it
 - Touch, trackpad, mouse, pen and keyboard, with editable keyboard shortcuts and per-game touch controls (keys, gamepad buttons, sticks, triggers, D-pad) you can export, share and import from Artemis ([controls](docs/controls.md))
+- Touch modes: natural trackpad with glide, a Local cursor drawn on the phone, or Touch off for controller play
+- Video scaling (Fit, Fill, Stretch, 1:1), picture position, and portrait or rotate-with-device streams
+- Named stream profiles picked by network, per-game stream settings and a mobile data bitrate cap
+- Controller test page, rumble off, Back or Right Alt as the Windows key, and an opt-in Switch Pro USB driver
+- Quick resume, quit the game when you leave, and opt-in tolerance for network drops of up to 60 seconds
+- Wi-Fi details and stutter-rhythm detection in the stream doctor, and shareable device results ([devices](docs/devices.md))
 - Desktop tools: pinch zoom, and video on an external display with the phone as a touchpad
 - Settings per PC, Native and Battery saver presets, Wake-on-LAN and automatic discovery
 - Phones, foldables, tablets and Android TV with D-pad navigation, plus picture-in-picture

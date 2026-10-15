@@ -336,7 +336,7 @@ def profile_number(label, value):
         # Every value starts as "Same as all PCs"; a value of this PC's own needs that box off.
         uncheck(lambda text: text.startswith("Same as all PCs"))
         # The resolution may follow the phone's screen; a fixed size needs that choice off too.
-        uncheck(lambda text: text == "Native (follows this screen)")
+        uncheck(lambda text: text == "Screen size (follows this screen)")
         fields = [n for n in tree().iter("node") if n.get("class") == "android.widget.EditText"
                   and n.get("content-desc") == label]
     field = fields[0]

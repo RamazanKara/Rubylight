@@ -8,7 +8,7 @@
     <string name="host_profile_width">Breite</string>
     <string name="host_profile_height">Höhe</string>
     <string name="host_profile_match_screen">Wie dieses Display</string>
-    <string name="host_profile_native">Nativ (folgt diesem Display)</string>
+    <string name="host_profile_native">Bildschirmgröße (folgt diesem Display)</string>
     <string name="host_profile_refresh">Bildrate (FPS)</string>
     <string name="host_profile_bitrate">Bitrate (Mbit/s)</string>
     <string name="host_profile_scale">Host-Skalierung (%)</string>

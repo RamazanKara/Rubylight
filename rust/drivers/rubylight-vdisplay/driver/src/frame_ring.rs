@@ -6,8 +6,8 @@
 //! swap-chain worker on its own device, because only that device can copy the swap chain's
 //! surface into the textures, and is rebuilt when the ring or the device changes.
 
-use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
+use std::sync::{Arc, Mutex};
 
 use rubylight_vdisplay_proto::control::SetFrameRingRequest;
 use rubylight_vdisplay_proto::ring::{self, Claim, Header, Picker, SlotMeta, Token};
@@ -37,6 +37,11 @@ pub struct RingHandles {
     view: OwnedView,
     event: OwnedHandle,
     textures: Vec<OwnedHandle>,
+    /// The producer's sequence and which slot carries which publish. It lives as long as
+    /// the ring, not the worker: a swap chain reassigned onto the same ring continues the
+    /// sequence the host's `Consumer` expects, where a fresh one would restart at 1 and
+    /// every publish would read as already consumed.
+    picker: Mutex<Picker>,
 }
 
 fn handle(value: u64) -> HANDLE {
@@ -89,6 +94,7 @@ impl RingHandles {
             view,
             event,
             textures,
+            picker: Mutex::new(Picker::new(slot_count)),
         };
         handles.header().set_status(ring::STATUS_WAITING, 0);
         Ok(handles)
@@ -150,7 +156,6 @@ struct Slot {
 pub struct OpenRing {
     handles: Arc<RingHandles>,
     slots: Vec<Slot>,
-    picker: Picker,
 }
 
 /// Why a ring did not open: a `ring::STATUS_*` and its detail for the header.
@@ -200,12 +205,7 @@ impl OpenRing {
             let mutex = texture.cast::<IDXGIKeyedMutex>().map_err(failed)?;
             slots.push(Slot { texture, mutex });
         }
-        let picker = Picker::new(handles.slot_count);
-        Ok(Self {
-            handles,
-            slots,
-            picker,
-        })
+        Ok(Self { handles, slots })
     }
 
     /// Whether this is still the monitor's ring.
@@ -217,6 +217,12 @@ impl OpenRing {
         self.handles.header()
     }
 
+    /// Whether a surface of `desc`'s size and format fits this ring.
+    pub fn fits(&self, desc: &D3D11_TEXTURE2D_DESC) -> bool {
+        (desc.Width, desc.Height, desc.Format.0 as u32)
+            == (self.handles.width, self.handles.height, self.handles.format)
+    }
+
     /// Copy `surface` into a free texture, record its timing and publish it. Never waits on
     /// the host: with no texture to take the frame is dropped and counted.
     pub fn push(
@@ -226,8 +232,54 @@ impl OpenRing {
         desc: &D3D11_TEXTURE2D_DESC,
         frame: Frame,
     ) -> Pushed {
+        self.handles.header().count_acquired();
+        self.publish(device, surface, desc, frame)
+    }
+
+    /// [`Self::push`] for a frame the swap chain did not just deliver: the retained image a
+    /// new ring is seeded with.
+    pub fn seed(
+        &mut self,
+        device: &Direct3DDevice,
+        image: &ID3D11Texture2D,
+        desc: &D3D11_TEXTURE2D_DESC,
+        frame: Frame,
+    ) -> Pushed {
+        self.publish(device, image, desc, frame)
+    }
+
+    /// Copy the newest published texture into `into` (same size and format) and return its
+    /// frame number. Skipped, never waited for, while the host holds that texture.
+    pub fn copy_newest(&self, device: &Direct3DDevice, into: &ID3D11Texture2D) -> Option<u64> {
+        let index = self
+            .handles
+            .picker
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .newest()?;
+        let slot = &self.slots[index];
+        // Consumed textures are back under KEY_DRIVER, unconsumed ones under KEY_HOST; the
+        // mutex goes back with the key it was taken with, so the host's view is unchanged.
+        let key = [ring::KEY_DRIVER, ring::KEY_HOST]
+            .into_iter()
+            .find(|&key| try_acquire(&slot.mutex, key))?;
+        let frame_number = self.handles.header().slot(index).frame_number;
+        // SAFETY: both textures are live on this device with the ring's size and format (the
+        // caller checked `into` with `fits`); this thread holds the slot's mutex.
+        unsafe { device.device_context.CopyResource(into, &slot.texture) };
+        // SAFETY: taken above with `key` on this thread.
+        let _ = unsafe { slot.mutex.ReleaseSync(key) };
+        Some(frame_number)
+    }
+
+    fn publish(
+        &mut self,
+        device: &Direct3DDevice,
+        surface: &ID3D11Texture2D,
+        desc: &D3D11_TEXTURE2D_DESC,
+        frame: Frame,
+    ) -> Pushed {
         let header = self.handles.header();
-        header.count_acquired();
         header.set_surface(desc.Width, desc.Height, desc.Format.0 as u32);
         if (desc.Width, desc.Height) != (self.handles.width, self.handles.height) {
             header.set_status(ring::STATUS_SIZE_MISMATCH, 0);
@@ -237,11 +289,15 @@ impl OpenRing {
             header.set_status(ring::STATUS_FORMAT_MISMATCH, desc.Format.0 as u32);
             return Pushed::Mismatch;
         }
-        let slots = &self.slots;
-        let Some(claim) = self
+        // Only the one worker attached to this ring pushes, so the lock is uncontended; a
+        // worker that panicked under it leaves a picker that is still consistent.
+        let mut picker = self
+            .handles
             .picker
-            .claim(|s, key| try_acquire(&slots[s].mutex, key))
-        else {
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let slots = &self.slots;
+        let Some(claim) = picker.claim(|s, key| try_acquire(&slots[s].mutex, key)) else {
             header.count_dropped();
             return Pushed::Dropped;
         };
@@ -253,7 +309,7 @@ impl OpenRing {
         // SAFETY: both textures are live on this device, same size and format (checked
         // above and at open); the context is multithread-protected.
         unsafe { device.device_context.CopyResource(&slot.texture, surface) };
-        let seq = self.picker.next_seq();
+        let seq = picker.next_seq();
         header.write_slot(
             index,
             SlotMeta {
@@ -280,7 +336,7 @@ impl OpenRing {
             }
             return Pushed::Dropped;
         }
-        self.picker.published(index, seq);
+        picker.published(index, seq);
         header.publish(Token {
             generation: self.handles.generation,
             seq,

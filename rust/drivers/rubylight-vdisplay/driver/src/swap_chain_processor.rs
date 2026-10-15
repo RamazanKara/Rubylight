@@ -24,7 +24,10 @@ use wdk_sys::iddcx::{
 };
 use wdk_sys::{HANDLE, NTSTATUS, WDFOBJECT, call_unsafe_wdf_function_binding};
 use windows::Win32::Foundation::{HANDLE as WHANDLE, WAIT_OBJECT_0, WAIT_TIMEOUT};
-use windows::Win32::Graphics::Direct3D11::{D3D11_TEXTURE2D_DESC, ID3D11Texture2D};
+use windows::Win32::Graphics::Direct3D11::{
+    D3D11_TEXTURE2D_DESC, D3D11_USAGE_DEFAULT, ID3D11Texture2D,
+};
+use windows::Win32::Graphics::Dxgi::Common::{DXGI_FORMAT, DXGI_SAMPLE_DESC};
 use windows::Win32::Graphics::Dxgi::{IDXGIDevice, IDXGIResource};
 use windows::Win32::System::Threading::{SetEvent, WaitForMultipleObjects, WaitForSingleObject};
 use windows::core::Interface;
@@ -297,6 +300,116 @@ struct RingState {
     seen: Option<u32>,
     handles: Option<Arc<RingHandles>>,
     open: Option<OpenRing>,
+    retained: Retained,
+}
+
+/// The newest composed image no ring holds. Windows stops presenting a desktop that does not
+/// change, so a ring attached to a quiet monitor (a reconnect, or one rebuilt for the real
+/// surface) would wait for the next change for its first frame; it is seeded from this
+/// instead.
+#[derive(Default)]
+struct Retained {
+    texture: Option<(ID3D11Texture2D, D3D11_TEXTURE2D_DESC)>,
+    /// The texture holds the newest image, with this `PresentationFrameNumber`.
+    current: Option<u64>,
+}
+
+impl Retained {
+    /// A texture of `width` x `height` in `format` on `device`, made on first use or when
+    /// the shape changes.
+    fn texture(
+        &mut self,
+        device: &Direct3DDevice,
+        width: u32,
+        height: u32,
+        format: DXGI_FORMAT,
+    ) -> Option<&ID3D11Texture2D> {
+        if !self
+            .texture
+            .as_ref()
+            .is_some_and(|(_, d)| (d.Width, d.Height, d.Format) == (width, height, format))
+        {
+            self.texture = None;
+            self.current = None;
+            let desc = D3D11_TEXTURE2D_DESC {
+                Width: width,
+                Height: height,
+                MipLevels: 1,
+                ArraySize: 1,
+                Format: format,
+                SampleDesc: DXGI_SAMPLE_DESC {
+                    Count: 1,
+                    Quality: 0,
+                },
+                Usage: D3D11_USAGE_DEFAULT,
+                BindFlags: 0,
+                CPUAccessFlags: 0,
+                MiscFlags: 0,
+            };
+            let mut texture = None;
+            // SAFETY: `desc` describes a plain single-sample texture; `texture` is a live
+            // local.
+            let made = unsafe {
+                device
+                    .device
+                    .CreateTexture2D(&desc, None, Some(&mut texture))
+            };
+            if let Err(e) = made {
+                dbglog!("[rlvd] swap-chain: the retained frame texture failed: {e:?}");
+                return None;
+            }
+            self.texture = texture.map(|t| (t, desc));
+        }
+        self.texture.as_ref().map(|(t, _)| t)
+    }
+
+    /// Keep `surface` as the newest image.
+    fn keep(
+        &mut self,
+        device: &Direct3DDevice,
+        surface: &ID3D11Texture2D,
+        desc: &D3D11_TEXTURE2D_DESC,
+        frame_number: u64,
+    ) {
+        if desc.SampleDesc.Count != 1 || desc.ArraySize != 1 || desc.MipLevels > 1 {
+            return;
+        }
+        let Some(texture) = self.texture(device, desc.Width, desc.Height, desc.Format) else {
+            return;
+        };
+        // SAFETY: both live on this device with the same size, format and sample count.
+        unsafe { device.device_context.CopyResource(texture, surface) };
+        self.current = Some(frame_number);
+    }
+
+    /// Take the newest image back from a ring that is going away.
+    fn take_from(&mut self, device: &Direct3DDevice, ring: &OpenRing, handles: &RingHandles) {
+        let format = DXGI_FORMAT(handles.format as i32);
+        let Some(texture) = self.texture(device, handles.width, handles.height, format) else {
+            return;
+        };
+        self.current = ring.copy_newest(device, texture);
+    }
+
+    /// Publish the newest image into a freshly opened ring that fits it.
+    fn seed(&self, device: &Direct3DDevice, ring: &mut OpenRing) {
+        let (Some((texture, desc)), Some(frame_number)) = (&self.texture, self.current) else {
+            return;
+        };
+        if !ring.fits(desc) {
+            return;
+        }
+        // The image is what the monitor still shows, so it is stamped as of now: the host
+        // measures a frame's age from these, and the original present predates this ring.
+        let now = qpc_now();
+        let frame = Frame {
+            present_qpc: now,
+            acquire_qpc: now,
+            frame_number,
+        };
+        let pushed = ring.seed(device, texture, desc, frame);
+        dbglog!("[rlvd] frame ring seeded with the retained frame: {pushed:?}");
+    }
 }
 
 impl RingState {
@@ -312,13 +425,18 @@ impl RingState {
         {
             return;
         }
+        if let (Some(open), Some(old)) = (&self.open, &self.handles)
+            && self.retained.current.is_none()
+        {
+            self.retained.take_from(device, open, old);
+        }
         self.open = None;
         self.handles = handles;
         let Some(h) = &self.handles else {
             return;
         };
         match OpenRing::open(h.clone(), device) {
-            Ok(open) => {
+            Ok(mut open) => {
                 dbglog!(
                     "[rlvd] frame ring {} open: {} x {}x{} format {} (target={})",
                     h.generation,
@@ -329,6 +447,7 @@ impl RingState {
                     monitor.target_id()
                 );
                 monitor.stats.ring_open.store(true, Ordering::Release);
+                self.retained.seed(device, &mut open);
                 self.open = Some(open);
             }
             Err((status, detail)) => {
@@ -375,14 +494,29 @@ impl RingState {
                 h.header()
                     .set_surface(desc.Width, desc.Height, desc.Format.0 as u32);
             }
+            self.retained
+                .keep(device, surface, &desc, frame.frame_number);
             return false;
         };
         match open.push(device, surface, &desc, frame) {
             Pushed::Published => {
                 stats.pushed.fetch_add(1, Ordering::AcqRel);
+                // The ring holds the newest image now; it is taken back if the ring goes.
+                self.retained.current = None;
                 false
             }
-            Pushed::Dropped | Pushed::Mismatch => false,
+            Pushed::Dropped => {
+                // Every texture is the host's; this image is newer than any of them.
+                self.retained
+                    .keep(device, surface, &desc, frame.frame_number);
+                false
+            }
+            Pushed::Mismatch => {
+                // The host rebuilds the ring at this surface's shape; it is seeded from this.
+                self.retained
+                    .keep(device, surface, &desc, frame.frame_number);
+                false
+            }
             Pushed::DeviceLost => {
                 open.header().set_status(ring::STATUS_DEVICE_LOST, 0);
                 true

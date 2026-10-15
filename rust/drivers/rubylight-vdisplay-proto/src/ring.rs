@@ -451,6 +451,14 @@ impl Picker {
         self.next_seq
     }
 
+    /// The slot holding the newest publish, if any; what a replacement ring is seeded from.
+    #[must_use]
+    pub fn newest(&self) -> Option<usize> {
+        (0..self.slots)
+            .filter(|&s| self.published[s] != 0)
+            .max_by_key(|&s| self.published[s])
+    }
+
     /// Record that `slot` now carries `seq`.
     pub fn published(&mut self, slot: usize, seq: u32) {
         if slot < self.slots {
@@ -669,6 +677,20 @@ mod tests {
     }
 
     #[test]
+    fn the_newest_publish_is_the_seed_for_a_replacement_ring() {
+        let mut m = Mutexes::new(3);
+        let mut p = Picker::new(3);
+        assert_eq!(p.newest(), None, "nothing published yet");
+        for _ in 0..4 {
+            push(&mut p, &mut m);
+        }
+        // Slots 0..2 carried 1..3, then slot 0 was reclaimed for 4.
+        assert_eq!(p.newest(), Some(0));
+        push(&mut p, &mut m);
+        assert_eq!(p.newest(), Some(1));
+    }
+
+    #[test]
     fn a_slot_the_host_returned_is_free_again() {
         let mut m = Mutexes::new(2);
         let mut p = Picker::new(2);
@@ -739,6 +761,44 @@ mod tests {
         assert!(c.fresh(&meta(9)));
         assert!(!c.fresh(&meta(5)));
         assert!(!c.fresh(&meta(0)));
+    }
+
+    #[test]
+    fn a_reassigned_swap_chain_continues_the_rings_sequence() {
+        // The picker belongs to the ring, so a worker started for a replacement swap chain on
+        // the same ring publishes after what the host already consumed.
+        let mut m = Mutexes::new(4);
+        let mut picker = Picker::new(4);
+        let mut consumer = Consumer::new(3, 4);
+        let host_takes = |m: &mut Mutexes, consumer: &mut Consumer, token: Token| {
+            let slot = consumer.wanted(Some(token))?;
+            assert!(m.take(slot, KEY_HOST));
+            consumer.consumed(u64::from(token.seq));
+            m.release(slot, KEY_DRIVER);
+            Some(slot)
+        };
+        let publish = |picker: &mut Picker, m: &mut Mutexes| {
+            let claim = push(picker, m).expect("a slot");
+            Token {
+                generation: 3,
+                seq: picker.next_seq() - 1,
+                slot: claim.slot() as u8,
+            }
+        };
+        for _ in 0..1000 {
+            let token = publish(&mut picker, &mut m);
+            assert!(host_takes(&mut m, &mut consumer, token).is_some());
+        }
+        // The swap chain is reassigned: the new worker reuses the ring's picker.
+        let token = publish(&mut picker, &mut m);
+        assert_eq!(token.seq, 1001);
+        assert!(host_takes(&mut m, &mut consumer, token).is_some());
+        // A picker restarted at 1 would publish frames the host rejects as consumed until
+        // the sequence caught up: the freeze this ownership prevents.
+        let mut restarted = Picker::new(4);
+        let token = publish(&mut restarted, &mut m);
+        assert_eq!(token.seq, 1);
+        assert_eq!(consumer.wanted(Some(token)), None);
     }
 
     #[test]

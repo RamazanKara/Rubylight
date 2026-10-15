@@ -150,7 +150,7 @@ class Signing(unittest.TestCase):
 
     def test_each_request_names_a_configuration_and_the_version(self):
         requests = self.requests()
-        self.assertEqual(set(requests), {'binaries', 'installer'})
+        self.assertEqual(set(requests), {'binaries', 'driver', 'installer'})
         for slug, step in requests.items():
             with self.subTest(slug=slug):
                 self.assertIn(slug, self.configurations)
@@ -176,7 +176,7 @@ class Signing(unittest.TestCase):
         script = (ROOT / 'rust/release/sign-artifacts.ps1').read_text(encoding='utf-8')
         staged = set(re.findall(r"'([^']+)'", re.search(r'(?s)\$binaries = @\((.*?)\)', script)[1]))
         includes = {element.get('path') for element in self.configurations['binaries'].iter(f'{NS}include')}
-        self.assertEqual(includes, staged)
+        self.assertEqual(includes - {'drivers/rubylight-vdisplay/*.dll'}, staged)
 
 
 NS = '{http://signpath.io/artifact-configuration/v1}'

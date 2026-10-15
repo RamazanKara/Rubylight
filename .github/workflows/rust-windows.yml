@@ -86,7 +86,7 @@ jobs:
     if: ${{ !cancelled() && needs.tag.result != 'failure' && !needs.tag.outputs.run && !inputs.notes }}
     runs-on: windows-2022
     # A signed release builds without the cache and waits for a SignPath
-    # approver once per request (two requests, an hour each).
+    # approver once per request (up to three requests, an hour each).
     timeout-minutes: ${{ needs.tag.outputs.sign == 'true' && 240 || 50 }}
     permissions:
       contents: read
@@ -195,6 +195,43 @@ jobs:
       - name: Apply signed binaries
         if: env.SIGNPATH_ENABLED == 'true'
         run: .\rust\release\sign-artifacts.ps1 -Phase ApplyBinaries -TargetDirectory "$env:RUNNER_TEMP\butterpollo-rust-target" -SigningDirectory "$env:RUNNER_TEMP\signed-binaries" -Version $env:RELEASE_VERSION
+      # Ready for Rubylight's own display driver (rust/drivers/rubylight-vdisplay):
+      # once rust/build.ps1 puts it in the package, its DLL is signed with the
+      # binaries above, Inf2Cat catalogs the signed DLL and the "driver"
+      # request signs the catalog. Packages without the driver skip this.
+      - name: Catalog the display driver
+        if: env.SIGNPATH_ENABLED == 'true'
+        id: driver
+        run: |
+          if (!(Test-Path -LiteralPath "$env:RUNNER_TEMP\butterpollo-rust-target\butterpollo-rust-release\drivers\rubylight-vdisplay")) { exit 0 }
+          .\rust\release\sign-artifacts.ps1 -Phase StageDriver -TargetDirectory "$env:RUNNER_TEMP\butterpollo-rust-target" -SigningDirectory "$env:RUNNER_TEMP\unsigned-driver" -Version $env:RELEASE_VERSION
+          'present=true' >> $env:GITHUB_OUTPUT
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: steps.driver.outputs.present == 'true'
+        id: unsigned-driver
+        with:
+          name: unsigned-driver
+          path: ${{ runner.temp }}/unsigned-driver/
+          if-no-files-found: error
+          retention-days: 1
+      - name: Sign display driver catalog
+        if: steps.driver.outputs.present == 'true'
+        uses: SignPath/github-action-submit-signing-request@f6d04783b4569d051e0c80105fe66e82819d0092
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
+          artifact-configuration-slug: driver
+          github-artifact-id: ${{ steps.unsigned-driver.outputs.artifact-id }}
+          parameters: |
+            version: ${{ toJSON(env.RELEASE_VERSION) }}
+          wait-for-completion: true
+          wait-for-completion-timeout-in-seconds: 3600
+          output-artifact-directory: ${{ runner.temp }}/signed-driver
+      - name: Apply signed driver catalog
+        if: steps.driver.outputs.present == 'true'
+        run: .\rust\release\sign-artifacts.ps1 -Phase ApplyDriver -TargetDirectory "$env:RUNNER_TEMP\butterpollo-rust-target" -SigningDirectory "$env:RUNNER_TEMP\signed-driver" -Version $env:RELEASE_VERSION
       - name: Repackage signed binaries
         if: env.SIGNPATH_ENABLED == 'true'
         run: |

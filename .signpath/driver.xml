@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  SignPath artifact configuration "driver": the catalog of Rubylight's own
+  user-mode (UMDF IddCx) display driver, rust/drivers/rubylight-vdisplay.
+  Ready to enable: the Windows workflow submits it only when the package
+  carries drivers/rubylight-vdisplay. Create it in SignPath before the first
+  release that ships the driver, or that release fails at signing.
+
+  The driver package is one INF, one DLL and the INF's CatalogFile. Windows
+  trusts a user-mode driver package through its signed catalog, and the
+  catalog holds the hash of every file the INF installs. So the order is the
+  one Microsoft documents (rust/release/sign-artifacts.ps1):
+
+    1. The "binaries" request signs the DLL (binaries.xml).
+    2. Inf2Cat makes the catalog from the INF and the signed DLL.
+    3. This request signs the catalog. It checks that the DLL is already
+       signed and names Rubylight, and leaves the INF and DLL unchanged.
+
+  Signing the DLL after step 2 would change bytes the catalog has hashed.
+  Kernel-mode drivers need Microsoft's attestation signature instead and
+  cannot be signed this way; IddCx display drivers run in user mode.
+-->
+<artifact-configuration xmlns="http://signpath.io/artifact-configuration/v1">
+  <parameters>
+    <parameter name="version" required="true" />
+  </parameters>
+  <zip-file>
+    <pe-file path="*.dll" product-name="Rubylight" product-version="${version}">
+      <authenticode-verify />
+    </pe-file>
+    <catalog-file path="*.cat">
+      <authenticode-sign />
+    </catalog-file>
+  </zip-file>
+</artifact-configuration>

@@ -26,6 +26,11 @@
       <include path="butterpollo-video-packet-performance.exe" />
       <include path="butterpollo_truehdr.dll" />
       <include path="vulkan-layer/butterpollo_vulkan_layer.dll" />
+      <!--
+        Rubylight's display driver DLL, once the package carries the driver.
+        It is signed here, before its catalog is made (see driver.xml).
+      -->
+      <include path="drivers/rubylight-vdisplay/*.dll" min-matches="0" max-matches="1" />
       <for-each>
         <authenticode-sign />
       </for-each>

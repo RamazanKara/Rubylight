@@ -2,6 +2,7 @@ package com.limelight.nvstream.jni;
 
 import com.limelight.nvstream.NvConnectionListener;
 import com.limelight.nvstream.av.audio.AudioRenderer;
+import com.limelight.nvstream.av.video.HostTimingReport;
 import com.limelight.nvstream.av.video.VideoDecoderRenderer;
 
 import java.util.function.BooleanSupplier;
@@ -141,7 +142,7 @@ public class MoonBridge {
     public static final byte LI_BATTERY_PERCENTAGE_UNKNOWN = (byte)0xFF;
 
     private static AudioRenderer audioRenderer;
-    private static VideoDecoderRenderer videoRenderer;
+    private static volatile VideoDecoderRenderer videoRenderer;
     private static NvConnectionListener connectionListener;
     private static BooleanSupplier connectionCancelled;
 
@@ -366,6 +367,11 @@ public class MoonBridge {
     public static native boolean sendControllerAudio(int kind, byte[] payload);
     public static native long openUsbMicrophone(int fd, int endpoint, int interval);
     public static native int readUsbMicrophone(long handle, byte[] samples);
+    public static void bridgeClHostTiming(byte[] payload) {
+        VideoDecoderRenderer renderer = videoRenderer;
+        HostTimingReport report = HostTimingReport.parse(payload);
+        if (renderer != null && report != null) renderer.onHostTiming(report);
+    }
     public static void bridgeClControllerAudio(int kind, byte[] payload) {
         if (connectionListener != null) connectionListener.controllerAudio(kind, payload);
     }
@@ -511,4 +517,11 @@ public class MoonBridge {
     // IDR at the new size. Only call when hostSupportsControlMessage(CONTROL_MESSAGE_RECONFIGURE).
     // Returns false when the request could not be sent.
     public static native boolean requestReconfigure(int width, int height, int fpsMillihz);
+
+    // Host timing, host to client (protocol/core/src/control.rs HostTimingRequest and HostTiming).
+    public static final int CONTROL_MESSAGE_HOST_TIMING = HostTimingReport.MESSAGE_TYPE;
+
+    // Asks the host to report each frame's present-to-sent time (or stop). Only call when
+    // hostSupportsControlMessage(CONTROL_MESSAGE_HOST_TIMING); false when it could not be sent.
+    public static native boolean sendHostTimingRequest(boolean enabled);
 }

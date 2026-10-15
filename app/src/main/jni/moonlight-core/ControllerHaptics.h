@@ -40,6 +40,8 @@ static inline int MlHapticsValidate(const uint8_t* p, size_t size) {
 
 // Android bridge: borrowed PCM is copied into a bounded per-controller queue.
 void BridgeClControllerAudio(uint16_t kind, const uint8_t* payload, int length);
+// Host timing report (0x5536), length already bounds-checked by the control receive thread.
+void BridgeClHostTiming(const uint8_t* payload, int length);
 void BridgeClControllerHaptics(uint16_t controller, uint32_t sequence, const uint8_t* pcm, uint16_t frames);
 // Set per connection from the USB DualSense haptics setting. ML_FF_HAPTICS_PCM switches a
 // Vibepollo host's control loop to a 5 ms period, so it is offered only when it can be used.

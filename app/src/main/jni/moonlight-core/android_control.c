@@ -173,3 +173,23 @@ Java_com_limelight_nvstream_jni_MoonBridge_sendControllerAudio(JNIEnv* env, jcla
     return sendMessageAndForget((short)kind, (short)length, bytes, 8,
         kind == 0x5535 ? ENET_PACKET_FLAG_RELIABLE : ENET_PACKET_FLAG_UNSEQUENCED, false) ? JNI_TRUE : JNI_FALSE;
 }
+
+// Host timing (protocol/core/src/control.rs, HostTimingRequest): asks a host that announced 0x5536
+// to report, per new frame, how long it held the picture from present to its last packet sent.
+// Sent once per connection (and again to switch it off); reliable, since a lost request would
+// leave the stream without reports.
+#define HOST_TIMING_MESSAGE_TYPE 0x5536
+#define HOST_TIMING_REQUEST_BYTES 4
+
+JNIEXPORT jboolean JNICALL
+Java_com_limelight_nvstream_jni_MoonBridge_sendHostTimingRequest(JNIEnv *env, jclass clazz, jboolean enabled) {
+    (void)env; (void)clazz;
+    if (!hostSupportsControlMessage(HOST_TIMING_MESSAGE_TYPE) ||
+        !encryptedControlStream || stopping || peer == NULL) {
+        return JNI_FALSE;
+    }
+    uint8_t request[HOST_TIMING_REQUEST_BYTES] = { 1, enabled == JNI_TRUE ? 1 : 0, 0, 0 };
+    return sendMessageAndForget(HOST_TIMING_MESSAGE_TYPE, (short)sizeof(request), request,
+                                CTRL_CHANNEL_GENERIC, ENET_PACKET_FLAG_RELIABLE, false)
+        ? JNI_TRUE : JNI_FALSE;
+}

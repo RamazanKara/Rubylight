@@ -49,6 +49,7 @@ static jmethodID BridgeClSetControllerLEDMethod;
 static jmethodID BridgeClSetAdaptiveTriggersMethod;
 static jmethodID BridgeClControllerHapticsMethod;
 static jmethodID BridgeClControllerAudioMethod;
+static jmethodID BridgeClHostTimingMethod;
 static jbyteArray DecodedFrameBuffer;
 static jshortArray DecodedAudioBuffer;
 
@@ -115,6 +116,7 @@ Java_com_limelight_nvstream_jni_MoonBridge_init(JNIEnv *env, jclass clazz) {
     BridgeClSetControllerLEDMethod = (*env)->GetStaticMethodID(env, clazz, "bridgeClSetControllerLED", "(SBBB)V");
     BridgeClControllerAudioMethod = (*env)->GetStaticMethodID(env, clazz, "bridgeClControllerAudio", "(I[B)V");
     BridgeClControllerHapticsMethod = (*env)->GetStaticMethodID(env, clazz, "bridgeClControllerHaptics", "(SI[B)V");
+    BridgeClHostTimingMethod = (*env)->GetStaticMethodID(env, clazz, "bridgeClHostTiming", "([B)V");
     BridgeClSetAdaptiveTriggersMethod = (*env)->GetStaticMethodID(env, clazz, "bridgeClSetAdaptiveTriggers", "(SBBB[B[B)V");
 }
 
@@ -467,6 +469,16 @@ void BridgeClControllerAudio(uint16_t kind, const uint8_t* payload, int length) 
     if (!bytes) { (*env)->ExceptionClear(env); return; }
     (*env)->SetByteArrayRegion(env, bytes, 0, length, (const jbyte*)payload);
     (*env)->CallStaticVoidMethod(env, GlobalBridgeClass, BridgeClControllerAudioMethod, (jint)kind, bytes);
+    (*env)->DeleteLocalRef(env, bytes);
+    if ((*env)->ExceptionCheck(env)) (*env)->ExceptionClear(env);
+}
+
+void BridgeClHostTiming(const uint8_t* payload, int length) {
+    JNIEnv* env = GetThreadEnv();
+    jbyteArray bytes = (*env)->NewByteArray(env, length);
+    if (!bytes) { (*env)->ExceptionClear(env); return; }
+    (*env)->SetByteArrayRegion(env, bytes, 0, length, (const jbyte*)payload);
+    (*env)->CallStaticVoidMethod(env, GlobalBridgeClass, BridgeClHostTimingMethod, bytes);
     (*env)->DeleteLocalRef(env, bytes);
     if ((*env)->ExceptionCheck(env)) (*env)->ExceptionClear(env);
 }

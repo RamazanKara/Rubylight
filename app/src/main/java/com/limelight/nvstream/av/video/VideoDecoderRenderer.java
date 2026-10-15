@@ -23,4 +23,8 @@ public abstract class VideoDecoderRenderer {
     public abstract int getCapabilities();
 
     public abstract void setHdrMode(boolean enabled, byte[] hdrMetadata);
+
+    // A host timing report (control message 0x5536). Called on the native control thread, only
+    // for hosts that announced the message and were asked for it.
+    public void onHostTiming(HostTimingReport report) {}
 }

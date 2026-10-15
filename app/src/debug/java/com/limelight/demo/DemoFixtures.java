@@ -5,7 +5,9 @@ import android.preference.PreferenceManager;
 import android.view.WindowManager;
 
 import com.limelight.binding.video.DisplayFrameRatePolicy;
+import com.limelight.computers.HostCapabilityCache;
 import com.limelight.nvstream.http.ComputerDetails;
+import com.limelight.nvstream.http.HostCapabilities;
 import com.limelight.nvstream.http.NvApp;
 import com.limelight.nvstream.http.PairingManager.PairState;
 import com.limelight.utils.CacheHelper;
@@ -21,6 +23,25 @@ public final class DemoFixtures {
     public static final String PC_UUID = "d3e00000-0000-4000-8000-000000000001";
     public static final String[] TITLES = {"Desktop", "Racing Game", "Open World", "Space Sim",
             "Puzzle Night", "Retro Arcade", "Strategy", "Music Studio", "Ocean Explorer", "Skybound"};
+    // Living-room PC's host: a Rubylight with every permission, so the stream menu and the PC settings
+    // show their full layouts. It has no PyroWave, and nothing here is ever sent to or read from a host.
+    private static final String HOST = "{\"v\":1,\"gameStream\":false,\"sunshineVersion\":true,\"paired\":true," +
+            "\"rustHostVersion\":\"2.2.21\",\"permission\":4294967295,\"serverCommands\":1,\"frameLimiter\":true," +
+            "\"virtualDisplayCapable\":true,\"pyroWaveFields\":false,\"pyroWaveProbeBytes\":0,\"pyroWaveCodecs\":0," +
+            "\"encoderBitrate\":true,\"hardwareMetricsVersion\":1,\"networkPathVersion\":0," +
+            "\"controllerPreparation\":true,\"currentGameUuid\":true}";
+
+    public static HostCapabilities hostCapabilities() {
+        return HostCapabilities.fromJson(HOST);
+    }
+
+    /** What Living-room PC's host reports, on any ComputerDetails. */
+    public static void describeHost(ComputerDetails host) {
+        host.caps = hostCapabilities();
+        host.permission = 0xFFFFFFFFL;
+        if (!host.serverCommands.contains("Sleep")) host.serverCommands.add("Sleep");
+        host.encoderBitrateSupported = true;
+    }
 
     public static List<ComputerDetails> computers() {
         List<ComputerDetails> computers = new ArrayList<>();
@@ -34,6 +55,7 @@ public final class DemoFixtures {
             pc.macAddress = "02:00:00:00:00:0" + (i + 1);
             pc.runningGameId = i == 0 ? 2 : 0;
             pc.rawAppList = appList();
+            if (i == 0) describeHost(pc);
             computers.add(pc);
         }
         return computers;
@@ -62,6 +84,8 @@ public final class DemoFixtures {
                 .putBoolean("checkbox_small_icon_mode", true)
                 .putBoolean("checkbox_enable_pip", true).putBoolean("checkbox_show_onscreen_controls", true)
                 .putBoolean("checkbox_enable_perf_overlay", true).apply();
+        // As if Living-room PC had answered before: its PC settings know the host from the first frame.
+        HostCapabilityCache.save(context, PC_UUID, hostCapabilities());
         try (OutputStream output = CacheHelper.openCacheFileForOutput(context.getCacheDir(), "applist", PC_UUID)) {
             output.write(appList().getBytes(StandardCharsets.UTF_8));
         }

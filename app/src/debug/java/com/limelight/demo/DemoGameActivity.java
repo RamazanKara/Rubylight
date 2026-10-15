@@ -28,7 +28,6 @@ import com.limelight.binding.input.virtual_controller.VirtualController;
 import com.limelight.binding.video.PerfOverlayListener;
 import com.limelight.binding.video.PerformanceOverlay;
 import com.limelight.nvstream.http.ComputerDetails;
-import com.limelight.nvstream.http.HostCapabilities;
 import com.limelight.nvstream.http.NvApp;
 import com.limelight.ui.StreamMenu;
 import com.limelight.ui.StreamMenuHint;
@@ -159,19 +158,10 @@ public final class DemoGameActivity extends Activity implements SurfaceHolder.Ca
                 PerformanceOverlay.describeCompact(this, compactText) : null);
     }
 
-    // A Rubylight host with every permission, so the demo shows the stream menu's full layout.
-    private static final String DEMO_HOST = "{\"v\":1,\"gameStream\":false,\"sunshineVersion\":true,\"paired\":true," +
-            "\"rustHostVersion\":\"2.2.21\",\"permission\":4294967295,\"serverCommands\":1,\"frameLimiter\":true," +
-            "\"virtualDisplayCapable\":true,\"pyroWaveFields\":false,\"pyroWaveProbeBytes\":0,\"pyroWaveCodecs\":0," +
-            "\"encoderBitrate\":true,\"hardwareMetricsVersion\":1,\"networkPathVersion\":0," +
-            "\"controllerPreparation\":true,\"currentGameUuid\":true}";
-
+    // Living-room PC's Rubylight host, so the demo shows the stream menu's full layout.
     private StreamMenu.Options menuOptions() {
         ComputerDetails host = new ComputerDetails();
-        host.caps = HostCapabilities.fromJson(DEMO_HOST);
-        host.permission = 0xFFFFFFFFL;
-        host.serverCommands.add("Sleep");
-        host.encoderBitrateSupported = true;
+        DemoFixtures.describeHost(host);
         StreamMenu.Options options = new StreamMenu.Options(NvApp.Role.STREAM, host);
         options.overlayShown = findViewById(R.id.performanceOverlayScroll).getVisibility() == View.VISIBLE;
         options.overlayMode = mode;

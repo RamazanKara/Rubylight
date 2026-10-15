@@ -126,6 +126,11 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
     private final Activity activityContext;
     private final double stickDeadzone;
     private final InputDeviceContext defaultContext = new InputDeviceContext();
+    // Gamepad controls of the per-game touch layout, fused into the default context's slot.
+    private volatile boolean layoutGamepadUsed;
+    private int layoutInputMap;
+    private short layoutLeftStickX, layoutLeftStickY, layoutRightStickX, layoutRightStickY;
+    private byte layoutLeftTrigger, layoutRightTrigger;
     private final GameGestures gestures;
     private final InputManager inputManager;
     private final Vibrator deviceVibrator;
@@ -358,6 +363,9 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
                 conn.sendControllerMotionEvent((byte) context.controllerNumber, MoonBridge.LI_MOTION_TYPE_GYRO, 0, 0, 0);
             }
         }
+        layoutInputMap = 0;
+        layoutLeftTrigger = layoutRightTrigger = 0;
+        layoutLeftStickX = layoutLeftStickY = layoutRightStickX = layoutRightStickY = 0;
         releaseInput(defaultContext);
     }
 
@@ -1208,7 +1216,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
     // worker. Read them under it too, so input never carries a mask from mid-assignment.
     private synchronized short getActiveControllerMask() {
         if (prefConfig.multiController) {
-            return (short)(currentControllers | initialControllers | (prefConfig.onscreenController ? 1 : 0));
+            return (short)(currentControllers | initialControllers | (prefConfig.onscreenController || layoutGamepadUsed ? 1 : 0));
         }
         else {
             // Only Player 1 is active with multi-controller disabled
@@ -1420,6 +1428,13 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
             leftStickY = maxByMagnitude(leftStickY, defaultContext.leftStickY);
             rightStickX = maxByMagnitude(rightStickX, defaultContext.rightStickX);
             rightStickY = maxByMagnitude(rightStickY, defaultContext.rightStickY);
+            inputMap |= layoutInputMap;
+            leftTrigger = maxByMagnitude(leftTrigger, layoutLeftTrigger);
+            rightTrigger = maxByMagnitude(rightTrigger, layoutRightTrigger);
+            leftStickX = maxByMagnitude(leftStickX, layoutLeftStickX);
+            leftStickY = maxByMagnitude(leftStickY, layoutLeftStickY);
+            rightStickX = maxByMagnitude(rightStickX, layoutRightStickX);
+            rightStickY = maxByMagnitude(rightStickY, layoutRightStickY);
         }
 
         short activeControllerMask = getActiveControllerMask();
@@ -3133,6 +3148,28 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
 
         defaultContext.inputMap = buttonFlags;
 
+        sendControllerInputPacket(defaultContext);
+    }
+
+    /**
+     * The gamepad controls of the per-game touch layout. They join controller 1 the way the fixed
+     * on-screen gamepad does, fused with it and with any pad sharing the slot.
+     */
+    public void reportLayoutGamepadState(int buttonFlags,
+                                         short leftStickX, short leftStickY,
+                                         short rightStickX, short rightStickY,
+                                         byte leftTrigger, byte rightTrigger) {
+        if (stopped) {
+            return;
+        }
+        layoutGamepadUsed = true;
+        layoutInputMap = buttonFlags;
+        layoutLeftStickX = leftStickX;
+        layoutLeftStickY = leftStickY;
+        layoutRightStickX = rightStickX;
+        layoutRightStickY = rightStickY;
+        layoutLeftTrigger = leftTrigger;
+        layoutRightTrigger = rightTrigger;
         sendControllerInputPacket(defaultContext);
     }
 

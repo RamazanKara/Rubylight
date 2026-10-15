@@ -962,6 +962,11 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                     new com.limelight.binding.input.HeldInputState.Sink() {
                         @Override public void key(int key, boolean down) { sendCustomKey(key, down); }
                         @Override public void mouse(int button, boolean down) { sendCustomMouse(button, down); }
+                        @Override public void gamepad(int buttons, short leftX, short leftY, short rightX, short rightY,
+                                                      byte leftTrigger, byte rightTrigger) {
+                            if (controllerHandler != null) controllerHandler.reportLayoutGamepadState(buttons,
+                                    leftX, leftY, rightX, rightY, leftTrigger, rightTrigger);
+                        }
                     }, () -> foreground && connected && grabbedInput && streamMenu == null && conn.canSendInput(),
                     this::showStreamDialog);
             gameTouchControls.setStreamTouchListener(this::onTouchControlsPassthrough);

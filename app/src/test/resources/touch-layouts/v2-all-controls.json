@@ -1,0 +1,86 @@
+{
+  "version": 2,
+  "buttons": [
+    {
+      "id": "jump",
+      "name": "Jump",
+      "type": "keyboard",
+      "toggle": false,
+      "x": 0.5,
+      "y": 0.75,
+      "width": 0.125,
+      "height": 0.125,
+      "keys": "W"
+    },
+    {
+      "id": "fire",
+      "name": "Fire",
+      "type": "mouse",
+      "toggle": true,
+      "x": 0.25,
+      "y": 0.75,
+      "width": 0.125,
+      "height": 0.125,
+      "button": 3
+    },
+    {
+      "id": "a",
+      "name": "A",
+      "type": "gamepad",
+      "toggle": false,
+      "x": 0.875,
+      "y": 0.5,
+      "width": 0.0625,
+      "height": 0.125,
+      "button": "A"
+    },
+    {
+      "id": "rt",
+      "name": "RT",
+      "type": "trigger",
+      "toggle": false,
+      "x": 0.875,
+      "y": 0.0625,
+      "width": 0.125,
+      "height": 0.125,
+      "side": "right"
+    },
+    {
+      "id": "move",
+      "name": "Move",
+      "type": "stick",
+      "x": 0,
+      "y": 0.5,
+      "width": 0.25,
+      "height": 0.5,
+      "side": "left",
+      "floating": true,
+      "deadzone": 0.125
+    },
+    {
+      "id": "dpad",
+      "name": "D-pad",
+      "type": "dpad",
+      "x": 0.375,
+      "y": 0.0625,
+      "width": 0.25,
+      "height": 0.375
+    },
+    {
+      "id": "walk",
+      "name": "Walk",
+      "type": "wasd",
+      "x": 0.625,
+      "y": 0.5,
+      "width": 0.25,
+      "height": 0.5,
+      "up": "W",
+      "left": "A",
+      "down": "S",
+      "right": "D",
+      "floating": false,
+      "deadzone": 0.25,
+      "diagonal": 45
+    }
+  ]
+}

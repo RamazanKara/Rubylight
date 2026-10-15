@@ -36,7 +36,7 @@ public class TouchLayoutTest {
         assertThrows(IllegalArgumentException.class, () -> new TouchLayout(Arrays.asList(button("same", 29), button("same", 30))));
         assertThrows(IllegalArgumentException.class, () -> new TouchLayout.Button("x", "X", new int[]{29}, 0, false, .9f, 0, .2f, .2f));
         assertThrows(IllegalArgumentException.class, () -> new TouchLayout.Button("x", "X", new int[]{29}, 0, false, Float.NaN, 0, .2f, .2f));
-        assertThrows(IllegalArgumentException.class, () -> TouchLayout.parse("{\"version\":2,\"buttons\":[]}"));
+        assertThrows(IllegalArgumentException.class, () -> TouchLayout.parse("{\"version\":3,\"buttons\":[]}"));
         assertThrows(IllegalArgumentException.class, () -> TouchLayout.parse("{\"version\":1.5,\"buttons\":[]}"));
         assertThrows(IllegalArgumentException.class, () -> TouchLayout.parse("{\"version\":\"1\",\"buttons\":[]}"));
         assertThrows(IOException.class, () -> TouchLayout.read(new ByteArrayInputStream(new byte[TouchLayout.MAX_BYTES + 1])));

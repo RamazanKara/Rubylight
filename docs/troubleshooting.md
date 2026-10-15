@@ -98,8 +98,9 @@ Compare the same moving scene at the same resolution, frame rate, codec and bitr
 | --- | --- |
 | **Overview → Frame rate** | Frames sent by the host. Repeated pictures can still count toward this rate. |
 | **Encode** (p95) | Slower conversion/encoding completions, including asynchronous encoder work. |
-| **Host processing** | Time after the host claims a frame through preparation for transmission. |
+| **Host processing** | Time after the host claims a frame through preparation for transmission. This is the host latency Moonlight shows. |
 | **Frame age** | Waiting from the capture/presentation timestamp until the host claims the frame. |
+| **Present to sent** | New pictures, from Windows' present to the last packet sent: capture, the wait for the claim, encoding and sending. Compare this, not Moonlight's host latency, with another host's present-to-sent figure. |
 | Moonlight's network and decoder statistics | Loss, jitter or client decoding delays after host processing. |
 
 None of the host timings measures the complete input-to-screen delay. Smoothness also depends on distinct pictures arriving regularly. The [performance guide](performance.md) separates host timings, measured picture age, fresh-picture rate and arrival gaps.
@@ -123,7 +124,7 @@ Send the host log **from `CLIENT CONNECTED` through `CLIENT DISCONNECTED`**, plu
 - `stream configured`, `capture backend opened`, `compute queue ready for colour conversion` and, at debug level, `GPU process scheduling configured`.
 - `AMF encoder settings`, `AMF split-frame encoding left to the driver` or `AMF split-frame encoding requested`, and every `AMF setting unavailable` / `AMF split-frame request not accepted` warning. The HEVC engine field should report `HevcNumOfHwInstances=1` on the reported hardware; send the actual value. Include `LowLatencyInternal`, `HevcInputQueueSize`, `HevcEnableEncoderSmartAccessVideo`, `HevcEnablePreAnalysis`, and, for AV1, `Av1InputQueueSize`, `Av1EnableEncoderSmartAccessVideo`, `Av1EnablePreAnalysis` and `Av1BPicturesPattern`. `?` means a property could not be read, not that it is disabled.
 - `AMF SmartAccess Video disabled because forced low latency can reset the GPU` if an imported configuration triggered the guard.
-- All `stream timings` lines, especially `fps`, `encode_p95_ms`, `encode_p99_ms`, `frame_age_p95_ms`, `send_interval_p99_ms`, `idr_requests`, `reference_invalidations` and `bitrate_kbps`, alongside Moonlight's network loss and decoder statistics.
+- All `stream timings` lines, especially `fps`, `encode_p95_ms`, `encode_p99_ms`, `frame_age_p95_ms`, `present_to_sent_ms` and the `stage_*_ms` fields (mean/p95/p99 of each stage), `send_interval_p99_ms`, `idr_requests`, `reference_invalidations` and `bitrate_kbps`, alongside Moonlight's network loss and decoder statistics.
 - Any `GPU device lost: DXGI_ERROR_DEVICE_REMOVED`, `GPU work did not finish within two seconds`, `capture copies stopped completing`, `Encoding failed (…); recreating the same encoder`, `Encoder output failed (…); recreating the same encoder`, `The encoder returned no frame for … ms; recreating the same encoder` or `Encoder recreation failed` lines. Include `AMF compute conversion unavailable (…); converting on the graphics queue` and `PyroWave compute conversion unavailable (…); converting on the graphics queue` if present.
 - For PyroWave, include `optional codec probe` errors; for an OS/driver reset, include the matching Reliability Monitor/Windows event time and LiveKernelEvent code. A frozen picture with continuing `stream timings` and no recovery warning is useful evidence too.
 

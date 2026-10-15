@@ -4,7 +4,7 @@
 
 Rubylight's performance work targets fresh pictures and lower picture age, especially when the GPU is busy. Start with the [current 2.2.9 measurements](#october-12-229-measurements), then use the component tests to see where the time goes. The [matched October 8 comparison](#next-to-vibepollo-20) retains its original builds and results.
 
-**On this page:** [Metrics](#what-the-numbers-mean) · [2.2.9 measurements](#october-12-229-measurements) · [Host comparison](#next-to-vibepollo-20) · [Wi-Fi](#on-a-real-client-over-wi-fi) · [Radeon compute](#isolating-radeon-compute) · [GPU pressure](#radeon-under-pressure) · [Measure your setup](#measure-your-setup)
+**On this page:** [Metrics](#what-the-numbers-mean) · [Host latency between hosts](#comparing-host-latency-between-hosts) · [2.2.9 measurements](#october-12-229-measurements) · [Host comparison](#next-to-vibepollo-20) · [Wi-Fi](#on-a-real-client-over-wi-fi) · [Radeon compute](#isolating-radeon-compute) · [GPU pressure](#radeon-under-pressure) · [Measure your setup](#measure-your-setup)
 
 ## What the numbers mean
 
@@ -15,9 +15,42 @@ Rubylight's performance work targets fresh pictures and lower picture age, espec
 | **95th / 99th percentile (p95 / p99)** | The slower end of the sample: 95% / 99% of observations are at or below this delay. The matched host-comparison table averages the per-run metrics rather than pooling samples. |
 | **Fresh pictures per second** | Distinct pictures received, counted from changing picture IDs. Repeated frames do not increase this count. |
 | **Encoder time** | Read the probe's timer boundaries. In the native AMF stream, the timer starts before capacity checking and GPU conversion submission, and ends when `QueryOutput` returns the matching encoded frame. Pending capture-copy and conversion dependencies are included; this is not hardware compression time alone. |
+| **Present to sent** (console; `present_to_sent_ms` in the `stream timings` log line) | New pictures, from the capture's present stamp to the last packet handed to the socket, with the stages in between. It includes the capture, the wait for the claim and the send that Moonlight's host latency leaves out. Static repeats have no present and are not counted. See [Comparing host latency between hosts](#comparing-host-latency-between-hosts). |
 | **`host_mean_ms`, `host_p95_ms`, `host_p99_ms`, `host_max_ms`** | The duration reported in Moonlight's frame header; the session API calls these `host_processing_*`. For native AMF, the sender reconstructs a claim timestamp from the encoder duration above. Host processing runs from that timestamp to the inline sender's sample or the separate sender's dequeue; the latter includes sender-capacity and queue waiting. These loopback runs used inline sending. Subsequent output-buffer copying, packetization/sending and client work are excluded. Only the frame-header value is rounded to 0.1 ms. |
 
 None of these timings measures button press to visible response on a client display. Compare hosts within the same fixture, and read picture age alongside fresh-picture throughput.
+
+## Comparing host latency between hosts
+
+Every host reports a "host latency", but each times a different part of a frame's trip, so two hosts' figures compare only when they start and end at the same points. A new picture passes these steps: Windows presents the composed desktop; the host gets the picture (capture); it waits for its turn to be encoded (the claim); it is converted and encoded; it is packetized and its packets are sent.
+
+| Figure | Starts | Ends | Leaves out |
+| --- | --- | --- | --- |
+| Moonlight's host processing latency from **Sunshine** | The capture's present stamp: Desktop Duplication's `LastPresentTime` or the WGC frame's time (`frame_timestamp` in `src/stream.cpp`) | The send thread, before packetization | Packetization and sending |
+| Moonlight's host processing latency from **Vibepollo** (since April 2026) | When its capture took the frame (`host_processing_timestamp`; the present stamp when there is none) | The same | Present to pickup, packetization and sending |
+| Moonlight's host processing latency from **Rubylight** (console: **Host processing**) | The claim: the stream thread takes the newest picture to encode | Packetization, or the separate sender's dequeue | Capture, the wait for the claim, packetization and sending |
+| Rubylight's **Present to sent** (console; `present_to_sent_ms` in the log) | The capture's present stamp, as Sunshine's | The last packet handed to the socket | Nothing on the host, for new pictures. WGC's stamp is late, see below |
+| punktfunk's native `host_us` (v0.44, `native/stream/send.rs`) | The compositor's present stamp that its virtual display driver passes with the frame; the submit time for a repeat or an implausible stamp | The frame's last paced packet sent | Nothing on the host |
+| punktfunk's Moonlight field (v0.44, `gamestream/stream.rs`: `cap_at` to the packetizer thread) | The encode loop's tick, before it takes the newest frame | The packetizer thread, before packetization | Present to tick, packetization and sending. Its Windows driver encodes before the tick, so the encode too |
+
+Set Rubylight's **Present to sent** beside punktfunk's `host_us`. Do not set one host's Moonlight figure beside another's: Rubylight's starts later than Sunshine's, and punktfunk's leaves out the encode when its driver encodes.
+
+Measured on the RX 7900 XT, October 15, with an isolated host streaming 2560×1440 from the 240 Hz monitor to a receiver on the same PC (two runs per case; [method, every rate and the virtual display](../rust/PERFORMANCE.md#october-15-where-host-latency-goes)). WGC here is the helper process the service uses:
+
+| 2560×1440 at 120 fps, mean ms | Moonlight shows | Present to sent (p99) | Of which capture |
+| --- | ---: | ---: | ---: |
+| HEVC, Desktop Duplication, idle | 3.3 | 4.3 (7.5) | 0.7 |
+| HEVC, WGC, idle | 3.2 | 4.4 (8.4) | 0.7 + about 2 hidden |
+| AV1, Desktop Duplication, idle | 3.0 | 3.8 (4.7) | 0.6 |
+| AV1, WGC, idle | 2.9 | 3.8 (8.5) | 0.5 + about 2 hidden |
+| HEVC, Desktop Duplication, GPU load | 3.5 | 5.6 (10.3) | 0.6 |
+| HEVC, WGC, GPU load | 3.2 | 7.5 (14.6) | 1.5 + more hidden |
+| AV1, Desktop Duplication, GPU load | 3.8 | 6.4 (9.8) | 0.6 |
+| AV1, WGC, GPU load | 3.0 | 6.2 (11.2) | 1.0 + more hidden |
+
+- **Idle, Present to sent is 0.8–2.4 ms above what Moonlight shows**, about 1 ms at 120 fps. Most of both is the encode (2.6–3.1 ms). Capture adds about 0.6 ms with Desktop Duplication, the wait for the claim 0–1.7 ms (most at 60 fps) and packetization 0.1–0.2 ms; on loopback sending adds almost nothing. On a real network the paced send adds about the frame's size over the pacing rate.
+- **WGC's stamp is late.** For 47–99% of idle frames, WGC's frame time was later than the frame's arrival at the host. Rubylight then uses the arrival, so WGC's capture stage reads low. Against Desktop Duplication, the receiver's render-to-received times put the hidden part at about 2 ms idle on the 240 Hz monitor and about 1 ms on a virtual display. Add it to WGC's Present to sent before comparing with another host.
+- **Under GPU load the time goes to waiting.** The wait for the claim grows to 1–4.5 ms at 60 and 120 fps (0.2–1.6 ms at 240), and WGC's pictures arrive later. Desktop Duplication hands the host a picture before DWM's GPU work on it has finished ([October 12 diagnosis](../rust/PERFORMANCE_WORK.md#av1-host-processing-p95-diagnosis-october-12)); under load that work waits behind the game's, and Desktop Duplication's encode stage grows by up to 1.1 ms instead. Moonlight's figure stays near 3–4 ms because it covers none of the waiting before the claim.
 
 ## October 12: 2.2.9 measurements
 

@@ -15,7 +15,7 @@ Nightjar decides from what each host reports about itself, not from its name. A 
 | Device permissions | Separate list, view, launch, input, clipboard and command permissions, set by the host. Hosts that report no permissions keep their usual behavior. | Apollo, Rubylight, Vibepollo |
 | Library and artwork | Shows your apps in host order and caches artwork until the host publishes new art. | Any host |
 | Launch, resume, disconnect, quit | Checks permissions first and confirms before ending a game. | Any host |
-| Automatic recovery | Bounded retries resume the same running app after transient transport loss. Enabled by default; retries cannot launch, quit or replace an app. | Any host |
+| Automatic recovery | Bounded retries resume the same running app after transient transport loss. Off by default (Settings › Streaming); retries cannot launch, quit or replace an app. | Any host |
 | Remote Monitor / Input-only | View-only video and audio, or controls and feedback without starting decoders. Their reserved app tiles count as tiles only on hosts that publish them; elsewhere they are ordinary apps. Apollo's Remote Input and Terminate apps work as Input-only and Terminate on Apollo and Vibepollo. | Rubylight, Vibepollo. Input-only: also Apollo with its input-only mode on |
 | H.264 / HEVC / AV1 | Hardware decoding with automatic codec selection and per-device low-latency decoder tuning ([decoder notes](../decoder-errata.txt)). | Any host (AV1 where the host encodes it) |
 | HDR10 | Main10 negotiation, BT.2020/PQ, static display metadata and smooth HDR transitions. | Any host with HDR support |
@@ -48,7 +48,7 @@ Nightjar decides from what each host reports about itself, not from its name. A 
 | Connection test / local benchmark | Delay test for any PC, plus throughput where the host offers the download test, and a hostless timing benchmark. The test says up front whether it measures speed. | Any host. Throughput download: Rubylight, Vibepollo (paired) |
 | Problem reports | Redacted local events, decoder details and the last crash record, shared when you choose. | Any host |
 | PiP / shortcuts / frontends | Picture-in-picture, pinned app shortcuts and launcher entries for ES-DE, Daijisho and Pegasus. | Any host |
-| Settings / accessibility | Five sections, search, presets, PC profiles, a control layout editor, TalkBack and D-pad navigation, in English and German. | Any host |
+| Settings / accessibility | Seven sections plus hidden Developer options, search, presets, PC profiles, a control layout editor, TalkBack and D-pad navigation, in English and German. | Any host |
 | Host web UI | Open the host's web UI from an online PC's settings, at its default port (six above the HTTPS port). Devices, apps and host settings remain in the host's web UI, with its own login and network access requirements. | Any host except NVIDIA GameStream |
 
 See [building](building.md) for reproducible checks.

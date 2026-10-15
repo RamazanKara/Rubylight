@@ -1,51 +1,64 @@
-Still in Alpha. Expect Bugs to happen
-
 <p align="center">
   <img src="docs/assets/banner.png" width="800" alt="Nightjar: low-latency game streaming from your PC">
 </p>
 
-<p align="center">Stream your PC games and desktop to Android, with ultra-low latency and the controls you love. Nightjar works with Apollo, NVIDIA GameStream, Rubylight, Sunshine, Vibepollo and other Moonlight-compatible hosts.</p>
+<p align="center">Nightjar streams your PC games and desktop to Android with as little delay as your network allows. It works with Sunshine, Apollo, Vibepollo, Rubylight, NVIDIA GameStream and other Moonlight-compatible hosts, and it adjusts itself to whichever one you run.</p>
+
+<p align="center"><b>Early release:</b> expect rough edges, and please <a href="https://github.com/RamazanKara/nightjar/issues">report what breaks</a>.</p>
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/RamazanKara/nightjar-android/1ffce8285cca6b54c8da6aca64d1123fd3812ef9/docs/assets/demo.gif" width="360" alt="Nightjar demo: open your game library, tap a game to start your stream, keep the performance overlay in view, and keep the stream floating in picture-in-picture.">
+  <img src="https://raw.githubusercontent.com/RamazanKara/nightjar/1ffce8285cca6b54c8da6aca64d1123fd3812ef9/docs/assets/demo.gif" width="360" alt="Nightjar demo: open your game library, tap a game to start your stream, keep the performance overlay in view, and keep the stream floating in picture-in-picture.">
 </p>
 
-<p align="center"><a href="https://ramazankara.github.io/nightjar-android/#demo">Watch the full demo →</a></p>
+<p align="center"><a href="https://ramazankara.github.io/nightjar/#demo">Watch the full demo →</a></p>
 
 <p align="center">
-  <a id="download" href="https://github.com/RamazanKara/nightjar-android/releases/latest"><img src="docs/assets/download.svg" width="260" height="52" alt="Download Nightjar for Android"></a>
+  <a id="download" href="https://github.com/RamazanKara/nightjar/releases/latest"><img src="docs/assets/download.svg" width="260" height="52" alt="Download Nightjar for Android"></a>
 </p>
 
 <p align="center">
   <img src="docs/assets/shots/pc-list.png" width="160" alt="Nightjar's PCs list: Living-room PC playing Racing Game, Studio PC not paired and Laptop offline">
   <img src="docs/assets/shots/library.png" width="160" alt="Living-room PC's game library in Nightjar: ten games with cover art, Racing Game marked Running">
-  <img src="https://raw.githubusercontent.com/RamazanKara/nightjar-android/1ffce8285cca6b54c8da6aca64d1123fd3812ef9/docs/assets/shots/stream.png" width="160" alt="Close-up of a Nightjar stream's top-left corner, where the one-line overlay shows a green health dot, 119.9 FPS and 8 ms RTT">
+  <img src="https://raw.githubusercontent.com/RamazanKara/nightjar/1ffce8285cca6b54c8da6aca64d1123fd3812ef9/docs/assets/shots/stream.png" width="160" alt="Close-up of a Nightjar stream's top-left corner, where the one-line overlay shows a green health dot, 119.9 FPS and 8 ms RTT">
   <img src="docs/assets/shots/pip.png" width="160" alt="A Nightjar stream floating over the home screen in a picture-in-picture window">
 </p>
 
-## Features
+## Why Nightjar
 
-- **React instantly** with ultra-low latency streaming and decoding.
-- **See every detail** with AV1, HEVC and H.264 video, plus HDR10.
-- **Keep motion fluid** with high refresh rates and VRR like ARR frame pacing.
-- **Sharpen your stream** with client-side FSR and Snapdragon GSR upscaling.
-- **Play your way** with USB and Bluetooth controllers, including DualSense.
-- **Stay in control** with touch, trackpad, mouse, keyboard and [on-screen keys and desktop shortcuts](docs/controls.md).
-- **Choose your PC display** with per-PC exclusive, extended and separated display layouts on hosts that support it (currently Rubylight). Separated displays share the same Windows session. See the [host feature matrix](docs/PARITY-MATRIX.md).
-- **Choose a Snapdragon GPU driver** for PyroWave with a compatible driver ZIP and system-driver fallback. See [driver requirements](docs/video-and-latency.md).
-- **Know your stream** at a glance with a one-line overlay (displayed FPS, network round trip, frame loss and a health dot), or Artemis-style Statistics and detailed Debug overlays for frame rates, video throughput, network loss and measured latency stages.
-- **Get playing sooner** with automatic PC discovery and Wake-on-LAN.
+**It learns your host.** Every host supports a different set of extras. Nightjar reads what yours reports and only shows the options that work there, with a short reason when something needs a host setting or an update. Offline PCs keep what they last reported, and a "not supported" note appears once per PC instead of on every stream.
+
+**It works hard on latency.** Decoders get per-chip low-latency tuning, frames are paced to your display, including Android's adaptive refresh on newer phones, and stereo audio uses low-latency AAudio. On hosts that support it, Nightjar tells the host how long frames wait for your screen so it can time them, and adapts bitrate, resolution and frame rate to packet loss, network jitter and how busy your phone's decoder is.
+
+**PyroWave, upscaling and your own GPU driver.** On hosts with PyroWave (currently Rubylight, and Vibepollo with PyroWave enabled), Nightjar decodes the wavelet codec on the GPU through Vulkan, including full-colour 4:4:4. Any SDR stream can be sent at a lower resolution and upscaled on the phone with FSR 1 or Snapdragon GSR. On Snapdragon phones you can load a newer Adreno Vulkan driver for PyroWave, and Nightjar falls back to the system driver if it fails.
+
+**You can see what is going on.** A one-line overlay shows frame rate, network round trip, loss and a health dot. The Statistics and Debug views break the delay into stages, "Why did my stream stutter?" points at the likely cause, and a built-in test measures input-to-screen latency. A decoder benchmark runs without any host at all.
+
+**DualSense support goes all the way.** Over USB you get adaptive triggers, rumble, the lightbar and Edge paddles, and on hosts that support them, waveform haptics plus the controller's speaker, headset and microphone. Xbox USB controllers work through a built-in driver.
+
+## Everything else
+
+- AV1, HEVC and H.264 with HDR10, and 4:4:4 where the host offers it
+- Touch, trackpad, mouse, pen and keyboard, with editable keyboard shortcuts and per-game touch controls you can export and share ([controls](docs/controls.md))
+- Desktop tools: pinch zoom, and video on an external display with the phone as a touchpad
+- Settings per PC, Native and Battery saver presets, Wake-on-LAN and automatic discovery
+- PC display modes on hosts that support them (currently Rubylight): exclusive, extended or separated virtual displays, chosen per PC
+- Phones, foldables, tablets and Android TV with D-pad navigation, plus picture-in-picture
+- Launcher entries for ES-DE, Daijisho and Pegasus
+- Built-in help that works offline, and problem reports that stay on your phone until you share them
+- No ads, no analytics, no accounts
+
+See the [host feature matrix](docs/PARITY-MATRIX.md) for what each host provides.
 
 ## Quick start
 
-Requires **Android 5.0 or newer**. PyroWave runs on hosts that support it (currently Rubylight) and requires Android 10+, a 64-bit device and a compatible Vulkan 1.3 GPU; see [video requirements](docs/video-and-latency.md#codecs).
+Requires **Android 5.0 or newer**. PyroWave runs on hosts that support it (currently Rubylight, and Vibepollo with PyroWave enabled) and requires Android 10+, a 64-bit device and a compatible Vulkan 1.3 GPU; see [video requirements](docs/video-and-latency.md#codecs).
 
-1. **Set up your PC:** start your PC's streaming host, such as [Apollo](https://github.com/ClassicOldSong/Apollo), [Rubylight](https://github.com/RamazanKara/Rubylight), [Sunshine](https://github.com/LizardByte/Sunshine) or [Vibepollo](https://github.com/Nonary/Vibepollo), and add your games.
-2. **Install on Android:** [download the APK](https://github.com/RamazanKara/nightjar-android/releases/latest), open it and allow installation from your browser or file manager when prompted.
-3. **Connect and pair:** select your PC on the same network and enter the PIN shown on your phone in your host's settings or web UI.
-4. **Start your stream:** if your host has per-device permissions, enable your device and allow application listing, viewing, launching and the input types you use. Open your library on Android and tap a game. See [pairing and permissions](docs/pairing.md).
+1. Start a streaming host on your PC, such as [Apollo](https://github.com/ClassicOldSong/Apollo), [Rubylight](https://github.com/RamazanKara/Rubylight), [Sunshine](https://github.com/LizardByte/Sunshine) or [Vibepollo](https://github.com/Nonary/Vibepollo), and add your games.
+2. [Download the APK](https://github.com/RamazanKara/nightjar/releases/latest), open it and allow installation from your browser or file manager when prompted.
+3. Select your PC on the same network and enter the PIN shown on your phone in your host's settings or web UI.
+4. If your host has per-device permissions, enable your device and allow application listing, viewing, launching and the input types you use. Open your library on Android and tap a game. See [pairing and permissions](docs/pairing.md).
 
-On Rubylight hosts, use [2.2.5 or newer](https://github.com/RamazanKara/Rubylight/releases/latest) for the automatic-bitrate improvements in Android 0.4.3.
+Coming from Rubylight Android? Nightjar is the same app under a new name. It installs over Rubylight Android 0.5.0 and keeps your PCs, pairings and settings.
 
 ## Docs
 

@@ -28,7 +28,7 @@ jobs:
         run: |
           python3 scripts/generate-settings.py
           git diff --exit-code -- docs/settings.md
-          node --test scripts/check-doc-links.test.mjs scripts/build-release.test.mjs
+          node --test scripts/check-doc-links.test.mjs scripts/build-release.test.mjs scripts/add-device-results.test.mjs
           node scripts/check-doc-links.mjs
   build:
     needs: docs

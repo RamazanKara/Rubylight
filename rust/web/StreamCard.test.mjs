@@ -60,7 +60,7 @@ test('present to sent shows new pictures from Windows present to the last packet
   assert.match(result, /<dt[^>]*>Present to sent<\/dt>/);
   assert.match(result, /Present to sent<\/dt>\s*<dd class="value num[^"]*">9\.8 ms</);
   assert.match(result, /Windows' present to the last packet sent, for new pictures; 99% below\s*<span class="num[^"]*">12 ms<\/span>/);
-  assert.match(result, /Host processing, Moonlight's figure, leaves out\s+capture and sending/);
+  assert.match(result, /Host processing, Moonlight's figure, runs from the\s+claim as punktfunk's does, leaving out capture, the wait to be encoded and sending/);
 });
 
 test('present to sent is not invented for a still picture or a stream without frames', () => {

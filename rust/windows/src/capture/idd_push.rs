@@ -3,8 +3,9 @@
 //! The driver copies every frame Windows composes for its monitor into textures this session
 //! creates and shares with it, stamps the frame's present QPC beside it and sets an event
 //! (`rubylight_vdisplay_proto::ring`). No WGC and no Desktop Duplication run: a frame is one
-//! GPU copy in the driver, then the same owned-pool copy (compute queue on AMD) and AMF path
-//! every other capture feeds.
+//! GPU copy in the driver. On AMD the compute conversion then reads the ring texture in place,
+//! holding its keyed mutex until the conversion is done; elsewhere the texture is copied into
+//! the owned pool as every other capture's frames are.
 //!
 //! Off by default. It runs for `capture = idd-push`, or for an automatic capture of a display
 //! this host created with `virtual_display_driver = rubylight`; anything else keeps WGC or
@@ -13,11 +14,12 @@
 use super::*;
 use crate::display::VirtualDriver;
 use crate::display::rubylight_vdd::{Control, Owned, Remote, owned_display};
+use butterpollo_core::virtual_output::{PushedFrame, PushedFrames};
 use rubylight_vdisplay_proto::control::{MonitorStatus, SetFrameRingRequest};
-use rubylight_vdisplay_proto::ring::{self, Consumer, Header, Layout};
+use rubylight_vdisplay_proto::ring::{self, Consumer, Counters, Header, Layout, SlotMeta};
 use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
-use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
+use std::sync::{Arc, Mutex};
 use windows::Win32::Foundation::{HANDLE, INVALID_HANDLE_VALUE, WAIT_TIMEOUT};
 use windows::Win32::System::Memory::{
     CreateFileMappingW, FILE_MAP_ALL_ACCESS, MEMORY_MAPPED_VIEW_ADDRESS, MapViewOfFile,
@@ -33,6 +35,16 @@ const RESHAPES_BEFORE_FIRST_FRAME: u32 = 3;
 const DRAIN_STALL: Duration = Duration::from_secs(3);
 /// How long a ring may wait for its first frame before the capture gives up.
 const FIRST_FRAME_TIMEOUT: Duration = Duration::from_secs(10);
+/// How often the driver's frame counters are logged (`idd_push=debug`).
+const COUNTERS_EVERY: Duration = Duration::from_secs(5);
+
+/// Microseconds from QPC `from` to `to`, zero when `to` is earlier or either is missing.
+fn qpc_micros(from: u64, to: u64, frequency: i64) -> u64 {
+    if from == 0 || to <= from || frequency <= 0 {
+        return 0;
+    }
+    ((to - from) as u128 * 1_000_000 / frequency as u128) as u64
+}
 
 /// Whether this capture should come from the driver: asked for by name, or automatic on a
 /// display this host created with Rubylight's driver.
@@ -313,12 +325,16 @@ pub struct Session {
     ring: Ring,
     consumer: Consumer,
     pool: GpuPool,
+    /// Lends ring textures to the compute conversion instead of copying them (AMD).
+    lender: Option<Arc<Mutex<crate::compute::Returns>>>,
+    zero_copy: bool,
     frame: Arc<crate::timing::Signal>,
     staging: Option<ID3D11Texture2D>,
     started: bool,
     reshapes: u32,
     opened: Instant,
     next_check: Instant,
+    counted: (Instant, Counters),
 }
 
 impl Session {
@@ -383,6 +399,7 @@ impl Session {
             format,
             generation: next_generation(status.ring_generation),
         };
+        let zero_copy = pool.compute.is_some() && config.boolean("idd_push_zero_copy", true);
         let frame = Arc::new(crate::timing::Signal::new()?);
         let ring = Ring::new(&gpu, layout)?;
         let now = Instant::now();
@@ -395,12 +412,15 @@ impl Session {
             consumer: Consumer::new(layout.generation, layout.slot_count),
             ring,
             pool,
+            lender: None,
+            zero_copy,
             frame,
             staging: None,
             started: false,
             reshapes: 0,
             opened: now,
             next_check: now,
+            counted: (now, Counters::default()),
         };
         session.deliver()?;
         tracing::info!(
@@ -410,22 +430,43 @@ impl Session {
             format,
             target = session.monitor.target,
             compute = session.pool.compute.is_some(),
+            in_place = session.lender.is_some(),
             "capturing from the Rubylight display driver's frame push"
         );
         Ok(session)
     }
 
-    /// Import the current ring into the compute copy and hand it to the driver.
+    /// Lend the current ring's textures to the compute conversion, or import them into the
+    /// compute copy, then hand the ring to the driver.
     fn deliver(&mut self) -> Result<()> {
-        let imported = match &mut self.pool.compute {
-            Some(handoff) => self.ring.slots.iter().try_for_each(|slot| {
+        self.lender = None;
+        if self.zero_copy {
+            let lent = crate::compute::Compute::for_device(&self.gpu.device)
+                .and_then(|compute| crate::compute::Returns::new(compute, &self.gpu))
+                .and_then(|mut returns| {
+                    for slot in &self.ring.slots {
+                        returns.import(&slot.texture, HANDLE(slot.shared.as_raw_handle()))?;
+                    }
+                    Ok(returns)
+                });
+            match lent {
+                Ok(returns) => self.lender = Some(Arc::new(Mutex::new(returns))),
+                Err(error) => {
+                    tracing::warn!(error = %format!("{error:#}"), "the Rubylight frame ring cannot be read in place; copying it");
+                    self.zero_copy = false;
+                }
+            }
+        }
+        if self.lender.is_none()
+            && let Some(handoff) = &mut self.pool.compute
+        {
+            let imported = self.ring.slots.iter().try_for_each(|slot| {
                 handoff.import_shared(&slot.texture, HANDLE(slot.shared.as_raw_handle()))
-            }),
-            None => Ok(()),
-        };
-        if let Err(error) = imported {
-            self.pool.warnings.set("capture_compute", format!("The Rubylight frame ring cannot use compute copies ({error:#}); copying on the graphics queue."));
-            self.pool.compute = None;
+            });
+            if let Err(error) = imported {
+                self.pool.warnings.set("capture_compute", format!("The Rubylight frame ring cannot use compute copies ({error:#}); copying on the graphics queue."));
+                self.pool.compute = None;
+            }
         }
         let layout = self.ring.layout;
         let mut delivery = Delivery {
@@ -495,6 +536,18 @@ impl Session {
             Verdict::Reshape(width, height, format) => return self.reshape(width, height, format),
             Verdict::Fail(message) => bail!(message),
         }
+        let counters = header.counters();
+        if self.counted.0.elapsed() >= COUNTERS_EVERY {
+            let last = std::mem::replace(&mut self.counted, (Instant::now(), counters)).1;
+            tracing::debug!(
+                target: "idd_push",
+                acquired = counters.acquired.saturating_sub(last.acquired),
+                pushed = counters.pushed.saturating_sub(last.pushed),
+                dropped = counters.dropped.saturating_sub(last.dropped),
+                overwritten = counters.overwritten.saturating_sub(last.overwritten),
+                "Rubylight frame ring counters"
+            );
+        }
         if self.started {
             anyhow::ensure!(
                 !stalled(header.heartbeat(), qpc_now(), qpc_frequency(), DRAIN_STALL),
@@ -525,9 +578,49 @@ impl Session {
             self.next_check = now + Duration::from_millis(100);
             self.check()?;
         }
+        let Some((frame, mut image)) = self.take_newest()? else {
+            return Ok(None);
+        };
+        (image.captured, image.wgc_stamp) =
+            qpc_timestamps(frame.presented().min(i64::MAX as u64) as i64);
+        Ok(Some(image))
+    }
+
+    /// Record `meta`'s frame as consumed (taken from the ring at QPC `taken`).
+    fn finish(&mut self, meta: &SlotMeta, taken: u64) -> PushedFrame {
+        self.consumer.consumed(meta.seq);
+        self.ring
+            .section
+            .header()
+            .set_consumed(self.consumer.last());
+        self.started = true;
+        let frequency = qpc_frequency();
+        tracing::trace!(
+            target: "idd_push",
+            seq = meta.seq,
+            frame = meta.frame_number,
+            scanout_ahead_us = qpc_micros(meta.acquire_qpc, meta.present_qpc, frequency),
+            driver_us = qpc_micros(meta.acquire_qpc, meta.publish_qpc, frequency),
+            handoff_us = qpc_micros(meta.publish_qpc, taken, frequency),
+            "frame"
+        );
+        PushedFrame {
+            seq: meta.seq,
+            frame_number: meta.frame_number,
+            acquired: meta.acquire_qpc,
+            scanout: meta.present_qpc,
+        }
+    }
+}
+
+impl PushedFrames for Session {
+    type Image = GpuImage;
+
+    fn take_newest(&mut self) -> Result<Option<(PushedFrame, GpuImage)>> {
         // Leave the newest frame published while every snapshot is held: the driver keeps
-        // the texture updated, and it is taken once a snapshot frees.
-        if !self.pool.has_capacity() {
+        // the texture updated, and it is taken once a snapshot frees. A lent texture needs
+        // no snapshot.
+        if self.lender.is_none() && !self.pool.has_capacity() {
             return Ok(None);
         }
         let header = self.ring.section.header();
@@ -539,13 +632,20 @@ impl Session {
             // The driver is refilling it with a newer frame; its publish wakes the next poll.
             return Ok(None);
         }
+        let taken = qpc_now().max(0) as u64;
         let meta = header.slot(index);
-        let copied = if self.consumer.fresh(&meta) {
-            self.pool.copy(&self.gpu, &slot.texture)
-        } else {
+        let image = if !self.consumer.fresh(&meta) {
             Ok(None)
+        } else if let Some(lender) = &self.lender {
+            match lend(&self.gpu, slot, index, lender.clone()) {
+                // The mutex goes back with the image's last clone.
+                Ok(image) => return Ok(Some((self.finish(&meta, taken), image))),
+                Err(error) => Err(error),
+            }
+        } else {
+            self.pool.copy(&self.gpu, &slot.texture)
         };
-        // The copy is queued on this device (or ordered before it by the compute handoff), so
+        // A copy is queued on this device (or ordered before it by the compute handoff), so
         // releasing now cannot let the driver overwrite pixels still being read.
         // SAFETY: this process took the mutex with KEY_HOST above; the context is this
         // device's and multithread-protected.
@@ -553,17 +653,49 @@ impl Session {
             slot.mutex.ReleaseSync(ring::KEY_DRIVER)?;
             self.gpu.context.Flush();
         }
-        let Some(mut image) = copied? else {
+        let Some(image) = image? else {
             return Ok(None);
         };
-        self.consumer.consumed(meta.seq);
-        header.set_consumed(self.consumer.last());
-        self.started = true;
-        let (captured, stamp) = qpc_timestamps(meta.present_qpc.min(i64::MAX as u64) as i64);
-        image.captured = captured;
-        image.wgc_stamp = stamp;
-        Ok(Some(image))
+        Ok(Some((self.finish(&meta, taken), image)))
     }
+}
+
+/// An image of ring texture `index`, read in place: this process holds its keyed mutex
+/// (taken with KEY_HOST) until the image's lease hands it back with KEY_DRIVER.
+fn lend(
+    gpu: &Device,
+    slot: &Slot,
+    index: usize,
+    returns: Arc<Mutex<crate::compute::Returns>>,
+) -> Result<GpuImage> {
+    let mut desc = D3D11_TEXTURE2D_DESC::default();
+    // SAFETY: `slot.texture` is a live texture and `desc` a live local.
+    unsafe { slot.texture.GetDesc(&mut desc) };
+    let pixel = match desc.Format {
+        DXGI_FORMAT_B8G8R8A8_UNORM => Pixel::Bgra8,
+        DXGI_FORMAT_R16G16B16A16_FLOAT => Pixel::RgbaF16,
+        format => bail!("unsupported Rubylight frame ring format {format:?}"),
+    };
+    let ready = returns.lock().unwrap().acquired()?;
+    let now = Instant::now();
+    Ok(GpuImage {
+        cursor: None,
+        width: desc.Width,
+        height: desc.Height,
+        pixel,
+        captured: now,
+        wgc_stamp: None,
+        acquired: now,
+        published: now,
+        gpu: gpu.clone(),
+        texture: Arc::new(slot.texture.clone()),
+        ready: Some(ready),
+        lease: Some(Arc::new(bridge::Lease::ring(
+            index,
+            slot.mutex.clone(),
+            returns,
+        ))),
+    })
 }
 
 impl Drop for Session {
@@ -673,6 +805,13 @@ mod tests {
             let next = next_generation(previous);
             assert!((1..=last).contains(&next), "{previous} -> {next}");
         }
+    }
+
+    #[test]
+    fn qpc_spans_are_zero_when_reversed_or_missing() {
+        assert_eq!(qpc_micros(1_000, 1_500, 10_000_000), 50);
+        assert_eq!(qpc_micros(1_500, 1_000, 10_000_000), 0);
+        assert_eq!(qpc_micros(0, 1_000, 10_000_000), 0);
     }
 
     #[test]

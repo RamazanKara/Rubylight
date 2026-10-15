@@ -209,8 +209,26 @@ pub(crate) struct Lease {
     slot: usize,
     mutex: IDXGIKeyedMutex,
     returns: Arc<Mutex<crate::compute::Returns>>,
-    freed: Arc<Mutex<Vec<usize>>>,
-    wake: Arc<crate::timing::Signal>,
+    /// The WGC helper hears of a returned slot through these. Rubylight's
+    /// display driver needs no word: it finds the slot free by its mutex.
+    notify: Option<Notify>,
+}
+/// The helper's returned slots, and the capture worker's wake.
+type Notify = (Arc<Mutex<Vec<usize>>>, Arc<crate::timing::Signal>);
+impl Lease {
+    /// A frame-ring texture of Rubylight's display driver, handed back with key 0.
+    pub(super) fn ring(
+        slot: usize,
+        mutex: IDXGIKeyedMutex,
+        returns: Arc<Mutex<crate::compute::Returns>>,
+    ) -> Self {
+        Self {
+            slot,
+            mutex,
+            returns,
+            notify: None,
+        }
+    }
 }
 // SAFETY: The keyed mutex is used only in Drop, under `returns`' lock on the multithread-protected
 // device; the rest is locks and an event handle.
@@ -221,11 +239,13 @@ impl Drop for Lease {
     fn drop(&mut self) {
         let returned = self.returns.lock().unwrap().hand_back(&self.mutex, 0);
         if let Err(error) = returned {
-            tracing::debug!(error = %format!("{error:#}"), slot = self.slot, "WGC helper texture handed back after a GPU error");
+            tracing::debug!(error = %format!("{error:#}"), slot = self.slot, "shared capture texture handed back after a GPU error");
         }
-        self.freed.lock().unwrap().push(self.slot);
-        // Wake the capture worker so the helper hears of the free texture now.
-        let _ = self.wake.set();
+        if let Some((freed, wake)) = &self.notify {
+            freed.lock().unwrap().push(self.slot);
+            // Wake the capture worker so the helper hears of the free texture now.
+            let _ = wake.set();
+        }
     }
 }
 fn validate_texture(
@@ -646,8 +666,7 @@ impl Session {
                 slot,
                 mutex: texture.mutex.clone(),
                 returns,
-                freed: self.freed.clone(),
-                wake: self.frame.clone(),
+                notify: Some((self.freed.clone(), self.frame.clone())),
             })),
         })
     }

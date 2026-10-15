@@ -341,12 +341,25 @@ pub fn summary(found: &Found, install: &std::path::Path) -> String {
         });
     }
     lines.push(format!("Install folder: {}", install.display()));
+    // SignPath's conditions: say what changes on the system, and where the
+    // privacy statement is, before installing.
+    lines.push(String::new());
+    lines.push(SYSTEM_CHANGES.to_owned());
     lines.join("\n")
 }
+/// What setup changes beyond the install folder, and what Rubylight sends.
+pub const SYSTEM_CHANGES: &str = "Setup installs the Rubylight service, a firewall rule for streaming and a virtual display driver. Rubylight checks GitHub for updates once a day; you can turn that off in Settings. Privacy: ramazankara.github.io/Rubylight/docs/privacy.html";
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn the_summary_names_system_changes_and_the_privacy_statement() {
+        let text = summary(&Found::default(), &default_folder());
+        assert!(text.ends_with(SYSTEM_CHANGES), "{text}");
+        assert!(text.contains("service") && text.contains("firewall rule"));
+        assert!(text.contains("updates") && text.contains("privacy.html"));
+    }
     #[test]
     fn a_picked_folder_is_used_only_when_empty_or_already_rubylight() {
         let root = tempfile::tempdir().unwrap();

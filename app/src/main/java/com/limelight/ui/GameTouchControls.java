@@ -433,8 +433,11 @@ public final class GameTouchControls extends FrameLayout {
                 .setNegativeButton(android.R.string.cancel, null).create();
         dialog.setOnShowListener(ignored -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
             try {
-                TouchLayoutImport.Result result = TouchLayoutImport.importFiles(
-                        Collections.singletonList(text.getText().toString()), getWidth(), getHeight());
+                // Hidden controls are not measured; they fill the stream surface they sit on.
+                View surface = getWidth() > 0 || !(getParent() instanceof View) ? this : (View) getParent();
+                TouchLayoutImport.Result result = TouchLayoutImport.importFiles(Collections.singletonList(text.getText().toString()),
+                        surface.getWidth() - surface.getPaddingLeft() - surface.getPaddingRight(),
+                        surface.getHeight() - surface.getPaddingTop() - surface.getPaddingBottom());
                 replace(result.layout);
                 dialog.dismiss();
                 if (result.format != TouchLayoutImport.Format.NIGHTJAR || !result.skipped.isEmpty()) {

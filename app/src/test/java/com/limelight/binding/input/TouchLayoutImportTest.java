@@ -141,6 +141,14 @@ public class TouchLayoutImportTest {
         assertEquals(file, result.layout.encode());
     }
 
+    @Test public void aNightjarLayoutNeedsNoSurfaceSize() throws IOException {
+        // Hidden controls have not been measured yet; a Nightjar layout is already normalized.
+        String file = TouchLayoutFixturesTest.fixture("v2-all-controls.json");
+        TouchLayoutImport.Result result = TouchLayoutImport.importFiles(Collections.singletonList(file), 0, 0);
+        assertEquals(TouchLayoutImport.Format.NIGHTJAR, result.format);
+        assertEquals(file, result.layout.encode());
+    }
+
     @Test public void unknownOrMixedFilesAreRejectedWithAReason() throws IOException {
         TouchLayout.InvalidLayoutException e = assertThrows(TouchLayout.InvalidLayoutException.class,
                 () -> TouchLayoutImport.importFiles(Collections.singletonList("{\"hello\": 1}"), 2400, 1080));

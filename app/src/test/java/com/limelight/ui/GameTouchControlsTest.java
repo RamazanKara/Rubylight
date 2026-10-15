@@ -398,6 +398,60 @@ public class GameTouchControlsTest {
         try { view.dispatchTouchEvent(event); } finally { event.recycle(); }
     }
 
+    @Test public void hiddenControlsImportLayoutsAgainstTheStreamSurface() {
+        try (ActivityController<Screen> controller = Robolectric.buildActivity(Screen.class).setup()) {
+            Screen screen = controller.get();
+            List<android.app.Dialog> dialogs = new ArrayList<>();
+            GameTouchControls controls = new GameTouchControls(screen, "fresh", new HeldInputState.Sink() {
+                public void key(int key, boolean down) { }
+                public void mouse(int button, boolean down) { }
+            }, () -> true, dialogs::add);
+            FrameLayout surface = new FrameLayout(screen);
+            surface.addView(controls, new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.MATCH_PARENT));
+            surface.layout(0, 0, 1600, 900);
+            // A game that never had controls on: hidden and never measured.
+            assertEquals(View.GONE, controls.getVisibility());
+            assertEquals(0, controls.getWidth());
+
+            String nightjar = new TouchLayout(Collections.singletonList(new TouchLayout.Button("fire", "Fire",
+                    new int[0], 1, false, .1f, .2f, .2f, .2f))).encode();
+            importText(controls, dialogs, nightjar);
+            assertEquals(nightjar, TouchLayout.load(screen, "fresh").encode());
+
+            importText(controls, dialogs, "{\"data\":[{\"id\":\"1\",\"name\":\"COPY\",\"keys\":[\"VK_LCONTROL\",\"VK_C\"]}]}");
+            TouchLayout.Button copy = TouchLayout.load(screen, "fresh").buttons.get(0);
+            assertEquals("COPY", copy.name);
+            assertEquals(10 / 72f * 900 / 1600, copy.width, 1e-6);
+        }
+    }
+
+    private static void importText(GameTouchControls controls, List<android.app.Dialog> dialogs, String text) {
+        int shown = dialogs.size();
+        ReflectionHelpers.callInstanceMethod(controls, "importLayout");
+        androidx.appcompat.app.AlertDialog dialog = (androidx.appcompat.app.AlertDialog) dialogs.get(shown);
+        dialog.show();
+        ShadowLooper.idleMainLooper();
+        android.widget.EditText field = findEditText(dialog.getWindow().getDecorView());
+        field.setText(text);
+        dialog.getButton(android.app.AlertDialog.BUTTON_POSITIVE).performClick();
+        ShadowLooper.idleMainLooper();
+        assertNull(String.valueOf(field.getError()), field.getError());
+        assertFalse(dialog.isShowing());
+    }
+
+    private static android.widget.EditText findEditText(View view) {
+        if (view instanceof android.widget.EditText) return (android.widget.EditText) view;
+        if (view instanceof android.view.ViewGroup) {
+            android.view.ViewGroup group = (android.view.ViewGroup) view;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                android.widget.EditText found = findEditText(group.getChildAt(i));
+                if (found != null) return found;
+            }
+        }
+        return null;
+    }
+
     private static void saveMouseLayout(Screen screen, String profile, String name, int mouse, boolean toggle) {
         new TouchLayout(Collections.singletonList(new TouchLayout.Button("hold", name, new int[0], mouse,
                 toggle, .1f, .1f, .2f, .2f))).save(screen, profile);

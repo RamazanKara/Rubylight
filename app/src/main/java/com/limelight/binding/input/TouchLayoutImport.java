@@ -66,9 +66,12 @@ public final class TouchLayoutImport {
 
     private TouchLayoutImport() { }
 
-    /** Imports one Nightjar file, or an Artemis layout and/or Custom Keys file. */
+    /**
+     * Imports one Nightjar file, or an Artemis layout and/or Custom Keys file. A Nightjar layout is
+     * already relative to the surface; Artemis files need the surface's size in pixels.
+     */
     public static Result importFiles(List<String> files, int surfaceWidth, int surfaceHeight) {
-        if (files.isEmpty() || surfaceWidth <= 0 || surfaceHeight <= 0) throw notLayout(null);
+        if (files.isEmpty()) throw notLayout(null);
         JSONObject layout = null, customKeys = null;
         for (String text : files) {
             if (text == null || text.getBytes(java.nio.charset.StandardCharsets.UTF_8).length > TouchLayout.MAX_BYTES) {
@@ -84,6 +87,7 @@ public final class TouchLayoutImport {
             else if (format == Format.ARTEMIS_CUSTOM_KEYS && customKeys == null) customKeys = document;
             else throw notLayout(format == null ? null : "Two files of the same kind");
         }
+        if (surfaceWidth <= 0 || surfaceHeight <= 0) throw notLayout("No surface size to place Artemis controls on");
         Map<String, JSONObject> keys = customKeys == null ? null : customKeys(customKeys);
         List<Skipped> skipped = new ArrayList<>();
         if (layout == null) {

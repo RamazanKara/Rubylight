@@ -1,0 +1,25 @@
+{
+  "data": [
+    {
+      "id": "left_click",
+      "name": "LMB",
+      "keys": [
+        "VK_LBUTTON"
+      ]
+    },
+    {
+      "id": "right_click",
+      "name": "RMB",
+      "keys": [
+        "VK_RBUTTON"
+      ]
+    },
+    {
+      "id": "middle_click",
+      "name": "MMB",
+      "keys": [
+        "VK_MBUTTON"
+      ]
+    }
+  ]
+}

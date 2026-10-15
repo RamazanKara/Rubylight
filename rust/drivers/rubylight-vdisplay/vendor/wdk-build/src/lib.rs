@@ -1231,8 +1231,13 @@ impl Config {
             println!("cargo::rustc-cdylib-link-arg=/OPT:REF,ICF");
 
             // Enable "Forced Integrity Checking" to prevent non-signed binaries from
-            // loading
-            println!("cargo::rustc-cdylib-link-arg=/INTEGRITYCHECK");
+            // loading. Kernel drivers only (Rubylight patch): on a UMDF DLL it makes
+            // WUDFHost check the signature in the kernel, which trusts only Microsoft's
+            // roots, so a self-signed build fails with ERROR_INVALID_IMAGE_HASH although
+            // its certificate is in LocalMachine\Root. The WDK's UMDF props leave it off.
+            if !matches!(self.driver_config, DriverConfig::Umdf(_)) {
+                println!("cargo::rustc-cdylib-link-arg=/INTEGRITYCHECK");
+            }
 
             // Disable Manifest File Generation
             println!("cargo::rustc-cdylib-link-arg=/MANIFEST:NO");

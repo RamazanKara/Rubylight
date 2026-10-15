@@ -52,6 +52,11 @@ $package = "$root\target\package"
 if (Test-Path $package) { Remove-Item -Recurse -Force $package }
 New-Item -ItemType Directory $package | Out-Null
 Copy-Item "$built\rubylight_vdisplay.dll" $package
+# IMAGE_DLLCHARACTERISTICS_FORCE_INTEGRITY (/INTEGRITYCHECK) makes WUDFHost refuse any DLL whose
+# root the kernel does not know: Code 31 with a self-signed or SignPath certificate.
+$image = [IO.File]::ReadAllBytes("$package\rubylight_vdisplay.dll")
+$characteristics = [BitConverter]::ToUInt16($image, [BitConverter]::ToInt32($image, 0x3C) + 24 + 70)
+if ($characteristics -band 0x80) { throw 'rubylight_vdisplay.dll is linked with /INTEGRITYCHECK' }
 Copy-Item "$root\rubylight_vdisplay.inx" "$package\rubylight_vdisplay.inf"
 
 if (-not $Version) {
@@ -81,13 +86,10 @@ if ($TestSign) {
         New-Item -ItemType Directory -Force $signing | Out-Null
         # In memory only: CertificateRequest never touches a certificate store.
         #
-        # The profile is New-SelfSignedCertificate's CodeSigningCert, which Code Integrity
-        # accepts as a self-signed root once it is in LocalMachine\Root: RSA 2048, critical
-        # KeyUsage digitalSignature, non-critical code-signing EKU, a subject key identifier
-        # and NO basic constraints. WUDFHost loads UMDF drivers under Code Integrity, and CI
-        # rejected the first test certificate (critical "CA:FALSE" basic constraints and a
-        # critical EKU) as an invalid root (CodeIntegrity 3089, VerificationError 7) although
-        # CryptoAPI and Plug and Play accepted it.
+        # The profile is New-SelfSignedCertificate's CodeSigningCert, the shape SudoVDA's
+        # certificate has: RSA 2048, critical KeyUsage digitalSignature, non-critical
+        # code-signing EKU, a subject key identifier and no basic constraints. (The Code 31
+        # first blamed on the certificate's shape was /INTEGRITYCHECK; see the check above.)
         $rsa = [System.Security.Cryptography.RSA]::Create(2048)
         $request = [System.Security.Cryptography.X509Certificates.CertificateRequest]::new(
             'CN=Rubylight Virtual Display Test Signing (not trusted)', $rsa,

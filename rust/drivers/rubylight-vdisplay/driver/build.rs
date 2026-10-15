@@ -3,6 +3,8 @@
 //!
 //! From punktfunk's pf-vdisplay build script by Enrico Bühler (unom), MIT OR Apache-2.0.
 fn main() -> Result<(), wdk_build::ConfigError> {
+    // The vendored wdk-build leaves /INTEGRITYCHECK off for UMDF: with it, WUDFHost refused
+    // the self-signed DLL (CodeIntegrity 3004/3089, invalid root; Code 31).
     wdk_build::configure_wdk_binary_build()?;
     link_iddcx_stub();
     Ok(())

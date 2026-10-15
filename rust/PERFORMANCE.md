@@ -6378,6 +6378,38 @@ pay and were dropped:
   cases delivered 120 fps in this run and agree with the 120 fps ones. The 2x
   default stays.
 
+A code review of the path from the driver to the socket found the encoder
+(ultra-low-latency usage, no pre-analysis or B-frames, output queried every
+100 us), the conversion (a GPU fence, 0.18 ms) and the driver loop (event
+waits, one copy) already lean, and four candidates. One A/B round, HEVC unless
+named, after the driver from main was installed (`runs-ab`, `cases-ab.ps1`;
+render to received was about 4 ms lower than in the runs above, so compare
+within this table only):
+
+| Render to received, mean / p95 ms | 60 fps | 120 fps |
+| --- | ---: | ---: |
+| Extended layout (the harness default) | 11.09 / 11.43 | 8.68 / 9.04 |
+| Exclusive layout (the shipped default) | 12.16 / 12.99 | 8.24 / 8.83 |
+| Extended, virtual display primary | 13.06 / 18.17 | 8.17 / 8.92 |
+| Pushed frames claimed half a period apart, 1 ms detection | 9.56 / 16.92 | 8.85 / 9.47 |
+| AV1, 8-bit | | 8.57 / 8.97 |
+
+- **Wired pacing at 950 Mbps on a gigabit host link** (from 800 Mbps) shipped:
+  an 80 Mbps frame at 60 fps (about 200 KB with FEC) leaves 0.3 ms sooner, a
+  keyframe several times that. The harness streams over loopback, whose link
+  speed is unknown, so it does not show here.
+- **The display layout** moves the time before the driver's acquire by
+  0.4-0.5 ms at 120 fps and 1-2 ms the other way at 60 fps: no consistent
+  gain, and the harness's extended layout stands in for the shipped default.
+- **Claiming pushed frames half a period apart** (as VRR does) with a 1 ms wait
+  for a predicted frame instead of a quarter period: the mean fell at 60 fps,
+  but p95 rose 5.5 ms, picture age p95 from 13.5 to 19.1 ms and the claim wait
+  from 0.07 to 2.12 ms; at 120 fps it was 0.2 ms slower and the p99 frame
+  interval rose from 9.2 to 11.5 ms. Dropped (branch `tried/pushed-pacer`
+  in the worktree only).
+- **8-bit AV1** was 0.1 ms faster than HEVC end to end, not the 0.5 ms the
+  encoder alone measured; nothing to change on the host.
+
 ## Hardware covered
 
 Measurements ran with AMD AMF on an RX 7900 XT host, with real-client Wi-Fi

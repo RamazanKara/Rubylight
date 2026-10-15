@@ -198,6 +198,19 @@ impl Monitor {
         ring
     }
 
+    /// [`Self::take_ring`], only while the ring is the one of `generation`.
+    pub fn take_ring_generation(&self, generation: u32) -> Option<Arc<RingHandles>> {
+        let ring = {
+            let mut slot = lock(&self.ring);
+            if slot.as_ref().map(|r| r.generation) != Some(generation) {
+                return None;
+            }
+            slot.take()
+        };
+        self.bump_ring_gen();
+        ring
+    }
+
     /// The ring generation counter and the ring, read together.
     pub fn ring(&self) -> (u32, Option<Arc<RingHandles>>) {
         let slot = lock(&self.ring);
@@ -592,5 +605,12 @@ pub fn alive(owner: u32, session_id: u64) -> bool {
 pub fn clear_frame_ring(owner: u32, session_id: u64) -> bool {
     find_session(owner, session_id)
         .and_then(|m| m.take_ring())
+        .is_some()
+}
+
+/// Drop `owner`'s ring for `session_id` if it is still the ring of `generation`.
+pub fn clear_frame_ring_generation(owner: u32, session_id: u64, generation: u32) -> bool {
+    find_session(owner, session_id)
+        .and_then(|m| m.take_ring_generation(generation))
         .is_some()
 }

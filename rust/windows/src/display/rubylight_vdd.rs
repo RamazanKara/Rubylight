@@ -6,8 +6,8 @@
 
 use super::*;
 use rubylight_vdisplay_proto::control::{
-    self as proto, ADD_FLAG_EXACT_ID, AddReply, AddRequest, InfoReply, MonitorStatus,
-    RenderAdapterRequest, SessionRequest, SetFrameRingRequest, UpdateModesRequest,
+    self as proto, ADD_FLAG_EXACT_ID, AddReply, AddRequest, ClearFrameRingRequest, InfoReply,
+    MonitorStatus, RenderAdapterRequest, SessionRequest, SetFrameRingRequest, UpdateModesRequest,
 };
 use rubylight_vdisplay_proto::modes;
 use std::sync::Mutex;
@@ -133,6 +133,21 @@ impl Control {
         self.ioctl(
             proto::IOCTL_CLEAR_FRAME_RING,
             &SessionRequest { session_id }.encode(),
+            0,
+        )
+        .map(drop)
+    }
+
+    /// Clear the monitor's ring only while it is the ring of `generation`
+    /// (`CAP_SCOPED_CLEAR`).
+    pub fn clear_frame_ring_generation(&self, session_id: u64, generation: u32) -> Result<()> {
+        let request = ClearFrameRingRequest {
+            session_id,
+            generation,
+        };
+        self.ioctl(
+            proto::IOCTL_CLEAR_FRAME_RING_GENERATION,
+            &request.encode(),
             0,
         )
         .map(drop)

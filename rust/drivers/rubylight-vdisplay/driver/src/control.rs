@@ -8,9 +8,9 @@
 //! is scoped to the calling process, and every IOCTL counts as that process's heartbeat.
 
 use rubylight_vdisplay_proto::control::{
-    self, AddReply, AddRequest, CAP_FRAME_RING, CAP_HDR, CAP_UPDATE_MODES,
-    INFO_MAGIC, InfoReply, RenderAdapterRequest, SessionRequest, SetFrameRingRequest,
-    UpdateModesRequest,
+    self, AddReply, AddRequest, CAP_FRAME_RING, CAP_HDR, CAP_SCOPED_CLEAR, CAP_UPDATE_MODES,
+    ClearFrameRingRequest, INFO_MAGIC, InfoReply, RenderAdapterRequest, SessionRequest,
+    SetFrameRingRequest, UpdateModesRequest,
 };
 use rubylight_vdisplay_proto::{PROTOCOL_VERSION, modes, ring};
 use wdk_sys::{NTSTATUS, WDFREQUEST};
@@ -40,7 +40,7 @@ pub unsafe fn dispatch(request: WDFREQUEST, ioctl_code: u32) {
                 watchdog_timeout_ms: crate::watchdog::WATCHDOG_TIMEOUT_S * 1000,
                 max_monitors: modes::MAX_MONITOR_ID,
                 max_ring_slots: ring::MAX_SLOTS as u32,
-                caps: CAP_FRAME_RING | CAP_HDR | CAP_UPDATE_MODES,
+                caps: CAP_FRAME_RING | CAP_HDR | CAP_UPDATE_MODES | CAP_SCOPED_CLEAR,
                 driver_version: driver_version(),
             };
             reply_with(request, &reply.encode());
@@ -103,6 +103,27 @@ pub unsafe fn dispatch(request: WDFREQUEST, ioctl_code: u32) {
                 STATUS_NOT_FOUND
             }
         }),
+        control::IOCTL_CLEAR_FRAME_RING_GENERATION => {
+            let st = match read(
+                &request,
+                ClearFrameRingRequest::SIZE,
+                ClearFrameRingRequest::decode,
+            ) {
+                Ok(r) => {
+                    if crate::monitor::clear_frame_ring_generation(
+                        owner,
+                        r.session_id,
+                        r.generation,
+                    ) {
+                        STATUS_SUCCESS
+                    } else {
+                        STATUS_NOT_FOUND
+                    }
+                }
+                Err(st) => st,
+            };
+            request.complete(st);
+        }
         control::IOCTL_QUERY_MONITOR => {
             match read(&request, SessionRequest::SIZE, SessionRequest::decode) {
                 Ok(r) => match crate::monitor::find_session(owner, r.session_id) {

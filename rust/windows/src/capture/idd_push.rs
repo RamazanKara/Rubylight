@@ -14,7 +14,7 @@
 use super::*;
 use crate::display::rubylight_vdd::{Control, Owned, Remote, owned_display};
 use butterpollo_core::virtual_output::{PushedFrame, PushedFrames};
-use rubylight_vdisplay_proto::control::{MonitorStatus, SetFrameRingRequest};
+use rubylight_vdisplay_proto::control::{CAP_SCOPED_CLEAR, MonitorStatus, SetFrameRingRequest};
 use rubylight_vdisplay_proto::ring::{self, Consumer, Counters, Header, Layout, SlotMeta};
 use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
 use std::sync::atomic::AtomicU64;
@@ -36,6 +36,76 @@ const DRAIN_STALL: Duration = Duration::from_secs(3);
 const FIRST_FRAME_TIMEOUT: Duration = Duration::from_secs(10);
 /// How often the driver's frame counters are logged (`idd_push=debug`).
 const COUNTERS_EVERY: Duration = Duration::from_secs(5);
+
+/// Rings of one monitor that may fail before their first frame before its captures use WGC.
+const FAILURES_BEFORE_WGC: u32 = 2;
+
+/// The monitors this process captures from. The driver keeps one ring per monitor, so a
+/// second capture registering its own would take the frames from the first.
+static CAPTURING: Mutex<Vec<u64>> = Mutex::new(Vec::new());
+
+/// This process's capture of one monitor, released on drop.
+struct Exclusive(u64);
+
+impl Exclusive {
+    fn claim(session_id: u64) -> Option<Self> {
+        let mut capturing = CAPTURING.lock().unwrap();
+        if capturing.contains(&session_id) {
+            return None;
+        }
+        capturing.push(session_id);
+        Some(Self(session_id))
+    }
+}
+
+impl Drop for Exclusive {
+    fn drop(&mut self) {
+        CAPTURING.lock().unwrap().retain(|&id| id != self.0);
+    }
+}
+
+/// Monitors whose rings failed before delivering a frame, on which adapter, and how often.
+/// A failure the driver reports after the ring was accepted (textures that do not open, a
+/// surface that never settles, no frame at all) would repeat on every reopen, so after
+/// [`FAILURES_BEFORE_WGC`] the monitor's captures use WGC until it renders on another adapter
+/// or a ring delivers a frame. A new monitor has a new session id and starts clean.
+#[derive(Default)]
+struct Failures(Vec<(u64, (u32, i32), u32)>);
+
+impl Failures {
+    fn failed(&mut self, session_id: u64, adapter: (u32, i32)) -> u32 {
+        match self.0.iter_mut().find(|(id, _, _)| *id == session_id) {
+            Some((_, at, count)) if *at == adapter => {
+                *count += 1;
+                *count
+            }
+            Some(entry) => {
+                *entry = (session_id, adapter, 1);
+                1
+            }
+            None => {
+                self.0.push((session_id, adapter, 1));
+                1
+            }
+        }
+    }
+
+    fn delivered(&mut self, session_id: u64) {
+        self.0.retain(|(id, _, _)| *id != session_id);
+    }
+
+    /// The failures that send this monitor's captures to WGC on `adapter`, if it has them.
+    fn excluded(&self, session_id: u64, adapter: (u32, i32)) -> Option<u32> {
+        self.0
+            .iter()
+            .find(|(id, at, count)| {
+                *id == session_id && *at == adapter && *count >= FAILURES_BEFORE_WGC
+            })
+            .map(|(_, _, count)| *count)
+    }
+}
+
+static FAILURES: Mutex<Failures> = Mutex::new(Failures(Vec::new()));
 
 /// Microseconds from QPC `from` to `to`, zero when `to` is earlier or either is missing.
 fn qpc_micros(from: u64, to: u64, frequency: i64) -> u64 {
@@ -325,6 +395,8 @@ pub struct Session {
     opened: Instant,
     next_check: Instant,
     counted: (Instant, Counters),
+    /// Released after `Drop` cleared the ring.
+    _exclusive: Exclusive,
 }
 
 impl Session {
@@ -336,6 +408,9 @@ impl Session {
     ) -> Result<Self> {
         let monitor = owned_display(name)?.with_context(|| {
             format!("{name} is not a display this host created with the Rubylight display driver")
+        })?;
+        let exclusive = Exclusive::claim(monitor.session_id).with_context(|| {
+            format!("another stream with different capture settings already captures {name} from the Rubylight display driver")
         })?;
         let control = Control::open()?;
         let status = control.query(monitor.session_id)?;
@@ -357,6 +432,15 @@ impl Session {
                 render.0,
                 adapter.1,
                 adapter.0
+            );
+        }
+        if let Some(failures) = FAILURES
+            .lock()
+            .unwrap()
+            .excluded(monitor.session_id, adapter)
+        {
+            bail!(
+                "its frame ring failed {failures} times before delivering a frame; capturing with WGC until the display is recreated or renders on another GPU"
             );
         }
         if let Err(error) = crate::gpu_priority::configure(&gpu, config) {
@@ -411,6 +495,7 @@ impl Session {
             opened: now,
             next_check: now,
             counted: (now, Counters::default()),
+            _exclusive: exclusive,
         };
         session.deliver()?;
         tracing::info!(
@@ -566,7 +651,16 @@ impl Session {
         let now = Instant::now();
         if now >= self.next_check {
             self.next_check = now + Duration::from_millis(100);
-            self.check()?;
+            if let Err(error) = self.check() {
+                if !self.started && crate::device_loss::DeviceLost::from_error(&error).is_none() {
+                    let failures = FAILURES
+                        .lock()
+                        .unwrap()
+                        .failed(self.monitor.session_id, self.adapter);
+                    tracing::warn!(error = %format!("{error:#}"), failures, "the Rubylight frame ring failed before its first frame");
+                }
+                return Err(error);
+            }
         }
         let Some((frame, mut image)) = self.take_newest()? else {
             return Ok(None);
@@ -583,6 +677,9 @@ impl Session {
             .section
             .header()
             .set_consumed(self.consumer.last());
+        if !self.started {
+            FAILURES.lock().unwrap().delivered(self.monitor.session_id);
+        }
         self.started = true;
         let frequency = qpc_frequency();
         tracing::trace!(
@@ -690,8 +787,15 @@ fn lend(
 
 impl Drop for Session {
     fn drop(&mut self) {
-        // The driver closes its duplicates; ours close with the ring.
-        if let Err(error) = self.control.clear_frame_ring(self.monitor.session_id) {
+        // The driver closes its duplicates; ours close with the ring. Only this ring is
+        // cleared: one registered since (another process's, say) stays.
+        let cleared = if self.control.info.caps & CAP_SCOPED_CLEAR != 0 {
+            self.control
+                .clear_frame_ring_generation(self.monitor.session_id, self.ring.layout.generation)
+        } else {
+            self.control.clear_frame_ring(self.monitor.session_id)
+        };
+        if let Err(error) = cleared {
             tracing::debug!(error = %format!("{error:#}"), "Rubylight frame ring was already gone");
         }
     }
@@ -705,6 +809,43 @@ unsafe impl Send for Session {}
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn one_capture_per_monitor_registers_a_ring() {
+        // Ids no real monitor of the test process has.
+        let first = Exclusive::claim(u64::MAX - 1).expect("free");
+        assert!(
+            Exclusive::claim(u64::MAX - 1).is_none(),
+            "a second ring would take the first capture's frames"
+        );
+        let other = Exclusive::claim(u64::MAX - 2).expect("another monitor is free");
+        drop(first);
+        assert!(Exclusive::claim(u64::MAX - 1).is_some(), "released on drop");
+        drop(other);
+    }
+
+    #[test]
+    fn rings_that_keep_failing_before_a_frame_send_the_monitor_to_wgc() {
+        let mut failures = Failures::default();
+        let gpu = (7, 0);
+        assert_eq!(failures.failed(1, gpu), 1);
+        assert_eq!(failures.excluded(1, gpu), None, "the first failure retries");
+        assert_eq!(failures.failed(1, gpu), FAILURES_BEFORE_WGC);
+        assert_eq!(failures.excluded(1, gpu), Some(FAILURES_BEFORE_WGC));
+        assert_eq!(failures.excluded(2, gpu), None, "another monitor");
+        assert_eq!(failures.excluded(1, (8, 0)), None, "another GPU retries");
+        // Failing on another GPU starts the count again.
+        assert_eq!(failures.failed(1, (8, 0)), 1);
+        assert_eq!(failures.excluded(1, gpu), None);
+        failures.failed(1, (8, 0));
+        assert!(failures.excluded(1, (8, 0)).is_some());
+        failures.delivered(1);
+        assert_eq!(
+            failures.excluded(1, (8, 0)),
+            None,
+            "a delivered frame clears it"
+        );
+    }
 
     #[test]
     fn idd_push_runs_when_asked_or_on_the_hosts_own_display_in_auto() {

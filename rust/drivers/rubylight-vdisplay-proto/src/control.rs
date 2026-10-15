@@ -55,9 +55,14 @@ pub const IOCTL_QUERY_MONITOR: u32 = ctl_code(0xB08);
 pub const IOCTL_CLEAR_ALL: u32 = ctl_code(0xB09);
 /// Take the driver's pending log lines as [`log_lines`] records. No input.
 pub const IOCTL_DRAIN_LOG: u32 = ctl_code(0xB0A);
+/// Drop a monitor's frame ring only while it is still the ring of the given generation, so a
+/// capture closing its ring never clears the one that replaced it. Input
+/// [`ClearFrameRingRequest`]; `STATUS_NOT_FOUND` when that ring is not the monitor's. Present
+/// when the driver reports [`CAP_SCOPED_CLEAR`].
+pub const IOCTL_CLEAR_FRAME_RING_GENERATION: u32 = ctl_code(0xB0B);
 
 /// Every IOCTL this protocol defines, for the uniqueness test and the driver's dispatch.
-pub const ALL_IOCTLS: [u32; 11] = [
+pub const ALL_IOCTLS: [u32; 12] = [
     IOCTL_GET_INFO,
     IOCTL_ADD,
     IOCTL_REMOVE,
@@ -69,6 +74,7 @@ pub const ALL_IOCTLS: [u32; 11] = [
     IOCTL_QUERY_MONITOR,
     IOCTL_CLEAR_ALL,
     IOCTL_DRAIN_LOG,
+    IOCTL_CLEAR_FRAME_RING_GENERATION,
 ];
 
 /// NTSTATUS values the driver completes requests with, and the Win32 error each becomes in
@@ -184,6 +190,8 @@ pub const CAP_FRAME_RING: u32 = 1 << 0;
 pub const CAP_HDR: u32 = 1 << 1;
 /// [`InfoReply::caps`]: [`IOCTL_UPDATE_MODES`] changes a live monitor's modes in place.
 pub const CAP_UPDATE_MODES: u32 = 1 << 2;
+/// [`InfoReply::caps`]: [`IOCTL_CLEAR_FRAME_RING_GENERATION`] clears only the ring it names.
+pub const CAP_SCOPED_CLEAR: u32 = 1 << 3;
 
 /// [`IOCTL_GET_INFO`] reply.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -390,6 +398,39 @@ impl SessionRequest {
         Ok(Self {
             session_id: r.u64(),
         })
+    }
+}
+
+/// [`IOCTL_CLEAR_FRAME_RING_GENERATION`] input.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ClearFrameRingRequest {
+    pub session_id: u64,
+    /// The [`SetFrameRingRequest::generation`] of the ring to drop.
+    pub generation: u32,
+}
+
+impl ClearFrameRingRequest {
+    pub const SIZE: usize = 16;
+
+    #[must_use]
+    pub fn encode(&self) -> [u8; Self::SIZE] {
+        Writer::new()
+            .u64(self.session_id)
+            .u32(self.generation)
+            .u32(0)
+            .finish()
+    }
+
+    pub fn decode(bytes: &[u8]) -> Result<Self, WireError> {
+        let mut r = Reader::new(bytes, Self::SIZE)?;
+        let request = Self {
+            session_id: r.u64(),
+            generation: r.u32(),
+        };
+        if request.generation == 0 {
+            return Err(WireError::Invalid("generation"));
+        }
+        Ok(request)
     }
 }
 
@@ -883,6 +924,17 @@ mod tests {
     fn small_requests_round_trip_and_validate() {
         let session = SessionRequest { session_id: 9 };
         assert_eq!(SessionRequest::decode(&session.encode()), Ok(session));
+
+        let clear = ClearFrameRingRequest {
+            session_id: 9,
+            generation: 4,
+        };
+        assert_eq!(ClearFrameRingRequest::decode(&clear.encode()), Ok(clear));
+        let unnamed = ClearFrameRingRequest {
+            generation: 0,
+            ..clear
+        };
+        assert!(ClearFrameRingRequest::decode(&unnamed.encode()).is_err());
 
         let update = UpdateModesRequest {
             session_id: 9,

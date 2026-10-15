@@ -2580,6 +2580,9 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
      * stream still holds the host connection; a failure is reported because the game stays running.
      */
     private void leaveStream() {
+        if (hostActionInProgress) {
+            return;
+        }
         boolean chosen = AppQuitOnLeave.isEnabled(this, getIntent().getStringExtra(EXTRA_PC_UUID),
                 app.getAppUuid(), app.getAppId());
         if (!StreamExitPolicy.quitsOnLeave(chosen, app.getRole(), connected)) {

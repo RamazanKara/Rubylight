@@ -585,7 +585,8 @@ def library_covers():
     assert not any(n.get("text") in ("Play", "Resume") for n in root.iter("node")), "Tiles still repeat their action"
     screenshot("library-covers")
     tap("More options for Puzzle Night", scroll=True)
-    find("Quit Racing Game and play")
+    # The demo host confirms on its side before it replaces the running game, so the sheet only plays.
+    find("Play\nYour PC asks before it closes Racing Game")
     screenshot("library-app-sheet-other-game")
     tap(f"{PACKAGE}:id/action_sheet_close")
     adb("shell", "am", "force-stop", PACKAGE)

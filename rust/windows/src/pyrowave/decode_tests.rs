@@ -1014,10 +1014,10 @@ fn pyrowave_decoded_end_to_end() -> Result<()> {
     Ok(())
 }
 
-/// The SDK keeps the encoder's plane views between frames
-/// (`0004-encoder-cached-plane-views`). A new capture format rebuilds the
-/// planes, and the driver can give the new images the handles of the ones
-/// just destroyed, so every picture must still decode to its own reference.
+/// A new capture format rebuilds the encoder's planes, and the driver can give
+/// the new images the handles of the ones just destroyed. Every picture must
+/// still decode to its own reference, including under an SDK that keeps plane
+/// views between frames (Punktfunk's patch 0010; see rust/PERFORMANCE.md).
 #[test]
 #[ignore = "requires AMD D3D12 compute, Vulkan and the pinned PyroWave DLL; see rust/PERFORMANCE.md"]
 fn pyrowave_encoder_follows_rebuilt_planes() -> Result<()> {

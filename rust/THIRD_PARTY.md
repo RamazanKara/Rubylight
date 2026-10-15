@@ -7,7 +7,7 @@ External SDKs are not a port of the original host:
 - FFmpeg SDK: LizardByte/build-deps `v2026.516.30821`, Windows AMD64 archive SHA-256 `2f7a2c2fc6be9b96de3c6f654389f73a5e5d369d7e802d017894fae96247661d`. Static encoding libraries include FFmpeg/libavcodec/libavutil/libswscale, x264, x265, SVT-AV1 and HDR10+ support. FFmpeg and codec source/build recipes: https://github.com/LizardByte/build-deps/tree/v2026.516.30821. GPL source and distribution requirements apply to the combined executable.
 - AMF headers are provided by the FFmpeg SDK; AMF runtime is loaded from the installed AMD graphics driver. SDK: https://github.com/GPUOpen-LibrariesAndSDKs/AMF.
 - Native NVENC/CUDA ABI headers are vendored unchanged from FFmpeg/nv-codec-headers commit `33a9ede8d9914299d9262539c576a15bd0a19621`, the baseline's Video Codec SDK 13.0 headers. Their permission/copyright notices remain in the headers and are copied into the package. Only installed Windows system driver DLLs are loaded; no NVIDIA import library, CUDA toolkit or previous host implementation is linked. Source: https://github.com/FFmpeg/nv-codec-headers/tree/33a9ede8d9914299d9262539c576a15bd0a19621.
-- PyroWave `502a3b52a39312ab82c85b1e2fc0e746faee91a4`, API 1.0.0 (bitstream v1, frozen 2026-10-03 and identical on the wire to the `186f0393` bitstream Vibepollo 2.0 and its clients use); Granite `fb178c8080d163419e8d20f10715c61c53c1ec9b`. `rust/tools/build_pyrowave.sh` builds the pinned upstream SDK and applies Vibepollo 2.0's 4:4:4 payload-sizing and short-decoder-block patches from `rust/codec-patches/pyrowave` (Vibepollo's encoder buffer-pool patch is no longer needed: upstream now keeps those buffers). Their source patches are retained; packaged `pyrowave-build-info.txt` records revisions and patches. MIT notices are included for PyroWave/Granite/volk. Source: https://github.com/Themaister/pyrowave/tree/502a3b52a39312ab82c85b1e2fc0e746faee91a4.
+- PyroWave `502a3b52a39312ab82c85b1e2fc0e746faee91a4`, API 1.0.0 (bitstream v1, frozen 2026-10-03 and identical on the wire to the `186f0393` bitstream Vibepollo 2.0 and its clients use); Granite `fb178c8080d163419e8d20f10715c61c53c1ec9b`. `rust/tools/build_pyrowave.sh` builds the pinned upstream SDK and applies the patches in `rust/codec-patches/pyrowave`: Vibepollo 2.0's 4:4:4 payload sizing (0002) and short-decoder-block check (0003), from Punktfunk's patches 0001 and 0008 (see [PyroWave patches from Punktfunk](#pyrowave-patches-from-punktfunk)). The encoder buffer-pool patch (Vibepollo's 0001, Punktfunk's 0004) is no longer needed: upstream now keeps those buffers in each frame context. Punktfunk's global-priority queue patch (0005) is not needed either: `pyrowave_create_device_by_compat` takes the priority, which the host sets to HIGH or REALTIME. Their source patches are retained; packaged `pyrowave-build-info.txt` records revisions and patches. MIT notices are included for PyroWave/Granite/volk. Source: https://github.com/Themaister/pyrowave/tree/502a3b52a39312ab82c85b1e2fc0e746faee91a4.
 - Opus, oneVPL and GNU runtime DLLs come from MSYS2 UCRT64. Their installed license notices are copied into the package. MSYS2 source/build recipes: https://github.com/msys2/MINGW-packages.
 - NVIDIA RTX Video SDK 1.1.0 archive SHA-256 `abf4f34e2b5a618e355b0d5a0365d8ecc3db4396e756e4c850a867e1ae2ed69e`. The optional adapter links NVIDIA's NGX import library and ships `nvngx_truehdr.dll` under the included NVIDIA RTX Video SDK license. It is excluded with `-SkipTrueHdr`, which signed releases always use.
 - Virtual display driver libvirtualdisplay v1.6.3 (MIT, https://github.com/Nonary/libvirtualdisplay) and virtual gamepad driver libvirtualgamepad v0.1.0-beta.6 (MIT, https://github.com/Nonary/libvirtualgamepad), with their catalogs, tools and install scripts as released in Vibepollo 2.0.0 (GPL-3.0, https://github.com/Nonary/Vibepollo) and signed by the SignPath Foundation, plus the Sunshine Playnite Connector plugin from the same release. `rust/build.ps1` extracts them from the pinned Vibepollo 2.0.0 installer (SHA-256 `7b3500ec0c774644ce5a435a48f61c046c48494d0f18b67afa0b3561931794b7`), checks the driver signatures, and records them with `nefconc.exe` (https://github.com/nefarius/nefcon) in the packaged `drivers.txt`. No ViGEmBus driver or client code is included.
@@ -25,6 +25,32 @@ MIT License
 
 Copyright (c) 2026 Chase Payne
 Copyright (c) 2026 HIDMaestro Contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+## PyroWave patches from Punktfunk
+
+The PyroWave SDK patches `0002-payload-data-444-sizing` and `0003-decoder-reject-short-block` in `rust/codec-patches/pyrowave` are adapted from patches 0001 and 0008 of [Punktfunk](https://git.unom.io/unom/punktfunk) (MIT OR Apache-2.0), used here under the MIT License. They are compiled into the shipped `libpyrowave-shared-1.dll`.
+
+MIT License
+
+Copyright (c) 2026 unom - Enrico Bühler
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

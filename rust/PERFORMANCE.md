@@ -5845,7 +5845,7 @@ the host pins (`502a3b52`):
 | --- | --- | --- | --- |
 | 0004, encoder buffer pool | Submit and fence wait at 5120×1440 from about 15 ms to 1 ms (RTX 4090) | `pyrowave_encoder_encode_gpu_inner` keeps the meta and bitstream buffers per frame context and reallocates only for a larger size. The patch targets the older `encode_gpu_synchronous_inner`, as Vibepollo's buffer-pool patch did for `186f0393`. | Not needed |
 | 0005, global-priority queue | Tighter encode tail beside a GPU-bound game (Linux) | `pyrowave_create_device_by_compat` takes a priority, and Granite falls back from REALTIME to HIGH to MEDIUM. The host asks for HIGH; the probe logs `requested=512 granted=512` on this card. | Not needed |
-| 0010, cached plane views | 0.15–0.25 ms of CPU per frame (RTX 5070 Ti) | `pyrowave_encoder_encode_gpu` still wraps three images and creates three image views on every call, and the host passes the same three planes every frame. | Ported as `0004-encoder-cached-plane-views` |
+| 0010, cached plane views | 0.15–0.25 ms of CPU per frame (RTX 5070 Ti) | `pyrowave_encoder_encode_gpu` still wraps three images and creates three image views on every call, and the host passes the same three planes every frame. | Ported and measured, not shipped |
 
 The port keys a plane on an id the device gives each `pyrowave_image`, not on
 its `VkImage` handle as Punktfunk's does. A new capture format makes the host
@@ -5895,7 +5895,10 @@ alternating unpaced pairs at 1920×1080, about 9,000 to 11,000 frames a run:
 On this machine the per-frame views cost at most about 0.02 ms of a 0.18 ms
 submit call, far from the 0.15–0.25 ms Punktfunk measured on NVIDIA, and the
 buffer pool has nothing left to win: the whole paced encode at 5120×1440 HDR
-4:4:4 takes 1.7 to 1.9 ms.
+4:4:4 takes 1.7 to 1.9 ms. The SDK therefore stays without the patch: a new
+cache in the encoder for a gain inside run-to-run spread is not worth the risk.
+The port stays on the `claude/pyrowave-fixes` branch, and the rebuild test
+stays on main, where it passes with the shipped SDK.
 
 ## Hardware covered
 

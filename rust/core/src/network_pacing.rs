@@ -1,11 +1,10 @@
 //! Bound packet bursts without accumulating a catch-up burst after a late send.
 use std::time::{Duration, Instant};
 
-/// The route ceiling, before startup and loss-responsive pacing. Wired routes
-/// of unknown speed allow up to 800 Mbps; on a gigabit or faster host link,
-/// [`GIGABIT_PACING_BPS`]. Confirmed Wi-Fi retains twice the encoder bitrate,
-/// allowing at least 25% headroom above packetized demand. Explicit limits
-/// retain the stream-bitrate floor, subject to the physical link.
+/// The route ceiling, before startup and loss-responsive pacing. Wired/unknown
+/// routes allow up to 800 Mbps. Confirmed Wi-Fi retains twice the
+/// encoder bitrate, allowing at least 25% headroom above packetized demand.
+/// Explicit limits retain the stream-bitrate floor, subject to the physical link.
 pub fn rate_bps(
     configured_kbps: i64,
     stream_kbps: u32,
@@ -24,20 +23,12 @@ pub fn rate_bps(
     } else {
         800_000_000
     };
-    match link_bps {
-        0 => requested,
-        GIGABIT_BPS.. if configured_kbps <= 0 && !wireless => GIGABIT_PACING_BPS,
-        _ => requested.min(link_bps.saturating_mul(4) / 5).max(1),
+    if link_bps > 0 {
+        requested.min(link_bps.saturating_mul(4) / 5).max(1)
+    } else {
+        requested
     }
 }
-
-const GIGABIT_BPS: u64 = 1_000_000_000;
-/// Wired pacing on a gigabit or faster host link: 95% of gigabit, as PyroWave
-/// paces. The client's port is most likely gigabit whatever the host's, so a
-/// faster host link earns no more. Every frame's last packet leaves that much
-/// sooner: 80 Mbps at 60 fps with FEC is about 200 KB, 2.0 ms on the wire at
-/// 800 Mbps and 1.7 ms at this rate; a keyframe saves several times that.
-pub const GIGABIT_PACING_BPS: u64 = GIGABIT_BPS / 20 * 19;
 
 /// PyroWave uses the available wired link by default, but an explicit cap
 /// takes precedence over the bandwidth needed to send every intra frame.
@@ -269,14 +260,9 @@ mod tests {
     #[test]
     fn host_link_speed_is_a_ceiling_not_a_measurement_of_the_client_path() {
         assert_eq!(rate_bps(0, 50_000, 0, false, 65_000_000), 800_000_000);
-        // A gigabit host link paces just under a gigabit client port's line
-        // rate, and a faster one no faster.
-        for link in [1_000_000_000, 2_500_000_000, 10_000_000_000] {
-            assert_eq!(rate_bps(0, 50_000, link, false, 65_000_000), 950_000_000);
-        }
         assert_eq!(
-            rate_bps(0, 50_000, 999_000_000, false, 65_000_000),
-            799_200_000
+            rate_bps(0, 50_000, 2_500_000_000, false, 65_000_000),
+            800_000_000
         );
         assert_eq!(
             rate_bps(0, 50_000, 100_000_000, false, 65_000_000),
@@ -306,7 +292,7 @@ mod tests {
                 );
                 assert_eq!(
                     rate_bps(0, kbps, link, false, u64::from(kbps) * 1300),
-                    if link == 0 { 800_000_000 } else { 950_000_000 }
+                    800_000_000
                 );
             }
         }

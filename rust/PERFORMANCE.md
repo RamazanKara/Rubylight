@@ -16,7 +16,7 @@ This is the dated measurement record. For a guided comparison, start with the [p
 | Other Sunshine hosts | [Vibepollo 2.0 baseline](#against-vibepollo-20) · [rc.24 on the same GPU](PERFORMANCE_WORK.md#rc24-against-vibepollo-20-on-the-same-gpu) |
 | WGC capture and pacing | [Guarded comparisons](#guarded-ab-stress-and-compatibility-checks) |
 | Native HEVC / AV1 HDR | [2.2.9 headline streams](#native-virtual-hdr-results-october-12) · [Final rc.10 pixels and repeat runs](#final-native-virtual-hdr-pixels-excluding-physical-panel-calibration) |
-| PyroWave HDR 4:4:4 | [Transport and decoding](#vibepollo-20-pyrowave-transport) |
+| PyroWave HDR 4:4:4 | [Transport and decoding](#vibepollo-20-pyrowave-transport) · [SDK patches from Punktfunk](#october-15-pyrowave-sdk-patches-from-punktfunk) |
 | CPU error correction | [C++ FEC comparison](#controlled-comparison-with-the-original-c-fec) |
 | Reproduction and scope | [Probes](#reproduce-on-another-machine) · [Hardware covered](#hardware-covered) |
 
@@ -5834,6 +5834,68 @@ wired policy and keyframe recovery.
 queue with other traffic, and Wi-Fi. A client whose bitrate is close to its
 port's speed (80 Mbps on 100) is paced above the port after the change (125
 Mbps); it recovered here, with the strip's small frames.
+
+## October 15: PyroWave SDK patches from Punktfunk
+
+Punktfunk (MIT OR Apache-2.0) builds PyroWave with local patches. Three of
+them concern the encoder the host uses, and each was checked against the SDK
+the host pins (`502a3b52`):
+
+| Punktfunk patch | Its measurement | Pinned SDK and host | Result |
+| --- | --- | --- | --- |
+| 0004, encoder buffer pool | Submit and fence wait at 5120×1440 from about 15 ms to 1 ms (RTX 4090) | `pyrowave_encoder_encode_gpu_inner` keeps the meta and bitstream buffers per frame context and reallocates only for a larger size. The patch targets the older `encode_gpu_synchronous_inner`, as Vibepollo's buffer-pool patch did for `186f0393`. | Not needed |
+| 0005, global-priority queue | Tighter encode tail beside a GPU-bound game (Linux) | `pyrowave_create_device_by_compat` takes a priority, and Granite falls back from REALTIME to HIGH to MEDIUM. The host asks for HIGH; the probe logs `requested=512 granted=512` on this card. | Not needed |
+| 0010, cached plane views | 0.15–0.25 ms of CPU per frame (RTX 5070 Ti) | `pyrowave_encoder_encode_gpu` still wraps three images and creates three image views on every call, and the host passes the same three planes every frame. | Ported as `0004-encoder-cached-plane-views` |
+
+The port keys a plane on an id the device gives each `pyrowave_image`, not on
+its `VkImage` handle as Punktfunk's does. A new capture format makes the host
+destroy its planes and create new ones, and `pyrowave_image_destroy` lets the
+old images be freed first. The ignored test
+`pyrowave_encoder_follows_rebuilt_planes` alternates two HDR source formats:
+in its seven rebuilds the driver gave 7 to 9 of the 21 new planes the handle
+of a destroyed one. No rebuild returned all three previous handles in order,
+which a handle-only key needs before it binds views of freed images, but
+nothing rules it out. Every frame decoded to its own picture (at least 40 dB
+per plane at 1 Gbps) and to the same pixels as the first encode of that
+picture, with and without the patch. PyroWave's own C API tests
+(`pyrowave-c-test`, `pyrowave-c-interop-test`: D3D11, D3D12 and Vulkan
+interop) pass with both builds, and `pyrowave_decoded_end_to_end` passes with
+the patch.
+
+Before and after are the same commit's SDK, built by
+`rust/tools/build_pyrowave.sh` with and without the new patch, under one
+probe build: `examples/performance.rs --codec pyrowave --synthetic 16 --fps
+120 --bitrate 1500000 --paced`, six seconds a run, three alternating runs a
+cell, on the RX 7900 XT and a Ryzen 7 5800X3D. Each run waited for an idle
+installed host, no isolated test host or end-to-end run, 3D load under 15%
+and free commit memory; other agents were compiling at times. The encode call
+covers conversion, encoding, the fence wait and packetization. Submit is the
+`pyrowave_encoder_encode_gpu` call alone, timed in that probe build only, and
+includes the first two seconds of paced warm-up.
+
+| Picture | Size | Encode call mean / p95, before → after (ms) | Submit mean / p95, before → after (ms) |
+| --- | --- | --- | --- |
+| SDR 4:2:0 | 1920×1080 | 1.20 / 1.40 → 1.05 / 1.27 | 0.173 / 0.261 → 0.177 / 0.280 |
+| SDR 4:2:0 | 2560×1440 | 1.22 / 1.48 → 1.27 / 1.52 | 0.175 / 0.255 → 0.175 / 0.298 |
+| SDR 4:2:0 | 5120×1440 | 1.58 / 1.81 → 1.62 / 1.88 | 0.159 / 0.247 → 0.152 / 0.222 |
+| HDR 4:4:4 | 1920×1080 | 1.14 / 1.33 → 1.17 / 1.35 | 0.183 / 0.323 → 0.164 / 0.255 |
+| HDR 4:4:4 | 2560×1440 | 1.57 / 1.81 → 1.50 / 1.75 | 0.180 / 0.257 → 0.178 / 0.262 |
+| HDR 4:4:4 | 5120×1440 | 1.86 / 2.16 → 1.68 / 1.90 | 0.170 / 0.308 → 0.185 / 0.308 |
+
+Frames filled the budget, about 1.57 MB, except 1080p HDR 4:4:4 at 1.35 MB.
+Run means of the encode call moved by 0.3 to 0.5 ms between runs of the same
+build, so no cell differs beyond that. To resolve the submit call, six
+alternating unpaced pairs at 1920×1080, about 9,000 to 11,000 frames a run:
+
+| Picture | Submit mean / p95, before → after (ms) | Pairs lower after |
+| --- | --- | --- |
+| SDR 4:2:0 | 0.185 / 0.283 → 0.187 / 0.288 | 4 of 6, mean difference +0.002 ms |
+| HDR 4:4:4 | 0.196 / 0.299 → 0.176 / 0.275 | 5 of 6, by 0.022 to 0.027 ms |
+
+On this machine the per-frame views cost at most about 0.02 ms of a 0.18 ms
+submit call, far from the 0.15–0.25 ms Punktfunk measured on NVIDIA, and the
+buffer pool has nothing left to win: the whole paced encode at 5120×1440 HDR
+4:4:4 takes 1.7 to 1.9 ms.
 
 ## Hardware covered
 

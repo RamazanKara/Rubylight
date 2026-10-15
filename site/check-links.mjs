@@ -38,7 +38,7 @@ async function check(file, value, attribute) {
       if (url.protocol !== 'https:') errors.push(label + ': insecure URL ' + value);
       if (attribute !== 'href') errors.push(label + ': external asset ' + value);
       external.add(value);
-      const repoPrefix = '/RamazanKara/nightjar-android/blob/main/';
+      const repoPrefix = '/RamazanKara/nightjar/blob/main/';
       if (url.hostname === 'github.com' && url.pathname.startsWith(repoPrefix)) {
         const repoFile = resolve(root, '..', decodeURIComponent(url.pathname.slice(repoPrefix.length)));
         await stat(repoFile);

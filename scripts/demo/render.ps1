@@ -12,7 +12,7 @@ $intro = 3.0
 $outro = 5.0
 $introFade = 0.5
 $outroFade = 0.8
-$repoUrl = 'github.com/RamazanKara/nightjar-android'
+$repoUrl = 'github.com/RamazanKara/nightjar'
 $tilePath = Join-Path $PSScriptRoot 'assets/nightjar-tile.png'
 
 # Palette: the Nightjar brand, an amber moon (#F2A93B) on flat night (#14161F) with ink text (#F4EFE6), as in the

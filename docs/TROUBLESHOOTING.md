@@ -73,6 +73,6 @@ On a paired host that supports it (Rubylight, or Vibepollo with PyroWave availab
 2. Open **Settings → App → Report a problem**, select **Share** and choose a receiving app in Android's share sheet.
 3. Attach **stream menu → Display → Overlay and diagnostics → Copy stats** and **Settings → Developer options → Export latency CSV** when relevant. Copy stats includes all Debug details.
 4. For pairing/host issues, long-press the PC, use **PC settings… → View details → Copy debug info**, and add the relevant host log.
-5. Describe what you did, what you expected and what occurred in a [Nightjar issue](https://github.com/RamazanKara/nightjar-android/issues).
+5. Describe what you did, what you expected and what occurred in a [Nightjar issue](https://github.com/RamazanKara/nightjar/issues).
 
 The report is a text file named `nightjar-problem.txt`. It contains up to 200 redacted events from the current app process, the last decoder configuration and the last saved crash record. Addresses, user-assigned host/device names, PINs, credentials and free-text diagnostic details are omitted. Nothing is uploaded automatically; sharing begins only when you choose a receiving app. Review separately copied host details/logs before sharing them.

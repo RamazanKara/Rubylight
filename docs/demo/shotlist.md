@@ -15,7 +15,7 @@ text enters the right 120 px.
 Intro: **NIGHTJAR** / **Your games. Your screen. Your stream.**
 
 Outro: **NIGHTJAR** / **Start your stream.** / **Get NIGHTJAR** /
-**Download on GitHub** / **github.com/RamazanKara/nightjar-android**
+**Download on GitHub** / **github.com/RamazanKara/nightjar**
 
 This table is the scripts' manifest. Keep the column order and IDs; IDs are
 stable, so gaps are expected (the presets and controller-mapping screens were

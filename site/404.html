@@ -21,7 +21,7 @@
   <script>
     // Pages serves this document at the missing URL, including nested paths.
     const segments = location.pathname.split('/').filter(Boolean);
-    const project = segments.indexOf('nightjar-android');
+    const project = segments.indexOf('nightjar');
     const directories = segments.length - (location.pathname.endsWith('/') ? 0 : 1);
     const depth = Math.max(0, directories - (project < 0 ? 0 : project + 1));
     const base = document.createElement('base');
@@ -52,7 +52,7 @@
   </main>
   <footer class="site-footer wrap">
     <div><a class="brand" href="index.html">NIGHTJAR</a><p>Your PC. Your stream.</p></div>
-    <nav aria-label="Footer navigation"><a href="docs.html">Documentation</a><a href="privacy.html">Privacy</a><a href="https://github.com/RamazanKara/nightjar-android">Source code</a></nav>
+    <nav aria-label="Footer navigation"><a href="docs.html">Documentation</a><a href="privacy.html">Privacy</a><a href="https://github.com/RamazanKara/nightjar">Source code</a></nav>
     <p class="footer-note">Built for Android. Free and open source.</p>
   </footer>
 </body>

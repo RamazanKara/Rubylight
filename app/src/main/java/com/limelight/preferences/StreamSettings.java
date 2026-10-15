@@ -1055,7 +1055,7 @@ public class StreamSettings extends AppCompatActivity {
                     .setMessage(getString(R.string.summary_about, BuildConfig.VERSION_NAME))
                     .setPositiveButton(android.R.string.ok, null)
                     .setNeutralButton(R.string.settings_source, (dialog, which) ->
-                            HelpLauncher.launchUrl(getActivity(), "https://github.com/RamazanKara/nightjar-android"))
+                            HelpLauncher.launchUrl(getActivity(), "https://github.com/RamazanKara/nightjar"))
                     .create();
             UiHelper.showDialog(getActivity(), about);
             // The message starts with the version: tapping it seven times shows Developer options.

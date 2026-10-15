@@ -7,7 +7,7 @@ body:
     attributes:
       value: |
         Please check the Nightjar troubleshooting guide first:
-        https://github.com/RamazanKara/nightjar-android/blob/main/docs/TROUBLESHOOTING.md
+        https://github.com/RamazanKara/nightjar/blob/main/docs/TROUBLESHOOTING.md
 
         Include the exact Android app and host versions, not just "latest".
         For pairing or discovery failures, choose "Not applicable" for gamepad questions.

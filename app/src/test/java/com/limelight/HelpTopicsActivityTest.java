@@ -42,7 +42,7 @@ public class HelpTopicsActivityTest {
                 Intent opened = shadowOf(page).getNextStartedActivity();
                 assertEquals(Intent.ACTION_VIEW, opened.getAction());
                 assertEquals(HelpTopicsActivity.DOCS_URL + link[1], opened.getDataString());
-                assertTrue(opened.getDataString().startsWith("https://github.com/RamazanKara/nightjar-android/blob/main/docs/"));
+                assertTrue(opened.getDataString().startsWith("https://github.com/RamazanKara/nightjar/blob/main/docs/"));
             }
             // The topics themselves need no network.
             assertNotNull(page.findViewById(R.id.help_report));

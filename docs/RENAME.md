@@ -26,8 +26,8 @@ reconfiguration and others) when a host advertises them. See the [host feature m
   `rubylight-*.json` exports still load.
 - **Code names.** `NightjarApplication`, the `Nightjar` theme styles, Wi-Fi lock tags, the Vulkan
   application name and the root evdev socket name.
-- **Repository and site.** `RamazanKara/nightjar-android` and
-  `https://ramazankara.github.io/nightjar-android/`.
+- **Repository and site.** `RamazanKara/nightjar` and
+  `https://ramazankara.github.io/nightjar/`.
 - **CI and scripts.** Artifacts `nightjar-debug` and `nightjar-device-test`, the prerelease APK
   `nightjar-arm64-debug.apk`, and the smoke-test variables `NIGHTJAR_AVD`,
   `NIGHTJAR_EMULATOR_GPU` and `NIGHTJAR_BOOT_TIMEOUT` (the old `RUBYLIGHT_*`/`BUTTERPOLLO_*`
@@ -58,10 +58,10 @@ pairing `devicename` and `uniqueid`, and RTSP `X-GS-ClientVersion`.
 
 ## Old URLs
 
-GitHub redirects the old repository names (`butterpollo-android`, `rubylight-android`) to
-`nightjar-android`. Never create a new repository under an old name, or the redirect stops.
+GitHub redirects the old repository names (`butterpollo-android`, `rubylight-android`,
+`nightjar-android`) to `nightjar`. Never create a new repository under an old name, or the redirect stops.
 
-GitHub Pages does not redirect: the site moves from
-`https://ramazankara.github.io/rubylight-android/` to
-`https://ramazankara.github.io/nightjar-android/`, so the Play Console privacy policy URL must be
+GitHub Pages does not redirect: the site moved from
+`https://ramazankara.github.io/rubylight-android/` (and briefly `/nightjar-android/`) to
+`https://ramazankara.github.io/nightjar/`, so the Play Console privacy policy URL must be
 updated after the site is republished (see [store readiness](../internal/STORE-READINESS.md)).

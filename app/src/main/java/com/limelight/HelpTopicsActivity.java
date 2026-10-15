@@ -13,7 +13,7 @@ import com.limelight.utils.UiHelper;
 
 /** Help bundled with the app, so it works offline; each topic links to the web documentation for detail. */
 public class HelpTopicsActivity extends AppCompatActivity {
-    static final String DOCS_URL = "https://github.com/RamazanKara/nightjar-android/blob/main/docs/";
+    static final String DOCS_URL = "https://github.com/RamazanKara/nightjar/blob/main/docs/";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {

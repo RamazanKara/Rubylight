@@ -4,7 +4,7 @@
 
 ## Install a published or development build
 
-Get published APKs from [Nightjar releases](https://github.com/RamazanKara/nightjar-android/releases), or build one yourself as described below. Open the APK on Android 5.0 or newer and allow installation from the app opening it; no root is needed. With USB debugging enabled, `adb install -r app-nonRoot-debug.apk` also installs it.
+Get published APKs from [Nightjar releases](https://github.com/RamazanKara/nightjar/releases), or build one yourself as described below. Open the APK on Android 5.0 or newer and allow installation from the app opening it; no root is needed. With USB debugging enabled, `adb install -r app-nonRoot-debug.apk` also installs it.
 
 Updates require the same signing key. Debug APKs built on different machines use different keys; changing keys requires uninstalling the old app, which removes settings and pairing identity. The normal package ID remains `com.butterpollo.client`; debug builds use `com.butterpollo.client.debug` and a `(Debug)` label.
 
@@ -17,8 +17,8 @@ The SDK Manager package for compile SDK 37 is `platforms;android-37.0`, not `pla
 Clone the Android repository with its native submodules:
 
 ```sh
-git clone --recurse-submodules https://github.com/RamazanKara/nightjar-android.git
-cd nightjar-android
+git clone --recurse-submodules https://github.com/RamazanKara/nightjar.git
+cd nightjar
 ```
 
 For an existing checkout:

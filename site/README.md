@@ -12,7 +12,7 @@ From the repository worktree:
 & C:\nodejs\node.exe site/preview.mjs
 ```
 
-Open http://127.0.0.1:4317/nightjar-android/. The project prefix mirrors
+Open http://127.0.0.1:4317/nightjar/. The project prefix mirrors
 GitHub Pages. Stop the server with Ctrl+C. Unknown paths serve the custom
 404 page, including nested paths.
 
@@ -79,7 +79,7 @@ No custom Actions workflow is used.
 ```powershell
 $siteSource = (Resolve-Path ./site).Path
 $pagesFolder = Join-Path $env:TEMP ('nightjar-pages-' + [guid]::NewGuid().ToString('N'))
-$pagesRemote = 'https://github.com/RamazanKara/nightjar-android.git'
+$pagesRemote = 'https://github.com/RamazanKara/nightjar.git'
 
 git init --initial-branch=gh-pages $pagesFolder
 Get-ChildItem -LiteralPath $siteSource -Force |
@@ -101,17 +101,17 @@ Enable branch-based Pages using an authenticated repository administrator
 account:
 
 ```powershell
-gh api --method POST repos/RamazanKara/nightjar-android/pages -f build_type=legacy -f "source[branch]=gh-pages" -f "source[path]=/"
+gh api --method POST repos/RamazanKara/nightjar/pages -f build_type=legacy -f "source[branch]=gh-pages" -f "source[path]=/"
 ```
 
 When Pages already exists, update its source:
 
 ```powershell
-gh api --method PUT repos/RamazanKara/nightjar-android/pages -f build_type=legacy -f "source[branch]=gh-pages" -f "source[path]=/"
-gh api repos/RamazanKara/nightjar-android/pages --jq .html_url
+gh api --method PUT repos/RamazanKara/nightjar/pages -f build_type=legacy -f "source[branch]=gh-pages" -f "source[path]=/"
+gh api repos/RamazanKara/nightjar/pages --jq .html_url
 ```
 
-The published site is https://ramazankara.github.io/nightjar-android/.
+The published site is https://ramazankara.github.io/nightjar/.
 `.nojekyll` keeps the published directory static. The Pages API source and
 `legacy` build type are documented in the
 [GitHub Pages REST API](https://docs.github.com/en/rest/pages/pages#create-a-github-pages-site).

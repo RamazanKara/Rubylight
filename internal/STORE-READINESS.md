@@ -15,7 +15,7 @@ what a first Play upload needs. Updated 2026-10-13. This is not a claim that the
 | Store title, short and full description, 0.4.6 changelog (EN and DE) | `fastlane/metadata/android/{en-US,de}` |
 | Icon 512 px, feature graphic 1024x500, TV banner | `fastlane/metadata/android/en-US/images` |
 | Phone screenshots (1080x1920 and 1920x1080, from demo-mode captures) | `fastlane/metadata/android/en-US/images/phoneScreenshots`, made by `scripts/store/store-screenshots.py` |
-| Privacy policy | [PRIVACY.md](../docs/PRIVACY.md), published at `https://ramazankara.github.io/nightjar-android/privacy.html` once the repository is renamed to `nightjar-android` and Pages is republished (previously `https://ramazankara.github.io/rubylight-android/privacy.html`, which GitHub does not redirect) |
+| Privacy policy | [PRIVACY.md](../docs/PRIVACY.md), published at `https://ramazankara.github.io/nightjar/privacy.html` once the repository is renamed to `nightjar` and Pages is republished (previously `https://ramazankara.github.io/rubylight-android/privacy.html`, which GitHub does not redirect) |
 | Draft answers for Data safety and content rating | [PLAY-DATA-SAFETY.md](PLAY-DATA-SAFETY.md) |
 
 Store screenshots: the demo mode plays a local sample video and its performance overlay shows
@@ -33,7 +33,7 @@ illustrative values. Regenerate the stills with `scripts/demo/capture-stills.ps1
    connection); both send only the device's public IP address and protocol traffic.
 5. Enter the privacy policy URL above, choose countries, and start with an internal or closed test track.
    If the Play entry was already created with the old `rubylight-android` URL, update it to the
-   `nightjar-android` one after the site is republished.
+   `nightjar` one after the site is republished.
 
 ## Not done yet
 

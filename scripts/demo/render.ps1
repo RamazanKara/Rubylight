@@ -456,10 +456,11 @@ try {
         "measured_LRA=$($levels.input_lra):measured_thresh=$($levels.input_thresh):offset=$($levels.target_offset):linear=true:print_format=json"
     Invoke-FFmpeg @('-i', 'music-raw.wav', '-af', $normalize, '-ar', '48000', '-c:a', 'pcm_s24le', 'music.wav') 'loudness-normalized'
 
-    # Eight review frames per video: both title cards and a mid-shot frame of six shots, including both stream shots
-    # (the part of the picture most likely to collide with the sample's own text) and picture-in-picture.
-    $review = @(@('intro', 1.8), @('01-launch', 2.0), @('04-library', 2.5), @('05-stream', 3.5), @('06-compact', 3.0),
-        @('09-upscaling', 2.5), @('12-pip', 5.3), @('outro', 2.5))
+    # Ten review frames per video: both title cards and a frame of every shot, including the stream shots (the part of
+    # the picture most likely to collide with the sample's own text), the scrolled PC settings and stream menu, and
+    # picture-in-picture.
+    $review = @(@('intro', 1.8), @('01-launch', 2.0), @('14-pc-settings', 5.0), @('04-library', 2.5), @('05-stream', 3.5),
+        @('06-compact', 3.0), @('15-stream-menu', 5.0), @('09-upscaling', 2.5), @('12-pip', 5.3), @('outro', 2.5))
     foreach ($format in @('16x9', '9x16')) {
         $final = Join-Path $output "demo-$format.mp4"
         Invoke-FFmpeg @('-i', "$format-picture.mp4", '-i', 'music.wav', '-map', '0:v:0', '-map', '1:a:0',
@@ -485,6 +486,6 @@ try {
             Invoke-FFmpeg @('-ss', (Number $time), '-i', $final, '-frames:v', '1', '-update', '1', (Join-Path $frames $name)) "$format-frame-$number"
         }
         Invoke-FFmpeg @('-i', $final, '-vn', '-af', 'loudnorm=I=-20:TP=-2:LRA=7:print_format=json', '-f', 'null', '-') "$format-audio-check"
-        Write-Host "Exported $final and eight review frames"
+        Write-Host "Exported $final and $($review.Count) review frames"
     }
 } finally { Pop-Location; $tile.Dispose() }

@@ -33,16 +33,16 @@ function Find-FFmpeg {
 
 # Labels the capture looks up that differ per app language (Set-CaptureLocale switches them).
 $script:labels = @{ 'Presets' = 'Presets'; 'Native preset' = 'Native (recommended)'; 'Display & image' = 'Display & image'
-    'Client-side upscaling' = 'Client-side upscaling' }
+    'Client-side upscaling' = 'Client-side upscaling'; 'Display on the PC' = 'Display on the PC' }
 
 function Set-CaptureLocale([string]$Locale) {
     # Per-app language (Android 13+), so the system UI and launcher stay as they are.
     $null = Invoke-Adb @('shell', 'cmd', 'locale', 'set-app-locales', $package, '--user', '0', '--locales', $Locale)
     $script:labels = switch ($Locale) {
         'de' { @{ 'Presets' = 'Vorgaben'; 'Native preset' = 'Nativ (empfohlen)'; 'Display & image' = 'Display und Bild'
-            'Client-side upscaling' = 'Hochskalierung auf dem Gerät' } }
+            'Client-side upscaling' = 'Hochskalierung auf dem Gerät'; 'Display on the PC' = 'Anzeige am PC' } }
         default { @{ 'Presets' = 'Presets'; 'Native preset' = 'Native (recommended)'; 'Display & image' = 'Display & image'
-            'Client-side upscaling' = 'Client-side upscaling' } }
+            'Client-side upscaling' = 'Client-side upscaling'; 'Display on the PC' = 'Display on the PC' } }
     }
 }
 
@@ -150,6 +150,8 @@ function Open-DemoState([string]$State) {
             Start-Sleep -Milliseconds 700
         }
         'controller' { $null = Find-Ui 'Demo wireless controller' }
+        # Living-room PC's settings: the Save bar is at the bottom of the screen whatever the app language.
+        'pc-settings' { $null = Find-Ui "${package}:id/host_profile_save"; Start-Sleep -Milliseconds 700 }
         'upscaling' {
             Tap-Ui $script:labels['Display & image'] -Scroll
             Tap-Ui $script:labels['Client-side upscaling'] -Scroll
@@ -223,6 +225,49 @@ function Enter-DemoPip {
         }
     }
     throw 'PiP did not open. Use an Android 8+ phone/emulator with PiP support enabled.'
+}
+
+function Open-StreamMenu {
+    # Back opens the stream menu, as in a real stream. A Back can instead close the emulator's input method, so check.
+    for ($attempt = 0; $attempt -lt 3; $attempt++) {
+        $null = Invoke-Adb @('shell', 'input', 'keyevent', 'KEYCODE_BACK')
+        Start-Sleep -Milliseconds 900
+        if ((Get-Ui).SelectSingleNode("//node[@resource-id='${package}:id/action_sheet_close']")) {
+            Start-Sleep -Milliseconds 500
+            return
+        }
+    }
+    throw 'The stream menu did not open; inspect out/demo/capture/last-ui.xml.'
+}
+
+function Show-StreamMenuSections {
+    # From the top of the open menu (quick toggles, Input), two slow strokes scroll it to Quality (Set bitrate, Automatic
+    # stream quality, Automatic bitrate) with Host below. The swipes are for the 2400x1080 landscape stream. Slow strokes
+    # barely fling, so the sheet stops near the same place every take; one shell call keeps the strokes close together.
+    $null = Invoke-Adb @('shell', 'input swipe 1260 1050 1260 250 800; input swipe 1260 1050 1260 250 800')
+}
+
+function Set-PcSettingsStart {
+    # Before recording: one fling brings Display on the PC up, then drags too slow to fling put its header 480 px from the
+    # top, with the end of the Video group above it and the Connection header below.
+    $label = $script:labels['Display on the PC']
+    $null = Invoke-Adb @('shell', 'input', 'swipe', '540', '1900', '540', '400', '380')
+    Start-Sleep -Milliseconds 1200
+    for ($attempt = 0; $attempt -lt 5; $attempt++) {
+        $offset = (Get-Bounds (Find-Ui $label))[1] - 480
+        if ([Math]::Abs($offset) -le 30) { Start-Sleep -Milliseconds 600; return }
+        # Dragging up scrolls down; the list first takes up the touch slop.
+        $distance = [Math]::Min([Math]::Abs($offset) + 24, 1200)
+        if ($offset -gt 0) { $from = 1700; $to = 1700 - $distance } else { $from = 500; $to = 500 + $distance }
+        $null = Invoke-Adb @('shell', 'input', 'swipe', '540', "$from", '540', "$to", "$([Math]::Max(1200, $distance * 4))")
+        Start-Sleep -Milliseconds 900
+    }
+    throw "Could not place '$label' for the PC settings shot; inspect out/demo/capture/last-ui.xml."
+}
+
+function Show-PcSettingsEnd {
+    # Two flicks reach the end of the list, where it stops every take: Connection and Host.
+    $null = Invoke-Adb @('shell', 'input swipe 540 1900 540 400 250; input swipe 540 1900 540 400 250')
 }
 
 function Initialize-Capture([string]$Theme = 'dark') {

@@ -8,7 +8,7 @@ $states = [ordered]@{
     'pc-list' = 'hosts'; 'library' = 'library'; 'stream' = 'stream';
     'stream-compact' = 'compact'; 'stream-advanced' = 'advanced';
     'settings-presets' = 'settings'; 'upscaling-options' = 'upscaling';
-    'controller' = 'controller'; 'touch-controller' = 'touch'; 'pip' = 'pip'
+    'controller' = 'controller'; 'touch-controller' = 'touch'; 'pip' = 'pip'; 'pc-settings' = 'pc-settings'
 }
 try {
     Initialize-Capture $Theme
@@ -32,9 +32,11 @@ try {
     # Landscape stream stills: the sample fills the screen and the real on-screen controller is laid out for it.
     Set-Orientation $true
     foreach ($shot in ([ordered]@{ 'landscape-stream' = 'stream'; 'landscape-compact' = 'compact';
-            'landscape-advanced' = 'advanced'; 'landscape-touch' = 'touch' }).GetEnumerator()) {
+            'landscape-advanced' = 'advanced'; 'landscape-touch' = 'touch'; 'landscape-stream-menu' = 'menu' }).GetEnumerator()) {
         if ($Only -and $shot.Key -notin $Only) { continue }
-        Open-DemoState $shot.Value
+        Open-DemoState $(if ($shot.Value -eq 'menu') { 'compact' } else { $shot.Value })
+        # The stream menu scrolled to its Quality and Host sections, as in the video's stream menu shot.
+        if ($shot.Value -eq 'menu') { Open-StreamMenu; Show-StreamMenuSections }
         Start-Sleep -Milliseconds 3500
         $path = Join-Path $output "$($shot.Key).png"
         $null = Invoke-Adb @('shell', 'screencap', '-p', "$remote/still.png")

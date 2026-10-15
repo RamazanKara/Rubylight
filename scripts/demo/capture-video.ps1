@@ -12,7 +12,7 @@ $shots = @(Get-Content (Join-Path $root 'docs/demo/shotlist.md') | ForEach-Objec
 # Stream shots are recorded in landscape so the sample fills the screen (in portrait it is a thin strip between black bars).
 $ffmpeg = Find-FFmpeg
 $ffprobe = Join-Path (Split-Path -Parent $ffmpeg) 'ffprobe.exe'
-$landscapeShots = @('05-stream', '06-compact', '07-advanced', '11-touch', '13-performance')
+$landscapeShots = @('05-stream', '06-compact', '07-advanced', '11-touch', '13-performance', '15-stream-menu')
 if ($Shot) {
     foreach ($id in $Shot) {
         if ($id -notin $shots.Id) { throw "Unknown shot: $id" }
@@ -35,8 +35,12 @@ try {
         } elseif ($take.Id -eq '05-stream') {
             Open-DemoState 'library'
             $node = Find-Ui 'Racing Game' -Scroll
-        } else { Open-DemoState $(if ($take.State -eq 'toggle') { 'compact' } else { $take.State }) }
+        } else { Open-DemoState $(if ($take.State -in @('toggle', 'menu')) { 'compact' } else { $take.State }) }
         if ($landscape) { Start-Sleep -Seconds 2 }
+        # The stream menu shot opens on the menu, and the PC settings shot on the Display on the PC group, placed before
+        # recording where the position can be checked; on camera they only hold and scroll.
+        if ($take.State -eq 'menu') { Open-StreamMenu }
+        if ($take.State -eq 'pc-settings') { Set-PcSettingsStart }
         $seconds = $take.Seconds + 2
         $remoteClip = "$remote/$($take.Id).mp4"
         $recording = Start-Process -FilePath $adb -ArgumentList @('shell', 'screenrecord',
@@ -49,6 +53,8 @@ try {
             Start-Sleep -Seconds 1
             if ($node) { Tap-Node $node; Hide-Ime -WaitForShow }
             if ($take.State -eq 'pip') { Enter-DemoPip }
+            if ($take.State -eq 'menu') { Start-Sleep -Milliseconds 1200; Show-StreamMenuSections }
+            if ($take.State -eq 'pc-settings') { Start-Sleep -Milliseconds 2200; Show-PcSettingsEnd }
             if ($take.State -eq 'toggle') {
                 # Show both overlay modes: after the compact pill has been on screen for a while, long-press it, which is how the app
                 # switches to the advanced list (the pill is top centre in landscape).

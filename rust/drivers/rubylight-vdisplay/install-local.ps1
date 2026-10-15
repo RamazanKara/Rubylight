@@ -92,6 +92,18 @@ function Protect-Catalog([string] $catalog) {
     $signer
 }
 
+# Why Windows will not load a driver signed on this PC, or nothing: Smart App Control (on, not
+# evaluating), S mode, or an App Control for Business (WDAC) policy enforcing user-mode code
+# integrity. Each admits only publishers it already knows, never a certificate made here.
+function Get-Refusal {
+    $policy = Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\CI\Policy' -ErrorAction SilentlyContinue
+    if ($policy.VerifiedAndReputablePolicyState -eq 1) { return 'Smart App Control is on' }
+    if ($policy.SkuPolicyRequired -eq 1) { return 'Windows runs in S mode' }
+    $guard = Get-CimInstance -Namespace root\Microsoft\Windows\DeviceGuard -ClassName Win32_DeviceGuard -ErrorAction SilentlyContinue
+    if ($guard.UsermodeCodeIntegrityPolicyEnforcementStatus -eq 2) { return 'an App Control policy enforces signed code' }
+}
+$script:unsupported = $null
+
 function Install-Package {
     $recorded = Get-ItemProperty $state -ErrorAction SilentlyContinue
     $previous = $recorded.LocalSigner
@@ -111,6 +123,12 @@ function Install-Package {
     $catalog = Join-Path $Package 'rubylight_vdisplay.cat'
     $status = (Get-AuthenticodeSignature -LiteralPath $catalog).Status
     if ($status -notin 'NotSigned', 'Valid') { throw "$catalog has a signature Windows rejects ($status)" }
+    $refusal = if ($status -eq 'NotSigned') { Get-Refusal }
+    if ($refusal) {
+        # Before any certificate exists: nothing to undo, and setup names the cause.
+        $script:unsupported = "This PC refuses a display driver signed on the PC ($refusal). A signed Rubylight release installs it; until then streams use a physical display."
+        return
+    }
     $work = Join-Path ([IO.Path]::GetTempPath()) "rubylight-vdisplay-$([guid]::NewGuid())"
     New-Item -ItemType Directory $work | Out-Null
     foreach ($extension in 'inf', 'dll', 'cat') { Copy-Item -LiteralPath (Join-Path $Package "rubylight_vdisplay.$extension") $work }
@@ -175,6 +193,10 @@ function Install-Package {
 
 try {
     Install-Package
+    if ($script:unsupported) {
+        if (-not $InstallerBestEffort) { throw $script:unsupported }
+        Write-Warning "[RubylightVirtualDisplay] DRIVER_UNSUPPORTED: $script:unsupported"
+    }
 } catch {
     if (-not $InstallerBestEffort) { throw }
     Write-Warning '[RubylightVirtualDisplay] DRIVER_WARNING: Rubylight display driver setup did not complete.'

@@ -225,6 +225,13 @@ class Signing(unittest.TestCase):
         # signer lost its trust: the device must end on the package just
         # added, found by its INF's hash.
         self.assertIn('(Get-CurrentPackage) -ne $ours', installer)
+        # Smart App Control, S mode and App Control (WDAC) refuse a driver
+        # signed on the PC: setup says so instead of a generic failure, before
+        # any certificate is made.
+        for check in ('VerifiedAndReputablePolicyState -eq 1', 'SkuPolicyRequired -eq 1',
+                      'UsermodeCodeIntegrityPolicyEnforcementStatus -eq 2', 'DRIVER_UNSUPPORTED: '):
+            self.assertIn(check, installer)
+        self.assertLess(installer.index('$refusal = if'), installer.index('Protect-Catalog (Join-Path $work'))
         self.assertIn("Get-Packages | Where-Object { $_ -ne $ours }", installer)
 
 

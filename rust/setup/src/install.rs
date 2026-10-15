@@ -1042,7 +1042,17 @@ fn run_driver_script(script: &Path, args: &[&str], notes: &mut Vec<String>, name
     driver_result(code, &output, notes, name)
 }
 fn driver_result(code: i32, output: &str, notes: &mut Vec<String>, name: &str) -> bool {
-    if output.contains("DRIVER_WARNING") || !matches!(code, 0 | 3010) {
+    // This PC refuses the driver as packaged (Smart App Control, S mode, an
+    // App Control policy): the script says why and what fixes it, and
+    // retrying cannot.
+    if let Some(reason) = output
+        .lines()
+        .find_map(|line| line.split_once("DRIVER_UNSUPPORTED: "))
+        .map(|(_, reason)| reason.trim())
+        .filter(|reason| !reason.is_empty())
+    {
+        notes.push(format!("The {name} driver was not installed: {reason}"));
+    } else if output.contains("DRIVER_WARNING") || !matches!(code, 0 | 3010) {
         // The scripts name what failed: a blocked certificate or catalog, a
         // tool an antivirus stopped, a DriverStore that kept an old copy.
         let after = |marker: &str| {
@@ -1443,6 +1453,18 @@ mod tests {
         assert!(!is_nsis(&other));
         assert!(!is_nsis(&folder.path().join("missing.exe")));
         Ok(())
+    }
+    #[test]
+    fn a_pc_that_refuses_the_locally_signed_driver_gets_a_note_naming_why() {
+        let mut notes = Vec::new();
+        let output = "WARNUNG: [RubylightVirtualDisplay] DRIVER_UNSUPPORTED: This PC refuses a display driver signed on the PC (Smart App Control is on). A signed Rubylight release installs it; until then streams use a physical display.\n";
+        assert!(!driver_result(0, output, &mut notes, "virtual display"));
+        assert_eq!(
+            notes,
+            [
+                "The virtual display driver was not installed: This PC refuses a display driver signed on the PC (Smart App Control is on). A signed Rubylight release installs it; until then streams use a physical display."
+            ]
+        );
     }
     #[test]
     fn a_failed_libvirtualdisplay_removal_is_a_note_about_removing_it() {

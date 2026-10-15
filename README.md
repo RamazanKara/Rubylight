@@ -77,7 +77,7 @@ Rubylight is built for Radeon. NVIDIA NVENC, Intel Quick Sync and software encod
 
 [![Picture age beside a game: Rubylight 2.2.9 against Vibepollo 2.0.](docs/media/gaming-latency.svg)](docs/performance.md#october-12-229-measurements)
 
-- **Above 60 when your device asks.** A device that launches at 60 fps and asks for 120 got **120.0 fps** on a virtual display (2.3.0: 60.0); 120 → 240 got **240.0 fps**, at the bitrate the device set.
+- **High refresh, on request.** A device that launches at 60 fps and asks for 120, as Artemis's Warp modes do, gets **120.0 fps** on its virtual display, and 120 → 240 gets **240.0 fps**, at the bitrate the device set.
 - **Over Wi-Fi to a real laptop.** A rendered picture reached a Radeon 780M laptop on 5 GHz Wi-Fi in **13.5 ms** on average at 1968×2184 AV1 HDR, 120 fps. [Method →](rust/PERFORMANCE_WORK.md#october-8-real-client-picture-age-over-wi-fi-rc24-laptop)
 - **Next to Vibepollo 2.0.** On the same GPU with identical settings, pictures arrived **7.4 ms sooner** on average beside a game, and p95 picture age fell by 43–48%. With no game running the two were close. [Runs and settings →](rust/PERFORMANCE_WORK.md#rc24-against-vibepollo-20-on-the-same-gpu)
 - **Stock Moonlight.** Moonlight 6.2.0 rendered **59.99 fps** in two 165-second 1080p60 HEVC sessions over Wi-Fi. [Results →](rust/PERFORMANCE_WORK.md#stock-moonlight-620-over-wi-fi-october-12)

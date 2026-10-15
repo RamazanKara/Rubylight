@@ -61,6 +61,7 @@ async function fixture(t, options = {}) {
     if (url.pathname === '/api/display-devices') return reply([]);
     if (url.pathname === '/api/apps') return reply({ apps: [] });
     if (url.pathname === '/api/session/status') return reply({ activeSessions: 0, appRunning: false });
+    if (url.pathname === '/api/rtsp/sessions') return reply({ status: true, sessions: options.streams || [] });
     if (url.pathname === '/api/logs/tail') return reply({ offset: 0, text: '', reset: false });
     if (url.pathname === '/api/updates') return reply({
       releases: [], checked_at: 0, auto_update: true, update_check_interval: 0,
@@ -366,4 +367,45 @@ test('choosing a settings category from the keyboard keeps focus on that categor
   await page.waitForURL(base + '/settings/network');
   await page.waitForTimeout(100);
   assert.equal(await network.evaluate(element => element === document.activeElement), true);
+});
+
+test('the stream card shows present to sent across the metrics, also on a phone', async t => {
+  const spread = (mean_ms, p99_ms) => ({ mean_ms, p95_ms: p99_ms, p99_ms });
+  const stream = {
+    uuid: 'stream', device_name: 'Living room', role: 'stream', state: 'RUNNING', width: 2560, height: 1440,
+    fps: 120, video_format: 1, hdr: false, vrr: false, encoder: 'amf', encoder_bitrate_kbps: 50_000,
+    pyrowave_minimum_kbps: null, pyrowave_recommended_kbps: null, audio_channels: 2, frames_sent: 1200,
+    bytes_sent: 0, idr_requests: 1, uptime_seconds: 10, warnings: [],
+    performance: {
+      fps: 120, bitrate_mbps: 30, encode_mean_ms: 3, encode_p95_ms: 3.3, encode_p99_ms: 3.5,
+      host_processing_mean_ms: 3.29, host_processing_p95_ms: 3.6, host_processing_p99_ms: 3.99,
+      host_processing_max_ms: 4.4, frame_age_mean_ms: 0.7, frame_age_p95_ms: 1.2, present_to_send_mean_ms: 4.3,
+      send_interval_p99_ms: 9, sample_frames: 240, history: [],
+      stages: { frames: 600, window_seconds: 5, present_to_sent: spread(4.26, 7.46), moonlight_host: spread(3.29, 3.99) },
+    },
+  };
+  const { page } = await fixture(t, { streams: [stream] });
+  await page.goto(base + '/');
+  const card = page.getByRole('article', { name: 'Stream to Living room' });
+  const label = card.getByText('Present to sent', { exact: true });
+  await label.waitFor();
+  const row = label.locator('xpath=..');
+  assert.match(await row.innerText(), /4\.3 ms[\s\S]*Windows' present to the last packet sent[\s\S]*99% below 7\.5 ms/);
+  // The end-to-end figure gets the whole width of the metrics, not a fifth column.
+  const grid = await card.locator('dl.metrics').boundingBox();
+  const cell = await row.boundingBox();
+  const single = await card.getByText('Frame rate', { exact: true }).locator('xpath=..').boundingBox();
+  // Within the metrics' 1px border.
+  assert(cell.width >= grid.width - 3 && cell.width > single.width * 3, `row ${cell.width}px, metrics ${grid.width}px`);
+  if (process.env.BUTTERPOLLO_TEST_ARTIFACTS) {
+    await card.screenshot({ path: path.join(process.env.BUTTERPOLLO_TEST_ARTIFACTS, 'stream-card-desktop.png') });
+  }
+  await page.setViewportSize({ width: 390, height: 844 });
+  await row.scrollIntoViewIfNeeded();
+  assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+  const narrow = await row.boundingBox();
+  assert(narrow.width <= 390);
+  if (process.env.BUTTERPOLLO_TEST_ARTIFACTS) {
+    await card.screenshot({ path: path.join(process.env.BUTTERPOLLO_TEST_ARTIFACTS, 'stream-card-mobile.png') });
+  }
 });

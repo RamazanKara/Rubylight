@@ -163,10 +163,11 @@ impl Sender {
                 let age = micros(claimed.saturating_duration_since(captured));
                 let dequeued = Instant::now();
                 let queue_wait = micros(dequeued.saturating_duration_since(polled));
-                // Moonlight's host latency runs from the picture's present
-                // stamp to the packet, as Sunshine's and punktfunk's do; a
-                // static repeat has none and starts at the claim.
-                let processing = micros(dequeued.saturating_duration_since(claim.map_or(claimed, |c| c.presented)));
+                // Moonlight's host latency runs from the claim to this
+                // dequeue: where punktfunk's runs (`cap_at`, its encode loop's
+                // tick, to its packetizer thread). Present to sent covers the
+                // whole span.
+                let processing = micros(dequeued.saturating_duration_since(claim.map_or(claimed, |c| c.claimed)));
                 let stamp = present_stamper.as_mut().map_or(captured, |stamper| stamper.stamp(captured, &s.output.read().unwrap())).max(last_stamp + Duration::from_nanos(11_112));
                 last_stamp = stamp;
                 // Wrap like the previous host; a saturating cast

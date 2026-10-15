@@ -883,15 +883,16 @@ fn the_sender_thread_records_where_a_new_pictures_time_went() {
         .sum();
     assert!((parts - ms("present_to_sent")).abs() < 0.01);
     assert!(ms("present_to_sent") >= 6.);
-    // Moonlight's field for the same picture runs from its present stamp to
-    // this sender's dequeue, inside the queue stage, so it leaves out only
-    // the rest of the queue, packetizing and the send.
-    assert!(ms("moonlight_host") >= 6.);
-    assert!(ms("moonlight_host") < ms("present_to_sent"));
-    assert!(
-        ms("present_to_sent") - ms("moonlight_host")
-            <= ms("queue") + ms("packetize") + ms("send") + 0.01
-    );
+    // Moonlight's field for the same picture runs as punktfunk's does, from
+    // the claim (3 ms ago) to this sender's dequeue, inside the queue stage:
+    // it leaves out capture, hold and the wait for the claim before it, and
+    // the rest of the queue, packetizing and the send after it.
+    assert!(ms("moonlight_host") >= 3.);
+    assert!(ms("moonlight_host") < 6.);
+    let before = ms("capture") + ms("hold") + ms("claim");
+    let gap = ms("present_to_sent") - ms("moonlight_host");
+    assert!(gap >= before - 0.01, "{gap} < {before}");
+    assert!(gap <= before + ms("queue") + ms("packetize") + ms("send") + 0.01);
     // The client that asked hears the whole span for the new picture alone,
     // numbered as its packets are, with the same stages.
     let report = session.host_timings.lock().unwrap().take_report().unwrap();

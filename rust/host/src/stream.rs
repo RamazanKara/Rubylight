@@ -1507,10 +1507,12 @@ impl Media {
                             let captured = frame.presentation.unwrap_or(claimed);
                             let age = micros(claimed.saturating_duration_since(captured));
                             let claim = claims.borrow_mut().take(frame.presentation);
-                            // Moonlight's host latency runs from the picture's present
-                            // stamp to the packet, as Sunshine's and punktfunk's do; a
-                            // static repeat has none and starts at the claim.
-                            let processing = micros(Instant::now().saturating_duration_since(claim.map_or(claimed, |c| c.presented)));
+                            // Moonlight's host latency runs from the claim, when the
+                            // stream thread takes the newest picture to encode, to the
+                            // packet: where punktfunk's runs (`cap_at`, its encode
+                            // loop's tick, to its packetizer). Present to sent covers
+                            // the whole span.
+                            let processing = micros(Instant::now().saturating_duration_since(claim.map_or(claimed, |c| c.claimed)));
                             let stamp_started = Instant::now();
                             let stamp = present_stamper.as_mut().map_or(captured, |stamper| stamper.stamp(captured, &prepared.output())).max(last_stamp + Duration::from_nanos(11_112));
                             let stamp_time = stamp_started.elapsed();

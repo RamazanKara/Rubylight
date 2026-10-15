@@ -16,6 +16,7 @@ Stream your PC games and desktop to the Android screen you want to use. Nightjar
 | Build and sign an APK | [Building](building.md) |
 | Launch games from ES-DE, Daijisho or Pegasus | [Frontends](FRONTENDS.md) |
 | Find a short answer | [FAQ](faq.md) |
+| Translate Nightjar or fix a translation | [Translations](TRANSLATIONS.md#help-translate) |
 
 Development references: [host feature matrix](PARITY-MATRIX.md), [October 2026 audit and remaining gaps](android-audit-2026-10.md), [rename history](RENAME.md) and [documentation checks](building.md#documentation-checks).
 

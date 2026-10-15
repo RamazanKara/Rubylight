@@ -76,7 +76,7 @@ Review both portrait overlays before the device pass. Emulator checks do not est
 | `:app:bundleNonRootRelease` | `app/build/outputs/bundle/nonRootRelease/app-nonRoot-release.aab` |
 | Root equivalents | Replace `NonRoot` with `Root` in task names and `nonRoot` with `root` in output paths. |
 
-Release builds enable R8 shrinking. The source namespace remains `com.limelight`; it is distinct from the Android package ID. English and German are the packaged locales.
+Release builds enable R8 shrinking. The source namespace remains `com.limelight`; it is distinct from the Android package ID. The packaged locales are listed in `localeFilters` in `app/build.gradle` and in `app/src/main/res/xml/locales_config.xml`; see [translations](TRANSLATIONS.md).
 
 ## Release signing
 

@@ -50,6 +50,7 @@
 - Phones, foldables, tablets and Android TV with D-pad navigation, plus picture-in-picture
 - Launcher entries for ES-DE, Daijisho and Pegasus
 - Built-in help that works offline, and problem reports that stay on your phone until you share them
+- In 15 languages; native speakers can [help translate](docs/TRANSLATIONS.md#help-translate)
 - No ads, no analytics, no accounts
 
 See the [host feature matrix](docs/PARITY-MATRIX.md) for exactly what each host provides.
@@ -68,6 +69,6 @@ Coming from Rubylight Android? Nightjar is the same app under a new name. It ins
 ## Docs
 
 [Start here](docs/index.md) · [Quick start](docs/quick-start.md) · [Pairing](docs/pairing.md) · [Settings](docs/settings.md) · [Controls](docs/controls.md)<br>
-[Video & latency](docs/video-and-latency.md) · [Troubleshooting](docs/TROUBLESHOOTING.md) · [Building](docs/building.md) · [Frontends](docs/FRONTENDS.md) · [FAQ](docs/faq.md)
+[Video & latency](docs/video-and-latency.md) · [Troubleshooting](docs/TROUBLESHOOTING.md) · [Building](docs/building.md) · [Frontends](docs/FRONTENDS.md) · [Translations](docs/TRANSLATIONS.md) · [FAQ](docs/faq.md)
 
 [GPL-3.0](LICENSE.txt) · [Credits and third-party notices](docs/index.md#license-and-credits)

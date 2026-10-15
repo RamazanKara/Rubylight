@@ -9,7 +9,6 @@ import android.content.res.Configuration;
 import android.graphics.Rect;
 import android.media.MediaCodecInfo;
 import android.media.MediaCodecList;
-import android.media.MediaPlayer;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
@@ -44,10 +43,10 @@ public final class DemoGameActivity extends Activity implements SurfaceHolder.Ca
     private StreamView stream;
     private TextView overlay, label;
     private VirtualController controls;
-    private MediaPlayer player;
+    private DemoSamplePlayer player;
     private String mode;
     private boolean showControls, prepared, started, fallback;
-    private int position;
+    private long positionUs;
     private long tick;
     private StreamMenu menu;
     private String fit;
@@ -72,7 +71,7 @@ public final class DemoGameActivity extends Activity implements SurfaceHolder.Ca
         setContentView(R.layout.activity_game);
         mode = PerformanceOverlay.normalizeMode(state == null ? getIntent().getStringExtra("state") : state.getString("mode"));
         showControls = state == null ? "touch".equals(getIntent().getStringExtra("state")) : state.getBoolean("controls");
-        position = state == null ? 0 : state.getInt("position");
+        positionUs = state == null ? 0 : state.getLong("positionUs");
         stream = findViewById(R.id.surfaceView);
         // "--es fit stretch" fills the panel, "--es fit safe" keeps the cutout-safe area like the
         // inset-excluded Native preset; the default is a native full-panel stream.
@@ -249,23 +248,13 @@ public final class DemoGameActivity extends Activity implements SurfaceHolder.Ca
 
     private void play(SurfaceHolder holder) {
         String codec = sample();
-        player = new MediaPlayer();
-        player.setDisplay(holder);
-        player.setLooping(true);
-        player.setVolume(0, 0);
-        player.setOnPreparedListener(media -> {
-            prepared = true;
-            media.seekTo(position);
-            if (started) media.start();
-        });
-        player.setOnErrorListener((media, what, extra) -> {
-            playbackFailed(holder, codec);
-            return true;
-        });
+        player = new DemoSamplePlayer(getWindowManager().getDefaultDisplay().getRefreshRate(),
+                () -> playbackFailed(holder, codec));
         try (AssetFileDescriptor asset = getAssets().openFd("demo/stream-" + codec + ".mp4")) {
-            player.setDataSource(asset.getFileDescriptor(), asset.getStartOffset(), asset.getLength());
-            player.prepareAsync();
-        } catch (IOException e) {
+            player.start(asset, holder.getSurface(), positionUs);
+            prepared = true;
+            player.setRunning(started);
+        } catch (IOException | RuntimeException e) {
             playbackFailed(holder, codec);
         }
     }
@@ -282,6 +271,7 @@ public final class DemoGameActivity extends Activity implements SurfaceHolder.Ca
 
     private void releasePlayer() {
         if (player != null) {
+            if (prepared) positionUs = player.positionUs();
             player.release();
             player = null;
         }
@@ -290,22 +280,19 @@ public final class DemoGameActivity extends Activity implements SurfaceHolder.Ca
 
     @Override public void surfaceCreated(SurfaceHolder holder) { play(holder); }
     @Override public void surfaceChanged(SurfaceHolder holder, int format, int width, int height) { }
-    @Override public void surfaceDestroyed(SurfaceHolder holder) {
-        if (prepared) position = player.getCurrentPosition();
-        releasePlayer();
-    }
+    @Override public void surfaceDestroyed(SurfaceHolder holder) { releasePlayer(); }
 
     @Override protected void onStart() {
         super.onStart();
         started = true;
         handler.post(metrics);
-        if (prepared) player.start();
+        if (prepared) player.setRunning(true);
     }
 
     @Override protected void onStop() {
         started = false;
         handler.removeCallbacksAndMessages(null);
-        if (prepared) player.pause();
+        if (prepared) player.setRunning(false);
         controls.releaseInput();
         if (menu != null) menu.sheet().dismiss();
         super.onStop();
@@ -321,7 +308,7 @@ public final class DemoGameActivity extends Activity implements SurfaceHolder.Ca
     @Override protected void onSaveInstanceState(Bundle state) {
         state.putString("mode", mode);
         state.putBoolean("controls", showControls);
-        state.putInt("position", prepared ? player.getCurrentPosition() : position);
+        state.putLong("positionUs", prepared ? player.positionUs() : positionUs);
         super.onSaveInstanceState(state);
     }
 

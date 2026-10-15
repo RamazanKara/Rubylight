@@ -120,7 +120,7 @@ public final class DemoGameActivity extends Activity implements SurfaceHolder.Ca
                 android.util.Log.i("DemoGameControls", "gamepad " + Integer.toHexString(buttons) + " " + leftX + "," + leftY +
                         " " + rightX + "," + rightY + " " + (leftTrigger & 0xFF) + "," + (rightTrigger & 0xFF));
             }
-        }, () -> menu == null, dialog -> com.limelight.utils.UiHelper.showDialog(this, dialog));
+        }, () -> menu == null, android.app.Dialog::show);
         gameControls.setStreamTouchListener((view, event) -> {
             if (event.getActionMasked() == android.view.MotionEvent.ACTION_UP) {
                 view.performClick();

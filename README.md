@@ -21,12 +21,24 @@
 
 <p align="center"><a href="docs/media/demo.mp4">Watch the full demo →</a> · 60 seconds · 1080p · 60 fps</p>
 
-- **13.5 ms** from a rendered picture to a laptop over Wi-Fi, at 1968×2184 AV1 HDR and 120 fps, with all 120 pictures a second arriving.
-- **About 14 ms** average picture age beside a game, in HEVC and AV1 HDR at 120 fps on an RX 7900 XT.
-- **7.4 ms sooner than Vibepollo 2.0** on average beside a game, on the same GPU with identical settings.
-- **120 and 240 fps** for clients that ask for more frames than they launch with, such as Artemis with Warp frame pacing.
+## Tried Rubylight before? Give 2.3 another go.
 
-[How these were measured →](#measured-on-real-hardware)
+Rubylight 2.2 moved too fast. It shipped 21 updates in four days, and some of them broke things you relied on. 2.3 slows down and fixes them: every change since 2.2.1 was reviewed, each regression got a test so it stays fixed, and the fixes below were measured on a Radeon host.
+
+| If you left because… | In 2.3 |
+| --- | --- |
+| **The frame rate stayed at 60**, whatever you set | Streams run at the rate your device asks for. Artemis's Warp modes now get 120 or 240 fps instead of 60. |
+| **A TV box froze**, with a new frame every few seconds | Boxes behind 100 Mbps Ethernet, such as the Onn 4K Pro, get a steady picture. Through a 100 Mbps test link, every frame now arrives; before, none did. |
+| **Your phone would not pair** | Device names with brackets, plus signs or curly apostrophes, such as "moto g(60)", pair again. |
+| **Updates kept failing** | Installs outside Program Files update again, and the installer moves Rubylight somewhere safe if it has to. A failed update now says why. |
+| **A hybrid laptop or all-in-one showed no video** | Rubylight puts the virtual display on the GPU you pick, and if Windows keeps it elsewhere, streams from the GPU driving the screen instead of a black picture. |
+| **The console was a wall of settings** | Short descriptions with details one click away, settings grouped by what you want to do, and a stream card that shows what is really being sent. |
+
+**Fewer releases, each one tested.** A release now has to pass the full test suite and real stream tests on a Radeon host, including 1440p at 120 fps, and its results are attached to the release page.
+
+Updating keeps your settings, paired devices and games. Went back to Vibepollo or Apollo? Rubylight imports from them too.
+
+**[Download 2.3.1](https://github.com/RamazanKara/Rubylight/releases/tag/v2.3.1)** · [What changed in detail](rust/RELEASE_NOTES.md)
 
 ## The mission
 
@@ -47,12 +59,6 @@ Rubylight is not here to win a big userbase. There is no growth plan and no camp
 Coming from Apollo or Vibepollo? Rubylight imports your settings, paired devices and app library. Upgrades keep them too. Updates notify you first; automatic installation is opt-in.
 
 [First-stream walkthrough, portable setup and migration →](docs/getting-started.md)
-
-## What's new in 2.3
-
-2.3 is a fresh start. The 2.2 line shipped too many quick updates, so every change since 2.2.1 was reviewed, the regressions found were fixed with tests, and the web console was reworked to be calmer and clearer.
-
-2.3.1 streams at the frame rate your device asks for, so Artemis's Warp modes get 120 or 240 fps instead of 60, at the bitrate you set. TV boxes behind 100 Mbps Ethernet, such as the Onn 4K Pro, get a picture instead of a frozen screen. [Release notes →](rust/RELEASE_NOTES.md#new-in-231)
 
 ## Why Rubylight
 
@@ -83,6 +89,7 @@ Rubylight is built for Radeon. NVIDIA NVENC, Intel Quick Sync and software encod
 
 [![Picture age beside a game: Rubylight 2.2.9 against Vibepollo 2.0.](docs/media/gaming-latency.svg)](docs/performance.md#october-12-229-measurements)
 
+- **Above 60 when your device asks.** A device that launches at 60 fps and asks for 120 got **120.0 fps** on a virtual display (2.3.0: 60.0); 120 → 240 got **240.0 fps**, at the bitrate the device set.
 - **Over Wi-Fi to a real laptop.** A rendered picture reached a Radeon 780M laptop on 5 GHz Wi-Fi in **13.5 ms** on average at 1968×2184 AV1 HDR, 120 fps. [Method →](rust/PERFORMANCE_WORK.md#october-8-real-client-picture-age-over-wi-fi-rc24-laptop)
 - **Next to Vibepollo 2.0.** On the same GPU with identical settings, pictures arrived **7.4 ms sooner** on average beside a game, and p95 picture age fell by 43–48%. With no game running the two were close. [Runs and settings →](rust/PERFORMANCE_WORK.md#rc24-against-vibepollo-20-on-the-same-gpu)
 - **Stock Moonlight.** Moonlight 6.2.0 rendered **59.99 fps** in two 165-second 1080p60 HEVC sessions over Wi-Fi. [Results →](rust/PERFORMANCE_WORK.md#stock-moonlight-620-over-wi-fi-october-12)

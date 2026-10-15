@@ -360,6 +360,22 @@ impl Performance {
         ) {
             *sample = value.min(u64::from(u32::MAX)) as u32;
         }
+        // Each picture, for measurements that need every sample
+        // (RUST_LOG=info,stages=trace); off by default.
+        tracing::trace!(
+            target: "stages",
+            capture_us = micros[0],
+            hold_us = micros[1],
+            claim_us = micros[2],
+            convert_us = micros[3],
+            encode_us = micros[4],
+            queue_us = micros[5],
+            packetize_us = micros[6],
+            send_us = micros[7],
+            present_to_sent_us = micros[8],
+            moonlight_host_us = micros[9],
+            "picture"
+        );
         let at = stamps.last_sent;
         self.stages.push_back(StageSample { at, micros });
         while self.stages.len() > STAGE_SAMPLES

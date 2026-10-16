@@ -229,6 +229,14 @@ The host only follows what Moonlight announces when a controller connects. With 
 
 See [Steam Deck](configuration.md#steam-deck).
 
+## Setup says Rubylight cannot be installed on this PC
+
+From 3.0, Rubylight runs only on an AMD Radeon RX 6000 (RDNA 2) or newer whose video encoder creates HEVC streams, on Windows 11 build 26200 (25H2) or newer, with its own display driver running. Setup checks all three before it changes anything and lists each one this PC misses. Nothing is changed: an installed Rubylight keeps working, and the 2.6.x line stays available for that PC. The in-app updater does not offer 3.0 to such a PC either.
+
+- **Windows build:** install the current Windows 11 feature update, then run setup again.
+- **GPU:** the message names each GPU setup found and why it did not count (not AMD, older than RDNA 2, or an encoder that could not create an HEVC stream). A Radeon that fails the HEVC check on supported hardware usually needs a current AMD driver.
+- **Display driver:** Windows refused to start the driver. Setup prints Windows' reason; Smart App Control, S mode and App Control policies refuse a locally signed driver.
+
 ## Setup rejects the profile folder's owner
 
 An upgrade from 2.2.1 can fail with `C:\ProgramData\Butterpollo must be owned by Administrators, SYSTEM or TrustedInstaller`. Older installers set the folder's access permissions but could leave an individual user as its owner. Changing access permissions alone does not change ownership.

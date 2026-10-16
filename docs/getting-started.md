@@ -2,7 +2,7 @@
 
 [Documentation](README.md) · [Configuration](configuration.md) · [Troubleshooting](troubleshooting.md)
 
-Rubylight is a Windows x64 streaming host written in Rust, with a GPU path tuned and measured on AMD Radeon. Moonlight runs on the device you play from. Start with one client and a 1080p60 SDR stream, then add HDR, higher frame rates or a virtual display.
+Rubylight is a Windows x64 streaming host written in Rust, built for AMD Radeon and its own virtual display driver. Moonlight runs on the device you play from. Start with one client and a 1080p60 SDR stream, then add HDR, higher frame rates or a virtual display.
 
 **On this page:** [Before you start](#before-you-start) · [Install](#install-or-run-portable) · [Open the console](#open-the-console) · [Pair Moonlight](#pair-moonlight-and-start-desktop) · [Stream formats](#choose-your-stream-format) · [Displays and updates](#virtual-displays-and-updates) · [Import a profile](#bring-an-existing-profile) · [Upgrading](#upgrading)
 
@@ -10,7 +10,7 @@ Rubylight is a Windows x64 streaming host written in Rust, with a GPU path tuned
 
 | What you need | Check |
 | --- | --- |
-| **Host PC** | Windows x64. Rubylight's tuning and measurements focus on AMD Radeon; the available stream formats depend on the GPU's encoder. |
+| **Host PC** | An AMD Radeon RX 6000 (RDNA 2) or newer with a working HEVC encoder, on Windows 11 version 25H2 (build 26200) or newer. AV1 is offered where the GPU's encoder has it. Setup checks this and refuses, changing nothing, on a PC below it; the 2.6.x line stays available for other GPUs and older Windows. |
 | **Client device** | Moonlight or a Sunshine-compatible client. Install Rubylight on the gaming PC and the client on the device you play from. |
 | **Local network** | Put both devices on the same network for the first pairing and stream. Close another streaming host if it is already using the default ports. |
 | **Display driver** | Every stream runs on a virtual display from Rubylight's display driver, which setup installs. Portable mode needs the drivers installed separately for virtual displays and emulated controllers. |

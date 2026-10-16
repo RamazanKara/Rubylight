@@ -17,7 +17,7 @@ Everything Rubylight does, grouped by what you will notice while streaming. For 
 - **Aspect ratio kept.** A source of another shape sits between black bars.
 - **Antialiased GPU downscaling.** Streams below the desktop's resolution average the covered source pixels to reduce thin-line shimmer. Native resolution, enlargement and aligned 2× reduction retain their existing pixels; reduction above 8× retains the previous bounded filter.
 
-Rubylight encodes on AMD GPUs only: a Radeon RX 6000 (RDNA 2) or newer. H.264 and HEVC work on all of them; AV1 is offered where the GPU's encoder has it.
+Rubylight encodes on AMD GPUs only: a Radeon RX 6000 (RDNA 2) or newer, on Windows 11 version 25H2 (build 26200) or newer. H.264 and HEVC work on all of them; AV1 is offered where the GPU's encoder has it.
 
 ## Capture that keeps working
 

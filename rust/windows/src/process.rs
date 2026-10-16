@@ -813,48 +813,6 @@ impl Process {
     pub(crate) fn handle(&self) -> HANDLE {
         raw(&self.handle)
     }
-    /// Import an unnamed resource from this owned child. The child never gets
-    /// a handle to the service process or its credentials.
-    pub(crate) fn duplicate_resource(&self, handle: usize) -> Result<OwnedHandle> {
-        anyhow::ensure!(
-            handle != 0 && handle != usize::MAX,
-            "invalid child resource handle"
-        );
-        // SAFETY: `self.handle` is the child's owned process handle and the duplicate is owned
-        // once.
-        unsafe {
-            let mut duplicate = HANDLE::default();
-            DuplicateHandle(
-                raw(&self.handle),
-                HANDLE(handle as *mut _),
-                GetCurrentProcess(),
-                &mut duplicate,
-                0,
-                false,
-                DUPLICATE_SAME_ACCESS,
-            )?;
-            Ok(owned(duplicate))
-        }
-    }
-    /// A handle of this process duplicated into the child, as the value the
-    /// child uses; the child's handle closes when it exits.
-    pub(crate) fn duplicate_into(&self, handle: HANDLE) -> Result<u64> {
-        // SAFETY: `self.handle` is the child's owned process handle and `handle` is valid in this
-        // process.
-        unsafe {
-            let mut duplicate = HANDLE::default();
-            DuplicateHandle(
-                GetCurrentProcess(),
-                handle,
-                raw(&self.handle),
-                &mut duplicate,
-                0,
-                false,
-                DUPLICATE_SAME_ACCESS,
-            )?;
-            Ok(duplicate.0 as u64)
-        }
-    }
     /// Keep the supervisor's unnamed stop event alive for the entire child.
     /// The child duplicates a wait-only handle; handle inheritance cannot cross
     /// Windows sessions, and session-local object names cannot reach the service.

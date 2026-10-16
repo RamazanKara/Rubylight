@@ -260,7 +260,7 @@ fn gpu_downscale_coverage_matches_independent_reference() -> Result<()> {
             let mut baseline = Converter::new(&gpu, &config, shape)?;
             baseline.compute = Some(baseline_shader.clone());
             let mut d3d12 = crate::compute::Converter::new(compute.clone(), width, height, true)?;
-            d3d12.values = constants(&config, shape, [100., 1.], None);
+            d3d12.values = constants(&config, shape, [100., 1.]);
             for phase in 0..3 {
                 let (image, samples) =
                     pattern(source_width as usize, source_height as usize, phase, hdr);
@@ -279,7 +279,7 @@ fn gpu_downscale_coverage_matches_independent_reference() -> Result<()> {
                 let pixel_pass = readback(&gpu, graphics.convert(&source)?.as_ref())?;
                 let opened = compute.open(&source.texture)?;
                 let converted =
-                    d3d12.convert(&opened, crate::compute::format(pixel), None, &source)?;
+                    d3d12.convert(&opened, crate::compute::format(pixel), &source)?;
                 converted.wait()?;
                 let compute_pass = readback_compute(&compute, &converted.texture)?;
                 for (name, actual) in [

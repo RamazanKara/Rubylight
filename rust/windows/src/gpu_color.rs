@@ -98,7 +98,6 @@ pub(crate) fn constants(
     config: &butterpollo_core::rtsp::Negotiated,
     source: (u32, u32, Pixel),
     luminance: [f32; 2],
-    pointer: Option<&crate::cursor::Cursor>,
 ) -> [u32; 20] {
     let mut values = [0; 20];
     values[..11].copy_from_slice(&[
@@ -119,23 +118,7 @@ pub(crate) fn constants(
         luminance[1].to_bits(),
     ]);
     values[11] = u32::from(config.chroma_packing);
-    values[12..].copy_from_slice(&pointer_constants(pointer));
     values
-}
-/// The pointer's part of `cbuffer Config`: position, size and blend mode.
-fn pointer_constants(pointer: Option<&crate::cursor::Cursor>) -> [u32; 8] {
-    pointer.map_or([0; 8], |c| {
-        [
-            c.position[0] as u32,
-            c.position[1] as u32,
-            c.width,
-            c.height,
-            if c.logic { 2 } else { 1 },
-            0,
-            0,
-            0,
-        ]
-    })
 }
 impl Converter {
     pub fn new(
@@ -212,7 +195,7 @@ impl Converter {
                     Some(&mut compute),
                 );
             }
-            let values = constants(config, source, [100., 1.], None);
+            let values = constants(config, source, [100., 1.]);
             let mut constants = None;
             gpu.device.CreateBuffer(
                 &D3D11_BUFFER_DESC {
@@ -370,15 +353,9 @@ impl Converter {
             Ok(self.targets.len() - 1)
         }
     }
-    fn source_views(&mut self, image: &GpuImage) -> Result<[Option<ID3D11ShaderResourceView>; 2]> {
+    fn source_views(&mut self, image: &GpuImage) -> Result<[Option<ID3D11ShaderResourceView>; 1]> {
         // A fence-ring image orders graphics-queue readers only when they need it.
         image.order_d3d11()?;
-        let pointer = image.cursor.as_ref();
-        let values = pointer_constants(pointer);
-        if self.values[12..] != values {
-            self.values[12..].copy_from_slice(&values);
-            self.dirty = true;
-        }
         let mut source = None;
         // SAFETY: `image.texture` is live and on this device, which callers check with
         // `accepts_gpu_device`.
@@ -389,7 +366,7 @@ impl Converter {
                 Some(&mut source),
             )?;
         }
-        Ok([source, pointer.map(|c| c.view.clone())])
+        Ok([source])
     }
     pub fn convert(&mut self, image: &GpuImage) -> Result<Arc<ID3D11Texture2D>> {
         let index = self.target()?;
@@ -426,7 +403,7 @@ impl Converter {
                 );
                 context.Dispatch(self.width.div_ceil(16), self.height.div_ceil(16), 1);
                 context.CSSetUnorderedAccessViews(0, 2, Some([None, None].as_ptr()), None);
-                context.CSSetShaderResources(0, Some(&[None, None]));
+                context.CSSetShaderResources(0, Some(&[None]));
                 context.CSSetShader(None, None);
             } else {
                 context.IASetInputLayout(None);
@@ -450,7 +427,7 @@ impl Converter {
                     context.PSSetShader(shader, None);
                     context.Draw(3, 0);
                 }
-                context.PSSetShaderResources(0, Some(&[None, None]));
+                context.PSSetShaderResources(0, Some(&[None]));
                 context.OMSetRenderTargets(None, None);
             }
             context.Flush();
@@ -608,7 +585,7 @@ impl PlanarConverter {
                     1,
                 );
                 context.CSSetUnorderedAccessViews(2, 3, Some([None, None, None].as_ptr()), None);
-                context.CSSetShaderResources(0, Some(&[None, None]));
+                context.CSSetShaderResources(0, Some(&[None]));
                 context.CSSetShader(None, None);
             } else {
                 context.IASetInputLayout(None);
@@ -647,7 +624,7 @@ impl PlanarConverter {
                         context.Draw(3, 0);
                     }
                 }
-                context.PSSetShaderResources(0, Some(&[None, None]));
+                context.PSSetShaderResources(0, Some(&[None]));
                 context.OMSetRenderTargets(None, None);
             }
             lock.Leave();

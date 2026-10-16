@@ -109,14 +109,12 @@ impl Sender {
         config: Config,
         host: Shared,
         start: Instant,
-        track_presents: bool,
     ) -> Result<Self> {
         let mut sender = Self::packetizer(
             session.clone(),
             config.clone(),
             host.clone(),
             start,
-            track_presents,
         )?;
         let shared = sender.slot.clone();
         sender.transport = Some(thread::Builder::new().name("pyrowave-send".into()).spawn(
@@ -138,7 +136,6 @@ impl Sender {
         config: Config,
         host: Shared,
         start: Instant,
-        track_presents: bool,
     ) -> Result<Self> {
         let slot = Arc::new(Slot {
             pending: Mutex::new(None),
@@ -160,7 +157,6 @@ impl Sender {
                 key: (current.config.encryption & 2 != 0).then_some(current.launch.key),
             };
             let mut controller = DetailFec::new(current.config.fps_millihz());
-            let mut stamper = track_presents.then(butterpollo_windows::present_timing::Stamper::default);
             let mut last_stamp = start;
             let mut fec_reported: Option<Instant> = None;
             let requested_fec = config.integer("pyrowave_critical_fec_percentage", 20);
@@ -178,8 +174,7 @@ impl Sender {
                 };
                 let Some(Frame { encoded: frame, peer, claimed, processing_started, latency }) = frame else { continue };
                 let captured = frame.presentation.unwrap_or(claimed);
-                let stamp = stamper.as_mut().map_or(captured, |stamper| stamper.stamp(captured, &current.output.read().unwrap()))
-                    .max(last_stamp + Duration::from_nanos(11_112));
+                let stamp = captured.max(last_stamp + Duration::from_nanos(11_112));
                 last_stamp = stamp;
                 let timestamp = (stamp.saturating_duration_since(start).as_secs_f64() * 90000.) as u64 as u32;
                 let critical_percentage = current.fec_percent().min(requested_fec.clamp(0, 255) as usize);
@@ -313,7 +308,6 @@ mod tests {
             config,
             fixture.host.clone(),
             Instant::now(),
-            false,
         )?;
         sender.submit(
             vec![Encoded {
@@ -373,7 +367,6 @@ mod tests {
                 config,
                 fixture.host.clone(),
                 Instant::now(),
-                false,
             )
             .unwrap();
             let snapshot = |wire_frame| {

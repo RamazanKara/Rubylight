@@ -184,7 +184,7 @@ fn verify(
             let (cw, ch) = layout.coded_size();
             let mut converter = crate::compute::Converter::new(compute.clone(), cw, ch, ten_bit)?;
             converter.pack_chroma()?;
-            converter.values = constants(&config, (width, height, image.pixel), [100., 1.], None);
+            converter.values = constants(&config, (width, height, image.pixel), [100., 1.]);
             let converted = converter.convert(
                 &compute.open(&uploaded.texture)?,
                 if hdr {
@@ -192,7 +192,6 @@ fn verify(
                 } else {
                     DXGI_FORMAT_B8G8R8A8_UNORM
                 },
-                None,
                 &uploaded,
             )?;
             converted.wait()?;

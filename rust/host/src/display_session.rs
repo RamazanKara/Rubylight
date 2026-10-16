@@ -472,9 +472,6 @@ impl Ready {
     pub fn capture_target(&self) -> (String, u64) {
         self.target.current()
     }
-    pub fn capture(&self) -> String {
-        self.framegen.lock().unwrap().capture.clone()
-    }
 }
 
 /// Only copies and publication hold this lock. Lease renewal, topology queries

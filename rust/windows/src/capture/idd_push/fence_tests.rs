@@ -171,11 +171,11 @@ fn a_fence_ring_carries_frames_both_ways_without_keyed_mutexes() -> Result<()> {
                 };
                 let ready =
                     crate::compute::Ready::on(&compute, fences.written.clone(), u64::from(seq));
-                let image = lend_fenced(&gpu, &ring.slots[index].texture, index, lent, ready)?;
+                let image = lend_fenced(&gpu, &ring.slots[index].texture, lent, ready)?;
                 // The compute conversion waits for the driver's copy on the GPU.
                 let opened = compute.open(&image.texture)?;
                 converter
-                    .convert(&opened, crate::compute::format(pixel), None, &image)?
+                    .convert(&opened, crate::compute::format(pixel), &image)?
                     .wait()?;
                 anyhow::ensure!(
                     matches!(header.slot_state(index), ring::SlotState::Reading { .. }),
@@ -220,7 +220,7 @@ fn claim_image(gpu: &Device, ring: &Ring, consumer: &mut Consumer) -> Result<Gpu
         d3d11: Mutex::new(false),
     };
     let ready = crate::compute::Ready::on(&fences.compute, fences.written.clone(), u64::from(seq));
-    lend_fenced(gpu, &ring.slots[index].texture, index, lent, ready)
+    lend_fenced(gpu, &ring.slots[index].texture, lent, ready)
 }
 
 #[test]
@@ -272,7 +272,6 @@ fn pyrowave_encoding_frees_fence_ring_slots() -> Result<()> {
             std::thread::sleep(Duration::from_millis(1));
         }
         let image = claim_image(&gpu, &ring, &mut consumer)?;
-        assert!(image.cursor.is_none());
         encoder.restart_interval();
         assert_eq!(
             encoder.encode_gpu(&image, true, config.bitrate_kbps)?.len(),
@@ -339,7 +338,7 @@ fn a_fence_slot_waits_for_all_readers_and_survives_ring_replacement() -> Result<
     let input = compute.open(&second_reader.texture)?;
     let mut converter = crate::compute::Converter::new(compute, 16, 16, false)?;
     converter
-        .convert(&input, DXGI_FORMAT_B8G8R8A8_UNORM, None, &second_reader)?
+        .convert(&input, DXGI_FORMAT_B8G8R8A8_UNORM, &second_reader)?
         .wait()?;
     drop(second_reader);
     drop(converter);

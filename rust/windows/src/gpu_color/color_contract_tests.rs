@@ -72,11 +72,10 @@ fn standard_chroma_is_left_sited_and_pyrowave_remains_center_sited() -> Result<(
     }
     let compute = crate::compute::Compute::for_device(&gpu.device)?;
     let mut converter = crate::compute::Converter::new(compute.clone(), 64, 64, true)?;
-    converter.values = constants(&config, (64, 64, Pixel::Bgra8), [100., 1.], None);
+    converter.values = constants(&config, (64, 64, Pixel::Bgra8), [100., 1.]);
     let converted = converter.convert(
         &compute.open(&uploaded.texture)?,
         DXGI_FORMAT_B8G8R8A8_UNORM,
-        None,
         &uploaded,
     )?;
     converted.wait()?;

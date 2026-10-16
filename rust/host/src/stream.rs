@@ -283,43 +283,6 @@ impl EncoderRecovery {
 const RFI_CONFIRM_KEYFRAME: Duration = Duration::from_secs(1);
 /// Backoff only after reopening fails; resource release is acknowledged.
 const RECOVERY_RETRY: Duration = Duration::from_millis(150);
-/// How long capture waits for the stream's display to come back before it
-/// shows another one. Switching a virtual display back on takes about a
-/// second; recreating it takes up to the driver's 10 s arrival deadline.
-const DISPLAY_RETURN_WAIT: Duration = Duration::from_secs(15);
-/// Which display a capture reopen uses.
-#[derive(Clone, Copy, Debug, PartialEq)]
-enum ReopenOn {
-    /// The stream's display.
-    Stream,
-    /// Not yet: the stream's display is not on the desktop.
-    Wait,
-    /// The primary display, after the stream's did not return in time.
-    Primary,
-}
-/// Capture follows the stream's display. Windows can switch a virtual display
-/// off (a game resetting the layout on exit); the heartbeat switches it back
-/// on or recreates it and publishes it, possibly under a new name. Capture
-/// waits for that and never quietly shows another desktop: only after
-/// `DISPLAY_RETURN_WAIT` does a foreground stream open the primary display.
-/// A background stream must never expose the local user's desktop.
-fn reopen_on(
-    present: bool,
-    background: bool,
-    missing_since: &mut Option<Instant>,
-    now: Instant,
-) -> ReopenOn {
-    if present {
-        *missing_since = None;
-        return ReopenOn::Stream;
-    }
-    let since = *missing_since.get_or_insert(now);
-    if !background && now.duration_since(since) >= DISPLAY_RETURN_WAIT {
-        ReopenOn::Primary
-    } else {
-        ReopenOn::Wait
-    }
-}
 /// The interval to the frame after one captured at `at` while the client sends phase
 /// lock reports: its refresh with the phase correction. `None` otherwise, and then the
 /// caller keeps its original pacing.
@@ -515,11 +478,6 @@ type Latest = capture::Latest<GpuImage>;
 struct Source {
     warnings: Arc<butterpollo_core::session::Warnings>,
     latest: Arc<Latest>,
-    /// The capture backend that opened, after every reopen: `auto` is planned
-    /// as WGC, so the plan cannot say whether frames come from WGC or the
-    /// display driver.
-    backend: Arc<Mutex<&'static str>>,
-    grid: Arc<Mutex<butterpollo_windows::capture::ClaimGrid>>,
     stop: Arc<AtomicBool>,
     thread: Option<thread::JoinHandle<()>>,
 }
@@ -545,10 +503,18 @@ impl Drop for Source {
         }
     }
 }
-impl Source {
-    fn backend(&self) -> &'static str {
-        *self.backend.lock().unwrap()
-    }
+/// The live capture of `output` in `captures`, if there is one that `healthy`
+/// accepts. Captures that ended are forgotten.
+fn shared_capture<T>(
+    captures: &mut HashMap<String, Weak<T>>,
+    output: &str,
+    healthy: impl Fn(&T) -> bool,
+) -> Option<Arc<T>> {
+    captures.retain(|_, source| source.strong_count() > 0);
+    captures
+        .get(output)
+        .and_then(Weak::upgrade)
+        .filter(|source| healthy(source))
 }
 impl std::ops::Deref for Source {
     type Target = Latest;
@@ -651,54 +617,10 @@ pub struct Media {
     /// The microphone receiver's counts; None when its port could not be bound.
     pub(crate) mic: Option<Arc<crate::mic::Counters>>,
     peers: Mutex<HashMap<(String, bool), SocketAddr>>,
-    captures: Mutex<HashMap<CaptureKey, Weak<Source>>>,
+    /// One capture per display, by output name.
+    captures: Mutex<HashMap<String, Weak<Source>>>,
     control_port: u16,
     bind: IpAddr,
-}
-#[derive(Debug, PartialEq, Eq, Hash)]
-struct CaptureKey {
-    kind: String,
-    output: String,
-    hdr: bool,
-    adapter: String,
-    adapter_id: String,
-    phase: String,
-    compute: bool,
-    wgc_compute: bool,
-    wgc_user_helper: bool,
-    wgc_high_rate: bool,
-    wgc_drain: bool,
-    wgc_helper_scheduling: bool,
-    idd_fence_ring: bool,
-    background: bool,
-}
-impl CaptureKey {
-    fn new(kind: &str, output: &str, hdr: bool, config: &Config, phase: &str) -> Self {
-        Self {
-            kind: kind.into(),
-            output: output.into(),
-            hdr,
-            adapter: config.get("adapter_name", "").into(),
-            adapter_id: config.get("adapter_pnp_id", "").into(),
-            phase: if config.boolean("wgc_slot_aligned_publish", false) {
-                phase
-            } else {
-                ""
-            }
-            .into(),
-            compute: config.boolean("gpu_compute_conversion", true),
-            wgc_compute: config.boolean("wgc_compute_copy", true),
-            wgc_user_helper: config.boolean("wgc_user_helper", false),
-            wgc_high_rate: !matches!(kind, "ddx" | "dxgi")
-                && config.boolean("wgc_high_rate_capture", false),
-            wgc_drain: !matches!(kind, "ddx" | "dxgi")
-                && config.boolean("wgc_drain_to_newest", false),
-            wgc_helper_scheduling: !matches!(kind, "ddx" | "dxgi")
-                && config.boolean("wgc_helper_streaming_scope", false),
-            idd_fence_ring: config.boolean("idd_push_fence_ring", false),
-            background: butterpollo_core::background::enabled(config),
-        }
-    }
 }
 /// ENet's UDP adapter ends the control worker on any error but WouldBlock,
 /// and nothing restarted it: a Wi-Fi roam (WSAENETUNREACH), an ICMP reply
@@ -766,17 +688,6 @@ impl rusty_enet::Socket for ControlSocket {
             result => result,
         }
     }
-}
-fn capture_config(config: &Config) -> Config {
-    let mut capture = config.clone();
-    // Keep the effective interval choice with the shared capture and its helper.
-    // A 1 ms request skipped updates in the 120 FPS motion comparison; use
-    // explicit zero at every rate unless the user opts into the legacy limit.
-    capture.values.insert(
-        "wgc_high_rate_capture".into(),
-        config.boolean("wgc_high_rate_capture", false).to_string(),
-    );
-    capture
 }
 impl Media {
     pub fn new(h: Shared, bind: IpAddr) -> Result<Arc<Self>> {
@@ -889,23 +800,21 @@ impl Media {
             })?;
         Ok(m)
     }
+    /// The capture of the stream's virtual display. The display driver keeps
+    /// one frame ring per display, so every stream on a display shares one
+    /// capture, whatever its codec, HDR or other settings: each converts and
+    /// encodes the shared frames itself.
     fn capture(
         &self,
-        kind: &str,
         hdr: bool,
         config: &Config,
-        rate: butterpollo_core::framegen::Rate,
-        phase: &str,
         prepared: Arc<crate::display_session::Ready>,
     ) -> Result<Arc<Source>> {
         let output = prepared.output();
-        let aligned = config.boolean("wgc_slot_aligned_publish", false);
-        let capture_config = capture_config(config);
-        let key = CaptureKey::new(kind, &output, hdr, &capture_config, phase);
+        let worker_output = output.clone();
         let mut captures = self.captures.lock().unwrap();
-        captures.retain(|_, source| source.strong_count() > 0);
-        if let Some(existing) = captures.get(&key).and_then(Weak::upgrade)
-            && existing.check().is_ok()
+        if let Some(existing) =
+            shared_capture(&mut captures, &output, |source| source.check().is_ok())
         {
             return Ok(existing);
         }
@@ -915,14 +824,7 @@ impl Media {
         let worker = latest.clone();
         let warnings = Arc::new(butterpollo_core::session::Warnings::default());
         let capture_warnings = warnings.clone();
-        let grid = Arc::new(Mutex::new(butterpollo_windows::capture::ClaimGrid {
-            anchor: Instant::now(),
-            period: rate.period(),
-        }));
-        let worker_grid = grid.clone();
-        let backend = Arc::new(Mutex::new(""));
-        let worker_backend = backend.clone();
-        let kind = kind.to_owned();
+        let capture_config = config.clone();
         let (started_tx, started_rx) = std::sync::mpsc::sync_channel(1);
         let thread = thread::Builder::new()
             .name("capture".into())
@@ -935,35 +837,23 @@ impl Media {
                         .ok();
                     let timer = butterpollo_windows::timing::Timer::new()?;
                     let mut target = prepared.capture_target();
-                    // Duplicate the desktop that is showing, including the secure
-                    // desktop of a UAC prompt or the lock screen.
-                    butterpollo_windows::input::follow_input_desktop();
                     let mut capture =
-                        match Capture::open_for_stream_reported(&target.0, &kind, hdr, &capture_config, capture_warnings.clone()) {
+                        match Capture::open(&target.0, hdr, &capture_config, capture_warnings.clone()) {
                             Ok(c) => c,
                             Err(e) => {
                                 let _ = started_tx.send(Err(format!("{e:#}")));
                                 return Ok(());
                             }
                         };
-                    capture.set_claim_grid(worker_grid.clone(), aligned);
-                    *worker_backend.lock().unwrap() = capture.backend();
-                    tracing::info!(requested=%kind, backend=capture.backend(), output=%target.0, "capture backend opened");
+                    tracing::info!(backend=capture.backend(), output=%target.0, "capture backend opened");
                     // Re-create the capture on a new device. Windows keeps handing
                     // out the stale adapter while anything holds the old device, so
-                    // every duplication made then loses access at once (a display
-                    // arriving for another client does this). The old capture is
-                    // dropped and consumers acknowledge releasing their frames
-                    // and encoders before the new device is made.
-                    // The capture, whether it shows the primary display in
-                    // place of the stream's, which is gone, and the stream's
-                    // display it was opened for. The display can be recreated
-                    // while capture opens; the next check then sees that.
-                    let reopen = |lost: Capture, target: &(String, u64)| -> Result<(Capture, bool, (String, u64))> {
+                    // the old capture is dropped and consumers acknowledge releasing
+                    // their frames and encoders before the new device is made. The
+                    // display can be recreated while capture opens; the next check
+                    // then sees that.
+                    let reopen = |lost: Capture, target: &(String, u64)| -> Result<(Capture, (String, u64))> {
                         let recovery_started = Instant::now();
-                        // Desktop Duplication reports the pointer's shape only
-                        // when it changes; the new capture starts from this one.
-                        let mut pointer = lost.pointer();
                         worker.begin_recovery()?;
                         drop(lost);
                         let deadline = Instant::now() + Duration::from_secs(30);
@@ -976,7 +866,6 @@ impl Media {
                             timer.until(Instant::now() + Duration::from_millis(2));
                         }
                         let release_ms = recovery_started.elapsed().as_millis();
-                        let mut missing_since = None;
                         loop {
                             worker.check()?;
                             anyhow::ensure!(Instant::now() < deadline, "capture did not recover within 30 seconds");
@@ -984,42 +873,22 @@ impl Media {
                                 anyhow::bail!("capture stopped while recovering");
                             }
                             let next = prepared.capture_target();
-                            // A UAC prompt or the lock screen switches the input
-                            // desktop; duplication must be made on that desktop.
-                            butterpollo_windows::input::follow_input_desktop();
-                            let background = butterpollo_core::background::enabled(&capture_config);
-                            let on = reopen_on(butterpollo_windows::capture::display_present(&next.0), background, &mut missing_since, Instant::now());
-                            let opened = match on {
-                                ReopenOn::Wait => {
-                                    if background {
-                                        capture_warnings.set("capture_display", "The background display disappeared. Waiting for it to recover; the PC's monitor is not captured.");
-                                    }
-                                    thread::sleep(RECOVERY_RETRY);
-                                    continue;
-                                }
-                                ReopenOn::Stream => Capture::open_for_stream_reported(&next.0, &kind, hdr, &capture_config, capture_warnings.clone()),
-                                // By name: the WGC helper checks it opened the display asked for.
-                                ReopenOn::Primary => butterpollo_windows::capture::primary_display()
-                                    .context("no display is on the desktop")
-                                    .and_then(|primary| Capture::open_for_stream_reported(&primary, &kind, hdr, &capture_config, capture_warnings.clone())),
-                            };
-                            match opened {
-                                Ok(mut recovered) => {
-                                    if on == ReopenOn::Primary {
-                                        capture_warnings.set("capture_display", format!("The stream's display {} disappeared and did not return within {} s; showing the primary display until it returns. A game or Windows changed the display layout; reconnect if the picture does not return.", next.0, DISPLAY_RETURN_WAIT.as_secs()));
-                                    } else {
-                                        capture_warnings.clear("capture_display");
-                                    }
+                            // Windows can switch the virtual display off (a game
+                            // resetting the layout on exit); the heartbeat switches
+                            // it back on or recreates it and publishes it, possibly
+                            // under a new name. Capture waits for it and never shows
+                            // another desktop.
+                            if !butterpollo_windows::capture::display_present(&next.0) {
+                                thread::sleep(RECOVERY_RETRY);
+                                continue;
+                            }
+                            match Capture::open(&next.0, hdr, &capture_config, capture_warnings.clone()) {
+                                Ok(recovered) => {
                                     if next != *target {
                                         tracing::info!(output = %next.0, "capture moved to the recreated display");
                                     }
-                                    if let Some(pointer) = pointer.take()
-                                        && let Err(error) = recovered.resume_pointer(pointer)
-                                    {
-                                        tracing::warn!(%error, "the pointer appears once it moves or changes");
-                                    }
                                     tracing::info!(release_ms, elapsed_ms=recovery_started.elapsed().as_millis(), backend=recovered.backend(), "capture reopened after resource release");
-                                    return Ok((recovered, on == ReopenOn::Primary, next));
+                                    return Ok((recovered, next));
                                 }
                                 Err(error) if Instant::now() >= deadline => return Err(error),
                                 Err(_) => thread::sleep(RECOVERY_RETRY),
@@ -1027,11 +896,8 @@ impl Media {
                         }
                     };
                     let _ = started_tx.send(Ok(()));
-                    let progress = crate::stall_watch::register("capture", &output, None);
+                    let progress = crate::stall_watch::register("capture", &worker_output, None);
                     let mut check_target = Instant::now();
-                    let mut user_desktop = kind == "wgc"
-                        && butterpollo_windows::capture::wgc_desktop_available();
-                    let mut on_primary = false;
                     let poll_interval = Duration::from_micros(
                         capture_config.integer("capture_poll_interval_us", 500).clamp(100, 1000) as u64,
                     );
@@ -1040,27 +906,19 @@ impl Media {
                         if Instant::now() >= check_target {
                             check_target = Instant::now() + Duration::from_millis(100);
                             let next = prepared.capture_target();
-                            let available = kind == "wgc"
-                                && butterpollo_windows::capture::wgc_desktop_available();
-                            let return_to_wgc = available && !user_desktop && capture.backend() == "ddx";
-                            user_desktop = available;
-                            // Back from the primary display once the stream's returns.
-                            let returned = on_primary && butterpollo_windows::capture::display_present(&next.0);
-                            if worker.take_device_restart()? || next != target || return_to_wgc || returned {
+                            if worker.take_device_restart()? || next != target {
                                 let lost = std::mem::replace(&mut capture, Capture::Closed);
                                 progress.mark(crate::stall_watch::Phase::Reopen);
-                                (capture, on_primary, target) = match reopen(lost, &next) {
+                                (capture, target) = match reopen(lost, &next) {
                                     Ok(capture) => capture,
                                     Err(_) if worker_stop.load(Ordering::Acquire) => return Ok(()),
                                     Err(error) => return Err(error),
                                 };
-                                capture.set_claim_grid(worker_grid.clone(), aligned);
-                                *worker_backend.lock().unwrap() = capture.backend();
                                 last_frame = Instant::now();
                             }
                         }
-                        // Reset before the helper's announcements are read: one
-                        // that comes after them ends the wait below.
+                        // Reset before the driver's frames are read: one published
+                        // after them ends the wait below.
                         if let Some(signal) = capture.frame_signal() {
                             signal.reset()?;
                         }
@@ -1079,15 +937,10 @@ impl Media {
                                 worker.publish_captured(Arc::new(image), captured)?;
                             }
                             Ok(None) => {
-                                let interval = if capture_config.boolean("capture_predictive_poll", false)
-                                    && capture.backend() == "ddx" {
-                                    worker.poll_interval(poll_interval)
-                                } else { poll_interval };
-                                let interval = capture.wait_interval(last_frame.elapsed(), interval);
-                                let deadline = Instant::now() + interval;
-                                let until = capture.publication_deadline().unwrap_or(deadline).min(deadline);
+                                let interval = capture.wait_interval(last_frame.elapsed(), poll_interval);
+                                let until = Instant::now() + interval;
                                 match capture.frame_signal() {
-                                    // Frame announcements interrupt both active polling
+                                    // The driver's publish interrupts both active polling
                                     // and the longer wait used by a static source.
                                     Some(signal) => {
                                         timer.until_or_signal(until, signal)?;
@@ -1100,17 +953,15 @@ impl Media {
                                     worker.device_lost(loss, &capture_warnings, Instant::now())?;
                                     worker.take_device_restart()?;
                                 } else {
-                                    capture_warnings.set("capture_recovery", format!("Capture interrupted ({e:#}); reopening capture, with a frozen picture until frames resume. If this repeats, keep the display mode stable and check the WGC helper and graphics driver."));
+                                    capture_warnings.set("capture_recovery", format!("Capture interrupted ({e:#}); reopening capture, with a frozen picture until frames resume. If this repeats, keep the display mode stable and check the display driver and graphics driver."));
                                 }
                                 let lost = std::mem::replace(&mut capture, Capture::Closed);
                                 progress.mark(crate::stall_watch::Phase::Reopen);
-                                (capture, on_primary, target) = match reopen(lost, &target) {
+                                (capture, target) = match reopen(lost, &target) {
                                     Ok(capture) => capture,
                                     Err(_) if worker_stop.load(Ordering::Acquire) => return Ok(()),
                                     Err(error) => return Err(error),
                                 };
-                                capture.set_claim_grid(worker_grid.clone(), aligned);
-                                *worker_backend.lock().unwrap() = capture.backend();
                                 last_frame = Instant::now();
                             }
                         }
@@ -1128,15 +979,13 @@ impl Media {
         let latest = Arc::new(Source {
             warnings,
             latest,
-            backend,
-            grid,
             stop,
             thread: Some(thread),
         });
         started_rx
             .recv_timeout(Duration::from_secs(10))?
             .map_err(|e| anyhow::anyhow!(e))?;
-        captures.insert(key, Arc::downgrade(&latest));
+        captures.insert(output, Arc::downgrade(&latest));
         Ok(latest)
     }
     pub fn start(self: &Arc<Self>, h: Shared, s: Arc<Session>) {
@@ -1153,14 +1002,7 @@ impl Media {
         prepared: &Arc<crate::display_session::Ready>,
         latest: &'a mut Option<Arc<Source>>,
     ) -> Result<(&'a mut Arc<Source>, Arc<capture::Consumer>)> {
-        let latest = latest.insert(self.capture(
-            &prepared.capture(),
-            s.config.hdr,
-            c,
-            butterpollo_core::framegen::Rate(s.config.fps_millihz()),
-            &s.launch.id,
-            prepared.clone(),
-        )?);
+        let latest = latest.insert(self.capture(s.config.hdr, c, prepared.clone())?);
         *s.capture_warnings.write().unwrap() = latest.warnings.clone();
         let capture_wake = latest.subscribe(Arc::downgrade(s))?;
         capture_wake.wake_on_recovery(s);
@@ -1183,7 +1025,6 @@ impl Media {
         s: &Session,
         c: &Config,
         first: &GpuImage,
-        prepared: &crate::display_session::Ready,
         encoder: &mut Option<Encoder>,
     ) -> Result<()> {
         *encoder = Some(Encoder::new_gpu_reported(
@@ -1196,7 +1037,7 @@ impl Media {
         let source_refresh_hz = butterpollo_windows::display::mode(&first.gpu.display.display_name)
             .ok()
             .map(|mode| mode.dmDisplayFrequency);
-        tracing::info!(width=s.config.width,height=s.config.height,fps=f64::from(s.config.fps_millihz())/1000.,requested_fps=s.config.fps,bitrate_kbps=s.bitrate.load(Ordering::Relaxed),configured_bitrate_kbps=s.config.configured_bitrate_kbps,codec=s.config.codec,hdr=s.config.hdr,full_range=s.config.full_range(),color_matrix=s.config.color_matrix(),vrr=s.config.vrr_low_latency,requested_capture=%prepared.capture(),requested_encoder=c.get("encoder","auto"),encoder=encoder.as_ref().unwrap().backend(),adapter=%first.gpu.display.adapter,source_width=first.width,source_height=first.height,source_refresh_hz,source_pixel=?first.pixel,"stream configured");
+        tracing::info!(width=s.config.width,height=s.config.height,fps=f64::from(s.config.fps_millihz())/1000.,requested_fps=s.config.fps,bitrate_kbps=s.bitrate.load(Ordering::Relaxed),configured_bitrate_kbps=s.config.configured_bitrate_kbps,codec=s.config.codec,hdr=s.config.hdr,full_range=s.config.full_range(),color_matrix=s.config.color_matrix(),vrr=s.config.vrr_low_latency,requested_encoder=c.get("encoder","auto"),encoder=encoder.as_ref().unwrap().backend(),adapter=%first.gpu.display.adapter,source_width=first.width,source_height=first.height,source_refresh_hz,source_pixel=?first.pixel,"stream configured");
         let minimum = butterpollo_core::pyrowave::minimum_kbps(
             s.config.width,
             s.config.height,
@@ -1303,10 +1144,7 @@ impl Media {
                     let _priority = Priority::new();
                     let _streaming = butterpollo_windows::timing::StreamingScope::enter();
                     let mut config_version = h.config_version.load(Ordering::Acquire);
-                    let mut c = effective_config(&h, &s.launch)?;
-                    if s.config.vrr_low_latency {
-                        c.values.insert("wgc_slot_aligned_publish".into(), "false".into());
-                    }
+                    let c = effective_config(&h, &s.launch)?;
                     let timer = butterpollo_windows::timing::Timer::new()?;
                     let output = s
                         .launch
@@ -1382,14 +1220,13 @@ impl Media {
                                 return Ok(());
                             }
                             if Instant::now() >= deadline {
-                                anyhow::bail!("capture produced no GPU frame on {} using {} within 10 seconds; check that the selected display is powered on, or select a virtual display for headless streaming", prepared.output(), prepared.capture());
+                                anyhow::bail!("capture produced no GPU frame on the virtual display {} within 10 seconds; check the Rubylight display driver", prepared.output());
                             }
                             if let Some(image) = latest.wait_for_frame(&timer, &capture_wake, (Instant::now() + Duration::from_millis(50)).min(deadline))? { break image; }
                         }
                     };
-                    m.configure_encoder(&s, &c, &first, &prepared, &mut encoder)?;
+                    m.configure_encoder(&s, &c, &first, &mut encoder)?;
                     drop(first);
-                    let mut staging = None;
                     client_commands = Some(crate::process::ClientCommands::start(&h, &s)?);
                     audio = Some(m.spawn_audio(&h, &s)?);
                     let requested_fec = c.integer("fec_percentage", 20);
@@ -1427,8 +1264,7 @@ impl Media {
                     let claims = std::cell::RefCell::new(butterpollo_core::performance::Claims::default());
                     let start = Instant::now();
                     *s.media_epoch.write().unwrap() = Some(start);
-                    let mut present_stamper = (s.config.codec != 3 && prepared.capture() == "wgc").then(butterpollo_windows::present_timing::Stamper::default);
-                    pyrowave_sender = if s.config.codec == 3 { Some(crate::pyrowave_send::Sender::new(m.video.clone(),s.clone(),c.clone(),h.clone(),start,prepared.capture() == "wgc")?) } else { None };
+                    pyrowave_sender = if s.config.codec == 3 { Some(crate::pyrowave_send::Sender::new(m.video.clone(),s.clone(),c.clone(),h.clone(),start)?) } else { None };
                     // The stream's size and rate. A client whose display changes can ask
                     // for others mid-stream (0x5532); the encoder is rebuilt from this copy.
                     let mut stream = s.config.clone();
@@ -1438,14 +1274,13 @@ impl Media {
                     let stream_period = std::cell::Cell::new(rates.period);
                     // A mode change being applied: the mode before it, and since when.
                     let mut switching: Option<(butterpollo_core::reconfigure::Mode, Instant)> = None;
-                    let mut cadence = butterpollo_core::stream_policy::Cadence::new(Instant::now(), rates.period, c.boolean("wgc_pacing_smoothing", true));
+                    let mut cadence = butterpollo_core::stream_policy::Cadence::new(Instant::now(), rates.period, c.boolean("frame_pacing_smoothing", true));
                     // VRR claims each frame as it arrives, but no faster than the
                     // stream rate. The encoder budgets every frame from that rate,
                     // and the VRR virtual display runs at 1000 Hz: uncapped, a game
                     // or desktop faster than the stream starved every frame of
                     // bits (a blurry picture, fringed text) and flooded the link.
-                    // Generic predictive waits stay off. A stable surplus of WGC
-                    // compositions can still be aligned with the game's updates.
+                    // Generic predictive waits stay off.
                     let vrr = s.config.vrr_low_latency;
                     let arrival_pacing = vrr
                         || butterpollo_core::stream_policy::Pacing::from_config(&c) == butterpollo_core::stream_policy::Pacing::Arrival;
@@ -1459,8 +1294,8 @@ impl Media {
                             .with_spacing(if vrr { 0.5 } else { 0.75 })
                     };
                     let mut pacer = new_pacer(rates.period);
-                    // The claim grid's period from before a phase lock, restored when it ends.
-                    let mut unlocked_grid_period: Option<Duration> = None;
+                    // Whether a phase lock set the pacer's period, restored when it ends.
+                    let mut phase_locked = false;
                     let due = cadence.deadline();
                     let mut last_stamp = start;
                     let mut live_at = due;
@@ -1502,10 +1337,11 @@ impl Media {
                     let mut timing_due = Instant::now() + Duration::from_secs(5);
                     let mut last_image: Option<Arc<GpuImage>> = None;
                     let mut encoded_at = Instant::now();
-                    // Keep the legacy age split beside WGC's signed raw stamp
-                    // offset: a future stamp must not look like instant delivery.
+                    // Keep the legacy age split beside the driver's signed raw
+                    // present stamp offset: a future stamp must not look like
+                    // instant delivery.
                     let mut claim_ages: Vec<(u64, u64)> = Vec::with_capacity(1024);
-                    let mut wgc_stamp_ages: Vec<f64> = Vec::with_capacity(1024);
+                    let mut present_stamp_ages: Vec<f64> = Vec::with_capacity(1024);
                     // The 5 s timing summary is an information log, kept on by
                     // default: a user's ordinary log must show where a stream
                     // lost time. With logging below information, skip collecting
@@ -1587,7 +1423,6 @@ impl Media {
                                 // after this.
                                 let handoff = crate::video_send::Handoff {
                                     packetizer: packetizer.clone(),
-                                    present_stamper: present_stamper.take(),
                                     last_stamp,
                                     pacing_due: network_pacer.due(),
                                     send_loss: std::mem::take(&mut send_loss),
@@ -1609,7 +1444,8 @@ impl Media {
                             let age = micros(claimed.saturating_duration_since(captured));
                             let claim = claims.borrow_mut().take(frame.presentation);
                             let stamp_started = Instant::now();
-                            let stamp = present_stamper.as_mut().map_or(captured, |stamper| stamper.stamp(captured, &prepared.output())).max(last_stamp + Duration::from_nanos(11_112));
+                            // Keep at least one 90 kHz RTP tick between frames.
+                            let stamp = captured.max(last_stamp + Duration::from_nanos(11_112));
                             let stamp_time = stamp_started.elapsed();
                             last_stamp = stamp;
                             // Wrap like the previous host; a saturating cast
@@ -1819,9 +1655,6 @@ impl Media {
                                 let version = h.config_version.load(Ordering::Acquire);
                                 if version != config_version || calibration_due.is_some_and(|due| Instant::now() >= due) {
                                     base_config = effective_config(&h, &s.launch)?;
-                                    if s.config.vrr_low_latency {
-                                        base_config.values.insert("wgc_slot_aligned_publish".into(), "false".into());
-                                    }
                                     config_version = version;
                                     runtime_config = base_config.clone();
                                     if let Some(due) = &mut calibration_due {
@@ -1845,11 +1678,11 @@ impl Media {
                                         };
                                         let (detect_mean_ms, detect_p95_ms) = split(|age| age.0);
                                         let (claim_wait_mean_ms, claim_wait_p95_ms) = split(|age| age.1);
-                                        wgc_stamp_ages.sort_by(f64::total_cmp);
-                                        let wgc_stamp_frames = wgc_stamp_ages.len();
-                                        let wgc_stamp_future_frames = wgc_stamp_ages.iter().filter(|age| **age < 0.).count();
-                                        let wgc_stamp_to_host_mean_ms = (wgc_stamp_frames > 0).then(|| wgc_stamp_ages.iter().sum::<f64>() / wgc_stamp_frames as f64);
-                                        let wgc_stamp_to_host_p95_ms = wgc_stamp_ages.get(wgc_stamp_frames.saturating_sub(1) * 95 / 100).copied();
+                                        present_stamp_ages.sort_by(f64::total_cmp);
+                                        let present_stamp_frames = present_stamp_ages.len();
+                                        let present_stamp_future_frames = present_stamp_ages.iter().filter(|age| **age < 0.).count();
+                                        let present_stamp_to_host_mean_ms = (present_stamp_frames > 0).then(|| present_stamp_ages.iter().sum::<f64>() / present_stamp_frames as f64);
+                                        let present_stamp_to_host_p95_ms = present_stamp_ages.get(present_stamp_frames.saturating_sub(1) * 95 / 100).copied();
                                         // New pictures' stages over the last five seconds: mean/p95/p99 ms.
                                         let stage = |name: &str| {
                                             let ms = |key: &str| timing["stages"][name][key].as_f64().unwrap_or(0.);
@@ -1885,10 +1718,10 @@ impl Media {
                                             detect_p95_ms,
                                             claim_wait_mean_ms,
                                             claim_wait_p95_ms,
-                                            wgc_stamp_to_host_mean_ms,
-                                            wgc_stamp_to_host_p95_ms,
-                                            wgc_stamp_frames,
-                                            wgc_stamp_future_frames,
+                                            present_stamp_to_host_mean_ms,
+                                            present_stamp_to_host_p95_ms,
+                                            present_stamp_frames,
+                                            present_stamp_future_frames,
 
                                             send_interval_p95_ms=timing["send_interval_p95_ms"].as_f64().unwrap_or(0.),
                                             send_interval_p99_ms=timing["send_interval_p99_ms"].as_f64().unwrap_or(0.),
@@ -1909,7 +1742,7 @@ impl Media {
                                         );
                                     }
                                     claim_ages.clear();
-                                    wgc_stamp_ages.clear();
+                                    present_stamp_ages.clear();
                                     timings_logged = tracing::enabled!(tracing::Level::INFO);
                                 }
                             }
@@ -1940,14 +1773,9 @@ impl Media {
                                 paced_rate = stream.fps_millihz();
                                 rates = butterpollo_core::reconfigure::Rates::new(&stream, c.get("minimum_fps_target", "20"));
                                 stream_period.set(rates.period);
-                                cadence = butterpollo_core::stream_policy::Cadence::new(Instant::now(), rates.period, c.boolean("wgc_pacing_smoothing", true));
+                                cadence = butterpollo_core::stream_policy::Cadence::new(Instant::now(), rates.period, c.boolean("frame_pacing_smoothing", true));
                                 pacer = new_pacer(rates.period);
-                                unlocked_grid_period = None;
-                                {
-                                    let mut grid = latest.grid.lock().unwrap();
-                                    grid.period = rates.period;
-                                    grid.anchor = Instant::now();
-                                }
+                                phase_locked = false;
                                 s.phase_sync.lock().unwrap().reset();
                             }
                             let period = stream_period.get();
@@ -2002,7 +1830,6 @@ impl Media {
                                     tracing::info!(client = %s.launch.client.name, "releasing the encoder while the capture recovers");
                                 }
                                 last_image = None;
-                                staging = None;
                                 pacer.reset_source_phase();
                                 latest.release_generation(&capture_wake);
                                 continue;
@@ -2014,9 +1841,7 @@ impl Media {
                             if rebuild_encoder {
                                 pacer.reset_source_phase();
                             }
-                            // A reopen can change the backend, e.g. to WGC after the
-                            // driver's frame push failed.
-                            pacer.set_source_phase(source_phase_eligible && butterpollo_core::stream_policy::source_phase(&c, latest.backend()));
+                            pacer.set_source_phase(source_phase_eligible && butterpollo_core::stream_policy::source_phase(&c));
                             if arrival_pacing {
                                 pacer.observe_source(image.captured);
                                 pacer.observe_source_rate(latest.source_rate());
@@ -2225,7 +2050,6 @@ impl Media {
                                     pacer.observe_source(image.captured);
                                 }
                                 metadata_due = Instant::now();
-                                staging = None;
                                 recovery.recreated(&s);
                                 rebuild_encoder = false;
                             }
@@ -2288,13 +2112,13 @@ impl Media {
                                     micros(image.acquired.saturating_duration_since(image.captured)),
                                     micros(begin.saturating_duration_since(image.acquired)),
                                 ));
-                                if let Some(stamp) = image.wgc_stamp {
+                                if let Some(stamp) = image.present_stamp {
                                     let age = if image.acquired >= stamp {
                                         image.acquired.duration_since(stamp).as_secs_f64()
                                     } else {
                                         -stamp.duration_since(image.acquired).as_secs_f64()
                                     };
-                                    wgc_stamp_ages.push(age * 1000.);
+                                    present_stamp_ages.push(age * 1000.);
                                 }
                             }
                             if Instant::now() >= metadata_due {
@@ -2348,14 +2172,7 @@ impl Media {
                                 crate::soak_fault::check("encoder failure")?;
                                 #[cfg(debug_assertions)]
                                 crate::soak_fault::check("DXGI_ERROR_DEVICE_REMOVED")?;
-                                Ok(if c.boolean("wgc_direct_encoder_input", true) {                                    active.encode_gpu(&presented_image, idr, bitrate)?
-                                } else {
-                                    active.encode(
-                                        &presented_image.readback(&mut staging)?,
-                                        idr,
-                                        bitrate,
-                                    )?
-                                })
+                                active.encode_gpu(&presented_image, idr, bitrate)
                             })();
                             if let Some(at) = encode_trace_started {
                                 tracing::trace!(
@@ -2450,41 +2267,24 @@ impl Media {
                                     // displays follow each frame and need no lock.
                                     match (!vrr).then(|| phase_interval(&s, begin, period)).flatten() {
                                         Some(interval) => {
-                                            let mut grid = latest.grid.lock().unwrap();
-                                            unlocked_grid_period.get_or_insert(grid.period);
-                                            grid.period = interval;
+                                            phase_locked = true;
                                             pacer.set_period(interval);
                                         }
                                         None => {
-                                            if let Some(original) = unlocked_grid_period.take() {
-                                                latest.grid.lock().unwrap().period = original;
+                                            if std::mem::take(&mut phase_locked) {
                                                 pacer.set_period(period);
                                             }
                                         }
                                     }
                                     pacer.claimed(begin);
                                 }
-                                latest.grid.lock().unwrap().anchor = pacer.allowed_at(begin);
                             } else {
                                 // Phase lock: the grid follows the client's refresh, at a
                                 // phase that gets frames there just before its latch.
                                 // Without reports this is the original fixed-period path.
                                 match phase_interval(&s, begin, period) {
-                                    Some(interval) => {
-                                        cadence.submitted_after(begin, interval);
-                                        let mut grid = latest.grid.lock().unwrap();
-                                        unlocked_grid_period.get_or_insert(grid.period);
-                                        grid.anchor = cadence.deadline();
-                                        grid.period = interval;
-                                    }
-                                    None => {
-                                        cadence.submitted(begin);
-                                        let mut grid = latest.grid.lock().unwrap();
-                                        if let Some(original) = unlocked_grid_period.take() {
-                                            grid.period = original;
-                                        }
-                                        grid.anchor = cadence.deadline();
-                                    }
+                                    Some(interval) => cadence.submitted_after(begin, interval),
+                                    None => cadence.submitted(begin),
                                 }
                             }
                             last_image = Some(image);
@@ -3929,58 +3729,6 @@ mod tests {
         assert!(config.boolean("mouse", false));
     }
     #[test]
-    fn capture_waits_for_its_display_and_shows_the_primary_only_after_the_timeout() {
-        let start = Instant::now();
-        let mut missing = None;
-        assert_eq!(
-            reopen_on(true, false, &mut missing, start),
-            ReopenOn::Stream
-        );
-        // Windows switched the virtual display off: capture waits for the
-        // heartbeat to bring it back instead of opening the physical desktop.
-        assert_eq!(reopen_on(false, false, &mut missing, start), ReopenOn::Wait);
-        let almost = start + DISPLAY_RETURN_WAIT - Duration::from_millis(1);
-        assert_eq!(
-            reopen_on(false, false, &mut missing, almost),
-            ReopenOn::Wait
-        );
-        assert_eq!(
-            reopen_on(false, false, &mut missing, start + DISPLAY_RETURN_WAIT),
-            ReopenOn::Primary
-        );
-        // It came back under another name: the wait starts over next time.
-        let back = start + Duration::from_secs(20);
-        assert_eq!(reopen_on(true, false, &mut missing, back), ReopenOn::Stream);
-        assert_eq!(missing, None);
-        assert_eq!(reopen_on(false, false, &mut missing, back), ReopenOn::Wait);
-    }
-    #[test]
-    fn background_capture_never_recovers_onto_the_primary_display() {
-        let start = Instant::now();
-        let mut missing = None;
-        for elapsed in [Duration::ZERO, DISPLAY_RETURN_WAIT, Duration::from_secs(60)] {
-            assert_eq!(
-                reopen_on(false, true, &mut missing, start + elapsed),
-                ReopenOn::Wait
-            );
-        }
-        assert_eq!(
-            reopen_on(true, true, &mut missing, start + Duration::from_secs(61)),
-            ReopenOn::Stream
-        );
-        assert_eq!(missing, None);
-
-        let plain = Config::default();
-        let mut background = plain.clone();
-        butterpollo_core::background::apply(&mut background);
-        for capture in ["auto", "wgc", "ddx"] {
-            assert_ne!(
-                CaptureKey::new(capture, "display", false, &plain, ""),
-                CaptureKey::new(capture, "display", false, &background, "")
-            );
-        }
-    }
-    #[test]
     fn pad_feedback_forwards_rumble_and_each_family_extra() {
         let rumble = (
             RUMBLE_DATA,
@@ -4127,78 +3875,26 @@ mod tests {
         assert!(encoder_progress(&mut failing, false, later + ENCODER_RECOVERY).is_err());
     }
     #[test]
-    fn wgc_interval_is_unrestricted_by_default_and_preserves_overrides() {
-        let default = Config::default();
-        assert!(!capture_config(&default).boolean("wgc_high_rate_capture", true));
-        for (setting, expected) in [("true", true), ("false", false)] {
-            let config = Config::parse(&format!("wgc_high_rate_capture = {setting}")).unwrap();
-            let original = config.values.clone();
-            assert_eq!(
-                capture_config(&config).boolean("wgc_high_rate_capture", !expected),
-                expected
-            );
-            assert_eq!(config.values, original);
-        }
-        assert!(!default.values.contains_key("wgc_high_rate_capture"));
-    }
-    #[test]
-    fn shared_capture_separates_explicit_wgc_intervals_without_splitting_ddx() {
-        let key = |kind, setting: &str| {
-            CaptureKey::new(
-                kind,
-                "display",
-                false,
-                &capture_config(&Config::parse(setting).unwrap()),
-                "",
-            )
-        };
-        for kind in ["wgc", "auto"] {
-            assert_eq!(key(kind, ""), key(kind, "wgc_high_rate_capture=false"));
-            assert_ne!(key(kind, ""), key(kind, "wgc_high_rate_capture=true"));
-            assert_ne!(key(kind, ""), key(kind, "wgc_drain_to_newest=true"));
-            assert_ne!(key(kind, ""), key(kind, "wgc_helper_streaming_scope=true"));
-        }
-        for kind in ["ddx", "dxgi"] {
-            assert_eq!(key(kind, ""), key(kind, "wgc_high_rate_capture=true"));
-            assert_eq!(key(kind, ""), key(kind, "wgc_high_rate_capture=false"));
-            assert_eq!(key(kind, ""), key(kind, "wgc_drain_to_newest=true"));
-            assert_eq!(key(kind, ""), key(kind, "wgc_helper_streaming_scope=true"));
-        }
-    }
-    #[test]
-    fn shared_capture_respects_compute_overrides_and_independent_frame_phases() {
-        let config = Config::default();
-        let key =
-            |config: &Config, phase: &str| CaptureKey::new("wgc", "display", false, config, phase);
-        let default = key(&config, "first");
-        assert_eq!(default, key(&config, "second"));
-        let mut helper = config.clone();
-        helper
-            .values
-            .insert("wgc_user_helper".into(), "true".into());
-        assert_ne!(default, key(&helper, "first"));
-        let mut fenced = config.clone();
-        fenced
-            .values
-            .insert("idd_push_fence_ring".into(), "true".into());
-        assert_ne!(default, key(&fenced, "first"));
-        let mut changed = config.clone();
-        changed
-            .values
-            .insert("wgc_compute_copy".into(), "false".into());
-        assert_ne!(default, key(&changed, "first"));
-        changed
-            .values
-            .insert("wgc_compute_copy".into(), "true".into());
-        assert_eq!(default, key(&changed, "first"));
-        changed
-            .values
-            .insert("gpu_compute_conversion".into(), "false".into());
-        assert_ne!(default, key(&changed, "first"));
-        changed
-            .values
-            .insert("wgc_slot_aligned_publish".into(), "true".into());
-        assert_ne!(key(&changed, "first"), key(&changed, "second"));
+    fn streams_on_one_display_share_its_capture_whatever_their_settings() {
+        use super::shared_capture;
+        use std::collections::HashMap;
+        // The driver keeps one frame ring per display: a second capture of it
+        // would take the first one's frames. An SDR HEVC stream and an HDR AV1
+        // stream on the same display therefore take the same capture and
+        // convert and encode its frames each on their own.
+        let mut captures = HashMap::new();
+        let first = Arc::new((r"\\.\DISPLAY9", "sdr hevc"));
+        captures.insert(first.0.to_owned(), Arc::downgrade(&first));
+        let second = shared_capture(&mut captures, first.0, |_| true).expect("shared");
+        assert!(Arc::ptr_eq(&first, &second));
+        // Another display gets its own capture.
+        assert!(shared_capture(&mut captures, r"\\.\DISPLAY10", |_| true).is_none());
+        // A capture that failed is not handed to the next stream: it opens a new one.
+        assert!(shared_capture(&mut captures, first.0, |_| false).is_none());
+        // One that ended is forgotten.
+        drop((first, second));
+        assert!(shared_capture(&mut captures, r"\\.\DISPLAY9", |_| true).is_none());
+        assert!(captures.is_empty());
     }
     #[test]
     fn dualsense_trigger_effects_use_the_moonlight_layout() {

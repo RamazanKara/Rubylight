@@ -456,25 +456,6 @@ impl Compute {
 }
 
 impl Compute {
-    /// Open a texture another process shared through `handle`, so that
-    /// `open` finds it until `forget`.
-    pub(crate) fn import(&self, texture: &ID3D11Texture2D, handle: HANDLE) -> Result<()> {
-        self.ensure_active()?;
-        let mut resource: Option<ID3D12Resource> = None;
-        // SAFETY: `handle` is a live NT handle to `texture` that the caller owns, and `resource` is
-        // a live local.
-        unsafe {
-            self.device.OpenSharedHandle(handle, &mut resource)?;
-        }
-        self.foreign.lock().unwrap().insert(
-            texture.as_raw() as usize,
-            (
-                texture.clone(),
-                resource.context("no imported shared resource")?,
-            ),
-        );
-        Ok(())
-    }
     pub(crate) fn forget(&self, texture: &ID3D11Texture2D) {
         self.opened
             .lock()
@@ -642,128 +623,14 @@ impl Ready {
     }
 }
 
-/// Lends compute work textures another process writes, in place, and hands
-/// them back. The D3D11 device takes such a texture's keyed mutex, which
-/// D3D12 cannot take, then signals `acquired`; compute work reading the
-/// texture waits for that. Before the D3D11 device releases the mutex it
-/// waits for all compute work submitted so far, so the writer never
-/// overwrites a texture a conversion still reads.
+/// Copies captured frames on a compute queue of their own, in order with the
+/// capture's D3D11 device but without the graphics engine: a frame ring that
+/// is copied rather than read in place (`idd_push_zero_copy = false`).
 ///
-/// The WGC helper's zero-copy path uses it, and so does the display driver's
-/// default keyed-mutex frame ring. A fence ring needs no D3D11 step: the compute queue waits for
-/// the driver's fence and signals its own (`capture::idd_push`).
-pub(crate) struct Returns {
-    compute: Arc<Compute>,
-    acquired: (ID3D12Fence, ID3D11Fence),
-    drained: (ID3D12Fence, ID3D11Fence),
-    context: ID3D11DeviceContext4,
-    value: u64,
-    imported: Vec<ID3D11Texture2D>,
-}
-/// A failed ordering operation does not establish that a texture is no longer
-/// read by the GPU. Keep it owned and reject further work on this queue.
-fn return_after_reads(
-    retired: &std::sync::atomic::AtomicBool,
-    order: impl FnOnce() -> Result<()>,
-    release: impl FnOnce() -> Result<()>,
-) -> Result<()> {
-    ensure_queue_active(retired)?;
-    let result = order().and_then(|()| release());
-    if result.is_err() {
-        retired.store(true, Ordering::Release);
-    }
-    result
-}
-// SAFETY: The D3D11 context's device is multithread-protected (`capture::Device::create`), D3D12
-// fences are free-threaded, and all else is used only through `&mut self`.
-unsafe impl Send for Returns {}
-impl Returns {
-    pub(crate) fn new(compute: Arc<Compute>, gpu: &crate::capture::Device) -> Result<Self> {
-        compute.ensure_active()?;
-        let device: ID3D11Device5 = gpu.device.cast()?;
-        Ok(Self {
-            acquired: shared_fence(&compute, &device)?,
-            drained: shared_fence(&compute, &device)?,
-            compute,
-            context: gpu.context.cast()?,
-            value: 0,
-            imported: Vec::new(),
-        })
-    }
-    /// Make the shared texture behind `handle` readable by compute work.
-    pub(crate) fn import(&mut self, texture: &ID3D11Texture2D, handle: HANDLE) -> Result<()> {
-        self.compute.import(texture, handle)?;
-        self.imported.push(texture.clone());
-        Ok(())
-    }
-    /// The D3D11 device has just taken a texture's keyed mutex: when compute
-    /// work may read it.
-    pub(crate) fn acquired(&mut self) -> Result<Ready> {
-        self.compute.ensure_active()?;
-        self.value += 1;
-        // SAFETY: The fence was opened on this context's device, which is multithread-protected.
-        unsafe {
-            self.context
-                .Signal(&self.acquired.1, self.value)
-                .inspect_err(|_| self.compute.retire())?;
-            self.context.Flush();
-        }
-        Ok(Ready {
-            fence: self.acquired.0.clone(),
-            value: self.value,
-            device: self.compute.device.as_raw() as usize,
-            readers: None,
-            reader_fence: None,
-        })
-    }
-    /// Release `mutex` with `key` once all compute work submitted so far,
-    /// including every conversion that read its texture, has finished.
-    pub(crate) fn hand_back(&mut self, mutex: &IDXGIKeyedMutex, key: u64) -> Result<()> {
-        self.value += 1;
-        // SAFETY: Both fences are on the compute device and this context's device; the caller holds
-        // `mutex` and releases it only here.
-        let returned = return_after_reads(
-            &self.compute.stuck,
-            || unsafe {
-                self.compute
-                    .queue
-                    .Signal(&self.drained.0, self.value)
-                    .and_then(|()| self.context.Wait(&self.drained.1, self.value))
-                    .context("order shared texture return after GPU readers")
-            },
-            || unsafe {
-                mutex
-                    .ReleaseSync(key)
-                    .context("return shared texture mutex")
-            },
-        );
-        // SAFETY: The context is live and multithread-protected. Flush an enqueued
-        // wait/release even when a later operation failed; no failed slot is reused.
-        unsafe { self.context.Flush() };
-        returned
-    }
-}
-impl Drop for Returns {
-    fn drop(&mut self) {
-        for texture in &self.imported {
-            self.compute.forget(texture);
-        }
-    }
-}
-
-/// Copies Desktop Duplication frames on a compute queue of their own, in
-/// order with the capture's D3D11 device but without the graphics engine.
-///
-/// Duplication hands a frame over while DWM's copy into it may still be
-/// running; the D3D11 device waits for that copy through the frame's keyed
-/// mutex, which D3D12 cannot take. Copying without that wait read stale or
-/// torn frames (a fifth of them idle, over half beside a game;
-/// `examples/ddx_sync_probe.rs`). So the D3D11 context signals a fence after
-/// its keyed-mutex wait, the copy waits for that fence on the GPU, and the
-/// D3D11 context waits for the copy before it hands the frame back to DWM.
-/// Fence waits and signals take no time on the graphics engine, and nothing
-/// blocks the capture thread: blocking it until DWM finished held the frame
-/// from DWM meanwhile and halved the frame rate beside a game.
+/// The D3D11 context waits for the driver's copy into the ring and signals a
+/// fence, the copy waits for that fence on the GPU, and the D3D11 context
+/// waits for the copy before the ring slot is freed. Fence waits and signals
+/// take no time on the graphics engine, and nothing blocks the capture thread.
 pub struct Handoff {
     compute: Arc<Compute>,
     queue: ID3D12CommandQueue,
@@ -1000,7 +867,7 @@ pub(crate) fn format(pixel: crate::capture::Pixel) -> DXGI_FORMAT {
 fn shader(entry: &[u8]) -> Result<&'static [u8]> {
     shader_bytecode(entry, b"cs_5_0\0").context("compute shader missing from the build")
 }
-/// Constants, two source views (t0, t1) and `uavs` output views from
+/// Constants, one source view (t0) and `uavs` output views from
 /// register `u{first}`.
 fn root_signature(device: &ID3D12Device, first: u32, uavs: u32) -> Result<ID3D12RootSignature> {
     // SAFETY: `srv`, `uav` and `parameters` outlive the serialize call that reads them, and the
@@ -1008,7 +875,7 @@ fn root_signature(device: &ID3D12Device, first: u32, uavs: u32) -> Result<ID3D12
     unsafe {
         let srv = D3D12_DESCRIPTOR_RANGE {
             RangeType: D3D12_DESCRIPTOR_RANGE_TYPE_SRV,
-            NumDescriptors: 2,
+            NumDescriptors: 1,
             BaseShaderRegister: 0,
             RegisterSpace: 0,
             OffsetInDescriptorsFromTableStart: 0,
@@ -1128,19 +995,12 @@ struct Slot {
     allocator: ID3D12CommandAllocator,
     list: ID3D12GraphicsCommandList,
     fence: u64,
-    /// The source and cursor the slot's last conversion reads, kept until it
-    /// has run: the adapter-wide cache may release its own references.
-    inputs: [Option<ID3D12Resource>; 2],
+    /// The source the slot's last conversion reads, kept until it has run:
+    /// the adapter-wide cache may release its own references.
+    input: Option<ID3D12Resource>,
     capture: Option<crate::capture::GpuImage>,
     outputs: Vec<ID3D12Resource>,
     waits: Vec<ID3D12Fence>,
-}
-struct PointerUpload {
-    fence: u64,
-    _allocator: ID3D12CommandAllocator,
-    _list: ID3D12GraphicsCommandList,
-    _upload: ID3D12Resource,
-    _texture: ID3D12Resource,
 }
 /// RGB to NV12 or P010 on the compute queue, with the same shader as the
 /// D3D11 converter (scaling, letterboxing, HDR and the colour matrix).
@@ -1162,16 +1022,13 @@ pub struct Converter {
     height: u32,
     ten_bit: bool,
     targets: Vec<Target>,
-    /// Bounded cache of immutable pointer textures for recurring animation shapes.
-    pointers: crate::cursor::ShapeCache<ID3D12Resource>,
-    uploads: Vec<PointerUpload>,
 }
 // SAFETY: `mapped` points into the upload buffer `constants` this converter owns, the D3D12 objects
 // are free-threaded, and the command allocators and lists are used only through `&mut self`.
 unsafe impl Send for Converter {}
 const SLOTS: usize = 4;
-/// Descriptors per slot: the source and pointer, then up to three outputs.
-const VIEWS: usize = 5;
+/// Descriptors per slot: the source, then up to three outputs.
+const VIEWS: usize = 4;
 
 fn validate_colour_input(values: &[u32; 20]) -> Result<()> {
     // cbuffer Config: pixel=4, hdr=5. scRGB/FP16 has an SDR path, PQ does not.
@@ -1296,7 +1153,7 @@ impl Converter {
                     allocator,
                     list,
                     fence: 0,
-                    inputs: [None, None],
+                    input: None,
                     capture: None,
                     outputs: Vec::new(),
                     waits: Vec::new(),
@@ -1318,139 +1175,7 @@ impl Converter {
                 height,
                 ten_bit,
                 targets: vec![],
-                pointers: Default::default(),
-                uploads: Vec::new(),
             })
-        }
-    }
-    /// The pointer shape as a texture on this device, uploaded when it
-    /// changes. The conversion follows the upload on the same queue.
-    pub(crate) fn pointer(&mut self, cursor: &crate::cursor::Cursor) -> Result<ID3D12Resource> {
-        self.compute.ensure_active()?;
-        self.release_completed();
-        if let Some(texture) =
-            self.pointers
-                .get(cursor.width, cursor.height, cursor.logic, &cursor.pixels)
-        {
-            return Ok(texture);
-        }
-        // SAFETY: `cursor.pixels` holds `width * height` RGBA pixels and `upload` `pitch * height`
-        // bytes, so each row copy stays in both; `uploads` retains the copy's objects to its fence.
-        unsafe {
-            let device = &self.compute.device;
-            let desc = D3D12_RESOURCE_DESC {
-                Dimension: D3D12_RESOURCE_DIMENSION_TEXTURE2D,
-                Width: u64::from(cursor.width),
-                Height: cursor.height,
-                DepthOrArraySize: 1,
-                MipLevels: 1,
-                Format: DXGI_FORMAT_R8G8B8A8_UNORM,
-                SampleDesc: DXGI_SAMPLE_DESC {
-                    Count: 1,
-                    Quality: 0,
-                },
-                Layout: D3D12_TEXTURE_LAYOUT_UNKNOWN,
-                Flags: D3D12_RESOURCE_FLAG_NONE,
-                Alignment: 0,
-            };
-            let mut texture: Option<ID3D12Resource> = None;
-            device.CreateCommittedResource(
-                &D3D12_HEAP_PROPERTIES {
-                    Type: D3D12_HEAP_TYPE_DEFAULT,
-                    ..Default::default()
-                },
-                D3D12_HEAP_FLAG_NONE,
-                &desc,
-                D3D12_RESOURCE_STATE_COMMON,
-                None,
-                &mut texture,
-            )?;
-            let texture = texture.context("no pointer texture")?;
-            let pitch = (cursor.width * 4).div_ceil(256) * 256;
-            let mut upload: Option<ID3D12Resource> = None;
-            device.CreateCommittedResource(
-                &D3D12_HEAP_PROPERTIES {
-                    Type: D3D12_HEAP_TYPE_UPLOAD,
-                    ..Default::default()
-                },
-                D3D12_HEAP_FLAG_NONE,
-                &buffer_desc(u64::from(pitch * cursor.height)),
-                D3D12_RESOURCE_STATE_GENERIC_READ,
-                None,
-                &mut upload,
-            )?;
-            let upload = upload.context("no pointer upload buffer")?;
-            let mut mapped = std::ptr::null_mut();
-            upload.Map(0, None, Some(&mut mapped))?;
-            let row = (cursor.width * 4) as usize;
-            for y in 0..cursor.height as usize {
-                std::ptr::copy_nonoverlapping(
-                    cursor.pixels.as_ptr().add(y * row),
-                    mapped.cast::<u8>().add(y * pitch as usize),
-                    row.min(cursor.pixels.len().saturating_sub(y * row)),
-                );
-            }
-            upload.Unmap(0, None);
-            let allocator: ID3D12CommandAllocator =
-                device.CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_COMPUTE)?;
-            let list: ID3D12GraphicsCommandList =
-                device.CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_COMPUTE, &allocator, None)?;
-            let destination = D3D12_TEXTURE_COPY_LOCATION {
-                pResource: std::mem::ManuallyDrop::new(Some(texture.clone())),
-                Type: D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX,
-                Anonymous: D3D12_TEXTURE_COPY_LOCATION_0 {
-                    SubresourceIndex: 0,
-                },
-            };
-            let source = D3D12_TEXTURE_COPY_LOCATION {
-                pResource: std::mem::ManuallyDrop::new(Some(upload.clone())),
-                Type: D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT,
-                Anonymous: D3D12_TEXTURE_COPY_LOCATION_0 {
-                    PlacedFootprint: D3D12_PLACED_SUBRESOURCE_FOOTPRINT {
-                        Offset: 0,
-                        Footprint: D3D12_SUBRESOURCE_FOOTPRINT {
-                            Format: DXGI_FORMAT_R8G8B8A8_UNORM,
-                            Width: cursor.width,
-                            Height: cursor.height,
-                            Depth: 1,
-                            RowPitch: pitch,
-                        },
-                    },
-                },
-            };
-            list.CopyTextureRegion(&destination, 0, 0, 0, &source, None);
-            drop(std::mem::ManuallyDrop::into_inner(destination.pResource));
-            drop(std::mem::ManuallyDrop::into_inner(source.pResource));
-            // This plain texture was implicitly promoted to COPY_DEST on a compute
-            // queue, so it does not decay to COMMON after the upload. Every later
-            // use samples the cached cursor; transition once before its first read.
-            let mut barriers = [transition(
-                &texture,
-                D3D12_RESOURCE_STATE_COPY_DEST,
-                D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
-            )];
-            list.ResourceBarrier(&barriers);
-            drop_barriers(&mut barriers);
-            list.Close()?;
-            self.uploads.push(PointerUpload {
-                // Own every submitted object before ExecuteCommandLists: its
-                // following Signal may fail after work has already been queued.
-                fence: u64::MAX,
-                _allocator: allocator,
-                _list: list.clone(),
-                _upload: upload,
-                _texture: texture.clone(),
-            });
-            let done = self.compute.execute(&list)?;
-            self.uploads.last_mut().unwrap().fence = done;
-            self.pointers.insert(
-                cursor.width,
-                cursor.height,
-                cursor.logic,
-                cursor.pixels.clone(),
-                texture.clone(),
-            );
-            Ok(texture)
         }
     }
     pub fn compute(&self) -> &Arc<Compute> {
@@ -1468,12 +1193,10 @@ impl Converter {
             .collect()
     }
     pub(crate) fn release_completed(&mut self) {
-        self.uploads
-            .retain(|upload| !self.compute.completed(upload.fence));
         for slot in &mut self.slots {
             if self.compute.completed(slot.fence) {
                 slot.capture = None;
-                slot.inputs = [None, None];
+                slot.input = None;
                 slot.outputs.clear();
                 slot.waits.clear();
             }
@@ -1581,7 +1304,6 @@ impl Converter {
         &mut self,
         source: &ID3D12Resource,
         format: DXGI_FORMAT,
-        pointer: Option<&ID3D12Resource>,
         image: &crate::capture::GpuImage,
     ) -> Result<Converted> {
         self.compute.ensure_active()?;
@@ -1626,18 +1348,6 @@ impl Converter {
                 },
             };
             device.CreateShaderResourceView(source, Some(&srv(format)), at(0));
-            match pointer {
-                Some(pointer) => device.CreateShaderResourceView(
-                    pointer,
-                    Some(&srv(DXGI_FORMAT_R8G8B8A8_UNORM)),
-                    at(1),
-                ),
-                None => device.CreateShaderResourceView(
-                    None::<&ID3D12Resource>,
-                    Some(&srv(DXGI_FORMAT_R8G8B8A8_UNORM)),
-                    at(1),
-                ),
-            }
             let uav = |format, plane| D3D12_UNORDERED_ACCESS_VIEW_DESC {
                 Format: format,
                 ViewDimension: D3D12_UAV_DIMENSION_TEXTURE2D,
@@ -1657,13 +1367,13 @@ impl Converter {
                 target.as_ref(),
                 None,
                 Some(&uav(luma_format, 0)),
-                at(2),
+                at(1),
             );
             device.CreateUnorderedAccessView(
                 target.as_ref(),
                 None,
                 Some(&uav(chroma_format, 1)),
-                at(3),
+                at(2),
             );
             let Slot {
                 allocator, list, ..
@@ -1687,7 +1397,7 @@ impl Converter {
                 ptr: gpu.ptr + ((slot * VIEWS + index) * self.increment as usize) as u64,
             };
             list.SetComputeRootDescriptorTable(1, table(0));
-            list.SetComputeRootDescriptorTable(2, table(2));
+            list.SetComputeRootDescriptorTable(2, table(1));
             list.Dispatch(
                 (self.width / 2).div_ceil(8),
                 (self.height / 2).div_ceil(8),
@@ -1703,8 +1413,8 @@ impl Converter {
             list.Close()?;
         }
         // The slot's previous conversion has finished (waited above), so its
-        // inputs can go; this one's stay until the slot comes round again.
-        self.slots[slot].inputs = [Some(source.clone()), pointer.cloned()];
+        // input can go; this one's stays until the slot comes round again.
+        self.slots[slot].input = Some(source.clone());
         self.slots[slot].capture = Some(image.clone());
         self.slots[slot].outputs.clear();
         self.slots[slot].waits = ready.map(|ready| ready.fence.clone()).into_iter().collect();
@@ -1758,7 +1468,6 @@ impl Converter {
         &mut self,
         source: &ID3D12Resource,
         format: DXGI_FORMAT,
-        pointer: Option<&ID3D12Resource>,
         ready: Option<&Ready>,
         target: &Planes,
         image: Option<&crate::capture::GpuImage>,
@@ -1779,7 +1488,7 @@ impl Converter {
         self.slot = (self.slot + 1) % SLOTS;
         self.compute.wait(self.slots[slot].fence)?;
         self.slots[slot].capture = None;
-        self.slots[slot].inputs = [Some(source.clone()), pointer.cloned()];
+        self.slots[slot].input = Some(source.clone());
         self.slots[slot].capture = image.cloned();
         self.slots[slot].outputs = target.planes.to_vec();
         self.slots[slot].waits = ready
@@ -1816,7 +1525,6 @@ impl Converter {
                 },
             };
             device.CreateShaderResourceView(source, Some(&srv(format)), at(0));
-            device.CreateShaderResourceView(pointer, Some(&srv(DXGI_FORMAT_R8G8B8A8_UNORM)), at(1));
             for (index, plane) in target.planes.iter().enumerate() {
                 device.CreateUnorderedAccessView(
                     plane,
@@ -1831,7 +1539,7 @@ impl Converter {
                             },
                         },
                     }),
-                    at(2 + index),
+                    at(1 + index),
                 );
             }
             let Slot {
@@ -1858,7 +1566,7 @@ impl Converter {
                 ptr: gpu.ptr + ((slot * VIEWS + index) * self.increment as usize) as u64,
             };
             list.SetComputeRootDescriptorTable(1, table(0));
-            list.SetComputeRootDescriptorTable(2, table(2));
+            list.SetComputeRootDescriptorTable(2, table(1));
             list.Dispatch(
                 (self.width / 2).div_ceil(8),
                 (self.height / 2).div_ceil(8),
@@ -1924,13 +1632,10 @@ impl Drop for Converter {
         }
         work.keep(&self.heap);
         work.keep(&self.constants);
-        for pointer in self.pointers.values() {
-            work.keep(pointer);
-        }
         for slot in &mut self.slots {
             work.keep(&slot.allocator);
             work.keep(&slot.list);
-            for resource in slot.inputs.iter().flatten().chain(&slot.outputs) {
+            for resource in slot.input.iter().chain(&slot.outputs) {
                 work.keep(resource);
             }
             for fence in &slot.waits {
@@ -1939,12 +1644,6 @@ impl Drop for Converter {
             if let Some(capture) = slot.capture.take() {
                 work.captures.push(capture);
             }
-        }
-        for upload in &self.uploads {
-            work.keep(&upload._allocator);
-            work.keep(&upload._list);
-            work.keep(&upload._upload);
-            work.keep(&upload._texture);
         }
         for target in &self.targets {
             work.keep(target.texture.as_ref());
@@ -2065,7 +1764,6 @@ mod tests {
             },
             (4, 4, Pixel::Bgra8),
             [100., 1.],
-            None,
         );
         // SAFETY: This gate and queue belong exclusively to this test. Gate's
         // destructor always signals it, even if any later assertion panics.
@@ -2075,7 +1773,6 @@ mod tests {
         let converted = converter.convert(
             &compute.open(&image.texture)?,
             format(Pixel::Bgra8),
-            None,
             &image,
         )?;
         drop(image);
@@ -2291,7 +1988,6 @@ mod tests {
             },
             (4, 4, Pixel::Bgra8),
             [100., 1.],
-            None,
         );
         let index = converter.target()?;
         let submitted = *compute.next.lock().unwrap();
@@ -2305,7 +2001,7 @@ mod tests {
             // COMMON; rejection must happen before recording any GPU commands.
             crate::amf::gpu::set_resource_state(&converter.targets[index].texture, state)?;
             let error = converter
-                .convert(&source, format(Pixel::Bgra8), None, &image)
+                .convert(&source, format(Pixel::Bgra8), &image)
                 .err()
                 .expect("unsupported AMF state accepted");
             assert!(format!("{error:#}").contains("cannot transition on the compute queue"));
@@ -2324,54 +2020,10 @@ mod tests {
             D3D12_RESOURCE_STATE_COMMON,
         )?;
         converter
-            .convert(&source, format(Pixel::Bgra8), None, &image)?
+            .convert(&source, format(Pixel::Bgra8), &image)?
             .wait()?;
         converter.release_completed();
         Ok(())
-    }
-
-    #[test]
-    fn failed_shared_texture_ordering_never_releases_or_reuses_the_slot() {
-        use std::{cell::RefCell, sync::atomic::AtomicBool};
-        for failure in [None, Some("signal"), Some("wait"), Some("release")] {
-            let retired = AtomicBool::new(false);
-            let calls = RefCell::new(Vec::new());
-            let returned = return_after_reads(
-                &retired,
-                || {
-                    for stage in ["signal", "wait"] {
-                        calls.borrow_mut().push(stage);
-                        anyhow::ensure!(failure != Some(stage), "injected {stage} failure");
-                    }
-                    Ok(())
-                },
-                || {
-                    calls.borrow_mut().push("release");
-                    anyhow::ensure!(failure != Some("release"), "injected release failure");
-                    Ok(())
-                },
-            );
-            assert_eq!(returned.is_err(), failure.is_some());
-            assert_eq!(retired.load(Ordering::Acquire), failure.is_some());
-            assert_eq!(
-                *calls.borrow(),
-                match failure {
-                    Some("signal") => vec!["signal"],
-                    Some("wait") => vec!["signal", "wait"],
-                    _ => vec!["signal", "wait", "release"],
-                }
-            );
-            if failure.is_some() {
-                assert!(
-                    return_after_reads(
-                        &retired,
-                        || panic!("retired queue must reopen before ordering more work"),
-                        || panic!("retired queue must not release another texture"),
-                    )
-                    .is_err()
-                );
-            }
-        }
     }
 
     #[test]
@@ -2399,7 +2051,6 @@ mod tests {
         let destination = GpuImage::upload(&gpu, &pixels)?;
         let source = compute.open(&image.texture)?;
         let mut handoff = Handoff::new(compute.clone(), &gpu)?;
-        let mut returns = Returns::new(compute.clone(), &gpu)?;
         let mut converter = Converter::new(compute.clone(), 4, 4, false)?;
         converter.values = crate::gpu_color::constants(
             &butterpollo_core::rtsp::Negotiated {
@@ -2409,22 +2060,9 @@ mod tests {
             },
             (4, 4, Pixel::Bgra8),
             [100., 1.],
-            None,
         );
-        let cursor = crate::cursor::Cursor::new(
-            &gpu,
-            &DXGI_OUTDUPL_POINTER_SHAPE_INFO {
-                Type: DXGI_OUTDUPL_POINTER_SHAPE_TYPE_COLOR.0 as u32,
-                Width: 4,
-                Height: 4,
-                Pitch: 16,
-                ..Default::default()
-            },
-            &[64; 64],
-        )?;
-        let pointer = converter.pointer(&cursor)?;
         converter
-            .convert(&source, format(Pixel::Bgra8), Some(&pointer), &image)?
+            .convert(&source, format(Pixel::Bgra8), &image)?
             .wait()?;
         converter.release_completed();
 
@@ -2476,12 +2114,10 @@ mod tests {
         // allow new work on the quarantined queue.
         compute.wait(submitted)?;
         assert!(compute.completed(submitted));
-        rejected(converter.pointer(&cursor));
-        rejected(converter.convert(&source, format(Pixel::Bgra8), None, &image));
+        rejected(converter.convert(&source, format(Pixel::Bgra8), &image));
         rejected(converter.convert_planes(
             &source,
             format(Pixel::Bgra8),
-            None,
             None,
             &planes,
             None,
@@ -2489,99 +2125,16 @@ mod tests {
         rejected(compute.execute(&converter.slots[slot].list));
         rejected(compute.open(&image.texture));
         rejected(handoff.copy(&destination.texture, &image.texture));
-        rejected(returns.acquired());
         rejected(Converter::new(compute.clone(), 4, 4, false));
         rejected(Handoff::new(compute.clone(), &gpu));
-        rejected(Returns::new(compute.clone(), &gpu));
         assert_eq!(*compute.next.lock().unwrap(), submitted);
         assert_eq!(converter.slot, slot);
         assert_eq!(converter.targets.len(), targets);
         assert!(converter.planar.is_none());
-        assert!(converter.uploads.is_empty());
         assert!(handoff.readers.is_empty());
-        assert_eq!(returns.value, 0);
         let fresh = Compute::for_device(&gpu.device)?;
         assert!(!Arc::ptr_eq(&compute, &fresh));
         assert!(!fresh.is_stuck());
-        Ok(())
-    }
-
-    #[test]
-    #[ignore = "requires an idle D3D12 GPU, debug layer and task-owned report path; run alone"]
-    fn native_cursor_upload_is_shader_readable() -> Result<()> {
-        let report = std::path::PathBuf::from(
-            std::env::var_os("BUTTERPOLLO_TEST_CURSOR_STATE_REPORT")
-                .context("set BUTTERPOLLO_TEST_CURSOR_STATE_REPORT")?,
-        );
-        anyhow::ensure!(report.is_absolute(), "report path must be absolute");
-        let mut debug: Option<ID3D12Debug> = None;
-        // SAFETY: This opt-in test runs alone and enables validation before creating
-        // its first D3D12 device. Validation is local to this test process.
-        unsafe {
-            D3D12GetDebugInterface(&mut debug)?;
-            debug
-                .context("D3D12 debug layer unavailable")?
-                .EnableDebugLayer();
-        }
-        let _com = crate::capture::ComGuard::new()?;
-        eprintln!("cursor validation: creating capture device");
-        let gpu = crate::capture::Device::new("")?;
-        eprintln!("cursor validation: creating compute device");
-        let compute = Compute::for_device(&gpu.device)?;
-        let messages: ID3D12InfoQueue = compute.device.cast()?;
-        // SAFETY: This only disables debugger breaks in this isolated test; the
-        // validation result below still fails the test on a wrong resource state.
-        unsafe {
-            messages.SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_CORRUPTION, false)?;
-            messages.SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_ERROR, false)?;
-        }
-        let validation: ID3D12DebugCommandQueue = compute.queue.cast()?;
-        eprintln!("cursor validation: creating converter");
-        let mut converter = Converter::new(compute.clone(), 4, 4, false)?;
-        let shape = DXGI_OUTDUPL_POINTER_SHAPE_INFO {
-            Type: DXGI_OUTDUPL_POINTER_SHAPE_TYPE_COLOR.0 as u32,
-            Width: 9,
-            Height: 5,
-            Pitch: 9 * 4,
-            ..Default::default()
-        };
-        let mut checks = Vec::new();
-        for colour in [64u8, 192] {
-            let cursor = crate::cursor::Cursor::new(&gpu, &shape, &[colour; 9 * 5 * 4])?;
-            eprintln!("cursor validation: uploading {colour}");
-            let texture = converter.pointer(&cursor)?;
-            let upload = converter
-                .uploads
-                .last()
-                .context("cursor upload was not queued")?
-                .fence;
-            compute.wait(upload)?;
-            let cached = converter.pointer(&cursor)?;
-            anyhow::ensure!(texture.as_raw() == cached.as_raw(), "cursor cache missed");
-            eprintln!("cursor validation: checking {colour}");
-            // SAFETY: Both interfaces belong to the same live device. This asks the
-            // independent Direct3D validation layer whether a completed upload can be
-            // sampled by the compute shader, without submitting an invalid GPU read.
-            let readable = unsafe {
-                validation.AssertResourceState(
-                    &texture,
-                    0,
-                    D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE.0 as u32,
-                )
-            }
-            .as_bool();
-            // The queue's validation operation can itself reference the resource.
-            // Complete it before the next shape can release this cached texture.
-            compute.wait(compute.signal()?)?;
-            checks.push(serde_json::json!({"colour":colour,"shader_readable":readable}));
-            std::fs::write(&report, serde_json::to_vec_pretty(&checks)?)?;
-        }
-        std::fs::write(&report, serde_json::to_vec_pretty(&checks)?)?;
-        anyhow::ensure!(
-            checks.iter().all(|check| check["shader_readable"] == true),
-            "cursor upload is not shader-readable; see {}",
-            report.display()
-        );
         Ok(())
     }
 
@@ -2612,11 +2165,10 @@ mod tests {
             },
             (4, 4, Pixel::Bgra8),
             [100., 1.],
-            None,
         );
         let input = compute.open(&image.texture)?;
         let before = Arc::strong_count(&image.texture);
-        let converted = converter.convert(&input, format(Pixel::Bgra8), None, &image)?;
+        let converted = converter.convert(&input, format(Pixel::Bgra8), &image)?;
         assert_eq!(Arc::strong_count(&image.texture), before + 1);
         assert_eq!(
             image

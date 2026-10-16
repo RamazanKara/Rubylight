@@ -884,8 +884,11 @@ fn pyrowave_decoded_end_to_end() -> Result<()> {
                     .collect::<Result<Vec<_>>>()?;
                 for kbps in [1_000_000, 400_000, 125_000, 30_000] {
                     config.bitrate_kbps = kbps;
-                    let mut baseline: Vec<Option<Vec<Vec<u16>>>> = vec![None, None];
                     for records in [false, true] {
+                        // Record framing changes each picture's budget (the wire budget since
+                        // 2.4.5), so each framing has its own baseline; within one, every
+                        // conversion path and batch must decode the same pixels.
+                        let mut baseline: Vec<Option<Vec<Vec<u16>>>> = vec![None, None];
                         config.pyrowave_records = records;
                         let mut encoders = [false, true]
                             .into_iter()

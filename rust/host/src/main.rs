@@ -345,8 +345,10 @@ async fn run(args: Args, assets: PathBuf) -> Result<()> {
         } else {
             nvhttp::router(h.clone(), https)
         };
-        let acceptor = if https {
-            Some(tls::acceptor(&h.identity, !web)?)
+        let acceptor = if web {
+            Some(tls::console_acceptor(&h.console)?)
+        } else if https {
+            Some(tls::acceptor(&h.identity, true)?)
         } else {
             None
         };

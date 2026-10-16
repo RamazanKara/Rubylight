@@ -204,6 +204,93 @@ impl Identity {
             .to_vec()
     }
 }
+/// The name of the root that issues the console's certificate; setup trusts
+/// it on install and removes every root by this name on uninstall.
+pub const CONSOLE_ROOT_NAME: &str = "Rubylight local console";
+/// The console's own TLS certificate. The pairing identity is self-signed,
+/// so browsers warned on https://localhost; this one comes from a root made
+/// for it alone, which setup adds to Windows' trusted roots. The root may
+/// name only localhost and loopback addresses, and its private key is
+/// dropped once it signed the console's certificate, so trusting it cannot
+/// vouch for any other site.
+pub struct ConsoleCertificate {
+    /// The console's certificate followed by the root's.
+    pub chain_pem: String,
+    pub key_pem: String,
+    pub root_pem: String,
+}
+impl ConsoleCertificate {
+    /// The certificate kept in `directory`, made there on first use.
+    pub fn load(directory: &Path) -> Result<Self> {
+        let [chain, key, root] =
+            ["console.pem", "console.key", "console-root.pem"].map(|name| directory.join(name));
+        if let (Ok(chain_pem), Ok(key_pem), Ok(root_pem)) = (
+            std::fs::read_to_string(&chain),
+            std::fs::read_to_string(&key),
+            std::fs::read_to_string(&root),
+        ) {
+            return Ok(Self {
+                chain_pem,
+                key_pem,
+                root_pem,
+            });
+        }
+        let made = Self::generate()?;
+        std::fs::create_dir_all(directory)?;
+        crate::state::atomic_write(&key, made.key_pem.as_bytes())?;
+        crate::state::atomic_write(&root, made.root_pem.as_bytes())?;
+        crate::state::atomic_write(&chain, made.chain_pem.as_bytes())?;
+        Ok(made)
+    }
+    pub fn generate() -> Result<Self> {
+        use rcgen::{
+            BasicConstraints, CertificateParams, CidrSubnet, DnType, ExtendedKeyUsagePurpose,
+            GeneralSubtree, IsCa, Issuer, KeyPair, KeyUsagePurpose, NameConstraints,
+        };
+        let now = time::OffsetDateTime::now_utc();
+        let validity = |params: &mut CertificateParams| {
+            params.not_before = now - time::Duration::days(1);
+            params.not_after = now + time::Duration::days(20 * 365);
+        };
+        let mut root = CertificateParams::default();
+        root.distinguished_name
+            .push(DnType::CommonName, CONSOLE_ROOT_NAME);
+        root.is_ca = IsCa::Ca(BasicConstraints::Constrained(0));
+        root.key_usages = vec![KeyUsagePurpose::KeyCertSign, KeyUsagePurpose::CrlSign];
+        let mut loopback_v6 = [0; 16];
+        loopback_v6[15] = 1;
+        root.name_constraints = Some(NameConstraints {
+            permitted_subtrees: vec![
+                GeneralSubtree::DnsName("localhost".into()),
+                GeneralSubtree::IpAddress(CidrSubnet::V4([127, 0, 0, 0], [255, 0, 0, 0])),
+                GeneralSubtree::IpAddress(CidrSubnet::V6(loopback_v6, [0xff; 16])),
+            ],
+            excluded_subtrees: vec![],
+        });
+        validity(&mut root);
+        let root_key = KeyPair::generate()?;
+        let root_pem = root.self_signed(&root_key)?.pem();
+        let issuer = Issuer::new(root, root_key);
+
+        let mut console =
+            CertificateParams::new(vec!["localhost".into(), "127.0.0.1".into(), "::1".into()])?;
+        console
+            .distinguished_name
+            .push(DnType::CommonName, "localhost");
+        console.is_ca = IsCa::ExplicitNoCa;
+        console.key_usages = vec![KeyUsagePurpose::DigitalSignature];
+        console.extended_key_usages = vec![ExtendedKeyUsagePurpose::ServerAuth];
+        console.use_authority_key_identifier_extension = true;
+        validity(&mut console);
+        let key = KeyPair::generate()?;
+        let certificate = console.signed_by(&key, &issuer)?.pem();
+        Ok(Self {
+            chain_pem: format!("{certificate}{root_pem}"),
+            key_pem: key.serialize_pem(),
+            root_pem,
+        })
+    }
+}
 pub fn certificate_der(pem_text: &str) -> Result<Vec<u8>> {
     let b = pem::parse(pem_text)?;
     if b.tag() != "CERTIFICATE" {
@@ -278,6 +365,28 @@ mod tests {
         let der = certificate_der(pem).unwrap();
         let spki = subject_public_key_info(&der).unwrap();
         assert!(RsaPublicKey::from_public_key_der(spki).is_ok());
+    }
+    #[test]
+    fn the_console_certificate_names_only_loopback_and_is_kept() {
+        let directory = tempfile::tempdir().unwrap();
+        let made = ConsoleCertificate::load(directory.path()).unwrap();
+        let kept = ConsoleCertificate::load(directory.path()).unwrap();
+        assert_eq!(made.chain_pem, kept.chain_pem);
+        assert_eq!(made.key_pem, kept.key_pem);
+        assert!(made.chain_pem.ends_with(&made.root_pem));
+
+        let root_der = certificate_der(&made.root_pem).unwrap();
+        let (_, root) = x509_parser::parse_x509_certificate(&root_der).unwrap();
+        assert!(root.is_ca());
+        let constraints = root.name_constraints().unwrap().unwrap().value;
+        assert_eq!(constraints.permitted_subtrees.as_ref().unwrap().len(), 3);
+
+        let console_der = certificate_der(&made.chain_pem).unwrap();
+        let (_, console) = x509_parser::parse_x509_certificate(&console_der).unwrap();
+        assert!(!console.is_ca());
+        assert_eq!(console.issuer(), root.subject());
+        let names = console.subject_alternative_name().unwrap().unwrap();
+        assert_eq!(names.value.general_names.len(), 3);
     }
     #[test]
     fn legacy_nonce_and_audio_round_trip() {

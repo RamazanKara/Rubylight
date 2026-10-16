@@ -44,7 +44,7 @@ Run one streaming host on the default ports. If Sunshine, Apollo or Vibepollo is
 
 ## Open the console
 
-The launcher opens **https://localhost:47990** on the host PC. A custom base port changes the console port too. The console uses a local self-signed certificate, so the browser may show a certificate warning; check that you are opening your own host's address. Create the local administrator account if prompted; initial account setup must happen on the host PC. After an import from Apollo, Vibepollo or Sunshine, sign in with that host's console username and password.
+The launcher opens **https://localhost:47990** on the host PC. A custom base port changes the console port too. The console has its own certificate for `localhost`, `127.0.0.1` and `::1`. Setup adds its issuer, **Rubylight local console**, to Windows' trusted roots, so browsers open the console on the host PC without a warning. That root can vouch only for those loopback names, and its private key is deleted once it has signed the console's certificate. Firefox uses Windows' trusted roots by default. From another device, by the host's network address, the browser still warns; check that you are opening your own host's address. Create the local administrator account if prompted; initial account setup must happen on the host PC. After an import from Apollo, Vibepollo or Sunshine, sign in with that host's console username and password.
 
 To set a new sign-in, open PowerShell as administrator on the host PC and run the host program with `--creds` (the sign-in page on the host PC shows the full path):
 

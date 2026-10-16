@@ -436,6 +436,12 @@ pub fn install(options: &Options, progress: &Progress) -> Result<Outcome> {
         progress.set("Starting Rubylight…");
         system::start_service(SERVICE)?;
         wait_ready(probe(&profile), Some(env!("CARGO_PKG_VERSION")))?;
+        // The host made the console's certificate as it started.
+        if let Err(error) = trust_console(&profile) {
+            notes.push(format!(
+                "Browsers will warn about the console's certificate: its root could not be trusted: {error:#}"
+            ));
+        }
     }
     restart.services.clear();
     crate::update::record_installed(&profile);
@@ -866,6 +872,35 @@ fn secure_profile_with(
     let reset = inherit(root);
     let credentials = restrict(&profile.join("credentials"), false);
     reset.and(credentials)
+}
+/// The name of the root the host makes for the console's certificate
+/// (`butterpollo_core::crypto::CONSOLE_ROOT_NAME`).
+const CONSOLE_ROOT_NAME: &str = "Rubylight local console";
+/// Browsers open the console without a warning once its root is trusted
+/// (see `ConsoleCertificate`). Roots of an earlier console certificate go.
+fn trust_console(profile: &Path) -> Result<()> {
+    let root = profile.join("credentials").join("console-root.pem");
+    if !root.is_file() {
+        bail!("the host did not make {}", root.display());
+    }
+    untrust_console();
+    let root = root.display().to_string();
+    let (code, output) = system::run(
+        &system::system32("certutil.exe"),
+        &["-f", "-addstore", "Root", &root],
+        Duration::from_secs(30),
+    )?;
+    if code != 0 {
+        bail!("certutil exited with {code}: {}", output.trim());
+    }
+    Ok(())
+}
+pub(crate) fn untrust_console() {
+    let _ = system::run(
+        &system::system32("certutil.exe"),
+        &["-delstore", "Root", CONSOLE_ROOT_NAME],
+        Duration::from_secs(30),
+    );
 }
 pub(crate) fn prepare_profile(profile: &Path, updating: bool) -> Result<()> {
     let root = profile.parent().context("profile has no parent")?;
@@ -1383,6 +1418,13 @@ pub(crate) fn wait_ready(address: SocketAddr, version: Option<&str>) -> Result<(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn setup_removes_the_root_by_the_name_the_host_gives_it() {
+        assert_eq!(
+            super::CONSOLE_ROOT_NAME,
+            butterpollo_core::crypto::CONSOLE_ROOT_NAME
+        );
+    }
     use super::*;
     #[test]
     fn driver_reboot_exit_codes_are_successful_but_warnings_are_shown() {

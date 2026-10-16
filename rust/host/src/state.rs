@@ -150,6 +150,8 @@ pub struct Host {
     pub config_save: Mutex<()>,
     pub port_override: Option<u16>,
     pub identity: Identity,
+    /// The web console's TLS certificate, separate from the pairing identity.
+    pub console: butterpollo_core::crypto::ConsoleCertificate,
     pub paired: RwLock<PairedState>,
     pub credentials: RwLock<Option<Credentials>>,
     /// The credentials file as the sign-in was last read or written.
@@ -289,6 +291,8 @@ impl Host {
         }
         paired.save(&paired_path)?;
         let identity = Identity::load(&certificate, &key)?;
+        let console =
+            butterpollo_core::crypto::ConsoleCertificate::load(&directory.join("credentials"))?;
         let credentials = Credentials::load(&credentials_path)?;
         let credentials_stamp = file_stamp(&credentials_path);
         let app_document = load_library(
@@ -349,6 +353,7 @@ impl Host {
             config_save: Mutex::new(()),
             port_override: port,
             identity,
+            console,
             paired: RwLock::new(paired),
             credentials: RwLock::new(credentials),
             credentials_stamp: Mutex::new(credentials_stamp),

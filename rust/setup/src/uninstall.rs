@@ -60,6 +60,7 @@ pub fn uninstall(options: &Options, progress: &Progress) -> Result<()> {
     }
     system::firewall_remove(FIREWALL_RULE);
     system::firewall_remove(LEGACY_FIREWALL_RULE);
+    crate::install::untrust_console();
     remove_layers(&install);
     remove_earlier_folder(&install);
 

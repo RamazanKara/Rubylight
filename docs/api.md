@@ -59,12 +59,12 @@ For requests that change state:
 
 ## Read-only examples
 
-These PowerShell examples read host status without launching an app or changing settings. Replace the certificate path with the public certificate from the active profile and `admin` with your administrator name. `curl.exe --user admin` prompts for the password instead of putting it in the command.
+These PowerShell examples read host status without launching an app or changing settings. Replace the certificate path with the console's root from the active profile and `admin` with your administrator name. `curl.exe --user admin` prompts for the password instead of putting it in the command.
 
-A newly created Rust profile includes `localhost` in its certificate. For an imported or custom certificate, use its matching HTTPS name and trusted certificate instead.
+The console's certificate names `localhost`, `127.0.0.1` and `::1`. On an installed host, `curl.exe` also trusts it without `--cacert`, through the root setup adds to Windows.
 
 ```powershell
-$certificate = 'C:\path\to\profile\credentials\cacert.pem'
+$certificate = 'C:\path\to\profile\credentials\console-root.pem'
 curl.exe --fail-with-body --silent --show-error --cacert $certificate --user admin https://localhost:47990/api/metadata
 curl.exe --fail-with-body --silent --show-error --cacert $certificate --user admin https://localhost:47990/api/session/status
 curl.exe --fail-with-body --silent --show-error --cacert $certificate --user admin https://localhost:47990/api/token/routes

@@ -122,6 +122,22 @@ pub fn acceptor(
     let config = builder.with_single_cert(vec![CertificateDer::from(identity.der.clone())], key)?;
     Ok(TlsAcceptor::from(Arc::new(config)))
 }
+/// The console's listener presents its own certificate, which browsers trust
+/// once setup has trusted its root, instead of the self-signed pairing one.
+pub fn console_acceptor(
+    console: &butterpollo_core::crypto::ConsoleCertificate,
+) -> Result<TlsAcceptor> {
+    let provider = Arc::new(rustls::crypto::ring::default_provider());
+    let chain = rustls_pemfile::certs(&mut console.chain_pem.as_bytes())
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    let key = rustls_pemfile::private_key(&mut console.key_pem.as_bytes())?
+        .ok_or_else(|| anyhow::anyhow!("empty console private key"))?;
+    let config = rustls::ServerConfig::builder_with_provider(provider)
+        .with_safe_default_protocol_versions()?
+        .with_no_client_auth()
+        .with_single_cert(chain, key)?;
+    Ok(TlsAcceptor::from(Arc::new(config)))
+}
 pub async fn serve(
     address: SocketAddr,
     router: Router,
@@ -281,5 +297,47 @@ mod tests {
             // The signature is still checked: the host's key is the wrong one.
             assert!(!accepts(&acceptor, version, &certificate, &identity.private_pem).await);
         }
+    }
+    /// A browser that trusts only the console's root accepts the console at
+    /// every loopback name it is opened by.
+    #[tokio::test]
+    async fn a_client_trusting_the_console_root_accepts_the_console() -> Result<()> {
+        let console = butterpollo_core::crypto::ConsoleCertificate::generate()?;
+        let acceptor = console_acceptor(&console)?;
+        let mut roots = rustls::RootCertStore::empty();
+        for root in rustls_pemfile::certs(&mut console.root_pem.as_bytes()) {
+            roots.add(root?)?;
+        }
+        let provider = Arc::new(rustls::crypto::ring::default_provider());
+        let client = rustls::ClientConfig::builder_with_provider(provider)
+            .with_safe_default_protocol_versions()?
+            .with_root_certificates(roots)
+            .with_no_client_auth();
+        let connector = TlsConnector::from(Arc::new(client));
+        for name in ["localhost", "127.0.0.1", "::1"] {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+            let address = listener.local_addr()?;
+            let acceptor = acceptor.clone();
+            let server = tokio::spawn(async move {
+                let (socket, _) = listener.accept().await?;
+                acceptor.accept(socket).await.map(|_| ())
+            });
+            let socket = tokio::net::TcpStream::connect(address).await?;
+            let name = ServerName::try_from(name)?.to_owned();
+            connector.connect(name, socket).await?;
+            server.await??;
+        }
+        // Not a name the console's root may vouch for.
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+        let address = listener.local_addr()?;
+        tokio::spawn(async move {
+            if let Ok((socket, _)) = listener.accept().await {
+                let _ = acceptor.accept(socket).await;
+            }
+        });
+        let socket = tokio::net::TcpStream::connect(address).await?;
+        let name = ServerName::try_from("example.com")?;
+        assert!(connector.connect(name, socket).await.is_err());
+        Ok(())
     }
 }

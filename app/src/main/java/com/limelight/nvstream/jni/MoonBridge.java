@@ -412,7 +412,8 @@ public class MoonBridge {
                                               int colorSpace, int colorRange,
                                               boolean unbatchedInput, boolean networkPriority, int hostFeatures,
                                               boolean inputOnly, boolean remoteMonitor, boolean enableMic,
-                                              boolean hapticsPcm);
+                                              boolean hapticsPcm,
+                                              int pyrowaveLinkMbps, int pyrowavePaceMbps);
 
     /** Call before startConnection(); 0 keeps the native 10 second control timeout. */
     public static native void setNetworkGracePeriodMs(int gracePeriodMs);

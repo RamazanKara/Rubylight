@@ -41,6 +41,14 @@ public class NvConnectionHapticsFlagTest {
         }
     }
 
+    // Only a PyroWave stream looks up the wired link; any other codec sends no pacing hints.
+    @Test public void otherCodecsSendNoPyroWavePacingHints() throws Exception {
+        CapturingBridge.linkMbps = CapturingBridge.paceMbps = -1;
+        startStream();
+        assertEquals(0, CapturingBridge.linkMbps);
+        assertEquals(0, CapturingBridge.paceMbps);
+    }
+
     // The drop tolerance reaches the native control timeout only when it is longer than it.
     @Test public void networkDropToleranceIsSetBeforeEveryStart() throws Exception {
         String[][] settings = {{"0", "0"}, {"30", "30000"}, {"60", "60000"}, {"3600", "0"}};
@@ -97,6 +105,7 @@ public class NvConnectionHapticsFlagTest {
     public static class CapturingBridge {
         static Boolean hapticsPcm;
         static int serverCodecModeSupport, hostFeatures;
+        static int linkMbps = -1, paceMbps = -1;
         static Integer gracePeriodMs;
 
         @Implementation protected static void __staticInitializer__() {}
@@ -118,10 +127,12 @@ public class NvConnectionHapticsFlagTest {
                                           int colorSpace, int colorRange,
                                           boolean unbatchedInput, boolean networkPriority, int hostFeatures,
                                           boolean inputOnly, boolean remoteMonitor, boolean enableMic,
-                                          boolean hapticsPcm) {
+                                          boolean hapticsPcm, int pyrowaveLinkMbps, int pyrowavePaceMbps) {
             CapturingBridge.hapticsPcm = hapticsPcm;
             CapturingBridge.serverCodecModeSupport = serverCodecModeSupport;
             CapturingBridge.hostFeatures = hostFeatures;
+            CapturingBridge.linkMbps = pyrowaveLinkMbps;
+            CapturingBridge.paceMbps = pyrowavePaceMbps;
             // Stop here: no native stream exists in this test.
             return -1;
         }

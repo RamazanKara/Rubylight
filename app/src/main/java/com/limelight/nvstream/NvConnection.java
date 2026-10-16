@@ -59,6 +59,7 @@ import com.limelight.nvstream.jni.MoonBridge;
 import com.limelight.preferences.HostDisplayChoice;
 import com.limelight.preferences.PreferenceConfiguration;
 import com.limelight.utils.NetworkGrace;
+import com.limelight.utils.WiredLink;
 
 public class NvConnection {
     private static final class SessionEndedException extends IOException {}
@@ -932,6 +933,12 @@ public class NvConnection {
                     ByteBuffer ib = ByteBuffer.allocate(16);
                     ib.putInt(context.riKeyId);
 
+                    // Pacing hints for a PyroWave host, which sends frames in bursts at its own
+                    // link rate: this device's wired port speed toward it. No calibrated pace is
+                    // stored (the host speed test measures download speed, not a loss-free pace).
+                    int pyroWaveLinkMbps = (context.negotiatedVideoFormats & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0 ?
+                            WiredLink.mbpsToward(appContext, context.serverAddress.address) : 0;
+
                     synchronized (MoonBridge.class) {
                         synchronized (NvConnection.this) {
                             if (stopRequested) {
@@ -968,7 +975,8 @@ public class NvConnection {
                                 context.streamConfig.getApp().getRole() == NvApp.Role.INPUT_ONLY &&
                                         !context.streamConfig.getApp().isSmallStreamInputOnly(),
                                 context.streamConfig.getApp().getRole() == NvApp.Role.REMOTE_MONITOR,
-                                micPermitted, prefs.usbDualSenseHaptics);
+                                micPermitted, prefs.usbDualSenseHaptics,
+                                pyroWaveLinkMbps, 0);
                         if (ret != 0) {
                             return;
                         }

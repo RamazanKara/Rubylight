@@ -56,6 +56,9 @@ public final class DemoGameActivity extends Activity implements SurfaceHolder.Ca
     private int alignment;
     // The bundled samples are 1920x1080.
     private static final int SAMPLE_WIDTH = 1920, SAMPLE_HEIGHT = 1080;
+    // The stream size the view is laid out for: the sample's, or "--es size 2184x1968" to stand in for
+    // a stream of the panel's own size (the sample is then scaled into it).
+    private int videoWidth = SAMPLE_WIDTH, videoHeight = SAMPLE_HEIGHT;
     private final Runnable metrics = new Runnable() {
         @Override public void run() {
             DemoMetrics.update(DemoGameActivity.this, DemoGameActivity.this, tick++);
@@ -84,6 +87,11 @@ public final class DemoGameActivity extends Activity implements SurfaceHolder.Ca
         // stream. "--es align top" moves a Fit or 1:1 picture to the top.
         fit = getIntent().getStringExtra("fit");
         alignment = "top".equals(getIntent().getStringExtra("align")) ? VideoScaling.TOP : VideoScaling.CENTER;
+        String size = getIntent().getStringExtra("size");
+        if (size != null && size.matches("\\d+x\\d+")) {
+            videoWidth = Integer.parseInt(size.substring(0, size.indexOf('x')));
+            videoHeight = Integer.parseInt(size.substring(size.indexOf('x') + 1));
+        }
         applyScaling();
         // "--es orientation landscape", "portrait" or "rotate" applies that Orientation setting to the
         // landscape sample, which keeps its size like a stream on a host that cannot turn it.
@@ -330,7 +338,7 @@ public final class DemoGameActivity extends Activity implements SurfaceHolder.Ca
     }
 
     private void applyScaling() {
-        stream.setVideoScaling(scalingMode(), alignment, SAMPLE_WIDTH, SAMPLE_HEIGHT);
+        stream.setVideoScaling(scalingMode(), alignment, videoWidth, videoHeight);
     }
 
     private void releasePlayer() {

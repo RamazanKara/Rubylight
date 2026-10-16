@@ -348,7 +348,7 @@ pub fn summary(found: &Found, install: &std::path::Path) -> String {
     lines.join("\n")
 }
 /// What setup changes beyond the install folder, and what Rubylight sends.
-pub const SYSTEM_CHANGES: &str = "Setup installs the Rubylight service, a firewall rule for streaming and a virtual display driver. Rubylight checks GitHub for updates once a day; you can turn that off in Settings. Privacy: ramazankara.github.io/Rubylight/docs/privacy.html";
+pub const SYSTEM_CHANGES: &str = "Setup installs the Rubylight service, a firewall rule for streaming and a virtual display driver. It adds certificates to Windows so that driver and the local web console are trusted; uninstalling removes them. Rubylight checks GitHub for updates once a day; you can turn that off in Settings. Privacy: ramazankara.github.io/Rubylight/docs/privacy.html";
 
 #[cfg(test)]
 mod tests {
@@ -358,6 +358,7 @@ mod tests {
         let text = summary(&Found::default(), &default_folder());
         assert!(text.ends_with(SYSTEM_CHANGES), "{text}");
         assert!(text.contains("service") && text.contains("firewall rule"));
+        assert!(text.contains("certificates") && text.contains("removes them"));
         assert!(text.contains("updates") && text.contains("privacy.html"));
     }
     #[test]

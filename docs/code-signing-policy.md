@@ -28,6 +28,15 @@ Every signed executable and DLL carries the product name **Rubylight** and the r
 
 Files from other projects keep their own publishers' signatures and are never signed with Rubylight's certificate: the virtual display and gamepad drivers released with Vibepollo (signed by SignPath Foundation for that project), the usbip-win2 installer and drivers and `nefconc.exe`. Open-source libraries whose projects publish no signed builds ship unsigned: the Opus, oneVPL and GCC runtime DLLs from MSYS2 and the PyroWave library built from its pinned source. [Third-party components](../rust/THIRD_PARTY.md) lists them all with their licences.
 
+## Certificates the installer trusts
+
+Setup adds certificates to Windows' certificate stores on the PC it installs on. Its first page says so before anything is installed, and uninstalling removes them.
+
+- **Rubylight's virtual display driver.** Windows installs a driver only from a publisher it trusts. Until SignPath signs the driver's catalog, `install-local.ps1` creates a code-signing certificate on the PC, signs the catalog with it, adds the certificate to `LocalMachine\Root` and `LocalMachine\TrustedPublisher`, and deletes its private key, which never leaves the PC and cannot be exported. With the key gone, that certificate can sign nothing else, for Rubylight or for anyone else. Every PC trusts only its own. A catalog signed by SignPath is installed as it is: only its SignPath Foundation certificate goes into `TrustedPublisher`, so Windows does not ask before installing the driver. Reinstalling replaces the previous certificate, and uninstalling Rubylight removes the certificates and the driver even when the other drivers stay. ([Driver README](../rust/drivers/rubylight-vdisplay/README.md#shipping-before-signpath-signs-it-signed-on-the-users-pc))
+- **The local web console.** So browsers open `https://localhost` without a warning, the host makes a root certificate named "Rubylight local console" on first start, uses it to issue the console's own certificate, and discards its private key. Setup adds that root to `LocalMachine\Root`. It is restricted to `localhost`, `127.0.0.0/8` and `::1`, may not issue further certificate authorities, and cannot vouch for any other site. Uninstalling removes it.
+
+Drivers from other projects that setup installs come with their own install scripts, which may trust their publishers' certificates in the same way.
+
 ## How a release is signed
 
 1. Pushing a version tag (`v2.*`), or the maintainer starting the workflow's release on `main`, runs the Windows workflow on GitHub-hosted runners. It builds and tests everything from that commit, without caches from earlier runs.

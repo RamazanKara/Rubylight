@@ -37,7 +37,7 @@ fn main() -> anyhow::Result<()> {
                 "Rubylight encoder performance probe\n\
 Repeat-frame throughput excludes capture, network, decoding and display latency.\n\
 --width 1920 --height 1080 --fps 120 --seconds 8 --bitrate 20000\n\
---codec hevc (h264/hevc/av1/pyrowave) --encoder auto --capture wgc --display NAME\n\
+--codec hevc (h264/hevc/av1/pyrowave) --capture wgc --display NAME\n\
 --synthetic 16: moving pictures; --idr-interval N: request a recovery keyframe every N measured submissions (0: none)\n\
 --hdr: HDR10 output; --sdr-10bit; --yuv444; --slices N: slices (AV1 tiles) a client asks for; --intra-refresh; --records: PyroWave record framing; --cpu: CPU conversion/readback path; --paced: requested frame cadence; --live-capture: keep the shared capture device active; --arrival: with --live-capture, encode each new picture as it arrives"
             );
@@ -66,7 +66,6 @@ Repeat-frame throughput excludes capture, network, decoding and display latency.
                 | "--seconds"
                 | "--bitrate"
                 | "--codec"
-                | "--encoder"
                 | "--display"
                 | "--capture"
                 | "--config"
@@ -204,16 +203,10 @@ Repeat-frame throughput excludes capture, network, decoding and display latency.
     } else {
         None
     };
-    let preference = option("--encoder", "auto");
     let mut encoder = if cpu {
-        Encoder::new_options(
-            &config,
-            &preference,
-            &image.gpu.display.display_name,
-            &tuning,
-        )?
+        Encoder::new_options(&config, &image.gpu.display.display_name, &tuning)?
     } else {
-        Encoder::new_gpu_options(&config, &preference, &image, &tuning)?
+        Encoder::new_gpu_options(&config, &image, &tuning)?
     };
     let mut picture = 0usize;
     let mut encode = |encoder: &mut Encoder, idr| {

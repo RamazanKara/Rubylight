@@ -3,7 +3,6 @@ param(
     [string]$MsysRoot = 'C:\msys64',
     [string]$Dependencies = "$env:LOCALAPPDATA\ButterpolloRust\sdk",
     [string]$TargetDirectory = "$env:LOCALAPPDATA\ButterpolloRust\target",
-    [string]$FfmpegRoot = $env:BUTTERPOLLO_FFMPEG_ROOT,
     [string]$PyrowaveRoot = $env:BUTTERPOLLO_PYROWAVE_ROOT,
     # Signed virtual display and gamepad driver packages (a Vibepollo
     # installation's drivers folder); fetched from Vibepollo 2.0.0 otherwise.
@@ -34,15 +33,6 @@ $env:BUTTERPOLLO_SYSTEM_LIBS = "$MsysRoot\ucrt64\lib"
 $env:BUTTERPOLLO_VULKAN_INCLUDE = "$MsysRoot\ucrt64\include"
 $env:CARGO_TARGET_DIR = $TargetDirectory
 if ($FetchDependencies) {
-    if (!$FfmpegRoot) {
-        $archive = Join-Path $Dependencies 'ffmpeg-v2026.516.30821.tar.gz'
-        Get-PinnedArchive 'https://github.com/LizardByte/build-deps/releases/download/v2026.516.30821/Windows-AMD64-ffmpeg.tar.gz' $archive '2f7a2c2fc6be9b96de3c6f654389f73a5e5d369d7e802d017894fae96247661d'
-        $directory = Join-Path $Dependencies 'ffmpeg-v2026.516.30821'
-        New-Item -ItemType Directory -Path $directory -Force | Out-Null
-        & tar -xzf $archive -C $directory
-        Assert-NativeExit 'FFmpeg extraction'
-        $FfmpegRoot = (Get-ChildItem -LiteralPath $directory -Filter avcodec.h -Recurse | Select-Object -First 1).Directory.Parent.Parent.FullName
-    }
     if (!$PyrowaveRoot) {
         $PyrowaveRoot = Join-Path $Dependencies 'pyrowave-502a3b52'
         $cygpath = "$MsysRoot\usr\bin\cygpath.exe"
@@ -76,7 +66,7 @@ if ($DriverRoot) {
         if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch '^CN=SignPath Foundation') { throw "Driver file is not signed as expected: $catalog" }
     }
 }
-if (!$FfmpegRoot -or !$PyrowaveRoot) { throw 'Provide FFmpeg/PyroWave SDK paths, or use -FetchDependencies' }
+if (!$PyrowaveRoot) { throw 'Provide the PyroWave SDK path, or use -FetchDependencies' }
 $pyrowaveInfo = Join-Path $PyrowaveRoot 'share\pyrowave-shared\build-info.txt'
 if (!(Test-Path -LiteralPath $pyrowaveInfo)) { throw 'PyroWave SDK build-info.txt is missing; rebuild using -FetchDependencies' }
 $pyrowaveIdentity = Get-Content -LiteralPath $pyrowaveInfo -Raw
@@ -89,7 +79,6 @@ foreach ($identity in @(
         throw "PyroWave SDK does not match the pinned build: expected $identity. Rebuild using -FetchDependencies without -PyrowaveRoot."
     }
 }
-$env:BUTTERPOLLO_FFMPEG_ROOT = $FfmpegRoot
 $env:BUTTERPOLLO_PYROWAVE_ROOT = $PyrowaveRoot
 Push-Location -LiteralPath $repo
 try {
@@ -116,10 +105,8 @@ try {
     & cargo $toolchain @protocolArgs
     Assert-NativeExit 'Rust protocol performance probe build'
     $output = Join-Path $TargetDirectory $profile
-    $runtimeDlls = @('libopus-0.dll','libvpl-2.dll','libstdc++-6.dll','libgcc_s_seh-1.dll','libwinpthread-1.dll','libpyrowave-shared-1.dll')
-    foreach ($dll in $runtimeDlls | Where-Object { $_ -ne 'libpyrowave-shared-1.dll' }) {
-        Copy-Item -LiteralPath (Join-Path "$MsysRoot\ucrt64\bin" $dll) -Destination $output
-    }
+    $runtimeDlls = @('libopus-0.dll','libpyrowave-shared-1.dll')
+    Copy-Item -LiteralPath (Join-Path "$MsysRoot\ucrt64\bin" 'libopus-0.dll') -Destination $output
     Copy-Item -LiteralPath (Join-Path $PyrowaveRoot 'bin\libpyrowave-shared-1.dll') -Destination $output
     if ($Package) {
         $distribution = Join-Path $TargetDirectory "butterpollo-rust-$profile"
@@ -167,7 +154,7 @@ try {
         Copy-Item -LiteralPath (Join-Path $repo 'rust\service.ps1') -Destination $distribution
         Copy-Item -LiteralPath (Join-Path $repo 'Cargo.lock') -Destination "$distribution\licenses"
         if (Test-Path -LiteralPath (Join-Path $PyrowaveRoot 'share\licenses')) { Copy-Item -LiteralPath (Join-Path $PyrowaveRoot 'share\licenses') -Destination "$distribution\licenses\pyrowave" -Recurse -Force }
-        foreach ($library in @('gcc-libs','libwinpthread','winpthreads','libvpl','opus','svt-av1')) {
+        foreach ($library in @('gcc-libs','libwinpthread','winpthreads','opus')) {
             $source = Join-Path "$MsysRoot\ucrt64\share\licenses" $library
             if (Test-Path -LiteralPath $source) { Copy-Item -LiteralPath $source -Destination "$distribution\licenses\$library" -Recurse -Force }
         }

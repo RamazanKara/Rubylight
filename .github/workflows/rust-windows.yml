@@ -114,7 +114,6 @@ jobs:
             mingw-w64-ucrt-x86_64-ninja
             mingw-w64-ucrt-x86_64-vulkan-headers
             mingw-w64-ucrt-x86_64-opus
-            mingw-w64-ucrt-x86_64-libvpl
       - name: Rust toolchains
         run: |
           rustup toolchain install 1.98.1-x86_64-pc-windows-gnu --profile minimal --component rustfmt --component clippy
@@ -161,7 +160,7 @@ jobs:
             ~/AppData/Local/ButterpolloRust/sdk
             ~/.cargo/registry
             ~/.cargo/git
-          key: rust-sdk-v3-ffmpeg-2026.516.30821-pyro-502a3b52-patched-ngx-1.1.0
+          key: rust-sdk-v4-pyro-502a3b52-patched
       - name: Test, lint and package Rust
         run: |
           $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath

@@ -308,7 +308,7 @@ pub fn amf(config: &Config, stream: &Negotiated) -> Result<Vec<Property>> {
             false,
         );
     }
-    // Only on request, as the original backend and FFmpeg do: forcing a queue
+    // Only on request, as the original backend does: forcing a queue
     // of one for every VRR client exposed an RDNA4 driver freeze
     // (AlkaidLab/foundation-sunshine#666), video stalling while audio plays.
     let queue = config.integer("amd_input_queue_size", 0).clamp(0, 32);
@@ -449,75 +449,6 @@ pub fn amf(config: &Config, stream: &Negotiated) -> Result<Vec<Property>> {
                 true,
             );
         }
-    }
-    Ok(output)
-}
-
-/// FFmpeg SDK options, including the old native QSV controls.
-pub fn ffmpeg(config: &Config, stream: &Negotiated, name: &str) -> Result<Vec<(String, String)>> {
-    let mut output = vec![];
-    let mut add = |key: &str, value: &str| output.push((key.into(), value.into()));
-    if name.ends_with("_qsv") {
-        add("preset", config.get("qsv_preset", "medium"));
-        add("async_depth", "1");
-        add("low_delay_brc", "1");
-        add("forced_idr", "1");
-        if stream.codec == 1 {
-            add(
-                "low_power",
-                if config.boolean("qsv_slow_hevc", false) {
-                    "0"
-                } else {
-                    "1"
-                },
-            );
-        }
-        if stream.codec == 0 {
-            match config.get("qsv_coder", "auto") {
-                "cabac" | "ac" => add("cavlc", "0"),
-                "cavlc" | "vlc" => add("cavlc", "1"),
-                other => crate::config::fallback("qsv_coder", other, "auto"),
-            }
-        }
-        if stream.intra_refresh {
-            add("int_ref_type", "vertical");
-            add("int_ref_cycle_size", "300");
-        }
-    } else if matches!(name, "libx264" | "libx265") {
-        add("preset", config.get("sw_preset", "superfast"));
-        add("tune", config.get("sw_tune", "zerolatency"));
-        if name == "libx264" {
-            add(
-                "x264-params",
-                if stream.intra_refresh {
-                    "repeat-headers=1:annexb=1:scenecut=0:intra-refresh=1"
-                } else {
-                    "repeat-headers=1:annexb=1:scenecut=0"
-                },
-            );
-        } else {
-            // x265 otherwise turns a requested I-picture into an ordinary
-            // intra picture that cannot reset a decoder after reference loss.
-            add("forced-idr", "1");
-            add("x265-params", "repeat-headers=1:annexb=1:log-level=error");
-        }
-    } else if name == "libsvtav1" {
-        add(
-            "preset",
-            match config.get("sw_preset", "superfast") {
-                "veryslow" => "1",
-                "slower" => "2",
-                "slow" => "4",
-                "medium" => "5",
-                "fast" => "7",
-                "faster" => "9",
-                "veryfast" => "10",
-                "superfast" => "11",
-                "ultrafast" => "12",
-                _ => "11",
-            },
-        );
-        add("svtav1-params", "pred-struct=1:lookahead=0");
     }
     Ok(output)
 }

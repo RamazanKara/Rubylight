@@ -163,7 +163,7 @@ fn probe(request: &Request) -> Result<Reply> {
             ..Default::default()
         };
         let result = (|| -> Result<bool> {
-            let mut encoder = Encoder::new_options(&mode, "auto", &request.output, &gpu)?;
+            let mut encoder = Encoder::new_options(&mode, &request.output, &gpu)?;
             for frame in 0..8 {
                 if !encoder
                     .encode(&image, frame == 0, mode.bitrate_kbps)?

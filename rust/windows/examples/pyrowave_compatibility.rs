@@ -54,7 +54,7 @@ fn main() -> Result<()> {
                     yuv444,
                     ..Default::default()
                 };
-                let mut encoder = Encoder::new_gpu(&config, "auto", &image)?;
+                let mut encoder = Encoder::new_gpu(&config, &image)?;
                 let frames = encoder.encode_gpu(&image, true, config.bitrate_kbps)?;
                 anyhow::ensure!(frames.len() == 1, "codec did not produce a fixture");
                 let name = format!(

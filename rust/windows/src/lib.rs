@@ -1,8 +1,8 @@
 //! Windows platform layer of the Rubylight host.
 //!
 //! Everything that calls Win32, Direct3D, Windows Graphics Capture or a GPU
-//! vendor SDK lives here: capture, Radeon compute colour conversion, the AMF,
-//! FFmpeg and PyroWave encoders, display and virtual display control,
+//! vendor SDK lives here: capture, Radeon compute colour conversion, the AMF
+//! and PyroWave encoders, display and virtual display control,
 //! input injection, audio, process and service management.
 //!
 //! The workspace is layered: `butterpollo-core` holds the portable protocol
@@ -58,18 +58,6 @@ pub mod timing;
 pub mod tray;
 pub mod vulkan;
 
-// Bindgen emits these unsafe blocks; the restriction lint is not covered by clippy::all.
-#[allow(
-    non_camel_case_types,
-    non_snake_case,
-    non_upper_case_globals,
-    dead_code,
-    clippy::all,
-    clippy::undocumented_unsafe_blocks
-)]
-pub(crate) mod ff {
-    include!(concat!(env!("OUT_DIR"), "/ffmpeg.rs"));
-}
 #[allow(
     non_camel_case_types,
     non_snake_case,

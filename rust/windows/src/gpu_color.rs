@@ -76,8 +76,6 @@ struct Target {
 enum Layout {
     Nv12,
     P010,
-    Ayuv,
-    Planar444,
 }
 pub(crate) struct Converter {
     gpu: Device,
@@ -143,12 +141,16 @@ impl Converter {
         config: &butterpollo_core::rtsp::Negotiated,
         source: (u32, u32, Pixel),
     ) -> Result<Self> {
+        // The encoder this converts for, AMF, takes 4:2:0 only.
+        if config.yuv444 {
+            bail!("GPU conversion makes 4:2:0 only");
+        }
         if config.width == 0
             || config.height == 0
-            || (!config.yuv444
-                && (!config.width.is_multiple_of(2) || !config.height.is_multiple_of(2)))
+            || !config.width.is_multiple_of(2)
+            || !config.height.is_multiple_of(2)
         {
-            bail!("GPU conversion requires nonzero dimensions, and even dimensions for 4:2:0");
+            bail!("GPU conversion requires nonzero, even dimensions");
         }
         // An HDR desktop hands an SDR stream FP16 frames, which the shader
         // takes back to sRGB; only PQ has no SDR path. Refusing FP16 failed
@@ -167,21 +169,13 @@ impl Converter {
                 None,
                 Some(&mut vertex),
             )?;
-            let layout = match (config.yuv444, config.ten_bit()) {
-                (false, false) => Layout::Nv12,
-                (false, true) => Layout::P010,
-                (true, false) => Layout::Ayuv,
-                (true, true) => Layout::Planar444,
+            let layout = if config.ten_bit() {
+                Layout::P010
+            } else {
+                Layout::Nv12
             };
             gpu.device.CreatePixelShader(
-                &compile(
-                    match layout {
-                        Layout::Ayuv => b"packed444\0",
-                        Layout::Planar444 => b"planar444\0",
-                        _ => b"luma\0",
-                    },
-                    b"ps_5_0\0",
-                )?,
+                &compile(b"luma\0", b"ps_5_0\0")?,
                 None,
                 Some(&mut luma),
             )?;
@@ -191,13 +185,11 @@ impl Converter {
                 Some(&mut chroma),
             )?;
             let mut compute = None;
-            if !config.yuv444 {
-                let _ = gpu.device.CreateComputeShader(
-                    &compile(b"yuv420_cs\0", b"cs_5_0\0")?,
-                    None,
-                    Some(&mut compute),
-                );
-            }
+            let _ = gpu.device.CreateComputeShader(
+                &compile(b"yuv420_cs\0", b"cs_5_0\0")?,
+                None,
+                Some(&mut compute),
+            );
             let values = constants(config, source, [100., 1.], None);
             let mut constants = None;
             gpu.device.CreateBuffer(
@@ -256,18 +248,12 @@ impl Converter {
             let mut texture = None;
             let mut desc = D3D11_TEXTURE2D_DESC {
                 Width: self.width,
-                Height: if self.layout == Layout::Planar444 {
-                    self.height * 3
-                } else {
-                    self.height
-                },
+                Height: self.height,
                 MipLevels: 1,
                 ArraySize: 1,
                 Format: match self.layout {
                     Layout::Nv12 => DXGI_FORMAT_NV12,
                     Layout::P010 => DXGI_FORMAT_P010,
-                    Layout::Ayuv => DXGI_FORMAT_AYUV,
-                    Layout::Planar444 => DXGI_FORMAT_R16_UINT,
                 },
                 SampleDesc: DXGI_SAMPLE_DESC {
                     Count: 1,
@@ -317,14 +303,11 @@ impl Converter {
             let luma = view(match self.layout {
                 Layout::Nv12 => DXGI_FORMAT_R8_UNORM,
                 Layout::P010 => DXGI_FORMAT_R16_UNORM,
-                Layout::Ayuv => DXGI_FORMAT_R8G8B8A8_UNORM,
-                Layout::Planar444 => DXGI_FORMAT_R16_UINT,
             })?;
-            let chroma = match self.layout {
-                Layout::Nv12 => Some(view(DXGI_FORMAT_R8G8_UNORM)?),
-                Layout::P010 => Some(view(DXGI_FORMAT_R16G16_UNORM)?),
-                _ => None,
-            };
+            let chroma = Some(view(match self.layout {
+                Layout::Nv12 => DXGI_FORMAT_R8G8_UNORM,
+                Layout::P010 => DXGI_FORMAT_R16G16_UNORM,
+            })?);
             let unordered = if self.compute.is_some() {
                 let formats = if self.layout == Layout::Nv12 {
                     [DXGI_FORMAT_R8_UNORM, DXGI_FORMAT_R8G8_UNORM]
@@ -436,12 +419,7 @@ impl Converter {
                 {
                     context.RSSetViewports(Some(&[D3D11_VIEWPORT {
                         Width: (self.width / divisor) as f32,
-                        Height: (self.height / divisor
-                            * if self.layout == Layout::Planar444 {
-                                3
-                            } else {
-                                1
-                            }) as f32,
+                        Height: (self.height / divisor) as f32,
                         MinDepth: 0.,
                         MaxDepth: 1.,
                         ..Default::default()

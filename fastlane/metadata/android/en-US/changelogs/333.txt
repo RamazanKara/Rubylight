@@ -1,8 +1,6 @@
-Stream menu quick buttons stack into a list instead of breaking words at large font sizes.
-Device results dialog keeps its three buttons in view at any font size.
-The first-stream hint no longer covers the performance overlay on wide phones.
-PC settings can calibrate PyroWave frame pacing on Vibeshine hosts, and streams send the measured pace to the host.
-Bitrate goes up to 2000 Mbps, in settings and during a stream; the host still applies its own ceiling.
-PyroWave warns when the bitrate is below its minimum for the stream's size and frame rate.
-Automatic update checks with an in-app updater for GitHub installs (Settings > App).
-Galaxy Z Fold: streams fill the cover and inner screens edge to edge, camera cutout included, also after unfolding while connecting.
+Updates: Nightjar checks GitHub for new versions and installs them (Settings > App).
+Bitrate up to 2000 Mbps; the host keeps its own limit.
+Galaxy Z Fold: streams fill both screens edge to edge, cutout included.
+PyroWave: pace calibration on Vibeshine hosts, and a warning below its minimum bitrate.
+Disconnect works while a host request is running.
+Fixes for three-finger tap, DualSense lag, rumble after unplugging, the local cursor and large fonts.

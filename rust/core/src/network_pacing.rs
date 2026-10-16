@@ -30,43 +30,57 @@ pub fn rate_bps(
     }
 }
 
+/// What the client tells the host about its own path with each PyroWave
+/// stream (`x-ss-video[0].pyrowaveLinkMbps` and `pyrowavePaceMbps`, as Nonary's
+/// Moonlight and Nightjar send them).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ClientPath {
+    /// The client's wired link, which it reports with each PyroWave stream.
+    pub link_bps: u64,
+    /// The pace the client's calibration found loss-free.
+    pub pace_bps: u64,
+}
+
 /// PyroWave uses the available wired link by default, but an explicit cap
 /// takes precedence over the bandwidth needed to send every intra frame.
 /// Without a known link speed, pace 25% above the frame's wire demand: a
 /// budget-sized frame needs about 1.11 times the bitrate on the wire, and
 /// pacing at exactly that leaves no room for send calls and timer wake-ups.
 ///
-/// `probe_bps` is the client's path as the host measured it when the client
-/// last downloaded the PyroWave bandwidth probe; 0 when it never did. A client
-/// behind a slower port than the host's (1 GbE on a 2.5 GbE host, 2.5 GbE on
-/// 10 GbE, issue #31) cannot take frames at the host's link rate, and the
-/// switch drops what does not fit. When the probe is clearly below the host's
-/// link, frames go at 90% of the probe instead, never below the demand pacing.
-/// A client as fast as the host keeps the link rate, so its frames leave just
-/// as soon.
+/// A client behind a slower port than the host's (1 GbE on a 2.5 GbE host,
+/// 2.5 GbE on 10 GbE, issue #31) cannot take frames at the host's link rate,
+/// and the switch drops what does not fit. So the pace also stays within what
+/// the client says of its path: its calibrated pace first, raised to carry the
+/// stream if needed; else 95% of its own link. Neither goes below the demand
+/// pacing or above the host's link. A client as fast as the host keeps the
+/// link rate, so its frames leave just as soon.
 pub fn pyrowave_rate_bps(
     configured_kbps: i64,
     stream_kbps: u32,
     link_bps: u64,
     demand_bps: u64,
-    probe_bps: u64,
+    client: ClientPath,
 ) -> u64 {
-    let demand = || {
+    let demand = {
         let needed = demand_bps.max(u64::from(stream_kbps) * 1100);
         (needed.saturating_mul(5) / 4).max(1_000_000)
     };
     if configured_kbps > 0 {
-        rate_bps(configured_kbps, stream_kbps, link_bps, false, 0)
-    } else if link_bps > 0 {
-        let link = link_bps.saturating_mul(95) / 100;
-        if probe_bps > 0 && probe_bps.saturating_mul(5) / 4 < link_bps {
-            link.min((probe_bps.saturating_mul(9) / 10).max(demand()))
-        } else {
-            link
-        }
-    } else {
-        demand()
+        return rate_bps(configured_kbps, stream_kbps, link_bps, false, 0);
     }
+    let host = (link_bps > 0).then(|| link_bps.saturating_mul(95) / 100);
+    if client.pace_bps > 0 {
+        let pace = client.pace_bps.max(demand);
+        return host.map_or(pace, |host| pace.min(host));
+    }
+    let Some(host) = host else {
+        return demand;
+    };
+    let mut rate = host;
+    if client.link_bps > 0 {
+        rate = rate.min((client.link_bps.saturating_mul(95) / 100).max(demand));
+    }
+    rate
 }
 
 /// Whether an average packetized frame occupies at least a quarter-period
@@ -261,56 +275,76 @@ mod tests {
     fn pyrowave_demand_cannot_override_an_explicit_cap_or_link_limit() {
         let demand = 512_000 * 60 * 8;
         assert_eq!(
-            pyrowave_rate_bps(30_000, 30_000, 100_000_000, demand, 0),
+            pyrowave_rate_bps(30_000, 30_000, 100_000_000, demand, ClientPath::default()),
             33_000_000
         );
         assert_eq!(
-            pyrowave_rate_bps(100_000, 100_000, 100_000_000, demand, 0),
+            pyrowave_rate_bps(100_000, 100_000, 100_000_000, demand, ClientPath::default()),
             80_000_000
         );
         assert_eq!(
-            pyrowave_rate_bps(0, 30_000, 1_000_000_000, demand, 0),
+            pyrowave_rate_bps(0, 30_000, 1_000_000_000, demand, ClientPath::default()),
             950_000_000
         );
-        assert_eq!(pyrowave_rate_bps(0, 30_000, 0, demand, 0), demand * 5 / 4);
+        assert_eq!(
+            pyrowave_rate_bps(0, 30_000, 0, demand, ClientPath::default()),
+            demand * 5 / 4
+        );
     }
 
     #[test]
-    fn pyrowave_paces_a_slower_client_port_at_its_probed_rate() {
+    fn pyrowave_paces_a_slower_client_port_at_its_own_rate() {
         const G: u64 = 1_000_000_000;
         let demand = 300_000_000;
+        let link = |bps| ClientPath {
+            link_bps: bps,
+            ..Default::default()
+        };
         // Issue #31: a 2.5 GbE client on a 10 GbE host, and a 1 GbE client on
-        // a 2.5 GbE host, as the probe measured them.
+        // a 2.5 GbE host, as the client reports its link.
         assert_eq!(
-            pyrowave_rate_bps(0, 270_000, 10 * G, demand, 2_350_000_000),
-            2_115_000_000
+            pyrowave_rate_bps(0, 270_000, 10 * G, demand, link(5 * G / 2)),
+            2_375_000_000
         );
         assert_eq!(
-            pyrowave_rate_bps(0, 270_000, 5 * G / 2, demand, 940_000_000),
-            846_000_000
+            pyrowave_rate_bps(0, 270_000, 5 * G / 2, demand, link(G)),
+            950_000_000
         );
         // A client as fast as the host keeps the link rate: no added send time.
         assert_eq!(
-            pyrowave_rate_bps(0, 270_000, 10 * G, demand, 9 * G),
+            pyrowave_rate_bps(0, 270_000, 10 * G, demand, link(10 * G)),
             9_500_000_000
         );
+        // A calibrated pace wins, raised to carry the stream, capped by the host.
+        let pace = |bps| ClientPath {
+            pace_bps: bps,
+            link_bps: 10 * G,
+        };
         assert_eq!(
-            pyrowave_rate_bps(0, 270_000, 5 * G / 2, demand, 2_300_000_000),
-            2_375_000_000
+            pyrowave_rate_bps(0, 270_000, 10 * G, demand, pace(2 * G)),
+            2 * G
         );
-        // Never below what the stream needs, nor above the host's own link.
         assert_eq!(
-            pyrowave_rate_bps(0, 270_000, 10 * G, demand, 200_000_000),
+            pyrowave_rate_bps(0, 270_000, 10 * G, demand, pace(100_000_000)),
             demand * 5 / 4
         );
-        // An explicit cap still wins, and an unknown host link keeps the
-        // demand pacing.
         assert_eq!(
-            pyrowave_rate_bps(100_000, 100_000, 10 * G, demand, 940_000_000),
+            pyrowave_rate_bps(0, 270_000, G, demand, pace(2 * G)),
+            950_000_000
+        );
+        // Never below what the stream needs.
+        assert_eq!(
+            pyrowave_rate_bps(0, 270_000, 10 * G, demand, link(100_000_000)),
+            demand * 5 / 4
+        );
+        // An explicit cap still wins; an unknown host link keeps the demand
+        // pacing whatever the client's link.
+        assert_eq!(
+            pyrowave_rate_bps(100_000, 100_000, 10 * G, demand, link(G)),
             rate_bps(100_000, 100_000, 10 * G, false, 0)
         );
         assert_eq!(
-            pyrowave_rate_bps(0, 270_000, 0, demand, 940_000_000),
+            pyrowave_rate_bps(0, 270_000, 0, demand, link(G)),
             demand * 5 / 4
         );
     }
@@ -356,9 +390,12 @@ mod tests {
         }
         for kbps in [200_000, 800_000, 2_000_000] {
             let demand = u64::from(kbps) * 1400;
-            assert_eq!(pyrowave_rate_bps(0, kbps, 0, demand, 0), demand * 5 / 4);
             assert_eq!(
-                pyrowave_rate_bps(0, kbps, 1_000_000_000, demand, 0),
+                pyrowave_rate_bps(0, kbps, 0, demand, ClientPath::default()),
+                demand * 5 / 4
+            );
+            assert_eq!(
+                pyrowave_rate_bps(0, kbps, 1_000_000_000, demand, ClientPath::default()),
                 950_000_000
             );
         }
@@ -547,7 +584,7 @@ mod tests {
                 packets * (pyrowave::aligned_payload(packet_size) + 32 + 32 + overhead(false));
             // As the PyroWave sender computes its demand.
             let demand = (packets * (packet_size + 16 + 32 + overhead(false))) as u64 * 60 * 8;
-            let bps = pyrowave_rate_bps(0, kbps, 0, demand, 0);
+            let bps = pyrowave_rate_bps(0, kbps, 0, demand, ClientPath::default());
             let paced = bps as f64 * period.as_secs_f64() / 8.;
             assert!(
                 paced >= 1.2 * wire as f64,

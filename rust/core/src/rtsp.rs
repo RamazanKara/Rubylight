@@ -162,6 +162,14 @@ pub struct Negotiated {
     pub vrr_low_latency: bool,
     #[serde(default)]
     pub pyrowave_records: bool,
+    /// The client's own wired link in Mbps (`x-ss-video[0].pyrowaveLinkMbps`,
+    /// Nonary's Moonlight), 0 when it did not say.
+    #[serde(default)]
+    pub pyrowave_client_link_mbps: u32,
+    /// The pace the client's calibration found loss-free, in Mbps
+    /// (`x-ss-video[0].pyrowavePaceMbps`), 0 when it has none.
+    #[serde(default)]
+    pub pyrowave_client_pace_mbps: u32,
     pub packet_size: usize,
     pub min_fec: usize,
     pub audio_channels: u8,
@@ -202,6 +210,8 @@ impl Default for Negotiated {
             intra_refresh: false,
             vrr_low_latency: false,
             pyrowave_records: false,
+            pyrowave_client_link_mbps: 0,
+            pyrowave_client_pace_mbps: 0,
             packet_size: 1024,
             min_fec: 0,
             audio_channels: 2,
@@ -291,6 +301,8 @@ impl Negotiated {
         n.vrr_low_latency = get("x-ss-video[0].vrrLowLatency", 0)? != 0;
         n.pyrowave_records = attrs.contains_key("x-ss-video[0].pyrowaveAdaptiveFec")
             || get("x-ss-video[0].pyrowaveFeatures", 0)? & 1 != 0;
+        n.pyrowave_client_link_mbps = get("x-ss-video[0].pyrowaveLinkMbps", 0)?;
+        n.pyrowave_client_pace_mbps = get("x-ss-video[0].pyrowavePaceMbps", 0)?;
         n.packet_size = get("x-nv-video[0].packetSize", 1024)? as usize;
         n.min_fec = get("x-nv-vqos[0].fec.minRequiredFecPackets", 0)? as usize;
         n.audio_channels = u8::try_from(get("x-nv-audio.surround.numChannels", 2)?)?;
@@ -545,6 +557,27 @@ mod tests {
             !Negotiated::from_sdp(b"a=x-ss-video[0].pyrowaveFeatures:2\n")
                 .unwrap()
                 .pyrowave_records
+        );
+        // Issue #31: the client's wired link and calibrated pace, as Nonary's
+        // Moonlight and Nightjar announce them.
+        let hints = Negotiated::from_sdp(
+            b"a=x-ss-video[0].pyrowaveLinkMbps:2500\na=x-ss-video[0].pyrowavePaceMbps:2100\n",
+        )
+        .unwrap();
+        assert_eq!(
+            (
+                hints.pyrowave_client_link_mbps,
+                hints.pyrowave_client_pace_mbps
+            ),
+            (2500, 2100)
+        );
+        let none = Negotiated::from_sdp(b"a=x-nv-video[0].maxFPS:60\n").unwrap();
+        assert_eq!(
+            (
+                none.pyrowave_client_link_mbps,
+                none.pyrowave_client_pace_mbps
+            ),
+            (0, 0)
         );
         assert!(
             describe(0, 7, 0, true, true, true, false)

@@ -73,15 +73,11 @@ The native HDR path captures FP16 scRGB, resizes in linear light and converts to
 
 Capture and HDR metadata share a cached description of the selected display. The cache checks the DXGI factory at most once per second and resolves the same output from a fresh factory when Windows invalidates it. Matching uses the display's owning adapter and monitor identity, independently of the encoder's GPU. An SDR/HDR colour-space change uses capture recovery to reopen the frame pool; a luminance-only change updates metadata without a capture restart. A missing output is never replaced by another monitor's description. This refresh is available in [2.2.17](../rust/RELEASE_NOTES.md#new-in-2217); live transition measurements remain pending.
 
-HDR mastering and content-light metadata use each codec's bitstream units. Native NVENC enables both messages on supported driver APIs; FFmpeg's NVENC backend receives initial side data before opening its codec. Encoded metadata changes request a keyframe, retained until the encoder accepts input. AMF separately tracks accepted properties and retries transient metadata failures with bounded backoff. After initialization, an observed AMF output-range mismatch fails encoder creation so the configured fallback can run; older drivers with unavailable range properties retain the documented limited-range default.
+HDR mastering and content-light metadata use each codec's bitstream units. Encoded metadata changes request a keyframe, retained until the encoder accepts input. AMF tracks accepted properties and retries transient metadata failures with bounded backoff. After initialization, an observed AMF output-range mismatch fails encoder creation; drivers with unavailable range properties retain the documented limited-range default.
 
 **PyroWave provides full 10-bit HDR 4:4:4** through a separate encoder and shared D3D11/Vulkan path. D3D12 compute prepares its three planar textures; a shared fence orders conversion and Vulkan access, and the encoded bitstream returns to the CPU. If compute conversion is unavailable, PyroWave uses graphics-queue conversion. The [PyroWave integration](../rust/windows/src/pyrowave.rs) owns this handoff independently of AMF.
 
 Full-resolution chroma gives each pixel its own colour samples. Use [Nightjar](https://github.com/RamazanKara/nightjar), an Android client with PyroWave support, or on a PC [Nonary's compatible Moonlight client](https://github.com/Nonary/moonlight-qt), over a fast local network; [client selection](getting-started.md#choose-your-stream-format) explains the options.
-
-## Encoding beyond Radeon
-
-The code also includes native NVIDIA NVENC, Intel Quick Sync imports and software compatibility paths. Native NVENC supports capability-gated reference recovery and GPU-only CUDA interop for ten-bit 4:4:4; Quick Sync imports D3D11 frames. Rubylight's tuning and measurements are for AMD hardware.
 
 ## Session, audio and input
 

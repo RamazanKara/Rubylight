@@ -67,7 +67,7 @@ Coming from Apollo or Vibepollo? Rubylight imports your settings, paired devices
 
 Also built in: Steam and Playnite library sync, RTSS frame limits, Lossless Scaling, VRR, controllers (including DualSense haptics and a real Steam Deck controller), keyboard, mouse, touch and pen, surround audio, microphone passthrough, and streaming from the lock screen or a headless PC.
 
-Rubylight is built for Radeon. NVIDIA NVENC, Intel Quick Sync and software encoding are included, but the tuning and the measurements are Radeon-only. On NVIDIA, Vibepollo is the better fit.
+Rubylight is built for Radeon and runs on AMD GPUs only: a Radeon RX 6000 (RDNA 2) or newer on Windows 11. H.264 and HEVC work on all of them; AV1 needs a GPU whose encoder has it (RX 7000 or newer). On other GPUs, Vibepollo is the better fit.
 
 [All features →](docs/features.md) · [Radeon settings and defaults →](docs/configuration.md#capture-and-video) · [How the frame pipeline works →](docs/architecture.md)
 

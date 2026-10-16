@@ -31,12 +31,12 @@ Use **Review changes** to see pending edits across all categories, including set
 | Audio to stream — `audio_capture_mode` | `system` | Captures the selected playback device. Optional [Game only](#game-only-audio) captures a verified game's process tree. |
 | HEVC / AV1 support — `hevc_mode`, `av1_mode` | `0` | Automatic capability detection; only working profiles are offered. |
 | PyroWave — `pyrowave` | `true` | Offers PyroWave to clients that support it. |
-| Virtual display — `virtual_display_mode` | Windows 11: `per_client`; Windows 10: `disabled` | A display for each device on Windows 11; a physical monitor on Windows 10. Requires the virtual display driver when enabled. |
+| Virtual display — `virtual_display_mode` | `per_client` | A display for each device. Requires the virtual display driver when enabled. |
 | Virtual display layout — `virtual_display_layout` | `exclusive` | Turns other displays off while the virtual display is used. A Remote Monitor follows it while it streams: exclusive turns the other displays off and makes it primary, the primary layouts make it primary, and it keeps the place the remote monitor layout gives it. Choose Extended to use a remote monitor beside your own. |
 | Physical display preparation — `dd_configuration_option` | `verify_only` | Requires the selected monitor to be active; resolution, refresh and HDR policies are separate. |
 | Display HDR — `dd_hdr_option` | `auto` | Matches the streamed display's HDR state to the stream. |
 | Limit every stream — `frame_limiter_enable` | `false` | Manual limiting is off; virtual-display automatic limiting can still apply. |
-| Limiter — `frame_limiter_provider` | `auto` | Uses RTSS when installed, otherwise the NVIDIA driver where available. |
+| Limiter — `frame_limiter_provider` | `auto` | Uses RTSS when installed. |
 | Virtual display refresh — `frame_limiter_auto_virtual_framegen` | `legacy` | Runs the virtual display at twice the stream rate and enables automatic frame limiting. |
 | Update checks — `update_check_interval` | `86400` seconds | Checks once a day. |
 | Automatic installation — `auto_update` | `false` | Announces available updates; installation is opt-in. |
@@ -68,7 +68,7 @@ For **native HDR**, enable HDR in the client and use an HDR-capable display and 
 
 These values are rounded up to whole Mbps. Below 1080p the floor/recommendation are 2.5/5 bits per pixel per frame; at 1080p and above they are 1.5/3.2. The smaller desktop's one-pixel text needed more bits per pixel. Rates scale with pixel count and frame rate within each band: halve them at 30 fps, double them at 120 fps. Other sizes are estimates; actual quality depends on text size, textures and the picture. The console stream card uses red below the floor and amber below the recommendation, and the log distinguishes both. The [October 12, 2026 Rubylight 2.2.9 validation](../rust/PERFORMANCE.md#pyrowave-decoded-pictures-and-quality-budgets) rechecked these budgets on synthetic desktop and game pictures; it measures decoded quality, not sustained network throughput. [Original October 7 method and criteria](../rust/PERFORMANCE.md#october-7-pyrowave-bitrate-from-representative-pictures).
 
-The PyroWave bitrate you set in the client is the stream's total on the wire, as in Vibeshine. The host keeps audio with its parity and 500 kbps for control. With record framing (Nonary's Moonlight, Nightjar, Aurora), each picture then gets what fits after packet overhead and one block of critical FEC, so a rate the client calibrated is never exceeded. The picture therefore gets about 15–20% less than the number you set; set the bitrate to what your network carries, not to the picture rate you want. The 4K60 recommendation needs more than gigabit Ethernet. Client and host limits still apply: stream setup allows up to 2 Gbps, while the client's runtime `/bitrate` endpoint caps changes at 500 Mbps. If the client or network cannot carry the recommended rate, use HEVC or AV1. Enabling PyroWave does not force ordinary Moonlight clients to use it. NVIDIA users should use [Vibepollo](https://github.com/Nonary/Vibepollo).
+The PyroWave bitrate you set in the client is the stream's total on the wire, as in Vibeshine. The host keeps audio with its parity and 500 kbps for control. With record framing (Nonary's Moonlight, Nightjar, Aurora), each picture then gets what fits after packet overhead and one block of critical FEC, so a rate the client calibrated is never exceeded. The picture therefore gets about 15–20% less than the number you set; set the bitrate to what your network carries, not to the picture rate you want. The 4K60 recommendation needs more than gigabit Ethernet. Client and host limits still apply: stream setup allows up to 2 Gbps, while the client's runtime `/bitrate` endpoint caps changes at 500 Mbps. If the client or network cannot carry the recommended rate, use HEVC or AV1. Enabling PyroWave does not force ordinary Moonlight clients to use it. For other GPUs, use [Vibepollo](https://github.com/Nonary/Vibepollo).
 
 **A Rubylight client can change the stream's resolution and frame rate without reconnecting**, for example when a foldable phone opens its inner screen. The encoder restarts at the new size with a keyframe and pacing follows the new rate; the PC's display keeps its mode and the picture is scaled to fit. `stream_reconfigure` (default `true`) turns this off for the host, a device or an app; clients that never ask are unaffected. [Control messages](control-messages.md) describes the request.
 
@@ -106,7 +106,7 @@ The [current default-quality results](../rust/PERFORMANCE_WORK.md#current-amf-de
 | `amd_vbv_buffer_frames` | `0`, or `0.5`–`2` | Rate-control buffer in nominal frame budgets. One budget is bitrate divided by frame rate, including fractional rates. |
 | `amd_max_frame_size` | `0`, or `1`–`8` | Requested maximum encoded frame size in nominal frame budgets, including recovery keyframes. Uses `MaxAUSize` for H.264, `HevcMaxAUSize` for HEVC and `Av1MaxCompressedFrameSize` for AV1. |
 
-These are encoder bit budgets, not extra queued frames or packet-pacing settings. A smaller budget trades picture quality for smaller frames. Intra refresh remains client-negotiated and does not replace an explicit recovery-keyframe request. See the [rate-control measurements](../rust/PERFORMANCE.md#october-7-2026-amf-rate-control-and-recovery-keyframes) before changing these controls. NVIDIA users should use [Vibepollo](https://github.com/Nonary/Vibepollo).
+These are encoder bit budgets, not extra queued frames or packet-pacing settings. A smaller budget trades picture quality for smaller frames. Intra refresh remains client-negotiated and does not replace an explicit recovery-keyframe request. See the [rate-control measurements](../rust/PERFORMANCE.md#october-7-2026-amf-rate-control-and-recovery-keyframes) before changing these controls. For other GPUs, use [Vibepollo](https://github.com/Nonary/Vibepollo).
 
 `amd_rc` remains `vbr_latency` by default. For an affected AMD stream, `amd_max_frame_size=1` or `2` lets you compare smaller recovery frames against picture quality; `0` restores the driver default. These caps cut the largest recovery frames sharply. They are off by default because they trade picture quality for smaller frames.
 
@@ -159,7 +159,7 @@ the existing playback-device capture and routing. Select **Game only**
 [Windows application loopback](https://learn.microsoft.com/en-us/samples/microsoft/windows-classic-samples/applicationloopbackaudio-sample/).
 Reconnect to apply; this setting also supports app and device overrides.
 
-This mode requires Windows build 20348 or newer. Direct executable launches
+Direct executable launches
 follow their owned process job. Steam library entries use the game's existing
 process tracker; Playnite uses its confirmed game path and excludes processes
 present before launch. Creation times and held process handles prevent PID
@@ -195,7 +195,7 @@ Resolution and refresh policies default to `auto` (`dd_resolution_option`, `dd_r
 
 A disconnect can leave the app and its display available for reconnection. Enable `dd_config_revert_on_disconnect` if you want the display configuration restored on disconnect; it defaults to `false`. Without it, a disconnected device's display is kept while its app runs for `dd_paused_virtual_display_timeout_secs` (default `7200` seconds; `0` keeps it until the app closes). A client that sends nothing for `ping_timeout` (default `10000` ms) ends its stream. **Maintenance** provides display restoration and saved-baseline controls.
 
-**Virtual display → Automatic (Windows default)** leaves the choice to the host: one virtual display per device on Windows 11, or a physical monitor on Windows 10. Selecting **One for each device** explicitly also enables that mode on Windows 10. For **Permanent virtual displays**, an empty field preserves the driver's current count; `0` explicitly removes permanent displays at the next host startup. Resetting this setting is therefore different from entering `0`.
+**Virtual display → Automatic (Windows default)** leaves the choice to the host: one virtual display per device. For **Permanent virtual displays**, an empty field preserves the driver's current count; `0` explicitly removes permanent displays at the next host startup. Resetting this setting is therefore different from entering `0`.
 
 Under **Settings → Frame limiting**:
 

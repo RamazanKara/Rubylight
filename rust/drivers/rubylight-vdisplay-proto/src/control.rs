@@ -44,10 +44,12 @@ pub const IOCTL_UPDATE_MODES: u32 = ctl_code(0xB03);
 pub const IOCTL_HEARTBEAT: u32 = ctl_code(0xB04);
 /// Pin the GPU that renders every monitor. Input [`RenderAdapterRequest`].
 pub const IOCTL_SET_RENDER_ADAPTER: u32 = ctl_code(0xB05);
-/// Hand a monitor its frame ring. Input [`SetFrameRingRequest`]. On success the driver owns
-/// every handle in it; on failure it owns none and the host closes them remotely.
+/// The older keyed-mutex ring, which hosts before [`CAP_FENCE_RING`] send. Input
+/// [`SetFrameRingRequest`]. This driver completes it with `STATUS_NOT_SUPPORTED` before it
+/// adopts any handle, so that host closes them itself and falls back; the code stays
+/// reserved. Frames now travel through [`IOCTL_SET_FENCE_RING`].
 pub const IOCTL_SET_FRAME_RING: u32 = ctl_code(0xB06);
-/// Drop a monitor's frame ring; the driver closes its handles. Input [`SessionRequest`].
+/// Drop a monitor's fence ring; the driver closes its handles. Input [`SessionRequest`].
 pub const IOCTL_CLEAR_FRAME_RING: u32 = ctl_code(0xB07);
 /// A monitor's state. Input [`SessionRequest`], output [`MonitorStatus`].
 pub const IOCTL_QUERY_MONITOR: u32 = ctl_code(0xB08);
@@ -55,14 +57,14 @@ pub const IOCTL_QUERY_MONITOR: u32 = ctl_code(0xB08);
 pub const IOCTL_CLEAR_ALL: u32 = ctl_code(0xB09);
 /// Take the driver's pending log lines as [`log_lines`] records. No input.
 pub const IOCTL_DRAIN_LOG: u32 = ctl_code(0xB0A);
-/// Drop a monitor's frame ring only while it is still the ring of the given generation, so a
+/// Drop a monitor's fence ring only while it is still the ring of the given generation, so a
 /// capture closing its ring never clears the one that replaced it. Input
 /// [`ClearFrameRingRequest`]; `STATUS_NOT_FOUND` when that ring is not the monitor's. Present
 /// when the driver reports [`CAP_SCOPED_CLEAR`].
 pub const IOCTL_CLEAR_FRAME_RING_GENERATION: u32 = ctl_code(0xB0B);
-/// Hand a monitor a fence ring ([`ring::Kind::Fence`]). Input [`SetFenceRingRequest`]; owns
-/// its handles as [`IOCTL_SET_FRAME_RING`] does. Present when the driver reports
-/// [`CAP_FENCE_RING`].
+/// Hand a monitor its frame ring, a fence ring. Input [`SetFenceRingRequest`]. On success the
+/// driver owns every handle in it; on failure it owns none and the host closes them remotely.
+/// Present when the driver reports [`CAP_FENCE_RING`].
 pub const IOCTL_SET_FENCE_RING: u32 = ctl_code(0xB0C);
 
 /// Every IOCTL this protocol defines, for the uniqueness test and the driver's dispatch.
@@ -188,9 +190,9 @@ impl<'a> Reader<'a> {
 
 /// [`InfoReply::magic`]: `"RLVD"`.
 pub const INFO_MAGIC: u32 = u32::from_le_bytes(*b"RLVD");
-/// [`InfoReply::caps`]: frames are pushed through a keyed-mutex ring
-/// ([`IOCTL_SET_FRAME_RING`]). Drivers before 2.5 report it; the D3D12 driver does not, and
-/// refuses that IOCTL.
+/// [`InfoReply::caps`]: frames are pushed through the older keyed-mutex ring
+/// ([`IOCTL_SET_FRAME_RING`]). Drivers before 2.5 report it; this driver never does, and the
+/// bit is reserved so that nothing else reuses it.
 pub const CAP_FRAME_RING: u32 = 1 << 0;
 /// [`InfoReply::caps`]: monitors advertise 10-bit wire formats, so Windows offers HDR, and
 /// FP16 desktops reach the ring as `R16G16B16A16_FLOAT`.
@@ -200,7 +202,7 @@ pub const CAP_UPDATE_MODES: u32 = 1 << 2;
 /// [`InfoReply::caps`]: [`IOCTL_CLEAR_FRAME_RING_GENERATION`] clears only the ring it names.
 pub const CAP_SCOPED_CLEAR: u32 = 1 << 3;
 /// [`InfoReply::caps`]: [`IOCTL_SET_FENCE_RING`] takes a fence ring, whose slots the header's
-/// state words and two shared fences own instead of keyed mutexes. A Rubylight 2.5 host
+/// state words and two shared fences own. A Rubylight 2.5 host
 /// refuses to stream from a driver without it (an update waiting for a restart).
 pub const CAP_FENCE_RING: u32 = 1 << 4;
 
@@ -517,8 +519,9 @@ impl RenderAdapterRequest {
     }
 }
 
-/// [`IOCTL_SET_FRAME_RING`] input. Every handle is a value in the driver's WUDFHost,
-/// already duplicated there by the host.
+/// The description of a ring: [`SetFenceRingRequest`] embeds it, and it is the whole input of
+/// the older keyed-mutex [`IOCTL_SET_FRAME_RING`], which this driver refuses. Every handle is
+/// a value in the driver's WUDFHost, already duplicated there by the host.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SetFrameRingRequest {
     pub session_id: u64,
@@ -540,7 +543,7 @@ pub struct SetFrameRingRequest {
     pub header_section: u64,
     /// The event the driver sets after each publish.
     pub event: u64,
-    /// Shared NT handles of `slot_count` keyed-mutex textures; the rest are `0`.
+    /// Shared NT handles of `slot_count` textures; the rest are `0`.
     pub textures: [u64; ring::MAX_SLOTS],
 }
 
@@ -635,11 +638,11 @@ impl SetFrameRingRequest {
     }
 }
 
-/// [`IOCTL_SET_FENCE_RING`] input: a ring of plain shared textures (no keyed mutex) and the
+/// [`IOCTL_SET_FENCE_RING`] input: a ring of plain shared textures and the
 /// two shared fences that order access to them, every handle a value in the driver's WUDFHost.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SetFenceRingRequest {
-    /// The ring as a keyed-mutex request would describe it.
+    /// The ring's textures, section, event and shape.
     pub ring: SetFrameRingRequest,
     /// The driver signals it with a frame's sequence once that frame's copy is done.
     pub written_fence: u64,
@@ -930,7 +933,7 @@ mod tests {
             watchdog_timeout_ms: 10_000,
             max_monitors: 16,
             max_ring_slots: ring::MAX_SLOTS as u32,
-            caps: CAP_FRAME_RING | CAP_HDR | CAP_UPDATE_MODES,
+            caps: CAP_FENCE_RING | CAP_HDR | CAP_UPDATE_MODES,
             driver_version: 0x0001_0000,
         };
         let bytes = info.encode();
@@ -1163,7 +1166,7 @@ mod tests {
         assert_eq!(SetFenceRingRequest::decode(&bytes), Ok(request));
         let handles: Vec<u64> = request.handles().collect();
         assert_eq!(handles, [0x200, 0x204, 0x104, 0x108, 0x10C, 0x300, 0x304]);
-        // A keyed-mutex request is not a fence ring request, nor the other way round: an
+        // A bare ring description is not a fence ring request, nor the other way round: an
         // older driver refuses the fence ring by its size, never misreads it.
         assert!(SetFenceRingRequest::decode(&ring_request().encode()).is_err());
         assert!(SetFrameRingRequest::decode(&bytes).is_err());
@@ -1195,6 +1198,7 @@ mod tests {
 
     #[test]
     fn capabilities_are_distinct_bits() {
+        // CAP_FRAME_RING is reserved: no driver reports it now, but its bit stays taken.
         let caps = [
             CAP_FRAME_RING,
             CAP_HDR,

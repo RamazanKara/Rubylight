@@ -1,9 +1,7 @@
 //! The frame push: shared GPU textures plus a small header section, one event.
 //!
-//! A ring comes in two kinds, which the driver tells apart by the IOCTL that delivered it:
-//!
-//! **Fence ring** ([`RING_VERSION_FENCE`], [`crate::control::SetFenceRingRequest`], present
-//! when the driver reports [`crate::control::CAP_FENCE_RING`]). The host creates
+//! The ring is a *fence ring* ([`RING_VERSION_FENCE`], [`crate::control::SetFenceRingRequest`],
+//! present when the driver reports [`crate::control::CAP_FENCE_RING`]). The host creates
 //! `slot_count` plain shared textures, a section of [`SECTION_BYTES`], an event and two shared
 //! fences, *written* and *released*. Who owns a slot's pixels is the slot's state word
 //! ([`SlotState`]), changed only by compare-and-swap. Per composed frame:
@@ -24,21 +22,11 @@
 //! A slot is written only in `Writing`, which the driver enters from `Free` once the host's
 //! reads are done on the GPU, or from `Published` before the host claimed it; it is read only
 //! in `Reading`, which the host enters from `Published` after the driver's copy was queued.
+//! Only the newest frame is ever consumed, so neither side builds a queue.
 //!
-//! **Keyed-mutex ring** ([`RING_VERSION`], [`crate::control::SetFrameRingRequest`]), what
-//! hosts and drivers before the fence ring spoke; the D3D12 driver refuses it, and it stays
-//! here as the record of that contract. The textures are `SHARED_NTHANDLE | SHARED_KEYEDMUTEX` and pixel ownership is the keyed
-//! mutex's alone:
-//!
-//! 1. The driver picks a texture whose keyed mutex it can take with [`KEY_DRIVER`] (never
-//!    written, or handed back by the host), else the oldest one the host has not taken yet,
-//!    with [`KEY_HOST`] ([`Picker::claim`]). With neither the frame is dropped and counted.
-//! 2. It copies the surface into the texture, writes the slot's [`SlotMeta`] while holding the
-//!    mutex, releases it with [`KEY_HOST`], publishes a [`Token`] and sets the event.
-//! 3. The host reads the token, takes that slot's mutex with [`KEY_HOST`] (timeout 0), reads
-//!    the meta, reads the texture and releases with [`KEY_DRIVER`].
-//!
-//! Either way only the newest frame is ever consumed, so neither side builds a queue.
+//! The older keyed-mutex ring ([`crate::control::IOCTL_SET_FRAME_RING`]) is not part of this
+//! module: the driver refuses it, and a header that says version 1 is not a ring
+//! ([`Header::layout`]).
 //!
 //! The header is an array of `u64` words used atomically by both processes. The driver
 //! writes only driver words and the slot states, and never trusts a host-written one: the
@@ -102,21 +90,14 @@ pub const MAX_SLOTS: usize = 8;
 /// What the host allocates: one slot being read, one newest, one being written, one spare.
 pub const DEFAULT_SLOTS: usize = 4;
 
-/// Keyed-mutex key under which the driver may write a texture (keyed-mutex ring only).
-pub const KEY_DRIVER: u64 = 0;
-/// Keyed-mutex key under which the host may read it (keyed-mutex ring only).
-pub const KEY_HOST: u64 = 1;
-
 /// [`W_MAGIC`]: `"RLVDRING"`.
 pub const MAGIC: u64 = u64::from_le_bytes(*b"RLVDRING");
-/// [`W_LAYOUT`]'s low half for a keyed-mutex ring.
-pub const RING_VERSION: u32 = 1;
-/// [`W_LAYOUT`]'s low half for a fence ring: the keyed-mutex layout plus a state word in
-/// every slot record.
+/// [`W_LAYOUT`]'s low half. Version 1 was the keyed-mutex ring's, which no header carries any
+/// more; it is rejected like any other number.
 pub const RING_VERSION_FENCE: u32 = 2;
 
 // Header words. Host-written: MAGIC..GENERATION and HOST_CONSUMED. The rest is the driver's,
-// except a fence ring's slot states, which both sides change by compare-and-swap.
+// except the slot states, which both sides change by compare-and-swap.
 pub const W_MAGIC: usize = 0;
 /// `version | slot_count << 32`.
 pub const W_LAYOUT: usize = 1;
@@ -155,7 +136,7 @@ const S_PRESENT_QPC: usize = 1;
 const S_ACQUIRE_QPC: usize = 2;
 const S_PUBLISH_QPC: usize = 3;
 const S_FRAME_NUMBER: usize = 4;
-/// A fence ring's [`SlotState`], packed; unused in a keyed-mutex ring.
+/// The slot's [`SlotState`], packed.
 const S_STATE: usize = 5;
 
 /// Words in a header.
@@ -211,37 +192,9 @@ impl Token {
     }
 }
 
-/// Who owns a slot's pixels: the state words and fences, or each texture's keyed mutex.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Kind {
-    Fence,
-    /// To be removed with the hosts and drivers that speak only it.
-    KeyedMutex,
-}
-
-impl Kind {
-    #[must_use]
-    pub const fn version(self) -> u32 {
-        match self {
-            Self::Fence => RING_VERSION_FENCE,
-            Self::KeyedMutex => RING_VERSION,
-        }
-    }
-
-    #[must_use]
-    pub const fn from_version(version: u32) -> Option<Self> {
-        match version {
-            RING_VERSION_FENCE => Some(Self::Fence),
-            RING_VERSION => Some(Self::KeyedMutex),
-            _ => None,
-        }
-    }
-}
-
 /// The shape of a ring, as the host lays it out.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Layout {
-    pub kind: Kind,
     pub slot_count: u32,
     pub width: u32,
     pub height: u32,
@@ -303,7 +256,7 @@ impl SlotState {
     }
 }
 
-/// What the driver wrote about one slot, under that slot's keyed mutex.
+/// What the driver wrote about one slot while it held it in [`SlotState::Writing`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub struct SlotMeta {
     /// The publish sequence that filled it; `0` = never written.
@@ -369,24 +322,25 @@ impl<'a> Header<'a> {
         for word in &self.words[..HEADER_WORDS] {
             word.store(0, Ordering::Relaxed);
         }
-        self.put(W_LAYOUT, pair(layout.kind.version(), layout.slot_count));
+        self.put(W_LAYOUT, pair(RING_VERSION_FENCE, layout.slot_count));
         self.put(W_SIZE, pair(layout.width, layout.height));
         self.put(W_FORMAT, u64::from(layout.format));
         self.put(W_GENERATION, u64::from(layout.generation));
         self.put(W_MAGIC, MAGIC);
     }
 
-    /// The layout, or `None` when the header was never initialised for a known version.
+    /// The layout, or `None` when the header was never initialised or is not a fence ring's.
     #[must_use]
     pub fn layout(&self) -> Option<Layout> {
         if self.get(W_MAGIC) != MAGIC {
             return None;
         }
         let (version, slot_count) = split(self.get(W_LAYOUT));
-        let kind = Kind::from_version(version)?;
+        if version != RING_VERSION_FENCE {
+            return None;
+        }
         let (width, height) = split(self.get(W_SIZE));
         Some(Layout {
-            kind,
             slot_count,
             width,
             height,
@@ -432,8 +386,7 @@ impl<'a> Header<'a> {
         }
     }
 
-    /// Slot `slot`'s record. Read it only while holding the slot: its keyed mutex, or in a
-    /// fence ring [`SlotState::Reading`].
+    /// Slot `slot`'s record. Read it only while holding the slot in [`SlotState::Reading`].
     #[must_use]
     pub fn slot(&self, slot: usize) -> SlotMeta {
         let base = W_SLOTS + slot.min(MAX_SLOTS - 1) * SLOT_WORDS;
@@ -450,7 +403,7 @@ impl<'a> Header<'a> {
         self.put(W_HOST_CONSUMED, u64::from(seq));
     }
 
-    // Both sides, fence ring.
+    // Both sides.
 
     /// Slot `slot`'s state word.
     #[must_use]
@@ -468,8 +421,7 @@ impl<'a> Header<'a> {
 
     // Driver side.
 
-    /// Write slot `slot`'s record; only while holding it (its keyed mutex, or
-    /// [`SlotState::Writing`]).
+    /// Write slot `slot`'s record; only while holding the slot in [`SlotState::Writing`].
     pub fn write_slot(&self, slot: usize, meta: SlotMeta) {
         let base = W_SLOTS + slot.min(MAX_SLOTS - 1) * SLOT_WORDS;
         self.put(base + S_PRESENT_QPC, meta.present_qpc);
@@ -513,9 +465,9 @@ impl<'a> Header<'a> {
 /// A slot the driver may write.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Claim {
-    /// Taken with [`KEY_DRIVER`]: never written, or already consumed.
+    /// Free: never written, or already consumed.
     Free(usize),
-    /// Taken with [`KEY_HOST`]: published, never consumed, now overwritten.
+    /// Published, never consumed, now overwritten.
     Reclaimed(usize),
 }
 
@@ -559,26 +511,12 @@ impl Picker {
         (order, self.slots)
     }
 
-    /// Find a slot to write. `try_take(slot, key)` attempts the slot's keyed mutex without
-    /// waiting and reports whether it was taken. Free slots are tried before any published
-    /// one is reclaimed, so a reclaim only happens when the host holds or has not taken every
-    /// other texture.
-    pub fn claim(&self, mut try_take: impl FnMut(usize, u64) -> bool) -> Option<Claim> {
-        let (order, n) = self.order();
-        if let Some(&s) = order[..n].iter().find(|&&s| try_take(s, KEY_DRIVER)) {
-            return Some(Claim::Free(s));
-        }
-        order[..n]
-            .iter()
-            .find(|&&s| self.published[s] != 0 && try_take(s, KEY_HOST))
-            .map(|&s| Claim::Reclaimed(s))
-    }
-
-    /// Find a fence-ring slot for frame [`Self::next_seq`] and move it to
-    /// [`SlotState::Writing`]. `released` is the released fence's completed value. A free
-    /// slot whose last reads that value covers comes first, in the same order as
-    /// [`Self::claim`], then the oldest publish the host has not claimed. Never waits: a slot
-    /// the host still reads, on the CPU or the GPU, is skipped.
+    /// Find a slot for frame [`Self::next_seq`] and move it to [`SlotState::Writing`].
+    /// `released` is the released fence's completed value. A free slot whose last reads that
+    /// value covers comes first (never written ones, then the oldest publish), then the oldest
+    /// publish the host has not claimed, so a reclaim only happens when the host holds or has
+    /// not taken every other slot. Never waits: a slot the host still reads, on the CPU or the
+    /// GPU, is skipped.
     pub fn claim_fenced(&self, header: &Header<'_>, released: u64) -> Option<Claim> {
         let (order, n) = self.order();
         let writing = SlotState::Writing { seq: self.next_seq };
@@ -599,7 +537,7 @@ impl Picker {
             .map(|&s| Claim::Reclaimed(s))
     }
 
-    /// Hand fence-ring slot `slot`, written with frame `seq`, to the host and record it.
+    /// Hand slot `slot`, written with frame `seq`, to the host and record it.
     /// `false` when the slot was not in `Writing { seq }` (a host that changed it), and the
     /// frame is dropped.
     pub fn publish_fenced(&mut self, header: &Header<'_>, slot: usize, seq: u32) -> bool {
@@ -616,7 +554,7 @@ impl Picker {
         true
     }
 
-    /// Give up fence-ring slot `slot`, taken for frame `seq`, without publishing: it goes back
+    /// Give up slot `slot`, taken for frame `seq`, without publishing: it goes back
     /// to free with nothing to wait for (any read of it ended before it was taken) and holds no
     /// frame.
     pub fn abandon_fenced(&mut self, header: &Header<'_>, slot: usize, seq: u32) {
@@ -695,14 +633,7 @@ impl Consumer {
             .then_some(usize::from(token.slot))
     }
 
-    /// Whether `meta`, read under the slot's mutex, is newer than what was consumed. A
-    /// reclaim may have refilled the slot with an even newer frame, which is just as good.
-    #[must_use]
-    pub fn fresh(&self, meta: &SlotMeta) -> bool {
-        meta.seq > u64::from(self.consumed) && meta.seq <= u64::from(u32::MAX)
-    }
-
-    /// Claim a fence ring's newest publish: the slot [`W_LATEST`] names, while it still holds
+    /// Claim the newest publish: the slot [`W_LATEST`] names, while it still holds
     /// a frame newer than the last consumed one. Returns the slot and that frame's sequence;
     /// the slot is the host's until [`Self::release`]. `None` when there is nothing new, or
     /// the driver reclaimed the slot first (its next publish sets the event again).
@@ -726,7 +657,7 @@ impl Consumer {
         }
     }
 
-    /// Free a claimed fence-ring slot. The host signals the released fence with `release`
+    /// Free a claimed slot. The host signals the released fence with `release`
     /// after its last read of the slot; release values increase with every call and are
     /// signalled in that order on one queue, so the driver reusing the slot once the fence
     /// reaches `release` never overwrites pixels still being read. `false` when the slot was
@@ -796,7 +727,6 @@ mod tests {
         let h = Header::new(&w).unwrap();
         assert_eq!(h.layout(), None, "uninitialised");
         let layout = Layout {
-            kind: Kind::Fence,
             slot_count: 4,
             width: 3840,
             height: 2160,
@@ -811,17 +741,13 @@ mod tests {
             w[W_MAGIC].load(Ordering::Relaxed).to_le_bytes(),
             *b"RLVDRING"
         );
-        w[W_LAYOUT].store(pair(RING_VERSION, 4), Ordering::Relaxed);
-        assert_eq!(
-            h.layout(),
-            Some(Layout {
-                kind: Kind::KeyedMutex,
-                ..layout
-            }),
-            "a keyed-mutex ring"
-        );
+        // Version 1 was the keyed-mutex ring's: no longer a ring this crate describes.
+        w[W_LAYOUT].store(pair(1, 4), Ordering::Relaxed);
+        assert_eq!(h.layout(), None, "a keyed-mutex ring header");
         w[W_LAYOUT].store(pair(3, 4), Ordering::Relaxed);
         assert_eq!(h.layout(), None, "another ring version");
+        w[W_LAYOUT].store(pair(RING_VERSION_FENCE, 4), Ordering::Relaxed);
+        assert_eq!(h.layout(), Some(layout));
     }
 
     #[test]
@@ -830,7 +756,6 @@ mod tests {
         let driver = Header::new(&w).unwrap();
         let host = Header::new(&w).unwrap();
         host.init(Layout {
-            kind: Kind::KeyedMutex,
             slot_count: 3,
             width: 1920,
             height: 1080,
@@ -881,105 +806,96 @@ mod tests {
         let _ = host.slot(usize::MAX);
     }
 
-    /// A model of the textures' keyed mutexes: `None` = held, `Some(key)` = released with key.
-    struct Mutexes(Vec<Option<u64>>);
-
-    impl Mutexes {
-        fn new(n: usize) -> Self {
-            Self(std::vec![Some(KEY_DRIVER); n])
-        }
-        fn take(&mut self, slot: usize, key: u64) -> bool {
-            if self.0[slot] == Some(key) {
-                self.0[slot] = None;
-                true
-            } else {
-                false
-            }
-        }
-        fn release(&mut self, slot: usize, key: u64) {
-            assert_eq!(self.0[slot], None, "release of a free mutex");
-            self.0[slot] = Some(key);
-        }
-    }
-
-    /// The driver's whole publish step against the model.
-    fn push(picker: &mut Picker, m: &mut Mutexes) -> Option<Claim> {
-        let claim = picker.claim(|s, key| m.take(s, key))?;
+    /// The driver's whole publish step: pick, write the meta, hand the slot over.
+    fn push(picker: &mut Picker, header: &Header<'_>, released: u64) -> Option<Claim> {
+        let claim = picker.claim_fenced(header, released)?;
         let seq = picker.next_seq();
-        m.release(claim.slot(), KEY_HOST);
-        picker.published(claim.slot(), seq);
+        header.write_slot(
+            claim.slot(),
+            SlotMeta {
+                seq: u64::from(seq),
+                ..Default::default()
+            },
+        );
+        assert!(picker.publish_fenced(header, claim.slot(), seq));
+        header.publish(Token {
+            generation: 1,
+            seq,
+            slot: claim.slot() as u8,
+        });
         Some(claim)
     }
 
     #[test]
     fn the_driver_fills_free_slots_before_reclaiming() {
-        let mut m = Mutexes::new(3);
+        let w = words();
+        let header = Header::new(&w).unwrap();
         let mut p = Picker::new(3);
-        assert_eq!(push(&mut p, &mut m), Some(Claim::Free(0)));
-        assert_eq!(push(&mut p, &mut m), Some(Claim::Free(1)));
-        assert_eq!(push(&mut p, &mut m), Some(Claim::Free(2)));
+        assert_eq!(push(&mut p, &header, 0), Some(Claim::Free(0)));
+        assert_eq!(push(&mut p, &header, 0), Some(Claim::Free(1)));
+        assert_eq!(push(&mut p, &header, 0), Some(Claim::Free(2)));
         // The host took none: the oldest unconsumed frame (slot 0) goes first.
-        assert_eq!(push(&mut p, &mut m), Some(Claim::Reclaimed(0)));
-        assert_eq!(push(&mut p, &mut m), Some(Claim::Reclaimed(1)));
+        assert_eq!(push(&mut p, &header, 0), Some(Claim::Reclaimed(0)));
+        assert_eq!(push(&mut p, &header, 0), Some(Claim::Reclaimed(1)));
         assert_eq!(p.next_seq(), 6);
     }
 
     #[test]
     fn the_newest_publish_is_the_seed_for_a_replacement_ring() {
-        let mut m = Mutexes::new(3);
+        let w = words();
+        let header = Header::new(&w).unwrap();
         let mut p = Picker::new(3);
         assert_eq!(p.newest(), None, "nothing published yet");
         for _ in 0..4 {
-            push(&mut p, &mut m);
+            push(&mut p, &header, 0);
         }
         // Slots 0..2 carried 1..3, then slot 0 was reclaimed for 4.
         assert_eq!(p.newest(), Some(0));
-        push(&mut p, &mut m);
+        push(&mut p, &header, 0);
         assert_eq!(p.newest(), Some(1));
     }
 
     #[test]
     fn a_slot_the_host_returned_is_free_again() {
-        let mut m = Mutexes::new(2);
+        let w = words();
+        let header = Header::new(&w).unwrap();
         let mut p = Picker::new(2);
-        push(&mut p, &mut m);
-        push(&mut p, &mut m);
-        // The host consumes slot 1 (newest) and hands it back.
-        assert!(m.take(1, KEY_HOST));
-        m.release(1, KEY_DRIVER);
+        let consumer = Consumer::new(1, 2);
+        push(&mut p, &header, 0);
+        push(&mut p, &header, 0);
+        // The host consumes slot 1 (newest) and hands it back with release value 1.
+        assert_eq!(consumer.claim(&header), Some((1, 2)));
+        assert!(Consumer::release(&header, 1, 2, 1));
         // Slot 1 is free; slot 0 is published but older. Free wins even though slot 0 is
         // older, because a reclaim loses a frame the host could still take.
-        assert_eq!(push(&mut p, &mut m), Some(Claim::Free(1)));
+        assert_eq!(push(&mut p, &header, 1), Some(Claim::Free(1)));
     }
 
     #[test]
     fn the_driver_drops_rather_than_waits_when_the_host_holds_everything() {
-        let mut m = Mutexes::new(2);
+        let w = words();
+        let header = Header::new(&w).unwrap();
         let mut p = Picker::new(2);
-        push(&mut p, &mut m);
-        push(&mut p, &mut m);
+        push(&mut p, &header, 0);
+        push(&mut p, &header, 0);
         // The host is reading both.
-        assert!(m.take(0, KEY_HOST));
-        assert!(m.take(1, KEY_HOST));
-        assert_eq!(push(&mut p, &mut m), None);
+        assert!(header.swap_state(
+            0,
+            SlotState::Published { seq: 1 },
+            SlotState::Reading { seq: 1 }
+        ));
+        assert!(header.swap_state(
+            1,
+            SlotState::Published { seq: 2 },
+            SlotState::Reading { seq: 2 }
+        ));
+        assert_eq!(push(&mut p, &header, 0), None);
         assert_eq!(p.next_seq(), 3, "a drop consumes no sequence number");
-        // One comes back: the driver resumes on it.
-        m.release(0, KEY_DRIVER);
-        assert_eq!(push(&mut p, &mut m), Some(Claim::Free(0)));
-    }
-
-    #[test]
-    fn a_never_written_slot_is_not_reclaimed_with_the_host_key() {
-        // A texture nobody wrote is released under KEY_DRIVER; trying KEY_HOST on it would
-        // fail anyway, but the picker must not even rely on that.
-        let p = Picker::new(3);
-        let mut tried = Vec::new();
-        let claim = p.claim(|s, key| {
-            tried.push((s, key));
-            false
-        });
-        assert_eq!(claim, None);
-        assert!(tried.iter().all(|&(_, key)| key == KEY_DRIVER));
+        // One comes back, but the released fence has not reached its value: still a drop.
+        assert!(Consumer::release(&header, 0, 1, 5));
+        assert_eq!(push(&mut p, &header, 4), None);
+        // Once it has, the driver resumes on it.
+        assert_eq!(push(&mut p, &header, 5), Some(Claim::Free(0)));
     }
 
     #[test]
@@ -1000,51 +916,40 @@ mod tests {
         assert_eq!(c.last(), 5);
         assert_eq!(c.wanted(token(4, 5, 1)), None, "already consumed");
         assert_eq!(c.wanted(token(4, 6, 1)), Some(1));
-        // Meta read under the mutex: a reclaim may have made it newer, never older.
-        let meta = |seq| SlotMeta {
-            seq,
-            ..Default::default()
-        };
-        assert!(c.fresh(&meta(6)));
-        assert!(c.fresh(&meta(9)));
-        assert!(!c.fresh(&meta(5)));
-        assert!(!c.fresh(&meta(0)));
     }
 
     #[test]
     fn a_reassigned_swap_chain_continues_the_rings_sequence() {
         // The picker belongs to the ring, so a worker started for a replacement swap chain on
         // the same ring publishes after what the host already consumed.
-        let mut m = Mutexes::new(4);
+        let w = words();
+        let header = Header::new(&w).unwrap();
         let mut picker = Picker::new(4);
-        let mut consumer = Consumer::new(3, 4);
-        let host_takes = |m: &mut Mutexes, consumer: &mut Consumer, token: Token| {
-            let slot = consumer.wanted(Some(token))?;
-            assert!(m.take(slot, KEY_HOST));
-            consumer.consumed(u64::from(token.seq));
-            m.release(slot, KEY_DRIVER);
-            Some(slot)
+        let mut consumer = Consumer::new(1, 4);
+        let mut release = 0;
+        let mut host_takes = |header: &Header<'_>, consumer: &mut Consumer| {
+            let (slot, seq) = consumer.claim(header)?;
+            consumer.consumed(u64::from(seq));
+            release += 1;
+            assert!(Consumer::release(header, slot, seq, release));
+            Some(release)
         };
-        let publish = |picker: &mut Picker, m: &mut Mutexes| {
-            let claim = push(picker, m).expect("a slot");
-            Token {
-                generation: 3,
-                seq: picker.next_seq() - 1,
-                slot: claim.slot() as u8,
-            }
-        };
+        let mut released = 0;
         for _ in 0..1000 {
-            let token = publish(&mut picker, &mut m);
-            assert!(host_takes(&mut m, &mut consumer, token).is_some());
+            push(&mut picker, &header, released).expect("a slot");
+            released = host_takes(&header, &mut consumer).expect("a frame");
         }
         // The swap chain is reassigned: the new worker reuses the ring's picker.
-        let token = publish(&mut picker, &mut m);
-        assert_eq!(token.seq, 1001);
-        assert!(host_takes(&mut m, &mut consumer, token).is_some());
+        push(&mut picker, &header, released).expect("a slot");
+        assert_eq!(header.latest().unwrap().seq, 1001);
+        assert!(host_takes(&header, &mut consumer).is_some());
         // A picker restarted at 1 would publish frames the host rejects as consumed until
         // the sequence caught up: the freeze this ownership prevents.
+        let fresh_w = words();
+        let fresh_header = Header::new(&fresh_w).unwrap();
         let mut restarted = Picker::new(4);
-        let token = publish(&mut restarted, &mut m);
+        push(&mut restarted, &fresh_header, 0).expect("a slot");
+        let token = fresh_header.latest().unwrap();
         assert_eq!(token.seq, 1);
         assert_eq!(consumer.wanted(Some(token)), None);
     }
@@ -1054,21 +959,21 @@ mod tests {
         let w = words();
         let header = Header::new(&w).unwrap();
         let layout = Layout {
-            kind: Kind::KeyedMutex,
             slot_count: 3,
             width: 640,
             height: 480,
             format: FORMAT_BGRA8,
-            generation: 9,
+            generation: 1,
         };
         header.init(layout);
-        let mut m = Mutexes::new(3);
         let mut picker = Picker::new(3);
         let mut consumer = Consumer::new(layout.generation, layout.slot_count);
+        let mut release = 0;
         let mut seen = Vec::new();
         for frame in 1..=20u64 {
-            // Driver: three frames per host poll, so the host must skip.
-            let claim = picker.claim(|s, key| m.take(s, key)).expect("a slot");
+            // Driver: three frames per host poll, so the host must skip. Its present stamp
+            // travels in the slot's meta.
+            let claim = picker.claim_fenced(&header, release).expect("a slot");
             let seq = picker.next_seq();
             header.write_slot(
                 claim.slot(),
@@ -1078,8 +983,7 @@ mod tests {
                     ..Default::default()
                 },
             );
-            m.release(claim.slot(), KEY_HOST);
-            picker.published(claim.slot(), seq);
+            assert!(picker.publish_fenced(&header, claim.slot(), seq));
             header.publish(Token {
                 generation: layout.generation,
                 seq,
@@ -1089,12 +993,12 @@ mod tests {
                 continue;
             }
             // Host.
-            let slot = consumer.wanted(header.latest()).expect("a new frame");
-            assert!(m.take(slot, KEY_HOST));
+            let (slot, seq) = consumer.claim(&header).expect("a new frame");
             let meta = header.slot(slot);
-            assert!(consumer.fresh(&meta));
+            assert_eq!(meta.seq, u64::from(seq));
             consumer.consumed(meta.seq);
-            m.release(slot, KEY_DRIVER);
+            release += 1;
+            assert!(Consumer::release(&header, slot, seq, release));
             seen.push(meta.present_qpc);
         }
         assert_eq!(seen, [300, 600, 900, 1200, 1500, 1800]);

@@ -342,7 +342,7 @@ impl Encoder {
             api,
             device: ptr::null_mut(),
             encoder: ptr::null_mut(),
-            use_compute: crate::compute::enabled(tuning) && crate::compute::copies_on(&d3d.device),
+            use_compute: crate::compute::enabled(tuning),
             d3d,
             converter: None,
             compute: None,

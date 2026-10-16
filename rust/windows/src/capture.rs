@@ -1755,8 +1755,7 @@ impl Capture {
             )?;
             let mut duplication = Duplication::new_device(gpu, hdr)?;
             duplication.owned.warnings = warnings.clone();
-            if crate::compute::enabled(config) && crate::compute::copies_on(&duplication.gpu.device)
-            {
+            if crate::compute::enabled(config) {
                 match crate::compute::Compute::for_device(&duplication.gpu.device)
                     .and_then(|compute| crate::compute::Handoff::new(compute, &duplication.gpu))
                 {
@@ -1777,10 +1776,7 @@ impl Capture {
             // drivers. The same fenced handoff used by DDX keeps the copy and
             // AMF conversion off a busy graphics queue. Keep an independent
             // switch for comparisons and drivers that need the D3D11 path.
-            if config.boolean("wgc_compute_copy", true)
-                && crate::compute::enabled(config)
-                && crate::compute::copies_on(&capture.gpu.device)
-            {
+            if config.boolean("wgc_compute_copy", true) && crate::compute::enabled(config) {
                 match crate::compute::Compute::for_device(&capture.gpu.device)
                     .and_then(|compute| crate::compute::Handoff::new(compute, &capture.gpu))
                 {

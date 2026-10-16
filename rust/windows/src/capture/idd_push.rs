@@ -661,7 +661,7 @@ impl Session {
             warnings: warnings.clone(),
             ..Default::default()
         };
-        if crate::compute::enabled(config) && crate::compute::copies_on(&gpu.device) {
+        if crate::compute::enabled(config) {
             match crate::compute::Compute::for_device(&gpu.device)
                 .and_then(|compute| crate::compute::Handoff::new(compute, &gpu))
             {

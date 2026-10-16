@@ -542,6 +542,7 @@ fn move_install(
                 progress.set("Starting Rubylight…");
                 system::start_service(SERVICE)?;
                 wait_ready(probe(profile), Some(env!("CARGO_PKG_VERSION")))?;
+                trust_console_or_warn(profile);
             }
             Ok(())
         },
@@ -878,6 +879,14 @@ fn secure_profile_with(
 const CONSOLE_ROOT_NAME: &str = "Rubylight local console";
 /// Browsers open the console without a warning once its root is trusted
 /// (see `ConsoleCertificate`). Roots of an earlier console certificate go.
+/// [`trust_console`] where setup has no notes to show, as in an update.
+pub(crate) fn trust_console_or_warn(profile: &Path) {
+    if let Err(error) = trust_console(profile) {
+        line(format!(
+            "warning: browsers will warn about the console's certificate: its root could not be trusted: {error:#}"
+        ));
+    }
+}
 fn trust_console(profile: &Path) -> Result<()> {
     let root = profile.join("credentials").join("console-root.pem");
     if !root.is_file() {
@@ -1418,6 +1427,24 @@ pub(crate) fn wait_ready(address: SocketAddr, version: Option<&str>) -> Result<(
 
 #[cfg(test)]
 mod tests {
+    /// 2.4.2 trusted the root only on a fresh install; an update, the way
+    /// every existing host got 2.4.2, left the console untrusted.
+    #[test]
+    fn every_start_of_the_new_host_trusts_the_console_root() {
+        let ready = "Some(env!(\"CARGO_PKG_VERSION\")))?;";
+        for (name, source) in [
+            ("install.rs", include_str!("install.rs")),
+            ("update.rs", include_str!("update.rs")),
+        ] {
+            let code = source.split("#[cfg(test)]").next().unwrap();
+            let starts: Vec<_> = code.match_indices(ready).collect();
+            assert!(!starts.is_empty(), "{name}");
+            for (at, _) in starts {
+                let after: String = code[at..].lines().skip(1).take(4).collect();
+                assert!(after.contains("trust_console"), "{name}: {after}");
+            }
+        }
+    }
     #[test]
     fn setup_removes_the_root_by_the_name_the_host_gives_it() {
         assert_eq!(

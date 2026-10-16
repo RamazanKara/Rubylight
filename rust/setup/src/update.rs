@@ -80,6 +80,8 @@ pub fn run(
             if start {
                 system::start_service(detect::SERVICE)?;
                 install::wait_ready(install::probe(&profile), Some(env!("CARGO_PKG_VERSION")))?;
+                // The host made the console's certificate as it started.
+                install::trust_console_or_warn(&profile);
             }
             install::register(&install, &entries)?;
             Ok(())

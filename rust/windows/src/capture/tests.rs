@@ -236,39 +236,49 @@ fn the_graphics_card_setting_names_one_gpu_of_a_hybrid_pc() {
     assert!(select_gpu(&twins, "", gpus[1].pnp_id.as_deref().unwrap()).is_err());
 }
 #[test]
-#[ignore = "requires native D3D11/D3D12 sharing and readback"]
-fn unshareable_frame_falls_back_without_waiting_for_another_desktop_update() -> Result<()> {
+#[ignore = "requires native D3D12 compute copies and readback"]
+fn the_pool_copies_on_the_compute_queue_and_never_overwrites_a_held_frame() -> Result<()> {
     let _com = ComGuard::new()?;
     let gpu = Device::new("")?;
-    let expected = [32, 64, 128, 255].repeat(16);
-    let uploaded = GpuImage::upload(
-        &gpu,
-        &Image {
-            width: 4,
-            height: 4,
-            stride: 16,
-            bytes: expected.clone(),
-            captured: Instant::now(),
-            pixel: Pixel::Bgra8,
-        },
-    )?;
-    // A normal D3D11-only snapshot cannot be opened by the compute queue.
-    let source = GpuPool::default().copy(&gpu, &uploaded.texture)?.unwrap();
-    assert!(!crate::compute::shareable(&source.texture));
-    let mut pool = GpuPool {
-        compute: Some(crate::compute::Handoff::new(
-            crate::compute::Compute::for_device(&gpu.device)?,
+    let upload = |value: u8| {
+        GpuImage::upload(
             &gpu,
-        )?),
-        ..Default::default()
+            &Image {
+                width: 4,
+                height: 4,
+                stride: 16,
+                bytes: vec![value; 64],
+                captured: Instant::now(),
+                pixel: Pixel::Bgra8,
+            },
+        )
     };
-    let frame = pool
-        .copy(&gpu, &source.texture)?
-        .context("fallback must return this frame, even if the desktop never updates again")?;
-    assert!(pool.compute.is_none());
-    assert!(!crate::compute::shareable(&frame.texture));
-    assert!(frame.ready.is_none());
+    let first = upload(32)?;
+    let mut pool = GpuPool::new(gpu.compute.clone())?;
+    let mut held = Vec::new();
+    for _ in 0..GPU_SNAPSHOT_CAPACITY {
+        held.push(
+            pool.copy(&gpu, &first.texture, first.ready.as_ref())?
+                .context("a free pool texture")?,
+        );
+    }
+    // Every texture is held: the pool says so instead of overwriting one.
+    assert!(!pool.has_capacity());
+    assert!(pool.copy(&gpu, &first.texture, None)?.is_none());
+    let second = upload(200)?;
+    let released = held.pop().unwrap();
+    let reused = std::sync::Arc::as_ptr(&released.texture);
+    drop(released);
+    let copy = pool
+        .copy(&gpu, &second.texture, second.ready.as_ref())?
+        .context("the released texture")?;
+    assert_eq!(std::sync::Arc::as_ptr(&copy.texture), reused);
+    assert_eq!(copy.readback(&mut None)?.bytes, vec![200; 64]);
+    for frame in &held {
+        assert_eq!(frame.readback(&mut None)?.bytes, vec![32; 64]);
+    }
     drop(pool);
-    assert_eq!(frame.readback(&mut None)?.bytes, expected);
+    // A frame outlives the pool that copied it.
+    assert_eq!(copy.readback(&mut None)?.bytes, vec![200; 64]);
     Ok(())
 }

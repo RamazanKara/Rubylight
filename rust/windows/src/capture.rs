@@ -5,10 +5,8 @@ use serde::Serialize;
 use std::time::{Duration, Instant};
 use windows::{
     Win32::{
-        Foundation::HMODULE,
         Graphics::{
-            Direct3D::D3D_DRIVER_TYPE_UNKNOWN,
-            Direct3D11::*,
+            Direct3D12::ID3D12Resource,
             Dxgi::{Common::*, *},
         },
         System::Com::*,
@@ -317,8 +315,8 @@ pub struct Image {
 }
 #[derive(Clone)]
 pub struct Device {
-    pub device: ID3D11Device,
-    pub context: ID3D11DeviceContext,
+    /// The GPU's D3D12 device with the compute queue that copies and converts its frames.
+    pub compute: std::sync::Arc<crate::compute::Compute>,
     /// The monitor the device was opened for; absent on a host without one,
     /// where the device can still encode.
     pub output: Option<IDXGIOutput1>,
@@ -338,6 +336,15 @@ impl Device {
         self.color
             .as_ref()
             .map_or(Ok(None), |color| color.lock().unwrap().poll(Instant::now()))
+    }
+    /// Whether `other` runs on the same D3D12 device, so its textures can be read here.
+    pub fn same(&self, other: &Device) -> bool {
+        self.compute.device.as_raw() == other.compute.device.as_raw()
+    }
+    /// The adapter's LUID as (low, high).
+    pub fn luid(&self) -> (u32, i32) {
+        let luid = self.compute.luid();
+        (luid.LowPart, luid.HighPart)
     }
     pub fn new(name: &str) -> Result<Self> {
         Self::new_adapter(name, "", "")
@@ -472,38 +479,20 @@ impl Device {
         output: Option<IDXGIOutput1>,
         display: Display,
     ) -> Result<Self> {
-        // SAFETY: `adapter` is a live DXGI adapter, the out-parameters are live locals, and they
-        // are unwrapped only after D3D11CreateDevice succeeded.
-        unsafe {
-            let mut device = None;
-            let mut context = None;
-            D3D11CreateDevice(
-                adapter,
-                D3D_DRIVER_TYPE_UNKNOWN,
-                HMODULE::default(),
-                D3D11_CREATE_DEVICE_BGRA_SUPPORT,
-                None,
-                D3D11_SDK_VERSION,
-                Some(&mut device),
-                None,
-                Some(&mut context),
-            )?;
-            let context = context.unwrap();
-            let multithread: ID3D11Multithread = context.cast()?;
-            let _ = multithread.SetMultithreadProtected(true);
-            let color = output
-                .as_ref()
-                .map(|output| output::Color::new(output, &display.display_name))
-                .transpose()?
-                .map(|color| std::sync::Arc::new(std::sync::Mutex::new(color)));
-            Ok(Self {
-                device: device.unwrap(),
-                context,
-                output,
-                display: std::sync::Arc::new(display),
-                color,
-            })
-        }
+        // SAFETY: `adapter` is a live DXGI adapter; GetDesc1 returns an owned struct.
+        let luid = unsafe { adapter.GetDesc1()? }.AdapterLuid;
+        let compute = crate::compute::Compute::for_adapter(luid)?;
+        let color = output
+            .as_ref()
+            .map(|output| output::Color::new(output, &display.display_name))
+            .transpose()?
+            .map(|color| std::sync::Arc::new(std::sync::Mutex::new(color)));
+        Ok(Self {
+            compute,
+            output,
+            display: std::sync::Arc::new(display),
+            color,
+        })
     }
 }
 /// An immutable, owned GPU snapshot. The capture pool never overwrites a
@@ -525,31 +514,20 @@ pub struct GpuImage {
     /// then, its acquisition. Only timing reports read this.
     pub published: Instant,
     pub gpu: Device,
-    pub texture: std::sync::Arc<ID3D11Texture2D>,
-    /// When the GPU write into `texture` (a compute-queue copy, or the
-    /// display driver's copy into a fence ring) completes. D3D12 queues wait
-    /// for this; D3D11 work on `gpu` is ordered after it once
-    /// [`Self::order_d3d11`] ran.
+    /// A D3D12 texture on `gpu`'s device, in the COMMON state between uses.
+    pub texture: std::sync::Arc<ID3D12Resource>,
+    /// When the GPU write into `texture` (a compute-queue copy, an upload, or the
+    /// display driver's copy into a fence ring) completes. Every reader's queue waits for it.
     pub(crate) ready: Option<crate::compute::Ready>,
     /// A display driver frame ring slot read in place rather than copied;
     /// it goes back with the last clone of this image.
     lease: Option<std::sync::Arc<idd_push::Lent>>,
 }
 impl GpuImage {
-    /// Order D3D11 work on `gpu` submitted after this call after the write
-    /// `ready` waits for. Every D3D11 reader of `texture` calls it first; only
-    /// a fence ring's texture lent in place needs it, which the compute
-    /// conversion otherwise reads without D3D11.
-    pub(crate) fn order_d3d11(&self) -> Result<()> {
-        match &self.lease {
-            Some(lease) => lease.order_d3d11(),
-            None => Ok(()),
-        }
-    }
-    pub fn readback(&self, staging: &mut Option<ID3D11Texture2D>) -> Result<Image> {
+    pub fn readback(&self, staging: &mut Option<crate::compute::Staging>) -> Result<Image> {
         // CPU readback needs the completed pixels anyway. Bound the producer wait before
-        // queuing D3D11 work: Map otherwise blocks behind a missing external fence signal,
-        // preventing capture recovery. GPU-only readers keep their asynchronous waits.
+        // queuing GPU work: a missing external fence signal otherwise blocks the readback
+        // and prevents capture recovery. GPU-only readers keep their asynchronous waits.
         if let Some(ready) = &self.ready {
             ready
                 .wait()
@@ -560,17 +538,13 @@ impl GpuImage {
                 })
                 .context("wait for captured pixels before CPU readback")?;
         }
-        self.order_d3d11()?;
-        let mut image = read_texture(&self.gpu, &self.texture, staging)?;
+        let mut image = read_texture(&self.gpu, &self.texture, self.ready.as_ref(), staging)?;
         image.captured = self.captured;
         Ok(image)
     }
+    /// A CPU image on `gpu`, uploaded through its compute queue. The upload has finished
+    /// when this returns.
     pub fn upload(gpu: &Device, image: &Image) -> Result<Self> {
-        let format = match image.pixel {
-            Pixel::Bgra8 => DXGI_FORMAT_B8G8R8A8_UNORM,
-            Pixel::RgbaF16 => DXGI_FORMAT_R16G16B16A16_FLOAT,
-            Pixel::Rgba10Pq => DXGI_FORMAT_R10G10B10A2_UNORM,
-        };
         let bytes = if image.pixel == Pixel::RgbaF16 { 8 } else { 4 };
         if image.width == 0
             || image.height == 0
@@ -579,58 +553,38 @@ impl GpuImage {
         {
             bail!("invalid GPU upload image");
         }
-        // SAFETY: `image.bytes` holds `stride * height` bytes with `stride` covering a row (checked
-        // above), and CreateTexture2D copies them during the call.
-        unsafe {
-            let desc = D3D11_TEXTURE2D_DESC {
-                Width: image.width,
-                Height: image.height,
-                MipLevels: 1,
-                ArraySize: 1,
-                Format: format,
-                SampleDesc: DXGI_SAMPLE_DESC {
-                    Count: 1,
-                    Quality: 0,
-                },
-                Usage: D3D11_USAGE_DEFAULT,
-                BindFlags: D3D11_BIND_SHADER_RESOURCE.0 as u32,
-                // Shareable with the D3D12 compute converter.
-                MiscFlags: (D3D11_RESOURCE_MISC_SHARED_NTHANDLE.0 | D3D11_RESOURCE_MISC_SHARED.0)
-                    as u32,
-                ..Default::default()
-            };
-            let data = D3D11_SUBRESOURCE_DATA {
-                pSysMem: image.bytes.as_ptr().cast(),
-                SysMemPitch: image.stride.try_into()?,
-                SysMemSlicePitch: 0,
-            };
-            let mut texture = None;
-            gpu.device
-                .CreateTexture2D(&desc, Some(&data), Some(&mut texture))?;
-            Ok(Self {
-                width: image.width,
-                height: image.height,
-                pixel: image.pixel,
-                captured: image.captured,
-                present_stamp: None,
-                acquired: Instant::now(),
-                published: Instant::now(),
-                gpu: gpu.clone(),
-                texture: std::sync::Arc::new(texture.unwrap()),
-                ready: None,
-                lease: None,
-            })
-        }
+        let (texture, value) = crate::compute::upload(
+            &gpu.compute,
+            (image.width, image.height),
+            crate::compute::format(image.pixel),
+            windows::Win32::Graphics::Direct3D12::D3D12_RESOURCE_FLAG_NONE,
+            &image.bytes,
+            image.stride,
+        )?;
+        Ok(Self {
+            width: image.width,
+            height: image.height,
+            pixel: image.pixel,
+            captured: image.captured,
+            present_stamp: None,
+            acquired: Instant::now(),
+            published: Instant::now(),
+            gpu: gpu.clone(),
+            texture: std::sync::Arc::new(texture),
+            ready: Some(crate::compute::Ready::on(
+                &gpu.compute,
+                gpu.compute.fence.clone(),
+                value,
+            )),
+            lease: None,
+        })
     }
 }
 
-#[derive(Default)]
+/// Textures the host owns that frames are copied into, on a compute queue.
 pub(crate) struct GpuPool {
-    pub(crate) warnings: std::sync::Arc<butterpollo_core::session::Warnings>,
-    textures: Vec<std::sync::Arc<ID3D11Texture2D>>,
-    /// Copies on a compute queue instead of the D3D11 graphics queue,
-    /// where they wait behind a game's rendering.
-    pub(crate) compute: Option<crate::compute::Handoff>,
+    textures: Vec<std::sync::Arc<ID3D12Resource>>,
+    pub(crate) copier: crate::compute::Copier,
 }
 const GPU_SNAPSHOT_CAPACITY: usize = 8;
 
@@ -642,169 +596,108 @@ fn snapshot_capacity<T>(textures: &[std::sync::Arc<T>]) -> bool {
 }
 
 impl GpuPool {
+    pub(crate) fn new(compute: std::sync::Arc<crate::compute::Compute>) -> Result<Self> {
+        Ok(Self {
+            textures: Vec::new(),
+            copier: crate::compute::Copier::new(compute)?,
+        })
+    }
     fn has_capacity(&self) -> bool {
         snapshot_capacity(&self.textures)
     }
 
+    /// A copy of `source` (on `gpu`'s device) once `after` is reached, or None when every
+    /// pool texture is still held.
     pub(crate) fn copy(
         &mut self,
         gpu: &Device,
-        source: &ID3D11Texture2D,
+        source: &ID3D12Resource,
+        after: Option<&crate::compute::Ready>,
     ) -> Result<Option<GpuImage>> {
-        // SAFETY: `source` and the pool's textures are live on `gpu.device` with matching size and
-        // format, and that device's context is multithread-protected.
-        unsafe {
-            let mut desc = D3D11_TEXTURE2D_DESC::default();
-            source.GetDesc(&mut desc);
-            let pixel = match desc.Format {
-                DXGI_FORMAT_B8G8R8A8_UNORM => Pixel::Bgra8,
-                DXGI_FORMAT_R16G16B16A16_FLOAT => Pixel::RgbaF16,
-                DXGI_FORMAT_R10G10B10A2_UNORM => Pixel::Rgba10Pq,
-                _ => bail!("unsupported GPU capture format {:?}", desc.Format),
-            };
-            self.textures.retain(|texture| {
-                let mut old = D3D11_TEXTURE2D_DESC::default();
-                texture.GetDesc(&mut old);
-                let keep = old.Width == desc.Width
-                    && old.Height == desc.Height
-                    && old.Format == desc.Format;
-                if !keep && let Some(handoff) = &mut self.compute {
-                    handoff.forget(texture);
-                }
-                keep
-            });
-            let free = self
-                .textures
-                .iter()
-                .find(|texture| std::sync::Arc::strong_count(texture) == 1)
-                .cloned();
-            let texture = if let Some(texture) = free {
-                texture
-            } else {
-                // Capture retains only the newest native update while consumers
-                // own every snapshot, instead of growing a frame queue.
-                if self.textures.len() >= GPU_SNAPSHOT_CAPACITY {
-                    return Ok(None);
-                }
-                desc.Usage = D3D11_USAGE_DEFAULT;
-                desc.BindFlags = D3D11_BIND_SHADER_RESOURCE.0 as u32;
-                desc.CPUAccessFlags = 0;
-                // Shared with the compute queue that copies and converts it.
-                desc.MiscFlags = if self.compute.is_some() {
-                    (D3D11_RESOURCE_MISC_SHARED_NTHANDLE.0 | D3D11_RESOURCE_MISC_SHARED.0) as u32
-                } else {
-                    0
-                };
-                let mut texture = None;
-                gpu.device
-                    .CreateTexture2D(&desc, None, Some(&mut texture))?;
-                let texture = std::sync::Arc::new(texture.unwrap());
-                self.textures.push(texture.clone());
-                texture
-            };
-            let ready = match self
-                .compute
-                .as_mut()
-                .map(|handoff| handoff.copy(texture.as_ref(), source))
-            {
-                Some(Ok(ready)) => Some(ready),
-                Some(Err(error)) => {
-                    if let Some(loss) = crate::device_loss::DeviceLost::d3d11(&gpu.device)
-                        .or_else(|| {
-                            self.compute
-                                .as_ref()
-                                .and_then(|handoff| handoff.device_removed())
-                        })
-                        .or_else(|| crate::device_loss::DeviceLost::from_error(&error))
-                    {
-                        return Err(error.context(loss));
-                    }
-                    // Replace the shared textures and copy this same frame on
-                    // D3D11. Waiting for another update can strand a stream on
-                    // a static desktop. Consumers see an unshared texture and
-                    // rebuild for the graphics queue.
-                    self.warnings.set("capture_compute", format!("Compute capture copy failed ({error:#}); copying on the graphics queue. A busy game can delay capture; lower GPU load or update the AMD driver."));
-                    self.compute = None;
-                    self.textures.clear();
-                    return self.copy(gpu, source);
-                }
-                None => {
-                    gpu.context.CopyResource(texture.as_ref(), source);
-                    None
-                }
-            };
-            Ok(Some(GpuImage {
-                width: desc.Width,
-                height: desc.Height,
-                pixel,
-                captured: Instant::now(),
-                present_stamp: None,
-                acquired: Instant::now(),
-                published: Instant::now(),
-                gpu: gpu.clone(),
-                texture,
-                ready,
-                lease: None,
-            }))
-        }
+        use windows::Win32::Graphics::Direct3D12::{
+            D3D12_HEAP_FLAG_NONE, D3D12_RESOURCE_FLAG_NONE,
+        };
+        // SAFETY: `source` is a live resource; GetDesc only reads it.
+        let desc = unsafe { source.GetDesc() };
+        let pixel = crate::compute::pixel(desc.Format)?;
+        let width = u32::try_from(desc.Width)?;
+        let copier = &mut self.copier;
+        self.textures.retain(|texture| {
+            // SAFETY: The pool's textures are live resources; GetDesc only reads them.
+            let old = unsafe { texture.GetDesc() };
+            let keep =
+                old.Width == desc.Width && old.Height == desc.Height && old.Format == desc.Format;
+            if !keep {
+                copier.forget(texture);
+            }
+            keep
+        });
+        let free = self
+            .textures
+            .iter()
+            .find(|texture| std::sync::Arc::strong_count(texture) == 1)
+            .cloned();
+        let texture = if let Some(texture) = free {
+            texture
+        } else {
+            // Capture retains only the newest native update while consumers
+            // own every snapshot, instead of growing a frame queue.
+            if self.textures.len() >= GPU_SNAPSHOT_CAPACITY {
+                return Ok(None);
+            }
+            let texture = std::sync::Arc::new(gpu.compute.texture(
+                width,
+                desc.Height,
+                desc.Format,
+                D3D12_RESOURCE_FLAG_NONE,
+                D3D12_HEAP_FLAG_NONE,
+            )?);
+            self.textures.push(texture.clone());
+            texture
+        };
+        let ready = self.copier.copy(&texture, source, after).map_err(|error| {
+            match crate::device_loss::DeviceLost::d3d12(&gpu.compute.device) {
+                Some(loss) => error.context(loss),
+                None => error,
+            }
+        })?;
+        Ok(Some(GpuImage {
+            width,
+            height: desc.Height,
+            pixel,
+            captured: Instant::now(),
+            present_stamp: None,
+            acquired: Instant::now(),
+            published: Instant::now(),
+            gpu: gpu.clone(),
+            texture,
+            ready: Some(ready),
+            lease: None,
+        }))
     }
 }
+/// `texture`'s pixels once `ready` is reached, read on `gpu`'s compute queue.
 pub fn read_texture(
     gpu: &Device,
-    texture: &ID3D11Texture2D,
-    staging: &mut Option<ID3D11Texture2D>,
+    texture: &ID3D12Resource,
+    ready: Option<&crate::compute::Ready>,
+    staging: &mut Option<crate::compute::Staging>,
 ) -> Result<Image> {
-    // SAFETY: `stage` matches `texture`'s size and format, and each row read stays inside the
-    // `RowPitch * Height` mapped bytes until Unmap below.
-    unsafe {
-        let mut desc = D3D11_TEXTURE2D_DESC::default();
-        texture.GetDesc(&mut desc);
-        let pixel = match desc.Format {
-            DXGI_FORMAT_B8G8R8A8_UNORM => Pixel::Bgra8,
-            DXGI_FORMAT_R16G16B16A16_FLOAT => Pixel::RgbaF16,
-            DXGI_FORMAT_R10G10B10A2_UNORM => Pixel::Rgba10Pq,
-            _ => bail!("unsupported capture texture format {:?}", desc.Format),
-        };
-        let mut needs = true;
-        if let Some(old) = staging {
-            let mut d = D3D11_TEXTURE2D_DESC::default();
-            old.GetDesc(&mut d);
-            needs = d.Width != desc.Width || d.Height != desc.Height || d.Format != desc.Format;
-        }
-        if needs {
-            desc.Usage = D3D11_USAGE_STAGING;
-            desc.BindFlags = 0;
-            desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ.0 as u32;
-            desc.MiscFlags = 0;
-            let mut created = None;
-            gpu.device
-                .CreateTexture2D(&desc, None, Some(&mut created))?;
-            *staging = created;
-        }
-        let stage = staging.as_ref().unwrap();
-        gpu.context.CopyResource(stage, texture);
-        let mut mapped = D3D11_MAPPED_SUBRESOURCE::default();
-        gpu.context
-            .Map(stage, 0, D3D11_MAP_READ, 0, Some(&mut mapped))?;
-        let stride = (desc.Width as usize) * if pixel == Pixel::RgbaF16 { 8 } else { 4 };
-        let mut bytes = vec![0; stride * desc.Height as usize];
-        for y in 0..desc.Height as usize {
-            std::ptr::copy_nonoverlapping(
-                (mapped.pData as *const u8).add(y * mapped.RowPitch as usize),
-                bytes.as_mut_ptr().add(y * stride),
-                stride,
-            );
-        }
-        gpu.context.Unmap(stage, 0);
-        Ok(Image {
-            width: desc.Width,
-            height: desc.Height,
-            stride,
-            bytes,
-            captured: Instant::now(),
-            pixel,
-        })
-    }
+    // SAFETY: `texture` is a live resource; GetDesc only reads it.
+    let desc = unsafe { texture.GetDesc() };
+    let pixel = crate::compute::pixel(desc.Format)?;
+    let bytes = crate::compute::read_planes(&gpu.compute, texture, ready, staging)?
+        .into_iter()
+        .next()
+        .context("a texture without planes")?;
+    Ok(Image {
+        width: u32::try_from(desc.Width)?,
+        height: desc.Height,
+        stride: bytes.len() / desc.Height as usize,
+        bytes,
+        captured: Instant::now(),
+        pixel,
+    })
 }
 pub(crate) fn qpc_frequency() -> i64 {
     *std::sync::OnceLock::get_or_init(&QPC_FREQUENCY, || {
@@ -891,15 +784,9 @@ impl Capture {
         }
     }
     /// The capture of `name`, a virtual display this host created.
-    pub fn open(
-        name: &str,
-        hdr: bool,
-        config: &butterpollo_core::config::Config,
-        warnings: std::sync::Arc<butterpollo_core::session::Warnings>,
-    ) -> Result<Self> {
-        warnings.clear("capture_compute");
+    pub fn open(name: &str, hdr: bool, config: &butterpollo_core::config::Config) -> Result<Self> {
         Ok(Self::IddPush(Box::new(idd_push::Session::new(
-            name, hdr, config, warnings,
+            name, hdr, config,
         )?)))
     }
     pub fn next_frame(&mut self) -> Result<Option<Image>> {
@@ -920,7 +807,7 @@ impl Capture {
     }
     pub fn device_removed(&self) -> Option<crate::device_loss::DeviceLost> {
         match self {
-            Self::IddPush(s) => crate::device_loss::DeviceLost::d3d11(&s.gpu.device),
+            Self::IddPush(s) => crate::device_loss::DeviceLost::d3d12(&s.gpu.compute.device),
             Self::Closed => None,
         }
     }

@@ -411,7 +411,6 @@ pub struct Prepared {
     pub framegen: Policy,
     // Restore topology while the selected monitor still exists, then remove it.
     _arrangement: Option<display_arrangement::Lease>,
-    _activation: Option<display_arrangement::Activation>,
     _profile: Option<hdr_profile::Lease>,
     _retained: Option<Arc<Retained>>,
     _vulkan: Option<vulkan::Lease>,
@@ -444,7 +443,6 @@ fn frame_policy(
     launch: &Launch,
     stream: &Negotiated,
     config: &Config,
-    virtual_mode: bool,
 ) -> Result<(Policy, Option<DeviceMode>)> {
     let option = |key: &str| {
         app.and_then(|a| a.extra.get(key))
@@ -454,20 +452,6 @@ fn frame_policy(
     let generation = option("frame-generation-mode")
         .or_else(|| option("frame-generation-provider"))
         .unwrap_or("none");
-    let generation_enabled = if option("frame-generation-mode").is_some() {
-        butterpollo_core::framegen::generation_provider(generation) != "none"
-    } else {
-        app.as_ref().is_some_and(|a| {
-            [
-                "frame-generation-enabled",
-                "gen1-framegen-fix",
-                "gen2-framegen-fix",
-                "frame-generation-capture-fix",
-            ]
-            .iter()
-            .any(|key| crate::process::app_bool(a, key, false))
-        })
-    };
     // A device's own display mode replaces the host's resolution and
     // refresh policies for its display; the stream keeps the rate the
     // client asked for.
@@ -491,9 +475,7 @@ fn frame_policy(
     let mut framegen = Policy::resolve(
         config,
         Rate(stream.fps_millihz()),
-        virtual_mode,
         generation,
-        generation_enabled,
         launch
             .client
             .extra
@@ -510,15 +492,10 @@ fn frame_policy(
         // A saved display mode must not cap a faster stream's game at its refresh rate.
         framegen.display_rate = butterpollo_core::framegen::display_rate(
             rate,
-            virtual_mode,
             butterpollo_core::framegen::virtual_refresh(config),
         );
     }
-    framegen = framegen.with_vrr(
-        config,
-        virtual_mode,
-        stream.vrr_low_latency || launch.vrr_requested,
-    );
+    framegen = framegen.with_vrr(config, stream.vrr_low_latency || launch.vrr_requested);
     // Lossless Scaling doubles the frames: the game runs at its limit.
     if let Some(limit) = app
         .as_ref()
@@ -642,7 +619,6 @@ impl Prepared {
         launch: &Launch,
         stream: &Negotiated,
         config: &Config,
-        physical_only: bool,
     ) -> Result<(Self, limiter::Lease)> {
         let app = h
             .apps
@@ -651,21 +627,6 @@ impl Prepared {
             .iter()
             .find(|a| a.id() == launch.app_id || a.aliases.contains(&launch.app_id))
             .cloned();
-        let output_override = app
-            .as_ref()
-            .and_then(|a| a.extra.get("display-output"))
-            .and_then(serde_json::Value::as_str)
-            .or_else(|| {
-                launch
-                    .client
-                    .extra
-                    .get("output_name_override")
-                    .and_then(serde_json::Value::as_str)
-                    .filter(|s| !s.is_empty())
-            });
-        let output = output_override
-            .unwrap_or(config.get("output_name", ""))
-            .trim();
         let golden = if launch.role == Role::Stream
             && config.boolean("dd_always_restore_from_golden", false)
         {
@@ -686,51 +647,8 @@ impl Prepared {
             None
         };
         let mode = virtual_display_mode(config, &launch.client, app.as_ref());
-        let client_virtual = launch
-            .options
-            .get("virtualDisplay")
-            .map(|value| value != "0");
         let client_display = client_display(launch);
-        let mut display_request = butterpollo_core::display_policy::VirtualDisplayRequest {
-            client_requested: client_virtual == Some(true)
-                || matches!(client_display, Some(HostDisplay::Virtual(_))),
-            client_physical: client_display == Some(HostDisplay::Physical),
-            client_forced: launch
-                .client
-                .extra
-                .get("always_use_virtual_display")
-                .is_some_and(|v| v == true || v == "true"),
-            app_requested: app.as_ref().is_some_and(|a| {
-                crate::process::app_bool(a, "virtual-display", false)
-                    || crate::process::app_bool(a, "virtual-screen", false)
-            }),
-            configured: mode != "disabled" || config.boolean("dd_activate_virtual_display", false),
-            output_override,
-            configured_output: config.get("output_name", ""),
-            headless: false,
-        };
-        if !physical_only && !display_request.requested() {
-            display_request.headless =
-                butterpollo_windows::capture::displays().is_ok_and(|displays| displays.is_empty());
-            if display_request.headless {
-                tracing::info!(
-                    "no display is active; this stream uses a virtual display although the settings or the client turn it off"
-                );
-            }
-        }
-        let virtual_mode = display_request.uses_virtual(
-            physical_only,
-            butterpollo_windows::display::virtual_display_available,
-        );
-        if physical_only && display_request.requested() {
-            launch.warnings.set("display_virtual", "Windows was locked and the virtual display could not be set up there, so this stream shows the physical display. Start the stream again after signing in to use the virtual display.");
-        } else if display_request.requested() && !virtual_mode {
-            launch.warnings.set("display_virtual", "Using a physical display because the virtual display driver is unavailable. The desktop is visible locally and its refresh can limit fresh frames; repair the virtual display driver or explicitly select the physical display.");
-        } else {
-            launch.warnings.clear("display_virtual");
-        }
-        let (framegen, device_mode) =
-            frame_policy(app.as_ref(), launch, stream, config, virtual_mode)?;
+        let (framegen, device_mode) = frame_policy(app.as_ref(), launch, stream, config)?;
         let limiter = limiter::Lease::acquire(&h.directory, config, &framegen)?;
         let vulkan = if stream.hdr && config.boolean("vulkan_hdr_layer", true) {
             Some(vulkan::Lease::acquire()?)
@@ -803,29 +721,13 @@ impl Prepared {
             render_height,
             framegen.display_rate,
             stream.hdr,
-            virtual_mode,
         )?;
-        if let Some((width, height, _)) = device_mode
-            && (virtual_mode || config.get("dd_configuration_option", "verify_only") != "disabled")
-        {
+        if let Some((width, height, _)) = device_mode {
             request.resolution = Some((width, height));
             request.refresh = Some(framegen.display_rate.0);
-            request.prefer_highest = false;
         }
-        if request.prefer_highest && !virtual_mode {
-            request.refresh =
-                Some(butterpollo_windows::display::highest_refresh(output, request.resolution)?.0);
-        }
-        let (width, height) = if virtual_mode {
-            request.resolution.unwrap_or((render_width, render_height))
-        } else {
-            (stream.width, stream.height)
-        };
-        let rate = if virtual_mode {
-            Rate(request.refresh.unwrap_or(framegen.display_rate.0))
-        } else {
-            framegen.display_rate
-        };
+        let (width, height) = request.resolution.unwrap_or((render_width, render_height));
+        let rate = Rate(request.refresh.unwrap_or(framegen.display_rate.0));
         let retained = if launch.role == Role::RemoteMonitor {
             Some(crate::remote_display::activate(
                 h,
@@ -835,28 +737,14 @@ impl Prepared {
         } else {
             None
         };
-        let activation = if !virtual_mode
-            && retained.is_none()
-            && matches!(
-                config.get("dd_configuration_option", "verify_only"),
-                "ensure_active" | "ensure_primary" | "ensure_only_display"
-            ) {
-            display_arrangement::Activation::acquire(output)?
-        } else {
-            None
-        };
         let virtual_options = butterpollo_windows::display::VirtualOptions {
             peak_nits: config.integer("hdr_peak_brightness", 1000).clamp(400, 2000) as u32,
-            render_adapter: if virtual_mode {
-                butterpollo_windows::display::configured_render_adapter(config)
-            } else {
-                None
-            },
+            render_adapter: butterpollo_windows::display::configured_render_adapter(config),
         };
         // The layout to return to after the stream, taken before the virtual
         // display exists: Windows can switch other displays on or off, change
         // the primary or retime one when it arrives.
-        let original = if virtual_mode && retained.is_none() && launch.role == Role::Stream {
+        let original = if retained.is_none() && launch.role == Role::Stream {
             butterpollo_windows::display::Snapshot::capture()
                 .inspect_err(|error| {
                     tracing::warn!(error = %format!("{error:#}"), "display layout before the virtual display could not be read")
@@ -867,15 +755,11 @@ impl Prepared {
         };
         let display = if retained.is_none() {
             Some(Guard::new_virtual_options(
-                output,
-                virtual_mode,
                 stable_id,
                 width,
                 height,
                 rate,
                 request.hdr,
-                request.resolution,
-                request.refresh.map(Rate),
                 &virtual_options,
             )?)
         } else {
@@ -886,7 +770,7 @@ impl Prepared {
             .map(|d| d.current_output())
             .or_else(|| display.as_ref().map(|d| d.output.clone()))
             .context("display lease unavailable")?;
-        if virtual_mode {
+        if retained.is_none() {
             butterpollo_windows::display::virtual_scale(
                 &output,
                 config.integer("dd_virtual_display_scale", 0),
@@ -894,45 +778,28 @@ impl Prepared {
                 height,
             )?;
         }
-        // A remote monitor is a virtual display even when this device's
-        // streams otherwise use a physical one, so it follows the virtual
-        // display layout.
-        let virtual_layout = virtual_mode || retained.is_some();
         // The client's choice for this stream comes before the device, app
-        // and host layouts.
-        let selection = if virtual_layout {
-            virtual_display_layout(
-                config,
-                &launch.client,
-                app.as_ref(),
-                client_display.filter(|_| virtual_mode),
-            )
-        } else {
-            config.get("dd_configuration_option", "verify_only")
-        };
-        // An unknown layout falls back to the default: exclusive for a
-        // virtual display, verify only (no arrangement) for a physical one.
-        // A remote monitor takes which displays stay on and which is primary
-        // from it; the remote monitor layout places it.
-        let parsed = if !matches!(launch.role, Role::Stream | Role::RemoteMonitor)
-            || matches!(selection, "disabled" | "verify_only")
-        {
+        // and host layouts. A remote monitor's choice is the stream's own
+        // display; the remote monitor layout places it.
+        let selection = virtual_display_layout(
+            config,
+            &launch.client,
+            app.as_ref(),
+            client_display.filter(|_| launch.role == Role::Stream),
+        );
+        // An unknown layout falls back to the default, exclusive. A remote
+        // monitor takes which displays stay on and which is primary from it.
+        let parsed = if !matches!(launch.role, Role::Stream | Role::RemoteMonitor) {
             None
         } else {
             butterpollo_core::display_policy::Arrangement::parse(selection)
                 .inspect_err(|_| {
-                    butterpollo_core::config::invalid(
-                        if virtual_layout {
-                            "virtual_display_layout"
-                        } else {
-                            "dd_configuration_option"
-                        },
-                        selection,
-                    )
+                    butterpollo_core::config::invalid("virtual_display_layout", selection)
                 })
                 .ok()
-                .or(virtual_layout
-                    .then_some(butterpollo_core::display_policy::Arrangement::Exclusive))
+                .or(Some(
+                    butterpollo_core::display_policy::Arrangement::Exclusive,
+                ))
                 .and_then(|parsed| {
                     if launch.role == Role::RemoteMonitor {
                         parsed.for_remote_monitor()
@@ -954,7 +821,7 @@ impl Prepared {
                     &output,
                     parsed,
                     &retained,
-                    virtual_mode && display.is_some(),
+                    display.is_some(),
                     original,
                 ) {
                     Ok(lease) => Some(lease),
@@ -977,25 +844,18 @@ impl Prepared {
         tracing::info!(
             client = %launch.client.name,
             role = ?launch.role,
-            client_virtual_display = ?client_virtual,
             client_display = ?client_display,
             virtual_display_mode = mode,
-            output_override = ?output_override,
-            virtual_display = virtual_mode,
             output = %output,
             layout = selection,
             arrangement = ?parsed,
-            requested_refresh_millihz = request.refresh.or(virtual_mode.then_some(rate.0)),
+            requested_refresh_millihz = rate.0,
             limiter_rate = %framegen.rate,
             limiter_enabled = framegen.enabled,
             "stream display selection"
         );
         // A virtual display is created for the stream at exactly this mode.
-        let requested = if virtual_mode {
-            (Some((width, height)), Some(rate.0), request.hdr)
-        } else {
-            (request.resolution, request.refresh, request.hdr)
-        };
+        let requested = (Some((width, height)), Some(rate.0), request.hdr);
         let mode_report = ModeReport::new(launch.warnings.clone(), requested, stream.fps_millihz());
         mode_report.publish(applied_mode(&output));
         let recovery_profile = if stream.hdr {
@@ -1021,18 +881,15 @@ impl Prepared {
                 output,
                 framegen,
                 _arrangement: arrangement,
-                _activation: activation,
                 _profile: profile,
                 _retained: retained,
                 _vulkan: vulkan,
                 _golden: golden,
                 mode: stream_mode(stream),
-                layout_owner: (launch.role == Role::Stream
-                    && virtual_mode
-                    && client_display.is_none())
-                .then(|| launch.client.uuid.clone()),
+                layout_owner: (launch.role == Role::Stream && client_display.is_none())
+                    .then(|| launch.client.uuid.clone()),
                 client_display,
-                virtual_layout: virtual_layout.then(|| selection.to_owned()),
+                virtual_layout: Some(selection.to_owned()),
                 revision,
                 recovery: Recovery::new(),
                 layout_watch: Default::default(),
@@ -1093,7 +950,6 @@ impl Drop for Prepared {
             self._profile.take();
             self._arrangement.take();
             self.display.take();
-            self._activation.take();
             self._golden.take();
             self._retained.take();
             self._vulkan.take();
@@ -1142,7 +998,7 @@ pub fn retime(
         .iter()
         .find(|a| a.id() == launch.app_id || a.aliases.contains(&launch.app_id))
         .cloned();
-    let (framegen, device_mode) = frame_policy(app.as_ref(), launch, stream, config, true)?;
+    let (framegen, device_mode) = frame_policy(app.as_ref(), launch, stream, config)?;
     let raised = butterpollo_windows::input::on_input_desktop(|| -> Result<Raise> {
         let mut prepared = display._state.lock().unwrap();
         let Some(guard) = &prepared.display else {
@@ -1154,7 +1010,6 @@ pub fn retime(
             display_height,
             framegen.display_rate,
             stream.hdr,
-            true,
         )?;
         // As for a new display: a device's own mode sets its refresh.
         let rate = if device_mode.is_some() {
@@ -1231,26 +1086,53 @@ pub fn retime(
 /// so the work moves there (issue #6). If the virtual display or its layout
 /// still cannot be set up, the stream shows the physical display, as
 /// Vibepollo does while Windows is locked.
+/// The console warning for a display driver that cannot stream.
+pub const DRIVER_WARNING: &str = "display_driver";
+
+/// Every stream runs on a virtual display of Rubylight's display driver. A
+/// driver that is missing, or one waiting for a restart, refuses the stream
+/// with the console saying what to do.
 pub fn prepare_stream(
     h: &Shared,
     launch: &Launch,
     stream: &Negotiated,
     config: &Config,
 ) -> Result<StreamPreparation> {
-    let prepare = |physical_only: bool| {
-        butterpollo_windows::input::on_input_desktop(|| {
-            Ready::prepare(Prepared::create(h, launch, stream, config, physical_only)?)
-        })
-    };
-    match prepare(false) {
-        Err(error) if butterpollo_windows::input::secure_desktop_shown() => {
-            tracing::warn!(error = %format!("{error:#}"), "stream display could not be prepared while Windows is locked; trying the physical display");
-            prepare(true).map_err(|fallback| {
-                tracing::warn!(error = %format!("{fallback:#}"), "physical display could not be prepared either");
-                error
-            })
+    driver_ready(
+        &h.warnings,
+        butterpollo_windows::display::stream_driver_ready(),
+    )?;
+    butterpollo_windows::input::on_input_desktop(|| {
+        Ready::prepare(Prepared::create(h, launch, stream, config)?)
+    })
+    .map_err(|error| {
+        if butterpollo_windows::input::secure_desktop_shown() {
+            error.context("the stream's virtual display could not be set up while Windows is locked; sign in, then start the stream again")
+        } else {
+            error
         }
-        result => result,
+    })
+}
+
+/// Raise or clear the console warning for the display driver's `state`.
+fn driver_ready(warnings: &Warnings, state: Result<()>) -> Result<()> {
+    use butterpollo_windows::display::DriverRestartRequired;
+    match state {
+        Ok(()) => {
+            warnings.clear(DRIVER_WARNING);
+            warnings.clear(DriverRestartRequired::CODE);
+            Ok(())
+        }
+        Err(error) if error.is::<DriverRestartRequired>() => {
+            warnings.clear(DRIVER_WARNING);
+            warnings.set(DriverRestartRequired::CODE, DriverRestartRequired::MESSAGE);
+            Err(error)
+        }
+        Err(error) => {
+            warnings.clear(DriverRestartRequired::CODE);
+            warnings.set(DRIVER_WARNING, format!("{error:#}"));
+            Err(error)
+        }
     }
 }
 
@@ -1358,16 +1240,50 @@ mod tests {
     use std::sync::mpsc;
 
     #[test]
+    fn a_stream_without_a_ready_display_driver_says_what_to_do_on_the_console() {
+        use butterpollo_windows::display::DriverRestartRequired;
+        let warnings = Warnings::default();
+        let codes = |warnings: &Warnings| {
+            warnings
+                .snapshot()
+                .into_iter()
+                .map(|w| (w.code, w.message))
+                .collect::<Vec<_>>()
+        };
+        // An update that waits for a restart.
+        assert!(driver_ready(&warnings, Err(DriverRestartRequired.into())).is_err());
+        assert_eq!(
+            codes(&warnings),
+            [(
+                DriverRestartRequired::CODE.to_owned(),
+                DriverRestartRequired::MESSAGE.to_owned()
+            )]
+        );
+        assert!(DriverRestartRequired::MESSAGE.contains("Restart Windows"));
+        // A missing driver: the message says how to repair it.
+        let missing = anyhow::anyhow!(
+            "the Rubylight virtual display driver is not installed. Streams need it: run Rubylight setup again to repair the installation, then start the stream again."
+        );
+        assert!(driver_ready(&warnings, Err(missing)).is_err());
+        let shown = codes(&warnings);
+        assert_eq!(shown.len(), 1);
+        assert_eq!(shown[0].0, DRIVER_WARNING);
+        assert!(shown[0].1.contains("run Rubylight setup again"));
+        // A ready driver clears both.
+        driver_ready(&warnings, Ok(())).unwrap();
+        assert!(warnings.snapshot().is_empty());
+    }
+
+    #[test]
     fn a_retained_display_stops_enforcing_layout_after_the_last_preparation_drops() {
         let fixture = crate::state::test_support::Fixture::new();
         let config = Config::default();
-        let policy = Policy::resolve(&config, Rate(60_000), false, "none", false, false).unwrap();
+        let policy = Policy::resolve(&config, Rate(60_000), "none", false).unwrap();
         let prepared = Prepared {
             display: None,
             output: String::new(),
             framegen: policy.clone(),
             _arrangement: None,
-            _activation: None,
             _profile: None,
             _retained: None,
             _vulkan: None,
@@ -1568,10 +1484,8 @@ mod tests {
             client_display(&launch)
         };
         assert_eq!(launch(Role::Stream, None), None);
-        assert_eq!(
-            launch(Role::Stream, Some("physical")),
-            Some(HostDisplay::Physical)
-        );
+        // Every stream has a virtual display.
+        assert_eq!(launch(Role::Stream, Some("physical")), None);
         assert_eq!(
             launch(Role::Stream, Some("exclusive")),
             Some(HostDisplay::Virtual(Arrangement::Exclusive))
@@ -1638,13 +1552,12 @@ mod tests {
             fps: 60,
             ..Default::default()
         };
-        let policy = Policy::resolve(&config, Rate(60_000), false, "none", false, false).unwrap();
+        let policy = Policy::resolve(&config, Rate(60_000), "none", false).unwrap();
         let prepared = Prepared {
             display: None,
             output: String::new(),
             framegen: policy.clone(),
             _arrangement: None,
-            _activation: None,
             _profile: None,
             _retained: None,
             _vulkan: None,

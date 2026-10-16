@@ -544,11 +544,9 @@ impl Host {
                 hdr,
                 ..Default::default()
             };
-            match butterpollo_windows::encoder::Encoder::new_options(
-                &negotiated,
-                config.get("output_name", ""),
-                config,
-            ) {
+            // The encoding GPU as the adapter settings name it, or the
+            // primary display's.
+            match butterpollo_windows::encoder::Encoder::new_options(&negotiated, "", config) {
                 Ok(mut encoder) => {
                     if codec == 0 {
                         *self.probed_encoder.lock().unwrap() = encoder.backend();

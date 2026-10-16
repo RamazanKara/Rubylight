@@ -590,7 +590,6 @@ impl Config {
             height,
             crate::framegen::Rate(fps.saturating_mul(1000)),
             false,
-            false,
         )?;
         request.refresh = request.refresh.map(|r| r.saturating_add(500) / 1000);
         Ok(request)
@@ -601,16 +600,7 @@ impl Config {
         height: u32,
         rate: crate::framegen::Rate,
         hdr: bool,
-        virtual_display: bool,
     ) -> Result<DisplayRequest> {
-        if !virtual_display && self.get("dd_configuration_option", "verify_only") == "disabled" {
-            return Ok(DisplayRequest {
-                resolution: None,
-                refresh: None,
-                prefer_highest: false,
-                hdr: None,
-            });
-        }
         let resolution_option = self.get("dd_resolution_option", "auto");
         let refresh_option = self.get("dd_refresh_rate_option", "auto");
         let resolution_option = match resolution_option {
@@ -621,7 +611,7 @@ impl Config {
             }
         };
         let refresh_option = match refresh_option {
-            "disabled" | "auto" | "manual" | "prefer_highest" => refresh_option,
+            "disabled" | "auto" | "manual" => refresh_option,
             other => {
                 fallback("dd_refresh_rate_option", other, "auto");
                 "auto"
@@ -649,7 +639,6 @@ impl Config {
                 }
                 Some(rate.0)
             }
-            "prefer_highest" => None,
             _ => bail!("invalid display refresh policy"),
         };
         let remapping_type = match (resolution_option == "auto", refresh_option == "auto") {
@@ -708,7 +697,6 @@ impl Config {
         Ok(DisplayRequest {
             resolution,
             refresh,
-            prefer_highest: refresh_option == "prefer_highest",
             hdr: if self.get("dd_hdr_option", "auto") == "disabled" {
                 None
             } else {
@@ -952,7 +940,6 @@ fn bracket_depth(line: &str) -> i32 {
 pub struct DisplayRequest {
     pub resolution: Option<(u32, u32)>,
     pub refresh: Option<u32>,
-    pub prefer_highest: bool,
     pub hdr: Option<bool>,
 }
 #[derive(Clone, Copy, Debug, Serialize)]
@@ -1500,21 +1487,18 @@ mod tests {
         }
     }
     #[test]
-    fn exact_display_remapping_hdr_override_and_disabled_policy() {
+    fn exact_display_remapping_and_hdr_override() {
         let c = Config::parse("dd_mode_remapping={\"mixed\":[{\"requested_resolution\":\"1920x1080\",\"requested_fps\":\"59.94\",\"final_resolution\":\"2560x1440\",\"final_refresh_rate\":\"119.88\"}]}\ndd_hdr_request_override=force_off\n").unwrap();
         let r = c
-            .display_request_rate(1920, 1080, crate::framegen::Rate(59940), true, false)
+            .display_request_rate(1920, 1080, crate::framegen::Rate(59940), true)
             .unwrap();
         assert_eq!(r.resolution, Some((2560, 1440)));
         assert_eq!(r.refresh, Some(119880));
         assert_eq!(r.hdr, Some(false));
-        let c = Config::parse("dd_configuration_option=disabled\ndd_refresh_rate_option=manual\ndd_manual_refresh_rate=119.88\n").unwrap();
-        let r = c
-            .display_request_rate(1920, 1080, crate::framegen::Rate(59940), true, false)
+        let c = Config::parse("dd_refresh_rate_option=manual\ndd_manual_refresh_rate=119.88\n")
             .unwrap();
-        assert_eq!((r.resolution, r.refresh, r.hdr), (None, None, None));
         assert_eq!(
-            c.display_request_rate(1920, 1080, crate::framegen::Rate(59940), true, true)
+            c.display_request_rate(1920, 1080, crate::framegen::Rate(59940), true)
                 .unwrap()
                 .refresh,
             Some(119880)

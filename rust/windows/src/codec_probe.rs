@@ -53,7 +53,6 @@ fn check_worker(exit_code: Option<u32>, now: Instant, deadline: Instant) -> Resu
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Request {
-    output: String,
     /// The encoding GPU the settings name, as the stream will use it.
     adapter_name: String,
     adapter_pnp_id: String,
@@ -95,7 +94,6 @@ pub fn pyrowave(config: &Config) -> Result<u32> {
         check()?;
     }
     pipe.send(&Request {
-        output: config.get("output_name", "").into(),
         adapter_name: config.get("adapter_name", "").into(),
         adapter_pnp_id: config.get("adapter_pnp_id", "").into(),
     })?;
@@ -163,7 +161,7 @@ fn probe(request: &Request) -> Result<Reply> {
             ..Default::default()
         };
         let result = (|| -> Result<bool> {
-            let mut encoder = Encoder::new_options(&mode, &request.output, &gpu)?;
+            let mut encoder = Encoder::new_options(&mode, "", &gpu)?;
             for frame in 0..8 {
                 if !encoder
                     .encode(&image, frame == 0, mode.bitrate_kbps)?

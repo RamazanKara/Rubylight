@@ -314,7 +314,6 @@ pub(crate) fn effective_config(h: &Shared, launch: &Launch) -> Result<Config> {
     if let Some(app) = &app {
         for (source, target) in [
             ("gamepad", "gamepad"),
-            ("dd-configuration-option", "dd_configuration_option"),
             ("prefer-10bit-sdr", "prefer_sdr_10bit"),
             // Saved by Vibepollo and earlier Rubylight apps for RTX HDR;
             // the peak is still what a virtual display reports.
@@ -1091,22 +1090,14 @@ impl Media {
                     let mut config_version = h.config_version.load(Ordering::Acquire);
                     let c = effective_config(&h, &s.launch)?;
                     let timer = butterpollo_windows::timing::Timer::new()?;
-                    let output = s
-                        .launch
-                        .client
-                        .extra
-                        .get("output_name_override")
-                        .and_then(serde_json::Value::as_str)
-                        .filter(|s| !s.is_empty())
-                        .unwrap_or(c.get("output_name", ""));
                     if s.launch.role == Role::InputOnly {
+                        // Remote Input has no stream display: input maps to the primary.
                         let monitors = butterpollo_windows::input::on_input_desktop(
                             butterpollo_windows::display::monitors,
                         )?;
                         let monitor = monitors
                             .iter()
-                            .find(|m| m.matches(output))
-                            .or_else(|| monitors.iter().find(|m| m.primary))
+                            .find(|m| m.primary)
                             .context("input display unavailable")?;
                         *s.output.write().unwrap() = monitor.display_name.clone();
                         client_commands = Some(crate::process::ClientCommands::start(&h, &s)?);
@@ -2971,11 +2962,7 @@ impl Media {
                             }
                         };
                         match Injector::new_options_reported(
-                            if output.is_empty() {
-                                c.get("output_name", "")
-                            } else {
-                                &output
-                            },
+                            &output,
                             c.get("gamepad", "auto"),
                             &c,
                             s.launch.warnings.clone(),

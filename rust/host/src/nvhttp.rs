@@ -351,8 +351,7 @@ fn serverinfo_response(
 ) -> Response {
     let ports = config.ports().unwrap();
     let paired = client.is_some();
-    let (limiter, virtual_limiter, limit) =
-        butterpollo_core::framegen::advertised(config, config.virtual_display_mode() != "disabled");
+    let (limiter, virtual_limiter, limit) = butterpollo_core::framegen::advertised(config);
     let permission = client.as_ref().map_or(0, |client| client.perm);
     // Artemis lists these commands; a client runs one by its index.
     let commands: Vec<String> = if permission & 0x0010_0000 != 0 {
@@ -548,19 +547,16 @@ fn serverinfo_response(
             u8::from(virtual_limiter).to_string(),
         ),
         ("FrameLimiterFpsLimitMilliHz", limit.to_string()),
-        // Artemis offers virtual-display launches only when capable.
-        (
-            "VirtualDisplayCapable",
-            (config.virtual_display_mode() != "disabled").to_string(),
-        ),
+        // Artemis offers virtual-display launches only when capable; every
+        // stream has a virtual display.
+        ("VirtualDisplayCapable", "true".into()),
         ("VirtualDisplayDriverReady", driver_ready.to_string()),
         ("ControllerPreparation", "1".into()),
         (
             "VirtualDisplayHDRCapable",
-            (config.virtual_display_mode() != "disabled"
-                && h.codecs.load(std::sync::atomic::Ordering::Acquire)
-                    & (0x200 | 0x20000 | 0x2000000 | 0x4000000)
-                    != 0)
+            (h.codecs.load(std::sync::atomic::Ordering::Acquire)
+                & (0x200 | 0x20000 | 0x2000000 | 0x4000000)
+                != 0)
                 .to_string(),
         ),
     ];

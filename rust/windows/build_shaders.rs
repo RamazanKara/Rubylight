@@ -15,17 +15,8 @@ pub fn compile(out: &Path) {
         "fn shader_bytecode(entry: &[u8], target: &[u8]) -> Option<&'static [u8]> {\nmatch (entry, target) {\n",
     );
     for (entry, target) in [
-        ("vertex", "vs_5_0"),
-        ("luma", "ps_5_0"),
-        ("chroma", "ps_5_0"),
-        ("pyro_y", "ps_5_0"),
-        ("pyro_u", "ps_5_0"),
-        ("pyro_v", "ps_5_0"),
-        ("pyro_444", "ps_5_0"),
         ("yuv420_cs", "cs_5_0"),
         ("chroma_pack_cs", "cs_5_0"),
-        ("chroma_pack_y", "ps_5_0"),
-        ("chroma_pack_uv", "ps_5_0"),
         ("pyro_cs", "cs_5_0"),
     ] {
         let name = CString::new(entry).unwrap();
@@ -77,7 +68,7 @@ pub fn compile(out: &Path) {
 
 #[cfg(not(windows))]
 pub fn compile(out: &Path) {
-    // Non-Windows cross builds keep the existing runtime compiler fallback.
+    // Non-Windows cross builds have no shaders; the conversion reports them missing.
     std::fs::write(
         out.join("shader_bytecode.rs"),
         "fn shader_bytecode(_: &[u8], _: &[u8]) -> Option<&'static [u8]> { None }\n",

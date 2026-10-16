@@ -30,6 +30,94 @@ async fn value(response: Response, status: StatusCode) -> Value {
 }
 
 #[tokio::test]
+async fn all_offered_token_permissions_can_be_created_persisted_used_and_revoked() {
+    let f = Fixture::new();
+    let offered = value(
+        request(&f, "GET", "/api/token/routes", Value::Null).await,
+        StatusCode::OK,
+    )
+    .await;
+    let scopes = offered["routes"].clone();
+    assert!(scopes.as_array().unwrap().len() > 64);
+    let mut canonical: Vec<auth::Scope> = serde_json::from_value(scopes.clone()).unwrap();
+    for scope in &mut canonical {
+        scope.methods.sort();
+    }
+    let expected = serde_json::to_value(&canonical).unwrap();
+    let issued = value(
+        request(&f, "POST", "/api/token", json!({"scopes":scopes})).await,
+        StatusCode::OK,
+    )
+    .await;
+    let secret = issued["token"].as_str().unwrap();
+    let saved = std::fs::read_to_string(&f.host.aliases_path).unwrap();
+    assert!(!saved.contains(secret));
+    let document: Value = serde_json::from_str(&saved).unwrap();
+    let tokens = auth::read(&document).unwrap();
+    assert_eq!(serde_json::to_value(&tokens[0].scopes).unwrap(), expected);
+    // Exercise the saved representation as a newly loaded host would.
+    *f.host.aliases.lock().unwrap() = document;
+    let listed = value(
+        request(&f, "GET", "/api/tokens", Value::Null).await,
+        StatusCode::OK,
+    )
+    .await;
+    assert_eq!(listed["tokens"][0]["scopes"], expected);
+    assert!(!listed.to_string().contains(secret));
+    let hash = listed["tokens"][0]["hash"].as_str().unwrap();
+    for scope in &tokens[0].scopes {
+        let path = scope
+            .path
+            .replace("[^/]+", "example")
+            .replace("[0-9]+", "123");
+        for method in &scope.methods {
+            assert!(auth::permits(&tokens, secret, "parity", &path, method));
+        }
+    }
+    // An all-permissions token still cannot mint/list tokens or broaden a
+    // listed route's methods. Only the administrator can manage API tokens.
+    for (method, path, status) in [
+        ("GET", "/api/apps", StatusCode::OK),
+        ("GET", "/api/tokens", StatusCode::UNAUTHORIZED),
+        ("POST", "/api/token", StatusCode::UNAUTHORIZED),
+        ("PATCH", "/api/apps", StatusCode::UNAUTHORIZED),
+    ] {
+        let response = router(f.host.clone())
+            .layer(Extension(f.connection(true)))
+            .oneshot(
+                Request::builder()
+                    .method(method)
+                    .uri(path)
+                    .header(header::AUTHORIZATION, format!("Bearer {secret}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), status, "{method} {path}");
+    }
+    value(
+        request(&f, "DELETE", &format!("/api/token/{hash}"), Value::Null).await,
+        StatusCode::OK,
+    )
+    .await;
+    let revoked = router(f.host.clone())
+        .layer(Extension(f.connection(true)))
+        .oneshot(
+            Request::builder()
+                .uri("/api/apps")
+                .header(header::AUTHORIZATION, format!("Bearer {secret}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(revoked.status(), StatusCode::UNAUTHORIZED);
+    let saved = state::load_json(&f.host.aliases_path, Value::Null).unwrap();
+    assert!(auth::read(&saved).unwrap().is_empty());
+}
+
+#[tokio::test]
 async fn both_metadata_routes_require_authentication_and_preserve_gpu_inventory() {
     let f = Fixture::new();
     let expected = json!({

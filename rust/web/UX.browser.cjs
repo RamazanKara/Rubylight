@@ -2,6 +2,7 @@
 const assert = require('node:assert/strict');
 const { before, after, test } = require('node:test');
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const path = require('node:path');
 
 let server, browser, base;
 before(async () => {
@@ -454,6 +455,61 @@ test('API tokens say when a refresh fails, and both lists can be retried', async
   await page.getByText('Could not refresh the tokens: Tokens unavailable. Showing the last known state.', { exact: true }).waitFor();
   await page.getByRole('button', { name: 'Retry the tokens', exact: true }).click();
   await page.getByText('No API tokens', { exact: true }).waitFor();
+});
+
+test('API tokens can select every offered permission beyond 64 paths, clear and customize that selection', async t => {
+  const routes = Array.from({ length: 80 }, (_, index) => ({ path: `/api/fixture/${index}`, methods: ['GET', 'PATCH'] }));
+  const { page, writes } = await fixture(t, async (route, url, request) => {
+    if (url.pathname === '/api/tokens') {
+      await route.fulfill({ json: { status: true, tokens: [] } });
+      return true;
+    }
+    if (url.pathname === '/api/token/routes') {
+      await route.fulfill({ json: { status: true, routes } });
+      return true;
+    }
+    if (url.pathname === '/api/token' && request.method() === 'POST') {
+      assert.equal(request.headers()['x-csrf-token'], 'fixture-token');
+      await route.fulfill({ json: { status: true, token: 'fixture-created-token' } });
+      return true;
+    }
+    return false;
+  });
+  const consoleErrors = [];
+  page.on('console', message => { if (['error', 'warning'].includes(message.type())) consoleErrors.push(message.text()); });
+  await page.goto(base + '/tokens');
+  const all = page.getByRole('button', { name: 'Select all permissions', exact: true });
+  const clear = page.getByRole('button', { name: 'Clear selection', exact: true });
+  const create = page.getByRole('button', { name: 'Create token', exact: true });
+  await all.waitFor();
+  assert.equal(await create.isDisabled(), true);
+  await page.getByRole('searchbox', { name: 'Search API paths' }).fill('/api/fixture/79');
+  assert.equal(await page.getByRole('checkbox').count(), 2);
+  await all.click();
+  await page.getByText('160 permissions on 80 paths', { exact: true }).waitFor();
+  assert.equal(await create.isEnabled(), true);
+  assert.equal(await all.isDisabled(), true);
+  await clear.click();
+  assert.equal(await create.isDisabled(), true);
+  assert.equal(await page.getByRole('checkbox', { checked: true }).count(), 0);
+  await all.click();
+  await page.getByRole('checkbox', { name: 'PATCH /api/fixture/79', exact: true }).uncheck();
+  await page.getByText('159 permissions on 80 paths', { exact: true }).waitFor();
+  assert.equal(await all.isEnabled(), true);
+  await all.click();
+  await page.getByText('160 permissions on 80 paths', { exact: true }).waitFor();
+  if (process.env.BUTTERPOLLO_TEST_ARTIFACTS) {
+    await page.screenshot({ path: path.join(process.env.BUTTERPOLLO_TEST_ARTIFACTS, 'token-all-desktop.png'), fullPage: true });
+    await page.setViewportSize({ width: 390, height: 844 });
+    assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+    await page.screenshot({ path: path.join(process.env.BUTTERPOLLO_TEST_ARTIFACTS, 'token-all-mobile.png'), fullPage: true });
+  }
+  await create.click();
+  await page.getByLabel('New token', { exact: true }).waitFor();
+  assert.deepEqual(writes, [{ path: '/api/token', body: { scopes: routes } }]);
+  assert.equal(await page.title(), 'Rubylight');
+  assert.equal(await page.locator('vite-error-overlay').count(), 0);
+  assert.deepEqual(consoleErrors, []);
 });
 
 test('deleting an app with unsaved edits returns to the library without a second question', async t => {

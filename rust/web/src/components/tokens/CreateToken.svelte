@@ -12,9 +12,6 @@
 
   let { oncreated }: { oncreated: () => Promise<void> } = $props();
 
-  /** The host accepts at most this many routes per token. */
-  const MAX_ROUTES = 64;
-
   let routes = $state<TokenScope[] | null>(null);
   let loadError = $state('');
   let query = $state('');
@@ -36,7 +33,7 @@
       .map((route) => ({ path: route.path, methods: route.methods.filter((method) => chosen.has(key(method, route.path))) }))
       .filter((scope) => scope.methods.length > 0),
   );
-  const tooMany = $derived(scopes.length > MAX_ROUTES);
+  const permissionCount = $derived((routes ?? []).reduce((count, route) => count + route.methods.length, 0));
 
   async function loadRoutes() {
     try {
@@ -54,8 +51,14 @@
     else chosen.delete(key(method, path));
   }
 
+  function selectAll() {
+    for (const route of routes ?? []) {
+      for (const method of route.methods) chosen.add(key(method, route.path));
+    }
+  }
+
   async function create() {
-    if (!scopes.length || tooMany) return;
+    if (!scopes.length || busy) return;
     busy = true;
     try {
       secret = (await api.tokens.create(scopes)).token;
@@ -110,6 +113,13 @@
           bind:value={query}
         />
       </div>
+      <div class="selection">
+        <div class="row">
+          <Button size="sm" disabled={busy || permissionCount === 0 || chosen.size === permissionCount} onclick={selectAll}>Select all permissions</Button>
+          <Button size="sm" variant="ghost" disabled={busy || !chosen.size} onclick={() => chosen.clear()}>Clear selection</Button>
+        </div>
+        <span class="muted">Select all includes paths hidden by the search.</span>
+      </div>
       <ul class="routes" aria-label="API paths">
         {#each shown as route (route.path)}
           <li class:picked={route.methods.some((method) => chosen.has(key(method, route.path)))}>
@@ -121,6 +131,7 @@
                     type="checkbox"
                     aria-label="{method} {displayPath(route.path)}"
                     checked={chosen.has(key(method, route.path))}
+                    disabled={busy}
                     onchange={(event) => toggle(method, route.path, event.currentTarget.checked)}
                   />
                   <span class="mono">{method}</span>
@@ -134,9 +145,7 @@
       </ul>
       <div class="footer">
         <span class="muted count">
-          {#if tooMany}
-            <span class="over">{scopes.length} paths selected; a token can have at most {MAX_ROUTES}.</span>
-          {:else if chosen.size}
+          {#if chosen.size}
             {chosen.size} {chosen.size === 1 ? 'permission' : 'permissions'} on {scopes.length}
             {scopes.length === 1 ? 'path' : 'paths'}
           {:else}
@@ -144,8 +153,7 @@
           {/if}
         </span>
         <div class="row">
-          {#if chosen.size}<Button variant="ghost" onclick={() => chosen.clear()}>Clear selection</Button>{/if}
-          <Button variant="primary" icon="key" {busy} disabled={!scopes.length || tooMany} onclick={create}>Create token</Button>
+          <Button variant="primary" icon="key" {busy} disabled={!scopes.length} onclick={create}>Create token</Button>
         </div>
       </div>
     </div>
@@ -188,6 +196,11 @@
     transform: translateY(-50%);
     color: var(--muted);
     pointer-events: none;
+  }
+  .selection {
+    display: grid;
+    gap: var(--space-2);
+    font-size: var(--text-sm);
   }
   .routes {
     list-style: none;
@@ -248,8 +261,5 @@
   }
   .count {
     font-size: var(--text-sm);
-  }
-  .over {
-    color: var(--danger);
   }
 </style>

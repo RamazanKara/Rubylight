@@ -24,7 +24,7 @@ The public API routes are `/api/auth/status`, `/api/auth/login`, `/api/auth/refr
 
 ### Scoped tokens
 
-Use the console's API token controls, or these administrator-authenticated routes:
+Use the console's API token controls, or these administrator-authenticated routes. **Select all permissions** selects every available path and method, including paths hidden by search. You can clear the selection or deselect individual permissions before creating the token. The host accepts its full advertised catalog; tokens are no longer limited to 64 paths.
 
 | Method and path | Result |
 | --- | --- |

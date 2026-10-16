@@ -48,8 +48,10 @@ pub fn issue(
     mut scopes: Vec<Scope>,
     catalog: &[Scope],
 ) -> Result<(String, Token)> {
-    if scopes.is_empty() || scopes.len() > 64 {
-        bail!("select between 1 and 64 API scopes");
+    // The offered routes grow with the host's features. A token must be able
+    // to select the entire catalog without relaxing its path/method allowlist.
+    if scopes.is_empty() || scopes.len() > catalog.len() {
+        bail!("select between 1 and {} API scopes", catalog.len());
     }
     for scope in &mut scopes {
         let allowed = catalog
@@ -82,6 +84,45 @@ pub fn issue(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn every_available_scope_survives_persistence_without_granting_other_routes() {
+        let catalog: Vec<_> = (0..80)
+            .map(|index| Scope {
+                path: format!("/api/feature-{index}"),
+                methods: vec!["GET".into(), "POST".into()],
+            })
+            .collect();
+        let (secret, token) = issue("test".into(), catalog.clone(), &catalog).unwrap();
+        let stored = serde_json::to_string(&json!({"root":{"api_tokens":[token]}})).unwrap();
+        assert!(!stored.contains(&secret));
+        let tokens = read(&serde_json::from_str(&stored).unwrap()).unwrap();
+        assert_eq!(tokens[0].scopes.len(), catalog.len());
+        for scope in &catalog {
+            for method in &scope.methods {
+                assert!(permits(&tokens, &secret, "test", &scope.path, method));
+            }
+        }
+        for (path, method) in [
+            ("/api/feature-79", "DELETE"),
+            ("/api/feature-80", "GET"),
+            ("/api/feature-79/extra", "GET"),
+            ("/api/token", "POST"),
+        ] {
+            assert!(!permits(&tokens, &secret, "test", path, method));
+        }
+        let mut unknown = catalog.clone();
+        unknown.last_mut().unwrap().path = "/api/.*".into();
+        assert!(issue("test".into(), unknown, &catalog).is_err());
+        let mut unavailable_method = catalog.clone();
+        unavailable_method.last_mut().unwrap().methods = vec!["DELETE".into()];
+        assert!(issue("test".into(), unavailable_method, &catalog).is_err());
+        let mut excess = catalog.clone();
+        excess.push(catalog[0].clone());
+        assert!(issue("test".into(), excess, &catalog).is_err());
+        assert!(issue("test".into(), vec![], &catalog).is_err());
+    }
+
     #[test]
     fn scopes_cannot_escalate_or_match_neighboring_routes() {
         let scope = Scope {

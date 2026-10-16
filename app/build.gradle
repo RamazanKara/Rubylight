@@ -33,6 +33,8 @@ android {
 
         resValue "string", "app_name", brandName
         buildConfigField "String", "BRAND_NAME", "\"${brandName}\""
+        // Builds for a store that updates the app itself (-PgithubUpdates=false) hide the in-app updater.
+        buildConfigField "boolean", "GITHUB_UPDATES", project.findProperty('githubUpdates') == 'false' ? 'false' : 'true'
 
         externalNativeBuild {
             ndkBuild {

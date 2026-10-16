@@ -11,6 +11,8 @@
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.CAPTURE_KEYBOARD" />
+    <!-- Only for the in-app updater, which installs the release APK from GitHub (not used when installed from Google Play). -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <!-- Only requested when the user turns on "Send microphone to the PC" -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="com.android.providers.tv.permission.READ_EPG_DATA"/>
@@ -83,6 +85,11 @@
             android:grantUriPermissions="true">
             <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/report_paths" />
         </provider>
+
+        <!-- Receives the PackageInstaller result of an in-app update. -->
+        <receiver
+            android:name=".update.UpdateInstallReceiver"
+            android:exported="false" />
 
         <provider
             android:name=".PosterContentProvider"

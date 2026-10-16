@@ -232,6 +232,7 @@ pub fn router(h: Shared, https: bool) -> Router {
             .route("/api/hardware-metrics", get(hardware_metrics))
             .route("/api/network-path", get(network_path))
             .route("/pyrowave-bandwidth-probe", get(pyrowave_bandwidth))
+            .route("/pyrowave-udp-probe", get(pyrowave_udp_probe))
             .route(
                 "/actions/clipboard",
                 get(clipboard_read).post(clipboard_write),
@@ -516,6 +517,12 @@ fn serverinfo_response(
             "PyroWaveBandwidthProbeBytes",
             if paired { "33554432" } else { "0" }.into(),
         ),
+        // `/pyrowave-udp-probe`, as Vibeshine serves it. Not
+        // PyroWaveWireBudgetVersion: Rubylight takes a PyroWave bitrate as the
+        // image's own rate, not as a total wire allowance.
+        ("PyroWaveUdpProbeVersion", u8::from(paired).to_string()),
+        ("PyroWaveUdpHandshakeVersion", u8::from(paired).to_string()),
+        ("PyroWaveUdpProbeBurstVersion", u8::from(paired).to_string()),
         ("Permission", permission.to_string()),
         ("FrameLimiterSupported", "1".into()),
         ("FrameLimiterEnabled", u8::from(limiter).to_string()),
@@ -560,6 +567,128 @@ async fn pyrowave_bandwidth(
             (header::CACHE_CONTROL, "no-store"),
         ],
         payload,
+    )
+        .into_response()
+}
+/// Vibeshine's paired UDP probe: two seconds of numbered packets from this
+/// host to the client's own address, so the client can count what a rate, or
+/// whole frames at a pace, lose on its path. Refused while anything streams.
+async fn pyrowave_udp_probe(
+    State(h): State<Shared>,
+    Extension(connection): Extension<Connection>,
+    Query(args): Query<Args>,
+) -> Response {
+    static RUNNING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    if authenticated(&h, &connection, 0).is_err() {
+        return StatusCode::UNAUTHORIZED.into_response();
+    }
+    let Some(request) =
+        butterpollo_core::pyrowave_probe::parse(|key| args.get(key).map(String::as_str))
+    else {
+        return (StatusCode::BAD_REQUEST, "Invalid UDP probe parameters").into_response();
+    };
+    let streaming = {
+        let mut sessions = h.sessions.lock().unwrap();
+        let expired = sessions.expire();
+        let busy = !sessions.active.is_empty() || !sessions.pending.is_empty();
+        drop(sessions);
+        drop(expired);
+        busy
+    };
+    if streaming || RUNNING.swap(true, std::sync::atomic::Ordering::AcqRel) {
+        return (
+            StatusCode::BAD_REQUEST,
+            "Stop streaming before testing bandwidth",
+        )
+            .into_response();
+    }
+    struct Release;
+    impl Drop for Release {
+        fn drop(&mut self) {
+            RUNNING.store(false, std::sync::atomic::Ordering::Release);
+        }
+    }
+    let release = Release;
+    let peer = std::net::SocketAddr::new(connection.peer.ip().to_canonical(), request.port);
+    let socket = match crate::pyrowave_probe::bind(connection.local.ip().to_canonical()) {
+        Ok(socket) => socket,
+        Err(error) => {
+            drop(release);
+            tracing::warn!(error = %format!("{error:#}"), "PyroWave UDP probe could not bind");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "UDP probe failed").into_response();
+        }
+    };
+    let port = socket.local_addr().map_or(0, |a| a.port());
+    let handshake = request.handshake;
+    let probe = tokio::task::spawn_blocking(move || {
+        let _release = release;
+        let outcome = crate::pyrowave_probe::send(&socket, peer, &request);
+        match &outcome {
+            Ok(o) => tracing::info!(
+                kbps = request.kbps,
+                burst_fps = request.burst.map_or(0, |b| b.fps),
+                pace_kbps = request.burst.map_or(0, |b| b.pace_kbps),
+                sent = o.sent,
+                expected = o.expected,
+                elapsed_ms = o.elapsed.as_secs_f64() * 1000.,
+                send_retries = o.send_retries,
+                last_send_error = o.last_send_error,
+                "PyroWave UDP probe"
+            ),
+            Err(error) => {
+                tracing::warn!(error = %format!("{error:#}"), "PyroWave UDP probe failed")
+            }
+        }
+        outcome
+    });
+    let body = |outcome: Result<crate::pyrowave_probe::Outcome>| match outcome {
+        Ok(o) => (
+            200,
+            vec![
+                ("expected", o.expected.to_string()),
+                ("sent", o.sent.to_string()),
+                (
+                    "elapsedMs",
+                    format!("{:.3}", o.elapsed.as_secs_f64() * 1000.),
+                ),
+                ("sendRetries", o.send_retries.to_string()),
+                ("lastSendError", o.last_send_error.to_string()),
+            ],
+            None,
+        ),
+        Err(error) => (500, vec![], Some(format!("{error:#}"))),
+    };
+    if !handshake {
+        let (code, fields, error) = body(probe.await.unwrap_or_else(|e| Err(e.into())));
+        if code != 200 {
+            return (StatusCode::INTERNAL_SERVER_ERROR, "UDP probe failed").into_response();
+        }
+        return xml(code, &fields, error);
+    }
+    // The client learns the host's UDP port from the headers, sends its token
+    // there, and reads the result once the probe has run.
+    let (mut writer, reader) = tokio::io::duplex(4096);
+    tokio::spawn(async move {
+        use tokio::io::AsyncWriteExt;
+        let (code, fields, error) = body(probe.await.unwrap_or_else(|e| Err(e.into())));
+        let response = xml(code, &fields, error);
+        if let Ok(bytes) = axum::body::to_bytes(response.into_body(), 64 * 1024).await {
+            let _ = writer.write_all(&bytes).await;
+        }
+    });
+    (
+        [
+            (
+                header::CONTENT_TYPE,
+                "application/xml; charset=utf-8".to_owned(),
+            ),
+            (header::CACHE_CONTROL, "no-store".to_owned()),
+            (
+                header::HeaderName::from_static("x-pyrowave-udp-port"),
+                port.to_string(),
+            ),
+        ],
+        axum::body::Body::from_stream(tokio_util::io::ReaderStream::new(reader)),
     )
         .into_response()
 }

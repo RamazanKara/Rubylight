@@ -1450,3 +1450,62 @@ async fn microphone_packets_reach_only_the_session_that_set_them_up() -> Result<
     h.end(&session, client).await?;
     h.finish().await
 }
+
+/// Nonary's calibration and Nightjar read the host's UDP port from the
+/// headers before the probe's result, so the host must send them at once.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_paired_client_runs_the_pyrowave_udp_probe_with_a_handshake() -> Result<()> {
+    let h = Harness::new(10_000, 1).await?;
+    let token = "0123456789abcdef0123456789abcdef";
+    let client = std::net::UdpSocket::bind("127.0.0.1:0")?;
+    let named = client.local_addr()?.port();
+    let url = |handshake: u8| {
+        format!(
+            "https://127.0.0.1:{}/pyrowave-udp-probe?kbps=20000&port={named}&packetsize=1024&token={token}&handshake={handshake}",
+            h.ports.https
+        )
+    };
+    // Not over plain HTTP, where no client is identified.
+    let plain = format!("http://127.0.0.1:{}/pyrowave-udp-probe", h.ports.http);
+    assert_eq!(
+        h.http.get(plain).send().await?.status(),
+        reqwest::StatusCode::NOT_FOUND
+    );
+    let response = h.clients[0].get(url(1)).send().await?;
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+    let port: u16 = response.headers()["x-pyrowave-udp-port"]
+        .to_str()?
+        .parse()?;
+    let counted = tokio::task::spawn_blocking(move || -> Result<usize> {
+        client.send_to(token.as_bytes(), ("127.0.0.1", port))?;
+        client.set_read_timeout(Some(Duration::from_millis(400)))?;
+        let mut seen = std::collections::HashSet::new();
+        let mut buffer = [0u8; 2048];
+        while let Ok((bytes, _)) = client.recv_from(&mut buffer) {
+            if bytes == 1024 + 48 && &buffer[..32] == token.as_bytes() {
+                seen.insert(u32::from_be_bytes(buffer[32..36].try_into()?));
+            }
+        }
+        Ok(seen.len())
+    });
+    let body = response.text().await?;
+    let counted = counted.await??;
+    let field = |name: &str| -> u32 {
+        body.split(&format!("<{name}>"))
+            .nth(1)
+            .and_then(|rest| rest.split('<').next())
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(0)
+    };
+    assert!(body.contains("status_code=\"200\""), "{body}");
+    assert_eq!(
+        field("expected"),
+        butterpollo_core::pyrowave_probe::expected(20_000, 1024)
+    );
+    assert_eq!(field("sent"), field("expected"));
+    assert_eq!(counted as u32, field("sent"));
+    // A bad query is refused before anything is sent.
+    let bad = h.clients[0].get(url(2)).send().await?;
+    assert_eq!(bad.status(), reqwest::StatusCode::BAD_REQUEST);
+    h.finish().await
+}

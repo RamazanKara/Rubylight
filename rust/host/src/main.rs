@@ -10,6 +10,7 @@ mod network_path;
 mod nvhttp;
 mod playnite;
 mod process;
+mod pyrowave_probe;
 mod pyrowave_send;
 mod remote_display;
 mod rtsp_server;

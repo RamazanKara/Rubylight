@@ -53,7 +53,6 @@ fn check_worker(exit_code: Option<u32>, now: Instant, deadline: Instant) -> Resu
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Request {
-    output: String,
     /// The encoding GPU the settings name, as the stream will use it.
     adapter_name: String,
     adapter_pnp_id: String,
@@ -120,7 +119,6 @@ fn run(config: &Config, packed: Option<&Negotiated>) -> Result<u32> {
         check()?;
     }
     pipe.send(&Request {
-        output: config.get("output_name", "").into(),
         adapter_name: config.get("adapter_name", "").into(),
         adapter_pnp_id: config.get("adapter_pnp_id", "").into(),
         packed: packed.cloned(),
@@ -202,7 +200,7 @@ fn probe(request: &Request) -> Result<Reply> {
             "invalid packed probe request"
         );
         gpu.values.extend(request.encoder_options.clone());
-        let mut encoder = Encoder::new_options(mode, &request.output, &gpu)?;
+        let mut encoder = Encoder::new_options(mode, "", &gpu)?;
         let mut count = 0;
         let deadline = Instant::now() + Duration::from_secs(3);
         for frame in 0..3 {
@@ -242,7 +240,7 @@ fn probe(request: &Request) -> Result<Reply> {
             ..Default::default()
         };
         let result = (|| -> Result<bool> {
-            let mut encoder = Encoder::new_options(&mode, &request.output, &gpu)?;
+            let mut encoder = Encoder::new_options(&mode, "", &gpu)?;
             for frame in 0..8 {
                 if !encoder
                     .encode(&image, frame == 0, mode.bitrate_kbps)?

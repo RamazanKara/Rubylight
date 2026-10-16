@@ -1,7 +1,6 @@
 //! Saved display layouts and stream settings leases with restoration.
 
 use super::hdr::{HdrAction, hdr_action, restore_hdr};
-use super::modes::{Timing, supported_modes};
 use super::virtual_display::{DisplayLease, display_lease};
 use super::*;
 
@@ -397,8 +396,6 @@ pub fn restore_positions() -> Result<()> {
 // cannot change the display underneath another client.
 struct Settings {
     users: usize,
-    /// (previous, applied).
-    mode: Option<(Timing, Timing)>,
     color: Option<(Monitor, bool, bool)>,
 }
 static SETTINGS: std::sync::Mutex<std::collections::BTreeMap<String, Settings>> =
@@ -471,64 +468,27 @@ fn lease_hdr(
     }
     Ok(())
 }
-/// Undo what a display's streams changed. False when its journal entry must
-/// stay: a physical display that is gone gets its settings back when it
-/// returns (Windows remembers them per display), and recovery retries a
-/// failed restore.
+/// Undo what a display's streams changed. False when recovery must retry a
+/// failed restore. A virtual display that is already gone has nothing left
+/// to restore.
 fn restore_settings(
     settings: &Settings,
-    identity: &str,
-    output: &str,
-    is_virtual: bool,
     now: Option<&[Monitor]>,
     set_hdr: impl FnOnce(&Monitor, bool) -> Result<()>,
-    restore_mode: impl FnOnce(Timing, Timing) -> Result<()>,
 ) -> bool {
-    let mut restored = true;
-    let present = now.is_some_and(|all| all.iter().any(|m| m.device_id == identity));
-    if !present && !is_virtual && (settings.color.is_some() || settings.mode.is_some()) {
-        restored = false;
-        tracing::info!(output = %output, "display is gone; its settings are restored when it returns");
-    }
     if let Some((monitor, previous, applied)) = &settings.color
         && let Some(now) = now
         && let Err(e) = restore_hdr(monitor, *previous, *applied, now, set_hdr)
     {
-        restored = false;
         tracing::warn!(error=%e,"HDR restoration failed");
+        return false;
     }
-    if let Some((previous, applied)) = settings.mode
-        && let Err(e) = restore_mode(previous, applied)
-    {
-        restored = false;
-        tracing::warn!(error=%e,"display mode restoration failed");
-    }
-    restored
+    true
 }
-/// Set the previous mode back if the display still has the one applied.
-fn restore_mode_rate(
-    output: &str,
-    identity: &str,
-    previous: Timing,
-    applied: Timing,
-) -> Result<()> {
-    if mode(output).is_ok_and(|m| (m.dmPelsWidth, m.dmPelsHeight) == (applied.0, applied.1))
-        && Topology::query()
-            .and_then(|t| t.refresh(identity))
-            .is_ok_and(|r| r.0 == applied.2)
-    {
-        Topology::set_mode_rate(
-            output,
-            previous.0,
-            previous.1,
-            butterpollo_core::framegen::Rate(previous.2),
-        )?;
-    }
-    Ok(())
-}
+/// A stream's virtual display, with its part in the display's HDR state.
 pub struct Guard {
     pub output: String,
-    virtual_display: Option<DisplayLease>,
+    virtual_display: DisplayLease,
     identity: String,
     generation: u64,
     hdr: Option<bool>,
@@ -536,108 +496,29 @@ pub struct Guard {
     restore_pending: bool,
 }
 impl Guard {
-    #[allow(clippy::too_many_arguments)] // Native display lease parameters.
-    pub fn new(
-        output: &str,
-        virtual_mode: bool,
-        stable_id: &str,
-        width: u32,
-        height: u32,
-        fps: u32,
-        hdr: bool,
-        physical_resolution: Option<(u32, u32)>,
-        physical_refresh: Option<u32>,
-    ) -> Result<Self> {
-        Self::new_options(
-            output,
-            virtual_mode,
-            stable_id,
-            width,
-            height,
-            butterpollo_core::framegen::Rate(fps.checked_mul(1000).context("refresh overflow")?),
-            Some(hdr),
-            physical_resolution,
-            physical_refresh.map(|r| butterpollo_core::framegen::Rate(r.saturating_mul(1000))),
-        )
-    }
-    #[allow(clippy::too_many_arguments)]
-    pub fn new_options(
-        output: &str,
-        virtual_mode: bool,
-        stable_id: &str,
-        width: u32,
-        height: u32,
-        rate: butterpollo_core::framegen::Rate,
-        hdr: Option<bool>,
-        physical_resolution: Option<(u32, u32)>,
-        physical_refresh: Option<butterpollo_core::framegen::Rate>,
-    ) -> Result<Self> {
-        Self::new_virtual_options(
-            output,
-            virtual_mode,
-            stable_id,
-            width,
-            height,
-            rate,
-            hdr,
-            physical_resolution,
-            physical_refresh,
-            &VirtualOptions::default(),
-        )
-    }
-    #[allow(clippy::too_many_arguments)]
     pub fn new_virtual_options(
-        output: &str,
-        virtual_mode: bool,
         stable_id: &str,
         width: u32,
         height: u32,
         rate: butterpollo_core::framegen::Rate,
         hdr: Option<bool>,
-        physical_resolution: Option<(u32, u32)>,
-        physical_refresh: Option<butterpollo_core::framegen::Rate>,
         options: &VirtualOptions,
     ) -> Result<Self> {
-        let virtual_display = if virtual_mode {
-            Some(display_lease(stable_id, width, height, rate.0, options)?)
-        } else {
-            None
-        };
-        let chosen = if let Some(v) = &virtual_display {
-            v.lock().unwrap().current_monitor()?
-        } else {
-            let choices = monitors()?;
-            choices
-                .iter()
-                .find(|d| d.matches(output))
-                .or_else(|| {
-                    if output.is_empty() {
-                        choices
-                            .iter()
-                            .find(|d| d.primary)
-                            .or_else(|| choices.first())
-                    } else {
-                        None
-                    }
-                })
-                .context("display unavailable")?
-                .clone()
-        };
+        let virtual_display = display_lease(stable_id, width, height, rate.0, options)?;
+        let chosen = virtual_display.lock().unwrap().current_monitor()?;
+        let generation = virtual_display.lock().unwrap().generation;
         let mut guard = Self {
             output: chosen.display_name.clone(),
-            generation: virtual_display
-                .as_ref()
-                .map_or(0, |v| v.lock().unwrap().generation),
+            generation,
             hdr,
             virtual_display,
             identity: chosen.device_id.clone(),
             restore_pending: false,
         };
-        let result = (|| -> Result<()> {
+        {
             let mut all = SETTINGS.lock().unwrap();
             let settings = all.entry(guard.identity.clone()).or_insert(Settings {
                 users: 0,
-                mode: None,
                 color: None,
             });
             settings.users += 1;
@@ -648,88 +529,6 @@ impl Guard {
             } else {
                 Default::default()
             };
-            if (physical_resolution.is_some() || physical_refresh.is_some())
-                && guard.virtual_display.is_none()
-            {
-                let previous = mode(&guard.output)?;
-                let previous_rate = Topology::query()?.refresh(&guard.identity)?;
-                let current = (previous.dmPelsWidth, previous.dmPelsHeight, previous_rate.0);
-                let supported = supported_modes(&guard.output);
-                let requested = if supported.is_empty() {
-                    let (width, height) = physical_resolution
-                        .unwrap_or((previous.dmPelsWidth, previous.dmPelsHeight));
-                    (width, height, physical_refresh.unwrap_or(previous_rate).0)
-                } else {
-                    butterpollo_core::display_policy::physical_mode(
-                        &supported,
-                        (physical_resolution, physical_refresh.map(|rate| rate.0)),
-                        current,
-                    )
-                };
-                if let Some((width, height)) = physical_resolution
-                    && (width, height) != (requested.0, requested.1)
-                {
-                    tracing::info!(
-                        output = %guard.output,
-                        "display has no {width}x{height} mode; keeping {}x{} and scaling the stream",
-                        requested.0,
-                        requested.1
-                    );
-                }
-                let (width, height, fps) = requested;
-                let applied = settings.mode.as_ref().map(|(_, applied)| applied);
-                if plan(settings.users, applied, &current, &requested) == Plan::Keep {
-                    // Another stream uses this display; keep its mode and let
-                    // the encoder scale, rather than refuse the second stream.
-                    let kept = *applied.unwrap_or(&current);
-                    if kept != requested {
-                        tracing::info!(
-                            output = %guard.output,
-                            "another stream uses this display at {}x{}; scaling this stream",
-                            kept.0,
-                            kept.1
-                        );
-                    }
-                } else {
-                    let original = pending.mode.map_or(current, |(original, _)| original);
-                    crate::display_recovery::mode_rate(
-                        &guard.identity,
-                        &guard.output,
-                        current,
-                        requested,
-                    )?;
-                    settings.mode = Some((original, requested));
-                    let applied = Topology::set_mode_rate(
-                        &guard.output,
-                        width,
-                        height,
-                        butterpollo_core::framegen::Rate(fps),
-                    );
-                    // Record what the display has now even when the rate
-                    // was refused: a TV can take the resolution and keep
-                    // its old rate, and teardown restores only the mode
-                    // it finds recorded.
-                    let actual = mode(&guard.output)?;
-                    let actual_rate = Topology::query()?.refresh(&guard.identity)?;
-                    let actual_mode = (actual.dmPelsWidth, actual.dmPelsHeight, actual_rate.0);
-                    crate::display_recovery::mode_rate(
-                        &guard.identity,
-                        &guard.output,
-                        current,
-                        actual_mode,
-                    )?;
-                    settings.mode = Some((original, actual_mode));
-                    applied?;
-                }
-            }
-            // A stream that leaves the mode as it is, or requests none, takes
-            // the earlier stream's change over: its end restores the original
-            // if the display still has that change, as recovery would.
-            if settings.mode.is_none() && guard.virtual_display.is_none() {
-                settings.mode = pending
-                    .mode
-                    .filter(|(original, applied)| original != applied);
-            }
             lease_hdr(
                 settings,
                 &chosen,
@@ -739,11 +538,10 @@ impl Guard {
                     crate::display_recovery::hdr(&guard.identity, &guard.output, before, applied)
                 },
                 set_hdr,
-            )
-        })();
-        result?;
-        if let Some(display) = &guard.virtual_display {
-            let mut display = display.lock().unwrap();
+            )?;
+        }
+        {
+            let mut display = guard.virtual_display.lock().unwrap();
             display.finish_hotplug("after settings")?;
             guard.output = display.name.clone();
         }
@@ -753,26 +551,24 @@ impl Guard {
     /// that lets Windows recall another one, such as applying a layout. A
     /// refusal is logged; callers verify and report the mode themselves.
     pub fn apply_virtual_mode(&self, stage: &str) {
-        if let Some(display) = &self.virtual_display {
-            display.lock().unwrap().apply_mode(stage);
-        }
+        self.virtual_display.lock().unwrap().apply_mode(stage);
     }
     /// Raise this guard's own virtual display to at least `rate` without
     /// recreating it, returning the refresh (millihertz) it has now. None
-    /// without a virtual display of its own (another stream shares it at its
-    /// mode), or when Windows refused the rate.
+    /// when another stream shares the display at its mode, or when Windows
+    /// refused the rate.
     pub fn raise_virtual_rate(&self, rate: butterpollo_core::framegen::Rate) -> Option<u32> {
-        let display = self.virtual_display.as_ref()?;
+        let display = &self.virtual_display;
         if std::sync::Arc::strong_count(display) > 1 {
             return None;
         }
         display.lock().unwrap().raise_rate(rate.0)
     }
-    /// The resolution this guard sets on its own virtual display. None
-    /// without one, when another stream shares it, or when Windows did not
-    /// show that resolution after it was last set.
+    /// The resolution this guard sets on its own virtual display. None when
+    /// another stream shares it, or when Windows did not show that
+    /// resolution after it was last set.
     pub fn virtual_size(&self) -> Option<(u32, u32)> {
-        let display = self.virtual_display.as_ref()?;
+        let display = &self.virtual_display;
         if std::sync::Arc::strong_count(display) > 1 {
             return None;
         }
@@ -782,15 +578,16 @@ impl Guard {
     /// guard sets its virtual display's mode again: after a layout, a resume
     /// or a recovery.
     pub fn adopt_virtual_size(&self, width: u32, height: u32) {
-        if let Some(display) = &self.virtual_display {
-            display.lock().unwrap().adopt_size(width, height);
-        }
+        self.virtual_display
+            .lock()
+            .unwrap()
+            .adopt_size(width, height);
     }
     /// True when the display was recovered, or a recovered display's HDR and
     /// mode were restored late: capture and the stream's layout follow it.
     pub fn feed(&mut self) -> Result<bool> {
-        if let Some(display) = &mut self.virtual_display {
-            let mut display = display.lock().unwrap();
+        {
+            let mut display = self.virtual_display.lock().unwrap();
             display.feed()?;
             if display.generation != self.generation {
                 let chosen = monitors()?
@@ -816,7 +613,6 @@ impl Guard {
                             .entry(chosen.device_id.clone())
                             .or_insert(Settings {
                                 users: 0,
-                                mode: None,
                                 color: None,
                             })
                             .users += 1;
@@ -847,16 +643,12 @@ impl Guard {
     /// A paused game retains its display for reconnect, but must not switch
     /// it on or restore mode/HDR after the user changed the local layout.
     pub fn keep_alive(&mut self) -> Result<()> {
-        if let Some(display) = &self.virtual_display {
-            display.lock().unwrap().keep_alive()?;
-        }
-        Ok(())
+        self.virtual_display.lock().unwrap().keep_alive()
+
     }
     /// Repair and publish a paused display before its stream resumes.
     pub fn resume(&mut self) -> Result<bool> {
-        if let Some(display) = &self.virtual_display {
-            display.lock().unwrap().recover_now()?;
-        }
+        self.virtual_display.lock().unwrap().recover_now()?;
         self.feed()
     }
 }
@@ -900,18 +692,7 @@ impl Drop for Guard {
             return;
         }
         let settings = all.remove(&self.identity).unwrap();
-        // A physical display that is off or unplugged now keeps its journal
-        // entry: Windows remembers HDR and modes per display, and the next
-        // stream on it or host start restores them once it is back.
-        let restored = restore_settings(
-            &settings,
-            &self.identity,
-            &self.output,
-            self.virtual_display.is_some(),
-            monitors().ok().as_deref(),
-            set_hdr,
-            |previous, applied| restore_mode_rate(&self.output, &self.identity, previous, applied),
-        );
+        let restored = restore_settings(&settings, monitors().ok().as_deref(), set_hdr);
         if restored && let Err(e) = crate::display_recovery::release(&self.identity) {
             tracing::warn!(error=%e,"display recovery journal cleanup failed");
         }
@@ -989,18 +770,7 @@ impl Retained {
         options: &VirtualOptions,
         on_recovery: Option<Box<dyn Fn() -> Result<()> + Send>>,
     ) -> Result<Self> {
-        let guard = Guard::new_virtual_options(
-            "",
-            true,
-            id,
-            width,
-            height,
-            rate,
-            Some(hdr),
-            None,
-            None,
-            options,
-        )?;
+        let guard = Guard::new_virtual_options(id, width, height, rate, Some(hdr), options)?;
         let output = guard.output.clone();
         let guard = std::sync::Arc::new(std::sync::Mutex::new(Some(guard)));
         let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
@@ -1139,7 +909,6 @@ mod tests {
         // The next stream wants HDR too, so it changes nothing.
         let mut settings = Settings {
             users: 1,
-            mode: None,
             color: None,
         };
         let unchanged = |_: &Monitor, _| -> Result<()> { panic!("HDR is already on") };
@@ -1151,17 +920,8 @@ mod tests {
             |_, _| panic!("nothing to journal"),
             unchanged,
         )?;
-        let no_mode = |_, _| -> Result<()> { panic!("no mode recorded") };
-        // Away again at its end: the entry stays for recovery.
-        assert!(!restore_settings(
-            &settings,
-            "tv",
-            "TV",
-            false,
-            Some(&[]),
-            unchanged,
-            no_mode
-        ));
+        // Gone at its end: nothing is left to restore.
+        assert!(restore_settings(&settings, Some(&[]), unchanged));
         assert_eq!(
             crate::display_recovery::pending_in(&journal, "tv")?,
             pending
@@ -1170,15 +930,11 @@ mod tests {
         let mut restored = None;
         assert!(restore_settings(
             &settings,
-            "tv",
-            "TV",
-            false,
             Some(&[monitor("tv", 2, true)]),
             |_, enabled| {
                 restored = Some(enabled);
                 Ok(())
             },
-            no_mode
         ));
         assert_eq!(restored, Some(false));
         crate::display_recovery::release_in(&journal, "tv")?;
@@ -1189,7 +945,6 @@ mod tests {
         // Without a pending entry a stream that changes nothing records nothing.
         let mut settings = Settings {
             users: 1,
-            mode: None,
             color: None,
         };
         lease_hdr(
@@ -1208,7 +963,6 @@ mod tests {
         // The TV was left in HDR; this stream wants SDR.
         let mut settings = Settings {
             users: 1,
-            mode: None,
             color: None,
         };
         let mut journaled = None;

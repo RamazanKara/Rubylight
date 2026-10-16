@@ -229,55 +229,6 @@ pub(super) fn supported_modes(output: &str) -> Vec<(u32, u32, u32)> {
     }
     modes
 }
-pub fn highest_refresh(
-    output: &str,
-    resolution: Option<(u32, u32)>,
-) -> Result<butterpollo_core::framegen::Rate> {
-    let monitors = monitors()?;
-    let monitor = monitors
-        .iter()
-        .find(|m| m.matches(output))
-        .or_else(|| {
-            if output.is_empty() {
-                monitors
-                    .iter()
-                    .find(|m| m.primary)
-                    .or_else(|| monitors.first())
-            } else {
-                None
-            }
-        })
-        .context("selected display unavailable")?;
-    let current = mode(&monitor.display_name)?;
-    let (width, height) = resolution.unwrap_or((current.dmPelsWidth, current.dmPelsHeight));
-    let name: Vec<_> = monitor.display_name.encode_utf16().chain(Some(0)).collect();
-    let mut best = 0;
-    for index in 0..4096 {
-        let mut candidate = DEVMODEW {
-            dmSize: size_of::<DEVMODEW>() as u16,
-            ..Default::default()
-        };
-        // SAFETY: The display name is terminated and the initialized DEVMODEW remains writable throughout enumeration.
-        if !unsafe {
-            EnumDisplaySettingsW(
-                PCWSTR(name.as_ptr()),
-                ENUM_DISPLAY_SETTINGS_MODE(index),
-                &mut candidate,
-            )
-        }
-        .as_bool()
-        {
-            break;
-        }
-        if candidate.dmPelsWidth == width && candidate.dmPelsHeight == height {
-            best = best.max(candidate.dmDisplayFrequency);
-        }
-    }
-    if best == 0 {
-        bail!("selected display has no mode for {width}x{height}");
-    }
-    Ok(butterpollo_core::framegen::Rate(best.saturating_mul(1000)))
-}
 
 #[cfg(test)]
 mod tests {

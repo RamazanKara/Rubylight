@@ -915,7 +915,6 @@ async fn virtual_display_advertisement_matches_configuration_and_codecs() {
     let f = Fixture::new();
     for (config, codecs, capable, hdr) in [
         ("", 0x200, "true", "true"),
-        ("virtual_display_mode=disabled", 0x200, "false", "false"),
         ("virtual_display_mode=shared", 1, "true", "false"),
         ("virtual_display_mode=shared", 0x200, "true", "true"),
     ] {

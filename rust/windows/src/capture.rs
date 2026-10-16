@@ -102,15 +102,6 @@ fn select_display<'a>(choices: &'a [Display], name: &str) -> Result<Option<&'a D
 pub fn display_present(name: &str) -> bool {
     displays().is_ok_and(|choices| select_display(&choices, name).is_ok_and(|d| d.is_some()))
 }
-/// The primary display's name, which capture opens when the stream's display
-/// did not come back.
-pub fn primary_display() -> Option<String> {
-    let choices = displays().ok()?;
-    select_display(&choices, "")
-        .ok()
-        .flatten()
-        .map(|d| d.display_name.clone())
-}
 pub struct ComGuard;
 #[derive(serde::Serialize)]
 pub struct Gpu {

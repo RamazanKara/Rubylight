@@ -1,113 +1,9 @@
-//! Display decisions that do not need Windows: whether a session gets a
-//! virtual display, which mode to report, stable virtual display identities,
-//! render sizes, letterboxing and display arrangements.
+//! Display decisions that do not need Windows: which mode to report, stable
+//! virtual display identities, render sizes, letterboxing and display
+//! arrangements.
 use crate::topology::{Node, Position};
 use anyhow::{Result, bail};
 
-/// A client request can enable a virtual display; an absent request leaves
-/// the host, app and device settings in control, as does `virtualDisplay=0`,
-/// which Apollo-compatible clients send whenever their own toggle is off.
-#[derive(Default)]
-pub struct VirtualDisplayRequest<'a> {
-    pub client_requested: bool,
-    pub client_forced: bool,
-    pub app_requested: bool,
-    pub configured: bool,
-    pub output_override: Option<&'a str>,
-    pub configured_output: &'a str,
-    /// The client asked to stream a physical display (`hostDisplay=physical`):
-    /// the host, app and per-device settings that would add a virtual display
-    /// are overridden for this stream. A headless host and an output that
-    /// names the virtual display still use one; there is nothing else to show.
-    pub client_physical: bool,
-    /// No display is active (a headless host, or every monitor off): there
-    /// is no physical display to stream, so a virtual one is used whatever
-    /// the settings say, as in Vibepollo.
-    pub headless: bool,
-}
-impl VirtualDisplayRequest<'_> {
-    /// Whether the stream gets a virtual display. Without a usable driver a
-    /// request from the client, the app or the host settings streams the
-    /// physical display (the caller warns), as Apollo and Vibepollo do: an
-    /// Artemis client asked to proceed without the driver must still get a
-    /// stream. Only an output that names the virtual display itself has no
-    /// physical display to fall back to.
-    pub fn uses_virtual(
-        &self,
-        physical_only: bool,
-        driver_available: impl FnOnce() -> bool,
-    ) -> bool {
-        !physical_only && self.requested() && (self.output_virtual() || driver_available())
-    }
-    pub fn output_virtual(&self) -> bool {
-        matches!(
-            self.output_override
-                .unwrap_or(self.configured_output)
-                .trim()
-                .to_ascii_lowercase()
-                .as_str(),
-            "sunshine:virtual_display" | "virtual" | "virtual_display" | "virtual-display"
-        )
-    }
-    pub fn requested(&self) -> bool {
-        if self.client_physical {
-            return self.headless || self.output_virtual();
-        }
-        self.client_requested
-            || self.client_forced
-            || self.headless
-            || self.output_virtual()
-            || (self.output_override.is_none() && (self.app_requested || self.configured))
-    }
-}
-
-/// The physical display mode to apply for a stream, given the modes the display
-/// supports as (width, height, refresh Hz), the requested resolution and refresh
-/// (millihertz), and the current mode.
-///
-/// Windows substitutes an arbitrary mode for one a display does not support:
-/// a 2560x1600 request on a 32:9 monitor became 3840x1080 at 60 Hz, halving a
-/// 120 fps stream. An unsupported resolution keeps the current one (the stream
-/// is scaled on the GPU), and a refresh is applied only where it exists.
-pub fn physical_mode(
-    supported: &[(u32, u32, u32)],
-    requested: (Option<(u32, u32)>, Option<u32>),
-    current: (u32, u32, u32),
-) -> (u32, u32, u32) {
-    let (current_width, current_height, current_rate) = current;
-    let hz = |millihertz: u32| millihertz.saturating_add(500) / 1000;
-    let (width, height) = requested
-        .0
-        .filter(|(w, h)| supported.iter().any(|m| m.0 == *w && m.1 == *h))
-        .unwrap_or((current_width, current_height));
-    let rate = requested
-        .1
-        .filter(|rate| {
-            supported
-                .iter()
-                .any(|m| m.0 == width && m.1 == height && m.2 == hz(*rate))
-        })
-        .or_else(|| {
-            // Keep the current refresh when it exists at the chosen resolution;
-            // otherwise the highest that does.
-            let at = |rate: u32| {
-                supported
-                    .iter()
-                    .any(|m| m.0 == width && m.1 == height && m.2 == hz(rate))
-            };
-            if at(current_rate) {
-                Some(current_rate)
-            } else {
-                supported
-                    .iter()
-                    .filter(|m| m.0 == width && m.1 == height)
-                    .map(|m| m.2 * 1000)
-                    .max()
-            }
-        })
-        .unwrap_or(current_rate);
-    (width, height, rate)
-}
 pub fn report_mode(
     warnings: &crate::session::Warnings,
     requested: (Option<(u32, u32)>, Option<u32>, Option<bool>),
@@ -117,7 +13,7 @@ pub fn report_mode(
     if let Some((width, height)) = requested.0
         && (width, height) != (actual.0, actual.1)
     {
-        warnings.set("display_resolution", format!("Display resolution {width}x{height} was not applied; using {}x{} and scaling the stream. The mode may be unsupported or shared with another stream; select a supported mode or a virtual display.", actual.0, actual.1));
+        warnings.set("display_resolution", format!("Display resolution {width}x{height} was not applied; using {}x{} and scaling the stream. The virtual display may be shared with another stream at its mode; reconnect, or match the other stream's mode.", actual.0, actual.1));
     } else {
         warnings.clear("display_resolution");
     }
@@ -126,12 +22,12 @@ pub fn report_mode(
         .is_some_and(|rate| rate.abs_diff(actual.2) > 500)
         || actual.2.saturating_add(500) < stream_rate
     {
-        warnings.set("display_refresh", format!("Display refresh is {:.3} Hz for a {:.3} fps stream; the requested rate may be unsupported or held by another stream. Fresh frames cannot exceed the display rate. Select a supported refresh or a virtual display.", f64::from(actual.2) / 1000., f64::from(stream_rate) / 1000.));
+        warnings.set("display_refresh", format!("Display refresh is {:.3} Hz for a {:.3} fps stream; the requested rate may be held by another stream on this virtual display. Fresh frames cannot exceed the display rate. Reconnect, or match the other stream's rate.", f64::from(actual.2) / 1000., f64::from(stream_rate) / 1000.));
     } else {
         warnings.clear("display_refresh");
     }
     if requested.2.is_some_and(|hdr| hdr != actual.3) {
-        warnings.set("display_hdr", format!("Requested display HDR state was not applied; capture source HDR is {}. The display may lack HDR or be shared. Check Windows HDR and the display policy, or reconnect with HDR disabled.", if actual.3 { "on" } else { "off" }));
+        warnings.set("display_hdr", format!("Requested display HDR state was not applied; capture source HDR is {}. Another stream may share this virtual display with its HDR state. Check Windows HDR and the display policy, or reconnect with HDR matching the other stream.", if actual.3 { "on" } else { "off" }));
     } else {
         warnings.clear("display_hdr");
     }
@@ -515,25 +411,21 @@ impl Arrangement {
 }
 /// What a client asked the PC's displays to do for one stream: the
 /// `hostDisplay` launch and resume parameter. It overrides the host, app and
-/// per-device display settings for that stream only; without it (or with a
-/// value this host does not know, such as `default`) those settings decide,
-/// so older clients are unaffected.
+/// per-device layout settings for that stream only; without it (or with a
+/// value this host does not know, such as `default` or `physical`: every
+/// stream has a virtual display) those settings decide, so older clients are
+/// unaffected.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum HostDisplay {
-    /// Stream a physical display; no virtual display is added.
-    Physical,
-    /// Add a virtual display for the stream and lay the desktop out like this
+    /// Lay the desktop out like this around the stream's virtual display
     /// (`exclusive` turns the other displays off for the stream).
     Virtual(Arrangement),
 }
 impl HostDisplay {
     pub const PARAMETER: &'static str = "hostDisplay";
-    /// `physical`, or any `virtual_display_layout` value; anything else is
-    /// None, leaving the host's settings in control.
+    /// Any `virtual_display_layout` value; anything else is None, leaving
+    /// the host's settings in control.
     pub fn parse(value: &str) -> Option<Self> {
-        if value.trim().eq_ignore_ascii_case("physical") {
-            return Some(Self::Physical);
-        }
         let value = value.trim().to_ascii_lowercase().replace('-', "_");
         Arrangement::parse(&value)
             .ok()
@@ -542,7 +434,6 @@ impl HostDisplay {
     }
     pub const fn name(self) -> &'static str {
         match self {
-            Self::Physical => "physical",
             Self::Virtual(arrangement) => arrangement.name(),
         }
     }
@@ -712,140 +603,9 @@ mod tests {
     }
 
     #[test]
-    fn virtual_opt_in_preserves_host_policy_and_device_force_overrides_physical_output() {
-        use super::VirtualDisplayRequest;
-        let host = VirtualDisplayRequest {
-            configured: true,
-            ..Default::default()
-        };
-        assert!(host.uses_virtual(false, || true));
-        let physical_app = VirtualDisplayRequest {
-            output_override: Some("physical-monitor"),
-            ..host
-        };
-        assert!(!physical_app.requested());
-        let forced = VirtualDisplayRequest {
-            client_forced: true,
-            ..physical_app
-        };
-        assert!(forced.uses_virtual(false, || true));
-        let opt_in = VirtualDisplayRequest {
-            client_requested: true,
-            client_forced: false,
-            ..forced
-        };
-        assert!(opt_in.uses_virtual(false, || true));
-        assert!(!opt_in.uses_virtual(true, || panic!(
-            "physical fallback must not query the driver"
-        )));
-    }
-    #[test]
-    fn a_requested_virtual_display_without_its_driver_streams_the_physical_display() {
-        use super::VirtualDisplayRequest;
-        let client = VirtualDisplayRequest {
-            client_requested: true,
-            ..Default::default()
-        };
-        assert!(client.uses_virtual(false, || true));
-        assert!(!client.uses_virtual(false, || false));
-        assert!(!client.uses_virtual(true, || true));
-        for request in [
-            VirtualDisplayRequest {
-                client_forced: true,
-                ..Default::default()
-            },
-            VirtualDisplayRequest {
-                app_requested: true,
-                ..Default::default()
-            },
-            VirtualDisplayRequest {
-                configured: true,
-                ..Default::default()
-            },
-        ] {
-            assert!(request.uses_virtual(false, || true));
-            assert!(!request.uses_virtual(false, || false));
-        }
-        let named = VirtualDisplayRequest {
-            configured_output: "virtual_display",
-            ..Default::default()
-        };
-        assert!(named.uses_virtual(false, || false));
-        let none = VirtualDisplayRequest::default();
-        assert!(!none.uses_virtual(false, || panic!("no request needs no driver check")));
-        // With no active display there is nothing physical to stream, even
-        // when the settings and the app name a physical display.
-        let headless = VirtualDisplayRequest {
-            headless: true,
-            output_override: Some("physical-monitor"),
-            ..Default::default()
-        };
-        assert!(headless.uses_virtual(false, || true));
-        assert!(!headless.uses_virtual(false, || false));
-        assert!(!headless.uses_virtual(true, || true));
-    }
-    #[test]
-    fn a_client_asking_for_the_physical_display_overrides_the_virtual_display_settings() {
-        use super::VirtualDisplayRequest;
-        for request in [
-            VirtualDisplayRequest {
-                configured: true,
-                ..Default::default()
-            },
-            VirtualDisplayRequest {
-                app_requested: true,
-                ..Default::default()
-            },
-            VirtualDisplayRequest {
-                client_forced: true,
-                ..Default::default()
-            },
-            VirtualDisplayRequest {
-                client_requested: true,
-                ..Default::default()
-            },
-        ] {
-            assert!(request.requested());
-            let physical = VirtualDisplayRequest {
-                client_physical: true,
-                ..request
-            };
-            assert!(!physical.requested());
-            assert!(
-                !physical.uses_virtual(false, || panic!("no virtual display, no driver check"))
-            );
-        }
-        // Nothing physical to show: a headless host, or an output that names
-        // the virtual display itself.
-        for request in [
-            VirtualDisplayRequest {
-                client_physical: true,
-                headless: true,
-                ..Default::default()
-            },
-            VirtualDisplayRequest {
-                client_physical: true,
-                output_override: Some("virtual_display"),
-                ..Default::default()
-            },
-            VirtualDisplayRequest {
-                client_physical: true,
-                configured_output: "sunshine:virtual_display",
-                ..Default::default()
-            },
-        ] {
-            assert!(request.uses_virtual(false, || true));
-        }
-    }
-    #[test]
     fn host_display_choices_parse_and_unknown_values_leave_the_host_in_control() {
         use super::{Arrangement, HostDisplay};
         assert_eq!(HostDisplay::PARAMETER, "hostDisplay");
-        assert_eq!(HostDisplay::parse("physical"), Some(HostDisplay::Physical));
-        assert_eq!(
-            HostDisplay::parse(" Physical "),
-            Some(HostDisplay::Physical)
-        );
         assert_eq!(
             HostDisplay::parse("exclusive"),
             Some(HostDisplay::Virtual(Arrangement::Exclusive))
@@ -862,6 +622,9 @@ mod tests {
             "",
             " ",
             "default",
+            // Every stream has a virtual display.
+            "physical",
+            " Physical ",
             "host",
             "mirror",
             "virtual",
@@ -885,7 +648,6 @@ mod tests {
             assert_eq!(Arrangement::parse(arrangement.name()).unwrap(), arrangement);
             assert_eq!(HostDisplay::parse(choice.name()), Some(choice));
         }
-        assert_eq!(HostDisplay::Physical.name(), "physical");
     }
     #[test]
     fn a_kept_display_serves_a_launch_only_when_it_was_set_up_for_the_same_choice() {
@@ -893,16 +655,12 @@ mod tests {
         let exclusive = Some(HostDisplay::Virtual(Arrangement::Exclusive));
         let extended = Some(HostDisplay::Virtual(Arrangement::Extended));
         // A launch without a choice takes the display as it is.
-        for prepared in [None, exclusive, extended, Some(HostDisplay::Physical)] {
+        for prepared in [None, exclusive, extended] {
             assert!(HostDisplay::reusable(prepared, None));
         }
         assert!(HostDisplay::reusable(exclusive, exclusive));
         assert!(!HostDisplay::reusable(exclusive, extended));
         assert!(!HostDisplay::reusable(None, exclusive));
-        assert!(!HostDisplay::reusable(
-            exclusive,
-            Some(HostDisplay::Physical)
-        ));
     }
     #[test]
     fn unapplied_display_modes_are_visible_and_recovery_clears_them() {
@@ -981,47 +739,6 @@ mod tests {
         ] {
             assert_eq!(parse_display_mode(bad), None, "{bad}");
         }
-    }
-    #[test]
-    fn unsupported_physical_resolutions_keep_the_current_mode_and_rate() {
-        let odyssey = [
-            (5120, 1440, 240),
-            (5120, 1440, 120),
-            (5120, 1440, 60),
-            (3840, 1080, 60),
-            (2560, 1440, 120),
-            (2560, 1440, 60),
-        ];
-        let current = (5120, 1440, 240_000);
-        // The tablet case: no 2560x1600 mode; keep 5120x1440, use 120 Hz.
-        assert_eq!(
-            physical_mode(&odyssey, (Some((2560, 1600)), Some(120_000)), current),
-            (5120, 1440, 120_000)
-        );
-        // A supported request is applied as asked.
-        assert_eq!(
-            physical_mode(&odyssey, (Some((2560, 1440)), Some(120_000)), current),
-            (2560, 1440, 120_000)
-        );
-        // A refresh the chosen resolution lacks keeps the current one.
-        assert_eq!(
-            physical_mode(&odyssey, (None, Some(144_000)), current),
-            (5120, 1440, 240_000)
-        );
-        // A fractional request is kept when the nearest whole-hertz mode exists.
-        assert_eq!(
-            physical_mode(&odyssey, (None, Some(119_880)), current),
-            (5120, 1440, 119_880)
-        );
-        // A resolution that only lacks the current refresh takes its highest.
-        assert_eq!(
-            physical_mode(&odyssey, (Some((3840, 1080)), Some(120_000)), current),
-            (3840, 1080, 60_000)
-        );
-        assert_eq!(
-            physical_mode(&[], (Some((1, 1)), Some(60_000)), current),
-            current
-        );
     }
     use crate::topology::{Kind, Mode};
     #[test]

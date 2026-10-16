@@ -570,8 +570,7 @@ mod tests {
         let original_power = power()?;
         let original_gpu = gpu_priority();
         let first = StreamingScope::enter();
-        let gpu = crate::capture::Device::new("")?;
-        crate::gpu_priority::configure(&gpu, &Default::default())?;
+        crate::gpu_priority::configure(&Default::default())?;
         let active_power = power()?;
         let active_gpu = gpu_priority();
         let second = StreamingScope::enter();

@@ -98,6 +98,12 @@ pub const RETIRED_SETTINGS: &[RetiredSetting] = &[
         reason: VIRTUAL_ONLY,
     },
     RetiredSetting {
+        key: "virtual-display-mode",
+        retired: crate::display_policy::disables_virtual_displays,
+        current: "per_client",
+        reason: VIRTUAL_ONLY,
+    },
+    RetiredSetting {
         key: "output_name",
         retired: any_value,
         current: "",
@@ -1641,11 +1647,13 @@ mod tests {
         let mut app = serde_json::json!({"name": "Game", "display-output": "DISPLAY2",
             "virtual-display": true, "dd-configuration-option": "ensure_active",
             "gen1-framegen-fix": true, "frame-gen-limiter-fix": false,
+            "virtual-display-mode": "disabled",
             "config-overrides": {"capture": "ddx", "output_name": "DISPLAY2", "fec_percentage": 30}});
         assert!(replace_retired_in_app(app.as_object_mut().unwrap()));
         assert_eq!(
             app,
-            serde_json::json!({"name": "Game", "config-overrides": {"fec_percentage": 30}})
+            serde_json::json!({"name": "Game", "virtual-display-mode": "per_client",
+                "config-overrides": {"fec_percentage": 30}})
         );
         assert!(!replace_retired_in_app(app.as_object_mut().unwrap()));
         let mut device: BTreeMap<String, serde_json::Value> = serde_json::from_value(

@@ -931,6 +931,54 @@ mod tests {
     }
 
     #[test]
+    fn capture_and_physical_display_settings_migrate_with_one_warning() {
+        use super::test_support::Fixture;
+        let directory = Fixture::profile();
+        let path = directory.join("sunshine.conf");
+        std::fs::write(
+            &path,
+            "capture = wgc\nwgc_pacing_smoothing = false\nvirtual_display_mode = disabled\noutput_name = DISPLAY2\ndd_configuration_option = ensure_primary\nsunshine_name = Host\n",
+        )
+        .unwrap();
+        let apps = directory.join("apps.json");
+        std::fs::write(
+            &apps,
+            r#"{"env":{},"apps":[{"name":"Game","uuid":"a","display-output":"DISPLAY2","virtual-display":false,"config-overrides":{"capture":"ddx","fec_percentage":"30"}}]}"#,
+        )
+        .unwrap();
+        let first = Fixture::load(directory.clone());
+        {
+            let config = first.host.config.read().unwrap();
+            assert_eq!(config.get("virtual_display_mode", ""), "per_client");
+            assert_eq!(config.get("frame_pacing_smoothing", ""), "false");
+            for removed in ["capture", "output_name", "dd_configuration_option"] {
+                assert!(!config.values.contains_key(removed), "{removed}");
+            }
+        }
+        let warnings = first.host.warnings.snapshot();
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
+        assert_eq!(warnings[0].code, "settings_retired");
+        assert!(warnings[0].message.contains("capture wgc was removed"));
+        assert!(
+            warnings[0]
+                .message
+                .contains("virtual_display_mode disabled is now per_client")
+        );
+        let saved = std::fs::read_to_string(&path).unwrap();
+        assert!(!saved.contains("capture"), "{saved}");
+        assert!(!saved.contains("output_name"), "{saved}");
+        let library: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&apps).unwrap()).unwrap();
+        assert_eq!(
+            library["apps"][0],
+            json!({"name":"Game","uuid":"a","config-overrides":{"fec_percentage":"30"}})
+        );
+        let second = Fixture::load(directory);
+        assert!(second.host.warnings.snapshot().is_empty());
+        drop(first);
+    }
+
+    #[test]
     fn a_rejoin_in_the_same_mode_reuses_the_clients_own_display_untouched() {
         use super::take_retained;
         use std::collections::BTreeMap;

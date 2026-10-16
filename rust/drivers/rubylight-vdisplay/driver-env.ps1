@@ -15,3 +15,7 @@ $env:PATH = "$env:USERPROFILE\.cargo\bin;" + $env:PATH
 # rust\build.ps1 points CARGO_TARGET_DIR at the host's target folder. The driver keeps its own:
 # build-package.ps1 reads target\ here, and wdk-build finds the workspace's WDK metadata from it.
 Remove-Item Env:CARGO_TARGET_DIR -ErrorAction SilentlyContinue
+# IddCx 1.11 (the D3D12 swap chain) is newer than the installed kit; its headers and stub come
+# from the pinned WDK NuGet package.
+. "$PSScriptRoot\fetch-iddcx.ps1"
+$env:RLVD_IDDCX_ROOT = $iddcxRoot

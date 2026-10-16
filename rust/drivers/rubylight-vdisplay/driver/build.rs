@@ -61,72 +61,19 @@ fn resource_compiler() -> std::path::PathBuf {
     kits.pop().unwrap_or_else(|| "rc.exe".into())
 }
 
-/// Link `IddCxStub.lib` from `Lib\<sdk>\um\<arch>\iddcx\<iddcx version>\`. The versions are
-/// not interchangeable: the stub's `IddFunctions` table must match the framework the driver
-/// runs on, and the 1.0 stub fails even `IddCxDeviceInitConfig` on a 1.10 framework. So take
-/// the highest version that has the library, compared numerically ("1.10" > "1.9").
+/// Link IddCx 1.11's `IddCxStub.lib` from `RLVD_IDDCX_ROOT\lib` (fetch-iddcx.ps1). The stub
+/// must match the headers wdk-sys bound: its `IddFunctions` table and the client config size
+/// are per version, and a 1.10 stub caps the table before `IddCxCheckOsFeatureSupport`.
 fn link_iddcx_stub() {
-    let target_arch = std::env::var("CARGO_CFG_TARGET_ARCH").expect("CARGO_CFG_TARGET_ARCH");
-    let cpu = wdk_build::CpuArchitecture::try_from_cargo_str(&target_arch)
-        .unwrap_or_else(|| panic!("no WDK lib dir for target arch {target_arch}"));
-    let arch = cpu.as_windows_str();
-    // A folder with a newer stub than the installed kit has (IddCx 1.11 ships in WDK 28000's
-    // NuGet package, not in the 26100 kit).
-    println!("cargo:rerun-if-env-changed=RLVD_IDDCX_LIB");
-    println!("cargo:rustc-check-cfg=cfg(rlvd_iddcx_newer_stub)");
-    if let Ok(dir) = std::env::var("RLVD_IDDCX_LIB") {
-        let dir = std::path::PathBuf::from(dir);
-        assert!(
-            dir.join("IddCxStub.lib").is_file(),
-            "RLVD_IDDCX_LIB={} has no IddCxStub.lib",
-            dir.display()
-        );
-        println!("cargo:rustc-link-search={}", dir.display());
-        println!("cargo:rustc-link-lib=static=IddCxStub");
-        // The newer stub's table has the IddCx 1.11 slots, so the driver may probe them
-        // (`wdk_iddcx::check_os_feature_support`). Its client config is still the 1.10 one,
-        // which IddCxDeviceInitConfig rejects: such a build is for the DriverEntry probe only.
-        println!("cargo:rustc-cfg=rlvd_iddcx_newer_stub");
-        println!(
-            "cargo:warning=RLVD_IDDCX_LIB is set: this driver is probe-only (IddCxDeviceInitConfig rejects its client config); do not package or install it"
-        );
-        return;
-    }
-    const ROOTS: [&str; 2] = [
-        r"C:\Program Files (x86)\Windows Kits\10\Lib",
-        r"C:\Program Files\Windows Kits\10\Lib",
-    ];
-    let mut best: Option<((u32, u32), std::path::PathBuf)> = None;
-    for root in ROOTS {
-        let Ok(versions) = std::fs::read_dir(root) else {
-            continue;
-        };
-        for ver in versions.flatten() {
-            let iddcx = ver.path().join("um").join(arch).join("iddcx");
-            let Ok(subdirs) = std::fs::read_dir(&iddcx) else {
-                continue;
-            };
-            for sub in subdirs.flatten() {
-                if !sub.path().join("IddCxStub.lib").is_file() {
-                    continue;
-                }
-                let name = sub.file_name().to_string_lossy().into_owned();
-                let mut parts = name.split('.');
-                let v = (
-                    parts.next().and_then(|x| x.parse().ok()).unwrap_or(0u32),
-                    parts.next().and_then(|x| x.parse().ok()).unwrap_or(0u32),
-                );
-                if best.as_ref().is_none_or(|(bv, _)| v > *bv) {
-                    best = Some((v, sub.path()));
-                }
-            }
-        }
-    }
-    let Some((_, dir)) = best else {
-        panic!(
-            "IddCxStub.lib not found under any Windows Kits Lib\\<ver>\\um\\{arch}\\iddcx\\<iddcxver>\\"
-        );
-    };
+    println!("cargo:rerun-if-env-changed=RLVD_IDDCX_ROOT");
+    let root = std::env::var("RLVD_IDDCX_ROOT")
+        .expect("set RLVD_IDDCX_ROOT to the IddCx 1.11 files: dot-source driver-env.ps1");
+    let dir = std::path::Path::new(&root).join("lib");
+    assert!(
+        dir.join("IddCxStub.lib").is_file(),
+        "{} has no IddCxStub.lib; run fetch-iddcx.ps1",
+        dir.display()
+    );
     println!("cargo:rustc-link-search={}", dir.display());
     println!("cargo:rustc-link-lib=static=IddCxStub");
 }

@@ -38,7 +38,11 @@ pub unsafe extern "system" fn driver_entry(
         )
     };
     dbglog!("[rlvd] WdfDriverCreate -> {st:#x}");
-    log_framework();
+    if nt_success(st) && !d3d12_swap_chain() {
+        // Every frame this driver delivers comes through the D3D12 swap chain; without it the
+        // driver does not load, and setup reports that Windows did not start it.
+        return crate::STATUS_NOT_SUPPORTED;
+    }
     st
 }
 
@@ -157,10 +161,10 @@ extern "C" fn driver_add(_driver: WDFDRIVER, mut init: PWDFDEVICE_INIT) -> NTSTA
     status
 }
 
-/// Log the IddCx framework version and whether the OS reports D3D12 swap chains (IddCx 1.11's
-/// `IddCxCheckOsFeatureSupport`, which must run before any adapter exists: the adapter comes
-/// with the device's first D0 entry, long after `DriverEntry`).
-fn log_framework() {
+/// Log the IddCx framework version, and whether the OS reports D3D12 swap chains (IddCx
+/// 1.11's `IddCxCheckOsFeatureSupport`, which must run before any adapter exists: the adapter
+/// comes with the device's first D0 entry, long after `DriverEntry`).
+fn d3d12_swap_chain() -> bool {
     let mut version = iddcx::IDARG_OUT_GETVERSION::default();
     // SAFETY: IddCx loaded the driver; `version` is a valid out block.
     let status = unsafe { wdk_iddcx::IddCxGetVersion(&mut version) };
@@ -172,26 +176,41 @@ fn log_framework() {
     } else {
         String::new()
     };
-    // The IddCx 1.11 stub (`RLVD_IDDCX_LIB`, see build.rs) is the only one with the DDI's slot.
-    // SAFETY: as above, no adapter exists yet, and only that stub sets the cfg.
-    let d3d12 = match unsafe { wdk_iddcx::check_os_feature_support(cfg!(rlvd_iddcx_newer_stub)) } {
-        None if !cfg!(rlvd_iddcx_newer_stub) => {
-            "unknown: this build links the IddCx 1.10 stub, which cannot call IddCxCheckOsFeatureSupport".into()
+    let index = iddcx::_IDDFUNCENUM::IddCxCheckOsFeatureSupportTableIndex;
+    // SAFETY: as above.
+    let (reported, d3d12) = if unsafe { wdk_iddcx::available(index) } {
+        let mut features = iddcx::IDARG_OUT_FEATURES_SUPPORTED {
+            Size: size_of::<iddcx::IDARG_OUT_FEATURES_SUPPORTED>() as ULONG,
+            ..Default::default()
+        };
+        // SAFETY: the framework has the DDI (checked above), no adapter exists yet, and
+        // `features` is a valid out block.
+        let st = unsafe { wdk_iddcx::IddCxCheckOsFeatureSupport(&mut features) };
+        let d3d12 = iddcx::IDDCX_DEVICE_FEATURES_1_11::IDDCX_DEVICE_FEATURES_1_11_D3D12;
+        if !nt_success(st) {
+            (
+                false,
+                format!("unknown: IddCxCheckOsFeatureSupport -> {st:#x}"),
+            )
+        } else if features.Features_1_11 & d3d12 != 0 {
+            (true, "reported".into())
+        } else {
+            (false, "not reported".into())
         }
-        None => "unknown: the framework has no IddCxCheckOsFeatureSupport (IddCx 1.11)".into(),
-        Some((st, _)) if !nt_success(st) => {
-            format!("unknown: IddCxCheckOsFeatureSupport -> {st:#x}")
-        }
-        Some((_, out)) => {
-            if out.features_1_11 & wdk_iddcx::FEATURES_1_11_D3D12 != 0 {
-                "reported".into()
-            } else {
-                "not reported".into()
-            }
-        }
+    } else {
+        (
+            false,
+            "unknown: the framework has no IddCxCheckOsFeatureSupport (IddCx 1.11)".into(),
+        )
     };
     dbglog!(
         "[rlvd] IddCx framework version {:#x} (IddCxGetVersion -> {status:#x}{count}); D3D12 swap chain: {d3d12}",
         version.IddCxVersion
     );
+    if !reported {
+        dbglog!(
+            "[rlvd] this Windows build has no IddCx D3D12 swap chain; the driver does not load"
+        );
+    }
+    reported
 }

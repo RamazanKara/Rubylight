@@ -14,10 +14,10 @@ Everything Rubylight does, grouped by what you will notice while streaming. For 
 - **Loss recovery that skips the keyframe.** Lost frames are repaired with reference frame invalidation, and forward error correction covers short bursts of loss. When the host's own Wi-Fi briefly stops taking packets, the host sends a keyframe at once instead of waiting for the client to ask.
 - **Experimental host bitrate adaptation.** Opt-in adaptation for conventional Moonlight streams uses observed feedback, accounts for FEC and audio, and yields to client bitrate control. [Policy and limits](configuration.md#host-bitrate-adaptation).
 - **Optional adaptive packet pacing.** The existing fast route policy remains the default. Experimental adaptation starts conservatively and responds to reported loss without lowering picture bitrate, at the cost of slower startup and possible probe losses. A suitable fixed limit remains the simpler option for a known constrained path. [Pacing policy](configuration.md#capture-and-video).
-- **Aspect ratio kept.** A source of another shape sits between black bars, on the GPU and in the software encoders.
+- **Aspect ratio kept.** A source of another shape sits between black bars.
 - **Antialiased GPU downscaling.** Streams below the desktop's resolution average the covered source pixels to reduce thin-line shimmer. Native resolution, enlargement and aligned 2× reduction retain their existing pixels; reduction above 8× retains the previous bounded filter.
 
-NVIDIA NVENC, Intel Quick Sync and software encoders are included for other hardware, but Rubylight's tuning is for Radeon.
+Rubylight encodes on AMD GPUs only: a Radeon RX 6000 (RDNA 2) or newer. H.264 and HEVC work on all of them; AV1 is offered where the GPU's encoder has it.
 
 ## Capture that keeps working
 

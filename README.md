@@ -82,7 +82,7 @@ Start a stream from the streaming app on your device. **Launch on PC** starts th
 
 ## Runs on your hardware
 
-**GPUs.** Users stream daily on RDNA 2, 3 and 4: RX 6800 XT, 6900 XT, 7900 XT, 7900 XTX, 9070 and 9070 XT, plus Radeon 890M handhelds. NVIDIA, Intel and software encoders are included too, but all the tuning is for Radeon. On NVIDIA, [Vibepollo](https://github.com/Nonary/Vibepollo) is the better fit.
+**GPUs.** Users stream daily on RDNA 2, 3 and 4: RX 6800 XT, 6900 XT, 7900 XT, 7900 XTX, 9070 and 9070 XT, plus Radeon 890M handhelds. Rubylight encodes on AMD GPUs only: a Radeon RX 6000 (RDNA 2) or newer, on Windows 11. NVIDIA and Intel owners can stay on Rubylight 2.6.x, or use [Vibepollo](https://github.com/Nonary/Vibepollo).
 
 **Clients.** Rubylight speaks the Moonlight protocol, so every Moonlight and Sunshine-compatible client works.
 

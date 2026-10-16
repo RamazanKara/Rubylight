@@ -11,10 +11,10 @@ To install a release and start streaming, use [Getting started](getting-started.
 Use Windows x64 with PowerShell, Git, Rustup and Node.js 22. In an MSYS2 UCRT64 shell, install these packages, matching CI:
 
 ```sh
-pacman -S --needed git mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-clang mingw-w64-ucrt-x86_64-cmake mingw-w64-ucrt-x86_64-ninja mingw-w64-ucrt-x86_64-vulkan-headers mingw-w64-ucrt-x86_64-opus mingw-w64-ucrt-x86_64-libvpl
+pacman -S --needed git mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-clang mingw-w64-ucrt-x86_64-cmake mingw-w64-ucrt-x86_64-ninja mingw-w64-ucrt-x86_64-vulkan-headers mingw-w64-ucrt-x86_64-opus
 ```
 
-The default MSYS2 path is `C:\msys64`; pass `-MsysRoot` if yours differs. The host uses the GNU Rust target and GNU codec libraries.
+The default MSYS2 path is `C:\msys64`; pass `-MsysRoot` if yours differs. The host uses the GNU Rust target.
 
 Clone the repository and install the pinned toolchains in PowerShell:
 
@@ -36,7 +36,7 @@ Run the full build from the repository root in a **Visual Studio x64 developer P
 .\rust\build.ps1 -FetchDependencies -Package
 ```
 
-The script fetches the pinned FFmpeg archive, builds the pinned PyroWave SDK and extracts the signed display/gamepad packages and the Playnite plugin from the pinned Vibepollo release. Archive hashes, PyroWave build identity and driver signatures are checked. CMake builds the external PyroWave SDK; Cargo builds the host.
+The script builds the pinned PyroWave SDK and extracts the signed display/gamepad packages and the Playnite plugin from the pinned Vibepollo release. Archive hashes, PyroWave build identity and driver signatures are checked. CMake builds the external PyroWave SDK; Cargo builds the host.
 
 The build checks Rust formatting, runs ordinary workspace tests and Clippy with warnings denied, then builds the release executables, performance probes and the display driver. Packaging also builds the Svelte console and includes runtime libraries, drivers, the Playnite plugin, artwork, licenses, the optional Moonlight source patch and a SHA-256 file manifest. Building a package does not install it. Packaging also downloads and verifies the pinned, signed usbip-win2 0.9.8.1 installer (about 26 MB), cached in the dependencies folder, and includes it with its BSD license. It never executes that installer. `rust/drivers/usbip/bundle.ps1` can check this small packaging step independently of a host build.
 
@@ -56,20 +56,18 @@ Useful options:
 | Option | Purpose |
 | --- | --- |
 | `-DebugBuild` | Build debug executables for development. Use release builds for streaming measurements. |
-| `-FfmpegRoot`, `-PyrowaveRoot` | Reuse existing SDKs. The PyroWave identity must match the pinned revision and patches. |
+| `-PyrowaveRoot` | Reuse an existing PyroWave SDK. Its identity must match the pinned revision and patches. |
 | `-DriverRoot <path>` | Supply the signed release's `drivers` folder for packaging. |
 | `-SkipTests` | Skip workspace tests and Clippy for a local iteration. Formatting still runs; this is not the release validation path. |
 
 ## SDK environment
 
-Cargo alone cannot build the Windows crates: their build scripts generate bindings from pinned SDK headers and link pinned codec libraries. The build script sets these variables for the session it runs in; set them yourself to run `cargo` in another shell.
+Cargo alone cannot build the Windows crates: their build scripts generate bindings from the pinned PyroWave and Vulkan headers. The AMF headers are vendored in `rust/windows/include/AMF`. The build script sets these variables for the session it runs in; set them yourself to run `cargo` in another shell.
 
 | Variable | Read by | Points at |
 | --- | --- | --- |
-| `BUTTERPOLLO_FFMPEG_ROOT` | `rust/windows/build.rs` | The pinned FFmpeg SDK (`include/` with the AMF headers, and `lib/`). |
 | `BUTTERPOLLO_PYROWAVE_ROOT` | `rust/windows/build.rs` | The pinned PyroWave SDK built by `rust/tools/build_pyrowave.sh`. |
 | `BUTTERPOLLO_VULKAN_INCLUDE` | `rust/windows/build.rs` | Vulkan 1.4 headers, `C:\msys64\ucrt64\include` in MSYS2. |
-| `BUTTERPOLLO_SYSTEM_LIBS` | `rust/windows/build.rs` | MSYS2's `ucrt64\lib`, for libvpl and the C++ runtime. |
 | `LIBCLANG_PATH` | bindgen | MSYS2's `ucrt64\bin`, which holds `libclang.dll`. |
 | `BUTTERPOLLO_DRIVER_ROOT` | `rust/build.ps1` | Default for `-DriverRoot`. |
 

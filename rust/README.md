@@ -21,7 +21,7 @@ rustup target add x86_64-pc-windows-msvc --toolchain 1.98.1-x86_64-pc-windows-gn
 .\rust\build.ps1 -FetchDependencies -Package
 ```
 
-Run in a Visual Studio x64 developer PowerShell, which the display driver build needs. Existing dependency roots can be supplied with `-FfmpegRoot` and `-PyrowaveRoot`.
+Run in a Visual Studio x64 developer PowerShell, which the display driver build needs. An existing PyroWave SDK can be supplied with `-PyrowaveRoot`.
 
 The [build script](build.ps1) checks formatting, tests and lints, then builds and packages the runtime, helpers, performance probes, console, notices and SHA-256 manifest. PyroWave uses a pinned SDK identity and matching patches. CMake builds the external PyroWave SDK; Cargo builds the host. [rust-windows.yml](../.github/workflows/rust-windows.yml) defines the Windows CI path.
 
@@ -73,7 +73,7 @@ Useful implementation entry points:
 - [Host source](host/src): session scheduling, configuration, administration and media transport.
 - [Core source](core/src): protocol and durable-state primitives.
 
-PyroWave shares D3D11/Vulkan planar textures and returns only the encoded bitstream to the CPU. Native NVENC uses the installed driver, with D3D11 4:2:0/8-bit 4:4:4 and CUDA interop for ten-bit 4:4:4; `nvenc_legacy` selects the FFmpeg compatibility path. Quick Sync imports D3D11 frames.
+PyroWave shares D3D11/Vulkan planar textures and returns only the encoded bitstream to the CPU.
 
 ## Validation
 
@@ -95,21 +95,12 @@ Native fixtures may require an active moving desktop, codec DLLs, compatible dri
 ```powershell
 cargo test --workspace --locked
 cargo clippy --workspace --all-targets --locked -- -D warnings
-cargo test -p butterpollo-windows --locked -- --ignored --skip native_nvenc_loss_recovery_and_444_hdr_decode --skip native_av1_geometry_and_hdr_are_preserved --skip primary_multitouch_and_secondary_isolation_match_native_hid_reports --skip two_announced_touchpads_share_one_native_surface_side_by_side --skip crash::tests::reporter_process --skip crash::tests::crashing_process --test-threads=1 --nocapture
+cargo test -p butterpollo-windows --locked -- --ignored --skip native_av1_geometry_and_hdr_are_preserved --skip primary_multitouch_and_secondary_isolation_match_native_hid_reports --skip two_announced_touchpads_share_one_native_surface_side_by_side --skip crash::tests::reporter_process --skip crash::tests::crashing_process --test-threads=1 --nocapture
 ```
 
 The native command needs the packaged codec DLLs on `PATH` and `libpyrowave-shared-1.dll` beside the test executable (`target\debug\deps`), an AMD D3D11/AMF adapter, working interactive WGC, a moving desktop and a local network route; it does not change display modes, audio defaults or the installed service. `motion_probe DISPLAY SECONDS REPORT.json current 128` can provide movement on an explicitly selected active output without changing its mode. Set `BUTTERPOLLO_TEST_OPUS_ROOT` to the packaged runtime directory, `BUTTERPOLLO_TEST_FFMPEG` and `BUTTERPOLLO_TEST_FFPROBE` to an independent FFmpeg decoder and its ffprobe, and `BUTTERPOLLO_TEST_RFI_REPORT`, `BUTTERPOLLO_TEST_GPU_REPORT`, `BUTTERPOLLO_TEST_REFERENCE_BUDGET_REPORT` and `BUTTERPOLLO_TEST_AUDIO_REPORT` to report files. The two `crash::tests` entry points are skipped because the crash tests start them as child processes; run directly, `reporter_process` ends the test run. `native_virtual_display_recovery_restores_the_requested_mode_and_mode_list` creates a virtual display, which the driver allows only to SYSTEM: run it on its own as SYSTEM (a one-shot `schtasks /RU SYSTEM` task in the signed-in session).
 
 The separately selected `primary_multitouch_and_secondary_isolation_match_native_hid_reports` and `two_announced_touchpads_share_one_native_surface_side_by_side` tests require the signed VHF driver and an idle input session. They create and remove owned neutral DS4/DualSense devices; they are excluded from the codec command above.
-
-On an NVIDIA host with a display attached to that adapter:
-
-```powershell
-$env:BUTTERPOLLO_TEST_NVENC = '1'
-$env:BUTTERPOLLO_TEST_NVENC_REPORT = 'C:\path\to\artifacts\nvenc.json'
-$env:BUTTERPOLLO_TEST_FFMPEG = 'C:\path\to\ffmpeg.exe'
-cargo test -p butterpollo-windows --locked native_nvenc_loss_recovery_and_444_hdr_decode -- --ignored --test-threads=1 --nocapture
-```
 
 `tests/web_api.py`, `tests/console_browser.cjs`, `tests/session_restart.py`, `tests/interop.py` and `tests/otp_pairing.py` run against isolated test-owned profiles and stop only their own processes.
 

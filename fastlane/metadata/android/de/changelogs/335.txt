@@ -1,0 +1,1 @@
+Das Koppeln läuft weiter, wenn du Nightjar verlässt, um die PIN auf der Webseite des Hosts einzugeben, oder der Bildschirm ausgeht, statt ohne Meldung zu scheitern.

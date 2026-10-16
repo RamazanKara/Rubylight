@@ -1,1 +1,1 @@
-Pairing keeps going when you leave Nightjar to type the PIN on the host's web page or the screen turns off, instead of failing without a message.
+Decode time in the overlay now follows Artemis's counting, so the two apps are easier to compare. Short streams include their final frames in the average. Detailed p95/p99 timing and the CSV retain precise decoder measurements.

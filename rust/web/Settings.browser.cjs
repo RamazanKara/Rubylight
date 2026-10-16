@@ -188,8 +188,7 @@ test('search finds menu choices and category context, and explains hidden depend
   assert.match(await setting(page, 'adapter_name').getByRole('combobox').innerText(), /Saved custom choice: Unavailable GPU/);
   await search(page, 'amd quality');
   await setting(page, 'amd_quality').waitFor();
-  assert.match(await setting(page, 'amd_quality').innerText(), /including when Automatic selects AMF/);
-  assert.equal(await setting(page, 'nvenc_enable_min_qp').count(), 0, 'AMD search must not match an unrelated vendor from the category description');
+  assert.equal(await setting(page, 'amd_quality').locator('.dependency').count(), 0, 'AMF settings are in effect, not conditional');
   if (process.env.BUTTERPOLLO_TEST_ARTIFACTS) {
     await search(page, 'AMD quality preset');
     await page.screenshot({ path: path.join(process.env.BUTTERPOLLO_TEST_ARTIFACTS, 'settings-search-desktop.png'), fullPage: true });
@@ -310,22 +309,26 @@ test('a malformed fixed resolution blocks saving and an empty one warns', async 
   assert.deepEqual(writes, [{ dd_resolution_option: 'manual', dd_manual_resolution: '2560x1440' }]);
 });
 
-test('with Automatic, the encoder settings of this PC\'s GPU are shown', async t => {
+test("the AMD AMF settings are shown whatever the encoder setting or this PC's GPU is", async t => {
   const gpu = (name, vendor) => ({ name, vendor, dedicated_memory: 0, luid: [1, 0], pnp_id: null });
-  const { page } = await fixture(t, {}, { gpus: [gpu('AMD Radeon RX 7900 XT', 0x1002)] });
+  const { page } = await fixture(t, {}, { gpus: [gpu('NVIDIA GeForce RTX 4090', 0x10de)] });
   await page.goto(base + '/settings/encoders');
   const usage = setting(page, 'amd_usage');
   await usage.waitFor();
-  assert.doesNotMatch(await usage.innerText(), /Shown when AMD AMF is selected/, 'AMF settings are in effect, not conditional');
+  assert.equal(await usage.locator('.dependency').count(), 0, 'AMF settings are in effect, not conditional');
   assert.equal(await setting(page, 'nvenc_preset').count(), 0);
   assert.equal(await setting(page, 'qsv_preset').count(), 0);
+  assert.equal(await setting(page, 'sw_preset').count(), 0);
+  assert.deepEqual(await setting(page, 'encoder').getByRole('combobox').locator('option').allInnerTexts(),
+    ['Automatic', 'AMD AMF', 'PyroWave (automatic for other codecs)']);
   if (process.env.BUTTERPOLLO_TEST_ARTIFACTS) {
     await page.screenshot({ path: path.join(process.env.BUTTERPOLLO_TEST_ARTIFACTS, 'settings-encoders-amd-desktop.png'), fullPage: true });
   }
-  // Choosing another encoder hides them again.
-  await setting(page, 'encoder').getByRole('combobox').selectOption('nvenc');
-  await setting(page, 'nvenc_preset').waitFor();
-  assert.equal(await setting(page, 'amd_usage').count(), 0);
+  // Choosing AMF or PyroWave keeps them.
+  for (const encoder of ['amf', 'pyrowave']) {
+    await setting(page, 'encoder').getByRole('combobox').selectOption(encoder);
+    await usage.waitFor();
+  }
 });
 
 test('undoing an advanced change keeps the Advanced section open', async t => {

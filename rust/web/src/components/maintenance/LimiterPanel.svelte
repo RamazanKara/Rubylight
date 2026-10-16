@@ -23,13 +23,12 @@
   const providers: Record<string, string> = {
     auto: 'Automatic',
     rtss: 'RTSS',
-    'nvidia-control-panel': 'NVIDIA driver',
     none: 'None',
   };
   const provider = (name: string) => providers[name] ?? (name ? 'Other limiter' : 'None');
 </script>
 
-<Panel title="Frame limiter" level={3} description="Caps game frame rates during streams through RTSS or the NVIDIA driver.">
+<Panel title="Frame limiter" level={3} description="Caps game frame rates during streams through RTSS.">
   {#snippet actions()}
     {#if limiter}<Badge tone={limiter.enabled ? 'ok' : 'neutral'}>{limiter.enabled ? 'On' : 'Off'}</Badge>{/if}
   {/snippet}
@@ -52,8 +51,6 @@
         </dd>
         <dt>RTSS folder</dt>
         <dd class="mono">{limiter.resolved_path || '—'}</dd>
-        <dt>NVIDIA driver</dt>
-        <dd>{limiter.nvidia_available ? 'Available' : 'Not available'}</dd>
       </dl>
       {#if limiter.message}<p class="muted note">{limiter.message}</p>{/if}
     </div>

@@ -87,12 +87,6 @@ export interface Setting {
   advanced?: boolean;
 }
 
-/**
- * Not a setting: visibleWhen also gets the encoders Automatic would use on
- * this PC's GPUs ('amf', 'nvenc') under this name.
- */
-export const NATIVE_ENCODERS = '@native_encoders';
-
 export interface Schema {
   categories: Category[];
   settings: Setting[];

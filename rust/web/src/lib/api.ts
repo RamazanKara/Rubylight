@@ -470,7 +470,6 @@ export interface LimiterStatus {
   enabled: boolean;
   configured_provider: string;
   active_provider: string;
-  nvidia_available: boolean;
   rtss_available: boolean;
   resolved_path: string;
   path_exists: boolean;

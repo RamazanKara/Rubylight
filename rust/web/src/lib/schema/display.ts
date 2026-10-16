@@ -27,7 +27,7 @@ function rtss(values: Values): boolean {
   const name = text(values, 'frame_limiter_provider', 'auto')
     .toLowerCase()
     .replace(/[^a-z0-9]/g, '');
-  return !['none', 'disabled', 'nvidia', 'nvidiacontrolpanel', 'nvcp'].includes(name);
+  return !['none', 'disabled'].includes(name);
 }
 
 const SCALES = [100, 125, 150, 175, 200, 225, 250, 300, 350, 400, 450, 500];
@@ -49,7 +49,7 @@ export const settings: Setting[] = [
     label: 'Virtual display',
     description:
       'Whether streams use a virtual display sized for the device instead of a monitor. A device’s or app’s own choice wins.',
-    details: 'Unset, it is one for each device on Windows 11 and off on Windows 10.',
+    details: 'Unset, it is one for each device.',
     category: 'display',
     group: 'Streamed display',
     control: {
@@ -362,7 +362,7 @@ export const settings: Setting[] = [
     key: 'frame_limiter_provider',
     label: 'Limiter',
     description:
-      'What enforces the limit. Automatic and RTSS use RivaTuner Statistics Server (RTSS) when it is installed and the NVIDIA driver otherwise; None turns off all limiting.',
+      'What enforces the limit. Automatic and RTSS use RivaTuner Statistics Server (RTSS), which must be installed; None turns off all limiting.',
     category: 'frame-limiting',
     group: 'Frame limiter',
     control: {
@@ -370,14 +370,13 @@ export const settings: Setting[] = [
       options: [
         { value: 'auto', label: 'Automatic' },
         { value: 'rtss', label: 'RTSS' },
-        { value: 'nvidia-control-panel', label: 'NVIDIA driver' },
         { value: 'none', label: 'None' },
       ],
     },
     // framegen.rs Provider::parse reads letters and digits only.
     aliases: {
       match: 'letters',
-      spellings: { disabled: 'none', nvidia: 'nvidia-control-panel', nvcp: 'nvidia-control-panel' },
+      spellings: { disabled: 'none' },
     },
     default: 'auto',
   },
@@ -385,7 +384,7 @@ export const settings: Setting[] = [
     key: 'frame_limiter_fps_limit',
     label: 'Frame limit',
     description:
-      'The frame rate games are capped at; 0 uses the stream’s frame rate. RTSS keeps decimals such as 59.94, the NVIDIA driver rounds them.',
+      'The frame rate games are capped at; 0 uses the stream’s frame rate. RTSS keeps decimals such as 59.94.',
     category: 'frame-limiting',
     group: 'Frame limiter',
     control: { kind: 'number', min: 0, max: 1000, step: 0.001, unit: 'fps' },
@@ -434,16 +433,6 @@ export const settings: Setting[] = [
     default: 'legacy',
   },
   {
-    key: 'frame_limiter_disable_vsync',
-    label: 'Turn off vertical sync',
-    description:
-      'Turns off vertical sync in the NVIDIA driver during streams. The driver setting is restored after the last stream.',
-    category: 'frame-limiting',
-    group: 'Frame limiter',
-    control: { kind: 'toggle' },
-    default: false,
-  },
-  {
     key: 'rtss_install_path',
     label: 'RTSS folder',
     description: 'Where RivaTuner Statistics Server is installed. Empty looks for it in Program Files.',
@@ -457,9 +446,9 @@ export const settings: Setting[] = [
   {
     key: 'rtss_frame_limit_type',
     label: 'RTSS limit mode',
-    description: 'How RTSS paces frames. Some streams use NVIDIA Reflex instead.',
+    description: 'How RTSS paces frames. Some streams use front edge sync instead.',
     details:
-      'Virtual-display streams, unless Virtual display refresh is off, and frame-generation games on a monitor use NVIDIA Reflex instead, or front edge sync where Reflex is unavailable.',
+      'Virtual-display streams, unless Virtual display refresh is off, and frame-generation games on a monitor use front edge sync instead.',
     category: 'frame-limiting',
     group: 'RTSS',
     control: {
@@ -468,11 +457,10 @@ export const settings: Setting[] = [
         { value: 'async', label: 'Asynchronous' },
         { value: 'front edge sync', label: 'Front edge sync' },
         { value: 'back edge sync', label: 'Back edge sync' },
-        { value: 'nvidia reflex', label: 'NVIDIA Reflex' },
       ],
     },
     // framegen.rs reads letters and digits only, so the fallback console's front-edge-sync is front edge sync.
-    aliases: { match: 'letters', spellings: { reflex: 'nvidia reflex' } },
+    aliases: { match: 'letters' },
     default: 'async',
     inactiveHint: "Choose Automatic or RTSS under Limiter to use RTSS settings. RTSS must be installed on the host.",
     visibleWhen: rtss,
@@ -480,9 +468,9 @@ export const settings: Setting[] = [
   {
     key: 'rtss_allow_virtual_display_override',
     label: 'Use this mode on virtual displays',
-    description: 'Applies the RTSS limit mode to virtual-display streams instead of NVIDIA Reflex.',
+    description: 'Applies the RTSS limit mode to virtual-display streams instead of front edge sync.',
     details:
-      'Apps set to game-provided frame generation keep Reflex, because other modes can add a lot of latency there.',
+      'Apps set to game-provided frame generation keep front edge sync, because other modes can add a lot of latency there.',
     category: 'frame-limiting',
     group: 'RTSS',
     control: { kind: 'toggle' },
@@ -560,17 +548,6 @@ export const settings: Setting[] = [
     group: 'Displays',
     control: { kind: 'text', placeholder: '1920x1080x60', mono: true },
     default: '1920x1080x60',
-    advanced: true,
-  },
-  {
-    key: 'dd_wa_dummy_plug_hdr10',
-    label: 'Dummy plug HDR workaround',
-    description:
-      'Turns off vertical sync in the NVIDIA driver during every stream, like Turn off vertical sync under Frame limiting. It is kept for settings carried over from Vibepollo.',
-    category: 'advanced',
-    group: 'Displays',
-    control: { kind: 'toggle' },
-    default: false,
     advanced: true,
   },
 ];

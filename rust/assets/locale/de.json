@@ -752,7 +752,7 @@
     "hdr_profile_load_failed": "HDR-Farbprofile konnten nicht geladen werden.",
     "hdr_peak_nits_label": "HDR-Spitzenhelligkeit",
     "hdr_peak_nits_placeholder": "Automatisch (Profil oder globaler Standard)",
-    "hdr_peak_nits_desc": "Leer lassen, um den MHC2-Spitzenwert des ausgewählten HDR-Profils zu lesen; andernfalls wird der globale Spitzenwert verwendet. Ein manueller Wert steuert für diesen Client die EDID des virtuellen Displays, das RTX-HDR-Ziel und die HDR10-Streammetadaten.",
+    "hdr_peak_nits_desc": "Leer lassen, um den MHC2-Spitzenwert des ausgewählten HDR-Profils zu lesen; andernfalls wird der globale Spitzenwert verwendet. Ein manueller Wert steuert für diesen Client die EDID des virtuellen Displays und die HDR10-Streammetadaten.",
     "virtual_display_scale_label": "Windows-Anzeigeskalierung",
     "virtual_display_scale_placeholder": "Globale Einstellung verwenden ({scale} %)",
     "virtual_display_scale_desc": "Die Option „Bestehende Skalierung beibehalten“ (Standard) behält die ausgewählte Skalierung für zukünftige Streams bei. Verbinden Sie sich unter Windows mit dem virtuellen Bildschirm und wählen Sie unter Einstellungen > System > Anzeige die gewünschte Skalierung. In Vibeshine können Sie auch einen Prozentwert oder „Empfohlen (auflösungsabhängig)“ auswählen, ohne die Clientauflösung zu ändern.",

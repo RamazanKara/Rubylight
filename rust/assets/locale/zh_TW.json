@@ -752,7 +752,7 @@
     "hdr_profile_load_failed": "HDR 色彩設定檔載入失敗。",
     "hdr_peak_nits_label": "HDR 峰值亮度",
     "hdr_peak_nits_placeholder": "自動（設定檔或全域預設值）",
-    "hdr_peak_nits_desc": "留空將讀取所選 HDR 設定檔的 MHC2 峰值，無法讀取時使用全域峰值。手動值會控制此用戶端的虛擬顯示器 EDID、RTX HDR 目標值和 HDR10 串流中繼資料。",
+    "hdr_peak_nits_desc": "留空將讀取所選 HDR 設定檔的 MHC2 峰值，無法讀取時使用全域峰值。手動值會控制此用戶端的虛擬顯示器 EDID 和 HDR10 串流中繼資料。",
     "virtual_display_scale_label": "Windows 顯示縮放",
     "virtual_display_scale_placeholder": "跟隨全域設定（{scale}%）",
     "virtual_display_scale_desc": "「保留現有設定」（預設）會保留您選擇的縮放比例，套用至之後的串流。在 Windows 中連線至虛擬顯示器，然後在「設定 > 系統 > 顯示器」中選擇「縮放」。您也可以在 Vibeshine 中選擇百分比或「建議（依解析度調整）」，而不變更用戶端解析度。",

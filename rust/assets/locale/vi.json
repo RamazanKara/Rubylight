@@ -752,7 +752,7 @@
     "hdr_profile_load_failed": "Không tải được cấu hình màu HDR.",
     "hdr_peak_nits_label": "Độ sáng đỉnh HDR",
     "hdr_peak_nits_placeholder": "Tự động (hồ sơ hoặc mặc định toàn cục)",
-    "hdr_peak_nits_desc": "Để trống để đọc giá trị đỉnh MHC2 của hồ sơ HDR đã chọn, nếu không có thì dùng giá trị đỉnh toàn cục. Giá trị thủ công điều khiển EDID của màn hình ảo, mục tiêu RTX HDR và siêu dữ liệu luồng HDR10 cho client này.",
+    "hdr_peak_nits_desc": "Để trống để đọc giá trị đỉnh MHC2 của hồ sơ HDR đã chọn, nếu không có thì dùng giá trị đỉnh toàn cục. Giá trị thủ công điều khiển EDID của màn hình ảo và siêu dữ liệu luồng HDR10 cho client này.",
     "virtual_display_scale_label": "Tỷ lệ hiển thị của Windows",
     "virtual_display_scale_placeholder": "Theo cài đặt toàn cục ({scale}%)",
     "virtual_display_scale_desc": "Tùy chọn Giữ tỷ lệ hiện tại (mặc định) sẽ lưu lại tỷ lệ bạn chọn để dùng cho các phiên truyền phát tiếp theo. Trên Windows, hãy kết nối với màn hình ảo rồi chọn Tỷ lệ trong Cài đặt > Hệ thống > Màn hình. Trong Vibeshine, bạn cũng có thể chọn tỷ lệ phần trăm cụ thể hoặc Đề xuất (theo độ phân giải) mà không thay đổi độ phân giải của máy khách.",

@@ -752,7 +752,7 @@
     "hdr_profile_load_failed": "Falha ao carregar perfis de cor HDR.",
     "hdr_peak_nits_label": "Brilho máximo HDR",
     "hdr_peak_nits_placeholder": "Automático (perfil ou padrão global)",
-    "hdr_peak_nits_desc": "Deixe em branco para ler o pico MHC2 do perfil HDR selecionado, usando o pico global como alternativa. Um valor manual controla o EDID da tela virtual, o alvo do RTX HDR e os metadados HDR10 da transmissão para este cliente.",
+    "hdr_peak_nits_desc": "Deixe em branco para ler o pico MHC2 do perfil HDR selecionado, usando o pico global como alternativa. Um valor manual controla o EDID da tela virtual e os metadados HDR10 da transmissão para este cliente.",
     "virtual_display_scale_label": "Escala da tela no Windows",
     "virtual_display_scale_placeholder": "Seguir configuração global ({scale}%)",
     "virtual_display_scale_desc": "A opção Manter a escala atual (padrão) preserva a escala escolhida para futuras transmissões. No Windows, conecte-se à tela virtual e escolha Escala em Configurações > Sistema > Tela. No Vibeshine, você também pode selecionar uma porcentagem ou Recomendado (com base na resolução), sem alterar a resolução do cliente.",

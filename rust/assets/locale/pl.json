@@ -752,7 +752,7 @@
     "hdr_profile_load_failed": "Nie udało się wczytać profili kolorów HDR.",
     "hdr_peak_nits_label": "Szczytowa jasność HDR",
     "hdr_peak_nits_placeholder": "Automatycznie (profil lub globalna wartość domyślna)",
-    "hdr_peak_nits_desc": "Pozostaw puste, aby odczytać szczyt MHC2 z wybranego profilu HDR, a w razie braku użyć szczytu globalnego. Wartość ręczna steruje dla tego klienta EDID-em ekranu wirtualnego, wartością docelową RTX HDR i metadanymi strumienia HDR10.",
+    "hdr_peak_nits_desc": "Pozostaw puste, aby odczytać szczyt MHC2 z wybranego profilu HDR, a w razie braku użyć szczytu globalnego. Wartość ręczna steruje dla tego klienta EDID-em ekranu wirtualnego i metadanymi strumienia HDR10.",
     "virtual_display_scale_label": "Skalowanie ekranu w Windows",
     "virtual_display_scale_placeholder": "Użyj ustawienia globalnego ({scale}%)",
     "virtual_display_scale_desc": "Opcja „Zachowaj bieżące skalowanie” (domyślna) zachowuje wybraną skalę podczas kolejnych transmisji. W systemie Windows połącz się z wirtualnym ekranem i wybierz skalę w Ustawienia > System > Ekran. W Vibeshine możesz też wybrać wartość procentową lub „Zalecane (zależnie od rozdzielczości)”, bez zmiany rozdzielczości klienta.",

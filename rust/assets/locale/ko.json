@@ -752,7 +752,7 @@
     "hdr_profile_load_failed": "HDR 색상 프로필을 로드하지 못했습니다.",
     "hdr_peak_nits_label": "HDR 최대 밝기",
     "hdr_peak_nits_placeholder": "자동(프로필 또는 전역 기본값)",
-    "hdr_peak_nits_desc": "비워 두면 선택한 HDR 프로필의 MHC2 최대값을 읽고, 없으면 전역 최대값을 사용합니다. 수동 값은 이 클라이언트의 가상 디스플레이 EDID, RTX HDR 목표값 및 HDR10 스트림 메타데이터를 제어합니다.",
+    "hdr_peak_nits_desc": "비워 두면 선택한 HDR 프로필의 MHC2 최대값을 읽고, 없으면 전역 최대값을 사용합니다. 수동 값은 이 클라이언트의 가상 디스플레이 EDID 및 HDR10 스트림 메타데이터를 제어합니다.",
     "virtual_display_scale_label": "Windows 디스플레이 배율",
     "virtual_display_scale_placeholder": "전역 설정 따르기({scale}%)",
     "virtual_display_scale_desc": "기존 설정 유지(기본값)를 선택하면 선택한 배율이 이후 스트리밍에도 유지됩니다. Windows에서 가상 디스플레이에 연결한 뒤 설정 > 시스템 > 디스플레이에서 배율을 선택하세요. 클라이언트 해상도를 변경하지 않고 Vibeshine에서 백분율 또는 권장(해상도 기반)을 선택할 수도 있습니다.",

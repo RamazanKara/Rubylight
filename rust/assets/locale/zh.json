@@ -752,7 +752,7 @@
     "hdr_profile_load_failed": "HDR 色彩配置文件加载失败。",
     "hdr_peak_nits_label": "HDR 峰值亮度",
     "hdr_peak_nits_placeholder": "自动（配置文件或全局默认值）",
-    "hdr_peak_nits_desc": "留空将读取所选 HDR 配置文件的 MHC2 峰值，无法读取时使用全局峰值。手动值会控制此客户端的虚拟显示器 EDID、RTX HDR 目标值和 HDR10 流元数据。",
+    "hdr_peak_nits_desc": "留空将读取所选 HDR 配置文件的 MHC2 峰值，无法读取时使用全局峰值。手动值会控制此客户端的虚拟显示器 EDID 和 HDR10 流元数据。",
     "virtual_display_scale_label": "Windows 显示缩放",
     "virtual_display_scale_placeholder": "跟随全局设置（{scale}%）",
     "virtual_display_scale_desc": "“保留现有设置”（默认）会将您选择的缩放比例保留到后续串流。在 Windows 中连接到虚拟显示器，然后在“设置 > 系统 > 屏幕”中调整“缩放”选项。您也可以在 Vibeshine 中指定缩放百分比或选择“推荐（根据分辨率）”，而不更改客户端分辨率。",

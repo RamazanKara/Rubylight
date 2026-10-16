@@ -752,7 +752,7 @@
     "hdr_profile_load_failed": "Impossible de charger les profils colorimétriques HDR.",
     "hdr_peak_nits_label": "Luminosité HDR maximale",
     "hdr_peak_nits_placeholder": "Automatique (profil ou valeur globale par défaut)",
-    "hdr_peak_nits_desc": "Laissez ce champ vide pour lire le pic MHC2 du profil HDR sélectionné, avec repli sur le pic global. Une valeur manuelle contrôle l'EDID de l'affichage virtuel, la cible RTX HDR et les métadonnées HDR10 du flux pour ce client.",
+    "hdr_peak_nits_desc": "Laissez ce champ vide pour lire le pic MHC2 du profil HDR sélectionné, avec repli sur le pic global. Une valeur manuelle contrôle l'EDID de l'affichage virtuel et les métadonnées HDR10 du flux pour ce client.",
     "virtual_display_scale_label": "Mise à l'échelle de l'affichage Windows",
     "virtual_display_scale_placeholder": "Suivre le réglage global ({scale} %)",
     "virtual_display_scale_desc": "L’option Conserver le réglage actuel (par défaut) réutilise l’échelle choisie pour les prochaines sessions de streaming. Sous Windows, connectez-vous à l’écran virtuel et choisissez l’échelle dans Paramètres > Système > Affichage. Dans Vibeshine, vous pouvez aussi sélectionner un pourcentage ou Recommandé (selon la résolution), sans modifier la résolution du client.",

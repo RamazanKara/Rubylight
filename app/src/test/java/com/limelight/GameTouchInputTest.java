@@ -219,6 +219,26 @@ public class GameTouchInputTest {
     }
 
     @Test
+    public void threeFingerTapSurvivesTheFirstFingerLiftingBeforeTheOthers() {
+        RecordingConnection connection = new RecordingConnection();
+        Game game = game(connection);
+        touchConfig(game, TouchMode.TRACKPAD).threeFingerTap = "middle_click";
+        FrameLayout container = streamContainer(game, null);
+        ReflectionHelpers.callInstanceMethod(game, "initializeTouchContexts");
+        float[] a = {300, 200}, b = {400, 200}, c = {500, 200};
+        dispatch(container, MotionEvent.ACTION_DOWN, 0, new int[] {0}, a);
+        dispatch(container, MotionEvent.ACTION_POINTER_DOWN, 1, new int[] {0, 1}, a, b);
+        dispatch(container, MotionEvent.ACTION_POINTER_DOWN, 2, new int[] {0, 1, 2}, a, b, c);
+        dispatch(container, MotionEvent.ACTION_POINTER_UP, 0, new int[] {0, 1, 2}, a, b, c);
+        // Pointer index 0 is now the second finger, 100 px from where the first one was.
+        dispatch(container, MotionEvent.ACTION_MOVE, 0, new int[] {1, 2}, b, c);
+        dispatch(container, MotionEvent.ACTION_POINTER_UP, 0, new int[] {1, 2}, b, c);
+        dispatch(container, MotionEvent.ACTION_UP, 0, new int[] {2}, c);
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(200, TimeUnit.MILLISECONDS);
+        assertEquals(java.util.Arrays.asList("down 2", "up 2"), connection.buttons);
+    }
+
+    @Test
     public void momentumGlidesAfterAFlickAndStopsOnTheNextTouch() {
         RecordingConnection connection = new RecordingConnection();
         Game game = game(connection);

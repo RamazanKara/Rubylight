@@ -12,14 +12,19 @@ public final class ThreeFingerTap {
 
     private boolean started;
     private long downTime;
+    private int pointerId;
     private float startX, startY;
     private float travel;
     private int maxPointers;
 
-    /** The third finger landed at downTime while the first finger was at (x, y). */
-    public void start(long downTime, float x, float y) {
+    /**
+     * The third finger landed at downTime while the first finger, pointerId, was at (x, y). Travel is
+     * measured on that finger, not on whichever one holds pointer index 0 when the first has lifted.
+     */
+    public void start(long downTime, int pointerId, float x, float y) {
         started = true;
         this.downTime = downTime;
+        this.pointerId = pointerId;
         startX = x;
         startY = y;
         travel = 0;
@@ -30,11 +35,15 @@ public final class ThreeFingerTap {
         return started;
     }
 
+    public int pointerId() {
+        return pointerId;
+    }
+
     public void pointers(int count) {
         if (started && count > maxPointers) maxPointers = count;
     }
 
-    /** The first finger moved to (x, y). */
+    /** The tracked finger moved to (x, y). */
     public void move(float x, float y) {
         if (!started) return;
         float distance = Math.max(Math.abs(x - startX), Math.abs(y - startY));

@@ -4805,7 +4805,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 if (event.getActionMasked() == MotionEvent.ACTION_POINTER_DOWN &&
                         event.getPointerCount() == 3) {
                     // Three fingers down
-                    threeFingerTap.start(event.getEventTime(), event.getX(0), event.getY(0));
+                    threeFingerTap.start(event.getEventTime(), event.getPointerId(0), event.getX(0), event.getY(0));
 
                     // Cancel the first and second touches to avoid
                     // erroneous events
@@ -4864,7 +4864,11 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                     // ACTION_MOVE is special because it always has actionIndex == 0
                     // We'll call the move handlers for all indexes manually
                     if (threeFingerTap.isStarted()) {
-                        threeFingerTap.move(event.getX(0), event.getY(0));
+                        // The first finger may have lifted; then there is nothing left to measure.
+                        int tracked = event.findPointerIndex(threeFingerTap.pointerId());
+                        if (tracked >= 0) {
+                            threeFingerTap.move(event.getX(tracked), event.getY(tracked));
+                        }
                     }
 
                     // First process the historical events

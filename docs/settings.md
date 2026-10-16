@@ -156,6 +156,8 @@ These tables include every preference, including actions, grouped as the Setting
 | Quick resume<br>`checkbox_quick_resume` | Off | On; Off | Enable to go straight back into the running game when you tap its PC, skipping the library. Use the PC's menu for the library while a game runs. Off keeps the tap opening the library. |
 | Help<br>`help` | No stored default | Action | Open the bundled help: connecting a PC, pairing, controls and the stream menu, common fixes and problem reports. Works offline; each topic links to these documents for detail. |
 | Report a problem<br>`report_problem` | No stored default | Action | Preview the explanation and share a redacted event/crash report through Android's share sheet. |
+| Check for updates automatically<br>`checkbox_check_updates` | On | On; Off | Leave on to look for a newer release on GitHub when the PC list opens, at most every 12 hours; you choose whether to install it. Hidden when the app was installed from Google Play, which updates it. |
+| Check for updates now<br>`check_updates_now` | No stored default | Action | Look for a newer release now, even if the automatic check ran recently. A release you skipped is shown again. Hidden when the app was installed from Google Play. |
 | About<br>`about_app` | No stored default | Action | View the installed app version and open Source and licenses. Tapping the version seven times shows Developer options. |
 | Reset all settings<br>`reset_all` | No stored default | Action | Confirm to reset global preferences, which also hides Developer options again. Keeps pairing, PC profiles, controller mappings, control layout and language. |
 

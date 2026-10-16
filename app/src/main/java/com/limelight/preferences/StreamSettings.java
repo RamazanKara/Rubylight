@@ -39,6 +39,8 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import android.content.res.XmlResourceParser;
 import android.widget.TextView;
 import android.widget.ListView;
+import com.limelight.update.UpdateFlow;
+import com.limelight.update.UpdatePrefs;
 import com.limelight.utils.HelpLauncher;
 import org.xmlpull.v1.XmlPullParser;
 import org.xmlpull.v1.XmlPullParserException;
@@ -97,7 +99,7 @@ public class StreamSettings extends AppCompatActivity {
     }
     // Kept by a reset: the language is applied by the OS, the others are actions
     private static final List<String> RESET_EXCLUDED_KEYS = Arrays.asList(
-            PreferenceConfiguration.LANGUAGE_PREF_STRING, "export_latency_csv", "about_app", "gpu_driver");
+            PreferenceConfiguration.LANGUAGE_PREF_STRING, "export_latency_csv", "about_app", "check_updates_now", "gpu_driver");
 
     private PreferenceConfiguration previousPrefs;
     private int previousDisplayPixelCount;
@@ -1202,6 +1204,16 @@ public class StreamSettings extends AppCompatActivity {
                 HelpLauncher.showHelp(getActivity());
                 return true;
             });
+            // Google Play, or a build made for another store, updates the app itself.
+            if (UpdateFlow.isAvailable(getActivity())) {
+                findPreference("check_updates_now").setOnPreferenceClickListener(preference -> {
+                    UpdateFlow.checkNow(getActivity());
+                    return true;
+                });
+            } else {
+                removeSetting(UpdatePrefs.AUTO_CHECK_PREF_STRING);
+                removeSetting("check_updates_now");
+            }
             findPreference("host_display_location").setOnPreferenceClickListener(preference -> {
                 showInfo(R.string.host_display_menu, R.string.host_display_location);
                 return true;

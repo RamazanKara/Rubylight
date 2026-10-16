@@ -56,13 +56,14 @@ public class SettingsKeysTest {
     // Rows that open a screen or a dialog and store nothing under their key.
     private static final Set<String> ACTIONS = new HashSet<>(Arrays.asList(
             "gpu_driver", "host_display_location", "keyboard_shortcuts_editor", "controller_button_mapping",
-            "controller_test", "stream_profiles", "reset_osc", "help", "latency_benchmark", "report_problem", "about_app", "reset_all", "export_latency_csv",
+            "controller_test", "stream_profiles", "reset_osc", "check_updates_now", "help", "latency_benchmark", "report_problem", "about_app", "reset_all", "export_latency_csv",
             // The merged switch writes the three decoder switches and stores nothing itself.
             StreamSettings.LOW_LATENCY_DECODING_KEY));
     // Stored settings that are read outside PreferenceConfiguration.
     private static final Set<String> READ_ELSEWHERE = new HashSet<>(Arrays.asList(
             "performance_overlay_mode", // Game and the overlay
-            StreamSettings.DEVELOPER_OPTIONS_PREF_STRING)); // StreamSettings
+            StreamSettings.DEVELOPER_OPTIONS_PREF_STRING, // StreamSettings
+            com.limelight.update.UpdatePrefs.AUTO_CHECK_PREF_STRING)); // UpdatePrefs
 
     private static SharedPreferences prefs() {
         return PreferenceManager.getDefaultSharedPreferences(RuntimeEnvironment.getApplication());

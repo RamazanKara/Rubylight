@@ -49,6 +49,9 @@ public class PcViewLifecycleTest {
     public static class Library extends PcView {
         final java.util.List<ComputerDetails> woken = new java.util.ArrayList<>();
 
+        // The update check would reach for the network.
+        @Override protected void checkForUpdates() { }
+
         @Override public boolean bindService(Intent intent, ServiceConnection connection, int flags) {
             return false;
         }

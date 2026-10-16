@@ -85,6 +85,8 @@ ADVICE = {
     "help": "Open the bundled help: connecting a PC, pairing, controls and the stream menu, common fixes and problem reports. Works offline; each topic links to these documents for detail.",
     "latency_benchmark": "Run a 10-second local frame-callback, timer and input-dispatch benchmark without a host. Use Measure input latency in the stream menu for end-to-end timing.",
     "report_problem": "Preview the explanation and share a redacted event/crash report through Android's share sheet.",
+    "checkbox_check_updates": "Leave on to look for a newer release on GitHub when the PC list opens, at most every 12 hours; you choose whether to install it. Hidden when the app was installed from Google Play, which updates it.",
+    "check_updates_now": "Look for a newer release now, even if the automatic check ran recently. A release you skipped is shown again. Hidden when the app was installed from Google Play.",
     "about_app": "View the installed app version and open Source and licenses. Tapping the version seven times shows Developer options.",
     "reset_all": "Confirm to reset global preferences, which also hides Developer options again. Keeps pairing, PC profiles, controller mappings, control layout and language.",
     "frame_pacing": "Use Lowest latency for response, Balanced for cadence, Balanced with FPS limit to cap pacing, or Smoothest video to retain frames at the cost of delay.",

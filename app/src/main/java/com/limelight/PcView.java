@@ -27,6 +27,8 @@ import com.limelight.preferences.StreamSettings;
 import com.limelight.ui.AdapterFragment;
 import com.limelight.ui.AdapterFragmentCallbacks;
 import com.limelight.ui.TopAppBar;
+import com.limelight.update.UpdateFlow;
+import com.limelight.update.UpdateFlow;
 import com.limelight.utils.CacheHelper;
 import com.limelight.utils.Dialog;
 import com.limelight.utils.HelpLauncher;
@@ -325,6 +327,14 @@ public class PcView extends AppCompatActivity implements AdapterFragmentCallback
 
         inForeground = true;
         startComputerUpdates();
+        if (completeOnCreateCalled) {
+            checkForUpdates();
+        }
+    }
+
+    /** At most every 12 hours; the PC list is never in front during a stream. */
+    protected void checkForUpdates() {
+        UpdateFlow.autoCheck(this, () -> inForeground);
     }
 
     @Override

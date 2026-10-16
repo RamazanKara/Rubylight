@@ -506,6 +506,13 @@
             android:summary="@string/settings_help_summary" />
         <Preference android:key="report_problem" android:title="@string/report_problem"
             android:summary="@string/report_problem_summary" />
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_check_updates"
+            android:title="@string/title_check_updates"
+            android:dialogMessage="@string/summary_check_updates"
+            android:defaultValue="true" />
+        <Preference android:key="check_updates_now" android:title="@string/title_check_updates_now"
+            android:summary="@string/summary_check_updates_now" android:persistent="false" />
         <Preference android:key="about_app" android:title="@string/title_about" android:persistent="false" />
         <Preference android:key="reset_all" android:title="@string/title_reset_settings" />
     </PreferenceCategory>

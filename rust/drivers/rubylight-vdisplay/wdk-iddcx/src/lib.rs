@@ -147,16 +147,17 @@ iddcx_ddi!(
     ) @ IddCxMonitorUpdateModes2TableIndex as PFN_IDDCXMONITORUPDATEMODES2
 );
 iddcx_ddi!(
-    /// Bind a D3D device to an assigned swap chain. HRESULT-shaped; a failure means the OS
-    /// already unassigned it.
-    IddCxSwapChainSetDevice(
+    /// Bind a D3D12 device to an assigned swap chain (IddCx 1.11). HRESULT-shaped; a failure
+    /// means the OS already unassigned it.
+    IddCxSwapChainSetDevice2(
         swap_chain: iddcx::IDDCX_SWAPCHAIN,
-        in_args: *const iddcx::IDARG_IN_SWAPCHAINSETDEVICE,
-    ) @ IddCxSwapChainSetDeviceTableIndex as PFN_IDDCXSWAPCHAINSETDEVICE
+        in_args: *const iddcx::IDARG_IN_SWAPCHAINSETDEVICE2,
+    ) @ IddCxSwapChainSetDevice2TableIndex as PFN_IDDCXSWAPCHAINSETDEVICE2
 );
 iddcx_ddi!(
-    /// Release the previous frame and acquire the next (FP16-capable variant).
-    /// HRESULT-shaped; `E_PENDING` means wait on the surface-available event.
+    /// Release the previous frame and acquire the next (FP16-capable variant), naming the
+    /// queue that reads it. HRESULT-shaped; `E_PENDING` means wait on the surface-available
+    /// event.
     IddCxSwapChainReleaseAndAcquireBuffer2(
         swap_chain: iddcx::IDDCX_SWAPCHAIN,
         in_args: *mut iddcx::IDARG_IN_RELEASEANDACQUIREBUFFER2,
@@ -169,18 +170,15 @@ iddcx_ddi!(
         @ IddCxSwapChainFinishedProcessingFrameTableIndex as PFN_IDDCXSWAPCHAINFINISHEDPROCESSINGFRAME
 );
 iddcx_ddi!(
-    /// Raise the swap chain's processing device to realtime GPU priority (IddCx 1.9), so
-    /// frame processing outruns ordinary GPU contention. Best-effort at the call site.
-    IddCxSetRealtimeGPUPriority(
-        swap_chain: iddcx::IDDCX_SWAPCHAIN,
-        in_args: *const iddcx::IDARG_IN_SETREALTIMEGPUPRIORITY,
-    ) @ IddCxSetRealtimeGPUPriorityTableIndex as PFN_IDDCXSETREALTIMEGPUPRIORITY
-);
-
-iddcx_ddi!(
     /// The IddCx framework version the OS runs (`IDDCX_VERSION_*`, IddCx 1.2).
     IddCxGetVersion(out_args: *mut iddcx::IDARG_OUT_GETVERSION)
         @ IddCxGetVersionTableIndex as PFN_IDDCXGETVERSION
+);
+iddcx_ddi!(
+    /// Which IddCx 1.11 features the OS has (IddCx 1.11). Must run before any adapter is
+    /// created.
+    IddCxCheckOsFeatureSupport(out_args: *mut iddcx::IDARG_OUT_FEATURES_SUPPORTED)
+        @ IddCxCheckOsFeatureSupportTableIndex as PFN_IDDCXCHECKOSFEATURESUPPORT
 );
 
 /// How many DDIs the running framework provides: a DDI with a table index at or past this
@@ -194,47 +192,14 @@ pub unsafe fn function_count() -> u32 {
     unsafe { (&raw const iddcx::IddFunctionCount).read() }
 }
 
-/// `IDARG_OUT_FEATURES_SUPPORTED` from the IddCx 1.11 header, which the WDK these bindings
-/// come from (IddCx 1.10) does not have.
-#[repr(C)]
-#[derive(Default)]
-pub struct FeaturesSupported {
-    pub size: u32,
-    /// `IDDCX_DEVICE_FEATURES_1_11`.
-    pub features_1_11: u32,
-}
-
-/// `IDDCX_DEVICE_FEATURES_1_11_D3D12`: the OS supports D3D12 swap chains.
-pub const FEATURES_1_11_D3D12: u32 = 0x1;
-
-/// `IddCxCheckOsFeatureSupportTableIndex` in the IddCx 1.11 header.
-const CHECK_OS_FEATURE_SUPPORT_INDEX: u32 = 36;
-
-/// `IddCxCheckOsFeatureSupport` (IddCx 1.11), or `None` when the running framework has no
-/// such DDI. IddCx requires the call before any adapter is created.
+/// Whether the running framework provides the DDI at `index` (`IDD_IS_FUNCTION_AVAILABLE`).
 ///
 /// # Safety
-/// Only valid once the IddCx runtime has loaded the driver, before `IddCxAdapterInitAsync`.
-pub unsafe fn check_os_feature_support() -> Option<(NTSTATUS, FeaturesSupported)> {
-    type Pfn = Option<
-        unsafe extern "C" fn(iddcx::PIDD_DRIVER_GLOBALS, *mut FeaturesSupported) -> NTSTATUS,
-    >;
+/// Only valid once the IddCx runtime has loaded the driver.
+#[must_use]
+pub unsafe fn available(index: iddcx::_IDDFUNCENUM::Type) -> bool {
     // SAFETY: valid after load (this function's contract).
-    if unsafe { function_count() } <= CHECK_OS_FEATURE_SUPPORT_INDEX {
-        return None;
-    }
-    let mut out = FeaturesSupported {
-        size: core::mem::size_of::<FeaturesSupported>() as u32,
-        features_1_11: 0,
-    };
-    // SAFETY: the framework provides the slot (count checked above), and the 1.11 header pins
-    // its type to `PFN_IDDCXCHECKOSFEATURESUPPORT`, which `Pfn` matches.
-    let f: Pfn = unsafe { ddi(CHECK_OS_FEATURE_SUPPORT_INDEX as i32) };
-    // SAFETY: reads the stub-provided globals pointer; valid after load.
-    let g = unsafe { globals() };
-    // SAFETY: a populated DDI called with the stub globals and a valid out block.
-    let status = unsafe { (f?)(g, &mut out) };
-    Some((status, out))
+    index >= 0 && (index as u32) < unsafe { function_count() }
 }
 
 /// Every struct the driver builds or reads must stay `Sized`: this fails to compile if the
@@ -269,6 +234,9 @@ assert_sized!(
     IDARG_IN_RELEASEANDACQUIREBUFFER2,
     IDARG_OUT_RELEASEANDACQUIREBUFFER2,
     IDDCX_METADATA2,
+    IDARG_IN_SWAPCHAINSETDEVICE2,
+    IDARG_OUT_FEATURES_SUPPORTED,
+    IDARG_OUT_GETVERSION,
 );
 
 /// Every client-config callback type must exist and stay a nullable `extern fn`.

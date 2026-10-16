@@ -1,0 +1,3 @@
+Die Schnellschalter im Streammenü stehen bei großer Schrift untereinander, statt Wörter zu trennen.
+Der Dialog für Geräteergebnisse zeigt seine drei Schaltflächen bei jeder Schriftgröße.
+Der Hinweis beim ersten Stream verdeckt auf breiten Handys nicht mehr das Leistungs-Overlay.

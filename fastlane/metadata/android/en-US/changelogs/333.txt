@@ -1,0 +1,3 @@
+Stream menu quick buttons stack into a list instead of breaking words at large font sizes.
+Device results dialog keeps its three buttons in view at any font size.
+The first-stream hint no longer covers the performance overlay on wide phones.

@@ -1,9 +1,15 @@
-//! Rust-owned D3D11/Vulkan PyroWave encoder using the stable 2.0 bitstream.
+//! Rust-owned D3D12/Vulkan PyroWave encoder using the stable 2.0 bitstream.
+//!
+//! Each frame is converted into three plane textures on the capture GPU's D3D12 compute queue
+//! ([`crate::compute::Converter::convert_planes`]) and encoded on PyroWave's Vulkan queue. The
+//! planes are D3D12 shared resources imported into Vulkan, and one shared D3D12 fence, imported
+//! as a Vulkan timeline semaphore, orders the two queues: the compute queue waits for the
+//! encode's release value before it writes the planes and signals the next value when done,
+//! which the encode waits for before it reads them.
 
 use crate::{
     capture::{Device, GpuImage, Image, Pixel},
     encoder::Encoded,
-    gpu_color::PlanarConverter,
     pyro_abi as p,
 };
 use anyhow::{Context, Result, bail};
@@ -11,19 +17,19 @@ use butterpollo_core::{
     pyrowave::{self, PACKET_BOUNDARY},
     rtsp::Negotiated,
 };
-use std::{ffi::c_void, ptr, sync::Arc, time::Instant};
-use windows::{
-    Win32::{
-        Foundation::*,
-        Graphics::{
-            Direct3D11::*,
-            Dxgi::{
-                Common::*, DXGI_SHARED_RESOURCE_READ, DXGI_SHARED_RESOURCE_WRITE, IDXGIDevice,
-                IDXGIResource1,
-            },
-        },
+use std::{
+    ffi::c_void,
+    os::windows::io::{IntoRawHandle, OwnedHandle},
+    ptr,
+    sync::Arc,
+    time::Instant,
+};
+use windows::Win32::{
+    Foundation::{CloseHandle, HANDLE},
+    Graphics::{
+        Direct3D12::{D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, ID3D12Resource},
+        Dxgi::Common::*,
     },
-    core::{Interface, PCWSTR},
 };
 #[cfg(test)]
 mod decode_tests;
@@ -78,163 +84,229 @@ fn check(code: p::pyrowave_result) -> Result<()> {
 pub fn available() -> bool {
     Api::load().is_ok()
 }
-struct Interop {
+
+/// Pass `handle` to a PyroWave import, which takes ownership of it when it succeeds.
+///
+/// # Safety
+///
+/// `import` must import the raw handle it is given and own it only on success.
+unsafe fn import(
+    handle: OwnedHandle,
+    import: impl FnOnce(usize) -> p::pyrowave_result,
+) -> Result<()> {
+    let raw = handle.into_raw_handle();
+    let result = import(raw as usize);
+    if result != 0 {
+        // SAFETY: the import failed, so the handle is still this function's to close.
+        let _ = unsafe { CloseHandle(HANDLE(raw)) };
+    }
+    check(result)
+}
+
+/// A D3D12 texture on the capture GPU's compute device imported into PyroWave's Vulkan device.
+struct Plane {
     api: Arc<Api>,
     image: p::pyrowave_image,
-    sync: p::pyrowave_sync_object,
     view: p::pyrowave_image_view,
-    _texture: Arc<ID3D11Texture2D>,
-    fence: ID3D11Fence,
-    context: ID3D11DeviceContext4,
-    counter: u64,
+    texture: ID3D12Resource,
 }
-impl Interop {
+impl Plane {
+    /// A `width` x `height` plane in `format` (R8 or R16 UNORM) that the compute queue writes
+    /// (`usage` for Vulkan's side).
     fn new(
         api: Arc<Api>,
-        device: &Device,
         pyro: p::pyrowave_device,
-        texture: Arc<ID3D11Texture2D>,
+        compute: &crate::compute::Compute,
+        (width, height): (u32, u32),
+        format: DXGI_FORMAT,
+        usage: p::VkImageUsageFlagBits,
     ) -> Result<Self> {
-        // SAFETY: `texture` and `device` share one live D3D11 device, the create-infos outlive
-        // their calls, and `s` owns each handle so Drop frees it on error.
+        let (texture, handle) = compute.share_texture(
+            width,
+            height,
+            format,
+            D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,
+        )?;
+        // SAFETY: the create-infos outlive their calls, `s` owns the image so Drop frees it on
+        // error, and the import takes the shared handle only on success.
         unsafe {
-            let mut desc = D3D11_TEXTURE2D_DESC::default();
-            texture.GetDesc(&mut desc);
-            let mut fence = None;
-            device.device.cast::<ID3D11Device5>()?.CreateFence(
-                0,
-                D3D11_FENCE_FLAG_SHARED,
-                &mut fence,
-            )?;
             let mut s = Self {
                 api,
                 image: ptr::null_mut(),
-                sync: ptr::null_mut(),
                 view: std::mem::zeroed(),
-                _texture: texture,
-                fence: fence.unwrap(),
-                context: device.context.cast()?,
-                counter: 0,
+                texture,
             };
-            let handle = s._texture.cast::<IDXGIResource1>()?.CreateSharedHandle(
-                None,
-                DXGI_SHARED_RESOURCE_READ.0 | DXGI_SHARED_RESOURCE_WRITE.0,
-                PCWSTR::null(),
-            )?;
-            let image = p::VkImageCreateInfo {
+            let info = p::VkImageCreateInfo {
                 sType: p::VkStructureType_VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
                 imageType: p::VkImageType_VK_IMAGE_TYPE_2D,
-                format: if desc.Format == DXGI_FORMAT_R16_UNORM {
+                format: if format == DXGI_FORMAT_R16_UNORM {
                     p::VkFormat_VK_FORMAT_R16_UNORM
                 } else {
                     p::VkFormat_VK_FORMAT_R8_UNORM
                 },
                 extent: p::VkExtent3D {
-                    width: desc.Width,
-                    height: desc.Height,
+                    width,
+                    height,
                     depth: 1,
                 },
                 mipLevels: 1,
                 arrayLayers: 1,
                 samples: p::VkSampleCountFlagBits_VK_SAMPLE_COUNT_1_BIT,
                 tiling: p::VkImageTiling_VK_IMAGE_TILING_OPTIMAL,
-                usage: p::VkImageUsageFlagBits_VK_IMAGE_USAGE_SAMPLED_BIT
-                    | p::VkImageUsageFlagBits_VK_IMAGE_USAGE_TRANSFER_SRC_BIT
-                    | p::VkImageUsageFlagBits_VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+                usage,
                 sharingMode: p::VkSharingMode_VK_SHARING_MODE_EXCLUSIVE,
                 ..std::mem::zeroed()
             };
-            let info=p::pyrowave_image_create_info { device:pyro,external_handle:handle.0 as usize,handle_type:p::VkExternalMemoryHandleTypeFlagBits_VK_EXTERNAL_MEMORY_HANDLE_TYPE_D3D11_TEXTURE_BIT,image_create_info:&image };
-            let result = (s.api.image_create)(&info, &mut s.image);
-            if result != 0 {
-                let _ = CloseHandle(handle);
-                check(result)?;
-            }
+            let (create, out) = (s.api.image_create, &mut s.image);
+            import(handle, |handle| {
+                create(
+                    &p::pyrowave_image_create_info {
+                        device: pyro,
+                        external_handle: handle,
+                        handle_type: p::VkExternalMemoryHandleTypeFlagBits_VK_EXTERNAL_MEMORY_HANDLE_TYPE_D3D12_RESOURCE_BIT,
+                        image_create_info: &info,
+                    },
+                    out,
+                )
+            })
+            .context("importing a D3D12 plane into Vulkan")?;
             check((s.api.image_get_image_view)(
                 s.image,
                 p::VkImageAspectFlagBits_VK_IMAGE_ASPECT_COLOR_BIT,
-                p::VkImageUsageFlagBits_VK_IMAGE_USAGE_SAMPLED_BIT,
+                if usage & p::VkImageUsageFlagBits_VK_IMAGE_USAGE_STORAGE_BIT != 0 {
+                    p::VkImageUsageFlagBits_VK_IMAGE_USAGE_STORAGE_BIT
+                } else {
+                    p::VkImageUsageFlagBits_VK_IMAGE_USAGE_SAMPLED_BIT
+                },
                 &mut s.view,
             ))?;
-            let handle = s
-                .fence
-                .CreateSharedHandle(None, GENERIC_ALL.0, PCWSTR::null())?;
-            let info=p::pyrowave_sync_object_create_info { device:pyro,external_handle:handle.0 as usize,handle_type:p::VkExternalSemaphoreHandleTypeFlagBits_VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_D3D12_FENCE_BIT,semaphore_type:p::VkSemaphoreType_VK_SEMAPHORE_TYPE_TIMELINE,import_flags:0 };
-            let result = (s.api.sync_object_create)(&info, &mut s.sync);
-            if result != 0 {
-                let _ = CloseHandle(handle);
-                check(result)?;
-            }
             Ok(s)
         }
     }
 }
-impl Drop for Interop {
+impl Drop for Plane {
     fn drop(&mut self) {
-        // SAFETY: `sync` and `image` were created on the Encoder's device, which is destroyed after
-        // `interop`.
+        // SAFETY: `image` was created on the Encoder's device, which is destroyed after the
+        // planes.
         unsafe {
-            if !self.sync.is_null() {
-                (self.api.sync_object_destroy)(self.sync);
-            }
             if !self.image.is_null() {
                 (self.api.image_destroy)(self.image);
             }
         }
     }
 }
-/// The colour conversion on the GPU's compute queue. Beside a game using the
-/// whole GPU, the D3D11 conversion of a 1080p HDR 4:4:4 frame waited 5.1 ms
-/// on the graphics queue, against 0.15 ms idle, nearly all of the encode's
-/// 5.7 ms; PyroWave's own GPU work took 0.2 ms either way.
-struct ComputePlanes {
+/// A shared D3D12 fence on the compute device and the Vulkan timeline semaphore imported
+/// from it.
+struct Timeline {
+    api: Arc<Api>,
+    sync: p::pyrowave_sync_object,
+    fence: windows::Win32::Graphics::Direct3D12::ID3D12Fence,
+}
+impl Timeline {
+    fn new(
+        api: Arc<Api>,
+        pyro: p::pyrowave_device,
+        compute: &crate::compute::Compute,
+    ) -> Result<Self> {
+        let (fence, handle) = compute.share_fence()?;
+        let mut s = Self {
+            api,
+            sync: ptr::null_mut(),
+            fence,
+        };
+        let (create, out) = (s.api.sync_object_create, &mut s.sync);
+        // SAFETY: the create-info outlives the call, `s` owns the sync object so Drop frees it,
+        // and the import takes the shared handle only on success.
+        unsafe {
+            import(handle, |handle| {
+                create(
+                    &p::pyrowave_sync_object_create_info {
+                        device: pyro,
+                        external_handle: handle,
+                        handle_type: p::VkExternalSemaphoreHandleTypeFlagBits_VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_D3D12_FENCE_BIT,
+                        semaphore_type: p::VkSemaphoreType_VK_SEMAPHORE_TYPE_TIMELINE,
+                        import_flags: 0,
+                    },
+                    out,
+                )
+            })
+            .context("importing the D3D12 fence into Vulkan")?;
+        }
+        Ok(s)
+    }
+}
+impl Drop for Timeline {
+    fn drop(&mut self) {
+        // SAFETY: `sync` was created on the Encoder's device, which is destroyed after it.
+        unsafe {
+            if !self.sync.is_null() {
+                (self.api.sync_object_destroy)(self.sync);
+            }
+        }
+    }
+}
+/// The planes for one source format and the conversion into them on the compute queue.
+/// Beside a game using the whole GPU, a graphics-queue conversion of a 1080p HDR 4:4:4 frame
+/// waited 5.1 ms, against 0.15 ms idle, nearly all of the encode's 5.7 ms; PyroWave's own GPU
+/// work took 0.2 ms either way.
+struct Planes {
+    // Vulkan's side goes first; the converter then waits for the compute queue before the
+    // D3D12 textures it writes go with `target`.
+    planes: [Plane; 3],
+    timeline: Timeline,
     converter: crate::compute::Converter,
     target: crate::compute::Planes,
-    textures: [Arc<ID3D11Texture2D>; 3],
+    /// The timeline's last value: the encode's release, or before the first frame 0.
+    counter: u64,
 }
-impl ComputePlanes {
+impl Planes {
     fn new(
+        api: &Arc<Api>,
+        pyro: p::pyrowave_device,
         d3d: &Device,
         config: &Negotiated,
-        textures: &[Arc<ID3D11Texture2D>; 3],
-        fence: &ID3D11Fence,
     ) -> Result<Self> {
-        let compute = crate::compute::Compute::for_device(&d3d.device)?;
+        let compute = &d3d.compute;
+        let format = if config.ten_bit() {
+            DXGI_FORMAT_R16_UNORM
+        } else {
+            DXGI_FORMAT_R8_UNORM
+        };
+        let divisor = if config.yuv444 { 1 } else { 2 };
+        let usage = p::VkImageUsageFlagBits_VK_IMAGE_USAGE_SAMPLED_BIT
+            | p::VkImageUsageFlagBits_VK_IMAGE_USAGE_TRANSFER_SRC_BIT
+            | p::VkImageUsageFlagBits_VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+        let [y, u, v] = [1, divisor, divisor].map(|divisor| {
+            Plane::new(
+                api.clone(),
+                pyro,
+                compute,
+                (config.width / divisor, config.height / divisor),
+                format,
+                usage,
+            )
+        });
+        let planes = [y?, u?, v?];
+        let timeline = Timeline::new(api.clone(), pyro, compute)?;
         let converter = crate::compute::Converter::new(
             compute.clone(),
             config.width,
             config.height,
             config.ten_bit(),
         )?;
-        let planes = [
-            compute.open(&textures[0])?,
-            compute.open(&textures[1])?,
-            compute.open(&textures[2])?,
-        ];
-        // SAFETY: `fence` is a live shared D3D11 fence and `compute.device` is a D3D12 device on
-        // the same adapter; `opened` is a live local and the handle is closed once opened.
-        let fence = unsafe {
-            let handle = fence.CreateSharedHandle(None, GENERIC_ALL.0, PCWSTR::null())?;
-            let mut opened: Option<windows::Win32::Graphics::Direct3D12::ID3D12Fence> = None;
-            let result = compute.device.OpenSharedHandle(handle, &mut opened);
-            let _ = CloseHandle(handle);
-            result.context("opening the PyroWave fence on the compute queue")?;
-            opened.context("no shared fence")?
+        let target = crate::compute::Planes {
+            planes: planes.each_ref().map(|plane| plane.texture.clone()),
+            format,
+            fence: timeline.fence.clone(),
+            after: 0,
+            done: 0,
         };
         Ok(Self {
+            planes,
+            timeline,
             converter,
-            textures: textures.clone(),
-            target: crate::compute::Planes {
-                planes,
-                format: if config.ten_bit() {
-                    DXGI_FORMAT_R16_UNORM
-                } else {
-                    DXGI_FORMAT_R8_UNORM
-                },
-                fence,
-                after: 0,
-                done: 0,
-            },
+            target,
+            counter: 0,
         })
     }
     /// Convert once the encoder has signalled `after`; signals `done`.
@@ -246,27 +318,24 @@ impl ComputePlanes {
         after: u64,
         done: u64,
     ) -> Result<()> {
-        let texture = self.converter.compute().open(&image.texture)?;
-        self.converter.values = crate::gpu_color::constants(
-            config,
-            (image.width, image.height, image.pixel),
-            luminance,
-        );
+        self.converter.values =
+            crate::compute::constants(config, (image.width, image.height, image.pixel), luminance);
         self.converter.values[11] = u32::from(config.yuv444);
         self.target.after = after;
         self.target.done = done;
-        self.converter.convert_planes(
-            &texture,
-            crate::compute::format(image.pixel),
-            image.ready.as_ref(),
-            &self.target,
-        )
+        self.converter.convert_planes(image, &self.target)
     }
 }
-impl Drop for ComputePlanes {
+impl Drop for Planes {
     fn drop(&mut self) {
-        for texture in &self.textures {
-            self.converter.compute().forget(texture);
+        // A conversion may wait on the GPU for a release the encode never submitted after an
+        // error. Release it from here so the queue drains before the textures go; nothing
+        // uses the timeline after this.
+        // SAFETY: the fence is live; a CPU signal only sets its value.
+        unsafe {
+            if self.timeline.fence.GetCompletedValue() < self.counter {
+                let _ = self.timeline.fence.Signal(self.counter);
+            }
         }
     }
 }
@@ -276,18 +345,16 @@ fn interval(config: &Negotiated, critical_fec: bool) -> pyrowave::Interval {
         critical_fec,
     )
 }
+
 pub struct Encoder {
     warnings: Arc<butterpollo_core::session::Warnings>,
     api: Arc<Api>,
     device: p::pyrowave_device,
     encoder: p::pyrowave_encoder,
     d3d: Device,
-    converter: Option<PlanarConverter>,
-    /// Whether to convert on the compute queue (AMD, `gpu_compute_conversion`).
-    use_compute: bool,
-    compute: Option<ComputePlanes>,
+    /// The planes for the current source format, made at its first frame.
+    planes: Option<Planes>,
     source: Option<(u32, u32, Pixel)>,
-    interop: Vec<Interop>,
     config: Negotiated,
     critical_fec: bool,
     /// Parity for each frame's critical block, as a percentage; 0 without.
@@ -317,11 +384,10 @@ impl Encoder {
         warnings: Arc<butterpollo_core::session::Warnings>,
     ) -> Result<Self> {
         let api = Api::load()?;
-        // SAFETY: `d3d.device` is a live D3D11 device; GetAdapter and GetDesc only read it.
-        let desc = unsafe { d3d.device.cast::<IDXGIDevice>()?.GetAdapter()?.GetDesc()? };
+        let (low, high) = d3d.luid();
         let mut luid = p::pyrowave_luid { luid: [0; 8] };
-        luid.luid[..4].copy_from_slice(&desc.AdapterLuid.LowPart.to_le_bytes());
-        luid.luid[4..].copy_from_slice(&desc.AdapterLuid.HighPart.to_le_bytes());
+        luid.luid[..4].copy_from_slice(&low.to_le_bytes());
+        luid.luid[4..].copy_from_slice(&high.to_le_bytes());
         let critical_fec_percentage = if config.pyrowave_records {
             tuning
                 .integer("pyrowave_critical_fec_percentage", 20)
@@ -335,12 +401,9 @@ impl Encoder {
             api,
             device: ptr::null_mut(),
             encoder: ptr::null_mut(),
-            use_compute: crate::compute::enabled(tuning),
             d3d,
-            converter: None,
-            compute: None,
+            planes: None,
             source: None,
-            interop: vec![],
             config: config.clone(),
             critical_fec,
             critical_fec_percentage,
@@ -388,7 +451,7 @@ impl Encoder {
                 "PyroWave encode queue priority"
             );
             if !(s.api.device_confirm_interop_support)(s.device) {
-                bail!("Vulkan device cannot import D3D11 textures and fences");
+                bail!("Vulkan device cannot import D3D12 textures and fences");
             }
             if let Err(error) = check((s.api.device_set_queue_type)(
                 s.device,
@@ -407,7 +470,7 @@ impl Encoder {
         Ok(s)
     }
     pub fn accepts_gpu_device(&self, image: &GpuImage) -> bool {
-        self.d3d.device.as_raw() == image.gpu.device.as_raw()
+        self.d3d.same(&image.gpu)
     }
     /// The next encode gets a first frame's budget, one stream period.
     #[cfg(test)]
@@ -423,34 +486,15 @@ impl Encoder {
         }
         let begin = Instant::now();
         let source = (image.width, image.height, image.pixel);
-        if self.source != Some(source) {
-            self.compute = None;
-            self.interop.clear();
-            self.converter = None;
-            let converter = PlanarConverter::new(&self.d3d, &self.config, source)?;
-            for texture in &converter.textures {
-                self.interop.push(Interop::new(
-                    self.api.clone(),
-                    &self.d3d,
-                    self.device,
-                    texture.clone(),
-                )?);
-            }
-            self.warnings.clear("pyrowave_conversion");
-            if self.use_compute {
-                match ComputePlanes::new(
-                    &self.d3d,
-                    &self.config,
-                    &converter.textures,
-                    &self.interop[0].fence,
-                ) {
-                    Ok(planes) => self.compute = Some(planes),
-                    Err(error) => {
-                        self.warnings.set("pyrowave_conversion", format!("PyroWave compute conversion unavailable ({error:#}); converting on the graphics queue. Game rendering may delay frames; update the AMD driver or lower GPU load."))
-                    }
-                }
-            }
-            self.converter = Some(converter);
+        if self.source != Some(source) || self.planes.is_none() {
+            self.planes = None;
+            self.source = None;
+            self.planes = Some(Planes::new(
+                &self.api,
+                self.device,
+                &self.d3d,
+                &self.config,
+            )?);
             self.source = Some(source);
         }
         let interval = self.interval.next(begin, std::mem::take(&mut self.repeat));
@@ -464,66 +508,42 @@ impl Encoder {
         if budget < 16 {
             return Ok(vec![]);
         }
-        // SAFETY: `interop` holds the three images and views made on `self.device`; `images`
+        let planes = self.planes.as_mut().context("PyroWave planes missing")?;
+        // SAFETY: `planes` holds the three images and views made on `self.device`; `images`
         // outlives the synchronous encode and the output buffers are sized as passed.
         unsafe {
-            let images: Vec<_> = self
-                .interop
+            let images: Vec<_> = planes
+                .planes
                 .iter()
-                .map(|i| p::pyrowave_gpu_external_reference {
-                    image: i.image,
+                .map(|plane| p::pyrowave_gpu_external_reference {
+                    image: plane.image,
                     queue_family_index: 0xfffffffe,
                 })
                 .collect();
-            let i = &mut self.interop[0];
-            let after = i.counter;
-            i.counter = i
-                .counter
-                .checked_add(1)
-                .context("PyroWave fence exhausted")?;
-            let compute = self
-                .compute
-                .as_mut()
-                .filter(|_| crate::compute::shareable(&image.texture));
-            let on_compute = compute.is_some();
-            if let Some(compute) = compute {
-                compute.convert(image, &self.config, self.luminance, after, i.counter)?;
-            } else {
-                self.converter
-                    .as_mut()
-                    .unwrap()
-                    .convert(image, self.luminance)?;
-                i.context.Signal(&i.fence, i.counter)?;
-                // Submit the conversion and the signal now, not whenever
-                // D3D11 next flushes: the encode below waits for that signal.
-                i.context.Flush();
-            }
+            let after = planes.counter;
+            let done = after.checked_add(1).context("PyroWave fence exhausted")?;
+            let release = done.checked_add(1).context("PyroWave fence exhausted")?;
+            planes.counter = release;
+            planes.convert(image, &self.config, self.luminance, after, done)?;
             let acquire = p::pyrowave_gpu_sync_operation {
                 images: images.as_ptr(),
                 num_images: 3,
                 sync: p::pyrowave_sync_point {
-                    semaphore: (self.api.sync_object_get_semaphore)(i.sync),
-                    value: i.counter,
+                    semaphore: (self.api.sync_object_get_semaphore)(planes.timeline.sync),
+                    value: done,
                 },
             };
-            i.counter = i
-                .counter
-                .checked_add(1)
-                .context("PyroWave fence exhausted")?;
             let release = p::pyrowave_gpu_sync_operation {
                 sync: p::pyrowave_sync_point {
-                    value: i.counter,
+                    value: release,
                     ..acquire.sync
                 },
                 ..acquire
             };
             let buffers = p::pyrowave_gpu_buffers {
-                planes: [
-                    self.interop[0].view,
-                    self.interop[1].view,
-                    self.interop[2].view,
-                ],
+                planes: planes.planes.each_ref().map(|plane| plane.view),
             };
+            // The compute queue waits for the release before its next conversion.
             check((self.api.encoder_encode_gpu)(
                 self.encoder,
                 &acquire,
@@ -533,13 +553,6 @@ impl Encoder {
                     maximum_bitstream_size: budget,
                 },
             ))?;
-            // The compute queue waits for the release before its next
-            // conversion; D3D11 must not draw into the planes before it.
-            if !on_compute {
-                self.interop[0]
-                    .context
-                    .Wait(&self.interop[0].fence, self.interop[0].counter)?;
-            }
             let (mut raw, mut meta) = (ptr::null(), ptr::null());
             let (mut size, mut meta_size) = (0, 0);
             check((self.api.encoder_get_mapped_raw_bitstream)(
@@ -626,15 +639,13 @@ impl Encoder {
 }
 impl Drop for Encoder {
     fn drop(&mut self) {
-        // SAFETY: `encoder` and `device` were created in `new_device_reported`; the interop images
-        // go before the device.
+        // SAFETY: `encoder` and `device` were created in `new_device_reported`; the planes' Vulkan
+        // images and semaphore go before the device.
         unsafe {
             if !self.encoder.is_null() {
                 (self.api.encoder_destroy)(self.encoder);
             }
-            self.compute = None;
-            self.interop.clear();
-            self.converter = None;
+            self.planes = None;
             if !self.device.is_null() {
                 (self.api.device_destroy)(self.device);
             }

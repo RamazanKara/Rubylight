@@ -1,0 +1,1 @@
+Die Decode-Zeit im Overlay wird jetzt wie in Artemis gezählt, damit sich beide Apps besser vergleichen lassen. Bei kurzen Streams fließen auch die letzten Frames in den Durchschnitt ein. p95/p99 und CSV behalten die genauen Decoder-Messwerte.

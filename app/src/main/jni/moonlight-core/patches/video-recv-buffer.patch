@@ -1,0 +1,51 @@
+Size the video RTP receive buffer for the stream's bitrate. The fixed 2048 packets hold about
+23 ms of video at 1 Gbps, so a short stall of the receive thread drops packets at the bitrates
+Nightjar now allows (up to 2 Gbps). The buffer now holds about 60 ms at the configured bitrate
+when that is more than the default; the OS still caps it at its own maximum.
+Independent of the other patches; add it at the end of the list.
+
+diff --git a/src/Limelight-internal.h b/src/Limelight-internal.h
+index dd1b51d..fc81906 100644
+--- a/src/Limelight-internal.h
++++ b/src/Limelight-internal.h
+@@ -141,6 +141,7 @@ void initializeVideoStream(void);
+ void destroyVideoStream(void);
+ void notifyKeyFrameReceived(void);
+ int startVideoStream(void* rendererContext, int drFlags);
++int videoRecvBufferSize(int bitrateKbps, int packetSize);
+ void stopVideoStream(void);
+ 
+ int initializeAudioStream(void);
+diff --git a/src/VideoStream.c b/src/VideoStream.c
+index 402b056..c8f48f3 100644
+--- a/src/VideoStream.c
++++ b/src/VideoStream.c
+@@ -313,6 +313,19 @@ void stopVideoStream(void) {
+     VideoCallbacks.cleanup();
+ }
+ 
++// The receive buffer holds RTP_RECV_PACKETS_BUFFERED packets, or about 60 ms of video when that
++// is more, so a stall of the receive thread doesn't drop packets at gigabit bitrates. The OS caps
++// the request at its own maximum.
++int videoRecvBufferSize(int bitrateKbps, int packetSize) {
++    long long packets = RTP_RECV_PACKETS_BUFFERED;
++    long long bytes = packets * (packetSize + MAX_RTP_HEADER_SIZE);
++    long long burst = (long long)bitrateKbps * 1000 / 8 * 60 / 1000;
++    if (burst > bytes) {
++        bytes = burst;
++    }
++    return bytes > 64 * 1024 * 1024 ? 64 * 1024 * 1024 : (int)bytes;
++}
++
+ // Start the video stream
+ int startVideoStream(void* rendererContext, int drFlags) {
+     int err;
+@@ -329,7 +342,7 @@ int startVideoStream(void* rendererContext, int drFlags) {
+     }
+ 
+     rtpSocket = bindUdpSocket(RemoteAddr.ss_family, &LocalAddr, AddrLen,
+-                              RTP_RECV_PACKETS_BUFFERED * (StreamConfig.packetSize + MAX_RTP_HEADER_SIZE),
++                              videoRecvBufferSize(StreamConfig.bitrate, StreamConfig.packetSize),
+                               SOCK_QOS_TYPE_VIDEO);
+     if (rtpSocket == INVALID_SOCKET) {
+         VideoCallbacks.cleanup();

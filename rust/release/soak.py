@@ -62,7 +62,7 @@ def snapshot(pid, processes_only=False):
 
 
 def create_job():
-    # Closing this handle also stops capture helpers and receivers if the host
+    # Closing this handle also stops the receivers and fixtures if the host
     # or pairing script crashes before it can clean up its own children.
     from ctypes import wintypes as w
     class Basic(ctypes.Structure):
@@ -102,7 +102,7 @@ def cases(mode):
     for index in range(52):
         rows.append(dict(name=f'churn-{index + 1:02}', codec='hevc', mode='1920x1080x60', seconds=3,
                          churn=True, resume=index % 2 == 1))
-    for fault in ('wgc-helper', 'DXGI_ERROR_ACCESS_LOST', 'encoder failure', 'encoder failure.persistent'):
+    for fault in ('DXGI_ERROR_ACCESS_LOST', 'encoder failure', 'encoder failure.persistent'):
         rows.append(dict(name='fault-' + fault.replace(' ', '-'), codec='hevc', mode='1920x1080x60',
                          seconds=40 if fault.endswith('.persistent') else 20, fault=fault))
     return rows
@@ -138,7 +138,7 @@ def main():
         with socket.socket() as check:
             check.bind(('127.0.0.1', port))
     fixture = SimpleNamespace(package=args.package, client=args.client, mode='1920x1080x60', codec='hevc',
-                              config=['wgc_user_helper=true', 'pyrowave=true', 'lan_encryption_mode=2'])
+                              config=['pyrowave=true', 'lan_encryption_mode=2'])
     env, display, sink = prepare(fixture, run, PORT)
     write(run / 'display.json', display)
     kernel, job = create_job()
@@ -213,7 +213,7 @@ def main():
                 installed_idle()
             else:
                 wait_idle(host.pid, run / 'overlap.jsonl')
-            if case.get('fault') and case['fault'] != 'wgc-helper' and not fault_dir.exists():
+            if case.get('fault') and not fault_dir.exists():
                 debug_host = ROOT.parents[1] / 'target/qa/debug/butterpollo.exe'
                 if not debug_host.is_file():
                     report['skipped'].append(dict(name=case['name'], reason='build the debug host for isolated fault injection'))
@@ -293,15 +293,7 @@ def main():
                         samples.append(sample); output.write(json.dumps(sample) + '\n'); output.flush()
                         if case.get('fault') and injected_at is None and elapsed >= 7:
                             installed_idle()
-                            state = snapshot(host.pid)
-                            if case['fault'] == 'wgc-helper':
-                                helpers = [p for p in state['processes'] if p['ParentProcessId'] == host.pid and '--wgc-worker' in (p['CommandLine'] or '')]
-                                if len(helpers) != 1:
-                                    raise RuntimeError(f'expected one owned WGC helper, found {len(helpers)}')
-                                subprocess.run(['taskkill', '/PID', str(helpers[0]['ProcessId']), '/F'], check=True,
-                                               capture_output=True, timeout=10, creationflags=subprocess.CREATE_NO_WINDOW)
-                            else:
-                                (fault_dir / case['fault']).touch()
+                            (fault_dir / case['fault']).touch()
                             injected_at = time.monotonic() - started
                             result['injection'] = dict(elapsed_seconds=injected_at, fault=case['fault'])
                         if case.get('fault') == 'encoder failure' and injected_at is not None and elapsed >= injected_at + 4 and not repeated_fault:
@@ -392,11 +384,10 @@ def main():
                             resources.append(state)
                         old_devices = {d['DeviceID'] for d in settled_baseline['devices']}
                         extra = [d for d in state['devices'] if d['DeviceID'] not in old_devices]
-                        helpers = [p for p in state['processes'] if p['ParentProcessId'] == host.pid and '--wgc-worker' in (p['CommandLine'] or '')]
                         orphaned_slots = sorted(set(state['xinput_slots']) - set(settled_baseline['xinput_slots']))
-                        if extra or helpers or orphaned_slots:
-                            result['passed'] = False; result['failures'].append('devices or capture helpers remained after teardown')
-                            result['leftover_devices'] = extra; result['leftover_helpers'] = helpers
+                        if extra or orphaned_slots:
+                            result['passed'] = False; result['failures'].append('devices remained after teardown')
+                            result['leftover_devices'] = extra
                             result['orphaned_slots'] = orphaned_slots
                 except Exception as error:
                     result['passed'] = False; result['failures'].append(f'teardown: {error}')

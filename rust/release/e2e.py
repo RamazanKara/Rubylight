@@ -47,7 +47,7 @@ parser.add_argument('--mode', help='defaults to 720 pixels high at 60 FPS, match
 parser.add_argument('--seconds', default='12')
 parser.add_argument('--bitrate', default='20000')
 parser.add_argument('--vrr', action='store_true', help='launch as a client asking for VRR')
-parser.add_argument('--config', action='append', default=[], metavar='KEY=VALUE', help='an extra sunshine.conf line for the host, e.g. wgc_user_helper=true')
+parser.add_argument('--config', action='append', default=[], metavar='KEY=VALUE', help='an extra sunshine.conf line for the host, e.g. frame_pacing_smoothing=false')
 parser.add_argument('--recovery', type=int, default=0, metavar='N', help='keyframe requests during the stream, with the motion strip at the stream rate')
 parser.add_argument('--motion-at-rate', action='store_true', help='the strip at the stream rate without requests: the control for --recovery')
 parser.add_argument('--name', help='the case name, e.g. hevc-120; defaults to the codec and options')
@@ -158,12 +158,10 @@ if hang:
     sys.exit(EXIT_GPU_HANG)
 
 client = (case / 'client.log').read_text(errors='replace')
-config = dict(line.split('=', 1) for line in (profile / 'sunshine.conf').read_text().splitlines() if '=' in line)
-config = {key.strip(): value.strip() for key, value in config.items()}
 requested_source = dict(width=display['width'], height=display['height'], refresh_hz=display['refresh_hz'],
                         pixel='RgbaF16' if display['hdr'] else 'Bgra8')
 result = evaluate(client, rc, args.codec, args.mode, args.vrr, recovery=args.recovery,
-                  requested_capture=config['capture'], requested_source=requested_source,
+                  requested_source=requested_source,
                   host_log=log.read_text(errors='replace') if log.exists() else '',
                   tone_log=(case / 'tone.log').read_text(errors='replace'),
                   host_frames=host_frames(case / 'receiver'),

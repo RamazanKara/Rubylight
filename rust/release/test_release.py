@@ -13,7 +13,7 @@ class ReleaseVersions(unittest.TestCase):
         self.root = pathlib.Path(self.temp.name)
         for name in ('Cargo.toml', 'Cargo.lock', 'README.md', 'docs/README.md',
                      'docs/getting-started.md', 'rust/README.md', 'rust/RELEASE_NOTES.md',
-                     'rust/release/bump.py', 'rust/release/notes.py', 'rust/release/body.md',
+                     'rust/release/bump.py', 'rust/release/notes.py', 'rust/release/body.md', 'rust/release/floor.json',
                      'rust/web/package.json', 'rust/web/package-lock.json'):
             target = self.root / name
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -265,7 +265,7 @@ class DisplayDriverPolicy(unittest.TestCase):
         text = self.refusal(sac=1)
         self.assertTrue(text.startswith('Smart App Control is on'), text)
         self.assertIn('signed Rubylight release', text)
-        self.assertIn('physical display', text)
+        self.assertIn('streams only through it', text)
 
     def test_smart_app_control_evaluating_does_not_refuse(self):
         self.assertEqual(self.refusal(sac=2), 'NONE')

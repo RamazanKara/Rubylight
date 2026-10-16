@@ -87,7 +87,7 @@ class SoakMeasurements(unittest.TestCase):
         self.assertEqual(load_limit(result), 'same-GPU decoder starved by the load; measure with a separate client')
         for failure in ('receiver interoperability failed', 'video was not fully decoded',
                         'the captured audio tone was silent or interrupted', 'missing measurements: decoder_mean_ms',
-                        'host logged an error', 'devices or capture helpers remained after teardown', 'cancel: failed'):
+                        'host logged an error', 'devices remained after teardown', 'cancel: failed'):
             with self.subTest(failure=failure):
                 self.assertIsNone(load_limit(result | dict(failures=result['failures'] + [failure])))
         self.assertIsNone(load_limit(result | dict(load=False)))

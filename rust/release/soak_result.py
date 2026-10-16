@@ -129,7 +129,7 @@ def fault_outcome(samples, injected_at, client_exit, log, windows, fps):
     before = [s for s in samples if s['elapsed_seconds'] <= injected_at and s.get('sessions')]
     if not before:
         return dict(passed=False, outcome='fault did not interrupt an established stream')
-    warning = re.search(r'\bcode="(?:capture_recovery|encoder_recovery|encoder_compute_recovery)"', log)
+    warning = re.search(r'\bcode="(?:capture_recovery|encoder_recovery)"', log)
     warning = warning or re.search(r'capture restarting|encoding failed', log, re.IGNORECASE)
     # The host allows 20 seconds to recover; a complete ten-second receiver
     # window must confirm fresh pictures by 30 seconds after the fault.

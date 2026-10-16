@@ -146,7 +146,7 @@ class SoakMeasurements(unittest.TestCase):
                         fresh_fps=58.1929172, picture_coverage=1.0, arrival_stutters=1, idr_frames=1),
                    dict(elapsed_seconds=13.0033206, seconds=6.6929036, frames=406,
                         fresh_fps=60.5118532, picture_coverage=1.0, arrival_stutters=0, idr_frames=0)]
-        for code in ('capture_recovery', 'encoder_recovery', 'encoder_compute_recovery'):
+        for code in ('capture_recovery', 'encoder_recovery'):
             with self.subTest(code=code):
                 log = f'2026-10-08T12:04:34.039415Z  WARN butterpollo_core::session: Capture interrupted; reopening capture. code="{code}"'
                 result = fault_outcome(samples, 8.5164757, 0, log, windows, 60)

@@ -452,7 +452,6 @@ fn smoke(args: &Args) -> Result<()> {
             &display.name,
             args.hdr,
             &Default::default(),
-            Default::default(),
         )?;
         let deadline = Instant::now() + Duration::from_secs(5);
         loop {

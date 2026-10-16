@@ -16,7 +16,7 @@ Everything Rubylight does, grouped by what you will notice while streaming. For 
 - **Optional adaptive packet pacing.** The existing fast route policy remains the default. Experimental adaptation starts conservatively and responds to reported loss without lowering picture bitrate, at the cost of slower startup and possible probe losses. A suitable fixed limit remains the simpler option for a known constrained path. [Pacing policy](configuration.md#capture-and-video).
 - **Aspect ratio kept.** A source of another shape sits between black bars.
 
-Rubylight encodes on AMD GPUs only: a Radeon RX 6000 (RDNA 2) or newer. H.264 and HEVC work on all of them; AV1 is offered where the GPU's encoder has it (RX 7000 or newer).
+Rubylight encodes on AMD GPUs only: a Radeon RX 6000 (RDNA 2) or newer, on Windows 11 version 25H2 (build 26200) or newer. H.264 and HEVC work on all of them; AV1 is offered where the GPU's encoder has it (RX 7000 or newer).
 
 ## Capture that keeps working
 

@@ -33,7 +33,6 @@ fn virtual_display_mode<'a>(
     config: &'a Config,
     client: &'a butterpollo_core::state::Client,
     app: Option<&'a butterpollo_core::state::App>,
-    windows_11: bool,
 ) -> &'a str {
     client
         .extra
@@ -46,7 +45,7 @@ fn virtual_display_mode<'a>(
                 .and_then(serde_json::Value::as_str)
                 .filter(|s| !s.is_empty())
         })
-        .unwrap_or(config.virtual_display_mode(windows_11))
+        .unwrap_or(config.virtual_display_mode())
 }
 
 pub(crate) fn virtual_display_layout<'a>(
@@ -689,12 +688,7 @@ impl Prepared {
         } else {
             None
         };
-        let mode = virtual_display_mode(
-            config,
-            &launch.client,
-            app.as_ref(),
-            butterpollo_windows::display::windows_11(),
-        );
+        let mode = virtual_display_mode(config, &launch.client, app.as_ref());
         let client_virtual = launch
             .options
             .get("virtualDisplay")
@@ -1606,23 +1600,19 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            virtual_display_mode(&Config::default(), &client, None, false),
-            "disabled"
-        );
-        assert_eq!(
-            virtual_display_mode(&Config::default(), &client, None, true),
+            virtual_display_mode(&Config::default(), &client, None),
             "per_client"
         );
-        assert_eq!(virtual_display_mode(&config, &client, None, true), "shared");
+        assert_eq!(virtual_display_mode(&config, &client, None), "shared");
         assert_eq!(
-            virtual_display_mode(&config, &client, Some(&app), true),
+            virtual_display_mode(&config, &client, Some(&app)),
             "per_client"
         );
         client
             .extra
             .insert("virtual_display_mode".into(), "disabled".into());
         assert_eq!(
-            virtual_display_mode(&config, &client, Some(&app), true),
+            virtual_display_mode(&config, &client, Some(&app)),
             "disabled"
         );
         for inherited in ["global", ""] {
@@ -1630,10 +1620,10 @@ mod tests {
                 .extra
                 .insert("virtual_display_mode".into(), inherited.into());
             assert_eq!(
-                virtual_display_mode(&config, &client, Some(&app), true),
+                virtual_display_mode(&config, &client, Some(&app)),
                 "per_client"
             );
-            assert_eq!(virtual_display_mode(&config, &client, None, true), "shared");
+            assert_eq!(virtual_display_mode(&config, &client, None), "shared");
         }
     }
 

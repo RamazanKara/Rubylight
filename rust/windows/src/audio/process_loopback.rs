@@ -1,4 +1,4 @@
-//! Application loopback via Windows' process-tree capture API (build 20348+).
+//! Application loopback via Windows' process-tree capture API.
 //! Activation is bounded; a failure never falls back to an endpoint capture.
 use std::{
     mem::{ManuallyDrop, size_of},
@@ -105,9 +105,7 @@ impl Activation {
                 &callback,
             )
         }
-        .context(
-            "Windows process audio activation failed (requires Windows build 20348 or later)",
-        )?;
+        .context("Windows process audio activation failed")?;
         Ok(Self {
             process,
             receiver,
@@ -123,8 +121,10 @@ impl Activation {
     pub fn poll(&self, output_channels: usize) -> Result<Option<super::Loopback>> {
         match self.receiver.try_recv() {
             Ok(result) => {
-                let client = result.context("Windows process audio capture is unavailable (requires build 20348 or later)")?
-                .resolve().context("opening the process audio client")?;
+                let client = result
+                    .context("Windows process audio capture is unavailable")?
+                    .resolve()
+                    .context("opening the process audio client")?;
                 super::Loopback::from_process_client(output_channels, self.process.clone(), client)
                     .map(Some)
             }

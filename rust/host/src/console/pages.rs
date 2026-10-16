@@ -628,14 +628,7 @@ async fn settings(
     ) + &select(
         "virtual_display_mode",
         "Virtual display",
-        &value(
-            "virtual_display_mode",
-            if butterpollo_windows::display::windows_11() {
-                "per_client"
-            } else {
-                "disabled"
-            },
-        ),
+        &value("virtual_display_mode", "per_client"),
         &[
             ("disabled", "Disabled"),
             ("per_client", "One for each device"),

@@ -62,7 +62,7 @@ impl GameAudio {
         })
     }
     fn failed(&mut self, s: &Session, message: &str) {
-        s.launch.warnings.set("audio_game_only", format!("Game-only audio is unavailable ({message}); sending silence. No other application audio is captured. Use a verified game launch on Windows build 20348 or newer, or explicitly select System audio."));
+        s.launch.warnings.set("audio_game_only", format!("Game-only audio is unavailable ({message}); sending silence. No other application audio is captured. Use a verified game launch, or explicitly select System audio."));
         self.pending = None;
         self.check = Instant::now() + Duration::from_secs(5);
     }

@@ -8,6 +8,10 @@ pub(crate) struct Fixture {
 }
 impl Fixture {
     pub fn new() -> Self {
+        Self::load(Self::profile())
+    }
+    /// A new profile directory holding the fixture's host identity.
+    pub fn profile() -> std::path::PathBuf {
         static IDENTITY: OnceLock<Identity> = OnceLock::new();
         let identity = IDENTITY.get_or_init(|| Identity::generate().unwrap());
         let directory =
@@ -23,6 +27,10 @@ impl Fixture {
             &identity.private_pem,
         )
         .unwrap();
+        directory
+    }
+    /// The host from the profile in `directory`.
+    pub fn load(directory: std::path::PathBuf) -> Self {
         let host = Host::load(directory.clone(), directory.join("assets"), None).unwrap();
         // Supply capabilities without starting the GPU probe or host runtime.
         host.codecs.store(0x1 | 0x100 | 0x200, Ordering::Release);

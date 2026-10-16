@@ -15,6 +15,71 @@ pub const RETIRED_VALUES: &[(&str, &str, &str)] = &[
     ("gamepad", "x360", "vhf_xbox_one"),
     ("gamepad", "ds4", "vhf_ds4"),
 ];
+/// Settings whose values select features Rubylight removed. A value of
+/// `key` that `retired` matches is replaced by `current` wherever the host
+/// reads settings, and a value read from sunshine.conf is reported once
+/// (see [`Config::load_retiring`]). Another setting's removed values take
+/// one more row.
+pub struct RetiredSetting {
+    pub key: &'static str,
+    pub retired: fn(&str) -> bool,
+    pub current: &'static str,
+    /// Why the value no longer applies, for the warning.
+    pub reason: &'static str,
+}
+pub const RETIRED_SETTINGS: &[RetiredSetting] = &[
+    RetiredSetting {
+        key: "encoder",
+        retired: crate::encoder_policy::retired,
+        current: "amf",
+        reason: "this host encodes H.264, HEVC and AV1 with AMF only",
+    },
+    RetiredSetting {
+        key: "frame_limiter_provider",
+        retired: crate::framegen::retired_provider,
+        current: "auto",
+        reason: "RTSS is the only frame limiter",
+    },
+    RetiredSetting {
+        key: "rtss_frame_limit_type",
+        retired: crate::framegen::retired_limit_type,
+        current: "async",
+        reason: "RTSS's Reflex mode needs an NVIDIA GPU",
+    },
+    RetiredSetting {
+        key: "frame-generation-mode",
+        retired: crate::framegen::retired_generation,
+        current: "none",
+        reason: "driver frame generation needs an NVIDIA GPU",
+    },
+    RetiredSetting {
+        key: "frame-generation-provider",
+        retired: crate::framegen::retired_generation,
+        current: "none",
+        reason: "driver frame generation needs an NVIDIA GPU",
+    },
+];
+/// A retired value the host replaced while reading the configuration.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Retired {
+    pub key: String,
+    pub value: String,
+    pub current: &'static str,
+    pub reason: &'static str,
+}
+/// The one-time warning for values replaced in sunshine.conf.
+pub fn retired_warning(retired: &[Retired]) -> Option<String> {
+    let changes: Vec<_> = retired
+        .iter()
+        .map(|r| format!("{} {} is now {} ({})", r.key, r.value, r.current, r.reason))
+        .collect();
+    (!changes.is_empty()).then(|| {
+        format!(
+            "Saved settings for removed features were changed: {}. The configuration file now holds the new values; check them in Settings.",
+            changes.join("; ")
+        )
+    })
+}
 pub const HARDWARE_METRICS: &[&str] = &[
     "cpu_usage_percent",
     "gpu_usage_percent",
@@ -36,8 +101,6 @@ pub const HARDWARE_METRICS: &[&str] = &[
 /// under both names.
 pub const RENAMED_KEYS: &[(&str, &str)] = &[
     ("rtss_path", "rtss_install_path"),
-    ("rtss_disable_vsync_ullm", "frame_limiter_disable_vsync"),
-    ("nvenc_force_split_encode", "nvenc_split_encode"),
     (
         "dd_vdd_static_monitor_count",
         "dd_virtual_display_permanent_count",
@@ -46,19 +109,30 @@ pub const RENAMED_KEYS: &[(&str, &str)] = &[
     // that stays.
     ("rtx_hdr_peak_brightness", "hdr_peak_brightness"),
 ];
-/// Settings of features Rubylight removed: NVIDIA RTX HDR (TrueHDR). Saved
-/// profiles, apps and devices can still carry them; the host drops them
-/// without a warning, and the next save leaves them out.
+/// Settings of features Rubylight removed: NVIDIA RTX HDR (TrueHDR), the
+/// NVIDIA driver's VSYNC override (all the dummy plug workaround still
+/// did), and the software encoders' settings. Saved profiles, apps and
+/// devices can still carry them; the host drops them without a warning,
+/// and the next save leaves them out.
 pub const REMOVED_KEYS: &[&str] = &[
     "rtx_hdr",
     "rtx_hdr_sdr_brightness",
     "rtx_hdr_contrast",
     "rtx_hdr_saturation",
     "rtx_hdr_middle_gray",
+    "frame_limiter_disable_vsync",
+    "rtss_disable_vsync_ullm",
+    "dd_wa_dummy_plug_hdr10",
+    "min_threads",
+    "crf",
+    "qp",
 ];
-/// Whether `key` belongs to a removed feature (`REMOVED_KEYS`).
+/// The settings of the removed NVENC, Quick Sync and software encoders.
+pub const REMOVED_PREFIXES: &[&str] = &["nvenc_", "qsv_", "sw_"];
+/// Whether `key` belongs to a removed feature (`REMOVED_KEYS`,
+/// `REMOVED_PREFIXES`).
 pub fn removed(key: &str) -> bool {
-    REMOVED_KEYS.contains(&key)
+    REMOVED_KEYS.contains(&key) || REMOVED_PREFIXES.iter().any(|p| key.starts_with(p))
 }
 /// The name the host reads `key` under now.
 pub fn current_name(key: &str) -> &str {
@@ -69,10 +143,21 @@ pub fn current_name(key: &str) -> &str {
 }
 /// The current value for a retired `value` of `key`, if it is one.
 pub fn replacement(key: &str, value: &str) -> Option<&'static str> {
+    retirement(key, value).map(|(current, _)| current)
+}
+/// The current value for a retired `value` of `key`, and why it changed.
+fn retirement(key: &str, value: &str) -> Option<(&'static str, &'static str)> {
+    let value = unquote(value.trim());
     RETIRED_VALUES
         .iter()
         .find(|(k, old, _)| *k == key && *old == value)
-        .map(|(_, _, new)| *new)
+        .map(|(_, _, new)| (*new, "the controller type was replaced"))
+        .or_else(|| {
+            RETIRED_SETTINGS
+                .iter()
+                .find(|setting| setting.key == key && (setting.retired)(value))
+                .map(|setting| (setting.current, setting.reason))
+        })
 }
 
 /// Replace retired values among an app's or a device's settings, which are
@@ -118,12 +203,18 @@ impl Config {
     /// continues until its brackets close. A setting saved under an earlier
     /// name is read under its current one (`RENAMED_KEYS`).
     pub fn parse(text: &str) -> Result<Self> {
-        let mut config = Self::parse_names_as_written(text)?;
-        config.rename_keys();
-        Ok(config)
+        Ok(Self::parse_retiring(text)?.0)
     }
-    fn parse_names_as_written(text: &str) -> Result<Self> {
+    /// `parse`, and the retired values it replaced (`RETIRED_VALUES`,
+    /// `RETIRED_SETTINGS`).
+    pub fn parse_retiring(text: &str) -> Result<(Self, Vec<Retired>)> {
+        let (mut config, retired) = Self::parse_names_as_written(text)?;
+        config.rename_keys();
+        Ok((config, retired))
+    }
+    fn parse_names_as_written(text: &str) -> Result<(Self, Vec<Retired>)> {
         let mut values = BTreeMap::new();
+        let mut retired = Vec::new();
         let mut lines = text.lines().enumerate();
         while let Some((number, raw)) = lines.next() {
             let number = number + 1;
@@ -183,18 +274,23 @@ impl Config {
             }
             // The console then shows, and the next save writes, the
             // replacement.
-            if let Some(current) = replacement(key, &value) {
+            if let Some((current, reason)) = retirement(key, &value) {
                 tracing::info!(
                     key,
                     retired = value,
                     current,
                     "retired setting value replaced"
                 );
-                value = current.to_owned();
+                retired.push(Retired {
+                    key: key.to_owned(),
+                    value: std::mem::replace(&mut value, current.to_owned()),
+                    current,
+                    reason,
+                });
             }
             values.insert(key.to_owned(), value);
         }
-        Ok(Self { values })
+        Ok((Self { values }, retired))
     }
     /// Move settings found under an earlier name to their current one. When
     /// both names are set the current one is what the host has read, so it
@@ -211,11 +307,15 @@ impl Config {
         }
     }
     pub fn load(path: &Path) -> Result<Self> {
+        Ok(Self::load_retiring(path)?.0)
+    }
+    /// `load`, and the retired values it replaced. The host writes the
+    /// replacements back and warns once, so the next start is quiet.
+    pub fn load_retiring(path: &Path) -> Result<(Self, Vec<Retired>)> {
         match std::fs::read(path) {
-            Ok(bytes) => {
-                Self::parse(&decode(&bytes)).with_context(|| format!("reading {}", path.display()))
-            }
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Self::default()),
+            Ok(bytes) => Self::parse_retiring(&decode(&bytes))
+                .with_context(|| format!("reading {}", path.display())),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Default::default()),
             Err(e) => Err(e.into()),
         }
     }
@@ -413,6 +513,9 @@ impl Config {
             {
                 bail!("configuration values cannot inject new keys");
             }
+            // A client or an old console sending a retired value saves its
+            // replacement, as the file would be read.
+            let value = replacement(key, &value).map_or(value, str::to_owned);
             next.values.insert(key.clone(), value);
         }
         // Only what changes is checked: a value the file already had (the
@@ -674,7 +777,6 @@ pub fn override_allowed(key: &str) -> bool {
         "dd_virtual_display_scale",
         "dd_virtual_display_permanent_count",
         "dd_mode_remapping",
-        "dd_wa_dummy_plug_hdr10",
         "max_bitrate",
         "minimum_fps_target",
         "stream_reconfigure",
@@ -686,8 +788,6 @@ pub fn override_allowed(key: &str) -> bool {
         "keyframe_loss_pacing",
         "video_max_batch_size_kb",
         "pyrowave_critical_fec_percentage",
-        "qp",
-        "min_threads",
         "hevc_mode",
         "av1_mode",
         "capture",
@@ -702,21 +802,7 @@ pub fn override_allowed(key: &str) -> bool {
         "frame_limiter_fps_limit",
         "frame_limiter_auto_virtual_framegen",
         "rtss_frame_limit_type",
-        "frame_limiter_disable_vsync",
         // Encoder tuning
-        "nvenc_preset",
-        "nvenc_twopass",
-        "nvenc_spatial_aq",
-        "nvenc_temporal_aq",
-        "nvenc_split_encode",
-        "nvenc_vbv_increase",
-        "nvenc_realtime_hags",
-        "nvenc_latency_over_power",
-        "nvenc_opengl_vulkan_on_dxgi",
-        "nvenc_h264_cavlc",
-        "qsv_preset",
-        "qsv_coder",
-        "qsv_slow_hevc",
         "amd_usage",
         "amd_rc",
         "amd_peak_bitrate_ratio",
@@ -737,8 +823,6 @@ pub fn override_allowed(key: &str) -> bool {
         "amd_av1_screen_content",
         "amd_av1_latency_mode",
         "hdr_peak_brightness",
-        "sw_preset",
-        "sw_tune",
     ];
     ALLOWED.contains(&key)
 }
@@ -1105,7 +1189,6 @@ mod tests {
             "dd_hdr_option",
             "dd_mode_remapping",
             "encoder",
-            "nvenc_preset",
             "amd_quality",
             "frame_limiter_fps_limit",
             "adaptive_fec",
@@ -1203,6 +1286,92 @@ mod tests {
             assert!(config.display_request(1920, 1080, 60).is_err());
         }
     }
+    /// A profile from a host that streamed with NVIDIA, Intel or software
+    /// encoding, or limited frames in the NVIDIA driver.
+    const REMOVED_FEATURES: &str = "encoder = nvenc\nframe_limiter_provider = nvidia-control-panel\nrtss_frame_limit_type = nvidia-reflex\nnvenc_preset = 4\nqsv_preset = slow\nsw_preset = fast\nmin_threads = 4\nframe_limiter_disable_vsync = true\nrtss_disable_vsync_ullm = true\nnvenc_force_split_encode = forced\ndd_wa_dummy_plug_hdr10 = true\nport = 48123\n";
+    #[test]
+    fn removed_encoders_and_nvidia_limiters_migrate_with_one_report() {
+        let (config, retired) = Config::parse_retiring(REMOVED_FEATURES).unwrap();
+        assert_eq!(config.get("encoder", ""), "amf");
+        assert_eq!(config.get("frame_limiter_provider", ""), "auto");
+        assert_eq!(config.get("rtss_frame_limit_type", ""), "async");
+        assert_eq!(config.port().unwrap(), 48123);
+        // The removed encoders' and the NVIDIA driver's own settings go quietly.
+        assert_eq!(config.values.len(), 4, "{:?}", config.values);
+        assert_eq!(
+            retired
+                .iter()
+                .map(|r| (r.key.as_str(), r.value.as_str(), r.current))
+                .collect::<Vec<_>>(),
+            [
+                ("encoder", "nvenc", "amf"),
+                ("frame_limiter_provider", "nvidia-control-panel", "auto"),
+                ("rtss_frame_limit_type", "nvidia-reflex", "async"),
+            ]
+        );
+        let warning = retired_warning(&retired).unwrap();
+        assert!(warning.contains("encoder nvenc is now amf"), "{warning}");
+        assert!(warning.contains("frame_limiter_provider nvidia-control-panel is now auto"));
+        // What the host writes back reads without a report.
+        let (again, retired) = Config::parse_retiring(&config.text()).unwrap();
+        assert_eq!(again.values, config.values);
+        assert!(retired.is_empty());
+        assert!(retired_warning(&retired).is_none());
+    }
+    #[test]
+    fn every_encoder_the_host_no_longer_has_becomes_amf() {
+        for name in [
+            "nvenc",
+            "nvenc_experimental",
+            "nvenc_legacy",
+            "quicksync",
+            "qsv",
+            "software",
+            "mediafoundation",
+            "\"nvenc\"",
+            "something_else",
+        ] {
+            let (config, retired) = Config::parse_retiring(&format!("encoder = {name}\n")).unwrap();
+            assert_eq!(config.get("encoder", ""), "amf", "{name}");
+            assert_eq!(retired.len(), 1, "{name}");
+        }
+        for kept in ["auto", "amf", "pyrowave", "amdvce", "amdvce_legacy"] {
+            let (config, retired) = Config::parse_retiring(&format!("encoder = {kept}\n")).unwrap();
+            assert_eq!(config.get("encoder", ""), kept);
+            assert!(retired.is_empty(), "{kept}");
+        }
+        for (key, old, current) in [
+            ("frame_limiter_provider", "nvcp", "auto"),
+            ("frame_limiter_provider", "NVIDIA", "auto"),
+            ("rtss_frame_limit_type", "reflex", "async"),
+            ("rtss_frame_limit_type", "nvidia reflex", "async"),
+        ] {
+            let config = Config::parse(&format!("{key} = {old}\n")).unwrap();
+            assert_eq!(config.get(key, ""), current, "{key} {old}");
+        }
+        for (key, kept) in [
+            ("frame_limiter_provider", "rtss"),
+            ("frame_limiter_provider", "none"),
+            ("rtss_frame_limit_type", "back-edge-sync"),
+        ] {
+            let config = Config::parse(&format!("{key} = {kept}\n")).unwrap();
+            assert_eq!(config.get(key, ""), kept);
+        }
+        // A save sending a removed encoder stores AMF.
+        let mut config = Config::default();
+        change(&mut config, "encoder", "nvenc").unwrap();
+        assert_eq!(config.get("encoder", ""), "amf");
+        // An app's or a device's own overrides.
+        let mut app = serde_json::json!({"name": "Game", "frame-generation-mode": "nvidia-smooth-motion",
+            "config-overrides": {"encoder": "software", "frame_limiter_provider": "nvidia-control-panel"}});
+        assert!(replace_retired_in_app(app.as_object_mut().unwrap()));
+        assert_eq!(
+            app,
+            serde_json::json!({"name": "Game", "frame-generation-mode": "none",
+                "config-overrides": {"encoder": "amf", "frame_limiter_provider": "auto"}})
+        );
+        assert!(!replace_retired_in_app(app.as_object_mut().unwrap()));
+    }
     #[test]
     fn retired_vigem_controllers_become_their_vhf_pads() {
         let c = Config::parse("gamepad = x360\n").unwrap();
@@ -1243,15 +1412,13 @@ mod tests {
     }
     /// A Vibepollo or Rubylight 2.0 file with every setting under its
     /// earlier name, a setting this host does not know, and a comment.
-    const EARLIER_NAMES: &str = "# Vibepollo\nrtss_path = D:\\Tools\\RTSS\nrtss_disable_vsync_ullm = enabled\nnvenc_force_split_encode = driver_decides\ndd_vdd_static_monitor_count = \"2\"\nrtx_hdr_peak_brightness = 1400\nport = 48123\nfuture_setting = kept\n";
+    const EARLIER_NAMES: &str = "# Vibepollo\nrtss_path = D:\\Tools\\RTSS\ndd_vdd_static_monitor_count = \"2\"\nrtx_hdr_peak_brightness = 1400\nport = 48123\nfuture_setting = kept\n";
     #[test]
     fn settings_under_an_earlier_name_are_read_under_the_current_one() {
         let c = Config::parse(EARLIER_NAMES).unwrap();
         // What the host used before through its fallbacks, now under the
         // names the console shows.
         assert_eq!(c.get("rtss_install_path", ""), "D:\\Tools\\RTSS");
-        assert!(c.boolean("frame_limiter_disable_vsync", false));
-        assert_eq!(c.get("nvenc_split_encode", "auto"), "driver_decides");
         assert_eq!(c.integer("dd_virtual_display_permanent_count", -1), 2);
         assert_eq!(c.integer("hdr_peak_brightness", 0), 1400);
         for (old, _) in RENAMED_KEYS {
@@ -1261,14 +1428,12 @@ mod tests {
         assert_eq!(c.port().unwrap(), 48123);
         // With both names set the host read the current one; it stays.
         let both = Config::parse(
-            "rtss_disable_vsync_ullm = true\nframe_limiter_disable_vsync = false\nnvenc_split_encode = disabled\nnvenc_force_split_encode = forced\nrtss_install_path = C:\\RTSS\nrtss_path = D:\\RTSS\ndd_virtual_display_permanent_count = 0\ndd_vdd_static_monitor_count = 3\n",
+            "rtss_install_path = C:\\RTSS\nrtss_path = D:\\RTSS\ndd_virtual_display_permanent_count = 0\ndd_vdd_static_monitor_count = 3\n",
         )
         .unwrap();
-        assert!(!both.boolean("frame_limiter_disable_vsync", true));
-        assert_eq!(both.get("nvenc_split_encode", ""), "disabled");
         assert_eq!(both.get("rtss_install_path", ""), "C:\\RTSS");
         assert_eq!(both.integer("dd_virtual_display_permanent_count", -1), 0);
-        assert_eq!(both.values.len(), 4);
+        assert_eq!(both.values.len(), 2);
         assert_eq!(current_name("rtss_path"), "rtss_install_path");
         assert_eq!(current_name("rtss_install_path"), "rtss_install_path");
         assert_eq!(current_name("port"), "port");
@@ -1288,10 +1453,10 @@ mod tests {
     }
     #[test]
     fn a_setting_sent_under_an_earlier_name_is_saved_under_the_current_one() {
-        let mut config = Config::parse("frame_limiter_disable_vsync = false\n").unwrap();
-        change(&mut config, "rtss_disable_vsync_ullm", "true").unwrap();
-        assert!(config.boolean("frame_limiter_disable_vsync", false));
-        assert!(!config.values.contains_key("rtss_disable_vsync_ullm"));
+        let mut config = Config::parse("dd_virtual_display_permanent_count = 1\n").unwrap();
+        change(&mut config, "dd_vdd_static_monitor_count", "3").unwrap();
+        assert_eq!(config.integer("dd_virtual_display_permanent_count", 0), 3);
+        assert!(!config.values.contains_key("dd_vdd_static_monitor_count"));
         // Sent together, the current name wins, as in the file.
         let mut object = serde_json::Map::new();
         object.insert("rtss_path".into(), "D:\\Old".into());
@@ -1430,7 +1595,7 @@ mod tests {
         let mut c = Config::default();
         assert!(
             c.update(
-                serde_json::json!({"port":65535,"encoder":"nvenc"})
+                serde_json::json!({"port":65535,"encoder":"amf"})
                     .as_object()
                     .unwrap()
             )
@@ -1439,7 +1604,7 @@ mod tests {
         assert!(c.values.is_empty());
         assert!(
             c.update(
-                serde_json::json!({"encoder":"software\nport=1"})
+                serde_json::json!({"encoder":"amf\nport=1"})
                     .as_object()
                     .unwrap()
             )

@@ -252,7 +252,7 @@ mod tests {
         let fixture = Fixture::new();
         std::fs::write(
             &fixture.host.config_path,
-            "rtss_disable_vsync_ullm = true\nnvenc_force_split_encode = forced\nrtss_path = D:\\RTSS\ndd_vdd_static_monitor_count = 2\nframe_limiter_disable_vsync_extra = kept\n",
+            "rtss_path = D:\\RTSS\ndd_vdd_static_monitor_count = 2\nrtx_hdr_peak_brightness = 1200\nfuture_setting_extra = kept\n",
         )
         .unwrap();
         let host = Host::load(
@@ -262,14 +262,12 @@ mod tests {
         )
         .unwrap();
         let shown = handle(&host, "GET", "/api/config", &Value::Null).unwrap();
-        assert_eq!(shown["frame_limiter_disable_vsync"], true);
-        assert_eq!(shown["nvenc_split_encode"], "forced");
+        assert_eq!(shown["hdr_peak_brightness"], 1200);
         assert_eq!(shown["rtss_install_path"], "D:\\RTSS");
         assert_eq!(shown["dd_virtual_display_permanent_count"], 2);
-        assert_eq!(shown["frame_limiter_disable_vsync_extra"], "kept");
+        assert_eq!(shown["future_setting_extra"], "kept");
         for old in [
-            "rtss_disable_vsync_ullm",
-            "nvenc_force_split_encode",
+            "rtx_hdr_peak_brightness",
             "rtss_path",
             "dd_vdd_static_monitor_count",
         ] {
@@ -279,28 +277,35 @@ mod tests {
         // current names, so turning the setting off in the console turns it
         // off, and a later reset cannot bring back the earlier value.
         let saved = std::fs::read_to_string(&host.config_path).unwrap();
-        assert!(saved.contains("rtss_disable_vsync_ullm"), "{saved}");
+        assert!(saved.contains("dd_vdd_static_monitor_count"), "{saved}");
         handle(
             &host,
             "PATCH",
             "/api/config",
-            &json!({"frame_limiter_disable_vsync": false}),
+            &json!({"dd_virtual_display_permanent_count": 0}),
         )
         .unwrap();
         let saved = std::fs::read_to_string(&host.config_path).unwrap();
-        assert!(!saved.contains("rtss_disable_vsync_ullm"), "{saved}");
+        assert!(!saved.contains("dd_vdd_static_monitor_count"), "{saved}");
         let reloaded = Config::load(&host.config_path).unwrap();
-        assert!(!reloaded.boolean("frame_limiter_disable_vsync", true));
-        assert_eq!(reloaded.get("nvenc_split_encode", ""), "forced");
+        assert_eq!(
+            reloaded.integer("dd_virtual_display_permanent_count", -1),
+            0
+        );
+        assert_eq!(reloaded.integer("hdr_peak_brightness", 0), 1200);
         handle(
             &host,
             "PATCH",
             "/api/config",
-            &json!({"frame_limiter_disable_vsync": null}),
+            &json!({"dd_virtual_display_permanent_count": null}),
         )
         .unwrap();
         let reset = Config::load(&host.config_path).unwrap();
-        assert!(!reset.values.contains_key("frame_limiter_disable_vsync"));
+        assert!(
+            !reset
+                .values
+                .contains_key("dd_virtual_display_permanent_count")
+        );
     }
 
     #[test]

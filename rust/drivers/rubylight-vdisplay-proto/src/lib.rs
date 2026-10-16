@@ -15,8 +15,8 @@
 //!   frame into a free texture, signals the written fence, stamps the present QPC into the
 //!   header and signals the event; the host signals the released fence once it is done with a
 //!   texture. The header's per-slot state words say who holds which texture. Pixels never
-//!   leave the GPU. Hosts and drivers from before [`control::CAP_FENCE_RING`] use keyed
-//!   mutexes instead ([`control::SetFrameRingRequest`]), which both sides still speak.
+//!   leave the GPU. Hosts and drivers from before [`control::CAP_FENCE_RING`] used keyed
+//!   mutexes instead ([`control::SetFrameRingRequest`]); the D3D12 driver refuses them.
 //!
 //! [`modes`] and [`edid`] hold the arithmetic the driver advertises to Windows. They live here
 //! because the driver only builds under the WDK, and this crate runs `cargo test` anywhere.

@@ -386,6 +386,8 @@ pub fn amf(config: &Config, stream: &Negotiated) -> Result<Vec<Property>> {
         if !matches!(tiles, 0 | 1 | 2 | 4) {
             bail!("amd_av1_tiles must be 0, 1, 2 or 4");
         }
+        // Tiles derived from the client's slice request are best-effort, like
+        // slices below; a tile count the user set must apply.
         if tiles > 0 || stream.slices > 1 {
             add(
                 "Av1NumTilesPerFrame".into(),
@@ -394,14 +396,18 @@ pub fn amf(config: &Config, stream: &Negotiated) -> Result<Vec<Property>> {
                 } else {
                     tiles
                 }),
-                true,
+                tiles > 0,
             );
         }
     } else if stream.slices > 1 {
+        // The client's slice request is a decoder hint (Moonlight-Switch asks
+        // for four even when it decodes in hardware). A driver that rejects
+        // the count keeps its own and the stream starts, instead of failing
+        // the encoder.
         add(
             format!("{prefix}SlicesPerFrame"),
             Value::Integer(stream.slices as i64),
-            true,
+            false,
         );
     }
     let references = stream
@@ -872,6 +878,48 @@ mod tests {
             );
             assert_eq!(amf_ltr_frames(&config, &stream), 0);
         }
+    }
+
+    #[test]
+    fn client_slice_requests_are_best_effort_but_configured_tiles_are_required() {
+        let find = |properties: &[Property], name: &str| {
+            properties
+                .iter()
+                .find(|p| p.name == name)
+                .map(|p| (p.value, p.required))
+        };
+        for (codec, name) in [(0, "SlicesPerFrame"), (1, "HevcSlicesPerFrame")] {
+            let stream = Negotiated {
+                codec,
+                slices: 4,
+                ..Default::default()
+            };
+            let properties = amf(&Config::default(), &stream).unwrap();
+            assert_eq!(find(&properties, name), Some((Value::Integer(4), false)));
+            let single = Negotiated {
+                codec,
+                slices: 1,
+                ..Default::default()
+            };
+            let properties = amf(&Config::default(), &single).unwrap();
+            assert_eq!(find(&properties, name), None);
+        }
+        let av1 = Negotiated {
+            codec: 2,
+            slices: 4,
+            ..Default::default()
+        };
+        let properties = amf(&Config::default(), &av1).unwrap();
+        assert_eq!(
+            find(&properties, "Av1NumTilesPerFrame"),
+            Some((Value::Integer(4), false))
+        );
+        let configured = Config::parse("amd_av1_tiles=2\n").unwrap();
+        let properties = amf(&configured, &av1).unwrap();
+        assert_eq!(
+            find(&properties, "Av1NumTilesPerFrame"),
+            Some((Value::Integer(2), true))
+        );
     }
 
     #[test]

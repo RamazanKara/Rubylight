@@ -126,7 +126,7 @@ fn main() -> anyhow::Result<()> {
         Ok(image)
     };
     let first = read(0)?;
-    let mut encoder = Encoder::new_gpu_options(&config, "amf", &first, &tuning)?;
+    let mut encoder = Encoder::new_gpu_options(&config, &first, &tuning)?;
     if config.hdr {
         // As a stream does before its first frame: the display's values,
         // with optional content light levels (--max-cll N --max-fall N).

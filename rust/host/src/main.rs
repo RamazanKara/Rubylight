@@ -470,7 +470,7 @@ fn smoke(args: &Args) -> Result<()> {
             },
             ..Default::default()
         };
-        let mut encoder = butterpollo_windows::encoder::Encoder::new(&cfg, name, "")?;
+        let mut encoder = butterpollo_windows::encoder::Encoder::new(&cfg, "")?;
         let mut packets = 0;
         let mut bytes = 0;
         for i in 0..30 {

@@ -77,8 +77,6 @@ struct Target {
 enum Layout {
     Nv12,
     P010,
-    Ayuv,
-    Planar444,
 }
 pub(crate) struct Converter {
     gpu: Device,
@@ -170,19 +168,17 @@ impl Converter {
                 None,
                 Some(&mut vertex),
             )?;
-            let layout = match (config.yuv444, config.ten_bit()) {
-                (false, false) => Layout::Nv12,
-                (false, true) => Layout::P010,
-                (true, false) => Layout::Ayuv,
-                (true, true) => Layout::Planar444,
+            let layout = if config.ten_bit() {
+                Layout::P010
+            } else {
+                Layout::Nv12
             };
             gpu.device.CreatePixelShader(
                 &compile(
-                    match layout {
-                        Layout::Ayuv => b"packed444\0",
-                        Layout::Planar444 => b"planar444\0",
-                        _ if config.chroma_packing != 0 => b"chroma_pack_y\0",
-                        _ => b"luma\0",
+                    if config.chroma_packing != 0 {
+                        b"chroma_pack_y\0"
+                    } else {
+                        b"luma\0"
                     },
                     b"ps_5_0\0",
                 )?,
@@ -274,18 +270,12 @@ impl Converter {
             let mut texture = None;
             let mut desc = D3D11_TEXTURE2D_DESC {
                 Width: self.width,
-                Height: if self.layout == Layout::Planar444 {
-                    self.height * 3
-                } else {
-                    self.height
-                },
+                Height: self.height,
                 MipLevels: 1,
                 ArraySize: 1,
                 Format: match self.layout {
                     Layout::Nv12 => DXGI_FORMAT_NV12,
                     Layout::P010 => DXGI_FORMAT_P010,
-                    Layout::Ayuv => DXGI_FORMAT_AYUV,
-                    Layout::Planar444 => DXGI_FORMAT_R16_UINT,
                 },
                 SampleDesc: DXGI_SAMPLE_DESC {
                     Count: 1,
@@ -335,14 +325,11 @@ impl Converter {
             let luma = view(match self.layout {
                 Layout::Nv12 => DXGI_FORMAT_R8_UNORM,
                 Layout::P010 => DXGI_FORMAT_R16_UNORM,
-                Layout::Ayuv => DXGI_FORMAT_R8G8B8A8_UNORM,
-                Layout::Planar444 => DXGI_FORMAT_R16_UINT,
             })?;
-            let chroma = match self.layout {
-                Layout::Nv12 => Some(view(DXGI_FORMAT_R8G8_UNORM)?),
-                Layout::P010 => Some(view(DXGI_FORMAT_R16G16_UNORM)?),
-                _ => None,
-            };
+            let chroma = Some(view(match self.layout {
+                Layout::Nv12 => DXGI_FORMAT_R8G8_UNORM,
+                Layout::P010 => DXGI_FORMAT_R16G16_UNORM,
+            })?);
             let unordered = if self.compute.is_some() {
                 let formats = if self.layout == Layout::Nv12 {
                     [DXGI_FORMAT_R8_UNORM, DXGI_FORMAT_R8G8_UNORM]
@@ -454,12 +441,7 @@ impl Converter {
                 {
                     context.RSSetViewports(Some(&[D3D11_VIEWPORT {
                         Width: (self.width / divisor) as f32,
-                        Height: (self.height / divisor
-                            * if self.layout == Layout::Planar444 {
-                                3
-                            } else {
-                                1
-                            }) as f32,
+                        Height: (self.height / divisor) as f32,
                         MinDepth: 0.,
                         MaxDepth: 1.,
                         ..Default::default()

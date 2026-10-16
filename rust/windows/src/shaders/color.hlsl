@@ -213,12 +213,6 @@ void yuv420_cs(uint3 id : SV_DispatchThreadID) {
     lumaPlane[at + uint2(1, 1)] = lumaCode(c11);
     chromaPlane[id.xy] = chromaCode(leftChroma(float2(at), c00, c10, c01, c11));
 }
-float3 yuv444(float2 p) {
-    float3 rgb = nonlinear(p);
-    float3 k = weights();
-    float y = dot(rgb, k);
-    return float3(y, (rgb.b - y) / (2 * (1 - k.b)), (rgb.r - y) / (2 * (1 - k.r)));
-}
 // Version 1 is a permutation of full-resolution quantized Y/U/V. Padding
 // extends the logical edge before conversion, without a chroma filter.
 uint2 packedSize() { return (targetSize + uint2(63, 7)) & ~uint2(63, 7); }
@@ -289,22 +283,6 @@ void chroma_pack_cs(uint3 id : SV_DispatchThreadID) {
     lumaPlane[uint2(id.x, size.y + id.y)] = uv.x;
     lumaPlane[uint2(size.x / 2 + id.x, size.y + id.y)] = uv.y;
     chromaPlane[id.xy] = chromaCode(even);
-}
-// DXGI AYUV has V, U, Y, A byte order in the compatible RGBA render view.
-float4 packed444(float4 p : SV_Position) : SV_Target {
-    float3 yuv = yuv444(p.xy - 0.5);
-    float y = floor(clamp(fullRange != 0 ? 255 * yuv.x : 16 + 219 * yuv.x, 0, 255) + 0.5);
-    float2 uv = floor(clamp(128 + (fullRange != 0 ? 255 : 224) * yuv.yz, 0, 255) + 0.5);
-    return float4(uv.y, uv.x, y, 255) / 255;
-}
-// CUDA imports this single R16_UINT texture into pitched Y/U/V device memory.
-// NVENC's 16-bit 4:4:4 container stores 10-bit codes in the upper bits.
-uint planar444(float4 p : SV_Position) : SV_Target {
-    uint plane = uint(p.y) / targetSize.y;
-    float3 yuv = yuv444(float2(p.x - 0.5, p.y - 0.5 - plane * targetSize.y));
-    float code = plane == 0 ? (fullRange != 0 ? 1023 * yuv.x : 64 + 876 * yuv.x)
-                           : 512 + (fullRange != 0 ? 1023 : 896) * yuv[plane];
-    return uint(floor(clamp(code, 0, 1023) + 0.5)) << 6;
 }
 // PyroWave's planes hold codes over their full range (code / 1023 or 255),
 // one plane each. Shared by the graphics and compute conversions.

@@ -18,8 +18,6 @@ pub fn compile(out: &Path) {
         ("vertex", "vs_5_0"),
         ("luma", "ps_5_0"),
         ("chroma", "ps_5_0"),
-        ("packed444", "ps_5_0"),
-        ("planar444", "ps_5_0"),
         ("pyro_y", "ps_5_0"),
         ("pyro_u", "ps_5_0"),
         ("pyro_v", "ps_5_0"),

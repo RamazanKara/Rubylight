@@ -1185,22 +1185,14 @@ impl Media {
         first: &GpuImage,
         prepared: &crate::display_session::Ready,
         encoder: &mut Option<Encoder>,
-    ) -> Result<Option<&'static str>> {
+    ) -> Result<()> {
         *encoder = Some(Encoder::new_gpu_reported(
             &s.config,
-            c.get("encoder", "auto"),
             first,
             c,
             &s.launch.warnings,
         )?);
         *s.encoder.write().unwrap() = encoder.as_ref().unwrap().backend().into();
-        // A rebuilt encoder keeps the hardware family the stream
-        // started with: while a GPU recovers, "auto" would fall
-        // through to a software encoder and stay there.
-        let pinned_backend = encoder
-            .as_ref()
-            .filter(|e| e.hardware())
-            .map(Encoder::backend);
         let source_refresh_hz = butterpollo_windows::display::mode(&first.gpu.display.display_name)
             .ok()
             .map(|mode| mode.dmDisplayFrequency);
@@ -1236,7 +1228,7 @@ impl Media {
         if let Some(encoder) = encoder.as_mut() {
             encoder.set_hdr_metadata(metadata);
         }
-        Ok(pinned_backend)
+        Ok(())
     }
     fn spawn_audio(
         self: &Arc<Self>,
@@ -1395,7 +1387,7 @@ impl Media {
                             if let Some(image) = latest.wait_for_frame(&timer, &capture_wake, (Instant::now() + Duration::from_millis(50)).min(deadline))? { break image; }
                         }
                     };
-                    let pinned_backend = m.configure_encoder(&s, &c, &first, &prepared, &mut encoder)?;
+                    m.configure_encoder(&s, &c, &first, &prepared, &mut encoder)?;
                     drop(first);
                     let mut staging = None;
                     client_commands = Some(crate::process::ClientCommands::start(&h, &s)?);
@@ -2184,14 +2176,13 @@ impl Media {
                                 let mut tuning = c.clone();
                                 if failures >= 2 {
                                     tuning.values.insert("gpu_compute_conversion".into(), "false".into());
-                                    if butterpollo_windows::compute::enabled(&c) && matches!(pinned_backend, Some("amf" | "pyrowave")) {
+                                    if butterpollo_windows::compute::enabled(&c) {
                                         s.launch.warnings.set("encoder_compute_recovery", "Compute conversion disabled after repeated encoder failures; using the graphics queue for the rest of this session. A busy game can delay frames; lower game GPU load or update the AMD driver, then reconnect to retry compute.");
                                     }
                                 }
                                 progress.mark(crate::stall_watch::Phase::EncoderCreate);
                                 match Encoder::new_gpu_reported(
                                     &stream,
-                                    pinned_backend.unwrap_or(c.get("encoder", "auto")),
                                     &image,
                                     &tuning,
                                     &s.launch.warnings,

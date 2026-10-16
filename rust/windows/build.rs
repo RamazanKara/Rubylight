@@ -12,16 +12,8 @@ fn main() {
     embed_resource::compile_for_examples(&rc, embed_resource::NONE)
         .manifest_optional()
         .unwrap();
-    println!("cargo:rerun-if-env-changed=BUTTERPOLLO_FFMPEG_ROOT");
-    let root=PathBuf::from(env::var("BUTTERPOLLO_FFMPEG_ROOT").expect("set BUTTERPOLLO_FFMPEG_ROOT to the pinned FFmpeg SDK (include/ and lib/); see docs/building.md"));
-    let include = root.join("include");
     let out = PathBuf::from(env::var("OUT_DIR").unwrap());
     shaders::compile(&out);
-    let ff=bindgen::Builder::default().header_contents("ffmpeg.h","#include <libavcodec/avcodec.h>\n#include <libavutil/mastering_display_metadata.h>\n#include <libavutil/opt.h>\n#include <libavutil/imgutils.h>\n#include <libavutil/hwcontext.h>\n#include <libavutil/hwcontext_d3d11va.h>\n#include <libswscale/swscale.h>\n")
-        .clang_arg(format!("-I{}",include.display())).allowlist_type("AV.*|SwsContext")
-        .allowlist_function("avcodec_.*|av_frame_.*|av_mastering_display_metadata_.*|av_content_light_metadata_.*|av_packet_.*|av_new_packet|av_hwdevice_.*|av_hwframe_.*|av_buffer_.*|av_opt_set.*|av_dict_.*|av_strerror|av_image_fill_black|av_pix_fmt_desc_get|sws_.*")
-        .allowlist_var("AV.*|SWS_.*|LIBAV.*").layout_tests(false).derive_debug(false).generate_comments(false).generate().expect("generate FFmpeg C ABI");
-    ff.write_to_file(out.join("ffmpeg.rs")).unwrap();
     // AMD's AMF headers, vendored in include/AMF.
     println!("cargo:rerun-if-changed=include/AMF");
     let amf_include = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap()).join("include");
@@ -46,29 +38,4 @@ fn main() {
         .layout_tests(false).derive_debug(false).generate_comments(false)
         .generate().expect("generate PyroWave C ABI");
     bindings.write_to_file(out.join("pyrowave.rs")).unwrap();
-    println!(
-        "cargo:rustc-link-search=native={}",
-        root.join("lib").display()
-    );
-    if let Ok(path) = env::var("BUTTERPOLLO_SYSTEM_LIBS") {
-        println!("cargo:rustc-link-search=native={path}");
-    }
-    for lib in [
-        "avcodec",
-        "swscale",
-        "avutil",
-        "cbs",
-        "SvtAv1Enc",
-        "x264",
-        "x265",
-        "hdr10plus",
-    ] {
-        println!("cargo:rustc-link-lib=static={lib}");
-    }
-    for lib in [
-        "vpl", "stdc++", "atomic", "mfuuid", "ole32", "strmiids", "user32", "bcrypt", "ws2_32",
-        "secur32", "mfplat", "mf", "shlwapi",
-    ] {
-        println!("cargo:rustc-link-lib={lib}");
-    }
 }

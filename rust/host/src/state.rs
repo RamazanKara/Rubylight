@@ -502,7 +502,6 @@ impl Host {
             pixel: butterpollo_windows::capture::Pixel::Bgra8,
         };
         let mut flags = 0u32;
-        let software = config.get("encoder", "auto") == "software";
         let preference =
             butterpollo_core::encoder_policy::canonical_name(config.get("encoder", "auto"));
         let vendors = if matches!(preference, "" | "auto") {
@@ -560,15 +559,9 @@ impl Host {
             };
             match butterpollo_windows::encoder::Encoder::new_options(
                 &negotiated,
-                config.get("encoder", "auto"),
                 config.get("output_name", ""),
                 config,
             ) {
-                // A 4:4:4 stream must not quietly fall back to software
-                // encoding; advertise it only from a hardware encoder.
-                Ok(encoder) if yuv444 && !software && !encoder.hardware() => {
-                    tracing::debug!(codec, hdr, "4:4:4 needs a hardware encoder; not advertised");
-                }
                 Ok(mut encoder) => {
                     if codec == 0 && !yuv444 {
                         *self.probed_encoder.lock().unwrap() = encoder.backend();

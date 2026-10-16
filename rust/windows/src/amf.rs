@@ -1,6 +1,6 @@
 //! Native AMD AMF encoder for H.264, HEVC and AV1.
 //!
-//! Calls AMF's C ABI directly (no FFmpeg wrapper), takes D3D11 or D3D12
+//! Calls AMF's C ABI directly, takes D3D11 or D3D12
 //! textures from capture and Radeon compute without a copy, and applies the
 //! per-codec settings from `butterpollo_core::encoder_policy`.
 pub(crate) mod gpu;
@@ -12,8 +12,7 @@ use crate::text::to_wide;
 use crate::{
     amf_abi::*,
     capture::{Device, GpuImage, Image},
-    encoder::{Convert, Encoded},
-    ff,
+    encoder::Encoded,
 };
 use anyhow::{Context, Result, bail};
 use butterpollo_core::encoder_backlog::{AMF_SURFACE_LIMIT, AmfBacklog, QUERY_TIMEOUT};
@@ -162,7 +161,6 @@ pub struct Encoder {
     pub(crate) warnings: std::sync::Arc<butterpollo_core::session::Warnings>,
     component: *mut AMFComponent,
     context: *mut AMFContext,
-    convert: Option<Convert>,
     config: butterpollo_core::rtsp::Negotiated,
     codec: u8,
     _device: Device,
@@ -405,7 +403,6 @@ impl Encoder {
                 warnings: Default::default(),
                 component,
                 context,
-                convert: None,
                 config: display_config,
                 codec: config.codec,
                 _device: device,
@@ -1056,8 +1053,7 @@ impl Encoder {
         self.property_raw(&name, value)
     }
     /// Write HDR10 static metadata (the mastering display and light levels)
-    /// into the bitstream, as FFmpeg's AMF encoder does from a frame's side
-    /// data. Clients that size HDR from the stream rather than from the
+    /// into the bitstream. Clients that size HDR from the stream rather than from the
     /// control channel's copy otherwise get no mastering metadata at all.
     pub fn set_hdr_metadata(&mut self, metadata: butterpollo_core::hdr::Metadata) {
         if !self.config.hdr || self.codec == 0 || self.config.chroma_packing != 0 {
@@ -1477,150 +1473,11 @@ impl Encoder {
             Ok(output)
         }
     }
+    /// A CPU image, such as the codec probe's, goes through the same GPU
+    /// conversion as a capture.
     pub fn encode(&mut self, image: &Image, idr: bool, bitrate: u32) -> Result<Vec<Encoded>> {
-        if self.config.chroma_packing != 0 {
-            let image = GpuImage::upload(&self._device, image)?;
-            return self.encode_gpu(&image, idr, bitrate);
-        }
-        let started = Instant::now();
-        let idr = idr || self.hdr_metadata.needs_idr() || self.recover;
-        self.set_bitrate(bitrate)?;
-        if self.convert.is_none() {
-            // Native GPU sessions never allocate a CPU YUV frame or swscale
-            // context. Allocate compatibility buffers only when used.
-            self.convert = Some(Convert::new_config(
-                &self.config,
-                if self.config.ten_bit() {
-                    ff::AVPixelFormat_AV_PIX_FMT_P010LE
-                } else {
-                    ff::AVPixelFormat_AV_PIX_FMT_NV12
-                },
-            )?);
-        }
-        let convert = self.convert.as_mut().unwrap();
-        convert.luminance = self.luminance;
-        convert.convert(image)?;
-        let frame = convert.frame;
-        // SAFETY: The converter retains initialized NV12/P010 planes for these dimensions.
-        // The live context allocates a separate owned host surface of the same format/size;
-        // checked destination pointers/pitches and FFmpeg strides bound each disjoint row copy.
-        // AMF retains submitted input before our surface reference is released once.
-        unsafe {
-            let mut surface = ptr::null_mut();
-            check(((*(*self.context).pVtbl).AllocSurface.unwrap())(
-                self.context,
-                AMF_MEMORY_TYPE_AMF_MEMORY_HOST,
-                if self.config.ten_bit() {
-                    AMF_SURFACE_FORMAT_AMF_SURFACE_P010
-                } else {
-                    AMF_SURFACE_FORMAT_AMF_SURFACE_NV12
-                },
-                self.config.width as i32,
-                self.config.height as i32,
-                &mut surface,
-            ))
-            .context("AMF host surface allocation")?;
-            let v = &*(*surface).pVtbl;
-            let prepared = (|| -> Result<()> {
-                check((v.SetCrop.unwrap())(
-                    surface,
-                    0,
-                    0,
-                    self.config.width as i32,
-                    self.config.height as i32,
-                ))
-                .context("AMF host surface crop")?;
-                (v.SetPts.unwrap())(surface, self.index);
-                (v.SetDuration.unwrap())(
-                    surface,
-                    10_000_000_000 / i64::from(self.config.fps_millihz()),
-                );
-                for plane_index in 0..2 {
-                    let plane = (v.GetPlaneAt.unwrap())(surface, plane_index);
-                    if plane.is_null() {
-                        bail!("AMF plane missing");
-                    }
-                    let pv = &*(*plane).pVtbl;
-                    let dst = (pv.GetNative.unwrap())(plane) as *mut u8;
-                    let pitch = (pv.GetHPitch.unwrap())(plane) as usize;
-                    let width =
-                        self.config.width as usize * if self.config.ten_bit() { 2 } else { 1 };
-                    let height = self.config.height as usize / if plane_index == 0 { 1 } else { 2 };
-                    let src = (*frame).data[plane_index];
-                    let stride = (*frame).linesize[plane_index] as usize;
-                    if dst.is_null() || pitch < width {
-                        bail!("invalid AMF host surface pitch");
-                    }
-                    for row in 0..height {
-                        ptr::copy_nonoverlapping(
-                            src.add(row * stride),
-                            dst.add(row * pitch),
-                            width,
-                        );
-                    }
-                }
-                Ok(())
-            })();
-            if let Err(e) = prepared {
-                (v.Release.unwrap())(surface);
-                return Err(e);
-            }
-            let (plan, idr) = match self.prepare_surface(surface, idr) {
-                Ok(plan) => plan,
-                Err(error) => {
-                    (v.Release.unwrap())(surface);
-                    return Err(error);
-                }
-            };
-            let mut output = vec![];
-            let deadline = Instant::now() + Duration::from_millis(100);
-            loop {
-                let result = ((*(*self.component).pVtbl).SubmitInput.unwrap())(
-                    self.component,
-                    surface as *mut AMFData,
-                );
-                self.last_submit = Some(result);
-                acknowledge_keyframe(idr, result, &mut self.recover, &mut self.hdr_metadata);
-                if result == AMF_RESULT_AMF_INPUT_FULL {
-                    self.input_full += 1;
-                    match self.poll() {
-                        Ok(frames) => output.extend(frames),
-                        Err(e) => {
-                            (v.Release.unwrap())(surface);
-                            return Err(e);
-                        }
-                    }
-                    if Instant::now() > deadline {
-                        (v.Release.unwrap())(surface);
-                        bail!("AMF input queue failed to drain");
-                    }
-                    std::thread::yield_now();
-                    continue;
-                }
-                let result = check(result);
-                (v.Release.unwrap())(surface);
-                result?;
-                break;
-            }
-            let accepted = Instant::now();
-            self.last_accepted = Some(accepted);
-            self.in_flight.push_back(Submission {
-                pts: self.index,
-                started,
-                accepted,
-                presentation: image.captured,
-                idr,
-                after_invalidation: plan.after_invalidation,
-                frame_cap_bytes: self.frame_cap.effective(),
-                _capture: None,
-                _converted: None,
-            });
-            self.backlog.submitted();
-            self.references.accepted(self.index as u64 + 1, &plan);
-            self.index += 1;
-            output.extend(self.poll()?);
-            Ok(output)
-        }
+        let image = GpuImage::upload(&self._device, image).context("AMF image upload")?;
+        self.encode_gpu(&image, idr, bitrate)
     }
 }
 fn scale_rate_control(value: i64, applied_kbps: u32, requested_kbps: u32) -> i64 {

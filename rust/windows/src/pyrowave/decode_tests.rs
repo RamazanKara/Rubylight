@@ -897,7 +897,6 @@ fn pyrowave_decoded_end_to_end() -> Result<()> {
                             .map(|compute| {
                                 Encoder::new_gpu_options(
                                     &config,
-                                    "auto",
                                     &pictures[0].0,
                                     &Config::parse(&format!("gpu_compute_conversion = {compute}"))?,
                                 )
@@ -1058,8 +1057,7 @@ fn pyrowave_encoder_follows_rebuilt_planes() -> Result<()> {
         "the pictures must use different source formats"
     );
     let mut decoder = Decoder::new(&gpu, &config)?;
-    let mut encoder =
-        Encoder::new_gpu_options(&config, "auto", &pictures[0].0, &Config::default())?;
+    let mut encoder = Encoder::new_gpu_options(&config, &pictures[0].0, &Config::default())?;
     let mut first: Vec<Option<Vec<Vec<u16>>>> = vec![None, None];
     let (mut planes, mut destroyed) = (Vec::<usize>::new(), Vec::new());
     let (mut rebuilds, mut reused, mut identical) = (0, 0, 0);
@@ -1271,8 +1269,7 @@ fn quality_sweep(width: u32, height: u32, critical_fec: usize) -> Result<()> {
                 let mut decoder = Decoder::new(&gpu, &config)?;
                 for fps in [60, 30, 120] {
                     config.fps = fps;
-                    let mut encoder =
-                        Encoder::new_gpu_options(&config, "auto", &pictures[0].0, &tuning)?;
+                    let mut encoder = Encoder::new_gpu_options(&config, &pictures[0].0, &tuning)?;
                     // Alternate small/large budgets, then reverse the order on the repeat.
                     let mut rates = if critical_fec > 0 {
                         vec![0.25, 5., 0.5, 4.5, 0.75, 4., 1., 3.5, 1.5, 3.2, 2., 3., 2.5]

@@ -1,4 +1,4 @@
-//! Typed device removal survives error context and the WGC helper boundary.
+//! Typed device removal survives error context.
 use windows::{
     Win32::Graphics::{Direct3D11::ID3D11Device, Direct3D12::ID3D12Device, Dxgi::*},
     core::HRESULT,

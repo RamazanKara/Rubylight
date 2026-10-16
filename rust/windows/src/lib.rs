@@ -1,7 +1,7 @@
 //! Windows platform layer of the Rubylight host.
 //!
-//! Everything that calls Win32, Direct3D, Windows Graphics Capture or a GPU
-//! vendor SDK lives here: capture, Radeon compute colour conversion, the AMF
+//! Everything that calls Win32, Direct3D or a GPU vendor SDK lives here:
+//! capture from Rubylight's display driver, Radeon compute colour conversion, the AMF
 //! and PyroWave encoders, display and virtual display control,
 //! input injection, audio, process and service management.
 //!

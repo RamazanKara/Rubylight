@@ -299,12 +299,6 @@ pub struct Device {
     color: Option<std::sync::Arc<std::sync::Mutex<output::Color>>>,
 }
 impl Device {
-    /// The monitor this device captures.
-    pub fn output(&self) -> Result<&IDXGIOutput1> {
-        self.output
-            .as_ref()
-            .context("no monitor is attached to this GPU")
-    }
     /// Read the selected output's luminance; conversion produces Rec.2020/D65.
     pub fn hdr_metadata(&self) -> butterpollo_core::hdr::Metadata {
         self.color

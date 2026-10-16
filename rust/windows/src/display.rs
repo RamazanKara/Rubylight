@@ -28,9 +28,11 @@ pub use recovery::{
     Guard, Retained, Snapshot, apply_layout, baseline_nodes, leased_displays, restore_positions,
 };
 pub use topology::{Monitor, Topology, edid_refresh, monitors};
+pub(crate) use virtual_display::fence_ring;
 pub use virtual_display::{
-    RenderAdapter, VirtualDisplay, VirtualOptions, configured_render_adapter,
-    ensure_virtual_display_available, virtual_display_available, virtual_display_status,
+    DriverRestartRequired, RenderAdapter, VirtualDisplay, VirtualOptions,
+    configured_render_adapter, ensure_virtual_display_available, stream_driver_ready,
+    virtual_display_available, virtual_display_status,
 };
 
 fn check(code: i32) -> Result<()> {

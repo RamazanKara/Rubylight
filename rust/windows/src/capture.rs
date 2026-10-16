@@ -1734,7 +1734,10 @@ impl Capture {
         if idd_push::wanted_for(name, kind, config) {
             match idd_push::Session::new(name, hdr, config, warnings.clone()) {
                 Ok(session) => return Ok(Self::IddPush(Box::new(session))),
-                Err(error) if crate::device_loss::DeviceLost::from_error(&error).is_some() => {
+                Err(error)
+                    if crate::device_loss::DeviceLost::from_error(&error).is_some()
+                        || error.is::<crate::display::DriverRestartRequired>() =>
+                {
                     return Err(error);
                 }
                 Err(error) => {

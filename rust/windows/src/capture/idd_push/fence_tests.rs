@@ -1,14 +1,13 @@
 //! Native driver-transport checks using two GPU devices; no driver installation.
 use super::*;
 
-/// The driver's half of either ring, on a second D3D11 device as WUDFHost has: the
+/// The driver's half of a fence ring, on a second D3D11 device as WUDFHost has: the
 /// ring's textures and fences opened from their NT handles.
 struct FakeDriver {
     gpu: Device,
     textures: Vec<ID3D11Texture2D>,
-    written: Option<ID3D11Fence>,
-    released: Option<ID3D11Fence>,
-    mutexes: Vec<IDXGIKeyedMutex>,
+    written: ID3D11Fence,
+    released: ID3D11Fence,
     context: ID3D11DeviceContext4,
     picker: ring::Picker,
 }
@@ -19,7 +18,6 @@ impl FakeDriver {
         let device1: ID3D11Device1 = gpu.device.cast()?;
         let device5: ID3D11Device5 = gpu.device.cast()?;
         let mut textures = Vec::new();
-        let mut mutexes = Vec::new();
         for slot in &ring.slots {
             // SAFETY: a live shared NT handle of a D3D12 texture.
             let texture: ID3D11Texture2D =
@@ -27,14 +25,10 @@ impl FakeDriver {
             let mut desc = D3D11_TEXTURE2D_DESC::default();
             // SAFETY: live texture, live local.
             unsafe { texture.GetDesc(&mut desc) };
-            if ring.fences.is_some() {
-                anyhow::ensure!(
-                    desc.MiscFlags & D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX.0 as u32 == 0,
-                    "a fence ring texture has no keyed mutex"
-                );
-            } else {
-                mutexes.push(texture.cast()?);
-            }
+            anyhow::ensure!(
+                desc.MiscFlags & D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX.0 as u32 == 0,
+                "a fence ring texture has no keyed mutex"
+            );
             textures.push(texture);
         }
         let open = |handle: &OwnedHandle| -> Result<ID3D11Fence> {
@@ -44,17 +38,8 @@ impl FakeDriver {
             fence.context("no fence")
         };
         Ok(Self {
-            written: ring
-                .fences
-                .as_ref()
-                .map(|fences| open(&fences.handles[0]))
-                .transpose()?,
-            released: ring
-                .fences
-                .as_ref()
-                .map(|fences| open(&fences.handles[1]))
-                .transpose()?,
-            mutexes,
+            written: open(&ring.fences.handles[0])?,
+            released: open(&ring.fences.handles[1])?,
             context: gpu.context.cast()?,
             textures,
             gpu,
@@ -65,13 +50,7 @@ impl FakeDriver {
     /// Copy `source` into a free slot, signal the written fence and publish, as the
     /// driver's swap-chain worker does. `None` when it drops the frame.
     fn push(&mut self, header: &Header<'_>, source: &ID3D11Texture2D) -> Result<Option<u32>> {
-        let claim = if self.written.is_some() {
-            self.picker.claim_fenced(header, self.released())
-        } else {
-            self.picker
-                .claim(|index, key| acquire(&self.mutexes[index], key).unwrap_or(false))
-        };
-        let Some(claim) = claim else {
+        let Some(claim) = self.picker.claim_fenced(header, self.released()) else {
             return Ok(None);
         };
         let seq = self.picker.next_seq();
@@ -80,11 +59,7 @@ impl FakeDriver {
             self.gpu
                 .context
                 .CopyResource(&self.textures[claim.slot()], source);
-            if let Some(written) = &self.written {
-                self.context.Signal(written, u64::from(seq))?;
-            } else {
-                self.mutexes[claim.slot()].ReleaseSync(ring::KEY_HOST)?;
-            }
+            self.context.Signal(&self.written, u64::from(seq))?;
             self.gpu.context.Flush();
         }
         header.write_slot(
@@ -94,11 +69,7 @@ impl FakeDriver {
                 ..Default::default()
             },
         );
-        if self.written.is_some() {
-            anyhow::ensure!(self.picker.publish_fenced(header, claim.slot(), seq));
-        } else {
-            self.picker.published(claim.slot(), seq);
-        }
+        anyhow::ensure!(self.picker.publish_fenced(header, claim.slot(), seq));
         header.publish(ring::Token {
             generation: header.layout().unwrap().generation,
             seq,
@@ -108,10 +79,8 @@ impl FakeDriver {
     }
 
     fn released(&self) -> u64 {
-        self.released.as_ref().map_or(0, |fence| {
-            // SAFETY: a plain read of a fence opened on this device.
-            unsafe { fence.GetCompletedValue() }
-        })
+        // SAFETY: a plain read of a fence opened on this device.
+        unsafe { self.released.GetCompletedValue() }
     }
 }
 
@@ -176,7 +145,7 @@ fn a_fence_ring_carries_frames_both_ways_without_keyed_mutexes() -> Result<()> {
             );
             compute.open(&slot.texture)?;
         }
-        let fences = ring.fences.clone().unwrap();
+        let fences = ring.fences.clone();
         let header = ring.section.header();
         let mut driver = FakeDriver::open(&ring)?;
         let mut consumer = Consumer::new(1, 2);
@@ -237,65 +206,38 @@ fn a_fence_ring_carries_frames_both_ways_without_keyed_mutexes() -> Result<()> {
     Ok(())
 }
 
-fn claim_image(
-    gpu: &Device,
-    ring: &Ring,
-    consumer: &mut Consumer,
-    lender: Option<&Arc<Mutex<crate::compute::Returns>>>,
-) -> Result<GpuImage> {
+fn claim_image(gpu: &Device, ring: &Ring, consumer: &mut Consumer) -> Result<GpuImage> {
     let header = ring.section.header();
-    if let Some(fences) = &ring.fences {
-        let (index, seq) = consumer
-            .claim(&header)
-            .context("claim newest fenced frame")?;
-        consumer.consumed(u64::from(seq));
-        let lent = Lent {
-            fences: fences.clone(),
-            slot: index,
-            seq,
-            d3d11: Mutex::new(false),
-        };
-        let ready =
-            crate::compute::Ready::on(&fences.compute, fences.written.clone(), u64::from(seq));
-        return lend_fenced(gpu, &ring.slots[index].texture, index, lent, ready);
-    }
-    let index = consumer
-        .wanted(header.latest())
-        .context("newest keyed frame")?;
-    let slot = &ring.slots[index];
-    let mutex = slot.mutex.as_ref().unwrap();
-    let deadline = Instant::now() + Duration::from_secs(2);
-    while !acquire(mutex, ring::KEY_HOST)? {
-        anyhow::ensure!(
-            Instant::now() < deadline,
-            "keyed texture never became available"
-        );
-        std::thread::yield_now();
-    }
-    consumer.consumed(header.slot(index).seq);
-    lend(gpu, slot, mutex, index, lender.unwrap().clone())
+    let fences = &ring.fences;
+    let (index, seq) = consumer
+        .claim(&header)
+        .context("claim newest fenced frame")?;
+    consumer.consumed(u64::from(seq));
+    let lent = Lent {
+        fences: fences.clone(),
+        slot: index,
+        seq,
+        d3d11: Mutex::new(false),
+    };
+    let ready = crate::compute::Ready::on(&fences.compute, fences.written.clone(), u64::from(seq));
+    lend_fenced(gpu, &ring.slots[index].texture, index, lent, ready)
 }
 
 #[test]
 #[ignore = "requires native AMD D3D11/D3D12 and the PyroWave runtime; does not install a driver"]
-fn pyrowave_encoding_returns_keyed_capture_slots() -> Result<()> {
+fn pyrowave_encoding_frees_fence_ring_slots() -> Result<()> {
     let _com = ComGuard::new()?;
     let gpu = Device::new("")?;
     let compute = crate::compute::Compute::for_device(&gpu.device)?;
     let layout = Layout {
-        kind: Kind::KeyedMutex,
+        kind: Kind::Fence,
         slot_count: 4,
         width: 64,
         height: 64,
         format: crate::compute::format(Pixel::Bgra8).0 as u32,
         generation: 1,
     };
-    let ring = Ring::keyed(&gpu, layout)?;
-    let mut returns = crate::compute::Returns::new(compute, &gpu)?;
-    for slot in &ring.slots {
-        returns.import(&slot.texture, HANDLE(slot.shared.as_raw_handle()))?;
-    }
-    let lender = Arc::new(Mutex::new(returns));
+    let ring = Ring::fenced(&gpu, compute, layout, true)?;
     let mut driver = FakeDriver::open(&ring)?;
     let source = GpuImage::upload(
         &driver.gpu,
@@ -329,7 +271,7 @@ fn pyrowave_encoding_returns_keyed_capture_slots() -> Result<()> {
             );
             std::thread::sleep(Duration::from_millis(1));
         }
-        let image = claim_image(&gpu, &ring, &mut consumer, Some(&lender))?;
+        let image = claim_image(&gpu, &ring, &mut consumer)?;
         assert!(image.cursor.is_none());
         encoder.restart_interval();
         assert_eq!(
@@ -356,7 +298,7 @@ fn a_fence_slot_waits_for_all_readers_and_survives_ring_replacement() -> Result<
         generation: 1,
     };
     let ring = Ring::fenced(&gpu, compute.clone(), layout, true)?;
-    let owner = Arc::downgrade(ring.fences.as_ref().unwrap());
+    let owner = Arc::downgrade(&ring.fences);
     let mut driver = FakeDriver::open(&ring)?;
     let source = solid(&driver.gpu, 40)?;
     let mut consumer = Consumer::new(1, 2);
@@ -365,7 +307,7 @@ fn a_fence_slot_waits_for_all_readers_and_survives_ring_replacement() -> Result<
             .push(&ring.section.header(), &source.texture)?
             .is_some()
     );
-    let first = claim_image(&gpu, &ring, &mut consumer, None)?;
+    let first = claim_image(&gpu, &ring, &mut consumer)?;
     let second_reader = first.clone();
     drop(first);
     assert!(
@@ -373,7 +315,7 @@ fn a_fence_slot_waits_for_all_readers_and_survives_ring_replacement() -> Result<
             .push(&ring.section.header(), &source.texture)?
             .is_some()
     );
-    let second = claim_image(&gpu, &ring, &mut consumer, None)?;
+    let second = claim_image(&gpu, &ring, &mut consumer)?;
     assert_eq!(
         driver.push(&ring.section.header(), &source.texture)?,
         None,
@@ -444,9 +386,9 @@ fn a_returned_slot_waits_for_gpu_completion_before_the_driver_reuses_it() -> Res
     let mut consumer = Consumer::new(1, 2);
     let header = ring.section.header();
     anyhow::ensure!(driver.push(&header, &source.texture)?.is_some());
-    let first = claim_image(&gpu, &ring, &mut consumer, None)?;
+    let first = claim_image(&gpu, &ring, &mut consumer)?;
     anyhow::ensure!(driver.push(&header, &source.texture)?.is_some());
-    let second = claim_image(&gpu, &ring, &mut consumer, None)?;
+    let second = claim_image(&gpu, &ring, &mut consumer)?;
     // SAFETY: the new fence belongs to the compute queue's device.
     let gate = Gate(unsafe { compute.device.CreateFence(0, D3D12_FENCE_FLAG_NONE)? });
     // SAFETY: this private wait is always released by Gate::drop, including unwinding.
@@ -517,7 +459,7 @@ fn cpu_readback_waits_for_a_delayed_fence_producer() -> Result<()> {
         seq,
         slot: index as u8,
     });
-    let image = claim_image(&gpu, &ring, &mut Consumer::new(1, 2), None)?;
+    let image = claim_image(&gpu, &ring, &mut Consumer::new(1, 2))?;
     let before = Instant::now();
     let delay = Duration::from_millis(50);
     let producer = std::thread::spawn(move || -> Result<()> {
@@ -532,7 +474,7 @@ fn cpu_readback_waits_for_a_delayed_fence_producer() -> Result<()> {
                 .CopyResource(&driver.textures[index], &*source.texture);
             driver
                 .context
-                .Signal(driver.written.as_ref().unwrap(), u64::from(seq))?;
+                .Signal(&driver.written, u64::from(seq))?;
             driver.gpu.context.Flush();
         }
         Ok(())
@@ -542,7 +484,7 @@ fn cpu_readback_waits_for_a_delayed_fence_producer() -> Result<()> {
     producer.join().expect("delayed producer panicked")?;
     assert!(elapsed >= delay, "readback completed before its producer");
     assert_eq!(readback?.bytes, expected.bytes);
-    assert!(!ring.fences.as_ref().unwrap().failed.load(Ordering::Acquire));
+    assert!(!ring.fences.failed.load(Ordering::Acquire));
     Ok(())
 }
 
@@ -599,112 +541,5 @@ fn a_retired_compute_queue_is_not_reused_for_the_same_capture_device() -> Result
     let fresh = crate::compute::Compute::for_device(&gpu.device)?;
     assert!(!Arc::ptr_eq(&first, &fresh));
     assert!(!fresh.is_stuck());
-    Ok(())
-}
-
-/// Component timing only: producer copy through completed conversion. No display, service,
-/// encoder, network or receiver is involved, so these are not end-to-end latency numbers.
-fn transport_probe(kind: Kind, pixel: Pixel, round: usize) -> Result<()> {
-    const WARMUP: usize = 8;
-    const SAMPLES: usize = 64;
-    let gpu = Device::new("")?;
-    let compute = crate::compute::Compute::for_device(&gpu.device)?;
-    let layout = Layout {
-        kind,
-        slot_count: 4,
-        width: 2560,
-        height: 1440,
-        format: crate::compute::format(pixel).0 as u32,
-        generation: 1,
-    };
-    let ring = if kind == Kind::Fence {
-        Ring::fenced(&gpu, compute.clone(), layout, true)?
-    } else {
-        Ring::keyed(&gpu, layout)?
-    };
-    let lender = if kind == Kind::KeyedMutex {
-        let mut returns = crate::compute::Returns::new(compute.clone(), &gpu)?;
-        for slot in &ring.slots {
-            returns.import(&slot.texture, HANDLE(slot.shared.as_raw_handle()))?;
-        }
-        Some(Arc::new(Mutex::new(returns)))
-    } else {
-        None
-    };
-    let mut driver = FakeDriver::open(&ring)?;
-    let expected = [
-        pixels(layout.width, layout.height, pixel, 40),
-        pixels(layout.width, layout.height, pixel, 80),
-    ];
-    let sources = expected
-        .iter()
-        .map(|image| GpuImage::upload(&driver.gpu, image))
-        .collect::<Result<Vec<_>>>()?;
-    let mut consumer = Consumer::new(1, layout.slot_count);
-    let mut converter = crate::compute::Converter::new(
-        compute.clone(),
-        layout.width,
-        layout.height,
-        pixel == Pixel::RgbaF16,
-    )?;
-    let mut completed = Vec::with_capacity(SAMPLES);
-    let mut claims = Vec::with_capacity(SAMPLES);
-    let mut submits = Vec::with_capacity(SAMPLES);
-    for sample in 0..WARMUP + SAMPLES {
-        converter.release_completed();
-        let before = Instant::now();
-        anyhow::ensure!(
-            driver
-                .push(&ring.section.header(), &sources[sample % 2].texture)?
-                .is_some(),
-            "driver unexpectedly exhausted its ring"
-        );
-        let published = Instant::now();
-        let image = claim_image(&gpu, &ring, &mut consumer, lender.as_ref())?;
-        let claimed = Instant::now();
-        let input = compute.open(&image.texture)?;
-        converter
-            .convert(&input, crate::compute::format(pixel), None, &image)?
-            .wait()?;
-        let after = Instant::now();
-        if sample >= WARMUP {
-            completed.push(after.duration_since(before).as_secs_f64() * 1e6);
-            claims.push(claimed.duration_since(published).as_secs_f64() * 1e6);
-            submits.push(published.duration_since(before).as_secs_f64() * 1e6);
-        }
-        if sample + 1 == WARMUP + SAMPLES {
-            assert_eq!(image.readback(&mut None)?.bytes, expected[sample % 2].bytes);
-        }
-        drop(image);
-        let period = Duration::from_nanos(1_000_000_000 / 120);
-        if let Some(rest) = period.checked_sub(before.elapsed()) {
-            std::thread::sleep(rest);
-        }
-    }
-    completed.sort_by(f64::total_cmp);
-    let mean = |values: &[f64]| values.iter().sum::<f64>() / values.len() as f64;
-    println!(
-        "fence_transport_probe kind={kind:?} pixel={pixel:?} round={round} samples={SAMPLES} producer_us={:.3} claim_us={:.3} complete_mean_us={:.3} complete_p95_us={:.3} complete_p99_us={:.3}",
-        mean(&submits),
-        mean(&claims),
-        mean(&completed),
-        completed[SAMPLES * 95 / 100],
-        completed[SAMPLES * 99 / 100]
-    );
-    Ok(())
-}
-
-#[test]
-#[ignore = "short ABBA GPU transport measurement, 1440p SDR/HDR; no installed driver changes"]
-fn keyed_and_fenced_transport_abba_probe() -> Result<()> {
-    let _com = ComGuard::new()?;
-    for pixel in [Pixel::Bgra8, Pixel::RgbaF16] {
-        for (round, kind) in [Kind::KeyedMutex, Kind::Fence, Kind::Fence, Kind::KeyedMutex]
-            .into_iter()
-            .enumerate()
-        {
-            transport_probe(kind, pixel, round + 1)?;
-        }
-    }
     Ok(())
 }

@@ -1190,3 +1190,23 @@ fn gpu_pool_does_not_overwrite_frames_held_by_the_codec() -> Result<()> {
     assert!(readback(&gpu, &next)?[..64 * 64].iter().all(|y| *y == 940));
     Ok(())
 }
+#[test]
+fn each_stream_converts_a_shared_capture_for_its_own_dynamic_range() {
+    // One capture serves every stream on a virtual display, so its frames are
+    // in the display's format: FP16 while Windows composes it in HDR or
+    // advanced colour, BGRA otherwise. Each stream's conversion takes them
+    // to its own range: an SDR stream maps FP16 back to sRGB with SDR white
+    // at full scale, and an HDR stream places SDR pixels at SDR white.
+    let stream = |hdr| butterpollo_core::rtsp::Negotiated {
+        width: 1920,
+        height: 1080,
+        codec: 1,
+        hdr,
+        ..Default::default()
+    };
+    let sdr_of_fp16 = constants(&stream(false), (1920, 1080, Pixel::RgbaF16), [100., 1.]);
+    assert_eq!(sdr_of_fp16[4..6], [1, 0], "FP16 source, SDR output");
+    let hdr_of_bgra = constants(&stream(true), (1920, 1080, Pixel::Bgra8), [200., 1.]);
+    assert_eq!(hdr_of_bgra[4..6], [0, 1], "BGRA source, HDR output");
+    assert_eq!(f32::from_bits(hdr_of_bgra[9]), 200. / 80.);
+}

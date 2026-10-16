@@ -117,8 +117,7 @@
       <dd class="sub">
         {#if presentToSent}
           Average from Windows' present to the last packet sent, for new pictures; 99% below
-          <span class="num">{ms(presentToSent.p99_ms)}</span>. Host processing, Moonlight's figure, runs from the
-          claim as punktfunk's does, leaving out capture, the wait to be encoded and sending.
+          <span class="num">{ms(presentToSent.p99_ms)}</span>.
         {:else}
           From Windows' present to the last packet sent.
           {#if measured}No new pictures in the last <span class="num">{perf.stages?.window_seconds ?? 5}</span> seconds.{/if}

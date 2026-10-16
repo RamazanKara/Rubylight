@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_check_updates">Sprawdzaj aktualizacje automatycznie</string>
+    <string name="summary_check_updates">Szuka nowej wersji po otwarciu aplikacji, najwyżej dwa razy dziennie. Nic nie jest instalowane bez Twojej decyzji.</string>
+    <string name="title_check_updates_now">Sprawdź aktualizacje teraz</string>
+    <string name="summary_check_updates_now">Szukaj nowszej wersji</string>
+    <string name="update_checking">Sprawdzanie aktualizacji…</string>
+    <string name="update_up_to_date">Masz najnowszą wersję</string>
+    <string name="update_check_failed">Nie udało się sprawdzić aktualizacji</string>
+    <string name="update_available_title">Dostępna aktualizacja</string>
+    <string name="update_available_message">Dostępna jest wersja %1$s. Masz wersję %2$s.</string>
+    <string name="update_action_update">Aktualizuj</string>
+    <string name="update_action_later">Później</string>
+    <string name="update_action_skip">Pomiń tę wersję</string>
+    <string name="update_allow_title">Zezwól na instalowanie</string>
+    <string name="update_allow_message">Android wymaga zgody, aby ta aplikacja mogła instalować aktualizacje. Włącz ją, wróć i ponownie dotknij Aktualizuj.</string>
+    <string name="update_allow_open">Otwórz ustawienia</string>
+    <string name="update_downloading_title">Pobieranie wersji %1$s</string>
+    <string name="update_downloading">Rozpoczynanie pobierania…</string>
+    <string name="update_progress">%1$s z %2$s</string>
+    <string name="update_error_title">Aktualizacja nie powiodła się</string>
+    <string name="update_error_no_apk">To wydanie nie ma pliku do pobrania dla tego urządzenia.</string>
+    <string name="update_error_no_checksums">To wydanie nie zawiera pliku sum kontrolnych, więc pobranego pliku nie można zweryfikować. Nic nie zainstalowano.</string>
+    <string name="update_error_checksum_missing">Plik sum kontrolnych nie zawiera tego pobrania. Nic nie zainstalowano.</string>
+    <string name="update_error_checksum_mismatch">Pobrany plik nie zgadza się z sumą kontrolną i został usunięty. Nic nie zainstalowano.</string>
+    <string name="update_error_download">Pobieranie nie powiodło się. Sprawdź połączenie i spróbuj ponownie.</string>
+    <string name="update_error_install_start">Nie udało się rozpocząć aktualizacji.</string>
+    <string name="update_error_install">Nie udało się zainstalować aktualizacji: %1$s</string>
+    <string name="update_error_install_blocked">Android nie otworzył ekranu instalacji. Spróbuj ponownie.</string>
+</resources>

@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_check_updates">自動檢查更新</string>
+    <string name="summary_check_updates">開啟應用程式時檢查是否有新版本，每天最多兩次。未經你選擇，不會安裝任何內容。</string>
+    <string name="title_check_updates_now">立即檢查更新</string>
+    <string name="summary_check_updates_now">尋找較新的版本</string>
+    <string name="update_checking">正在檢查更新…</string>
+    <string name="update_up_to_date">已是最新版本</string>
+    <string name="update_check_failed">無法檢查更新</string>
+    <string name="update_available_title">有可用更新</string>
+    <string name="update_available_message">版本 %1$s 可供使用。目前版本為 %2$s。</string>
+    <string name="update_action_update">更新</string>
+    <string name="update_action_later">稍後</string>
+    <string name="update_action_skip">略過此版本</string>
+    <string name="update_allow_title">允許安裝</string>
+    <string name="update_allow_message">此應用程式安裝更新前，Android 需要你的許可。請開啟許可，返回後再次點選「更新」。</string>
+    <string name="update_allow_open">開啟設定</string>
+    <string name="update_downloading_title">正在下載版本 %1$s</string>
+    <string name="update_downloading">正在開始下載…</string>
+    <string name="update_progress">%1$s / %2$s</string>
+    <string name="update_error_title">更新失敗</string>
+    <string name="update_error_no_apk">此版本沒有適用於這部裝置的下載檔案。</string>
+    <string name="update_error_no_checksums">此版本沒有檢查碼檔案，無法驗證下載內容。未安裝任何內容。</string>
+    <string name="update_error_checksum_missing">檢查碼檔案中沒有列出此下載檔案。未安裝任何內容。</string>
+    <string name="update_error_checksum_mismatch">下載內容與檢查碼不符，已刪除。未安裝任何內容。</string>
+    <string name="update_error_download">下載失敗。請檢查網路連線後再試一次。</string>
+    <string name="update_error_install_start">無法開始更新。</string>
+    <string name="update_error_install">無法安裝更新：%1$s</string>
+    <string name="update_error_install_blocked">Android 未開啟安裝畫面。請重新嘗試更新。</string>
+</resources>

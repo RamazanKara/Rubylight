@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_check_updates">Автоматически проверять обновления</string>
+    <string name="summary_check_updates">Ищет новую версию при открытии приложения, не чаще двух раз в день. Ничего не устанавливается без вашего решения.</string>
+    <string name="title_check_updates_now">Проверить обновления сейчас</string>
+    <string name="summary_check_updates_now">Поиск более новой версии</string>
+    <string name="update_checking">Проверка обновлений…</string>
+    <string name="update_up_to_date">Установлена последняя версия</string>
+    <string name="update_check_failed">Не удалось проверить обновления</string>
+    <string name="update_available_title">Доступно обновление</string>
+    <string name="update_available_message">Доступна версия %1$s. Сейчас установлена %2$s.</string>
+    <string name="update_action_update">Обновить</string>
+    <string name="update_action_later">Позже</string>
+    <string name="update_action_skip">Пропустить эту версию</string>
+    <string name="update_allow_title">Разрешить установку</string>
+    <string name="update_allow_message">Чтобы приложение могло устанавливать обновления, Android требует разрешения. Включите его, вернитесь и снова нажмите «Обновить».</string>
+    <string name="update_allow_open">Открыть настройки</string>
+    <string name="update_downloading_title">Загрузка версии %1$s</string>
+    <string name="update_downloading">Начало загрузки…</string>
+    <string name="update_progress">%1$s из %2$s</string>
+    <string name="update_error_title">Не удалось обновить</string>
+    <string name="update_error_no_apk">В этом выпуске нет загрузки для данного устройства.</string>
+    <string name="update_error_no_checksums">В этом выпуске нет файла контрольных сумм, поэтому загрузку нельзя проверить. Ничего не установлено.</string>
+    <string name="update_error_checksum_missing">В файле контрольных сумм нет этой загрузки. Ничего не установлено.</string>
+    <string name="update_error_checksum_mismatch">Загруженный файл не совпадает с контрольной суммой и был удалён. Ничего не установлено.</string>
+    <string name="update_error_download">Не удалось загрузить. Проверьте подключение и повторите попытку.</string>
+    <string name="update_error_install_start">Не удалось запустить обновление.</string>
+    <string name="update_error_install">Не удалось установить обновление: %1$s</string>
+    <string name="update_error_install_blocked">Android не открыл экран установки. Повторите обновление.</string>
+</resources>

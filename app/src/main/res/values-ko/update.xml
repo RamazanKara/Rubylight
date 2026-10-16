@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_check_updates">업데이트 자동 확인</string>
+    <string name="summary_check_updates">앱을 열 때 새 버전을 확인합니다(하루 최대 2회). 직접 선택하기 전에는 아무것도 설치되지 않습니다.</string>
+    <string name="title_check_updates_now">지금 업데이트 확인</string>
+    <string name="summary_check_updates_now">최신 버전 확인</string>
+    <string name="update_checking">업데이트 확인 중…</string>
+    <string name="update_up_to_date">최신 버전을 사용 중입니다</string>
+    <string name="update_check_failed">업데이트를 확인할 수 없습니다</string>
+    <string name="update_available_title">업데이트 가능</string>
+    <string name="update_available_message">버전 %1$s을(를) 사용할 수 있습니다. 현재 버전은 %2$s입니다.</string>
+    <string name="update_action_update">업데이트</string>
+    <string name="update_action_later">나중에</string>
+    <string name="update_action_skip">이 버전 건너뛰기</string>
+    <string name="update_allow_title">설치 허용</string>
+    <string name="update_allow_message">이 앱이 업데이트를 설치하려면 Android의 허용이 필요합니다. 허용을 켠 뒤 돌아와 업데이트를 다시 탭하세요.</string>
+    <string name="update_allow_open">설정 열기</string>
+    <string name="update_downloading_title">버전 %1$s 다운로드 중</string>
+    <string name="update_downloading">다운로드 시작 중…</string>
+    <string name="update_progress">%2$s 중 %1$s</string>
+    <string name="update_error_title">업데이트 실패</string>
+    <string name="update_error_no_apk">이 릴리스에는 이 기기용 다운로드가 없습니다.</string>
+    <string name="update_error_no_checksums">이 릴리스에는 체크섬 파일이 없어 다운로드를 확인할 수 없습니다. 아무것도 설치되지 않았습니다.</string>
+    <string name="update_error_checksum_missing">체크섬 파일에 이 다운로드가 없습니다. 아무것도 설치되지 않았습니다.</string>
+    <string name="update_error_checksum_mismatch">다운로드가 체크섬과 일치하지 않아 삭제했습니다. 아무것도 설치되지 않았습니다.</string>
+    <string name="update_error_download">다운로드하지 못했습니다. 연결을 확인하고 다시 시도하세요.</string>
+    <string name="update_error_install_start">업데이트를 시작할 수 없습니다.</string>
+    <string name="update_error_install">업데이트를 설치할 수 없습니다: %1$s</string>
+    <string name="update_error_install_blocked">Android가 설치 화면을 열지 않았습니다. 업데이트를 다시 시도하세요.</string>
+</resources>

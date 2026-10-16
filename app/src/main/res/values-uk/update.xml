@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_check_updates">Автоматично перевіряти оновлення</string>
+    <string name="summary_check_updates">Шукає нову версію під час відкриття застосунку, не частіше двох разів на день. Нічого не встановлюється без вашого вибору.</string>
+    <string name="title_check_updates_now">Перевірити оновлення зараз</string>
+    <string name="summary_check_updates_now">Пошук новішої версії</string>
+    <string name="update_checking">Перевірка оновлень…</string>
+    <string name="update_up_to_date">Встановлено останню версію</string>
+    <string name="update_check_failed">Не вдалося перевірити оновлення</string>
+    <string name="update_available_title">Доступне оновлення</string>
+    <string name="update_available_message">Доступна версія %1$s. Зараз встановлено %2$s.</string>
+    <string name="update_action_update">Оновити</string>
+    <string name="update_action_later">Пізніше</string>
+    <string name="update_action_skip">Пропустити цю версію</string>
+    <string name="update_allow_title">Дозволити встановлення</string>
+    <string name="update_allow_message">Щоб застосунок міг встановлювати оновлення, Android потрібен дозвіл. Увімкніть його, поверніться й знову натисніть «Оновити».</string>
+    <string name="update_allow_open">Відкрити налаштування</string>
+    <string name="update_downloading_title">Завантаження версії %1$s</string>
+    <string name="update_downloading">Початок завантаження…</string>
+    <string name="update_progress">%1$s із %2$s</string>
+    <string name="update_error_title">Не вдалося оновити</string>
+    <string name="update_error_no_apk">У цьому випуску немає завантаження для цього пристрою.</string>
+    <string name="update_error_no_checksums">У цьому випуску немає файлу контрольних сум, тому завантаження неможливо перевірити. Нічого не встановлено.</string>
+    <string name="update_error_checksum_missing">У файлі контрольних сум немає цього завантаження. Нічого не встановлено.</string>
+    <string name="update_error_checksum_mismatch">Завантажений файл не збігається з контрольною сумою й був видалений. Нічого не встановлено.</string>
+    <string name="update_error_download">Не вдалося завантажити. Перевірте з\'єднання й повторіть спробу.</string>
+    <string name="update_error_install_start">Не вдалося почати оновлення.</string>
+    <string name="update_error_install">Не вдалося встановити оновлення: %1$s</string>
+    <string name="update_error_install_blocked">Android не відкрив екран встановлення. Повторіть оновлення.</string>
+</resources>

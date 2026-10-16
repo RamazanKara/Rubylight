@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_check_updates">Controlla gli aggiornamenti automaticamente</string>
+    <string name="summary_check_updates">Cerca una nuova versione all\'apertura dell\'app, al massimo due volte al giorno. Non viene installato nulla senza la tua scelta.</string>
+    <string name="title_check_updates_now">Controlla gli aggiornamenti ora</string>
+    <string name="summary_check_updates_now">Cerca una versione più recente</string>
+    <string name="update_checking">Controllo degli aggiornamenti…</string>
+    <string name="update_up_to_date">Hai già la versione più recente</string>
+    <string name="update_check_failed">Impossibile controllare gli aggiornamenti</string>
+    <string name="update_available_title">Aggiornamento disponibile</string>
+    <string name="update_available_message">È disponibile la versione %1$s. Hai la %2$s.</string>
+    <string name="update_action_update">Aggiorna</string>
+    <string name="update_action_later">Più tardi</string>
+    <string name="update_action_skip">Salta questa versione</string>
+    <string name="update_allow_title">Consenti installazioni</string>
+    <string name="update_allow_message">Android richiede un\'autorizzazione prima che questa app possa installare aggiornamenti. Attivala, torna indietro e tocca di nuovo Aggiorna.</string>
+    <string name="update_allow_open">Apri impostazioni</string>
+    <string name="update_downloading_title">Download della versione %1$s</string>
+    <string name="update_downloading">Avvio del download…</string>
+    <string name="update_progress">%1$s di %2$s</string>
+    <string name="update_error_title">Aggiornamento non riuscito</string>
+    <string name="update_error_no_apk">Questa versione non ha un download per questo dispositivo.</string>
+    <string name="update_error_no_checksums">Questa versione non ha un file di checksum, quindi il download non può essere verificato. Non è stato installato nulla.</string>
+    <string name="update_error_checksum_missing">Il file di checksum non elenca questo download. Non è stato installato nulla.</string>
+    <string name="update_error_checksum_mismatch">Il download non corrisponde al suo checksum ed è stato eliminato. Non è stato installato nulla.</string>
+    <string name="update_error_download">Download non riuscito. Controlla la connessione e riprova.</string>
+    <string name="update_error_install_start">Impossibile avviare l\'aggiornamento.</string>
+    <string name="update_error_install">Impossibile installare l\'aggiornamento: %1$s</string>
+    <string name="update_error_install_blocked">Android non ha aperto la schermata di installazione. Riprova l\'aggiornamento.</string>
+</resources>

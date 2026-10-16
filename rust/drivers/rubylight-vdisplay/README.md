@@ -17,7 +17,7 @@ removes the libvirtualdisplay driver earlier versions used.
 | Hardware ID | `Root\RubylightVDisplay` |
 | UMDF service | `RubylightVDisplay` |
 | Files | `rubylight_vdisplay.inf`, `rubylight_vdisplay.dll`, `rubylight_vdisplay.cat` |
-| Control interface | `{5e240e6b-b196-4295-81c3-533c10000c59}`, IOCTL functions `0xB00`-`0xB0A` |
+| Control interface | `{5e240e6b-b196-4295-81c3-533c10000c59}`, IOCTL functions `0xB00`-`0xB0C` |
 
 None of these collide with libvirtualdisplay (Vibepollo) or punktfunk, so an old
 installation of either does not stand in its way.
@@ -39,20 +39,37 @@ for `x86_64-pc-windows-msvc` with the static CRT and the Windows Driver Kit.
 1. The host creates the display with `IOCTL_ADD` and
    keeps it alive with `IOCTL_HEARTBEAT` every second. A monitor belongs to the process that
    created it and departs when that process closes its handles or goes silent for 10 s.
-2. The capture backend `idd-push` creates four `SHARED_NTHANDLE | SHARED_KEYEDMUTEX` textures
-   on the GPU that renders the monitor, a one-page header section and an event, duplicates
-   them into the driver's WUDFHost (its pid comes with the ADD reply) and hands them over
-   with `IOCTL_SET_FRAME_RING`. The driver owns the handles if, and only if, that succeeds.
-3. For every frame from `IddCxSwapChainReleaseAndAcquireBuffer2` the driver takes a texture
-   whose keyed mutex it can get with key 0 (or reclaims the oldest unconsumed one with key 1),
-   copies the surface into it, writes the sequence and `PresentDisplayQPCTime` into the header,
-   releases with key 1, publishes the slot and sets the event. It never waits on the host.
-4. The host takes the newest published slot with key 1. On AMD its compute conversion reads
-   the texture in place: the host keeps the mutex until the conversion that read it is done,
-   then releases with key 0 (`idd_push_zero_copy = false` copies instead). Elsewhere it
-   copies the texture into its own pool and releases at once. The image's present stamp is
-   the driver's acquire: IddCx's `PresentDisplayQPCTime` is the scan-out, about 6.8 ms later
-   on a 120 Hz display.
+2. The capture backend `idd-push` creates, on the capture GPU's D3D12 device, four shared
+   textures (no keyed mutex), two shared fences (*written* and *released*), a one-page header
+   section and an event. It duplicates them into the driver's WUDFHost (its pid comes with the
+   ADD reply) and hands them over with `IOCTL_SET_FENCE_RING`. The driver owns the handles if,
+   and only if, that succeeds, and opens them on its own D3D11 device
+   (`ID3D11Device1::OpenSharedResource1`, `ID3D11Device5::OpenSharedFence`). D3D11 opens a D3D12
+   texture only if it was created with `D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET`.
+3. Each texture has a state word in the header, changed only by compare-and-swap: free (with
+   the released-fence value its last read ends at), writing, published or reading. For every
+   frame from `IddCxSwapChainReleaseAndAcquireBuffer2` the driver takes a free texture whose
+   value the released fence has reached (`ID3D11Fence::GetCompletedValue`, never a wait), or
+   reclaims the oldest published one the host has not claimed. It copies the surface into it,
+   signals the written fence with the frame's sequence (`ID3D11DeviceContext4::Signal`),
+   writes the sequence and `PresentDisplayQPCTime` into the header, marks the texture
+   published, publishes the slot and sets the event. It never waits on the host; with no
+   texture to take it drops the frame.
+4. The host claims the newest published slot, moving it to reading. On AMD its compute
+   conversion reads the texture in place: the compute queue waits for the written fence on the
+   GPU, and once the conversion that read it is done the host signals the released fence on
+   the same queue and frees the slot with that value (`idd_push_zero_copy = false` copies
+   instead). Elsewhere the host's D3D11 device waits for the written fence, copies the texture
+   into its own pool, signals the released fence and frees the slot at once. The image's
+   present stamp is the driver's acquire: IddCx's `PresentDisplayQPCTime` is the scan-out,
+   about 6.8 ms later on a 120 Hz display.
+
+A host that finds no `CAP_FENCE_RING` (a driver update waiting for a restart) still creates the
+older keyed-mutex ring (`SHARED_KEYEDMUTEX` textures on D3D11, `IOCTL_SET_FRAME_RING`), and this
+driver still takes one from a host that sends it (setup can roll the host back without the
+driver). There a texture's keyed mutex alone says who holds it: the driver takes it with key 0
+(or reclaims an unconsumed one with key 1) and releases with key 1; the host takes it with key 1
+and releases with key 0. Both keyed-mutex paths go in a later release.
 
 With four textures the host holds at most two (the newest, and the one being encoded), so the
 driver always finds one free; `idd_push=debug` logs its counters every 5 s (acquired, pushed,

@@ -63,6 +63,7 @@ import com.limelight.BuildConfig;
 import com.limelight.LimeLog;
 import com.limelight.nvstream.ConnectionContext;
 import com.limelight.nvstream.PyroWavePace;
+import com.limelight.nvstream.StreamConfiguration;
 import com.limelight.nvstream.http.PairingManager.PairState;
 import com.limelight.nvstream.jni.MoonBridge;
 import com.limelight.preferences.HostDisplayChoice;
@@ -1399,12 +1400,12 @@ public class NvHTTP {
     }
 
     public int setBitrate(int kbps) throws IOException, XmlPullParserException {
-        if (kbps <= 0 || kbps > 500000) {
-            throw new IllegalArgumentException("Bitrate must be between 1 and 500000 kbps");
+        if (kbps <= 0 || kbps > StreamConfiguration.MAX_BITRATE_KBPS) {
+            throw new IllegalArgumentException("Bitrate must be between 1 and " + StreamConfiguration.MAX_BITRATE_KBPS + " kbps");
         }
         String response = openHttpConnectionToString(httpClientLongConnectTimeout, getHttpsUrl(true),
                 "bitrate", "bitrate=" + kbps);
-        long applied = readUnsignedValue(getXmlString(response, "bitrate", true), 500000);
+        long applied = readUnsignedValue(getXmlString(response, "bitrate", true), StreamConfiguration.MAX_BITRATE_KBPS);
         if (applied == 0) {
             throw new IOException("Host did not apply the bitrate");
         }

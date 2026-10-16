@@ -1064,6 +1064,19 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         return this.videoFormat;
     }
 
+    // Decoders size their input buffers for ordinary video, and a frame that doesn't fit ends the
+    // stream. Above about 125 Mbps at 60 FPS, ask for room for four average frames instead.
+    static int maxInputSize(int bitrateKbps, int fps) {
+        if (bitrateKbps <= 0 || fps <= 0) {
+            return 0;
+        }
+        long bytes = (long) bitrateKbps * 1000 / 8 / fps * 4;
+        if (bytes <= 2 * 1024 * 1024) {
+            return 0;
+        }
+        return (int) Math.min(bytes, 32 * 1024 * 1024);
+    }
+
     private MediaFormat createBaseMediaFormat(String mimeType) {
         MediaFormat videoFormat = MediaFormat.createVideoFormat(mimeType, initialWidth, initialHeight);
         if (this.videoFormat == MoonBridge.VIDEO_FORMAT_H264_HIGH8_444) {
@@ -1075,6 +1088,11 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         // Avoid setting KEY_FRAME_RATE on Lollipop and earlier to reduce compatibility risk
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             videoFormat.setInteger(MediaFormat.KEY_FRAME_RATE, refreshRate);
+        }
+
+        int maxInputSize = maxInputSize(prefs.bitrate, prefs.fps);
+        if (maxInputSize > 0) {
+            videoFormat.setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, maxInputSize);
         }
 
         // Populate keys for adaptive playback. The maximum starts at the stream size and only

@@ -314,7 +314,7 @@
     <string name="stream_input_denied">电脑阻止了来自此设备的输入。请在主机的设置或网页界面中允许。</string>
     <string name="stream_bitrate">码率</string>
     <string name="stream_bitrate_help">为本次会话设置 Mbps。\n这会关闭自动码率。</string>
-    <string name="stream_bitrate_invalid">请输入 0.5 到 500 Mbps 之间的码率</string>
+    <string name="stream_bitrate_invalid">请输入 0.5 到 2000 Mbps 之间的码率</string>
     <string name="stream_bitrate_applied">主机已应用 %1$.1f Mbps</string>
     <string name="stream_pyrowave_bitrate_low">%1$.1f Mbps 低于 PyroWave 在 %3$d×%4$d、%5$d FPS 下的最低要求 %2$d Mbps，画面会碎裂。</string>
     <string name="stream_enabled">开启</string>

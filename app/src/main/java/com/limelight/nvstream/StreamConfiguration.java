@@ -10,6 +10,10 @@ public class StreamConfiguration {
     public static final int STREAM_CFG_LOCAL = 0;
     public static final int STREAM_CFG_REMOTE = 1;
     public static final int STREAM_CFG_AUTO = 2;
+
+    // Highest bitrate the client asks for, at setup or mid-stream. Each host clamps to its own
+    // ceiling and the client follows the bitrate it reports back.
+    public static final int MAX_BITRATE_KBPS = 2000000;
     
     private NvApp app;
     private int width, height;

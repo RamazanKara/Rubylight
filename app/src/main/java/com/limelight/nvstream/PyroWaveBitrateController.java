@@ -1,7 +1,7 @@
 package com.limelight.nvstream;
 
 public final class PyroWaveBitrateController {
-    public static final int MAX_RUNTIME_KBPS = 500000;
+    public static final int MAX_RUNTIME_KBPS = StreamConfiguration.MAX_BITRATE_KBPS;
     private int ceilingKbps;
     private int currentKbps;
     private int floorKbps;

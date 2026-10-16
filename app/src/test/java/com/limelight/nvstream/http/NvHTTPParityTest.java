@@ -431,7 +431,7 @@ public class NvHTTPParityTest {
         field.set(http, client);
         assertEquals(20000, http.setBitrate(30000));
         assertThrows(IllegalArgumentException.class, () -> http.setBitrate(0));
-        assertThrows(IllegalArgumentException.class, () -> http.setBitrate(500001));
+        assertThrows(IllegalArgumentException.class, () -> http.setBitrate(2000001));
     }
 
     @Test

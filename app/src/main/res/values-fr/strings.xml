@@ -314,7 +314,7 @@
     <string name="stream_input_denied">Le PC bloque la saisie depuis cet appareil. Autorisez-la dans les paramètres ou l’interface Web de l’hôte.</string>
     <string name="stream_bitrate">Débit</string>
     <string name="stream_bitrate_help">Définissez les Mbit/s pour cette session.\nCela désactive le débit automatique.</string>
-    <string name="stream_bitrate_invalid">Saisissez un débit de 0,5 à 500 Mbit/s</string>
+    <string name="stream_bitrate_invalid">Saisissez un débit de 0,5 à 2000 Mbit/s</string>
     <string name="stream_bitrate_applied">Débit appliqué par l’hôte : %1$.1f Mbit/s</string>
     <string name="stream_pyrowave_bitrate_low">%1$.1f Mbit/s est sous le minimum de PyroWave de %2$d Mbit/s en %3$d×%4$d à %5$d FPS. L’image sera fragmentée.</string>
     <string name="stream_enabled">Activé</string>

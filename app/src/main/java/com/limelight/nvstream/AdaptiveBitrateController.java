@@ -15,7 +15,7 @@ public final class AdaptiveBitrateController {
     private boolean decodeBitrateInsensitive;
 
     public AdaptiveBitrateController(int ceilingKbps, int currentKbps, int fps, long nowMs) {
-        this.ceilingKbps = Math.min(500000, ceilingKbps);
+        this.ceilingKbps = Math.min(StreamConfiguration.MAX_BITRATE_KBPS, ceilingKbps);
         this.currentKbps = Math.min(currentKbps, this.ceilingKbps);
         floorKbps = Math.min(2000, this.currentKbps);
         frameMs = 1000.0f / fps;
@@ -111,7 +111,7 @@ public final class AdaptiveBitrateController {
         if (appliedKbps < requestedKbps) {
             ceilingKbps = Math.min(ceilingKbps, appliedKbps);
         }
-        currentKbps = Math.min(500000, appliedKbps);
+        currentKbps = Math.min(StreamConfiguration.MAX_BITRATE_KBPS, appliedKbps);
         floorKbps = Math.min(floorKbps, appliedKbps);
         lastChangeMs = nowMs;
         healthySinceMs = -1;

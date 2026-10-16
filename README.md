@@ -27,7 +27,7 @@
 
 **It learns your host.** Every host supports a different set of extras. Nightjar reads what yours reports and only shows the options that work there, with a short reason when something needs a host setting or an update. Offline PCs keep what they last reported, and a "not supported" note appears once per PC instead of on every stream.
 
-**Quality that adjusts itself.** Automatic bitrate follows packet loss, network jitter and how much headroom your phone's decoder has left, up to 500 Mbps. Automatic quality goes further and changes resolution and frame rate mid-stream, with three goals to pick from: keep motion smooth, keep detail sharp, or save battery. Both watch your phone's temperature and back off before it starts throttling. (Bitrate and quality control: Rubylight. Manual bitrate changes during a stream: Rubylight and Vibepollo.)
+**Quality that adjusts itself.** Automatic bitrate follows packet loss, network jitter and how much headroom your phone's decoder has left, up to 2000 Mbps where the host allows it. Automatic quality goes further and changes resolution and frame rate mid-stream, with three goals to pick from: keep motion smooth, keep detail sharp, or save battery. Both watch your phone's temperature and back off before it starts throttling. (Bitrate and quality control: Rubylight. Manual bitrate changes during a stream: Rubylight and Vibepollo.)
 
 **It works hard on latency.** Decoders get per-chip low-latency tuning, frames are paced to your display, including Android's adaptive refresh on newer phones, and stereo audio uses low-latency AAudio. On Rubylight, Nightjar tells the host how long frames wait for your screen so it can time them to arrive just in time.
 

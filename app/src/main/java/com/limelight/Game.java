@@ -3452,7 +3452,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             try {
                 kbps = new BigDecimal(input.getText().toString().trim().replace(',', '.'))
                         .movePointRight(3).intValueExact();
-                if (kbps < 500 || kbps > 500000) {
+                if (kbps < 500 || kbps > StreamConfiguration.MAX_BITRATE_KBPS) {
                     throw new NumberFormatException();
                 }
             } catch (NumberFormatException | ArithmeticException e) {

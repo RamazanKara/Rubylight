@@ -121,10 +121,10 @@ public class AdaptiveBitrateControllerTest {
     }
 
     @Test
-    public void runtimeRateCannotExceedHostApiLimit() {
-        AdaptiveBitrateController controller = new AdaptiveBitrateController(2000000, 2000000, 60, 0);
+    public void runtimeRateCannotExceedClientLimit() {
+        AdaptiveBitrateController controller = new AdaptiveBitrateController(3000000, 3000000, 60, 0);
         assertEquals(0, controller.sample(5000, true, true, 0, 2));
-        assertEquals(400000, controller.sample(6000, true, true, 0, 2));
+        assertEquals(1600000, controller.sample(6000, true, true, 0, 2));
     }
 
     @Test

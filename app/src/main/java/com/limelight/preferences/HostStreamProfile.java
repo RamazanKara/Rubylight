@@ -4,6 +4,7 @@ import android.content.Context;
 import android.content.SharedPreferences;
 
 import com.limelight.binding.video.UpscalingPolicy;
+import com.limelight.nvstream.StreamConfiguration;
 
 import java.math.BigDecimal;
 import java.util.Map;
@@ -16,7 +17,7 @@ import java.util.Map;
 public final class HostStreamProfile {
     private static final String PREFERENCES = "HostStreamProfiles";
     // Rubylight accepts up to 2 Gbps at stream setup; PyroWave's clean 4K60 needs about 1.6 Gbps.
-    static final int MAX_BITRATE_KBPS = 2000000;
+    static final int MAX_BITRATE_KBPS = StreamConfiguration.MAX_BITRATE_KBPS;
     static final String FORMAT = "v2";
     private static final String NATIVE = "native";
 

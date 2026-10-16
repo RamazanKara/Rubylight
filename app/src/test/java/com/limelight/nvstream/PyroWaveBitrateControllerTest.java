@@ -80,11 +80,11 @@ public class PyroWaveBitrateControllerTest {
 
     @Test
     public void runtimeCapAndChosenCeilingAreNeverExceeded() {
-        PyroWaveBitrateController c = new PyroWaveBitrateController(2000000, 2000000, 60, 0);
+        PyroWaveBitrateController c = new PyroWaveBitrateController(3000000, 3000000, 60, 0);
         assertEquals(0, c.sample(1000, true, false, 0, 0, 0));
         assertEquals(0, c.sample(21000, true, false, 0, 0, 0));
         assertEquals(0, c.sample(22000, true, false, 5, 0, 0));
-        assertEquals(425000, c.sample(23000, true, false, 5, 0, 0));
+        assertEquals(1700000, c.sample(23000, true, false, 5, 0, 0));
         c = new PyroWaveBitrateController(300000, 299000, 60, 0);
         assertEquals(0, c.sample(1000, true, false, 0, 0, 0));
         assertEquals(300000, c.sample(21000, true, false, 0, 0, 0));

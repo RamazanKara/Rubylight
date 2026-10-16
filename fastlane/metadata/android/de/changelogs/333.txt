@@ -2,3 +2,4 @@ Die Schnellschalter im Streammenü stehen bei großer Schrift untereinander, sta
 Der Dialog für Geräteergebnisse zeigt seine drei Schaltflächen bei jeder Schriftgröße.
 Der Hinweis beim ersten Stream verdeckt auf breiten Handys nicht mehr das Leistungs-Overlay.
 In den PC-Einstellungen lässt sich das PyroWave-Frame-Pacing auf Vibeshine-Hosts kalibrieren; Streams senden das gemessene Tempo an den Host.
+Bitrate geht bis 2000 Mbit/s, in den Einstellungen und während des Streams; der Host wendet weiterhin seine eigene Obergrenze an.

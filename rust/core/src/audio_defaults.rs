@@ -56,9 +56,20 @@ impl MicrophoneDefaults {
 
     /// Only undo our own selection; a user's subsequent selection wins.
     pub fn restore(&self, current: &Defaults) -> Vec<(usize, String)> {
-        switches(current, &self.before, |id| {
-            id.eq_ignore_ascii_case(&self.applied)
-        })
+        (0..3)
+            .filter_map(|index| {
+                let target = self.before[index].as_ref()?;
+                let restore = match current[index].as_deref() {
+                    Some(now) => {
+                        now.eq_ignore_ascii_case(&self.applied) && !now.eq_ignore_ascii_case(target)
+                    }
+                    // The virtual device may have disappeared. Try the original
+                    // and retain the journal if it is unavailable as well.
+                    None => true,
+                };
+                restore.then(|| (index, target.clone()))
+            })
+            .collect()
     }
 }
 
@@ -220,6 +231,22 @@ mod tests {
             recovered.restore(&ids([MIC, "", MIC])),
             [(0, USB_MIC.into()), (2, USB_MIC.into())]
         );
+    }
+
+    #[test]
+    fn a_disappeared_virtual_microphone_still_restores_the_original() {
+        let route =
+            MicrophoneDefaults::new(ids([USB_MIC, USB_MIC, "headset-mic"]), MIC.into(), None);
+        assert_eq!(
+            route.restore(&ids(["", MIC, "new-mic"])),
+            [(0, USB_MIC.into()), (1, USB_MIC.into())]
+        );
+        let retry = MicrophoneDefaults::new(
+            ids([MIC, MIC, MIC]),
+            "replacement-steam-mic".into(),
+            Some(&route),
+        );
+        assert_eq!(retry.before, route.before);
     }
 
     #[test]

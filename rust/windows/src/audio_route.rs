@@ -1109,6 +1109,31 @@ impl Drop for Route {
 mod tests {
     use super::*;
     #[test]
+    fn microphone_journal_keeps_playback_restoration_out_of_recording_roles() -> Result<()> {
+        let _active = ACTIVE.lock().unwrap();
+        let directory = tempfile::tempdir()?;
+        assert!(!microphone_owns_recording(directory.path()));
+        let journal = butterpollo_core::audio_defaults::MicrophoneDefaults::new(
+            std::array::from_fn(|_| Some("physical-mic".into())),
+            "steam-mic".into(),
+            None,
+        );
+        butterpollo_core::state::write_json(&microphone_path(directory.path()), &Some(&journal))?;
+        assert!(microphone_owns_recording(directory.path()));
+        assert_eq!(
+            microphone_pending(directory.path())?.unwrap().before,
+            journal.before
+        );
+        // A damaged journal must not authorize the older playback snapshot
+        // to overwrite the microphone choices it can no longer read.
+        std::fs::write(microphone_path(directory.path()), b"{")?;
+        assert!(microphone_pending(directory.path()).is_err());
+        assert!(microphone_owns_recording(directory.path()));
+        std::fs::write(microphone_path(directory.path()), b"null")?;
+        assert!(!microphone_owns_recording(directory.path()));
+        Ok(())
+    }
+    #[test]
     fn physical_audio_fallback_warns_only_when_a_virtual_route_was_expected() {
         assert!(
             virtual_sink_warning(false, false, false)

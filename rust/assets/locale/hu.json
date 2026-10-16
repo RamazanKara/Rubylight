@@ -752,7 +752,7 @@
     "hdr_profile_load_failed": "Nem sikerült betölteni a HDR színprofilokat.",
     "hdr_peak_nits_label": "HDR-csúcsfényesség",
     "hdr_peak_nits_placeholder": "Automatikus (profil vagy globális alapérték)",
-    "hdr_peak_nits_desc": "Hagyd üresen a kiválasztott HDR-profil MHC2 csúcsértékének beolvasásához; ennek hiányában a globális csúcsérték lesz használva. A kézi érték ennél a kliensnél a virtuális kijelző EDID-jét, az RTX HDR célértékét és a HDR10 stream metaadatait szabályozza.",
+    "hdr_peak_nits_desc": "Hagyd üresen a kiválasztott HDR-profil MHC2 csúcsértékének beolvasásához; ennek hiányában a globális csúcsérték lesz használva. A kézi érték ennél a kliensnél a virtuális kijelző EDID-jét és a HDR10 stream metaadatait szabályozza.",
     "virtual_display_scale_label": "Windows megjelenítési méretezés",
     "virtual_display_scale_placeholder": "Globális beállítás követése ({scale}%)",
     "virtual_display_scale_desc": "A „Meglévő méretezés megtartása” (alapértelmezett) a kiválasztott méretezést a jövőbeli közvetítésekben is megőrzi. Windows alatt csatlakozz a virtuális kijelzőhöz, és válaszd ki a méretezést a Gépház > Rendszer > Kijelző menüben. A Vibeshine-ban százalékos értéket vagy az Ajánlott (felbontás alapján) lehetőséget is választhatod a kliens felbontásának módosítása nélkül.",

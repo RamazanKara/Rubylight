@@ -1051,7 +1051,7 @@
     "hdr_profile_load_failed": "Failed to load HDR color profiles.",
     "hdr_peak_nits_label": "HDR peak brightness",
     "hdr_peak_nits_placeholder": "Auto (profile or global default)",
-    "hdr_peak_nits_desc": "Leave blank to read the selected HDR profile's MHC2 peak, falling back to the global peak. A manual value controls the virtual display EDID, RTX HDR target, and HDR10 stream metadata for this client.",
+    "hdr_peak_nits_desc": "Leave blank to read the selected HDR profile's MHC2 peak, falling back to the global peak. A manual value controls the virtual display EDID and the HDR10 stream metadata for this client.",
     "virtual_display_scale_label": "Windows display scale",
     "virtual_display_scale_placeholder": "Follow global ({scale}%)",
     "virtual_display_scale_desc": "Retain existing (default) preserves your current scale for future streams. On Windows, connect to the virtual display and set Scale in Settings > System > Display. In Vibeshine, you can also select an explicit percentage or Recommended (resolution-based) without changing the client resolution.",

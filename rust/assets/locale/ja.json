@@ -752,7 +752,7 @@
     "hdr_profile_load_failed": "HDR カラー プロファイルの読み込みに失敗しました。",
     "hdr_peak_nits_label": "HDR ピーク輝度",
     "hdr_peak_nits_placeholder": "自動（プロファイルまたはグローバル既定値）",
-    "hdr_peak_nits_desc": "空欄にすると、選択した HDR プロファイルの MHC2 ピークを読み取り、取得できない場合はグローバルピークを使用します。手動の値は、このクライアントの仮想ディスプレイ EDID、RTX HDR の目標値、HDR10 ストリームメタデータを制御します。",
+    "hdr_peak_nits_desc": "空欄にすると、選択した HDR プロファイルの MHC2 ピークを読み取り、取得できない場合はグローバルピークを使用します。手動の値は、このクライアントの仮想ディスプレイ EDID と HDR10 ストリームメタデータを制御します。",
     "virtual_display_scale_label": "Windows の表示スケール",
     "virtual_display_scale_placeholder": "グローバル設定に従う（{scale}%）",
     "virtual_display_scale_desc": "「既存の設定を維持」（既定）を選択すると、選択したスケールが今後のストリーミングでも維持されます。Windows では仮想ディスプレイに接続し、「設定 > システム > ディスプレイ」の「スケール」で設定してください。Vibeshine でパーセント値または「推奨（解像度に応じて調整）」を選択しても、クライアントの解像度は変わりません。",

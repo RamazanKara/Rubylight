@@ -752,7 +752,7 @@
     "hdr_profile_load_failed": "HDR renk profilleri yüklenemedi.",
     "hdr_peak_nits_label": "HDR tepe parlaklığı",
     "hdr_peak_nits_placeholder": "Otomatik (profil veya genel varsayılan)",
-    "hdr_peak_nits_desc": "Seçilen HDR profilinin MHC2 tepe değerini okumak ve bulunamazsa genel tepe değerini kullanmak için boş bırakın. Elle girilen değer, bu istemci için sanal ekran EDID'sini, RTX HDR hedefini ve HDR10 akış meta verilerini denetler.",
+    "hdr_peak_nits_desc": "Seçilen HDR profilinin MHC2 tepe değerini okumak ve bulunamazsa genel tepe değerini kullanmak için boş bırakın. Elle girilen değer, bu istemci için sanal ekran EDID'sini ve HDR10 akış meta verilerini denetler.",
     "virtual_display_scale_label": "Windows ekran ölçeği",
     "virtual_display_scale_placeholder": "Genel ayarı kullan ({scale}%)",
     "virtual_display_scale_desc": "Mevcut ölçeği koru (varsayılan) seçeneği, seçtiğiniz ölçeği gelecekteki akışlarda korur. Windows’ta sanal ekrana bağlanın ve Ayarlar > Sistem > Ekran bölümünde Ölçek ayarını seçin. Vibeshine’da, istemci çözünürlüğünü değiştirmeden bir yüzde değeri veya Önerilen (çözünürlüğe göre) seçeneğini de seçebilirsiniz.",

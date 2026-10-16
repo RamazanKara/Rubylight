@@ -752,7 +752,7 @@
     "hdr_profile_load_failed": "Det gick inte att läsa in HDR-färgprofiler.",
     "hdr_peak_nits_label": "Maximal HDR-ljusstyrka",
     "hdr_peak_nits_placeholder": "Automatiskt (profil eller globalt standardvärde)",
-    "hdr_peak_nits_desc": "Lämna tomt för att läsa MHC2-toppen från den valda HDR-profilen och annars använda den globala toppen. Ett manuellt värde styr den virtuella bildskärmens EDID, RTX HDR-målet och HDR10-metadata för strömmen på den här klienten.",
+    "hdr_peak_nits_desc": "Lämna tomt för att läsa MHC2-toppen från den valda HDR-profilen och annars använda den globala toppen. Ett manuellt värde styr den virtuella bildskärmens EDID och HDR10-metadata för strömmen på den här klienten.",
     "virtual_display_scale_label": "Bildskärmsskalning i Windows",
     "virtual_display_scale_placeholder": "Följ global inställning ({scale} %)",
     "virtual_display_scale_desc": "Med Behåll befintlig skalning (standard) sparas din valda skalning för framtida strömmar. Anslut till den virtuella bildskärmen i Windows och välj Skala under Inställningar > System > Bildskärm. I Vibeshine kan du också välja en procentsats eller Rekommenderad (baserat på upplösning) utan att ändra klientens upplösning.",

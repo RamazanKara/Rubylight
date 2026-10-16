@@ -752,7 +752,7 @@
     "hdr_profile_load_failed": "Načtení barevných profilů HDR se nezdařilo.",
     "hdr_peak_nits_label": "Špičkový jas HDR",
     "hdr_peak_nits_placeholder": "Automaticky (profil nebo globální výchozí hodnota)",
-    "hdr_peak_nits_desc": "Ponechte prázdné, chcete-li načíst špičkovou hodnotu MHC2 z vybraného profilu HDR a případně použít globální špičkovou hodnotu. Ruční hodnota pro tohoto klienta řídí EDID virtuálního displeje, cíl RTX HDR a metadata streamu HDR10.",
+    "hdr_peak_nits_desc": "Ponechte prázdné, chcete-li načíst špičkovou hodnotu MHC2 z vybraného profilu HDR a případně použít globální špičkovou hodnotu. Ruční hodnota pro tohoto klienta řídí EDID virtuálního displeje a metadata streamu HDR10.",
     "virtual_display_scale_label": "Škálování zobrazení ve Windows",
     "virtual_display_scale_placeholder": "Použít globální nastavení ({scale} %)",
     "virtual_display_scale_desc": "Volba „Zachovat stávající“ (výchozí) zachová zvolené měřítko i pro budoucí streamy. Ve Windows se připojte k virtuálnímu displeji a v Nastavení > Systém > Obrazovka vyberte Měřítko. Ve Vibeshine můžete také vybrat konkrétní procento nebo Doporučené (podle rozlišení), aniž by se změnilo rozlišení klienta.",

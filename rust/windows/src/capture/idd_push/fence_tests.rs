@@ -281,7 +281,6 @@ fn claim_image(
 fn pyrowave_encoding_returns_keyed_capture_slots() -> Result<()> {
     let _com = ComGuard::new()?;
     let gpu = Device::new("")?;
-    assert!(crate::compute::copies_on(&gpu.device));
     let compute = crate::compute::Compute::for_device(&gpu.device)?;
     let layout = Layout {
         kind: Kind::KeyedMutex,

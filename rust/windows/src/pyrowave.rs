@@ -460,7 +460,7 @@ impl Encoder {
             pending: None,
             lost: None,
             adapter: luid.luid,
-            use_compute: crate::compute::enabled(tuning) && crate::compute::copies_on(&d3d.device),
+            use_compute: crate::compute::enabled(tuning),
             d3d,
             converter: None,
             compute: None,

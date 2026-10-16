@@ -848,10 +848,6 @@ fn stream_status() -> Result<String> {
 fn pyrowave_decoded_end_to_end() -> Result<()> {
     let _com = ComGuard::new()?;
     let gpu = Device::new("")?;
-    ensure!(
-        crate::compute::copies_on(&gpu.device),
-        "this matrix requires an AMD adapter"
-    );
     println!(
         "PYROWAVE_ENV {}",
         serde_json::json!({"adapter":gpu.display.adapter,"bitstream":pyrowave::BITSTREAM_ID,"panel_order":["bars","gradient","text","noise"]})
@@ -1027,10 +1023,6 @@ fn pyrowave_decoded_end_to_end() -> Result<()> {
 fn pyrowave_encoder_follows_rebuilt_planes() -> Result<()> {
     let _com = ComGuard::new()?;
     let gpu = Device::new("")?;
-    ensure!(
-        crate::compute::copies_on(&gpu.device),
-        "this test requires an AMD adapter"
-    );
     println!("PYROWAVE_REBUILD_STREAM {}", stream_status()?);
     let config = Negotiated {
         width: 1920,
@@ -1144,10 +1136,6 @@ fn pyrowave_encoder_follows_rebuilt_planes() -> Result<()> {
 fn record_framing_keeps_the_wire_budget_and_decoded_pixels() -> Result<()> {
     let _com = ComGuard::new()?;
     let gpu = Device::new("")?;
-    ensure!(
-        crate::compute::copies_on(&gpu.device),
-        "requires AMD compute"
-    );
     let config = Negotiated {
         width: 1280,
         height: 720,
@@ -1235,10 +1223,6 @@ fn quality_sweep(width: u32, height: u32, critical_fec: usize) -> Result<()> {
     println!("PYROWAVE_QUALITY_START {}", stream_status()?);
     let _com = ComGuard::new()?;
     let gpu = Device::new("")?;
-    ensure!(
-        crate::compute::copies_on(&gpu.device),
-        "this sweep requires an AMD adapter"
-    );
     println!(
         "PYROWAVE_QUALITY_ENV {}",
         serde_json::json!({"adapter":gpu.display.adapter,"bitstream":pyrowave::BITSTREAM_ID})

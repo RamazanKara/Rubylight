@@ -32,7 +32,6 @@ fn native_amf_recycled_surface_barriers_are_valid() -> Result<()> {
     }
     let _com = crate::capture::ComGuard::new()?;
     let device = Device::new("")?;
-    anyhow::ensure!(crate::compute::copies_on(&device.device), "requires AMD");
     let pointer_shape = windows::Win32::Graphics::Dxgi::DXGI_OUTDUPL_POINTER_SHAPE_INFO {
         Type: windows::Win32::Graphics::Dxgi::DXGI_OUTDUPL_POINTER_SHAPE_TYPE_COLOR.0 as u32,
         Width: 9,
@@ -292,10 +291,6 @@ fn native_hevc_intra_refresh_decodes_across_gops_and_forced_recovery() -> Result
     };
     let _com = crate::capture::ComGuard::new()?;
     let device = Device::new("")?;
-    anyhow::ensure!(
-        crate::compute::copies_on(&device.device),
-        "requires an AMD adapter"
-    );
     let compute = crate::compute::Compute::for_device(&device.device)?;
     let timer = crate::timing::Timer::new()?;
     let mut reports = Vec::new();

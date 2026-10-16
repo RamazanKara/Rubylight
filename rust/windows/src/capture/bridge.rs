@@ -151,10 +151,7 @@ fn handoff(
     config: &Config,
     warnings: &butterpollo_core::session::Warnings,
 ) -> Option<crate::compute::Handoff> {
-    if !config.boolean("wgc_compute_copy", true)
-        || !crate::compute::enabled(config)
-        || !crate::compute::copies_on(&gpu.device)
-    {
+    if !config.boolean("wgc_compute_copy", true) || !crate::compute::enabled(config) {
         return None;
     }
     match crate::compute::Compute::for_device(&gpu.device)

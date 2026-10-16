@@ -13,6 +13,15 @@ New-Item -ItemType Directory -Path $ArtifactDirectory -Force | Out-Null
 $ArtifactDirectory = (Resolve-Path -LiteralPath $ArtifactDirectory).ProviderPath
 $MoonlightRoot = (Resolve-Path -LiteralPath $MoonlightRoot).ProviderPath
 $build = Join-Path $ArtifactDirectory 'moonlight-client-build'
+# CMake refuses a build directory configured from another source checkout
+# (check.ps1 builds from whichever checkout it runs in); start that one afresh.
+$cache = Join-Path $build 'CMakeCache.txt'
+if (Test-Path -LiteralPath $cache) {
+    $home_line = Select-String -LiteralPath $cache -Pattern '^CMAKE_HOME_DIRECTORY:INTERNAL=(.*)$' | Select-Object -First 1
+    if ($home_line -and [IO.Path]::GetFullPath($home_line.Matches[0].Groups[1].Value) -ne [IO.Path]::GetFullPath($MoonlightRoot)) {
+        Remove-Item -LiteralPath $build -Recurse -Force
+    }
+}
 & cmake -S $MoonlightRoot -B $build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF -DCMAKE_C_COMPILER=gcc "-DOPENSSL_ROOT_DIR=$MsysRoot/ucrt64"
 if ($LASTEXITCODE) { throw 'Moonlight-common-c configuration failed' }
 & cmake --build $build

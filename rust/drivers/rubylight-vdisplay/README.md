@@ -60,9 +60,12 @@ for `x86_64-pc-windows-msvc` with the static CRT and the Windows Driver Kit.
    the event. It never waits on the host or the GPU; with no texture to take, or every command
    list of the copy queue still on the GPU, it drops the frame.
 5. The host claims the newest published slot, moving it to reading. Its compute queue waits for
-   the written fence on the GPU and converts the texture in place; once that conversion is
-   done the host signals the released fence on the same queue and frees the slot with that
-   value. The image's present stamp is the driver's acquire: IddCx's `PresentDisplayQPCTime`
+   the written fence on the GPU and converts the texture in place. Several streams' conversions
+   or a readback can read one frame: after the last of those reads the host signals the
+   released fence on the same queue and frees the slot with that value. With
+   `idd_push_zero_copy = false` a host compute queue instead waits for the written fence,
+   copies the texture into the host's own pool and signals the released fence behind the
+   copy, so the slot is free again at once. The image's present stamp is the driver's acquire: IddCx's `PresentDisplayQPCTime`
    is the scan-out, about 6.8 ms later on a 120 Hz display.
 
 A host before `CAP_FENCE_RING` sends the older keyed-mutex ring (`IOCTL_SET_FRAME_RING`), which

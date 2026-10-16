@@ -12,32 +12,6 @@ use butterpollo_core::virtual_output::{DisplayProvider, Mode};
 
 /// How long a create retries while a previous host's display with the same identity departs.
 const CREATE_RETRY: Duration = Duration::from_secs(10);
-/// Windows 11 (build 22000) or later. Vibepollo keeps hosts on Windows 10 on
-/// the physical display unless configured otherwise: virtual-display capture
-/// depends on Windows 11 capture features.
-pub fn windows_11() -> bool {
-    static BUILD: std::sync::OnceLock<Option<u32>> = std::sync::OnceLock::new();
-    BUILD
-        // SAFETY: The registry names are terminated and the output size matches the live UTF-16 buffer.
-        .get_or_init(|| unsafe {
-            use windows::Win32::System::Registry::*;
-            let mut text = [0u16; 32];
-            let mut size = (text.len() * 2) as u32;
-            RegGetValueW(
-                HKEY_LOCAL_MACHINE,
-                windows::core::w!("SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion"),
-                windows::core::w!("CurrentBuildNumber"),
-                RRF_RT_REG_SZ,
-                None,
-                Some(text.as_mut_ptr().cast()),
-                Some(&mut size),
-            )
-            .ok()
-            .ok()?;
-            wide(&text).trim().parse().ok()
-        })
-        .is_none_or(|build| build >= 22000)
-}
 pub fn virtual_display_available() -> bool {
     Control::open().is_ok()
 }

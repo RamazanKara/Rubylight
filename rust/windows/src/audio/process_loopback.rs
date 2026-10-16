@@ -1,4 +1,4 @@
-//! Application loopback via Windows' process-tree capture API (build 20348+).
+//! Application loopback via Windows' process-tree capture API.
 //! Activation is bounded; a failure never falls back to an endpoint capture.
 use std::{
     mem::{ManuallyDrop, size_of},

@@ -1,39 +1,33 @@
-//! The render-side D3D11 device bound to IddCx swap chains, and the device the frame ring's
-//! textures open on.
+//! The render-side D3D12 device bound to IddCx swap chains, and the device the frame ring's
+//! textures and fences open on.
 //!
 //! From punktfunk's pf-vdisplay `direct_3d_device.rs` by Enrico Bühler (unom), MIT OR
-//! Apache-2.0.
+//! Apache-2.0, moved from D3D11 to D3D12 (IddCx 1.11's D3D12 swap chain).
 //!
 //! One device per render LUID, pooled across every swap-chain assignment ([`pooled_device`]):
 //! creating one per assignment leaked a vendor driver thread set and VRAM on every reconnect.
-//! Because two monitors' workers share it, it is created without `SINGLETHREADED` and its
-//! immediate context is multithread-protected.
+//! A D3D12 device is free-threaded; each swap-chain worker records and submits on its own
+//! queue ([`crate::copier::Copier`]).
 
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 
 use windows::{
     Win32::{
-        Foundation::{BOOL, E_FAIL, LUID},
+        Foundation::{E_FAIL, LUID},
         Graphics::{
-            Direct3D::D3D_DRIVER_TYPE_UNKNOWN,
-            Direct3D11::{
-                D3D11_CREATE_DEVICE_BGRA_SUPPORT, D3D11_CREATE_DEVICE_FLAG,
-                D3D11_CREATE_DEVICE_PREVENT_ALTERING_LAYER_SETTINGS_FROM_REGISTRY,
-                D3D11_SDK_VERSION, D3D11CreateDevice, ID3D11Device, ID3D11DeviceContext,
-                ID3D11Multithread,
-            },
+            Direct3D::D3D_FEATURE_LEVEL_11_0,
+            Direct3D12::{D3D12CreateDevice, ID3D12Device},
             Dxgi::{CreateDXGIFactory2, DXGI_CREATE_FACTORY_FLAGS, IDXGIAdapter1, IDXGIFactory5},
         },
     },
-    core::{Error, Interface},
+    core::Error,
 };
 
 pub struct Direct3DDevice {
     _dxgi_factory: IDXGIFactory5,
     _adapter: IDXGIAdapter1,
-    pub device: ID3D11Device,
-    pub device_context: ID3D11DeviceContext,
+    pub device: ID3D12Device,
     /// The adapter this device was created on.
     pub luid: LUID,
     /// Minted per successful `init`, so a TDR recreate on the same LUID is a new epoch.
@@ -66,49 +60,17 @@ impl Direct3DDevice {
             unsafe { CreateDXGIFactory2::<IDXGIFactory5>(DXGI_CREATE_FACTORY_FLAGS(0))? };
         // SAFETY: `dxgi_factory` is the live factory; the LUID is passed by value.
         let adapter = unsafe { dxgi_factory.EnumAdapterByLuid::<IDXGIAdapter1>(adapter_luid)? };
-        let mut device = None;
-        let mut device_context = None;
+        let mut device: Option<ID3D12Device> = None;
         // The device only copies the swap chain's surfaces into the host's textures.
-        let flags = D3D11_CREATE_DEVICE_FLAG(
-            D3D11_CREATE_DEVICE_BGRA_SUPPORT.0
-                | D3D11_CREATE_DEVICE_PREVENT_ALTERING_LAYER_SETTINGS_FROM_REGISTRY.0,
-        );
-        // SAFETY: `adapter` is a live adapter; the out-params are live locals checked below;
-        // flags and SDK version are valid constants.
-        unsafe {
-            D3D11CreateDevice(
-                &adapter,
-                D3D_DRIVER_TYPE_UNKNOWN,
-                None,
-                flags,
-                None,
-                D3D11_SDK_VERSION,
-                Some(&mut device),
-                None,
-                Some(&mut device_context),
-            )?;
-        }
-        let device = device.ok_or_else(|| Error::new(E_FAIL, "ID3D11Device not found"))?;
-        let device_context =
-            device_context.ok_or_else(|| Error::new(E_FAIL, "ID3D11DeviceContext not found"))?;
-        match device_context.cast::<ID3D11Multithread>() {
-            Ok(mt) => {
-                // SAFETY: a plain setter on the live context's multithread interface.
-                unsafe {
-                    let _ = mt.SetMultithreadProtected(BOOL::from(true));
-                }
-            }
-            Err(e) => dbglog!(
-                "[rlvd] ID3D11Multithread unavailable ({e:?}); immediate context unprotected"
-            ),
-        }
+        // SAFETY: `adapter` is a live adapter; `device` is a live local checked below.
+        unsafe { D3D12CreateDevice(&adapter, D3D_FEATURE_LEVEL_11_0, &mut device)? };
+        let device = device.ok_or_else(|| Error::new(E_FAIL, "ID3D12Device not found"))?;
         let epoch = DEVICE_EPOCH.fetch_add(1, Ordering::AcqRel) + 1;
-        dbglog!("[rlvd] Direct3DDevice::init OK, epoch {epoch}");
+        dbglog!("[rlvd] Direct3DDevice::init OK (D3D12), epoch {epoch}");
         Ok(Self {
             _dxgi_factory: dxgi_factory,
             _adapter: adapter,
             device,
-            device_context,
             luid: adapter_luid,
             epoch,
             removed: AtomicBool::new(false),

@@ -6,7 +6,7 @@
 //! with a frame push: each composed frame is copied into a texture ring the host shares, and
 //! the host converts and encodes it (`rubylight_vdisplay_proto::ring`).
 //!
-//! The driver is FFI-bound by nature (IddCx DDIs, D3D11, cross-process shared textures), so
+//! The driver is FFI-bound by nature (IddCx DDIs, D3D12, cross-process shared textures and fences), so
 //! it is unsafe-audited rather than unsafe-free: every `unsafe {}` carries its proof and an
 //! `unsafe fn` body is not one big unsafe block (workspace lints).
 
@@ -17,6 +17,7 @@ mod log;
 mod adapter;
 mod callbacks;
 mod control;
+mod copier;
 mod direct_3d_device;
 mod entry;
 mod frame_ring;
@@ -40,9 +41,9 @@ pub(crate) const STATUS_ACCESS_DENIED: NTSTATUS = status::ACCESS_DENIED;
 pub(crate) const STATUS_DEVICE_BUSY: NTSTATUS = status::DEVICE_BUSY;
 pub(crate) const STATUS_INSUFFICIENT_RESOURCES: NTSTATUS = status::INSUFFICIENT_RESOURCES;
 
-/// IddCx in stub mode requires the driver to export its minimum framework version. `10` is
-/// IddCx 1.10, the truthful floor: the drain loop calls `ReleaseAndAcquireBuffer2` (1.10) and
-/// `SetRealtimeGPUPriority` (1.9), and Windows 11 22H2 ships 1.10. An older framework then
-/// refuses to bind instead of dispatching past its DDI table.
+/// IddCx in stub mode requires the driver to export its minimum framework version. `11` is
+/// IddCx 1.11, the truthful floor: frames arrive through the D3D12 swap chain
+/// (`IddCxSwapChainSetDevice2`), and `DriverEntry` also refuses a 1.11 framework that does not
+/// report it. An older framework refuses to bind instead of dispatching past its DDI table.
 #[unsafe(no_mangle)]
-pub static IddMinimumVersionRequired: wdk_sys::ULONG = 10;
+pub static IddMinimumVersionRequired: wdk_sys::ULONG = 11;

@@ -506,82 +506,11 @@ pub fn amf(config: &Config, stream: &Negotiated) -> Result<Vec<Property>> {
     Ok(output)
 }
 
-/// FFmpeg SDK options, including the old native NVENC and QSV controls.
+/// FFmpeg SDK options, including the old native QSV controls.
 pub fn ffmpeg(config: &Config, stream: &Negotiated, name: &str) -> Result<Vec<(String, String)>> {
     let mut output = vec![];
     let mut add = |key: &str, value: &str| output.push((key.into(), value.into()));
-    if name.ends_with("_nvenc") {
-        // AVCodecContext.refs limits the active prediction list, while NVENC's
-        // retained-picture budget is a separate option. Bound both for clients
-        // such as Moonlight's one-reference AVC decoder.
-        if stream.references > 0 {
-            add("dpb_size", &stream.references.to_string());
-        }
-        add(
-            "preset",
-            &format!("p{}", config.integer("nvenc_preset", 1).clamp(1, 7)),
-        );
-        add("tune", "ull");
-        add("rc", "cbr");
-        add("zerolatency", "1");
-        add("forced-idr", "1");
-        add("delay", "0");
-        add(
-            "spatial-aq",
-            if config.boolean("nvenc_spatial_aq", false) {
-                "1"
-            } else {
-                "0"
-            },
-        );
-        add(
-            "temporal-aq",
-            if config.boolean("nvenc_temporal_aq", false) {
-                "1"
-            } else {
-                "0"
-            },
-        );
-        add(
-            "multipass",
-            match config.get("nvenc_twopass", "quarter_res") {
-                "disabled" => "disabled",
-                "full_res" => "fullres",
-                other => {
-                    crate::config::fallback("nvenc_twopass", other, "quarter_res");
-                    "qres"
-                }
-            },
-        );
-        if stream.codec == 0 {
-            add(
-                "coder",
-                if config.boolean("nvenc_h264_cavlc", false) {
-                    "cavlc"
-                } else {
-                    "cabac"
-                },
-            );
-        }
-        if config.values.contains_key("nvenc_split_encode") {
-            let mode = config.get("nvenc_split_encode", "auto");
-            add(
-                "split_encode_mode",
-                match mode {
-                    "disabled" | "false" => "15",
-                    "forced" | "enabled" | "true" => "2",
-                    "driver_decides" => "0",
-                    other => {
-                        crate::config::fallback("nvenc_split_encode", other, "auto");
-                        "0"
-                    }
-                },
-            );
-        }
-        if stream.intra_refresh {
-            add("intra-refresh", "1");
-        }
-    } else if name.ends_with("_qsv") {
+    if name.ends_with("_qsv") {
         add("preset", config.get("qsv_preset", "medium"));
         add("async_depth", "1");
         add("low_delay_brc", "1");
@@ -840,34 +769,6 @@ mod tests {
             for value in [invalid, "-1", "NaN", "inf", "invalid"] {
                 let config = Config::parse(&format!("{key}={value}")).unwrap();
                 assert!(amf_rate_control(&config, &Negotiated::default()).is_err());
-            }
-        }
-    }
-
-    #[test]
-    fn legacy_nvenc_retained_picture_budget_matches_negotiated_references() {
-        let config = Config::default();
-        for (codec, name) in [(0, "h264_nvenc"), (1, "hevc_nvenc"), (2, "av1_nvenc")] {
-            for references in [0, 1, 2, 4, 16] {
-                let stream = Negotiated {
-                    codec,
-                    references,
-                    ..Default::default()
-                };
-                let options = ffmpeg(&config, &stream, name).unwrap();
-                let dpb = options.iter().find(|(key, _)| key == "dpb_size");
-                assert_eq!(
-                    dpb.map(|(_, value)| value.clone()),
-                    (references > 0).then(|| references.to_string())
-                );
-                for other in ["h264_qsv", "libx264", "libx265"] {
-                    assert!(
-                        !ffmpeg(&config, &stream, other)
-                            .unwrap()
-                            .iter()
-                            .any(|(key, _)| key == "dpb_size")
-                    );
-                }
             }
         }
     }

@@ -10,6 +10,27 @@ use windows::Win32::{Foundation::FILETIME, System::Threading::GetSystemTimes};
 
 pub use butterpollo_core::config::HARDWARE_METRICS as METRICS;
 
+/// A driver DLL from System32 only, so no DLL earlier in the search order
+/// stands in for it.
+fn system_library(name: &str) -> Result<libloading::Library> {
+    use windows::Win32::System::{
+        LibraryLoader::LOAD_LIBRARY_SEARCH_SYSTEM32, SystemInformation::GetSystemDirectoryW,
+    };
+    let mut directory = [0u16; 32768];
+    // SAFETY: `directory` is a live, writable UTF-16 buffer and the call writes at most its length.
+    let length = unsafe { GetSystemDirectoryW(Some(&mut directory)) } as usize;
+    if length == 0 || length >= directory.len() {
+        bail!("cannot locate the Windows system directory");
+    }
+    let path = std::path::PathBuf::from(String::from_utf16(&directory[..length])?).join(name);
+    // SAFETY: `path` is an absolute System32 path, so no search-order DLL is picked up; loading
+    // runs only the installed driver's initialisers.
+    Ok(unsafe {
+        libloading::os::windows::Library::load_with_flags(path, LOAD_LIBRARY_SEARCH_SYSTEM32.0)?
+    }
+    .into())
+}
+
 #[derive(Clone, Debug, Default, Serialize)]
 pub struct Sample {
     pub cpu: BTreeMap<String, f64>,
@@ -227,7 +248,7 @@ struct Adlx {
 }
 impl Adlx {
     fn open() -> Result<Self> {
-        let library = crate::nvenc::system_library("amdadlx64.dll")?;
+        let library = system_library("amdadlx64.dll")?;
         // SAFETY: These exports and C signatures are specified by AMD's ADLX.h.
         let (initialize, terminate) = unsafe {
             (

@@ -168,11 +168,6 @@ try {
         Copy-Item -LiteralPath (Join-Path $repo 'rust\tests\ENVIRONMENT_REPORT.md') -Destination "$distribution\tools\README.md"
         Copy-Item -LiteralPath (Join-Path $repo 'rust\compatibility') -Destination "$distribution\compatibility" -Recurse
         Copy-Item -LiteralPath (Join-Path $repo 'rust\THIRD_PARTY.md') -Destination "$distribution\licenses"
-        foreach ($header in @('nvEncodeAPI.h', 'dynlink_cuda.h')) {
-            $text = [IO.File]::ReadAllText((Join-Path $repo "rust\windows\include\$header"))
-            $notice = $text.Substring(0, $text.IndexOf('*/') + 2)
-            $notice | Set-Content -LiteralPath "$distribution\licenses\$header.txt" -Encoding utf8
-        }
         Copy-Item -LiteralPath (Join-Path $repo 'rust\service.ps1') -Destination $distribution
         Copy-Item -LiteralPath (Join-Path $repo 'Cargo.lock') -Destination "$distribution\licenses"
         if (Test-Path -LiteralPath (Join-Path $PyrowaveRoot 'share\licenses')) { Copy-Item -LiteralPath (Join-Path $PyrowaveRoot 'share\licenses') -Destination "$distribution\licenses\pyrowave" -Recurse -Force }

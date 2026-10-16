@@ -170,15 +170,12 @@ async fn connection(
                         mic,
                     )
                     .into_bytes();
-                    // NVENC recovers lost references whenever the driver can, as
-                    // in Vibepollo; AMF unless long-term references are turned off.
+                    // AMF recovers lost references unless long-term references
+                    // are turned off.
                     let backend = *h.probed_encoder.lock().unwrap();
                     if flags & 0x40000000 != 0
-                        && (backend == "nvenc"
-                            || (backend == "amf"
-                                && butterpollo_core::encoder_policy::amf_offers_invalidation(
-                                    &config,
-                                )))
+                        && backend == "amf"
+                        && butterpollo_core::encoder_policy::amf_offers_invalidation(&config)
                     {
                         body.extend_from_slice(b"a=x-nv-video[0].refPicInvalidation:1\r\n");
                     }

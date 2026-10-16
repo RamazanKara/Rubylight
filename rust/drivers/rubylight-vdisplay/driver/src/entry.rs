@@ -38,6 +38,7 @@ pub unsafe extern "system" fn driver_entry(
         )
     };
     dbglog!("[rlvd] WdfDriverCreate -> {st:#x}");
+    log_framework();
     st
 }
 
@@ -126,8 +127,6 @@ extern "C" fn driver_add(_driver: WDFDRIVER, mut init: PWDFDEVICE_INIT) -> NTSTA
         return status;
     }
 
-    log_framework();
-
     // The watchdog timer exists before the interface does, so no IOCTL beats it.
     let status = crate::watchdog::create(device);
     if !nt_success(status) {
@@ -158,7 +157,7 @@ extern "C" fn driver_add(_driver: WDFDRIVER, mut init: PWDFDEVICE_INIT) -> NTSTA
 
 /// Log the IddCx framework version and whether the OS reports D3D12 swap chains (IddCx 1.11's
 /// `IddCxCheckOsFeatureSupport`, which must run before any adapter exists: the adapter comes
-/// with the first D0 entry, after this).
+/// with the device's first D0 entry, long after `DriverEntry`).
 fn log_framework() {
     let mut version = iddcx::IDARG_OUT_GETVERSION::default();
     // SAFETY: IddCx loaded the driver; `version` is a valid out block.
@@ -180,7 +179,7 @@ fn log_framework() {
         }
     };
     dbglog!(
-        "[rlvd] IddCx framework version {:#x} (IddCxGetVersion -> {status:#x}, {count} DDIs);          D3D12 swap chain: {d3d12}",
+        "[rlvd] IddCx framework version {:#x} (IddCxGetVersion -> {status:#x}, {count} DDIs); D3D12 swap chain: {d3d12}",
         version.IddCxVersion
     );
 }

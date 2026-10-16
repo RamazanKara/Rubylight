@@ -179,7 +179,6 @@ fn small_ring(gpu: &Device, slots: u32) -> Result<Ring> {
     Ring::fenced(
         gpu.compute.clone(),
         Layout {
-            kind: Kind::Fence,
             slot_count: slots,
             width: 16,
             height: 16,
@@ -192,7 +191,7 @@ fn small_ring(gpu: &Device, slots: u32) -> Result<Ring> {
 
 #[test]
 #[ignore = "requires native D3D12 sharing and compute conversion"]
-fn a_fence_ring_carries_frames_both_ways_without_keyed_mutexes() -> Result<()> {
+fn a_fence_ring_carries_frames_both_ways() -> Result<()> {
     let _com = ComGuard::new()?;
     let gpu = Device::new("")?;
     for (in_place, pixel) in [
@@ -202,7 +201,6 @@ fn a_fence_ring_carries_frames_both_ways_without_keyed_mutexes() -> Result<()> {
         (false, Pixel::RgbaF16),
     ] {
         let layout = Layout {
-            kind: Kind::Fence,
             slot_count: 2,
             width: 16,
             height: 16,
@@ -305,7 +303,6 @@ fn pyrowave_encoding_frees_fence_ring_slots() -> Result<()> {
     let _com = ComGuard::new()?;
     let gpu = Device::new("")?;
     let layout = Layout {
-        kind: Kind::Fence,
         slot_count: 4,
         width: 64,
         height: 64,
@@ -607,7 +604,6 @@ fn fence_ring_textures_open_on_a_d3d11_device_like_the_driver_opens_them() -> Re
         let ring = Ring::fenced(
             gpu.compute.clone(),
             Layout {
-                kind: Kind::Fence,
                 slot_count: 2,
                 width: 64,
                 height: 32,

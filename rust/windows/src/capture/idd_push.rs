@@ -23,7 +23,6 @@ use butterpollo_core::virtual_output::{PushedFrame, PushedFrames};
 use rubylight_vdisplay_proto::control::{
     CAP_SCOPED_CLEAR, MonitorStatus, SetFenceRingRequest, SetFrameRingRequest,
 };
-use rubylight_vdisplay_proto::ring::Kind;
 use rubylight_vdisplay_proto::ring::{self, Consumer, Counters, Header, Layout, SlotMeta};
 use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -584,7 +583,6 @@ impl Session {
                 .is_some_and(|d| d.color_space == DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020);
         let (width, height, format) = ring_shape(&status, native_hdr);
         let layout = Layout {
-            kind: Kind::Fence,
             slot_count: ring::DEFAULT_SLOTS as u32,
             width,
             height,

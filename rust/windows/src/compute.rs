@@ -449,7 +449,7 @@ impl Compute {
         resource.context("no texture")
     }
     /// A texture as [`Compute::texture`] makes it that other processes and APIs can open, with
-    /// an NT handle to it. It has no keyed mutex: fences order every access.
+    /// an NT handle to it. Fences order every access.
     pub(crate) fn share_texture(
         &self,
         width: u32,

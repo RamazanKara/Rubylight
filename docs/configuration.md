@@ -16,7 +16,7 @@ Use **Review changes** to see pending edits across all categories, including set
 
 | Setting / key | Default | What it means |
 | --- | --- | --- |
-| Compute conversion — `gpu_compute_conversion` | `true` | Uses a separate compute queue for supported AMD capture and colour conversion paths. |
+| Compute conversion — `gpu_compute_conversion` | `true` | No longer has an effect: frames are always copied and converted on a D3D12 compute queue. `false` only logs a warning. |
 | Encoder — `encoder` | `auto` | Selects an available encoder for the capture GPU. |
 | AMD usage — `amd_usage` | `ultralowlatency` | AMD's lowest-latency preset. The driver also turns on its internal low-latency mode, and the lowest latency for AV1. |
 | AMD quality — `amd_quality` | `speed` | Favours low encoding latency. |
@@ -45,9 +45,9 @@ These are defaults for **unset** keys, not a list of values you must copy into a
 
 **Graphics card** (`adapter_name`) lists all hardware GPUs reported by Windows DXGI, including GPUs with no attached monitor on hybrid systems. **Automatic** uses the GPU that renders the stream's virtual display. A GPU appearing in the list does not confirm encoder or codec support; that still depends on its hardware and driver. With a GPU selected, virtual displays are created to render on that GPU, as Apollo and Vibepollo do.
 
-**Keep compute conversion enabled** for normal use. On supported AMD hardware, the compute path lets capture and colour conversion run alongside graphics work. Unsupported textures can fall back to the graphics path.
+**Capture copies and colour conversion run on D3D12 compute queues**, alongside the game's graphics work. There is no graphics-queue path to switch to; `gpu_compute_conversion` no longer changes anything.
 
-**Frames from Rubylight's display driver.** Every stream runs on a virtual display Rubylight created and captures from the driver itself: it copies each frame Windows composes into textures it shares with the host, and on AMD the compute conversion reads those textures in place (`idd_push_zero_copy`, default `true`). Streams on the same virtual display share its capture, and each converts and encodes it with its own codec and HDR settings. Without the driver, a stream is refused and the console says to run Rubylight setup again to repair the installation. After a driver update that runs only once Windows restarts, streams are refused until then and the console says to restart Windows.
+**Frames from Rubylight's display driver.** Every stream runs on a virtual display Rubylight created and captures from the driver itself: it copies each frame Windows composes into textures it shares with the host, and the compute conversion reads those textures in place (`idd_push_zero_copy`, default `true`; off, a compute-queue copy first moves each frame into a texture the host owns). Streams on the same virtual display share its capture, and each converts and encodes it with its own codec and HDR settings. Without the driver, a stream is refused and the console says to run Rubylight setup again to repair the installation. After a driver update that runs only once Windows restarts, streams are refused until then and the console says to restart Windows.
 
 H.264, HEVC and AV1 depend on the encoder and client. For `hevc_mode` and `av1_mode`, the choices are `0` Automatic, `1` Off, `2` SDR only and `3` SDR and HDR. Restart after changing advertised codec support. There is no 4:4:4 switch: the host offers 4:4:4 for a codec only when the startup check encodes it on a hardware encoder. AMD's encoder makes 4:2:0 only, so an AMD host offers 4:4:4 through PyroWave alone.
 

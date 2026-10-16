@@ -11,7 +11,6 @@ Start with the current stream's settings, the console and the logs. Record the t
 The stream card shows the active encoder and warnings for the current session. Each warning also writes a `WARN` log with its cause and a next step. Capture recovery and audio capture warnings clear when those paths recover. Dropped packets, frames and input, and audio device changes, stay on the card for 30 seconds after they last happened. A warning describes a fallback or limitation, not a measured latency penalty.
 
 - **Encoder failure:** AMF is the only encoder for H.264, HEVC and AV1. If it cannot start, the stream fails with AMF's error in the log; there is no other encoder to fall back to. Check that error and the AMD graphics driver.
-- **Graphics queue conversion/copies:** compute setup failed. A busy game can delay capture or conversion. Lower game GPU load or check the AMD driver.
 - **Capture interrupted:** the display driver's frames stopped arriving. A display size or colour-mode change causes capture to reopen. If the warning persists, check the log and the display driver's state on **Overview → Host readiness**.
 - **Display driver:** the stream was refused because Rubylight's display driver is missing or not running (run Rubylight setup again to repair it), or because an updated driver runs only after Windows restarts (restart Windows).
 - **Resolution, refresh, HDR or limiter:** the requested setup is unavailable, unsupported or owned by another stream on the same virtual display. Check the actual display mode and RTSS. A 60 Hz source cannot supply 116 fresh pictures per second.
@@ -115,7 +114,7 @@ If you explicitly use **Software** with HEVC, 2.2.18 also fixes recovery request
 
 Start from the default encoder settings: `amd_usage=ultralowlatency`, `amd_lowlatency_mode=auto`, `amd_input_queue_size=0`, `amd_preanalysis=disabled`, `amd_split_frame=auto` and `compute_queue_realtime=false`. Use `amd_smart_access_video=disabled` while diagnosing a freeze. Install AMD's current Recommended driver for your card from [AMD's driver page](https://www.amd.com/en/support/download/drivers.html).
 
-If the freeze returns, change one setting per reconnect (`gpu_compute_conversion` on against off, then `idd_push_zero_copy` on against off) and note which one changes the result.
+If the freeze returns, reconnect once with `idd_push_zero_copy` off and once with it on, and note whether that changes the result.
 
 Send the host log **from `CLIENT CONNECTED` through `CLIENT DISCONNECTED`**, plus startup/probe failures and the client log around the failure time. The default **Information** log level already writes encoder settings, display setup and the 5-second `stream timings` lines. **Debug** (`min_log_level=debug`) adds GPU scheduling and probe details; the change applies right away. Preserve whole lines, including fields. In particular include:
 

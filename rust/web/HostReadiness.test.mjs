@@ -10,8 +10,7 @@ const { render } = await server.ssrLoadModule('svelte/server');
 const metadata = {
   encoder_status: { state: 'failed', h264: false, hevc: false, av1: false, pyrowave: false },
   warnings: [{ code: 'video_encoder', message: 'No video encoder available: AMF error 1. Retrying.' }],
-  virtual_display: { capable: false, ready: false, reason: '' },
-  capture_status: { virtual_display_configured: false, displays: [], error: null },
+  virtual_display: { capable: true, ready: true, reason: '', protocol: 'idd-push' },
   audio_enabled: false,
 };
 const html = (changes = {}) => render(HostReadiness, {
@@ -40,26 +39,30 @@ test('host readiness escapes driver errors', () => {
   assert.doesNotMatch(result, /<script>alert/);
 });
 
-test('host readiness names driver push and explains its display scope without claiming it is active', () => {
-  const capture_status = { ...metadata.capture_status, configured_backend: 'idd-push' };
-  const result = html({ capture_status });
-  assert.match(result, /Prefers Direct driver push on Rubylight virtual displays/);
-  assert.match(result, /Windows capture as fallback/);
-  assert.doesNotMatch(result, /Uses the configured capture method/);
-});
-
 test('host readiness writes notes in the text face and opens them only for problems', () => {
   const reason = 'Only the Rubylight service may open the virtual display driver.';
   const healthy = { warnings: [], encoder_status: { ...metadata.encoder_status, state: 'ready', h264: true } };
-  const off = html({ ...healthy, virtual_display: { capable: false, ready: false, reason } });
-  assert.match(off, new RegExp(`<p class="detail[^"]*">${reason}</p>`));
-  assert.doesNotMatch(off, /class="[^"]*\bmono\b/);
-  assert.doesNotMatch(off, /<details open/);
-  const broken = html({
-    ...healthy,
-    virtual_display: { capable: false, ready: false, reason },
-    capture_status: { ...metadata.capture_status, virtual_display_configured: true },
-  });
+  const ready = html({ ...healthy, virtual_display: { capable: true, ready: true, reason } });
+  assert.match(ready, new RegExp(`<p class="detail[^"]*">${reason}</p>`));
+  assert.doesNotMatch(ready, /class="[^"]*mono/);
+  assert.doesNotMatch(ready, /<details open/);
+  const broken = html({ ...healthy, virtual_display: { capable: false, ready: false, reason } });
   assert.match(broken, /<details open[^>]*>\s*<summary[^>]*>Details<\/summary>\s*<p class="detail[^"]*">Only the Rubylight/);
-  assert.match(broken, /Check that the Rubylight service is running/);
+  assert.match(broken, /Run Rubylight setup again to repair the installation/);
+});
+
+test('host readiness says an updated display driver needs a Windows restart', () => {
+  const reason = "Rubylight's display driver was updated and runs only after Windows restarts. Restart Windows, then start the stream again.";
+  const healthy = { warnings: [], encoder_status: { ...metadata.encoder_status, state: 'ready', h264: true } };
+  const pending = html({ ...healthy, virtual_display: { capable: true, ready: false, reason, protocol: 'idd-push' } });
+  assert.match(pending, /Restart needed/);
+  assert.match(pending, /Restart Windows, then start the stream again\./);
+  assert.match(pending, /<details open/);
+  assert.doesNotMatch(pending, /Run Rubylight setup again/);
+});
+
+test('host readiness no longer shows a capture method or a physical display', () => {
+  const result = html({ warnings: [], encoder_status: { ...metadata.encoder_status, state: 'ready', h264: true } });
+  assert.match(result, /Streams use a virtual display\./);
+  assert.doesNotMatch(result, /Screen capture|Windows Graphics Capture|Desktop Duplication|physical display/);
 });

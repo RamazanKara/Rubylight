@@ -35,28 +35,17 @@ const SCALES = [100, 125, 150, 175, 200, 225, 250, 300, 350, 400, 450, 500];
 export const settings: Setting[] = [
   // Display
   {
-    key: 'output_name',
-    label: 'Display',
-    description:
-      'The monitor to stream when no virtual display is used. Empty streams the primary display; a device or app can choose its own.',
-    category: 'display',
-    group: 'Streamed display',
-    control: { kind: 'display' },
-    default: '',
-  },
-  {
     key: 'virtual_display_mode',
     label: 'Virtual display',
     description:
-      'Whether streams use a virtual display sized for the device instead of a monitor. A device’s or app’s own choice wins.',
+      'Whether each device gets its own virtual display or all devices share one. A device’s or app’s own choice wins.',
     details: 'Unset, it is one for each device.',
     category: 'display',
     group: 'Streamed display',
     control: {
       kind: 'select',
       options: [
-        { value: '', label: 'Automatic (Windows default)' },
-        { value: 'disabled', label: 'Off, stream a monitor' },
+        { value: '', label: 'Automatic (one for each device)' },
         { value: 'per_client', label: 'One for each device' },
         { value: 'shared', label: 'One shared by all devices' },
       ],
@@ -107,40 +96,10 @@ export const settings: Setting[] = [
     default: 0,
   },
   {
-    key: 'dd_activate_virtual_display',
-    label: 'Activate a virtual display',
-    description:
-      'Streams use a virtual display even when Virtual display is off, unless the device asks for none. It has no effect while Virtual display is on.',
-    category: 'display',
-    group: 'Streamed display',
-    control: { kind: 'toggle' },
-    default: false,
-    advanced: true,
-  },
-  {
-    key: 'dd_configuration_option',
-    label: 'Monitor setup',
-    description:
-      'What happens to the streamed monitor when the stream does not use a virtual display. Leaving the monitors alone also skips resolution, refresh rate and HDR changes on it.',
-    category: 'display',
-    group: 'Streamed display',
-    control: {
-      kind: 'select',
-      options: [
-        { value: 'verify_only', label: 'Only check that it’s on' },
-        { value: 'ensure_active', label: 'Turn it on' },
-        { value: 'ensure_primary', label: 'Turn it on and make it primary' },
-        { value: 'ensure_only_display', label: 'Turn it on and the others off' },
-        { value: 'disabled', label: 'Leave the monitors alone' },
-      ],
-    },
-    default: 'verify_only',
-  },
-  {
     key: 'dd_resolution_option',
     label: 'Resolution',
     description:
-      'The resolution set on the streamed display. Keeping the current one applies to monitors only; a virtual display matches the device unless a fixed resolution is set.',
+      'The resolution set on the streamed display. A virtual display matches the device unless a fixed resolution is set.',
     category: 'display',
     group: 'Resolution and refresh rate',
     control: {
@@ -170,14 +129,13 @@ export const settings: Setting[] = [
     label: 'Refresh rate',
     description: 'The refresh rate set on the streamed display.',
     details:
-      'On a virtual display, matching follows Virtual display refresh under Frame limiting, and the highest and current choices apply to monitors only.',
+      'Matching follows Virtual display refresh under Frame limiting.',
     category: 'display',
     group: 'Resolution and refresh rate',
     control: {
       kind: 'select',
       options: [
         { value: 'auto', label: 'Match the stream' },
-        { value: 'prefer_highest', label: 'Highest available' },
         { value: 'disabled', label: 'Keep the current refresh rate' },
         { value: 'manual', label: 'Use a fixed refresh rate' },
       ],
@@ -188,7 +146,7 @@ export const settings: Setting[] = [
     key: 'dd_manual_refresh_rate',
     label: 'Fixed refresh rate',
     description:
-      'In hertz, with up to three decimals such as 59.94 or 119.88. On a virtual display it replaces the faster automatic refresh.',
+      'In hertz, with up to three decimals such as 59.94 or 119.88. It replaces the faster automatic refresh.',
     category: 'display',
     group: 'Resolution and refresh rate',
     control: { kind: 'number', min: 1, max: 1000, step: 0.001, unit: 'Hz' },
@@ -352,7 +310,7 @@ export const settings: Setting[] = [
     key: 'frame_limiter_enable',
     label: 'Limit every stream',
     description:
-      'Caps the game’s frame rate on every stream, not only on virtual displays. Virtual-display streams are already limited unless Virtual display refresh is off.',
+      'Caps the game’s frame rate on every stream. Streams are already limited unless Virtual display refresh is off.',
     category: 'frame-limiting',
     group: 'Frame limiter',
     control: { kind: 'toggle' },
@@ -448,7 +406,7 @@ export const settings: Setting[] = [
     label: 'RTSS limit mode',
     description: 'How RTSS paces frames. Some streams use front edge sync instead.',
     details:
-      'Virtual-display streams, unless Virtual display refresh is off, and frame-generation games on a monitor use front edge sync instead.',
+      'Streams use front edge sync instead, unless Virtual display refresh is off.',
     category: 'frame-limiting',
     group: 'RTSS',
     control: {

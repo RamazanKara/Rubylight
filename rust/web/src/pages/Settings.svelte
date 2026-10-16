@@ -202,7 +202,7 @@
 
   onMount(() => {
     void load();
-    // Fresh display, GPU and audio lists for the pickers.
+    // Fresh GPU and audio lists for the pickers.
     refreshMetadata().catch(() => {});
   });
 

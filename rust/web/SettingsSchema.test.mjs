@@ -100,9 +100,6 @@ test('spellings the host reads as an option show as that option', () => {
     ['encoder', 'amdvce_experimental', 'amf'],
     ['encoder', 'amdvce_ffmpeg', 'amf'],
     ['encoder', 'amdvce_legacy', 'amf'],
-    ['capture', 'dxgi', 'ddx'],
-    ['capture', 'WGCC', 'wgc'],
-    ['capture', 'DDX', 'ddx'],
     ['frame_pacing', 'fixed', 'grid'],
     ['virtual_display_layout', 'Extended-Primary', 'extended_primary'],
     ['virtual_display_layout', 'ensure_only_display', 'exclusive'],
@@ -139,22 +136,6 @@ test('every alias names one of its setting\'s options', () => {
       assert(options.has(option), `${setting.key}: ${spelling} -> ${option}`);
       assert(!options.has(spelling), `${setting.key}: ${spelling} is an option`);
     }
-  }
-});
-
-test('capture-specific controls follow the selected method and remain available for Automatic', () => {
-  const predictive = settings.get('capture_predictive_poll');
-  const aligned = settings.get('wgc_slot_aligned_publish');
-  const fences = settings.get('idd_push_fence_ring');
-  assert.equal(fences.default, false);
-  for (const [capture, polling, alignment] of [
-    ['auto', true, true], ['idd-push', false, false],
-    ['wgc', false, true], ['wgcc', false, true],
-    ['ddx', true, false], ['dxgi', true, false],
-  ]) {
-    assert.equal(predictive.visibleWhen({ capture }), polling, capture);
-    assert.equal(aligned.visibleWhen({ capture }), alignment, capture);
-    assert.equal(fences.visibleWhen({ capture }), ['auto', 'idd-push'].includes(capture), capture);
   }
 });
 
@@ -254,13 +235,13 @@ test('empty mode substitutions read as none, not a built-in configuration', () =
   assert.equal(describeDefault(settings.get('dd_mode_remapping')).text, 'None');
 });
 
-test('an unset virtual display mode keeps the OS-dependent default without hiding an explicit per-device choice', () => {
+test('an unset virtual display mode keeps the automatic default without hiding an explicit per-device choice', () => {
   const key = 'virtual_display_mode';
   const setting = settings.get(key);
   assert.equal(effective(setting, {}, {}), '');
-  assert.equal(describeDefault(setting).text, 'Automatic (Windows default)');
+  assert.equal(describeDefault(setting).text, 'Automatic (one for each device)');
   assert.deepEqual(computeChanges(settings, { [key]: 'per_client' }, {}), { [key]: 'per_client' });
-  assert.deepEqual(computeChanges(settings, { [key]: '' }, { [key]: 'disabled' }), { [key]: null });
+  assert.deepEqual(computeChanges(settings, { [key]: '' }, { [key]: 'shared' }), { [key]: null });
 });
 
 test('library counts and time limits reject fractions instead of saving values the host would ignore', () => {

@@ -37,33 +37,10 @@ function flag(values: Values, key: string, fallback: boolean): boolean {
   }
 }
 
-const capture = (values: Values) => read(values, 'capture', 'auto').toLowerCase();
 const gridPacing = (values: Values) =>
   ['grid', 'fixed'].includes(read(values, 'frame_pacing', 'arrival').toLowerCase());
 
 const video: Setting[] = [
-  {
-    key: 'capture',
-    label: 'Capture method',
-    description:
-      'Automatic uses direct driver push on Rubylight virtual displays and Windows Graphics Capture on other displays.',
-    details:
-      'Direct driver push receives frames from Rubylight\'s own virtual display driver. If unavailable, it falls back to Windows Graphics Capture, then Desktop Duplication if needed. Choosing Windows Graphics Capture or Desktop Duplication bypasses driver push.',
-    category: 'video',
-    group: 'Capture',
-    control: {
-      kind: 'select',
-      options: [
-        { value: 'auto', label: 'Automatic' },
-        { value: 'idd-push', label: 'Direct driver push' },
-        { value: 'ddx', label: 'Desktop Duplication' },
-        { value: 'wgc', label: 'Windows Graphics Capture' },
-      ],
-    },
-    // framegen.rs: any case; Vibepollo's wgcc, and dxgi, which the fallback console writes.
-    aliases: { match: 'case', spellings: { wgcc: 'wgc', dxgi: 'ddx' } },
-    default: 'auto',
-  },
   {
     key: 'capture_poll_interval_us',
     label: 'Capture poll interval',
@@ -76,66 +53,11 @@ const video: Setting[] = [
     advanced: true,
   },
   {
-    key: 'idd_push_fence_ring',
-    label: 'Experimental GPU fence transport',
-    description:
-      'Tries GPU fences for direct driver push on AMD. Requires a compatible Rubylight display driver and compute conversion.',
-    details:
-      'Off by default while performance is evaluated. Keeps the standard driver transport if unavailable. Physical displays and other capture methods are unaffected. End all streams before comparing.',
-    category: 'video',
-    group: 'Capture',
-    control: { kind: 'toggle' },
-    default: false,
-    visibleWhen: (values) => ['auto', 'idd-push'].includes(capture(values)),
-    advanced: true,
-  },
-  {
-    key: 'capture_predictive_poll',
-    label: 'Predictive polling',
-    description:
-      'With Desktop Duplication, checks for frames more often when the next one is due. Can catch frames sooner in games with a steady frame rate.',
-    details: 'The expected time of the next frame comes from the recent frame rhythm.',
-    category: 'video',
-    group: 'Capture',
-    control: { kind: 'toggle' },
-    default: false,
-    inactiveHint: "Applies to Desktop Duplication, including fallback. Direct driver push and Windows Graphics Capture ignore it.",
-    visibleWhen: (values) => !['wgc', 'wgcc', 'idd-push'].includes(capture(values)),
-    advanced: true,
-  },
-  {
-    key: 'wgc_slot_aligned_publish',
-    label: 'Align capture with encoding',
-    description:
-      'Holds a new frame until just before the next encode if a newer one could arrive first. Helps when the display refreshes much faster than the stream.',
-    details: 'Applies to Windows Graphics Capture. Variable refresh rate (VRR) streams ignore it.',
-    category: 'video',
-    group: 'Capture',
-    control: { kind: 'toggle' },
-    default: false,
-    inactiveHint: "Only affects Windows Graphics Capture, including fallback. Direct driver push, Desktop Duplication and VRR streams ignore it.",
-    visibleWhen: (values) => !['ddx', 'dxgi', 'idd-push'].includes(capture(values)),
-    advanced: true,
-  },
-  {
-    key: 'wgc_direct_encoder_input',
-    label: 'Encode from GPU memory',
-    description:
-      'Hands captured frames straight to the encoder on the GPU. Turn off only to troubleshoot an encoder.',
-    details: 'When off, frames are copied through system memory, which adds latency and CPU load.',
-    category: 'video',
-    group: 'Capture',
-    control: { kind: 'toggle' },
-    default: true,
-    advanced: true,
-  },
-  {
     key: 'gpu_compute_conversion',
     label: 'Copy and convert on a compute queue',
     description:
       'On supported AMD GPUs, copies captured frames and converts their colors on compute queues beside a game. Turn off to compare or troubleshoot.',
-    details:
-      'Covers direct driver push, Desktop Duplication and Windows Graphics Capture. Unsupported capture textures fall back to the graphics queue.',
+    details: 'Textures the compute queue cannot open fall back to the graphics queue.',
     category: 'video',
     group: 'Capture',
     control: { kind: 'toggle' },
@@ -234,9 +156,11 @@ const video: Setting[] = [
     default: 'arrival',
   },
   {
-    key: 'wgc_pacing_smoothing',
-    label: 'Steady grid timing',
+    key: 'frame_pacing_smoothing',
+    label: 'Frame pacing smoothing',
     description:
+      'Keeps frame pacing aligned to the stream cadence instead of re-anchoring directly to raw frame arrival.',
+    details:
       'Keeps the fixed grid on a steady schedule. When off, each interval starts from the previous encode, so one late frame delays the ones after it.',
     category: 'video',
     group: 'Frame pacing',
@@ -443,7 +367,7 @@ const encoders: Setting[] = [
     key: 'adapter_name',
     label: 'Graphics card',
     description:
-      'The graphics processing unit (GPU) that captures and compresses the video. Automatic uses the card connected to the streamed display.',
+      'The graphics processing unit (GPU) that captures and compresses the video. Automatic uses the card Windows picks to render the virtual display.',
     details:
       'Lists hardware GPUs even without a connected display. Available codecs depend on the GPU and driver.',
     category: 'encoders',

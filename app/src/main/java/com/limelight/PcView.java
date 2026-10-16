@@ -243,6 +243,11 @@ public class PcView extends AppCompatActivity implements AdapterFragmentCallback
 
         initializeViews();
 
+        // The first onResume can come before the GL renderer was read and this ran; look again now.
+        if (inForeground) {
+            checkForUpdates();
+        }
+
         // The discovery screen explains setup inline; Help remains available from the toolbar.
     }
 

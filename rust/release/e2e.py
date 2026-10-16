@@ -3,14 +3,15 @@
 Starts the package's host with its own profile and ports (48518-48544),
 pairs the independent moonlight-common-c client through rust/tests/interop.py,
 launches the Desktop app, streams and decodes video and audio, then unpairs
-and stops. A narrow moving strip and a virtual-speaker tone exercise capture.
-No display-mode, HDR or default-audio change; the installed host must be idle.
+and stops. The host streams a virtual display beside the monitor (extended
+layout); a narrow moving strip drawn on it and a virtual-speaker tone exercise
+capture. No default-audio change; the installed host must be idle, and the
+shell elevated (the display driver admits administrators and SYSTEM).
 
 usage: e2e.py --package DIR --work DIR --client EXE --codec CODEC [--mode 1280x720x60] [--seconds 12]
               [--vrr] [--recovery N] [--motion-at-rate] [--name NAME] [--noise-height PIXELS] [--hw-decoder TYPE]
               [--launch-fps FPS]
 Writes WORK/e2e-NAME/result.json, NAME defaulting to CODEC[-vrr][-recovery|-at-rate].
-A mode faster than the captured display refreshes is recorded as skipped.
 
 --recovery N: the receiver asks for a keyframe N times, every
 RECOVERY_INTERVAL_MS, as a client losing packets does, while the moving
@@ -31,8 +32,8 @@ not measured (host_claims null) instead of failing.
 The stream stops at the first sign of an AMD video-engine hang (gpu_hang.py)
 and exits with EXIT_GPU_HANG, its result.json naming the evidence in gpu_hang.
 """
-import argparse, json, pathlib, subprocess, sys, time
-import xml.etree.ElementTree as ET
+import argparse, ctypes, json, pathlib, subprocess, sys, threading, time
+from ctypes import wintypes
 import requests
 from e2e_result import evaluate, host_frames
 from e2e_host import installed_idle, prepare, receiver_environment
@@ -64,6 +65,22 @@ if at_rate:
     args.config.insert(0, 'minimum_fps_target=20')
 interop = pathlib.Path(__file__).resolve().parents[1] / 'tests' / 'interop.py'
 
+
+class DISPLAY_DEVICEW(ctypes.Structure):
+    _fields_ = [('cb', wintypes.DWORD), ('DeviceName', wintypes.WCHAR * 32), ('DeviceString', wintypes.WCHAR * 128),
+                ('StateFlags', wintypes.DWORD), ('DeviceID', wintypes.WCHAR * 128), ('DeviceKey', wintypes.WCHAR * 128)]
+
+
+def active_displays():
+    names, index = set(), 0
+    while True:
+        device = DISPLAY_DEVICEW(cb=ctypes.sizeof(DISPLAY_DEVICEW))
+        if not ctypes.windll.user32.EnumDisplayDevicesW(None, index, ctypes.byref(device), 0):
+            return names
+        if device.StateFlags & 1:  # DISPLAY_DEVICE_ATTACHED_TO_DESKTOP
+            names.add(device.DeviceName)
+        index += 1
+
 installed_idle()
 plain = requests.Session(); plain.trust_env = False
 
@@ -80,16 +97,11 @@ host_exe = args.package / 'butterpollo.exe'
 audio_probe = args.client.parent / 'audio_probe.exe'
 motion_probe = args.client.parent / 'motion_probe.exe'
 width, height, fps = args.mode.split('x')
-# Fresh pictures cannot outpace the captured display: a faster stream case
-# is recorded as skipped on a slower monitor instead of failing.
-if display['refresh_hz'] < float(fps) * .97:
-    result = dict(case=name, codec=args.codec, mode=args.mode, vrr=args.vrr, passed=True,
-                  skipped=f"the display refreshes at {display['refresh_hz']} Hz, below the requested {fps} FPS")
-    (case / 'result.json').write_text(json.dumps(result, indent=2))
-    print(json.dumps(result))
-    sys.exit(0)
+# The stream's own virtual display has the stream's mode.
+streamed = dict(display, width=int(width), height=int(height), hdr='hdr' in args.codec)
+before = active_displays()
 
-owned = []
+owned, probes, stop = [], {}, threading.Event()
 def spawn(command, name, **kw):
     f = (case / name).open('w')
     p = subprocess.Popen(command, stdout=f, stderr=subprocess.STDOUT, creationflags=subprocess.CREATE_NO_WINDOW, **kw)
@@ -117,10 +129,19 @@ try:
     tone = spawn([str(audio_probe), fixture_seconds, sink['id'], '--render-only'], 'tone.log', env=env)
     motion_rate = int(fps) if at_rate else int(fps) * 2
     strip = [str(args.noise_height), 'noise'] if args.noise_height else ['128']
-    motion = spawn([str(motion_probe), display['display_name'], fixture_seconds, str(case / 'motion.json'), str(motion_rate), *strip], 'motion.log', env=env)
+
+    def place_strip():
+        # The strip goes onto the stream's virtual display as soon as it is on the desktop.
+        while not stop.is_set():
+            for display_name in active_displays() - before:
+                if display_name not in probes or probes[display_name].poll() is not None:
+                    probes[display_name] = spawn([str(motion_probe), display_name, fixture_seconds, str(case / f'motion-{len(probes)}.json'),
+                                                  str(motion_rate), *strip], f'motion-{len(probes)}.log', env=env)
+            time.sleep(.1)
+    threading.Thread(target=place_strip, daemon=True).start()
     time.sleep(.5)
-    assert tone.poll() is None and motion.poll() is None, 'audio or motion fixture exited'
-    client_env = receiver_environment(env, display, args.mode, args.client, args.vrr)
+    assert tone.poll() is None, 'audio fixture exited'
+    client_env = receiver_environment(env, streamed, args.mode, args.client, args.vrr)
     if args.hw_decoder:
         client_env['BUTTERPOLLO_TEST_HW_DECODER'] = args.hw_decoder
     if args.launch_fps:
@@ -139,6 +160,7 @@ try:
 except Hang as error:
     hang = str(error)
 finally:
+    stop.set()
     for p, f in reversed(owned):
         if p.poll() is None: p.terminate()
         try: p.wait(timeout=10)
@@ -148,6 +170,10 @@ finally:
             try: p.wait(timeout=120)
             except subprocess.TimeoutExpired: print(f'{name}: process {p.pid} did not exit', file=sys.stderr)
         f.close()
+# The host's teardown removes the virtual display and restores the layout.
+deadline = time.monotonic() + 15
+while active_displays() != before and time.monotonic() < deadline:
+    time.sleep(.2)
 
 # A watchdog report can land after the receiver gave up on a frozen stream.
 hang = hang or guard.check()
@@ -158,15 +184,22 @@ if hang:
     sys.exit(EXIT_GPU_HANG)
 
 client = (case / 'client.log').read_text(errors='replace')
-requested_source = dict(width=display['width'], height=display['height'], refresh_hz=display['refresh_hz'],
-                        pixel='RgbaF16' if display['hdr'] else 'Bgra8')
+# The display's refresh is the host's choice (a 120 fps stream ran on a 240 Hz display), so
+# only its size and pixel format are expected.
+requested_source = dict(width=streamed['width'], height=streamed['height'], pixel='RgbaF16' if streamed['hdr'] else 'Bgra8')
 result = evaluate(client, rc, args.codec, args.mode, args.vrr, recovery=args.recovery,
                   requested_source=requested_source,
                   host_log=log.read_text(errors='replace') if log.exists() else '',
                   tone_log=(case / 'tone.log').read_text(errors='replace'),
                   host_frames=host_frames(case / 'receiver'),
                   claim_trace='pacing=trace' in env.get('RUST_LOG', ''))
-result = dict(case=name, **result)
+result = dict(case=name, **result, virtual_displays=sorted(probes), displays_after_match_before=active_displays() == before)
+if not probes:
+    result['passed'] = False
+    result['failures'] = [*result.get('failures', []), 'no virtual display appeared for the moving strip']
+if not result['displays_after_match_before']:
+    result['passed'] = False
+    result['failures'] = [*result.get('failures', []), 'the display layout was not restored after the stream']
 if args.launch_fps:
     result['launch_fps'] = args.launch_fps
 (case / 'result.json').write_text(json.dumps(result, indent=2))

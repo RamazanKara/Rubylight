@@ -20,6 +20,8 @@
 # it installs nothing, removes an earlier install and records why (Problem) for setup and the
 # console. A failed fresh install is rolled back and recorded the same way.
 #
+# -CheckOnly changes nothing: it prints DRIVER_UNSUPPORTED with the reason when this PC would
+# refuse the package, else DRIVER_SUPPORTED. Setup asks before it touches anything.
 # -Uninstall removes the device, the packages and the certificates this script added.
 # -InstallerBestEffort reports a failure as a DRIVER_WARNING line and exits 0, as the Sunshine
 # driver's install.ps1 does for setup.
@@ -30,6 +32,7 @@ param(
     # Creates the root device; a Rubylight package carries it next to this script.
     [string] $NefConc = $(if (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'nefconc.exe')) { Join-Path $PSScriptRoot 'nefconc.exe' }),
     [switch] $Uninstall,
+    [switch] $CheckOnly,
     [switch] $InstallerBestEffort
 )
 $ErrorActionPreference = 'Stop'
@@ -114,14 +117,14 @@ function Protect-Catalog([string] $catalog) {
 function Get-Refusal {
     $policy = Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\CI\Policy' -ErrorAction SilentlyContinue
     if ($policy.VerifiedAndReputablePolicyState -eq 1) {
-        return 'Smart App Control is on, and it refuses a display driver signed on this PC, so streams use a physical display. A signed Rubylight release will install the driver. Turning Smart App Control off (Windows Security, App and browser control) and running the Rubylight installer again installs it now, but Windows cannot turn Smart App Control back on without a reset.'
+        return 'Smart App Control is on, and it refuses a display driver signed on this PC, and Rubylight streams only through it. A signed Rubylight release will install the driver. Turning Smart App Control off (Windows Security, App and browser control) and running the Rubylight installer again installs it now, but Windows cannot turn Smart App Control back on without a reset.'
     }
     if ($policy.SkuPolicyRequired -eq 1) {
-        return 'Windows runs in S mode, which refuses a display driver signed on this PC, so streams use a physical display. Switching out of S mode (free, in the Microsoft Store) and running the Rubylight installer again installs it.'
+        return 'Windows runs in S mode, which refuses a display driver signed on this PC, and Rubylight streams only through it. Switching out of S mode (free, in the Microsoft Store) and running the Rubylight installer again installs it.'
     }
     $guard = Get-CimInstance -Namespace root\Microsoft\Windows\DeviceGuard -ClassName Win32_DeviceGuard -ErrorAction SilentlyContinue
     if ($guard.UsermodeCodeIntegrityPolicyEnforcementStatus -eq 2) {
-        return 'An App Control policy on this PC refuses a display driver signed on this PC, so streams use a physical display. Ask whoever manages this PC to allow Rubylight''s display driver, then run the Rubylight installer again.'
+        return 'An App Control policy on this PC refuses a display driver signed on this PC, and Rubylight streams only through it. Ask whoever manages this PC to allow Rubylight''s display driver, then run the Rubylight installer again.'
     }
 }
 # Remove the device, every package and the certificates a recorded install added.
@@ -223,7 +226,7 @@ function Install-Package {
         if (-not $hadDevice) {
             $reason = $failure.Exception
             while ($reason.InnerException) { $reason = $reason.InnerException }
-            Set-Problem "Rubylight's display driver could not be installed ($($reason.Message -replace '\s+', ' ')), so streams use a physical display. Run the Rubylight installer again; its log has the details."
+            Set-Problem "Rubylight's display driver could not be installed ($($reason.Message -replace '\s+', ' ')), and Rubylight streams only through it. Run the Rubylight installer again; its log has the details."
         }
         throw $failure
     } finally {
@@ -243,6 +246,15 @@ function Install-Package {
     if ($previous -and $previous -ne $signer.Thumbprint) { Remove-Trust $previous }
 }
 
+if ($CheckOnly) {
+    $catalog = Join-Path $Package 'rubylight_vdisplay.cat'
+    $status = (Get-AuthenticodeSignature -LiteralPath $catalog).Status
+    $refusal = if ($status -notin 'NotSigned', 'Valid') {
+        "the display driver's catalog has a signature Windows rejects ($status)"
+    } elseif ($status -eq 'NotSigned') { Get-Refusal }
+    if ($refusal) { Write-Output "DRIVER_UNSUPPORTED: $refusal" } else { Write-Output 'DRIVER_SUPPORTED' }
+    exit 0
+}
 try {
     Install-Package
     if ($script:unsupported) {

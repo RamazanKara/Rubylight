@@ -2,7 +2,7 @@
 
 [Docs](README.md) · [Configuration](configuration.md) · [Performance](performance.md) · [Developer guide](../rust/README.md)
 
-Rubylight turns a Windows display into a Moonlight stream. Its Radeon path keeps captured pixels on the GPU, prepares them on D3D12 compute queues and passes them to AMD's native encoder. The host limits outstanding work so a busy encoder or network does not become a growing queue of old pictures.
+Rubylight turns a Windows display into a Moonlight stream. Every frame stays on D3D12 from the display driver to the encoder: the driver copies it on a D3D12 queue, the host prepares it on D3D12 compute queues and AMD's native encoder reads the D3D12 surface. The host limits outstanding work so a busy encoder or network does not become a growing queue of old pictures.
 
 This guide follows a frame from capture to delivery, then covers the process boundaries, colour paths and recovery that keep the stream running. [Performance](performance.md) separates measured host processing from the complete render-to-client journey.
 
@@ -23,11 +23,11 @@ The earlier C++ host was removed after 2.0.0-rc.23; [that tag](https://github.co
 
 ## The Radeon frame path
 
-For standard H.264, HEVC and AV1 streams on supported AMD GPUs:
+For H.264, HEVC and AV1 streams (PyroWave shares the same capture and conversion, then encodes on Vulkan):
 
 | Stage | What happens | Source |
 | --- | --- | --- |
-| **Capture** | Every stream runs on a virtual display Rubylight created. Its display driver pushes each composed frame into textures shared with the host. Streams on the same virtual display share its one capture, and each converts and encodes it with its own settings. | [Capture backends](../rust/windows/src/capture.rs), [frame push](../rust/windows/src/capture/idd_push.rs) |
+| **Capture** | Every stream runs on a virtual display Rubylight created. Its display driver receives each frame Windows composes as a D3D12 surface (IddCx 1.11), copies it on its own D3D12 copy queue into a texture shared with the host and signals a shared fence; no keyed mutex or CPU wait sits between them. Streams on the same virtual display share its one capture, and each converts and encodes it with its own settings. | [Capture backends](../rust/windows/src/capture.rs), [frame push](../rust/windows/src/capture/idd_push.rs) |
 | **Take ownership** | The conversion reads the driver's texture in place; with `idd_push_zero_copy = false` a compute-queue copy first moves it into a texture the host owns. The capture frame stays alive until those reads finish. Consumers share the latest published frame. | [Frame publication](../rust/host/src/stream/capture.rs), [compute copies](../rust/windows/src/compute.rs) |
 | **Prepare** | D3D12 compute converts RGB into the encoder's YUV format, including resizing and HDR conversion where required. | [Colour conversion](../rust/windows/src/compute.rs) |
 | **Encode** | Native AMD AMF consumes the D3D12 surface and produces an H.264, HEVC or AV1 bitstream. | [AMF GPU integration](../rust/windows/src/amf/gpu.rs) |

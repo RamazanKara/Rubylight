@@ -4,6 +4,14 @@
 use crate::topology::{Node, Position};
 use anyhow::{Result, bail};
 
+/// A `virtual_display_mode` that turned virtual displays off. Every stream
+/// has one now; the configuration reads such a value as one per device.
+pub fn disables_virtual_displays(value: &str) -> bool {
+    matches!(
+        value.trim().to_ascii_lowercase().as_str(),
+        "disabled" | "disable" | "off" | "false" | "0" | "none"
+    )
+}
 pub fn report_mode(
     warnings: &crate::session::Warnings,
     requested: (Option<(u32, u32)>, Option<u32>, Option<bool>),

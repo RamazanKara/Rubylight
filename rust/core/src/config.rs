@@ -18,8 +18,9 @@ pub const RETIRED_VALUES: &[(&str, &str, &str)] = &[
 /// Settings whose values select features Rubylight removed. A value of
 /// `key` that `retired` matches is replaced by `current` wherever the host
 /// reads settings, and a value read from sunshine.conf is reported once
-/// (see [`Config::load_retiring`]). Another setting's removed values take
-/// one more row.
+/// (see [`Config::load_retiring`]). An empty `current` drops the setting,
+/// and a `key` ending in `*` names every setting with that prefix. Another
+/// setting's removed values take one more row.
 pub struct RetiredSetting {
     pub key: &'static str,
     pub retired: fn(&str) -> bool,
@@ -27,6 +28,20 @@ pub struct RetiredSetting {
     /// Why the value no longer applies, for the warning.
     pub reason: &'static str,
 }
+impl RetiredSetting {
+    fn names(&self, key: &str) -> bool {
+        match self.key.strip_suffix('*') {
+            // A setting renamed to its current name is read, not dropped.
+            Some(prefix) => key.starts_with(prefix) && current_name(key) == key,
+            None => self.key == key,
+        }
+    }
+}
+fn any_value(_: &str) -> bool {
+    true
+}
+const VIRTUAL_ONLY: &str = "every stream runs on its own virtual display";
+const CAPTURE: &str = "every stream captures its virtual display from the Rubylight display driver";
 pub const RETIRED_SETTINGS: &[RetiredSetting] = &[
     RetiredSetting {
         key: "encoder",
@@ -58,6 +73,104 @@ pub const RETIRED_SETTINGS: &[RetiredSetting] = &[
         current: "none",
         reason: "driver frame generation needs an NVIDIA GPU",
     },
+    RetiredSetting {
+        key: "capture",
+        retired: any_value,
+        current: "",
+        reason: CAPTURE,
+    },
+    RetiredSetting {
+        key: "wgc_*",
+        retired: any_value,
+        current: "",
+        reason: CAPTURE,
+    },
+    RetiredSetting {
+        key: "capture_predictive_poll",
+        retired: any_value,
+        current: "",
+        reason: CAPTURE,
+    },
+    RetiredSetting {
+        key: "virtual_display_mode",
+        retired: crate::display_policy::disables_virtual_displays,
+        current: "per_client",
+        reason: VIRTUAL_ONLY,
+    },
+    RetiredSetting {
+        key: "output_name",
+        retired: any_value,
+        current: "",
+        reason: VIRTUAL_ONLY,
+    },
+    RetiredSetting {
+        key: "dd_configuration_option",
+        retired: any_value,
+        current: "",
+        reason: VIRTUAL_ONLY,
+    },
+    RetiredSetting {
+        key: "dd_activate_virtual_display",
+        retired: any_value,
+        current: "",
+        reason: VIRTUAL_ONLY,
+    },
+    RetiredSetting {
+        key: "dd_refresh_rate_option",
+        retired: |value| value.trim() == "prefer_highest",
+        current: "auto",
+        reason: "a virtual display runs at the refresh its stream asks for",
+    },
+    // An app's own physical display choices.
+    RetiredSetting {
+        key: "display-output",
+        retired: any_value,
+        current: "",
+        reason: VIRTUAL_ONLY,
+    },
+    RetiredSetting {
+        key: "dd-configuration-option",
+        retired: any_value,
+        current: "",
+        reason: VIRTUAL_ONLY,
+    },
+    RetiredSetting {
+        key: "virtual-display",
+        retired: any_value,
+        current: "",
+        reason: VIRTUAL_ONLY,
+    },
+    RetiredSetting {
+        key: "virtual-screen",
+        retired: any_value,
+        current: "",
+        reason: VIRTUAL_ONLY,
+    },
+    RetiredSetting {
+        key: "gen1-framegen-fix",
+        retired: any_value,
+        current: "",
+        reason: VIRTUAL_ONLY,
+    },
+    RetiredSetting {
+        key: "frame-gen-limiter-fix",
+        retired: any_value,
+        current: "",
+        reason: VIRTUAL_ONLY,
+    },
+    // A device's own.
+    RetiredSetting {
+        key: "output_name_override",
+        retired: any_value,
+        current: "",
+        reason: VIRTUAL_ONLY,
+    },
+    RetiredSetting {
+        key: "always_use_virtual_display",
+        retired: any_value,
+        current: "",
+        reason: VIRTUAL_ONLY,
+    },
 ];
 /// A retired value the host replaced while reading the configuration.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -71,7 +184,13 @@ pub struct Retired {
 pub fn retired_warning(retired: &[Retired]) -> Option<String> {
     let changes: Vec<_> = retired
         .iter()
-        .map(|r| format!("{} {} is now {} ({})", r.key, r.value, r.current, r.reason))
+        .map(|r| {
+            if r.current.is_empty() {
+                format!("{} {} was removed ({})", r.key, r.value, r.reason)
+            } else {
+                format!("{} {} is now {} ({})", r.key, r.value, r.current, r.reason)
+            }
+        })
         .collect();
     (!changes.is_empty()).then(|| {
         format!(
@@ -157,23 +276,49 @@ fn retirement(key: &str, value: &str) -> Option<(&'static str, &'static str)> {
         .or_else(|| {
             RETIRED_SETTINGS
                 .iter()
-                .find(|setting| setting.key == key && (setting.retired)(value))
+                .find(|setting| setting.names(key) && (setting.retired)(value))
                 .map(|setting| (setting.current, setting.reason))
         })
 }
 
-/// Replace retired values among an app's or a device's settings, which are
-/// JSON. Returns whether anything changed.
-pub fn replace_retired<'a>(
-    settings: impl IntoIterator<Item = (&'a String, &'a mut serde_json::Value)>,
-) -> bool {
-    let mut changed = false;
-    for (key, value) in settings {
-        if let Some(current) = value.as_str().and_then(|old| replacement(key, old)) {
-            *value = serde_json::Value::from(current);
-            changed = true;
-        }
+/// What becomes of an app's or a device's JSON setting `key`: `None` keeps
+/// it, `Some(None)` drops it and `Some(Some(value))` replaces it.
+fn retire_json(key: &str, value: &serde_json::Value) -> Option<Option<serde_json::Value>> {
+    let text = match value {
+        serde_json::Value::String(text) => text.clone(),
+        serde_json::Value::Null => return None,
+        other => other.to_string(),
+    };
+    match replacement(key, &text)? {
+        "" => Some(None),
+        current => Some(Some(serde_json::Value::from(current))),
     }
+}
+
+/// Replace retired values among an app's or a device's settings, which are
+/// JSON, and drop the retired settings. Returns whether anything changed.
+pub fn replace_retired(settings: &mut serde_json::Map<String, serde_json::Value>) -> bool {
+    let mut changed = false;
+    settings.retain(|key, value| match retire_json(key, value) {
+        None => true,
+        Some(current) => {
+            changed = true;
+            current.map(|current| *value = current).is_some()
+        }
+    });
+    changed
+}
+
+/// [`replace_retired`] for a paired device's own settings.
+pub fn replace_retired_in_device(settings: &mut BTreeMap<String, serde_json::Value>) -> bool {
+    let mut changed = false;
+    settings.retain(|key, value| match retire_json(key, value) {
+        None => true,
+        Some(current) => {
+            changed = true;
+            current.map(|current| *value = current).is_some()
+        }
+    });
     changed
 }
 
@@ -181,12 +326,12 @@ pub fn replace_retired<'a>(
 /// Apollo and Vibepollo store them, and its `config-overrides`. Returns
 /// whether anything changed.
 pub fn replace_retired_in_app(app: &mut serde_json::Map<String, serde_json::Value>) -> bool {
-    let mut changed = replace_retired(app.iter_mut());
+    let mut changed = replace_retired(app);
     if let Some(overrides) = app
         .get_mut("config-overrides")
         .and_then(serde_json::Value::as_object_mut)
     {
-        changed |= replace_retired(overrides.iter_mut());
+        changed |= replace_retired(overrides);
     }
     changed
 }
@@ -289,6 +434,9 @@ impl Config {
                     current,
                     reason,
                 });
+                if current.is_empty() {
+                    continue;
+                }
             }
             values.insert(key.to_owned(), value);
         }
@@ -532,8 +680,17 @@ impl Config {
             }
             // A client or an old console sending a retired value saves its
             // replacement, as the file would be read.
-            let value = replacement(key, &value).map_or(value, str::to_owned);
-            next.values.insert(key.clone(), value);
+            match replacement(key, &value) {
+                Some("") => {
+                    next.values.remove(key);
+                }
+                Some(current) => {
+                    next.values.insert(key.clone(), current.to_owned());
+                }
+                None => {
+                    next.values.insert(key.clone(), value);
+                }
+            }
         }
         // Only what changes is checked: a value the file already had (the
         // host reads it leniently) must not block every other save.
@@ -764,7 +921,6 @@ pub fn override_allowed(key: &str) -> bool {
         "stream_mic",
         "adapter_name",
         "adapter_pnp_id",
-        "dd_configuration_option",
         "dd_resolution_option",
         "dd_manual_resolution",
         "dd_refresh_rate_option",
@@ -778,7 +934,6 @@ pub fn override_allowed(key: &str) -> bool {
         "dd_snapshot_exclude_devices",
         "dd_snapshot_restore_hotkey",
         "dd_snapshot_restore_hotkey_modifiers",
-        "dd_activate_virtual_display",
         "dd_virtual_display_scale",
         "dd_virtual_display_permanent_count",
         "dd_mode_remapping",
@@ -796,7 +951,6 @@ pub fn override_allowed(key: &str) -> bool {
         "hevc_mode",
         "av1_mode",
         "experimental_packed_444",
-        "capture",
         "encoder",
         // Playnite focus
         "playnite_focus_attempts",
@@ -1418,6 +1572,96 @@ mod tests {
                 "config-overrides": {"encoder": "amf", "frame_limiter_provider": "auto"}})
         );
         assert!(!replace_retired_in_app(app.as_object_mut().unwrap()));
+    }
+    /// A profile from a host that captured with WGC or Desktop Duplication,
+    /// or streamed a physical monitor.
+    const PHYSICAL_DISPLAYS: &str = "capture = ddx\nwgc_high_rate_capture = true\nwgc_pacing_smoothing = false\ncapture_predictive_poll = true\nvirtual_display_mode = disabled\noutput_name = DISPLAY2\ndd_configuration_option = ensure_primary\ndd_activate_virtual_display = true\ndd_refresh_rate_option = prefer_highest\nport = 48123\n";
+    #[test]
+    fn capture_and_physical_display_settings_migrate_with_one_report() {
+        let (config, retired) = Config::parse_retiring(PHYSICAL_DISPLAYS).unwrap();
+        assert_eq!(
+            config.values,
+            BTreeMap::from([
+                ("dd_refresh_rate_option".into(), "auto".into()),
+                ("frame_pacing_smoothing".into(), "false".into()),
+                ("port".into(), "48123".into()),
+                ("virtual_display_mode".into(), "per_client".into()),
+            ])
+        );
+        let keys: Vec<_> = retired.iter().map(|r| r.key.as_str()).collect();
+        assert_eq!(
+            keys,
+            [
+                "capture",
+                "wgc_high_rate_capture",
+                "capture_predictive_poll",
+                "virtual_display_mode",
+                "output_name",
+                "dd_configuration_option",
+                "dd_activate_virtual_display",
+                "dd_refresh_rate_option",
+            ]
+        );
+        let warning = retired_warning(&retired).unwrap();
+        assert!(warning.contains("capture ddx was removed"), "{warning}");
+        assert!(warning.contains("virtual_display_mode disabled is now per_client"));
+        assert!(warning.contains("output_name DISPLAY2 was removed"));
+        // What the host writes back reads without a report.
+        let (again, retired) = Config::parse_retiring(&config.text()).unwrap();
+        assert_eq!(again.values, config.values);
+        assert!(retired.is_empty());
+        // Any capture value goes, and the per-device and shared modes stay.
+        for value in ["auto", "wgc", "idd-push", "dxgi", "wgcc"] {
+            assert!(
+                Config::parse(&format!("capture = {value}\n"))
+                    .unwrap()
+                    .values
+                    .is_empty()
+            );
+        }
+        for (value, current) in [
+            ("off", "per_client"),
+            ("per_client", "per_client"),
+            ("shared", "shared"),
+        ] {
+            let config = Config::parse(&format!("virtual_display_mode = {value}\n")).unwrap();
+            assert_eq!(config.get("virtual_display_mode", ""), current);
+        }
+        // A save sending a removed setting drops it.
+        let mut config = Config::parse("capture = auto\n").unwrap();
+        change(&mut config, "capture", "wgc").unwrap();
+        change(&mut config, "virtual_display_mode", "disabled").unwrap();
+        assert_eq!(
+            config.values,
+            BTreeMap::from([("virtual_display_mode".into(), "per_client".into())])
+        );
+    }
+    #[test]
+    fn apps_and_devices_lose_their_physical_display_choices() {
+        let mut app = serde_json::json!({"name": "Game", "display-output": "DISPLAY2",
+            "virtual-display": true, "dd-configuration-option": "ensure_active",
+            "gen1-framegen-fix": true, "frame-gen-limiter-fix": false,
+            "config-overrides": {"capture": "ddx", "output_name": "DISPLAY2", "fec_percentage": 30}});
+        assert!(replace_retired_in_app(app.as_object_mut().unwrap()));
+        assert_eq!(
+            app,
+            serde_json::json!({"name": "Game", "config-overrides": {"fec_percentage": 30}})
+        );
+        assert!(!replace_retired_in_app(app.as_object_mut().unwrap()));
+        let mut device: BTreeMap<String, serde_json::Value> = serde_json::from_value(
+            serde_json::json!({"output_name_override": "DISPLAY2", "always_use_virtual_display": "true",
+                "virtual_display_mode": "disabled", "virtual_display_layout": "extended"}),
+        )
+        .unwrap();
+        assert!(replace_retired_in_device(&mut device));
+        assert_eq!(
+            serde_json::to_value(&device).unwrap(),
+            serde_json::json!({"virtual_display_mode": "per_client", "virtual_display_layout": "extended"})
+        );
+        // The device that follows the host setting keeps doing so.
+        let mut inherits: BTreeMap<String, serde_json::Value> =
+            BTreeMap::from([("virtual_display_mode".into(), "global".into())]);
+        assert!(!replace_retired_in_device(&mut inherits));
     }
     #[test]
     fn retired_vigem_controllers_become_their_vhf_pads() {

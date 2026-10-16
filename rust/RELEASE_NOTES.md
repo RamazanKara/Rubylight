@@ -1,10 +1,14 @@
-# Rubylight 2.4.1 for Windows
+# Rubylight 2.4.2 for Windows
 
 [Documentation](../docs/README.md) · [Install and migrate](../docs/getting-started.md) · [Configuration](../docs/configuration.md) · [Features](../docs/features.md)
 
-**Release history:** [2.4.1](#new-in-241) · [2.4.0](#new-in-240) · [2.3.1](#new-in-231) · [2.3.0](#new-in-230) · [2.2.2 – 2.2.21](#new-in-2221) · [2.2.1](#new-in-221) · [2.2.0](#new-in-220) · [2.1.0](#new-in-210) · [2.0.x](#new-in-201) · [release candidates](#new-in-rc30)
+**Release history:** [2.4.2](#new-in-242) · [2.4.1](#new-in-241) · [2.4.0](#new-in-240) · [2.3.1](#new-in-231) · [2.3.0](#new-in-230) · [2.2.2 – 2.2.21](#new-in-2221) · [2.2.1](#new-in-221) · [2.2.0](#new-in-220) · [2.1.0](#new-in-210) · [2.0.x](#new-in-201) · [release candidates](#new-in-rc30)
 
-Rubylight, called Butterpollo until rc.29, is written in Rust: host, native helpers, service and setup, with a Svelte web console. The 2.4.1 installer is named `rubylight-setup-2.4.1.exe` and upgrades an existing Vibepollo or Butterpollo installation in place, keeping settings, paired devices, the app library and covers. Codec SDKs and Windows drivers remain external components; the setup installs the drivers.
+Rubylight, called Butterpollo until rc.29, is written in Rust: host, native helpers, service and setup, with a Svelte web console. The 2.4.2 installer is named `rubylight-setup-2.4.2.exe` and upgrades an existing Vibepollo or Butterpollo installation in place, keeping settings, paired devices, the app library and covers. Codec SDKs and Windows drivers remain external components; the setup installs the drivers.
+
+## New in 2.4.2
+
+- **No more certificate warning on the console.** Opening `https://localhost:47990` on the host PC showed Firefox's and other browsers' security warning, because the console reused the self-signed certificate that paired devices check. The console now has its own certificate for `localhost`, `127.0.0.1` and `::1`, and setup adds its issuer, **Rubylight local console**, to Windows' trusted roots. That root can vouch only for those loopback names, and its private key is deleted once it has signed the console's certificate, so trusting it cannot vouch for any other site. Firefox uses Windows' trusted roots by default. Paired devices are unaffected. Opened from another device by the host's network address, the console still shows the warning.
 
 ## New in 2.4.1
 

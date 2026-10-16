@@ -1,10 +1,15 @@
-# Rubylight 2.4.0 for Windows
+# Rubylight 2.5.0 for Windows
 
 [Documentation](../docs/README.md) · [Install and migrate](../docs/getting-started.md) · [Configuration](../docs/configuration.md) · [Features](../docs/features.md)
 
-**Release history:** [2.4.0](#new-in-240) · [2.3.1](#new-in-231) · [2.3.0](#new-in-230) · [2.2.2 – 2.2.21](#new-in-2221) · [2.2.1](#new-in-221) · [2.2.0](#new-in-220) · [2.1.0](#new-in-210) · [2.0.x](#new-in-201) · [release candidates](#new-in-rc30)
+**Release history:** [2.5.0](#new-in-250) · [2.4.0](#new-in-240) · [2.3.1](#new-in-231) · [2.3.0](#new-in-230) · [2.2.2 – 2.2.21](#new-in-2221) · [2.2.1](#new-in-221) · [2.2.0](#new-in-220) · [2.1.0](#new-in-210) · [2.0.x](#new-in-201) · [release candidates](#new-in-rc30)
 
-Rubylight, called Butterpollo until rc.29, is written in Rust: host, native helpers, service and setup, with a Svelte web console. The 2.4.0 installer is named `rubylight-setup-2.4.0.exe` and upgrades an existing Vibepollo or Butterpollo installation in place, keeping settings, paired devices, the app library and covers. Codec SDKs and Windows drivers remain external components; the setup installs the drivers.
+Rubylight, called Butterpollo until rc.29, is written in Rust: host, native helpers, service and setup, with a Svelte web console. The 2.5.0 installer is named `rubylight-setup-2.5.0.exe` and upgrades an existing Vibepollo or Butterpollo installation in place, keeping settings, paired devices, the app library and covers. Codec SDKs and Windows drivers remain external components; the setup installs the drivers.
+
+## New in 2.5.0
+
+- **Your display layout is remembered ([#33](https://github.com/RamazanKara/Rubylight/issues/33)).** Switching Windows to **Show only on 2** (only the stream's display), or making the stream's display the main one, during an extended stream was undone at the next connection. Rubylight now keeps the layout you leave a stream in as that device's own, shown as its **Virtual display layout** under **Devices**. A layout your client asks for, and the exclusive and isolated layouts, are left as they are.
+- **Steadier frame timing on Rubylight's virtual displays.** A pacing wait meant for Windows Graphics Capture also ran when frames came from Rubylight's display driver; under GPU load it could hold a frame up to a quarter of a frame period past its slot. It now runs only with Windows Graphics Capture.
 
 ## New in 2.4.0
 

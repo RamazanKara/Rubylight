@@ -322,9 +322,9 @@ def main():
                                                 result['video_windows'], fps))
                     if not result['passed']:
                         result['failures'].append(result['outcome'])
-                    if case['fault'] == 'encoder failure' and not any(w['code'] == 'encoder_compute_recovery'
+                    if case['fault'] == 'encoder failure' and not any(w['code'] == 'encoder_recovery'
                             for sample in samples for s in sample.get('sessions', []) for w in s.get('warnings', [])):
-                        result['passed'] = False; result['failures'].append('repeated encoder fallback was not surfaced to the console')
+                        result['passed'] = False; result['failures'].append('encoder recovery was not surfaced to the console')
                 else:
                     measured = evaluate(text + ('\nINTEROPERABILITY PASS\n' if receiver.returncode == 0 else ''),
                                         receiver.returncode, codec, case['mode'], case.get('vrr', False),

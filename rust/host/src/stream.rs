@@ -837,7 +837,7 @@ impl Media {
                     let timer = butterpollo_windows::timing::Timer::new()?;
                     let mut target = prepared.capture_target();
                     let mut capture =
-                        match Capture::open(&target.0, hdr, &capture_config, capture_warnings.clone()) {
+                        match Capture::open(&target.0, hdr, &capture_config) {
                             Ok(c) => c,
                             Err(e) => {
                                 let _ = started_tx.send(Err(format!("{e:#}")));
@@ -881,7 +881,7 @@ impl Media {
                                 thread::sleep(RECOVERY_RETRY);
                                 continue;
                             }
-                            match Capture::open(&next.0, hdr, &capture_config, capture_warnings.clone()) {
+                            match Capture::open(&next.0, hdr, &capture_config) {
                                 Ok(recovered) => {
                                     if next != *target {
                                         tracing::info!(output = %next.0, "capture moved to the recreated display");
@@ -1313,8 +1313,6 @@ impl Media {
                         progress: Some(progress.clone()),
                         ..Default::default()
                     };
-                    // Separate encoder failures in this session, each counted once.
-                    let (mut failures, mut counted_failure) = (0u32, None);
                     let mut base_config = c.clone();
                     let mut runtime_config = c.clone();
                     let mut calibration_due = s.launch.client.extra.get("hdr_profile")
@@ -1988,30 +1986,13 @@ impl Media {
                             let rebuilt = rebuild_encoder;
                             if rebuild_encoder {
                                 encoder = None;
-                                // Some drivers accept the compute path at creation and
-                                // fail on it later, every time: after a second failure
-                                // in the session, convert on the graphics queue. One
-                                // failure (a game holding the GPU, a driver reset) must
-                                // not cost the rest of the session the slower path,
-                                // 6-9 ms a frame beside a GPU-bound game.
-                                if let Some(since) = recovery.failing
-                                    && counted_failure != Some(since)
-                                {
-                                    counted_failure = Some(since);
-                                    failures += 1;
-                                }
-                                let mut tuning = c.clone();
-                                if failures >= 2 {
-                                    tuning.values.insert("gpu_compute_conversion".into(), "false".into());
-                                    if butterpollo_windows::compute::enabled(&c) {
-                                        s.launch.warnings.set("encoder_compute_recovery", "Compute conversion disabled after repeated encoder failures; using the graphics queue for the rest of this session. A busy game can delay frames; lower game GPU load or update the AMD driver, then reconnect to retry compute.");
-                                    }
-                                }
+                                // The same encoder on the same compute queue again: there is
+                                // no other conversion path to fall back to.
                                 progress.mark(crate::stall_watch::Phase::EncoderCreate);
                                 match Encoder::new_gpu_reported(
                                     &stream,
                                     &image,
-                                    &tuning,
+                                    &c,
                                     &s.launch.warnings,
                                 ) {
                                     Ok(created) => {
@@ -2019,7 +2000,7 @@ impl Media {
                                         encoder = Some(created);
                                     },
                                     Err(error) => {
-                                        if let Some(loss) = DeviceLost::d3d11(&image.gpu.device).or_else(|| DeviceLost::from_error(&error)) {
+                                        if let Some(loss) = DeviceLost::d3d12(&image.gpu.compute.device).or_else(|| DeviceLost::from_error(&error)) {
                                             recovery.device_loss = Some(loss);
                                             recovery.failing.get_or_insert_with(Instant::now);
                                             continue;
@@ -2198,7 +2179,7 @@ impl Media {
                                 }
                                 Err(error) => {
                                     if let Some(loss) = active.device_removed()
-                                        .or_else(|| DeviceLost::d3d11(&image.gpu.device))
+                                        .or_else(|| DeviceLost::d3d12(&image.gpu.compute.device))
                                         .or_else(|| DeviceLost::from_error(&error))
                                     {
                                         recovery.device_loss = Some(loss);
@@ -2333,6 +2314,8 @@ impl Media {
                     crate::remote_display::disconnect(&h, Some(&s.launch.client.uuid));
                 }
                 h.sessions.lock().unwrap().teardown.remove(&s.launch.id);
+                // Debug builds: the host created no D3D11 device during the stream.
+                butterpollo_windows::d3d11_audit::report("stream end");
                 tracing::info!(client=%s.launch.client.name,"CLIENT DISCONNECTED");
             })
     }

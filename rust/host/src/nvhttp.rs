@@ -517,12 +517,34 @@ fn serverinfo_response(
             "PyroWaveBandwidthProbeBytes",
             if paired { "33554432" } else { "0" }.into(),
         ),
-        // `/pyrowave-udp-probe`, as Vibeshine serves it. Not
-        // PyroWaveWireBudgetVersion: Rubylight takes a PyroWave bitrate as the
-        // image's own rate, not as a total wire allowance.
+        // `/pyrowave-udp-probe`, as Vibeshine serves it, and its wire budget:
+        // a PyroWave bitrate is the stream's total on the wire, and each
+        // record-framed picture gets what remains after packet overhead and
+        // one critical block's parity (`pyrowave::budget`). Nonary's
+        // calibration converts its measured total with the same two values.
         ("PyroWaveUdpProbeVersion", u8::from(paired).to_string()),
         ("PyroWaveUdpHandshakeVersion", u8::from(paired).to_string()),
         ("PyroWaveUdpProbeBurstVersion", u8::from(paired).to_string()),
+        ("PyroWaveWireBudgetVersion", u8::from(paired).to_string()),
+        (
+            "PyroWaveCriticalFecPercentage",
+            if paired {
+                config
+                    .integer("pyrowave_critical_fec_percentage", 20)
+                    .clamp(0, 100)
+                    .to_string()
+            } else {
+                String::new()
+            },
+        ),
+        (
+            "PyroWaveMinParityShards",
+            if paired {
+                butterpollo_core::pyrowave::MIN_PARITY_SHARDS.to_string()
+            } else {
+                String::new()
+            },
+        ),
         ("Permission", permission.to_string()),
         ("FrameLimiterSupported", "1".into()),
         ("FrameLimiterEnabled", u8::from(limiter).to_string()),

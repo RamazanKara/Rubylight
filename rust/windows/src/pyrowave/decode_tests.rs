@@ -1197,7 +1197,7 @@ fn quality_sweep(width: u32, height: u32, critical_fec: usize) -> Result<()> {
                                 butterpollo_core::framegen::Rate(fps * 1000).period(),
                                 config.packet_size,
                                 true,
-                                critical_fec > 0,
+                                critical_fec as u32,
                             );
                             for (phase, (source, reference)) in pictures.iter().enumerate() {
                                 let Encoder::Pyrowave(native) = &mut encoder else {

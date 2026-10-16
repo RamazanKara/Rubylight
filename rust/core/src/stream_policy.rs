@@ -721,8 +721,15 @@ pub fn apply(stream: &mut Negotiated, launch_millihz: u32, config: &Config) {
             budget = budget * (100 - fec as u64) / 100;
         }
         let audio = u64::from(stream.audio_channels) * if stream.audio_quality { 256 } else { 96 };
-        budget -= audio.min(budget / 5);
-        budget -= 500.min(budget / 10);
+        if stream.codec == 3 {
+            // PyroWave's bitrate is the stream's whole wire budget, as
+            // Vibeshine takes it: audio with its 50% parity and control come
+            // off in full, uncapped, so a calibrated total holds.
+            budget = budget.saturating_sub((audio * 3).div_ceil(2) + 500);
+        } else {
+            budget -= audio.min(budget / 5);
+            budget -= 500.min(budget / 10);
+        }
     }
     stream.bitrate_kbps = budget.clamp(1, 2_000_000) as u32;
     let packet_size = config.integer("packetsize", 0);

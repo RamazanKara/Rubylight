@@ -297,6 +297,8 @@ pub struct Encoder {
     interop: Vec<Interop>,
     config: Negotiated,
     critical_fec: bool,
+    /// Parity for each frame's critical block, as a percentage; 0 without.
+    critical_fec_percentage: u32,
     interval: pyrowave::Interval,
     /// The next picture repeats the last one encoded.
     pub(crate) repeat: bool,
@@ -327,8 +329,14 @@ impl Encoder {
         let mut luid = p::pyrowave_luid { luid: [0; 8] };
         luid.luid[..4].copy_from_slice(&desc.AdapterLuid.LowPart.to_le_bytes());
         luid.luid[4..].copy_from_slice(&desc.AdapterLuid.HighPart.to_le_bytes());
-        let critical_fec =
-            config.pyrowave_records && tuning.integer("pyrowave_critical_fec_percentage", 20) > 0;
+        let critical_fec_percentage = if config.pyrowave_records {
+            tuning
+                .integer("pyrowave_critical_fec_percentage", 20)
+                .clamp(0, 255) as u32
+        } else {
+            0
+        };
+        let critical_fec = critical_fec_percentage > 0;
         let mut s = Self {
             warnings,
             api,
@@ -342,6 +350,7 @@ impl Encoder {
             interop: vec![],
             config: config.clone(),
             critical_fec,
+            critical_fec_percentage,
             interval: interval(config, critical_fec),
             repeat: false,
             luminance: [100., 1.],
@@ -457,7 +466,7 @@ impl Encoder {
             interval,
             self.config.packet_size,
             self.config.pyrowave_records,
-            self.critical_fec,
+            self.critical_fec_percentage,
         );
         if budget < 16 {
             return Ok(vec![]);

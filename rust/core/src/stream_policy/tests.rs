@@ -1276,7 +1276,9 @@ fn configured_wire_budget_deducts_fec_and_audio_after_the_ceiling() {
         ..Default::default()
     };
     apply(&mut pyro, 120000, &Config::default());
-    assert_eq!(pyro.bitrate_kbps, 799308); // audio/control, without generic 20% FEC
+    // Audio with its 50% parity and control, without generic 20% FEC, as
+    // Vibeshine takes them off a PyroWave total: 192 * 3 / 2 + 500.
+    assert_eq!(pyro.bitrate_kbps, 799212);
 }
 #[test]
 fn a_stream_runs_at_the_rate_its_request_asks_for() {

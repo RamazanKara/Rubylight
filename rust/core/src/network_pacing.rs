@@ -554,7 +554,7 @@ mod tests {
             (2560, 1440, 708_000),
             (3840, 2160, 800_000),
         ] {
-            let budget = pyrowave::budget(kbps, period, packet_size, true, true);
+            let budget = pyrowave::budget(kbps, period, packet_size, true, 20);
             let framed = pyrowave::record_frame(
                 &budget_frame(width, height, budget),
                 pyrowave::aligned_payload(packet_size),

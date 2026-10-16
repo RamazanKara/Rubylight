@@ -509,7 +509,7 @@ mod tests {
         use butterpollo_core::pyrowave;
         let (packet_size, kbps, fps_millihz) = (1360, 400_000, 60_000);
         let period = Duration::from_secs_f64(1000. / f64::from(fps_millihz));
-        let budget = pyrowave::budget(kbps, period, packet_size, true, true);
+        let budget = pyrowave::budget(kbps, period, packet_size, true, 20);
         let size = |i: usize| 8 + (i * 73 % 504) * 4;
         let (mut count, mut total) = (0, 8);
         while total + size(count) <= budget {

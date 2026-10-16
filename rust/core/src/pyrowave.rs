@@ -48,22 +48,64 @@ fn bitrate_kbps(width: u32, height: u32, fps_millihz: u32, bpp_tenths: u32) -> u
 pub fn max_frame_bytes(packet_size: usize, critical_fec: bool) -> usize {
     (packet_size.saturating_sub(16) * if critical_fec { 3000 } else { 4000 }).saturating_sub(8)
 }
+/// Wire bytes a packet costs beyond its packet size: RTP, encryption, UDP,
+/// IPv6 and Ethernet preamble, gap and FCS.
+pub const WIRE_OVERHEAD: usize = 134;
+/// Parity shards a critical block always gets, at any percentage above zero.
+pub const MIN_PARITY_SHARDS: usize = 2;
+/// Kbps a PyroWave stream's total keeps for audio and control: eight
+/// high-quality channels with their parity, as Vibeshine's calibration assumes.
+pub const AUDIO_CONTROL_KBPS: f64 = 3572.;
+/// The parity of the largest critical block `packets` data packets can need.
+fn max_critical_parity(critical_fec_percentage: u32, packets: usize) -> usize {
+    if critical_fec_percentage == 0 {
+        return 0;
+    }
+    (1..=packets.min(255))
+        .filter_map(|critical| {
+            let parity = (critical * critical_fec_percentage as usize)
+                .div_ceil(100)
+                .max(MIN_PARITY_SHARDS);
+            (critical + parity <= 255).then_some(parity)
+        })
+        .max()
+        .unwrap_or(0)
+}
+/// The picture bytes a frame's wire allowance carries: whole packets with
+/// their wire overhead, less one critical block's parity, the frame header
+/// and the shard headers. Vibeshine's `pyrowave::bandwidth::image_bytes`,
+/// which Nonary's Moonlight calibrates with.
+pub fn image_bytes(wire_bytes: usize, packet_size: usize, critical_fec_percentage: u32) -> usize {
+    if packet_size <= 16 {
+        return 0;
+    }
+    let packets = wire_bytes / (packet_size + WIRE_OVERHEAD);
+    let parity = max_critical_parity(critical_fec_percentage, packets);
+    if packets <= parity {
+        return 0;
+    }
+    ((packets - parity) * (packet_size - 16)).saturating_sub(8) & !3
+}
+/// A frame's picture budget. With record framing (Nonary's Moonlight,
+/// Nightjar, Aurora) the bitrate is the video's total on the wire, as
+/// Vibeshine takes it since `PyroWaveWireBudgetVersion` 1, so a calibrated
+/// rate is never exceeded by packet overhead and FEC.
 pub fn budget(
     kbps: u32,
     interval: Duration,
     packet_size: usize,
     records: bool,
-    critical_fec: bool,
+    critical_fec_percentage: u32,
 ) -> usize {
-    let limit = max_frame_bytes(packet_size, critical_fec);
-    let limit = if records {
-        limit * 95 / 100
+    let limit = max_frame_bytes(packet_size, critical_fec_percentage > 0);
+    let allowance = (f64::from(kbps) * 125. * interval.as_secs_f64()) as usize;
+    if records {
+        image_bytes(allowance, packet_size, critical_fec_percentage).min(limit * 95 / 100) & !3
     } else {
         // The codec can emit eight-byte blocks. Each then needs a four-byte
         // length, so reserve the worst case rather than assuming full packets.
-        limit.saturating_sub(4) / 12 * 8
-    };
-    ((f64::from(kbps) * 125. * interval.as_secs_f64()) as usize).min(limit) & !3
+        allowance.min(limit.saturating_sub(4) / 12 * 8) & !3
+    }
 }
 /// The time each frame's budget pays for: the gap since the previous encode.
 /// A new picture right after a repeat of the old one would get only that short
@@ -659,11 +701,50 @@ mod tests {
         );
         assert!(container(&[1], &[(usize::MAX, 1)]).is_err());
         let cap = max_frame_bytes(1392, false);
-        let raw = budget(2_000_000, Duration::from_secs(1), 1392, false, false);
+        let raw = budget(2_000_000, Duration::from_secs(1), 1392, false, 0);
         assert!(4 + raw + (raw / 8) * 4 <= cap);
+        // 833333 wire bytes at 800 Mbps and 120 fps hold 546 packets; one
+        // critical block of 212 takes 43 parity.
         assert_eq!(
-            budget(800000, Duration::from_secs_f64(1. / 120.), 1392, true, true),
-            833332
+            budget(800000, Duration::from_secs_f64(1. / 120.), 1392, true, 20),
+            692120
+        );
+    }
+    /// Nonary's Moonlight calibrates a total wire rate and converts it to a
+    /// picture allowance with Vibeshine's `pyrowave_bandwidth.h`; the host
+    /// must make the same conversion. Values from that header, compiled.
+    #[test]
+    fn a_wire_allowance_holds_the_picture_vibeshine_computes() {
+        for (wire, percentage, image) in [
+            (833_333, 20, 692_120),
+            (5_000, 20, 1_368),
+            (1526 * 3, 20, 1_368),
+            (1526 * 300, 20, 353_624),
+            (3_333_333, 20, 2_946_008),
+            (100, 20, 0),
+            (833_333, 0, 751_288),
+            (833_333, 50, 634_328),
+        ] {
+            assert_eq!(
+                image_bytes(wire, 1392, percentage),
+                image,
+                "{wire} at {percentage}%"
+            );
+        }
+        // 1080p60 and 4K120 at the same total: each frame gets its share.
+        assert_eq!(
+            budget(500_000, Duration::from_secs_f64(1. / 60.), 1392, true, 20),
+            image_bytes(1_041_666, 1392, 20)
+        );
+        assert_eq!(
+            budget(
+                2_000_000,
+                Duration::from_secs_f64(1. / 120.),
+                1392,
+                true,
+                20
+            ),
+            image_bytes(2_083_333, 1392, 20)
         );
     }
     #[test]

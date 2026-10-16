@@ -88,6 +88,9 @@ public class StreamResizePolicyTest {
         // A host that kept another size is shown as it is.
         assertArrayEquals(new int[] {2176, 1812}, StreamResizePolicy.shownSize(2176, 1812, 2316, 904));
         assertArrayEquals(new int[] {1904, 1080}, StreamResizePolicy.shownSize(1904, 1080, 1920, 1080));
+        // AMD's AV1 encoder pads widths to 64: a Fold7's inner panel arrives 2240 wide.
+        assertArrayEquals(new int[] {2184, 1968}, StreamResizePolicy.shownSize(2240, 1968, 2184, 1968));
+        assertArrayEquals(new int[] {2248, 1968}, StreamResizePolicy.shownSize(2248, 1968, 2184, 1968));
     }
 
     @Test

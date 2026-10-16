@@ -20,6 +20,9 @@ public class StreamView extends FrameLayout {
     private final VideoScaling scaling = new VideoScaling();
     private int scalingMode = VideoScaling.STRETCH, alignment = VideoScaling.CENTER;
     private int videoWidth, videoHeight;
+    // Decoded picture over the stream it carries, 1 unless the decoder leaves encoder padding on
+    // the right and bottom uncropped (AV1 from AMD encoders at widths not divisible by 64).
+    private float paddedScaleX = 1, paddedScaleY = 1;
     private InputCallbacks inputCallbacks;
     private SurfaceView surfaceView;
     private TextureView textureView;
@@ -66,6 +69,24 @@ public class StreamView extends FrameLayout {
         this.videoHeight = videoHeight;
         applyGravity();
         requestLayout();
+    }
+
+    /**
+     * Enlarges the video inside this view by the decoder's uncropped padding and clips it, so the
+     * stream fills this view and lines up with touch and pointer mapping, which stay in this view's
+     * coordinates.
+     */
+    public void setDecodedPadding(int decodedWidth, int decodedHeight, int shownWidth, int shownHeight) {
+        float scaleX = 1, scaleY = 1;
+        if (shownWidth > 0 && shownHeight > 0 && decodedWidth >= shownWidth && decodedHeight >= shownHeight) {
+            scaleX = (float) decodedWidth / shownWidth;
+            scaleY = (float) decodedHeight / shownHeight;
+        }
+        if (scaleX != paddedScaleX || scaleY != paddedScaleY) {
+            paddedScaleX = scaleX;
+            paddedScaleY = scaleY;
+            requestLayout();
+        }
     }
 
     @Override
@@ -156,12 +177,28 @@ public class StreamView extends FrameLayout {
     protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
         if (scalingMode == VideoScaling.STRETCH || videoWidth <= 0 || videoHeight <= 0) {
             super.onMeasure(widthMeasureSpec, heightMeasureSpec);
+        } else {
+            scaling.layout(scalingMode, alignment, videoWidth, videoHeight,
+                    MeasureSpec.getSize(widthMeasureSpec), MeasureSpec.getSize(heightMeasureSpec));
+            super.onMeasure(MeasureSpec.makeMeasureSpec(scaling.width(), MeasureSpec.EXACTLY),
+                    MeasureSpec.makeMeasureSpec(scaling.height(), MeasureSpec.EXACTLY));
+        }
+        measurePaddedVideo();
+    }
+
+    // The video child keeps the top-left at this view's origin, so its padding hangs off the right
+    // and bottom, where the clip (and on Android 13+ the SurfaceView's own surface crop) hides it.
+    private void measurePaddedVideo() {
+        android.view.View video = textureView != null ? textureView : surfaceView;
+        if (video == null) return;
+        int width = getMeasuredWidth(), height = getMeasuredHeight();
+        if (paddedScaleX == 1 && paddedScaleY == 1) {
+            video.setClipBounds(null);
             return;
         }
-        scaling.layout(scalingMode, alignment, videoWidth, videoHeight,
-                MeasureSpec.getSize(widthMeasureSpec), MeasureSpec.getSize(heightMeasureSpec));
-        super.onMeasure(MeasureSpec.makeMeasureSpec(scaling.width(), MeasureSpec.EXACTLY),
-                MeasureSpec.makeMeasureSpec(scaling.height(), MeasureSpec.EXACTLY));
+        video.measure(MeasureSpec.makeMeasureSpec(Math.round(width * paddedScaleX), MeasureSpec.EXACTLY),
+                MeasureSpec.makeMeasureSpec(Math.round(height * paddedScaleY), MeasureSpec.EXACTLY));
+        video.setClipBounds(new android.graphics.Rect(0, 0, width, height));
     }
 
     @Override

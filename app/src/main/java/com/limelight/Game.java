@@ -854,7 +854,21 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 willStreamHdr,
                 glPrefs.glRenderer,
                 this, getVideoDisplay());
-        decoderRenderer.setStreamSizeListener((width, height) -> runOnUiThread(() -> applyStreamSize(width, height)));
+        decoderRenderer.setStreamSizeListener(new MediaCodecDecoderRenderer.StreamSizeListener() {
+            @Override
+            public void onStreamSizeChanged(int width, int height) {
+                runOnUiThread(() -> applyStreamSize(width, height));
+            }
+
+            @Override
+            public void onDecodedSize(int decodedWidth, int decodedHeight, int shownWidth, int shownHeight) {
+                runOnUiThread(() -> {
+                    if (!isFinishing() && !isDestroyed()) {
+                        streamView.setDecodedPadding(decodedWidth, decodedHeight, shownWidth, shownHeight);
+                    }
+                });
+            }
+        });
 
         // Don't stream HDR if the decoder can't support it
         if (willStreamHdr && !decoderRenderer.isHevcMain10Hdr10Supported() && !decoderRenderer.isAv1Main10Supported() &&

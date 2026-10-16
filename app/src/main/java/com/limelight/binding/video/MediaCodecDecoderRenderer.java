@@ -534,6 +534,11 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         // Called on the renderer thread when frames of a new size come out of the decoder after
         // a mid-stream reconfigure.
         void onStreamSizeChanged(int width, int height);
+
+        // Called on the renderer thread with each output format: the decoded picture and the part
+        // of it that is the stream. They differ when the decoder leaves encoder padding uncropped.
+        default void onDecodedSize(int decodedWidth, int decodedHeight, int shownWidth, int shownHeight) {
+        }
     }
 
     public void setStreamSizeListener(StreamSizeListener listener) {
@@ -662,6 +667,10 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         }
         int[] shown = StreamResizePolicy.shownSize(visible[0], visible[1], expectedWidth, expectedHeight);
         LimeLog.info("Decoded size: " + visible[0] + "x" + visible[1] + ", shown as " + shown[0] + "x" + shown[1]);
+        StreamSizeListener sizeListener = streamSizeListener;
+        if (sizeListener != null) {
+            sizeListener.onDecodedSize(visible[0], visible[1], shown[0], shown[1]);
+        }
         if (!reconfigureRequested || (shown[0] == streamWidth && shown[1] == streamHeight)) {
             return;
         }

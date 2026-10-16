@@ -87,11 +87,11 @@ public final class StreamResizePolicy {
         return new int[] {width, height};
     }
 
-    // Decoders without crop values report sizes padded to whole 16-pixel blocks; read those as
-    // the size that was expected.
+    // Decoders without crop values report sizes padded to the encoder's blocks, up to 64 pixels
+    // for AV1 from AMD encoders; read those as the size that was expected.
     public static int[] shownSize(int decodedWidth, int decodedHeight, int expectedWidth, int expectedHeight) {
-        if (decodedWidth >= expectedWidth && decodedWidth - expectedWidth < 16 &&
-                decodedHeight >= expectedHeight && decodedHeight - expectedHeight < 16) {
+        if (decodedWidth >= expectedWidth && decodedWidth - expectedWidth < 64 &&
+                decodedHeight >= expectedHeight && decodedHeight - expectedHeight < 64) {
             return new int[] {expectedWidth, expectedHeight};
         }
         return new int[] {decodedWidth, decodedHeight};

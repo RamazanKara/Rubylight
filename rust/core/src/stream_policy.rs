@@ -314,6 +314,13 @@ impl Pacer {
             phase.observe(presented);
         }
     }
+    /// Turn source-phase learning on or off for the capture that is open now;
+    /// a change starts it from scratch, the same state keeps what was learned.
+    pub fn set_source_phase(&mut self, enabled: bool) {
+        if enabled != self.source_phase.is_some() {
+            self.source_phase = enabled.then(|| SourcePhase::new(self.period));
+        }
+    }
     /// Capture recovery or replacement invalidates the learned source phase.
     pub fn reset_source_phase(&mut self) {
         if self.source_phase.is_some() {
@@ -507,6 +514,16 @@ pub fn reencode_at(
 /// again only for the client's recovery request does not: it would hold the
 /// game's next frame back by up to a period, and leave every frame for about
 /// a second after it late while the credit is repaid.
+/// Whether claims wait for the capture's learned phase, for the backend that
+/// opened. Only WGC's frames arrive on a composition beat the wait can align
+/// with: Rubylight's display driver pushes every composed frame, and a wait for
+/// the next one under GPU load held claims up to 1.25 periods. Capture `auto`
+/// is planned as WGC before it opens, so the plan cannot decide this.
+/// `frame_pacing_source_phase` set either way wins.
+pub fn source_phase(config: &Config, backend: &str) -> bool {
+    config.boolean("frame_pacing_source_phase", backend == "wgc")
+}
+
 pub fn counts_toward_rate(fresh: bool, recovery: bool) -> bool {
     fresh || !recovery
 }

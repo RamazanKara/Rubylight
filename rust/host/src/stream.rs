@@ -460,6 +460,10 @@ type Latest = capture::Latest<GpuImage>;
 struct Source {
     warnings: Arc<butterpollo_core::session::Warnings>,
     latest: Arc<Latest>,
+    /// The capture backend that opened, after every reopen: `auto` is planned
+    /// as WGC, so the plan cannot say whether frames come from WGC or the
+    /// display driver.
+    backend: Arc<Mutex<&'static str>>,
     grid: Arc<Mutex<butterpollo_windows::capture::ClaimGrid>>,
     stop: Arc<AtomicBool>,
     thread: Option<thread::JoinHandle<()>>,
@@ -484,6 +488,11 @@ impl Drop for Source {
         if let Some(worker) = self.thread.take() {
             finish_worker(worker, "capture");
         }
+    }
+}
+impl Source {
+    fn backend(&self) -> &'static str {
+        *self.backend.lock().unwrap()
     }
 }
 impl std::ops::Deref for Source {
@@ -852,6 +861,8 @@ impl Media {
             period: rate.period(),
         }));
         let worker_grid = grid.clone();
+        let backend = Arc::new(Mutex::new(""));
+        let worker_backend = backend.clone();
         let kind = kind.to_owned();
         let (started_tx, started_rx) = std::sync::mpsc::sync_channel(1);
         let thread = thread::Builder::new()
@@ -877,6 +888,7 @@ impl Media {
                             }
                         };
                     capture.set_claim_grid(worker_grid.clone(), aligned);
+                    *worker_backend.lock().unwrap() = capture.backend();
                     tracing::info!(requested=%kind, backend=capture.backend(), output=%target.0, "capture backend opened");
                     // Re-create the capture on a new device. Windows keeps handing
                     // out the stale adapter while anything holds the old device, so
@@ -979,6 +991,7 @@ impl Media {
                                     Err(error) => return Err(error),
                                 };
                                 capture.set_claim_grid(worker_grid.clone(), aligned);
+                                *worker_backend.lock().unwrap() = capture.backend();
                             }
                         }
                         // Reset before the helper's announcements are read: one
@@ -1030,6 +1043,7 @@ impl Media {
                                     Err(error) => return Err(error),
                                 };
                                 capture.set_claim_grid(worker_grid.clone(), aligned);
+                                *worker_backend.lock().unwrap() = capture.backend();
                             }
                         }
                     }
@@ -1046,6 +1060,7 @@ impl Media {
         let latest = Arc::new(Source {
             warnings,
             latest,
+            backend,
             grid,
             stop,
             thread: Some(thread),
@@ -1369,11 +1384,13 @@ impl Media {
                     let vrr = s.config.vrr_low_latency;
                     let arrival_pacing = vrr
                         || butterpollo_core::stream_policy::Pacing::from_config(&c) == butterpollo_core::stream_policy::Pacing::Arrival;
+                    let source_phase_eligible = vrr || c.boolean("frame_pacing_predictive", true);
                     let new_pacer = |period: Duration| {
                         let predictive = !vrr && c.boolean("frame_pacing_predictive", true);
                         butterpollo_core::stream_policy::Pacer::new(Instant::now(), period)
                             .with_prediction(predictive)
-                            .with_source_phase((vrr || predictive) && c.boolean("frame_pacing_source_phase", prepared.capture() == "wgc"))
+                            // Source phase follows the opened backend, set per image below.
+                            .with_source_phase(false)
                             .with_spacing(if vrr { 0.5 } else { 0.75 })
                     };
                     let mut pacer = new_pacer(rates.period);
@@ -1904,6 +1921,9 @@ impl Media {
                             if rebuild_encoder {
                                 pacer.reset_source_phase();
                             }
+                            // A reopen can change the backend, e.g. to WGC after the
+                            // driver's frame push failed.
+                            pacer.set_source_phase(source_phase_eligible && butterpollo_core::stream_policy::source_phase(&c, latest.backend()));
                             if arrival_pacing {
                                 pacer.observe_source(image.captured);
                             }

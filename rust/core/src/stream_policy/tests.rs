@@ -1695,3 +1695,38 @@ fn a_faster_source_repays_a_startup_deficit_instead_of_lagging_every_claim() {
         assert!(rate <= 60.1, "{rate:.2} claims/s");
     }
 }
+#[test]
+fn only_wgc_captures_wait_for_the_learned_source_phase() {
+    let config = |text: &str| Config::parse(text).unwrap();
+    assert!(source_phase(&config(""), "wgc"));
+    // Rubylight's display driver pushes every composition: waiting for the
+    // next one under GPU load held claims up to 1.25 periods.
+    assert!(!source_phase(&config(""), "idd-push"));
+    assert!(!source_phase(&config(""), "ddx"));
+    assert!(source_phase(
+        &config("frame_pacing_source_phase=true"),
+        "idd-push"
+    ));
+    assert!(!source_phase(
+        &config("frame_pacing_source_phase=false"),
+        "wgc"
+    ));
+    // Capture `auto` is planned as WGC; the backend that opens decides.
+    let start = Instant::now();
+    let period = Duration::from_micros(8_333);
+    let mut pacer = Pacer::new(start, period).with_source_phase(true);
+    pacer.set_source_phase(false);
+    assert!(pacer.source_phase.is_none());
+    pacer.set_source_phase(true);
+    assert!(pacer.source_phase.is_some());
+    for n in 0..48 {
+        pacer.observe_source(start + period / 2 * n);
+    }
+    let learned = pacer.source_phase.as_ref().map(|phase| phase.center);
+    // The same backend again keeps what was learned.
+    pacer.set_source_phase(true);
+    assert_eq!(
+        pacer.source_phase.as_ref().map(|phase| phase.center),
+        learned
+    );
+}

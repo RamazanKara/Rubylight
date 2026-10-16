@@ -4,6 +4,8 @@
 
 Rubylight's performance work targets fresh pictures and lower picture age, especially when the GPU is busy. Start with the [current 2.2.9 measurements](#october-12-229-measurements), then use the component tests to see where the time goes. The [matched October 8 comparison](#next-to-vibepollo-20) retains its original builds and results.
 
+Every stream now runs on a Rubylight virtual display and captures from its display driver. Older measurements on this page name the capture they used then, Windows Graphics Capture (WGC) or Desktop Duplication (DDX), and some streamed a physical monitor; current releases have neither.
+
 **On this page:** [Metrics](#what-the-numbers-mean) · [Host latency between hosts](#comparing-host-latency-between-hosts) · [2.2.9 measurements](#october-12-229-measurements) · [Host comparison](#next-to-vibepollo-20) · [Wi-Fi](#on-a-real-client-over-wi-fi) · [Radeon compute](#isolating-radeon-compute) · [GPU pressure](#radeon-under-pressure) · [Measure your setup](#measure-your-setup)
 
 ## What the numbers mean
@@ -216,9 +218,9 @@ Smaller changes take a few tens of microseconds off every input packet (the netw
 
 [Method and all runs →](../rust/PERFORMANCE.md#october-7-input-on-the-control-thread)
 
-## WGC capture and pacing
+## WGC capture and pacing (earlier releases)
 
-Automatic capture prefers WGC and supported Radeon streams use compute by default. Guarded source-phase pacing waits for a predicted fresh update when the capture history supports it.
+These checks come from releases whose automatic capture preferred WGC. Guarded source-phase pacing waited for a predicted fresh update when the capture history supported it; it is now off unless `frame_pacing_source_phase` is set.
 
 In the earlier controlled local 720p60 AV1 comparison, guarded pacing delivered **59.862–60.000 fresh pictures/s**, versus **57.650**, and reduced estimated source-presentation-to-software-decode age by about **3.8 ms on average**. The default-path SDR check recorded **59.999 fresh pictures/s**.
 

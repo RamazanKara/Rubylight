@@ -20,15 +20,15 @@ Rubylight encodes on AMD GPUs only: a Radeon RX 6000 (RDNA 2) or newer. H.264 an
 
 ## Capture that keeps working
 
-- **Frames straight from Rubylight's display driver.** On its virtual displays, the driver hands the host each frame Windows composes: no capture API in between, and on Radeon the frame is converted where it lies. A reconnect to a desktop where nothing moves gets its picture at once.
-- **Windows Graphics Capture** is the default on physical displays and takes over on a virtual display when the driver cannot push frames, with Desktop Duplication taking over whenever WGC cannot open.
-- **Locked screens and the secure desktop.** Rubylight streams the lock screen and the sign-in prompt, so you can unlock a PC from your couch, and returns to WGC when the normal desktop comes back. It streams from a locked VM with no monitor attached ([#6](https://github.com/RamazanKara/Rubylight/issues/6)).
-- **Services, VMs and containers.** The Windows service captures through a signed-in-user helper, and the same host runs on headless machines, virtual machines and Kubernetes pods with GPUs.
-- **Capture recovery.** A lost Desktop Duplication session is reopened without ending the stream.
+- **Frames straight from Rubylight's display driver.** Every stream runs on one of its virtual displays, and the driver hands the host each frame Windows composes: no capture API in between, and on Radeon the frame is converted where it lies. A reconnect to a desktop where nothing moves gets its picture at once.
+- **One capture per display.** Devices on the same virtual display share its capture, and each gets its own conversion and encode, so one can stream SDR HEVC while another streams HDR AV1.
+- **Locked screens and the secure desktop.** Rubylight streams the lock screen and the sign-in prompt, so you can unlock a PC from your couch. It streams from a locked VM with no monitor attached ([#6](https://github.com/RamazanKara/Rubylight/issues/6)).
+- **Services, VMs and containers.** The same host runs as a Windows service, on headless machines, virtual machines and Kubernetes pods with GPUs.
+- **Clear driver errors.** Without the display driver a stream is refused and the console says to run setup again; after a driver update it says to restart Windows.
 
 ## Displays
 
-- **A virtual display per device**, shared or off, with exclusive, extended, primary and isolated layouts, HDR, and a permanent count.
+- **A virtual display per device**, or one shared, with exclusive, extended, primary and isolated layouts, HDR, and a permanent count.
 - **Your layout back.** The golden layout is restored after a stream or a crash, with a hotkey for the times you want it sooner.
 - **Per-device modes.** A device's display mode sets the resolution and refresh of its display, and the stream keeps the client's frame rate.
 - **The client chooses the display.** A Rubylight client can ask, per PC, for the virtual display alone, a virtual display beside your monitors, or no virtual display at all, without changing the host settings ([configuration](configuration.md#display-choice-from-the-client)).

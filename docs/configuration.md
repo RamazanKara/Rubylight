@@ -16,9 +16,7 @@ Use **Review changes** to see pending edits across all categories, including set
 
 | Setting / key | Default | What it means |
 | --- | --- | --- |
-| Capture method — `capture` | `auto` | On a virtual display Rubylight created, takes each frame straight from Rubylight's display driver. Elsewhere prefers Windows Graphics Capture (WGC), with Desktop Duplication (DDX) as fallback. |
 | Compute conversion — `gpu_compute_conversion` | `true` | Uses a separate compute queue for supported AMD capture and colour conversion paths. |
-| Encode from GPU memory — `wgc_direct_encoder_input` | `true` | Keeps captured frames on the GPU instead of copying them through system memory. |
 | Encoder — `encoder` | `auto` | Selects an available encoder for the capture GPU. |
 | AMD usage — `amd_usage` | `ultralowlatency` | AMD's lowest-latency preset. The driver also turns on its internal low-latency mode, and the lowest latency for AV1. |
 | AMD quality — `amd_quality` | `speed` | Favours low encoding latency. |
@@ -31,10 +29,9 @@ Use **Review changes** to see pending edits across all categories, including set
 | Audio to stream — `audio_capture_mode` | `system` | Captures the selected playback device. Optional [Game only](#game-only-audio) captures a verified game's process tree. |
 | HEVC / AV1 support — `hevc_mode`, `av1_mode` | `0` | Automatic capability detection; only working profiles are offered. |
 | PyroWave — `pyrowave` | `true` | Offers PyroWave to clients that support it. |
-| Virtual display — `virtual_display_mode` | `per_client` | A display for each device. Requires the virtual display driver when enabled. |
+| Virtual display — `virtual_display_mode` | `per_client` | A virtual display for each device; `shared` gives all devices one. Every stream runs on a virtual display, so streams need Rubylight's display driver. |
 | Virtual display layout — `virtual_display_layout` | `exclusive` | Turns other displays off while the virtual display is used. A Remote Monitor follows it while it streams: exclusive turns the other displays off and makes it primary, the primary layouts make it primary, and it keeps the place the remote monitor layout gives it. Choose Extended to use a remote monitor beside your own. |
-| Physical display preparation — `dd_configuration_option` | `verify_only` | Requires the selected monitor to be active; resolution, refresh and HDR policies are separate. |
-| Display HDR — `dd_hdr_option` | `auto` | Matches the streamed display's HDR state to the stream. |
+| Display HDR — `dd_hdr_option` | `auto` | Matches the virtual display's HDR state to the stream. |
 | Limit every stream — `frame_limiter_enable` | `false` | Manual limiting is off; virtual-display automatic limiting can still apply. |
 | Limiter — `frame_limiter_provider` | `auto` | Uses RTSS when installed. |
 | Virtual display refresh — `frame_limiter_auto_virtual_framegen` | `legacy` | Runs the virtual display at twice the stream rate and enables automatic frame limiting. |
@@ -46,13 +43,11 @@ These are defaults for **unset** keys, not a list of values you must copy into a
 
 ## Capture and video
 
-**Graphics card** (`adapter_name`) lists all hardware GPUs reported by Windows DXGI, including GPUs with no attached monitor on hybrid systems. **Automatic** uses the GPU that owns the captured display. A GPU appearing in the list does not confirm encoder or codec support; that still depends on its hardware and driver. With a GPU selected, virtual displays are created to render on that GPU, as Apollo and Vibepollo do. WGC can capture a display that another GPU renders; Desktop Duplication cannot, so when it is the capture path in use and the display renders elsewhere (a physical monitor on the integrated GPU, or a driver that ignored the request), the stream captures and encodes on the display's GPU and the stream card says so.
+**Graphics card** (`adapter_name`) lists all hardware GPUs reported by Windows DXGI, including GPUs with no attached monitor on hybrid systems. **Automatic** uses the GPU that renders the stream's virtual display. A GPU appearing in the list does not confirm encoder or codec support; that still depends on its hardware and driver. With a GPU selected, virtual displays are created to render on that GPU, as Apollo and Vibepollo do.
 
-**Keep Capture method on Automatic and compute conversion enabled** for normal use. On supported AMD hardware, the compute path lets capture and colour conversion run alongside graphics work. Unsupported textures can fall back to the graphics path. The internal `wgc_compute_copy` switch also defaults to `true`; it is primarily useful for controlled troubleshooting.
+**Keep compute conversion enabled** for normal use. On supported AMD hardware, the compute path lets capture and colour conversion run alongside graphics work. Unsupported textures can fall back to the graphics path.
 
-**Frames from Rubylight's display driver.** On a virtual display Rubylight created, Automatic captures from the driver itself: it copies each frame Windows composes into textures it shares with the host, so neither WGC nor Desktop Duplication runs, and on AMD the compute conversion reads those textures in place (`idd_push_zero_copy`, default `true`). `capture = idd-push` asks for it by name; WGC or Desktop Duplication avoid it. The stream captures with WGC instead, and the stream card says why, when the driver is not installed, when another stream with different capture settings already captures that display, or when the display's frame push failed twice before delivering a picture. A display that failed is tried again once it is recreated or renders on another GPU.
-
-The installed service runs WGC through a helper in the signed-in user's session. WGC can fall back to DDX when unavailable. Selecting a particular capture method is useful when investigating a problem; check **Logs** to see which path actually opened.
+**Frames from Rubylight's display driver.** Every stream runs on a virtual display Rubylight created and captures from the driver itself: it copies each frame Windows composes into textures it shares with the host, and on AMD the compute conversion reads those textures in place (`idd_push_zero_copy`, default `true`). Streams on the same virtual display share its capture, and each converts and encodes it with its own codec and HDR settings. Without the driver, a stream is refused and the console says to run Rubylight setup again to repair the installation. After a driver update that runs only once Windows restarts, streams are refused until then and the console says to restart Windows.
 
 H.264, HEVC and AV1 depend on the encoder and client. For `hevc_mode` and `av1_mode`, the choices are `0` Automatic, `1` Off, `2` SDR only and `3` SDR and HDR. Restart after changing advertised codec support. There is no 4:4:4 switch: the host offers 4:4:4 for a codec only when the startup check encodes it on a hardware encoder. AMD's encoder makes 4:2:0 only, so an AMD host offers 4:4:4 through PyroWave alone.
 
@@ -189,9 +184,9 @@ are not implemented in this first game-only mode.
 
 ## Displays and RTSS
 
-Under **Settings → Display**, select a physical display or choose a virtual display per device/shared by all devices. **Exclusive** switches other monitors off; choose **Extended** to keep the existing desktop active. The primary and isolated variants control where the virtual display sits in that desktop.
+Every stream runs on a virtual display. Under **Settings → Display**, choose a virtual display per device or one shared by all devices. **Exclusive** switches other monitors off; choose **Extended** to keep the existing desktop active. The primary and isolated variants control where the virtual display sits in that desktop.
 
-Resolution and refresh policies default to `auto` (`dd_resolution_option`, `dd_refresh_rate_option`). Virtual refresh follows the frame-limiting policy unless a manual or device display mode overrides it. To leave a **physical** monitor's resolution, refresh and HDR unchanged, select Disabled for `dd_configuration_option`.
+Resolution and refresh policies default to `auto` (`dd_resolution_option`, `dd_refresh_rate_option`). Virtual refresh follows the frame-limiting policy unless a manual or device display mode overrides it.
 
 A disconnect can leave the app and its display available for reconnection. Enable `dd_config_revert_on_disconnect` if you want the display configuration restored on disconnect; it defaults to `false`. Without it, a disconnected device's display is kept while its app runs for `dd_paused_virtual_display_timeout_secs` (default `7200` seconds; `0` keeps it until the app closes). A client that sends nothing for `ping_timeout` (default `10000` ms) ends its stream. **Maintenance** provides display restoration and saved-baseline controls.
 
@@ -286,10 +281,9 @@ A client can choose, for one stream, what the PC's displays do. [Nightjar](https
 | `extended_primary` | A virtual display beside the PC's displays, made the primary display so games open on it. |
 | `extended` | A virtual display beside the PC's displays; the primary display stays as it is. |
 | `extended_isolated`, `extended_primary_isolated` | The isolated layouts of **Settings → Display**. |
-| `physical` | No virtual display; the stream shows the physical display the host and app settings select. |
-| missing, `default` or anything else | The host decides from its settings, as for an older client. |
+| missing, `default`, `physical` or anything else | The host decides the layout from its settings, as for an older client. Every stream gets a virtual display. |
 
-The choice comes before the host, device and app settings for virtual display mode and layout, including a device's **Always use a virtual display**. Two cases still get a virtual display after `physical`: a PC with no active display, and an output that names the virtual display itself. A virtual display needs its driver; without it the stream shows the physical display with a warning, as for any other request. When another stream already holds the display layout, a second stream joins that layout. The layout from before the stream comes back when the stream ends, as with the host's own settings. A display kept for reconnection is reused only when the next launch asks for the same choice, or asks for nothing. Remote Monitor and Remote Input ignore the parameter. Older Rubylight hosts and other hosts ignore it, so Nightjar also sends `virtualDisplay=1` with the virtual choices, which those hosts honour where they support a virtual display.
+The choice comes before the host, device and app settings for the display layout. A virtual display needs its driver; without it the stream is refused and the console says what to do. When another stream already holds the display layout, a second stream joins that layout. The layout from before the stream comes back when the stream ends, as with the host's own settings. A display kept for reconnection is reused only when the next launch asks for the same choice, or asks for nothing. Remote Monitor and Remote Input ignore the parameter. Older Rubylight hosts and other hosts ignore it, so Nightjar also sends `virtualDisplay=1` with the virtual choices, which those hosts honour where they support a virtual display.
 
 ## Save, reconnect and restart
 

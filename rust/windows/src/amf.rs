@@ -1,8 +1,10 @@
 //! Native AMD AMF encoder for H.264, HEVC and AV1.
 //!
-//! Calls AMF's C ABI directly, takes D3D11 or D3D12
-//! textures from capture and Radeon compute without a copy, and applies the
-//! per-codec settings from `butterpollo_core::encoder_policy`.
+//! Calls AMF's C ABI directly on D3D12: each frame is converted to NV12 or P010 on the capture
+//! GPU's compute queue ([`crate::compute::Converter`]) and AMF encodes the converted texture
+//! after waiting for its fence on the GPU. There is no other input path; a failure of AMF's
+//! D3D12 initialisation or of the conversion is the encoder's error. The per-codec settings
+//! come from `butterpollo_core::encoder_policy`.
 pub(crate) mod gpu;
 mod intra_refresh;
 mod metadata;
@@ -20,7 +22,6 @@ use std::{
     ptr,
     time::{Duration, Instant},
 };
-use windows::core::Interface;
 /// A call this slow held the stream thread: a stalled VCN or compute queue
 /// blocks inside the driver, where nothing can time it out.
 const SLOW_CALL: Duration = Duration::from_millis(50);
@@ -135,8 +136,6 @@ struct Submission {
     idr: bool,
     after_invalidation: bool,
     frame_cap_bytes: Option<u64>,
-    _capture: Option<GpuImage>,
-    _converted: Option<std::sync::Arc<windows::Win32::Graphics::Direct3D11::ID3D11Texture2D>>,
 }
 fn acknowledge_keyframe(
     idr: bool,
@@ -166,7 +165,6 @@ pub struct Encoder {
     _device: Device,
     _library: libloading::Library,
     index: i64,
-    gpu_convert: Option<gpu::Converter>,
     in_flight: std::collections::VecDeque<Submission>,
     backlog: AmfBacklog,
     /// A frame AMF never returned may have been a reference: the next frame
@@ -179,7 +177,8 @@ pub struct Encoder {
     pub(crate) luminance: [f32; 2],
     /// Successfully applied metadata and any pending retry/keyframe.
     hdr_metadata: metadata::State,
-    /// Conversion on a D3D12 compute queue, with AMF on D3D12.
+    /// Conversion on the D3D12 compute queue AMF encodes from. Always present; taken only in
+    /// Drop, between terminating the component and the context.
     compute: Option<Box<ComputeInput>>,
     last_query: Option<AMF_RESULT>,
     last_submit: Option<AMF_RESULT>,
@@ -216,23 +215,21 @@ impl Encoder {
         options: &butterpollo_core::config::Config,
         av1_alignment: i64,
     ) -> Result<Self> {
-        Self::create(config, device, options, av1_alignment, None)
+        Self::create(config, device, options, av1_alignment)
     }
-    /// An encoder for captured GPU images. With `compute`, the colours are
-    /// converted on that D3D12 compute queue and AMF encodes from D3D12, so
-    /// neither waits behind a game's work on the graphics engine.
+    /// An encoder for captured GPU images on `device`. The colours are converted on its D3D12
+    /// compute queue and AMF encodes from D3D12, so neither waits behind a game's work on the
+    /// graphics engine.
     pub fn new_gpu(
         config: &butterpollo_core::rtsp::Negotiated,
         device: Device,
         options: &butterpollo_core::config::Config,
-        compute: Option<std::sync::Arc<crate::compute::Compute>>,
     ) -> Result<Self> {
         Self::create(
             config,
             device,
             options,
             AMF_VIDEO_ENCODER_AV1_ALIGNMENT_MODE_ENUM_AMF_VIDEO_ENCODER_AV1_ALIGNMENT_MODE_NO_RESTRICTIONS as i64,
-            compute,
         )
     }
     fn create(
@@ -240,7 +237,6 @@ impl Encoder {
         device: Device,
         options: &butterpollo_core::config::Config,
         av1_alignment: i64,
-        compute: Option<std::sync::Arc<crate::compute::Compute>>,
     ) -> Result<Self> {
         let (encoder, fallback) = intra_refresh::initialize(|allow_hevc_intra_refresh| {
             Self::create_attempt(
@@ -248,7 +244,6 @@ impl Encoder {
                 device.clone(),
                 options,
                 av1_alignment,
-                compute.clone(),
                 allow_hevc_intra_refresh,
             )
         })?;
@@ -265,7 +260,6 @@ impl Encoder {
         device: Device,
         options: &butterpollo_core::config::Config,
         av1_alignment: i64,
-        compute: Option<std::sync::Arc<crate::compute::Compute>>,
         allow_hevc_intra_refresh: bool,
     ) -> Result<Self> {
         let mut effective_config = config.clone();
@@ -289,28 +283,6 @@ impl Encoder {
         if config.ten_bit() && config.codec == 0 {
             bail!("H.264 does not support HDR10");
         }
-        // Probe the actual planar target before choosing AMF's memory type.
-        // Unsupported NV12/P010 UAV stores otherwise fail every frame after
-        // AMF has already committed to D3D12.
-        let compute = compute.and_then(|compute| {
-            let (width, height) = config.coded_size();
-            let prepared = crate::compute::Converter::new(
-                compute, width, height, config.ten_bit(),
-            ).and_then(|mut converter| {
-                if config.chroma_packing != 0 {
-                    converter.pack_chroma()?;
-                }
-                converter.prepare_yuv()?;
-                Ok(converter)
-            });
-            match prepared {
-                Ok(converter) => Some(converter),
-                Err(error) => {
-                    tracing::warn!(error = %format!("{error:#}"), "D3D12 YUV conversion unavailable; using D3D11 conversion");
-                    None
-                }
-            }
-        });
         let display_config = config.clone();
         let mut coded_config = config.clone();
         if config.chroma_packing != 0 {
@@ -321,6 +293,22 @@ impl Encoder {
             coded_config.chroma_packing = 0;
         }
         let config = &coded_config;
+        // Prepare the planar target before AMF commits to a session: an unsupported NV12/P010
+        // UAV store is this encoder's error, not a per-frame failure.
+        let converter = crate::compute::Converter::new(
+            device.compute.clone(),
+            config.width,
+            config.height,
+            config.ten_bit(),
+        )
+        .and_then(|mut converter| {
+            if display_config.chroma_packing != 0 {
+                converter.pack_chroma()?;
+            }
+            converter.prepare_yuv()?;
+            Ok(converter)
+        })
+        .context("D3D12 YUV conversion unavailable")?;
         let limits = butterpollo_core::encoder_policy::amf_rate_control(options, config)?;
         let automatic_frame_cap =
             butterpollo_core::encoder_policy::amf_frame_cap_automatic(options);
@@ -356,18 +344,9 @@ impl Encoder {
             let mut component = ptr::null_mut();
             let mut d3d12 = None;
             let result = (|| -> Result<()> {
-                if let Some(compute) = &compute {
-                    let interface = gpu::D3d12Context::new(context)?;
-                    interface.init(&compute.compute().device)?;
-                    d3d12 = Some(interface);
-                } else {
-                    check(((*(*context).pVtbl).InitDX11.unwrap())(
-                        context,
-                        device.device.as_raw(),
-                        AMF_DX_VERSION_AMF_DX11_1,
-                    ))
-                    .context("AMF InitDX11")?;
-                }
+                let interface = gpu::D3d12Context::new(context)?;
+                interface.init(&device.compute.device)?;
+                d3d12 = Some(interface);
                 let name = match config.codec {
                     0 => "AMFVideoEncoderVCE_AVC",
                     1 => "AMFVideoEncoderHW_HEVC",
@@ -392,13 +371,18 @@ impl Encoder {
                 ((*(*context).pVtbl).Release.unwrap())(context);
                 return Err(e);
             }
-            let compute = match (d3d12, compute) {
-                (Some(interface), Some(converter)) => Some(Box::new(ComputeInput {
-                    converter,
-                    context: interface,
-                })),
-                _ => None,
+            let Some(interface) = d3d12 else {
+                // Released as above: recovery retries every 100 ms, and each
+                // leaked component would hold an encoder session.
+                ((*(*component).pVtbl).Release.unwrap())(component);
+                ((*(*context).pVtbl).Terminate.unwrap())(context);
+                ((*(*context).pVtbl).Release.unwrap())(context);
+                bail!("AMF D3D12 context missing after Init");
             };
+            let compute = Some(Box::new(ComputeInput {
+                converter,
+                context: interface,
+            }));
             let mut e = Self {
                 warnings: Default::default(),
                 component,
@@ -408,7 +392,6 @@ impl Encoder {
                 _device: device,
                 _library: library,
                 index: 0,
-                gpu_convert: None,
                 in_flight: std::collections::VecDeque::new(),
                 backlog: AmfBacklog::new(None),
                 recover: false,
@@ -987,35 +970,23 @@ impl Encoder {
                 settings.push(format!("{name}={value}"));
             }
         }
-        let gpu_priority = self
-            ._device
-            .device
-            .cast::<windows::Win32::Graphics::Dxgi::IDXGIDevice>()
-            // SAFETY: `device` is a live IDXGIDevice obtained by `cast` from this
-            // encoder's D3D11 device; the call only reads its priority.
-            .and_then(|device| unsafe { device.GetGPUThreadPriority() });
         tracing::info!(
             settings = %settings.join(" "),
             client_max_reference_frames = self.config.references,
-            input_memory = if self.compute.is_some() { "D3D12" } else { "D3D11/host" },
-            compute_priority = ?self.compute.as_ref().map(|input| input.converter.compute().priority),
-            d3d11_gpu_priority = ?gpu_priority,
+            input_memory = "D3D12",
+            compute_priority = self._device.compute.priority,
             "AMF encoder settings"
         );
     }
     pub fn device_removed(&self) -> Option<crate::device_loss::DeviceLost> {
-        crate::device_loss::DeviceLost::d3d11(&self._device.device).or_else(|| {
-            self.compute.as_ref().and_then(|input| {
-                crate::device_loss::DeviceLost::d3d12(&input.converter.compute().device)
-            })
-        })
+        crate::device_loss::DeviceLost::d3d12(&self._device.compute.device)
     }
     /// Snapshot only at failure/recreation, before dropping the driver state.
     pub fn log_stall(&self) {
         let oldest = self.in_flight.front();
-        // SAFETY: the D3D11 device is owned by this encoder and outlives the
+        // SAFETY: the D3D12 device is owned by this encoder and outlives the
         // call; GetDeviceRemovedReason only reads its state.
-        let removed = unsafe { self._device.device.GetDeviceRemovedReason() };
+        let removed = unsafe { self._device.compute.device.GetDeviceRemovedReason() };
         let result_name = |code| match code {
             Some(AMF_RESULT_AMF_OK) => "AMF_OK",
             Some(AMF_RESULT_AMF_REPEAT) => "AMF_REPEAT",
@@ -1036,7 +1007,7 @@ impl Encoder {
             oldest_pts = ?oldest.map(|s| s.pts),
             oldest_ms = ?oldest.map(|s| s.started.elapsed().as_millis()),
             next_pts = self.index,
-            d3d11_removed = ?removed,
+            d3d12_removed = ?removed,
             "AMF stall snapshot"
         );
         if let Some(input) = &self.compute {
@@ -1563,8 +1534,27 @@ impl Encoder {
         Ok(())
     }
     pub fn accepts_gpu_device(&self, image: &GpuImage) -> bool {
-        self._device.device.as_raw() == image.gpu.device.as_raw()
-            && (self.compute.is_none() || crate::compute::shareable(&image.texture))
+        self._device.same(&image.gpu)
+    }
+    /// `image` converted on the compute queue and wrapped as an AMF surface that waits for the
+    /// conversion's fence.
+    fn convert(&mut self, image: &GpuImage) -> Result<gpu::Surface> {
+        let input = self
+            .compute
+            .as_mut()
+            .context("the AMF encoder has no compute conversion")?;
+        input.converter.values = crate::compute::constants(
+            &self.config,
+            (image.width, image.height, image.pixel),
+            self.luminance,
+        );
+        let converted = timed("compute conversion", || input.converter.convert(image))?;
+        timed("conversion fence wait", || {
+            gpu::synchronize(&converted.texture, &converted.fence, converted.value)
+        })?;
+        timed("AMF surface wrap", || {
+            input.context.wrap(&converted.texture, &mut self.ownership)
+        })
     }
     fn wait_capacity(&mut self) -> Result<Vec<Encoded>> {
         // Only a full queue waits: a poll blocks for the query timeout while a
@@ -1613,48 +1603,10 @@ impl Encoder {
         let started = Instant::now();
         let mut output = self.wait_capacity()?;
         let idr = idr || self.hdr_metadata.needs_idr() || self.recover;
-        if self._device.device.as_raw() != image.gpu.device.as_raw() {
-            bail!("GPU frame and encoder must use the same D3D11 device");
+        if !self.accepts_gpu_device(image) {
+            bail!("GPU frame and encoder must use the same D3D12 device");
         }
-        let source = (image.width, image.height, image.pixel);
-        let (surface, converted) = if let Some(input) = self.compute.as_mut() {
-            let compute = input.converter.compute().clone();
-            let texture = timed("compute open", || compute.open(&image.texture))?;
-            input.converter.values =
-                crate::gpu_color::constants(&self.config, source, self.luminance);
-            let converted = timed("compute conversion", || {
-                input
-                    .converter
-                    .convert(&texture, crate::compute::format(image.pixel), image)
-            })?;
-            timed("conversion fence wait", || {
-                gpu::synchronize(&converted.texture, &converted.fence, converted.value)
-            })?;
-            let surface = timed("AMF surface wrap", || {
-                input.context.wrap(&converted.texture, &mut self.ownership)
-            })?;
-            (surface, None)
-        } else {
-            if self
-                .gpu_convert
-                .as_ref()
-                .is_none_or(|converter| converter.source != source)
-            {
-                self.gpu_convert = Some(gpu::Converter::new(&self._device, &self.config, source)?);
-            }
-            self.gpu_convert
-                .as_mut()
-                .unwrap()
-                .color
-                .set_luminance(self.luminance);
-            let (surface, texture) = timed("graphics conversion", || {
-                self.gpu_convert
-                    .as_mut()
-                    .unwrap()
-                    .convert(self.context, image, &mut self.ownership)
-            })?;
-            (surface, Some(texture))
-        };
+        let surface = self.convert(image)?;
         self.set_bitrate(bitrate)?;
         // SAFETY: surface owns a live AMF interface backed by this encoder's device;
         // conversion has synchronized the GPU writes and the boxed ownership observer
@@ -1697,8 +1649,8 @@ impl Encoder {
                 }
                 std::thread::yield_now();
             }
-            // Compute keeps the capture until conversion completes; graphics
-            // still retains it until the encoder returns its output.
+            // The conversion keeps the capture until it completes; the ownership
+            // observer keeps the converted texture until AMF lets it go.
             let accepted = Instant::now();
             self.last_accepted = Some(accepted);
             self.in_flight.push_back(Submission {
@@ -1709,8 +1661,6 @@ impl Encoder {
                 idr,
                 after_invalidation: plan.after_invalidation,
                 frame_cap_bytes: self.frame_cap.effective(),
-                _capture: self.compute.is_none().then(|| image.clone()),
-                _converted: converted,
             });
             self.backlog.submitted();
             self.references.accepted(self.index as u64 + 1, &plan);
@@ -1722,8 +1672,6 @@ impl Encoder {
 }
 impl Drop for Encoder {
     fn drop(&mut self) {
-        // Destroy the converter before its context and dynamically loaded runtime.
-        self.gpu_convert.take();
         // SAFETY: Self owns each non-null interface reference. Terminating the component
         // releases its inputs before compute/context cleanup; the device, runtime and
         // boxed surface observer remain alive through termination and each final Release.

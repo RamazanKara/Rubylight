@@ -13,8 +13,6 @@ fn missing_output_type_uses_the_matching_submission_after_buffering_or_recreatio
             idr: requested,
             after_invalidation: false,
             frame_cap_bytes: Some(100_000),
-            _capture: None,
-            _converted: None,
         };
         assert_eq!(output_is_idr(None, submission.idr), requested);
         // A real driver report remains authoritative over a requested type.
@@ -28,7 +26,7 @@ fn missing_output_type_uses_the_matching_submission_after_buffering_or_recreatio
 }
 
 #[test]
-#[ignore = "requires a live AMD D3D11 adapter and AMF runtime"]
+#[ignore = "requires a live AMD adapter with AMF on D3D12"]
 fn native_output_survives_a_late_poll_without_losing_submission_metadata() -> Result<()> {
     let _com = crate::capture::ComGuard::new()?;
     let device = Device::new("")?;
@@ -51,14 +49,7 @@ fn native_output_survives_a_late_poll_without_losing_submission_metadata() -> Re
         },
     )?;
     let mut encoder = Encoder::new_device(&config, device)?;
-    let mut converter = gpu::Converter::new(
-        &encoder._device,
-        &config,
-        (image.width, image.height, image.pixel),
-    )?;
-    let (surface, converted) =
-        converter.convert(encoder.context, &image, &mut encoder.ownership)?;
-    encoder.gpu_convert = Some(converter);
+    let surface = encoder.convert(&image)?;
     let (plan, idr) = encoder.prepare_surface(surface.0, true)?;
     // Submit without the convenience encode method's immediate poll. This
     // guarantees that QueryOutput must collect an accepted native picture,
@@ -81,8 +72,6 @@ fn native_output_survives_a_late_poll_without_losing_submission_metadata() -> Re
         idr,
         after_invalidation: plan.after_invalidation,
         frame_cap_bytes: encoder.frame_cap(),
-        _capture: Some(image),
-        _converted: Some(converted),
     });
     encoder.backlog.submitted();
     encoder.references.accepted(encoder.index as u64 + 1, &plan);
@@ -1032,183 +1021,178 @@ fn hdr10_metadata_and_range_reach_the_bitstream() -> Result<()> {
     let defaults = butterpollo_core::config::Config::default();
     for codec in [1u8, 2] {
         for full_range in [false, true] {
-            for compute in [false, true] {
-                for (references, metadata, options) in [
-                    (1, metadata, &defaults),
-                    (4, metadata, &defaults),
-                    (
-                        1,
-                        butterpollo_core::hdr::Metadata::display(1015., 0., 1015.),
-                        &options,
-                    ),
-                    (
-                        4,
-                        butterpollo_core::hdr::Metadata::display(1015., 0., 1015.),
-                        &options,
-                    ),
-                    (4, metadata, &options),
-                ] {
-                    let config = butterpollo_core::rtsp::Negotiated {
-                        width,
-                        height,
-                        codec,
-                        hdr: true,
-                        csc_mode: 4 | u8::from(full_range),
-                        fps: 120,
-                        bitrate_kbps: 80000,
-                        references,
-                        ..Default::default()
-                    };
-                    let queue = compute
-                        .then(|| crate::compute::Compute::for_device(&gpu.device))
-                        .transpose()?;
-                    let mut encoder = Encoder::new_gpu(&config, gpu.clone(), options, queue)?;
+            for (references, metadata, options) in [
+                (1, metadata, &defaults),
+                (4, metadata, &defaults),
+                (
+                    1,
+                    butterpollo_core::hdr::Metadata::display(1015., 0., 1015.),
+                    &options,
+                ),
+                (
+                    4,
+                    butterpollo_core::hdr::Metadata::display(1015., 0., 1015.),
+                    &options,
+                ),
+                (4, metadata, &options),
+            ] {
+                let config = butterpollo_core::rtsp::Negotiated {
+                    width,
+                    height,
+                    codec,
+                    hdr: true,
+                    csc_mode: 4 | u8::from(full_range),
+                    fps: 120,
+                    bitrate_kbps: 80000,
+                    references,
+                    ..Default::default()
+                };
+                let mut encoder = Encoder::new_gpu(&config, gpu.clone(), options)?;
+                assert_eq!(
+                    encoder.supports_invalidation(),
+                    // `references` sets the client's limit; whether LTR
+                    // recovery is enabled also depends on the options.
+                    butterpollo_core::encoder_policy::amf_ltr_frames(options, &config) > 0
+                );
+                let changes = [
+                    metadata,
+                    butterpollo_core::hdr::Metadata {
+                        maximum_nits: 600,
+                        max_cll: 0,
+                        max_fall: 0,
+                        ..metadata
+                    },
+                    butterpollo_core::hdr::Metadata {
+                        maximum_nits: 1400,
+                        max_cll: 1200,
+                        max_fall: 500,
+                        ..metadata
+                    },
+                ];
+                let mut output = vec![];
+                for frame in 0..12 {
+                    // Repeated refreshes must not keep inserting keyframes.
+                    encoder.set_hdr_metadata(changes[frame / 4]);
+                    output.extend(encoder.encode_gpu(
+                        &source,
+                        // Later keyframes must come from changed metadata,
+                        // even with no unrelated recovery/client request.
+                        frame == 0,
+                        config.bitrate_kbps,
+                    )?);
+                    // Drain before changing a component-wide metadata property.
+                    if frame % 4 != 3 {
+                        continue;
+                    }
+                    let deadline = Instant::now() + Duration::from_secs(3);
+                    while encoder.pending() {
+                        output.extend(encoder.poll()?);
+                        if Instant::now() >= deadline {
+                            bail!("HDR metadata probe output timed out");
+                        }
+                        std::thread::sleep(Duration::from_millis(1));
+                    }
+                }
+                assert_eq!(output.len(), 12);
+                for (frame, encoded) in output.iter().enumerate() {
                     assert_eq!(
-                        encoder.supports_invalidation(),
-                        // `references` sets the client's limit; whether LTR
-                        // recovery is enabled also depends on the options.
-                        butterpollo_core::encoder_policy::amf_ltr_frames(options, &config) > 0
+                        encoded.idr,
+                        frame % 4 == 0,
+                        "unexpected keyframe at {frame}"
                     );
-                    let changes = [
-                        metadata,
-                        butterpollo_core::hdr::Metadata {
-                            maximum_nits: 600,
-                            max_cll: 0,
-                            max_fall: 0,
-                            ..metadata
-                        },
-                        butterpollo_core::hdr::Metadata {
-                            maximum_nits: 1400,
-                            max_cll: 1200,
-                            max_fall: 500,
-                            ..metadata
-                        },
-                    ];
-                    let mut output = vec![];
-                    for frame in 0..12 {
-                        // Repeated refreshes must not keep inserting keyframes.
-                        encoder.set_hdr_metadata(changes[frame / 4]);
-                        output.extend(encoder.encode_gpu(
-                            &source,
-                            // Later keyframes must come from changed metadata,
-                            // even with no unrelated recovery/client request.
-                            frame == 0,
-                            config.bitrate_kbps,
-                        )?);
-                        // Drain before changing a component-wide metadata property.
-                        if frame % 4 != 3 {
-                            continue;
+                }
+                for frame in [0, 4, 8] {
+                    let metadata = changes[frame / 4];
+                    assert!(output[frame].idr);
+                    let name = format!(
+                        "codec{codec}-full{full_range}-refs{references}-cll{}-defaults{}-frame{frame}",
+                        metadata.max_cll,
+                        options.values.is_empty()
+                    );
+                    let bitstream = directory.path().join(format!("{name}.bin"));
+                    // Decode each IDR separately: a decoder retains earlier SEI.
+                    // Moonlight's decode-unit dump strips HEVC prefix SEI, so inspect
+                    // the encoder output before client depacketization.
+                    std::fs::write(&bitstream, &output[frame].bytes)?;
+                    let probed = Command::new(&ffprobe)
+                        .args([
+                            "-v",
+                            "error",
+                            "-f",
+                            if codec == 1 { "hevc" } else { "obu" },
+                            "-i",
+                        ])
+                        .arg(&bitstream)
+                        .args(["-show_frames", "-of", "json"])
+                        .creation_flags(0x08000000)
+                        .output()?;
+                    assert!(
+                        probed.status.success(),
+                        "{}",
+                        String::from_utf8_lossy(&probed.stderr)
+                    );
+                    let probed: serde_json::Value = serde_json::from_slice(&probed.stdout)?;
+                    assert_eq!(probed["frames"].as_array().map(Vec::len), Some(1), "{name}");
+                    let first = &probed["frames"][0];
+                    assert_eq!(first["key_frame"], 1, "{name}: {first}");
+                    assert_eq!(
+                        first["color_range"],
+                        if full_range { "pc" } else { "tv" },
+                        "{name}: {first}"
+                    );
+                    assert_eq!(first["color_transfer"], "smpte2084", "{name}: {first}");
+                    // The matrix is left to the driver to derive from the colour
+                    // profile; a client converting with BT.709 would shift colours.
+                    assert_eq!(first["color_primaries"], "bt2020", "{name}: {first}");
+                    assert_eq!(first["color_space"], "bt2020nc", "{name}: {first}");
+                    let side = first["side_data_list"]
+                        .as_array()
+                        .with_context(|| format!("{name}: no side data in {first}"))?;
+                    let mastering = side
+                        .iter()
+                        .find(|s| s["side_data_type"] == "Mastering display metadata")
+                        .with_context(|| format!("{name}: no mastering display metadata"))?;
+                    // Mastering peak and BT.2020 red (0.708) in each codec's units.
+                    let (luminance, minimum, red) = if codec == 1 {
+                        (
+                            format!("{}/10000", u32::from(metadata.maximum_nits) * 10000),
+                            format!("{}/10000", metadata.minimum),
+                            "35400/50000",
+                        )
+                    } else {
+                        (
+                            format!("{}/256", u32::from(metadata.maximum_nits) * 256),
+                            format!("{}/16384", u32::from(metadata.minimum) * 16384 / 10000),
+                            "46399/65536",
+                        )
+                    };
+                    assert_eq!(mastering["max_luminance"], luminance, "{name}: {mastering}");
+                    assert_eq!(mastering["min_luminance"], minimum, "{name}: {mastering}");
+                    assert_eq!(mastering["red_x"], red, "{name}: {mastering}");
+                    let light = side
+                        .iter()
+                        .find(|s| s["side_data_type"] == "Content light level metadata");
+                    if metadata.max_cll == 0 && frame == 0 {
+                        assert!(light.is_none(), "{name}: unexpected content light level");
+                    } else if metadata.max_cll == 0 {
+                        // After a known value, AMF keeps the SEI/OBU and writes
+                        // 0/0, which means unknown (CTA-861.3). Only a stale
+                        // non-zero level would be wrong.
+                        if let Some(light) = light {
+                            assert_eq!(
+                                light["max_content"], 0,
+                                "{name}: stale content light level"
+                            );
+                            assert_eq!(
+                                light["max_average"], 0,
+                                "{name}: stale content light level"
+                            );
                         }
-                        let deadline = Instant::now() + Duration::from_secs(3);
-                        while encoder.pending() {
-                            output.extend(encoder.poll()?);
-                            if Instant::now() >= deadline {
-                                bail!("HDR metadata probe output timed out");
-                            }
-                            std::thread::sleep(Duration::from_millis(1));
-                        }
-                    }
-                    assert_eq!(output.len(), 12);
-                    for (frame, encoded) in output.iter().enumerate() {
-                        assert_eq!(
-                            encoded.idr,
-                            frame % 4 == 0,
-                            "unexpected keyframe at {frame}"
-                        );
-                    }
-                    for frame in [0, 4, 8] {
-                        let metadata = changes[frame / 4];
-                        assert!(output[frame].idr);
-                        let name = format!(
-                            "codec{codec}-full{full_range}-compute{compute}-refs{references}-cll{}-defaults{}-frame{frame}",
-                            metadata.max_cll,
-                            options.values.is_empty()
-                        );
-                        let bitstream = directory.path().join(format!("{name}.bin"));
-                        // Decode each IDR separately: a decoder retains earlier SEI.
-                        // Moonlight's decode-unit dump strips HEVC prefix SEI, so inspect
-                        // the encoder output before client depacketization.
-                        std::fs::write(&bitstream, &output[frame].bytes)?;
-                        let probed = Command::new(&ffprobe)
-                            .args([
-                                "-v",
-                                "error",
-                                "-f",
-                                if codec == 1 { "hevc" } else { "obu" },
-                                "-i",
-                            ])
-                            .arg(&bitstream)
-                            .args(["-show_frames", "-of", "json"])
-                            .creation_flags(0x08000000)
-                            .output()?;
-                        assert!(
-                            probed.status.success(),
-                            "{}",
-                            String::from_utf8_lossy(&probed.stderr)
-                        );
-                        let probed: serde_json::Value = serde_json::from_slice(&probed.stdout)?;
-                        assert_eq!(probed["frames"].as_array().map(Vec::len), Some(1), "{name}");
-                        let first = &probed["frames"][0];
-                        assert_eq!(first["key_frame"], 1, "{name}: {first}");
-                        assert_eq!(
-                            first["color_range"],
-                            if full_range { "pc" } else { "tv" },
-                            "{name}: {first}"
-                        );
-                        assert_eq!(first["color_transfer"], "smpte2084", "{name}: {first}");
-                        // The matrix is left to the driver to derive from the colour
-                        // profile; a client converting with BT.709 would shift colours.
-                        assert_eq!(first["color_primaries"], "bt2020", "{name}: {first}");
-                        assert_eq!(first["color_space"], "bt2020nc", "{name}: {first}");
-                        let side = first["side_data_list"]
-                            .as_array()
-                            .with_context(|| format!("{name}: no side data in {first}"))?;
-                        let mastering = side
-                            .iter()
-                            .find(|s| s["side_data_type"] == "Mastering display metadata")
-                            .with_context(|| format!("{name}: no mastering display metadata"))?;
-                        // Mastering peak and BT.2020 red (0.708) in each codec's units.
-                        let (luminance, minimum, red) = if codec == 1 {
-                            (
-                                format!("{}/10000", u32::from(metadata.maximum_nits) * 10000),
-                                format!("{}/10000", metadata.minimum),
-                                "35400/50000",
-                            )
-                        } else {
-                            (
-                                format!("{}/256", u32::from(metadata.maximum_nits) * 256),
-                                format!("{}/16384", u32::from(metadata.minimum) * 16384 / 10000),
-                                "46399/65536",
-                            )
-                        };
-                        assert_eq!(mastering["max_luminance"], luminance, "{name}: {mastering}");
-                        assert_eq!(mastering["min_luminance"], minimum, "{name}: {mastering}");
-                        assert_eq!(mastering["red_x"], red, "{name}: {mastering}");
-                        let light = side
-                            .iter()
-                            .find(|s| s["side_data_type"] == "Content light level metadata");
-                        if metadata.max_cll == 0 && frame == 0 {
-                            assert!(light.is_none(), "{name}: unexpected content light level");
-                        } else if metadata.max_cll == 0 {
-                            // After a known value, AMF keeps the SEI/OBU and writes
-                            // 0/0, which means unknown (CTA-861.3). Only a stale
-                            // non-zero level would be wrong.
-                            if let Some(light) = light {
-                                assert_eq!(
-                                    light["max_content"], 0,
-                                    "{name}: stale content light level"
-                                );
-                                assert_eq!(
-                                    light["max_average"], 0,
-                                    "{name}: stale content light level"
-                                );
-                            }
-                        } else {
-                            let light =
-                                light.with_context(|| format!("{name}: no content light level"))?;
-                            assert_eq!(light["max_content"], metadata.max_cll, "{name}");
-                            assert_eq!(light["max_average"], metadata.max_fall, "{name}");
-                        }
+                    } else {
+                        let light =
+                            light.with_context(|| format!("{name}: no content light level"))?;
+                        assert_eq!(light["max_content"], metadata.max_cll, "{name}");
+                        assert_eq!(light["max_average"], metadata.max_fall, "{name}");
                     }
                 }
             }
@@ -1592,7 +1576,7 @@ fn native_h264_one_reference_budget_decodes_without_ltr_corruption() -> Result<(
 }
 
 #[test]
-#[ignore = "requires a live AMD D3D11 adapter and AMF runtime"]
+#[ignore = "requires a live AMD adapter with AMF on D3D12"]
 fn native_reference_recovery_decodes_after_dropping_the_invalidated_packets() -> Result<()> {
     let _com = crate::capture::ComGuard::new()?;
     let gpu = crate::capture::Device::new("")?;
@@ -1725,5 +1709,79 @@ fn native_reference_recovery_decodes_after_dropping_the_invalidated_packets() ->
         std::fs::write(path, serde_json::to_vec_pretty(&reports)?)?;
     }
     eprintln!("{}", serde_json::to_string(&reports)?);
+    Ok(())
+}
+
+/// Whether anything loads d3d11.dll into the host's process while the D3D12 encoders run.
+/// The host creates no D3D11 device; AMF or the GPU driver might load the module, and the
+/// result line reports it. Run it alone (`d3d11_dll_audit`): earlier tests in the same process
+/// may have loaded modules already.
+#[test]
+#[ignore = "requires AMD AMF on D3D12 and the pinned PyroWave DLL; run alone"]
+fn d3d11_dll_audit_around_the_d3d12_encoders() -> Result<()> {
+    let _com = crate::capture::ComGuard::new()?;
+    let loaded = crate::d3d11_audit::module_loaded;
+    let at_start = loaded();
+    let gpu = Device::new("")?;
+    let after_device = loaded();
+    let image = Image {
+        width: 640,
+        height: 480,
+        stride: 640 * 4,
+        bytes: vec![96; 640 * 480 * 4],
+        captured: Instant::now(),
+        pixel: crate::capture::Pixel::Bgra8,
+    };
+    let uploaded = GpuImage::upload(&gpu, &image)?;
+    let after_upload = loaded();
+    let mut after_amf = Vec::new();
+    for codec in 0..3 {
+        let config = butterpollo_core::rtsp::Negotiated {
+            width: 640,
+            height: 480,
+            codec,
+            ..Default::default()
+        };
+        let mut encoder = Encoder::new_gpu(&config, gpu.clone(), &Default::default())?;
+        let mut output = encoder.encode_gpu(&uploaded, true, config.bitrate_kbps)?;
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while output.is_empty() && Instant::now() < deadline {
+            output.extend(encoder.poll()?);
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        assert!(!output.is_empty(), "codec {codec} encoded nothing");
+        after_amf.push(loaded());
+    }
+    let after_pyrowave = if crate::pyrowave::available() {
+        let config = butterpollo_core::rtsp::Negotiated {
+            width: 640,
+            height: 480,
+            codec: 3,
+            packet_size: 1392,
+            fps: 60,
+            ..Default::default()
+        };
+        let mut encoder = crate::encoder::Encoder::new_gpu(&config, &uploaded)?;
+        encoder.encode_gpu(&uploaded, true, 100_000)?;
+        Some(loaded())
+    } else {
+        None
+    };
+    println!(
+        "D3D11_AUDIT {}",
+        serde_json::json!({
+            "adapter": gpu.display.adapter,
+            "devices_created": crate::d3d11_audit::devices_created(),
+            "d3d11_dll_loaded": {
+                "at_start": at_start,
+                "after_d3d12_device": after_device,
+                "after_upload": after_upload,
+                "after_amf_h264_hevc_av1": after_amf,
+                "after_pyrowave": after_pyrowave,
+            }
+        })
+    );
+    crate::d3d11_audit::report("native test");
+    assert_eq!(crate::d3d11_audit::devices_created(), 0);
     Ok(())
 }

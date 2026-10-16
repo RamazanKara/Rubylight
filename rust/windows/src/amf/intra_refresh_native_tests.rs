@@ -32,8 +32,7 @@ fn native_amf_recycled_surface_barriers_are_valid() -> Result<()> {
     }
     let _com = crate::capture::ComGuard::new()?;
     let device = Device::new("")?;
-    let compute = crate::compute::Compute::for_device(&device.device)?;
-    let info: ID3D12InfoQueue = compute.device.cast()?;
+    let info: ID3D12InfoQueue = device.compute.device.cast()?;
     let mut reports = Vec::new();
     for (hdr, codec) in [(false, 1), (true, 1), (false, 2), (true, 2)] {
         let picture = picture(&device, hdr, 0)?;
@@ -54,7 +53,6 @@ fn native_amf_recycled_surface_barriers_are_valid() -> Result<()> {
             &config,
             device.clone(),
             &Default::default(),
-            Some(compute.clone()),
         )?;
         anyhow::ensure!(encoder.compute.is_some(), "requires D3D12 AMF");
         let format = if codec == 1 { "hevc" } else { "av1" };
@@ -192,8 +190,6 @@ fn picture(device: &Device, hdr: bool, phase: usize) -> Result<GpuImage> {
             },
         },
     )?;
-    // Finish the initial D3D11 upload before a D3D12 queue reads it.
-    image.readback(&mut None)?;
     Ok(image)
 }
 
@@ -273,7 +269,6 @@ fn native_hevc_intra_refresh_decodes_across_gops_and_forced_recovery() -> Result
     };
     let _com = crate::capture::ComGuard::new()?;
     let device = Device::new("")?;
-    let compute = crate::compute::Compute::for_device(&device.device)?;
     let timer = crate::timing::Timer::new()?;
     let mut reports = Vec::new();
     for hdr in [false, true] {
@@ -298,7 +293,6 @@ fn native_hevc_intra_refresh_decodes_across_gops_and_forced_recovery() -> Result
             &config,
             device.clone(),
             &Default::default(),
-            Some(compute.clone()),
         )?;
         anyhow::ensure!(
             encoder.compute.is_some(),

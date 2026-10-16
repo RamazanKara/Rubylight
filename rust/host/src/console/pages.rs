@@ -233,6 +233,7 @@ async fn overview(
         match text(&meta["capture_status"], "configured_backend") {
             "wgc" => "Windows Graphics Capture",
             "dxgi" | "ddx" => "Desktop Duplication",
+            "idd-push" => "Direct driver push",
             "auto" | "" => "Automatic",
             _ => "Configured capture method",
         }
@@ -594,6 +595,7 @@ async fn settings(
         "<p class=\"intro\">Choose the capture, encoder, display, and sound for your stream.</p>"
             .to_owned();
     content += "<p class=\"muted\">Automatic chooses an encoder when the stream starts: AMF on AMD GPUs or NVENC on NVIDIA GPUs. If that encoder cannot start, it uses another hardware encoder when one works and shows a warning on the stream card; it never falls back to software. Software encoding requires selecting Software explicitly. Encoder settings below apply only when that encoder is used. The stream card and log show the encoder actually used.</p>";
+    content += "<p class=\"muted\">For screen capture, Automatic uses direct driver push on Rubylight virtual displays and Windows Graphics Capture on other displays. Select Windows Graphics Capture or Desktop Duplication to use those methods instead. If driver push is unavailable, capture falls back to Windows Graphics Capture.</p>";
     let editor = field(
         "sunshine_name",
         "Host name",
@@ -619,7 +621,8 @@ async fn settings(
         "Screen capture",
         &value("capture", "auto"),
         &[
-            ("auto", "Automatic (prefer Windows Graphics Capture)"),
+            ("auto", "Automatic"),
+            ("idd-push", "Direct driver push"),
             ("wgc", "Windows Graphics Capture"),
             ("dxgi", "Desktop Duplication"),
         ],

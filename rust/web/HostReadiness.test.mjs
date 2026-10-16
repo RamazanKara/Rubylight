@@ -44,6 +44,14 @@ test('host readiness escapes driver errors', () => {
   assert.doesNotMatch(result, /<script>alert/);
 });
 
+test('host readiness names driver push and explains its display scope without claiming it is active', () => {
+  const capture_status = { ...metadata.capture_status, configured_backend: 'idd-push' };
+  const result = html({ capture_status });
+  assert.match(result, /Prefers Direct driver push on Rubylight virtual displays/);
+  assert.match(result, /Windows capture as fallback/);
+  assert.doesNotMatch(result, /Uses the configured capture method/);
+});
+
 test('host readiness writes notes in the text face and opens them only for problems', () => {
   const reason = 'Only the Rubylight service may open the virtual display driver.';
   const healthy = { warnings: [], encoder_status: { ...metadata.encoder_status, state: 'ready', h264: true } };

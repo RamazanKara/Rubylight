@@ -31,6 +31,7 @@
   const plural = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`;
 
   const CAPTURE: Record<string, string> = {
+    'idd-push': 'Direct driver push',
     wgc: 'Windows Graphics Capture',
     dxgi: 'Desktop Duplication',
     ddx: 'Desktop Duplication',
@@ -135,8 +136,11 @@
     const base = { title: 'Screen capture', href: '/settings/video', settings: 'Video settings' };
     const status = meta.capture_status;
     const backend = status.configured_backend || 'auto';
-    const method =
-      backend === 'auto' ? 'Picks the capture method automatically.' : `Uses ${CAPTURE[backend] ?? 'the configured capture method'}.`;
+    const method = backend === 'auto'
+      ? 'Uses direct driver push on Rubylight virtual displays and Windows Graphics Capture on other displays.'
+      : backend === 'idd-push'
+        ? `Prefers ${CAPTURE[backend]} on Rubylight virtual displays, with Windows capture as fallback.`
+        : `Uses ${CAPTURE[backend] ?? 'the configured capture method'}.`;
     if (status.error) {
       return { ...base, tone: 'danger', state: 'Error', text: `${method} Displays can't be read.`, detail: status.error };
     }

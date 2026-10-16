@@ -70,6 +70,39 @@ async function save(page) {
   await response;
 }
 
+test('direct driver push can be selected, saved, reloaded and reset to Automatic', async t => {
+  const { page, writes } = await fixture(t);
+  await page.goto(base + '/settings/video');
+  const row = setting(page, 'capture');
+  const control = row.getByRole('combobox');
+  assert.equal(await control.inputValue(), 'auto');
+  await control.selectOption({ label: 'Direct driver push' });
+  await row.locator('summary').click();
+  assert.match(await row.innerText(), /Rubylight's own virtual display driver/);
+  assert.match(await row.innerText(), /falls back to Windows Graphics Capture, then Desktop Duplication/);
+  await save(page);
+  assert.deepEqual(writes, [{ capture: 'idd-push' }]);
+  await page.reload();
+  await row.waitFor();
+  assert.equal(await control.inputValue(), 'idd-push');
+  assert.doesNotMatch(await row.innerText(), /Saved custom choice/);
+  assert.equal(await page.getByRole('button', { name: 'Save changes', exact: true }).count(), 0);
+  await row.locator('summary').click();
+  if (process.env.BUTTERPOLLO_TEST_ARTIFACTS) {
+    await page.screenshot({ path: path.join(process.env.BUTTERPOLLO_TEST_ARTIFACTS, 'capture-option-desktop.png') });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await row.scrollIntoViewIfNeeded();
+    assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+    await page.screenshot({ path: path.join(process.env.BUTTERPOLLO_TEST_ARTIFACTS, 'capture-option-mobile.png') });
+  }
+  await row.getByRole('button', { name: 'Reset to default for Capture method', exact: true }).click();
+  await save(page);
+  assert.deepEqual(writes, [{ capture: 'idd-push' }, { capture: null }]);
+  await page.reload();
+  await row.waitFor();
+  assert.equal(await control.inputValue(), 'auto');
+});
+
 test('numeric errors block saves, survive categories, and can be corrected without losing focus', async t => {
   const { page, writes } = await fixture(t);
   await page.goto(base + '/settings/network');

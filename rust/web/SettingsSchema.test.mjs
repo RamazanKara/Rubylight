@@ -139,6 +139,19 @@ test('every alias names one of its setting\'s options', () => {
   }
 });
 
+test('capture-specific controls follow the selected method and remain available for Automatic', () => {
+  const predictive = settings.get('capture_predictive_poll');
+  const aligned = settings.get('wgc_slot_aligned_publish');
+  for (const [capture, polling, alignment] of [
+    ['auto', true, true], ['idd-push', false, false],
+    ['wgc', false, true], ['wgcc', false, true],
+    ['ddx', true, false], ['dxgi', true, false],
+  ]) {
+    assert.equal(predictive.visibleWhen({ capture }), polling, capture);
+    assert.equal(aligned.visibleWhen({ capture }), alignment, capture);
+  }
+});
+
 test('a saved alias is written back only when the edit means something else', () => {
   const vbaq = settings.get('amd_vbaq');
   // Choosing the option the alias already means sends nothing.

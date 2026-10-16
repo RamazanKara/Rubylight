@@ -78,13 +78,16 @@ const video: Setting[] = [
     key: 'capture',
     label: 'Capture method',
     description:
-      'Automatic prefers Windows Graphics Capture and falls back to Desktop Duplication if it cannot start. Choose a specific method only to troubleshoot a capture problem.',
+      'Automatic uses direct driver push on Rubylight virtual displays and Windows Graphics Capture on other displays.',
+    details:
+      'Direct driver push receives frames from Rubylight\'s own virtual display driver. If unavailable, it falls back to Windows Graphics Capture, then Desktop Duplication if needed. Choosing Windows Graphics Capture or Desktop Duplication bypasses driver push.',
     category: 'video',
     group: 'Capture',
     control: {
       kind: 'select',
       options: [
         { value: 'auto', label: 'Automatic' },
+        { value: 'idd-push', label: 'Direct driver push' },
         { value: 'ddx', label: 'Desktop Duplication' },
         { value: 'wgc', label: 'Windows Graphics Capture' },
       ],
@@ -114,8 +117,8 @@ const video: Setting[] = [
     group: 'Capture',
     control: { kind: 'toggle' },
     default: false,
-    inactiveHint: "Applies to Desktop Duplication, including fallback from Automatic. Explicit Windows Graphics Capture ignores it.",
-    visibleWhen: (values) => !['wgc', 'wgcc'].includes(capture(values)),
+    inactiveHint: "Applies to Desktop Duplication, including fallback. Direct driver push and Windows Graphics Capture ignore it.",
+    visibleWhen: (values) => !['wgc', 'wgcc', 'idd-push'].includes(capture(values)),
     advanced: true,
   },
   {
@@ -128,8 +131,8 @@ const video: Setting[] = [
     group: 'Capture',
     control: { kind: 'toggle' },
     default: false,
-    inactiveHint: "Choose Automatic or Windows Graphics Capture to use this setting. Desktop Duplication and VRR streams ignore it.",
-    visibleWhen: (values) => !['ddx', 'dxgi'].includes(capture(values)),
+    inactiveHint: "Only affects Windows Graphics Capture, including fallback. Direct driver push, Desktop Duplication and VRR streams ignore it.",
+    visibleWhen: (values) => !['ddx', 'dxgi', 'idd-push'].includes(capture(values)),
     advanced: true,
   },
   {
@@ -150,7 +153,7 @@ const video: Setting[] = [
     description:
       'On supported AMD GPUs, copies captured frames and converts their colors on compute queues beside a game. Turn off to compare or troubleshoot.',
     details:
-      'Covers frames from both Desktop Duplication and Windows Graphics Capture. Unsupported capture textures fall back to the graphics queue.',
+      'Covers direct driver push, Desktop Duplication and Windows Graphics Capture. Unsupported capture textures fall back to the graphics queue.',
     category: 'video',
     group: 'Capture',
     control: { kind: 'toggle' },

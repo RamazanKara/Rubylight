@@ -5,3 +5,4 @@ In den PC-Einstellungen lässt sich das PyroWave-Frame-Pacing auf Vibeshine-Host
 Bitrate geht bis 2000 Mbit/s, in den Einstellungen und während des Streams; der Host wendet weiterhin seine eigene Obergrenze an.
 PyroWave warnt, wenn die Bitrate unter dem Minimum für Auflösung und Bildrate liegt.
 Automatische Updatesuche mit Update in der App bei Installation über GitHub (Einstellungen > App).
+Galaxy Z Fold: Streams füllen Außen- und Innendisplay bis zum Rand samt Kameraaussparung, auch nach dem Aufklappen beim Verbinden.

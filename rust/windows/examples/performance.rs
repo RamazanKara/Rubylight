@@ -131,7 +131,7 @@ Repeat-frame throughput excludes capture, network, decoding and display latency.
                 let device = butterpollo_windows::capture::Device::new(&option("--display", ""))?;
                 // As a stream's capture device is configured.
                 if fields.contains_key("--priority") {
-                    butterpollo_windows::gpu_priority::configure(&device, &tuning)?;
+                    butterpollo_windows::gpu_priority::configure(&tuning)?;
                 }
                 (0..count)
                     .map(|frame| {
@@ -158,7 +158,7 @@ Repeat-frame throughput excludes capture, network, decoding and display latency.
         .transpose()?;
     let mut capture = display
         .as_ref()
-        .map(|display| Capture::open(&display.name, config.hdr, &tuning, Default::default()))
+        .map(|display| Capture::open(&display.name, config.hdr, &tuning))
         .transpose()?;
     let capture_backend = capture.as_ref().map_or("synthetic", |c| c.backend());
     let timeout = Instant::now() + Duration::from_secs(10);

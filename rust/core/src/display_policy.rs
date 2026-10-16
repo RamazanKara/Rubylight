@@ -566,6 +566,38 @@ pub fn switched_back_on(before: &[Node], applied: &[Node], active: &[String]) ->
         .collect()
 }
 
+/// The layout the user left a stream's virtual display in, when it differs from
+/// `planned`, for the device to keep (issue #33: Windows' "Show only on 2"
+/// during an extended stream was back to extended at the next connection).
+/// `active` lists the displays on now and whether each is primary. Only the
+/// stream's display on is `exclusive`; with others on it is `extended`, or
+/// `extended_primary` when it is the primary. A planned `exclusive` is left
+/// alone: the stream puts that layout back itself when Windows switches a
+/// display on, so a different one at the end came from Windows or a game, not
+/// the user. Isolated layouts, which Windows' own choices cannot express, and a
+/// stream display that is off are never learned.
+pub fn chosen_layout(
+    planned: &str,
+    stream_display: &str,
+    active: &[(String, bool)],
+) -> Option<&'static str> {
+    if !matches!(planned, "extended" | "extended_primary") {
+        return None;
+    }
+    let primary = active
+        .iter()
+        .find(|(name, _)| name.eq_ignore_ascii_case(stream_display))
+        .map(|(_, primary)| *primary)?;
+    let chosen = if active.len() == 1 {
+        "exclusive"
+    } else if primary {
+        "extended_primary"
+    } else {
+        "extended"
+    };
+    (chosen != planned).then_some(chosen)
+}
+
 /// When the heartbeat checks [`switched_back_on`] and puts the stream's layout
 /// back. A display must stay on for [`LayoutWatch::SETTLE`] first, so a game's
 /// own mode switch passes without a fight; a failed attempt (the secure
@@ -607,6 +639,60 @@ impl LayoutWatch {
 }
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_layout_chosen_during_the_stream_is_kept_for_the_device() {
+        use super::chosen_layout;
+        let on = |list: &[(&str, bool)]| -> Vec<(String, bool)> {
+            list.iter().map(|(n, p)| (n.to_string(), *p)).collect()
+        };
+        let vd = r"\\.\DISPLAY9";
+        // Issue #33: extended, then Windows' "Show only on 2".
+        assert_eq!(
+            chosen_layout("extended", vd, &on(&[(vd, true)])),
+            Some("exclusive")
+        );
+        // Made the main display while extended.
+        assert_eq!(
+            chosen_layout("extended", vd, &on(&[(vd, true), (r"\\.\DISPLAY1", false)])),
+            Some("extended_primary")
+        );
+        assert_eq!(
+            chosen_layout(
+                "extended_primary",
+                vd,
+                &on(&[(vd, false), (r"\\.\DISPLAY1", true)])
+            ),
+            Some("extended")
+        );
+        // Unchanged, the stream's display off ("Show only on 1"), an exclusive
+        // stream (kept by the host itself) and isolated layouts learn nothing.
+        assert_eq!(
+            chosen_layout("extended", vd, &on(&[(vd, false), (r"\\.\DISPLAY1", true)])),
+            None
+        );
+        assert_eq!(
+            chosen_layout("extended", vd, &on(&[(r"\\.\DISPLAY1", true)])),
+            None
+        );
+        assert_eq!(
+            chosen_layout(
+                "exclusive",
+                vd,
+                &on(&[(vd, false), (r"\\.\DISPLAY1", true)])
+            ),
+            None
+        );
+        assert_eq!(
+            chosen_layout("extended_isolated", vd, &on(&[(vd, true)])),
+            None
+        );
+        // Windows names displays in either case.
+        assert_eq!(
+            chosen_layout("extended", r"\\.\display9", &on(&[(vd, true)])),
+            Some("exclusive")
+        );
+    }
+
     #[test]
     fn virtual_opt_in_preserves_host_policy_and_device_force_overrides_physical_output() {
         use super::VirtualDisplayRequest;

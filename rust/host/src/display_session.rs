@@ -423,6 +423,10 @@ pub struct Prepared {
     mode: (u32, u32, u32, bool, bool),
     client_display: Option<HostDisplay>,
     virtual_layout: Option<String>,
+    /// The device whose stream this is, when it keeps a layout the user chose
+    /// during the stream: a stream on its own virtual display whose client did
+    /// not choose the layout itself.
+    layout_owner: Option<String>,
     revision: u64,
     recovery: Recovery,
     layout_watch: butterpollo_core::display_policy::LayoutWatch,
@@ -1036,6 +1040,10 @@ impl Prepared {
                 _vulkan: vulkan,
                 _golden: golden,
                 mode: stream_mode(stream),
+                layout_owner: (launch.role == Role::Stream
+                    && virtual_mode
+                    && client_display.is_none())
+                .then(|| launch.client.uuid.clone()),
                 client_display,
                 virtual_layout: virtual_layout.then(|| selection.to_owned()),
                 revision,
@@ -1051,8 +1059,48 @@ impl Prepared {
         ))
     }
 }
+impl Prepared {
+    /// Keep the layout the user chose for the stream's display (Windows' "Show
+    /// only on 2", say) as the device's own, before the layout is restored.
+    fn keep_chosen_layout(&self) {
+        let (Some(uuid), Some(planned)) = (&self.layout_owner, &self.virtual_layout) else {
+            return;
+        };
+        let Some(h) = self.host.upgrade() else {
+            return;
+        };
+        let active = match butterpollo_windows::display::monitors() {
+            Ok(monitors) => monitors
+                .into_iter()
+                .map(|m| (m.display_name, m.primary))
+                .collect::<Vec<_>>(),
+            Err(error) => {
+                tracing::debug!(%error, "the layout at the end of the stream could not be read");
+                return;
+            }
+        };
+        let Some(chosen) =
+            butterpollo_core::display_policy::chosen_layout(planned, &self.output, &active)
+        else {
+            return;
+        };
+        let mut paired = h.paired.write().unwrap();
+        let Some(client) = paired.clients.iter_mut().find(|c| c.uuid == *uuid) else {
+            return;
+        };
+        tracing::info!(client = %client.name, planned = %planned, chosen, "keeping the display layout chosen during the stream for this device");
+        client
+            .extra
+            .insert("virtual_display_layout".into(), serde_json::json!(chosen));
+        if let Err(error) = paired.save(&h.paired_path) {
+            tracing::warn!(%error, "the device's display layout could not be saved");
+        }
+    }
+}
+
 impl Drop for Prepared {
     fn drop(&mut self) {
+        self.keep_chosen_layout();
         // A stream ending while Windows is locked restores the layout too.
         butterpollo_windows::input::on_input_desktop(|| {
             self._profile.take();
@@ -1350,6 +1398,7 @@ mod tests {
             mode: stream_mode(&Negotiated::default()),
             client_display: None,
             virtual_layout: Some("extended".into()),
+            layout_owner: None,
             revision: 0,
             recovery: Recovery::new(),
             layout_watch: Default::default(),
@@ -1640,6 +1689,7 @@ mod tests {
             mode: stream_mode(&launched),
             client_display: None,
             virtual_layout: None,
+            layout_owner: None,
             revision: 0,
             recovery: Recovery::new(),
             layout_watch: Default::default(),

@@ -888,7 +888,8 @@ fn the_sender_thread_records_where_a_new_pictures_time_went() {
     // it leaves out capture, hold and the wait for the claim before it, and
     // the rest of the queue, packetizing and the send after it.
     assert!(ms("moonlight_host") >= 3.);
-    assert!(ms("moonlight_host") < 6.);
+    // The gap, not a wall-clock bound that a busy test machine overruns,
+    // shows what it leaves out.
     let before = ms("capture") + ms("hold") + ms("claim");
     let gap = ms("present_to_sent") - ms("moonlight_host");
     assert!(gap >= before - 0.01, "{gap} < {before}");

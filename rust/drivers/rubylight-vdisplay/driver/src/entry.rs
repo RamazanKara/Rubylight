@@ -126,6 +126,8 @@ extern "C" fn driver_add(_driver: WDFDRIVER, mut init: PWDFDEVICE_INIT) -> NTSTA
         return status;
     }
 
+    log_framework();
+
     // The watchdog timer exists before the interface does, so no IOCTL beats it.
     let status = crate::watchdog::create(device);
     if !nt_success(status) {
@@ -152,4 +154,33 @@ extern "C" fn driver_add(_driver: WDFDRIVER, mut init: PWDFDEVICE_INIT) -> NTSTA
     };
     dbglog!("[rlvd] WdfDeviceCreateDeviceInterface -> {status:#x}");
     status
+}
+
+/// Log the IddCx framework version and whether the OS reports D3D12 swap chains (IddCx 1.11's
+/// `IddCxCheckOsFeatureSupport`, which must run before any adapter exists: the adapter comes
+/// with the first D0 entry, after this).
+fn log_framework() {
+    let mut version = iddcx::IDARG_OUT_GETVERSION::default();
+    // SAFETY: IddCx loaded the driver; `version` is a valid out block.
+    let status = unsafe { wdk_iddcx::IddCxGetVersion(&mut version) };
+    // SAFETY: as above.
+    let count = unsafe { wdk_iddcx::function_count() };
+    // SAFETY: as above, and no adapter exists yet.
+    let d3d12 = match unsafe { wdk_iddcx::check_os_feature_support() } {
+        None => "unknown: the framework has no IddCxCheckOsFeatureSupport (IddCx 1.11)".into(),
+        Some((st, _)) if !nt_success(st) => {
+            format!("unknown: IddCxCheckOsFeatureSupport -> {st:#x}")
+        }
+        Some((_, out)) => {
+            if out.features_1_11 & wdk_iddcx::FEATURES_1_11_D3D12 != 0 {
+                "reported".into()
+            } else {
+                "not reported".into()
+            }
+        }
+    };
+    dbglog!(
+        "[rlvd] IddCx framework version {:#x} (IddCxGetVersion -> {status:#x}, {count} DDIs);          D3D12 swap chain: {d3d12}",
+        version.IddCxVersion
+    );
 }

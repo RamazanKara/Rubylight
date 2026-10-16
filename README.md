@@ -9,7 +9,7 @@
 
 <div align="center">
 
-**[Download 2.4.5](https://github.com/RamazanKara/Rubylight/releases/tag/v2.4.5)** · **[Get started](docs/getting-started.md)** · [Website](https://ramazankara.github.io/Rubylight/) · [Docs](docs/README.md) · [Nightjar for Android](https://github.com/RamazanKara/nightjar)
+**[Download 2.4.6](https://github.com/RamazanKara/Rubylight/releases/tag/v2.4.6)** · **[Get started](docs/getting-started.md)** · [Website](https://ramazankara.github.io/Rubylight/) · [Docs](docs/README.md) · [Nightjar for Android](https://github.com/RamazanKara/nightjar)
 
 <sub>Windows x64 · Free and open source · Formerly Butterpollo</sub>
 
@@ -40,7 +40,7 @@ Rubylight is not here to win a big userbase. There is no growth plan and no camp
 
 ## Install. Pair. Play.
 
-1. **Install on your PC.** Run **`rubylight-setup-2.4.5.exe`** from the [release](https://github.com/RamazanKara/Rubylight/releases/tag/v2.4.5). It also installs Rubylight's own virtual display driver, which gives every device a screen of its own: no test mode and no restart. Until releases are code-signed, setup signs the driver on your PC with a key it deletes at once; Smart App Control, S mode and App Control policies refuse such a driver, and then streams use your monitor.
+1. **Install on your PC.** Run **`rubylight-setup-2.4.6.exe`** from the [release](https://github.com/RamazanKara/Rubylight/releases/tag/v2.4.6). It also installs Rubylight's own virtual display driver, which gives every device a screen of its own: no test mode and no restart. Until releases are code-signed, setup signs the driver on your PC with a key it deletes at once; Smart App Control, S mode and App Control policies refuse such a driver, and then streams use your monitor.
 2. **Open your console.** Visit **`https://localhost:47990`** on the host PC and create your local account. Setup trusts the console's own certificate, so the browser opens it without a security warning.
 3. **Pair and play.** Open Moonlight on a device on the same network, select your PC, enter its PIN in Rubylight's **Devices** page, then launch **Desktop**.
 

@@ -507,7 +507,7 @@ const audio: Setting[] = [
     label: 'Use the device microphone',
     description:
       'Let a streaming device that sends its microphone talk through the PC. Only clients with microphone support send one.',
-    details: 'Games and chat apps hear it on Microphone (Steam Streaming Microphone).',
+    details: 'While forwarding, Steam Streaming Microphone becomes the Windows default input. Your previous microphones return when forwarding stops. Apps with a fixed input must select Default or Steam Streaming Microphone.',
     category: 'audio',
     group: 'Microphone',
     control: { kind: 'toggle' },

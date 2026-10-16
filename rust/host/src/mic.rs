@@ -40,6 +40,7 @@ const HANDOVER: Duration = Duration::from_secs(1);
 /// Wait before opening Steam Streaming Microphone again after a failure.
 const RETRY: Duration = Duration::from_secs(5);
 const WARNING: &str = "microphone";
+const ROUTING_WARNING: &str = "microphone_default";
 
 pub fn spawn(h: Shared, socket: UdpSocket) -> Result<Arc<Counters>> {
     // The shared UDP factory is nonblocking, which bypasses the receive timeout.
@@ -306,14 +307,24 @@ impl Output {
             return;
         }
         let config = h.config.read().unwrap().clone();
+        let directory = h.directory.clone();
+        let warnings = session.launch.warnings.clone();
         let stop = Arc::new(AtomicBool::new(false));
         let playout = playout.clone();
         let thread_stop = stop.clone();
         let opened = self.opened.clone();
         match thread::Builder::new()
             .name("microphone render".into())
-            .spawn(move || render(&config, &playout, &thread_stop, &opened))
-        {
+            .spawn(move || {
+                render(
+                    &config,
+                    &directory,
+                    &playout,
+                    &thread_stop,
+                    &opened,
+                    &warnings,
+                )
+            }) {
             Ok(thread) => self.thread = Some((stop, thread)),
             Err(error) => {
                 tracing::warn!(%error, "microphone render thread could not start");
@@ -327,6 +338,7 @@ impl Output {
             Self::report(session, thread.join());
         }
         self.retry = None;
+        session.launch.warnings.clear(ROUTING_WARNING);
     }
     fn report(session: &Arc<Session>, result: thread::Result<Result<()>>) {
         let error = match result {
@@ -344,13 +356,26 @@ impl Output {
 
 fn render(
     config: &Config,
+    directory: &std::path::Path,
     playout: &Mutex<Playout>,
     stop: &AtomicBool,
     opened: &AtomicBool,
+    warnings: &butterpollo_core::session::Warnings,
 ) -> Result<()> {
     let _com = ComGuard::new()?;
     let _priority = Priority::input();
     let mut render = Render::open(&endpoint(config)?)?;
+    let _route = match audio_route::MicrophoneRoute::acquire(directory) {
+        Ok(route) => {
+            warnings.clear(ROUTING_WARNING);
+            Some(route)
+        }
+        Err(error) => {
+            tracing::warn!(%error, "client microphone could not become the default; forwarding continues");
+            warnings.set(ROUTING_WARNING, format!("Microphone is forwarding, but Windows could not select it automatically ({error:#}). Select Microphone (Steam Streaming Microphone) in your app."));
+            None
+        }
+    };
     opened.store(true, Ordering::Release);
     while !stop.load(Ordering::Acquire) {
         render.wait(Duration::from_millis(50));

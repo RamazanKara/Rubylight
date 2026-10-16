@@ -330,6 +330,9 @@ fn restore(directory: &Path) -> Result<()> {
         (eRender, "playback", &journal.before),
         (eCapture, "recording", &journal.capture_before),
     ] {
+        if flow == eCapture && microphone_owns_recording(directory) {
+            continue;
+        }
         let current = match defaults_for(flow) {
             Ok(current) => current,
             Err(error) => {
@@ -484,6 +487,136 @@ pub fn steam_microphone(endpoints: &[Endpoint]) -> Option<&Endpoint> {
         })
     })
 }
+
+// Serialize microphone changes with playback routing and driver installation.
+// The flag is only read/written while ACTIVE is locked. The separate journal
+// outlives the playback route and is restored even if playback ends first.
+static MICROPHONE_ACTIVE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+fn microphone_path(directory: &Path) -> PathBuf {
+    directory.join("microphone-recovery.json")
+}
+fn microphone_pending(
+    directory: &Path,
+) -> Result<Option<butterpollo_core::audio_defaults::MicrophoneDefaults>> {
+    match std::fs::read(microphone_path(directory)) {
+        Ok(bytes) => Ok(serde_json::from_slice(&bytes)?),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error.into()),
+    }
+}
+fn microphone_owns_recording(directory: &Path) -> bool {
+    MICROPHONE_ACTIVE.load(std::sync::atomic::Ordering::Relaxed)
+        || microphone_pending(directory)
+            .map(|pending| pending.is_some())
+            .unwrap_or(true)
+}
+fn restore_microphone(directory: &Path) -> Result<()> {
+    use butterpollo_core::audio_defaults::MicrophoneDefaults;
+    let Some(journal) = microphone_pending(directory)? else {
+        return Ok(());
+    };
+    let policy = Policy::new()?;
+    let current = defaults_for(eCapture)?;
+    let mut failed = None;
+    for (index, target) in journal.restore(&current) {
+        match policy.set_default(&target, ROLES[index]) {
+            Ok(()) => {
+                tracing::info!(role = butterpollo_core::audio_defaults::ROLE_NAMES[index], device = %target, "microphone default restored")
+            }
+            Err(error) => {
+                failed.get_or_insert(error);
+            }
+        }
+    }
+    // Keep the original journal on any failure. Successful roles no longer
+    // point to our endpoint and are therefore left alone on the next retry.
+    if let Some(error) = failed {
+        return Err(error.context("restoring the previous microphone"));
+    }
+    butterpollo_core::state::write_json(
+        &microphone_path(directory),
+        &Option::<MicrophoneDefaults>::None,
+    )
+}
+
+/// Temporary defaults for a successfully opened client microphone renderer.
+/// Dropped on mute/idle, disconnect, handover, output failure or host shutdown.
+pub struct MicrophoneRoute {
+    directory: PathBuf,
+}
+impl MicrophoneRoute {
+    pub fn acquire(directory: &Path) -> Result<Self> {
+        use butterpollo_core::audio_defaults::MicrophoneDefaults;
+        let _com = crate::capture::ComGuard::new()?;
+        let active = ACTIVE.lock().unwrap();
+        if MICROPHONE_ACTIVE.load(std::sync::atomic::Ordering::Relaxed) {
+            bail!("a client microphone already owns the recording defaults");
+        }
+        if active
+            .as_ref()
+            .is_some_and(|route| route.directory != directory)
+        {
+            bail!("audio is owned by another host configuration");
+        }
+        let available = endpoints_for(eCapture)?;
+        let selected = steam_microphone(&available)
+            .context("Steam Streaming Microphone recording endpoint is unavailable")?;
+        let policy = Policy::new()?;
+        let current = defaults_for(eCapture)?;
+        let pending = microphone_pending(directory)?;
+        let journal =
+            MicrophoneDefaults::new(current.clone(), selected.id.clone(), pending.as_ref());
+        // Persist and arm crash recovery before the first Windows mutation.
+        butterpollo_core::state::write_json(&microphone_path(directory), &Some(&journal))?;
+        crate::display_recovery::microphone(true)?;
+        let result = (|| -> Result<()> {
+            // Once forwarding owns recording restoration, the older playback
+            // snapshot must not undo the choices saved at microphone start.
+            if let Some(mut playback) = self::pending(directory) {
+                playback.capture_before = Default::default();
+                save(directory, &playback)?;
+            }
+            for index in journal.apply(&current) {
+                policy.set_default(&selected.id, ROLES[index])?;
+            }
+            Ok(())
+        })();
+        if let Err(error) = result {
+            if restore_microphone(directory).is_ok() {
+                let _ = crate::display_recovery::microphone(false);
+            }
+            return Err(error);
+        }
+        MICROPHONE_ACTIVE.store(true, std::sync::atomic::Ordering::Relaxed);
+        tracing::info!(device = %selected.name, "client microphone selected as the Windows recording default");
+        Ok(Self {
+            directory: directory.into(),
+        })
+    }
+}
+impl Drop for MicrophoneRoute {
+    fn drop(&mut self) {
+        let _active = ACTIVE.lock().unwrap();
+        MICROPHONE_ACTIVE.store(false, std::sync::atomic::Ordering::Relaxed);
+        let result =
+            crate::capture::ComGuard::new().and_then(|_com| restore_microphone(&self.directory));
+        if let Err(error) = result {
+            tracing::warn!(%error, "microphone defaults will be retried by crash recovery");
+        } else {
+            let _ = crate::display_recovery::microphone(false);
+        }
+    }
+}
+pub fn recover_microphone(directory: &Path) -> Result<()> {
+    let _active = ACTIVE
+        .try_lock()
+        .map_err(|_| anyhow::anyhow!("audio routing is busy"))?;
+    if MICROPHONE_ACTIVE.load(std::sync::atomic::Ordering::Relaxed) {
+        bail!("microphone routing is in use");
+    }
+    let _com = crate::capture::ComGuard::new()?;
+    restore_microphone(directory)
+}
 /// The default playback and recording devices before a driver install.
 pub struct SavedDefaults {
     defaults: [[Option<String>; 3]; 2],
@@ -509,7 +642,7 @@ impl SavedDefaults {
 /// Install Steam Streaming Microphone when Steam provides it, as with the
 /// speakers. Returns the defaults from before, to put back once its
 /// endpoints arrive: Windows can make a new device the default, and the
-/// host does not choose the PC's microphone or speakers. None when the
+/// install must not choose the PC's microphone or speakers. None when the
 /// driver was not installed.
 pub fn install_steam_microphone(config: &Config) -> Result<Option<SavedDefaults>> {
     if !config.boolean("install_steam_audio_drivers", true) {
@@ -729,14 +862,18 @@ impl Route {
             &originals(defaults()?, pending.as_ref(), owned),
             owned,
         );
-        let capture_before = butterpollo_core::audio_defaults::recording_targets(
-            butterpollo_core::audio_defaults::with_pending(
-                defaults_for(eCapture)?,
-                pending.as_ref().map(|journal| &journal.capture_before),
+        let capture_before = if microphone_owns_recording(directory) {
+            Default::default()
+        } else {
+            butterpollo_core::audio_defaults::recording_targets(
+                butterpollo_core::audio_defaults::with_pending(
+                    defaults_for(eCapture)?,
+                    pending.as_ref().map(|journal| &journal.capture_before),
+                    owned,
+                ),
                 owned,
-            ),
-            owned,
-        );
+            )
+        };
         if !host_audio && !capture_only && install_steam(config, &available) {
             // The new endpoint appears shortly after installation.
             let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);

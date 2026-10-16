@@ -29,6 +29,8 @@ struct Entry {
     #[serde(default)]
     audio: bool,
     #[serde(default)]
+    microphone: bool,
+    #[serde(default)]
     arrangement: Option<(
         crate::display::Snapshot,
         Vec<butterpollo_core::topology::Node>,
@@ -50,6 +52,7 @@ impl Entry {
             mode: self.mode,
             mode_rate: self.mode_rate,
             position: self.position,
+            microphone: self.microphone,
             ..Default::default()
         }
     }
@@ -61,6 +64,7 @@ impl Entry {
             || self.profile.is_some()
             || self.external
             || self.audio
+            || self.microphone
             || self.arrangement.is_some()
             || self.baseline.is_some()
             || self.activation.is_some()
@@ -307,6 +311,9 @@ pub fn external(pending: bool) -> Result<()> {
 pub fn audio(pending: bool) -> Result<()> {
     change("audio-routing", "", |e| e.audio = pending)
 }
+pub fn microphone(pending: bool) -> Result<()> {
+    change("microphone-routing", "", |e| e.microphone = pending)
+}
 pub fn arrangement(
     value: Option<(
         crate::display::Snapshot,
@@ -490,6 +497,13 @@ fn recover(path: &Path) -> Result<()> {
             .collect(),
         ..Default::default()
     };
+    for entry in kept.entries.values_mut().filter(|entry| entry.microphone) {
+        let result = crate::audio_route::recover_microphone(directory);
+        // An unplugged original microphone must remain recoverable after a
+        // later restart, just like a display that is temporarily unavailable.
+        entry.microphone = result.is_err();
+        step("microphone routing", result);
+    }
     for (id, entry) in &journal.entries {
         let Some(m) = monitors.iter().find(|m| &m.device_id == id) else {
             // Each setting is restored later only if the display still has
@@ -673,6 +687,22 @@ pub fn wait_and_recover(pid: u32, directory: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn microphone_recovery_survives_journal_rewrites() -> Result<()> {
+        let entry = Entry {
+            microphone: true,
+            ..Default::default()
+        };
+        let retained = entry.display_settings();
+        let mut reloaded: Entry = serde_json::from_slice(&serde_json::to_vec(&retained)?)?;
+        assert!(reloaded.microphone);
+        assert!(reloaded.pending());
+        reloaded.microphone = false;
+        assert!(!reloaded.pending());
+        let old: Entry = serde_json::from_str(r#"{"output":"","mode":null,"hdr":null}"#)?;
+        assert!(!old.microphone);
+        Ok(())
+    }
     #[test]
     fn failed_display_settings_survive_the_next_recovery_journal() -> Result<()> {
         let original = Entry {

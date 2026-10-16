@@ -18,6 +18,50 @@ pub type Defaults = [Option<String>; 3];
 /// Role names for the log, in the order of [`Defaults`].
 pub const ROLE_NAMES: [&str; 3] = ["console", "multimedia", "communications"];
 
+/// A temporary recording default, independent of the stream's playback route.
+/// Keep exact per-role originals, including an explicitly selected Steam mic.
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct MicrophoneDefaults {
+    pub before: Defaults,
+    pub applied: String,
+}
+
+impl MicrophoneDefaults {
+    pub fn new(current: Defaults, applied: String, pending: Option<&Self>) -> Self {
+        let before = std::array::from_fn(|index| match pending {
+            Some(old)
+                if current[index]
+                    .as_deref()
+                    .is_some_and(|id| id.eq_ignore_ascii_case(&old.applied)) =>
+            {
+                old.before[index].clone()
+            }
+            _ => current[index].clone(),
+        });
+        Self { before, applied }
+    }
+
+    /// Do not take a role with no previous device: Windows cannot restore an
+    /// absent default through PolicyConfig. Driver arrival normally fills it.
+    pub fn apply(&self, current: &Defaults) -> Vec<usize> {
+        (0..3)
+            .filter(|&index| {
+                self.before[index].is_some()
+                    && !current[index]
+                        .as_deref()
+                        .is_some_and(|id| id.eq_ignore_ascii_case(&self.applied))
+            })
+            .collect()
+    }
+
+    /// Only undo our own selection; a user's subsequent selection wins.
+    pub fn restore(&self, current: &Defaults) -> Vec<(usize, String)> {
+        switches(current, &self.before, |id| {
+            id.eq_ignore_ascii_case(&self.applied)
+        })
+    }
+}
+
 /// True for an endpoint the host installs and streams through, by its friendly
 /// or adapter name: Steam Streaming Speakers, and both sides of Steam Streaming
 /// Microphone ("Speakers (Steam Streaming Microphone)", "Microphone (Steam
@@ -120,6 +164,62 @@ mod tests {
 
     fn owned(id: &str) -> bool {
         [SINK, MIC_SPEAKERS, MIC].contains(&id)
+    }
+
+    #[test]
+    fn forwarded_microphone_restores_each_role_and_respects_manual_changes() {
+        let before = ids([USB_MIC, USB_MIC, "headset-mic"]);
+        let route = MicrophoneDefaults::new(before.clone(), MIC.into(), None);
+        assert_eq!(route.apply(&before), [0, 1, 2]);
+        assert_eq!(
+            route.restore(&ids([MIC, MIC, MIC])),
+            [
+                (0, USB_MIC.into()),
+                (1, USB_MIC.into()),
+                (2, "headset-mic".into())
+            ]
+        );
+        assert_eq!(
+            route.restore(&ids([MIC, "new-mic", MIC])),
+            [(0, USB_MIC.into()), (2, "headset-mic".into())]
+        );
+    }
+
+    #[test]
+    fn microphone_partial_failure_rolls_back_only_changed_roles() {
+        let before = ids([USB_MIC, USB_MIC, "headset-mic"]);
+        let route = MicrophoneDefaults::new(before.clone(), MIC.into(), None);
+        assert_eq!(
+            route.restore(&ids([MIC, USB_MIC, "headset-mic"])),
+            [(0, USB_MIC.into())]
+        );
+        assert!(route.restore(&before).is_empty());
+    }
+
+    #[test]
+    fn microphone_retry_keeps_originals_and_a_preselected_steam_microphone() {
+        let before = ids([USB_MIC, MIC, "headset-mic"]);
+        let old = MicrophoneDefaults::new(before.clone(), MIC.into(), None);
+        let retry = MicrophoneDefaults::new(ids([MIC, MIC, "new-mic"]), MIC.into(), Some(&old));
+        assert_eq!(retry.before, ids([USB_MIC, MIC, "new-mic"]));
+        assert_eq!(
+            retry.restore(&ids([MIC, MIC, MIC])),
+            [(0, USB_MIC.into()), (2, "new-mic".into())]
+        );
+        assert_eq!(old.apply(&before), [0, 2]);
+    }
+
+    #[test]
+    fn microphone_missing_roles_and_crash_journal_round_trip() {
+        let before = ids([USB_MIC, "", USB_MIC]);
+        let route = MicrophoneDefaults::new(before.clone(), MIC.into(), None);
+        assert_eq!(route.apply(&before), [0, 2]);
+        let saved = serde_json::to_vec(&route).unwrap();
+        let recovered: MicrophoneDefaults = serde_json::from_slice(&saved).unwrap();
+        assert_eq!(
+            recovered.restore(&ids([MIC, "", MIC])),
+            [(0, USB_MIC.into()), (2, USB_MIC.into())]
+        );
     }
 
     #[test]

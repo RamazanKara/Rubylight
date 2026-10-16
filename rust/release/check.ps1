@@ -34,7 +34,7 @@ param(
     # desktop app sees its own copy of that folder, so the SYSTEM self-test
     # could not find a package unpacked there.
     [string] $Work = 'C:\src\butterpollo-release',
-    # Machine settings, dot-sourced: the Rust build environment (PATH, FFmpeg,
+    # Machine settings, dot-sourced: the Rust build environment (PATH,
     # PyroWave, ...) and BUTTERPOLLO_TEST_PYTHON.
     [string] $Settings = (Join-Path $Work 'settings.ps1'),
     # Stream cases to leave out, e.g. 'pyrowave','pyrowave-hdr-444' when a

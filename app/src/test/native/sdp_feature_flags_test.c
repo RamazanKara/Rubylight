@@ -67,7 +67,45 @@ static long offeredFlags(bool hapticsPcm) {
     return flags;
 }
 
+// The x-ss-video[0].<name> value of the SDP a PyroWave stream sends, or -1 when it has none.
+static long pyroWaveHint(const char* name) {
+    char attribute[64];
+    snprintf(attribute, sizeof(attribute), "a=x-ss-video[0].%s:", name);
+    int length = 0;
+    char* sdp = getSdpPayloadForStreamConfig(13, &length);
+    CHECK(sdp != NULL && length > 0);
+    const char* line = strstr(sdp, attribute);
+    long value = line == NULL ? -1 : strtol(line + strlen(attribute), NULL, 10);
+    free(sdp);
+    return value;
+}
+
+// PyroWave hosts pace to a client behind a slower port from these two hints, spelled as in
+// Nonary's moonlight-common-c: only for PyroWave, only when known.
+static void pyroWavePacingHints(void) {
+    sunshineStream();
+    NegotiatedVideoFormat = VIDEO_FORMAT_PYROWAVE;
+    CHECK(pyroWaveHint("pyrowaveLinkMbps") == -1);
+    CHECK(pyroWaveHint("pyrowavePaceMbps") == -1);
+
+    StreamConfig.pyrowaveLinkMbps = 2500;
+    CHECK(pyroWaveHint("pyrowaveLinkMbps") == 2500);
+    CHECK(pyroWaveHint("pyrowavePaceMbps") == -1);
+    StreamConfig.pyrowavePaceMbps = 1800;
+    CHECK(pyroWaveHint("pyrowaveLinkMbps") == 2500);
+    CHECK(pyroWaveHint("pyrowavePaceMbps") == 1800);
+
+    // Negative values are not hints, and other codecs never send them.
+    StreamConfig.pyrowaveLinkMbps = -1;
+    CHECK(pyroWaveHint("pyrowaveLinkMbps") == -1);
+    StreamConfig.pyrowaveLinkMbps = 2500;
+    NegotiatedVideoFormat = VIDEO_FORMAT_H265;
+    CHECK(pyroWaveHint("pyrowaveLinkMbps") == -1);
+    CHECK(pyroWaveHint("pyrowavePaceMbps") == -1);
+}
+
 int main(void) {
+    pyroWavePacingHints();
     sunshineStream();
     CHECK(offeredFlags(false) == (ML_FF_FEC_STATUS | ML_FF_SESSION_ID_V1));
     CHECK(offeredFlags(true) == (ML_FF_FEC_STATUS | ML_FF_SESSION_ID_V1 | ML_FF_HAPTICS_PCM));

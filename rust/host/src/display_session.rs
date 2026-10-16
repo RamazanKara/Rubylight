@@ -1295,17 +1295,14 @@ pub fn retime(
     }
 }
 
-/// Prepare a stream's display. While Windows shows the lock or sign-in
-/// screen it allows display configuration only from that screen's desktop,
-/// so the work moves there (issue #6). If the virtual display or its layout
-/// still cannot be set up, the stream shows the physical display, as
-/// Vibepollo does while Windows is locked.
 /// The console warning for a display driver that cannot stream.
 pub const DRIVER_WARNING: &str = "display_driver";
 
-/// Every stream runs on a virtual display of Rubylight's display driver. A
-/// driver that is missing, or one waiting for a restart, refuses the stream
-/// with the console saying what to do.
+/// Prepare a stream's virtual display. Every stream runs on one from
+/// Rubylight's display driver; a driver that is missing, or one waiting for a
+/// restart, refuses the stream with the console saying what to do. While
+/// Windows shows the lock or sign-in screen it allows display configuration
+/// only from that screen's desktop, so the work moves there (issue #6).
 pub fn prepare_stream(
     h: &Shared,
     launch: &Launch,
@@ -2095,9 +2092,9 @@ mod tests {
     #[test]
     fn a_faster_stream_request_keeps_only_a_display_that_can_follow_it() {
         // Artemis's Warp launches at 60 and asks for 120. Without a virtual
-        // display of its own to raise (a physical display here), the
-        // launch's preparation goes back to be prepared again at 120; one
-        // made for another size never serves the stream.
+        // display of its own to raise (none in this fixture), the launch's
+        // preparation goes back to be prepared again at 120; one made for
+        // another size never serves the stream.
         let fixture = crate::state::test_support::Fixture::new();
         let config = Config::default();
         let launched = Negotiated {

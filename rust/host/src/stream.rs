@@ -3595,28 +3595,28 @@ mod tests {
         use serde_json::json;
         let f = Fixture::new();
         *f.host.config.write().unwrap() =
-            Config::parse("max_bitrate=10000\ncapture=ddx\nport=47989\nkeyboard=true").unwrap();
+            Config::parse("max_bitrate=10000\nencoder=amf\nport=47989\nkeyboard=true").unwrap();
         let original = f.host.config.read().unwrap().values.clone();
         let mut client = f.client(u32::MAX);
         client.extra.insert(
             "config_overrides".into(),
-            json!({"max_bitrate":20000,"capture":"wgc","port":50000,"keyboard":false,"host_adaptive_pacing":true}),
+            json!({"max_bitrate":20000,"encoder":"pyrowave","port":50000,"keyboard":false,"host_adaptive_pacing":true}),
         );
         let launch = f.launch(client, Role::Stream);
         let device = effective_config(&f.host, &launch).unwrap();
         assert_eq!(device.integer("max_bitrate", 0), 20000);
-        assert_eq!(device.get("capture", ""), "wgc");
+        assert_eq!(device.get("encoder", ""), "pyrowave");
         assert!(!device.boolean("keyboard", true));
         assert!(device.adaptive_packet_pacing(0));
         assert!(!f.host.config.read().unwrap().adaptive_packet_pacing(0));
         assert_eq!(device.integer("port", 0), 47989);
         f.host.apps.write().unwrap()[0].extra.insert(
             "config-overrides".into(),
-            json!({"max_bitrate":30000,"capture":"","port":51000,"keyboard":true,"host_adaptive_pacing":false}),
+            json!({"max_bitrate":30000,"encoder":"","port":51000,"keyboard":true,"host_adaptive_pacing":false}),
         );
         let app = effective_config(&f.host, &launch).unwrap();
         assert_eq!(app.integer("max_bitrate", 0), 30000);
-        assert_eq!(app.get("capture", ""), "wgc");
+        assert_eq!(app.get("encoder", ""), "pyrowave");
         assert!(app.boolean("keyboard", false));
         assert!(!app.adaptive_packet_pacing(0));
         assert_eq!(app.integer("port", 0), 47989);

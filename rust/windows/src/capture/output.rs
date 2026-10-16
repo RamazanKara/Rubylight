@@ -184,9 +184,9 @@ impl Source for Dxgi {
     }
 
     fn describe(&self, output: &Self::Output) -> Option<Description> {
-        // Preserve the existing fallback when GetDesc1/IDXGIOutput6 is not
-        // available: WGC uses the requested HDR state and metadata stays known
-        // or at its default. Missing selected outputs fail in refresh instead.
+        // Without GetDesc1/IDXGIOutput6 the capture keeps the requested HDR
+        // state and metadata stays known or at its default. Missing selected
+        // outputs fail in refresh instead.
         // SAFETY: `output` is a live owned COM reference; GetDesc1 returns a value.
         unsafe {
             output
@@ -210,7 +210,7 @@ pub(super) struct Color(Cache<Dxgi>);
 impl Color {
     pub(super) fn new(output: &IDXGIOutput1, name: &str) -> Result<Self> {
         // Use the output's owner, which may differ from the encode device's
-        // adapter when WGC captures a display on another GPU.
+        // adapter when the virtual display renders on another GPU.
         // SAFETY: The output is live; GetParent returns owned COM references.
         unsafe {
             let adapter: IDXGIAdapter1 = output.GetParent()?;

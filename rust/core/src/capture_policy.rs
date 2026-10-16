@@ -17,6 +17,7 @@ pub struct Freshness {
     count: usize,
     next: usize,
     median: Option<u64>,
+    mean: Option<u64>,
     polling_window: Option<(u64, u64)>,
 }
 impl Freshness {
@@ -25,6 +26,13 @@ impl Freshness {
     /// even when a consumer only looks at some of them.
     pub fn median_interval(&self) -> Option<u64> {
         self.median
+    }
+    /// The mean of the same intervals: the source's rate. A compositor that
+    /// alternates between one and two refreshes per picture (4 and 8 ms on a
+    /// 240 Hz display) has a median of either, but delivers about 160 frames a
+    /// second either way.
+    pub fn mean_interval(&self) -> Option<u64> {
+        self.mean
     }
     /// Use a short polling window around one predicted publication. Once that
     /// window passes, a source that becomes static returns to the normal wait.
@@ -57,8 +65,10 @@ impl Freshness {
         // Polling reads the same history many times between frames. Recompute
         // its statistics only when that history changes, outside the wait loop.
         self.median = None;
+        self.mean = None;
         self.polling_window = None;
         if self.count >= 4 {
+            self.mean = Some(self.intervals[..self.count].iter().sum::<u64>() / self.count as u64);
             let mut intervals = self.intervals;
             intervals[..self.count].sort_unstable();
             let source = intervals[self.count / 2];

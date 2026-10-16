@@ -256,6 +256,8 @@ pub struct Pacer {
     spacing: f64,
     /// The source presents faster than the stream rate.
     faster: bool,
+    /// The source's mean frame interval, when the capture knows it.
+    source_rate: Option<Duration>,
     /// Credit a faster source may be lent, in frames, to repay a deficit.
     grace: f64,
     grace_at: Instant,
@@ -273,6 +275,7 @@ impl Pacer {
             source_phase: None,
             spacing: 0.75,
             faster: false,
+            source_rate: None,
             grace: Self::GRACE_CAP,
             grace_at: now,
         }
@@ -320,6 +323,15 @@ impl Pacer {
         if enabled != self.source_phase.is_some() {
             self.source_phase = enabled.then(|| SourcePhase::new(self.period));
         }
+    }
+    /// The source's mean frame interval over its recent frames. Whether it is
+    /// faster than the stream follows its rate, not its median interval: a
+    /// 240 Hz virtual display alternating between one and two refreshes per
+    /// picture has an 8 ms median at about 160 frames a second. Judged by the
+    /// median, it refilled credit 1% fast, so claims ran at 121 a second off
+    /// the source's arrivals and each took a picture up to 4 ms old.
+    pub fn observe_source_rate(&mut self, mean_interval: Option<Duration>) {
+        self.source_rate = mean_interval;
     }
     /// Capture recovery or replacement invalidates the learned source phase.
     pub fn reset_source_phase(&mut self) {
@@ -423,7 +435,10 @@ impl Pacer {
         presented: Instant,
         source_interval: Option<Duration>,
     ) -> Pace {
-        self.faster = source_interval.is_some_and(|i| i < self.period.mul_f64(0.95));
+        self.faster = self
+            .source_rate
+            .or(source_interval)
+            .is_some_and(|i| i < self.period.mul_f64(0.95));
         if self.faster {
             self.lend_grace(now);
         }

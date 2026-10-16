@@ -1730,3 +1730,100 @@ fn only_wgc_captures_wait_for_the_learned_source_phase() {
         learned
     );
 }
+
+/// Claims (ms, detected ms) for Rubylight's display driver on a 240 Hz
+/// virtual display whose compositor alternates at random between one and two
+/// refreshes per picture, as measured on October 16: about 160 frames a
+/// second with a median interval of either 4.2 or 8.3 ms.
+fn simulate_alternating(rate_known: bool) -> Vec<(f64, f64)> {
+    let start = Instant::now();
+    let at = |ms: f64| start + Duration::from_secs_f64(ms / 1000.);
+    let ms = |instant: Instant| instant.duration_since(start).as_secs_f64() * 1000.;
+    let mut pacer = Pacer::new(start, Duration::from_secs_f64(PERIOD / 1000.))
+        .with_prediction(true)
+        .with_source_phase(false)
+        .with_spacing(0.75);
+    let mut seed = 7u64;
+    let mut coin = || {
+        seed = seed
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
+        // Slightly more double refreshes, so the median sits on 8.3 ms.
+        (seed >> 33) % 100 < 55
+    };
+    let refresh = 1000. / 240.;
+    let mut present = vec![0.];
+    while present[present.len() - 1] < 30_000. {
+        let steps = if coin() { 2. } else { 1. };
+        present.push(present[present.len() - 1] + refresh * steps);
+    }
+    let detected: Vec<f64> = present.iter().map(|p| p + 0.15).collect();
+    let mut claims = vec![];
+    let mut newest: Option<usize> = None;
+    let mut deadline: Option<f64> = None;
+    let (mut median, mut mean) = (None, None);
+    let mut evaluate = |now: f64,
+                        newest: &mut Option<usize>,
+                        deadline: &mut Option<f64>,
+                        pacer: &mut Pacer,
+                        median: Option<Duration>,
+                        mean: Option<Duration>| {
+        if let Some(i) = *newest {
+            if rate_known {
+                pacer.observe_source_rate(mean);
+            }
+            match pacer.decide(at(now), at(present[i]), median) {
+                Pace::Claim => {
+                    pacer.claimed(at(now));
+                    claims.push((now, detected[i]));
+                    *newest = None;
+                    *deadline = None;
+                }
+                Pace::WaitUntil(t) => *deadline = Some(ms(t).max(now + 0.001)),
+            }
+        }
+    };
+    for i in 0..present.len() {
+        while let Some(t) = deadline.filter(|t| *t < detected[i]) {
+            evaluate(t, &mut newest, &mut deadline, &mut pacer, median, mean);
+            if deadline == Some(t) {
+                break;
+            }
+        }
+        let recent = &present[i.saturating_sub(16)..=i];
+        let mut intervals: Vec<f64> = recent.windows(2).map(|w| w[1] - w[0]).collect();
+        if intervals.len() >= 4 {
+            let average = intervals.iter().sum::<f64>() / intervals.len() as f64;
+            mean = Some(Duration::from_secs_f64(average / 1000.));
+            intervals.sort_by(f64::total_cmp);
+            median = Some(Duration::from_secs_f64(
+                intervals[intervals.len() / 2] / 1000.,
+            ));
+        }
+        newest = Some(i);
+        evaluate(
+            detected[i],
+            &mut newest,
+            &mut deadline,
+            &mut pacer,
+            median,
+            mean,
+        );
+    }
+    claims
+}
+#[test]
+fn a_source_alternating_between_two_cadences_is_claimed_at_the_stream_rate() {
+    let wait = |claims: &[(f64, f64)]| {
+        let steady = &claims[claims.len() / 10..];
+        steady.iter().map(|(claim, seen)| claim - seen).sum::<f64>() / steady.len() as f64
+    };
+    let claims = simulate_alternating(true);
+    let rate = steady_rate(&claims);
+    assert!(rate <= 120.2, "{rate:.2} claims/s");
+    // Judged by its median, the source looked no faster than the stream:
+    // claims ran at 121 a second, as the host measured, and waited longer.
+    let previous = simulate_alternating(false);
+    assert!(steady_rate(&previous) > 120.5);
+    assert!(wait(&claims) < wait(&previous));
+}

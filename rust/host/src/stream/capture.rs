@@ -285,6 +285,16 @@ impl<T> Latest<T> {
             .median_interval()
             .map(std::time::Duration::from_nanos)
     }
+    /// The source's mean frame interval: its rate, which a source alternating
+    /// between two cadences hides from the median.
+    pub(super) fn source_rate(&self) -> Option<std::time::Duration> {
+        self.state
+            .lock()
+            .unwrap()
+            .cadence
+            .mean_interval()
+            .map(std::time::Duration::from_nanos)
+    }
     pub(super) fn poll_interval(&self, normal: std::time::Duration) -> std::time::Duration {
         let state = self.state.lock().unwrap();
         let Some(captured) = state.captured else {

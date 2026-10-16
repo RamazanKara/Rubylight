@@ -1926,6 +1926,7 @@ impl Media {
                             pacer.set_source_phase(source_phase_eligible && butterpollo_core::stream_policy::source_phase(&c, latest.backend()));
                             if arrival_pacing {
                                 pacer.observe_source(image.captured);
+                                pacer.observe_source_rate(latest.source_rate());
                             }
                             let fresh = last_image.as_ref().is_none_or(|previous| !Arc::ptr_eq(previous, &image));
                             if arrival_pacing

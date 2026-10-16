@@ -2006,10 +2006,9 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             Display display = getWindowManager().getDefaultDisplay();
             Point real = new Point();
             display.getRealSize(real);
-            int modeLong = 0;
-            for (Display.Mode mode : display.getSupportedModes()) {
-                modeLong = Math.max(modeLong, Math.max(mode.getPhysicalWidth(), mode.getPhysicalHeight()));
-            }
+            // The screen in use's own long side: a foldable can list the other panel's modes too.
+            String panel = PreferenceConfiguration.nativeResolution(this);
+            int modeLong = panel == null ? 0 : Integer.parseInt(panel.substring(0, panel.indexOf('x')));
             float scale = modeLong > 0 && real.x > 0 && real.y > 0 ? (float) modeLong / Math.max(real.x, real.y) : 1;
             return StreamResizePolicy.nativeSize(paneWidth, paneHeight, scale, StreamResizePolicy.ORIENTATION_OF_AREA,
                     limits[0], limits[1], limits[2], limits[3]);

@@ -53,18 +53,6 @@ const video: Setting[] = [
     advanced: true,
   },
   {
-    key: 'gpu_compute_conversion',
-    label: 'Copy and convert on a compute queue',
-    description:
-      'On supported AMD GPUs, copies captured frames and converts their colors on compute queues beside a game. Turn off to compare or troubleshoot.',
-    details: 'Textures the compute queue cannot open fall back to the graphics queue.',
-    category: 'video',
-    group: 'Capture',
-    control: { kind: 'toggle' },
-    default: true,
-    advanced: true,
-  },
-  {
     key: 'hevc_mode',
     label: 'HEVC support',
     description:

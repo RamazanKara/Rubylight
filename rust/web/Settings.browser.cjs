@@ -289,7 +289,7 @@ test('undoing an advanced change keeps the Advanced section open', async t => {
   await page.goto(base + '/settings/video');
   const advanced = page.locator('details.advanced');
   await advanced.locator(':scope > summary').click();
-  const row = setting(page, 'gpu_compute_conversion');
+  const row = setting(page, 'keyframe_loss_pacing');
   await row.getByRole('switch').press('Space');
   await row.getByRole('button', { name: /^Undo/ }).click();
   assert.equal(await page.getByRole('button', { name: 'Save changes' }).count(), 0);

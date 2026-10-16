@@ -86,8 +86,7 @@ pub const GLOBAL: &[Setting] = settings! {
         "minimum_fps_target", "Minimum frame rate for an unchanged desktop", Number;
         "frame_pacing_smoothing", "Smooth capture pacing", Bool;
         "stream_reconfigure", "Follow client size and frame rate changes", Bool;
-        "gpu_compute_conversion", "Copy and convert captures on a compute queue", Bool;
-        "compute_queue_realtime", "Run that compute queue at real-time GPU priority", Bool;
+        "compute_queue_realtime", "Run the capture compute queue at real-time GPU priority", Bool;
         "fec_percentage", "Forward error correction (%)", Number;
         "adaptive_fec", "Adapt error correction to reported packet loss", Bool;
         "pyrowave", "Enable PyroWave for compatible devices", Bool;

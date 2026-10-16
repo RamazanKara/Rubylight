@@ -43,18 +43,6 @@ use windows::{
 
 include!(concat!(env!("OUT_DIR"), "/shader_bytecode.rs"));
 
-/// `gpu_compute_conversion = false` once moved conversion to the graphics queue, which the
-/// host no longer has: say so rather than ignore the setting without a word.
-pub fn warn_retired_settings(config: &butterpollo_core::config::Config) {
-    if config.values.contains_key("gpu_compute_conversion")
-        && !config.boolean("gpu_compute_conversion", true)
-    {
-        tracing::warn!(
-            "gpu_compute_conversion = false has no effect: Rubylight copies and converts every frame on a D3D12 compute queue; remove the setting"
-        );
-    }
-}
-
 /// A D3D12 device on the capture GPU with one compute queue and its fence.
 pub struct Compute {
     pub device: ID3D12Device,

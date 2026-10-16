@@ -61,7 +61,7 @@ For requests that change state:
 
 These PowerShell examples read host status without launching an app or changing settings. Replace the certificate path with the console's root from the active profile and `admin` with your administrator name. `curl.exe --user admin` prompts for the password instead of putting it in the command.
 
-The console's certificate names `localhost`, `127.0.0.1` and `::1`. On an installed host, `curl.exe` also trusts it without `--cacert`, through the root setup adds to Windows.
+The console's certificate names `localhost`, `127.0.0.1` and `::1`. On an installed host, Windows' `curl.exe` also trusts it without `--cacert`, through the root setup adds to Windows, when given `--ssl-no-revoke`: the root publishes no revocation list, and Windows' curl otherwise refuses a certificate it cannot check for revocation. Browsers do not need this.
 
 ```powershell
 $certificate = 'C:\path\to\profile\credentials\console-root.pem'

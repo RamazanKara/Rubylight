@@ -482,6 +482,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     private float lastAbsTouchDownX, lastAbsTouchDownY;
 
     private boolean isHidingOverlays;
+    private boolean wasInPictureInPicture;
     private TextView notificationOverlayView;
     private int requestedNotificationOverlayVisibility = View.GONE;
     private TextView performanceOverlayView;
@@ -1279,7 +1280,10 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
 
         // Hide on-screen overlays in PiP mode
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            if (isInPictureInPictureMode()) {
+            boolean inPictureInPicture = isInPictureInPictureMode();
+            boolean leftPictureInPicture = wasInPictureInPicture && !inPictureInPicture;
+            wasInPictureInPicture = inPictureInPicture;
+            if (inPictureInPicture) {
                 isHidingOverlays = true;
                 if (gameTouchControls != null) gameTouchControls.hideForPip(true);
 
@@ -1306,18 +1310,22 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 decoderRenderer.notifyVideoBackground();
                 UiHelper.notifyStreamEnteringPiP(this);
             }
-            else {
+            // Rotation, folding, a keyboard or dark mode also change the configuration; only a real
+            // way out of PiP restores what it hid.
+            else if (leftPictureInPicture) {
                 isHidingOverlays = false;
+                boolean canSendInput = conn != null && conn.canSendInput();
                 if (trackpadPointer != null) trackpadPointer.setCursorShown(true);
-                if (gameTouchControls != null) gameTouchControls.hideForPip(false);
+                // A session without input permission keeps its controls hidden.
+                if (gameTouchControls != null && canSendInput) gameTouchControls.hideForPip(false);
 
                 // Restore overlays to previous state when leaving PiP
 
-                if (virtualController != null && prefConfig.onscreenController) {
+                if (virtualController != null && prefConfig.onscreenController && canSendInput) {
                     virtualController.show();
                 }
 
-                if (prefConfig.enablePerfOverlay) {
+                if (prefConfig.enablePerfOverlay && app.getRole() != NvApp.Role.INPUT_ONLY) {
                     performanceOverlayScroll.setVisibility(View.VISIBLE);
                 }
 

@@ -81,8 +81,9 @@ the saved image. With no pending image that fits the ring, the normal idle heart
 remains 125 ms.
 
 A host before `CAP_FENCE_RING` sends the older keyed-mutex ring (`IOCTL_SET_FRAME_RING`), which
-D3D12 cannot take: the driver refuses it before adopting any handle and no longer reports
-`CAP_FRAME_RING`, and that host captures the display through Windows Graphics Capture instead.
+this driver refuses before adopting any handle (`STATUS_NOT_SUPPORTED`); the driver never
+reports `CAP_FRAME_RING`, and that host captures the display through Windows Graphics Capture
+instead.
 
 The driver loads only where the OS reports the D3D12 swap chain: `DriverEntry` logs the IddCx
 framework version and `IddCxCheckOsFeatureSupport`'s answer, and fails with

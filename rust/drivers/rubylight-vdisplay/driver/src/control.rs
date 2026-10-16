@@ -47,7 +47,7 @@ pub unsafe fn dispatch(request: WDFREQUEST, ioctl_code: u32) {
                 watchdog_timeout_ms: crate::watchdog::WATCHDOG_TIMEOUT_S * 1000,
                 max_monitors: modes::MAX_MONITOR_ID,
                 max_ring_slots: ring::MAX_SLOTS as u32,
-                // No CAP_FRAME_RING: a D3D12 device has no keyed mutexes.
+                // Never CAP_FRAME_RING: this driver refuses the older keyed-mutex ring.
                 caps: CAP_HDR | CAP_UPDATE_MODES | CAP_SCOPED_CLEAR | CAP_FENCE_RING,
                 driver_version: driver_version(),
             };
@@ -113,11 +113,11 @@ pub unsafe fn dispatch(request: WDFREQUEST, ioctl_code: u32) {
                 Err(st) => request.complete(st),
             }
         }
-        // A keyed-mutex ring, from a host before CAP_FENCE_RING: the driver renders on D3D12,
-        // which has no keyed mutexes. Refused before any handle is adopted, so that host reaps
-        // them and captures through Windows Graphics Capture instead.
+        // The older keyed-mutex ring, from a host before CAP_FENCE_RING: refused before any
+        // handle is adopted, so that host reaps them and captures through Windows Graphics
+        // Capture instead.
         control::IOCTL_SET_FRAME_RING => {
-            dbglog!("[rlvd] SET_FRAME_RING: keyed-mutex rings are not supported; refused");
+            dbglog!("[rlvd] SET_FRAME_RING: keyed-mutex rings are refused");
             request.complete(STATUS_NOT_SUPPORTED);
         }
         control::IOCTL_CLEAR_FRAME_RING => with_session(request, |s| {

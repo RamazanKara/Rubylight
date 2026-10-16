@@ -26,8 +26,8 @@
 //! in `Reading`, which the host enters from `Published` after the driver's copy was queued.
 //!
 //! **Keyed-mutex ring** ([`RING_VERSION`], [`crate::control::SetFrameRingRequest`]), what
-//! hosts and drivers before the fence ring speak; to be removed in a later release. The
-//! textures are `SHARED_NTHANDLE | SHARED_KEYEDMUTEX` and pixel ownership is the keyed
+//! hosts and drivers before the fence ring spoke; the D3D12 driver refuses it, and it stays
+//! here as the record of that contract. The textures are `SHARED_NTHANDLE | SHARED_KEYEDMUTEX` and pixel ownership is the keyed
 //! mutex's alone:
 //!
 //! 1. The driver picks a texture whose keyed mutex it can take with [`KEY_DRIVER`] (never

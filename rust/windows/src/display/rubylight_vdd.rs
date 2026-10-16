@@ -7,7 +7,8 @@
 use super::*;
 use rubylight_vdisplay_proto::control::{
     self as proto, ADD_FLAG_EXACT_ID, AddReply, AddRequest, ClearFrameRingRequest, InfoReply,
-    MonitorStatus, RenderAdapterRequest, SessionRequest, SetFrameRingRequest, UpdateModesRequest,
+    MonitorStatus, RenderAdapterRequest, SessionRequest, SetFenceRingRequest, SetFrameRingRequest,
+    UpdateModesRequest,
 };
 use rubylight_vdisplay_proto::modes;
 use std::sync::Mutex;
@@ -123,9 +124,16 @@ impl Control {
             .map(drop)
     }
 
-    /// Hand a ring over. On error the driver owns none of the request's handles.
+    /// Hand a keyed-mutex ring over, to a driver without `CAP_FENCE_RING`. On error the
+    /// driver owns none of the request's handles.
     pub fn set_frame_ring(&self, request: &SetFrameRingRequest) -> Result<()> {
         self.ioctl(proto::IOCTL_SET_FRAME_RING, &request.encode(), 0)
+            .map(drop)
+    }
+
+    /// Hand a fence ring over. On error the driver owns none of the request's handles.
+    pub fn set_fence_ring(&self, request: &SetFenceRingRequest) -> Result<()> {
+        self.ioctl(proto::IOCTL_SET_FENCE_RING, &request.encode(), 0)
             .map(drop)
     }
 

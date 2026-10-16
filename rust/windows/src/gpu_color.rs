@@ -366,6 +366,8 @@ impl Converter {
         }
     }
     fn source_views(&mut self, image: &GpuImage) -> Result<[Option<ID3D11ShaderResourceView>; 2]> {
+        // A fence ring's texture lent in place is ordered for D3D11 only on request.
+        image.order_d3d11()?;
         let pointer = image.cursor.as_ref();
         let values = pointer_constants(pointer);
         if self.values[12..] != values {

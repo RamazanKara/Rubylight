@@ -789,15 +789,28 @@ pub struct GpuImage {
     pub published: Instant,
     pub gpu: Device,
     pub texture: std::sync::Arc<ID3D11Texture2D>,
-    /// When a compute-queue copy into `texture` completes. D3D11 work on
-    /// `gpu` is already ordered after it; D3D12 queues wait for this.
+    /// When the GPU write into `texture` (a compute-queue copy, or the
+    /// display driver's copy into a fence ring) completes. D3D12 queues wait
+    /// for this; D3D11 work on `gpu` is ordered after it once
+    /// [`Self::order_d3d11`] ran.
     pub(crate) ready: Option<crate::compute::Ready>,
-    /// A WGC helper texture read in place rather than copied; it goes back
-    /// to the helper with the last clone of this image.
+    /// A shared texture read in place rather than copied (a WGC helper's or
+    /// the display driver's); it goes back with the last clone of this image.
     lease: Option<std::sync::Arc<bridge::Lease>>,
 }
 impl GpuImage {
+    /// Order D3D11 work on `gpu` submitted after this call after the write
+    /// `ready` waits for. Every D3D11 reader of `texture` calls it first; only
+    /// a fence ring's texture lent in place needs it, which the compute
+    /// conversion otherwise reads without D3D11.
+    pub(crate) fn order_d3d11(&self) -> Result<()> {
+        match &self.lease {
+            Some(lease) => lease.order_d3d11(),
+            None => Ok(()),
+        }
+    }
     pub fn readback(&self, staging: &mut Option<ID3D11Texture2D>) -> Result<Image> {
+        self.order_d3d11()?;
         let mut image = read_texture(&self.gpu, &self.texture, staging)?;
         image.captured = self.captured;
         if let Some(cursor) = &self.cursor {

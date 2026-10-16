@@ -22,10 +22,20 @@ public class DualSenseController extends AbstractController {
     private DualSenseReport.Input input = new DualSenseReport.Input();
     private DualSenseReport.Input previous = new DualSenseReport.Input();
     private DualSenseReport.Output output;
+    // Guards output and the pending output below. USB writes run on the output thread, outside it.
     private final Object outputLock = new Object();
+    private boolean rumblePending, ledPending, playerPending, waveformPending, audioPending;
+    private short rumbleLow, rumbleHigh;
+    private byte ledRed, ledGreen, ledBlue;
+    private int playerNumber;
+    private boolean waveformEnabled, audioHeadphones, audioMuted;
+    private int triggerSides;
+    private byte triggerTypeLeft, triggerTypeRight;
+    private final byte[] triggerLeft = new byte[DualSenseReport.EFFECT_SIZE];
+    private final byte[] triggerRight = new byte[DualSenseReport.EFFECT_SIZE];
     private UsbInterface hidInterface;
     private UsbEndpoint inEndpoint, outEndpoint;
-    private volatile Thread inputThread;
+    private volatile Thread inputThread, outputThread;
     private volatile boolean stopped;
     private boolean batteryReported;
     private boolean waveformReported, triggersReported;
@@ -152,9 +162,86 @@ public class DualSenseController extends AbstractController {
         if (stopped) {
             return false;
         }
+        startOutput();
         inputThread = new Thread(this::readInput, "DualSense USB input");
         inputThread.start();
         return true;
+    }
+
+    void startOutput() {
+        outputThread = new Thread(this::runOutput, "DualSense USB output");
+        outputThread.start();
+    }
+
+    // Rumble, lights, trigger effects and audio state go out here, so a slow write never holds the
+    // input thread or the caller, which for rumble, LED and triggers is the shared controller lock.
+    // Only the newest of each is sent.
+    private void runOutput() {
+        try {
+            while (true) {
+                byte[] report;
+                synchronized (outputLock) {
+                    while (true) {
+                        while (!stopped && !hasPendingOutput()) {
+                            outputLock.wait();
+                        }
+                        if (stopped) {
+                            return;
+                        }
+                        report = nextOutputReport();
+                        if (report != null) {
+                            break;
+                        }
+                    }
+                }
+                writeOutput(report);
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    private boolean hasPendingOutput() {
+        if (waveformPending || audioPending || triggerSides != 0 || ledPending || playerPending || rumblePending) {
+            return true;
+        }
+        synchronized (audioControls) {
+            return !audioControls.isEmpty();
+        }
+    }
+
+    // Builds the next report from what is pending, or null when that report would send nothing.
+    private byte[] nextOutputReport() {
+        if (waveformPending) {
+            waveformPending = false;
+            return output.waveform(waveformEnabled);
+        }
+        if (audioPending) {
+            audioPending = false;
+            return output.audio(audioHeadphones, audioMuted);
+        }
+        byte[] control;
+        synchronized (audioControls) {
+            control = audioControls.pollFirst();
+        }
+        if (control != null) {
+            return output.audioControl(control);
+        }
+        if (triggerSides != 0) {
+            int sides = triggerSides;
+            triggerSides = 0;
+            return output.adaptiveTriggers((byte) sides, triggerTypeLeft, triggerTypeRight, triggerLeft, triggerRight);
+        }
+        if (ledPending) {
+            ledPending = false;
+            return output.led(ledRed, ledGreen, ledBlue);
+        }
+        if (playerPending) {
+            playerPending = false;
+            return output.player(playerNumber);
+        }
+        rumblePending = false;
+        return output.rumble(rumbleLow, rumbleHigh);
     }
 
     private void readInput() {
@@ -192,7 +279,6 @@ public class DualSenseController extends AbstractController {
                     if (audioConn != null && (input.buttons & ControllerPacket.MISC_FLAG) != 0 && (previous.buttons & ControllerPacket.MISC_FLAG) == 0) {
                         audioConn.setMicrophoneMuted(!audioConn.isMicrophoneMuted());
                     }
-                    drainAudioControls();
                     updateAudioState();
                     listener.reportControllerState(getControllerId(), input.buttons,
                             input.leftStickX, input.leftStickY, input.rightStickX, input.rightStickY,
@@ -252,7 +338,13 @@ public class DualSenseController extends AbstractController {
 
     private void setWaveformMode(boolean enabled) {
         synchronized (outputLock) {
-            if (!stopped) writeOutput(output.waveform(enabled));
+            if (!stopped) {
+                waveformEnabled = enabled;
+                waveformPending = true;
+                // Rumble is not sent while waveform playback owns the motors.
+                if (enabled) rumblePending = false;
+                outputLock.notifyAll();
+            }
         }
     }
 
@@ -328,7 +420,12 @@ public class DualSenseController extends AbstractController {
                 lastAudioFlags = flags; audioStatusAt = now;
             }
             synchronized (outputLock) {
-                if (!stopped) writeOutput(output.audio(headphonesConnected, !conn.controllerMicrophoneEnabled() || hostMicMuted));
+                if (!stopped) {
+                    audioHeadphones = headphonesConnected;
+                    audioMuted = !conn.controllerMicrophoneEnabled() || hostMicMuted;
+                    audioPending = true;
+                    outputLock.notifyAll();
+                }
             }
         }
     }
@@ -348,15 +445,10 @@ public class DualSenseController extends AbstractController {
                     if (audioControls.size() == 32) audioControls.removeFirst();
                     audioControls.addLast(payload.clone());
                 }
+                synchronized (outputLock) {
+                    outputLock.notifyAll();
+                }
             }
-        }
-    }
-    private void drainAudioControls() {
-        byte[] control;
-        while (true) {
-            synchronized (audioControls) { control = audioControls.pollFirst(); }
-            if (control == null) return;
-            synchronized (outputLock) { if (!stopped) writeOutput(output.audioControl(control)); }
         }
     }
     @Override
@@ -376,6 +468,7 @@ public class DualSenseController extends AbstractController {
                 return;
             }
             stopped = true;
+            outputLock.notifyAll();
         }
         Thread worker = inputThread;
         if (worker != null) {
@@ -392,15 +485,17 @@ public class DualSenseController extends AbstractController {
     }
 
     private void release() {
-        // The input thread may be updating HID state, so join without holding outputLock.
-        Thread worker = inputThread;
-        if (worker != null) {
-            worker.interrupt();
-            try {
-                // An interrupt cannot end a USB read; it returns within its 1 s timeout.
-                worker.join(1500);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
+        // The worker threads may be using the pad, so join them without holding outputLock.
+        // An interrupt cannot end a USB transfer; a read returns within its 1 s timeout, a write
+        // within 100 ms.
+        for (Thread worker : new Thread[] {inputThread, outputThread}) {
+            if (worker != null) {
+                worker.interrupt();
+                try {
+                    worker.join(1500);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
             }
         }
         DualSenseHaptics playback = haptics;
@@ -424,7 +519,10 @@ public class DualSenseController extends AbstractController {
     public void rumble(short lowFreqMotor, short highFreqMotor) {
         synchronized (outputLock) {
             if (!stopped) {
-                writeOutput(output.rumble(lowFreqMotor, highFreqMotor));
+                rumbleLow = lowFreqMotor;
+                rumbleHigh = highFreqMotor;
+                rumblePending = true;
+                outputLock.notifyAll();
             }
         }
     }
@@ -442,7 +540,24 @@ public class DualSenseController extends AbstractController {
                     triggersReported = true;
                     LimeLog.info("DualSense USB first adaptive-trigger packet received");
                 }
-                writeOutput(output.adaptiveTriggers(eventFlags, typeLeft, typeRight, left, right));
+                int sides = eventFlags & (DualSenseReport.LEFT_TRIGGER | DualSenseReport.RIGHT_TRIGGER);
+                boolean leftValid = left != null && left.length == DualSenseReport.EFFECT_SIZE;
+                boolean rightValid = right != null && right.length == DualSenseReport.EFFECT_SIZE;
+                if (sides == 0 || ((sides & DualSenseReport.LEFT_TRIGGER) != 0 && !leftValid) ||
+                        ((sides & DualSenseReport.RIGHT_TRIGGER) != 0 && !rightValid)) {
+                    return;
+                }
+                // Effects for one trigger replace an earlier unsent one; the other trigger's stay.
+                if ((sides & DualSenseReport.LEFT_TRIGGER) != 0) {
+                    triggerTypeLeft = typeLeft;
+                    System.arraycopy(left, 0, triggerLeft, 0, DualSenseReport.EFFECT_SIZE);
+                }
+                if ((sides & DualSenseReport.RIGHT_TRIGGER) != 0) {
+                    triggerTypeRight = typeRight;
+                    System.arraycopy(right, 0, triggerRight, 0, DualSenseReport.EFFECT_SIZE);
+                }
+                triggerSides |= sides;
+                outputLock.notifyAll();
             }
         }
     }
@@ -451,7 +566,11 @@ public class DualSenseController extends AbstractController {
     public void setLed(byte r, byte g, byte b) {
         synchronized (outputLock) {
             if (!stopped) {
-                writeOutput(output.led(r, g, b));
+                ledRed = r;
+                ledGreen = g;
+                ledBlue = b;
+                ledPending = true;
+                outputLock.notifyAll();
             }
         }
     }
@@ -460,7 +579,9 @@ public class DualSenseController extends AbstractController {
     public void setPlayerNumber(int playerNumber) {
         synchronized (outputLock) {
             if (!stopped) {
-                writeOutput(output.player(playerNumber));
+                this.playerNumber = playerNumber;
+                playerPending = true;
+                outputLock.notifyAll();
             }
         }
     }

@@ -245,10 +245,9 @@ impl<T> Latest<T> {
             return Ok(());
         }
         state.recovery.captured = true;
-        state.cadence.observe(
-            nanos(captured.saturating_duration_since(self.origin)),
-            nanos(now.saturating_duration_since(captured)),
-        );
+        state
+            .cadence
+            .observe(nanos(captured.saturating_duration_since(self.origin)));
         if tracing::enabled!(target: "pacing", tracing::Level::TRACE) {
             let capture_id = state.trace.observe(&image);
             tracing::trace!(
@@ -294,19 +293,6 @@ impl<T> Latest<T> {
             .cadence
             .mean_interval()
             .map(std::time::Duration::from_nanos)
-    }
-    pub(super) fn poll_interval(&self, normal: std::time::Duration) -> std::time::Duration {
-        let state = self.state.lock().unwrap();
-        let Some(captured) = state.captured else {
-            return normal;
-        };
-        let nanos =
-            |duration: std::time::Duration| duration.as_nanos().min(u128::from(u64::MAX)) as u64;
-        std::time::Duration::from_nanos(
-            state
-                .cadence
-                .poll_wait(nanos(captured.elapsed()), nanos(normal)),
-        )
     }
     pub(super) fn fail(&self, error: String) -> Result<()> {
         let mut state = self.state.lock().unwrap();

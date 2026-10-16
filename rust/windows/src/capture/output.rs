@@ -33,13 +33,6 @@ pub(super) struct Description {
     pub metadata: butterpollo_core::hdr::Metadata,
 }
 
-pub(super) fn mode_changed(
-    previous: Option<DXGI_COLOR_SPACE_TYPE>,
-    current: Option<Description>,
-) -> bool {
-    current.is_some_and(|current| Some(current.color_space) != previous)
-}
-
 /// Never use an adapter/output ordinal, primary display or a name alone after
 /// re-enumeration. A removed monitor's name can be reassigned to another one.
 fn selected<T>(
@@ -394,7 +387,6 @@ mod tests {
             cache.source.current = false;
             let current = cache.poll(now + CHECK_INTERVAL).unwrap();
             assert_eq!(current, Some(new));
-            assert!(mode_changed(Some(old.color_space), current));
             assert_eq!(cache.source.enumerations, 1);
         }
     }
@@ -409,10 +401,12 @@ mod tests {
         cache.source.current = false;
         cache.source.candidates = vec![(identity(), Some(new))];
         assert_eq!(cache.metadata(now + CHECK_INTERVAL), new.metadata);
-        assert!(!mode_changed(
-            Some(old.color_space),
-            cache.poll(now + CHECK_INTERVAL).unwrap()
-        ));
+        assert!(
+            cache
+                .poll(now + CHECK_INTERVAL)
+                .unwrap()
+                .is_none_or(|d| d.color_space == old.color_space)
+        );
         assert_eq!(cache.source.enumerations, 1);
     }
 
@@ -491,7 +485,6 @@ mod tests {
         cache.source.candidates = vec![(identity(), Some(old))];
         let current = cache.poll(now + CHECK_INTERVAL).unwrap();
         assert_eq!(current, Some(new));
-        assert!(!mode_changed(Some(new.color_space), current));
         assert_eq!(cache.metadata, new.metadata);
         assert_eq!(cache.source.enumerations, 2 + REFRESH_ATTEMPTS);
         assert_eq!(
@@ -510,13 +503,11 @@ mod tests {
         let now = Instant::now();
         let mut cache = cache(now, None);
         assert_eq!(cache.poll(now).unwrap(), None);
-        assert!(!mode_changed(None, None));
         assert_eq!(cache.metadata(now), Default::default());
         let known = description(true, 850.);
         cache.source.current = false;
         cache.source.candidates = vec![(identity(), Some(known))];
-        let current = cache.poll(now + CHECK_INTERVAL).unwrap();
-        assert!(mode_changed(None, current));
+        assert!(cache.poll(now + CHECK_INTERVAL).unwrap().is_some());
         assert_eq!(cache.metadata(now + CHECK_INTERVAL), known.metadata);
         cache.source.current = false;
         cache.source.candidates = vec![(identity(), None)];

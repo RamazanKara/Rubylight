@@ -1361,17 +1361,18 @@ fn native_h264_one_reference_budget_decodes_without_ltr_corruption() -> Result<(
 #[ignore = "requires a live AMD D3D11 adapter and AMF runtime"]
 fn native_reference_recovery_decodes_after_dropping_the_invalidated_packets() -> Result<()> {
     let _com = crate::capture::ComGuard::new()?;
-    let mut capture = crate::capture::Capture::new_format("", "wgc", false)?;
-    let deadline = Instant::now() + Duration::from_secs(5);
-    let image = loop {
-        if let Some(image) = capture.next_gpu()? {
-            break image;
-        }
-        if Instant::now() > deadline {
-            bail!("capture fixture timed out");
-        }
-        std::thread::sleep(Duration::from_millis(1));
-    };
+    let gpu = crate::capture::Device::new("")?;
+    let image = crate::capture::GpuImage::upload(
+        &gpu,
+        &crate::capture::Image {
+            width: 640,
+            height: 480,
+            stride: 640 * 4,
+            bytes: vec![128; 640 * 480 * 4],
+            captured: Instant::now(),
+            pixel: crate::capture::Pixel::Bgra8,
+        },
+    )?;
     let options = butterpollo_core::config::Config::parse("amd_ltr_frames=4\n")?;
     let mut reports = vec![];
     for codec in 0..3 {

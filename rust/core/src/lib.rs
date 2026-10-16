@@ -58,7 +58,6 @@ pub mod paths;
 pub mod performance;
 pub mod phase_sync;
 pub mod playnite;
-pub mod present_timing;
 pub mod pyrowave;
 pub mod pyrowave_probe;
 pub mod reconfigure;

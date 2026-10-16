@@ -326,69 +326,40 @@ fn compute_conversion_matches_the_graphics_converter() -> Result<()> {
             captured: Instant::now(),
         },
     )?;
-    // Without a pointer, a monochrome (replace and XOR) pointer, and one
-    // hanging off the left edge.
-    let pointer = crate::cursor::Cursor::new(
-        &gpu,
-        &windows::Win32::Graphics::Dxgi::DXGI_OUTDUPL_POINTER_SHAPE_INFO {
-            Type: windows::Win32::Graphics::Dxgi::DXGI_OUTDUPL_POINTER_SHAPE_TYPE_MONOCHROME.0
-                as u32,
-            Width: 4,
-            Height: 2,
-            Pitch: 1,
-            ..Default::default()
-        },
-        &[0b00110000, 0b01010000],
-    )?;
-    let mut placed = pointer.clone();
-    placed.position = [20, 10];
-    let mut clipped = pointer.clone();
-    clipped.position = [-2, 30];
     // The same size, a downscale and a letterboxed shape.
     for (width, height) in [(96, 40), (48, 20), (64, 64)] {
         for (hdr, base) in [(true, &hdr_image), (false, &sdr_image)] {
-            for cursor in [None, Some(&placed), Some(&clipped)] {
-                let mut image = base.clone();
-                image.cursor = cursor.cloned();
-                let image = &image;
-                let config = butterpollo_core::rtsp::Negotiated {
-                    width,
-                    height,
-                    codec: 1,
-                    hdr,
-                    sdr_10bit: !hdr,
-                    ..Default::default()
-                };
-                let mut graphics = Converter::new(&gpu, &config, (96, 40, image.pixel))?;
-                graphics.compute = None;
-                graphics.set_luminance([100., 1.]);
-                let expected = readback(&gpu, graphics.convert(image)?.as_ref())?;
-                let mut converter =
-                    crate::compute::Converter::new(compute.clone(), width, height, true)?;
-                converter.values = constants(
-                    &config,
-                    (image.width, image.height, image.pixel),
-                    [100., 1.],
-                    image.cursor.as_ref(),
+            let image = base;
+            let config = butterpollo_core::rtsp::Negotiated {
+                width,
+                height,
+                codec: 1,
+                hdr,
+                sdr_10bit: !hdr,
+                ..Default::default()
+            };
+            let mut graphics = Converter::new(&gpu, &config, (96, 40, image.pixel))?;
+            graphics.compute = None;
+            graphics.set_luminance([100., 1.]);
+            let expected = readback(&gpu, graphics.convert(image)?.as_ref())?;
+            let mut converter =
+                crate::compute::Converter::new(compute.clone(), width, height, true)?;
+            converter.values = constants(
+                &config,
+                (image.width, image.height, image.pixel),
+                [100., 1.],
+            );
+            let source = compute.open(&image.texture)?;
+            let converted =
+                converter.convert(&source, crate::compute::format(image.pixel), image)?;
+            converted.wait()?;
+            let actual = readback_compute(&compute, &converted.texture)?;
+            assert_eq!(actual.len(), expected.len());
+            for (index, (a, e)) in actual.iter().zip(&expected).enumerate() {
+                assert!(
+                    a.abs_diff(*e) <= 1,
+                    "{width}x{height} hdr {hdr}: value {index} is {a}, the graphics converter gives {e}"
                 );
-                let shape = cursor.map(|c| converter.pointer(c)).transpose()?;
-                let source = compute.open(&image.texture)?;
-                let converted = converter.convert(
-                    &source,
-                    crate::compute::format(image.pixel),
-                    shape.as_ref(),
-                    image,
-                )?;
-                converted.wait()?;
-                let actual = readback_compute(&compute, &converted.texture)?;
-                assert_eq!(actual.len(), expected.len());
-                for (index, (a, e)) in actual.iter().zip(&expected).enumerate() {
-                    assert!(
-                        a.abs_diff(*e) <= 1,
-                        "{width}x{height} hdr {hdr} pointer {:?}: value {index} is {a}, the graphics converter gives {e}",
-                        cursor.map(|c| c.position)
-                    );
-                }
             }
         }
     }
@@ -437,10 +408,6 @@ fn plane_bytes(gpu: &Device, texture: &ID3D11Texture2D) -> Result<Vec<u8>> {
 #[test]
 #[ignore = "requires native D3D11 video UAVs"]
 fn gpu_420_single_pass_matches_pixel_passes() -> Result<()> {
-    use windows::Win32::Graphics::Dxgi::{
-        DXGI_OUTDUPL_POINTER_SHAPE_INFO, DXGI_OUTDUPL_POINTER_SHAPE_TYPE_COLOR,
-        DXGI_OUTDUPL_POINTER_SHAPE_TYPE_MONOCHROME,
-    };
     let _com = ComGuard::new()?;
     let gpu = Device::new("")?;
     let hdr_image = GpuImage::upload(
@@ -474,32 +441,6 @@ fn gpu_420_single_pass_matches_pixel_passes() -> Result<()> {
             captured: Instant::now(),
         },
     )?;
-    let mut pointer = crate::cursor::Cursor::new(
-        &gpu,
-        &DXGI_OUTDUPL_POINTER_SHAPE_INFO {
-            Type: DXGI_OUTDUPL_POINTER_SHAPE_TYPE_MONOCHROME.0 as u32,
-            Width: 4,
-            Height: 2,
-            Pitch: 1,
-            ..Default::default()
-        },
-        &[0b00110000, 0b01010000],
-    )?;
-    pointer.position = [20, 10];
-    let mut clipped = pointer.clone();
-    clipped.position = [-2, 30];
-    let mut color = crate::cursor::Cursor::new(
-        &gpu,
-        &DXGI_OUTDUPL_POINTER_SHAPE_INFO {
-            Type: DXGI_OUTDUPL_POINTER_SHAPE_TYPE_COLOR.0 as u32,
-            Width: 2,
-            Height: 2,
-            Pitch: 8,
-            ..Default::default()
-        },
-        &[0, 0, 255, 255, 0, 128, 0, 128, 255, 0, 0, 255, 0, 0, 0, 0],
-    )?;
-    color.position = [7, 7];
     let mut cases = 0;
     for (width, height) in [(96, 40), (48, 20), (64, 64), (130, 70)] {
         for (hdr, ten_bit, source) in [
@@ -510,63 +451,58 @@ fn gpu_420_single_pass_matches_pixel_passes() -> Result<()> {
             (true, true, &hdr_image),
         ] {
             for csc_mode in [0, 1, 2, 3, 4, 5] {
-                for cursor in [None, Some(&pointer), Some(&clipped), Some(&color)] {
-                    let mut image = source.clone();
-                    image.cursor = cursor.cloned();
-                    let config = butterpollo_core::rtsp::Negotiated {
-                        width,
-                        height,
-                        codec: 1,
-                        hdr,
-                        sdr_10bit: ten_bit && !hdr,
-                        csc_mode,
-                        ..Default::default()
-                    };
-                    let source = (image.width, image.height, image.pixel);
-                    let mut converter = Converter::new(&gpu, &config, source)?;
-                    let output = converter.convert(&image)?;
-                    assert!(
-                        converter.compute.is_some(),
-                        "video UAV conversion is unavailable"
-                    );
-                    let actual = plane_bytes(&gpu, &output)?;
-                    converter.compute = None;
-                    let expected = plane_bytes(&gpu, converter.convert(&image)?.as_ref())?;
-                    assert!(
-                        actual == expected,
-                        "video {width}x{height} hdr {hdr} ten_bit {ten_bit} csc {csc_mode} cursor {:?}: first mismatch {:?}",
-                        cursor.map(|c| c.position),
-                        actual
-                            .iter()
-                            .zip(&expected)
-                            .enumerate()
-                            .find(|(_, (a, b))| a != b)
-                    );
-                    let mut planar = PlanarConverter::new(&gpu, &config, source)?;
-                    assert!(
-                        planar.compute.is_some(),
-                        "planar UAV conversion is unavailable"
-                    );
-                    planar.convert(&image, [100., 1.])?;
-                    let actual = planar
-                        .textures
+                let image = source.clone();
+                let config = butterpollo_core::rtsp::Negotiated {
+                    width,
+                    height,
+                    codec: 1,
+                    hdr,
+                    sdr_10bit: ten_bit && !hdr,
+                    csc_mode,
+                    ..Default::default()
+                };
+                let source = (image.width, image.height, image.pixel);
+                let mut converter = Converter::new(&gpu, &config, source)?;
+                let output = converter.convert(&image)?;
+                assert!(
+                    converter.compute.is_some(),
+                    "video UAV conversion is unavailable"
+                );
+                let actual = plane_bytes(&gpu, &output)?;
+                converter.compute = None;
+                let expected = plane_bytes(&gpu, converter.convert(&image)?.as_ref())?;
+                assert!(
+                    actual == expected,
+                    "video {width}x{height} hdr {hdr} ten_bit {ten_bit} csc {csc_mode}: first mismatch {:?}",
+                    actual
                         .iter()
-                        .map(|p| plane_bytes(&gpu, p))
-                        .collect::<Result<Vec<_>>>()?;
-                    planar.compute = None;
-                    planar.convert(&image, [100., 1.])?;
-                    let expected = planar
-                        .textures
-                        .iter()
-                        .map(|p| plane_bytes(&gpu, p))
-                        .collect::<Result<Vec<_>>>()?;
-                    assert!(
-                        actual == expected,
-                        "planar {width}x{height} hdr {hdr} ten_bit {ten_bit} csc {csc_mode} cursor {:?}",
-                        cursor.map(|c| c.position)
-                    );
-                    cases += 1;
-                }
+                        .zip(&expected)
+                        .enumerate()
+                        .find(|(_, (a, b))| a != b)
+                );
+                let mut planar = PlanarConverter::new(&gpu, &config, source)?;
+                assert!(
+                    planar.compute.is_some(),
+                    "planar UAV conversion is unavailable"
+                );
+                planar.convert(&image, [100., 1.])?;
+                let actual = planar
+                    .textures
+                    .iter()
+                    .map(|p| plane_bytes(&gpu, p))
+                    .collect::<Result<Vec<_>>>()?;
+                planar.compute = None;
+                planar.convert(&image, [100., 1.])?;
+                let expected = planar
+                    .textures
+                    .iter()
+                    .map(|p| plane_bytes(&gpu, p))
+                    .collect::<Result<Vec<_>>>()?;
+                assert!(
+                    actual == expected,
+                    "planar {width}x{height} hdr {hdr} ten_bit {ten_bit} csc {csc_mode}"
+                );
+                cases += 1;
             }
         }
     }
@@ -852,200 +788,114 @@ fn compute_planes_match_the_pyrowave_graphics_planes() -> Result<()> {
             captured: Instant::now(),
         },
     )?;
-    let mut pointer = crate::cursor::Cursor::new(
-        &gpu,
-        &windows::Win32::Graphics::Dxgi::DXGI_OUTDUPL_POINTER_SHAPE_INFO {
-            Type: windows::Win32::Graphics::Dxgi::DXGI_OUTDUPL_POINTER_SHAPE_TYPE_MONOCHROME.0
-                as u32,
-            Width: 4,
-            Height: 2,
-            Pitch: 1,
-            ..Default::default()
-        },
-        &[0b00110000, 0b01010000],
-    )?;
-    pointer.position = [20, 10];
     // SAFETY: `compute.device` is a live D3D12 device.
     let fence: ID3D12Fence = unsafe { compute.device.CreateFence(0, D3D12_FENCE_FLAG_NONE)? };
     let mut value = 0;
     for (width, height) in [(96, 40), (48, 20), (64, 64)] {
         for yuv444 in [true, false] {
             for (hdr, base) in [(true, &hdr_image), (false, &sdr_image)] {
-                for cursor in [None, Some(&pointer)] {
-                    let mut image = base.clone();
-                    image.cursor = cursor.cloned();
-                    let config = butterpollo_core::rtsp::Negotiated {
-                        width,
-                        height,
-                        codec: 3,
-                        hdr,
-                        yuv444,
-                        ..Default::default()
-                    };
-                    let source = (image.width, image.height, image.pixel);
-                    let mut graphics = PlanarConverter::new(&gpu, &config, source)?;
-                    graphics.compute = None;
+                let image = base.clone();
+                let config = butterpollo_core::rtsp::Negotiated {
+                    width,
+                    height,
+                    codec: 3,
+                    hdr,
+                    yuv444,
+                    ..Default::default()
+                };
+                let source = (image.width, image.height, image.pixel);
+                let mut graphics = PlanarConverter::new(&gpu, &config, source)?;
+                graphics.compute = None;
+                graphics.convert(&image, [100., 1.])?;
+                let expected = graphics
+                    .textures
+                    .iter()
+                    .map(|plane| plane_bytes(&gpu, plane))
+                    .collect::<Result<Vec<_>>>()?;
+                if yuv444 {
+                    graphics.combined = None;
                     graphics.convert(&image, [100., 1.])?;
-                    let expected = graphics
-                        .textures
-                        .iter()
-                        .map(|plane| plane_bytes(&gpu, plane))
-                        .collect::<Result<Vec<_>>>()?;
-                    if yuv444 {
-                        graphics.combined = None;
-                        graphics.convert(&image, [100., 1.])?;
-                        for (texture, expected) in graphics.textures.iter().zip(&expected) {
-                            assert_eq!(
-                                &plane_bytes(&gpu, texture)?,
-                                expected,
-                                "MRT and separate graphics passes differ"
-                            );
-                        }
-                    }
-                    // Fresh planes filled with a sentinel, so nothing left
-                    // from the graphics pass can match.
-                    let outputs = PlanarConverter::new(&gpu, &config, source)?;
-                    for plane in &outputs.textures {
-                        let mut desc = D3D11_TEXTURE2D_DESC::default();
-                        // SAFETY: `plane` is a live texture and `desc` a live local.
-                        unsafe { plane.GetDesc(&mut desc) };
-                        let pitch = desc.Width * if config.ten_bit() { 2 } else { 1 };
-                        let fill = vec![0xab_u8; (pitch * desc.Height) as usize];
-                        // SAFETY: `fill` holds `pitch * Height` bytes, exactly one plane at the
-                        // pitch passed.
-                        unsafe {
-                            gpu.context.UpdateSubresource(
-                                plane.as_ref(),
-                                0,
-                                None,
-                                fill.as_ptr().cast(),
-                                pitch,
-                                0,
-                            );
-                            gpu.context.Flush();
-                        }
-                    }
-                    let mut converter = crate::compute::Converter::new(
-                        compute.clone(),
-                        width,
-                        height,
-                        config.ten_bit(),
-                    )?;
-                    converter.values = constants(&config, source, [100., 1.], cursor);
-                    converter.values[11] = u32::from(yuv444);
-                    let shape = cursor.map(|c| converter.pointer(c)).transpose()?;
-                    let planes = crate::compute::Planes {
-                        planes: [
-                            compute.open(&outputs.textures[0])?,
-                            compute.open(&outputs.textures[1])?,
-                            compute.open(&outputs.textures[2])?,
-                        ],
-                        format: if config.ten_bit() {
-                            DXGI_FORMAT_R16_UNORM
-                        } else {
-                            DXGI_FORMAT_R8_UNORM
-                        },
-                        fence: fence.clone(),
-                        after: value,
-                        done: value + 1,
-                    };
-                    value += 1;
-                    converter.convert_planes(
-                        &compute.open(&image.texture)?,
-                        crate::compute::format(image.pixel),
-                        shape.as_ref(),
-                        None,
-                        &planes,
-                    )?;
-                    let deadline = Instant::now() + std::time::Duration::from_secs(2);
-                    // SAFETY: `fence` is a live D3D12 fence.
-                    while unsafe { fence.GetCompletedValue() } < value {
-                        assert!(
-                            Instant::now() < deadline,
-                            "the compute conversion did not finish"
-                        );
-                        std::thread::yield_now();
-                    }
-                    for (plane, (texture, expected)) in
-                        outputs.textures.iter().zip(&expected).enumerate()
-                    {
+                    for (texture, expected) in graphics.textures.iter().zip(&expected) {
                         assert_eq!(
                             &plane_bytes(&gpu, texture)?,
                             expected,
-                            "{width}x{height} 4:4:4 {yuv444} hdr {hdr} pointer {}: plane {plane}",
-                            cursor.is_some()
+                            "MRT and separate graphics passes differ"
                         );
                     }
                 }
+                // Fresh planes filled with a sentinel, so nothing left
+                // from the graphics pass can match.
+                let outputs = PlanarConverter::new(&gpu, &config, source)?;
+                for plane in &outputs.textures {
+                    let mut desc = D3D11_TEXTURE2D_DESC::default();
+                    // SAFETY: `plane` is a live texture and `desc` a live local.
+                    unsafe { plane.GetDesc(&mut desc) };
+                    let pitch = desc.Width * if config.ten_bit() { 2 } else { 1 };
+                    let fill = vec![0xab_u8; (pitch * desc.Height) as usize];
+                    // SAFETY: `fill` holds `pitch * Height` bytes, exactly one plane at the
+                    // pitch passed.
+                    unsafe {
+                        gpu.context.UpdateSubresource(
+                            plane.as_ref(),
+                            0,
+                            None,
+                            fill.as_ptr().cast(),
+                            pitch,
+                            0,
+                        );
+                        gpu.context.Flush();
+                    }
+                }
+                let mut converter = crate::compute::Converter::new(
+                    compute.clone(),
+                    width,
+                    height,
+                    config.ten_bit(),
+                )?;
+                converter.values = constants(&config, source, [100., 1.]);
+                converter.values[11] = u32::from(yuv444);
+                let planes = crate::compute::Planes {
+                    planes: [
+                        compute.open(&outputs.textures[0])?,
+                        compute.open(&outputs.textures[1])?,
+                        compute.open(&outputs.textures[2])?,
+                    ],
+                    format: if config.ten_bit() {
+                        DXGI_FORMAT_R16_UNORM
+                    } else {
+                        DXGI_FORMAT_R8_UNORM
+                    },
+                    fence: fence.clone(),
+                    after: value,
+                    done: value + 1,
+                };
+                value += 1;
+                converter.convert_planes(
+                    &compute.open(&image.texture)?,
+                    crate::compute::format(image.pixel),
+                    None,
+                    &planes,
+                )?;
+                let deadline = Instant::now() + std::time::Duration::from_secs(2);
+                // SAFETY: `fence` is a live D3D12 fence.
+                while unsafe { fence.GetCompletedValue() } < value {
+                    assert!(
+                        Instant::now() < deadline,
+                        "the compute conversion did not finish"
+                    );
+                    std::thread::yield_now();
+                }
+                for (plane, (texture, expected)) in
+                    outputs.textures.iter().zip(&expected).enumerate()
+                {
+                    assert_eq!(
+                        &plane_bytes(&gpu, texture)?,
+                        expected,
+                        "{width}x{height} 4:4:4 {yuv444} hdr {hdr}: plane {plane}"
+                    );
+                }
             }
         }
-    }
-    Ok(())
-}
-#[test]
-#[ignore = "requires native D3D11 P010 conversion"]
-fn gpu_desktop_pointer_matches_cpu_composition_for_sdr_and_hdr() -> Result<()> {
-    use windows::Win32::Graphics::Dxgi::{
-        DXGI_OUTDUPL_POINTER_SHAPE_INFO, DXGI_OUTDUPL_POINTER_SHAPE_TYPE_MONOCHROME,
-    };
-    let _com = ComGuard::new()?;
-    let gpu = Device::new("")?;
-    let shape = DXGI_OUTDUPL_POINTER_SHAPE_INFO {
-        Type: DXGI_OUTDUPL_POINTER_SHAPE_TYPE_MONOCHROME.0 as u32,
-        Width: 4,
-        Height: 2,
-        Pitch: 1,
-        ..Default::default()
-    };
-    let pointer = crate::cursor::Cursor::new(&gpu, &shape, &[0b00110000, 0b01010000])?;
-    for pixel in [Pixel::Bgra8, Pixel::RgbaF16, Pixel::Rgba10Pq] {
-        let mut source = if pixel == Pixel::RgbaF16 {
-            make_image(&[[0.; 3]], 64, 64)
-        } else {
-            Image {
-                width: 64,
-                height: 64,
-                stride: 256,
-                bytes: vec![0; 64 * 256],
-                pixel,
-                captured: Instant::now(),
-            }
-        };
-        let mut image = GpuImage::upload(&gpu, &source)?;
-        image.cursor = Some(pointer.clone());
-        pointer.blend(&mut source);
-        let cpu_composited = GpuImage::upload(&gpu, &source)?;
-        let config = butterpollo_core::rtsp::Negotiated {
-            width: 64,
-            height: 64,
-            codec: 1,
-            hdr: pixel != Pixel::Bgra8,
-            sdr_10bit: pixel == Pixel::Bgra8,
-            ..Default::default()
-        };
-        let mut converter = Converter::new(&gpu, &config, (64, 64, pixel))?;
-        let actual = readback(&gpu, converter.convert(&image)?.as_ref())?;
-        let expected = readback(&gpu, converter.convert(&cpu_composited)?.as_ref())?;
-        for (a, e) in actual.iter().zip(&expected) {
-            assert!(a.abs_diff(*e) <= 2, "pointer {pixel:?}: {a} versus {e}");
-        }
-        assert!(
-            actual[1] > actual[0] + 300,
-            "white replacement was not rendered"
-        );
-        assert!(actual[3] > actual[2] + 300, "XOR pointer was not rendered");
-        // Removing or moving a cursor must not retain the previous constants.
-        image.cursor.as_mut().unwrap().position = [-1, 1];
-        let shifted = readback(&gpu, converter.convert(&image)?.as_ref())?;
-        assert!(shifted[64] > shifted[0] + 300);
-        image.cursor = None;
-        let absent = readback(&gpu, converter.convert(&image)?.as_ref())?;
-        assert!(
-            absent
-                .iter()
-                .take(4096)
-                .all(|value| value.abs_diff(64) <= 1)
-        );
     }
     Ok(())
 }
@@ -1115,11 +965,9 @@ fn hdr_full_and_limited_range_match_absolute_pq_on_both_gpu_paths() -> Result<()
             &config,
             (image.width, image.height, image.pixel),
             [100., 1.],
-            None,
         );
         let opened = compute.open(&source.texture)?;
-        let converted =
-            converter.convert(&opened, crate::compute::format(image.pixel), None, &source)?;
+        let converted = converter.convert(&opened, crate::compute::format(image.pixel), &source)?;
         converted.wait()?;
         let compute_pixels = readback_compute(&compute, &converted.texture)?;
         for (path, pixels) in [("D3D11", graphics_pixels), ("D3D12", compute_pixels)] {

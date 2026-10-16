@@ -107,7 +107,6 @@ impl Slot {
 /// continues their frame, packet and IV numbering and their pacing.
 pub struct Handoff {
     pub packetizer: VideoPacketizer,
-    pub present_stamper: Option<butterpollo_windows::present_timing::Stamper>,
     pub last_stamp: Instant,
     pub pacing_due: Instant,
     pub send_loss: butterpollo_core::stream_policy::SendLossRecovery,
@@ -127,7 +126,6 @@ impl Sender {
     ) -> Result<Self> {
         let Handoff {
             mut packetizer,
-            mut present_stamper,
             mut last_stamp,
             pacing_due,
             mut send_loss,
@@ -168,7 +166,7 @@ impl Sender {
                 // tick, to its packetizer thread). Present to sent covers the
                 // whole span.
                 let processing = micros(dequeued.saturating_duration_since(claim.map_or(claimed, |c| c.claimed)));
-                let stamp = present_stamper.as_mut().map_or(captured, |stamper| stamper.stamp(captured, &s.output.read().unwrap())).max(last_stamp + Duration::from_nanos(11_112));
+                let stamp = captured.max(last_stamp + Duration::from_nanos(11_112));
                 last_stamp = stamp;
                 // Wrap like the previous host; a saturating cast
                 // froze the clock after 13.25 hours.

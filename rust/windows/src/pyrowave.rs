@@ -247,16 +247,10 @@ impl ComputePlanes {
         done: u64,
     ) -> Result<()> {
         let texture = self.converter.compute().open(&image.texture)?;
-        let pointer = image
-            .cursor
-            .as_ref()
-            .map(|cursor| self.converter.pointer(cursor))
-            .transpose()?;
         self.converter.values = crate::gpu_color::constants(
             config,
             (image.width, image.height, image.pixel),
             luminance,
-            image.cursor.as_ref(),
         );
         self.converter.values[11] = u32::from(config.yuv444);
         self.target.after = after;
@@ -264,7 +258,6 @@ impl ComputePlanes {
         self.converter.convert_planes(
             &texture,
             crate::compute::format(image.pixel),
-            pointer.as_ref(),
             image.ready.as_ref(),
             &self.target,
         )

@@ -2,23 +2,18 @@
 //!
 //! The driver copies every frame Windows composes for its monitor into textures this session
 //! creates and shares with it, stamps the frame's present QPC beside it and sets an event
-//! (`rubylight_vdisplay_proto::ring`). No WGC and no Desktop Duplication run: a frame is one
-//! GPU copy in the driver.
+//! (`rubylight_vdisplay_proto::ring`). A frame is one GPU copy in the driver.
 //!
 //! The ring is a fence ring once the driver reports `CAP_FENCE_RING`: its textures and fences
 //! are created on the capture GPU's D3D12 compute device. On AMD the compute conversion reads
 //! the ring texture in place, waiting on the GPU for the driver's written fence, and the
 //! compute queue signals the released fence once the conversion is done; no D3D11 work runs
-//! for it. Elsewhere (and with `idd_push_zero_copy = false`) the capture's D3D11 device waits
-//! for the written fence, copies the texture into the owned pool as every other capture's
-//! frames are, and signals the released fence after its copy.
+//! for it. With `idd_push_zero_copy = false` the capture's D3D11 device waits for the written
+//! fence, copies the texture into the owned pool, and signals the released fence after its
+//! copy.
 //!
 //! A driver without `CAP_FENCE_RING` is one an update installed that runs only after Windows
 //! restarts; streams are refused until then ([`crate::display::DriverRestartRequired`]).
-//!
-//! It runs for every automatic capture of a display this host created, and for
-//! `capture = idd-push`; physical displays, and `capture = wgc` or `ddx`, keep WGC or Desktop
-//! Duplication.
 
 use super::*;
 use crate::display::rubylight_vdd::{Control, Owned, Remote, owned_display};
@@ -49,9 +44,6 @@ const FIRST_FRAME_TIMEOUT: Duration = Duration::from_secs(10);
 /// How often the driver's frame counters are logged (`idd_push=debug`).
 const COUNTERS_EVERY: Duration = Duration::from_secs(5);
 
-/// Rings of one monitor that may fail before their first frame before its captures use WGC.
-const FAILURES_BEFORE_WGC: u32 = 2;
-
 /// The monitors this process captures from. The driver keeps one ring per monitor, so a
 /// second capture registering its own would take the frames from the first.
 static CAPTURING: Mutex<Vec<u64>> = Mutex::new(Vec::new());
@@ -76,72 +68,12 @@ impl Drop for Exclusive {
     }
 }
 
-/// Monitors whose rings failed before delivering a frame, on which adapter, and how often.
-/// A failure the driver reports after the ring was accepted (textures that do not open, a
-/// surface that never settles, no frame at all) would repeat on every reopen, so after
-/// [`FAILURES_BEFORE_WGC`] the monitor's captures use WGC until it renders on another adapter
-/// or a ring delivers a frame. A new monitor has a new session id and starts clean.
-#[derive(Default)]
-struct Failures(Vec<(u64, (u32, i32), u32)>);
-
-impl Failures {
-    fn failed(&mut self, session_id: u64, adapter: (u32, i32)) -> u32 {
-        match self.0.iter_mut().find(|(id, _, _)| *id == session_id) {
-            Some((_, at, count)) if *at == adapter => {
-                *count += 1;
-                *count
-            }
-            Some(entry) => {
-                *entry = (session_id, adapter, 1);
-                1
-            }
-            None => {
-                self.0.push((session_id, adapter, 1));
-                1
-            }
-        }
-    }
-
-    fn delivered(&mut self, session_id: u64) {
-        self.0.retain(|(id, _, _)| *id != session_id);
-    }
-
-    /// The failures that send this monitor's captures to WGC on `adapter`, if it has them.
-    fn excluded(&self, session_id: u64, adapter: (u32, i32)) -> Option<u32> {
-        self.0
-            .iter()
-            .find(|(id, at, count)| {
-                *id == session_id && *at == adapter && *count >= FAILURES_BEFORE_WGC
-            })
-            .map(|(_, _, count)| *count)
-    }
-}
-
-static FAILURES: Mutex<Failures> = Mutex::new(Failures(Vec::new()));
-
 /// Microseconds from QPC `from` to `to`, zero when `to` is earlier or either is missing.
 fn qpc_micros(from: u64, to: u64, frequency: i64) -> u64 {
     if from == 0 || to <= from || frequency <= 0 {
         return 0;
     }
     ((to - from) as u128 * 1_000_000 / frequency as u128) as u64
-}
-
-/// Whether this capture should come from the driver: asked for by name, or automatic on a
-/// display this host created. `capture = wgc` or `ddx` keeps those.
-pub(super) fn wanted(kind: &str, capture_setting: &str, own_display: bool) -> bool {
-    kind == "idd-push" || (matches!(capture_setting.trim(), "" | "auto") && own_display)
-}
-
-/// [`wanted`] for a stream on display `name`; the display lookup runs only when it decides.
-pub(super) fn wanted_for(
-    name: &str,
-    kind: &str,
-    config: &butterpollo_core::config::Config,
-) -> bool {
-    let setting = config.get("capture", "auto");
-    wanted(kind, setting, false)
-        || (wanted(kind, setting, true) && matches!(owned_display(name), Ok(Some(_))))
 }
 
 /// The ring to open: the surface the driver last composed when it reported one, otherwise
@@ -186,8 +118,8 @@ fn verdict(status: (u32, u32), surface: (u32, u32, u32), started: bool) -> Verdi
         ring::STATUS_SIZE_MISMATCH | ring::STATUS_FORMAT_MISMATCH => {
             let (width, height, format) = surface;
             if started {
-                // As with WGC, a size or colour-space change reopens the capture, so the
-                // encoder is rebuilt for it.
+                // A size or colour-space change reopens the capture, so the encoder is
+                // rebuilt for it.
                 Verdict::Fail(format!(
                     "the Rubylight display changed to {width}x{height} format {format}"
                 ))
@@ -540,7 +472,7 @@ impl Session {
             format!("{name} is not a display this host created with the Rubylight display driver")
         })?;
         let exclusive = Exclusive::claim(monitor.session_id).with_context(|| {
-            format!("another stream with different capture settings already captures {name} from the Rubylight display driver")
+            format!("{name} is already captured by another capture of this host")
         })?;
         let control = Control::open()?;
         crate::display::fence_ring(control.info.caps)?;
@@ -563,15 +495,6 @@ impl Session {
                 render.0,
                 adapter.1,
                 adapter.0
-            );
-        }
-        if let Some(failures) = FAILURES
-            .lock()
-            .unwrap()
-            .excluded(monitor.session_id, adapter)
-        {
-            bail!(
-                "its frame ring failed {failures} times before delivering a frame; capturing with WGC until the display is recreated or renders on another GPU"
             );
         }
         if let Err(error) = crate::gpu_priority::configure(&gpu, config) {
@@ -776,21 +699,12 @@ impl Session {
         let now = Instant::now();
         if now >= self.next_check {
             self.next_check = now + Duration::from_millis(100);
-            if let Err(error) = self.check() {
-                if !self.started && crate::device_loss::DeviceLost::from_error(&error).is_none() {
-                    let failures = FAILURES
-                        .lock()
-                        .unwrap()
-                        .failed(self.monitor.session_id, self.adapter);
-                    tracing::warn!(error = %format!("{error:#}"), failures, "the Rubylight frame ring failed before its first frame");
-                }
-                return Err(error);
-            }
+            self.check()?;
         }
         let Some((frame, mut image)) = self.take_newest()? else {
             return Ok(None);
         };
-        (image.captured, image.wgc_stamp) =
+        (image.captured, image.present_stamp) =
             qpc_timestamps(frame.presented().min(i64::MAX as u64) as i64);
         Ok(Some(image))
     }
@@ -802,9 +716,6 @@ impl Session {
             .section
             .header()
             .set_consumed(self.consumer.last());
-        if !self.started {
-            FAILURES.lock().unwrap().delivered(self.monitor.session_id);
-        }
         self.started = true;
         let frequency = qpc_frequency();
         tracing::trace!(
@@ -850,7 +761,7 @@ impl Session {
             };
             let ready =
                 crate::compute::Ready::on(&fences.compute, fences.written.clone(), u64::from(seq));
-            let image = lend_fenced(&self.gpu, &slot.texture, index, lent, ready)?;
+            let image = lend_fenced(&self.gpu, &slot.texture, lent, ready)?;
             return Ok(Some((self.finish(&meta, taken), image)));
         }
         // SAFETY: the fence is opened on this context's device, which is multithread-protected.
@@ -890,40 +801,29 @@ fn pixel_of(texture: &ID3D11Texture2D) -> Result<(D3D11_TEXTURE2D_DESC, Pixel)> 
     Ok((desc, pixel))
 }
 
-fn in_place(
-    gpu: &Device,
-    texture: &ID3D11Texture2D,
-    ready: crate::compute::Ready,
-    lease: bridge::Lease,
-) -> Result<GpuImage> {
-    let (desc, pixel) = pixel_of(texture)?;
-    let now = Instant::now();
-    Ok(GpuImage {
-        cursor: None,
-        width: desc.Width,
-        height: desc.Height,
-        pixel,
-        captured: now,
-        wgc_stamp: None,
-        acquired: now,
-        published: now,
-        gpu: gpu.clone(),
-        texture: Arc::new(texture.clone()),
-        ready: Some(ready),
-        lease: Some(Arc::new(lease)),
-    })
-}
-
 /// An image of fence-ring texture `index`, read in place: the slot stays `Reading` until the
 /// image's last clone drops `lent`. Compute work waits for `ready`, the driver's written fence.
 fn lend_fenced(
     gpu: &Device,
     texture: &ID3D11Texture2D,
-    index: usize,
     lent: Lent,
     ready: crate::compute::Ready,
 ) -> Result<GpuImage> {
-    in_place(gpu, texture, ready, bridge::Lease::fenced(index, lent))
+    let (desc, pixel) = pixel_of(texture)?;
+    let now = Instant::now();
+    Ok(GpuImage {
+        width: desc.Width,
+        height: desc.Height,
+        pixel,
+        captured: now,
+        present_stamp: None,
+        acquired: now,
+        published: now,
+        gpu: gpu.clone(),
+        texture: Arc::new(texture.clone()),
+        ready: Some(ready),
+        lease: Some(Arc::new(lent)),
+    })
 }
 
 impl Drop for Session {
@@ -963,41 +863,6 @@ mod tests {
         drop(first);
         assert!(Exclusive::claim(u64::MAX - 1).is_some(), "released on drop");
         drop(other);
-    }
-
-    #[test]
-    fn rings_that_keep_failing_before_a_frame_send_the_monitor_to_wgc() {
-        let mut failures = Failures::default();
-        let gpu = (7, 0);
-        assert_eq!(failures.failed(1, gpu), 1);
-        assert_eq!(failures.excluded(1, gpu), None, "the first failure retries");
-        assert_eq!(failures.failed(1, gpu), FAILURES_BEFORE_WGC);
-        assert_eq!(failures.excluded(1, gpu), Some(FAILURES_BEFORE_WGC));
-        assert_eq!(failures.excluded(2, gpu), None, "another monitor");
-        assert_eq!(failures.excluded(1, (8, 0)), None, "another GPU retries");
-        // Failing on another GPU starts the count again.
-        assert_eq!(failures.failed(1, (8, 0)), 1);
-        assert_eq!(failures.excluded(1, gpu), None);
-        failures.failed(1, (8, 0));
-        assert!(failures.excluded(1, (8, 0)).is_some());
-        failures.delivered(1);
-        assert_eq!(
-            failures.excluded(1, (8, 0)),
-            None,
-            "a delivered frame clears it"
-        );
-    }
-
-    #[test]
-    fn idd_push_runs_when_asked_or_on_the_hosts_own_display_in_auto() {
-        assert!(wanted("idd-push", "wgc", false));
-        assert!(wanted("wgc", "auto", true));
-        assert!(wanted("wgc", "", true));
-        // A physical display, or a display another program created.
-        assert!(!wanted("wgc", "auto", false));
-        // An explicit WGC or DDX choice is kept.
-        assert!(!wanted("wgc", "wgc", true));
-        assert!(!wanted("ddx", "ddx", true));
     }
 
     #[test]
@@ -1250,11 +1115,11 @@ mod tests {
                     };
                     let ready =
                         crate::compute::Ready::on(&compute, fences.written.clone(), u64::from(seq));
-                    let image = lend_fenced(&gpu, &ring.slots[index].texture, index, lent, ready)?;
+                    let image = lend_fenced(&gpu, &ring.slots[index].texture, lent, ready)?;
                     // The compute conversion waits for the driver's copy on the GPU.
                     let opened = compute.open(&image.texture)?;
                     converter
-                        .convert(&opened, DXGI_FORMAT_B8G8R8A8_UNORM, None, &image)?
+                        .convert(&opened, DXGI_FORMAT_B8G8R8A8_UNORM, &image)?
                         .wait()?;
                     anyhow::ensure!(
                         matches!(header.slot_state(index), ring::SlotState::Reading { .. }),

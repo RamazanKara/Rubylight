@@ -1,12 +1,10 @@
 
 Texture2D<float4> source : register(t0);
-Texture2D<float4> pointer : register(t1);
 cbuffer Config : register(b0) {
     uint2 sourceSize; uint2 targetSize;
     uint pixel; uint hdr; uint colorMatrix; uint fullRange;
     uint tenBit; float sdrWhiteScale; float hdrScale; uint padding;
-    int2 pointerPosition; uint2 pointerSize;
-    uint pointerMode; uint3 pointerPadding;
+    uint4 reserved[2];
 };
 float4 vertex(uint id : SV_VertexID) : SV_Position {
     float2 p = float2((id << 1) & 2, id & 2);
@@ -28,36 +26,9 @@ float3 depq(float3 rgb) {
     float3 p = pow(clamp(rgb, 0, 1), 32.0 / 2523.0);
     return pow(max(p - 3424.0 / 4096.0, 0) / max(2413.0 / 128.0 - 2392.0 / 128.0 * p, 0.000001), 16384.0 / 2610.0);
 }
-float3 pointer_srgb(float3 rgb) {
-    if (pixel == 1) return saturate(gamma(rgb / sdrWhiteScale));
-    if (pixel == 2) {
-        float3 r = depq(rgb) * 125.0 / sdrWhiteScale;
-        return saturate(gamma(float3(dot(r, float3(1.660491,-0.587641,-0.072850)),
-                                     dot(r, float3(-0.124550,1.132900,-0.008349)),
-                                     dot(r, float3(-0.018151,-0.100579,1.118730)))));
-    }
-    return rgb;
-}
-float3 pointer_source(float3 rgb) {
-    if (pixel == 1) return srgb_linear(rgb) * sdrWhiteScale;
-    if (pixel == 2) return pq(gamut2020(srgb_linear(rgb)) * sdrWhiteScale / 125.0);
-    return rgb;
-}
 float3 load(int2 p) {
     p = clamp(p, int2(0, 0), int2(sourceSize) - 1);
     float3 rgb = source.Load(int3(p, 0)).rgb;
-    int2 at = p - pointerPosition;
-    if (pointerMode != 0 && all(at >= 0) && all(at < int2(pointerSize))) {
-        float4 c = pointer.Load(int3(at, 0));
-        if (pointerMode == 2 && c.a > 0.25 && c.a < 0.75) {
-            uint3 bits = uint3(round(saturate(pointer_srgb(rgb)) * 255)) ^ uint3(round(c.rgb * 255));
-            rgb = pointer_source(float3(bits) / 255);
-        } else if (pixel == 2) {
-            rgb = pq(lerp(depq(rgb), gamut2020(srgb_linear(c.rgb)) * sdrWhiteScale / 125.0, c.a));
-        } else {
-            rgb = lerp(rgb, pointer_source(c.rgb), c.a);
-        }
-    }
     if (hdr != 0 && pixel == 0) {
         rgb = srgb_linear(rgb);
         rgb *= sdrWhiteScale;

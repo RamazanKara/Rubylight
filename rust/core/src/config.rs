@@ -101,6 +101,8 @@ pub const HARDWARE_METRICS: &[&str] = &[
 /// under both names.
 pub const RENAMED_KEYS: &[(&str, &str)] = &[
     ("rtss_path", "rtss_install_path"),
+    // Smooths the stream's pacing whatever captures it.
+    ("wgc_pacing_smoothing", "frame_pacing_smoothing"),
     (
         "dd_vdd_static_monitor_count",
         "dd_virtual_display_permanent_count",
@@ -1412,7 +1414,7 @@ mod tests {
     }
     /// A Vibepollo or Rubylight 2.0 file with every setting under its
     /// earlier name, a setting this host does not know, and a comment.
-    const EARLIER_NAMES: &str = "# Vibepollo\nrtss_path = D:\\Tools\\RTSS\ndd_vdd_static_monitor_count = \"2\"\nrtx_hdr_peak_brightness = 1400\nport = 48123\nfuture_setting = kept\n";
+    const EARLIER_NAMES: &str = "# Vibepollo\nrtss_path = D:\\Tools\\RTSS\ndd_vdd_static_monitor_count = \"2\"\nrtx_hdr_peak_brightness = 1400\nwgc_pacing_smoothing = false\nport = 48123\nfuture_setting = kept\n";
     #[test]
     fn settings_under_an_earlier_name_are_read_under_the_current_one() {
         let c = Config::parse(EARLIER_NAMES).unwrap();
@@ -1421,6 +1423,7 @@ mod tests {
         assert_eq!(c.get("rtss_install_path", ""), "D:\\Tools\\RTSS");
         assert_eq!(c.integer("dd_virtual_display_permanent_count", -1), 2);
         assert_eq!(c.integer("hdr_peak_brightness", 0), 1400);
+        assert!(!c.boolean("frame_pacing_smoothing", true));
         for (old, _) in RENAMED_KEYS {
             assert!(!c.values.contains_key(*old), "{old}");
         }

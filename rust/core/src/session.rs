@@ -142,14 +142,14 @@ mod tests {
         *session.encoder.write().unwrap() = "amf".into();
         let capture = Arc::new(Warnings::default());
         *session.capture_warnings.write().unwrap() = capture.clone();
-        capture.set("capture", "Desktop Duplication in use");
+        capture.set("capture", "Capture interrupted");
         launch.warnings.set("display", "Physical display in use");
         assert_eq!(session.info()["encoder"], "amf");
         assert_eq!(
             session.info()["warnings"],
             serde_json::json!([
                 {"code":"display", "message":"Physical display in use"},
-                {"code":"capture", "message":"Desktop Duplication in use"}
+                {"code":"capture", "message":"Capture interrupted"}
             ])
         );
         capture.set("capture", "Capture recovering");

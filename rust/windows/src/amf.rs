@@ -1396,24 +1396,12 @@ impl Encoder {
         let (surface, converted) = if let Some(input) = self.compute.as_mut() {
             let compute = input.converter.compute().clone();
             let texture = timed("compute open", || compute.open(&image.texture))?;
-            let pointer = image
-                .cursor
-                .as_ref()
-                .map(|cursor| input.converter.pointer(cursor))
-                .transpose()?;
-            input.converter.values = crate::gpu_color::constants(
-                &self.config,
-                source,
-                self.luminance,
-                image.cursor.as_ref(),
-            );
+            input.converter.values =
+                crate::gpu_color::constants(&self.config, source, self.luminance);
             let converted = timed("compute conversion", || {
-                input.converter.convert(
-                    &texture,
-                    crate::compute::format(image.pixel),
-                    pointer.as_ref(),
-                    image,
-                )
+                input
+                    .converter
+                    .convert(&texture, crate::compute::format(image.pixel), image)
             })?;
             timed("conversion fence wait", || {
                 gpu::synchronize(&converted.texture, &converted.fence, converted.value)

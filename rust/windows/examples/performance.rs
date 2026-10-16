@@ -1,15 +1,10 @@
 //! Repeat-frame encoder throughput excludes capture, network, and decoding.
-#[cfg(windows)]
-mod support;
 #[cfg(not(windows))]
 fn main() {
     eprintln!("This probe requires Windows.");
 }
 #[cfg(windows)]
 fn main() -> anyhow::Result<()> {
-    if let Some(result) = support::wgc_worker() {
-        return result;
-    }
     use anyhow::{Context, bail};
     use butterpollo_core::rtsp::Negotiated;
     use butterpollo_windows::{
@@ -35,9 +30,9 @@ fn main() -> anyhow::Result<()> {
         if matches!(key.as_str(), "--help" | "-h") {
             println!(
                 "Rubylight encoder performance probe\n\
-Repeat-frame throughput excludes capture, network, decoding and display latency.\n\
+Repeat-frame throughput excludes capture, network, decoding and display latency. Without --synthetic the probe captures a virtual display it creates at the stream mode (run it as the service would, as LocalSystem).\n\
 --width 1920 --height 1080 --fps 120 --seconds 8 --bitrate 20000\n\
---codec hevc (h264/hevc/av1/pyrowave) --capture wgc --display NAME\n\
+--codec hevc (h264/hevc/av1/pyrowave) --display NAME: the GPU of a display for --synthetic\n\
 --synthetic 16: moving pictures; --idr-interval N: request a recovery keyframe every N measured submissions (0: none)\n\
 --hdr: HDR10 output; --sdr-10bit; --yuv444; --slices N: slices (AV1 tiles) a client asks for; --intra-refresh; --records: PyroWave record framing; --cpu: CPU conversion/readback path; --paced: requested frame cadence; --live-capture: keep the shared capture device active; --arrival: with --live-capture, encode each new picture as it arrives"
             );
@@ -67,7 +62,6 @@ Repeat-frame throughput excludes capture, network, decoding and display latency.
                 | "--bitrate"
                 | "--codec"
                 | "--display"
-                | "--capture"
                 | "--config"
                 | "--synthetic"
                 | "--slices"
@@ -147,16 +141,22 @@ Repeat-frame throughput excludes capture, network, decoding and display latency.
             }
             None => vec![],
         };
-    let mut capture = if synthetic.is_empty() {
-        Some(Capture::new_options(
-            &option("--display", ""),
-            &option("--capture", "wgc"),
-            config.hdr,
-            &tuning,
-        )?)
-    } else {
-        None
-    };
+    // Captures come from a virtual display this process created.
+    let display = synthetic
+        .is_empty()
+        .then(|| {
+            butterpollo_windows::display::VirtualDisplay::create(
+                "rubylight-performance-probe",
+                config.width,
+                config.height,
+                config.fps,
+            )
+        })
+        .transpose()?;
+    let mut capture = display
+        .as_ref()
+        .map(|display| Capture::open(&display.name, config.hdr, &tuning, Default::default()))
+        .transpose()?;
     let capture_backend = capture.as_ref().map_or("synthetic", |c| c.backend());
     let timeout = Instant::now() + Duration::from_secs(10);
     let image = match capture.as_mut() {

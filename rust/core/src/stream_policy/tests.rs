@@ -608,7 +608,7 @@ fn repeat_grace_handles_fractional_rates_without_delaying_slow_sources() {
     }
 }
 #[test]
-fn repeat_grace_protects_ddx_and_vrr_without_predicting_fresh_claims() {
+fn repeat_grace_protects_unphased_sources_and_vrr_without_predicting_fresh_claims() {
     let start = Instant::now();
     let period = Duration::from_millis(16);
     let due = start + period;
@@ -1448,9 +1448,9 @@ fn warp_requests_at_the_clients_bitrate_fit_a_100_mbps_client_port() {
     assert!(overloaded.unrecoverable_frames > 540, "{overloaded:?}");
     assert!(overloaded.standing_queue > Duration::from_millis(75));
 }
-/// Claims (ms, true present ms) for a source pacing on the given stamps, as
-/// the host paces WGC: `arrival` stamps each frame when it was detected, as
-/// `qpc_timestamps_at` does for the many WGC stamps still in the future.
+/// Claims (ms, true present ms) for a source pacing on the given stamps:
+/// `arrival` stamps each frame when it was detected, as `qpc_timestamps_at`
+/// does for stamps still in the future.
 fn simulate_stamped(period: f64, interval: f64, seconds: f64, arrival: bool) -> Vec<(f64, f64)> {
     let start = Instant::now();
     let at = |ms: f64| start + Duration::from_secs_f64(ms / 1000.);
@@ -1467,7 +1467,7 @@ fn simulate_stamped(period: f64, interval: f64, seconds: f64, arrival: bool) -> 
         (seed >> 11) as f64 / (1u64 << 53) as f64
     };
     let present = source(interval, seconds, |_| 0.);
-    // Detected 0.1-1.1 ms after presentation, as the polled WGC helper.
+    // Detected 0.1-1.1 ms after presentation, as a polled capture.
     let detected: Vec<f64> = present.iter().map(|p| p + 0.1 + jitter()).collect();
     let stamp = if arrival { &detected } else { &present };
     let mut claims = vec![];
@@ -1698,22 +1698,13 @@ fn a_faster_source_repays_a_startup_deficit_instead_of_lagging_every_claim() {
     }
 }
 #[test]
-fn only_wgc_captures_wait_for_the_learned_source_phase() {
+fn claims_wait_for_the_learned_source_phase_only_when_asked() {
     let config = |text: &str| Config::parse(text).unwrap();
-    assert!(source_phase(&config(""), "wgc"));
     // Rubylight's display driver pushes every composition: waiting for the
     // next one under GPU load held claims up to 1.25 periods.
-    assert!(!source_phase(&config(""), "idd-push"));
-    assert!(!source_phase(&config(""), "ddx"));
-    assert!(source_phase(
-        &config("frame_pacing_source_phase=true"),
-        "idd-push"
-    ));
-    assert!(!source_phase(
-        &config("frame_pacing_source_phase=false"),
-        "wgc"
-    ));
-    // Capture `auto` is planned as WGC; the backend that opens decides.
+    assert!(!source_phase(&config("")));
+    assert!(source_phase(&config("frame_pacing_source_phase=true")));
+    assert!(!source_phase(&config("frame_pacing_source_phase=false")));
     let start = Instant::now();
     let period = Duration::from_micros(8_333);
     let mut pacer = Pacer::new(start, period).with_source_phase(true);
@@ -1725,7 +1716,7 @@ fn only_wgc_captures_wait_for_the_learned_source_phase() {
         pacer.observe_source(start + period / 2 * n);
     }
     let learned = pacer.source_phase.as_ref().map(|phase| phase.center);
-    // The same backend again keeps what was learned.
+    // Turning it on again keeps what was learned.
     pacer.set_source_phase(true);
     assert_eq!(
         pacer.source_phase.as_ref().map(|phase| phase.center),

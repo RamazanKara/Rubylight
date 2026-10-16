@@ -85,7 +85,6 @@ impl Sender {
         config: Config,
         host: Shared,
         start: Instant,
-        track_presents: bool,
     ) -> Result<Self> {
         let slot = Arc::new(Slot {
             pending: Mutex::new(None),
@@ -121,8 +120,6 @@ impl Sender {
                         },
                     };
                     let mut controller = DetailFec::new(current.config.fps_millihz());
-                    let mut stamper =
-                        track_presents.then(butterpollo_windows::present_timing::Stamper::default);
                     let mut batch = Batch::default();
                     let mut pacer = butterpollo_core::network_pacing::Pacer::new(Instant::now());
                     let mut last_stamp = start;
@@ -159,13 +156,8 @@ impl Sender {
                         let processing = now.saturating_duration_since(claimed);
                         let captured = frame.presentation.unwrap_or(claimed);
                         let age = claimed.saturating_duration_since(captured);
-                        let stamp = stamper
-                            .as_mut()
-                            .map_or(captured, |stamper| {
-                                stamper.stamp(captured, &current.output.read().unwrap())
-                            })
-                            // Keep at least one 90 kHz RTP tick even without ETW.
-                            .max(last_stamp + Duration::from_nanos(11_112));
+                        // Keep at least one 90 kHz RTP tick between frames.
+                        let stamp = captured.max(last_stamp + Duration::from_nanos(11_112));
                         last_stamp = stamp;
                         let timestamp = (stamp.saturating_duration_since(start).as_secs_f64()
                             * 90000.) as u64 as u32;

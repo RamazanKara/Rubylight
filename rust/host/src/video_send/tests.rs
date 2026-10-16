@@ -740,7 +740,6 @@ fn packetizer(key: Option<[u8; 16]>) -> VideoPacketizer {
 fn handoff(packetizer: VideoPacketizer) -> Handoff {
     Handoff {
         packetizer,
-        present_stamper: None,
         last_stamp: Instant::now(),
         pacing_due: Instant::now(),
         send_loss: Default::default(),

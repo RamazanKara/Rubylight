@@ -74,12 +74,11 @@ pub const GLOBAL: &[Setting] = settings! {
     ]
     "Frame generation and limiting" => [
         "frame_limiter_enable", "Enable frame limiter", Bool;
-        "frame_limiter_provider", "Limiter provider", Choice(&["auto","rtss","nvidia-control-panel","none"]);
+        "frame_limiter_provider", "Limiter provider", Choice(&["auto","rtss","none"]);
         "frame_limiter_fps_limit", "Frame limit (0 uses the device rate)", Number;
         "frame_limiter_auto_virtual_framegen", "Virtual display frame generation", Choice(&["legacy","enabled","fixed-1000hz","disabled"]);
-        "frame_limiter_disable_vsync", "Disable driver vertical sync during streaming", Bool;
         "rtss_install_path", "RTSS installation directory", Text;
-        "rtss_frame_limit_type", "RTSS limiter mode", Choice(&["async","front-edge-sync","back-edge-sync","nvidia-reflex"]);
+        "rtss_frame_limit_type", "RTSS limiter mode", Choice(&["async","front-edge-sync","back-edge-sync"]);
         "rtss_allow_virtual_display_override", "Allow virtual display limiter overrides", Bool;
     ]
     "Video and capture" => [
@@ -235,7 +234,7 @@ pub const APP: &[Setting] = settings! {
         "use-app-identity", "Keep one virtual display identity for this app", Bool;
         "per-client-app-identity", "Keep a display identity for each app and device", Bool;
         "prefer-10bit-sdr", "Prefer 10-bit SDR", Bool;
-        "frame-generation-mode", "Frame generation", Choice(&["none","game-provided","nvidia-smooth-motion"]);
+        "frame-generation-mode", "Frame generation", Choice(&["none","game-provided"]);
         "gen1-framegen-fix", "Legacy frame generation capture fix", Bool;
         "frame-gen-limiter-fix", "Frame generation limiter fix", Bool;
     ]
@@ -314,13 +313,11 @@ pub fn render(prefix: &str, schema: &[Setting], values: &Value) -> String {
                             "force_on" => "Always on",
                             "force_off" => "Always off",
                             "rtss" => "RivaTuner Statistics Server (RTSS)",
-                            "nvidia-control-panel" => "NVIDIA driver",
                             "legacy" => "Twice the stream frame rate",
                             "fixed-1000hz" => "1000 Hz",
                             "async" => "Asynchronous",
                             "front-edge-sync" => "Front edge sync",
                             "back-edge-sync" => "Back edge sync",
-                            "nvidia-reflex" => "NVIDIA Reflex",
                             "transcoding" => "Transcoding (convert video formats)",
                             "ultralowlatency" => "Ultra low latency",
                             "lowlatency" => "Low latency",
@@ -389,7 +386,6 @@ pub fn render(prefix: &str, schema: &[Setting], values: &Value) -> String {
                             "per_client" => "One for each device",
                             "shared" => "One shared by all devices",
                             "game-provided" => "Provided by the game",
-                            "nvidia-smooth-motion" => "NVIDIA Smooth Motion",
                             _ if setting.key == "locale" => i18n::language_name(choice),
                             _ => choice,
                         },

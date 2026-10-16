@@ -65,14 +65,12 @@ pub enum Provider {
     None,
     Auto,
     Rtss,
-    Nvidia,
 }
 impl Provider {
     pub fn parse(value: &str) -> Self {
         match normalize(value).as_str() {
             "none" | "disabled" => Self::None,
             "rtss" => Self::Rtss,
-            "nvidia" | "nvidiacontrolpanel" | "nvcp" => Self::Nvidia,
             _ => Self::Auto,
         }
     }
@@ -81,7 +79,6 @@ impl Provider {
             Self::None => "none",
             Self::Auto => "auto",
             Self::Rtss => "rtss",
-            Self::Nvidia => "nvidia-control-panel",
         }
     }
 }
@@ -145,7 +142,6 @@ pub fn display_rate(rate: Rate, virtual_display: bool, mode: VirtualRefresh) -> 
 }
 pub fn generation_provider(value: &str) -> &'static str {
     match normalize(value).as_str() {
-        "nvidia" | "smoothmotion" | "nvidiasmoothmotion" => "nvidia-smooth-motion",
         "game" | "gameprovided" | "gameprovider" => "game-provided",
         _ => "none",
     }
@@ -157,24 +153,18 @@ pub struct Policy {
     pub enabled: bool,
     pub provider: Provider,
     pub sync_limiter: u32,
-    pub disable_vsync: bool,
-    pub smooth_motion: bool,
     pub capture: String,
 }
 impl Policy {
-    #[allow(clippy::too_many_arguments)]
     pub fn resolve(
         config: &Config,
         stream: Rate,
         virtual_display: bool,
         generation: &str,
         generation_enabled: bool,
-        nvidia: bool,
-        amd: bool,
         runtime_sync: bool,
     ) -> Result<Self> {
         let generation = generation_provider(generation);
-        let smooth_motion = generation == "nvidia-smooth-motion";
         let framegen = generation_enabled || generation != "none";
         let mode = virtual_refresh(config);
         let automatic = virtual_display && mode != VirtualRefresh::Disabled;
@@ -184,16 +174,11 @@ impl Policy {
         let allow_sync_override = config.boolean("rtss_allow_virtual_display_override", false);
         let auto_sync = automatic && (!allow_sync_override || generation == "game-provided");
         let sync = if !runtime_sync && (auto_sync || (!virtual_display && framegen)) {
-            if !smooth_motion && nvidia && !amd {
-                3
-            } else {
-                1
-            }
+            1
         } else {
             match normalize(config.get("rtss_frame_limit_type", "async")).as_str() {
                 "frontedgesync" => 1,
                 "backedgesync" => 2,
-                "nvidiareflex" | "reflex" => 3,
                 _ => 0,
             }
         };
@@ -230,9 +215,6 @@ impl Policy {
                 || (!virtual_display && framegen),
             provider,
             sync_limiter: sync,
-            disable_vsync: config.boolean("frame_limiter_disable_vsync", false)
-                || config.boolean("dd_wa_dummy_plug_hdr10", false),
-            smooth_motion,
             capture,
         })
     }
@@ -269,11 +251,6 @@ mod tests {
                 false,
                 (true, true, 59940),
             ),
-            (
-                "frame_limiter_enable=true\nframe_limiter_provider=nvcp\nframe_limiter_fps_limit=120",
-                false,
-                (true, true, 120000),
-            ),
         ] {
             assert_eq!(
                 advertised(&Config::parse(text).unwrap(), virtual_display),
@@ -283,37 +260,12 @@ mod tests {
         }
     }
     #[test]
-    fn dummy_plug_hdr_workaround_disables_vsync_without_requesting_hdr() {
-        let config = Config::parse("dd_wa_dummy_plug_hdr10=true").unwrap();
-        let policy = Policy::resolve(
-            &config,
-            Rate(60000),
-            false,
-            "none",
-            false,
-            false,
-            true,
-            false,
-        )
-        .unwrap();
-        assert!(policy.disable_vsync);
-        for hdr in [false, true] {
-            assert_eq!(
-                config
-                    .display_request_rate(1920, 1080, Rate(60000), hdr, false)
-                    .unwrap()
-                    .hdr,
-                Some(hdr)
-            );
-        }
-    }
-    #[test]
     fn automatic_capture_prefers_wgc_on_physical_and_virtual_displays() {
         for text in ["", "capture=", "capture=auto", "capture= Auto "] {
             let config = Config::parse(text).unwrap();
             let original = config.values.clone();
             for virtual_display in [false, true] {
-                for generation in ["none", "game-provided", "nvidia-smooth-motion"] {
+                for generation in ["none", "game-provided"] {
                     for rate in [Rate(59940), Rate(60000), Rate(120000)] {
                         for vrr in [false, true] {
                             let policy = Policy::resolve(
@@ -322,8 +274,6 @@ mod tests {
                                 virtual_display,
                                 generation,
                                 false,
-                                false,
-                                true,
                                 false,
                             )
                             .unwrap()
@@ -354,7 +304,7 @@ mod tests {
             let config = Config::parse(&format!("capture={setting}")).unwrap();
             let original = config.values.clone();
             for virtual_display in [false, true] {
-                for generation in ["none", "game-provided", "nvidia-smooth-motion"] {
+                for generation in ["none", "game-provided"] {
                     for vrr in [false, true] {
                         let policy = Policy::resolve(
                             &config,
@@ -362,8 +312,6 @@ mod tests {
                             virtual_display,
                             generation,
                             true,
-                            true,
-                            false,
                             false,
                         )
                         .unwrap()
@@ -378,20 +326,20 @@ mod tests {
     #[test]
     fn vrr_virtual_display_uses_fixed_1000_hz_without_changing_stream_rate() {
         let c = Config::default();
-        let p = Policy::resolve(&c, Rate(119880), true, "none", false, false, true, false)
+        let p = Policy::resolve(&c, Rate(119880), true, "none", false, false)
             .unwrap()
             .with_vrr(&c, true, true);
         assert_eq!(p.display_rate, Rate(1_000_000));
         assert_eq!(p.rate, Rate(119880));
         assert_eq!(p.capture, "wgc");
         let c = Config::parse("frame_limiter_auto_virtual_framegen=disabled\ncapture=ddx").unwrap();
-        let p = Policy::resolve(&c, Rate(119880), true, "none", false, false, true, false)
+        let p = Policy::resolve(&c, Rate(119880), true, "none", false, false)
             .unwrap()
             .with_vrr(&c, true, true);
         assert_eq!(p.display_rate, Rate(119880));
         assert_eq!(p.capture, "ddx");
         let c = Config::parse("frame_limiter_auto_virtual_framegen=fixed-1000-hz").unwrap();
-        let p = Policy::resolve(&c, Rate(59940), false, "none", false, false, true, false)
+        let p = Policy::resolve(&c, Rate(59940), false, "none", false, false)
             .unwrap()
             .with_vrr(&c, false, true);
         assert_eq!(p.display_rate, Rate(59940));
@@ -410,17 +358,9 @@ mod tests {
                 ))
                 .unwrap();
                 for virtual_display in [false, true] {
-                    let mut p = Policy::resolve(
-                        &c,
-                        Rate(116_000),
-                        virtual_display,
-                        "none",
-                        false,
-                        false,
-                        true,
-                        false,
-                    )
-                    .unwrap();
+                    let mut p =
+                        Policy::resolve(&c, Rate(116_000), virtual_display, "none", false, false)
+                            .unwrap();
                     p.display_rate =
                         display_rate(Rate(60_000), virtual_display, virtual_refresh(&c));
                     assert_eq!(p.rate, Rate(limit));
@@ -453,8 +393,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(advertised(&c, false), (true, true, 30_000));
-        let p =
-            Policy::resolve(&c, Rate(60_000), false, "none", false, false, true, false).unwrap();
+        let p = Policy::resolve(&c, Rate(60_000), false, "none", false, false).unwrap();
         assert_eq!(p.rate, Rate(30_000));
         let c = Config::parse("dd_refresh_rate_option=manual\ndd_manual_refresh_rate=\"119.88\"")
             .unwrap();
@@ -485,49 +424,20 @@ mod tests {
     #[test]
     fn inherited_framegen_keeps_explicit_capture_and_sync_contract() {
         let mut c = Config::parse("capture=ddx\nrtss_frame_limit_type=back_edge_sync\nrtss_allow_virtual_display_override=1").unwrap();
-        let p = Policy::resolve(
-            &c,
-            Rate(59940),
-            true,
-            "game-provided",
-            false,
-            true,
-            false,
-            false,
-        )
-        .unwrap();
+        let p = Policy::resolve(&c, Rate(59940), true, "game-provided", false, false).unwrap();
         assert_eq!(p.display_rate, Rate(119880));
-        assert_eq!(p.sync_limiter, 3);
+        assert_eq!(p.sync_limiter, 1);
         assert_eq!(p.capture, "ddx");
-        let p = Policy::resolve(
-            &c,
-            Rate(59940),
-            true,
-            "game-provided",
-            false,
-            true,
-            false,
-            true,
-        )
-        .unwrap();
+        let p = Policy::resolve(&c, Rate(59940), true, "game-provided", false, true).unwrap();
         assert_eq!(p.sync_limiter, 2);
         c.values.insert(
             "frame_limiter_auto_virtual_framegen".into(),
             "enabled".into(),
         );
         assert_eq!(
-            Policy::resolve(
-                &c,
-                Rate(59940),
-                true,
-                "smooth motion",
-                false,
-                true,
-                false,
-                false
-            )
-            .unwrap()
-            .display_rate,
+            Policy::resolve(&c, Rate(59940), true, "game-provided", false, false)
+                .unwrap()
+                .display_rate,
             Rate(239760)
         );
     }
@@ -547,7 +457,7 @@ mod tests {
         }
         assert_eq!(virtual_refresh(&Config::default()), VirtualRefresh::Legacy);
         let c = Config::parse("frame_limiter_auto_virtual_framegen=fixed-2x").unwrap();
-        let p = Policy::resolve(&c, Rate(60000), true, "none", false, false, true, false).unwrap();
+        let p = Policy::resolve(&c, Rate(60000), true, "none", false, false).unwrap();
         assert_eq!(p.display_rate, Rate(120000));
     }
 }

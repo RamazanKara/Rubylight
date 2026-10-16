@@ -34,8 +34,6 @@ fn main() -> Result<()> {
         values: BTreeMap::from([
             ("frame_limiter_enable".into(), "true".into()),
             ("frame_limiter_provider".into(), "rtss".into()),
-            ("nvenc_opengl_vulkan_on_dxgi".into(), "false".into()),
-            ("nvenc_latency_over_power".into(), "false".into()),
         ]),
     };
     if let Some(at) = args.iter().position(|arg| arg == "--root") {
@@ -103,8 +101,6 @@ fn main() -> Result<()> {
             enabled: true,
             provider: Provider::Rtss,
             sync_limiter: 2,
-            disable_vsync: false,
-            smooth_motion: false,
             capture: "wgc".into(),
         };
         let lease = limiter::Lease::acquire(&directory, &config, &policy)?;

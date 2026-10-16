@@ -780,7 +780,6 @@ async fn integrations(
                 match text(&limiter, "configured_provider") {
                     "auto" => "Automatic",
                     "rtss" => "RivaTuner Statistics Server (RTSS)",
-                    "nvidia-control-panel" => "NVIDIA driver",
                     "none" | "" => "None",
                     _ => "Other limiter",
                 },

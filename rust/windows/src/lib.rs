@@ -46,7 +46,6 @@ pub mod limiter;
 pub mod lossless;
 pub mod mic;
 pub mod net;
-mod nvapi;
 pub mod playnite;
 pub mod present_timing;
 pub mod process;

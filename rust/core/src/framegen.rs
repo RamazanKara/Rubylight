@@ -82,6 +82,24 @@ impl Provider {
         }
     }
 }
+/// A `frame_limiter_provider` naming the removed NVIDIA driver limiter.
+pub fn retired_provider(value: &str) -> bool {
+    matches!(
+        normalize(value).as_str(),
+        "nvidia" | "nvidiacontrolpanel" | "nvcp"
+    )
+}
+/// An `rtss_frame_limit_type` naming RTSS's NVIDIA Reflex mode.
+pub fn retired_limit_type(value: &str) -> bool {
+    matches!(normalize(value).as_str(), "nvidiareflex" | "reflex")
+}
+/// An app's frame generation naming the NVIDIA driver's Smooth Motion.
+pub fn retired_generation(value: &str) -> bool {
+    matches!(
+        normalize(value).as_str(),
+        "nvidia" | "smoothmotion" | "nvidiasmoothmotion"
+    )
+}
 /// The configured frame limiting Moonlight extensions report in serverinfo:
 /// whether limiting is on by default, whether virtual displays limit
 /// automatically, and the manual limit in millihertz.

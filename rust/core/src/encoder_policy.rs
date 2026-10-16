@@ -5,7 +5,8 @@ use anyhow::{Result, bail};
 
 /// Apollo's and Vibepollo's names for AMD's encoder are AMF. Automatic is AMF
 /// too: it is the host's only encoder for H.264, HEVC and AV1. Names this
-/// host cannot use (`mediafoundation`) select automatically.
+/// host cannot use select automatically; reading the configuration already
+/// replaced them (see [`retired`]).
 pub fn canonical_name(name: &str) -> &str {
     match name {
         "amdvce" | "amdvce_experimental" | "amdvce_ffmpeg" | "amdvce_legacy" => "amf",
@@ -17,6 +18,21 @@ pub fn canonical_name(name: &str) -> &str {
             "auto"
         }
     }
+}
+/// An `encoder` value naming an encoder this host does not have: NVENC,
+/// Quick Sync, software, Media Foundation or anything else. The
+/// configuration replaces it with AMF.
+pub fn retired(name: &str) -> bool {
+    !matches!(
+        name,
+        "" | "auto"
+            | "amf"
+            | "pyrowave"
+            | "amdvce"
+            | "amdvce_experimental"
+            | "amdvce_ffmpeg"
+            | "amdvce_legacy"
+    )
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]

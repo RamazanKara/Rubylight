@@ -3660,13 +3660,13 @@ mod tests {
             "rtx_hdr": true,
             "rtx_hdr_contrast": 14,
             "rtx_hdr_peak_brightness": 1200,
-            "encoder": "software",
+            "encoder": "amf",
         });
         let overrides = overrides.as_object().unwrap();
         assert!(super::sets_peak(overrides));
         super::apply_overrides(&mut config, overrides).unwrap();
         assert_eq!(config.integer("hdr_peak_brightness", 0), 1200);
-        assert_eq!(config.get("encoder", ""), "software");
+        assert_eq!(config.get("encoder", ""), "amf");
         assert!(!config.values.contains_key("rtx_hdr"));
         assert!(!config.values.contains_key("rtx_hdr_contrast"));
         assert!(!super::sets_peak(

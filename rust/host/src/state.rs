@@ -243,7 +243,19 @@ impl Host {
     pub fn load(directory: PathBuf, assets: PathBuf, port: Option<u16>) -> Result<Shared> {
         std::fs::create_dir_all(&directory)?;
         let config_path = directory.join("sunshine.conf");
-        let mut config = Config::load(&config_path)?;
+        let (mut config, retired) = Config::load_retiring(&config_path)?;
+        let warnings = Warnings::default();
+        if let Some(warning) = butterpollo_core::config::retired_warning(&retired) {
+            // Written back, so the warning shows once. A file that cannot be
+            // written keeps the old values and warns again on the next start.
+            if let Err(error) = butterpollo_core::state::atomic_write(
+                &config_path,
+                Config::load(&config_path)?.text().as_bytes(),
+            ) {
+                tracing::warn!(error = %format!("{error:#}"), "the replaced settings could not be saved");
+            }
+            warnings.set("settings_retired", warning);
+        }
         if let Some(port) = port {
             config.values.insert("port".into(), port.to_string());
         }
@@ -370,7 +382,7 @@ impl Host {
             probing_codecs: std::sync::atomic::AtomicBool::new(true),
             codec_probe_requested: std::sync::atomic::AtomicBool::new(false),
             startup_codecs: tokio::sync::watch::channel(false).0,
-            warnings: Warnings::default(),
+            warnings,
             current_app: Mutex::new(None),
             launch_transition: Mutex::new(()),
             confirmations: Mutex::new(Default::default()),
@@ -912,6 +924,42 @@ fn load_library(path: &std::path::Path, default: Value) -> Result<Value> {
 }
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn settings_of_removed_encoders_and_limiters_migrate_with_one_warning() {
+        use super::test_support::Fixture;
+        let directory = Fixture::profile();
+        let path = directory.join("sunshine.conf");
+        std::fs::write(
+            &path,
+            "encoder = nvenc\nframe_limiter_provider = nvidia-control-panel\nnvenc_preset = 4\nsunshine_name = Host\n",
+        )
+        .unwrap();
+        let first = Fixture::load(directory.clone());
+        {
+            let config = first.host.config.read().unwrap();
+            assert_eq!(config.get("encoder", ""), "amf");
+            assert_eq!(config.get("frame_limiter_provider", ""), "auto");
+            assert!(!config.values.contains_key("nvenc_preset"));
+            assert_eq!(config.get("sunshine_name", ""), "Host");
+        }
+        let warnings = first.host.warnings.snapshot();
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
+        assert_eq!(warnings[0].code, "settings_retired");
+        assert!(warnings[0].message.contains("encoder nvenc is now amf"));
+        assert!(
+            warnings[0]
+                .message
+                .contains("frame_limiter_provider nvidia-control-panel is now auto")
+        );
+        let saved = std::fs::read_to_string(&path).unwrap();
+        assert!(saved.contains("encoder = amf"), "{saved}");
+        assert!(!saved.contains("nvenc"), "{saved}");
+        // The next start reads the migrated file without a warning.
+        let second = Fixture::load(directory);
+        assert!(second.host.warnings.snapshot().is_empty());
+        assert_eq!(second.host.config.read().unwrap().get("encoder", ""), "amf");
+    }
+
     #[test]
     fn a_rejoin_in_the_same_mode_reuses_the_clients_own_display_untouched() {
         use super::take_retained;

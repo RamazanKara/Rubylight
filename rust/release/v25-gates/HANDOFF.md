@@ -87,6 +87,27 @@ running (`rust/release/floor.json`). The last release for anything below it is 2
   2. Restore the profile backup.
   3. Install `rubylight-setup-2.4.5.exe --quiet`.
 
+## Kept from the local-only branches (reviewed and deleted 2026-10-16)
+
+`claude/pyrowave-plane-views` (`ff246352`) is the only local work that was neither in main
+nor measured and dropped.
+- **What it does:** a PyroWave SDK patch that keeps the encoder's three plane image views
+  between frames.
+- **Gain:** 0.15–0.25 ms of CPU per frame, as Punktfunk measured on an RTX 5070 Ti; not yet
+  measured here.
+- **Before taking it:**
+  - Port it onto Phase 3's D3D12-imported planes. Planes are keyed by image id, so a rebuilt
+    plane must still drop its view.
+  - Update the build-info patch list and the CI SDK cache key.
+  - Measure it on the RX 7900 XT.
+
+Everything else was already in main under other hashes, or was measured and dropped (see
+PERFORMANCE.md and PERFORMANCE_WORK.md):
+- the driver-side NV12 conversion;
+- the half-period pacer;
+- batched display apply;
+- the link-speed upkeep (never shown to help).
+
 ## Next steps
 
 1. Re-run gate 1 on the tip.

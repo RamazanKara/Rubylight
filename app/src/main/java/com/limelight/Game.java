@@ -2773,13 +2773,15 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
      * stream still holds the host connection; a failure is reported because the game stays running.
      */
     private void leaveStream() {
-        if (hostActionInProgress) {
-            return;
-        }
         boolean chosen = AppQuitOnLeave.isEnabled(this, getIntent().getStringExtra(EXTRA_PC_UUID),
                 app.getAppUuid(), app.getAppId());
+        // A plain disconnect never waits for a host request; its callbacks check the activity.
         if (!StreamExitPolicy.quitsOnLeave(chosen, app.getRole(), connected)) {
             finish();
+            return;
+        }
+        if (hostActionInProgress) {
+            messages.alert(R.string.stream_bitrate_busy, Toast.LENGTH_SHORT);
             return;
         }
         String name = appName != null ? appName : app.getAppName();
@@ -3700,6 +3702,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             } catch (IOException | XmlPullParserException e) {
                 LimeLog.warning("Automatic bitrate update failed: " + e);
                 runOnUiThread(() -> {
+                    if (isFinishing() || isDestroyed()) return;
                     if (adaptiveBitrate == controller && pyroWaveBitrate == pyroController) {
                         if (target == 0 && (e instanceof EncoderBitrateUnsupported ||
                                 ++adaptiveBitrateClaimFailures >= MAX_BITRATE_CLAIM_FAILURES)) {

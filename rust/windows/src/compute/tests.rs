@@ -34,18 +34,6 @@ fn each_stream_converts_a_shared_capture_for_its_own_dynamic_range() {
     assert_eq!(f32::from_bits(hdr_of_bgra[9]), 200. / 80.);
 }
 
-#[test]
-fn retired_conversion_settings_still_parse() {
-    // The setting no longer chooses a path; reading it must not fail a stream.
-    for text in [
-        "",
-        "gpu_compute_conversion = true\n",
-        "gpu_compute_conversion = false\n",
-    ] {
-        warn_retired_settings(&butterpollo_core::config::Config::parse(text).unwrap());
-    }
-}
-
 fn make_image(colors: &[[f32; 3]], patch: usize, height: usize) -> Image {
     let width = colors.len() * patch;
     let mut bytes = vec![0; width * height * 8];

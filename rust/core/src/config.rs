@@ -100,6 +100,12 @@ pub const RETIRED_SETTINGS: &[RetiredSetting] = &[
         reason: CAPTURE,
     },
     RetiredSetting {
+        key: "gpu_compute_conversion",
+        retired: any_value,
+        current: "",
+        reason: "every frame is copied and converted on a D3D12 compute queue",
+    },
+    RetiredSetting {
         key: "virtual_display_mode",
         retired: crate::display_policy::disables_virtual_displays,
         current: "per_client",
@@ -1600,6 +1606,25 @@ mod tests {
                 "config-overrides": {"encoder": "amf", "frame_limiter_provider": "auto"}})
         );
         assert!(!replace_retired_in_app(app.as_object_mut().unwrap()));
+    }
+    #[test]
+    fn compute_conversion_setting_migrates_with_a_report() {
+        // Either value once chose a queue; the host has only the compute queue now.
+        for value in ["false", "true"] {
+            let (config, retired) = Config::parse_retiring(&format!(
+                "gpu_compute_conversion = {value}
+port = 48123
+"
+            ))
+            .unwrap();
+            assert_eq!(
+                config.values,
+                BTreeMap::from([("port".into(), "48123".into())])
+            );
+            let warning = retired_warning(&retired).unwrap();
+            assert!(warning.contains("gpu_compute_conversion"), "{warning}");
+            assert!(warning.contains("D3D12 compute queue"), "{warning}");
+        }
     }
     /// A profile from a host that captured with WGC or Desktop Duplication,
     /// or streamed a physical monitor.

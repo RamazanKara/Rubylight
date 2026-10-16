@@ -560,7 +560,6 @@ impl Session {
                 adapter.0
             );
         }
-        crate::compute::warn_retired_settings(config);
         if let Err(error) = crate::gpu_priority::configure(config) {
             tracing::debug!(%error, "GPU priority remains at the process default");
         }

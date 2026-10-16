@@ -53,18 +53,6 @@ const video: Setting[] = [
     advanced: true,
   },
   {
-    key: 'gpu_compute_conversion',
-    label: 'Copy and convert on a compute queue',
-    description:
-      'On supported AMD GPUs, copies captured frames and converts their colors on compute queues beside a game. Turn off to compare or troubleshoot.',
-    details: 'Textures the compute queue cannot open fall back to the graphics queue.',
-    category: 'video',
-    group: 'Capture',
-    control: { kind: 'toggle' },
-    default: true,
-    advanced: true,
-  },
-  {
     key: 'experimental_packed_444',
     label: 'Experimental full chroma',
     description: 'Allow compatible Nightjar clients to request full-resolution color through HEVC or AV1 on AMD. Requires the client option and a host restart.',

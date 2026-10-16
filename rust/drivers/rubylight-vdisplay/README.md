@@ -41,20 +41,31 @@ The driver's keyed-mutex ring, which the host no longer uses (the [GPU fence tra
 1. The host creates the display with `IOCTL_ADD` and
    keeps it alive with `IOCTL_HEARTBEAT` every second. A monitor belongs to the process that
    created it and departs when that process closes its handles or goes silent for 10 s.
-2. A host using it creates four `SHARED_NTHANDLE | SHARED_KEYEDMUTEX` textures
-   on the GPU that renders the monitor, a one-page header section and an event, duplicates
-   them into the driver's WUDFHost (its pid comes with the ADD reply) and hands them over
-   with `IOCTL_SET_FRAME_RING`. The driver owns the handles if, and only if, that succeeds.
-3. For every frame from `IddCxSwapChainReleaseAndAcquireBuffer2` the driver takes a texture
-   whose keyed mutex it can get with key 0 (or reclaims the oldest unconsumed one with key 1),
-   copies the surface into it, writes the sequence and `PresentDisplayQPCTime` into the header,
-   releases with key 1, publishes the slot and sets the event. It never waits on the host.
-4. The host takes the newest published slot with key 1. On AMD its compute conversion reads
-   the texture in place: the host keeps the mutex until the conversion that read it is done,
-   then releases with key 0 (`idd_push_zero_copy = false` copies instead). Elsewhere it
-   copies the texture into its own pool and releases at once. The image's present stamp is
-   the driver's acquire: IddCx's `PresentDisplayQPCTime` is the scan-out, about 6.8 ms later
-   on a 120 Hz display.
+2. The capture backend `idd-push` creates, on the capture GPU's D3D12 device, four shared
+   textures, two shared fences (*written* and *released*), a one-page header section and an
+   event. It duplicates them into the driver's WUDFHost (its pid comes with the ADD reply) and
+   hands them over with `IOCTL_SET_FENCE_RING`. The driver owns the handles if, and only if,
+   that succeeds, and opens them on its own D3D12 device (`ID3D12Device::OpenSharedHandle`).
+3. The driver renders on D3D12 through IddCx 1.11's D3D12 swap chain: it binds its device with
+   `IddCxSwapChainSetDevice2` and receives each composed frame as `pD3D12Surface`. Every
+   `IddCxSwapChainReleaseAndAcquireBuffer2` names the one queue that reads the surface (a copy
+   queue per swap chain, at high priority; WUDFHost may not raise it to global realtime), so
+   the OS orders its writes to the surface before the driver's read, and nothing else is
+   submitted there.
+4. Each texture has a state word in the header, changed only by compare-and-swap: free (with
+   the released-fence value its last read ends at), writing, published or reading. For every
+   frame the driver takes a free texture whose value the released fence has reached
+   (`ID3D12Fence::GetCompletedValue`, never a wait), or reclaims the oldest published one the
+   host has not claimed. It copies the surface into it on the copy queue and signals the
+   written fence with the frame's sequence on the same queue, writes the sequence and the
+   frame's timing into the header, marks the texture published, publishes the slot and sets
+   the event. It never waits on the host or the GPU; with no texture to take, or every command
+   list of the copy queue still on the GPU, it drops the frame.
+5. The host claims the newest published slot, moving it to reading. Its compute queue waits for
+   the written fence on the GPU and converts the texture in place; once that conversion is
+   done the host signals the released fence on the same queue and frees the slot with that
+   value. The image's present stamp is the driver's acquire: IddCx's `PresentDisplayQPCTime`
+   is the scan-out, about 6.8 ms later on a 120 Hz display.
 
 Four textures let capture overlap the host's GPU reads. If every slot is busy, the driver
 keeps the newest image in its own texture, copying it before reporting the IddCx frame
@@ -64,8 +75,17 @@ by a new frame, ring replacement or stop. A final desktop update can therefore r
 host after a slot becomes free even if Windows stops presenting the static desktop.
 Retries keep the original present/acquire timestamps and do not add acquisitions or
 dropped frames to the counters. Success stops retries; a newer acquisition supersedes
-the saved image. This applies to both transports. With no pending image that fits the
-ring, the normal idle heartbeat wait remains 125 ms.
+the saved image. With no pending image that fits the ring, the normal idle heartbeat wait
+remains 125 ms.
+
+A host before `CAP_FENCE_RING` sends the older keyed-mutex ring (`IOCTL_SET_FRAME_RING`), which
+D3D12 cannot take: the driver refuses it before adopting any handle and no longer reports
+`CAP_FRAME_RING`, and that host captures the display through Windows Graphics Capture instead.
+
+The driver loads only where the OS reports the D3D12 swap chain: `DriverEntry` logs the IddCx
+framework version and `IddCxCheckOsFeatureSupport`'s answer, and fails with
+`STATUS_NOT_SUPPORTED` without it (`IddMinimumVersionRequired` is 11). Setup then reports that
+Windows did not start the driver.
 
 `idd_push=debug` logs the counters every 5 s (acquired, pushed, dropped, overwritten), and
 `idd_push=trace` each frame's driver time (acquire to publish) and handoff (publish to the
@@ -142,7 +162,10 @@ Prerequisites (all installed on the development PC on 2026-10-15):
 
 - Visual Studio 2022 Build Tools with `Microsoft.VisualStudio.Component.VC.Tools.x86.x64`
 - Windows Driver Kit 10.0.26100 matching the installed SDK
-  (`winget install Microsoft.WindowsWDK.10.0.26100`)
+  (`winget install Microsoft.WindowsWDK.10.0.26100`). IddCx 1.11, which that kit lacks, comes
+  from the pinned WDK 10.0.28000.2526 NuGet package: `driver-env.ps1` runs `fetch-iddcx.ps1`,
+  which downloads it once (SHA-256 checked) and keeps only IddCx's headers and
+  `IddCxStub.lib` in `target\iddcx-1.11`.
 - LLVM for bindgen (`winget install LLVM.LLVM`)
 - `rustup toolchain install 1.98.1-x86_64-pc-windows-msvc` (pinned by `rust-toolchain.toml`)
 

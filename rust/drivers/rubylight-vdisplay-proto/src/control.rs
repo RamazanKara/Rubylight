@@ -188,7 +188,9 @@ impl<'a> Reader<'a> {
 
 /// [`InfoReply::magic`]: `"RLVD"`.
 pub const INFO_MAGIC: u32 = u32::from_le_bytes(*b"RLVD");
-/// [`InfoReply::caps`]: frames are pushed through [`IOCTL_SET_FRAME_RING`].
+/// [`InfoReply::caps`]: frames are pushed through a keyed-mutex ring
+/// ([`IOCTL_SET_FRAME_RING`]). Drivers before 2.5 report it; the D3D12 driver does not, and
+/// refuses that IOCTL.
 pub const CAP_FRAME_RING: u32 = 1 << 0;
 /// [`InfoReply::caps`]: monitors advertise 10-bit wire formats, so Windows offers HDR, and
 /// FP16 desktops reach the ring as `R16G16B16A16_FLOAT`.
@@ -198,9 +200,8 @@ pub const CAP_UPDATE_MODES: u32 = 1 << 2;
 /// [`InfoReply::caps`]: [`IOCTL_CLEAR_FRAME_RING_GENERATION`] clears only the ring it names.
 pub const CAP_SCOPED_CLEAR: u32 = 1 << 3;
 /// [`InfoReply::caps`]: [`IOCTL_SET_FENCE_RING`] takes a fence ring, whose slots the header's
-/// state words and two shared fences own instead of keyed mutexes. A host keeps sending
-/// keyed-mutex rings to a driver without it, and a driver with it still takes them from a
-/// host that sends one.
+/// state words and two shared fences own instead of keyed mutexes. A Rubylight 2.5 host
+/// refuses to stream from a driver without it (an update waiting for a restart).
 pub const CAP_FENCE_RING: u32 = 1 << 4;
 
 /// [`IOCTL_GET_INFO`] reply.

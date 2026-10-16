@@ -43,9 +43,7 @@ public class DualSenseControllerStopTest {
         // The USB service's worker would run this.
         assertTrue(controller.start());
         UsbPads.await(() -> listener.has("added") && listener.has("state"));
-        UsbPads.Connection.inputReadMs = 400;
-        Thread.sleep(30);
-        assertTrue(UsbPads.Connection.readInProgress.get());
+        UsbPads.awaitSlowRead(400);
 
         long stop = System.nanoTime();
         controller.stop();

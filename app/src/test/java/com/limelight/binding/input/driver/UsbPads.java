@@ -123,6 +123,14 @@ public final class UsbPads {
         org.robolectric.shadows.ShadowLooper.idleMainLooper();
     }
 
+    // Makes input reads slow and waits until one that started afterwards is in progress, so the test
+    // can act while the pad is blocked in a USB read.
+    static void awaitSlowRead(long readMs) throws InterruptedException {
+        Connection.inputReadMs = readMs;
+        int started = Connection.readsStarted.get();
+        await(() -> Connection.readsStarted.get() > started && Connection.readInProgress.get());
+    }
+
     // Transfers like a real pad's: they block the calling thread, ignore interrupts and end at their
     // own time. Settings apply to every connection opened while a test runs; reset() between tests.
     @Implements(UsbDeviceConnection.class)
@@ -138,6 +146,7 @@ public final class UsbPads {
         static volatile byte[] inputReport;
         public static final AtomicInteger claims = new AtomicInteger(), releases = new AtomicInteger(), closes = new AtomicInteger();
         static final AtomicBoolean readInProgress = new AtomicBoolean();
+        static final AtomicInteger readsStarted = new AtomicInteger();
         static volatile boolean closedDuringRead;
         static final Set<String> controlThreads = ConcurrentHashMap.newKeySet();
 
@@ -153,6 +162,7 @@ public final class UsbPads {
             releases.set(0);
             closes.set(0);
             readInProgress.set(false);
+            readsStarted.set(0);
             closedDuringRead = false;
             controlThreads.clear();
         }
@@ -198,6 +208,7 @@ public final class UsbPads {
                 outputThreads.add(Thread.currentThread().getName());
                 if (outputWriteMs == 0) return length;
             } else {
+                readsStarted.incrementAndGet();
                 readInProgress.set(true);
             }
             boolean interrupted = false;

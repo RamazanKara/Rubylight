@@ -67,6 +67,13 @@ public class LocalCursorView extends View {
     }
 
     @Override
+    protected void onLayout(boolean changed, int left, int top, int right, int bottom) {
+        // The translation is relative to left/top. The stream view's layout listener can move the
+        // pointer before this view is laid out, with the position it had before a padding change.
+        if (changed && !Float.isNaN(pointerX)) moveTo(pointerX, pointerY);
+    }
+
+    @Override
     protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
         int width = cursor != null ? cursor.getIntrinsicWidth() : 0;
         int height = cursor != null ? cursor.getIntrinsicHeight() : 0;

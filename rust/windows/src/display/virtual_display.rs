@@ -1231,8 +1231,8 @@ mod tests {
     }
     #[test]
     fn a_selected_gpu_renders_the_virtual_display_and_automatic_leaves_it_to_windows() {
-        // Issue #28: an Intel iGPU rendered the virtual display while the
-        // selected Radeon R7 M370 was asked to duplicate it.
+        // Issue #28: the integrated GPU rendered the virtual display while
+        // the selected discrete Radeon was asked to duplicate it.
         assert_eq!(VirtualOptions::default().render_adapter, None);
         use butterpollo_core::config::Config;
         assert_eq!(configured_render_adapter(&Config::default()), None);

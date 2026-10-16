@@ -1,29 +1,39 @@
-//! Capture copies and colour conversion on D3D12 compute queues.
+//! The host's GPU work, all on D3D12 compute queues of the capture GPU.
 //!
-//! D3D11 work waits behind whatever a game has queued on the GPU's graphics
-//! engine: beside a game using the whole GPU, the D3D11 colour conversion
-//! took 7 ms instead of 0.9 ms and a plain copy 8 ms instead of 0.7 ms. A
-//! compute queue runs next to the graphics engine and finished the same
-//! work in 0.2-0.3 ms under that load (`examples/d3d12_probe.rs`,
-//! `examples/gpu_load.rs`). Captured frames are copied into shared textures
-//! on one compute queue ([`Handoff`]) and converted to the encoder's YUV
-//! format on another ([`Converter`]); the encoder waits for the conversion's
-//! fence on the GPU.
+//! Work on the graphics engine waits behind whatever a game has queued there:
+//! beside a game using the whole GPU, a graphics-queue colour conversion took
+//! 7 ms instead of 0.9 ms and a plain copy 8 ms instead of 0.7 ms. A compute
+//! queue runs next to the graphics engine and finished the same work in
+//! 0.2-0.3 ms under that load (`examples/d3d12_probe.rs`, `examples/gpu_load.rs`).
+//!
+//! Every frame stays on D3D12 from the display driver to the encoder. The
+//! driver's copy queue writes a frame ring texture and signals its written
+//! fence; [`Converter`] waits for that fence on the GPU, converts the texture
+//! to the encoder's YUV format and signals the encoder's fence. A ring that is
+//! copied rather than read in place (`idd_push_zero_copy = false`) is copied
+//! into a texture the host owns on a compute queue of its own ([`Copier`]).
+//! CPU images (codec probes, tools) are uploaded with [`upload`] and read back
+//! with [`read_planes`].
+//!
+//! Resources live in `D3D12_RESOURCE_STATE_COMMON` between command lists:
+//! sources are read through implicit promotion (which decays again at the end
+//! of the command list), and anything a list writes is transitioned back to
+//! COMMON before the list ends.
 
 use anyhow::{Context, Result, bail};
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashMap,
+    os::windows::io::{FromRawHandle, OwnedHandle},
     sync::{
         Arc, Mutex,
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
     },
 };
 use windows::{
     Win32::{
-        Foundation::{CloseHandle, GENERIC_ALL, HANDLE, LUID},
+        Foundation::{CloseHandle, GENERIC_ALL, LUID},
         Graphics::{
             Direct3D::D3D_FEATURE_LEVEL_11_0,
-            Direct3D11::{ID3D11Device5, ID3D11DeviceContext4, ID3D11Fence, ID3D11Texture2D},
             Direct3D12::*,
             Dxgi::{Common::*, *},
         },
@@ -33,19 +43,16 @@ use windows::{
 
 include!(concat!(env!("OUT_DIR"), "/shader_bytecode.rs"));
 
-/// Whether captures and AMF encoders use the compute queue
-/// (`gpu_compute_conversion`, on unless turned off).
-pub fn enabled(config: &butterpollo_core::config::Config) -> bool {
-    config.boolean("gpu_compute_conversion", true)
-}
-/// Whether the compute queue can open `texture` (an NT-handle shared one).
-pub fn shareable(texture: &ID3D11Texture2D) -> bool {
-    let mut desc = windows::Win32::Graphics::Direct3D11::D3D11_TEXTURE2D_DESC::default();
-    // SAFETY: `texture` is a live texture and `desc` is a live local that GetDesc fills.
-    unsafe { texture.GetDesc(&mut desc) };
-    desc.MiscFlags
-        & windows::Win32::Graphics::Direct3D11::D3D11_RESOURCE_MISC_SHARED_NTHANDLE.0 as u32
-        != 0
+/// `gpu_compute_conversion = false` once moved conversion to the graphics queue, which the
+/// host no longer has: say so rather than ignore the setting without a word.
+pub fn warn_retired_settings(config: &butterpollo_core::config::Config) {
+    if config.values.contains_key("gpu_compute_conversion")
+        && !config.boolean("gpu_compute_conversion", true)
+    {
+        tracing::warn!(
+            "gpu_compute_conversion = false has no effect: Rubylight copies and converts every frame on a D3D12 compute queue; remove the setting"
+        );
+    }
 }
 
 /// A D3D12 device on the capture GPU with one compute queue and its fence.
@@ -54,22 +61,11 @@ pub struct Compute {
     pub queue: ID3D12CommandQueue,
     pub fence: ID3D12Fence,
     next: Mutex<u64>,
-    /// D3D11 textures already opened here, by their COM pointer.
-    opened: Mutex<HashMap<usize, (ID3D11Texture2D, ID3D12Resource)>>,
-    /// Textures another process created and shared, opened from its handle
-    /// (CreateSharedHandle cannot share them again); kept until forgotten.
-    foreign: Mutex<HashMap<usize, (ID3D11Texture2D, ID3D12Resource)>>,
     pub priority: i32,
+    luid: LUID,
     /// Set when the queue did not finish work in time; never shared again.
-    stuck: std::sync::atomic::AtomicBool,
+    stuck: AtomicBool,
 }
-// D3D12 devices, queues and fences are free-threaded; the rest is locked.
-// SAFETY: The D3D12 device, queue and fence are free-threaded, the cached D3D11 textures and D3D12
-// resources are only touched under `opened`'s and `foreign`'s locks, and `next` is a mutex.
-unsafe impl Send for Compute {}
-// SAFETY: `&self` methods call only free-threaded D3D12 methods and change state only through the
-// mutexes and the atomic.
-unsafe impl Sync for Compute {}
 fn completed_value(value: u64) -> Result<u64> {
     // D3D12 signals UINT64_MAX on device removal, including shared fences.
     if value == u64::MAX {
@@ -124,16 +120,16 @@ fn wait_fence(fence: &ID3D12Fence, value: u64) -> Result<()> {
 /// desktop compositor that every captured frame comes from, and an HDR stream
 /// on an RX 7900 XT with it ended in an AMD engine timeout the driver could
 /// not reset. High priority still runs ahead of a game's normal work.
-static REALTIME: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static REALTIME: AtomicBool = AtomicBool::new(false);
 pub fn set_realtime(enabled: bool) {
-    REALTIME.store(enabled, std::sync::atomic::Ordering::Relaxed);
+    REALTIME.store(enabled, Ordering::Relaxed);
 }
 pub fn realtime() -> bool {
-    REALTIME.load(std::sync::atomic::Ordering::Relaxed)
+    REALTIME.load(Ordering::Relaxed)
 }
 /// A compute queue at the highest allowed priority Windows grants this process.
 fn compute_queue(device: &ID3D12Device) -> Result<(ID3D12CommandQueue, i32)> {
-    let realtime = REALTIME.load(std::sync::atomic::Ordering::Relaxed);
+    let realtime = REALTIME.load(Ordering::Relaxed);
     for priority in [
         D3D12_COMMAND_QUEUE_PRIORITY_GLOBAL_REALTIME.0,
         D3D12_COMMAND_QUEUE_PRIORITY_HIGH.0,
@@ -166,7 +162,7 @@ impl Compute {
             let adapter: IDXGIAdapter1 = factory.EnumAdapterByLuid(luid)?;
             let mut device: Option<ID3D12Device> = None;
             D3D12CreateDevice(&adapter, D3D_FEATURE_LEVEL_11_0, &mut device)
-                .context("D3D12 device for compute conversion")?;
+                .context("D3D12 device on the capture GPU")?;
             let device = device.context("no D3D12 device")?;
             let (queue, priority) = compute_queue(&device)?;
             let fence = device.CreateFence(0, D3D12_FENCE_FLAG_NONE)?;
@@ -176,26 +172,17 @@ impl Compute {
                 queue,
                 fence,
                 next: Mutex::new(0),
-                opened: Mutex::new(HashMap::new()),
-                foreign: Mutex::new(HashMap::new()),
                 priority,
-                stuck: std::sync::atomic::AtomicBool::new(false),
+                luid,
+                stuck: AtomicBool::new(false),
             }))
         }
     }
-    /// The compute queue for the GPU a D3D11 device runs on, shared by the
-    /// capture and the encoders on that GPU.
-    pub fn for_device(
-        device: &windows::Win32::Graphics::Direct3D11::ID3D11Device,
-    ) -> Result<Arc<Self>> {
+    /// The compute queue for the adapter with `luid`, shared by the capture and the encoders
+    /// on that GPU. One that stopped finishing work is replaced.
+    pub fn for_adapter(luid: LUID) -> Result<Arc<Self>> {
         type Shared = Vec<((u32, i32), std::sync::Weak<Compute>)>;
         static SHARED: Mutex<Shared> = Mutex::new(Vec::new());
-        // SAFETY: `device` is a live D3D11 device, and GetAdapter and GetDesc only return owned
-        // values.
-        let luid = unsafe {
-            let dxgi: IDXGIDevice = device.cast()?;
-            dxgi.GetAdapter()?.GetDesc()?.AdapterLuid
-        };
         let key = (luid.LowPart, luid.HighPart);
         let mut shared = SHARED.lock().unwrap();
         shared.retain(|(_, compute)| compute.strong_count() > 0);
@@ -203,15 +190,17 @@ impl Compute {
             .iter()
             .filter(|(owner, _)| *owner == key)
             .filter_map(|(_, compute)| compute.upgrade())
-            .find(|compute| {
-                !compute.stuck.load(std::sync::atomic::Ordering::Acquire) && compute.completed(0)
-            })
+            .find(|compute| !compute.stuck.load(Ordering::Acquire) && compute.completed(0))
         {
             return Ok(compute);
         }
         let compute = Self::new(luid)?;
         shared.push((key, Arc::downgrade(&compute)));
         Ok(compute)
+    }
+    /// The adapter this device runs on.
+    pub fn luid(&self) -> LUID {
+        self.luid
     }
     /// Signal the fence after the work submitted so far; returns its value.
     fn signal(&self) -> Result<u64> {
@@ -239,126 +228,41 @@ impl Compute {
         match completed_value(unsafe { self.fence.GetCompletedValue() }) {
             Ok(done) => done >= value,
             Err(_) => {
-                self.stuck.store(true, std::sync::atomic::Ordering::Release);
+                self.stuck.store(true, Ordering::Release);
                 false
             }
         }
     }
     /// Wait on the CPU until the queue has passed `value`. A queue that does
-    /// not get there is not used again: [`Compute::for_device`] makes a new one.
+    /// not get there is not used again: [`Compute::for_adapter`] makes a new one.
     pub fn wait(&self, value: u64) -> Result<()> {
         let result = wait_fence(&self.fence, value);
         if result.is_err() {
-            self.stuck.store(true, std::sync::atomic::Ordering::Release);
+            self.stuck.store(true, Ordering::Release);
         }
         result
     }
-    /// A shared D3D11 texture as a D3D12 resource on this device.
-    pub fn open(&self, texture: &ID3D11Texture2D) -> Result<ID3D12Resource> {
-        let key = texture.as_raw() as usize;
-        if let Some((_, resource)) = self.foreign.lock().unwrap().get(&key) {
-            return Ok(resource.clone());
-        }
-        let mut opened = self.opened.lock().unwrap();
-        if let Some((_, resource)) = opened.get(&key) {
-            return Ok(resource.clone());
-        }
-        // SAFETY: `texture` is a live D3D11 texture on this GPU, the NT handle is closed exactly
-        // once after OpenSharedHandle has used it, and `resource` is a live local.
-        unsafe {
-            let shared: IDXGIResource1 = texture.cast()?;
-            let handle = shared
-                .CreateSharedHandle(
-                    None,
-                    DXGI_SHARED_RESOURCE_READ.0 | DXGI_SHARED_RESOURCE_WRITE.0,
-                    None,
-                )
-                .context("sharing a captured texture with the compute queue")?;
-            let mut resource: Option<ID3D12Resource> = None;
-            let result = self.device.OpenSharedHandle(handle, &mut resource);
-            let _ = CloseHandle(handle);
-            result?;
-            let resource = resource.context("no shared resource")?;
-            // Captures recycle a few textures; start over if many came and
-            // went. In-flight copies and conversions hold their own references,
-            // so this cannot free memory the GPU still uses; the bound keeps
-            // stale 4K HDR textures from pinning gigabytes of video memory.
-            if opened.len() >= 24 {
-                opened.clear();
-            }
-            opened.insert(key, (texture.clone(), resource.clone()));
-            Ok(resource)
-        }
-    }
-}
-
-impl Compute {
-    pub(crate) fn forget(&self, texture: &ID3D11Texture2D) {
-        self.opened
-            .lock()
-            .unwrap()
-            .remove(&(texture.as_raw() as usize));
-        self.foreign
-            .lock()
-            .unwrap()
-            .remove(&(texture.as_raw() as usize));
-    }
-}
-/// A D3D12 fence the capture's D3D11 device can signal and wait for.
-fn shared_fence(compute: &Compute, device: &ID3D11Device5) -> Result<(ID3D12Fence, ID3D11Fence)> {
-    // SAFETY: The fence is created on the live `compute.device`, the NT handle is closed once after
-    // `device` opened it, and `opened` is a live local.
-    unsafe {
-        let fence: ID3D12Fence = compute.device.CreateFence(0, D3D12_FENCE_FLAG_SHARED)?;
-        let handle = compute
-            .device
-            .CreateSharedHandle(&fence, None, GENERIC_ALL.0, None)?;
-        let mut opened: Option<ID3D11Fence> = None;
-        let result = device.OpenSharedFence(handle, &mut opened);
-        let _ = CloseHandle(handle);
-        result.context("sharing a fence with the capture device")?;
-        Ok((fence, opened.context("no shared fence")?))
-    }
-}
-impl Compute {
-    /// A fence on this device that other processes can open: the fence, an NT handle to it
-    /// for them, and the fence opened on the capture's D3D11 `device`.
-    pub(crate) fn share_fence(
-        &self,
-        device: &ID3D11Device5,
-    ) -> Result<(ID3D12Fence, ID3D11Fence, std::os::windows::io::OwnedHandle)> {
-        use std::os::windows::io::FromRawHandle;
-        // SAFETY: The fence is created on the live `self.device`; the NT handle is owned at once,
-        // `device` only borrows it, and `opened` is a live local.
+    /// A fence on this device that other processes and APIs can open, with an NT handle to it.
+    pub(crate) fn share_fence(&self) -> Result<(ID3D12Fence, OwnedHandle)> {
+        // SAFETY: The fence is created on the live `self.device`, and the NT handle is owned at
+        // once.
         unsafe {
             let fence: ID3D12Fence = self.device.CreateFence(0, D3D12_FENCE_FLAG_SHARED)?;
             let handle = self
                 .device
                 .CreateSharedHandle(&fence, None, GENERIC_ALL.0, None)?;
-            let handle = std::os::windows::io::OwnedHandle::from_raw_handle(handle.0);
-            let mut opened: Option<ID3D11Fence> = None;
-            device
-                .OpenSharedFence(
-                    HANDLE(std::os::windows::io::AsRawHandle::as_raw_handle(&handle)),
-                    &mut opened,
-                )
-                .context("sharing a fence with the capture device")?;
-            Ok((fence, opened.context("no shared fence")?, handle))
+            Ok((fence, OwnedHandle::from_raw_handle(handle.0)))
         }
     }
-
-    /// A `width` x `height` texture in `format` that other processes can open, created on
-    /// this device with no keyed mutex: an NT handle to it for them, and the texture opened
-    /// on the capture's D3D11 `device`. [`Compute::open`] finds this device's resource for it
-    /// until [`Compute::forget`].
-    pub(crate) fn share_texture(
+    /// A `width` x `height` single-sample 2D texture in `format` in the COMMON state.
+    pub(crate) fn texture(
         &self,
-        device: &windows::Win32::Graphics::Direct3D11::ID3D11Device1,
         width: u32,
         height: u32,
         format: DXGI_FORMAT,
-    ) -> Result<(ID3D11Texture2D, std::os::windows::io::OwnedHandle)> {
-        use std::os::windows::io::{AsRawHandle, FromRawHandle};
+        flags: D3D12_RESOURCE_FLAGS,
+        heap: D3D12_HEAP_FLAGS,
+    ) -> Result<ID3D12Resource> {
         let desc = D3D12_RESOURCE_DESC {
             Dimension: D3D12_RESOURCE_DIMENSION_TEXTURE2D,
             Width: u64::from(width),
@@ -371,58 +275,68 @@ impl Compute {
                 Quality: 0,
             },
             Layout: D3D12_TEXTURE_LAYOUT_UNKNOWN,
-            // D3D11 opens a D3D12 texture only if it may be a render target: without the flag
-            // OpenSharedResource1 fails with E_INVALIDARG (RX 7900 XT, October 16).
-            Flags: D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET,
+            Flags: flags,
             Alignment: 0,
         };
-        // SAFETY: `desc` describes a plain single-sample 2D texture on the live `self.device`; the
-        // NT handle is owned at once and `device` only borrows it.
+        let mut resource: Option<ID3D12Resource> = None;
+        // SAFETY: `desc` describes a plain single-sample 2D texture on the live `self.device`, and
+        // `resource` is a live local.
         unsafe {
-            let mut resource: Option<ID3D12Resource> = None;
             self.device.CreateCommittedResource(
                 &D3D12_HEAP_PROPERTIES {
                     Type: D3D12_HEAP_TYPE_DEFAULT,
                     ..Default::default()
                 },
-                D3D12_HEAP_FLAG_SHARED,
+                heap,
                 &desc,
                 D3D12_RESOURCE_STATE_COMMON,
                 None,
                 &mut resource,
-            )?;
-            let resource = resource.context("no shared texture")?;
+            )
+        }
+        .with_context(|| format!("a {width}x{height} {format:?} texture on the compute device"))?;
+        resource.context("no texture")
+    }
+    /// A texture as [`Compute::texture`] makes it that other processes and APIs can open, with
+    /// an NT handle to it. It has no keyed mutex: fences order every access.
+    pub(crate) fn share_texture(
+        &self,
+        width: u32,
+        height: u32,
+        format: DXGI_FORMAT,
+        flags: D3D12_RESOURCE_FLAGS,
+    ) -> Result<(ID3D12Resource, OwnedHandle)> {
+        let resource = self.texture(width, height, format, flags, D3D12_HEAP_FLAG_SHARED)?;
+        // SAFETY: `resource` is a live shared resource on `self.device`; the NT handle is owned at
+        // once.
+        unsafe {
             let handle = self
                 .device
                 .CreateSharedHandle(&resource, None, GENERIC_ALL.0, None)?;
-            let handle = std::os::windows::io::OwnedHandle::from_raw_handle(handle.0);
-            let texture: ID3D11Texture2D = device
-                .OpenSharedResource1(HANDLE(handle.as_raw_handle()))
-                .context("opening a D3D12 texture on the capture device")?;
-            self.foreign
-                .lock()
-                .unwrap()
-                .insert(texture.as_raw() as usize, (texture.clone(), resource));
-            Ok((texture, handle))
+            Ok((resource, OwnedHandle::from_raw_handle(handle.0)))
         }
+    }
+    /// Whether `resource` was created on, or opened by, this device.
+    pub(crate) fn owns(&self, resource: &ID3D12Resource) -> bool {
+        let mut device: Option<ID3D12Device> = None;
+        // SAFETY: `resource` is live and GetDevice only writes the live local.
+        let _ = unsafe { resource.GetDevice(&mut device) };
+        device.is_some_and(|device| device.as_raw() == self.device.as_raw())
     }
 }
 
-/// When a copied frame is complete: the copy queue's fence reaching `value`.
+/// When a GPU write into a frame is complete: `fence` reaching `value`.
 #[derive(Clone)]
 pub struct Ready {
     pub(crate) fence: ID3D12Fence,
     pub(crate) value: u64,
     /// The D3D12 device whose queues can wait for the fence.
     device: usize,
+    /// The last compute fence value of a conversion reading the frame, for a copy that
+    /// reuses its texture.
     readers: Option<Arc<AtomicU64>>,
 }
-// Fences are free-threaded.
-// SAFETY: `fence` is a free-threaded ID3D12Fence, and `device` is an address compared, never
-// dereferenced.
-unsafe impl Send for Ready {}
-// SAFETY: Shared use only reads `value` and calls free-threaded methods on the fence.
-unsafe impl Sync for Ready {}
+
 impl Ready {
     /// Work on `compute`'s queues waits for `fence`, one of its device's, to reach `value`.
     pub(crate) fn on(compute: &Compute, fence: ID3D12Fence, value: u64) -> Self {
@@ -433,220 +347,187 @@ impl Ready {
             readers: None,
         }
     }
-    /// Block until the copy is done.
+    /// Block until the write is done.
     pub fn wait(&self) -> Result<()> {
         wait_fence(&self.fence, self.value)
     }
+    /// Make `queue`, one of `compute`'s, wait for the write on the GPU; a fence of another
+    /// device is waited for here.
+    fn order(&self, compute: &Compute, queue: &ID3D12CommandQueue) -> Result<()> {
+        if self.device == compute.device.as_raw() as usize {
+            // SAFETY: The fence belongs to the queue's device and `self` holds it for the call.
+            unsafe { queue.Wait(&self.fence, self.value)? };
+            Ok(())
+        } else {
+            self.wait()
+        }
+    }
+    /// Record that `compute`'s queue reads the frame until its fence reaches `value`.
+    fn read_until(&self, value: u64) {
+        if let Some(readers) = &self.readers {
+            readers.fetch_max(value, Ordering::Release);
+        }
+    }
 }
 
-/// Copies captured frames on a compute queue of their own, in order with the
-/// capture's D3D11 device but without the graphics engine: a frame ring that
-/// is copied rather than read in place (`idd_push_zero_copy = false`).
+/// A command allocator and its list, with the value of the fence that marks the end of its
+/// last submission and the resources that submission uses.
+struct Recorder {
+    allocator: ID3D12CommandAllocator,
+    list: ID3D12GraphicsCommandList,
+    last: u64,
+    keep: Vec<ID3D12Resource>,
+}
+impl Recorder {
+    fn new(device: &ID3D12Device, kind: D3D12_COMMAND_LIST_TYPE) -> Result<Self> {
+        // SAFETY: `device` is a live D3D12 device, and the list records into the allocator
+        // created with it just before; it is closed until the first reset.
+        unsafe {
+            let allocator: ID3D12CommandAllocator = device.CreateCommandAllocator(kind)?;
+            let list: ID3D12GraphicsCommandList =
+                device.CreateCommandList(0, kind, &allocator, None)?;
+            list.Close()?;
+            Ok(Self {
+                allocator,
+                list,
+                last: 0,
+                keep: Vec::new(),
+            })
+        }
+    }
+    /// Open the list for recording.
+    ///
+    /// # Safety
+    ///
+    /// The GPU must have finished the list's last submission.
+    unsafe fn reset(&mut self) -> Result<&ID3D12GraphicsCommandList> {
+        self.keep.clear();
+        // SAFETY: The caller guarantees the GPU no longer executes the allocator's commands.
+        unsafe {
+            self.allocator.Reset()?;
+            self.list.Reset(&self.allocator, None)?;
+        }
+        Ok(&self.list)
+    }
+}
+
+/// Copies frames on a compute queue of its own: a frame ring that is copied rather than read
+/// in place (`idd_push_zero_copy = false`).
 ///
-/// The D3D11 context waits for the driver's copy into the ring and signals a
-/// fence, the copy waits for that fence on the GPU, and the D3D11 context
-/// waits for the copy before the ring slot is freed. Fence waits and signals
-/// take no time on the graphics engine, and nothing blocks the capture thread.
-pub struct Handoff {
+/// Each copy waits on the GPU for the write it copies (the display driver's written fence)
+/// and for the conversions still reading the destination's previous frame, and signals its
+/// own fence when done. The capture frees the ring slot by signalling the ring's released
+/// fence on [`Copier::queue`], after the copy.
+pub struct Copier {
     compute: Arc<Compute>,
     queue: ID3D12CommandQueue,
-    /// Signalled by the D3D11 context once it holds the frame.
-    acquired: (ID3D12Fence, ID3D11Fence),
-    /// Signalled by the copy queue once the frame is copied.
-    copied: (ID3D12Fence, ID3D11Fence),
-    context: ID3D11DeviceContext4,
+    /// Signalled by the queue once a copy is done.
+    copied: ID3D12Fence,
     value: u64,
-    /// The last value the copy queue was asked to signal.
-    signalled: u64,
-    /// Command lists, each with the value of the copy that last used it and
-    /// the resources that copy reads and writes, kept until it has run.
-    #[allow(clippy::type_complexity)]
-    lists: Vec<(
-        ID3D12CommandAllocator,
-        ID3D12GraphicsCommandList,
-        u64,
-        [Option<ID3D12Resource>; 2],
-    )>,
-    /// Foreign textures belong to this capture, not the adapter-wide cache.
-    /// Releasing a helper must release its imported resources immediately.
-    imported: HashMap<usize, (ID3D11Texture2D, ID3D12Resource)>,
-    opened: HashSet<usize>,
-    readers: HashMap<usize, (ID3D11Texture2D, Arc<AtomicU64>)>,
+    lists: Vec<Recorder>,
+    /// The conversions reading each destination, by its address. Only the address: a
+    /// reference here would keep the pool from ever seeing its texture free.
+    readers: HashMap<usize, Arc<AtomicU64>>,
 }
-// The context is only used by the capture that owns this, under the D3D11
-// device's multithread protection; D3D12 objects are free-threaded.
-// SAFETY: The D3D11 context's device is multithread-protected (`capture::Device::create`), and the
-// command allocators and lists are used only through `&mut self` on one thread at a time.
-unsafe impl Send for Handoff {}
-impl Handoff {
-    pub(crate) fn forget(&mut self, texture: &ID3D11Texture2D) {
-        let key = texture.as_raw() as usize;
-        self.readers.remove(&key);
-        self.opened.remove(&key);
-        self.compute.forget(texture);
-    }
-    pub(crate) fn device_removed(&self) -> Option<crate::device_loss::DeviceLost> {
-        crate::device_loss::DeviceLost::d3d12(&self.compute.device)
-    }
-    /// A helper already created this texture's NT handle. Import that handle
-    /// instead of calling CreateSharedHandle a second time on the resource.
-    pub(crate) fn import_shared(
-        &mut self,
-        texture: &ID3D11Texture2D,
-        handle: HANDLE,
-    ) -> Result<()> {
-        let mut resource: Option<ID3D12Resource> = None;
-        // SAFETY: `handle` is a live NT handle to `texture` that the caller owns, and `resource` is
-        // a live local.
-        unsafe {
-            self.compute
-                .device
-                .OpenSharedHandle(handle, &mut resource)?;
-        }
-        self.imported.insert(
-            texture.as_raw() as usize,
-            (
-                texture.clone(),
-                resource.context("no imported shared resource")?,
-            ),
-        );
-        Ok(())
-    }
-    fn open(&mut self, texture: &ID3D11Texture2D) -> Result<ID3D12Resource> {
-        if let Some((_, resource)) = self.imported.get(&(texture.as_raw() as usize)) {
-            Ok(resource.clone())
-        } else {
-            self.opened.insert(texture.as_raw() as usize);
-            self.compute.open(texture)
-        }
-    }
-    pub fn new(compute: Arc<Compute>, gpu: &crate::capture::Device) -> Result<Self> {
-        let device: ID3D11Device5 = gpu.device.cast()?;
+impl Copier {
+    pub fn new(compute: Arc<Compute>) -> Result<Self> {
         let (queue, _) = compute_queue(&compute.device)?;
+        // SAFETY: `compute.device` is a live D3D12 device.
+        let copied = unsafe { compute.device.CreateFence(0, D3D12_FENCE_FLAG_NONE)? };
         Ok(Self {
-            acquired: shared_fence(&compute, &device)?,
-            copied: shared_fence(&compute, &device)?,
-            queue,
             compute,
-            context: gpu.context.cast()?,
+            queue,
+            copied,
             value: 0,
-            signalled: 0,
             lists: Vec::new(),
-            imported: HashMap::new(),
-            opened: HashSet::new(),
             readers: HashMap::new(),
         })
     }
-    /// Copy the frame the capture's D3D11 device holds into `destination`,
-    /// a shared texture. The copy completes when the result is ready; D3D11
-    /// work submitted after this call is ordered after it.
+    /// The queue the copies run on.
+    pub(crate) fn queue(&self) -> &ID3D12CommandQueue {
+        &self.queue
+    }
+    pub(crate) fn forget(&mut self, destination: &ID3D12Resource) {
+        self.readers.remove(&(destination.as_raw() as usize));
+    }
+    /// Copy `source` into `destination` (same size and format, both on this device) once
+    /// `after` is reached. The copy is complete when the returned value is.
     pub fn copy(
         &mut self,
-        destination: &ID3D11Texture2D,
-        source: &ID3D11Texture2D,
+        destination: &Arc<ID3D12Resource>,
+        source: &ID3D12Resource,
+        after: Option<&Ready>,
     ) -> Result<Ready> {
+        anyhow::ensure!(
+            self.compute.owns(destination) && self.compute.owns(source),
+            "a frame copy between GPU devices"
+        );
         let readers = self
             .readers
             .entry(destination.as_raw() as usize)
-            .or_insert_with(|| (destination.clone(), Arc::new(AtomicU64::new(0))))
-            .1
+            .or_default()
             .clone();
-        let destination = self.open(destination)?;
-        let source = self.open(source)?;
-        let list = self.list()?;
+        let index = self.list()?;
         self.value += 1;
         let value = self.value;
-        // SAFETY: The list's last copy has finished, `resources` keeps both textures alive until it
-        // runs again, and the D3D11 context is multithread-protected.
+        let recorder = &mut self.lists[index];
+        // SAFETY: The recorder's last copy has finished (`list`), `keep` holds both textures until
+        // it is reset again, and every barrier names a live resource on this device.
         unsafe {
-            let (allocator, commands, last, resources) = &mut self.lists[list];
-            allocator.Reset()?;
-            commands.Reset(&*allocator, None)?;
-            commands.CopyResource(&destination, &source);
-            // The adapter-wide cache may release its references while the copy
-            // runs; freeing memory the GPU still reads can hang its engine.
-            *resources = [Some(destination.clone()), Some(source.clone())];
-            // Back to COMMON for the conversion queue and the D3D11 device.
+            let list = recorder.reset()?;
+            list.CopyResource(destination.as_ref(), source);
+            // The destination was promoted to COPY_DEST, which does not decay on a compute
+            // queue: back to COMMON for the conversion and readers.
             let mut barriers = [transition(
-                &destination,
+                destination,
                 D3D12_RESOURCE_STATE_COPY_DEST,
                 D3D12_RESOURCE_STATE_COMMON,
             )];
-            commands.ResourceBarrier(&barriers);
+            list.ResourceBarrier(&barriers);
             drop_barriers(&mut barriers);
-            commands.Close()?;
-            *last = value;
-            self.context.Signal(&self.acquired.1, value)?;
-            self.context.Flush();
-            self.queue.Wait(&self.acquired.0, value)?;
-            // A conversion may still read the pool texture being reused.
+            list.Close()?;
+            recorder.keep = vec![destination.as_ref().clone(), source.clone()];
+            recorder.last = value;
+            if let Some(after) = after {
+                after.order(&self.compute, &self.queue)?;
+            }
+            // A conversion may still read the texture being reused.
             self.queue
                 .Wait(&self.compute.fence, readers.load(Ordering::Acquire))?;
             self.queue
-                .ExecuteCommandLists(&[Some(commands.cast::<ID3D12CommandList>()?)]);
-            self.queue.Signal(&self.copied.0, value)?;
-            self.signalled = value;
-            // Releasing the frame to DWM, and D3D11 readers of the copy,
-            // come after it. Submitted now, so the release cannot overtake it.
-            self.context.Wait(&self.copied.1, value)?;
-            self.context.Flush();
+                .ExecuteCommandLists(&[Some(recorder.list.cast::<ID3D12CommandList>()?)]);
+            self.queue.Signal(&self.copied, value)?;
         }
         Ok(Ready {
-            fence: self.copied.0.clone(),
+            fence: self.copied.clone(),
             value,
             device: self.compute.device.as_raw() as usize,
             readers: Some(readers),
         })
     }
-    /// A command list the copy queue has finished with.
+    /// A command list the queue has finished with.
     fn list(&mut self) -> Result<usize> {
-        // SAFETY: `copied.0` is a live D3D12 fence owned by this handoff; GetCompletedValue only
+        // SAFETY: `copied` is a live D3D12 fence owned by this copier; GetCompletedValue only
         // reads it.
-        let done = completed_value(unsafe { self.copied.0.GetCompletedValue() })?;
-        if let Some(index) = self.lists.iter().position(|(_, _, last, _)| *last <= done) {
+        let done = completed_value(unsafe { self.copied.GetCompletedValue() })?;
+        if let Some(index) = self.lists.iter().position(|recorder| recorder.last <= done) {
             return Ok(index);
         }
         if self.lists.len() < 8 {
-            // SAFETY: `compute.device` is a live D3D12 device, and the new list records into the
-            // allocator created with it just before.
-            unsafe {
-                let allocator: ID3D12CommandAllocator = self
-                    .compute
-                    .device
-                    .CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_COMPUTE)?;
-                let list: ID3D12GraphicsCommandList = self.compute.device.CreateCommandList(
-                    0,
-                    D3D12_COMMAND_LIST_TYPE_COMPUTE,
-                    &allocator,
-                    None,
-                )?;
-                list.Close()?;
-                self.lists.push((allocator, list, 0, [None, None]));
-            }
+            self.lists.push(Recorder::new(
+                &self.compute.device,
+                D3D12_COMMAND_LIST_TYPE_COMPUTE,
+            )?);
             return Ok(self.lists.len() - 1);
         }
-        // Eight frames behind: DWM's copies are not finishing.
+        // Eight frames behind: the copies are not finishing.
         bail!("capture copies stopped completing")
     }
 }
-impl Drop for Handoff {
+impl Drop for Copier {
     fn drop(&mut self) {
-        // The queue may still copy into pool textures.
-        let _ = Ready {
-            fence: self.copied.0.clone(),
-            value: self.signalled,
-            device: 0,
-            readers: None,
-        }
-        .wait();
-        for (texture, _) in self.readers.values() {
-            self.compute.forget(texture);
-        }
-        self.compute
-            .opened
-            .lock()
-            .unwrap()
-            .retain(|key, _| !self.opened.contains(key));
+        // The queue may still copy into pool textures and read ring textures.
+        let _ = wait_fence(&self.copied, self.value);
     }
 }
 
@@ -656,6 +537,265 @@ pub(crate) fn format(pixel: crate::capture::Pixel) -> DXGI_FORMAT {
         crate::capture::Pixel::RgbaF16 => DXGI_FORMAT_R16G16B16A16_FLOAT,
         crate::capture::Pixel::Rgba10Pq => DXGI_FORMAT_R10G10B10A2_UNORM,
     }
+}
+pub(crate) fn pixel(format: DXGI_FORMAT) -> Result<crate::capture::Pixel> {
+    Ok(match format {
+        DXGI_FORMAT_B8G8R8A8_UNORM => crate::capture::Pixel::Bgra8,
+        DXGI_FORMAT_R16G16B16A16_FLOAT => crate::capture::Pixel::RgbaF16,
+        DXGI_FORMAT_R10G10B10A2_UNORM => crate::capture::Pixel::Rgba10Pq,
+        _ => bail!("unsupported GPU frame format {format:?}"),
+    })
+}
+
+/// A copy location for `resource`; [`drop_location`] releases its reference.
+fn location(
+    resource: &ID3D12Resource,
+    footprint: Option<D3D12_PLACED_SUBRESOURCE_FOOTPRINT>,
+    subresource: u32,
+) -> D3D12_TEXTURE_COPY_LOCATION {
+    D3D12_TEXTURE_COPY_LOCATION {
+        pResource: std::mem::ManuallyDrop::new(Some(resource.clone())),
+        Type: if footprint.is_some() {
+            D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT
+        } else {
+            D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX
+        },
+        Anonymous: match footprint {
+            Some(footprint) => D3D12_TEXTURE_COPY_LOCATION_0 {
+                PlacedFootprint: footprint,
+            },
+            None => D3D12_TEXTURE_COPY_LOCATION_0 {
+                SubresourceIndex: subresource,
+            },
+        },
+    }
+}
+fn drop_location(location: D3D12_TEXTURE_COPY_LOCATION) {
+    drop(std::mem::ManuallyDrop::into_inner(location.pResource));
+}
+/// A committed buffer of `size` bytes on `heap` in `state`.
+fn buffer(
+    device: &ID3D12Device,
+    heap: D3D12_HEAP_TYPE,
+    size: u64,
+    state: D3D12_RESOURCE_STATES,
+) -> Result<ID3D12Resource> {
+    let mut buffer: Option<ID3D12Resource> = None;
+    // SAFETY: `device` is live and the descriptions and out-parameter outlive the call.
+    unsafe {
+        device.CreateCommittedResource(
+            &D3D12_HEAP_PROPERTIES {
+                Type: heap,
+                ..Default::default()
+            },
+            D3D12_HEAP_FLAG_NONE,
+            &buffer_desc(size),
+            state,
+            None,
+            &mut buffer,
+        )?;
+    }
+    buffer.context("no buffer")
+}
+
+/// Upload the rows of `bytes`, `stride` apart, into a new texture in `format` with `flags` on
+/// `compute`'s device; returns it and the compute fence value of the copy, which has finished
+/// when this returns.
+pub(crate) fn upload(
+    compute: &Compute,
+    (width, height): (u32, u32),
+    format: DXGI_FORMAT,
+    flags: D3D12_RESOURCE_FLAGS,
+    bytes: &[u8],
+    stride: usize,
+) -> Result<(ID3D12Resource, u64)> {
+    let texture = compute.texture(width, height, format, flags, D3D12_HEAP_FLAG_NONE)?;
+    let mut footprint = D3D12_PLACED_SUBRESOURCE_FOOTPRINT::default();
+    let (mut rows, mut row, mut total) = (0u32, 0u64, 0u64);
+    // SAFETY: `texture` is live and every out-parameter is a live local sized for one
+    // subresource.
+    unsafe {
+        compute.device.GetCopyableFootprints(
+            &texture.GetDesc(),
+            0,
+            1,
+            0,
+            Some(&mut footprint),
+            Some(&mut rows),
+            Some(&mut row),
+            Some(&mut total),
+        );
+    }
+    let row = row as usize;
+    anyhow::ensure!(
+        rows == height && stride >= row && bytes.len() >= stride * (height as usize - 1) + row,
+        "an image upload smaller than its texture"
+    );
+    let staging = buffer(
+        &compute.device,
+        D3D12_HEAP_TYPE_UPLOAD,
+        total,
+        D3D12_RESOURCE_STATE_GENERIC_READ,
+    )?;
+    let mut recorder = Recorder::new(&compute.device, D3D12_COMMAND_LIST_TYPE_COMPUTE)?;
+    // SAFETY: The mapped buffer holds `total` bytes, and every row written lies within the
+    // footprint GetCopyableFootprints laid out in it (checked above); the recorder is new, and
+    // the queue is waited for before the staging buffer and recorder go.
+    unsafe {
+        let mut mapped = std::ptr::null_mut();
+        staging.Map(0, None, Some(&mut mapped))?;
+        for y in 0..height as usize {
+            std::ptr::copy_nonoverlapping(
+                bytes.as_ptr().add(y * stride),
+                mapped
+                    .cast::<u8>()
+                    .add(footprint.Offset as usize + y * footprint.Footprint.RowPitch as usize),
+                row,
+            );
+        }
+        staging.Unmap(0, None);
+        let list = recorder.reset()?;
+        let destination = location(&texture, None, 0);
+        let source = location(&staging, Some(footprint), 0);
+        list.CopyTextureRegion(&destination, 0, 0, 0, &source, None);
+        drop_location(destination);
+        drop_location(source);
+        let mut barriers = [transition(
+            &texture,
+            D3D12_RESOURCE_STATE_COPY_DEST,
+            D3D12_RESOURCE_STATE_COMMON,
+        )];
+        list.ResourceBarrier(&barriers);
+        drop_barriers(&mut barriers);
+        list.Close()?;
+        let value = compute.execute(&recorder.list)?;
+        compute.wait(value)?;
+        Ok((texture, value))
+    }
+}
+
+/// A CPU-readable buffer and a command list for [`read_planes`], kept between reads.
+pub struct Staging {
+    buffer: ID3D12Resource,
+    capacity: u64,
+    recorder: Recorder,
+    device: usize,
+}
+
+/// The rows of each plane of `texture`, without padding, once `ready` is reached.
+pub(crate) fn read_planes(
+    compute: &Compute,
+    texture: &ID3D12Resource,
+    ready: Option<&Ready>,
+    staging: &mut Option<Staging>,
+) -> Result<Vec<Vec<u8>>> {
+    anyhow::ensure!(compute.owns(texture), "a readback from another GPU device");
+    // SAFETY: `texture` is a live resource.
+    let desc = unsafe { texture.GetDesc() };
+    let planes = if matches!(desc.Format, DXGI_FORMAT_NV12 | DXGI_FORMAT_P010) {
+        2
+    } else {
+        1
+    };
+    let mut footprints = [D3D12_PLACED_SUBRESOURCE_FOOTPRINT::default(); 2];
+    let mut rows = [0u32; 2];
+    let mut sizes = [0u64; 2];
+    let mut total = 0u64;
+    // SAFETY: Each output array holds at least `planes` entries.
+    unsafe {
+        compute.device.GetCopyableFootprints(
+            &desc,
+            0,
+            planes,
+            0,
+            Some(footprints.as_mut_ptr()),
+            Some(rows.as_mut_ptr()),
+            Some(sizes.as_mut_ptr()),
+            Some(&mut total),
+        );
+    }
+    let device = compute.device.as_raw() as usize;
+    if staging
+        .as_ref()
+        .is_none_or(|staging| staging.capacity < total || staging.device != device)
+    {
+        *staging = Some(Staging {
+            buffer: buffer(
+                &compute.device,
+                D3D12_HEAP_TYPE_READBACK,
+                total,
+                D3D12_RESOURCE_STATE_COPY_DEST,
+            )?,
+            capacity: total,
+            recorder: Recorder::new(&compute.device, D3D12_COMMAND_LIST_TYPE_COMPUTE)?,
+            device,
+        });
+    }
+    let staging = staging.as_mut().context("no staging buffer")?;
+    // SAFETY: The staging recorder's last read was waited for before it returned, the buffer
+    // holds `total` bytes laid out as `footprints`, and every row read lies within it.
+    unsafe {
+        let list = staging.recorder.reset()?;
+        for (plane, footprint) in footprints.iter().take(planes as usize).enumerate() {
+            let destination = location(&staging.buffer, Some(*footprint), 0);
+            let source = location(texture, None, plane as u32);
+            list.CopyTextureRegion(&destination, 0, 0, 0, &source, None);
+            drop_location(destination);
+            drop_location(source);
+        }
+        list.Close()?;
+        if let Some(ready) = ready {
+            ready.order(compute, &compute.queue)?;
+        }
+        let value = compute.execute(&staging.recorder.list)?;
+        compute.wait(value)?;
+        let mut mapped = std::ptr::null_mut();
+        staging.buffer.Map(0, None, Some(&mut mapped))?;
+        let mut result = Vec::with_capacity(planes as usize);
+        for plane in 0..planes as usize {
+            let (footprint, row) = (footprints[plane], sizes[plane] as usize);
+            let mut bytes = Vec::with_capacity(row * rows[plane] as usize);
+            for y in 0..rows[plane] as usize {
+                bytes.extend_from_slice(std::slice::from_raw_parts(
+                    mapped
+                        .cast::<u8>()
+                        .add(footprint.Offset as usize + y * footprint.Footprint.RowPitch as usize),
+                    row,
+                ));
+            }
+            result.push(bytes);
+        }
+        staging.buffer.Unmap(0, None);
+        Ok(result)
+    }
+}
+
+/// `cbuffer Config` in color.hlsl, for a `source` (width, height, pixel) converted to the
+/// stream.
+pub(crate) fn constants(
+    config: &butterpollo_core::rtsp::Negotiated,
+    source: (u32, u32, crate::capture::Pixel),
+    luminance: [f32; 2],
+) -> [u32; 20] {
+    let mut values = [0; 20];
+    values[..11].copy_from_slice(&[
+        source.0,
+        source.1,
+        config.width,
+        config.height,
+        match source.2 {
+            crate::capture::Pixel::Bgra8 => 0,
+            crate::capture::Pixel::RgbaF16 => 1,
+            crate::capture::Pixel::Rgba10Pq => 2,
+        },
+        u32::from(config.hdr),
+        u32::from(config.color_matrix()),
+        u32::from(config.full_range()),
+        u32::from(config.ten_bit()),
+        (luminance[0] / 80.).to_bits(),
+        luminance[1].to_bits(),
+    ]);
+    values
 }
 
 fn shader(entry: &[u8]) -> Result<&'static [u8]> {
@@ -789,13 +929,12 @@ struct Slot {
     allocator: ID3D12CommandAllocator,
     list: ID3D12GraphicsCommandList,
     fence: u64,
-    /// The source the slot's last conversion reads, kept until it has run:
-    /// the adapter-wide cache may release its own references.
-    input: Option<ID3D12Resource>,
+    /// The frame the slot's last conversion reads, kept until it has run: its texture, and a
+    /// frame ring slot it may hold, must outlive the read.
     capture: Option<crate::capture::GpuImage>,
 }
-/// RGB to NV12 or P010 on the compute queue, with the same shader as the
-/// D3D11 converter (scaling, letterboxing, HDR and the colour matrix).
+/// RGB to NV12 or P010, or PyroWave's three planes, on the compute queue: scaling,
+/// letterboxing, HDR and the colour matrix (color.hlsl).
 pub struct Converter {
     compute: Arc<Compute>,
     root: ID3D12RootSignature,
@@ -841,19 +980,12 @@ impl Converter {
                 })?;
             let increment =
                 device.GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-            let mut constants: Option<ID3D12Resource> = None;
-            device.CreateCommittedResource(
-                &D3D12_HEAP_PROPERTIES {
-                    Type: D3D12_HEAP_TYPE_UPLOAD,
-                    ..Default::default()
-                },
-                D3D12_HEAP_FLAG_NONE,
-                &buffer_desc((SLOTS * 256) as u64),
+            let constants = buffer(
+                device,
+                D3D12_HEAP_TYPE_UPLOAD,
+                (SLOTS * 256) as u64,
                 D3D12_RESOURCE_STATE_GENERIC_READ,
-                None,
-                &mut constants,
             )?;
-            let constants = constants.context("no constant buffer")?;
             let mut mapped = std::ptr::null_mut();
             constants.Map(0, None, Some(&mut mapped))?;
             let mut slots = Vec::with_capacity(SLOTS);
@@ -871,7 +1003,6 @@ impl Converter {
                     allocator,
                     list,
                     fence: 0,
-                    input: None,
                     capture: None,
                 });
             }
@@ -901,7 +1032,6 @@ impl Converter {
         for slot in &mut self.slots {
             if self.compute.completed(slot.fence) {
                 slot.capture = None;
-                slot.input = None;
             }
         }
     }
@@ -943,120 +1073,154 @@ impl Converter {
         if self.targets.len() >= 8 {
             bail!("compute conversion queue reached its bounded limit");
         }
-        // SAFETY: `compute.device` is a live D3D12 device and the description and out-parameter
-        // outlive the call.
-        unsafe {
-            let mut texture: Option<ID3D12Resource> = None;
-            self.compute
-                .device
-                .CreateCommittedResource(
-                    &D3D12_HEAP_PROPERTIES {
-                        Type: D3D12_HEAP_TYPE_DEFAULT,
-                        ..Default::default()
-                    },
-                    D3D12_HEAP_FLAG_NONE,
-                    &D3D12_RESOURCE_DESC {
-                        Dimension: D3D12_RESOURCE_DIMENSION_TEXTURE2D,
-                        Width: u64::from(self.width),
-                        Height: self.height,
-                        DepthOrArraySize: 1,
-                        MipLevels: 1,
-                        Format: if self.ten_bit {
-                            DXGI_FORMAT_P010
-                        } else {
-                            DXGI_FORMAT_NV12
-                        },
-                        SampleDesc: DXGI_SAMPLE_DESC {
-                            Count: 1,
-                            Quality: 0,
-                        },
-                        Layout: D3D12_TEXTURE_LAYOUT_UNKNOWN,
-                        Flags: D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,
-                        Alignment: 0,
-                    },
-                    D3D12_RESOURCE_STATE_COMMON,
-                    None,
-                    &mut texture,
-                )
-                .context("YUV texture on the compute device")?;
-            self.targets.push(Target {
-                texture: Arc::new(texture.context("no YUV texture")?),
-                fence: self.compute.device.CreateFence(0, D3D12_FENCE_FLAG_NONE)?,
-                value: 0,
-            });
-            Ok(self.targets.len() - 1)
-        }
+        let texture = self.compute.texture(
+            self.width,
+            self.height,
+            if self.ten_bit {
+                DXGI_FORMAT_P010
+            } else {
+                DXGI_FORMAT_NV12
+            },
+            D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,
+            D3D12_HEAP_FLAG_NONE,
+        )?;
+        self.targets.push(Target {
+            texture: Arc::new(texture),
+            // SAFETY: `compute.device` is a live D3D12 device.
+            fence: unsafe { self.compute.device.CreateFence(0, D3D12_FENCE_FLAG_NONE)? },
+            value: 0,
+        });
+        Ok(self.targets.len() - 1)
     }
-    /// Convert `source` (an RGB texture opened on this device) into a new
-    /// YUV texture. The values follow the D3D11 converter's constants.
-    pub fn convert(
-        &mut self,
-        source: &ID3D12Resource,
-        format: DXGI_FORMAT,
-        image: &crate::capture::GpuImage,
-    ) -> Result<Converted> {
-        let ready = image.ready.as_ref();
-        let index = self.target()?;
-        let target = self.targets[index].texture.clone();
+    /// The next slot, idle, with `values` in its constants and `image`'s texture in its source
+    /// view.
+    fn begin(&mut self, image: &crate::capture::GpuImage) -> Result<usize> {
+        anyhow::ensure!(
+            self.compute.owns(&image.texture),
+            "a frame from another GPU device than the conversion's"
+        );
         let slot = self.slot;
         self.slot = (self.slot + 1) % SLOTS;
         self.compute.wait(self.slots[slot].fence)?;
         self.slots[slot].capture = None;
         // SAFETY: The slot's last conversion has finished (waited above), the 80 bytes of `values`
-        // fit its 256-byte slot, and every view and barrier names a live resource on this device.
+        // fit its 256-byte slot, and the view names the live source on this device.
         unsafe {
             std::ptr::copy_nonoverlapping(
                 self.values.as_ptr().cast::<u8>(),
                 self.mapped.add(slot * 256),
                 std::mem::size_of_val(&self.values),
             );
-            let device = &self.compute.device;
-            let cpu = self.heap.GetCPUDescriptorHandleForHeapStart();
+            self.compute.device.CreateShaderResourceView(
+                image.texture.as_ref(),
+                Some(&D3D12_SHADER_RESOURCE_VIEW_DESC {
+                    Format: format(image.pixel),
+                    ViewDimension: D3D12_SRV_DIMENSION_TEXTURE2D,
+                    Shader4ComponentMapping: D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING,
+                    Anonymous: D3D12_SHADER_RESOURCE_VIEW_DESC_0 {
+                        Texture2D: D3D12_TEX2D_SRV {
+                            MostDetailedMip: 0,
+                            MipLevels: 1,
+                            PlaneSlice: 0,
+                            ResourceMinLODClamp: 0.,
+                        },
+                    },
+                }),
+                self.view(slot, 0),
+            );
+        }
+        Ok(slot)
+    }
+    fn view(&self, slot: usize, index: usize) -> D3D12_CPU_DESCRIPTOR_HANDLE {
+        // SAFETY: `heap` is a live descriptor heap owned by the converter.
+        let cpu = unsafe { self.heap.GetCPUDescriptorHandleForHeapStart() };
+        D3D12_CPU_DESCRIPTOR_HANDLE {
+            ptr: cpu.ptr + (slot * VIEWS + index) * self.increment as usize,
+        }
+    }
+    /// Bind `slot`'s constants and views and dispatch over 2x2 blocks.
+    ///
+    /// # Safety
+    ///
+    /// `list` must be the slot's list, open, with `root` and the pipeline state matching it.
+    unsafe fn dispatch(
+        &self,
+        slot: usize,
+        list: &ID3D12GraphicsCommandList,
+        root: &ID3D12RootSignature,
+    ) {
+        // SAFETY: The caller passes the slot's open list; the heap and constants are live and the
+        // tables address this slot's descriptors.
+        unsafe {
             let gpu = self.heap.GetGPUDescriptorHandleForHeapStart();
-            let at = |index: usize| D3D12_CPU_DESCRIPTOR_HANDLE {
-                ptr: cpu.ptr + (slot * VIEWS + index) * self.increment as usize,
+            let table = |index: usize| D3D12_GPU_DESCRIPTOR_HANDLE {
+                ptr: gpu.ptr + ((slot * VIEWS + index) * self.increment as usize) as u64,
             };
-            let srv = |format| D3D12_SHADER_RESOURCE_VIEW_DESC {
-                Format: format,
-                ViewDimension: D3D12_SRV_DIMENSION_TEXTURE2D,
-                Shader4ComponentMapping: D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING,
-                Anonymous: D3D12_SHADER_RESOURCE_VIEW_DESC_0 {
-                    Texture2D: D3D12_TEX2D_SRV {
-                        MostDetailedMip: 0,
-                        MipLevels: 1,
-                        PlaneSlice: 0,
-                        ResourceMinLODClamp: 0.,
-                    },
-                },
-            };
-            device.CreateShaderResourceView(source, Some(&srv(format)), at(0));
-            let uav = |format, plane| D3D12_UNORDERED_ACCESS_VIEW_DESC {
-                Format: format,
-                ViewDimension: D3D12_UAV_DIMENSION_TEXTURE2D,
-                Anonymous: D3D12_UNORDERED_ACCESS_VIEW_DESC_0 {
-                    Texture2D: D3D12_TEX2D_UAV {
-                        MipSlice: 0,
-                        PlaneSlice: plane,
-                    },
-                },
-            };
-            let (luma_format, chroma_format) = if self.ten_bit {
-                (DXGI_FORMAT_R16_UNORM, DXGI_FORMAT_R16G16_UNORM)
-            } else {
-                (DXGI_FORMAT_R8_UNORM, DXGI_FORMAT_R8G8_UNORM)
-            };
-            device.CreateUnorderedAccessView(
-                target.as_ref(),
-                None,
-                Some(&uav(luma_format, 0)),
-                at(1),
+            list.SetComputeRootSignature(root);
+            list.SetDescriptorHeaps(&[Some(self.heap.clone())]);
+            list.SetComputeRootConstantBufferView(
+                0,
+                self.constants.GetGPUVirtualAddress() + (slot * 256) as u64,
             );
-            device.CreateUnorderedAccessView(
-                target.as_ref(),
-                None,
-                Some(&uav(chroma_format, 1)),
-                at(2),
+            list.SetComputeRootDescriptorTable(1, table(0));
+            list.SetComputeRootDescriptorTable(2, table(1));
+            list.Dispatch(
+                (self.width / 2).div_ceil(8),
+                (self.height / 2).div_ceil(8),
+                1,
             );
+        }
+    }
+    /// Submit the slot's closed list after the GPU waits for `image`'s write, and keep the
+    /// image until the conversion has run.
+    fn submit(&mut self, slot: usize, image: &crate::capture::GpuImage) -> Result<u64> {
+        // The capture's write into the source may still be waiting for the display driver.
+        if let Some(ready) = &image.ready {
+            ready.order(&self.compute, &self.compute.queue)?;
+        }
+        // The slot's previous conversion has finished (`begin`), so its inputs can go; this
+        // one's stay until the slot comes round again.
+        self.slots[slot].capture = Some(image.clone());
+        let fence = self.compute.execute(&self.slots[slot].list)?;
+        self.slots[slot].fence = fence;
+        if let Some(ready) = &image.ready {
+            ready.read_until(fence);
+        }
+        Ok(fence)
+    }
+    /// Convert `image` (on this converter's device) into a new YUV texture.
+    pub fn convert(&mut self, image: &crate::capture::GpuImage) -> Result<Converted> {
+        let index = self.target()?;
+        let target = self.targets[index].texture.clone();
+        let slot = self.begin(image)?;
+        let (luma_format, chroma_format) = if self.ten_bit {
+            (DXGI_FORMAT_R16_UNORM, DXGI_FORMAT_R16G16_UNORM)
+        } else {
+            (DXGI_FORMAT_R8_UNORM, DXGI_FORMAT_R8G8_UNORM)
+        };
+        // SAFETY: The slot is idle (`begin`), and every view and barrier names a live resource on
+        // this device.
+        unsafe {
+            for (view, (format, plane)) in [(luma_format, 0), (chroma_format, 1)]
+                .into_iter()
+                .enumerate()
+            {
+                self.compute.device.CreateUnorderedAccessView(
+                    target.as_ref(),
+                    None,
+                    Some(&D3D12_UNORDERED_ACCESS_VIEW_DESC {
+                        Format: format,
+                        ViewDimension: D3D12_UAV_DIMENSION_TEXTURE2D,
+                        Anonymous: D3D12_UNORDERED_ACCESS_VIEW_DESC_0 {
+                            Texture2D: D3D12_TEX2D_UAV {
+                                MipSlice: 0,
+                                PlaneSlice: plane,
+                            },
+                        },
+                    }),
+                    self.view(slot, 1 + view),
+                );
+            }
             let Slot {
                 allocator, list, ..
             } = &self.slots[slot];
@@ -1069,22 +1233,7 @@ impl Converter {
             )];
             list.ResourceBarrier(&barriers);
             drop_barriers(&mut barriers);
-            list.SetComputeRootSignature(&self.root);
-            list.SetDescriptorHeaps(&[Some(self.heap.clone())]);
-            list.SetComputeRootConstantBufferView(
-                0,
-                self.constants.GetGPUVirtualAddress() + (slot * 256) as u64,
-            );
-            let table = |index: usize| D3D12_GPU_DESCRIPTOR_HANDLE {
-                ptr: gpu.ptr + ((slot * VIEWS + index) * self.increment as usize) as u64,
-            };
-            list.SetComputeRootDescriptorTable(1, table(0));
-            list.SetComputeRootDescriptorTable(2, table(1));
-            list.Dispatch(
-                (self.width / 2).div_ceil(8),
-                (self.height / 2).div_ceil(8),
-                1,
-            );
+            self.dispatch(slot, list, &self.root);
             let mut barriers = [transition(
                 target.as_ref(),
                 D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
@@ -1094,28 +1243,7 @@ impl Converter {
             drop_barriers(&mut barriers);
             list.Close()?;
         }
-        // The capture's copy into `source` may still be waiting for DWM.
-        match ready {
-            // SAFETY: The guard checked that `ready.fence` belongs to this queue's device, and
-            // `ready` holds it for the call.
-            Some(ready) if ready.device == self.compute.device.as_raw() as usize => unsafe {
-                self.compute.queue.Wait(&ready.fence, ready.value)?;
-            },
-            Some(ready) => ready.wait()?,
-            None => {}
-        }
-        // The slot's previous conversion has finished (waited above), so its
-        // inputs can go; this one's stay until the slot comes round again.
-        self.slots[slot].input = Some(source.clone());
-        self.slots[slot].capture = Some(image.clone());
-        let fence = self.compute.execute(&self.slots[slot].list)?;
-        self.slots[slot].fence = fence;
-        if let Some(readers) = ready
-            .filter(|ready| ready.device == self.compute.device.as_raw() as usize)
-            .and_then(|ready| ready.readers.as_ref())
-        {
-            readers.fetch_max(fence, Ordering::Release);
-        }
+        self.submit(slot, image)?;
         // The encoder's signal for this texture, after the conversion.
         let target = &mut self.targets[index];
         target.value = target.last() + 1;
@@ -1130,16 +1258,14 @@ impl Converter {
             value: target.value,
         })
     }
-    /// Convert `source` into PyroWave's Y, Cb and Cr planes, full size or
+    /// Convert `image` into PyroWave's Y, Cb and Cr planes, full size or
     /// with chroma halved (`values[11]`), in textures the encoder shares
     /// with Vulkan. The queue first waits for `target.fence` to reach
     /// `target.after`, when the encoder is done with the planes, then
     /// signals `target.done`.
     pub fn convert_planes(
         &mut self,
-        source: &ID3D12Resource,
-        format: DXGI_FORMAT,
-        ready: Option<&Ready>,
+        image: &crate::capture::GpuImage,
         target: &Planes,
     ) -> Result<()> {
         let (root, planar) = match &self.planar {
@@ -1151,40 +1277,11 @@ impl Converter {
                 (root, planar)
             }
         };
-        let slot = self.slot;
-        self.slot = (self.slot + 1) % SLOTS;
-        self.compute.wait(self.slots[slot].fence)?;
-        self.slots[slot].capture = None;
-        // SAFETY: As in `convert`, the slot is idle and `values` fits its slot; `target`'s planes
-        // and fence are on `compute.device`, and `ready` is waited on the GPU only if it is too.
+        let slot = self.begin(image)?;
+        // SAFETY: The slot is idle (`begin`); `target`'s planes and fence are on this device.
         unsafe {
-            std::ptr::copy_nonoverlapping(
-                self.values.as_ptr().cast::<u8>(),
-                self.mapped.add(slot * 256),
-                std::mem::size_of_val(&self.values),
-            );
-            let device = &self.compute.device;
-            let cpu = self.heap.GetCPUDescriptorHandleForHeapStart();
-            let gpu = self.heap.GetGPUDescriptorHandleForHeapStart();
-            let at = |index: usize| D3D12_CPU_DESCRIPTOR_HANDLE {
-                ptr: cpu.ptr + (slot * VIEWS + index) * self.increment as usize,
-            };
-            let srv = |format| D3D12_SHADER_RESOURCE_VIEW_DESC {
-                Format: format,
-                ViewDimension: D3D12_SRV_DIMENSION_TEXTURE2D,
-                Shader4ComponentMapping: D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING,
-                Anonymous: D3D12_SHADER_RESOURCE_VIEW_DESC_0 {
-                    Texture2D: D3D12_TEX2D_SRV {
-                        MostDetailedMip: 0,
-                        MipLevels: 1,
-                        PlaneSlice: 0,
-                        ResourceMinLODClamp: 0.,
-                    },
-                },
-            };
-            device.CreateShaderResourceView(source, Some(&srv(format)), at(0));
             for (index, plane) in target.planes.iter().enumerate() {
-                device.CreateUnorderedAccessView(
+                self.compute.device.CreateUnorderedAccessView(
                     plane,
                     None,
                     Some(&D3D12_UNORDERED_ACCESS_VIEW_DESC {
@@ -1197,7 +1294,7 @@ impl Converter {
                             },
                         },
                     }),
-                    at(1 + index),
+                    self.view(slot, 1 + index),
                 );
             }
             let Slot {
@@ -1214,22 +1311,7 @@ impl Converter {
             });
             list.ResourceBarrier(&barriers);
             drop_barriers(&mut barriers);
-            list.SetComputeRootSignature(&root);
-            list.SetDescriptorHeaps(&[Some(self.heap.clone())]);
-            list.SetComputeRootConstantBufferView(
-                0,
-                self.constants.GetGPUVirtualAddress() + (slot * 256) as u64,
-            );
-            let table = |index: usize| D3D12_GPU_DESCRIPTOR_HANDLE {
-                ptr: gpu.ptr + ((slot * VIEWS + index) * self.increment as usize) as u64,
-            };
-            list.SetComputeRootDescriptorTable(1, table(0));
-            list.SetComputeRootDescriptorTable(2, table(1));
-            list.Dispatch(
-                (self.width / 2).div_ceil(8),
-                (self.height / 2).div_ceil(8),
-                1,
-            );
+            self.dispatch(slot, list, &root);
             let mut barriers = target.planes.each_ref().map(|plane| {
                 transition(
                     plane,
@@ -1240,24 +1322,11 @@ impl Converter {
             list.ResourceBarrier(&barriers);
             drop_barriers(&mut barriers);
             list.Close()?;
-            match ready {
-                Some(ready) if ready.device == self.compute.device.as_raw() as usize => {
-                    self.compute.queue.Wait(&ready.fence, ready.value)?;
-                }
-                Some(ready) => ready.wait()?,
-                None => {}
-            }
+            // The encoder's Vulkan queue may still read the planes.
             self.compute.queue.Wait(&target.fence, target.after)?;
         }
-        self.slots[slot].input = Some(source.clone());
-        self.slots[slot].fence = self.compute.execute(&self.slots[slot].list)?;
-        if let Some(readers) = ready
-            .filter(|ready| ready.device == self.compute.device.as_raw() as usize)
-            .and_then(|ready| ready.readers.as_ref())
-        {
-            readers.fetch_max(self.slots[slot].fence, Ordering::Release);
-        }
-        // SAFETY: `target.fence` is opened on this queue's device and outlives the call.
+        self.submit(slot, image)?;
+        // SAFETY: `target.fence` is on this queue's device and outlives the call.
         unsafe { self.compute.queue.Signal(&target.fence, target.done)? };
         Ok(())
     }
@@ -1331,70 +1400,4 @@ fn buffer_desc(size: u64) -> D3D12_RESOURCE_DESC {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    #[ignore = "requires native D3D11/D3D12 shared capture textures"]
-    fn capture_ownership_ends_at_conversion_and_handoff_forgets_its_textures() -> Result<()> {
-        use crate::capture::{Device, GpuImage, Image, Pixel};
-        let gpu = Device::new("")?;
-        let compute = Compute::for_device(&gpu.device)?;
-        let pixels = Image {
-            width: 4,
-            height: 4,
-            stride: 16,
-            bytes: vec![128; 64],
-            captured: std::time::Instant::now(),
-            pixel: Pixel::Bgra8,
-        };
-        let source = GpuImage::upload(&gpu, &pixels)?;
-        let mut image = GpuImage::upload(&gpu, &pixels)?;
-        let mut handoff = Handoff::new(compute.clone(), &gpu)?;
-        image.ready = Some(handoff.copy(&image.texture, &source.texture)?);
-        let mut converter = Converter::new(compute.clone(), 4, 4, false)?;
-        converter.values = crate::gpu_color::constants(
-            &butterpollo_core::rtsp::Negotiated {
-                width: 4,
-                height: 4,
-                ..Default::default()
-            },
-            (4, 4, Pixel::Bgra8),
-            [100., 1.],
-        );
-        let input = compute.open(&image.texture)?;
-        let before = Arc::strong_count(&image.texture);
-        let converted = converter.convert(&input, format(Pixel::Bgra8), &image)?;
-        assert_eq!(Arc::strong_count(&image.texture), before + 1);
-        assert_eq!(
-            image
-                .ready
-                .as_ref()
-                .unwrap()
-                .readers
-                .as_ref()
-                .unwrap()
-                .load(Ordering::Acquire),
-            converter.slots[0].fence
-        );
-        converted.wait()?;
-        converter.release_completed();
-        assert_eq!(Arc::strong_count(&image.texture), before);
-        drop(handoff);
-        let opened = compute.opened.lock().unwrap();
-        assert!(!opened.contains_key(&(image.texture.as_raw() as usize)));
-        assert!(!opened.contains_key(&(source.texture.as_raw() as usize)));
-        Ok(())
-    }
-
-    #[test]
-    fn removed_device_fence_never_counts_as_completed_work() {
-        for value in [0, 1, 100, u64::MAX - 1] {
-            assert_eq!(completed_value(value).unwrap(), value);
-        }
-        assert_eq!(
-            crate::device_loss::DeviceLost::from_error(&completed_value(u64::MAX).unwrap_err()),
-            Some(crate::device_loss::DeviceLost(DXGI_ERROR_DEVICE_REMOVED.0))
-        );
-    }
-}
+mod tests;

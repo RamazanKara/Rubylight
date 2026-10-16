@@ -1,0 +1,1 @@
+AV1-Streams füllen den Bildschirm auch bei Größen, die der Encoder des PCs auffüllt, etwa das Innendisplay eines Galaxy Z Fold mit AMD-Grafikkarte, und der lokale Cursor bleibt auf dem Mauszeiger des PCs.

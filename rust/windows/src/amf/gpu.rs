@@ -1,17 +1,14 @@
-//! Wrap the Rust D3D11 converter's GPU texture in AMF's native surface ABI.
+//! AMF on D3D12: its context's D3D12 interface, the compute converter's textures wrapped as
+//! AMF surfaces, and the fence private data AMF synchronises them with.
 
-use crate::{
-    amf::check,
-    amf_abi::*,
-    capture::{Device, GpuImage, Pixel},
-};
+use crate::{amf::check, amf_abi::*};
 use anyhow::{Context, Result};
 use std::{
     collections::BTreeMap,
     ptr,
     sync::{Arc, Mutex},
 };
-use windows::{Win32::Graphics::Direct3D11::ID3D11Texture2D, core::Interface};
+use windows::core::Interface;
 pub(crate) fn boolean(value: bool) -> AMFVariantStruct {
     AMFVariantStruct {
         type_: AMF_VARIANT_TYPE_AMF_VARIANT_BOOL,
@@ -71,55 +68,6 @@ impl Ownership {
     }
     fn raw(&mut self) -> *mut AMFSurfaceObserver {
         &mut self.observer
-    }
-}
-pub(crate) struct Converter {
-    pub color: crate::gpu_color::Converter,
-    pub source: (u32, u32, Pixel),
-}
-impl Converter {
-    pub fn new(
-        gpu: &Device,
-        config: &butterpollo_core::rtsp::Negotiated,
-        source: (u32, u32, Pixel),
-    ) -> Result<Self> {
-        Ok(Self {
-            color: crate::gpu_color::Converter::new(gpu, config, source)?,
-            source,
-        })
-    }
-    pub fn convert(
-        &mut self,
-        context: *mut AMFContext,
-        image: &GpuImage,
-        ownership: &mut Ownership,
-    ) -> Result<(Surface, Arc<ID3D11Texture2D>)> {
-        let texture = self.color.convert(image)?;
-        wrap(context, &texture, ownership)
-    }
-}
-/// `texture` as an AMF input surface, kept alive until AMF releases it.
-fn wrap(
-    context: *mut AMFContext,
-    texture: &Arc<ID3D11Texture2D>,
-    ownership: &mut Ownership,
-) -> Result<(Surface, Arc<ID3D11Texture2D>)> {
-    // SAFETY: `context` is a live AMF context, `ownership` is boxed so the observer address stays
-    // valid, and `texture` is held in it until AMF releases the surface.
-    unsafe {
-        let mut surface = ptr::null_mut();
-        check(((*(*context).pVtbl).CreateSurfaceFromDX11Native.unwrap())(
-            context,
-            texture.as_raw(),
-            &mut surface,
-            ownership.raw(),
-        ))
-        .context("AMF wrap native texture")?;
-        if surface.is_null() {
-            anyhow::bail!("AMF returned no native surface");
-        }
-        ownership.hold(surface, Box::new(texture.clone()));
-        Ok((Surface(surface), texture.clone()))
     }
 }
 /// AMF's context interface with D3D12 (`AMFContext2`). Only the D3D12

@@ -54,6 +54,10 @@ struct Args {
     bind: Option<IpAddr>,
     #[arg(long)]
     diagnostics: bool,
+    /// Print this PC against a release floor (butterpollo_core::floor::Pc) as JSON, then
+    /// exit. Setup runs it from the package it is about to install.
+    #[arg(long)]
+    floor_check: bool,
     #[arg(long)]
     capture_smoke: bool,
     #[arg(long)]
@@ -147,6 +151,14 @@ fn main() -> Result<()> {
                 .config_dir
                 .context("display watcher requires a config directory")?,
         );
+    }
+    if args.floor_check {
+        let _com = butterpollo_windows::capture::ComGuard::new()?;
+        println!(
+            "{}",
+            serde_json::to_string(&butterpollo_windows::floor::pc()?)?
+        );
+        return Ok(());
     }
     if args.diagnostics {
         let _com = butterpollo_windows::capture::ComGuard::new()?;

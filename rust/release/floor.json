@@ -1,0 +1,5 @@
+{
+  "windows_build": 26200,
+  "gpu": "amd-rdna2-hevc",
+  "display_driver": "rubylight-vdisplay-d3d12"
+}

@@ -10,6 +10,10 @@ description = "Installs, upgrades and removes Rubylight, replacing Vibepollo in 
 name = "butterpollo-setup"
 path = "src/main.rs"
 
+[features]
+# Lets RUBYLIGHT_SETUP_FLOOR_TEST force a below-floor verdict. Release builds never enable it.
+floor-test = []
+
 [dependencies]
 anyhow.workspace = true
 serde.workspace = true

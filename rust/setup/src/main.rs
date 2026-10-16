@@ -11,6 +11,11 @@
 #![warn(clippy::undocumented_unsafe_blocks)]
 
 mod detect;
+mod floor;
+// Setup uses the rules, not the release-notes marker.
+#[allow(dead_code)]
+#[path = "../../core/src/floor.rs"]
+mod floor_rules;
 mod install;
 mod log;
 mod payload;
@@ -26,6 +31,7 @@ mod usbip;
 #[path = "../../core/src/version.rs"]
 mod version;
 
+use anyhow::Context;
 use std::path::PathBuf;
 
 const TITLE: &str = "Rubylight setup";
@@ -167,6 +173,11 @@ fn main() {
                     let mut notes = Vec::new();
                     let mut restart_needed = false;
                     let folder = system::win32_path(&folder)?;
+                    // Hosts from before the floor marker offer this release anyway.
+                    let mut payload =
+                        payload::Payload::open()?.context("this setup.exe carries no package")?;
+                    floor::check(&mut payload)?;
+                    drop(payload);
                     // As a reinstall does. In-app updates never set the
                     // drivers up, so hosts updated from the console since
                     // rc.22 had none.

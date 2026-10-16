@@ -41,7 +41,7 @@ Rubylight is not here to win a big userbase. There is no growth plan and no camp
 ## Install. Pair. Play.
 
 1. **Install on your PC.** Run **`rubylight-setup-2.4.5.exe`** from the [release](https://github.com/RamazanKara/Rubylight/releases/tag/v2.4.5). It also installs Rubylight's own virtual display driver, which gives every device a screen of its own: no test mode and no restart. Until releases are code-signed, setup signs the driver on your PC with a key it deletes at once; Smart App Control, S mode and App Control policies refuse such a driver, and then streams use your monitor.
-2. **Open your console.** Visit **`https://localhost:47990`** on the host PC and create your local account.
+2. **Open your console.** Visit **`https://localhost:47990`** on the host PC and create your local account. Setup trusts the console's own certificate, so the browser opens it without a security warning.
 3. **Pair and play.** Open Moonlight on a device on the same network, select your PC, enter its PIN in Rubylight's **Devices** page, then launch **Desktop**.
 
 <p align="center">
@@ -61,7 +61,7 @@ Coming from Apollo or Vibepollo? Rubylight imports your settings, paired devices
 | --- | --- |
 | **Radeon compute** | Frame copies and colour conversion run on D3D12 compute queues beside your game's graphics work, so the stream takes less from the game. |
 | **Native AMD encoding** | AMF drives the encoder directly for H.264, HEVC and AV1, with defaults tuned per codec. AV1 can repair packet loss with a small recovery frame instead of a keyframe. |
-| **HDR, and full colour with PyroWave** | HEVC and AV1 carry 10-bit HDR. PyroWave adds 10-bit HDR 4:4:4, which keeps coloured text and fine edges crisp, over a fast local network. |
+| **HDR, and full colour with PyroWave** | HEVC and AV1 carry 10-bit HDR. PyroWave adds 10-bit HDR 4:4:4, which keeps coloured text and fine edges crisp, over a fast local network. It paces each frame to the link your device reports, so a 1 GbE device behind a 2.5 GbE PC doesn't drop packets, and clients that calibrate their network, such as Nonary's Moonlight, get the rate and pace they measured. |
 | **A screen for each device** | Rubylight's own virtual display driver matches each client's resolution and refresh rate, and hands every frame straight to the host, with no capture API in between. Your monitor layout and HDR come back after the stream. |
 | **One calm console** | Pair devices, manage games and per-app settings, and watch frame rate, bitrate and encoder timing from your browser. |
 
@@ -91,6 +91,8 @@ Rubylight is built for Radeon. NVIDIA NVENC, Intel Quick Sync and software encod
 - **Light at idle.** About **16.6 MB** of memory for host and service together, with 0% CPU.
 
 [All benchmarks, Wi-Fi tests and HDR checks →](docs/performance.md)
+
+**Next: Direct3D 12 from capture to encoder.** Colour conversion and AMD encoding already run on D3D12, but capture still receives each frame through Direct3D 11 and hands it across to D3D12, with a synchronisation step at every hand-off. The next step moves capture onto D3D12 as well, so a frame travels from the display to the encoder in one API, which will take that hand-off out of every frame's latency.
 
 ## Works with
 

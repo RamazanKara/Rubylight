@@ -1458,6 +1458,8 @@ async fn a_paired_client_runs_the_pyrowave_udp_probe_with_a_handshake() -> Resul
     let h = Harness::new(10_000, 1).await?;
     let token = "0123456789abcdef0123456789abcdef";
     let client = std::net::UdpSocket::bind("127.0.0.1:0")?;
+    // Buffer the complete two-second probe if parallel tests deschedule this receiver.
+    socket2::SockRef::from(&client).set_recv_buffer_size(8 * 1024 * 1024)?;
     let named = client.local_addr()?.port();
     let url = |handshake: u8| {
         format!(

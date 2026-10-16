@@ -174,6 +174,10 @@ mod tests {
     #[test]
     fn a_client_receives_every_packet_of_a_loopback_probe() {
         let client = UdpSocket::bind("127.0.0.1:0").unwrap();
+        // Retain the complete probe while a busy test runner deschedules us.
+        socket2::SockRef::from(&client)
+            .set_recv_buffer_size(8 * 1024 * 1024)
+            .unwrap();
         let peer = client.local_addr().unwrap();
         let socket = bind("127.0.0.1".parse().unwrap()).unwrap();
         let receiver =
@@ -197,6 +201,10 @@ mod tests {
         // The client named one port in its request but answers from another.
         let named = UdpSocket::bind("127.0.0.1:0").unwrap();
         let answering = UdpSocket::bind("127.0.0.1:0").unwrap();
+        // Retain the complete probe while a busy test runner deschedules us.
+        socket2::SockRef::from(&answering)
+            .set_recv_buffer_size(8 * 1024 * 1024)
+            .unwrap();
         let peer = named.local_addr().unwrap();
         let receiver = std::thread::spawn(move || {
             answering.send_to(TOKEN.as_bytes(), host).unwrap();

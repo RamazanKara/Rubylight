@@ -316,6 +316,7 @@
     <string name="stream_bitrate_help">Задайте Мбит/с для этого сеанса.\nЭто отключит автоматический битрейт.</string>
     <string name="stream_bitrate_invalid">Введите битрейт от 0,5 до 500 Мбит/с</string>
     <string name="stream_bitrate_applied">Хост применил %1$.1f Мбит/с</string>
+    <string name="stream_pyrowave_bitrate_low">%1$.1f Мбит/с ниже минимума PyroWave в %2$d Мбит/с для %3$d×%4$d, %5$d FPS. Изображение будет рассыпаться.</string>
     <string name="stream_enabled">Вкл.</string>
     <string name="stream_disabled">Выкл.</string>
     <string name="stream_limiter_status">Ограничение кадров на хосте: %1$s\nАвтоограничение дисплея: %2$s\nЦель: %3$s</string>

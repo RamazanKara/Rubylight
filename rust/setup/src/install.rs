@@ -155,6 +155,8 @@ pub fn install(options: &Options, progress: &Progress) -> Result<Outcome> {
     let found = detect::scan();
     found.check_version()?;
     line(format!("found: {found:#?}"));
+    // Before anything changes: below the floor an installed Rubylight stays as it is.
+    crate::floor::check(&mut payload)?;
     let install = system::win32_path(&detect::install_dir(&found, options.install_dir.clone()))?;
     let profile = profile();
     let target = target(&found, &install)?;

@@ -30,6 +30,7 @@ pub mod display_recovery;
 pub mod encoder;
 pub mod files;
 pub mod firewall;
+pub mod floor;
 pub mod foreground;
 mod gpu_color;
 pub mod gpu_priority;

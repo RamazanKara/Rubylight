@@ -23,6 +23,40 @@ fn compatible_release(release: &Value, config: &butterpollo_core::config::Config
         })
 }
 
+/// Whether this PC meets the floor a release's notes carry. A release without the marker
+/// (from before it) has no floor to miss.
+fn meets_floor(release: &Value, pc: &butterpollo_core::floor::Pc) -> bool {
+    let Some(floor) = release["body"]
+        .as_str()
+        .and_then(butterpollo_core::floor::from_notes)
+    else {
+        return true;
+    };
+    let missing = butterpollo_core::floor::unmet(&floor, pc, true);
+    if !missing.is_empty() {
+        tracing::info!(
+            release = release["tag_name"].as_str().unwrap_or(""),
+            reasons = %missing.iter().map(|m| m.message.as_str()).collect::<Vec<_>>().join(" "),
+            "update skipped: this PC is below the release's floor"
+        );
+    }
+    missing.is_empty()
+}
+
+/// This PC against release floors, checked once per process: the GPU check creates an AMF
+/// encoder, and neither the GPU nor the Windows build changes while the host runs.
+async fn floor_pc() -> Result<butterpollo_core::floor::Pc> {
+    static PC: tokio::sync::OnceCell<butterpollo_core::floor::Pc> =
+        tokio::sync::OnceCell::const_new();
+    PC.get_or_try_init(|| async {
+        tokio::task::spawn_blocking(butterpollo_windows::floor::pc)
+            .await
+            .context("the floor check stopped")?
+    })
+    .await
+    .cloned()
+}
+
 fn release_metadata(mut release: Value) -> Value {
     if let Some(fields) = release.as_object_mut() {
         fields.retain(|key, _| {
@@ -76,11 +110,13 @@ pub fn trigger_update(h: &Shared, tell: bool) {
                 bytes.extend_from_slice(&chunk);
             }
             let releases: Vec<Value> = serde_json::from_slice(&bytes)?;
+            let pc = floor_pc().await?;
             // This executable must never advertise an installer for the former C++ host.
             Ok::<_, anyhow::Error>(
                 releases
                     .into_iter()
                     .filter(|r| compatible_release(r, &h.config.read().unwrap()))
+                    .filter(|r| meets_floor(r, &pc))
                     .map(release_metadata)
                     .collect::<Vec<_>>(),
             )
@@ -436,6 +472,47 @@ pub fn integration_status(h: &Shared) -> Value {
 mod tests {
     use super::*;
     use butterpollo_core::config::Config;
+
+    #[test]
+    fn releases_whose_floor_this_pc_misses_are_not_offered() {
+        use butterpollo_core::floor::{Adapter, Pc};
+        let pc = Pc {
+            windows_build: Some(26200),
+            adapters: vec![Adapter {
+                name: "AMD Radeon RX 6800".into(),
+                vendor: 0x1002,
+                hevc: true,
+                hevc_error: None,
+            }],
+            display_driver: true,
+        };
+        let release = |floor: &str| {
+            json!({"tag_name":"2.6.0","body":format!("Notes.
+
+<!-- rubylight-floor {floor} -->
+")})
+        };
+        assert!(meets_floor(
+            &json!({"tag_name":"2.4.6","body":"Notes from before the marker."}),
+            &pc
+        ));
+        assert!(meets_floor(
+            &release(
+                r#"{"windows_build":26200,"gpu":"amd-rdna2-hevc","display_driver":"rubylight-vdisplay-d3d12"}"#
+            ),
+            &pc
+        ));
+        assert!(!meets_floor(&release(r#"{"windows_build":27000}"#), &pc));
+        assert!(!meets_floor(&release(r#"{"gpu":"something-newer"}"#), &pc));
+        let below = Pc {
+            display_driver: false,
+            ..pc.clone()
+        };
+        assert!(!meets_floor(
+            &release(r#"{"display_driver":"rubylight-vdisplay-d3d12"}"#),
+            &below
+        ));
+    }
 
     #[test]
     fn release_metadata_keeps_notes_and_verified_installer_fields() {

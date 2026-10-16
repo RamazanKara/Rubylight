@@ -36,6 +36,7 @@ pub mod edid;
 pub mod encoder_backlog;
 pub mod encoder_policy;
 pub mod fec_status;
+pub mod floor;
 pub mod framegen;
 pub mod haptics;
 pub mod hdr;

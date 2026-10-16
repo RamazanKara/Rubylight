@@ -1521,8 +1521,19 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         // describes a different (or scaled) size than the screen the stream fills.
         android.graphics.Point real = new android.graphics.Point();
         getWindowManager().getDefaultDisplay().getRealSize(real);
-        return (width == real.x && height == real.y) || (width == real.y && height == real.x);
+        if ((width == real.x && height == real.y) || (width == real.y && height == real.x)) {
+            return true;
+        }
+        // A stream in the panel's own shape at another size (a scaled native size, or a PC profile's
+        // "match screen" size) is drawn for the whole panel too: keeping the cutout clear would only
+        // shrink it and leave a strip. The cutout-safe Native entry is narrower by the cutout and
+        // keeps its strip.
+        return PreferenceConfiguration.hasPanelShape(this, width, height, PANEL_SHAPE_TOLERANCE);
     }
+
+    // Rounding a scaled panel size to even pixels moves its shape by well under this; leaving out a
+    // camera cutout (54 px of a Fold's 2184, 80 px of a phone's 2400) moves it by 2-3%.
+    private static final double PANEL_SHAPE_TOLERANCE = 0.005;
 
     @Override
     public boolean isWindowedStream() {

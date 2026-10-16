@@ -727,7 +727,7 @@ public class PreferenceConfiguration {
         for (int[] mode : modes) {
             if (mode[0] <= 0 || mode[1] <= 0) continue;
             if (largest == null || area(mode) > area(largest)) largest = mode;
-            if (sameShape(mode[0], mode[1], realWidth, realHeight) && (matching == null || area(mode) > area(matching))) {
+            if (sameShape(mode[0], mode[1], realWidth, realHeight, 0.01) && (matching == null || area(mode) > area(matching))) {
                 matching = mode;
             }
         }
@@ -738,12 +738,19 @@ public class PreferenceConfiguration {
         return (long) size[0] * size[1];
     }
 
-    // Long-to-short side ratios within 1%, either way round.
-    private static boolean sameShape(int width, int height, int otherWidth, int otherHeight) {
-        if (otherWidth <= 0 || otherHeight <= 0) return false;
+    /** Whether a width x height stream has the shape of the screen in use, within {@code tolerance}. */
+    public static boolean hasPanelShape(Context context, int width, int height, double tolerance) {
+        String panel = nativeResolution(context);
+        return panel != null && sameShape(width, height, getWidthFromResolutionString(panel),
+                getHeightFromResolutionString(panel), tolerance);
+    }
+
+    /** Long-to-short side ratios within {@code tolerance} (0.01 is 1%) of each other, either way round. */
+    static boolean sameShape(int width, int height, int otherWidth, int otherHeight, double tolerance) {
+        if (width <= 0 || height <= 0 || otherWidth <= 0 || otherHeight <= 0) return false;
         double ratio = (double) Math.max(width, height) / Math.min(width, height);
         double other = (double) Math.max(otherWidth, otherHeight) / Math.min(otherWidth, otherHeight);
-        return Math.abs(ratio - other) <= other * 0.01;
+        return Math.abs(ratio - other) <= other * tolerance;
     }
 
     public static float panelMaxRefreshRate(Context context) {

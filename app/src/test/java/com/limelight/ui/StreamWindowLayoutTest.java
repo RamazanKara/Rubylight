@@ -117,6 +117,27 @@ public class StreamWindowLayoutTest {
     }
 
     @Test
+    public void aStreamInThePanelsShapeAtAnotherSizeSpansTheCutoutToo() {
+        // Half the Fold's panel, or a PC profile's size taken from a scaled screen: Fit fills the panel.
+        for (int[] size : new int[][] {{FOLD_WIDTH / 2, FOLD_HEIGHT / 2}, {1638, 1476}}) {
+            Game game = foldStream(false, false, size[0], size[1]);
+            useFoldPanelMode(game);
+            View root = root(game);
+            StreamView video = layOutStream(game, root, Insets.of(0, 0, FOLD_CUTOUT, 0), false);
+            String label = size[0] + "x" + size[1];
+            assertTrue(label, game.usesFullDisplayForVideo());
+            assertPadding(root, 0, 0, 0, 0);
+            assertEquals(label, 0, video.getLeft());
+            assertEquals(label, FOLD_WIDTH, video.getRight());
+            assertEquals(label, FOLD_HEIGHT, video.getHeight());
+        }
+        // A 16:9 preset keeps the cutout clear.
+        Game game = foldStream(false, false, 1920, 1080);
+        useFoldPanelMode(game);
+        assertFalse(game.usesFullDisplayForVideo());
+    }
+
+    @Test
     public void exactNativeSizeCountsAsFullPanelEvenWhenTheModeListDisagrees() {
         Game game = foldStream(false, false, 2400, 1080);
         Display display = game.getWindowManager().getDefaultDisplay();

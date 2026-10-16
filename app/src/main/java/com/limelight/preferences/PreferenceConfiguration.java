@@ -690,31 +690,60 @@ public class PreferenceConfiguration {
         prefs.edit().putBoolean(PC_PROFILES_OVERRIDES_PREF_STRING, true).apply();
     }
 
-    // Largest mode of the built-in screen, landscape first; null when the screen can't be read.
+    // The built-in screen in use at its full size, landscape first; null when the screen can't be read.
     public static String nativeResolution(Context context) {
         Display display = defaultDisplay(context);
         if (display == null) {
             return null;
         }
-        int width, height;
+        android.graphics.Point real = new android.graphics.Point();
+        display.getRealSize(real);
+        int[] size;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            width = height = 0;
-            for (Display.Mode mode : display.getSupportedModes()) {
-                if ((long) mode.getPhysicalWidth() * mode.getPhysicalHeight() > (long) width * height) {
-                    width = mode.getPhysicalWidth();
-                    height = mode.getPhysicalHeight();
-                }
+            Display.Mode[] supported = display.getSupportedModes();
+            int[][] modes = new int[supported.length][];
+            for (int i = 0; i < supported.length; i++) {
+                modes[i] = new int[] {supported[i].getPhysicalWidth(), supported[i].getPhysicalHeight()};
             }
+            size = panelSize(real.x, real.y, modes);
         } else {
-            android.graphics.Point size = new android.graphics.Point();
-            display.getRealSize(size);
-            width = size.x;
-            height = size.y;
+            size = new int[] {real.x, real.y};
         }
-        if (width <= 0 || height <= 0) {
+        if (size == null || size[0] <= 0 || size[1] <= 0) {
             return null;
         }
-        return Math.max(width, height) + "x" + Math.min(width, height);
+        return Math.max(size[0], size[1]) + "x" + Math.min(size[0], size[1]);
+    }
+
+    /**
+     * The largest mode in the shape of the screen in use ({@code realWidth} x {@code realHeight}).
+     * A foldable such as the Galaxy Z Fold can list the modes of both panels on one display: the
+     * largest is the near-square inner panel, which would pillarbox a stream on the 21:9 cover
+     * screen. A panel running at a scaled resolution keeps its own, larger mode. Without a mode in
+     * that shape (the size can describe a window), the largest mode, as before.
+     */
+    static int[] panelSize(int realWidth, int realHeight, int[][] modes) {
+        int[] largest = null, matching = null;
+        for (int[] mode : modes) {
+            if (mode[0] <= 0 || mode[1] <= 0) continue;
+            if (largest == null || area(mode) > area(largest)) largest = mode;
+            if (sameShape(mode[0], mode[1], realWidth, realHeight) && (matching == null || area(mode) > area(matching))) {
+                matching = mode;
+            }
+        }
+        return matching != null ? matching : largest;
+    }
+
+    private static long area(int[] size) {
+        return (long) size[0] * size[1];
+    }
+
+    // Long-to-short side ratios within 1%, either way round.
+    private static boolean sameShape(int width, int height, int otherWidth, int otherHeight) {
+        if (otherWidth <= 0 || otherHeight <= 0) return false;
+        double ratio = (double) Math.max(width, height) / Math.min(width, height);
+        double other = (double) Math.max(otherWidth, otherHeight) / Math.min(otherWidth, otherHeight);
+        return Math.abs(ratio - other) <= other * 0.01;
     }
 
     public static float panelMaxRefreshRate(Context context) {

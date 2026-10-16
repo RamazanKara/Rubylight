@@ -106,4 +106,31 @@ public class ResolutionChoicesTest {
         assertTrue(StreamSettings.SettingsFragment.fitsPanel("2560x1440", "2560x1600"));
         assertTrue(StreamSettings.SettingsFragment.fitsPanel("3840x2160", null));
     }
+
+    @Test
+    public void aFoldablesScreenSizeIsThePanelInUse() {
+        // Galaxy Z Fold 7: one display lists the 2184x1968 inner and the 2520x1080 cover panel.
+        int[][] fold = {{1968, 2184}, {1080, 2520}};
+        assertArrayEquals(new int[] {1080, 2520}, PreferenceConfiguration.panelSize(2520, 1080, fold));
+        assertArrayEquals(new int[] {1968, 2184}, PreferenceConfiguration.panelSize(2184, 1968, fold));
+        assertArrayEquals(new int[] {1968, 2184}, PreferenceConfiguration.panelSize(1968, 2184, fold));
+        // A panel scaled to a lower resolution keeps its own full mode.
+        assertArrayEquals(new int[] {1440, 3120}, PreferenceConfiguration.panelSize(2340, 1080,
+                new int[][] {{1080, 2340}, {1440, 3120}, {720, 1560}}));
+        // A size in no mode's shape, such as a free-form window, keeps the largest mode.
+        assertArrayEquals(new int[] {1968, 2184}, PreferenceConfiguration.panelSize(1200, 800, fold));
+    }
+
+    @Test
+    public void theScreenResolutionFollowsTheCoverPanelWhenTheInnerOneIsListedToo() {
+        Display display = ShadowDisplay.getDefaultDisplay();
+        Display.Mode cover = ReflectionHelpers.callConstructor(Display.Mode.class,
+                ClassParameter.from(int.class, display.getMode().getModeId()), ClassParameter.from(int.class, 720),
+                ClassParameter.from(int.class, 1600), ClassParameter.from(float.class, 144f));
+        Display.Mode inner = ReflectionHelpers.callConstructor(Display.Mode.class,
+                ClassParameter.from(int.class, display.getMode().getModeId() + 1), ClassParameter.from(int.class, 1800),
+                ClassParameter.from(int.class, 2000), ClassParameter.from(float.class, 120f));
+        ShadowDisplayManager.setSupportedModes(display.getDisplayId(), cover, inner);
+        assertEquals("1600x720", PreferenceConfiguration.nativeResolution(RuntimeEnvironment.getApplication()));
+    }
 }

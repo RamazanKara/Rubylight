@@ -1041,10 +1041,19 @@ public class HostStreamSettings extends AppCompatActivity {
                 dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(v -> {
                     allPcs.setChecked(false);
                     nativeChoice.setChecked(false);
-                    DisplayMetrics metrics = new DisplayMetrics();
-                    activity.getWindowManager().getDefaultDisplay().getRealMetrics(metrics);
-                    size[0].setText(Integer.toString(Math.max(metrics.widthPixels, metrics.heightPixels)));
-                    size[1].setText(Integer.toString(Math.min(metrics.widthPixels, metrics.heightPixels)));
+                    // The panel's own full size, as a follow-screen stream gets it. Since Android 12 the
+                    // activity's real metrics can be its window's bounds, which leave out a camera
+                    // cutout the app is kept clear of, or a split screen's other half; such a size
+                    // then streamed with a strip beside the camera.
+                    String panel = PreferenceConfiguration.nativeResolution(activity);
+                    if (panel == null) {
+                        DisplayMetrics metrics = new DisplayMetrics();
+                        activity.getWindowManager().getDefaultDisplay().getRealMetrics(metrics);
+                        panel = Math.max(metrics.widthPixels, metrics.heightPixels) + "x" +
+                                Math.min(metrics.widthPixels, metrics.heightPixels);
+                    }
+                    size[0].setText(Integer.toString(PreferenceConfiguration.getWidthFromResolutionString(panel)));
+                    size[1].setText(Integer.toString(PreferenceConfiguration.getHeightFromResolutionString(panel)));
                 });
                 dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
                     if (allPcs.isChecked() || nativeChoice.isChecked()) {

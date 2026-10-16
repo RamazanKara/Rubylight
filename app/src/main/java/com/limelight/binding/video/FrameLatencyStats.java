@@ -305,12 +305,16 @@ class FrameLatencyStats {
     // second or more is left out.
     synchronized void onArtemisDecodeCounted(long ptsUs, long countedNs) {
         Long queuedNs = artemisQueuedNs.remove(ptsUs);
-        if (queuedNs != null) {
+        if (queuedNs != null && countedNs >= queuedNs) {
             long ms = (countedNs - queuedNs) / 1000000L;
-            if (ms >= 0 && ms < 1000) {
+            if (ms < 1000) {
                 artemisDecodeMs += ms;
             }
         }
+    }
+
+    synchronized long getArtemisDecodeMs() {
+        return artemisDecodeMs;
     }
 
     // Whole milliseconds counted since the last call; the caller divides by frames received.

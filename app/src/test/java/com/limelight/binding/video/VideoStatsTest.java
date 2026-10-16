@@ -41,4 +41,19 @@ public class VideoStatsTest {
         active.clear();
         assertEquals(0, active.decoderTimeMs);
     }
+
+    @Test
+    public void postStreamDecodeTimeIncludesUnfinishedWindowAndUnflushedSamples() {
+        VideoStats completed = new VideoStats();
+        VideoStats active = new VideoStats();
+        assertEquals(0, completed.getAverageDecoderLatencyMs(active, 0));
+
+        active.totalFramesReceived = 2;
+        assertEquals(4, completed.getAverageDecoderLatencyMs(active, 8));
+
+        completed.totalFramesReceived = 2;
+        completed.decoderTimeMs = 12;
+        active.decoderTimeMs = 4;
+        assertEquals(6, completed.getAverageDecoderLatencyMs(active, 8));
+    }
 }

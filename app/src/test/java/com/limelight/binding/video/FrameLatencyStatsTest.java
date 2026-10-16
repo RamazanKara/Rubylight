@@ -192,7 +192,9 @@ public class FrameLatencyStatsTest {
             stats.onDecoderQueued(frame[0], frame[1]);
             stats.onArtemisDecodeCounted(frame[0], frame[2]);
         }
+        assertEquals(6, stats.getArtemisDecodeMs());
         assertEquals(6, stats.takeArtemisDecodeMs());
+        assertEquals(0, stats.getArtemisDecodeMs());
         assertEquals(0, stats.takeArtemisDecodeMs());
     }
 
@@ -211,6 +213,8 @@ public class FrameLatencyStatsTest {
         stats.onArtemisDecodeCounted(4, 1010000000);
         stats.onDecoderQueued(5, 20000000);
         stats.onArtemisDecodeCounted(5, 18000000);
+        stats.onDecoderQueued(8, 30000000);
+        stats.onArtemisDecodeCounted(8, 29999999);
         assertEquals(3, stats.takeArtemisDecodeMs());
         // A codec reset forgets queued frames, not the time already counted.
         stats.onDecoderQueued(6, 30000000);

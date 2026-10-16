@@ -2885,9 +2885,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
     /** The post-stream decode time, counted like Artemis over the whole stream. */
     public int getAverageDecoderLatency() {
-        VideoStats global = globalVideoStats;
-        return global == null || global.totalFramesReceived == 0 ? 0 :
-                (int) (global.decoderTimeMs / global.totalFramesReceived);
+        return globalVideoStats.getAverageDecoderLatencyMs(activeWindowVideoStats,
+                frameLatencyStats.getArtemisDecodeMs());
     }
 
     static class DecoderHungException extends RuntimeException {

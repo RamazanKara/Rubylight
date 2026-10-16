@@ -69,6 +69,13 @@ class VideoStats {
         this.measurementStartTimestamp = 0;
     }
 
+    // Include the current, unfinished window and samples not yet moved into it at stream end.
+    int getAverageDecoderLatencyMs(VideoStats active, long unflushedDecoderTimeMs) {
+        long framesReceived = (long) totalFramesReceived + active.totalFramesReceived;
+        return framesReceived == 0 ? 0 :
+                (int) ((decoderTimeMs + active.decoderTimeMs + unflushedDecoderTimeMs) / framesReceived);
+    }
+
     VideoStatsFps getFps() {
         float elapsed = (SystemClock.uptimeMillis() - this.measurementStartTimestamp) / (float) 1000;
 

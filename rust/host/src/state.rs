@@ -502,43 +502,17 @@ impl Host {
             pixel: butterpollo_windows::capture::Pixel::Bgra8,
         };
         let mut flags = 0u32;
-        let preference =
-            butterpollo_core::encoder_policy::canonical_name(config.get("encoder", "auto"));
-        let vendors = if matches!(preference, "" | "auto") {
-            butterpollo_windows::capture::gpus()
-                .ok()
-                .map(|gpus| gpus.into_iter().map(|gpu| gpu.vendor).collect::<Vec<_>>())
-                .unwrap_or_default()
-        } else {
-            Vec::new()
-        };
-        let amf_only = amf_only_probe(preference, &vendors);
-        // Bits follow moonlight-common-c's SCM_* values; each 4:4:4 mode
-        // is probed only after its 4:2:0 mode works.
-        for (codec, hdr, yuv444, bit) in [
-            (0, false, false, 1),
-            (1, false, false, 0x100),
-            (1, true, false, 0x200),
-            (2, false, false, 0x10000),
-            (2, true, false, 0x20000),
-            (0, false, true, 0x40000),
-            (1, false, true, 0x80000),
-            (1, true, true, 0x100000),
-            (2, false, true, 0x200000),
-            (2, true, true, 0x400000),
+        // Bits follow moonlight-common-c's SCM_* values. AMF encodes 4:2:0
+        // only, so H.264, HEVC and AV1 advertise no 4:4:4 mode.
+        for (codec, hdr, bit) in [
+            (0, false, 1),
+            (1, false, 0x100),
+            (1, true, 0x200),
+            (2, false, 0x10000),
+            (2, true, 0x20000),
         ] {
             let mode = config.integer(if codec == 1 { "hevc_mode" } else { "av1_mode" }, 0);
             if matches!(codec, 1 | 2) && (mode == 1 || (hdr && mode == 2)) {
-                continue;
-            }
-            let base = match (codec, hdr) {
-                (0, _) => 1,
-                (1, false) => 0x100,
-                (1, true) => 0x200,
-                (2, false) => 0x10000,
-                _ => 0x20000,
-            };
-            if yuv444 && (flags & base == 0 || amf_only) {
                 continue;
             }
             if self.stop.load(std::sync::atomic::Ordering::Acquire) {
@@ -554,7 +528,6 @@ impl Host {
                 bitrate_kbps: 2000,
                 codec,
                 hdr,
-                yuv444,
                 ..Default::default()
             };
             match butterpollo_windows::encoder::Encoder::new_options(
@@ -563,7 +536,7 @@ impl Host {
                 config,
             ) {
                 Ok(mut encoder) => {
-                    if codec == 0 && !yuv444 {
+                    if codec == 0 {
                         *self.probed_encoder.lock().unwrap() = encoder.backend();
                     }
                     for frame in 0..8 {
@@ -585,10 +558,6 @@ impl Host {
                             _ => std::thread::sleep(Duration::from_millis(5)),
                         }
                     }
-                }
-                // Most GPUs cannot encode 4:4:4; that is not a fault.
-                Err(error) if yuv444 => {
-                    tracing::debug!(%error, codec, hdr, "4:4:4 encoding unavailable")
                 }
                 Err(error) => {
                     first_error.get_or_insert_with(|| format!("{error:#}"));
@@ -906,14 +875,6 @@ impl Host {
         Ok((access, refresh, csrf, refresh_deadline.saturating_sub(wall)))
     }
 }
-fn amf_only_probe(preference: &str, vendors: &[u32]) -> bool {
-    // Automatic selection can fall back to a second GPU. Only rule out 4:4:4
-    // when every hardware adapter is AMD; an unknown inventory still probes.
-    preference == "amf"
-        || (matches!(preference, "" | "auto")
-            && !vendors.is_empty()
-            && vendors.iter().all(|vendor| *vendor == 0x1002))
-}
 /// The app library. One that cannot be read as a library starts the host
 /// with no apps, as in Vibepollo, rather than keeping the host and its web
 /// console down; the file is copied beside it so a later save cannot lose it.
@@ -951,19 +912,6 @@ fn load_library(path: &std::path::Path, default: Value) -> Result<Value> {
 }
 #[cfg(test)]
 mod tests {
-    #[test]
-    fn amd_probe_skip_preserves_mixed_gpu_and_unknown_inventory_probes() {
-        use super::amf_only_probe;
-        assert!(amf_only_probe("amf", &[]));
-        assert!(amf_only_probe("auto", &[0x1002]));
-        assert!(amf_only_probe("", &[0x1002, 0x1002]));
-        for vendors in [&[][..], &[0x1002, 0x10de], &[0x1002, 0x8086], &[0]] {
-            assert!(!amf_only_probe("auto", vendors));
-        }
-        assert!(!amf_only_probe("software", &[0x1002]));
-        assert!(!amf_only_probe("nvenc", &[0x1002]));
-    }
-
     #[test]
     fn a_rejoin_in_the_same_mode_reuses_the_clients_own_display_untouched() {
         use super::take_retained;

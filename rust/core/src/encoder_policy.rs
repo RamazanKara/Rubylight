@@ -3,14 +3,13 @@
 use crate::{config::Config, rtsp::Negotiated};
 use anyhow::{Result, bail};
 
-/// Retired names in existing Apollo/Vibepollo profiles select their current
-/// native backend. Keep the saved setting intact while resolving it at use.
-/// Names this host cannot use (`mediafoundation`) select automatically.
+/// Apollo's and Vibepollo's names for AMD's encoder are AMF. Automatic is AMF
+/// too: it is the host's only encoder for H.264, HEVC and AV1. Names this
+/// host cannot use (`mediafoundation`) select automatically.
 pub fn canonical_name(name: &str) -> &str {
     match name {
         "amdvce" | "amdvce_experimental" | "amdvce_ffmpeg" | "amdvce_legacy" => "amf",
-        "nvenc_experimental" => "nvenc",
-        "" | "auto" | "amf" | "nvenc" | "nvenc_legacy" | "quicksync" | "qsv" | "software" => name,
+        "" | "auto" | "amf" => name,
         // Chooses PyroWave's own encoder; other codecs select automatically.
         "pyrowave" => "auto",
         other => {
@@ -1049,7 +1048,7 @@ mod tests {
         }
     }
     #[test]
-    fn imported_encoder_names_keep_the_selected_vendor_and_legacy_backend() {
+    fn imported_amd_encoder_names_select_amf_and_others_select_automatically() {
         for name in [
             "amdvce",
             "amdvce_experimental",
@@ -1061,19 +1060,20 @@ mod tests {
             assert_eq!(canonical_name(config.get("encoder", "auto")), "amf");
             assert_eq!(config.get("encoder", "auto"), name);
         }
-        assert_eq!(canonical_name("nvenc_experimental"), "nvenc");
-        for name in [
-            "",
-            "auto",
+        for name in ["", "auto"] {
+            assert_eq!(canonical_name(name), name);
+        }
+        for unusable in [
+            "mediafoundation",
+            "unknown",
+            "pyrowave",
             "nvenc",
+            "nvenc_experimental",
             "nvenc_legacy",
             "quicksync",
             "qsv",
             "software",
         ] {
-            assert_eq!(canonical_name(name), name);
-        }
-        for unusable in ["mediafoundation", "unknown", "pyrowave"] {
             assert_eq!(canonical_name(unusable), "auto");
         }
     }

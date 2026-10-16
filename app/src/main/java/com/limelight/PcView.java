@@ -75,6 +75,8 @@ public class PcView extends AppCompatActivity implements AdapterFragmentCallback
     private Thread pairingThread;
     private volatile int pairingGeneration;
     private AlertDialog pairingDialog;
+    // A pairing result that arrived while the PC list was in the background, shown on return.
+    private Runnable pendingPairingResult;
     private volatile ComputerManagerService.ComputerManagerBinder managerBinder;
     private boolean managerServiceBound;
     private Thread serviceWaitThread;
@@ -313,6 +315,8 @@ public class PcView extends AppCompatActivity implements AdapterFragmentCallback
     public void onDestroy() {
         super.onDestroy();
 
+        cancelPairing();
+        pendingPairingResult = null;
         if (serviceWaitThread != null) {
             serviceWaitThread.interrupt();
         }
@@ -331,7 +335,13 @@ public class PcView extends AppCompatActivity implements AdapterFragmentCallback
         UiHelper.showDecoderCrashDialog(this);
 
         inForeground = true;
-        startComputerUpdates();
+        if (pendingPairingResult != null) {
+            Runnable result = pendingPairingResult;
+            pendingPairingResult = null;
+            result.run();
+        } else if (pairingThread == null) {
+            startComputerUpdates();
+        }
         if (completeOnCreateCalled) {
             checkForUpdates();
         }
@@ -348,7 +358,8 @@ public class PcView extends AppCompatActivity implements AdapterFragmentCallback
 
         inForeground = false;
         if (pcMenu != null) pcMenu.dismiss();
-        cancelPairing();
+        // Pairing keeps running: people leave to type the PIN into the host's web page on this
+        // phone, or the screen turns off on the way to the PC.
         stopComputerUpdates(false);
     }
 
@@ -557,34 +568,41 @@ public class PcView extends AppCompatActivity implements AdapterFragmentCallback
             }
             final boolean paired = success;
             final String failure = message;
-            runOnUiThread(() -> {
-                if (generation != pairingGeneration || !inForeground || isFinishing() || isDestroyed()) {
-                    return;
-                }
-                pairingRequest = null;
-                pairingThread = null;
-                if (pairingDialog != null) {
-                    pairingDialog.dismiss();
-                    pairingDialog = null;
-                }
-                LimeLog.info(paired ? "Pairing succeeded" : "Pairing failed");
-                if (paired) {
-                    doAppList(computer, true, false);
-                } else {
-                    startComputerUpdates();
-                    new MaterialAlertDialogBuilder(this).setTitle(R.string.pair_pairing_title)
-                            .setMessage(failure).setNegativeButton(android.R.string.cancel, null)
-                            .setPositiveButton(R.string.pair_try_again, (dialog, which) -> {
-                                if (oneTimePin == null) {
-                                    doPair(computer);
-                                } else {
-                                    showOneTimePinDialog(computer);
-                                }
-                            }).show();
-                }
-            });
+            runOnUiThread(() -> showPairingResult(generation, paired, failure, computer, oneTimePin));
         }, "Pairing");
         pairingThread.start();
+    }
+
+    private void showPairingResult(int generation, boolean paired, String failure,
+                                   ComputerDetails computer, String oneTimePin) {
+        if (generation != pairingGeneration || isFinishing() || isDestroyed()) {
+            return;
+        }
+        if (!inForeground) {
+            pendingPairingResult = () -> showPairingResult(generation, paired, failure, computer, oneTimePin);
+            return;
+        }
+        pairingRequest = null;
+        pairingThread = null;
+        if (pairingDialog != null) {
+            pairingDialog.dismiss();
+            pairingDialog = null;
+        }
+        LimeLog.info(paired ? "Pairing succeeded" : "Pairing failed");
+        if (paired) {
+            doAppList(computer, true, false);
+        } else {
+            startComputerUpdates();
+            new MaterialAlertDialogBuilder(this).setTitle(R.string.pair_pairing_title)
+                    .setMessage(failure).setNegativeButton(android.R.string.cancel, null)
+                    .setPositiveButton(R.string.pair_try_again, (dialog, which) -> {
+                        if (oneTimePin == null) {
+                            doPair(computer);
+                        } else {
+                            showOneTimePinDialog(computer);
+                        }
+                    }).show();
+        }
     }
 
     protected void doWakeOnLan(final ComputerDetails computer) {

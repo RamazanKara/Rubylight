@@ -331,16 +331,31 @@ public class PcViewLifecycleTest {
                     AlertDialog retry = ReflectionHelpers.getField(screen, "pairingDialog");
                     assertNotNull(retry);
                     assertTrue(retry.isShowing());
+                    // Leaving to type the PIN into the host's web page on this phone keeps pairing going.
                     controller.pause();
+                    assertTrue(worker.isAlive());
+                    assertSame(retry, ReflectionHelpers.getField(screen, "pairingDialog"));
+                    assertNotNull(ReflectionHelpers.getField(screen, "pairingRequest"));
+                    connection.getOutputStream().write(("HTTP/1.1 503 Service Unavailable\r\n" +
+                            "Content-Length: 0\r\nConnection: close\r\n\r\n").getBytes(StandardCharsets.US_ASCII));
                     worker.join(5000);
-                    Shadows.shadowOf(Looper.getMainLooper()).idle();
                     assertFalse(worker.isAlive());
-                    assertFalse(retry.isShowing());
-                    assertNull(ReflectionHelpers.getField(screen, "pairingDialog"));
-                    assertNull(ReflectionHelpers.getField(screen, "pairingRequest"));
-                    controller.stop().destroy();
-                    controller = null;
                 }
+                // The result waits for the return to the PC list.
+                Shadows.shadowOf(Looper.getMainLooper()).idle();
+                AlertDialog retry = ReflectionHelpers.getField(screen, "pairingDialog");
+                assertTrue(retry.isShowing());
+                assertFalse(ReflectionHelpers.<Boolean>getField(screen, "runningPolling"));
+                controller.resume();
+                Shadows.shadowOf(Looper.getMainLooper()).idle();
+                assertFalse(retry.isShowing());
+                AlertDialog again = (AlertDialog) ShadowDialog.getLatestDialog();
+                assertNotSame(failure, again);
+                assertTrue(again.isShowing());
+                assertEquals(screen.getString(R.string.pair_connection_fix),
+                        ((TextView) again.findViewById(android.R.id.message)).getText().toString());
+                assertNull(ReflectionHelpers.getField(screen, "pairingRequest"));
+                assertTrue(ReflectionHelpers.<Boolean>getField(screen, "runningPolling"));
             } finally {
                 if (controller != null) controller.pause().stop().destroy();
                 if (worker != null) worker.join(5000);

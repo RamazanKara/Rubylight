@@ -22,8 +22,11 @@ fn main() {
         .allowlist_function("avcodec_.*|av_frame_.*|av_mastering_display_metadata_.*|av_content_light_metadata_.*|av_packet_.*|av_new_packet|av_hwdevice_.*|av_hwframe_.*|av_buffer_.*|av_opt_set.*|av_dict_.*|av_strerror|av_image_fill_black|av_pix_fmt_desc_get|sws_.*")
         .allowlist_var("AV.*|SWS_.*|LIBAV.*").layout_tests(false).derive_debug(false).generate_comments(false).generate().expect("generate FFmpeg C ABI");
     ff.write_to_file(out.join("ffmpeg.rs")).unwrap();
+    // AMD's AMF headers, vendored in include/AMF.
+    println!("cargo:rerun-if-changed=include/AMF");
+    let amf_include = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap()).join("include");
     let amf=bindgen::Builder::default().header_contents("amf.h","#include <AMF/core/Factory.h>\n#include <AMF/components/VideoEncoderVCE.h>\n#include <AMF/components/VideoEncoderHEVC.h>\n#include <AMF/components/VideoEncoderAV1.h>\n")
-        .clang_arg(format!("-I{}",include.display())).allowlist_type("AMF.*|amf_.*")
+        .clang_arg(format!("-I{}",amf_include.display())).allowlist_type("AMF.*|amf_.*")
         .allowlist_var("AMF.*|amf_.*").layout_tests(false).derive_debug(false).generate_comments(false).generate().expect("generate AMF C ABI");
     amf.write_to_file(out.join("amf.rs")).unwrap();
     println!("cargo:rerun-if-env-changed=BUTTERPOLLO_PYROWAVE_ROOT");

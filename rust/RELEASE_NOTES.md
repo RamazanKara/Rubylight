@@ -1,10 +1,15 @@
-# Rubylight 2.4.2 for Windows
+# Rubylight 2.4.3 for Windows
 
 [Documentation](../docs/README.md) · [Install and migrate](../docs/getting-started.md) · [Configuration](../docs/configuration.md) · [Features](../docs/features.md)
 
-**Release history:** [2.4.2](#new-in-242) · [2.4.1](#new-in-241) · [2.4.0](#new-in-240) · [2.3.1](#new-in-231) · [2.3.0](#new-in-230) · [2.2.2 – 2.2.21](#new-in-2221) · [2.2.1](#new-in-221) · [2.2.0](#new-in-220) · [2.1.0](#new-in-210) · [2.0.x](#new-in-201) · [release candidates](#new-in-rc30)
+**Release history:** [2.4.3](#new-in-243) · [2.4.2](#new-in-242) · [2.4.1](#new-in-241) · [2.4.0](#new-in-240) · [2.3.1](#new-in-231) · [2.3.0](#new-in-230) · [2.2.2 – 2.2.21](#new-in-2221) · [2.2.1](#new-in-221) · [2.2.0](#new-in-220) · [2.1.0](#new-in-210) · [2.0.x](#new-in-201) · [release candidates](#new-in-rc30)
 
-Rubylight, called Butterpollo until rc.29, is written in Rust: host, native helpers, service and setup, with a Svelte web console. The 2.4.2 installer is named `rubylight-setup-2.4.2.exe` and upgrades an existing Vibepollo or Butterpollo installation in place, keeping settings, paired devices, the app library and covers. Codec SDKs and Windows drivers remain external components; the setup installs the drivers.
+Rubylight, called Butterpollo until rc.29, is written in Rust: host, native helpers, service and setup, with a Svelte web console. The 2.4.3 installer is named `rubylight-setup-2.4.3.exe` and upgrades an existing Vibepollo or Butterpollo installation in place, keeping settings, paired devices, the app library and covers. Codec SDKs and Windows drivers remain external components; the setup installs the drivers.
+
+## New in 2.4.3
+
+- **Steadier frame timing when a game runs between the stream's rate and the display's.** On Rubylight's 240 Hz virtual display, a game whose pictures land on one refresh and then two (about 160 a second) could make the host encode 121 frames a second for a 120 fps stream, taking pictures that had already waited. Rubylight now judges the source by its average rate and stays at the stream's rate.
+- **Streams start when the GPU driver refuses the client's slice count ([#32](https://github.com/RamazanKara/Rubylight/issues/32)).** Moonlight for Nintendo Switch asks for four slices per frame. When the AMD driver rejected that count, the encoder failed and the stream never started. Rubylight still asks for the client's count, but now logs a warning and keeps the driver's own value. A tile count set in `amd_av1_tiles` is still required.
 
 ## New in 2.4.2
 

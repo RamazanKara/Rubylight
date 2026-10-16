@@ -9,6 +9,8 @@ class VideoStats {
     int totalFramesRendered;
     int frameLossEvents;
     int framesLost;
+    // Whole milliseconds of decode time counted the Artemis way (see FrameLatencyStats).
+    long decoderTimeMs;
     char minHostProcessingLatency;
     char maxHostProcessingLatency;
     long totalHostProcessingLatency;
@@ -21,6 +23,7 @@ class VideoStats {
         this.totalFramesRendered += other.totalFramesRendered;
         this.frameLossEvents += other.frameLossEvents;
         this.framesLost += other.framesLost;
+        this.decoderTimeMs += other.decoderTimeMs;
 
         if (this.minHostProcessingLatency == 0) {
             this.minHostProcessingLatency = other.minHostProcessingLatency;
@@ -44,6 +47,7 @@ class VideoStats {
         this.totalFramesRendered = other.totalFramesRendered;
         this.frameLossEvents = other.frameLossEvents;
         this.framesLost = other.framesLost;
+        this.decoderTimeMs = other.decoderTimeMs;
         this.minHostProcessingLatency = other.minHostProcessingLatency;
         this.maxHostProcessingLatency = other.maxHostProcessingLatency;
         this.totalHostProcessingLatency = other.totalHostProcessingLatency;
@@ -57,11 +61,19 @@ class VideoStats {
         this.totalFramesRendered = 0;
         this.frameLossEvents = 0;
         this.framesLost = 0;
+        this.decoderTimeMs = 0;
         this.minHostProcessingLatency = 0;
         this.maxHostProcessingLatency = 0;
         this.totalHostProcessingLatency = 0;
         this.framesWithHostProcessingLatency = 0;
         this.measurementStartTimestamp = 0;
+    }
+
+    // Include the current, unfinished window and samples not yet moved into it at stream end.
+    int getAverageDecoderLatencyMs(VideoStats active, long unflushedDecoderTimeMs) {
+        long framesReceived = (long) totalFramesReceived + active.totalFramesReceived;
+        return framesReceived == 0 ? 0 :
+                (int) ((decoderTimeMs + active.decoderTimeMs + unflushedDecoderTimeMs) / framesReceived);
     }
 
     VideoStatsFps getFps() {

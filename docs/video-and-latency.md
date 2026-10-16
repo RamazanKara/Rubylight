@@ -115,10 +115,10 @@ Debug groups diagnostics into Video, Network and Decode and scrolls on smaller s
 | Network latency / variation | Control-channel round-trip time and its variation in milliseconds. |
 | Network frame loss | Frames lost through the transport/recovery path, expressed as a percentage; separate from local decoder/display drops. |
 | Queue wait | Enqueue-to-decoder-input time. High values suggest submission or input-buffer backlog. |
-| Decode time | Input submission to observed decoder output, including driver scheduling. It excludes pre-input queue wait and later display wait. Observed outputs count even if dropped before presentation. |
+| Decode time | Each frame passed on for display is timed from input submission to its hand-off, including driver scheduling, in whole milliseconds. The total over the last two seconds is divided by all frames received in that time; the figure after streaming does the same over the whole stream. It excludes pre-input queue wait and later display wait. The p95/p99 beside it, and the frame-timing CSV, use exact per-frame times from input submission to decoder output. |
 | Display wait | Decoder output to a rendered callback. |
 | Client latency | The client pipeline interval reported by the renderer. |
-| avg / p95 / p99 | Mean and percentile timings over valid samples. MediaCodec stage statistics retain up to 600 frames; each stage has its own valid sample count. |
+| avg / p95 / p99 | Mean and percentile timings over valid samples; the Decode time average is the one described above. MediaCodec stage statistics retain up to 600 frames; each stage has its own valid sample count. |
 | Host processing | Host-reported processing avg/p95/p99. Compare host load separately from Android decode work. |
 | Low-latency support / accepted settings | Advertised decoder capabilities and echoed input-format keys. Compare decode time to see their effect. |
 | Upscaling mode / added time / fallback | Active GPU path or reason for direct output. MediaCodec reports an added-time estimate including texture handoff, GPU completion and swap wait; PyroWave reports the path without a separate upscaling-time estimate. |

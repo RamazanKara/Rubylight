@@ -183,6 +183,60 @@ public class FrameLatencyStatsTest {
     }
 
     @Test
+    public void artemisDecodeTimeRoundsEachCountedFrameDownToWholeMilliseconds() {
+        FrameLatencyStats stats = new FrameLatencyStats();
+        assertEquals(0, stats.takeArtemisDecodeMs());
+        // 4.9 ms counts as 4, 2.999 ms as 2 and 0.6 ms as 0, as in Artemis.
+        long[][] frames = {{1, 10000000, 14900000}, {2, 20000000, 22999000}, {3, 30000000, 30600000}};
+        for (long[] frame : frames) {
+            stats.onDecoderQueued(frame[0], frame[1]);
+            stats.onArtemisDecodeCounted(frame[0], frame[2]);
+        }
+        assertEquals(6, stats.getArtemisDecodeMs());
+        assertEquals(6, stats.takeArtemisDecodeMs());
+        assertEquals(0, stats.getArtemisDecodeMs());
+        assertEquals(0, stats.takeArtemisDecodeMs());
+    }
+
+    @Test
+    public void artemisDecodeTimeSkipsUncountedImpossibleAndSecondLongFrames() {
+        FrameLatencyStats stats = new FrameLatencyStats();
+        // Replaced before display: queued but never counted.
+        stats.onDecoderQueued(1, 1000000);
+        // Counted twice: only the first count has a start time.
+        stats.onDecoderQueued(2, 2000000);
+        stats.onArtemisDecodeCounted(2, 5000000);
+        stats.onArtemisDecodeCounted(2, 9000000);
+        // Never queued, a second or longer, and a clock going backwards.
+        stats.onArtemisDecodeCounted(3, 9000000);
+        stats.onDecoderQueued(4, 10000000);
+        stats.onArtemisDecodeCounted(4, 1010000000);
+        stats.onDecoderQueued(5, 20000000);
+        stats.onArtemisDecodeCounted(5, 18000000);
+        stats.onDecoderQueued(8, 30000000);
+        stats.onArtemisDecodeCounted(8, 29999999);
+        assertEquals(3, stats.takeArtemisDecodeMs());
+        // A codec reset forgets queued frames, not the time already counted.
+        stats.onDecoderQueued(6, 30000000);
+        stats.onArtemisDecodeCounted(6, 37000000);
+        stats.onDecoderQueued(7, 40000000);
+        stats.discardPending("codec_reset");
+        stats.onArtemisDecodeCounted(7, 45000000);
+        assertEquals(7, stats.takeArtemisDecodeMs());
+    }
+
+    @Test
+    public void artemisDecodeTimeLeavesThePreciseDecodeTimeAlone() {
+        FrameLatencyStats stats = new FrameLatencyStats();
+        stats.onDecoderInput(1, 1, 1000000, 1000000, 2000000, (char) 0);
+        stats.onDecoderQueued(1, 2000000);
+        stats.onDecoderOutput(0, 1, 6900000);
+        stats.onArtemisDecodeCounted(1, 6900000);
+        assertEquals(4.9, stats.takeDecodeTimeMs(), 0.00001);
+        assertEquals(4, stats.takeArtemisDecodeMs());
+    }
+
+    @Test
     public void absentAndInvalidQueueTimestampsDoNotInventQueueWait() throws Exception {
         FrameLatencyStats stats = new FrameLatencyStats();
         for (long enqueueNs : new long[] {0, 4000000}) {

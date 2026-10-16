@@ -20,8 +20,8 @@ use windows::{
             Direct3D11::{
                 D3D11_CREATE_DEVICE_BGRA_SUPPORT, D3D11_CREATE_DEVICE_FLAG,
                 D3D11_CREATE_DEVICE_PREVENT_ALTERING_LAYER_SETTINGS_FROM_REGISTRY,
-                D3D11_SDK_VERSION, D3D11CreateDevice,
-                ID3D11Device, ID3D11DeviceContext, ID3D11Multithread,
+                D3D11_SDK_VERSION, D3D11CreateDevice, ID3D11Device, ID3D11DeviceContext,
+                ID3D11Multithread,
             },
             Dxgi::{CreateDXGIFactory2, DXGI_CREATE_FACTORY_FLAGS, IDXGIAdapter1, IDXGIFactory5},
         },

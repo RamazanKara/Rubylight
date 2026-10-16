@@ -9,6 +9,7 @@ Rubylight, called Butterpollo until rc.29, is written in Rust: host, native help
 ## New in 2.4.4
 
 - **The console's certificate warning is gone after an update too.** 2.4.2 and 2.4.3 trusted the console's root only on a fresh install, so a PC updated from an earlier version still showed the browser warning on `https://localhost:47990`. Setup now trusts it on every install and update.
+- **PyroWave clients can measure their own network.** Paired clients can ask the host for a two-second UDP test at a chosen rate, optionally sent as whole frames at a chosen pace, and count what arrives. This is the same `/pyrowave-udp-probe` that Vibeshine serves, including its handshake for client firewalls. A client can use it to find the fastest pace its network carries without loss and report it with each stream, so a Wi-Fi client is no longer sent frames faster than it can take them. The probe is refused while a stream runs.
 
 ## New in 2.4.3
 

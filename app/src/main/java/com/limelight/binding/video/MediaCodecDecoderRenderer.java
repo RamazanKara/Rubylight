@@ -150,7 +150,11 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     private volatile float pyroWaveQueueDelayMs = -1;
     private final QueueDelayTracker queueDelay = new QueueDelayTracker();
     private volatile float queueDelayMs = -1;
+    // Precise decode time: drives adaptive bitrate and quality, the stream doctor and the health dot.
     private volatile float decodeTimeMs = -1;
+    // The decode time shown to people, counted like Artemis: whole milliseconds per counted frame
+    // over every frame received in the last two one-second windows.
+    private volatile float shownDecodeTimeMs = -1;
     private ThermalMonitor thermalMonitor;
     private volatile int thermalLevel = ThermalMonitor.NORMAL;
 
@@ -186,7 +190,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             flushLatencyCsv();
             if (prefs.enablePerfOverlay) {
                 latencySummary = frameLatencyStats.summarize();
-                StringBuilder text = new StringBuilder(formatLatencyOverlay(context, latencySummary));
+                StringBuilder text = new StringBuilder(formatLatencyOverlay(context, latencySummary, shownDecodeTimeMs));
                 if (latencyCsv == null) {
                     text.append('\n').append(context.getString(R.string.latency_csv_failed));
                 } else if (frameLatencyStats.getCsvRowsLost() != 0) {
@@ -205,6 +209,11 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     }
 
     public static String formatLatencyOverlay(Context context, double[][] summary) {
+        return formatLatencyOverlay(context, summary, -1);
+    }
+
+    /** decodeAverageMs, when known, replaces the decode row's average so it matches the decode time shown elsewhere. */
+    public static String formatLatencyOverlay(Context context, double[][] summary, float decodeAverageMs) {
         int[] labels = { R.string.latency_receive_render, R.string.latency_queue_wait,
                 R.string.latency_input_output, R.string.latency_output_render,
                 R.string.latency_host_processing };
@@ -219,7 +228,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             if (summary[stage][0] == 0) {
                 text.append(context.getString(R.string.latency_unavailable));
             } else {
-                text.append(context.getString(R.string.latency_values, summary[stage][1],
+                double average = stage == 1 && decodeAverageMs >= 0 ? decodeAverageMs : summary[stage][1];
+                text.append(context.getString(R.string.latency_values, average,
                         summary[stage][2], summary[stage][3], (int) summary[stage][0]));
             }
         }
@@ -1919,6 +1929,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                                 workStartNs = System.nanoTime();
                                 frameLatencyStats.onDecoderOutput(outIndex, info.presentationTimeUs, workStartNs);
                                 int lastIndex = outIndex;
+                                long lastPtsUs = info.presentationTimeUs;
 
                                 numFramesOut++;
 
@@ -1937,6 +1948,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                                         numFramesOut++;
 
                                         lastIndex = outIndex;
+                                        lastPtsUs = info.presentationTimeUs;
                                     }
 
                                     frameLatencyStats.onOutputReleased(lastIndex, System.nanoTime(), true,
@@ -1954,6 +1966,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                                         // drifting phase estimate) holds frames back a whole refresh.
                                         releaseOutputFrame(lastIndex, System.nanoTime());
                                     }
+                                    // Artemis counts the frame it presents, once it has been released.
+                                    frameLatencyStats.onArtemisDecodeCounted(lastPtsUs, System.nanoTime());
                                     reportPhaseSlack(System.nanoTime());
 
                                     activeWindowVideoStats.totalFramesRendered++;
@@ -1968,17 +1982,23 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                                     // run for a while (if there is a huge mismatch between stream FPS and display
                                     // refresh rate).
                                     int queueLimit = prefs.dropLateFrames ? 1 : outputBufferQueueLimit;
+                                    boolean droppedOlder = false;
                                     if (outputBufferQueue.size() >= queueLimit) {
                                         Integer droppedIndex = outputBufferQueue.poll();
                                         if (droppedIndex != null) {
                                             frameLatencyStats.onOutputReleased(droppedIndex, System.nanoTime(), false,
                                                     upscaler == null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M);
                                             videoDecoder.releaseOutputBuffer(droppedIndex, false);
+                                            droppedOlder = true;
                                         }
                                     }
 
                                     // Add this buffer
                                     outputBufferQueue.add(lastIndex);
+                                    // Artemis counts a queued frame unless queuing it dropped an older one.
+                                    if (!droppedOlder) {
+                                        frameLatencyStats.onArtemisDecodeCounted(lastPtsUs, System.nanoTime());
+                                    }
                                 }
                             }
                             if (outIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
@@ -2375,7 +2395,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             StringBuilder decode = new StringBuilder(decoderDiagnostics);
             // The timing block below already lists decode time; show it here only without that block.
             if (latencyOverlay.isEmpty()) {
-                decode.append('\n').append(decodeTimeMs >= 0 ? context.getString(R.string.perf_overlay_dectime, decodeTimeMs) :
+                decode.append('\n').append(shownDecodeTimeMs >= 0 ? context.getString(R.string.perf_overlay_dectime, shownDecodeTimeMs) :
                         context.getString(R.string.latency_input_output) + ": " + context.getString(R.string.latency_unavailable));
             }
             if (!mediaCodec) {
@@ -2398,7 +2418,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             perfListener.onPerfUpdate(video.toString(), network, decode.toString(),
                     PerformanceOverlay.statisticsText(context, stream, frameRates[2],
                             frameRates[0], receivedVideoMbps, fps.lossPercent,
-                            networkMs, varianceMs, PerformanceOverlay.average(timings, 4), decodeTimeMs,
+                            networkMs, varianceMs, PerformanceOverlay.average(timings, 4), shownDecodeTimeMs,
                             frameRates[2] < 0 ? -1 : PerformanceOverlay.average(timings, 2)),
                     PerformanceOverlay.compactText(context, frameRates[2], frameRates[0], networkMs,
                             fps.lossPercent, decodeTimeMs));
@@ -2456,10 +2476,15 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                 pyroWaveSkippedFrames = pyroWaveDecodedFrames = 0;
             }
             decodeTimeMs = frameLatencyStats.takeDecodeTimeMs();
+            activeWindowVideoStats.decoderTimeMs += frameLatencyStats.takeArtemisDecodeMs();
             queueDelayMs = queueDelay.takeWindowMs();
             VideoStats lastTwo = new VideoStats();
             lastTwo.add(lastWindowVideoStats);
             lastTwo.add(activeWindowVideoStats);
+            // Artemis's average: counted whole milliseconds over every frame received in the last two
+            // windows. With nothing decoded at all it stays unavailable rather than reading 0 ms.
+            shownDecodeTimeMs = lastTwo.totalFramesReceived == 0 || (lastTwo.decoderTimeMs == 0 && decodeTimeMs < 0) ? -1 :
+                    (float) lastTwo.decoderTimeMs / lastTwo.totalFramesReceived;
             networkFrameLossPercent = activeWindowVideoStats.totalFrames == 0 ? 0 :
                     (float) activeWindowVideoStats.framesLost / activeWindowVideoStats.totalFrames * 100;
             overlayFps = lastTwo.getFps();
@@ -2504,6 +2529,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             frameLatencyStats.onFrameReceived(receiveTimeNs);
             if (outputNs > 0) {
                 pyroWaveFailures = 0;
+                frameLatencyStats.onArtemisDecodeCounted(ptsUs, outputNs);
                 // Decode completion precedes the asynchronous color conversion and presentation.
                 // It cannot be used as a display-ready sample for host phase learning.
             } else {
@@ -2857,8 +2883,11 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         return frameLatencyStats.getAverageEndToEndLatency();
     }
 
+    /** The post-stream decode time, counted like Artemis over the whole stream. */
     public int getAverageDecoderLatency() {
-        return frameLatencyStats.getAverageDecoderLatency();
+        VideoStats global = globalVideoStats;
+        return global == null || global.totalFramesReceived == 0 ? 0 :
+                (int) (global.decoderTimeMs / global.totalFramesReceived);
     }
 
     static class DecoderHungException extends RuntimeException {
@@ -2992,7 +3021,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             str += "Total frames rendered: "+renderer.globalVideoStats.totalFramesRendered+DELIMITER;
             str += "Frame losses: "+renderer.globalVideoStats.framesLost+" in "+renderer.globalVideoStats.frameLossEvents+" loss events"+DELIMITER;
             str += "Average end-to-end client latency: "+renderer.getAverageEndToEndLatency()+"ms"+DELIMITER;
-            str += "Average hardware decoder latency: "+renderer.getAverageDecoderLatency()+"ms"+DELIMITER;
+            str += "Average hardware decoder latency: "+renderer.frameLatencyStats.getAverageDecoderLatency()+"ms"+DELIMITER;
             str += "Frame pacing mode: "+renderer.prefs.framePacing+DELIMITER;
 
             if (originalException instanceof CodecException) {

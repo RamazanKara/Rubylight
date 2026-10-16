@@ -12,6 +12,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 
 class FrameLatencyStats {
     static final int WINDOW_SIZE = 600;
@@ -33,6 +34,8 @@ class FrameLatencyStats {
     private static final int SOURCE_NONE = 0;
     private static final int SOURCE_HEADER = 1;
     private static final int SOURCE_REPORTS = 2;
+    // Queued frames Artemis never counts (replaced before display) are forgotten past this many.
+    private static final int MAX_ARTEMIS_QUEUED = 1024;
     static final String CSV_HEADER = "frame_number,pts_us,receive_ns,decoder_input_ns,decoder_output_ns," +
             "render_ns,release_ns,status,receive_to_input_ms,input_to_output_ms,output_to_render_ms," +
             "receive_to_render_ms,csv_rows_lost,host_processing_ms," +
@@ -66,6 +69,18 @@ class FrameLatencyStats {
     private long fpsStartNs;
     private boolean renderCallbacksAvailable;
     private long presentDrops;
+    // The decode time the app shows is counted the way Artemis counts it, so the two apps show the
+    // same figure for the same decoder work: each frame Artemis would count is timed from
+    // queueInputBuffer() returning to its hand-off, rounded down to whole milliseconds, and the
+    // sum is later divided by every frame received. The precise timings above stay as they are
+    // for adaptive bitrate and quality, the stream doctor, the stage breakdown and the CSV.
+    private final LinkedHashMap<Long, Long> artemisQueuedNs = new LinkedHashMap<Long, Long>() {
+        @Override
+        protected boolean removeEldestEntry(Map.Entry<Long, Long> eldest) {
+            return size() > MAX_ARTEMIS_QUEUED;
+        }
+    };
+    private long artemisDecodeMs;
 
     FrameLatencyStats() {
         this(false);
@@ -183,6 +198,7 @@ class FrameLatencyStats {
     // it, and the queue call itself belongs to the queue wait. A frame whose output already came
     // (the decoder beat the bookkeeping) keeps its earlier start.
     synchronized void onDecoderQueued(long ptsUs, long queuedNs) {
+        artemisQueuedNs.put(ptsUs, queuedNs);
         Frame frame = pending.get(ptsUs);
         if (frame == null) {
             return;
@@ -272,6 +288,7 @@ class FrameLatencyStats {
         lastOutputNs = lastReleaseNs = 0;
         decodeTimeTotalNs = 0;
         decodeTimeSamples = 0;
+        artemisQueuedNs.clear();
         fpsStartNs = 0;
         for (long[] times : frameTimes) Arrays.fill(times, 0);
     }
@@ -280,6 +297,26 @@ class FrameLatencyStats {
         float result = decodeTimeSamples == 0 ? -1 : decodeTimeTotalNs / (decodeTimeSamples * 1000000.0f);
         decodeTimeTotalNs = 0;
         decodeTimeSamples = 0;
+        return result;
+    }
+
+    // A frame Artemis counts: the one it presents, or one it puts in the pacing queue without
+    // dropping an older one. Like Artemis, a frame is rounded down to whole milliseconds and a
+    // second or more is left out.
+    synchronized void onArtemisDecodeCounted(long ptsUs, long countedNs) {
+        Long queuedNs = artemisQueuedNs.remove(ptsUs);
+        if (queuedNs != null) {
+            long ms = (countedNs - queuedNs) / 1000000L;
+            if (ms >= 0 && ms < 1000) {
+                artemisDecodeMs += ms;
+            }
+        }
+    }
+
+    // Whole milliseconds counted since the last call; the caller divides by frames received.
+    synchronized long takeArtemisDecodeMs() {
+        long result = artemisDecodeMs;
+        artemisDecodeMs = 0;
         return result;
     }
 

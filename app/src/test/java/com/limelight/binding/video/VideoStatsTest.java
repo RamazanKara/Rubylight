@@ -23,4 +23,22 @@ public class VideoStatsTest {
         }
         assertEquals(3000000000L, stats.totalHostProcessingLatency);
     }
+
+    @Test
+    public void decodeTimeFollowsTheWindowsLikeArtemis() {
+        VideoStats last = new VideoStats();
+        last.decoderTimeMs = 240;
+        last.totalFramesReceived = 60;
+        VideoStats active = new VideoStats();
+        active.decoderTimeMs = 180;
+        active.totalFramesReceived = 60;
+        VideoStats lastTwo = new VideoStats();
+        lastTwo.add(last);
+        lastTwo.add(active);
+        assertEquals(3.5f, (float) lastTwo.decoderTimeMs / lastTwo.totalFramesReceived, 0);
+        last.copy(active);
+        assertEquals(180, last.decoderTimeMs);
+        active.clear();
+        assertEquals(0, active.decoderTimeMs);
+    }
 }

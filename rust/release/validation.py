@@ -57,8 +57,8 @@ validation = dict(
     checked_at_utc=datetime.datetime.now(datetime.timezone.utc).isoformat(),
     end_to_end=dict(
         scope='Packaged host with an isolated profile; the independent moonlight-common-c client pairs over loopback '
-              'with a PIN, launches over encrypted RTSP and decodes video and audio. WGC capture of the physical '
-              'desktop; no virtual display, display-mode or HDR change.',
+              'with a PIN, launches over encrypted RTSP and decodes video and audio. Display driver capture of a '
+              'virtual display in the extended layout; no HDR change.',
         streams=streams, protocol_checks=protocol['checks'], skipped_streams=sorted(skipped),
         skipped_for_display=[dict(case=s['case'], reason=s['skipped']) for s in display_skips]),
     installed=args.installed, check_seconds=args.seconds,

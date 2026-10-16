@@ -66,8 +66,11 @@ def claims(log):
     return found
 
 
-def capture_integrity(log, requested_capture=None, requested_source=None):
-    """Keep fallback/changed-source runs out of matched benchmark comparisons."""
+CAPTURE_BACKEND = 'idd-push'
+
+
+def capture_integrity(log, requested_source=None):
+    """Keep runs that captured anything but the display driver, and changed-source runs, out of matched benchmark comparisons."""
     backends, sources = [], []
     for line in log.splitlines():
         fields = dict((key, value.strip('"')) for key, value in re.findall(r'(\w+)=("[^"]*"|\S+)', line))
@@ -76,27 +79,24 @@ def capture_integrity(log, requested_capture=None, requested_source=None):
         if 'stream configured' in line:
             sources.append({key: fields.get('source_' + key) for key in ('width', 'height', 'refresh_hz', 'pixel')})
     failures = []
-    requested_capture = 'ddx' if requested_capture == 'dxgi' else requested_capture
-    fallback = bool(requested_capture not in (None, '', 'auto') and backends
-                    and any(backend != requested_capture for backend in backends))
-    if requested_capture is not None and not backends:
+    wrong = sorted({backend for backend in backends if backend != CAPTURE_BACKEND})
+    if requested_source is not None and not backends:
         failures.append('missing actual capture backend')
-    if fallback:
-        failures.append(f'capture fallback: requested {requested_capture}, opened {", ".join(sorted(set(backends)))}')
+    if wrong:
+        failures.append(f'capture backend {", ".join(wrong)} is not the display driver ({CAPTURE_BACKEND})')
     if requested_source is not None:
         if not sources or any(value is None for source in sources for value in source.values()):
             failures.append('missing actual capture source measurements')
         for key, expected in requested_source.items():
             if sources and any(source.get(key) != str(expected) for source in sources):
                 failures.append(f'capture source {key} differs from requested {expected}')
-    return dict(capture_backends=backends, capture_sources=sources,
-                requested_capture=requested_capture, requested_source=requested_source,
-                comparison='fallback' if fallback else 'unmatched' if failures else 'matched'
-                if requested_capture is not None and requested_source is not None else 'unverified'), failures
+    return dict(capture_backends=backends, capture_sources=sources, requested_source=requested_source,
+                comparison='fallback' if wrong else 'unmatched' if failures else 'matched'
+                if requested_source is not None else 'unverified'), failures
 
 
 def evaluate(client, rc, codec, mode, vrr=False, tone_log='', host_frames=None, recovery=0, host_log='',
-             requested_capture=None, requested_source=None, claim_trace=True):
+             requested_source=None, claim_trace=True):
     """claim_trace: the host ran with pacing=trace. Without it (a diagnostic
     run's own RUST_LOG) the claim check is reported as not measured instead of
     failing as missing."""
@@ -162,7 +162,7 @@ def evaluate(client, rc, codec, mode, vrr=False, tone_log='', host_frames=None, 
     result.update({f'picture_age_{key}': find(r'^PICTURE_AGE .*?' + key + r'=([0-9.]+)', cast)
                    for key, cast in [('samples', int), ('mean_ms', float), ('p95_ms', float),
                                      ('p99_ms', float), ('max_ms', float)]})
-    integrity, integrity_failures = capture_integrity(host_log, requested_capture, requested_source)
+    integrity, integrity_failures = capture_integrity(host_log, requested_source)
     result.update(integrity)
     failures.extend(integrity_failures)
     if recovery:

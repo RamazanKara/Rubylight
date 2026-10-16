@@ -229,14 +229,14 @@ def motion(work, binaries, profile, codec, selected, arm):
     name, width, height, fps, target = profile
     candidate, changes = selected['candidate'], selected['settings']
     comparison = f'{name}-{codec}-{candidate}'
-    directory = work / 'motion' / (comparison + '-wgc-' + arm)
+    directory = work / 'motion' / (comparison + '-idd-' + arm)
     directory.mkdir(parents=True)
     row = dict(kind='age', comparison=comparison, profile=name, codec=codec, candidate=candidate, settings=changes,
                arm=arm, target_kbps=target, fps=fps, selection=selected['selection'], status='failed', directory=str(directory))
     settings_now = changes if arm.startswith('B') else {}
     variant = 'query0' if settings_now.get('QueryTimeout') == '0' else 'default'
     # The older motion fixture contains explicit tuning. Reset it to today's defaults before applying B.
-    defaults = dict(capture='wgc', minimum_fps_target='20',
+    defaults = dict(minimum_fps_target='20',
         virtual_display_layout='extended', amd_usage='ultralowlatency', amd_quality='speed', amd_rc='vbr_latency',
         amd_input_queue_size='0', amd_lowlatency_mode='auto', amd_av1_latency_mode='auto',
         amd_vbaq='disabled' if codec == 'h264' else 'enabled', amd_smart_access_video='auto', amd_split_frame='auto',

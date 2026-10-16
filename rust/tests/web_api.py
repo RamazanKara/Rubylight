@@ -39,7 +39,7 @@ console=request(browser, 'GET', '/')
 assert '<script' not in console.text and 'data-theme="dark"' in console.text
 assert "default-src 'none'" in console.headers['Content-Security-Policy']
 assert console.headers['Cache-Control']=='no-store'
-request(browser, 'PATCH', '/api/config', 400, json={'capture':'wgc\nport = 9'})
+request(browser, 'PATCH', '/api/config', 400, json={'sunshine_name':'Test PC\nport = 9'})
 assert request(browser, 'GET', '/api/metadata').json()['features']['rust_host'] is True
 logs = request(browser, 'GET', '/api/logs')
 assert logs.headers['content-type'].startswith('text/plain') and 'Butterpollo Rust host started' in logs.text

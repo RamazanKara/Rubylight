@@ -16,8 +16,7 @@ root = args.artifacts.resolve(strict=True)
 directory = root / ('auth-session-' + str(uuid.uuid4()))
 directory.mkdir()
 assert directory.resolve().parent == root
-(directory / 'sunshine.conf').write_text('port=%d\nencoder=amf\ncapture=wgc\n'
-    'virtual_display_mode=disabled\ndd_configuration_option=disabled\n'
+(directory / 'sunshine.conf').write_text('port=%d\nencoder=amf\nvirtual_display_layout=extended\n'
     'dd_resolution_option=disabled\ndd_refresh_rate_option=disabled\ndd_hdr_option=disabled\n'
     'stream_audio=false\ninstall_steam_audio_drivers=false\nupnp=false\n'
     'enable_discovery=false\nvulkan_hdr_layer=false\nupdate_check_interval=0\n' % args.port)

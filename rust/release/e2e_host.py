@@ -46,8 +46,8 @@ def prepare(args, case, port=48523, rust_log='info'):
     sink = next((e for e in endpoints if e['virtual_sink']), None)
     assert sink, 'Steam Streaming Speakers is required for the isolated audio test'
     defaults = [
-        f'port = {port}', 'encoder = amf', 'capture = wgc', f"output_name = {monitor['device_id']}",
-        f'minimum_fps_target = {fps}', 'virtual_display_mode = disabled', 'dd_configuration_option = disabled',
+        f'port = {port}', 'encoder = amf', 'virtual_display_layout = extended',
+        f'minimum_fps_target = {fps}',
         'dd_resolution_option = disabled', 'dd_refresh_rate_option = disabled', 'dd_hdr_option = disabled',
         'dd_always_restore_from_golden = false', 'dd_config_revert_on_disconnect = false',
         'frame_limiter_enable = false', 'install_steam_audio_drivers = false', 'stream_audio = true',
@@ -62,7 +62,7 @@ def prepare(args, case, port=48523, rust_log='info'):
     overridden = {key(line) for line in args.config}
     (profile / 'sunshine.conf').write_text('\n'.join(
         [line for line in defaults if key(line) not in overridden] + overrides + ['']))
-    (profile / 'apps.json').write_text(json.dumps({'apps': [{'name': 'Desktop', 'cmd': '', 'virtual-display': False}]}))
+    (profile / 'apps.json').write_text(json.dumps({'apps': [{'name': 'Desktop', 'cmd': ''}]}))
     # interop.py's fixture account, in the previous host's format.
     salt = os.urandom(8).hex()
     (profile / 'sunshine_state.json').write_text(json.dumps({'username': 'test', 'salt': salt, 'password': hashlib.sha256(('rust-smoke-only' + salt).encode()).digest()[::-1].hex().upper()}))

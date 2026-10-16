@@ -95,6 +95,9 @@ impl Sender {
         });
         let shared = slot.clone();
         let current = session.clone();
+        // The client's path as the host measured it during its last PyroWave
+        // bandwidth probe (issue #31).
+        let probe_bps = crate::nvhttp::probed_bps(&session.launch.client);
         let worker = thread::Builder::new()
             .name("pyrowave-send".into())
             .spawn(move || {
@@ -237,6 +240,7 @@ impl Sender {
                             kbps,
                             link,
                             demand,
+                            probe_bps,
                         );
                         if Instant::now() >= link_due {
                             butterpollo_core::network_pacing::report_rate(&current.launch.warnings, bps, demand, config.integer("pacing_max_bitrate_kbps", 0));
@@ -543,7 +547,7 @@ mod tests {
         let (packets, _, blocks) = packetizer.pyrowave_blocks(&framed, 0, 0, fec).unwrap();
         let blocks = blocks.collect::<Result<Vec<_>>>().unwrap();
         let demand = demand_bps(packets, packet_size, true, false, fps_millihz);
-        let bps = butterpollo_core::network_pacing::pyrowave_rate_bps(0, kbps, 0, demand);
+        let bps = butterpollo_core::network_pacing::pyrowave_rate_bps(0, kbps, 0, demand, 0);
         (blocks, bps, period)
     }
 

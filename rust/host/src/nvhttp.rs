@@ -554,14 +554,93 @@ async fn pyrowave_bandwidth(
     let payload = PAYLOAD
         .get_or_init(|| Bytes::from(vec![0xa5; 32 * 1024 * 1024]))
         .clone();
+    let client = authenticated(&h, &connection, 0)
+        .map(|c| c.uuid)
+        .unwrap_or_default();
+    let probe = TimedProbe {
+        payload,
+        at: 0,
+        started: None,
+        done: Some(Box::new(move |bps| keep_probe(&h, &client, bps))),
+    };
     (
         [
             (header::CONTENT_TYPE, "application/octet-stream"),
             (header::CACHE_CONTROL, "no-store"),
         ],
-        payload,
+        axum::body::Body::from_stream(tokio_util::io::ReaderStream::with_capacity(
+            probe,
+            256 * 1024,
+        )),
     )
         .into_response()
+}
+
+/// The device's PyroWave probe rate, kept under its settings.
+const PROBE_KEY: &str = "pyrowave_probe_bps";
+
+/// The client's path in bits per second, as the host measured its last
+/// PyroWave bandwidth probe; 0 when it never downloaded one.
+pub(crate) fn probed_bps(client: &butterpollo_core::state::Client) -> u64 {
+    client
+        .extra
+        .get(PROBE_KEY)
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0)
+}
+
+fn keep_probe(h: &Shared, uuid: &str, bps: u64) {
+    let mut paired = h.paired.write().unwrap();
+    let Some(client) = paired.clients.iter_mut().find(|c| c.uuid == uuid) else {
+        return;
+    };
+    tracing::info!(client = %client.name, mbps = bps / 1_000_000, "PyroWave bandwidth probe sent; PyroWave paces to this path when it is slower than the host's link");
+    client
+        .extra
+        .insert(PROBE_KEY.into(), serde_json::json!(bps));
+    if let Err(error) = paired.save(&h.paired_path) {
+        tracing::warn!(%error, "the PyroWave probe rate could not be saved");
+    }
+}
+
+/// The probe's body, timed from its first read to its end. TCP hands the host
+/// the bytes no faster than the client's port takes them, so the rate is the
+/// client's path, including one socket buffer of slack.
+struct TimedProbe {
+    payload: Bytes,
+    at: usize,
+    started: Option<std::time::Instant>,
+    done: Option<Box<dyn FnOnce(u64) + Send>>,
+}
+
+impl tokio::io::AsyncRead for TimedProbe {
+    fn poll_read(
+        mut self: std::pin::Pin<&mut Self>,
+        _: &mut std::task::Context<'_>,
+        buf: &mut tokio::io::ReadBuf<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        let this = &mut *self;
+        let started = *this.started.get_or_insert_with(std::time::Instant::now);
+        let left = &this.payload[this.at..];
+        if left.is_empty() {
+            if let Some(done) = this.done.take() {
+                let elapsed = started.elapsed();
+                // Under 5 ms the timer, not the path, decides the figure.
+                if elapsed >= std::time::Duration::from_millis(5) {
+                    done(probe_bps(this.payload.len(), elapsed));
+                }
+            }
+            return std::task::Poll::Ready(Ok(()));
+        }
+        let n = left.len().min(buf.remaining());
+        buf.put_slice(&left[..n]);
+        this.at += n;
+        std::task::Poll::Ready(Ok(()))
+    }
+}
+
+fn probe_bps(bytes: usize, elapsed: std::time::Duration) -> u64 {
+    (bytes as f64 * 8. / elapsed.as_secs_f64()) as u64
 }
 async fn pair(
     State(h): State<Shared>,

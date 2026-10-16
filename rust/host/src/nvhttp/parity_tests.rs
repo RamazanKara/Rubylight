@@ -1164,3 +1164,45 @@ fn input_and_monitor_roles_resolve_without_starting_an_app_or_preparing_hardware
     assert!(f.host.current_app.lock().unwrap().is_none());
     assert!(session.launch.preparation.lock().unwrap().is_none());
 }
+
+#[tokio::test]
+async fn the_pyrowave_probe_measures_the_clients_path_as_it_sends() {
+    use tokio::io::AsyncReadExt;
+    let measured = std::sync::Arc::new(std::sync::Mutex::new(None));
+    let seen = measured.clone();
+    let mut probe = TimedProbe {
+        payload: Bytes::from(vec![0xa5; 1_000_000]),
+        at: 0,
+        // The client took 80 ms for the megabyte: a 100 Mbps path.
+        started: Some(std::time::Instant::now() - std::time::Duration::from_millis(80)),
+        done: Some(Box::new(move |bps| *seen.lock().unwrap() = Some(bps))),
+    };
+    let mut body = Vec::new();
+    probe.read_to_end(&mut body).await.unwrap();
+    assert_eq!(body.len(), 1_000_000, "the client gets every byte");
+    let bps = measured.lock().unwrap().expect("measured at the end");
+    assert!((90_000_000..=100_000_000).contains(&bps), "{bps}");
+    // A probe faster than the timer can resolve records nothing.
+    let none = std::sync::Arc::new(std::sync::Mutex::new(None::<u64>));
+    let seen = none.clone();
+    let mut instant = TimedProbe {
+        payload: Bytes::from(vec![0; 16]),
+        at: 0,
+        started: None,
+        done: Some(Box::new(move |bps| *seen.lock().unwrap() = Some(bps))),
+    };
+    instant.read_to_end(&mut Vec::new()).await.unwrap();
+    assert_eq!(*none.lock().unwrap(), None);
+}
+
+#[test]
+fn a_device_without_a_probe_keeps_the_host_link_pacing() {
+    let fixture = Fixture::new();
+    let mut client = fixture.client(0);
+    assert_eq!(probed_bps(&client), 0);
+    client.extra.insert(
+        "pyrowave_probe_bps".into(),
+        serde_json::json!(940_000_000u64),
+    );
+    assert_eq!(probed_bps(&client), 940_000_000);
+}

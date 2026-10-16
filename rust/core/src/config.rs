@@ -41,6 +41,7 @@ fn any_value(_: &str) -> bool {
     true
 }
 const VIRTUAL_ONLY: &str = "every stream runs on its own virtual display";
+const DRIVER: &str = "Rubylight's display driver creates every virtual display";
 const CAPTURE: &str = "every stream captures its virtual display from the Rubylight display driver";
 pub const RETIRED_SETTINGS: &[RetiredSetting] = &[
     RetiredSetting {
@@ -102,6 +103,20 @@ pub const RETIRED_SETTINGS: &[RetiredSetting] = &[
         retired: crate::display_policy::disables_virtual_displays,
         current: "per_client",
         reason: VIRTUAL_ONLY,
+    },
+    // The driver choice: Rubylight's own driver is the only one, and the host no longer reads
+    // either setting (Vibepollo profiles carry the second).
+    RetiredSetting {
+        key: "virtual_display_driver",
+        retired: any_value,
+        current: "",
+        reason: DRIVER,
+    },
+    RetiredSetting {
+        key: "dd_use_sunshine_virtual_display_driver",
+        retired: any_value,
+        current: "",
+        reason: DRIVER,
     },
     RetiredSetting {
         key: "output_name",
@@ -1524,6 +1539,45 @@ mod tests {
     /// A profile from a host that captured with WGC or Desktop Duplication,
     /// or streamed a physical monitor.
     const PHYSICAL_DISPLAYS: &str = "capture = ddx\nwgc_high_rate_capture = true\nwgc_pacing_smoothing = false\ncapture_predictive_poll = true\nvirtual_display_mode = disabled\noutput_name = DISPLAY2\ndd_configuration_option = ensure_primary\ndd_activate_virtual_display = true\ndd_refresh_rate_option = prefer_highest\nport = 48123\n";
+    #[test]
+    fn display_driver_choices_migrate_with_a_report() {
+        let (config, retired) = Config::parse_retiring(
+            "virtual_display_driver = rubylight
+dd_use_sunshine_virtual_display_driver = enabled
+port = 48123
+",
+        )
+        .unwrap();
+        assert_eq!(
+            config.values,
+            BTreeMap::from([("port".into(), "48123".into())])
+        );
+        let keys: Vec<_> = retired.iter().map(|r| r.key.as_str()).collect();
+        assert_eq!(
+            keys,
+            [
+                "virtual_display_driver",
+                "dd_use_sunshine_virtual_display_driver"
+            ]
+        );
+        let warning = retired_warning(&retired).unwrap();
+        assert!(
+            warning.contains("creates every virtual display"),
+            "{warning}"
+        );
+        // Whatever driver an earlier host or Vibepollo chose.
+        for value in ["sudovda", "vdd", "libvirtualdisplay"] {
+            assert!(
+                Config::parse(&format!(
+                    "virtual_display_driver = {value}
+"
+                ))
+                .unwrap()
+                .values
+                .is_empty()
+            );
+        }
+    }
     #[test]
     fn capture_and_physical_display_settings_migrate_with_one_report() {
         let (config, retired) = Config::parse_retiring(PHYSICAL_DISPLAYS).unwrap();

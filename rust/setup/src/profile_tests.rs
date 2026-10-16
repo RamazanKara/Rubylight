@@ -127,7 +127,7 @@ pub fn rc23_profile(profile: &Path) -> Result<()> {
         (
             "frame-limiter-recovery.json",
             json!({"version":1,"rtss":{"root":"C:\\RTSS",
-            "before":{"FramerateLimit":0},"applied":{"FramerateLimit":117},"disabled":false},"nvidia":[]}),
+            "before":{"FramerateLimit":0},"applied":{"FramerateLimit":117},"disabled":false}}),
         ),
         (
             "audio-recovery.json",

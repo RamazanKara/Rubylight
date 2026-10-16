@@ -401,8 +401,6 @@ fn wgc_startup_failure_uses_the_same_fallback_as_recovery() {
         "none",
         false,
         false,
-        true,
-        false,
     )
     .unwrap();
     let mut attempted = Vec::new();

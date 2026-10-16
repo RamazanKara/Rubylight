@@ -465,7 +465,6 @@ fn frame_policy(
             [
                 "frame-generation-enabled",
                 "gen1-framegen-fix",
-                "dlss-framegen-capture-fix",
                 "gen2-framegen-fix",
                 "frame-generation-capture-fix",
             ]
@@ -473,7 +472,6 @@ fn frame_policy(
             .any(|key| crate::process::app_bool(a, key, false))
         })
     };
-    let adapters = butterpollo_windows::capture::gpus()?;
     // A device's own display mode replaces the host's resolution and
     // refresh policies for its display; the stream keeps the rate the
     // client asked for.
@@ -500,8 +498,6 @@ fn frame_policy(
         virtual_mode,
         generation,
         generation_enabled,
-        adapters.iter().any(|a| a.vendor == 0x10de),
-        adapters.iter().any(|a| matches!(a.vendor, 0x1002 | 0x1022)),
         launch
             .client
             .extra
@@ -1374,17 +1370,7 @@ mod tests {
     fn a_retained_display_stops_enforcing_layout_after_the_last_preparation_drops() {
         let fixture = crate::state::test_support::Fixture::new();
         let config = Config::default();
-        let policy = Policy::resolve(
-            &config,
-            Rate(60_000),
-            false,
-            "none",
-            false,
-            false,
-            false,
-            false,
-        )
-        .unwrap();
+        let policy = Policy::resolve(&config, Rate(60_000), false, "none", false, false).unwrap();
         let prepared = Prepared {
             display: None,
             output: String::new(),
@@ -1665,17 +1651,7 @@ mod tests {
             fps: 60,
             ..Default::default()
         };
-        let policy = Policy::resolve(
-            &config,
-            Rate(60_000),
-            false,
-            "none",
-            false,
-            false,
-            false,
-            false,
-        )
-        .unwrap();
+        let policy = Policy::resolve(&config, Rate(60_000), false, "none", false, false).unwrap();
         let prepared = Prepared {
             display: None,
             output: String::new(),

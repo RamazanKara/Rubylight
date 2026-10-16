@@ -1,8 +1,5 @@
 //! Stream-owned limiter transactions. Durable originals precede every mutation.
-use crate::{
-    nvapi::{Drs, Scope, Value},
-    rtss,
-};
+use crate::rtss;
 use anyhow::{Context, Result, bail};
 use butterpollo_core::{
     config::Config,
@@ -16,16 +13,6 @@ use std::{
     path::{Path, PathBuf},
     sync::{Mutex, OnceLock},
 };
-const FRAME_LIMIT: u32 = 0x10835002;
-const VSYNC: u32 = 0x00a879cf;
-#[derive(Clone, Serialize, Deserialize)]
-struct NvChange {
-    #[serde(default)]
-    scope: Scope,
-    id: u32,
-    before: Value,
-    applied: u32,
-}
 #[derive(Clone, Serialize, Deserialize)]
 struct RtssChange {
     root: PathBuf,
@@ -37,7 +24,6 @@ struct RtssChange {
 struct Journal {
     version: u32,
     rtss: Option<RtssChange>,
-    nvidia: Vec<NvChange>,
 }
 #[derive(Default)]
 struct State {
@@ -132,158 +118,14 @@ fn restore(directory: &Path, owned: &mut Option<(PathBuf, crate::process::Proces
         journal.rtss = None;
         write_json(&path(directory), &journal)?;
     }
-    if !journal.nvidia.is_empty() {
-        for change in &journal.nvidia {
-            let nv = match Drs::open_scope(&change.scope, false) {
-                Ok(nv) => nv,
-                Err(error)
-                    if error
-                        .downcast_ref::<crate::nvapi::NvError>()
-                        .is_some_and(|e| e.code == -166) =>
-                {
-                    continue;
-                }
-                Err(error) => return Err(error),
-            };
-            let current = nv.read(change.id)?;
-            if current.override_value == Some(change.applied) {
-                nv.write(change.id, change.before.override_value)?;
-                nv.save()?;
-            }
-        }
-        for change in &journal.nvidia {
-            let nv = match Drs::open_scope(&change.scope, false) {
-                Ok(nv) => nv,
-                Err(error)
-                    if error
-                        .downcast_ref::<crate::nvapi::NvError>()
-                        .is_some_and(|e| e.code == -166) =>
-                {
-                    continue;
-                }
-                Err(error) => return Err(error),
-            };
-            let current = nv.read(change.id)?;
-            if current.effective == change.applied
-                && current.override_value != change.before.override_value
-            {
-                bail!(
-                    "NVIDIA did not confirm restoration of setting {:08x}",
-                    change.id
-                );
-            }
-        }
-        journal.nvidia.clear();
-        write_json(&path(directory), &journal)?;
-    }
-    Ok(())
-}
-fn apply_nvidia(
-    directory: &Path,
-    journal: &mut Journal,
-    policy: &Policy,
-    limit: bool,
-    disable: bool,
-) -> Result<()> {
-    let nv = Drs::open()?;
-    let mut desired = Vec::new();
-    if limit || disable {
-        desired.push((
-            FRAME_LIMIT,
-            if limit {
-                policy.rate.rounded().clamp(1, 1023)
-            } else {
-                0
-            },
-        ));
-    }
-    if policy.disable_vsync {
-        desired.push((VSYNC, 0x08416747));
-    }
-    if policy.smooth_motion {
-        if nv.version()? < 57186 {
-            bail!("NVIDIA Smooth Motion requires driver 571.86 or newer");
-        }
-        desired.extend([
-            (0xb0d384c0, 1),
-            (0xb0cc0875, 7),
-            (0x0005f543, 2),
-            (0x10835000, 1),
-        ]);
-    }
-    if desired.is_empty() {
-        return Ok(());
-    }
-    for (id, applied) in desired {
-        let before = nv.read(id)?;
-        if before.effective != applied {
-            journal.nvidia.push(NvChange {
-                scope: Scope::Global,
-                id,
-                before,
-                applied,
-            });
-        }
-    }
-    persist(directory, journal)?;
-    for change in journal.nvidia.iter().filter(|c| c.scope == Scope::Global) {
-        nv.write(change.id, Some(change.applied))?;
-    }
-    nv.save()?;
-    drop(nv);
-    let nv = Drs::open()?;
-    for change in journal.nvidia.iter().filter(|c| c.scope == Scope::Global) {
-        if nv.read(change.id)?.effective != change.applied {
-            bail!("NVIDIA did not confirm the requested override");
-        }
-    }
-    Ok(())
-}
-fn apply_preferences(directory: &Path, journal: &mut Journal, config: &Config) -> Result<()> {
-    let mut desired = Vec::new();
-    if config.boolean("nvenc_opengl_vulkan_on_dxgi", true) {
-        desired.push((Scope::Base, 0x20d690f8, 1));
-    }
-    if config.boolean("nvenc_latency_over_power", true) {
-        desired.push((
-            Scope::Application(std::env::current_exe()?.to_string_lossy().into_owned()),
-            0x1057eb71,
-            1,
-        ));
-    }
-    for (scope, id, applied) in desired {
-        let nv = Drs::open_scope(&scope, true)?;
-        let before = nv.read(id)?;
-        let needs_override = match scope {
-            Scope::Application(_) => before.override_value != Some(applied),
-            _ => before.effective != applied,
-        };
-        if !needs_override {
-            continue;
-        }
-        journal.nvidia.push(NvChange {
-            scope: scope.clone(),
-            id,
-            before,
-            applied,
-        });
-        persist(directory, journal)?;
-        nv.write(id, Some(applied))?;
-        nv.save()?;
-        drop(nv);
-        if Drs::open_scope(&scope, false)?.read(id)?.override_value != Some(applied) {
-            bail!("NVIDIA did not confirm driver preference {id:08x}");
-        }
-    }
     Ok(())
 }
 /// `explicit`: the user asked for a cap ("Limit every stream" or a named
 /// provider), rather than the automatic virtual-display limit, which simply
-/// stays off on a host without RTSS or an NVIDIA driver.
+/// stays off on a host without RTSS.
 fn limiter_warning(
     enabled: bool,
     explicit: bool,
-    provider: Provider,
     active: &str,
     error: &str,
     rates: (Option<Rate>, Option<Rate>),
@@ -301,11 +143,11 @@ fn limiter_warning(
             format!(" ({error})")
         };
         Some(format!(
-            "Frame limiter not applied: no usable RTSS or driver limiter{cause}. Game frame pacing may be uneven; install RTSS or set an in-game frame limit."
+            "Frame limiter not applied: no usable RTSS{cause}. Game frame pacing may be uneven; install RTSS or set an in-game frame limit."
         ))
     } else if !error.is_empty() {
         Some(format!(
-            "Frame limiter settings were not fully applied ({error}). Check RTSS and the driver limiter settings before relying on the requested cap."
+            "Frame limiter settings were not fully applied ({error}). Check RTSS before relying on the requested cap."
         ))
     } else if let Some(rate) = rates.1
         && rates.0 != rates.1
@@ -319,10 +161,6 @@ fn limiter_warning(
                 "Another stream's {rate} fps frame limit also applies to games in this session. Disconnect that stream to remove the cap."
             )
         })
-    } else if provider == Provider::Rtss && active != "rtss" {
-        Some(format!(
-            "RTSS unavailable; using {active} for the frame limit. Pacing may differ; install RTSS or select the active provider."
-        ))
     } else {
         None
     }
@@ -334,8 +172,7 @@ impl Lease {
         let state = state().lock().unwrap();
         limiter_warning(
             policy.enabled,
-            explicit || matches!(policy.provider, Provider::Rtss | Provider::Nvidia),
-            policy.provider,
+            explicit || policy.provider == Provider::Rtss,
             &state.active,
             &state.message,
             (policy.enabled.then_some(policy.rate), state.rate),
@@ -414,38 +251,12 @@ impl Lease {
                     {
                         tracing::warn!(error = %format!("{error:#}"), "RTSS frame limiter could not be restored after the failure");
                         state.active = "rtss".into();
-                    } else {
-                        journal = load(directory)?;
                     }
                 }
             }
         }
-        let limit = policy.enabled
-            && state.active == "none"
-            && matches!(
-                policy.provider,
-                Provider::Auto | Provider::Rtss | Provider::Nvidia
-            );
-        let disable = state.active == "rtss";
-        // An unresolved RTSS mutation forbids enabling a second cap. Driver
-        // VSYNC/Smooth Motion overrides remain independent of the cap itself.
-        if (limit || disable || policy.disable_vsync || policy.smooth_motion) && Drs::open().is_ok()
-        {
-            if let Err(error) = apply_nvidia(directory, &mut journal, policy, limit, disable) {
-                state.message = error.to_string();
-                tracing::warn!(%error,"NVIDIA frame limiter overrides failed");
-            } else if limit {
-                state.active = "nvidia-control-panel".into();
-            }
-        }
         if state.active == "none" && policy.enabled {
             tracing::warn!(provider = policy.provider.name(), rtss_root = %root.display(), rtss_available = rtss::available(&root), error = %state.message, "frame limiter has no available provider");
-        }
-        if Drs::open().is_ok()
-            && let Err(error) = apply_preferences(directory, &mut journal, config)
-        {
-            tracing::warn!(%error, "NVIDIA driver preferences could not be applied");
-            state.message = error.to_string();
         }
         state.users = 1;
         Ok(Self)
@@ -476,15 +287,12 @@ impl Drop for Lease {
 pub fn status(config: &Config) -> Json {
     let root = rtss::root(config);
     let available = rtss::available(&root);
-    let nvcp = Drs::open().is_ok();
     let state = state().lock().unwrap();
     let configured = config.get("rtss_install_path", "");
     json!({"status":true,"enabled":config.boolean("frame_limiter_enable",false),
         "configured_provider":Provider::parse(config.get("frame_limiter_provider","auto")).name(),
-        "active_provider":if state.active.is_empty(){"none"}else{&state.active},"nvidia_available":nvcp,"nvcp_ready":nvcp,
-        "rtss_available":available,"disable_vsync":config.boolean("frame_limiter_disable_vsync",false),
-        "disable_vsync_ullm":config.boolean("frame_limiter_disable_vsync",false),
-        "nv_overrides_supported":nvcp,"configured_path":configured,"path_configured":!configured.is_empty(),
+        "active_provider":if state.active.is_empty(){"none"}else{&state.active},
+        "rtss_available":available,"configured_path":configured,"path_configured":!configured.is_empty(),
         "resolved_path":root,"path_exists":root.is_dir(),"hooks_found":available,
         "rtss_version":rtss::version(&root).map(|v| v.map(|part| part.to_string()).join(".")),"profile_found":root.join("Profiles/Global").is_file(),
         "can_bootstrap_profile":available,"process_running":rtss::running(&root),
@@ -494,62 +302,35 @@ pub fn status(config: &Config) -> Json {
 mod tests {
     use super::*;
     #[test]
-    fn limiter_reports_missing_failed_and_substituted_providers() {
+    fn limiter_reports_missing_and_failed_providers() {
         assert!(
-            limiter_warning(true, true, Provider::Auto, "none", "", (None, None))
+            limiter_warning(true, true, "none", "", (None, None))
                 .unwrap()
                 .contains("not applied")
         );
         assert!(
-            limiter_warning(
-                true,
-                true,
-                Provider::Rtss,
-                "nvidia-control-panel",
-                "",
-                (None, None)
-            )
-            .unwrap()
-            .contains("RTSS unavailable")
+            limiter_warning(true, true, "rtss", "recovery pending", (None, None))
+                .unwrap()
+                .contains("recovery pending")
         );
-        assert!(
-            limiter_warning(
-                true,
-                true,
-                Provider::Auto,
-                "rtss",
-                "recovery pending",
-                (None, None)
-            )
-            .unwrap()
-            .contains("recovery pending")
-        );
-        assert!(limiter_warning(false, true, Provider::Auto, "none", "", (None, None)).is_none());
+        assert!(limiter_warning(false, true, "none", "", (None, None)).is_none());
         // The automatic virtual-display cap on a host without RTSS is not a fault.
-        assert!(limiter_warning(true, false, Provider::Auto, "none", "", (None, None)).is_none());
+        assert!(limiter_warning(true, false, "none", "", (None, None)).is_none());
         assert!(
-            limiter_warning(
-                true,
-                false,
-                Provider::Auto,
-                "none",
-                "RTSS did not confirm",
-                (None, None)
-            )
-            .unwrap()
-            .contains("(RTSS did not confirm)")
+            limiter_warning(true, false, "none", "RTSS did not confirm", (None, None))
+                .unwrap()
+                .contains("(RTSS did not confirm)")
         );
         assert!(
-            !limiter_warning(true, true, Provider::Auto, "none", "", (None, None))
+            !limiter_warning(true, true, "none", "", (None, None))
                 .unwrap()
                 .contains("()")
         );
-        assert!(limiter_warning(true, true, Provider::Auto, "rtss", "", (None, None)).is_none());
+        assert!(limiter_warning(true, true, "rtss", "", (None, None)).is_none());
         assert!(
             limiter_warning(
                 true,
                 true,
-                Provider::Auto,
                 "rtss",
                 "",
                 (Some(Rate(116_000)), Some(Rate(60_000)))
@@ -557,41 +338,16 @@ mod tests {
             .unwrap()
             .contains("60 fps")
         );
-        assert!(
-            limiter_warning(
-                false,
-                true,
-                Provider::None,
-                "rtss",
-                "",
-                (None, Some(Rate(60_000)))
-            )
-            .is_some()
-        );
+        assert!(limiter_warning(false, true, "rtss", "", (None, Some(Rate(60_000)))).is_some());
         assert!(
             limiter_warning(
                 true,
                 true,
-                Provider::Auto,
                 "rtss",
                 "",
                 (Some(Rate(60_000)), Some(Rate(60_000)))
             )
             .is_none()
         );
-    }
-
-    #[test]
-    fn old_nvidia_recovery_journals_keep_their_global_scope() {
-        let change: NvChange = serde_json::from_str(
-            r#"{"id":123,"before":{"effective":0,"override_value":null},"applied":1}"#,
-        )
-        .unwrap();
-        assert_eq!(change.scope, Scope::Global);
-        let mut app = change;
-        app.scope = Scope::Application("C:\\Butterpollo\\butterpollo.exe".into());
-        let restored: NvChange =
-            serde_json::from_value(serde_json::to_value(&app).unwrap()).unwrap();
-        assert_eq!(restored.scope, app.scope);
     }
 }

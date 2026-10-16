@@ -256,17 +256,6 @@ pub fn install(options: &Options, progress: &Progress) -> Result<Outcome> {
 
     if let Some(root) = &previous {
         line(format!("previous installation: {}", root.display()));
-        // Vibepollo journals NVIDIA profile changes; only its own program can
-        // put them back, so do it before that program is removed.
-        let undo = system::program_data().join("Sunshine\\nvprefs_undo.json");
-        if undo.is_file() && root.join("sunshine.exe").is_file() {
-            progress.set("Restoring NVIDIA settings changed by Vibepollo…");
-            let _ = system::run(
-                &root.join("sunshine.exe").display().to_string(),
-                &["--restore-nvprefs-undo"],
-                Duration::from_secs(60),
-            );
-        }
         // A package without drivers reuses the signed drivers already
         // installed with Vibepollo.
         for (from, to) in [("drivers\\vhf-gamepad", "drivers\\gamepad")] {

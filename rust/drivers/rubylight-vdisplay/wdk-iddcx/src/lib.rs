@@ -177,6 +177,66 @@ iddcx_ddi!(
     ) @ IddCxSetRealtimeGPUPriorityTableIndex as PFN_IDDCXSETREALTIMEGPUPRIORITY
 );
 
+iddcx_ddi!(
+    /// The IddCx framework version the OS runs (`IDDCX_VERSION_*`, IddCx 1.2).
+    IddCxGetVersion(out_args: *mut iddcx::IDARG_OUT_GETVERSION)
+        @ IddCxGetVersionTableIndex as PFN_IDDCXGETVERSION
+);
+
+/// How many DDIs the running framework provides: a DDI with a table index at or past this
+/// count is missing (the WDK's `IDD_IS_FUNCTION_AVAILABLE`).
+///
+/// # Safety
+/// Only valid once the IddCx runtime has loaded the driver.
+#[must_use]
+pub unsafe fn function_count() -> u32 {
+    // SAFETY: reads the stub-populated count; valid after load.
+    unsafe { (&raw const iddcx::IddFunctionCount).read() }
+}
+
+/// `IDARG_OUT_FEATURES_SUPPORTED` from the IddCx 1.11 header, which the WDK these bindings
+/// come from (IddCx 1.10) does not have.
+#[repr(C)]
+#[derive(Default)]
+pub struct FeaturesSupported {
+    pub size: u32,
+    /// `IDDCX_DEVICE_FEATURES_1_11`.
+    pub features_1_11: u32,
+}
+
+/// `IDDCX_DEVICE_FEATURES_1_11_D3D12`: the OS supports D3D12 swap chains.
+pub const FEATURES_1_11_D3D12: u32 = 0x1;
+
+/// `IddCxCheckOsFeatureSupportTableIndex` in the IddCx 1.11 header.
+const CHECK_OS_FEATURE_SUPPORT_INDEX: u32 = 36;
+
+/// `IddCxCheckOsFeatureSupport` (IddCx 1.11), or `None` when the running framework has no
+/// such DDI. IddCx requires the call before any adapter is created.
+///
+/// # Safety
+/// Only valid once the IddCx runtime has loaded the driver, before `IddCxAdapterInitAsync`.
+pub unsafe fn check_os_feature_support() -> Option<(NTSTATUS, FeaturesSupported)> {
+    type Pfn = Option<
+        unsafe extern "C" fn(iddcx::PIDD_DRIVER_GLOBALS, *mut FeaturesSupported) -> NTSTATUS,
+    >;
+    // SAFETY: valid after load (this function's contract).
+    if unsafe { function_count() } <= CHECK_OS_FEATURE_SUPPORT_INDEX {
+        return None;
+    }
+    let mut out = FeaturesSupported {
+        size: core::mem::size_of::<FeaturesSupported>() as u32,
+        features_1_11: 0,
+    };
+    // SAFETY: the framework provides the slot (count checked above), and the 1.11 header pins
+    // its type to `PFN_IDDCXCHECKOSFEATURESUPPORT`, which `Pfn` matches.
+    let f: Pfn = unsafe { ddi(CHECK_OS_FEATURE_SUPPORT_INDEX as i32) };
+    // SAFETY: reads the stub-provided globals pointer; valid after load.
+    let g = unsafe { globals() };
+    // SAFETY: a populated DDI called with the stub globals and a valid out block.
+    let status = unsafe { (f?)(g, &mut out) };
+    Some((status, out))
+}
+
 /// Every struct the driver builds or reads must stay `Sized`: this fails to compile if the
 /// bindgen allowlist drops one or a field type stops resolving.
 macro_rules! assert_sized {

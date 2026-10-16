@@ -104,6 +104,10 @@ public class ComputerDetails {
     public long frameLimiterFpsLimitMilliHz;
     public long pyroWaveHostLinkMbps;
     public int pyroWaveBandwidthProbeBytes;
+    /** Frame-shaped UDP probes with the handshake (Vibeshine), and the FEC its wire budget counts. */
+    public boolean pyroWaveBurstProbe;
+    public int pyroWaveCriticalFecPercentage;
+    public int pyroWaveMinParityShards;
 
     /**
      * Whether the host reports a running game. Apollo hides the game while its input-only mode is
@@ -122,6 +126,11 @@ public class ComputerDetails {
         return caps.has(HostCapabilities.Feature.PYROWAVE_BANDWIDTH_PROBE) &&
                 pairState == PairingManager.PairState.PAIRED &&
                 pyroWaveBandwidthProbeBytes == NvHTTP.PYROWAVE_BANDWIDTH_PROBE_BYTES;
+    }
+
+    public boolean supportsPyroWavePaceCalibration() {
+        return caps.has(HostCapabilities.Feature.PYROWAVE) && pairState == PairingManager.PairState.PAIRED &&
+                pyroWaveBurstProbe;
     }
 
     public boolean hasPermission(int mask) {
@@ -238,6 +247,9 @@ public class ComputerDetails {
         this.frameLimiterFpsLimitMilliHz = details.frameLimiterFpsLimitMilliHz;
         this.pyroWaveHostLinkMbps = details.pyroWaveHostLinkMbps;
         this.pyroWaveBandwidthProbeBytes = details.pyroWaveBandwidthProbeBytes;
+        this.pyroWaveBurstProbe = details.pyroWaveBurstProbe;
+        this.pyroWaveCriticalFecPercentage = details.pyroWaveCriticalFecPercentage;
+        this.pyroWaveMinParityShards = details.pyroWaveMinParityShards;
     }
 
     private static void appendIfKnown(StringBuilder str, String label, Object value) {

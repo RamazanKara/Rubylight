@@ -59,6 +59,7 @@ import com.limelight.nvstream.jni.MoonBridge;
 import com.limelight.preferences.HostDisplayChoice;
 import com.limelight.preferences.PreferenceConfiguration;
 import com.limelight.utils.NetworkGrace;
+import com.limelight.utils.PyroWavePaceStore;
 import com.limelight.utils.WiredLink;
 
 public class NvConnection {
@@ -934,10 +935,17 @@ public class NvConnection {
                     ib.putInt(context.riKeyId);
 
                     // Pacing hints for a PyroWave host, which sends frames in bursts at its own
-                    // link rate: this device's wired port speed toward it. No calibrated pace is
-                    // stored (the host speed test measures download speed, not a loss-free pace).
-                    int pyroWaveLinkMbps = (context.negotiatedVideoFormats & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0 ?
-                            WiredLink.mbpsToward(appContext, context.serverAddress.address) : 0;
+                    // link rate: this device's wired port speed toward it, and the frame pace
+                    // calibrated on this same path (PyroWavePaceCalibration), if any. Zero leaves
+                    // either out of the stream description.
+                    boolean pyroWave = (context.negotiatedVideoFormats & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0;
+                    int pyroWaveLinkMbps = pyroWave ? WiredLink.mbpsToward(appContext, context.serverAddress.address) : 0;
+                    int pyroWavePaceMbps = pyroWave ?
+                            PyroWavePaceStore.paceMbpsFor(appContext, hostDetails.uuid, pyroWaveLinkMbps) : 0;
+                    if (pyroWave) {
+                        LimeLog.info("PyroWave pacing hints: link " + pyroWaveLinkMbps + " Mbps, calibrated pace " +
+                                pyroWavePaceMbps + " Mbps");
+                    }
 
                     synchronized (MoonBridge.class) {
                         synchronized (NvConnection.this) {
@@ -976,7 +984,7 @@ public class NvConnection {
                                         !context.streamConfig.getApp().isSmallStreamInputOnly(),
                                 context.streamConfig.getApp().getRole() == NvApp.Role.REMOTE_MONITOR,
                                 micPermitted, prefs.usbDualSenseHaptics,
-                                pyroWaveLinkMbps, 0);
+                                pyroWaveLinkMbps, pyroWavePaceMbps);
                         if (ret != 0) {
                             return;
                         }

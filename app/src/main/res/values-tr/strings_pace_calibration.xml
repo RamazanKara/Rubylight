@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="pace_calibration_title">Kare hızını kalibre et</string>
+    <string name="pace_calibration_summary">PyroWave: ana bilgisayarın bu cihaza kareleri eksiksiz gönderebildiği en yüksek hızı bul</string>
+    <string name="pace_calibration_saved">PyroWave kare temposu: %1$d Mbps. Yeniden kalibre etmek için dokunun.</string>
+    <string name="pace_calibration_intro">Ana bilgisayar farklı hızlarda test kareleri gönderir ve Nightjar karelerin eksiksiz ulaştığı en yüksek hızı saklar. PyroWave yayınları bundan sonra bu hızı kullanır. Önce bu PC’deki yayınları durdurun. Bir ila üç dakika sürer.</string>
+    <string name="pace_calibration_preparing">Test hazırlanıyor…</string>
+    <string name="pace_calibration_running">%1$d Mbps ile gönderilen kareler test ediliyor…</string>
+    <string name="pace_calibration_result">Kare temposu: bu %2$d Mbps bağlantıda %1$d Mbps. Bu PC için kaydedildi.</string>
+    <string name="pace_calibration_result_unqualified">Test edilen hiçbir hız tüm kayıp sınırlarını karşılamadı. En iyisi olan %1$d Mbps (bu %2$d Mbps bağlantıda) bu PC için kaydedildi. Görüntü bozulmaları kalabilir.</string>
+    <string name="pace_calibration_no_link">Kare temposu için bu cihazın ya da PC’nin kablolu bağlantı hızı gerekir, ancak ikisi de bilinmiyor.</string>
+    <string name="pace_calibration_too_fast">Yayın zaten %1$d Mbps gerektiriyor; bu %2$d Mbps bağlantıya çok yakın. Önce bit hızını düşürün.</string>
+    <string name="pace_calibration_streaming">PC yayın yapıyor ya da zaten bir test çalıştırıyor. Yayını durdurup yeniden deneyin.</string>
+    <string name="pace_calibration_unsupported">Bu PC kare temposunu test edemiyor. PyroWave tempo testlerini destekleyen bir ana bilgisayar gerekir.</string>
+    <string name="pace_calibration_failed">Kalibrasyon tamamlanamadı. Bağlantıyı kontrol edip yeniden deneyin.</string>
+    <string name="pace_calibration_none">Hiçbir test tamamlanmadı. Yeniden deneyin.</string>
+    <string name="pace_calibration_clear">Temizle</string>
+</resources>

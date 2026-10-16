@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="pace_calibration_title">Калібрування темпу кадрів</string>
+    <string name="pace_calibration_summary">PyroWave: знайти найбільшу швидкість, з якою хост передає кадри цьому пристрою повністю</string>
+    <string name="pace_calibration_saved">Темп кадрів PyroWave: %1$d Мбіт/с. Торкніться, щоб відкалібрувати знову.</string>
+    <string name="pace_calibration_intro">Хост надсилає тестові кадри з різною швидкістю, а Nightjar запам’ятовує найвищу, за якої кадри надходять повністю. Потім її використовують трансляції PyroWave. Спершу зупиніть трансляцію на цьому ПК. Це триває від однієї до трьох хвилин.</string>
+    <string name="pace_calibration_preparing">Підготовка тесту…</string>
+    <string name="pace_calibration_running">Перевірка кадрів на %1$d Мбіт/с…</string>
+    <string name="pace_calibration_result">Темп кадрів: %1$d Мбіт/с на цьому з’єднанні %2$d Мбіт/с. Збережено для цього ПК.</string>
+    <string name="pace_calibration_result_unqualified">Жодна перевірена швидкість не вклалася в усі межі втрат. Найкращу, %1$d Мбіт/с на цьому з’єднанні %2$d Мбіт/с, збережено для цього ПК. Спотворення зображення можуть лишитися.</string>
+    <string name="pace_calibration_no_link">Для темпу кадрів потрібна швидкість дротового з’єднання цього пристрою або ПК, але жодна не відома.</string>
+    <string name="pace_calibration_too_fast">Трансляції вже потрібно %1$d Мбіт/с — надто близько до цього з’єднання %2$d Мбіт/с. Спершу знизьте бітрейт.</string>
+    <string name="pace_calibration_streaming">ПК веде трансляцію або вже виконує тест. Зупиніть трансляцію та спробуйте ще раз.</string>
+    <string name="pace_calibration_unsupported">Цей ПК не може перевірити темп кадрів. Потрібен хост із тестами темпу PyroWave.</string>
+    <string name="pace_calibration_failed">Не вдалося завершити калібрування. Перевірте з’єднання та спробуйте ще раз.</string>
+    <string name="pace_calibration_none">Жоден тест не завершено. Спробуйте ще раз.</string>
+    <string name="pace_calibration_clear">Очистити</string>
+</resources>

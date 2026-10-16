@@ -16,6 +16,8 @@ Use 720p/60 as a troubleshooting baseline, watch the overlay, then change one se
 
 PyroWave requires Android 10+, Vulkan 1.3 and the GPU features, limits and presentation formats checked by the renderer. Start with about 280 Mbps for 720p/60 or 400 Mbps for 1080p/60 on a fast LAN. Tune from there with the overlay. A PC profile accepts startup requests up to 2000 Mbps; runtime bitrate changes are capped at 500 Mbps. Nightjar switches to a conventional codec automatically when a device needs it.
 
+A PyroWave host sends each frame as one burst at its link speed. Some receive paths, such as USB Ethernet docks, lose the end of such bursts below the link's rated speed. On a host with frame-shaped UDP tests (Vibeshine), **PC settings → Calibrate frame pacing** finds the fastest burst speed this device takes without losing frame tails. It saves that speed for the PC and sends it with each PyroWave stream as the host's frame pace. Stop any stream on the PC first; the test takes one to three minutes. The pace belongs to the connection it was measured on, so it is only sent while this device's wired link speed toward the host is the same as during the test.
+
 Long-press a PC and use **PC settings… → Connection test** before increasing bandwidth. On hosts that support it (currently Rubylight), its optional, cancellable 32 MiB HTTPS download starts only when requested and reports throughput and the host link speed.
 
 ## HDR and color

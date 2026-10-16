@@ -54,6 +54,8 @@ import com.limelight.utils.FrontendExporter;
 import com.limelight.utils.HelpLauncher;
 import com.limelight.utils.HostDetailsDialog;
 import com.limelight.utils.PyroWaveBandwidthTest;
+import com.limelight.utils.PyroWavePaceCalibration;
+import com.limelight.utils.PyroWavePaceStore;
 import com.limelight.utils.ServerHelper;
 import com.limelight.utils.ShortcutHelper;
 import com.limelight.utils.UiHelper;
@@ -96,6 +98,7 @@ public class HostStreamSettings extends AppCompatActivity {
     ComputerDetails computer;
     private boolean managerBound;
     private PyroWaveBandwidthTest connectionTest;
+    private PyroWavePaceCalibration paceCalibration;
     private Uri exportRomsTree;
     private boolean exporting;
     private String savedProfile;
@@ -285,6 +288,10 @@ public class HostStreamSettings extends AppCompatActivity {
     @Override
     protected void onPause() {
         super.onPause();
+        if (paceCalibration != null) {
+            paceCalibration.cancel();
+            paceCalibration = null;
+        }
         if (connectionTest != null) {
             connectionTest.cancel();
             connectionTest = null;
@@ -323,6 +330,21 @@ public class HostStreamSettings extends AppCompatActivity {
         }
         connectionTest = new PyroWaveBandwidthTest(this, computer, new IdentityManager(this).getUniqueId());
         connectionTest.show();
+    }
+
+    private void startPaceCalibration() {
+        if (paceCalibration != null) {
+            paceCalibration.cancel();
+        }
+        PreferenceConfiguration config = effective();
+        paceCalibration = new PyroWavePaceCalibration(this, computer, new IdentityManager(this).getUniqueId(),
+                config.bitrate, config.fps, () -> {
+                    SettingsFragment fragment = (SettingsFragment) getFragmentManager().findFragmentById(R.id.host_profile_settings);
+                    if (fragment != null && fragment.activity != null) {
+                        fragment.showActions();
+                    }
+                });
+        paceCalibration.show();
     }
 
     void showHostAdministration() {
@@ -603,6 +625,14 @@ public class HostStreamSettings extends AppCompatActivity {
             test.setSummary(getString(pc.caps.mayHave(HostCapabilities.Feature.PYROWAVE_BANDWIDTH_PROBE) ?
                     R.string.pc_settings_test_speed : R.string.pc_settings_test_delay) + (online ? "" : "\n" + needsOnline));
             test.setEnabled(online);
+            PyroWavePaceStore.Calibration pace = PyroWavePaceStore.get(screen, pc.uuid);
+            if (pc.supportsPyroWavePaceCalibration() || pace != null) {
+                Preference calibrate = row(connection, "pace_calibration", R.string.pace_calibration_title,
+                        screen::startPaceCalibration);
+                calibrate.setSummary((pace != null ? getString(R.string.pace_calibration_saved, pace.paceMbps) :
+                        getString(R.string.pace_calibration_summary)) + (online ? "" : "\n" + needsOnline));
+                calibrate.setEnabled(online);
+            }
             row(connection, "remote_setup", R.string.remote_setup_title, () -> startActivity(
                     new Intent(screen, RemoteSetupActivity.class).putExtra(RemoteSetupActivity.EXTRA_PC_UUID, screen.hostUuid)))
                     .setSummary(R.string.pc_settings_remote_summary);

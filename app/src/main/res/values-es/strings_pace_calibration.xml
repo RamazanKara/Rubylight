@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="pace_calibration_title">Calibrar el ritmo de fotogramas</string>
+    <string name="pace_calibration_summary">PyroWave: busca la velocidad más alta a la que el host envía fotogramas completos a este dispositivo</string>
+    <string name="pace_calibration_saved">Ritmo de fotogramas PyroWave: %1$d Mbps. Toca para calibrar de nuevo.</string>
+    <string name="pace_calibration_intro">El host envía fotogramas de prueba a distintas velocidades y Nightjar guarda la más rápida a la que llegan completos. Las transmisiones PyroWave la usarán. Detén antes cualquier transmisión en este PC. Tarda de uno a tres minutos.</string>
+    <string name="pace_calibration_preparing">Preparando la prueba…</string>
+    <string name="pace_calibration_running">Probando fotogramas a %1$d Mbps…</string>
+    <string name="pace_calibration_result">Ritmo de fotogramas: %1$d Mbps en esta conexión de %2$d Mbps. Guardado para este PC.</string>
+    <string name="pace_calibration_result_unqualified">Ninguna velocidad probada cumplió todos los límites de pérdida. La mejor, %1$d Mbps en esta conexión de %2$d Mbps, se guardó para este PC. Pueden quedar fallos en la imagen.</string>
+    <string name="pace_calibration_no_link">El ritmo de fotogramas necesita la velocidad del enlace por cable de este dispositivo o del PC, y no se conoce ninguna.</string>
+    <string name="pace_calibration_too_fast">La transmisión ya necesita %1$d Mbps, demasiado cerca de esta conexión de %2$d Mbps. Baja antes la tasa de bits.</string>
+    <string name="pace_calibration_streaming">El PC está transmitiendo o ya hace una prueba. Detén la transmisión e inténtalo de nuevo.</string>
+    <string name="pace_calibration_unsupported">Este PC no puede probar el ritmo de fotogramas. Necesita un host con pruebas de ritmo PyroWave.</string>
+    <string name="pace_calibration_failed">No se pudo completar la calibración. Revisa la conexión e inténtalo de nuevo.</string>
+    <string name="pace_calibration_none">No se completó ninguna prueba. Inténtalo de nuevo.</string>
+    <string name="pace_calibration_clear">Borrar</string>
+</resources>

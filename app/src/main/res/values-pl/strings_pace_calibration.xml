@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="pace_calibration_title">Kalibruj tempo klatek</string>
+    <string name="pace_calibration_summary">PyroWave: znajdź najwyższą prędkość, z jaką host wysyła całe klatki do tego urządzenia</string>
+    <string name="pace_calibration_saved">Tempo klatek PyroWave: %1$d Mb/s. Dotknij, aby skalibrować ponownie.</string>
+    <string name="pace_calibration_intro">Host wysyła klatki testowe z różnymi prędkościami, a Nightjar zapisuje najszybszą, przy której docierają w całości. Strumienie PyroWave będą jej używać. Najpierw zatrzymaj każdy strumień na tym PC. Trwa to od jednej do trzech minut.</string>
+    <string name="pace_calibration_preparing">Przygotowywanie testu…</string>
+    <string name="pace_calibration_running">Testowanie klatek wysyłanych z prędkością %1$d Mb/s…</string>
+    <string name="pace_calibration_result">Tempo klatek: %1$d Mb/s na tym połączeniu %2$d Mb/s. Zapisano dla tego PC.</string>
+    <string name="pace_calibration_result_unqualified">Żadna testowana prędkość nie spełniła wszystkich limitów utraty. Najlepsza, %1$d Mb/s na tym połączeniu %2$d Mb/s, została zapisana dla tego PC. Mogą pozostać zakłócenia obrazu.</string>
+    <string name="pace_calibration_no_link">Tempo klatek wymaga prędkości łącza przewodowego tego urządzenia lub PC, a żadna nie jest znana.</string>
+    <string name="pace_calibration_too_fast">Strumień wymaga już %1$d Mb/s, zbyt blisko tego połączenia %2$d Mb/s. Najpierw obniż szybkość transmisji.</string>
+    <string name="pace_calibration_streaming">PC przesyła strumień lub już wykonuje test. Zatrzymaj strumień i spróbuj ponownie.</string>
+    <string name="pace_calibration_unsupported">Ten PC nie może testować tempa klatek. Potrzebny jest host z testami tempa PyroWave.</string>
+    <string name="pace_calibration_failed">Nie udało się ukończyć kalibracji. Sprawdź połączenie i spróbuj ponownie.</string>
+    <string name="pace_calibration_none">Żaden test nie został ukończony. Spróbuj ponownie.</string>
+    <string name="pace_calibration_clear">Wyczyść</string>
+</resources>

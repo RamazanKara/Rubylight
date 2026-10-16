@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="pace_calibration_title">校准帧节奏</string>
+    <string name="pace_calibration_summary">PyroWave：找出主机向此设备完整发送帧的最高速度</string>
+    <string name="pace_calibration_saved">PyroWave 帧节奏：%1$d Mbps。点按可重新校准。</string>
+    <string name="pace_calibration_intro">主机会以不同速度发送测试帧，Nightjar 会保存帧能完整到达的最快速度。之后的 PyroWave 串流会使用它。请先停止这台电脑上的串流。需要一到三分钟。</string>
+    <string name="pace_calibration_preparing">正在准备测试…</string>
+    <string name="pace_calibration_running">正在测试以 %1$d Mbps 发送的帧…</string>
+    <string name="pace_calibration_result">帧节奏：在此 %2$d Mbps 连接上为 %1$d Mbps。已为这台电脑保存。</string>
+    <string name="pace_calibration_result_unqualified">没有测试速度满足所有丢包限制。最佳值（在此 %2$d Mbps 连接上为 %1$d Mbps）已为这台电脑保存。画面可能仍有损坏。</string>
+    <string name="pace_calibration_no_link">帧节奏需要此设备或电脑的有线链路速度，但两者都未知。</string>
+    <string name="pace_calibration_too_fast">串流已需要 %1$d Mbps，太接近此 %2$d Mbps 连接。请先降低码率。</string>
+    <string name="pace_calibration_streaming">电脑正在串流或已在测试。请停止串流后重试。</string>
+    <string name="pace_calibration_unsupported">这台电脑无法测试帧节奏。需要支持 PyroWave 节奏测试的主机。</string>
+    <string name="pace_calibration_failed">无法完成校准。请检查连接后重试。</string>
+    <string name="pace_calibration_none">没有完成任何测试。请重试。</string>
+    <string name="pace_calibration_clear">清除</string>
+</resources>

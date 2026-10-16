@@ -5,14 +5,18 @@ import android.os.Build;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InterruptedIOException;
 import java.io.Reader;
 import java.io.StringReader;
 import java.net.Inet4Address;
+import java.net.Inet6Address;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
 import java.net.Proxy;
 import java.net.Socket;
+import java.nio.ByteBuffer;
+import java.nio.channels.DatagramChannel;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyManagementException;
 import java.security.KeyStore;
@@ -32,6 +36,8 @@ import java.util.Set;
 import java.util.Collections;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.IntConsumer;
 
 import javax.net.SocketFactory;
@@ -56,6 +62,7 @@ import org.xmlpull.v1.XmlPullParserFactory;
 import com.limelight.BuildConfig;
 import com.limelight.LimeLog;
 import com.limelight.nvstream.ConnectionContext;
+import com.limelight.nvstream.PyroWavePace;
 import com.limelight.nvstream.http.PairingManager.PairState;
 import com.limelight.nvstream.jni.MoonBridge;
 import com.limelight.preferences.HostDisplayChoice;
@@ -107,6 +114,7 @@ public class NvHTTP {
     private X509TrustManager trustManager;
     private X509KeyManager keyManager;
     private X509Certificate serverCert;
+    private InetAddress scopedAddress;
 
     void setServerCert(X509Certificate serverCert) {
         this.serverCert = serverCert;
@@ -132,6 +140,7 @@ public class NvHTTP {
     }
 
     private void initializeHttpState(final LimelightCryptoProvider cryptoProvider, final InetAddress scopedAddress) {
+        this.scopedAddress = scopedAddress;
         keyManager = new X509KeyManager() {
             public String chooseClientAlias(String[] keyTypes,
                     Principal[] issuers, Socket socket) { return "Limelight-RSA"; }
@@ -478,6 +487,14 @@ public class NvHTTP {
                 getXmlString(serverInfo, "PyroWaveHostLinkMbps", false), Integer.MAX_VALUE);
         details.pyroWaveBandwidthProbeBytes = (int) readUnsignedValue(
                 getXmlString(serverInfo, "PyroWaveBandwidthProbeBytes", false), PYROWAVE_BANDWIDTH_PROBE_BYTES);
+        details.pyroWaveBurstProbe = "1".equals(getXmlString(serverInfo, "PyroWaveUdpProbeVersion", false)) &&
+                "1".equals(getXmlString(serverInfo, "PyroWaveUdpHandshakeVersion", false)) &&
+                "1".equals(getXmlString(serverInfo, "PyroWaveUdpProbeBurstVersion", false)) &&
+                "1".equals(getXmlString(serverInfo, "PyroWaveWireBudgetVersion", false));
+        details.pyroWaveCriticalFecPercentage = (int) readUnsignedValue(
+                getXmlString(serverInfo, "PyroWaveCriticalFecPercentage", false), 100);
+        details.pyroWaveMinParityShards = (int) readUnsignedValue(
+                getXmlString(serverInfo, "PyroWaveMinParityShards", false), 255);
 
         XmlPullParser parser = XmlPullParserFactory.newInstance().newPullParser();
         parser.setInput(new StringReader(serverInfo));
@@ -603,6 +620,12 @@ public class NvHTTP {
     }
 
     private ResponseBody openHttpConnection(OkHttpClient client, HttpUrl baseUrl, String path, String query, RequestBody content) throws IOException {
+        return openHttpConnection(client, baseUrl, path, query, content, null);
+    }
+
+    /** As above; onHeaders sees a successful response's headers before its body is read. */
+    private ResponseBody openHttpConnection(OkHttpClient client, HttpUrl baseUrl, String path, String query, RequestBody content,
+                                            HeadersListener onHeaders) throws IOException {
         HttpUrl completeUrl = getCompleteUrl(baseUrl, path, query);
         Request.Builder builder = new Request.Builder().url(completeUrl);
         Request request = (content == null ? builder.get() : builder.post(content)).build();
@@ -622,6 +645,15 @@ public class NvHTTP {
         ResponseBody body = response.body();
         
         if (response.isSuccessful()) {
+            if (onHeaders != null) {
+                try {
+                    onHeaders.onHeaders(response.headers());
+                } catch (IOException | RuntimeException e) {
+                    pendingCalls.remove(call);
+                    body.close();
+                    throw e;
+                }
+            }
             // Keep cancellation effective until the caller finishes reading the body.
             BufferedSource source = Okio.buffer(new ForwardingSource(body.source()) {
                 @Override
@@ -673,6 +705,161 @@ public class NvHTTP {
             readBandwidthProbe(response, details.pyroWaveBandwidthProbeBytes, progress);
         }
         return details.pyroWaveBandwidthProbeBytes * 8000.0 / Math.max(1, System.nanoTime() - startedNs);
+    }
+
+    interface HeadersListener {
+        void onHeaders(okhttp3.Headers headers) throws IOException;
+    }
+
+    /**
+     * One frame-shaped UDP probe (Vibeshine's /pyrowave-udp-probe with handshake and burst schedule):
+     * the host sends kbps for two seconds as fps video frames whose packets leave in 1 ms groups at
+     * paceKbps. Returns which packets arrived, graded per frame. The host refuses while it streams.
+     */
+    public PyroWavePace.Result probePyroWaveUdp(int kbps, int packetSize, int fps, int paceKbps) throws IOException {
+        if (serverCert == null || kbps < PyroWavePace.MIN_PROBE_KBPS || kbps > PyroWavePace.MAX_PROBE_KBPS ||
+                packetSize < 256 || packetSize > 1392 || fps < 10 || fps > 500 ||
+                paceKbps < kbps || paceKbps > PyroWavePace.MAX_PACE_KBPS) {
+            throw new IOException("Invalid or unauthenticated PyroWave UDP probe");
+        }
+        InetAddress host = scopedAddress != null ? scopedAddress : InetAddress.getByName(baseUrlHttp.host());
+        OkHttpClient client = httpClientLongConnectTimeout.newBuilder().readTimeout(6, TimeUnit.SECONDS)
+                .callTimeout(10, TimeUnit.SECONDS).followRedirects(false).followSslRedirects(false).build();
+        HttpUrl url = getHttpsUrl(true);
+        return runUdpProbe(host, kbps, packetSize, fps, paceKbps, (query, onHeaders) -> {
+            try (ResponseBody response = openHttpConnection(client, url, "pyrowave-udp-probe", query, null, onHeaders)) {
+                return response.string();
+            }
+        });
+    }
+
+    interface ProbeRequest {
+        /** Sends the probe request, calls onHeaders once the host announced its port, returns the body. */
+        String send(String query, HeadersListener onHeaders) throws IOException;
+    }
+
+    static PyroWavePace.Result runUdpProbe(InetAddress host, int kbps, int packetSize, int fps, int paceKbps,
+                                           ProbeRequest request) throws IOException {
+        boolean ipv6 = host instanceof Inet6Address;
+        String tokenText = UUID.randomUUID().toString().replace("-", "");
+        byte[] token = tokenText.getBytes(StandardCharsets.US_ASCII);
+        PyroWavePace.Result result = new PyroWavePace.Result();
+        result.expected = PyroWavePace.expectedPackets(kbps, packetSize);
+        boolean[] arrived = new boolean[(int) result.expected];
+        AtomicLong authenticated = new AtomicLong();
+        AtomicReference<Thread> receiverThread = new AtomicReference<>();
+        AtomicReference<Thread> tokenThread = new AtomicReference<>();
+        // DatagramChannel.socket() keeps this to API 21 calls; the channel reads into a direct buffer.
+        try (DatagramChannel channel = DatagramChannel.open()) {
+            channel.socket().setReceiveBufferSize(8 * 1024 * 1024);
+            channel.socket().bind(new InetSocketAddress(0));
+            int localPort = channel.socket().getLocalPort();
+            int probeBytes = packetSize + PyroWavePace.PROBE_EXTRA_BYTES;
+
+            HeadersListener startHandshake = headers -> {
+                int udpPort = parseUdpPort(headers.get("X-PyroWave-Udp-Port"));
+                if (udpPort == 0) {
+                    throw new IOException("The host did not announce a valid PyroWave UDP port");
+                }
+                // Connected, the socket only takes the host's sending port, and reads skip address objects.
+                channel.connect(new InetSocketAddress(host, udpPort));
+                Thread receiver = new Thread(() -> {
+                    try {
+                        android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_URGENT_AUDIO);
+                    } catch (RuntimeException e) {
+                        // Best effort; JVM tests have no Android scheduler.
+                    }
+                    ByteBuffer buffer = ByteBuffer.allocateDirect(2048);
+                    byte[] head = new byte[36];
+                    try {
+                        for (;;) {
+                            buffer.clear();
+                            if (channel.read(buffer) != probeBytes) continue;
+                            buffer.flip();
+                            buffer.get(head);
+                            boolean match = true;
+                            for (int i = 0; i < 32 && match; i++) {
+                                match = head[i] == token[i];
+                            }
+                            if (!match) continue;
+                            authenticated.incrementAndGet();
+                            long seq = ((head[32] & 0xFFL) << 24) | ((head[33] & 0xFFL) << 16) |
+                                    ((head[34] & 0xFFL) << 8) | (head[35] & 0xFFL);
+                            if (seq < arrived.length) {
+                                arrived[(int) seq] = true;
+                            }
+                        }
+                    } catch (IOException e) {
+                        // The channel closes when the probe ends.
+                    }
+                }, "PyroWave probe receiver");
+                receiver.start();
+                receiverThread.set(receiver);
+                // The host sends nothing measured until our token reaches its sending port.
+                Thread sender = new Thread(() -> {
+                    ByteBuffer hello = ByteBuffer.wrap(token);
+                    try {
+                        for (int attempt = 0; attempt < 15 && authenticated.get() == 0; attempt++) {
+                            hello.rewind();
+                            channel.write(hello);
+                            Thread.sleep(100);
+                        }
+                    } catch (IOException | InterruptedException e) {
+                        // A missing handshake shows as a probe without packets.
+                    }
+                }, "PyroWave probe handshake");
+                sender.start();
+                tokenThread.set(sender);
+            };
+
+            String reply = request.send("kbps=" + kbps + "&port=" + localPort + "&packetsize=" + packetSize +
+                    "&token=" + tokenText + "&handshake=1&fps=" + fps + "&pacekbps=" + paceKbps, startHandshake);
+            if (receiverThread.get() == null) {
+                throw new IOException("The host did not start the PyroWave UDP handshake");
+            }
+            try {
+                // A short reordered tail still counts.
+                Thread.sleep(100);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new InterruptedIOException();
+            }
+            try {
+                long expected = readUnsignedValue(getXmlString(reply, "expected", true), Integer.MAX_VALUE);
+                result.sent = readUnsignedValue(getXmlString(reply, "sent", true), Integer.MAX_VALUE);
+                result.senderMs = Double.parseDouble(getXmlString(reply, "elapsedMs", true).trim());
+                if (expected != result.expected || result.sent > expected || !Double.isFinite(result.senderMs)) {
+                    throw new IOException("Invalid PyroWave UDP probe result");
+                }
+            } catch (XmlPullParserException | NumberFormatException e) {
+                throw new IOException("Invalid PyroWave UDP probe result", e);
+            }
+        } finally {
+            // Closing the channel ends both threads.
+            joinQuietly(tokenThread.get());
+            joinQuietly(receiverThread.get());
+        }
+        PyroWavePace.summarize(result, arrived, fps, PyroWavePace.burstGroupPackets(paceKbps, packetSize, ipv6));
+        return result;
+    }
+
+    /** The host's announced UDP sending port, or 0 when the header is missing or invalid. */
+    static int parseUdpPort(String header) {
+        if (header == null || !header.matches("[0-9]{4,5}")) {
+            return 0;
+        }
+        int port = Integer.parseInt(header);
+        return port >= 1024 && port <= 65535 ? port : 0;
+    }
+
+    private static void joinQuietly(Thread thread) {
+        if (thread == null) return;
+        thread.interrupt();
+        try {
+            thread.join(1000);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
     }
 
     public double probeServerLatency() throws IOException, XmlPullParserException {

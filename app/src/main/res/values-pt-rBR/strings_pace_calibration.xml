@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="pace_calibration_title">Calibrar o ritmo de quadros</string>
+    <string name="pace_calibration_summary">PyroWave: encontre a maior velocidade em que o host envia quadros inteiros a este dispositivo</string>
+    <string name="pace_calibration_saved">Ritmo de quadros PyroWave: %1$d Mbps. Toque para calibrar de novo.</string>
+    <string name="pace_calibration_intro">O host envia quadros de teste em velocidades diferentes, e o Nightjar guarda a mais rápida em que eles chegam inteiros. Os streams PyroWave passam a usá-la. Pare antes qualquer stream neste PC. Leva de um a três minutos.</string>
+    <string name="pace_calibration_preparing">Preparando o teste…</string>
+    <string name="pace_calibration_running">Testando quadros enviados a %1$d Mbps…</string>
+    <string name="pace_calibration_result">Ritmo de quadros: %1$d Mbps nesta conexão de %2$d Mbps. Salvo para este PC.</string>
+    <string name="pace_calibration_result_unqualified">Nenhuma velocidade testada cumpriu todos os limites de perda. A melhor, %1$d Mbps nesta conexão de %2$d Mbps, foi salva para este PC. Falhas na imagem podem continuar.</string>
+    <string name="pace_calibration_no_link">O ritmo de quadros precisa da velocidade do link cabeado deste dispositivo ou do PC, e nenhuma é conhecida.</string>
+    <string name="pace_calibration_too_fast">O stream já precisa de %1$d Mbps, perto demais desta conexão de %2$d Mbps. Reduza a taxa de bits primeiro.</string>
+    <string name="pace_calibration_streaming">O PC está transmitindo ou já fazendo um teste. Pare o stream e tente de novo.</string>
+    <string name="pace_calibration_unsupported">Este PC não pode testar o ritmo de quadros. É preciso um host com testes de ritmo PyroWave.</string>
+    <string name="pace_calibration_failed">Não foi possível concluir a calibração. Verifique a conexão e tente de novo.</string>
+    <string name="pace_calibration_none">Nenhum teste foi concluído. Tente de novo.</string>
+    <string name="pace_calibration_clear">Limpar</string>
+</resources>

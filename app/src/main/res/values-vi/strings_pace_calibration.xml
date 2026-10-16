@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="pace_calibration_title">Hiệu chỉnh nhịp khung hình</string>
+    <string name="pace_calibration_summary">PyroWave: tìm tốc độ cao nhất mà máy chủ gửi trọn khung hình đến thiết bị này</string>
+    <string name="pace_calibration_saved">Nhịp khung hình PyroWave: %1$d Mbps. Chạm để hiệu chỉnh lại.</string>
+    <string name="pace_calibration_intro">Máy chủ gửi khung hình thử ở nhiều tốc độ khác nhau, và Nightjar giữ tốc độ nhanh nhất mà khung hình đến trọn vẹn. Các luồng PyroWave sau đó sẽ dùng tốc độ này. Hãy dừng mọi luồng trên PC này trước. Mất từ một đến ba phút.</string>
+    <string name="pace_calibration_preparing">Đang chuẩn bị bài thử…</string>
+    <string name="pace_calibration_running">Đang thử khung hình gửi ở %1$d Mbps…</string>
+    <string name="pace_calibration_result">Nhịp khung hình: %1$d Mbps trên kết nối %2$d Mbps này. Đã lưu cho PC này.</string>
+    <string name="pace_calibration_result_unqualified">Không tốc độ nào đạt mọi giới hạn mất gói. Tốc độ tốt nhất, %1$d Mbps trên kết nối %2$d Mbps này, đã được lưu cho PC này. Hình ảnh có thể vẫn bị lỗi.</string>
+    <string name="pace_calibration_no_link">Nhịp khung hình cần tốc độ liên kết có dây của thiết bị này hoặc của PC, nhưng không biết tốc độ nào.</string>
+    <string name="pace_calibration_too_fast">Luồng đã cần %1$d Mbps, quá gần kết nối %2$d Mbps này. Hãy giảm tốc độ bit trước.</string>
+    <string name="pace_calibration_streaming">PC đang phát luồng hoặc đang chạy bài thử. Hãy dừng luồng rồi thử lại.</string>
+    <string name="pace_calibration_unsupported">PC này không thể thử nhịp khung hình. Cần máy chủ hỗ trợ bài thử nhịp PyroWave.</string>
+    <string name="pace_calibration_failed">Không thể hoàn tất hiệu chỉnh. Hãy kiểm tra kết nối rồi thử lại.</string>
+    <string name="pace_calibration_none">Không có bài thử nào hoàn tất. Hãy thử lại.</string>
+    <string name="pace_calibration_clear">Xóa</string>
+</resources>

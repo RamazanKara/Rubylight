@@ -1,7 +1,6 @@
 # rubylight-vdisplay: Rubylight's UMDF IddCx virtual display driver. It creates virtual
 # monitors on the host's request and pushes every composed frame into a texture ring the host
-# shares with it (rubylight-vdisplay-proto's `ring`), so the host encodes them without WGC or
-# Desktop Duplication.
+# shares with it (rubylight-vdisplay-proto's `ring`), which the host converts and encodes.
 #
 # Based on punktfunk's pf-vdisplay by Enrico Bühler (unom), MIT OR Apache-2.0. The in-driver
 # encoder, hardware cursor and remote-session (seat) adapter of that driver are not part of

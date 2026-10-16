@@ -4,8 +4,7 @@
 [punktfunk](https://github.com/unom/punktfunk)'s `pf-vdisplay` by Enrico Bühler (unom),
 MIT OR Apache-2.0 (see `LICENSE-MIT`, `LICENSE-APACHE`). It creates virtual monitors on the
 Rubylight host's request and pushes every frame Windows composes for them to the host
-through shared GPU textures, so the host converts and encodes them without WGC or Desktop
-Duplication.
+through shared GPU textures, which the host converts and encodes directly.
 
 It is the host's only virtual display driver: every display the host creates for a stream
 comes from it, and the host reads those displays through its frame push. Setup installs it

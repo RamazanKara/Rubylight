@@ -776,15 +776,13 @@ impl Drop for Ffmpeg {
         }
     }
 }
-/// Automatic's own encoder for a GPU: AMF on AMD, NVENC on NVIDIA. By PCI
-/// vendor, so AMD adapters not named "Radeon" (FirePro, the Steam Deck's
-/// "AMD Custom GPU") still use AMF; the name covers a failed vendor query.
+/// Automatic's own encoder for a GPU: AMF on AMD. By PCI vendor, so AMD
+/// adapters not named "Radeon" (FirePro, the Steam Deck's "AMD Custom GPU")
+/// still use AMF; the name covers a failed vendor query.
 fn native_backend(vendor: u32, adapter: &str) -> Option<&'static str> {
     match vendor {
         0x1002 => Some("amf"),
-        0x10de => Some("nvenc"),
         _ if adapter.contains("Radeon") => Some("amf"),
-        _ if adapter.to_ascii_lowercase().contains("nvidia") => Some("nvenc"),
         _ => None,
     }
 }
@@ -802,8 +800,8 @@ fn native_for(device: &crate::capture::Device) -> Option<&'static str> {
     };
     native_backend(vendor, &device.display.adapter)
 }
-fn native_name(backend: &str) -> &'static str {
-    if backend == "amf" { "AMF" } else { "NVENC" }
+fn native_name(_backend: &str) -> &'static str {
+    "AMF"
 }
 /// Automatic keeps a stream on another hardware encoder when the GPU's own
 /// one fails, and says so; it never falls back to software.
@@ -830,7 +828,7 @@ fn refused(
             native_name(backend)
         )),
         None => anyhow::anyhow!(
-            "unable to initialize encoder on {adapter}: no native AMD or NVIDIA encoder applies to this adapter; {others}. {remedy}"
+            "unable to initialize encoder on {adapter}: no native AMD encoder applies to this adapter; {others}. {remedy}"
         ),
     }
 }
@@ -843,23 +841,20 @@ fn ffmpeg_candidates(codec: u8, preference: &str) -> Result<Vec<String>> {
         _ => bail!("unsupported codec"),
     };
     Ok(match preference {
-        "nvenc_legacy" => vec![format!("{codec_name}_nvenc")],
         "quicksync" | "qsv" => vec![format!("{codec_name}_qsv")],
         "software" => vec![["libx264", "libx265", "libsvtav1"][codec as usize].into()],
-        _ => vec![format!("{codec_name}_nvenc"), format!("{codec_name}_qsv")],
+        _ => vec![format!("{codec_name}_qsv")],
     })
 }
 
 pub enum Encoder {
     Ffmpeg(Box<Ffmpeg>),
     Amf(Box<crate::amf::Encoder>),
-    Nvenc(Box<crate::nvenc::Encoder>),
     Pyrowave(Box<crate::pyrowave::Encoder>),
 }
 impl Encoder {
     pub fn set_hdr_metadata(&mut self, metadata: butterpollo_core::hdr::Metadata) {
         match self {
-            Self::Nvenc(encoder) => encoder.set_hdr_metadata(metadata),
             Self::Amf(encoder) => encoder.set_hdr_metadata(metadata),
             Self::Ffmpeg(encoder) if encoder.config.hdr => encoder.hdr_metadata = Some(metadata),
             Self::Ffmpeg(_) | Self::Pyrowave(_) => {}
@@ -870,7 +865,6 @@ impl Encoder {
         let luminance = [white_nits.clamp(100., 200.), linear_scale.clamp(1., 2.)];
         match self {
             Self::Amf(e) => e.luminance = luminance,
-            Self::Nvenc(e) => e.set_luminance(luminance),
             Self::Ffmpeg(e) => {
                 e.luminance = luminance;
                 if let Some(native) = e.native.as_mut() {
@@ -927,16 +921,6 @@ impl Encoder {
         let automatic = matches!(preference, "" | "auto");
         let native = automatic.then(|| native_for(&image.gpu)).flatten();
         let mut native_error = None;
-        if matches!(preference, "nvenc" | "nvenc_experimental") || native == Some("nvenc") {
-            match crate::nvenc::Encoder::new_device_options(config, image.gpu.clone(), tuning) {
-                Ok(encoder) => {
-                    warnings.clear("encoder_fallback");
-                    return Ok(Self::Nvenc(Box::new(encoder)));
-                }
-                Err(error) if !automatic => return Err(error),
-                Err(error) => native_error = Some(("nvenc", error)),
-            }
-        }
         if preference == "amf" || native == Some("amf") {
             // Colour conversion on a compute queue keeps running beside a
             // game that fills the GPU's graphics queue.
@@ -1000,7 +984,7 @@ impl Encoder {
             && config.codec < 3
             && matches!(
                 preference,
-                "auto" | "" | "nvenc_legacy" | "quicksync" | "qsv"
+                "auto" | "" | "quicksync" | "qsv"
             )
         {
             let codec = match config.codec {
@@ -1008,12 +992,7 @@ impl Encoder {
                 1 => "hevc",
                 _ => "av1",
             };
-            let candidates: &[&str] = match preference {
-                "nvenc_legacy" => &["nvenc"],
-                "quicksync" | "qsv" => &["qsv"],
-                _ => &["nvenc", "qsv"],
-            };
-            for suffix in candidates {
+            for suffix in ["qsv"] {
                 let name = format!("{codec}_{suffix}");
                 match Ffmpeg::new_gpu_options(config, &name, tuning, image) {
                     Ok(encoder) => {
@@ -1062,7 +1041,6 @@ impl Encoder {
         }
         match self {
             Self::Ffmpeg(e) => e.encode_gpu(image, idr, bitrate),
-            Self::Nvenc(e) => e.encode_gpu(image, idr, bitrate),
             Self::Pyrowave(e) => e.encode_gpu(image, idr, bitrate),
             Self::Amf(_) => unreachable!(),
         }
@@ -1071,7 +1049,6 @@ impl Encoder {
         use windows::core::Interface;
         match self {
             Self::Amf(e) => e.accepts_gpu_device(image),
-            Self::Nvenc(e) => e.accepts_gpu_device(image),
             Self::Ffmpeg(e) => e
                 .native
                 .as_ref()
@@ -1082,7 +1059,6 @@ impl Encoder {
     pub fn pending(&self) -> bool {
         match self {
             Self::Amf(e) => e.pending(),
-            Self::Nvenc(e) => e.pending(),
             _ => false,
         }
     }
@@ -1098,7 +1074,6 @@ impl Encoder {
     pub fn backlog(&self) -> usize {
         match self {
             Self::Amf(e) => e.backlog(),
-            Self::Nvenc(e) => e.backlog(),
             _ => 0,
         }
     }
@@ -1122,7 +1097,7 @@ impl Encoder {
     /// A GPU encoder, rather than FFmpeg's software codecs.
     pub fn hardware(&self) -> bool {
         match self {
-            Self::Ffmpeg(e) => e.name.ends_with("_nvenc") || e.name.ends_with("_qsv"),
+            Self::Ffmpeg(e) => e.name.ends_with("_qsv"),
             _ => true,
         }
     }
@@ -1130,9 +1105,7 @@ impl Encoder {
     pub fn backend(&self) -> &'static str {
         match self {
             Self::Amf(_) => "amf",
-            Self::Nvenc(_) => "nvenc",
             Self::Pyrowave(_) => "pyrowave",
-            Self::Ffmpeg(e) if e.name.ends_with("_nvenc") => "nvenc_legacy",
             Self::Ffmpeg(e) if e.name.ends_with("_qsv") => "qsv",
             Self::Ffmpeg(_) => "software",
         }
@@ -1140,14 +1113,12 @@ impl Encoder {
     pub fn supports_invalidation(&self) -> bool {
         match self {
             Self::Amf(e) => e.supports_invalidation(),
-            Self::Nvenc(e) => e.supports_invalidation(),
             _ => false,
         }
     }
     pub fn invalidate_ref_frames(&mut self, first: u64, last: u64) -> bool {
         match self {
             Self::Amf(encoder) => encoder.invalidate_ref_frames(first, last),
-            Self::Nvenc(encoder) => encoder.invalidate_ref_frames(first, last),
             _ => false,
         }
     }
@@ -1157,7 +1128,6 @@ impl Encoder {
     pub fn poll(&mut self) -> Result<Vec<Encoded>> {
         match self {
             Self::Amf(e) => e.poll(),
-            Self::Nvenc(e) => e.poll(),
             _ => Ok(vec![]),
         }
     }
@@ -1165,7 +1135,6 @@ impl Encoder {
     pub fn set_next_frame(&mut self, frame: u64) {
         match self {
             Self::Amf(e) => e.set_next_frame(frame),
-            Self::Nvenc(e) => e.set_next_frame(frame),
             _ => {}
         }
     }
@@ -1199,21 +1168,10 @@ impl Encoder {
                 crate::pyrowave::Encoder::new_device(config, device()?, tuning)?,
             )));
         }
-        if matches!(preference, "nvenc" | "nvenc_experimental") {
-            return Ok(Self::Nvenc(Box::new(
-                crate::nvenc::Encoder::new_device_options(config, device()?, tuning)?,
-            )));
-        }
         if matches!(preference, "" | "auto") {
             let device = device().context("Automatic encoder selection could not open the configured GPU. If Windows is at the sign-in screen or an RDP session was disconnected, sign in to and unlock the console session, then retry. Otherwise check the adapter setting")?;
             let adapter = device.display.adapter.clone();
             let native_error = match native_for(&device) {
-                Some("nvenc") => {
-                    match crate::nvenc::Encoder::new_device_options(config, device, tuning) {
-                        Ok(e) => return Ok(Self::Nvenc(Box::new(e))),
-                        Err(error) => Some(("nvenc", error)),
-                    }
-                }
                 Some(_) => match crate::amf::Encoder::new_device_options(config, device, tuning) {
                     Ok(e) => return Ok(Self::Amf(Box::new(e))),
                     Err(error) => Some(("amf", error)),
@@ -1263,7 +1221,6 @@ impl Encoder {
         match self {
             Self::Ffmpeg(e) => e.encode(image, idr, bitrate),
             Self::Amf(e) => e.encode(image, idr, bitrate),
-            Self::Nvenc(e) => e.encode(image, idr, bitrate),
             Self::Pyrowave(e) => e.encode(image, idr, bitrate),
         }
     }
@@ -1526,12 +1483,12 @@ mod tests {
     #[test]
     fn automatic_never_selects_a_software_codec() {
         for codec in 0..=2 {
-            for preference in ["", "auto", "nvenc_legacy", "qsv"] {
+            for preference in ["", "auto", "qsv"] {
                 assert!(
                     ffmpeg_candidates(codec, preference)
                         .unwrap()
                         .iter()
-                        .all(|name| name.ends_with("_nvenc") || name.ends_with("_qsv"))
+                        .all(|name| name.ends_with("_qsv"))
                 );
             }
             assert!(ffmpeg_candidates(codec, "software").unwrap()[0].starts_with("lib"));
@@ -1554,17 +1511,14 @@ mod tests {
     fn automatic_failure_names_the_remote_adapter_and_console_recovery() {
         let error = refused(
             None,
-            &[
-                "h264_nvenc: unavailable".into(),
-                "h264_qsv: unavailable".into(),
-            ],
+            &["h264_qsv: unavailable".into()],
             "Microsoft Remote Display Adapter",
         );
         let message = format!("{error:#}");
         assert!(
             message.starts_with("unable to initialize encoder on Microsoft Remote Display Adapter")
         );
-        assert!(message.contains("no native AMD or NVIDIA encoder applies to this adapter"));
+        assert!(message.contains("no native AMD encoder applies to this adapter"));
         assert!(message.contains("sign-in screen"));
         assert!(message.contains("RDP session was disconnected"));
         assert!(message.contains("unlock the console session"));
@@ -1575,9 +1529,9 @@ mod tests {
         // The Steam Deck and FirePro adapters are AMD without "Radeon".
         assert_eq!(native_backend(0x1002, "AMD Custom GPU 0405"), Some("amf"));
         assert_eq!(native_backend(0x1002, "AMD FirePro W7100"), Some("amf"));
-        assert_eq!(native_backend(0x10de, "Quadro RTX 4000"), Some("nvenc"));
+        assert_eq!(native_backend(0x10de, "Quadro RTX 4000"), None);
         assert_eq!(native_backend(0, "AMD Radeon RX 7900 XT"), Some("amf"));
-        assert_eq!(native_backend(0, "NVIDIA GeForce RTX 4090"), Some("nvenc"));
+        assert_eq!(native_backend(0, "NVIDIA GeForce RTX 4090"), None);
         assert_eq!(native_backend(0x8086, "Intel(R) Arc(TM) A770"), None);
     }
     /// Needs the packaged FFmpeg libraries on PATH.
@@ -1623,7 +1577,7 @@ mod tests {
         // display's GPU instead, as the codec probe did with two GPUs.
         let tuning =
             butterpollo_core::config::Config::parse("adapter_name = No Such GPU\n").unwrap();
-        for preference in ["amf", "nvenc"] {
+        for preference in ["amf"] {
             let error = Encoder::new_options(&stream, preference, "", &tuning)
                 .err()
                 .expect("an encoder on a missing GPU");

@@ -136,7 +136,6 @@ fn capture_config(config: &Config) -> Config {
         "wgc_high_rate_capture",
         "wgc_drain_to_newest",
         "wgc_helper_streaming_scope",
-        "nvenc_realtime_hags",
     ];
     Config {
         values: config

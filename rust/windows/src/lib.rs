@@ -2,7 +2,7 @@
 //!
 //! Everything that calls Win32, Direct3D, Windows Graphics Capture or a GPU
 //! vendor SDK lives here: capture, Radeon compute colour conversion, the AMF,
-//! NVENC, FFmpeg and PyroWave encoders, display and virtual display control,
+//! FFmpeg and PyroWave encoders, display and virtual display control,
 //! input injection, audio, process and service management.
 //!
 //! The workspace is layered: `butterpollo-core` holds the portable protocol
@@ -46,7 +46,6 @@ pub mod lossless;
 pub mod mic;
 pub mod net;
 mod nvapi;
-pub mod nvenc;
 pub mod playnite;
 pub mod present_timing;
 pub mod process;
@@ -71,31 +70,6 @@ pub mod vulkan;
 )]
 pub(crate) mod ff {
     include!(concat!(env!("OUT_DIR"), "/ffmpeg.rs"));
-}
-#[allow(
-    non_camel_case_types,
-    non_snake_case,
-    non_upper_case_globals,
-    dead_code,
-    unused_imports,
-    clippy::all,
-    clippy::undocumented_unsafe_blocks
-)]
-pub(crate) mod nvenc_abi {
-    include!(concat!(env!("OUT_DIR"), "/nvenc.rs"));
-    include!(concat!(env!("OUT_DIR"), "/nvenc_guids.rs"));
-}
-#[allow(
-    non_camel_case_types,
-    non_snake_case,
-    non_upper_case_globals,
-    dead_code,
-    unused_imports,
-    clippy::all,
-    clippy::undocumented_unsafe_blocks
-)]
-pub(crate) mod cuda_abi {
-    include!(concat!(env!("OUT_DIR"), "/cuda.rs"));
 }
 #[allow(
     non_camel_case_types,

@@ -247,7 +247,7 @@ impl Encoder {
         // VCN encodes 4:2:0 only: neither AMF nor D3D12 video encoding offers a
         // 4:4:4 profile or input format (rust/PERFORMANCE.md, October 7).
         if config.yuv444 {
-            bail!("AMD's video encoder supports only 4:2:0; PyroWave or NVENC can stream 4:4:4");
+            bail!("AMD's video encoder supports only 4:2:0; PyroWave can stream 4:4:4");
         }
         if config.ten_bit() && config.codec == 0 {
             bail!("H.264 does not support HDR10");

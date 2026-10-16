@@ -30,14 +30,25 @@ public final class DemoFixtures {
             "\"virtualDisplayCapable\":true,\"pyroWaveFields\":false,\"pyroWaveProbeBytes\":0,\"pyroWaveCodecs\":0," +
             "\"encoderBitrate\":true,\"hardwareMetricsVersion\":1,\"networkPathVersion\":0," +
             "\"controllerPreparation\":true,\"currentGameUuid\":true}";
+    // "--es host sunshine": a plain Sunshine without device permissions or Vibepollo's extensions, so it
+    // lists no Input-only tile and a game's menu shows Input-only on any PC, which this turns on.
+    private static final String SUNSHINE_HOST = "{\"v\":1,\"gameStream\":false,\"sunshineVersion\":true,\"paired\":true," +
+            "\"virtualDisplayCapable\":false,\"pyroWaveFields\":false,\"pyroWaveProbeBytes\":0,\"pyroWaveCodecs\":0}";
+    static boolean sunshineHost;
 
     public static HostCapabilities hostCapabilities() {
-        return HostCapabilities.fromJson(HOST);
+        return HostCapabilities.fromJson(sunshineHost ? SUNSHINE_HOST : HOST);
     }
 
     /** What Living-room PC's host reports, on any ComputerDetails. */
     public static void describeHost(ComputerDetails host) {
         host.caps = hostCapabilities();
+        if (sunshineHost) {
+            host.permission = -1;
+            host.serverCommands.clear();
+            host.encoderBitrateSupported = false;
+            return;
+        }
         host.permission = 0xFFFFFFFFL;
         if (!host.serverCommands.contains("Sleep")) host.serverCommands.add("Sleep");
         host.encoderBitrateSupported = true;
@@ -84,7 +95,8 @@ public final class DemoFixtures {
                 .putBoolean("checkbox_small_icon_mode", true)
                 .putBoolean("checkbox_enable_pip", true).putBoolean("checkbox_show_onscreen_controls", true)
                 .putBoolean("checkbox_enable_perf_overlay", true)
-                .putBoolean("checkbox_usb_dualsense", true).putBoolean("checkbox_usb_dualsense_haptics", true).apply();
+                .putBoolean("checkbox_usb_dualsense", true).putBoolean("checkbox_usb_dualsense_haptics", true)
+                .putBoolean("checkbox_input_only_any_host", sunshineHost).apply();
         // As if Living-room PC had answered before: its PC settings know the host from the first frame.
         HostCapabilityCache.save(context, PC_UUID, hostCapabilities());
         try (OutputStream output = CacheHelper.openCacheFileForOutput(context.getCacheDir(), "applist", PC_UUID)) {

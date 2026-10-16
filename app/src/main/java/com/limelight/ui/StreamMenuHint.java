@@ -80,7 +80,7 @@ public final class StreamMenuHint {
 
     /**
      * Top centre of the stream, below a camera cutout the parent's padding leaves uncovered, and below
-     * the performance overlay when that sits at the top centre too.
+     * the performance overlay when that sits at the top too and shares the hint's columns.
      */
     public static void place(android.view.View hint, android.view.View overlay) {
         android.view.View parent = (android.view.View) hint.getParent();
@@ -91,8 +91,11 @@ public final class StreamMenuHint {
         int top = Math.max(0, cutout - parent.getPaddingTop()) + margin;
         android.widget.FrameLayout.LayoutParams overlayParams =
                 (android.widget.FrameLayout.LayoutParams) overlay.getLayoutParams();
-        if (overlay.getVisibility() == android.view.View.VISIBLE &&
-                (overlayParams.gravity & android.view.Gravity.HORIZONTAL_GRAVITY_MASK) == android.view.Gravity.CENTER_HORIZONTAL &&
+        // Before the first layout the hint's columns are unknown; a wide screen still centres it over a
+        // top-start overlay, so only columns known to be apart keep it at the top.
+        boolean sharesColumns = hint.getWidth() == 0 || overlay.getWidth() == 0 ||
+                (hint.getLeft() < overlay.getRight() && overlay.getLeft() < hint.getRight());
+        if (overlay.getVisibility() == android.view.View.VISIBLE && sharesColumns &&
                 (overlayParams.gravity & android.view.Gravity.VERTICAL_GRAVITY_MASK) == android.view.Gravity.TOP) {
             top = overlayParams.topMargin + overlay.getHeight() + margin / 2;
         }

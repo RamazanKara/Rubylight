@@ -133,10 +133,7 @@ public final class ActionSheet extends BottomSheetDialog {
 
     /** A row of equal toggle buttons above the actions, for settings changed without leaving the sheet. */
     public LinearLayout addToggleRow() {
-        LinearLayout row = new LinearLayout(getContext());
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        // Equal buttons in a straight line, whatever the size of their icons or text.
-        row.setBaselineAligned(false);
+        LinearLayout row = new ToggleRow(getContext(), spacing);
         row.setPadding(spacing, spacing, spacing, spacing);
         content.addView(row, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT));
@@ -160,6 +157,8 @@ public final class ActionSheet extends BottomSheetDialog {
         button.setIconSize(spacing * 3);
         button.setIconPadding(spacing / 2);
         button.setMinHeight(spacing * 9);
+        // The icon sits above the label, so the label can use nearly the whole width of its share.
+        button.setPaddingRelative(spacing, button.getPaddingTop(), spacing, button.getPaddingBottom());
         int[][] states = {new int[] {android.R.attr.state_checked}, new int[] {}};
         android.content.res.ColorStateList foreground = new android.content.res.ColorStateList(states, new int[] {
                 MaterialColors.getColor(context, com.google.android.material.R.attr.colorOnPrimaryContainer, 0),
@@ -169,11 +168,60 @@ public final class ActionSheet extends BottomSheetDialog {
         button.setBackgroundTintList(new android.content.res.ColorStateList(states, new int[] {
                 MaterialColors.getColor(context, com.google.android.material.R.attr.colorPrimaryContainer, 0),
                 android.graphics.Color.TRANSPARENT}));
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1);
-        if (row.getChildCount() > 0) params.setMarginStart(spacing);
-        row.addView(button, params);
+        row.addView(button, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1));
         claimFirstAction(button);
         return button;
+    }
+
+    /**
+     * Equal toggles side by side while every word of their labels fits its share of the width. With a
+     * large font or a narrow sheet they stack instead, one full-width row each with the icon at the
+     * start, so no label breaks mid-word.
+     */
+    static final class ToggleRow extends LinearLayout {
+        private final int gap;
+
+        ToggleRow(Context context, int gap) {
+            super(context);
+            this.gap = gap;
+            // Equal buttons in a straight line, whatever the size of their icons or text.
+            setBaselineAligned(false);
+        }
+
+        @Override
+        protected void onMeasure(int widthSpec, int heightSpec) {
+            int count = getChildCount();
+            int width = MeasureSpec.getSize(widthSpec) - getPaddingLeft() - getPaddingRight();
+            boolean stacked = count > 0 && MeasureSpec.getMode(widthSpec) != MeasureSpec.UNSPECIFIED &&
+                    !wordsFit((width - gap * (count - 1)) / count);
+            setOrientation(stacked ? VERTICAL : HORIZONTAL);
+            for (int i = 0; i < count; i++) {
+                MaterialButton button = (MaterialButton) getChildAt(i);
+                LayoutParams params = (LayoutParams) button.getLayoutParams();
+                params.width = stacked ? LayoutParams.MATCH_PARENT : 0;
+                params.height = stacked ? LayoutParams.WRAP_CONTENT : LayoutParams.MATCH_PARENT;
+                params.weight = stacked ? 0 : 1;
+                params.setMarginStart(stacked || i == 0 ? 0 : gap);
+                params.topMargin = stacked && i > 0 ? gap : 0;
+                int iconGravity = stacked ? MaterialButton.ICON_GRAVITY_TEXT_START : MaterialButton.ICON_GRAVITY_TOP;
+                if (button.getIconGravity() != iconGravity) button.setIconGravity(iconGravity);
+                // A stacked toggle has its icon beside the label, so it needs only a list row's height.
+                int minHeight = gap * (stacked ? 6 : 9);
+                if (button.getMinHeight() != minHeight) button.setMinHeight(minHeight);
+            }
+            super.onMeasure(widthSpec, heightSpec);
+        }
+
+        private boolean wordsFit(int buttonWidth) {
+            for (int i = 0; i < getChildCount(); i++) {
+                MaterialButton button = (MaterialButton) getChildAt(i);
+                int room = buttonWidth - button.getPaddingLeft() - button.getPaddingRight();
+                for (String word : button.getText().toString().split("\\s+")) {
+                    if (button.getPaint().measureText(word) > room) return false;
+                }
+            }
+            return true;
+        }
     }
 
     /** An action that opens another page of this sheet, marked with a chevron at its end. */

@@ -181,25 +181,32 @@ public class LatencyBenchmarkActivity extends AppCompatActivity implements Chore
 
     private void showShareDialog() {
         String json = exportResults();
-        UiHelper.showDialog(this, new MaterialAlertDialogBuilder(this)
+        android.view.View view = getLayoutInflater().inflate(R.layout.dialog_device_results, null);
+        ((TextView) view.findViewById(R.id.device_results_message)).setText(
+                getString(R.string.latency_benchmark_share_message) + "\n\n" + json);
+        androidx.appcompat.app.AlertDialog dialog = new MaterialAlertDialogBuilder(this)
                 .setTitle(R.string.latency_benchmark_share_title)
-                .setMessage(getString(R.string.latency_benchmark_share_message) + "\n\n" + json)
-                .setNegativeButton(R.string.latency_benchmark_report_form, (dialog, which) -> {
-                    copyResults(json);
-                    Toast.makeText(this, R.string.latency_benchmark_paste_hint, Toast.LENGTH_LONG).show();
-                    HelpLauncher.launchUrl(this, DeviceResults.REPORT_FORM_URL);
-                })
-                .setNeutralButton(android.R.string.copy, (dialog, which) -> {
-                    copyResults(json);
-                    Toast.makeText(this, R.string.latency_benchmark_copied, Toast.LENGTH_SHORT).show();
-                })
-                .setPositiveButton(R.string.latency_benchmark_share, (dialog, which) -> {
-                    Intent intent = new Intent(Intent.ACTION_SEND).setType("text/plain")
-                            .putExtra(Intent.EXTRA_SUBJECT, getString(R.string.latency_benchmark_share_title))
-                            .putExtra(Intent.EXTRA_TEXT, json);
-                    startActivity(Intent.createChooser(intent, getString(R.string.latency_benchmark_share)));
-                })
-                .create());
+                .setView(view)
+                .create();
+        view.findViewById(R.id.device_results_share).setOnClickListener(button -> {
+            dialog.dismiss();
+            Intent intent = new Intent(Intent.ACTION_SEND).setType("text/plain")
+                    .putExtra(Intent.EXTRA_SUBJECT, getString(R.string.latency_benchmark_share_title))
+                    .putExtra(Intent.EXTRA_TEXT, json);
+            startActivity(Intent.createChooser(intent, getString(R.string.latency_benchmark_share)));
+        });
+        view.findViewById(R.id.device_results_report_form).setOnClickListener(button -> {
+            dialog.dismiss();
+            copyResults(json);
+            Toast.makeText(this, R.string.latency_benchmark_paste_hint, Toast.LENGTH_LONG).show();
+            HelpLauncher.launchUrl(this, DeviceResults.REPORT_FORM_URL);
+        });
+        view.findViewById(R.id.device_results_copy).setOnClickListener(button -> {
+            dialog.dismiss();
+            copyResults(json);
+            Toast.makeText(this, R.string.latency_benchmark_copied, Toast.LENGTH_SHORT).show();
+        });
+        UiHelper.showDialog(this, dialog);
     }
 
     private void copyResults(String json) {

@@ -28,6 +28,7 @@ public final class DemoLauncherActivity extends Activity {
             finish();
             return;
         }
+        DemoFixtures.sunshineHost = "sunshine".equals(getIntent().getStringExtra("host"));
         try {
             DemoFixtures.prepare(this);
         } catch (IOException e) {
@@ -46,6 +47,8 @@ public final class DemoLauncherActivity extends Activity {
         else target = DemoPcView.class;
         DemoGameActivity.forceH264 = "h264".equals(getIntent().getStringExtra("codec"));
         Intent intent = new Intent(this, target).putExtra("state", screen).putExtra("fit", getIntent().getStringExtra("fit"))
+                .putExtra("align", getIntent().getStringExtra("align"))
+                .putExtra("orientation", getIntent().getStringExtra("orientation"))
                 .putExtra("hint", getIntent().getBooleanExtra("hint", false))
                 .putExtra("touch", getIntent().getStringExtra("touch"))
                 .putExtra(AppView.UUID_EXTRA, DemoFixtures.PC_UUID).putExtra(AppView.NAME_EXTRA, "Living-room PC")

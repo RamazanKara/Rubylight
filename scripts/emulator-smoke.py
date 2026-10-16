@@ -898,6 +898,24 @@ def stream_ui_checks():
         seen.add(bounds(node))
     assert len(seen) >= 4, f"D-pad down did not move through the menu rows: {seen}"
     adb("shell", "input", "keyevent", "4")
+
+    # On a wide phone the centred hint reaches the top-start overlay that stays there without controls.
+    adb("shell", "wm", "size", "1080x2400")
+    adb("shell", "wm", "density", "420")
+    for align in ("center", "top"):
+        adb("shell", "am", "force-stop", PACKAGE)
+        adb("shell", "am", "start", "-W", "-n", f"{PACKAGE}/com.limelight.demo.DemoLauncherActivity",
+            "--es", "state", "stream", "--es", "codec", "h264", "--ez", "hint", "true", "--es", "align", align)
+        find(hint_id)
+        time.sleep(1)
+        width, height = screenshot(f"stream-hint-1080-{align}")
+        root = ET.fromstring(LOGS.joinpath(f"stream-hint-1080-{align}.xml").read_bytes())
+        hint = next(n for n in root.iter("node") if n.get("resource-id") == hint_id)
+        overlay = next(n for n in root.iter("node") if n.get("resource-id") == f"{PACKAGE}:id/performanceOverlay")
+        assert not overlaps(bounds(hint), bounds(overlay)), f"At 1080x2400 ({align}) the hint covers the performance overlay"
+        assert_clear_of_cutout(bounds(hint), width, height, "The hint")
+    adb("shell", "wm", "size", "786x1704")
+    adb("shell", "wm", "density", "320")
     adb("shell", "am", "force-stop", PACKAGE)
     set_rotation(0)
     print("Stream menu sections, page Back, D-pad focus, hint and compact overlay placement checked", flush=True)

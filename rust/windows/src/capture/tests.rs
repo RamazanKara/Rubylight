@@ -470,18 +470,18 @@ fn working_wgc_and_explicit_ddx_do_not_open_another_backend() {
 fn hybrid_gpus() -> [Gpu; 2] {
     [
         Gpu {
-            name: "Intel(R) HD Graphics 530".into(),
-            vendor: 0x8086,
-            dedicated_memory: 128 << 20,
+            name: "AMD Radeon(TM) 680M".into(),
+            vendor: 0x1002,
+            dedicated_memory: 512 << 20,
             luid: (0x1_0001, 0),
-            pnp_id: Some(r"PCI\VEN_8086&DEV_1912&SUBSYS_06D91028&REV_06\3&11583659&0&10".into()),
+            pnp_id: Some(r"PCI\VEN_1002&DEV_1681&SUBSYS_0B1F1028&REV_C8\3&11583659&0&10".into()),
         },
         Gpu {
-            name: "AMD Radeon R7 M370".into(),
+            name: "AMD Radeon RX 6850M XT".into(),
             vendor: 0x1002,
-            dedicated_memory: 2 << 30,
+            dedicated_memory: 12 << 30,
             luid: (0x1_0002, 0),
-            pnp_id: Some(r"PCI\VEN_1002&DEV_6821&SUBSYS_06D91028&REV_87\4&2F6A3B4&0&0008".into()),
+            pnp_id: Some(r"PCI\VEN_1002&DEV_73DF&SUBSYS_0B1F1028&REV_C3\4&2F6A3B4&0&0008".into()),
         },
     ]
 }
@@ -490,25 +490,25 @@ fn the_graphics_card_setting_names_one_gpu_of_a_hybrid_pc() {
     let gpus = hybrid_gpus();
     // Automatic leaves the GPU to the display.
     assert!(select_gpu(&gpus, "", "").unwrap().is_none());
-    let radeon = select_gpu(&gpus, "AMD Radeon R7 M370", "")
+    let radeon = select_gpu(&gpus, "AMD Radeon RX 6850M XT", "")
         .unwrap()
         .unwrap();
     assert_eq!((radeon.vendor, radeon.luid), (0x1002, (0x1_0002, 0)));
     // The stored identity wins over a name the driver has since changed,
     // compared without case as capture compares it.
     let identity = gpus[1].pnp_id.as_deref().unwrap().to_lowercase();
-    let radeon = select_gpu(&gpus, "Radeon (TM) R7 M370", &identity)
+    let radeon = select_gpu(&gpus, "Radeon (TM) RX 6850M XT", &identity)
         .unwrap()
         .unwrap();
     assert_eq!(radeon.luid, (0x1_0002, 0));
     // A GPU that is gone is an error, never the display's GPU instead.
     assert!(select_gpu(&gpus, "AMD Radeon RX 9070 XT", "").is_err());
-    assert!(select_gpu(&gpus, "AMD Radeon R7 M370", r"PCI\VEN_1002&DEV_7550\0").is_err());
+    assert!(select_gpu(&gpus, "AMD Radeon RX 6850M XT", r"PCI\VEN_1002&DEV_7550\0").is_err());
     // Two identical cards: the name picks the first; an identity must be unique.
     let mut twins = hybrid_gpus();
     twins[0].name = twins[1].name.clone();
     assert_eq!(
-        select_gpu(&twins, "AMD Radeon R7 M370", "")
+        select_gpu(&twins, "AMD Radeon RX 6850M XT", "")
             .unwrap()
             .unwrap()
             .luid,

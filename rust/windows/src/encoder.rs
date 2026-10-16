@@ -34,7 +34,7 @@ impl Encoder {
             encoder.set_hdr_metadata(metadata);
         }
     }
-    /// SDR white is absolute luminance; scRGB scaling expands NGX's 1000-nit ceiling.
+    /// SDR white is absolute luminance; the scRGB scale expands a 1000-nit ceiling.
     pub fn set_luminance(&mut self, white_nits: f32, linear_scale: f32) {
         let luminance = [white_nits.clamp(100., 200.), linear_scale.clamp(1., 2.)];
         match self {

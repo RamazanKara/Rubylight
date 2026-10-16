@@ -116,11 +116,11 @@ mod tests {
     fn hybrid_gpus() -> Vec<Gpu> {
         vec![
             Gpu {
-                name: "Intel Iris Xe Graphics".into(),
-                vendor: 0x8086,
-                dedicated_memory: 128 * 1024 * 1024,
+                name: "AMD Radeon(TM) 780M Graphics".into(),
+                vendor: 0x1002,
+                dedicated_memory: 512 * 1024 * 1024,
                 luid: (1, 0),
-                pnp_id: Some("PCI\\VEN_8086&DEV_0001\\1".into()),
+                pnp_id: Some("PCI\\VEN_1002&DEV_15BF\\1".into()),
             },
             Gpu {
                 name: "AMD Radeon RX 7600M XT".into(),
@@ -142,7 +142,7 @@ mod tests {
             x: 0,
             y: 0,
             primary: true,
-            adapter: "Intel Iris Xe Graphics".into(),
+            adapter: "AMD Radeon(TM) 780M Graphics".into(),
             adapter_index: 0,
             output_index: 0,
         }]

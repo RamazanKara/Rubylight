@@ -46,6 +46,39 @@ public class RumblePolicyTest {
         assertEquals(3, rumbleCalls(false));
     }
 
+    @Test
+    public void removingThePadThePhoneVibratorStandsInForStopsTheVibrator() throws Exception {
+        try (ActivityController<Activity> activity = Robolectric.buildActivity(Activity.class).create()) {
+            NvConnection connection = new NvConnection(null,
+                    new ComputerDetails.AddressTuple("127.0.0.1", 47989), 47984, "test",
+                    new StreamConfiguration.Builder().build(), null, null);
+            PreferenceConfiguration config = new PreferenceConfiguration();
+            ControllerHandler handler = new ControllerHandler(activity.get(), connection, null, config);
+            android.os.Vibrator vibrator = (android.os.Vibrator) activity.get().getSystemService(android.content.Context.VIBRATOR_SERVICE);
+            Pad pad = new Pad();
+            ControllerHandler.UsbDeviceContext context = handler.new UsbDeviceContext();
+            context.device = pad;
+            context.assignedControllerNumber = true;
+            context.controllerNumber = 0;
+            usbContexts(handler).put(pad.getControllerId(), context);
+            try {
+                // The host's rumble for a pad without a motor went to the phone, for up to a minute.
+                java.lang.reflect.Field fallback = ControllerHandler.class.getDeclaredField("deviceVibratorForPlayerOne");
+                fallback.setAccessible(true);
+                fallback.setBoolean(handler, true);
+                vibrator.vibrate(60000);
+                assertTrue(org.robolectric.Shadows.shadowOf(vibrator).isVibrating());
+
+                handler.deviceRemoved(pad);
+
+                assertFalse(org.robolectric.Shadows.shadowOf(vibrator).isVibrating());
+            }
+            finally {
+                handler.destroy();
+            }
+        }
+    }
+
     private static int rumbleCalls(boolean disableRumble) {
         try (ActivityController<Activity> activity = Robolectric.buildActivity(Activity.class).create()) {
             NvConnection connection = new NvConnection(null,

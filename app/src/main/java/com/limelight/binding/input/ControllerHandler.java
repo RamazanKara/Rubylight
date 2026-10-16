@@ -134,6 +134,9 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
     private final GameGestures gestures;
     private final InputManager inputManager;
     private final Vibrator deviceVibrator;
+    // The phone's vibrator is standing in for a player 1 pad without a motor; it can run for
+    // minutes on its own, so removing that pad has to stop it.
+    private boolean deviceVibratorForPlayerOne;
     private final VibratorManager deviceVibratorManager;
     private final SensorManager deviceSensorManager;
     private final SceManager sceManager;
@@ -312,6 +315,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         usbDeviceContexts.clear();
         inputDeviceContexts.clear();
         defaultContext.destroy();
+        deviceVibratorForPlayerOne = false;
         deviceVibrator.cancel();
     }
 
@@ -515,6 +519,11 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
     }
 
     private void releaseControllerNumber(GenericControllerContext context) {
+        if (deviceVibratorForPlayerOne && context.assignedControllerNumber && context.controllerNumber == 0) {
+            deviceVibratorForPlayerOne = false;
+            deviceVibrator.cancel();
+        }
+
         // If we reserved a controller number, remove that reservation
         if (context.reservedControllerNumber) {
             LimeLog.info("Controller number "+context.controllerNumber+" is now available");
@@ -2310,6 +2319,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
                 short lowFreqMotorAdjusted = RumblePolicy.scaleMotor(lowFreqMotor, prefConfig.vibrateFallbackToDeviceStrength);
                 short highFreqMotorAdjusted = RumblePolicy.scaleMotor(highFreqMotor, prefConfig.vibrateFallbackToDeviceStrength);
 
+                deviceVibratorForPlayerOne = true;
                 rumbleSingleVibrator(deviceVibrator, lowFreqMotorAdjusted, highFreqMotorAdjusted);
             }
         }

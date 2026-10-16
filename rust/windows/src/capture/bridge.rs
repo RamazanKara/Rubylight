@@ -221,19 +221,6 @@ enum Back {
 /// The helper's returned slots, and the capture worker's wake.
 type Notify = (Arc<Mutex<Vec<usize>>>, Arc<crate::timing::Signal>);
 impl Lease {
-    /// A keyed-mutex frame-ring texture of Rubylight's display driver, handed
-    /// back with key 0. To be removed with the keyed-mutex ring.
-    pub(super) fn ring(
-        slot: usize,
-        mutex: IDXGIKeyedMutex,
-        returns: Arc<Mutex<crate::compute::Returns>>,
-    ) -> Self {
-        Self {
-            slot,
-            back: Back::Keyed { mutex, returns },
-            notify: None,
-        }
-    }
     /// A fence-ring slot of Rubylight's display driver.
     pub(super) fn fenced(slot: usize, lent: super::idd_push::Lent) -> Self {
         Self {

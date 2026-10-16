@@ -14,8 +14,47 @@ const CREATE_RETRY: Duration = Duration::from_secs(10);
 pub fn virtual_display_available() -> bool {
     Control::open().is_ok()
 }
+/// The running display driver cannot stream yet: an update installed a driver that Windows
+/// loads only after a restart, and the one running lacks the fence ring (`CAP_FENCE_RING`).
+#[derive(Debug)]
+pub struct DriverRestartRequired;
+impl std::fmt::Display for DriverRestartRequired {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(DriverRestartRequired::MESSAGE)
+    }
+}
+impl std::error::Error for DriverRestartRequired {}
+impl DriverRestartRequired {
+    /// The console warning's code.
+    pub const CODE: &'static str = "display_driver_restart";
+    pub const MESSAGE: &'static str = "Rubylight's display driver was updated and runs only after Windows restarts. Restart Windows, then start the stream again.";
+}
+/// Whether a driver reporting `caps` can carry a stream's frames.
+pub(crate) fn fence_ring(caps: u32) -> Result<()> {
+    if caps & rubylight_vdisplay_proto::control::CAP_FENCE_RING == 0 {
+        return Err(DriverRestartRequired.into());
+    }
+    Ok(())
+}
+/// Every stream needs the driver, running with the fence ring. The error says what to do:
+/// restart Windows ([`DriverRestartRequired`]), or set the driver up again.
+pub fn stream_driver_ready() -> Result<()> {
+    let control = Control::open().map_err(|error| {
+        anyhow::anyhow!(
+            "{} Streams need it: run Rubylight setup again to repair the installation, then start the stream again.",
+            driver_problem(&error)
+        )
+    })?;
+    fence_ring(control.info.caps)
+}
 pub fn virtual_display_status() -> serde_json::Value {
     match Control::open() {
+        Ok(control) if fence_ring(control.info.caps).is_err() => serde_json::json!({
+            "capable": true,
+            "ready": false,
+            "reason": DriverRestartRequired::MESSAGE,
+            "protocol": "rubylight",
+        }),
         Ok(control) => serde_json::json!({
             "capable": true,
             "ready": true,
@@ -660,6 +699,16 @@ impl Drop for VirtualDisplay {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_driver_without_the_fence_ring_asks_for_a_restart() {
+        use rubylight_vdisplay_proto::control::{CAP_FENCE_RING, CAP_HDR, CAP_SCOPED_CLEAR};
+        assert!(super::fence_ring(CAP_FENCE_RING | CAP_HDR | CAP_SCOPED_CLEAR).is_ok());
+        for caps in [0, CAP_SCOPED_CLEAR, CAP_HDR | CAP_SCOPED_CLEAR] {
+            let error = super::fence_ring(caps).unwrap_err();
+            assert!(error.is::<super::DriverRestartRequired>(), "{caps:#x}");
+            assert!(error.to_string().contains("Restart Windows"));
+        }
+    }
     #[test]
     fn the_console_names_why_setup_did_not_install_the_driver() {
         use windows::Win32::Foundation::ERROR_NO_MORE_ITEMS;

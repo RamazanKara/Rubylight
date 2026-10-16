@@ -1,25 +1,49 @@
 //! The frame push: shared GPU textures plus a small header section, one event.
 //!
-//! The host creates `slot_count` textures (`SHARED_NTHANDLE | SHARED_KEYEDMUTEX`) on the
-//! adapter that renders the monitor, a section of [`SECTION_BYTES`] and an event, and hands
-//! them to the driver with [`crate::control::SetFrameRingRequest`]. Then, per composed frame:
+//! A ring comes in two kinds, which the driver tells apart by the IOCTL that delivered it:
 //!
-//! 1. The driver picks a slot ([`Picker`]): a texture whose keyed mutex it can take with
-//!    [`KEY_DRIVER`] (never written, or handed back by the host), else the oldest one the host
-//!    has not taken yet, with [`KEY_HOST`]. With neither the frame is dropped and counted: the
-//!    driver never waits on the host inside the swap-chain window.
-//! 2. It copies the surface into the texture, writes the slot's [`SlotMeta`] (sequence,
-//!    present QPC) while holding the mutex, releases it with [`KEY_HOST`], publishes a
-//!    [`Token`] in [`W_LATEST`] and sets the event.
+//! **Fence ring** ([`RING_VERSION_FENCE`], [`crate::control::SetFenceRingRequest`], present
+//! when the driver reports [`crate::control::CAP_FENCE_RING`]). The host creates
+//! `slot_count` plain shared textures, a section of [`SECTION_BYTES`], an event and two shared
+//! fences, *written* and *released*. Who owns a slot's pixels is the slot's state word
+//! ([`SlotState`]), changed only by compare-and-swap. Per composed frame:
+//!
+//! 1. The driver picks a slot ([`Picker::claim_fenced`]): a [`SlotState::Free`] one whose
+//!    release value the released fence has reached, else the oldest [`SlotState::Published`]
+//!    one the host has not claimed. It moves it to [`SlotState::Writing`]; with no such slot
+//!    the frame is dropped and counted. It never waits on the host inside the swap-chain
+//!    window: the released fence is only read, never waited for.
+//! 2. It copies the surface into the texture, signals the written fence with the frame's
+//!    sequence, writes the slot's [`SlotMeta`], moves the slot to [`SlotState::Published`],
+//!    publishes a [`Token`] in [`W_LATEST`] and sets the event.
+//! 3. The host takes the newest publish only ([`Consumer::claim`]): it moves that slot from
+//!    `Published` to [`SlotState::Reading`], and its GPU reads wait for the written fence to
+//!    reach the sequence. After the last read it signals the released fence with a new value
+//!    and records it in the slot as it moves the slot back to `Free` ([`Consumer::release`]).
+//!
+//! A slot is written only in `Writing`, which the driver enters from `Free` once the host's
+//! reads are done on the GPU, or from `Published` before the host claimed it; it is read only
+//! in `Reading`, which the host enters from `Published` after the driver's copy was queued.
+//!
+//! **Keyed-mutex ring** ([`RING_VERSION`], [`crate::control::SetFrameRingRequest`]), what
+//! hosts and drivers before the fence ring speak; to be removed in a later release. The
+//! textures are `SHARED_NTHANDLE | SHARED_KEYEDMUTEX` and pixel ownership is the keyed
+//! mutex's alone:
+//!
+//! 1. The driver picks a texture whose keyed mutex it can take with [`KEY_DRIVER`] (never
+//!    written, or handed back by the host), else the oldest one the host has not taken yet,
+//!    with [`KEY_HOST`] ([`Picker::claim`]). With neither the frame is dropped and counted.
+//! 2. It copies the surface into the texture, writes the slot's [`SlotMeta`] while holding the
+//!    mutex, releases it with [`KEY_HOST`], publishes a [`Token`] and sets the event.
 //! 3. The host reads the token, takes that slot's mutex with [`KEY_HOST`] (timeout 0), reads
-//!    the meta, copies the texture into its own pool and releases with [`KEY_DRIVER`].
+//!    the meta, reads the texture and releases with [`KEY_DRIVER`].
 //!
-//! Only the newest frame is ever consumed, so neither side builds a queue. Pixel ownership is
-//! the keyed mutex's alone; the header only says which slot is newest and what it holds.
+//! Either way only the newest frame is ever consumed, so neither side builds a queue.
 //!
 //! The header is an array of `u64` words used atomically by both processes. The driver
-//! writes only driver words and never trusts a host-written one: the slot count, size and
-//! format it uses come from the IOCTL, which it validated.
+//! writes only driver words and the slot states, and never trusts a host-written one: the
+//! slot count, size and format it uses come from the IOCTL, which it validated, and a state
+//! word it does not expect only makes that slot busy.
 
 use core::sync::atomic::{AtomicU64, Ordering};
 
@@ -78,17 +102,21 @@ pub const MAX_SLOTS: usize = 8;
 /// What the host allocates: one slot being read, one newest, one being written, one spare.
 pub const DEFAULT_SLOTS: usize = 4;
 
-/// Keyed-mutex key under which the driver may write a texture.
+/// Keyed-mutex key under which the driver may write a texture (keyed-mutex ring only).
 pub const KEY_DRIVER: u64 = 0;
-/// Keyed-mutex key under which the host may read it.
+/// Keyed-mutex key under which the host may read it (keyed-mutex ring only).
 pub const KEY_HOST: u64 = 1;
 
 /// [`W_MAGIC`]: `"RLVDRING"`.
 pub const MAGIC: u64 = u64::from_le_bytes(*b"RLVDRING");
-/// [`W_LAYOUT`]'s low half.
+/// [`W_LAYOUT`]'s low half for a keyed-mutex ring.
 pub const RING_VERSION: u32 = 1;
+/// [`W_LAYOUT`]'s low half for a fence ring: the keyed-mutex layout plus a state word in
+/// every slot record.
+pub const RING_VERSION_FENCE: u32 = 2;
 
-// Header words. Host-written: MAGIC..GENERATION and HOST_CONSUMED. The rest is the driver's.
+// Header words. Host-written: MAGIC..GENERATION and HOST_CONSUMED. The rest is the driver's,
+// except a fence ring's slot states, which both sides change by compare-and-swap.
 pub const W_MAGIC: usize = 0;
 /// `version | slot_count << 32`.
 pub const W_LAYOUT: usize = 1;
@@ -127,6 +155,8 @@ const S_PRESENT_QPC: usize = 1;
 const S_ACQUIRE_QPC: usize = 2;
 const S_PUBLISH_QPC: usize = 3;
 const S_FRAME_NUMBER: usize = 4;
+/// A fence ring's [`SlotState`], packed; unused in a keyed-mutex ring.
+const S_STATE: usize = 5;
 
 /// Words in a header.
 pub const HEADER_WORDS: usize = W_SLOTS + MAX_SLOTS * SLOT_WORDS;
@@ -181,14 +211,96 @@ impl Token {
     }
 }
 
+/// Who owns a slot's pixels: the state words and fences, or each texture's keyed mutex.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Kind {
+    Fence,
+    /// To be removed with the hosts and drivers that speak only it.
+    KeyedMutex,
+}
+
+impl Kind {
+    #[must_use]
+    pub const fn version(self) -> u32 {
+        match self {
+            Self::Fence => RING_VERSION_FENCE,
+            Self::KeyedMutex => RING_VERSION,
+        }
+    }
+
+    #[must_use]
+    pub const fn from_version(version: u32) -> Option<Self> {
+        match version {
+            RING_VERSION_FENCE => Some(Self::Fence),
+            RING_VERSION => Some(Self::KeyedMutex),
+            _ => None,
+        }
+    }
+}
+
 /// The shape of a ring, as the host lays it out.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Layout {
+    pub kind: Kind,
     pub slot_count: u32,
     pub width: u32,
     pub height: u32,
     pub format: u32,
     pub generation: u32,
+}
+
+/// A fence ring slot's state word. Packed `tag | value << 8`, so an all-zero header is a ring
+/// of never-written free slots. Every change is a compare-and-swap from the state the changer
+/// last read ([`Header::swap_state`]), and the sequence or release value in it makes each
+/// state distinct, so a stale swap fails instead of taking a slot that moved on.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SlotState {
+    /// Nobody holds the pixels once the released fence reaches `release` (`0`: never read).
+    /// The driver may write it then.
+    Free { release: u64 },
+    /// The driver is copying frame `seq` into it.
+    Writing { seq: u32 },
+    /// It holds frame `seq`, which the host may claim; the written fence reaching `seq` means
+    /// the copy is done. The driver may still reclaim it until the host does.
+    Published { seq: u32 },
+    /// The host claimed frame `seq` and reads it until it frees the slot again.
+    Reading { seq: u32 },
+    /// A word neither side writes; the slot is never used.
+    Invalid(u64),
+}
+
+impl SlotState {
+    const TAG_FREE: u64 = 0;
+    const TAG_WRITING: u64 = 1;
+    const TAG_PUBLISHED: u64 = 2;
+    const TAG_READING: u64 = 3;
+    /// The largest release value a state word carries.
+    pub const MAX_RELEASE: u64 = u64::MAX >> 8;
+
+    #[must_use]
+    pub const fn pack(self) -> u64 {
+        match self {
+            Self::Free { release } => Self::TAG_FREE | (release & Self::MAX_RELEASE) << 8,
+            Self::Writing { seq } => Self::TAG_WRITING | (seq as u64) << 8,
+            Self::Published { seq } => Self::TAG_PUBLISHED | (seq as u64) << 8,
+            Self::Reading { seq } => Self::TAG_READING | (seq as u64) << 8,
+            Self::Invalid(word) => word,
+        }
+    }
+
+    #[must_use]
+    pub const fn unpack(word: u64) -> Self {
+        let value = word >> 8;
+        let seq = value as u32;
+        let fits = value <= u32::MAX as u64;
+        match word & 0xFF {
+            Self::TAG_FREE => Self::Free { release: value },
+            Self::TAG_WRITING if fits => Self::Writing { seq },
+            Self::TAG_PUBLISHED if fits => Self::Published { seq },
+            Self::TAG_READING if fits => Self::Reading { seq },
+            _ => Self::Invalid(word),
+        }
+    }
 }
 
 /// What the driver wrote about one slot, under that slot's keyed mutex.
@@ -257,25 +369,24 @@ impl<'a> Header<'a> {
         for word in &self.words[..HEADER_WORDS] {
             word.store(0, Ordering::Relaxed);
         }
-        self.put(W_LAYOUT, pair(RING_VERSION, layout.slot_count));
+        self.put(W_LAYOUT, pair(layout.kind.version(), layout.slot_count));
         self.put(W_SIZE, pair(layout.width, layout.height));
         self.put(W_FORMAT, u64::from(layout.format));
         self.put(W_GENERATION, u64::from(layout.generation));
         self.put(W_MAGIC, MAGIC);
     }
 
-    /// The layout, or `None` when the header was never initialised for this version.
+    /// The layout, or `None` when the header was never initialised for a known version.
     #[must_use]
     pub fn layout(&self) -> Option<Layout> {
         if self.get(W_MAGIC) != MAGIC {
             return None;
         }
         let (version, slot_count) = split(self.get(W_LAYOUT));
-        if version != RING_VERSION {
-            return None;
-        }
+        let kind = Kind::from_version(version)?;
         let (width, height) = split(self.get(W_SIZE));
         Some(Layout {
+            kind,
             slot_count,
             width,
             height,
@@ -321,7 +432,8 @@ impl<'a> Header<'a> {
         }
     }
 
-    /// Slot `slot`'s record. Read it only while holding that slot's keyed mutex.
+    /// Slot `slot`'s record. Read it only while holding the slot: its keyed mutex, or in a
+    /// fence ring [`SlotState::Reading`].
     #[must_use]
     pub fn slot(&self, slot: usize) -> SlotMeta {
         let base = W_SLOTS + slot.min(MAX_SLOTS - 1) * SLOT_WORDS;
@@ -338,9 +450,26 @@ impl<'a> Header<'a> {
         self.put(W_HOST_CONSUMED, u64::from(seq));
     }
 
+    // Both sides, fence ring.
+
+    /// Slot `slot`'s state word.
+    #[must_use]
+    pub fn slot_state(&self, slot: usize) -> SlotState {
+        SlotState::unpack(self.get(W_SLOTS + slot.min(MAX_SLOTS - 1) * SLOT_WORDS + S_STATE))
+    }
+
+    /// Move slot `slot` from `from` to `to` if it is still in `from`. The swap orders the
+    /// changer's earlier header writes (the meta) before the other side's later reads.
+    pub fn swap_state(&self, slot: usize, from: SlotState, to: SlotState) -> bool {
+        self.words[W_SLOTS + slot.min(MAX_SLOTS - 1) * SLOT_WORDS + S_STATE]
+            .compare_exchange(from.pack(), to.pack(), Ordering::AcqRel, Ordering::Acquire)
+            .is_ok()
+    }
+
     // Driver side.
 
-    /// Write slot `slot`'s record; only while holding its keyed mutex.
+    /// Write slot `slot`'s record; only while holding it (its keyed mutex, or
+    /// [`SlotState::Writing`]).
     pub fn write_slot(&self, slot: usize, meta: SlotMeta) {
         let base = W_SLOTS + slot.min(MAX_SLOTS - 1) * SLOT_WORDS;
         self.put(base + S_PRESENT_QPC, meta.present_qpc);
@@ -400,7 +529,7 @@ impl Claim {
 }
 
 /// The driver's side of the ring: which sequence each slot last carried, and the next one.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Picker {
     published: [u64; MAX_SLOTS],
     slots: usize,
@@ -445,6 +574,75 @@ impl Picker {
             .map(|&s| Claim::Reclaimed(s))
     }
 
+    /// Find a fence-ring slot for frame [`Self::next_seq`] and move it to
+    /// [`SlotState::Writing`]. `released` is the released fence's completed value. A free
+    /// slot whose last reads that value covers comes first, in the same order as
+    /// [`Self::claim`], then the oldest publish the host has not claimed. Never waits: a slot
+    /// the host still reads, on the CPU or the GPU, is skipped.
+    pub fn claim_fenced(&self, header: &Header<'_>, released: u64) -> Option<Claim> {
+        let (order, n) = self.order();
+        let writing = SlotState::Writing { seq: self.next_seq };
+        if let Some(&s) = order[..n].iter().find(|&&s| match header.slot_state(s) {
+            state @ SlotState::Free { release } => {
+                release <= released && header.swap_state(s, state, writing)
+            }
+            _ => false,
+        }) {
+            return Some(Claim::Free(s));
+        }
+        order[..n]
+            .iter()
+            .find(|&&s| {
+                let seq = self.published[s] as u32;
+                seq != 0 && header.swap_state(s, SlotState::Published { seq }, writing)
+            })
+            .map(|&s| Claim::Reclaimed(s))
+    }
+
+    /// Hand fence-ring slot `slot`, written with frame `seq`, to the host and record it.
+    /// `false` when the slot was not in `Writing { seq }` (a host that changed it), and the
+    /// frame is dropped.
+    pub fn publish_fenced(&mut self, header: &Header<'_>, slot: usize, seq: u32) -> bool {
+        if !header.swap_state(
+            slot,
+            SlotState::Writing { seq },
+            SlotState::Published { seq },
+        ) {
+            // Not ours after all: it holds no frame we know of.
+            self.skip(slot, seq);
+            return false;
+        }
+        self.published(slot, seq);
+        true
+    }
+
+    /// Give up fence-ring slot `slot`, taken for frame `seq`, without publishing: it goes back
+    /// to free with nothing to wait for (any read of it ended before it was taken) and holds no
+    /// frame.
+    pub fn abandon_fenced(&mut self, header: &Header<'_>, slot: usize, seq: u32) {
+        header.swap_state(
+            slot,
+            SlotState::Writing { seq },
+            SlotState::Free { release: 0 },
+        );
+        self.skip(slot, seq);
+    }
+
+    /// `slot` holds no frame, and `seq` is used up: the written fence may already carry it
+    /// for a copy that was given up, so a later frame reusing it would let the host read that
+    /// frame before its own copy finished.
+    fn skip(&mut self, slot: usize, seq: u32) {
+        self.forget(slot);
+        self.next_seq = seq.wrapping_add(1).max(1);
+    }
+
+    /// `slot` holds no frame any more, so it is neither reclaimed nor copied as the newest.
+    pub fn forget(&mut self, slot: usize) {
+        if slot < self.slots {
+            self.published[slot] = 0;
+        }
+    }
+
     /// The sequence the next publish carries; record it with [`Self::published`].
     #[must_use]
     pub fn next_seq(&self) -> u32 {
@@ -469,7 +667,7 @@ impl Picker {
 }
 
 /// The host's side: which publish to take next.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Consumer {
     generation: u32,
     slots: u32,
@@ -502,6 +700,45 @@ impl Consumer {
     #[must_use]
     pub fn fresh(&self, meta: &SlotMeta) -> bool {
         meta.seq > u64::from(self.consumed) && meta.seq <= u64::from(u32::MAX)
+    }
+
+    /// Claim a fence ring's newest publish: the slot [`W_LATEST`] names, while it still holds
+    /// a frame newer than the last consumed one. Returns the slot and that frame's sequence;
+    /// the slot is the host's until [`Self::release`]. `None` when there is nothing new, or
+    /// the driver reclaimed the slot first (its next publish sets the event again).
+    #[must_use]
+    pub fn claim(&self, header: &Header<'_>) -> Option<(usize, u32)> {
+        let slot = self.wanted(header.latest())?;
+        self.claim_slot(header, slot)
+    }
+
+    /// The second half of [`Self::claim`], for a slot [`Self::wanted`] named.
+    #[must_use]
+    pub fn claim_slot(&self, header: &Header<'_>, slot: usize) -> Option<(usize, u32)> {
+        match header.slot_state(slot) {
+            state @ SlotState::Published { seq }
+                if seq > self.consumed
+                    && header.swap_state(slot, state, SlotState::Reading { seq }) =>
+            {
+                Some((slot, seq))
+            }
+            _ => None,
+        }
+    }
+
+    /// Free a claimed fence-ring slot. The host signals the released fence with `release`
+    /// after its last read of the slot; release values increase with every call and are
+    /// signalled in that order on one queue, so the driver reusing the slot once the fence
+    /// reaches `release` never overwrites pixels still being read. `false` when the slot was
+    /// not `Reading { seq }`.
+    pub fn release(header: &Header<'_>, slot: usize, seq: u32, release: u64) -> bool {
+        header.swap_state(
+            slot,
+            SlotState::Reading { seq },
+            SlotState::Free {
+                release: release.min(SlotState::MAX_RELEASE),
+            },
+        )
     }
 
     pub fn consumed(&mut self, seq: u64) {
@@ -559,6 +796,7 @@ mod tests {
         let h = Header::new(&w).unwrap();
         assert_eq!(h.layout(), None, "uninitialised");
         let layout = Layout {
+            kind: Kind::Fence,
             slot_count: 4,
             width: 3840,
             height: 2160,
@@ -573,7 +811,16 @@ mod tests {
             w[W_MAGIC].load(Ordering::Relaxed).to_le_bytes(),
             *b"RLVDRING"
         );
-        w[W_LAYOUT].store(pair(2, 4), Ordering::Relaxed);
+        w[W_LAYOUT].store(pair(RING_VERSION, 4), Ordering::Relaxed);
+        assert_eq!(
+            h.layout(),
+            Some(Layout {
+                kind: Kind::KeyedMutex,
+                ..layout
+            }),
+            "a keyed-mutex ring"
+        );
+        w[W_LAYOUT].store(pair(3, 4), Ordering::Relaxed);
         assert_eq!(h.layout(), None, "another ring version");
     }
 
@@ -583,6 +830,7 @@ mod tests {
         let driver = Header::new(&w).unwrap();
         let host = Header::new(&w).unwrap();
         host.init(Layout {
+            kind: Kind::KeyedMutex,
             slot_count: 3,
             width: 1920,
             height: 1080,
@@ -806,6 +1054,7 @@ mod tests {
         let w = words();
         let header = Header::new(&w).unwrap();
         let layout = Layout {
+            kind: Kind::KeyedMutex,
             slot_count: 3,
             width: 640,
             height: 480,
@@ -849,5 +1098,357 @@ mod tests {
             seen.push(meta.present_qpc);
         }
         assert_eq!(seen, [300, 600, 900, 1200, 1500, 1800]);
+    }
+
+    #[test]
+    fn slot_states_round_trip_and_reject_foreign_words() {
+        for state in [
+            SlotState::Free { release: 0 },
+            SlotState::Free {
+                release: SlotState::MAX_RELEASE,
+            },
+            SlotState::Writing { seq: u32::MAX },
+            SlotState::Published { seq: 1 },
+            SlotState::Reading { seq: 7 },
+        ] {
+            assert_eq!(SlotState::unpack(state.pack()), state);
+        }
+        assert_eq!(
+            SlotState::unpack(0),
+            SlotState::Free { release: 0 },
+            "zeroed"
+        );
+        assert!(matches!(SlotState::unpack(9), SlotState::Invalid(9)));
+        let wide = 1 | (1u64 << 40);
+        assert_eq!(
+            SlotState::unpack(wide),
+            SlotState::Invalid(wide),
+            "seq past 32 bits"
+        );
+        // A slot holding a word nobody writes is never taken.
+        let w = words();
+        let header = Header::new(&w).unwrap();
+        w[W_SLOTS + S_STATE].store(9, Ordering::Relaxed);
+        let picker = Picker::new(2);
+        assert_eq!(picker.claim_fenced(&header, 0), Some(Claim::Free(1)));
+    }
+
+    #[test]
+    fn the_driver_skips_slots_whose_reads_the_released_fence_does_not_cover() {
+        let w = words();
+        let header = Header::new(&w).unwrap();
+        let mut picker = Picker::new(2);
+        let consumer = Consumer::new(0, 2);
+        // Frame 1 into slot 0, frame 2 into slot 1; the host claims and frees frame 2 with
+        // release value 5, not yet reached on the GPU.
+        for slot in 0..2 {
+            let claim = picker.claim_fenced(&header, 0).unwrap();
+            assert_eq!(claim, Claim::Free(slot));
+            let seq = picker.next_seq();
+            assert!(picker.publish_fenced(&header, slot, seq));
+            header.publish(Token {
+                generation: 0,
+                seq,
+                slot: slot as u8,
+            });
+        }
+        assert_eq!(consumer.claim(&header), Some((1, 2)));
+        assert!(Consumer::release(&header, 1, 2, 5));
+        assert_eq!(header.slot_state(1), SlotState::Free { release: 5 });
+        // Slot 1 is busy until the fence reaches 5, so the driver overwrites frame 1 instead.
+        assert_eq!(picker.claim_fenced(&header, 4), Some(Claim::Reclaimed(0)));
+        picker.abandon_fenced(&header, 0, 3);
+        assert_eq!(header.slot_state(0), SlotState::Free { release: 0 });
+        assert_eq!(picker.newest(), Some(1), "an abandoned slot holds no frame");
+        assert_eq!(picker.claim_fenced(&header, 5), Some(Claim::Free(0)));
+    }
+
+    #[test]
+    fn the_host_takes_only_the_newest_publish_and_loses_it_to_a_reclaim() {
+        let w = words();
+        let header = Header::new(&w).unwrap();
+        let mut picker = Picker::new(2);
+        let mut consumer = Consumer::new(3, 2);
+        let publish = |picker: &mut Picker| {
+            let slot = picker.claim_fenced(&header, 0).unwrap().slot();
+            let seq = picker.next_seq();
+            assert!(picker.publish_fenced(&header, slot, seq));
+            header.publish(Token {
+                generation: 3,
+                seq,
+                slot: slot as u8,
+            });
+            (slot, seq)
+        };
+        publish(&mut picker);
+        let (newest, seq) = publish(&mut picker);
+        // The host looks at the newest publish (slot 1, frame 2); before it swaps, the driver
+        // runs out of free slots and reclaims the oldest unclaimed one, slot 0.
+        let wanted = consumer.wanted(header.latest()).unwrap();
+        assert_eq!((wanted, seq), (1, 2));
+        assert_eq!(picker.claim_fenced(&header, 0), Some(Claim::Reclaimed(0)));
+        // Next it would reclaim slot 1, the host's choice; the swap stops the host reading it.
+        let third = picker.next_seq();
+        assert!(picker.publish_fenced(&header, 0, third));
+        assert_eq!(
+            picker.claim_fenced(&header, 0),
+            Some(Claim::Reclaimed(newest))
+        );
+        assert_eq!(consumer.claim_slot(&header, wanted), None, "being written");
+        let fourth = picker.next_seq();
+        assert!(picker.publish_fenced(&header, newest, fourth));
+        header.publish(Token {
+            generation: 3,
+            seq: fourth,
+            slot: newest as u8,
+        });
+        // Frame 3 in slot 0 is unconsumed but not the newest publish: the host takes 4.
+        assert_eq!(consumer.claim(&header), Some((newest, fourth)));
+        consumer.consumed(u64::from(fourth));
+        assert_eq!(consumer.claim(&header), None, "already claimed");
+        assert!(
+            !Consumer::release(&header, newest, fourth + 1, 1),
+            "not that frame"
+        );
+        assert!(Consumer::release(&header, newest, fourth, 1));
+        assert_eq!(header.slot_state(0), SlotState::Published { seq: third });
+    }
+
+    /// One state of the exhaustive model below: both processes' views plus the two GPU
+    /// queues, each running in order.
+    #[derive(Clone, PartialEq, Eq, Hash)]
+    struct World {
+        header: Vec<u64>,
+        picker: Picker,
+        consumer: Consumer,
+        frames_left: u8,
+        /// The driver took this slot for this frame and has not published it.
+        writing: Option<(usize, u32)>,
+        /// The driver's queue: each copy and the written-fence signal after it.
+        copies: Vec<(usize, u32)>,
+        written: u32,
+        /// The slot the host saw in `W_LATEST` and is about to swap.
+        wanted: Option<usize>,
+        /// Claimed and not yet freed: `(slot, seq)`.
+        holds: Vec<(usize, u32)>,
+        /// The host's queue: `Ok((slot, seq))` waits for the written fence to reach `seq`,
+        /// then reads the slot; `Err((slot, value))` signals the released fence after the
+        /// slot's last read.
+        reads: Vec<Result<(usize, u32), (usize, u64)>>,
+        /// Slots the host's GPU is reading: past the wait, before the released signal.
+        gpu_reads: Vec<usize>,
+        released: u64,
+        next_release: u64,
+    }
+
+    /// The host holds at most the newest frame and the one being encoded.
+    const MAX_HOLDS: usize = 2;
+
+    impl World {
+        fn new(slots: usize, frames: u8) -> Self {
+            Self {
+                header: std::vec![0; HEADER_WORDS],
+                picker: Picker::new(slots),
+                consumer: Consumer::new(1, slots as u32),
+                frames_left: frames,
+                writing: None,
+                copies: Vec::new(),
+                written: 0,
+                wanted: None,
+                holds: Vec::new(),
+                reads: Vec::new(),
+                gpu_reads: Vec::new(),
+                released: 0,
+                next_release: 1,
+            }
+        }
+
+        /// Run `f` on the header these words hold, then store them back.
+        fn with_header<T>(&mut self, f: impl FnOnce(&Header<'_>, &mut Self) -> T) -> T {
+            let atomics: Vec<AtomicU64> = self.header.iter().map(|&v| AtomicU64::new(v)).collect();
+            let out = f(&Header::new(&atomics).unwrap(), self);
+            self.header = atomics.iter().map(|a| a.load(Ordering::Relaxed)).collect();
+            out
+        }
+
+        fn state(&mut self, slot: usize) -> SlotState {
+            self.with_header(|h, _| h.slot_state(slot))
+        }
+
+        /// Every state one step from this one.
+        fn steps(&self, slots: usize) -> Vec<Self> {
+            let mut next = Vec::new();
+            // Driver: take a slot for a new frame, or drop it.
+            if self.writing.is_none() && self.frames_left > 0 {
+                let mut w = self.clone();
+                w.frames_left -= 1;
+                let released = w.released;
+                let idle = w.holds.is_empty() && w.reads.iter().all(Result::is_ok);
+                match w.with_header(|h, w| w.picker.claim_fenced(h, released)) {
+                    Some(claim) => {
+                        let seq = w.picker.next_seq();
+                        assert_eq!(w.state(claim.slot()), SlotState::Writing { seq });
+                        w.writing = Some((claim.slot(), seq));
+                        w.copies.push((claim.slot(), seq));
+                    }
+                    // Dropping is the driver's only answer to a busy ring, and it happens
+                    // only while the host holds or still reads slots.
+                    None => assert!(!idle, "a ring the host left alone has no free slot"),
+                }
+                next.push(w);
+            }
+            // Driver: publish what it wrote, or give it up (a failed GPU signal).
+            if let Some((slot, seq)) = self.writing {
+                let mut w = self.clone();
+                w.writing = None;
+                w.with_header(|h, w| {
+                    h.write_slot(
+                        slot,
+                        SlotMeta {
+                            seq: u64::from(seq),
+                            ..Default::default()
+                        },
+                    );
+                    assert!(
+                        w.picker.publish_fenced(h, slot, seq),
+                        "the driver's own slot"
+                    );
+                    h.publish(Token {
+                        generation: 1,
+                        seq,
+                        slot: slot as u8,
+                    });
+                });
+                next.push(w);
+                let mut w = self.clone();
+                w.writing = None;
+                w.with_header(|h, w| w.picker.abandon_fenced(h, slot, seq));
+                next.push(w);
+            }
+            // Host: look at the newest publish.
+            if self.wanted.is_none() && self.holds.len() < MAX_HOLDS {
+                let mut w = self.clone();
+                if let Some(slot) = w.with_header(|h, w| w.consumer.wanted(h.latest())) {
+                    w.wanted = Some(slot);
+                    next.push(w);
+                }
+            }
+            // Host: swap the slot it looked at to Reading.
+            if let Some(slot) = self.wanted {
+                let mut w = self.clone();
+                w.wanted = None;
+                let before = w.consumer.last();
+                if let Some((s, seq)) = w.with_header(|h, w| w.consumer.claim_slot(h, slot)) {
+                    assert_eq!(s, slot, "only the slot the newest publish named");
+                    assert!(seq > before, "only a frame not consumed yet");
+                    let meta = w.with_header(|h, _| h.slot(slot));
+                    assert_eq!(meta.seq, u64::from(seq), "the meta of the claimed frame");
+                    w.consumer.consumed(u64::from(seq));
+                    w.holds.push((slot, seq));
+                    w.reads.push(Ok((slot, seq)));
+                }
+                next.push(w);
+            }
+            // Host: free any claimed slot after its last read.
+            for i in 0..self.holds.len() {
+                let mut w = self.clone();
+                let (slot, seq) = w.holds.remove(i);
+                let release = w.next_release;
+                w.next_release += 1;
+                w.reads.push(Err((slot, release)));
+                assert!(w.with_header(|h, _| Consumer::release(h, slot, seq, release)));
+                next.push(w);
+            }
+            // GPU: the driver's next copy and its written signal finish.
+            if !self.copies.is_empty() {
+                let mut w = self.clone();
+                let (_, seq) = w.copies.remove(0);
+                w.written = seq;
+                next.push(w);
+            }
+            // GPU: the host's queue moves past a satisfied wait or a signal.
+            match self.reads.first() {
+                Some(&Ok((slot, seq))) if self.written >= seq => {
+                    let mut w = self.clone();
+                    let _ = w.reads.remove(0);
+                    w.gpu_reads.push(slot);
+                    next.push(w);
+                }
+                Some(&Err((slot, value))) => {
+                    let mut w = self.clone();
+                    let _ = w.reads.remove(0);
+                    w.released = value;
+                    let read = w.gpu_reads.iter().position(|&s| s == slot).unwrap();
+                    w.gpu_reads.remove(read);
+                    next.push(w);
+                }
+                _ => {}
+            }
+            for w in &mut next {
+                w.check(slots);
+            }
+            next
+        }
+
+        /// The invariants, after every step.
+        fn check(&mut self, slots: usize) {
+            for slot in 0..slots {
+                let state = self.state(slot);
+                // The driver's copy is in flight from its pick until its written signal ran;
+                // a host read from the end of its wait until its released signal ran.
+                let written_on_gpu = self.copies.iter().any(|&(s, _)| s == slot);
+                let read_on_gpu = self.gpu_reads.contains(&slot);
+                assert!(
+                    !(written_on_gpu && read_on_gpu),
+                    "slot {slot} written and read at once ({state:?})"
+                );
+                if let Some(&(_, seq)) = self.holds.iter().find(|&&(s, _)| s == slot) {
+                    assert_eq!(state, SlotState::Reading { seq });
+                }
+                if let Some((s, seq)) = self.writing
+                    && s == slot
+                {
+                    assert_eq!(state, SlotState::Writing { seq });
+                }
+                assert!(!matches!(state, SlotState::Invalid(_)));
+            }
+        }
+    }
+
+    /// Explore every reachable state; returns how many there were.
+    fn explore(slots: usize, frames: u8) -> usize {
+        let mut seen = std::collections::HashSet::new();
+        let mut todo = std::vec![World::new(slots, frames)];
+        let mut finished = 0;
+        while let Some(world) = todo.pop() {
+            if !seen.insert(world.clone()) {
+                continue;
+            }
+            let next = world.steps(slots);
+            if next.is_empty() {
+                // Nothing left to do: every frame was published or dropped and both GPU
+                // queues drained, so no wait is left hanging.
+                assert!(world.frames_left == 0 && world.writing.is_none());
+                assert!(world.copies.is_empty() && world.reads.is_empty());
+                finished += 1;
+            }
+            todo.extend(next);
+        }
+        assert!(finished > 0);
+        seen.len()
+    }
+
+    #[test]
+    fn every_interleaving_of_driver_host_and_gpus_keeps_slots_apart() {
+        // Every order of the driver's pick, reclaim, publish and abandon against the host's
+        // look, claim and free, with both GPU queues finishing at any point; the invariants
+        // are checked after every step (`World::check`), at every pick and every claim.
+        for (slots, frames) in [(2, 7), (3, 6), (4, 5)] {
+            let states = explore(slots, frames);
+            assert!(
+                states > 1000,
+                "{slots} slots: only {states} states explored"
+            );
+        }
     }
 }

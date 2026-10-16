@@ -60,9 +60,13 @@ pub const IOCTL_DRAIN_LOG: u32 = ctl_code(0xB0A);
 /// [`ClearFrameRingRequest`]; `STATUS_NOT_FOUND` when that ring is not the monitor's. Present
 /// when the driver reports [`CAP_SCOPED_CLEAR`].
 pub const IOCTL_CLEAR_FRAME_RING_GENERATION: u32 = ctl_code(0xB0B);
+/// Hand a monitor a fence ring ([`ring::Kind::Fence`]). Input [`SetFenceRingRequest`]; owns
+/// its handles as [`IOCTL_SET_FRAME_RING`] does. Present when the driver reports
+/// [`CAP_FENCE_RING`].
+pub const IOCTL_SET_FENCE_RING: u32 = ctl_code(0xB0C);
 
 /// Every IOCTL this protocol defines, for the uniqueness test and the driver's dispatch.
-pub const ALL_IOCTLS: [u32; 12] = [
+pub const ALL_IOCTLS: [u32; 13] = [
     IOCTL_GET_INFO,
     IOCTL_ADD,
     IOCTL_REMOVE,
@@ -75,6 +79,7 @@ pub const ALL_IOCTLS: [u32; 12] = [
     IOCTL_CLEAR_ALL,
     IOCTL_DRAIN_LOG,
     IOCTL_CLEAR_FRAME_RING_GENERATION,
+    IOCTL_SET_FENCE_RING,
 ];
 
 /// NTSTATUS values the driver completes requests with, and the Win32 error each becomes in
@@ -192,6 +197,11 @@ pub const CAP_HDR: u32 = 1 << 1;
 pub const CAP_UPDATE_MODES: u32 = 1 << 2;
 /// [`InfoReply::caps`]: [`IOCTL_CLEAR_FRAME_RING_GENERATION`] clears only the ring it names.
 pub const CAP_SCOPED_CLEAR: u32 = 1 << 3;
+/// [`InfoReply::caps`]: [`IOCTL_SET_FENCE_RING`] takes a fence ring, whose slots the header's
+/// state words and two shared fences own instead of keyed mutexes. A host keeps sending
+/// keyed-mutex rings to a driver without it, and a driver with it still takes them from a
+/// host that sends one.
+pub const CAP_FENCE_RING: u32 = 1 << 4;
 
 /// [`IOCTL_GET_INFO`] reply.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -620,6 +630,68 @@ impl SetFrameRingRequest {
         [self.header_section, self.event]
             .into_iter()
             .chain(self.textures.iter().copied())
+            .filter(|&h| h != 0)
+    }
+}
+
+/// [`IOCTL_SET_FENCE_RING`] input: a ring of plain shared textures (no keyed mutex) and the
+/// two shared fences that order access to them, every handle a value in the driver's WUDFHost.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SetFenceRingRequest {
+    /// The ring as a keyed-mutex request would describe it.
+    pub ring: SetFrameRingRequest,
+    /// The driver signals it with a frame's sequence once that frame's copy is done.
+    pub written_fence: u64,
+    /// The host signals it once its reads of a slot are done, with the value it records in
+    /// the slot's state.
+    pub released_fence: u64,
+}
+
+impl SetFenceRingRequest {
+    pub const SIZE: usize = SetFrameRingRequest::SIZE + 24;
+
+    #[must_use]
+    pub fn encode(&self) -> [u8; Self::SIZE] {
+        Writer::new()
+            .bytes(&self.ring.encode())
+            .u64(self.written_fence)
+            .u64(self.released_fence)
+            .u64(0)
+            .finish()
+    }
+
+    pub fn decode(bytes: &[u8]) -> Result<Self, WireError> {
+        let mut r = Reader::new(bytes, Self::SIZE)?;
+        let ring = SetFrameRingRequest::decode(&r.take::<{ SetFrameRingRequest::SIZE }>())?;
+        let request = Self {
+            ring,
+            written_fence: r.u64(),
+            released_fence: r.u64(),
+        };
+        if r.u64() != 0 {
+            return Err(WireError::Invalid("reserved"));
+        }
+        request.validate()?;
+        Ok(request)
+    }
+
+    pub fn validate(&self) -> Result<(), WireError> {
+        self.ring.validate()?;
+        if self.written_fence == 0
+            || self.released_fence == 0
+            || self.written_fence == self.released_fence
+        {
+            return Err(WireError::Invalid("fences"));
+        }
+        Ok(())
+    }
+
+    /// Every handle value the request carries, for the host to close remotely when the
+    /// driver refused it.
+    pub fn handles(&self) -> impl Iterator<Item = u64> + '_ {
+        self.ring
+            .handles()
+            .chain([self.written_fence, self.released_fence])
             .filter(|&h| h != 0)
     }
 }
@@ -1072,6 +1144,69 @@ mod tests {
             .validate()
             .is_ok()
         );
+    }
+
+    #[test]
+    fn fence_ring_request_extends_the_ring_request() {
+        let request = SetFenceRingRequest {
+            ring: ring_request(),
+            written_fence: 0x300,
+            released_fence: 0x304,
+        };
+        let bytes = request.encode();
+        assert_eq!(bytes.len(), 152);
+        assert_eq!(bytes[..128], ring_request().encode());
+        assert_eq!(bytes[128..136], 0x300u64.to_le_bytes());
+        assert_eq!(bytes[136..144], 0x304u64.to_le_bytes());
+        assert_eq!(bytes[144..152], [0; 8]);
+        assert_eq!(SetFenceRingRequest::decode(&bytes), Ok(request));
+        let handles: Vec<u64> = request.handles().collect();
+        assert_eq!(handles, [0x200, 0x204, 0x104, 0x108, 0x10C, 0x300, 0x304]);
+        // A keyed-mutex request is not a fence ring request, nor the other way round: an
+        // older driver refuses the fence ring by its size, never misreads it.
+        assert!(SetFenceRingRequest::decode(&ring_request().encode()).is_err());
+        assert!(SetFrameRingRequest::decode(&bytes).is_err());
+        let mut reserved = bytes;
+        reserved[150] = 1;
+        assert_eq!(
+            SetFenceRingRequest::decode(&reserved),
+            Err(WireError::Invalid("reserved"))
+        );
+        for (written_fence, released_fence) in [(0, 0x304), (0x300, 0), (0x300, 0x300)] {
+            let bad = SetFenceRingRequest {
+                written_fence,
+                released_fence,
+                ..request
+            };
+            assert_eq!(
+                SetFenceRingRequest::decode(&bad.encode()),
+                Err(WireError::Invalid("fences"))
+            );
+        }
+        let mut ring = ring_request();
+        ring.slot_count = 1;
+        assert_eq!(
+            SetFenceRingRequest::decode(&SetFenceRingRequest { ring, ..request }.encode()),
+            Err(WireError::Invalid("slot count")),
+            "the ring part is validated too"
+        );
+    }
+
+    #[test]
+    fn capabilities_are_distinct_bits() {
+        let caps = [
+            CAP_FRAME_RING,
+            CAP_HDR,
+            CAP_UPDATE_MODES,
+            CAP_SCOPED_CLEAR,
+            CAP_FENCE_RING,
+        ];
+        for (i, a) in caps.iter().enumerate() {
+            assert_eq!(a.count_ones(), 1);
+            for b in &caps[i + 1..] {
+                assert_eq!(a & b, 0);
+            }
+        }
     }
 
     #[test]

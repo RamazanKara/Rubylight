@@ -9,11 +9,14 @@
 //!   re-mode virtual monitors, keep a lease alive, pin the render GPU and hand over a frame
 //!   ring. Every struct has a fixed little-endian layout encoded by hand, so a one-sided edit
 //!   fails the round-trip tests instead of corrupting a request.
-//! * [`ring`]: the frame push. The host creates the shared textures, a small header section
-//!   and an event, duplicates them into the driver's WUDFHost and hands their values over with
-//!   [`control::SetFrameRingRequest`]. The driver copies every composed frame into a free
-//!   texture under its keyed mutex, stamps the present QPC into the header and signals the
-//!   event. Pixels never leave the GPU.
+//! * [`ring`]: the frame push. The host creates the shared textures, a small header section,
+//!   an event and two shared fences, duplicates them into the driver's WUDFHost and hands
+//!   their values over with [`control::SetFenceRingRequest`]. The driver copies every composed
+//!   frame into a free texture, signals the written fence, stamps the present QPC into the
+//!   header and signals the event; the host signals the released fence once it is done with a
+//!   texture. The header's per-slot state words say who holds which texture. Pixels never
+//!   leave the GPU. Hosts and drivers from before [`control::CAP_FENCE_RING`] use keyed
+//!   mutexes instead ([`control::SetFrameRingRequest`]), which both sides still speak.
 //!
 //! [`modes`] and [`edid`] hold the arithmetic the driver advertises to Windows. They live here
 //! because the driver only builds under the WDK, and this crate runs `cargo test` anywhere.

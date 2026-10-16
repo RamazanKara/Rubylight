@@ -33,7 +33,6 @@ $Dependencies = (Resolve-Path -LiteralPath $Dependencies).ProviderPath
 $TargetDirectory = (Resolve-Path -LiteralPath $TargetDirectory).ProviderPath
 $env:PATH = "$MsysRoot\ucrt64\bin;$env:USERPROFILE\.cargo\bin;" + $env:PATH
 $env:LIBCLANG_PATH = "$MsysRoot\ucrt64\bin"
-$env:BUTTERPOLLO_SYSTEM_LIBS = "$MsysRoot\ucrt64\lib"
 $env:BUTTERPOLLO_VULKAN_INCLUDE = "$MsysRoot\ucrt64\include"
 $env:CARGO_TARGET_DIR = $TargetDirectory
 if ($FetchDependencies) {

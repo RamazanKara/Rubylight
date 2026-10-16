@@ -4,3 +4,4 @@ Der Hinweis beim ersten Stream verdeckt auf breiten Handys nicht mehr das Leistu
 In den PC-Einstellungen lässt sich das PyroWave-Frame-Pacing auf Vibeshine-Hosts kalibrieren; Streams senden das gemessene Tempo an den Host.
 Bitrate geht bis 2000 Mbit/s, in den Einstellungen und während des Streams; der Host wendet weiterhin seine eigene Obergrenze an.
 PyroWave warnt, wenn die Bitrate unter dem Minimum für Auflösung und Bildrate liegt.
+Automatische Updatesuche mit Update in der App bei Installation über GitHub (Einstellungen > App).

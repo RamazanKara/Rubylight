@@ -117,28 +117,6 @@ pub const GLOBAL: &[Setting] = settings! {
         "amd_input_queue_size", "AMF input queue size", Number;
         "amd_ltr_frames", "Long-term reference frames", Number;
     ]
-    "NVIDIA and Intel encoding" => [
-        "nvenc_preset", "NVENC preset (1–7)", Number;
-        "nvenc_twopass", "NVENC multi-pass", Choice(&["disabled","quarter_res","full_res"]);
-        "nvenc_spatial_aq", "NVENC spatial adaptive quantization", Bool;
-        "nvenc_temporal_aq", "NVENC temporal adaptive quantization", Bool;
-        "nvenc_vbv_increase", "NVENC decoder buffer increase (%)", Number;
-        "nvenc_h264_cavlc", "NVENC H.264 CAVLC", Bool;
-        "nvenc_split_encode", "NVENC split encoding", Choice(&["auto","disabled","forced"]);
-        "nvenc_realtime_hags", "NVENC real-time scheduling with HAGS", Bool;
-        "nvenc_latency_over_power", "Prefer low NVENC latency over power savings", Bool;
-        "nvenc_opengl_vulkan_on_dxgi", "Driver DXGI presentation for OpenGL and Vulkan", Bool;
-        "qsv_preset", "Quick Sync preset", Choice(&["veryfast","faster","fast","medium","slow","slower","veryslow"]);
-        "qsv_coder", "Quick Sync H.264 entropy coder", Choice(&["auto","cabac","cavlc"]);
-        "qsv_slow_hevc", "Use Quick Sync software HEVC when needed", Bool;
-    ]
-    "Software encoding" => [
-        "sw_preset", "Software encoder preset", Choice(&["ultrafast","superfast","veryfast","faster","fast","medium","slow","slower","veryslow"]);
-        "sw_tune", "Software encoder tuning", Text;
-        "min_threads", "Software encoder threads", Number;
-        "crf", "Constant rate factor", Number;
-        "qp", "Constant quantizer", Number;
-    ]
     "Input" => [
         "keyboard", "Keyboard input", Bool;
         "mouse", "Mouse input", Bool;
@@ -331,18 +309,6 @@ pub fn render(prefix: &str, schema: &[Setting], values: &Value) -> String {
                             "power_saving" => "Power saving",
                             "realtime" => "Real time",
                             "lowest" => "Lowest latency",
-                            "quarter_res" => "Quarter resolution",
-                            "full_res" => "Full resolution",
-                            "forced" => "Always on",
-                            "ultrafast" => "Ultra fast",
-                            "superfast" => "Super fast",
-                            "veryfast" => "Very fast",
-                            "faster" => "Faster",
-                            "fast" => "Fast",
-                            "medium" => "Medium",
-                            "slow" => "Slow",
-                            "slower" => "Slower",
-                            "veryslow" => "Very slow",
                             "vhf_xbox" => "Xbox Series",
                             "vhf_xbox_one" => "Xbox One",
                             "vhf_ds4" => "DualShock 4",
@@ -464,10 +430,7 @@ mod tests {
     #[test]
     fn encoder_settings_save_keys_the_encoders_read() {
         for setting in GLOBAL {
-            if ["amd_", "nvenc_", "qsv_", "sw_"]
-                .iter()
-                .any(|prefix| setting.key.starts_with(prefix))
-            {
+            if setting.key.starts_with("amd_") {
                 assert!(
                     butterpollo_core::config::override_allowed(setting.key),
                     "{} is not an encoder setting",

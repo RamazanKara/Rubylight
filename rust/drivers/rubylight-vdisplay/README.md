@@ -68,8 +68,9 @@ for `x86_64-pc-windows-msvc` with the static CRT and the Windows Driver Kit.
    is the scan-out, about 6.8 ms later on a 120 Hz display.
 
 A host before `CAP_FENCE_RING` sends the older keyed-mutex ring (`IOCTL_SET_FRAME_RING`), which
-D3D12 cannot take: the driver refuses it before adopting any handle and no longer reports
-`CAP_FRAME_RING`, and that host captures the display through Windows Graphics Capture instead.
+this driver refuses before adopting any handle (`STATUS_NOT_SUPPORTED`); the driver never
+reports `CAP_FRAME_RING`, and that host captures the display through Windows Graphics Capture
+instead.
 
 The driver loads only where the OS reports the D3D12 swap chain: `DriverEntry` logs the IddCx
 framework version and `IddCxCheckOsFeatureSupport`'s answer, and fails with

@@ -9,8 +9,7 @@
 //! A slot belongs to whoever the header's state word names. The driver copies on its copy
 //! queue ([`Copier`]), signals the written fence with the slot's sequence after the copy on
 //! the same queue, and reuses a slot once the host's released fence passed the value recorded
-//! in it. Keyed-mutex rings (hosts before `CAP_FENCE_RING`) are refused at the IOCTL: D3D12
-//! has no keyed mutexes.
+//! in it. The older keyed-mutex ring (`IOCTL_SET_FRAME_RING`) is refused at the IOCTL.
 
 use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, Mutex};

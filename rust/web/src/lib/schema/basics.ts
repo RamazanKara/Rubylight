@@ -412,7 +412,7 @@ const audio: Setting[] = [
     description:
       'Choose Game only to stream just the game, keeping browsers and notifications out. Reconnect to apply.',
     details:
-      'Game only captures the launched game and its children. It requires Windows build 20348 or newer and a verified game process; when capture is unavailable, the stream sends silence with a session warning. Game only currently uses stereo and leaves local playback devices unchanged.',
+      'Game only captures the launched game and its children. It requires a verified game process; when capture is unavailable, the stream sends silence with a session warning. Game only currently uses stereo and leaves local playback devices unchanged.',
     category: 'audio',
     group: 'Sound',
     control: { kind: 'select', options: [

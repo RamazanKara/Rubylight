@@ -9,7 +9,6 @@ const server = await createServer({
 });
 after(() => server.close());
 const { schema } = await server.ssrLoadModule('/src/lib/settings-schema.ts');
-const types = await server.ssrLoadModule('/src/lib/settings-types.ts');
 const values =await server.ssrLoadModule('/src/components/settings/values.ts');
 const { computeChanges, describeDefault, differsFromDefault, effective, numberError, toServerCommands } = values;
 const { matchesSetting, searchWords } = await server.ssrLoadModule('/src/components/settings/search.ts');
@@ -33,7 +32,7 @@ test('search finds words that moved behind More, and configuration keys', () => 
   assert.equal(find('usbip-win2', 'gamepad'), true);
   assert.equal(find('fec_percentage', 'fec_percentage'), true);
   assert.equal(find('fec percentage', 'fec_percentage'), true);
-  assert.equal(find('amd quality', 'nvenc_enable_min_qp'), false);
+  assert.equal(find('amd quality', 'amd_quality'), true);
 });
 
 test('the default is shown only when the saved value would differ from it', () => {
@@ -74,10 +73,6 @@ test('spellings the host reads as an option show as that option', () => {
     ['frame_limiter_auto_virtual_framegen', false, 'disabled'],
     ['rtss_frame_limit_type', 'front-edge-sync', 'front edge sync'],
     ['rtss_frame_limit_type', 'back_edge_sync', 'back edge sync'],
-    ['rtss_frame_limit_type', 'nvidia-reflex', 'nvidia reflex'],
-    ['rtss_frame_limit_type', 'reflex', 'nvidia reflex'],
-    ['frame_limiter_provider', 'nvcp', 'nvidia-control-panel'],
-    ['frame_limiter_provider', 'NVIDIA Control Panel', 'nvidia-control-panel'],
     ['frame_limiter_provider', 'disabled', 'none'],
     // config.rs log_level; the fallback console writes numbers.
     ['min_log_level', 0, 'verbose'],
@@ -88,14 +83,10 @@ test('spellings the host reads as an option show as that option', () => {
     ['min_log_level', 5, 'error'],
     ['min_log_level', 6, 'none'],
     ['min_log_level', 'Debug', 'debug'],
-    // nvenc.rs; Vibepollo saved these as nvenc_force_split_encode.
-    ['nvenc_split_encode', 'forced', 'enabled'],
-    ['nvenc_split_encode', true, 'enabled'],
-    ['nvenc_split_encode', 'false', 'disabled'],
-    ['nvenc_split_encode', 'driver_decides', 'auto'],
-    ['encoder', 'qsv', 'quicksync'],
     ['encoder', 'amdvce', 'amf'],
-    ['encoder', 'nvenc_experimental', 'nvenc'],
+    ['encoder', 'amdvce_experimental', 'amf'],
+    ['encoder', 'amdvce_ffmpeg', 'amf'],
+    ['encoder', 'amdvce_legacy', 'amf'],
     ['capture', 'dxgi', 'ddx'],
     ['capture', 'WGCC', 'wgc'],
     ['capture', 'DDX', 'ddx'],
@@ -105,7 +96,7 @@ test('spellings the host reads as an option show as that option', () => {
     ['gamepad', 'ds5', 'vhf_ds5'],
     ['gamepad', 'x360', 'vhf_xbox_one'],
     ['amd_coder', 'vlc', 'cavlc'],
-    ['qsv_coder', 'ac', 'cabac'],
+    ['amd_coder', 'ac', 'cabac'],
     ['locale', 'pt-br', 'pt_BR'],
     ['locale', 'DE', 'de'],
   ]) {
@@ -113,10 +104,9 @@ test('spellings the host reads as an option show as that option', () => {
   }
   // Where the host compares exactly, or does not read a spelling, it stays as saved.
   for (const [key, stored] of [
-    ['encoder', 'QSV'],
+    ['encoder', 'AMDVCE'],
     ['amd_coder', 'CABAC'],
     ['gamepad', 'DS5'],
-    ['nvenc_split_encode', 'Forced'],
     ['amd_vbaq', 'maybe'],
     ['min_log_level', '7'],
     ['frame_limiter_auto_virtual_framegen', '4x'],
@@ -151,40 +141,32 @@ test('a saved alias is written back only when the edit means something else', ()
   assert.equal(differsFromDefault(settings.get('min_log_level'), {}, { min_log_level: 2 }), false);
   assert.equal(differsFromDefault(vbaq, {}, { amd_vbaq: 'true' }), true);
   // Visibility follows what the host reads.
-  const current = values.currentValues(schema.settings, {}, { encoder: 'qsv' });
-  assert.equal(current.encoder, 'quicksync');
-  assert.equal(settings.get('qsv_preset').visibleWhen(current), true);
+  const current = values.currentValues(schema.settings, {}, { encoder: 'amdvce', amd_rc: 'qvbr' });
+  assert.equal(current.encoder, 'amf');
+  assert.equal(settings.get('amd_qvbr_quality_level').visibleWhen(current), true);
 });
 
-test('NVIDIA driver preferences stay visible whatever encoder streams', () => {
-  // limiter.rs applies the first two on every stream with an NVIDIA driver;
-  // gpu_priority.rs checks the capture GPU, not the encoder.
-  for (const key of ['nvenc_realtime_hags', 'nvenc_latency_over_power', 'nvenc_opengl_vulkan_on_dxgi']) {
-    const setting = settings.get(key);
-    for (const encoder of ['auto', 'amf', 'quicksync', 'software', 'nvenc']) {
-      assert.equal(setting.visibleWhen?.({ encoder }) ?? true, true, `${key} with ${encoder}`);
+test('AMD AMF settings stay visible whatever the encoder setting says', () => {
+  // AMF encodes every stream except PyroWave's own, so the group is never hidden by the encoder.
+  const amd = schema.settings.filter(setting => setting.group === 'AMD AMF');
+  assert(amd.length > 10);
+  for (const setting of amd) {
+    assert.doesNotMatch(setting.inactiveHint ?? '', /Automatic selects|is selected/, setting.key);
+    if (setting.key === 'amd_qvbr_quality_level') continue;
+    for (const encoder of [undefined, 'auto', 'amf', 'amdvce', 'amdvce_experimental', 'amdvce_ffmpeg', 'amdvce_legacy', 'pyrowave']) {
+      assert.equal(setting.visibleWhen?.(encoder === undefined ? {} : { encoder }) ?? true, true, `${setting.key} with ${encoder}`);
     }
-    assert.doesNotMatch(`${setting.inactiveHint ?? ''} ${setting.group}`, /NVENC/, key);
   }
+  assert.equal(settings.get('amd_qvbr_quality_level').visibleWhen({ encoder: 'pyrowave', amd_rc: 'qvbr' }), true);
+  assert.equal(settings.get('amd_qvbr_quality_level').visibleWhen({ encoder: 'amf', amd_rc: 'cbr' }), false);
 });
 
-test('Automatic shows the encoder settings for the GPUs this PC has', () => {
-  const { NATIVE_ENCODERS } = types;
-  const gpu = (name, vendor) => ({ name, vendor, dedicated_memory: 0, luid: [1, 0], pnp_id: null });
-  const radeon = gpu('AMD Radeon RX 7900 XT', 0x1002), geforce = gpu('NVIDIA GeForce RTX 4090', 0x10de);
-  // As encoder.rs native_backend: by vendor, else by name; Intel has no native encoder.
-  assert.deepEqual(values.nativeEncoders([radeon, gpu('Intel(R) Arc(TM) A770', 0x8086)], ''), ['amf']);
-  assert.deepEqual(values.nativeEncoders([gpu('AMD Radeon R7 M370', 0)], ''), ['amf']);
-  assert.deepEqual(values.nativeEncoders([radeon, geforce], ''), ['amf', 'nvenc']);
-  assert.deepEqual(values.nativeEncoders([radeon, geforce], 'nvidia geforce rtx 4090'), ['nvenc']);
-  assert.deepEqual(values.nativeEncoders(null, ''), []);
-  const amd = settings.get('amd_usage'), nvidia = settings.get('nvenc_preset');
-  assert.equal(amd.visibleWhen({ encoder: 'auto', [NATIVE_ENCODERS]: ['amf'] }), true);
-  assert.equal(amd.visibleWhen({ encoder: 'auto', [NATIVE_ENCODERS]: ['nvenc'] }), false);
-  assert.equal(amd.visibleWhen({ encoder: 'nvenc', [NATIVE_ENCODERS]: ['amf'] }), false);
-  assert.equal(nvidia.visibleWhen({ encoder: 'pyrowave', [NATIVE_ENCODERS]: ['nvenc'] }), true);
-  assert.equal(nvidia.visibleWhen({ encoder: 'auto' }), false);
-  assert.equal(settings.get('amd_qvbr_quality_level').visibleWhen({ encoder: 'auto', amd_rc: 'qvbr', [NATIVE_ENCODERS]: ['amf'] }), true);
+test('no encoder other than AMD AMF and PyroWave is offered', () => {
+  assert.deepEqual(settings.get('encoder').control.options.map(option => option.value), ['auto', 'amf', 'pyrowave']);
+  assert.deepEqual(Object.keys(settings.get('encoder').aliases.spellings).sort(), ['amdvce', 'amdvce_experimental', 'amdvce_ffmpeg', 'amdvce_legacy']);
+  assert.deepEqual(settings.get('frame_limiter_provider').control.options.map(option => option.value), ['auto', 'rtss', 'none']);
+  assert.deepEqual(settings.get('rtss_frame_limit_type').control.options.map(option => option.value), ['async', 'front edge sync', 'back edge sync']);
+  for (const setting of schema.settings) assert.doesNotMatch(setting.key, /^(nvenc_|qsv_|sw_)|^(min_threads|frame_limiter_disable_vsync|dd_wa_dummy_plug_hdr10)$/, setting.key);
 });
 
 test('frame rates the host parses reject a fourth decimal place', () => {

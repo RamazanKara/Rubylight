@@ -16,7 +16,6 @@
     differsFromDefault,
     effective,
     has,
-    nativeEncoders,
     normalise,
     NOT_SETTINGS,
     sameValue,
@@ -26,9 +25,9 @@
   import { api, type Config, type ConfigValue } from '../lib/api';
   import { confirm, failed, notify } from '../lib/feedback.svelte';
   import { guardNavigation, match, navigate } from '../lib/router.svelte';
-  import { refreshMetadata, session } from '../lib/session.svelte';
+  import { refreshMetadata } from '../lib/session.svelte';
   import { schema } from '../lib/settings-schema';
-  import { NATIVE_ENCODERS, type Category, type CategoryId, type Setting } from '../lib/settings-types';
+  import type { Category, CategoryId, Setting } from '../lib/settings-types';
 
   const categories = schema.categories;
   const byKey: ReadonlyMap<string, Setting> = new Map(schema.settings.map((setting) => [setting.key, setting]));
@@ -79,12 +78,7 @@
   }
 
   const config = $derived(stored ?? {});
-  const values = $derived.by(() => {
-    const current = currentValues(schema.settings, edits, config);
-    // Automatic encoder settings follow this PC's GPUs.
-    current[NATIVE_ENCODERS] = nativeEncoders(session.metadata?.gpus, String(current.adapter_name ?? ''));
-    return current;
-  });
+  const values = $derived(currentValues(schema.settings, edits, config));
   const changes = $derived(stored ? computeChanges(byKey, edits, stored) : {});
   const pending = $derived(new Set([...Object.keys(changes), ...Object.keys(invalid)]));
   const invalidCount = $derived(Object.keys(invalid).length);

@@ -1,6 +1,6 @@
 // Settings for the categories named in settings-schema.ts: video and encoders.
 import type { ConfigValue } from '../api';
-import { NATIVE_ENCODERS, type Aliases, type Setting } from '../settings-types';
+import type { Aliases, Setting } from '../settings-types';
 
 type Values = Record<string, ConfigValue>;
 
@@ -40,38 +40,6 @@ function flag(values: Values, key: string, fallback: boolean): boolean {
 const capture = (values: Values) => read(values, 'capture', 'auto').toLowerCase();
 const gridPacing = (values: Values) =>
   ['grid', 'fixed'].includes(read(values, 'frame_pacing', 'arrival').toLowerCase());
-
-/** The encoder the host resolves `encoder` to, including names from older hosts. */
-function encoder(values: Values): string {
-  const name = read(values, 'encoder', 'auto');
-  switch (name) {
-    case 'amdvce':
-    case 'amdvce_experimental':
-    case 'amdvce_ffmpeg':
-    case 'amdvce_legacy':
-      return 'amf';
-    case 'nvenc_experimental':
-      return 'nvenc';
-    case 'amf':
-    case 'nvenc':
-    case 'nvenc_legacy':
-    case 'quicksync':
-    case 'qsv':
-    case 'software':
-      return name;
-    default:
-      return 'auto';
-  }
-}
-/** Automatic uses this native encoder on one of this PC's GPUs. */
-function automatic(values: Values, backend: string): boolean {
-  const native = values[NATIVE_ENCODERS];
-  return encoder(values) === 'auto' && Array.isArray(native) && native.includes(backend);
-}
-const nvenc = (values: Values) => ['nvenc', 'nvenc_legacy'].includes(encoder(values)) || automatic(values, 'nvenc');
-const amf = (values: Values) => encoder(values) === 'amf' || automatic(values, 'amf');
-const qsv = (values: Values) => ['qsv', 'quicksync'].includes(encoder(values));
-const software = (values: Values) => encoder(values) === 'software';
 
 const video: Setting[] = [
   {
@@ -419,9 +387,9 @@ const encoders: Setting[] = [
     key: 'encoder',
     label: 'Encoder',
     description:
-      "Automatic picks AMF on AMD GPUs or NVENC on NVIDIA GPUs when the stream starts, and shows that encoder's settings below.",
+      "Automatic encodes H.264, HEVC and AV1 with AMD AMF, and PyroWave streams with PyroWave's own encoder.",
     details:
-      'If that encoder cannot start, Automatic tries another hardware encoder and shows a stream warning; it never falls back to software. Settings for other encoders appear when you select one, or in search. The stream card and log show the encoder actually used; PyroWave streams use their own encoder.',
+      "If AMF cannot start, the stream fails with AMF's error; there is no fallback to another encoder. The stream card and log show the encoder in use.",
     category: 'encoders',
     group: 'Encoder',
     control: {
@@ -429,22 +397,16 @@ const encoders: Setting[] = [
       options: [
         { value: 'auto', label: 'Automatic' },
         { value: 'amf', label: 'AMD AMF' },
-        { value: 'nvenc', label: 'NVIDIA NVENC' },
-        { value: 'nvenc_legacy', label: 'NVIDIA NVENC (FFmpeg)' },
-        { value: 'quicksync', label: 'Intel Quick Sync' },
-        { value: 'software', label: 'Software' },
         { value: 'pyrowave', label: 'PyroWave (automatic for other codecs)' },
       ],
     },
-    // encoder_policy.rs canonical_name, and qsv, which the fallback console writes.
+    // encoder_policy.rs canonical_name: Apollo and Vibepollo's names for AMF.
     aliases: {
       spellings: {
-        qsv: 'quicksync',
         amdvce: 'amf',
         amdvce_experimental: 'amf',
         amdvce_ffmpeg: 'amf',
         amdvce_legacy: 'amf',
-        nvenc_experimental: 'nvenc',
       },
     },
     default: 'auto',
@@ -469,240 +431,8 @@ const encoders: Setting[] = [
       'Chooses the GPU by its Windows device instance ID instead of its name, for systems with two identical GPUs. When set, it takes precedence over the GPU name.',
     category: 'encoders',
     group: 'Encoder',
-    control: { kind: 'text', placeholder: 'PCI\\VEN_10DE&DEV_2684&...', mono: true },
+    control: { kind: 'text', placeholder: 'PCI\\VEN_1002&DEV_744C&...', mono: true },
     default: '',
-    advanced: true,
-  },
-];
-
-const nvidia: Setting[] = [
-  {
-    key: 'nvenc_preset',
-    label: 'Preset',
-    description:
-      'Higher presets compress better at the same bitrate but take longer to encode each frame. Raise it only when the network or the device limits the bitrate.',
-    category: 'encoders',
-    group: 'NVIDIA NVENC',
-    control: {
-      kind: 'select',
-      options: [
-        { value: '1', label: 'P1 (fastest)' },
-        { value: '2', label: 'P2' },
-        { value: '3', label: 'P3' },
-        { value: '4', label: 'P4' },
-        { value: '5', label: 'P5' },
-        { value: '6', label: 'P6' },
-        { value: '7', label: 'P7 (slowest)' },
-      ],
-    },
-    default: 1,
-    inactiveHint: "Applies to NVIDIA NVENC streams, including when Automatic selects NVENC. Shown when an NVENC encoder is selected, or with Automatic when this PC has an NVIDIA GPU.",
-    visibleWhen: nvenc,
-  },
-  {
-    key: 'nvenc_twopass',
-    label: 'Multi-pass encoding',
-    description:
-      'A first pass over each frame spreads bits better and keeps frames within the bitrate. Turning it off can cause bitrate spikes and packet loss.',
-    category: 'encoders',
-    group: 'NVIDIA NVENC',
-    control: {
-      kind: 'select',
-      options: [
-        { value: 'disabled', label: 'Off' },
-        { value: 'quarter_res', label: 'Quarter resolution' },
-        { value: 'full_res', label: 'Full resolution' },
-      ],
-    },
-    default: 'quarter_res',
-    inactiveHint: "Applies to NVIDIA NVENC streams, including when Automatic selects NVENC. Shown when an NVENC encoder is selected, or with Automatic when this PC has an NVIDIA GPU.",
-    visibleWhen: nvenc,
-  },
-  {
-    key: 'nvenc_spatial_aq',
-    label: 'Spatial adaptive quantization',
-    description:
-      'Gives flat areas of the picture fewer bits and detailed areas more. Can help at low bitrates.',
-    category: 'encoders',
-    group: 'NVIDIA NVENC',
-    control: { kind: 'toggle' },
-    default: false,
-    inactiveHint: "Applies to NVIDIA NVENC streams, including when Automatic selects NVENC. Shown when an NVENC encoder is selected, or with Automatic when this PC has an NVIDIA GPU.",
-    visibleWhen: nvenc,
-  },
-  {
-    key: 'nvenc_temporal_aq',
-    label: 'Temporal adaptive quantization',
-    description:
-      'Spends more bits on parts of the picture that stay the same across frames. Ignored on GPUs that do not support it.',
-    category: 'encoders',
-    group: 'NVIDIA NVENC',
-    control: { kind: 'toggle' },
-    default: false,
-    inactiveHint: "Applies to NVIDIA NVENC streams, including when Automatic selects NVENC. Shown when an NVENC encoder is selected, or with Automatic when this PC has an NVIDIA GPU.",
-    visibleWhen: nvenc,
-  },
-  {
-    key: 'nvenc_vbv_increase',
-    label: 'Frame size headroom',
-    description:
-      'Lets a single frame exceed the average frame size by this much. Helps busy scenes but can cause packet loss.',
-    details:
-      'Packet loss is a risk on networks without buffer headroom. 400 allows frames five times the average.',
-    category: 'encoders',
-    group: 'NVIDIA NVENC',
-    control: { kind: 'number', min: 0, max: 400, step: 1, unit: '%' },
-    default: 0,
-    inactiveHint: "Applies to NVIDIA NVENC streams, including when Automatic selects NVENC. Shown when an NVENC encoder is selected, or with Automatic when this PC has an NVIDIA GPU.",
-    visibleWhen: nvenc,
-  },
-  {
-    key: 'nvenc_h264_cavlc',
-    label: 'Use CAVLC for H.264',
-    description:
-      'Uses the simpler CAVLC entropy coding instead of CABAC. It needs about 10% more bitrate for the same quality and only very old decoders need it.',
-    category: 'encoders',
-    group: 'NVIDIA NVENC',
-    control: { kind: 'toggle' },
-    default: false,
-    inactiveHint: "Applies to NVIDIA NVENC streams, including when Automatic selects NVENC. Shown when an NVENC encoder is selected, or with Automatic when this PC has an NVIDIA GPU.",
-    visibleWhen: nvenc,
-  },
-  {
-    key: 'nvenc_split_encode',
-    label: 'Split-frame encoding',
-    description:
-      'Splits each HEVC or AV1 frame across several encoder engines on GPUs that have them. Automatic lets the driver decide, which it usually does at 4K and above.',
-    category: 'encoders',
-    group: 'NVIDIA NVENC',
-    control: {
-      kind: 'select',
-      options: [
-        { value: 'auto', label: 'Automatic' },
-        { value: 'enabled', label: 'On' },
-        { value: 'disabled', label: 'Off' },
-      ],
-    },
-    // nvenc.rs: Vibepollo's nvenc_force_split_encode values and the fallback console's forced.
-    aliases: { spellings: { true: 'enabled', forced: 'enabled', false: 'disabled', driver_decides: 'auto' } },
-    default: 'auto',
-    inactiveHint: "Applies to NVIDIA NVENC streams, including when Automatic selects NVENC. Shown when an NVENC encoder is selected, or with Automatic when this PC has an NVIDIA GPU.",
-    visibleWhen: nvenc,
-  },
-  {
-    key: 'nvenc_realtime_hags',
-    label: 'Real-time graphics priority',
-    description:
-      'On NVIDIA GPUs with Windows GPU scheduling (HAGS) on, gives the host real-time GPU priority. Turn off if the encoder freezes when video memory is nearly full.',
-    details:
-      'Applies whenever an NVIDIA GPU captures the stream, whatever the encoder. HAGS is hardware-accelerated GPU scheduling, a Windows setting. When this setting is off, the host uses high priority instead.',
-    category: 'encoders',
-    // Not tied to the NVENC encoder: gpu_priority.rs checks the capture GPU's vendor.
-    group: 'NVIDIA driver',
-    control: { kind: 'toggle' },
-    default: true,
-    advanced: true,
-  },
-  {
-    key: 'nvenc_latency_over_power',
-    label: 'Prefer latency over power saving',
-    description:
-      'Sets the NVIDIA driver to prefer maximum performance for the host while streaming, so power saving does not slow encoding.',
-    details:
-      'Applies on every stream while an NVIDIA driver is installed, whatever the encoder. The driver setting is restored after the last stream.',
-    category: 'encoders',
-    // limiter.rs applies the driver preferences on every stream.
-    group: 'NVIDIA driver',
-    control: { kind: 'toggle' },
-    default: true,
-    advanced: true,
-  },
-  {
-    key: 'nvenc_opengl_vulkan_on_dxgi',
-    label: 'Present OpenGL and Vulkan through DXGI',
-    description:
-      'Sets the NVIDIA driver to present OpenGL and Vulkan games through DXGI while streaming, so full-screen games can be captured at full frame rate.',
-    details:
-      'Applies on every stream while an NVIDIA driver is installed, whatever the encoder. The driver setting is restored after the last stream.',
-    category: 'encoders',
-    group: 'NVIDIA driver',
-    control: { kind: 'toggle' },
-    default: true,
-    advanced: true,
-  },
-  {
-    key: 'nvenc_weighted_prediction',
-    label: 'Weighted prediction',
-    description:
-      'Improves quality during fades and brightness changes on GPUs that support it, but turns off split-frame encoding for HEVC. Not used by NVENC (FFmpeg).',
-    category: 'encoders',
-    group: 'NVIDIA NVENC',
-    control: { kind: 'toggle' },
-    default: false,
-    inactiveHint: "Applies to NVIDIA NVENC streams, including when Automatic selects NVENC. Shown when an NVENC encoder is selected, or with Automatic when this PC has an NVIDIA GPU.",
-    visibleWhen: nvenc,
-    advanced: true,
-  },
-  {
-    key: 'nvenc_enable_min_qp',
-    label: 'Minimum quantizer',
-    description:
-      'Stops the encoder from spending bits beyond a set quality level on easy scenes, leaving headroom for hard ones. Not used by NVENC (FFmpeg).',
-    category: 'encoders',
-    group: 'NVIDIA NVENC',
-    control: { kind: 'toggle' },
-    default: false,
-    inactiveHint: "Applies to NVIDIA NVENC streams, including when Automatic selects NVENC. Shown when an NVENC encoder is selected, or with Automatic when this PC has an NVIDIA GPU.",
-    visibleWhen: nvenc,
-    advanced: true,
-  },
-  {
-    key: 'nvenc_min_qp_h264',
-    label: 'Minimum QP for H.264',
-    description: 'The lowest quantization parameter (QP), which controls compression, for H.264 frames. Higher values cap quality sooner.',
-    category: 'encoders',
-    group: 'NVIDIA NVENC',
-    control: { kind: 'number', min: 0, max: 51, step: 1 },
-    default: 19,
-    inactiveHint: "Applies to NVENC streams when Minimum quantizer is enabled, including when Automatic selects NVENC.",
-    visibleWhen: (values) => nvenc(values) && flag(values, 'nvenc_enable_min_qp', false),
-    advanced: true,
-  },
-  {
-    key: 'nvenc_min_qp_hevc',
-    label: 'Minimum QP for HEVC',
-    description: 'The lowest quantization parameter (QP), which controls compression, for HEVC frames. Higher values cap quality sooner.',
-    category: 'encoders',
-    group: 'NVIDIA NVENC',
-    control: { kind: 'number', min: 0, max: 51, step: 1 },
-    default: 23,
-    inactiveHint: "Applies to NVENC streams when Minimum quantizer is enabled, including when Automatic selects NVENC.",
-    visibleWhen: (values) => nvenc(values) && flag(values, 'nvenc_enable_min_qp', false),
-    advanced: true,
-  },
-  {
-    key: 'nvenc_min_qp_av1',
-    label: 'Minimum QP for AV1',
-    description: 'The lowest quantization parameter (QP), which controls compression, for AV1 frames, from 0 to 255. Higher values cap quality sooner.',
-    category: 'encoders',
-    group: 'NVIDIA NVENC',
-    control: { kind: 'number', min: 0, max: 255, step: 1 },
-    default: 23,
-    inactiveHint: "Applies to NVENC streams when Minimum quantizer is enabled, including when Automatic selects NVENC.",
-    visibleWhen: (values) => nvenc(values) && flag(values, 'nvenc_enable_min_qp', false),
-    advanced: true,
-  },
-  {
-    key: 'nvenc_insert_filler_data',
-    label: 'Insert filler data',
-    description:
-      'Pads frames so the stream holds a constant bitrate even when the picture is simple, which uses more bandwidth. Not used by NVENC (FFmpeg).',
-    category: 'encoders',
-    group: 'NVIDIA NVENC',
-    control: { kind: 'toggle' },
-    default: false,
-    inactiveHint: "Applies to NVIDIA NVENC streams, including when Automatic selects NVENC. Shown when an NVENC encoder is selected, or with Automatic when this PC has an NVIDIA GPU.",
-    visibleWhen: nvenc,
     advanced: true,
   },
 ];
@@ -729,7 +459,7 @@ const switchWords: Aliases = {
     off: 'disabled',
   },
 };
-/** encoder_policy.rs: FFmpeg's names for the entropy coders. */
+/** encoder_policy.rs: alternative names for the entropy coders. */
 const coderWords: Aliases = { spellings: { ac: 'cabac', vlc: 'cavlc' } };
 
 const amd: Setting[] = [
@@ -753,8 +483,6 @@ const amd: Setting[] = [
       ],
     },
     default: 'ultralowlatency',
-    inactiveHint: "Applies to AMD AMF streams, including when Automatic selects AMF. Shown when AMD AMF is selected, or with Automatic when this PC has an AMD GPU.",
-    visibleWhen: amf,
   },
   {
     key: 'amd_quality',
@@ -773,8 +501,6 @@ const amd: Setting[] = [
       ],
     },
     default: 'speed',
-    inactiveHint: "Applies to AMD AMF streams, including when Automatic selects AMF. Shown when AMD AMF is selected, or with Automatic when this PC has an AMD GPU.",
-    visibleWhen: amf,
   },
   {
     key: 'amd_rc',
@@ -799,8 +525,6 @@ const amd: Setting[] = [
       ],
     },
     default: 'vbr_latency',
-    inactiveHint: "Applies to AMD AMF streams, including when Automatic selects AMF. Shown when AMD AMF is selected, or with Automatic when this PC has an AMD GPU.",
-    visibleWhen: amf,
   },
   {
     key: 'amd_peak_bitrate_ratio',
@@ -820,8 +544,6 @@ const amd: Setting[] = [
       ],
     },
     default: 0,
-    inactiveHint: "Applies to AMD AMF streams, including when Automatic selects AMF. Shown when AMD AMF is selected, or with Automatic when this PC has an AMD GPU.",
-    visibleWhen: amf,
     advanced: true,
   },
   {
@@ -842,8 +564,6 @@ const amd: Setting[] = [
       ],
     },
     default: 0,
-    inactiveHint: "Applies to AMD AMF streams, including when Automatic selects AMF. Shown when AMD AMF is selected, or with Automatic when this PC has an AMD GPU.",
-    visibleWhen: amf,
     advanced: true,
   },
   {
@@ -866,8 +586,6 @@ const amd: Setting[] = [
       ],
     },
     default: 0,
-    inactiveHint: "Applies to AMD AMF streams, including when Automatic selects AMF. Shown when AMD AMF is selected, or with Automatic when this PC has an AMD GPU.",
-    visibleWhen: amf,
     advanced: true,
   },
   {
@@ -879,8 +597,8 @@ const amd: Setting[] = [
     group: 'AMD AMF',
     control: { kind: 'number', min: 0, max: 51, step: 1 },
     default: 0,
-    inactiveHint: "Applies to AMD AMF with Rate control set to Quality VBR. HDR streams use peak-constrained VBR instead.",
-    visibleWhen: (values) => amf(values) && read(values, 'amd_rc', 'vbr_latency') === 'qvbr',
+    inactiveHint: "Applies with Rate control set to Quality VBR. HDR streams use peak-constrained VBR instead.",
+    visibleWhen: (values) => read(values, 'amd_rc', 'vbr_latency') === 'qvbr',
   },
   {
     key: 'amd_preanalysis',
@@ -891,8 +609,6 @@ const amd: Setting[] = [
     group: 'AMD AMF',
     control: { kind: 'toggle' },
     default: false,
-    inactiveHint: "Applies to AMD AMF streams, including when Automatic selects AMF. Shown when AMD AMF is selected, or with Automatic when this PC has an AMD GPU.",
-    visibleWhen: amf,
   },
   {
     key: 'amd_vbaq',
@@ -908,8 +624,6 @@ const amd: Setting[] = [
     },
     aliases: switchWords,
     default: '',
-    inactiveHint: "Applies to AMD AMF streams, including when Automatic selects AMF. Shown when AMD AMF is selected, or with Automatic when this PC has an AMD GPU.",
-    visibleWhen: amf,
   },
   {
     key: 'amd_enforce_hrd',
@@ -920,8 +634,6 @@ const amd: Setting[] = [
     group: 'AMD AMF',
     control: { kind: 'toggle' },
     default: false,
-    inactiveHint: "Applies to AMD AMF streams, including when Automatic selects AMF. Shown when AMD AMF is selected, or with Automatic when this PC has an AMD GPU.",
-    visibleWhen: amf,
   },
   {
     key: 'amd_coder',
@@ -939,8 +651,6 @@ const amd: Setting[] = [
     },
     aliases: coderWords,
     default: 'auto',
-    inactiveHint: "Applies to AMD AMF streams, including when Automatic selects AMF. Shown when AMD AMF is selected, or with Automatic when this PC has an AMD GPU.",
-    visibleWhen: amf,
   },
   {
     key: 'amd_input_queue_size',
@@ -953,8 +663,6 @@ const amd: Setting[] = [
     group: 'AMD AMF',
     control: { kind: 'number', min: 0, max: 32, step: 1, unit: 'frames' },
     default: 0,
-    inactiveHint: "Applies to AMD AMF streams, including when Automatic selects AMF. Shown when AMD AMF is selected, or with Automatic when this PC has an AMD GPU.",
-    visibleWhen: amf,
   },
   {
     key: 'amd_ltr_frames',
@@ -966,8 +674,6 @@ const amd: Setting[] = [
     group: 'AMD AMF',
     control: { kind: 'number', min: 0, max: 4, step: 1, unit: 'frames' },
     default: 4,
-    inactiveHint: "Applies to AMD AMF streams, including when Automatic selects AMF. Shown when AMD AMF is selected, or with Automatic when this PC has an AMD GPU.",
-    visibleWhen: amf,
   },
   {
     key: 'amd_lowlatency_mode',
@@ -981,8 +687,6 @@ const amd: Setting[] = [
     control: { kind: 'select', options: tristate },
     aliases: switchWords,
     default: 'auto',
-    inactiveHint: "Applies to AMD AMF streams, including when Automatic selects AMF. Shown when AMD AMF is selected, or with Automatic when this PC has an AMD GPU.",
-    visibleWhen: amf,
   },
   {
     key: 'amd_high_motion_quality_boost',
@@ -993,8 +697,6 @@ const amd: Setting[] = [
     control: { kind: 'select', options: tristate },
     aliases: switchWords,
     default: 'auto',
-    inactiveHint: "Applies to AMD AMF streams, including when Automatic selects AMF. Shown when AMD AMF is selected, or with Automatic when this PC has an AMD GPU.",
-    visibleWhen: amf,
   },
   {
     key: 'amd_smart_access_video',
@@ -1006,8 +708,6 @@ const amd: Setting[] = [
     control: { kind: 'select', options: tristate },
     aliases: switchWords,
     default: 'auto',
-    inactiveHint: "Applies to AMD AMF streams, including when Automatic selects AMF. Shown when AMD AMF is selected, or with Automatic when this PC has an AMD GPU.",
-    visibleWhen: amf,
   },
   {
     key: 'amd_split_frame',
@@ -1028,8 +728,6 @@ const amd: Setting[] = [
     },
     aliases: switchWords,
     default: 'auto',
-    inactiveHint: "Applies to AMD AMF streams, including when Automatic selects AMF. Shown when AMD AMF is selected, or with Automatic when this PC has an AMD GPU.",
-    visibleWhen: amf,
   },
   {
     key: 'amd_av1_latency_mode',
@@ -1051,8 +749,6 @@ const amd: Setting[] = [
       ],
     },
     default: 'auto',
-    inactiveHint: "Applies to AMD AMF streams, including when Automatic selects AMF. Shown when AMD AMF is selected, or with Automatic when this PC has an AMD GPU.",
-    visibleWhen: amf,
   },
   {
     key: 'amd_av1_screen_content',
@@ -1064,8 +760,6 @@ const amd: Setting[] = [
     control: { kind: 'select', options: tristate },
     aliases: switchWords,
     default: 'auto',
-    inactiveHint: "Applies to AMD AMF streams, including when Automatic selects AMF. Shown when AMD AMF is selected, or with Automatic when this PC has an AMD GPU.",
-    visibleWhen: amf,
   },
   {
     key: 'amd_av1_tiles',
@@ -1083,129 +777,8 @@ const amd: Setting[] = [
       ],
     },
     default: 0,
-    inactiveHint: "Applies to AMD AMF streams, including when Automatic selects AMF. Shown when AMD AMF is selected, or with Automatic when this PC has an AMD GPU.",
-    visibleWhen: amf,
     advanced: true,
   },
 ];
 
-const intel: Setting[] = [
-  {
-    key: 'qsv_preset',
-    label: 'Preset',
-    description:
-      'Slower presets give better quality at the same bitrate and take longer to encode each frame.',
-    category: 'encoders',
-    group: 'Intel Quick Sync',
-    control: {
-      kind: 'select',
-      options: [
-        { value: 'veryfast', label: 'Very fast' },
-        { value: 'faster', label: 'Faster' },
-        { value: 'fast', label: 'Fast' },
-        { value: 'medium', label: 'Medium' },
-        { value: 'slow', label: 'Slow' },
-        { value: 'slower', label: 'Slower' },
-        { value: 'veryslow', label: 'Very slow' },
-      ],
-    },
-    default: 'medium',
-    inactiveHint: "Applies to Intel Quick Sync streams, including automatic hardware fallback. Select Intel Quick Sync to show this group outside search.",
-    visibleWhen: qsv,
-  },
-  {
-    key: 'qsv_coder',
-    label: 'H.264 entropy coding',
-    description: 'CABAC gives better quality per bit; CAVLC is simpler to decode. H.264 only.',
-    category: 'encoders',
-    group: 'Intel Quick Sync',
-    control: {
-      kind: 'select',
-      options: [
-        { value: 'auto', label: 'Automatic' },
-        { value: 'cabac', label: 'CABAC' },
-        { value: 'cavlc', label: 'CAVLC' },
-      ],
-    },
-    aliases: coderWords,
-    default: 'auto',
-    inactiveHint: "Applies to Intel Quick Sync streams, including automatic hardware fallback. Select Intel Quick Sync to show this group outside search.",
-    visibleWhen: qsv,
-  },
-  {
-    key: 'qsv_slow_hevc',
-    label: 'Allow slow HEVC encoding',
-    description:
-      'Uses the general-purpose HEVC encoder instead of the low-power one. This enables HEVC on older Intel GPUs at the cost of higher GPU load.',
-    category: 'encoders',
-    group: 'Intel Quick Sync',
-    control: { kind: 'toggle' },
-    default: false,
-    inactiveHint: "Applies to Intel Quick Sync streams, including automatic hardware fallback. Select Intel Quick Sync to show this group outside search.",
-    visibleWhen: qsv,
-  },
-];
-
-const cpu: Setting[] = [
-  {
-    key: 'sw_preset',
-    label: 'Preset',
-    description:
-      'Faster presets use less CPU; slower ones give better quality at the same bitrate. Applies to H.264, HEVC and AV1.',
-    category: 'encoders',
-    group: 'Software',
-    control: {
-      kind: 'select',
-      options: [
-        { value: 'ultrafast', label: 'Ultra fast' },
-        { value: 'superfast', label: 'Super fast' },
-        { value: 'veryfast', label: 'Very fast' },
-        { value: 'faster', label: 'Faster' },
-        { value: 'fast', label: 'Fast' },
-        { value: 'medium', label: 'Medium' },
-        { value: 'slow', label: 'Slow' },
-        { value: 'slower', label: 'Slower' },
-        { value: 'veryslow', label: 'Very slow' },
-      ],
-    },
-    default: 'superfast',
-    inactiveHint: "Choose Software under Encoder to use this setting. Automatic never selects software encoding.",
-    visibleWhen: software,
-  },
-  {
-    key: 'sw_tune',
-    label: 'Tuning',
-    description:
-      'Adjusts the H.264 and HEVC encoders for a kind of content. Zero latency suits streaming; film and still image work with H.264 only.',
-    category: 'encoders',
-    group: 'Software',
-    control: {
-      kind: 'select',
-      options: [
-        { value: 'zerolatency', label: 'Zero latency' },
-        { value: 'film', label: 'Film' },
-        { value: 'animation', label: 'Animation' },
-        { value: 'grain', label: 'Grain' },
-        { value: 'stillimage', label: 'Still image' },
-        { value: 'fastdecode', label: 'Fast decode' },
-      ],
-    },
-    default: 'zerolatency',
-    inactiveHint: "Choose Software under Encoder to use this setting. Automatic never selects software encoding.",
-    visibleWhen: software,
-  },
-  {
-    key: 'min_threads',
-    label: 'CPU threads',
-    description:
-      'Threads the software encoder uses. More threads cost a little compression efficiency; use the lowest number that keeps up with your stream.',
-    category: 'encoders',
-    group: 'Software',
-    control: { kind: 'number', min: 1, max: 64, step: 1 },
-    default: 2,
-    inactiveHint: "Choose Software under Encoder to use this setting. Automatic never selects software encoding.",
-    visibleWhen: software,
-  },
-];
-
-export const settings: Setting[] = [...video, ...encoders, ...nvidia, ...amd, ...intel, ...cpu];
+export const settings: Setting[] = [...video, ...encoders, ...amd];

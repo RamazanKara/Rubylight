@@ -36,10 +36,6 @@
   const timing = (value: number) => (measured ? ms(value) : '–');
   const encoders: Record<string, string> = {
     amf: 'AMD AMF',
-    nvenc: 'NVIDIA NVENC',
-    nvenc_legacy: 'NVIDIA NVENC (FFmpeg)',
-    qsv: 'Intel Quick Sync',
-    software: 'Software',
     pyrowave: 'PyroWave',
   };
 </script>

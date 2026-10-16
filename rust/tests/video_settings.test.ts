@@ -2,27 +2,32 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { settings } from '../web/src/lib/schema/video.ts';
 
-const presets = ['amd_quality', 'nvenc_preset', 'qsv_preset', 'sw_preset'];
-const visiblePresets = (encoder?: string) =>
-  settings.filter((setting) =>
-    presets.includes(setting.key) && setting.visibleWhen?.(encoder === undefined ? {} : { encoder }))
-    .map((setting) => setting.key);
+const amd = settings.filter((setting) => setting.group === 'AMD AMF');
+const visible = (setting: (typeof settings)[number], encoder?: string) =>
+  setting.visibleWhen?.(encoder === undefined ? {} : { encoder }) ?? true;
 
-test('automatic selection does not imply that a vendor encoder is active', () => {
-  for (const encoder of [undefined, '', 'auto', 'pyrowave', 'mediafoundation']) {
-    assert.deepEqual(visiblePresets(encoder), []);
+test('AMD AMF settings are shown whatever the encoder setting is', () => {
+  const quality = amd.find((setting) => setting.key === 'amd_quality');
+  assert.ok(quality);
+  for (const encoder of [undefined, '', 'auto', 'pyrowave', 'amf', 'amdvce', 'amdvce_experimental', 'amdvce_ffmpeg', 'amdvce_legacy']) {
+    assert.equal(visible(quality, encoder), true, `encoder ${encoder}`);
   }
 });
 
-test('explicit and imported encoder selections show their own settings', () => {
-  for (const encoder of ['amf', 'amdvce', 'amdvce_experimental', 'amdvce_ffmpeg', 'amdvce_legacy']) {
-    assert.deepEqual(visiblePresets(encoder), ['amd_quality']);
-  }
-  for (const encoder of ['nvenc', 'nvenc_legacy', 'nvenc_experimental']) {
-    assert.deepEqual(visiblePresets(encoder), ['nvenc_preset']);
-  }
-  for (const encoder of ['qsv', 'quicksync']) {
-    assert.deepEqual(visiblePresets(encoder), ['qsv_preset']);
-  }
-  assert.deepEqual(visiblePresets('software'), ['sw_preset']);
+test('the encoder setting offers only Automatic, AMD AMF and PyroWave', () => {
+  const encoder = settings.find((setting) => setting.key === 'encoder');
+  assert.ok(encoder && encoder.control.kind === 'select');
+  assert.deepEqual(encoder.control.options.map((option) => option.value), ['auto', 'amf', 'pyrowave']);
+  assert.deepEqual(encoder.aliases?.spellings, {
+    amdvce: 'amf',
+    amdvce_experimental: 'amf',
+    amdvce_ffmpeg: 'amf',
+    amdvce_legacy: 'amf',
+  });
+});
+
+test('no settings remain for the removed encoders', () => {
+  const removed = /^(nvenc_|qsv_|sw_)|^(min_threads|crf|qp)$/;
+  assert.deepEqual(settings.filter((setting) => removed.test(setting.key)).map((setting) => setting.key), []);
+  assert.deepEqual([...new Set(settings.filter((setting) => setting.category === 'encoders').map((setting) => setting.group))].sort(), ['AMD AMF', 'Encoder']);
 });

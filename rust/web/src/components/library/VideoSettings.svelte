@@ -9,12 +9,7 @@
   const uid = $props.id();
 
   const GENERATION: Choice[] = [
-    { value: 'game-provided', label: 'Provided by the game', hint: 'The game adds generated frames, e.g. DLSS or FSR.' },
-    {
-      value: 'nvidia-smooth-motion',
-      label: 'NVIDIA Smooth Motion',
-      hint: 'The NVIDIA driver adds generated frames.',
-    },
+    { value: 'game-provided', label: 'Provided by the game', hint: 'The game adds generated frames, e.g. FSR frame generation.' },
     {
       value: 'lossless-scaling',
       label: 'Lossless Scaling',

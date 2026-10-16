@@ -1,10 +1,14 @@
-# Rubylight 2.4.4 for Windows
+# Rubylight 2.4.5 for Windows
 
 [Documentation](../docs/README.md) · [Install and migrate](../docs/getting-started.md) · [Configuration](../docs/configuration.md) · [Features](../docs/features.md)
 
-**Release history:** [2.4.4](#new-in-244) · [2.4.3](#new-in-243) · [2.4.2](#new-in-242) · [2.4.1](#new-in-241) · [2.4.0](#new-in-240) · [2.3.1](#new-in-231) · [2.3.0](#new-in-230) · [2.2.2 – 2.2.21](#new-in-2221) · [2.2.1](#new-in-221) · [2.2.0](#new-in-220) · [2.1.0](#new-in-210) · [2.0.x](#new-in-201) · [release candidates](#new-in-rc30)
+**Release history:** [2.4.5](#new-in-245) · [2.4.4](#new-in-244) · [2.4.3](#new-in-243) · [2.4.2](#new-in-242) · [2.4.1](#new-in-241) · [2.4.0](#new-in-240) · [2.3.1](#new-in-231) · [2.3.0](#new-in-230) · [2.2.2 – 2.2.21](#new-in-2221) · [2.2.1](#new-in-221) · [2.2.0](#new-in-220) · [2.1.0](#new-in-210) · [2.0.x](#new-in-201) · [release candidates](#new-in-rc30)
 
-Rubylight, called Butterpollo until rc.29, is written in Rust: host, native helpers, service and setup, with a Svelte web console. The 2.4.4 installer is named `rubylight-setup-2.4.4.exe` and upgrades an existing Vibepollo or Butterpollo installation in place, keeping settings, paired devices, the app library and covers. Codec SDKs and Windows drivers remain external components; the setup installs the drivers.
+Rubylight, called Butterpollo until rc.29, is written in Rust: host, native helpers, service and setup, with a Svelte web console. The 2.4.5 installer is named `rubylight-setup-2.4.5.exe` and upgrades an existing Vibepollo or Butterpollo installation in place, keeping settings, paired devices, the app library and covers. Codec SDKs and Windows drivers remain external components; the setup installs the drivers.
+
+## New in 2.4.5
+
+- **Nonary's Moonlight can calibrate PyroWave against Rubylight.** Its calibration measures the fastest total rate, and the fastest frame pace, your network carries without loss, using the UDP probe added in 2.4.4. It needs the host to treat that rate as a total on the wire, as Vibeshine does, which Rubylight now does. A PyroWave bitrate is now the stream's whole budget: audio with its parity and 500 kbps for control come off it. With record framing (Nonary's Moonlight, Nightjar, Aurora), each picture gets what fits after packet overhead and one block of critical FEC. **The picture gets about 15–20% less than the bitrate you set**, and the stream no longer goes over that bitrate on the wire. Raise the client's bitrate if your network has room.
 
 ## New in 2.4.4
 

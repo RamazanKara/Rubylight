@@ -4,8 +4,7 @@
 [punktfunk](https://github.com/unom/punktfunk)'s `pf-vdisplay` by Enrico Bühler (unom),
 MIT OR Apache-2.0 (see `LICENSE-MIT`, `LICENSE-APACHE`). It creates virtual monitors on the
 Rubylight host's request and pushes every frame Windows composes for them to the host
-through shared GPU textures, so the host converts and encodes them without WGC or Desktop
-Duplication.
+through shared GPU textures, which the host converts and encodes directly.
 
 It is the host's only virtual display driver: every display the host creates for a stream
 comes from it, and the host reads those displays through its frame push. Setup installs it
@@ -145,10 +144,10 @@ pnputil /enum-devices /deviceid "Root\RubylightVDisplay" /drivers
 ```
 
 `pnputil` has no command that creates a root-enumerated device, so `devcon install` creates
-the `Root\RubylightVDisplay` devnode and binds the driver. The host needs no setting:
-`capture = auto` (the default) uses the frame push for the displays it creates, and an
-explicit `capture = wgc` or `ddx` keeps those. A failed frame push falls back to WGC with a
-console warning.
+the `Root\RubylightVDisplay` devnode and binds the driver. The host needs no setting: it
+captures every display it creates through the frame push, and has no other capture method.
+A stream whose frame push cannot open fails to start with the reason; one that loses it
+mid-stream (device loss, a display recreated) reopens it on the new device.
 
 If the device shows code 31, enable the UMDF log
 (`wevtutil sl Microsoft-Windows-DriverFrameworks-UserMode/Operational /e:true`), restart the

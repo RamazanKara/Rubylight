@@ -593,7 +593,7 @@ async fn settings(
     let mut content =
         "<p class=\"intro\">Choose the capture, encoder, display, and sound for your stream.</p>"
             .to_owned();
-    content += "<p class=\"muted\">Automatic chooses an encoder when the stream starts: AMF on AMD GPUs or NVENC on NVIDIA GPUs. If that encoder cannot start, it uses another hardware encoder when one works and shows a warning on the stream card; it never falls back to software. Software encoding requires selecting Software explicitly. Encoder settings below apply only when that encoder is used. The stream card and log show the encoder actually used.</p>";
+    content += "<p class=\"muted\">Automatic encodes H.264, HEVC and AV1 with AMF, the AMD GPU's encoder, and PyroWave streams with PyroWave's own encoder. If AMF cannot start, the stream fails with AMF's error in the log; there is no other encoder to fall back to.</p>";
     let editor = field(
         "sunshine_name",
         "Host name",
@@ -609,9 +609,6 @@ async fn settings(
         &[
             ("auto", "Automatic"),
             ("amf", "AMD AMF"),
-            ("nvenc", "NVIDIA NVENC"),
-            ("qsv", "Intel Quick Sync"),
-            ("software", "Software"),
             ("pyrowave", "PyroWave"),
         ],
     ) + &select(

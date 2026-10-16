@@ -87,9 +87,6 @@ test('spellings the host reads as an option show as that option', () => {
     ['encoder', 'amdvce_experimental', 'amf'],
     ['encoder', 'amdvce_ffmpeg', 'amf'],
     ['encoder', 'amdvce_legacy', 'amf'],
-    ['capture', 'dxgi', 'ddx'],
-    ['capture', 'WGCC', 'wgc'],
-    ['capture', 'DDX', 'ddx'],
     ['frame_pacing', 'fixed', 'grid'],
     ['virtual_display_layout', 'Extended-Primary', 'extended_primary'],
     ['virtual_display_layout', 'ensure_only_display', 'exclusive'],
@@ -225,13 +222,13 @@ test('empty mode substitutions read as none, not a built-in configuration', () =
   assert.equal(describeDefault(settings.get('dd_mode_remapping')).text, 'None');
 });
 
-test('an unset virtual display mode keeps the OS-dependent default without hiding an explicit per-device choice', () => {
+test('an unset virtual display mode keeps the automatic default without hiding an explicit per-device choice', () => {
   const key = 'virtual_display_mode';
   const setting = settings.get(key);
   assert.equal(effective(setting, {}, {}), '');
-  assert.equal(describeDefault(setting).text, 'Automatic (Windows default)');
+  assert.equal(describeDefault(setting).text, 'Automatic (one for each device)');
   assert.deepEqual(computeChanges(settings, { [key]: 'per_client' }, {}), { [key]: 'per_client' });
-  assert.deepEqual(computeChanges(settings, { [key]: '' }, { [key]: 'disabled' }), { [key]: null });
+  assert.deepEqual(computeChanges(settings, { [key]: '' }, { [key]: 'shared' }), { [key]: null });
 });
 
 test('library counts and time limits reject fractions instead of saving values the host would ignore', () => {

@@ -21,7 +21,6 @@ const gpu = (name) => ({ name, vendor: name === intel ? 0x8086 : 0x1002, dedicat
 const metadata = {
   gpus: [gpu(intel), gpu(radeon)], gpu_error: null,
   encoder_status: { state: 'failed', h264: false, hevc: false, av1: false, pyrowave: false },
-  capture_status: { displays: [{ display_name: 'DISPLAY1', adapter: intel }], error: null },
 };
 function graphicsControl(changes = {}, value = '') {
   session.metadata = { ...metadata, ...changes };
@@ -40,13 +39,7 @@ test('graphics card choices include a hybrid render-only GPU even when encoder p
   assert.match(html, />Automatic<\/option>/);
 });
 
-test('graphics card inventory remains available when display enumeration fails', () => {
-  const html = graphicsControl({ capture_status: { displays: null, error: 'Display query failed' } });
-  assert.match(html, /value="AMD Radeon R7 M370"/);
-  assert.doesNotMatch(html, /Could not list displays/);
-});
-
-test('GPU enumeration failures are shown independently of connected displays', () => {
+test('GPU enumeration failures are shown', () => {
   const html = graphicsControl({ gpus: null, gpu_error: 'GPU query failed' });
   assert.match(html, /Could not list graphics cards: GPU query failed/);
   assert.doesNotMatch(html, /value="Intel\(R\) HD Graphics 530"/);

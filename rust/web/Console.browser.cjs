@@ -30,8 +30,7 @@ async function fixture(t, options = {}) {
     version: '2.2.2', host_name: 'Fixture host', pc_address: '127.0.0.1', pc_addresses: [],
     paired_devices: 1, enable_pairing: options.pairing !== false, warnings: [],
     encoder_status: { state: 'ready', h264: true },
-    capture_status: { displays: [], virtual_display_configured: false },
-    virtual_display: { capable: false, ready: false }, audio_enabled: false, features: {},
+    virtual_display: { capable: true, ready: true, reason: '', protocol: 'idd-push' }, audio_enabled: false, features: {},
   };
   page.on('pageerror', error => errors.push(error.message));
   t.after(async () => { await page.close(); assert.deepEqual(errors, []); });

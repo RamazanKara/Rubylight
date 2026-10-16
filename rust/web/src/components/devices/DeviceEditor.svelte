@@ -4,7 +4,7 @@
   import Field from '../Field.svelte';
   import Toggle from '../Toggle.svelte';
   import CommandList from './CommandList.svelte';
-  import { api, PERM_ALL, type Client, type DisplayDevice } from '../../lib/api';
+  import { api, PERM_ALL, type Client } from '../../lib/api';
   import { failed, notify } from '../../lib/feedback.svelte';
   import {
     changes,
@@ -51,21 +51,12 @@
     });
   });
 
-  let displays = $state<DisplayDevice[] | null>(null);
-  let displaysError = $state('');
   let profiles = $state<string[] | null>(null);
   let profilesError = $state('');
 
   const reason = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
   onMount(() => {
-    api.displays
-      .devices()
-      .then((list) => (displays = list))
-      .catch((error: unknown) => {
-        displays = [];
-        displaysError = `Could not list displays: ${reason(error)}`;
-      });
     api.clients
       .hdrProfiles()
       .then((result) => (profiles = result.profiles.map((profile) => profile.filename)))
@@ -73,25 +64,6 @@
         profiles = [];
         profilesError = `Could not list color profiles: ${reason(error)}`;
       });
-  });
-
-  const displayOptions = $derived.by(() => {
-    const current = draft.output_name_override;
-    const options: { value: string; label: string }[] = [];
-    for (const display of displays ?? []) {
-      // The host matches the override against the device id or the display name.
-      const isCurrent =
-        current !== '' &&
-        [display.device_id, display.display_name].some((value) => value.toLowerCase() === current.toLowerCase());
-      const value = isCurrent ? current : display.device_id || display.display_name;
-      if (!value || options.some((option) => option.value === value)) continue;
-      const name = display.friendly_name || `Display ${options.length + 1}`;
-      options.push({ value, label: display.primary ? `${name}, primary` : name });
-    }
-    if (current && !options.some((option) => option.value === current)) {
-      options.unshift({ value: current, label: displays ? 'Saved display (not connected)' : 'Saved display' });
-    }
-    return options;
   });
 
   const profileOptions = $derived.by(() => {
@@ -189,22 +161,6 @@
     <p class="note">“Use the host setting” follows the value in Settings.</p>
     <div class="form-grid">
       <Field
-        label="Display"
-        id="{uid}-display"
-        hint="The monitor to stream when this device does not use a virtual display."
-        error={displaysError || undefined}
-      >
-        <select id="{uid}-display" class="select" bind:value={draft.output_name_override}>
-          <option value="">Use the host setting</option>
-          {#if displays === null}
-            <option disabled value="-">Loading displays…</option>
-          {/if}
-          {#each displayOptions as option (option.value)}
-            <option value={option.value}>{option.label}</option>
-          {/each}
-        </select>
-      </Field>
-      <Field
         label="Display mode"
         id="{uid}-display-mode"
         hint="Width × height × refresh rate, such as 2560x1600x120. Empty uses the mode the device asks for; the stream keeps the device's frame rate."
@@ -240,11 +196,6 @@
         </select>
       </Field>
     </div>
-    <Toggle
-      label="Always use a virtual display"
-      hint="Creates a virtual display for this device even when the host streams a monitor."
-      bind:checked={draft.always_use_virtual_display}
-    />
   </section>
 
   <section>

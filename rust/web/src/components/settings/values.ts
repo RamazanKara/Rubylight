@@ -266,7 +266,6 @@ export function describeDefault(setting: Setting): DefaultText {
     }
     case 'text':
       return literal(toText(value), 'Not set');
-    case 'display':
     case 'adapter':
       return literal(toText(value), 'Automatic');
     case 'audio':

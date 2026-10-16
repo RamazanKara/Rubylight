@@ -51,7 +51,6 @@ export function grantedLabels(perm: number): string {
 }
 
 export const VIRTUAL_DISPLAY_MODES = [
-  { value: 'disabled', label: 'Off, stream a monitor' },
   { value: 'per_client', label: 'One for each device' },
   { value: 'shared', label: 'One shared by all devices' },
 ];
@@ -84,10 +83,8 @@ export interface Draft {
   name: string;
   enabled: boolean;
   perm: number;
-  output_name_override: string;
   /** WIDTHxHEIGHTxREFRESH, empty for the mode the device asks for. */
   display_mode: string;
-  always_use_virtual_display: boolean;
   virtual_display_mode: string;
   virtual_display_layout: string;
   prefer_10bit_sdr: '' | 'on' | 'off';
@@ -144,9 +141,7 @@ export function toDraft(client: Client): Draft {
     name: client.name,
     enabled: flag(client.enabled) !== false,
     perm: client.perm & PERM_ALL,
-    output_name_override: text(client.output_name_override),
     display_mode: text(client.display_mode),
-    always_use_virtual_display: flag(client.always_use_virtual_display) === true,
     virtual_display_mode: choice(client.virtual_display_mode, VIRTUAL_DISPLAY_MODES),
     virtual_display_layout: choice(client.virtual_display_layout, VIRTUAL_DISPLAY_LAYOUTS),
     prefer_10bit_sdr: sdr === null ? '' : sdr ? 'on' : 'off',
@@ -170,9 +165,7 @@ function serialise(draft: Draft): Changes {
     name: draft.name.trim(),
     enabled: draft.enabled,
     perm: draft.perm,
-    output_name_override: draft.output_name_override || null,
     display_mode: draft.display_mode.trim() || null,
-    always_use_virtual_display: draft.always_use_virtual_display,
     virtual_display_mode: draft.virtual_display_mode || null,
     virtual_display_layout: draft.virtual_display_layout || null,
     prefer_10bit_sdr: draft.prefer_10bit_sdr === '' ? null : draft.prefer_10bit_sdr === 'on',

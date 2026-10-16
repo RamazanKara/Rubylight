@@ -43,7 +43,7 @@ async function fixture(t, initial = {}, metadata = {}) {
     if (url.pathname === '/api/clients/pending') return reply({ requests: [] });
     if (url.pathname === '/api/metadata') return reply({
       version: 'test', host_name: 'Settings fixture', pc_address: '127.0.0.1',
-      capture_status: { displays: [], error: null }, audio_sinks: [], gpus: [], ...metadata,
+      audio_sinks: [], gpus: [], ...metadata,
     });
     if (url.pathname === '/api/config') {
       if (request.method() === 'GET') return reply(config);
@@ -205,8 +205,8 @@ test('controls share a right-hand column on wide screens and stack under the tex
   const { page } = await fixture(t);
   await page.goto(base + '/settings/video');
   const box = (row, locator) => setting(page, row).locator(locator).first().boundingBox();
-  const label = await box('capture', 'label');
-  const select = await box('capture', 'select');
+  const label = await box('frame_pacing', 'label');
+  const select = await box('frame_pacing', 'select');
   const number = await box('fec_percentage', 'input');
   const toggle = await box('pyrowave', '.switch');
   assert(select.x > label.x + 300, 'the select sits to the right of its label');
@@ -214,8 +214,8 @@ test('controls share a right-hand column on wide screens and stack under the tex
   assert(Math.abs(select.x - number.x) <= 1, 'selects and numbers line up');
   assert(Math.abs(toggle.x + toggle.width - (select.x + select.width)) <= 1, 'switches are right-aligned in the column');
   await page.setViewportSize({ width: 390, height: 844 });
-  const narrowLabel = await box('capture', 'label');
-  const narrowSelect = await box('capture', 'select');
+  const narrowLabel = await box('frame_pacing', 'label');
+  const narrowSelect = await box('frame_pacing', 'select');
   assert(narrowSelect.y > narrowLabel.y + narrowLabel.height, 'the select moves under its label');
   const switchLabel = await box('pyrowave', 'label');
   const narrowToggle = await box('pyrowave', '.switch');
@@ -289,7 +289,7 @@ test('undoing an advanced change keeps the Advanced section open', async t => {
   await page.goto(base + '/settings/video');
   const advanced = page.locator('details.advanced');
   await advanced.locator(':scope > summary').click();
-  const row = setting(page, 'wgc_direct_encoder_input');
+  const row = setting(page, 'gpu_compute_conversion');
   await row.getByRole('switch').press('Space');
   await row.getByRole('button', { name: /^Undo/ }).click();
   assert.equal(await page.getByRole('button', { name: 'Save changes' }).count(), 0);

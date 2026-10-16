@@ -178,17 +178,6 @@ export interface ApiToken {
 export type ConfigValue = string | number | boolean | null | unknown[] | Record<string, unknown>;
 export type Config = Record<string, ConfigValue>;
 
-export interface CaptureDisplay {
-  device_id: string;
-  display_name: string;
-  friendly_name: string;
-  width: number;
-  height: number;
-  x: number;
-  y: number;
-  primary: boolean;
-  adapter: string;
-}
 export interface AudioEndpoint {
   id: string;
   name: string;
@@ -215,13 +204,11 @@ export interface Metadata {
   enable_pairing: boolean;
   warnings: { code: string; message: string }[];
   encoder_status: { state: 'checking' | 'failed' | 'ready'; h264: boolean; hevc: boolean; av1: boolean; pyrowave: boolean };
-  capture_status: {
-    configured_backend: string;
-    virtual_display_configured: boolean;
-    displays: CaptureDisplay[] | null;
-    error: string | null;
-  };
-  virtual_display: { capable: boolean; ready: boolean; reason: string; protocol: string };
+  /**
+   * ready: streams work. capable but not ready: the driver was updated and needs a Windows restart.
+   * Not capable: the driver is missing or not running; reason says what is wrong.
+   */
+  virtual_display: { capable: boolean; ready: boolean; reason: string; protocol: string; driver_version?: string };
   gpus: Gpu[] | null;
   gpu_error: string | null;
   audio_sinks: AudioEndpoint[] | null;
@@ -277,9 +264,7 @@ export interface Client {
   perm: number;
   enabled: boolean;
   connected: boolean;
-  output_name_override?: string | null;
   display_mode?: string | null;
-  always_use_virtual_display?: boolean | string | null;
   virtual_display_mode?: string | null;
   virtual_display_layout?: string | null;
   prefer_10bit_sdr?: boolean | string | null;

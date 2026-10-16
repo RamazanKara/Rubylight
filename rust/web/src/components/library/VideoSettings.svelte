@@ -1,6 +1,5 @@
 <script lang="ts">
   import Field from '../Field.svelte';
-  import Toggle from '../Toggle.svelte';
   import ChoiceField, { type Choice } from './ChoiceField.svelte';
   import type { AppDraft } from './draft.svelte';
 
@@ -61,28 +60,11 @@
       options={GAMEPADS}
     />
   </div>
-
-  <div class="toggles">
-    <Toggle
-      label="Legacy frame generation capture fix"
-      hint="Compatibility option for older frame generation setups. Only used when Frame generation is set to None."
-      bind:checked={() => draft.flag('gen1-framegen-fix'), (value) => draft.setFlag('gen1-framegen-fix', value)}
-    />
-    <Toggle
-      label="Frame generation limiter fix"
-      bind:checked={() => draft.flag('frame-gen-limiter-fix'), (value) => draft.setFlag('frame-gen-limiter-fix', value)}
-    />
-  </div>
 </div>
 
 <style>
   .video {
     display: grid;
     gap: var(--space-5);
-  }
-  .toggles {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
-    gap: var(--space-4) var(--space-5);
   }
 </style>

@@ -30,12 +30,6 @@
   const list = new Intl.ListFormat('en', { style: 'long', type: 'conjunction' });
   const plural = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`;
 
-  const CAPTURE: Record<string, string> = {
-    wgc: 'Windows Graphics Capture',
-    dxgi: 'Desktop Duplication',
-    ddx: 'Desktop Duplication',
-  };
-
   function encoder(meta: Metadata): Check {
     const base = { title: 'Video encoder', href: '/settings/encoders', settings: 'Encoder settings' };
     const status = meta.encoder_status;
@@ -80,27 +74,28 @@
   function virtualDisplay(meta: Metadata): Check {
     const base = { title: 'Virtual display', href: '/settings/display', settings: 'Display settings' };
     const driver = meta.virtual_display;
-    const on = meta.capture_status.virtual_display_configured;
     const detail = driver.reason || undefined;
     if (driver.ready) {
-      return on
-        ? { ...base, tone: 'ok', state: 'Ready', text: 'Streams use a virtual display.' }
-        : { ...base, tone: 'neutral', state: 'Off', text: 'The driver is ready. Streams use a physical display.' };
+      return { ...base, tone: 'ok', state: 'Ready', text: 'Streams use a virtual display.', detail };
     }
     if (driver.capable) {
-      return { ...base, tone: 'warn', state: 'Not ready', text: "The driver is installed but isn't ready yet.", detail };
-    }
-    if (on) {
       return {
         ...base,
-        tone: 'danger',
-        state: 'Unavailable',
-        text: "It's turned on, but the driver can't be opened.",
-        help: 'Check that the Rubylight service is running, or turn off the virtual display to use a monitor.',
+        tone: 'warn',
+        state: 'Restart needed',
+        text: 'The display driver was updated and runs only after Windows restarts.',
+        help: 'Restart Windows, then start the stream again.',
         detail,
       };
     }
-    return { ...base, tone: 'neutral', state: 'Off', text: 'Not available. Streams use a physical display.', detail };
+    return {
+      ...base,
+      tone: 'danger',
+      state: 'Unavailable',
+      text: "The display driver is missing or isn't running. Streams can't start without it.",
+      help: 'Run Rubylight setup again to repair the installation.',
+      detail,
+    };
   }
 
   function audio(meta: Metadata): Check {
@@ -131,32 +126,7 @@
     };
   }
 
-  function capture(meta: Metadata): Check {
-    const base = { title: 'Screen capture', href: '/settings/video', settings: 'Video settings' };
-    const status = meta.capture_status;
-    const backend = status.configured_backend || 'auto';
-    const method =
-      backend === 'auto' ? 'Picks the capture method automatically.' : `Uses ${CAPTURE[backend] ?? 'the configured capture method'}.`;
-    if (status.error) {
-      return { ...base, tone: 'danger', state: 'Error', text: `${method} Displays can't be read.`, detail: status.error };
-    }
-    const displays = status.displays?.length ?? 0;
-    if (displays) {
-      return { ...base, tone: 'ok', state: 'Ready', text: `${method} ${plural(displays, 'display', 'displays')} found.` };
-    }
-    if (status.virtual_display_configured && meta.virtual_display.ready) {
-      return { ...base, tone: 'ok', state: 'Ready', text: `${method} No monitor is on; streams use the virtual display.` };
-    }
-    return {
-      ...base,
-      tone: 'warn',
-      state: 'No display',
-      text: `${method} No active display was found.`,
-      help: 'Turn on a monitor or set up a virtual display.',
-    };
-  }
-
-  const checks = $derived(metadata ? [encoder(metadata), virtualDisplay(metadata), audio(metadata), capture(metadata)] : []);
+  const checks = $derived(metadata ? [encoder(metadata), virtualDisplay(metadata), audio(metadata)] : []);
   const attention = $derived(checks.filter((check) => check.tone === 'warn' || check.tone === 'danger').length);
   const summary = $derived(
     !metadata

@@ -131,8 +131,10 @@ pub fn amf_split_frame(
     })
 }
 
-/// Apply after the frame rate and target bitrate: usage presets derive their
-/// buffer sizes from those, unless the user requests an explicit limit.
+/// Apply after the frame rate and target bitrate. Limit AMF frames to two
+/// nominal budgets by default to reduce recovery bursts; an explicit zero
+/// keeps the driver's limit. Frame caps are best-effort so an older driver
+/// can keep streaming; explicitly requested peak and VBV limits stay strict.
 pub fn amf_rate_control(config: &Config, stream: &Negotiated) -> Result<Vec<Property>> {
     let prefix = match stream.codec {
         0 => "",
@@ -164,7 +166,16 @@ pub fn amf_rate_control(config: &Config, stream: &Negotiated) -> Result<Vec<Prop
             frame_bits,
         ),
     ] {
-        let value = config.get(key, "0").trim().trim_matches('"').parse::<f64>();
+        let default = if key == "amd_max_frame_size" {
+            "2"
+        } else {
+            "0"
+        };
+        let value = config
+            .get(key, default)
+            .trim()
+            .trim_matches('"')
+            .parse::<f64>();
         let value = match value {
             Ok(0.) => continue,
             Ok(value) if (minimum..=maximum).contains(&value) => value,
@@ -173,7 +184,7 @@ pub fn amf_rate_control(config: &Config, stream: &Negotiated) -> Result<Vec<Prop
         output.push(Property {
             name: format!("{prefix}{suffix}"),
             value: Value::Integer((value * scale).round() as i64),
-            required: true,
+            required: key != "amd_max_frame_size",
         });
     }
     Ok(output)
@@ -671,11 +682,6 @@ mod tests {
                     .map(|p| format!("{}={:?}:{}\n", p.name, p.value, p.required))
                     .collect();
                 assert_eq!(actual.as_bytes(), expected.as_bytes());
-                assert!(
-                    amf_rate_control(&Config::default(), &stream)
-                        .unwrap()
-                        .is_empty()
-                );
             }
         }
     }
@@ -704,7 +710,7 @@ mod tests {
         }
     }
     #[test]
-    fn amf_rate_limits_preserve_driver_defaults_and_use_codec_names_and_bits() {
+    fn amf_rate_limits_default_to_two_frames_preserve_opt_out_and_use_codec_bits() {
         for (codec, prefix, cap) in [
             (0, "", "MaxAUSize"),
             (1, "Hevc", "MaxAUSize"),
@@ -717,8 +723,15 @@ mod tests {
                 rate_millihz: 59_940,
                 ..Default::default()
             };
+            for text in ["", "amd_max_frame_size=   ", "amd_max_frame_size=2"] {
+                let properties = amf_rate_control(&Config::parse(text).unwrap(), &stream).unwrap();
+                assert_eq!(properties.len(), 1);
+                assert_eq!(properties[0].name, format!("{prefix}{cap}"));
+                assert_eq!(properties[0].value, Value::Integer(1_334_668));
+                assert!(!properties[0].required);
+            }
             for text in [
-                "",
+                "amd_max_frame_size=0",
                 "amd_peak_bitrate_ratio=0\namd_vbv_buffer_frames=0\namd_max_frame_size=0",
             ] {
                 assert!(
@@ -743,7 +756,7 @@ mod tests {
                 {
                     assert_eq!(property.name, format!("{prefix}{suffix}"));
                     assert_eq!(property.value, Value::Integer(expected));
-                    assert!(property.required);
+                    assert_eq!(property.required, suffix != cap);
                 }
             }
         }

@@ -400,10 +400,9 @@ impl Encoder {
                 },
             )?;
             e.property("TargetBitrate", int(i64::from(config.bitrate_kbps) * 1000))?;
-            for property in butterpollo_core::encoder_policy::amf_rate_control(options, config)? {
-                e.apply(&property)
-                    .with_context(|| format!("AMF setting {}", property.name))?;
-            }
+            let limits = butterpollo_core::encoder_policy::amf_rate_control(options, config)?;
+            let warnings = e.warnings.clone();
+            rate_control::configure(&limits, &warnings, |property| e.apply(property))?;
             if config.codec == 0 {
                 // Keyframes only when asked, as the original backend sets it:
                 // the usage preset's periodic IDRs are large, can overflow

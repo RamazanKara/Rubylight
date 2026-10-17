@@ -855,7 +855,7 @@ const amd: Setting[] = [
     description:
       'Requests a size limit for every frame, including recovery keyframes. Tight limits can reduce picture quality.',
     details:
-      'Set in multiples of one frame’s bitrate budget. 0 keeps the driver default. Driver support and enforcement vary.',
+      'Defaults to 2× one frame’s bitrate budget to reduce large recovery bursts. 0 keeps the driver default. Limits are best-effort: frames can exceed them, and an unsupported limit warns and keeps streaming.',
     category: 'encoders',
     group: 'AMD AMF',
     control: {
@@ -868,7 +868,7 @@ const amd: Setting[] = [
         { value: '8', label: '8× frame budget' },
       ],
     },
-    default: 0,
+    default: 2,
     inactiveHint: "Applies to AMD AMF streams, including when Automatic selects AMF. Shown when AMD AMF is selected, or with Automatic when this PC has an AMD GPU.",
     visibleWhen: amf,
     advanced: true,

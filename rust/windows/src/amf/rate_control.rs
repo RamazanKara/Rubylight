@@ -1,7 +1,30 @@
 //! Keep each rate-control limit tied to the bitrate at which its last write
 //! succeeded. A target-rate update can succeed while an individual limit fails.
-use anyhow::Result;
+use anyhow::{Context, Result};
+use butterpollo_core::encoder_policy::Property;
 use butterpollo_core::session::Warnings;
+
+/// Frame caps must not prevent streaming on a driver that cannot apply them.
+/// Peak and VBV limits retain their existing strict validation. `apply`
+/// verifies both the write and readback, so clamped/ignored caps warn too.
+pub(super) fn configure(
+    properties: &[Property],
+    warnings: &Warnings,
+    mut apply: impl FnMut(&Property) -> Result<()>,
+) -> Result<()> {
+    for property in properties {
+        if let Err(error) = apply(property) {
+            if property.required {
+                return Err(error).with_context(|| format!("AMF setting {}", property.name));
+            }
+            warnings.set("encoder_frame_size", format!(
+                "AMF could not apply the requested maximum frame size ({}: {error:#}); streaming continues with the driver's effective limit, so recovery frames may be larger. Update the AMD driver or set Maximum frame size to Driver default to opt out.",
+                property.name,
+            ));
+        }
+    }
+    Ok(())
+}
 
 #[derive(Clone, Copy, Debug)]
 pub(super) struct Limit {

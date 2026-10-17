@@ -600,6 +600,54 @@ impl FakeRateProperties {
 }
 
 #[test]
+fn frame_size_rejection_or_readback_mismatch_warns_without_blocking_streams() -> Result<()> {
+    for codec in 0..=2 {
+        let stream = butterpollo_core::rtsp::Negotiated {
+            codec,
+            ..Default::default()
+        };
+        for text in ["", "amd_max_frame_size=2", "amd_max_frame_size=1"] {
+            let config = butterpollo_core::config::Config::parse(text)?;
+            let properties = butterpollo_core::encoder_policy::amf_rate_control(&config, &stream)?;
+            for failure in [
+                "mock AMF_NOT_SUPPORTED",
+                "mock readback differs from requested size",
+            ] {
+                let warnings = butterpollo_core::session::Warnings::default();
+                let mut attempted = Vec::new();
+                rate_control::configure(&properties, &warnings, |property| {
+                    attempted.push(property.name.clone());
+                    bail!("{failure}")
+                })?;
+                assert_eq!(attempted, [properties[0].name.clone()]);
+                let messages = warnings.snapshot();
+                assert_eq!(messages.len(), 1);
+                assert_eq!(messages[0].code, "encoder_frame_size");
+                assert!(messages[0].message.contains(failure));
+                assert!(messages[0].message.contains(&properties[0].name));
+                assert!(messages[0].message.contains("streaming continues"));
+            }
+        }
+        for key in ["amd_peak_bitrate_ratio", "amd_vbv_buffer_frames"] {
+            let config = butterpollo_core::config::Config::parse(&format!("{key}=1"))?;
+            let properties = butterpollo_core::encoder_policy::amf_rate_control(&config, &stream)?;
+            let warnings = butterpollo_core::session::Warnings::default();
+            assert!(
+                rate_control::configure(&properties, &warnings, |_| {
+                    bail!("mock AMF_NOT_SUPPORTED")
+                })
+                .is_err()
+            );
+            assert!(
+                warnings.snapshot().is_empty(),
+                "explicit peak/VBV stay strict"
+            );
+        }
+    }
+    Ok(())
+}
+
+#[test]
 fn rate_control_keeps_each_failed_property_on_its_own_applied_bitrate() {
     for codec in 0..=2 {
         let initial = FakeRateProperties::new(codec).values;
@@ -625,6 +673,49 @@ fn rate_control_keeps_each_failed_property_on_its_own_applied_bitrate() {
             assert!(warnings.snapshot().is_empty());
         }
     }
+}
+
+#[test]
+fn default_and_explicit_frame_caps_follow_bitrate_updates_but_zero_stays_disabled() -> Result<()> {
+    for codec in 0..=2 {
+        for text in ["", "amd_max_frame_size=2", "amd_max_frame_size=0"] {
+            let stream = butterpollo_core::rtsp::Negotiated {
+                codec,
+                bitrate_kbps: 80_000,
+                fps: 120,
+                rate_millihz: 120_000,
+                ..Default::default()
+            };
+            let config = butterpollo_core::config::Config::parse(text)?;
+            let properties = butterpollo_core::encoder_policy::amf_rate_control(&config, &stream)?;
+            let mut driver = FakeRateProperties::new(codec);
+            let cap = match codec {
+                0 => "MaxAUSize",
+                1 => "HevcMaxAUSize",
+                _ => "Av1MaxCompressedFrameSize",
+            };
+            driver.values.get_mut(cap).unwrap().value = 0;
+            let warnings = butterpollo_core::session::Warnings::default();
+            rate_control::configure(&properties, &warnings, |property| {
+                let butterpollo_core::encoder_policy::Value::Integer(value) = property.value else {
+                    panic!("rate limits are integer bit budgets")
+                };
+                driver.values.get_mut(&property.name).unwrap().value = value;
+                Ok(())
+            })?;
+            let disabled = text.ends_with("=0");
+            assert_eq!(
+                driver.values[cap].value,
+                if disabled { 0 } else { 1_333_333 }
+            );
+            let mut state = rate_control::State::new(stream.bitrate_kbps);
+            driver.apply(&mut state, codec, 40_000, &warnings);
+            assert_eq!(driver.values[cap].value, if disabled { 0 } else { 666_666 });
+            assert_eq!(driver.writes.iter().any(|(name, _)| name == cap), !disabled);
+            assert!(warnings.snapshot().is_empty());
+        }
+    }
+    Ok(())
 }
 
 #[test]

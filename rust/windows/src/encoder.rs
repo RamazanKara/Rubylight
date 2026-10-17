@@ -850,6 +850,15 @@ fn ffmpeg_candidates(codec: u8, preference: &str) -> Result<Vec<String>> {
     })
 }
 
+/// Preserve startup warnings when the selected encoder adopts the session's
+/// shared reporter; future encoder warnings must use that same reporter too.
+fn attach_warnings(current: &mut std::sync::Arc<Warnings>, reported: &std::sync::Arc<Warnings>) {
+    for warning in current.snapshot() {
+        reported.set(&warning.code, &warning.message);
+    }
+    *current = reported.clone();
+}
+
 pub enum Encoder {
     Ffmpeg(Box<Ffmpeg>),
     Amf(Box<crate::amf::Encoder>),
@@ -913,6 +922,7 @@ impl Encoder {
     ) -> Result<Self> {
         warnings.clear("encoder_conversion");
         warnings.clear("encoder_readback");
+        warnings.clear("encoder_frame_size");
         let preference = butterpollo_core::encoder_policy::canonical_name(preference);
         if config.codec == 3 {
             return Ok(Self::Pyrowave(Box::new(
@@ -972,7 +982,7 @@ impl Encoder {
             };
             match created {
                 Ok(mut encoder) => {
-                    encoder.warnings = warnings.clone();
+                    attach_warnings(&mut encoder.warnings, warnings);
                     warnings.clear("encoder_fallback");
                     return Ok(Self::Amf(Box::new(encoder)));
                 }
@@ -1042,7 +1052,10 @@ impl Encoder {
                 None,
             )
         };
-        let encoder = fallback(encoder, native_error);
+        let mut encoder = fallback(encoder, native_error);
+        if let Self::Amf(encoder) = &mut encoder {
+            attach_warnings(&mut encoder.warnings, warnings);
+        }
         if matches!(&encoder, Self::Ffmpeg(e) if e.native.is_none()) {
             warnings.set("encoder_readback", format!("Encoding with {} using CPU frame copies and colour conversion: {}. This can lower fps and increase latency; select AMF on AMD, or reduce resolution and frame rate.", encoder.backend(), if import_errors.is_empty() { "this codec/input mode has no native GPU import".into() } else { import_errors.join("; ") }));
         }
@@ -1271,6 +1284,35 @@ impl Encoder {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn startup_warnings_survive_attaching_the_session_reporter() {
+        let mut encoder = std::sync::Arc::new(Warnings::default());
+        encoder.set(
+            "encoder_frame_size",
+            "driver cannot apply the requested cap",
+        );
+        let session = std::sync::Arc::new(Warnings::default());
+        session.set("encoder_conversion", "retained conversion warning");
+        attach_warnings(&mut encoder, &session);
+        assert!(std::sync::Arc::ptr_eq(&encoder, &session));
+        assert!(session.snapshot().iter().any(|warning| {
+            warning.code == "encoder_frame_size"
+                && warning.message == "driver cannot apply the requested cap"
+        }));
+        assert!(
+            session
+                .snapshot()
+                .iter()
+                .any(|warning| warning.code == "encoder_conversion")
+        );
+        encoder.set("encoder_buffer", "later rate-control warning");
+        assert!(
+            session
+                .snapshot()
+                .iter()
+                .any(|warning| warning.code == "encoder_buffer")
+        );
+    }
     #[test]
     fn initial_hdr_side_data_outlives_its_frame_and_keeps_frame_updates_independent() {
         // SAFETY: The context and frame are checked live allocations; FFmpeg

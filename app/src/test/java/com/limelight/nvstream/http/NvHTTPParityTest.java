@@ -619,6 +619,35 @@ public class NvHTTPParityTest {
     }
 
     @Test
+    public void clientCadenceMatchesFractionalLaunchOnlyWhenTheStreamRateMatches() throws Exception {
+        for (String host : new String[] {"butterpollo-serverinfo.xml", "rubylight-serverinfo.xml",
+                "apollo-serverinfo.xml", "vibepollo-serverinfo.xml", "sunshine-serverinfo.xml", "gamestream-serverinfo.xml"}) {
+            ConnectionContext context = context(host);
+            boolean fractional = context.hostCaps.has(HostCapabilities.Feature.FRACTIONAL_REFRESH);
+            assertEquals(host, fractional ? 119880 : 120000, NvHTTP.getStreamFrameRateMilliHz(context));
+            for (int streamFps : new int[] {59, 60}) {
+                context.streamConfig = new StreamConfiguration.Builder().setRefreshRate(streamFps)
+                        .setLaunchRefreshRate(60).setLaunchRefreshRateX100(5994)
+                        .setClientRefreshRateX100(12000).build();
+                assertEquals(host, fractional && streamFps == 60 ? 59940 : streamFps * 1000,
+                        NvHTTP.getStreamFrameRateMilliHz(context));
+            }
+        }
+    }
+
+    @Test
+    public void unrelatedOrInvalidDisplayCadenceCannotOverrideTheStream() throws Exception {
+        ConnectionContext context = context("butterpollo-serverinfo.xml");
+        for (int explicit : new int[] {0, Integer.MAX_VALUE, -1}) {
+            context.streamConfig = new StreamConfiguration.Builder().setRefreshRate(60)
+                    .setLaunchRefreshRate(60).setLaunchRefreshRateX100(explicit)
+                    .setClientRefreshRateX100(11988).build();
+            assertEquals(60000, NvHTTP.getStreamFrameRateMilliHz(context));
+            assertEquals("1968x2184x60", query(context, false).queryParameter("mode"));
+        }
+    }
+
+    @Test
     public void sunshineDoesNotReceiveApolloDisplayExtensions() throws Exception {
         HttpUrl query = query(context("sunshine-serverinfo.xml"), false);
         assertEquals("1968x2184x120", query.queryParameter("mode"));

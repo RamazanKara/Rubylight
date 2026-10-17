@@ -1,6 +1,7 @@
 package com.limelight.binding.video;
 
 import com.limelight.nvstream.av.video.HostTimingReport;
+import com.limelight.nvstream.DecodeTiming;
 
 import org.junit.Test;
 
@@ -15,6 +16,107 @@ import java.util.concurrent.TimeUnit;
 import static org.junit.Assert.*;
 
 public class FrameLatencyStatsTest {
+    private static void timedOutput(FrameLatencyStats stats, int number, long outputNs,
+                                    long decodeNs, long queueNs, long displayNs) {
+        long inputNs = outputNs - decodeNs;
+        stats.onDecoderInput(number, number, inputNs - queueNs, inputNs - queueNs, inputNs, (char) 0);
+        stats.onDecoderQueued(number, inputNs);
+        stats.onDecoderOutput(0, number, outputNs);
+        stats.onOutputReleased(0, outputNs, displayNs >= 0, displayNs >= 0);
+        if (displayNs >= 0) stats.onFrameRendered(number, outputNs + displayNs);
+    }
+
+    @Test public void decodeTailCountsRecurringSpikesEvenWhenTheMeanIsLowAndFramesAreDropped() {
+        FrameLatencyStats stats = new FrameLatencyStats();
+        for (int i = 1; i <= 60; i++) {
+            timedOutput(stats, i, 1_000_000_000L + i * 16_000_000L,
+                    i % 10 == 0 ? 40_000_000L : 2_000_000L, 0, -1);
+        }
+        DecodeTiming timing = stats.takeDecodeTiming(2_000_000_000L, 60);
+        assertEquals(60, timing.samples);
+        assertEquals(6, timing.lateFrames);
+        assertEquals(5.8f, stats.takeDecodeTimeMs(), 0.001f);
+        assertEquals(60, stats.summarize()[1][0], 0);
+        // Reading the same ring again cannot count that burst as a second pressure interval.
+        assertEquals(0, stats.takeDecodeTiming(2_500_000_000L, 60).samples);
+        timedOutput(stats, 61, 2_800_000_000L, 2_000_000L, 0, 0);
+        DecodeTiming next = stats.takeDecodeTiming(3_000_000_000L, 60);
+        assertEquals(1, next.samples);
+        assertEquals(0, next.lateFrames);
+        assertEquals(2_500_000_000L, next.windowStartNs);
+    }
+
+    @Test public void networkQueueAndDisplayWaitDoNotBecomeLateDecodeSamples() {
+        FrameLatencyStats stats = new FrameLatencyStats();
+        for (int i = 1; i <= 60; i++) {
+            timedOutput(stats, i, 1_000_000_000L + i * 16_000_000L,
+                    2_000_000L, 80_000_000L, 100_000_000L);
+        }
+        DecodeTiming timing = stats.takeDecodeTiming(2_000_000_000L, 60);
+        assertEquals(60, timing.samples);
+        assertEquals(0, timing.lateFrames);
+        assertEquals(80, stats.summarize()[0][1], 0);
+        assertEquals(100, stats.summarize()[2][1], 0);
+    }
+
+    @Test public void decodeTailBoundsHistoryAndUsesTheExactRequestedFrameBudget() {
+        FrameLatencyStats stats = new FrameLatencyStats();
+        timedOutput(stats, 1, 1_000_000_000L, 50_000_000L, 0, 0);
+        // At 50 FPS exactly 20 ms is on time; only a duration above that budget is late.
+        timedOutput(stats, 2, 4_000_000_000L, 20_000_000L, 0, 0);
+        timedOutput(stats, 3, 4_020_000_000L, 20_000_001L, 0, 0);
+        DecodeTiming timing = stats.takeDecodeTiming(5_000_000_000L, 50);
+        assertEquals(2, timing.samples);
+        assertEquals(1, timing.lateFrames);
+        for (int i = 0; i < FrameLatencyStats.WINDOW_SIZE + 100; i++) {
+            timedOutput(stats, 10 + i, 6_000_000_000L + i * 1_000_000L, 1_000_000L, 0, 0);
+        }
+        assertEquals(FrameLatencyStats.WINDOW_SIZE, stats.takeDecodeTiming(7_000_000_000L, 60).samples);
+    }
+
+    @Test public void decoderRecoveryAndQualityResetExcludeThePreviousWorkloadWithoutClearingDiagnostics() {
+        FrameLatencyStats stats = new FrameLatencyStats();
+        timedOutput(stats, 1, 1_000_000_000L, 40_000_000L, 0, 0);
+        DecodeTiming before = stats.takeDecodeTiming(1_100_000_000L, 60);
+        timedOutput(stats, 2, 1_200_000_000L, 40_000_000L, 0, 0);
+        stats.discardPending("codec_reset");
+        timedOutput(stats, 3, 1_300_000_000L, 2_000_000L, 0, 0);
+        DecodeTiming after = stats.takeDecodeTiming(1_400_000_000L, 60);
+        assertNotEquals(before.generation, after.generation);
+        assertEquals(1, after.samples);
+        assertEquals(0, after.lateFrames);
+        assertEquals(3, stats.summarize()[1][0], 0);
+        stats.resetDecodeTiming();
+        assertEquals(0, stats.takeDecodeTiming(1_500_000_000L, 120).samples);
+    }
+
+    @Test public void invalidAndFutureDecodeTimestampsCannotCountAsPressure() {
+        FrameLatencyStats stats = new FrameLatencyStats();
+        stats.onDecoderInput(1, 1, 1, 1, -1, (char) 0);
+        stats.onDecoderOutput(0, 1, 10);
+        stats.onOutputReleased(0, 10, false, false);
+        stats.onDecoderInput(2, 2, 10, 10, 20, (char) 0);
+        stats.onDecoderOutput(0, 2, 19);
+        stats.onOutputReleased(0, 19, false, false);
+        timedOutput(stats, 3, 5_000_000_000L, 40_000_000L, 0, 0);
+        assertEquals(0, stats.takeDecodeTiming(4_000_000_000L, 60).samples);
+    }
+
+    @Test public void outputQueueAgeIsAvailableOnlyWhileTheTrackedBufferIsOwned() {
+        FrameLatencyStats stats = new FrameLatencyStats();
+        stats.onDecoderInput(1, 1, 100, 150, 200, (char) 0);
+        stats.onDecoderOutput(7, 1, 300);
+        assertEquals(150, stats.getEnqueueTimeNsForOutput(7));
+        assertEquals(0, stats.getEnqueueTimeNsForOutput(8));
+        stats.onOutputReleased(7, 400, false, false);
+        assertEquals(0, stats.getEnqueueTimeNsForOutput(7));
+        stats.onDecoderInput(2, 2, 100, 350, 200, (char) 0);
+        stats.onDecoderOutput(7, 2, 300);
+        assertEquals(0, stats.getEnqueueTimeNsForOutput(7));
+        stats.discardPending("codec_reset");
+        assertEquals(0, stats.getEnqueueTimeNsForOutput(7));
+    }
+
     @Test
     public void pyroWaveQueuePreservesPreciseTimingsWithoutMediaCodecCounter() throws Exception {
         FrameLatencyStats stats = new FrameLatencyStats();

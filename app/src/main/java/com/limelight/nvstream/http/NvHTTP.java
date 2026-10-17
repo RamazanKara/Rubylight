@@ -1266,6 +1266,22 @@ public class NvHTTP {
                 launchDisplayChoice(context, role).requestsVirtualDisplay(context.streamConfig.getVirtualDisplay());
     }
 
+    private static int fractionalLaunchRateX100(ConnectionContext context, int launchFps) {
+        if (!context.hostCaps.has(HostCapabilities.Feature.FRACTIONAL_REFRESH)) return 0;
+        int explicit = context.streamConfig.getLaunchRefreshRateX100();
+        if (explicit >= 100 && explicit <= 100000) return explicit;
+        int display = context.streamConfig.getClientRefreshRateX100();
+        return display >= 100 && display <= 100000 && (display + 50L) / 100 == launchFps ? display : 0;
+    }
+
+    /** Exact client cadence, without overriding a deliberately lower capped-FPS stream. */
+    public static int getStreamFrameRateMilliHz(ConnectionContext context) {
+        int streamFps = context.streamConfig.getRefreshRate();
+        int fractional = fractionalLaunchRateX100(context, context.streamConfig.getLaunchRefreshRate());
+        return fractional > 0 && (fractional + 50L) / 100 == streamFps ?
+                fractional * 10 : streamFps * 1000;
+    }
+
     /** The launch and resume query, with each extension only for a host that shows it. */
     static String getLaunchQuery(ConnectionContext context, int appId, boolean enableHdr) {
         HostCapabilities caps = context.hostCaps;
@@ -1279,14 +1295,10 @@ public class NvHTTP {
         int fps = context.isNvidiaServerSoftware && context.streamConfig.getLaunchRefreshRate() > 60 ?
                 0 : context.streamConfig.getLaunchRefreshRate();
         String launchRate = Integer.toString(fps);
-        int refreshX100 = context.streamConfig.getClientRefreshRateX100();
         // Sunshine reads the rate as an integer and would truncate 59.94 to 59.
-        boolean fractional = caps.has(HostCapabilities.Feature.FRACTIONAL_REFRESH);
-        if (fractional && context.streamConfig.getLaunchRefreshRateX100() > 0) {
-            launchRate = String.format(java.util.Locale.ROOT, "%.2f",
-                    context.streamConfig.getLaunchRefreshRateX100() / 100.0);
-        } else if (fractional && refreshX100 > 0 && (refreshX100 + 50) / 100 == fps) {
-            launchRate = String.format(java.util.Locale.ROOT, "%.2f", refreshX100 / 100.0);
+        int fractionalRateX100 = fractionalLaunchRateX100(context, fps);
+        if (fractionalRateX100 > 0) {
+            launchRate = String.format(java.util.Locale.ROOT, "%.2f", fractionalRateX100 / 100.0);
         }
 
         HostDisplayChoice hostDisplay = launchDisplayChoice(context, role);

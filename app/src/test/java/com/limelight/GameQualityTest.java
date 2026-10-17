@@ -10,6 +10,7 @@ import android.view.Display;
 import com.limelight.binding.video.MediaCodecDecoderRenderer;
 import com.limelight.binding.video.MediaCodecHelper;
 import com.limelight.nvstream.AdaptiveQualityController;
+import com.limelight.nvstream.DecodeTiming;
 import com.limelight.nvstream.NvConnection;
 import com.limelight.nvstream.StreamConfiguration;
 import com.limelight.nvstream.http.ComputerDetails;
@@ -25,12 +26,157 @@ import org.robolectric.annotation.Implementation;
 import org.robolectric.annotation.Implements;
 import org.robolectric.shadows.ShadowDisplayManager;
 import org.robolectric.shadows.ShadowLooper;
+import org.robolectric.shadows.ShadowSystemClock;
 import org.robolectric.util.ReflectionHelpers;
 import static org.junit.Assert.*;
 
 @RunWith(org.robolectric.RobolectricTestRunner.class)
 @Config(sdk = 29, application = Application.class)
 public class GameQualityTest {
+    @Test
+    @Config(shadows = QualityBridge.class, instrumentedPackages = "com.limelight.nvstream.jni")
+    public void fractionalReconfigureChangesRendererOnlyAfterTheRequestIsSent() {
+        Game game = reconfigurableGame();
+        MediaCodecDecoderRenderer renderer = ReflectionHelpers.getField(game, "decoderRenderer");
+        renderer.setStreamFrameRateMilliHz(119880);
+        StreamReconfigureRequester requester = ReflectionHelpers.getField(game, "reconfigureRequester");
+        requester.start(1920, 1080, 119880, 1920, 1080, 119880);
+        for (boolean accepted : new boolean[] {false, true}) {
+            QualityBridge.send = accepted;
+            assertEquals(accepted, (boolean) ReflectionHelpers.callInstanceMethod(game, "requestStreamReconfigure",
+                    ReflectionHelpers.ClassParameter.from(int[].class, new int[] {1920, 1080, 59940})));
+            assertEquals(accepted ? 59940 : 119880, renderer.getStreamFrameRateMilliHz());
+            assertEquals(accepted ? 59940 : 119880, requester.fpsMillihz());
+        }
+        clearQualityCallbacks(game);
+    }
+
+    @Test
+    @Config(shadows = QualityBridge.class, instrumentedPackages = "com.limelight.nvstream.jni")
+    public void fractionalQualityCeilingSurvivesReductionAndRecovery() {
+        Game game = reconfigurableGame();
+        ReflectionHelpers.setField(game, "qualityMaxFrameRateMilliHz", 119880);
+        PreferenceConfiguration config = ReflectionHelpers.getField(game, "prefConfig");
+        config.adaptiveQualityMode = AdaptiveQualityController.Mode.DETAIL;
+        try {
+            ReflectionHelpers.callInstanceMethod(game, "startAdaptiveQuality");
+            AdaptiveQualityController quality = ReflectionHelpers.getField(game, "adaptiveQuality");
+            assertEquals(119880, QualityBridge.lastRate);
+            long now = SystemClock.uptimeMillis() + 15000;
+            AdaptiveQualityController.Target lower = pressuredTarget(quality, now);
+            ReflectionHelpers.callInstanceMethod(game, "applyAdaptiveQuality",
+                    ReflectionHelpers.ClassParameter.from(AdaptiveQualityController.Target.class, lower),
+                    ReflectionHelpers.ClassParameter.from(long.class, now + 3000));
+            assertEquals(90000, QualityBridge.lastRate);
+            ReflectionHelpers.callInstanceMethod(game, "applyAdaptiveQuality",
+                    ReflectionHelpers.ClassParameter.from(AdaptiveQualityController.Target.class, quality.ceiling()),
+                    ReflectionHelpers.ClassParameter.from(long.class, now + 40000));
+            assertEquals(119880, QualityBridge.lastRate);
+            assertEquals(119880, (int) ReflectionHelpers.callInstanceMethod(game, "qualityCeilingFrameRateMilliHz"));
+        } finally { clearQualityCallbacks(game); }
+    }
+
+    @Test
+    @Config(shadows = QualityBridge.class, instrumentedPackages = "com.limelight.nvstream.jni")
+    public void fractionalOnlyPanelChangeReachesAutomaticQualityAndTracking() {
+        Game game = reconfigurableGame();
+        MediaCodecDecoderRenderer renderer = ReflectionHelpers.getField(game, "decoderRenderer");
+        renderer.setStreamFrameRateMilliHz(120000);
+        ReflectionHelpers.callInstanceMethod(game, "startReconfigureTracking");
+        StreamReconfigureRequester requester = ReflectionHelpers.getField(game, "reconfigureRequester");
+        assertEquals(120000, requester.fpsMillihz());
+        PreferenceConfiguration config = ReflectionHelpers.getField(game, "prefConfig");
+        config.adaptiveQualityMode = AdaptiveQualityController.Mode.DETAIL;
+        ReflectionHelpers.callInstanceMethod(game, "startAdaptiveQuality");
+        try {
+            // Finish the display-settling delay, then change between rates with the same rounded FPS.
+            ShadowLooper.idleMainLooper(StreamReconfigureRequester.SETTLE_MS,
+                    java.util.concurrent.TimeUnit.MILLISECONDS);
+            clearPendingQualityTarget(game);
+            int before = QualityBridge.requests;
+            ReflectionHelpers.setField(game, "panelMaxRefreshRate", 119.88f);
+            ReflectionHelpers.callInstanceMethod(game, "checkStreamReconfigure");
+            assertEquals(before + 1, QualityBridge.requests);
+            assertEquals(119880, QualityBridge.lastRate);
+            assertEquals(119880, renderer.getStreamFrameRateMilliHz());
+            assertEquals(119880, (int) ReflectionHelpers.callInstanceMethod(game, "qualityCeilingFrameRateMilliHz"));
+        } finally { clearQualityCallbacks(game); }
+    }
+
+    @Test
+    @Config(shadows = QualityBridge.class, instrumentedPackages = "com.limelight.nvstream.jni")
+    public void qualityTicksUseDecoderTailAndResetEvidenceAcrossSuspensionAndPendingReconfigure() {
+        for (int suspension = 0; suspension < 3; suspension++) {
+            Game game = reconfigurableGame();
+            PreferenceConfiguration config = ReflectionHelpers.getField(game, "prefConfig");
+            TimingRenderer renderer = new TimingRenderer(game, config);
+            ReflectionHelpers.setField(game, "decoderRenderer", renderer);
+            AdaptiveQualityController quality = new AdaptiveQualityController(AdaptiveQualityController.Mode.DETAIL,
+                    1920, 1080, 120, 1080, 30, 2, 2, SystemClock.uptimeMillis() - 20000);
+            ReflectionHelpers.setField(game, "adaptiveQuality", quality);
+            try {
+                for (int i = 0; i < 3; i++) qualityTick(game);
+                assertEquals(3, renderer.timingReads);
+                assertEquals(120, renderer.sampledFps);
+                assertEquals(0, QualityBridge.requests);
+
+                if (suspension == 0) ReflectionHelpers.setField(game, "foreground", false);
+                else if (suspension == 1) ReflectionHelpers.setField(game, "streamMenu", new android.app.Dialog(game));
+                else ReflectionHelpers.setField(game, "pendingQualityTarget", quality.ceiling());
+                qualityTick(game);
+                assertEquals("Suspension must not consume a pressure observation", 3, renderer.timingReads);
+                assertEquals(1, renderer.timingResets);
+                if (suspension == 0) ReflectionHelpers.setField(game, "foreground", true);
+                else if (suspension == 1) ReflectionHelpers.setField(game, "streamMenu", null);
+                else assertNull(ReflectionHelpers.getField(game, "pendingQualityTarget"));
+
+                // The mean is only 2 ms: a request proves that real updateQuality passed the tail
+                // observation through, and four new ticks prove the old three votes were cleared.
+                for (int i = 0; i < 3; i++) {
+                    qualityTick(game);
+                    assertEquals(0, QualityBridge.requests);
+                }
+                qualityTick(game);
+                assertEquals(1, QualityBridge.requests);
+                assertEquals(90000, QualityBridge.lastRate);
+                assertEquals(90, (int) ReflectionHelpers.getField(game, "streamFps"));
+                assertTrue("The accepted target starts a new timing window", renderer.timingResets > 1);
+            } finally {
+                clearQualityCallbacks(game);
+            }
+        }
+    }
+
+    private static void qualityTick(Game game) {
+        clearQualityCallbacks(game);
+        ShadowSystemClock.advanceBy(java.time.Duration.ofSeconds(1));
+        Runnable update = ReflectionHelpers.getField(game, "updateQuality");
+        update.run();
+        clearQualityCallbacks(game);
+    }
+
+    private static final class TimingRenderer extends MediaCodecDecoderRenderer {
+        int timingReads, timingResets, sampledFps;
+        TimingRenderer(Game game, PreferenceConfiguration config) {
+            super(game, config, null, 0, false, false, "", null);
+        }
+        @Override public int[] getReconfigureLimits() { return new int[] {4096, 4096, 2, 2}; }
+        @Override public boolean prepareForReconfigure(int width, int height) { return true; }
+        @Override public int[] getStreamSize() { return new int[] {1920, 1080}; }
+        @Override public boolean hasRecentVideoFrames(long nowMs) { return true; }
+        @Override public float getNetworkFrameLossPercent() { return 0; }
+        @Override public float getDecodeTimeMs() { return 2; }
+        @Override public float getQueueDelayMs() { return 0; }
+        @Override public int getThermalLevel() { return 0; }
+        @Override public void resetDecodeTiming() { timingResets++; }
+        @Override public DecodeTiming takeDecodeTiming(int fps) {
+            timingReads++;
+            sampledFps = fps;
+            long end = SystemClock.uptimeMillis() * 1_000_000L;
+            return new DecodeTiming(timingResets, end - 1_000_000_000L, end,
+                    end - 950_000_000L, end - 50_000_000L, fps, 120, 12);
+        }
+    }
     @Test
     @Config(shadows = QualityBridge.class, instrumentedPackages = "com.limelight.nvstream.jni")
     public void externalRefreshChangesUpdateTheStreamAndQualityCeilingIndependentlyOfThePhone() {
@@ -325,7 +471,6 @@ public class GameQualityTest {
             @Override public int[] getReconfigureLimits() { return new int[] {4096, 4096, 2, 2}; }
             @Override public boolean prepareForReconfigure(int width, int height) { return true; }
             @Override public int[] getStreamSize() { return new int[] {1920, 1080}; }
-            @Override public void setFrameRate(int fps) {}
         };
         ReflectionHelpers.setField(game, "prefConfig", config);
         ReflectionHelpers.setField(game, "decoderRenderer", renderer);
@@ -346,6 +491,7 @@ public class GameQualityTest {
         requester.start(1920, 1080, 120000, 1920, 1080, 120000);
         QualityBridge.send = true;
         QualityBridge.requests = 0;
+        QualityBridge.lastRate = 0;
         return game;
     }
 
@@ -353,10 +499,13 @@ public class GameQualityTest {
     public static class QualityBridge {
         static boolean send;
         static int requests;
+        static int lastRate;
         @Implementation protected static void __staticInitializer__() {}
         @Implementation public static boolean hostSupportsControlMessage(int messageType) { return true; }
+        @Implementation public static long getEstimatedRttInfo() { return 0; }
         @Implementation public static boolean requestReconfigure(int width, int height, int fpsMillihz) {
             requests++;
+            lastRate = fpsMillihz;
             return send;
         }
     }

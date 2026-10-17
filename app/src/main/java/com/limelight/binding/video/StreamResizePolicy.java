@@ -9,6 +9,8 @@ public final class StreamResizePolicy {
     public static final int MAX_DIMENSION = 8192;
     public static final int MIN_FPS_MILLIHZ = 10_000;
     public static final int MAX_FPS_MILLIHZ = 500_000;
+    // Ignore float/reporting noise without merging distinct 59.94/60 or 119.88/120 modes.
+    private static final int PANEL_RATE_TOLERANCE_MILLIHZ = 10;
 
     public static final int ORIENTATION_OF_AREA = 0;
     public static final int ORIENTATION_LANDSCAPE = 1;
@@ -62,14 +64,19 @@ public final class StreamResizePolicy {
 
     // The stream frame rate, in millihertz, that follows a panel refreshing at up to panelHz.
     public static int fpsMillihz(float panelHz) {
-        int fps = DisplayFrameRatePolicy.streamFrameRate(panelHz) * 1000;
-        return Math.max(MIN_FPS_MILLIHZ, Math.min(MAX_FPS_MILLIHZ, fps));
+        long fps = Math.round(panelHz * 1000d);
+        return (int) Math.max(MIN_FPS_MILLIHZ, Math.min(MAX_FPS_MILLIHZ, fps));
     }
 
     // The frame rate to ask for: unchanged unless it follows the display and the panel's top
     // refresh rate has moved since the stream's rate was set for streamPanelHz.
     public static int targetFpsMillihz(boolean followsDisplay, int currentMillihz, float streamPanelHz, float panelHz) {
-        if (!followsDisplay || !(panelHz > 0) || Math.abs(panelHz - streamPanelHz) < 0.5f) {
+        if (!followsDisplay || !(panelHz > 0) || !Float.isFinite(panelHz)) {
+            return currentMillihz;
+        }
+        if (streamPanelHz > 0 && Float.isFinite(streamPanelHz) &&
+                Math.abs(Math.round(panelHz * 1000d) - Math.round(streamPanelHz * 1000d)) <
+                        PANEL_RATE_TOLERANCE_MILLIHZ) {
             return currentMillihz;
         }
         return fpsMillihz(panelHz);

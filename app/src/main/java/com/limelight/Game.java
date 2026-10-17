@@ -274,6 +274,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     private long qualityRequestSentAt;
     private String qualityStatus;
     private int qualityMaxWidth, qualityMaxHeight, qualityMaxFps;
+    private int qualityMaxFrameRateMilliHz;
     private final Handler bitrateHandler = new Handler(Looper.getMainLooper());
     private final com.limelight.utils.StreamHealth streamHealth = new com.limelight.utils.StreamHealth();
     private com.limelight.utils.WifiDiagnostics wifiDiagnostics;
@@ -296,7 +297,9 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             if (!foreground || streamMenu != null || hostActionInProgress ||
                     (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && isInPictureInPictureMode())) {
                 adaptiveQuality.suspend();
+                decoderRenderer.resetDecodeTiming();
             } else if (pendingQualityTarget != null) {
+                decoderRenderer.resetDecodeTiming();
                 int[] shown = decoderRenderer.getStreamSize();
                 if (shown[0] == pendingQualityTarget.width && shown[1] == pendingQualityTarget.height) {
                     pendingQualityTarget = null;
@@ -311,7 +314,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                         decoderRenderer.getNetworkFrameLossPercent(), decoderRenderer.getDecodeTimeMs(),
                         rtt == -1 ? -1 : (float) (rtt & 0xffffffffL), decoderRenderer.getQueueDelayMs(),
                         decoderRenderer.getThermalLevel(),
-                        adaptiveBitrate != null && adaptiveBitrate.hasRoomBeforeQualityReduction());
+                        adaptiveBitrate != null && adaptiveBitrate.hasRoomBeforeQualityReduction(),
+                        decoderRenderer.takeDecodeTiming(streamFps));
                 if (target != null && !applyAdaptiveQuality(target, now)) return;
             }
             bitrateHandler.postDelayed(this, 1000);
@@ -1918,7 +1922,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         }
         int[] size = decoderRenderer.getStreamSize();
         streamStartedLandscape = size[0] >= size[1];
-        int fpsMillihz = streamFps * 1000;
+        int fpsMillihz = decoderRenderer.getStreamFrameRateMilliHz();
+        if (fpsMillihz <= 0) fpsMillihz = streamFps * 1000;
         // What the phone offered when the stream was asked for, in the window shape and on the panel
         // it had then: a turn, fold or unfold while the stream connected was not seen, so the settled
         // check below still asks for it.
@@ -1932,6 +1937,9 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         qualityMaxWidth = size[0];
         qualityMaxHeight = size[1];
         qualityMaxFps = streamFps;
+        qualityMaxFrameRateMilliHz = fpsMillihz;
+        // The surface was created before negotiation supplied the exact stream cadence.
+        refreshSurfaceFrameRateVote();
         scheduleReconfigureCheck();
     }
 
@@ -1955,12 +1963,17 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         }
         int[] offered = offeredStream(adaptiveQuality == null ? reconfigureRequester.width() : qualityMaxWidth,
                 adaptiveQuality == null ? reconfigureRequester.height() : qualityMaxHeight,
-                adaptiveQuality == null ? reconfigureRequester.fpsMillihz() : qualityMaxFps * 1000);
+                adaptiveQuality == null ? reconfigureRequester.fpsMillihz() : qualityCeilingFrameRateMilliHz());
         if (adaptiveQuality != null && offered != null) {
             AdaptiveQualityController.Target target = adaptiveQuality.resizeCeiling(offered[0], offered[1],
                     Math.round(offered[2] / 1000f), now);
-            if (target == null || applyAdaptiveQuality(target, now)) {
+            // The quality ladder uses whole FPS, but a fractional-only display change still
+            // needs to reach the host when the current level uses the ceiling's rate.
+            if (target == null && adaptiveQuality.current().fps == Math.round(offered[2] / 1000f) &&
+                    reconfigureRequester.fpsMillihz() != offered[2]) target = adaptiveQuality.current();
+            if (target == null || applyAdaptiveQuality(target, now, offered[2])) {
                 qualityMaxWidth = offered[0]; qualityMaxHeight = offered[1]; qualityMaxFps = Math.round(offered[2] / 1000f);
+                qualityMaxFrameRateMilliHz = offered[2];
                 streamPanelHz = panelMaxRefreshRate;
             }
             return;
@@ -1972,6 +1985,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         if (requestStreamReconfigure(request)) {
             // This is the new ceiling even if automatic quality is enabled later.
             qualityMaxWidth = request[0]; qualityMaxHeight = request[1]; qualityMaxFps = Math.round(request[2] / 1000f);
+            qualityMaxFrameRateMilliHz = request[2];
             streamPanelHz = panelMaxRefreshRate;
         }
     }
@@ -1996,14 +2010,13 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         }
         boolean fpsChanged = request[2] != reconfigureRequester.fpsMillihz();
         reconfigureRequester.sent(request);
+        decoderRenderer.resetDecodeTiming();
         if (fpsChanged) {
             streamFps = fps;
             prefConfig.fps = fps;
-            decoderRenderer.setFrameRate(fps);
+            decoderRenderer.setStreamFrameRateMilliHz(request[2]);
             if (adaptiveBitrate != null) adaptiveBitrate.setFrameRate(fps);
-            if (surfaceCreated && videoSurface != null && !prefConfig.useTextureView && !useArr) {
-                voteSurfaceFrameRate(videoSurface);
-            }
+            refreshSurfaceFrameRateVote();
         }
         return true;
     }
@@ -3600,6 +3613,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         adaptiveQuality = null;
         pendingQualityTarget = null;
         qualityStatus = null;
+        if (decoderRenderer != null) decoderRenderer.resetDecodeTiming();
         AdaptiveQualityController.Mode mode = qualityMode();
         if (mode == AdaptiveQualityController.Mode.OFF) {
             releaseQualityAutoBitrate();
@@ -3620,7 +3634,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 prefConfig.qualityMinShortEdge, prefConfig.qualityMinFps, limits[2], limits[3], SystemClock.uptimeMillis());
         // A user changing the mode returns to the session's ceiling before the new policy starts.
         int[] shown = decoderRenderer.getStreamSize();
-        if (!adaptiveQuality.current().matches(shown[0], shown[1], streamFps) &&
+        if ((!adaptiveQuality.current().matches(shown[0], shown[1], streamFps) ||
+                reconfigureRequester.fpsMillihz() != qualityCeilingFrameRateMilliHz()) &&
                 !applyAdaptiveQuality(adaptiveQuality.current(), SystemClock.uptimeMillis())) return;
         // Automatic quality needs it for this session only; the saved choice stays the user's own.
         if (supportsAdaptiveBitrate() && !isAdaptiveBitrateEnabled()) {
@@ -3631,7 +3646,17 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     }
 
     private boolean applyAdaptiveQuality(AdaptiveQualityController.Target target, long now) {
-        if (!requestStreamReconfigure(target.request())) {
+        return applyAdaptiveQuality(target, now, qualityCeilingFrameRateMilliHz());
+    }
+
+    private int qualityCeilingFrameRateMilliHz() {
+        return qualityMaxFrameRateMilliHz > 0 ? qualityMaxFrameRateMilliHz : qualityMaxFps * 1000;
+    }
+
+    private boolean applyAdaptiveQuality(AdaptiveQualityController.Target target, long now, int ceilingMilliHz) {
+        int[] request = target.request();
+        if (target.fps == Math.round(ceilingMilliHz / 1000f)) request[2] = ceilingMilliHz;
+        if (!requestStreamReconfigure(request)) {
             stopAdaptiveQualityWithError();
             return false;
         }
@@ -3666,7 +3691,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                     dialog.dismiss();
                     startAdaptiveQuality();
                     if (qualityMode() == AdaptiveQualityController.Mode.OFF && supportsAdaptiveQuality()) {
-                        requestStreamReconfigure(new int[] {qualityMaxWidth, qualityMaxHeight, qualityMaxFps * 1000});
+                        requestStreamReconfigure(new int[] {qualityMaxWidth, qualityMaxHeight, qualityCeilingFrameRateMilliHz()});
                     }
                 })
                 .setNeutralButton(R.string.quality_about, (dialog, which) ->
@@ -5754,6 +5779,13 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         }
     }
 
+    private void refreshSurfaceFrameRateVote() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && surfaceCreated && videoSurface != null &&
+                videoSurface.isValid() && !prefConfig.useTextureView && !useArr) {
+            voteSurfaceFrameRate(videoSurface);
+        }
+    }
+
     private void voteSurfaceFrameRate(Surface surface) {
         if (useArr && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             // A zero vote lets Android infer cadence from the presented buffers.
@@ -5775,7 +5807,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             desiredFrameRate = panelMaxRefreshRate;
         }
         else if (mayReduceRefreshRate() || desiredRefreshRate < prefConfig.fps) {
-            desiredFrameRate = prefConfig.fps;
+            int exactRate = decoderRenderer == null ? 0 : decoderRenderer.getStreamFrameRateMilliHz();
+            desiredFrameRate = exactRate > 0 ? exactRate / 1000f : prefConfig.fps;
         }
         else {
             // Otherwise, we will pretend that our frame rate matches the refresh rate we picked in

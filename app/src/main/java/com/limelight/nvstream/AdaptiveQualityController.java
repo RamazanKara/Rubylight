@@ -35,6 +35,8 @@ public final class AdaptiveQualityController {
     private int level, batteryCeiling;
     private long lastChange, healthySince = -1;
     private int devicePressureSamples, networkPressureSamples;
+    private int tailPressureSamples;
+    private long timingGeneration = Long.MIN_VALUE, timingWindowEndNs, timingTickMs = -1;
 
     public AdaptiveQualityController(Mode mode, int width, int height, int fps, int minShortEdge,
                                      int minFps, int alignWidth, int alignHeight, long now) {
@@ -107,22 +109,45 @@ public final class AdaptiveQualityController {
     public Target sample(long now, boolean recentVideo, boolean poorConnection, float loss,
                          float decodeMs, float jitterMs, float queueMs, int thermalLevel,
                          boolean bitrateHasRoom) {
+        return sample(now, recentVideo, poorConnection, loss, decodeMs, jitterMs, queueMs,
+                thermalLevel, bitrateHasRoom, null, false);
+    }
+
+    /** A missing timing observation is unknown, never evidence that the decoder recovered. */
+    public Target sample(long now, boolean recentVideo, boolean poorConnection, float loss,
+                         float decodeMs, float jitterMs, float queueMs, int thermalLevel,
+                         boolean bitrateHasRoom, DecodeTiming timing) {
+        return sample(now, recentVideo, poorConnection, loss, decodeMs, jitterMs, queueMs,
+                thermalLevel, bitrateHasRoom, timing, true);
+    }
+
+    private Target sample(long now, boolean recentVideo, boolean poorConnection, float loss,
+                          float decodeMs, float jitterMs, float queueMs, int thermalLevel,
+                          boolean bitrateHasRoom, DecodeTiming timing, boolean observeTail) {
         if (mode == Mode.OFF || !recentVideo) { suspend(); return null; }
         float frameMs = 1000f / current().fps;
+        boolean validTiming = observeTail && acceptTiming(now, timing);
+        // A single keyframe cannot satisfy both the count and ratio. Four fresh intervals
+        // must agree, so even a whole brief burst cannot be reused to force a reduction.
+        boolean tailPressure = validTiming && timing.lateFrames >= 3 &&
+                timing.lateFrames * 10L >= timing.samples;
+        tailPressureSamples = tailPressure ? tailPressureSamples + 1 : 0;
         boolean devicePressure = thermalLevel >= 2 || decodeMs >= frameMs;
         boolean networkPressure = poorConnection || loss >= 3 || queueMs >= Math.max(20, frameMs * 2);
         devicePressureSamples = devicePressure ? devicePressureSamples + 1 : 0;
         networkPressureSamples = networkPressure && !bitrateHasRoom ? networkPressureSamples + 1 : 0;
         boolean batteryStep = level < batteryCeiling;
-        if (devicePressure || networkPressure || batteryStep) {
+        if (devicePressure || tailPressure || networkPressure || batteryStep) {
             healthySince = -1;
             if (now - lastChange >= DOWN_INTERVAL_MS && level + 1 < levels.size() &&
-                    (devicePressureSamples >= 4 || networkPressureSamples >= 8 || batteryStep)) {
+                    (devicePressureSamples >= 4 || tailPressureSamples >= 4 ||
+                            networkPressureSamples >= 8 || batteryStep)) {
                 return levels.get(level + 1);
             }
             return null;
         }
-        boolean healthy = thermalLevel == 0 && loss >= 0 && loss < 0.5f &&
+        boolean healthy = (!observeTail || (validTiming && timing.lateFrames * 50L <= timing.samples)) &&
+                thermalLevel == 0 && loss >= 0 && loss < 0.5f &&
                 decodeMs >= 0 && decodeMs < frameMs * 0.65f && jitterMs >= 0 &&
                 jitterMs < Math.max(5, frameMs * 0.25f) && (queueMs < 0 || queueMs < Math.max(4, frameMs / 2));
         if (!healthy) healthySince = -1;
@@ -131,6 +156,34 @@ public final class AdaptiveQualityController {
             return levels.get(level - 1);
         }
         return null;
+    }
+
+    private boolean acceptTiming(long now, DecodeTiming timing) {
+        if (timingTickMs >= 0 && (now < timingTickMs || now - timingTickMs > 2000)) {
+            tailPressureSamples = devicePressureSamples = networkPressureSamples = 0;
+            healthySince = -1;
+        }
+        timingTickMs = now;
+        if (timing == null) return false;
+        if (timing.generation != timingGeneration) {
+            timingGeneration = timing.generation;
+            timingWindowEndNs = 0;
+            tailPressureSamples = devicePressureSamples = networkPressureSamples = 0;
+            healthySince = -1;
+        }
+        boolean newWindow = timing.windowEndNs > timingWindowEndNs &&
+                timing.windowStartNs >= timingWindowEndNs;
+        timingWindowEndNs = Math.max(timingWindowEndNs, timing.windowEndNs);
+        // Low-FPS streams still need most of a second of observations; at higher rates
+        // require at least 30 outputs. A full or paused decoder cannot look healthy.
+        int minimumSamples = Math.max(12, Math.min(30, current().fps / 2));
+        return newWindow && timing.fps == current().fps && timing.windowStartNs >= 0 &&
+                timing.windowEndNs - timing.windowStartNs <= 2_000_000_000L &&
+                timing.samples >= minimumSamples && timing.lateFrames >= 0 &&
+                timing.lateFrames <= timing.samples && timing.firstSampleNs > timing.windowStartNs &&
+                timing.lastSampleNs <= timing.windowEndNs &&
+                timing.lastSampleNs - timing.firstSampleNs >= 500_000_000L &&
+                timing.windowEndNs - timing.lastSampleNs <= 500_000_000L;
     }
 
     /** Called only after the request was sent successfully; absent requests cannot advance the ladder. */
@@ -144,6 +197,7 @@ public final class AdaptiveQualityController {
 
     public void suspend() {
         healthySince = -1;
-        devicePressureSamples = networkPressureSamples = 0;
+        devicePressureSamples = networkPressureSamples = tailPressureSamples = 0;
+        timingTickMs = -1;
     }
 }

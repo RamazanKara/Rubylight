@@ -1,6 +1,10 @@
 package com.limelight.nvstream.av.video;
 
 public abstract class VideoDecoderRenderer {
+    // The protocol setup callback carries whole FPS. Preserve a fractional launch rate separately
+    // when the freshly discovered host supports it; renderers without pacing may ignore it.
+    public void setStreamFrameRateMilliHz(int frameRateMilliHz) {}
+
     public int prepareVideoFormats(int formats, int width, int height, int redrawRate) {
         return formats;
     }

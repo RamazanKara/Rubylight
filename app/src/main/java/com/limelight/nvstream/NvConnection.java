@@ -690,6 +690,7 @@ public class NvConnection {
 
             int offeredFormats = context.streamConfig.getSupportedVideoFormats();
             int commonFormats = negotiateVideoFormats(offeredFormats, context.serverCodecModeSupport);
+            renderer.setStreamFrameRateMilliHz(NvHTTP.getStreamFrameRateMilliHz(context));
             int preparedFormats = renderer.prepareVideoFormats(commonFormats, context.negotiatedWidth,
                     context.negotiatedHeight, context.streamConfig.getRefreshRate());
             context.negotiatedVideoFormats = negotiateVideoFormats(preparedFormats, context.serverCodecModeSupport);

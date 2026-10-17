@@ -317,6 +317,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     private int lastFrameNumber;
     private long baseTimestampUs;
     private volatile int refreshRate;
+    private volatile int streamFrameRateMilliHz;
     private PreferenceConfiguration prefs;
 
     private LinkedBlockingQueue<Integer> outputBufferQueue = new LinkedBlockingQueue<>();
@@ -325,6 +326,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     // so they show HDR, size and upscaler restarts as such instead of as a CodecException.
     private volatile String restartReason = "CodecException";
     private long nextFrameTimeNanos;
+    private int pacingFrameRateMilliHz;
     private HandlerThread choreographerHandlerThread;
     private Handler choreographerHandler;
     private final Object vsyncMonitor = new Object();
@@ -642,14 +644,38 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     }
 
     public void setFrameRate(int fps) {
+        setStreamFrameRateMilliHz(fps * 1000);
+    }
+
+    /** Exact stream cadence; rounded FPS remains the MediaCodec/performance-hint setting. */
+    @Override
+    public void setStreamFrameRateMilliHz(int fpsMilliHz) {
+        FramePacingPolicy.frameIntervalNs(fpsMilliHz); // Validate before publishing to the render threads.
         synchronized (codecRecoveryMonitor) {
-            if (stopping || fps == refreshRate) return;
+            if (stopping || fpsMilliHz == streamFrameRateMilliHz) return;
+            streamFrameRateMilliHz = fpsMilliHz;
+            frameLatencyStats.resetDecodeTiming();
+            int fps = (fpsMilliHz + 500) / 1000;
             refreshRate = fps;
-            configuredFormat.setInteger(MediaFormat.KEY_FRAME_RATE, fps);
+            if (configuredFormat != null) configuredFormat.setInteger(MediaFormat.KEY_FRAME_RATE, fps);
             Display display = outputDisplay;
-            updateUpscalingFrameRate(Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ?
-                    display.getMode().getRefreshRate() : display.getRefreshRate());
+            if (display != null) {
+                updateUpscalingFrameRate(Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ?
+                        display.getMode().getRefreshRate() : display.getRefreshRate());
+            }
         }
+    }
+
+    public int getStreamFrameRateMilliHz() {
+        return streamFrameRateMilliHz;
+    }
+
+    public com.limelight.nvstream.DecodeTiming takeDecodeTiming(int fps) {
+        return frameLatencyStats.takeDecodeTiming(System.nanoTime(), fps);
+    }
+
+    public void resetDecodeTiming() {
+        frameLatencyStats.resetDecodeTiming();
     }
 
     private void updateUpscalingFrameRate(float panelHz) {
@@ -1446,6 +1472,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             this.maxDecodeHeight = this.expectedHeight = this.streamHeight = height;
             this.videoFormat = format;
             this.refreshRate = redrawRate;
+            this.streamFrameRateMilliHz = FramePacingPolicy.negotiatedFrameRateMilliHz(
+                    streamFrameRateMilliHz, redrawRate);
 
             if ((format & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0) {
                 setupUpscaling();
@@ -1563,6 +1591,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                 nextInputBufferIndex = -1;
                 outputBufferQueue.clear();
                 nextFrameTimeNanos = 0;
+                pacingFrameRateMilliHz = 0;
                 outputBufferQueueLimit = 1;
                 frameLatencyStats.discardPending("codec_reset");
 
@@ -1883,6 +1912,14 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             return;
         }
 
+        // Only the Choreographer thread advances the cadence. A rate change starts a new
+        // timeline here instead of racing its deadline from a connection/UI callback.
+        int fpsMilliHz = streamFrameRateMilliHz;
+        if (pacingFrameRateMilliHz != fpsMilliHz) {
+            pacingFrameRateMilliHz = fpsMilliHz;
+            nextFrameTimeNanos = 0;
+        }
+
         // Don't render unless a new frame is due. This prevents microstutter when streaming
         // at a frame rate that doesn't match the display (such as 60 FPS on 120 Hz).
         if (FramePacingPolicy.isFrameDue(nextFrameTimeNanos, frameTimeNanos, vsyncIntervalNs)) {
@@ -1897,7 +1934,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                             upscaler == null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M);
                     releaseOutputFrame(nextOutputBuffer, System.nanoTime());
 
-                    nextFrameTimeNanos = FramePacingPolicy.nextFrameTimeNs(nextFrameTimeNanos, frameTimeNanos, refreshRate);
+                    nextFrameTimeNanos = FramePacingPolicy.nextFrameTimeNsMilliHz(
+                            nextFrameTimeNanos, frameTimeNanos, fpsMilliHz);
                     activeWindowVideoStats.totalFramesRendered++;
                 } catch (IllegalStateException ignored) {
                     try {
@@ -1971,8 +2009,14 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
                                 // Render the latest frame now if frame pacing isn't in balanced mode
                                 if (prefs.framePacing != PreferenceConfiguration.FRAME_PACING_BALANCED) {
-                                    // Get the last output buffer in the queue
-                                    while (FramePacingPolicy.dropQueuedFrames(prefs.framePacing) &&
+                                    // Latency mode takes the newest output. Smooth modes only catch up
+                                    // after a backlog exceeds the age budget, then resume normal order.
+                                    // All frames have already been decoded, preserving codec references.
+                                    int drained = 0;
+                                    while (!stopping && codecRecoveryType.get() == CR_RECOVERY_TYPE_NONE &&
+                                            FramePacingPolicy.shouldDrainOutput(prefs.framePacing,
+                                                    frameLatencyStats.getEnqueueTimeNsForOutput(lastIndex),
+                                                    System.nanoTime(), streamFrameRateMilliHz, drained) &&
                                             (outIndex = videoDecoder.dequeueOutputBuffer(info, 0)) >= 0) {
                                         frameLatencyStats.onDecoderOutput(outIndex, info.presentationTimeUs, System.nanoTime());
                                         frameLatencyStats.onOutputReleased(lastIndex, System.nanoTime(), false,
@@ -1985,14 +2029,15 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
                                         lastIndex = outIndex;
                                         lastPtsUs = info.presentationTimeUs;
+                                        drained++;
                                     }
 
                                     frameLatencyStats.onOutputReleased(lastIndex, System.nanoTime(), true,
                                             upscaler == null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M);
                                     if (prefs.framePacing == PreferenceConfiguration.FRAME_PACING_MAX_SMOOTHNESS ||
                                             prefs.framePacing == PreferenceConfiguration.FRAME_PACING_CAP_FPS) {
-                                        // In max smoothness or cap FPS mode, we want to never drop frames
-                                        // Use a PTS that will cause this frame to never be dropped
+                                        // Retain the ordinary smooth-mode presentation behavior after
+                                        // replacing any stale decoded outputs above.
                                         releaseOutputFrame(lastIndex, 0);
                                     }
                                     else {

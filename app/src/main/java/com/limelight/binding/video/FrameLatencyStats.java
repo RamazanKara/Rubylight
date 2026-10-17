@@ -1,6 +1,7 @@
 package com.limelight.binding.video;
 
 import com.limelight.nvstream.av.video.HostTimingReport;
+import com.limelight.nvstream.DecodeTiming;
 
 import java.io.IOException;
 import java.io.Writer;
@@ -62,6 +63,7 @@ class FrameLatencyStats {
     private int decodeTimeSamples;
     private long totalDecodeTimeNs;
     private long totalDecodedFrames;
+    private long decodeTimingConsumedFrames, decodeTimingPollNs, decodeTimingGeneration;
     private long totalClientTimeNs;
     private long totalClientTimeSamples;
     private final long[][] frameTimes = new long[3][2048];
@@ -229,8 +231,8 @@ class FrameLatencyStats {
                 lastOutputNs = outputNs;
             }
             outputs.put(index, frame);
-            addSample(1, frame.inputNs, outputNs);
             if (frame.inputNs > 0 && outputNs >= frame.inputNs) {
+                addSample(1, frame.inputNs, outputNs);
                 decodeTimeTotalNs += outputNs - frame.inputNs;
                 decodeTimeSamples++;
                 totalDecodeTimeNs += outputNs - frame.inputNs;
@@ -267,6 +269,12 @@ class FrameLatencyStats {
         }
     }
 
+    /** The local queue timestamp for a still-owned output buffer, or zero when untracked. */
+    synchronized long getEnqueueTimeNsForOutput(int outputIndex) {
+        Frame frame = outputs.get(outputIndex);
+        return frame == null || frame.enqueueNs <= 0 || frame.enqueueNs > frame.outputNs ? 0 : frame.enqueueNs;
+    }
+
     synchronized void onFrameRendered(long ptsUs, long renderNs) {
         Frame frame = pending.get(ptsUs);
         if (frame != null) {
@@ -298,6 +306,7 @@ class FrameLatencyStats {
         lastOutputNs = lastReleaseNs = 0;
         decodeTimeTotalNs = 0;
         decodeTimeSamples = 0;
+        resetDecodeTiming();
         artemisQueuedNs.clear();
         fpsStartNs = 0;
         for (long[] times : frameTimes) Arrays.fill(times, 0);
@@ -308,6 +317,38 @@ class FrameLatencyStats {
         decodeTimeTotalNs = 0;
         decodeTimeSamples = 0;
         return result;
+    }
+
+    /**
+     * Only new outputs since the last quality tick count. The existing ring bounds this scan;
+     * observing it neither consumes overlay/CSV data nor allocates anything per decoded frame.
+     */
+    synchronized DecodeTiming takeDecodeTiming(long nowNs, int fps) {
+        long startNs = Math.max(decodeTimingPollNs, Math.max(0, nowNs - FPS_WINDOW_NS));
+        int available = (int) Math.min(counts[1], totalDecodedFrames - decodeTimingConsumedFrames);
+        int sampled = 0, late = 0;
+        long first = 0, last = 0;
+        if (nowNs > 0 && nowNs >= decodeTimingPollNs && fps > 0) {
+            for (int offset = 1; offset <= available; offset++) {
+                int index = (positions[1] - offset + WINDOW_SIZE) % WINDOW_SIZE;
+                long observed = sampleTimes[1][index];
+                if (observed <= startNs || observed > nowNs) continue;
+                sampled++;
+                if (samples[1][index] > 1_000_000_000d / fps) late++;
+                first = first == 0 ? observed : Math.min(first, observed);
+                last = Math.max(last, observed);
+            }
+        }
+        decodeTimingConsumedFrames = totalDecodedFrames;
+        decodeTimingPollNs = Math.max(0, nowNs);
+        return new DecodeTiming(decodeTimingGeneration, startNs, nowNs, first, last, fps, sampled, late);
+    }
+
+    /** A reset/reconfigure must not carry evidence from the previous decoder workload. */
+    synchronized void resetDecodeTiming() {
+        decodeTimingGeneration++;
+        decodeTimingConsumedFrames = totalDecodedFrames;
+        decodeTimingPollNs = 0;
     }
 
     // A frame Artemis counts: the one it presents, or one it puts in the pacing queue without

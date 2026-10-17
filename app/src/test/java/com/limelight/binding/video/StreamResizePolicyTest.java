@@ -64,14 +64,43 @@ public class StreamResizePolicyTest {
     @Test
     public void frameRateFollowsOnlyAMovedPanel() {
         assertEquals(120_000, StreamResizePolicy.fpsMillihz(120));
-        assertEquals(60_000, StreamResizePolicy.fpsMillihz(59.94f));
+        assertEquals(59_940, StreamResizePolicy.fpsMillihz(59.94f));
+        assertEquals(119_880, StreamResizePolicy.fpsMillihz(119.88f));
+        assertEquals(23_976, StreamResizePolicy.fpsMillihz(23.976f));
         assertEquals(StreamResizePolicy.MIN_FPS_MILLIHZ, StreamResizePolicy.fpsMillihz(1));
         assertEquals(StreamResizePolicy.MAX_FPS_MILLIHZ, StreamResizePolicy.fpsMillihz(1000));
         // Same panel: keep what the stream started with, including a capped 119 fps.
-        assertEquals(119_000, StreamResizePolicy.targetFpsMillihz(true, 119_000, 120, 120.1f));
+        assertEquals(119_000, StreamResizePolicy.targetFpsMillihz(true, 119_000, 120, 120.001f));
         assertEquals(60_000, StreamResizePolicy.targetFpsMillihz(true, 120_000, 120, 60));
         assertEquals(120_000, StreamResizePolicy.targetFpsMillihz(false, 120_000, 120, 60));
         assertEquals(120_000, StreamResizePolicy.targetFpsMillihz(true, 120_000, 120, Float.NaN));
+    }
+
+    @Test
+    public void fractionalPanelChangesPreserveTheirCadenceInBothDirections() {
+        assertEquals(59_940, StreamResizePolicy.targetFpsMillihz(true, 60_000, 60, 59.94f));
+        assertEquals(60_000, StreamResizePolicy.targetFpsMillihz(true, 59_940, 59.94f, 60));
+        assertEquals(119_880, StreamResizePolicy.targetFpsMillihz(true, 120_000, 120, 119.88f));
+        assertEquals(120_000, StreamResizePolicy.targetFpsMillihz(true, 119_880, 119.88f, 120));
+        assertEquals(23_976, StreamResizePolicy.targetFpsMillihz(true, 24_000, 24, 23.976f));
+        assertEquals(120_000, StreamResizePolicy.targetFpsMillihz(false, 120_000, 120, 119.88f));
+    }
+
+    @Test
+    public void smallReportingNoiseAndInvalidRatesCannotChangeAnActiveStream() {
+        for (float panel : new float[] {119.87999f, 119.88001f, 119.889f}) {
+            assertEquals(119_000, StreamResizePolicy.targetFpsMillihz(true, 119_000, 119.88f, panel));
+        }
+        // A complete 0.01 Hz step is meaningful at the launch profile's precision.
+        assertEquals(119_890, StreamResizePolicy.targetFpsMillihz(true, 119_880, 119.88f, 119.89f));
+        for (float panel : new float[] {0, -1, Float.NaN, Float.POSITIVE_INFINITY, Float.NEGATIVE_INFINITY}) {
+            assertEquals(59_940, StreamResizePolicy.targetFpsMillihz(true, 59_940, 59.94f, panel));
+        }
+        assertEquals(59_940, StreamResizePolicy.targetFpsMillihz(true, 60_000, Float.NaN, 59.94f));
+        assertEquals(StreamResizePolicy.MAX_FPS_MILLIHZ,
+                StreamResizePolicy.targetFpsMillihz(true, 120_000, 120, Float.MAX_VALUE));
+        assertEquals(StreamResizePolicy.MIN_FPS_MILLIHZ,
+                StreamResizePolicy.targetFpsMillihz(true, 60_000, 60, 1));
     }
 
     @Test

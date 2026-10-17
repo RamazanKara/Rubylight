@@ -49,18 +49,21 @@ pub fn flatten(modes: &[Mode]) -> impl Iterator<Item = ModeItem> + '_ {
 /// How many resolutions a monitor's list may accumulate across resizes.
 pub const MODE_LIST_CAP: usize = 12;
 
-/// Append `from`'s resolutions that `into` lacks, up to [`MODE_LIST_CAP`]. Windows pins a
-/// monitor's settable set when it arrives, so a list only ever grows; a resolution already
-/// present is skipped whole, refresh rates and all.
+/// Append missing resolutions up to [`MODE_LIST_CAP`] and merge missing refresh rates.
+/// Windows pins a monitor's settable set when it arrives, so retain historical rates when
+/// a resolution becomes a fallback. Existing order, including the preferred mode, stays.
 pub fn union_modes(into: &mut Vec<Mode>, from: &[Mode]) {
     for m in from {
-        if into.len() >= MODE_LIST_CAP {
-            break;
-        }
-        if !into
-            .iter()
-            .any(|e| (e.width, e.height) == (m.width, m.height))
+        if let Some(existing) = into
+            .iter_mut()
+            .find(|e| (e.width, e.height) == (m.width, m.height))
         {
+            for &rate in &m.refresh_mhz {
+                if !existing.refresh_mhz.contains(&rate) {
+                    existing.refresh_mhz.push(rate);
+                }
+            }
+        } else if into.len() < MODE_LIST_CAP {
             into.push(m.clone());
         }
     }
@@ -77,9 +80,16 @@ pub fn advertised_modes(requested: Mode, history: &[Mode]) -> Vec<Mode> {
 }
 
 /// Fallbacks after the requested mode, so a topology change still finds a mode.
+/// Include 1440p even when a client requests 4K, allowing games to render at a
+/// lower desktop resolution while the negotiated stream stays at 4K.
 #[must_use]
 pub fn default_modes() -> Vec<Mode> {
     vec![
+        Mode {
+            width: 2560,
+            height: 1440,
+            refresh_mhz: vec![60_000, 120_000, 240_000],
+        },
         Mode {
             width: 1920,
             height: 1080,
@@ -225,10 +235,10 @@ mod tests {
         let asked = mode(2560, 1440, &[240_000]);
         let history = [mode(3840, 2160, &[60_000]), mode(1920, 1080, &[144_000])];
         let list = advertised_modes(asked.clone(), &history);
-        assert_eq!(list[0], asked);
-        assert_eq!(list[1], mode(1920, 1080, &[60_000, 120_000]));
+        assert_eq!(list[0], mode(2560, 1440, &[240_000, 60_000, 120_000]));
+        assert_eq!(list[1], mode(1920, 1080, &[60_000, 120_000, 144_000]));
         assert_eq!(list[2], mode(1280, 720, &[60_000]));
-        // History adds 4K; its 1080p duplicate is dropped whole.
+        // History adds 4K and its 1080p rate without duplicating the resolution.
         assert_eq!(list[3], mode(3840, 2160, &[60_000]));
         assert_eq!(list.len(), 4);
         let flat: Vec<_> = flatten(&list[..2])
@@ -238,16 +248,47 @@ mod tests {
             flat,
             [
                 (2560, 1440, 240_000),
+                (2560, 1440, 60_000),
+                (2560, 1440, 120_000),
                 (1920, 1080, 60_000),
-                (1920, 1080, 120_000)
+                (1920, 1080, 120_000),
+                (1920, 1080, 144_000)
             ]
         );
     }
 
     #[test]
+    fn a_4k_stream_offers_1440p_without_prior_mode_history() {
+        for rate in [119_880, 120_000, 240_000] {
+            let requested = mode(3840, 2160, &[rate]);
+            let list = advertised_modes(requested.clone(), &[]);
+            assert_eq!(list[0], requested);
+            let available: Vec<_> = flatten(&list)
+                .map(|m| (m.width, m.height, m.refresh_mhz))
+                .collect();
+            for fallback_rate in [60_000, 120_000, 240_000] {
+                assert!(available.contains(&(2560, 1440, fallback_rate)));
+            }
+            assert!(available.contains(&(1920, 1080, 60_000)));
+            assert!(available.contains(&(1280, 720, 60_000)));
+        }
+    }
+
+    #[test]
+    fn adding_1440p_fallbacks_preserves_a_remembered_custom_refresh() {
+        let history = [mode(2560, 1440, &[165_000, 120_000])];
+        let list = advertised_modes(mode(3840, 2160, &[120_000]), &history);
+        assert_eq!(
+            list[1],
+            mode(2560, 1440, &[60_000, 120_000, 240_000, 165_000])
+        );
+        assert_eq!(list.iter().filter(|m| m.width == 2560).count(), 1);
+    }
+
+    #[test]
     fn a_requested_fallback_resolution_is_not_listed_twice() {
         let list = advertised_modes(mode(1920, 1080, &[480_000]), &[]);
-        assert_eq!(list[0], mode(1920, 1080, &[480_000]));
+        assert_eq!(list[0], mode(1920, 1080, &[480_000, 60_000, 120_000]));
         assert_eq!(list.iter().filter(|m| m.width == 1920).count(), 1);
     }
 
@@ -259,6 +300,13 @@ mod tests {
         union_modes(&mut full, &[mode(3840, 2160, &[60_000])]);
         assert_eq!(full.len(), MODE_LIST_CAP);
         assert!(!full.contains(&mode(3840, 2160, &[60_000])));
+        // Reaching the resolution cap must not discard a rate for an existing mode.
+        union_modes(
+            &mut full,
+            &[mode(3840, 2160, &[60_000]), mode(640, 480, &[120_000])],
+        );
+        assert_eq!(full.len(), MODE_LIST_CAP);
+        assert_eq!(full[0], mode(640, 480, &[60_000, 120_000]));
     }
 
     #[test]

@@ -33,6 +33,7 @@ public class KeyboardOverlayTest {
             assertEquals(1, KeyboardShortcuts.load(controller.get()).size());
             List<int[]> sent = new ArrayList<>();
             KeyboardOverlay overlay = new KeyboardOverlay(controller.get(), sent::add, () -> { }, () -> { });
+            button(overlay, controller.get().getString(R.string.desktop_controls_shortcuts)).performClick();
             button(overlay, "Desktop").performClick();
             assertArrayEquals(new int[] {KeyEvent.KEYCODE_META_LEFT, KeyEvent.KEYCODE_D}, sent.get(0));
             KeyboardShortcuts.save(controller.get(), java.util.Collections.emptyList());
@@ -48,18 +49,20 @@ public class KeyboardOverlayTest {
             MaterialButton shift = button(overlay, "Shift");
             ctrl.performClick();
             shift.performClick();
-            assertTrue(ctrl.isChecked());
-            assertTrue(shift.isChecked());
+            assertTrue(ctrl.isSelected());
+            assertTrue(shift.isSelected());
             assertTrue(sent.isEmpty());
             button(overlay, "Esc").performClick();
             assertArrayEquals(new int[] {KeyEvent.KEYCODE_CTRL_LEFT, KeyEvent.KEYCODE_SHIFT_LEFT, KeyEvent.KEYCODE_ESCAPE}, sent.get(0));
-            assertFalse(ctrl.isChecked());
-            assertFalse(shift.isChecked());
+            assertFalse(ctrl.isSelected());
+            assertFalse(shift.isSelected());
+            button(overlay, controller.get().getString(R.string.desktop_controls_function)).performClick();
             button(overlay, "F12").performClick();
             assertArrayEquals(new int[] {KeyEvent.KEYCODE_F12}, sent.get(1));
+            ctrl = button(overlay, "Ctrl");
             ctrl.performClick();
             overlay.resetModifiers();
-            assertFalse(ctrl.isChecked());
+            assertFalse(ctrl.isSelected());
             assertEquals(2, sent.size());
         }
     }
@@ -76,11 +79,12 @@ public class KeyboardOverlayTest {
                     View.MeasureSpec.makeMeasureSpec(640, View.MeasureSpec.AT_MOST));
             overlay.layout(0, 0, 360, overlay.getMeasuredHeight());
             assertTrue(button(overlay, "Esc").getRight() <= 360);
+            button(overlay, controller.get().getString(R.string.desktop_controls_shortcuts)).performClick();
             button(overlay, controller.get().getString(R.string.keyboard_task_manager)).performClick();
             button(overlay, controller.get().getString(R.string.keyboard_switch_window)).performClick();
             button(overlay, controller.get().getString(R.string.keyboard_close_window)).performClick();
-            button(overlay, controller.get().getString(R.string.stream_keyboard)).performClick();
-            button(overlay, controller.get().getString(R.string.keyboard_keys_hide)).performClick();
+            button(overlay, controller.get().getString(R.string.desktop_controls_system_keyboard)).performClick();
+            DesktopControlsPanelTest.described(overlay, controller.get().getString(R.string.desktop_controls_hide)).performClick();
             assertArrayEquals(new int[] {KeyEvent.KEYCODE_CTRL_LEFT, KeyEvent.KEYCODE_SHIFT_LEFT, KeyEvent.KEYCODE_ESCAPE}, sent.get(0));
             assertArrayEquals(new int[] {KeyEvent.KEYCODE_ALT_LEFT, KeyEvent.KEYCODE_TAB}, sent.get(1));
             assertArrayEquals(new int[] {KeyEvent.KEYCODE_ALT_LEFT, KeyEvent.KEYCODE_F4}, sent.get(2));

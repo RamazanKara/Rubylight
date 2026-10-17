@@ -116,9 +116,13 @@ Leave **Desktop mouse mode** off for games that need relative mouse look; enable
 
 Open the stream menu and select **Keyboard** in its top row for Android's on-screen keyboard. It stays hidden when a stream starts, including on tablets. Hardware key events and text input are sent to the host; Android may reserve system keys. Check the host keyboard layout if punctuation or language-specific keys differ.
 
-Select **stream menu → Input → Extra keyboard keys** for a toolbar with Esc, Tab, Enter, Backspace, Delete, Home/End, Page Up/Down, arrows and F1–F12. Scroll each row horizontally to reach more keys. Ctrl, Alt, Shift and Win apply to the next key pressed in this toolbar, then reset. **Hide keys** closes the toolbar; **Keyboard** opens Android's text keyboard.
+Select **stream menu → Input → Keyboard & mouse** for the desktop panel. Choose **Keyboard**, **Trackpad**, or **Combined**. Keyboard banks provide letters and numbers, F1–F12, navigation and punctuation, a number pad, and shortcuts. Banks scroll horizontally; tall key layouts scroll vertically. Combined mode puts the trackpad beside the keyboard on wide screens and below it on narrow screens.
 
-The toolbar also provides **Task Manager** (Ctrl+Shift+Esc), **Switch window** (Alt+Tab) and **Close window** (Alt+F4). To stop an unresponsive app, open Task Manager and use its **End task** action on the host. These controls require the host's keyboard permission.
+Tap Ctrl, Alt, Shift or Win to combine it with the next panel key; hold a modifier to send it alone, for example Win to open Start. Selected modifiers stay local until a key is sent. **Shortcuts** includes copy/paste, Show desktop, **Task Manager** (Ctrl+Shift+Esc), **Switch window** (Alt+Tab) and **Close window** (Alt+F4). **Phone keyboard** opens Android's text keyboard, which uses its own modifiers.
+
+Move one finger on the trackpad to move the pointer; tap to left-click, use two fingers to scroll, or tap two fingers to right-click. Hold **L** while moving on the pad to drag. The **L/R** buttons work independently of keys and the pad, including in Combined mode.
+
+The gear opens customization: key and panel size, background opacity, pointer speed, scrolling direction, tap-to-click, mouse buttons (including optional middle/Back/Forward), trackpad side, visible banks, and modifiers that stay selected for several keys. **Edit keyboard shortcuts** adds, edits, deletes or reorders saved chords inside the stream. Apply saves panel settings for this device; Reset panel restores defaults while keeping saved shortcuts. Closing the panel, changing modes, losing focus or disconnecting releases held mouse buttons and clears modifiers. The host's input permissions still apply.
 
 ### Keyboard options
 
@@ -131,7 +135,7 @@ Both are in **Settings → Controls → Keyboard** and off by default.
 
 Open **Settings → Controls → Keyboard shortcuts** and choose **Add shortcut**. Enter a button name and a chord such as `CTRL + SHIFT + ESC`, `WIN + D` or `ALT + F4`, then **Save**. Select a saved button to change its name or keys, or choose **Delete**. Unsaved editor text survives screen rotation.
 
-On the next stream, open **stream menu → Input → Extra keyboard keys**. Your buttons appear in an additional row that scrolls horizontally. Tapping one presses its keys in the listed order and releases them in reverse order; put modifiers first. Toolbar modifier toggles reset when a shortcut is sent. Shortcuts require the host's keyboard permission and use the same input path as the built-in toolbar buttons.
+Open **stream menu → Input → Keyboard & mouse → Shortcuts** to use your buttons. Tapping one presses its keys in the listed order and releases them in reverse order; put modifiers first. Panel modifier selections reset when a shortcut is sent unless you enabled the keep-selected option. Shortcuts require the host's keyboard permission and use the same input path as the built-in panel keys.
 
 Key names are case-insensitive. Use letters `A`–`Z`, digits `0`–`9`, `F1`–`F24`, modifiers `CTRL`, `SHIFT`, `ALT`, `WIN`, and names such as `ESC`, `TAB`, `ENTER`, `BACKSPACE`, `DELETE`, `HOME`, `END`, `PAGE_UP`, `PAGE_DOWN`, `LEFT`, `RIGHT`, `UP`, `DOWN` and `SPACE`. `CTRL_RIGHT`, `SHIFT_RIGHT`, `ALT_RIGHT` and `META_RIGHT` select right-hand modifiers; `NUMPAD_0`–`NUMPAD_9` select number-pad keys. Other Android key names are accepted only when Nightjar can forward them to the host.
 

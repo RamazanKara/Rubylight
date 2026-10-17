@@ -18,6 +18,13 @@ public final class DemoLauncherActivity extends Activity {
 
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
+        if ("input-workspace".equals(getIntent().getStringExtra("state"))) {
+            Intent preview = new Intent(this, DemoInputWorkspaceActivity.class);
+            if (getIntent().getExtras() != null) preview.putExtras(getIntent().getExtras());
+            startActivity(preview.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK));
+            finish();
+            return;
+        }
         String home = getIntent().getStringExtra("home");
         if (home != null) {
             // adb's shell may not change component state on current Android, but the app can change its own:

@@ -150,7 +150,7 @@ public final class StreamMenu {
                 entries.add(action(Section.INPUT, Item.GAME_CONTROLS, R.string.touch_layout_title, R.drawable.ic_touch_controls));
             }
             entries.add(action(Section.INPUT, Item.KEYBOARD_KEYS, o.keyboardKeysShown ?
-                    R.string.stream_keyboard_keys_hide : R.string.keyboard_keys_show, R.drawable.ic_keys));
+                    R.string.desktop_controls_close : R.string.desktop_controls_open, R.drawable.ic_keys));
         }
 
         if (o.mediaStream()) {

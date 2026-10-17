@@ -59,6 +59,7 @@ import com.limelight.preferences.PreferenceConfiguration;
 import com.limelight.ui.GameGestures;
 import com.limelight.ui.HostCursorShapes;
 import com.limelight.ui.KeyboardOverlay;
+import com.limelight.ui.DesktopControlsPanel;
 import com.limelight.ui.StreamOrientation;
 import com.limelight.ui.StreamView;
 import com.limelight.ui.VideoScaling;
@@ -188,6 +189,12 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     private ControllerHandler controllerHandler;
     private KeyboardTranslator keyboardTranslator;
     private KeyboardOverlay keyboardOverlay;
+    private boolean desktopWindowFocused = true;
+    private int desktopHeldButtons;
+    private MouseDeltaAccumulator desktopDeltaX = new MouseDeltaAccumulator();
+    private MouseDeltaAccumulator desktopDeltaY = new MouseDeltaAccumulator();
+    private MouseDeltaAccumulator desktopScrollV = new MouseDeltaAccumulator();
+    private MouseDeltaAccumulator desktopScrollH = new MouseDeltaAccumulator();
     private VirtualController virtualController;
 
     private PreferenceConfiguration prefConfig;
@@ -1496,6 +1503,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     @Override
     public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
+        desktopWindowFocused = hasFocus;
 
         if (!hasFocus) {
             cancelTouchInput();
@@ -2228,6 +2236,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
 
     @Override
     protected void onPause() {
+        releaseDesktopInput();
         if (trackpadPointer != null) trackpadPointer.stopMomentum();
         if (gameTouchControls != null) gameTouchControls.releaseInput();
         // Shown again on the next stream unless it was read.
@@ -4226,13 +4235,31 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             return;
         }
         if (keyboardOverlay == null) {
-            keyboardOverlay = new KeyboardOverlay(this, this::sendKeyboardShortcut, this::toggleKeyboard,
-                    this::hideKeyboardOverlay);
+            keyboardOverlay = new KeyboardOverlay(this, new DesktopControlsPanel.Sink() {
+                @Override public void sendKeys(int[] keys) {
+                    if (canSendDesktopInput()) sendKeyboardShortcut(keys);
+                }
+                @Override public void move(float dx, float dy) { sendDesktopMotion(dx, dy); }
+                @Override public void scroll(float vertical, float horizontal) { sendDesktopScroll(vertical, horizontal); }
+                @Override public void mouseButton(int button, boolean down) { sendDesktopButton(button, down); }
+            }, () -> {
+                hideKeyboardOverlay();
+                toggleKeyboard();
+            }, this::hideKeyboardOverlay);
+            ViewCompat.setOnApplyWindowInsetsListener(keyboardOverlay, (view, windowInsets) -> {
+                androidx.core.graphics.Insets safe = windowInsets.getInsets(
+                        WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout());
+                float density = getResources().getDisplayMetrics().density;
+                int horizontal = Math.round(4 * density), vertical = Math.round(3 * density);
+                view.setPadding(safe.left + horizontal, vertical, safe.right + horizontal, safe.bottom + vertical);
+                return windowInsets;
+            });
             ((FrameLayout) streamView.getParent()).addView(keyboardOverlay,
                     new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT,
-                            FrameLayout.LayoutParams.WRAP_CONTENT, android.view.Gravity.TOP));
+                            FrameLayout.LayoutParams.WRAP_CONTENT, android.view.Gravity.BOTTOM));
+            ViewCompat.requestApplyInsets(keyboardOverlay);
         } else {
-            keyboardOverlay.resetModifiers();
+            keyboardOverlay.reloadConfiguration();
             keyboardOverlay.setVisibility(View.VISIBLE);
             keyboardOverlay.bringToFront();
         }
@@ -4245,11 +4272,59 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     }
 
     private void hideKeyboardOverlay() {
-        keyboardOverlay.resetModifiers();
+        if (keyboardOverlay == null) return;
+        releaseDesktopInput();
         keyboardOverlay.setVisibility(View.GONE);
-        if (grabbedInput && !cursorVisible) {
+        if (grabbedInput && !cursorVisible && inputCaptureProvider != null) {
             inputCaptureProvider.hideCursor();
         }
+    }
+
+    private boolean canSendDesktopInput() {
+        return foreground && connected && grabbedInput && desktopWindowFocused && !isFinishing() &&
+                streamMenu == null && conn != null && conn.canSendInput() && isKeyboardOverlayVisible();
+    }
+
+    private void sendDesktopMotion(float dx, float dy) {
+        if (!canSendDesktopInput() || !Float.isFinite(dx) || !Float.isFinite(dy)) return;
+        short x = desktopDelta(desktopDeltaX, dx);
+        short y = desktopDelta(desktopDeltaY, dy);
+        if (x != 0 || y != 0) conn.sendMouseMove(x, y);
+    }
+
+    private void sendDesktopScroll(float vertical, float horizontal) {
+        if (!canSendDesktopInput() || !Float.isFinite(vertical) || !Float.isFinite(horizontal)) return;
+        short v = desktopDelta(desktopScrollV, vertical);
+        short h = desktopDelta(desktopScrollH, horizontal);
+        if (v != 0) conn.sendMouseHighResScroll(v);
+        if (h != 0) conn.sendMouseHighResHScroll(h);
+    }
+
+    private static short desktopDelta(MouseDeltaAccumulator accumulator, float value) {
+        int delta = accumulator.scale(Math.max(Short.MIN_VALUE, Math.min(Short.MAX_VALUE, value)), 1);
+        return (short) Math.max(Short.MIN_VALUE, Math.min(Short.MAX_VALUE, delta));
+    }
+
+    private void sendDesktopButton(int button, boolean down) {
+        if (button < 1 || button > 5 || conn == null || (down && !canSendDesktopInput())) return;
+        int mask = 1 << button;
+        boolean wasDown = (desktopHeldButtons & mask) != 0;
+        if (wasDown == down) return;
+        if (down) desktopHeldButtons |= mask;
+        else desktopHeldButtons &= ~mask;
+        // Releases must also run after focus/grab was lost. The connection merges this panel's
+        // ownership separately from physical input and per-game touch controls.
+        conn.sendDesktopMouseButton((byte) button, down);
+    }
+
+    private void releaseDesktopInput() {
+        if (keyboardOverlay != null) keyboardOverlay.releaseInputs();
+        // Also clear ownership if a view was removed or interrupted between its callbacks.
+        for (int button = 1; button <= 5; button++) sendDesktopButton(button, false);
+        desktopDeltaX = new MouseDeltaAccumulator();
+        desktopDeltaY = new MouseDeltaAccumulator();
+        desktopScrollV = new MouseDeltaAccumulator();
+        desktopScrollH = new MouseDeltaAccumulator();
     }
 
     private void sendKeyboardShortcut(int... keys) {
@@ -5077,6 +5152,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     }
 
     private void stopConnection() {
+        releaseDesktopInput();
         if (trackpadPointer != null) trackpadPointer.stopMomentum();
         rememberMicrophoneMute();
         cancelAutomaticRecovery();
@@ -5903,9 +5979,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             }
             pressedKeys.clear();
         }
-        if (keyboardOverlay != null) {
-            keyboardOverlay.resetModifiers();
-        }
+        releaseDesktopInput();
         modifierFlags = 0;
         specialKeyCode = KeyEvent.KEYCODE_UNKNOWN;
         waitingForAllModifiersUp = false;

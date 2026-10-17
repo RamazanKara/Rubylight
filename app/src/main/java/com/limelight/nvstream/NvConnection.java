@@ -1253,26 +1253,34 @@ public class NvConnection {
 
     public void sendMouseButtonDown(final byte mouseButton)
     {
-        sendOwnedMouseButton(mouseButton, true, false);
+        sendOwnedMouseButton(mouseButton, true, com.limelight.binding.input.MouseButtonOwnership.ORDINARY);
     }
     
     public void sendMouseButtonUp(final byte mouseButton)
     {
-        sendOwnedMouseButton(mouseButton, false, false);
+        sendOwnedMouseButton(mouseButton, false, com.limelight.binding.input.MouseButtonOwnership.ORDINARY);
     }
 
     private final com.limelight.binding.input.MouseButtonOwnership mouseButtonOwnership =
             new com.limelight.binding.input.MouseButtonOwnership();
 
     public void sendOverlayMouseButton(byte mouseButton, boolean down) {
-        sendOwnedMouseButton(mouseButton, down, true);
+        sendOwnedMouseButton(mouseButton, down, com.limelight.binding.input.MouseButtonOwnership.GAME_CONTROLS);
     }
 
-    private void sendOwnedMouseButton(byte mouseButton, boolean down, boolean overlay) {
-        if (canSendInput()) {
+    public void sendDesktopMouseButton(byte mouseButton, boolean down) {
+        sendOwnedMouseButton(mouseButton, down, com.limelight.binding.input.MouseButtonOwnership.DESKTOP_CONTROLS);
+    }
+
+    private void sendOwnedMouseButton(byte mouseButton, boolean down, int source) {
+        // Losing permission must not leave this surface owning a button locally. Clear its
+        // release even when nothing may be sent, so a later permitted press can start again.
+        if (!down || canSendInput()) {
             inputBatcher.boundary(() -> {
                 synchronized (mouseButtonOwnership) {
-                    int transition = mouseButtonOwnership.update(mouseButton, down, overlay);
+                    // Permission may have changed while waiting for the input batch lock.
+                    if (down && !canSendInput()) return;
+                    int transition = mouseButtonOwnership.update(mouseButton, down, source);
                     if (canSendInput() && transition != 0) MoonBridge.sendMouseButton(
                             transition > 0 ? MouseButtonPacket.PRESS_EVENT : MouseButtonPacket.RELEASE_EVENT, mouseButton);
                 }

@@ -2,6 +2,18 @@
     <application>
         <activity android:name="com.limelight.demo.DemoLauncherActivity" android:exported="true"
             android:theme="@style/StreamTheme" />
+        <activity android:name="com.limelight.demo.DemoInputWorkspaceActivity" android:exported="false"
+            android:windowSoftInputMode="stateAlwaysHidden|adjustResize"
+            android:theme="@style/StreamTheme" />
+        <activity-alias android:name="com.limelight.demo.ControlsPreview"
+            android:targetActivity="com.limelight.demo.DemoInputWorkspaceActivity"
+            android:exported="true" android:label="@string/demo_controls_launcher"
+            android:icon="@mipmap/ic_launcher">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
         <activity android:name="com.limelight.demo.DemoPcView" android:exported="false" />
         <activity android:name="com.limelight.demo.DemoAppView" android:exported="false" />
         <activity android:name="com.limelight.demo.DemoStreamSettings" android:exported="false" />

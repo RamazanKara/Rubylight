@@ -21,6 +21,7 @@
 
 <p align="center"><a href="docs/media/demo.mp4">Watch the full demo →</a> · 60 seconds · 1080p · 60 fps</p>
 
+- **New in 2.5.0:** a **37% shorter gap after a recovery keyframe** in a controlled test, plus antialiased downscaling for cleaner fine detail.
 - **13.5 ms** from a rendered picture to a laptop over Wi-Fi, at 1968×2184 AV1 HDR and 120 fps, with all 120 pictures a second arriving.
 - **About 14 ms** average picture age beside a game, in HEVC and AV1 HDR at 120 fps on an RX 7900 XT.
 - **7.4 ms sooner than Vibepollo 2.0** on average beside a game, on the same GPU with identical settings.
@@ -73,6 +74,42 @@ Rubylight is built for Radeon. NVIDIA NVENC, Intel Quick Sync and software encod
 
 ## Measured on real hardware
 
+### 2.5.0: recovery and downscaling
+
+**A fresh picture arrives sooner after a recovery keyframe.** In four short runs against 2.4.8, the 2.5.0 recovery candidate reduced the gap between a keyframe and the following fresh frame by **37.2%**, while keeping the same pacing rate and error protection.
+
+| Mean gap after a recovery keyframe | 2.4.8 | 2.5.0 recovery candidate |
+| --- | ---: | ---: |
+| Following frame fully received | 8.44 ms | **5.30 ms** |
+| Following frame decoded and its timestamp read | 7.94 ms | **4.96 ms** |
+
+All **6,941 received frames decoded**, and all 16 keyframes were followed by a fresh source picture. Overall picture age remained broadly unchanged. These measurements cover forced-keyframe recovery cadence on a local receiver; remote display latency and recovery from real network loss remain unmeasured in this comparison.
+
+<sub>October 17, 2026 · RX 7900 XT · 5120×1440 HEVC SDR at 119.88 fps · four 15-second runs in old/new/new/old order · 70.77 Mbps pacing · fixed 20% FEC.</sub>
+
+[Recovery measurements and method →](rust/PERFORMANCE.md#fresh-input-near-the-end-of-a-recovery-frame)
+
+**Cleaner detail when streaming at a lower resolution.** Downscaling now accounts for source-pixel coverage, reducing aliasing in thin lines and moving patterns. Each of the three GPU conversion paths passed **66 synthetic image cases**, with every output sample within one ten-bit code of an independent reference. Accurate 4K → 720p filtering added about **0.11 ms** of GPU conversion time on the RX 7900 XT; the largest measured extra cost was **0.189 ms** for 4K → 1440p HDR. Native-size and enlargement pixels are preserved. These accuracy and timing checks used synthetic inputs and an idle GPU.
+
+[Scaling accuracy, encoded-image checks and timings →](rust/PERFORMANCE.md#antialiased-gpu-downscaling)
+
+### Experimental GPU fence transport
+
+2.5.0 adds an optional GPU fence transport for direct driver capture. It lets the host claim a frame quickly and order access on the GPU. A short component comparison measured:
+
+| Mean time, combined SDR and HDR | Default keyed mutex | GPU fences |
+| --- | ---: | ---: |
+| Host-side frame claim | 32.0 µs | **1.8 µs** |
+| Copy through completed GPU conversion | 0.707 ms | **0.645 ms** |
+
+Frame-claim time consistently fell by about **95%**. Completed conversion averaged **0.062 ms sooner**, with enough variation that one HDR comparison was slower. The fixture simulated the producer and host in one process; it excluded the installed display driver, encoder, network and client. End-to-end latency, total CPU use and picture-quality gains are unproven.
+
+The option remains **experimental and off by default**. It uses D3D12-owned shared textures while the display driver continues using D3D11. The standard transport and all existing capture options remain available.
+
+[Fence results and limits →](rust/PERFORMANCE.md#experimental-gpu-fence-transport) · [Option and requirements →](docs/configuration.md#capture-and-video)
+
+### Earlier full-stream measurements
+
 **Nearly 120 fresh HDR pictures a second beside a game.** Rubylight 2.2.9 averaged **14.34 ms** picture age with HEVC and **13.65 ms** with AV1, from rendering to local hardware decoding on an RX 7900 XT.
 
 | Native HDR beside a game-like GPU load | Average picture age | p95 picture age | Fresh pictures/s |
@@ -91,8 +128,6 @@ Rubylight is built for Radeon. NVIDIA NVENC, Intel Quick Sync and software encod
 - **Light at idle.** About **16.6 MB** of memory for host and service together, with 0% CPU.
 
 [All benchmarks, Wi-Fi tests and HDR checks →](docs/performance.md)
-
-**Next: Direct3D 12 from capture to encoder.** Colour conversion and AMD encoding already run on D3D12, but capture still receives each frame through Direct3D 11 and hands it across to D3D12, with a synchronisation step at every hand-off. The next step moves capture onto D3D12 as well, so a frame travels from the display to the encoder in one API, which will take that hand-off out of every frame's latency.
 
 ## Works with
 

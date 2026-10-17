@@ -5518,8 +5518,9 @@ for core/Windows libraries and tests with warnings denied.
 These checks establish local encoding and recovery compatibility. They do
 not establish a latency or picture-quality gain, network behavior, or a fix
 on the reporter's Xbox Series X / RX 9070 XT. No capture, display or network
-was involved, and no installed host settings changed. Xbox visual validation
-and the separate HDR-toggle report remain open.
+was involved, and no installed host settings changed. The separate HDR-toggle
+report remains open; the later Series S check below provides client visual
+validation.
 
 The reproducible ignored native test is
 `amf::intra_refresh_native_tests::native_hevc_intra_refresh_decodes_across_gops_and_forced_recovery`.
@@ -5529,3 +5530,25 @@ run that test with `--ignored --nocapture --test-threads=1` on an idle AMD GPU.
 Local evidence is retained in
 `D:\CodexArtifacts\rubylight-hevc-intra-20261017`, including `candidate.json`,
 native logs, full/recovery bitstreams and independent decode results.
+
+### 2026-10-17: Xbox Series S HEVC visual confirmation
+
+The user previously reproduced HEVC colour smearing on Xbox Series S with
+the latest Xbox Moonlight client. After installing the 2.5.3 candidate, the
+user replayed the scene and reported **"Smearing is gone."** Its HEVC code
+is unchanged in the combined 2.5.4 release.
+
+The live host log identifies an RX 7900 XT streaming 3840x2160 HEVC HDR at
+119.88 FPS through WGC and AMF with D3D12 input. AMF read back GOP 120,
+GOPs per IDR 1, CTBs per slot 60 and one reference. Host timing records
+showed one startup IDR request and no reported recovery activity during
+the check. The client supplied no FEC status reports, so these host counters
+cannot establish zero client packet loss.
+
+This is a user visual comparison plus host diagnostics. It is not an
+independent client decode count or a controlled latency/quality benchmark,
+and does not establish the result on Xbox Series X / RX 9070 XT or resolve
+the separate HDR-toggle report. The session began at 20:03:44 UTC.
+Filtered host logs and window-level diagnostics are retained under
+`D:\CodexArtifacts\rubylight-release-2.5.4-20261017` as `xbox-session.log`
+and `xbox-check.json`.

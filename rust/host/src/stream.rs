@@ -1474,14 +1474,15 @@ impl Media {
                     let mut send_frames = |output: Vec<butterpollo_windows::encoder::Encoded>,
                                            peer: std::net::SocketAddr,
                                            call_latency: Duration,
-                                           source: &Source|
+                                           source: &Source,
+                                           processing_started: Instant|
                      -> Result<()> {
                         progress.mark(crate::stall_watch::Phase::Send);
                         if !output.is_empty() {
                             s.launch.warnings.clear("encoder_recovery");
                             source.device_recovered(&source.warnings);
                         }
-                        if let Some(sender) = &pyrowave_sender { return sender.submit(output,peer,call_latency); }
+                        if let Some(sender) = &pyrowave_sender { return sender.submit(output,peer,call_latency,processing_started); }
                         if send_thread && (!sender_decided || inline_paced) {
                             sender_decided = true;
                             let mid_stream = std::mem::take(&mut inline_paced);
@@ -1512,7 +1513,7 @@ impl Media {
                                 tracing::info!(pacing_bps = bps, bitrate_kbps = bitrate, wire_budget_bps = needed, automatic_pacing, mid_stream, wire_frame = packetizer.frame, "video frames are sent on their own thread for current or adaptive pacing");
                             }
                         }
-                        if let Some(sender) = video_sender.get() { return sender.submit(output, peer, call_latency, &mut claims.borrow_mut()); }
+                        if let Some(sender) = video_sender.get() { return sender.submit_tick(output, peer, call_latency, &mut claims.borrow_mut(), processing_started); }
                         let polled = Instant::now();
                         let micros = |d: Duration| d.as_micros().min(u128::from(u64::MAX)) as u64;
                         'frames: for frame in output {
@@ -1524,12 +1525,6 @@ impl Media {
                             let captured = frame.presentation.unwrap_or(claimed);
                             let age = micros(claimed.saturating_duration_since(captured));
                             let claim = claims.borrow_mut().take(frame.presentation);
-                            // Moonlight's host latency runs from the claim, when the
-                            // stream thread takes the newest picture to encode, to the
-                            // packet: where punktfunk's runs (`cap_at`, its encode
-                            // loop's tick, to its packetizer). Present to sent covers
-                            // the whole span.
-                            let processing = micros(Instant::now().saturating_duration_since(claim.map_or(claimed, |c| c.claimed)));
                             let stamp_started = Instant::now();
                             let stamp = present_stamper.as_mut().map_or(captured, |stamper| stamper.stamp(captured, &prepared.output())).max(last_stamp + Duration::from_nanos(11_112));
                             let stamp_time = stamp_started.elapsed();
@@ -1570,6 +1565,7 @@ impl Media {
                             // bitrates) costs that frame and a keyframe, not the
                             // session.
                             let packetize_started = Instant::now();
+                            let processing = micros(packetize_started.saturating_duration_since(processing_started));
                             let prepared_blocks = packetizer.conventional_blocks(&frame.bytes,frame.idr,frame.after_invalidation,timestamp,processing);
                             if let Err(error) = &prepared_blocks {
                                 s.launch.warnings.event("network_frame", format!("Encoded video frame dropped ({error:#}); requesting a recovery frame. Lower bitrate or resolution to stay within Moonlight's packet limit."), butterpollo_core::session::EVENT_PERIOD);
@@ -1792,6 +1788,7 @@ impl Media {
                                             stage_encode_ms=%stage("encode"),
                                             stage_queue_ms=%stage("queue"),
                                             stage_packetize_ms=%stage("packetize"),
+                                            stage_send_queue_ms=%stage("send_queue"),
                                             stage_send_ms=%stage("send"),
                                             moonlight_host_ms=%stage("moonlight_host"),
                                             stage_frames=timing["stages"]["frames"].as_u64().unwrap_or(0),
@@ -1887,7 +1884,8 @@ impl Media {
                             if !arrival_pacing && now < due {
                                 while Instant::now() < due {
                                     if encoder.as_ref().is_some_and(|e| recovery.pending(e)) {
-                                        send_frames(recovery.collect(&mut encoder, &s.launch.warnings, Instant::now)?, peer, Duration::ZERO, latest)?;
+                                        let poll_tick = Instant::now();
+                                        send_frames(recovery.collect(&mut encoder, &s.launch.warnings, Instant::now)?, peer, Duration::ZERO, latest, poll_tick)?;
                                         if encoder.as_ref().is_some_and(|e| recovery.pending(e)) {
                                             timer.until(
                                                 (Instant::now() + OUTPUT_POLL)
@@ -1900,6 +1898,7 @@ impl Media {
                                 }
                             }
                             progress.mark(crate::stall_watch::Phase::Picture);
+                            let capture_tick = Instant::now();
                             let image = latest.wait_for_frame(&timer, &capture_wake, Instant::now() + period.min(Duration::from_millis(50)))?;
                             let Some(mut image) = image else {
                                 // The capture is being re-created on a new device.
@@ -1947,7 +1946,7 @@ impl Media {
                                 if encoder.as_ref().is_some_and(|e| recovery.pending(e))
                                     && deadline.saturating_duration_since(Instant::now()) >= Duration::from_millis(1)
                                 {
-                                    send_frames(recovery.collect(&mut encoder, &s.launch.warnings, Instant::now)?, peer, Duration::ZERO, latest)?;
+                                    send_frames(recovery.collect(&mut encoder, &s.launch.warnings, Instant::now)?, peer, Duration::ZERO, latest, capture_tick)?;
                                 }
                                 let now = Instant::now();
                                 let until = if encoder.as_ref().is_some_and(|e| recovery.pending(e))
@@ -1989,7 +1988,7 @@ impl Media {
                                     .is_some_and(|previous| Arc::ptr_eq(previous, &image))
                                 && Instant::now() < reencode_at
                             {
-                                if encoder.as_ref().is_some_and(|e| recovery.pending(e)) { send_frames(recovery.collect(&mut encoder, &s.launch.warnings, Instant::now)?, peer, Duration::ZERO, latest)?; }
+                                if encoder.as_ref().is_some_and(|e| recovery.pending(e)) { send_frames(recovery.collect(&mut encoder, &s.launch.warnings, Instant::now)?, peer, Duration::ZERO, latest, capture_tick)?; }
                                 let wait = if encoder.as_ref().is_some_and(|e| recovery.pending(e)) { OUTPUT_POLL } else { period };
                                 latest.wait_if_current(&timer, &capture_wake, &image, Instant::now() + wait.min(reencode_at.saturating_duration_since(Instant::now())))?;
                                 continue;
@@ -2018,7 +2017,7 @@ impl Media {
                                     // Network occupancy must not start encoder stall recovery.
                                     recovery.backlog_since = None;
                                     if encoder.as_ref().is_some_and(|e| recovery.pending(e)) {
-                                        send_frames(recovery.collect(&mut encoder, &s.launch.warnings, Instant::now)?, peer, Duration::ZERO, latest)?;
+                                        send_frames(recovery.collect(&mut encoder, &s.launch.warnings, Instant::now)?, peer, Duration::ZERO, latest, capture_tick)?;
                                     } else {
                                         video_sender.get().unwrap().wait_for_capacity(encoder_backlog::total_limit(encoding_limit), period)?;
                                     }
@@ -2030,7 +2029,7 @@ impl Media {
                                 // stream choppy. A recreated one that is still
                                 // silent gets longer each time.
                                 if let Some(output) = recovery.poll_full(&mut encoder, &s.launch.warnings, Instant::now)? {
-                                    send_frames(output, peer, Duration::ZERO, latest)?;
+                                    send_frames(output, peer, Duration::ZERO, latest, capture_tick)?;
                                 }
                                 continue;
                             }
@@ -2331,7 +2330,7 @@ impl Media {
                             // An allocation can later reuse this image's address;
                             // its trace observation belongs only to this submission.
                             first_seen = None;
-                            send_frames(output, peer, call_latency, latest)?;
+                            send_frames(output, peer, call_latency, latest, capture_tick)?;
                         }
                         Ok(())
                     })()

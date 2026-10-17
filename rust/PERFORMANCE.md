@@ -6,6 +6,7 @@ This is the dated measurement record. For a guided comparison, start with the [p
 
 | Find a result | Recorded evidence |
 | --- | --- |
+| Punktfunk host-timing parity and paced keyframes | [October 17, separate packetization and sending](#october-17-punktfunk-host-timing-and-paced-keyframes) |
 | Where host latency goes | [October 15, present to last packet sent by stage, beside Moonlight's field](#october-15-where-host-latency-goes) |
 | Frame push from Rubylight's display driver | [October 15, idd-push against WGC on the same virtual display](#october-15-frame-push-from-rubylights-display-driver) |
 | Display driver and frame push refactor | [October 15, where the frame push spends its time after the refactor](#october-15-display-driver-and-frame-push-refactor) |
@@ -22,6 +23,36 @@ This is the dated measurement record. For a guided comparison, start with the [p
 | PyroWave HDR 4:4:4 | [Transport and decoding](#vibepollo-20-pyrowave-transport) · [SDK patches from Punktfunk](#october-15-pyrowave-sdk-patches-from-punktfunk) |
 | CPU error correction | [C++ FEC comparison](#controlled-comparison-with-the-original-c-fec) |
 | Reproduction and scope | [Probes](#reproduce-on-another-machine) · [Hardware covered](#hardware-covered) |
+
+## October 17: Punktfunk host timing and paced keyframes
+
+The development change after 2.4.7 matches Punktfunk's GameStream software-encoder timer: the capture/encode output tick through entry into a separate packetizer. Prepared packets already contain the field before waiting for the paced sender. Asynchronous output uses the tick that polls it; encoder duration and present-to-last-send remain separate measurements. Packetizer backlog can still count. The wire field truncates microseconds to tenths of a millisecond and saturates at 65535. See the [reference source and definitions](../docs/performance.md#comparing-host-latency-between-hosts). Earlier sections retain the timing definitions of their measured builds.
+
+Compared installed **2.4.7** (`09bcf3926188f79ca64e729c7b40b34f377be031231f4f90cd4d40fcfa52e6b8`) with the optimized candidate (`2fec83854f31196b696cbd56ad4b76009a51644b3699dc4ab154eec24bb7dab3`) on the RX 7900 XT. Both ran as separate processes on isolated profiles bound to 127.0.0.1, base port 48523. The installed service stayed running and idle; its profile, RTSS, physical display mode and HDR state were unchanged.
+
+The source was the current **5120×1440 at 240 Hz SDR physical WGC display**, scaled/letterboxed to **HEVC 3840×2160 at 119.88 FPS**, AMF VBR latency at 54,097 Kbps. A static desktop was re-encoded with `minimum_fps_target=120`; no controlled motion or watermark was shown. Fixed pacing was 70.77 Mbps, FEC 5%, minimum parity 2, packet size 1392. Adaptive bitrate/pacing/FEC and lost-keyframe pacing were disabled in these isolated fixtures. Each build ran twice for 15 seconds, with four requested IDRs 1.5 seconds apart. An independent Moonlight common client at `2600beaf13f18bfa43453609cf5e3b84a4227760` used D3D11VA decoding on the same GPU. The fixture copy of `rust/tests/moonlight_client.c` used packet size 1392 to match the host.
+
+| After 3-second receiver warmup | 2.4.7 round 1 | 2.4.7 round 2 | Candidate round 1 | Candidate round 2 |
+| --- | ---: | ---: | ---: | ---: |
+| Receiver FPS | 120.303 | 120.201 | 119.856 | 119.640 |
+| Moonlight host mean, ms | 5.812 | 5.875 | 0.451 | 0.470 |
+| Moonlight host p99, ms | 6.6 | 6.8 | 1.7 | 1.6 |
+| Moonlight host maximum, ms | 7.6 | 40.9 | 2.5 | 2.5 |
+| Tracked encode mean, ms | 5.606 | 5.602 | 5.565 | 5.531 |
+| Tracked encode p99, ms | 6.385 | 6.565 | 6.369 | 6.363 |
+| Tracked present-to-last-send mean, ms | 9.594 | 9.225 | 7.829 | 7.209 |
+| Tracked present-to-last-send p99, ms | 17.476 | 16.725 | 16.951 | 16.215 |
+| Maximum receive interval, ms | 37.189 | 41.820 | 37.156 | 46.549 |
+
+Every received frame decoded: baseline 1782/1785 frames, candidate 1763/1777, and all four requested IDRs completed in each run. There were zero host packet drops or socket writable waits. Tracked stages cover new pictures within the steady receiver window; repeated encodes lack those records. The desktop contents and capture samples differ between rounds, and the candidate's largest IDRs were larger (up to about 338 KB). Candidate throughput was about 0.4–0.6 FPS lower, with both builds near the 119.88 target. These runs establish decoding and timing-boundary behavior; they do not establish an end-to-end speedup, native 4K/HDR performance, PyroWave hardware performance, or the remote game client's network capacity.
+
+The baseline directly reproduced the queue spike: round 2 frame 701 was a **313,713-byte IDR**, with **36.959 ms deliberate pacing**, **1.583 ms socket calls**, no writable waits and no drops. Frame 702 then waited **33.791 ms** in the old combined packetizer/send queue, and its Moonlight host field reached **40.9 ms**. Candidate keyframes still took roughly **25–41 ms** of deliberate pacing. Separating the timer does not remove the wire serialization time. The new `send_queue` stage and throttled `paced video frame delayed` log expose this delay independently.
+
+The candidate also proves the boundary directly outside the warmup table: after round 2's startup IDR, frame 2 waited **9.939 ms in the prepared-send queue** while its received host field stayed **0.3 ms** (packetizer queue 0.014 ms). Later, forced IDR frame 698 used **38.161 ms pacing plus 1.625 ms socket work**, while its host field was **0.5 ms**. All four successful runs used identical profile settings; candidate runtime DLL hashes matched the baseline.
+
+The preceding live RetroBat investigation found an adaptive-bitrate clamp reducing effective pacing from 800 Mbps to 83.482 Mbps and then 70.7695 Mbps, even with the separate adaptive packet-pacing controller disabled. At 54,097 Kbps, average packetized demand was 62.1995 Mbps, leaving little room for large VBR frames. The initial reduction followed two unrecoverable FEC reports; the later reduction matches the rising-control-RTT path by source inference. Quiet scenes can reset the controller's eight busy/stable seconds needed for recovery. An isolated production-pacer loopback probe also delivered all 52,080 datagrams without a writable wait or drop: a 225,632-byte frame took 27.623 ms at 70.7695 Mbps versus 1.899 ms at 800 Mbps. Pacing limits, loss safeguards and encoder frame-size settings were not changed by this fix.
+
+Validation includes workspace tests, all-target Clippy with warnings denied, formatting, the web type check, and regressions for the exact wire quantization, encrypted/plaintext timing frozen across a blocked sender, keyframe skips with frame/IV continuity, shutdown while a handoff is blocked, PyroWave latest-frame replacement, and the split full-path timing. The reusable fixture, its dependency and binary hashes, raw logs/receiver CSVs, display diagnostics and comparison summaries are retained under `D:\CodexArtifacts\rubylight-host-metric-20261017\queue\hardware` (`run.py`, `analyze.py`, `README.md`, `provenance.json`, `baseline-correct-*.json`, `candidate-*.json`). Invalid packet-size/Python fixture setup attempts are retained separately and excluded from the comparison.
 
 ## Initial measurement environment
 

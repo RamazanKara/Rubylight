@@ -75,6 +75,7 @@ pub fn timing(frame: u32, stamps: &Stamps) -> Option<HostTiming> {
         encode,
         _queue,
         _packetize,
+        _send_queue,
         send,
     ] = stamps.stages();
     let host_us = u32::try_from(stamps.total()).ok()?;
@@ -103,6 +104,7 @@ mod tests {
             submitted: ms(6),
             encoded: ms(31),
             packetized: ms(32),
+            prepared: ms(33),
             first_sent: ms(33),
             last_sent: ms(35),
         }

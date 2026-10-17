@@ -306,11 +306,16 @@ fn a_keyframe_waiting_for_the_sender_also_blocks_the_next_claim() {
             claimed: now,
             polled: now,
             latency: Duration::ZERO,
+            processing_started: now,
             skipped: 0,
             claim: None,
         }),
         sending: false,
         sending_keyframe: false,
+        ready: None,
+        transmitting: false,
+        transmitting_keyframe: false,
+        recycled: Vec::new(),
         next_wire_frame: 1,
         skipped: 0,
         error: None,
@@ -747,6 +752,214 @@ fn handoff(packetizer: VideoPacketizer) -> Handoff {
     }
 }
 
+fn wait_prepared(sender: &Sender) -> std::sync::MutexGuard<'_, State> {
+    let state = sender.slot.state.lock().unwrap();
+    let (state, timeout) = sender
+        .slot
+        .changed
+        .wait_timeout_while(state, WAIT, |s| s.ready.is_none())
+        .unwrap();
+    assert!(!timeout.timed_out(), "packetizer did not prepare a frame");
+    state
+}
+
+#[test]
+fn moonlight_timing_stops_at_packetization_before_a_blocked_sender() {
+    for key in [None, Some([23; 16])] {
+        let fixture = crate::state::test_support::Fixture::new();
+        let session = fixture.session(fixture.client(0), butterpollo_core::session::Role::Stream);
+        let socket = Arc::new(UdpSocket::bind("127.0.0.1:0").unwrap());
+        let receiver = UdpSocket::bind("127.0.0.1:0").unwrap();
+        receiver.set_read_timeout(Some(WAIT)).unwrap();
+        let start = Instant::now();
+        let tick = start - Duration::from_millis(2);
+        let mut sender =
+            Sender::packetizer(session.clone(), start, handoff(packetizer(key))).unwrap();
+        let mut picture = frame(2);
+        picture.latency = Some(Duration::from_millis(12));
+        picture.presentation = Some(tick - Duration::from_millis(15));
+        let mut claims = Claims::default();
+        claims.push(Claim {
+            key: picture.presentation.unwrap(),
+            presented: picture.presentation.unwrap(),
+            acquired: tick - Duration::from_millis(14),
+            published: tick - Duration::from_millis(13),
+            claimed: tick - Duration::from_millis(10),
+            submitted: tick - Duration::from_millis(9),
+        });
+        sender
+            .submit_tick(
+                vec![picture],
+                receiver.local_addr().unwrap(),
+                Duration::ZERO,
+                &mut claims,
+                tick,
+            )
+            .unwrap();
+        let processing = {
+            let state = wait_prepared(&sender);
+            let ready = state.ready.as_ref().unwrap();
+            assert_eq!(
+                ready.processing,
+                micros(ready.packetized.duration_since(tick))
+            );
+            assert_eq!(ready.latency, 12_000);
+            ready.processing
+        };
+        // A controlled downstream stall: the production packetizer finishes,
+        // but the production paced sender has not started yet.
+        thread::sleep(Duration::from_millis(30));
+        assert_eq!(
+            wait_prepared(&sender).ready.as_ref().unwrap().processing,
+            processing
+        );
+        let shared = sender.slot.clone();
+        let s = session.clone();
+        let config = fixture.host.config.read().unwrap().clone();
+        let host = fixture.host.clone();
+        sender.transport = Some(thread::spawn(move || {
+            let result = transport::run(
+                &shared,
+                socket,
+                s,
+                config,
+                host,
+                start,
+                Instant::now(),
+                Default::default(),
+            );
+            shared.finish(result);
+        }));
+        assert_eq!(sender.next_wire_frame().unwrap(), 2);
+        let mut packet = [0; 2048];
+        let len = receiver.recv(&mut packet).unwrap();
+        let packet = match key {
+            None => packet[..len].to_vec(),
+            Some(key) => butterpollo_core::crypto::gcm_open(
+                &key,
+                &packet[..12],
+                &packet[16..32],
+                &packet[32..len],
+            )
+            .unwrap(),
+        };
+        assert_eq!(
+            u16::from_le_bytes(packet[33..35].try_into().unwrap()),
+            (processing / 100).min(65535) as u16
+        );
+        let performance = &session.info()["performance"];
+        assert_eq!(performance["encode_mean_ms"], 12.);
+        assert_eq!(
+            performance["host_processing_mean_ms"],
+            processing as f64 / 1000.
+        );
+        assert!(
+            performance["stages"]["send_queue"]["mean_ms"]
+                .as_f64()
+                .unwrap()
+                >= 30.
+        );
+    }
+}
+
+#[test]
+fn keyframe_skips_raw_and_prepared_waiters_without_spending_wire_numbers_twice() {
+    let fixture = crate::state::test_support::Fixture::new();
+    let session = fixture.session(fixture.client(0), butterpollo_core::session::Role::Stream);
+    let sender =
+        Sender::packetizer(session, Instant::now(), handoff(packetizer(Some([9; 16])))).unwrap();
+    sender
+        .submit(
+            vec![frame(2)],
+            peer(),
+            Duration::ZERO,
+            &mut Claims::default(),
+        )
+        .unwrap();
+    drop(wait_prepared(&sender));
+    sender
+        .submit(
+            vec![frame(3)],
+            peer(),
+            Duration::ZERO,
+            &mut Claims::default(),
+        )
+        .unwrap();
+    {
+        let state = sender.slot.state.lock().unwrap();
+        let (state, timeout) = sender
+            .slot
+            .changed
+            .wait_timeout_while(state, WAIT, |s| !s.sending)
+            .unwrap();
+        assert!(!timeout.timed_out());
+        assert!(state.ready.is_some());
+    }
+    // Raw frame 3 is being prepared; frame 4 waits behind it. Prepared wire
+    // frame 1 and the raw waiter are discarded, but only the raw waiter still
+    // needs a wire number spent. The in-progress frame becomes wire frame 2.
+    sender
+        .submit(
+            vec![frame(4)],
+            peer(),
+            Duration::ZERO,
+            &mut Claims::default(),
+        )
+        .unwrap();
+    sender.skip_pending().unwrap();
+    {
+        let state = wait_prepared(&sender);
+        assert_eq!(state.ready.as_ref().unwrap().wire_frame, 2);
+    }
+    sender
+        .submit(
+            vec![frame(1)],
+            peer(),
+            Duration::ZERO,
+            &mut Claims::default(),
+        )
+        .unwrap();
+    let (idr, wire_frame, iv_counter) = {
+        let state = wait_prepared(&sender);
+        let ready = state.ready.as_ref().unwrap();
+        (ready.idr, ready.wire_frame, ready.packetizer.iv_counter)
+    };
+    assert!(idr);
+    assert_eq!(wire_frame, 4);
+    // Two prepared 3 KB frames spent five packet IVs apiece (data + FEC).
+    assert_eq!(iv_counter, 10);
+}
+
+#[test]
+fn stopping_wakes_a_packetizer_blocked_on_the_prepared_slot() {
+    let fixture = crate::state::test_support::Fixture::new();
+    let session = fixture.session(fixture.client(0), butterpollo_core::session::Role::Stream);
+    let sender = Sender::packetizer(session, Instant::now(), handoff(packetizer(None))).unwrap();
+    sender
+        .submit(
+            vec![frame(2)],
+            peer(),
+            Duration::ZERO,
+            &mut Claims::default(),
+        )
+        .unwrap();
+    drop(wait_prepared(&sender));
+    sender
+        .submit(
+            vec![frame(3)],
+            peer(),
+            Duration::ZERO,
+            &mut Claims::default(),
+        )
+        .unwrap();
+    let (done, finished) = mpsc::channel();
+    thread::spawn(move || {
+        drop(sender);
+        done.send(()).unwrap();
+    });
+    finished.recv_timeout(WAIT).unwrap();
+}
+
 #[test]
 fn a_sender_taking_over_mid_stream_continues_the_inline_numbering() {
     let fixture = crate::state::test_support::Fixture::new();
@@ -858,11 +1071,12 @@ fn the_sender_thread_records_where_a_new_pictures_time_went() {
     let mut repeat = frame(3);
     repeat.presentation = Some(now);
     sender
-        .submit(
+        .submit_tick(
             vec![picture, repeat],
             receiver.local_addr().unwrap(),
             Duration::ZERO,
             &mut claims,
+            now,
         )
         .unwrap();
     assert_eq!(sender.next_wire_frame().unwrap(), 3);
@@ -883,17 +1097,11 @@ fn the_sender_thread_records_where_a_new_pictures_time_went() {
         .sum();
     assert!((parts - ms("present_to_sent")).abs() < 0.01);
     assert!(ms("present_to_sent") >= 6.);
-    // Moonlight's field for the same picture runs as punktfunk's does, from
-    // the claim (3 ms ago) to this sender's dequeue, inside the queue stage:
-    // it leaves out capture, hold and the wait for the claim before it, and
-    // the rest of the queue, packetizing and the send after it.
-    assert!(ms("moonlight_host") >= 3.);
-    // The gap, not a wall-clock bound that a busy test machine overruns,
-    // shows what it leaves out.
-    let before = ms("capture") + ms("hold") + ms("claim");
+    // The tick is exactly 6 ms after presentation. Everything after entry
+    // into packetization remains in the full path, outside Moonlight's field.
     let gap = ms("present_to_sent") - ms("moonlight_host");
-    assert!(gap >= before - 0.01, "{gap} < {before}");
-    assert!(gap <= before + ms("queue") + ms("packetize") + ms("send") + 0.01);
+    let excluded = 6. + ms("packetize") + ms("send_queue") + ms("send");
+    assert!((gap - excluded).abs() < 0.01, "{gap} != {excluded}");
     // The client that asked hears the whole span for the new picture alone,
     // numbered as its packets are, with the same stages.
     let report = session.host_timings.lock().unwrap().take_report().unwrap();

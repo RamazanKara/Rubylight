@@ -6,6 +6,11 @@
 
 Rubylight, called Butterpollo until rc.29, is written in Rust: host, native helpers, service and setup, with a Svelte web console. The 2.4.7 installer is named `rubylight-setup-2.4.7.exe` and upgrades an existing Vibepollo or Butterpollo installation in place, keeping settings, paired devices, the app library and covers. Codec SDKs and Windows drivers remain external components; the setup installs the drivers.
 
+## Unreleased
+
+- **Moonlight host timing matches Punktfunk's GameStream software path.** The timer starts at the capture/encode output tick and stops at entry into packetization. Conventional video and PyroWave prepare packets before handing them to a separate paced sender, so the prepared packets' queue and send time cannot inflate the value. Packetizer backlog is still counted. Asynchronous output uses the tick that polls it; the original encoder duration and full present-to-sent timing remain separate measurements. The wire field truncates and saturates exactly as Punktfunk's does.
+- **Send delays can be diagnosed from ordinary logs.** Conventional output records its prepared-packet queue separately and logs unusually slow frames with their size, effective pacing rate, expected wire time, pacing waits and socket waits. Network pacing limits are unchanged.
+
 ## New in 2.4.7
 
 > [!IMPORTANT]

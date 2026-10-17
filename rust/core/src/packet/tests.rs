@@ -21,6 +21,39 @@ fn large_conventional_frames_report_the_wire_fec_cutoff() {
 use super::*;
 
 #[test]
+fn host_processing_uses_punktfunks_truncated_saturating_tenths_of_a_millisecond() {
+    // Punktfunk v0.44.0 c5ed1136, gamestream/stream.rs spawn_packetizer:
+    // elapsed microseconds / 100, then saturating u16 conversion.
+    for (micros, expected) in [
+        (0, 0),
+        (49, 0),
+        (50, 0),
+        (99, 0),
+        (100, 1),
+        (199, 1),
+        (1234, 12),
+        (6_553_599, 65_535),
+        (u64::MAX, 65_535),
+    ] {
+        let mut packetizer = VideoPacketizer {
+            sequence: 0,
+            iv_counter: 0,
+            frame: 1,
+            packet_size: 1392,
+            fec_percent: 0,
+            min_fec: 0,
+            key: None,
+        };
+        let packets = packetizer.encode(&[42; 32], false, 9000, micros).unwrap();
+        assert_eq!(
+            u16::from_le_bytes(packets[0][33..35].try_into().unwrap()),
+            expected,
+            "{micros}"
+        );
+    }
+}
+
+#[test]
 fn minimum_fec_uses_the_receivers_exact_parity_count() {
     for data in 1..=1023 {
         for percentage in [0, 1, 20, 100, 255] {

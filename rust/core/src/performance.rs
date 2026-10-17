@@ -44,8 +44,8 @@ pub struct Timing {
     pub period: Duration,
     /// Claim through completed codec output, including asynchronous work.
     pub encode: u64,
-    /// Claim through the pre-packetization sample: host latency sent to Moonlight,
-    /// measured as the previous C++ host measured it.
+    /// Capture/encode output tick through entry to packetization, as Punktfunk's
+    /// GameStream field: excludes the prepared packets' send queue and pacing.
     pub host: u64,
     /// Legacy capture timestamp through the claim. WGC's stamp is not app
     /// Present time and may be clamped to arrival; this is an age estimate.
@@ -77,13 +77,15 @@ pub struct Stamps {
     pub encoded: Instant,
     /// Packetization began.
     pub packetized: Instant,
+    /// Packetization completed, before the paced sender's queue.
+    pub prepared: Instant,
     /// The first packets were handed to the socket.
     pub first_sent: Instant,
     /// The last packet was handed to the socket.
     pub last_sent: Instant,
 }
 /// The stages between consecutive `Stamps`, in their order.
-pub const STAGES: [&str; 8] = [
+pub const STAGES: [&str; 9] = [
     "capture",
     "hold",
     "claim",
@@ -91,13 +93,14 @@ pub const STAGES: [&str; 8] = [
     "encode",
     "queue",
     "packetize",
+    "send_queue",
     "send",
 ];
 impl Stamps {
     /// Microseconds spent in each of `STAGES`. A point earlier than the one
     /// before it (a present stamp clamped to arrival) counts as reached with
     /// it, so no stage is negative and the stages add up to `total`.
-    pub fn stages(&self) -> [u64; 8] {
+    pub fn stages(&self) -> [u64; 9] {
         let points = [
             self.presented,
             self.acquired,
@@ -106,11 +109,12 @@ impl Stamps {
             self.submitted,
             self.encoded,
             self.packetized,
+            self.prepared,
             self.first_sent,
             self.last_sent,
         ];
         let mut reached = points[0];
-        let mut stages = [0; 8];
+        let mut stages = [0; 9];
         for (stage, point) in stages.iter_mut().zip(&points[1..]) {
             let next = reached.max(*point);
             *stage = micros(next.duration_since(reached));
@@ -154,6 +158,9 @@ impl Claim {
             submitted: self.submitted,
             encoded,
             packetized,
+            // Inline packetization interleaves with sends. Its old packetize
+            // stage ends at the first send; it has no separate send queue.
+            prepared: first_sent,
             first_sent,
             last_sent,
         }
@@ -396,9 +403,10 @@ impl Performance {
             encode_us = micros[4],
             queue_us = micros[5],
             packetize_us = micros[6],
-            send_us = micros[7],
-            present_to_sent_us = micros[8],
-            moonlight_host_us = micros[9],
+            send_queue_us = micros[7],
+            send_us = micros[8],
+            present_to_sent_us = micros[9],
+            moonlight_host_us = micros[10],
             "picture"
         );
         let at = stamps.last_sent;
@@ -779,6 +787,7 @@ mod tests {
             submitted: at(4),
             encoded: at(5),
             packetized: at(6),
+            prepared: at(7),
             first_sent: at(7),
             last_sent: at(8),
         }
@@ -787,12 +796,26 @@ mod tests {
     fn stages_split_present_to_last_packet_into_consecutive_parts() {
         let start = Instant::now();
         let picture = stamps(start, [0, 4200, 4250, 5100, 5900, 8400, 8460, 8700, 9900]);
-        assert_eq!(picture.stages(), [4200, 50, 850, 800, 2500, 60, 240, 1200]);
+        assert_eq!(
+            picture.stages(),
+            [4200, 50, 850, 800, 2500, 60, 240, 0, 1200]
+        );
         assert_eq!(picture.total(), 9900);
         assert_eq!(
             Duration::from_micros(picture.total()),
             picture.last_sent - picture.presented
         );
+    }
+    #[test]
+    fn prepared_packets_waiting_for_the_sender_have_their_own_stage() {
+        let start = Instant::now();
+        let mut picture = stamps(start, [0, 100, 200, 300, 500, 1500, 1600, 22000, 23000]);
+        picture.prepared = start + Duration::from_micros(2000);
+        assert_eq!(
+            picture.stages(),
+            [100, 100, 100, 200, 1000, 100, 400, 20000, 1000]
+        );
+        assert_eq!(picture.total(), 23000);
     }
     #[test]
     fn a_point_earlier_than_the_one_before_it_adds_no_time_and_keeps_the_total() {
@@ -802,10 +825,10 @@ mod tests {
         // stage starts from the later point, and the stages still add up
         // to present through the last packet.
         let picture = stamps(start, [1000, 900, 1200, 2000, 3500, 3000, 3600, 3700, 4000]);
-        assert_eq!(picture.stages(), [0, 200, 800, 1500, 0, 100, 100, 300]);
+        assert_eq!(picture.stages(), [0, 200, 800, 1500, 0, 100, 100, 0, 300]);
         assert_eq!(picture.total(), 3000);
         let late = stamps(start, [5000, 0, 0, 0, 0, 0, 0, 0, 0]);
-        assert_eq!(late.stages(), [0; 8]);
+        assert_eq!(late.stages(), [0; 9]);
         assert_eq!(late.total(), 0);
     }
     #[test]

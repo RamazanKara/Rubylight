@@ -98,7 +98,7 @@ Compare the same moving scene at the same resolution, frame rate, codec and bitr
 | --- | --- |
 | **Overview → Frame rate** | Frames sent by the host. Repeated pictures can still count toward this rate. |
 | **Encode** (p95) | Slower conversion/encoding completions, including asynchronous encoder work. |
-| **Host processing** | Time after the host claims a frame through preparation for transmission. This is the host latency Moonlight shows. |
+| **Host processing** | Moonlight's reported interval. In development after 2.4.7 it is the capture/encode output tick through entry into packetization, matching Punktfunk's software path. Prepared-packet queueing and pacing are separate; asynchronous encode time is available as **Encoder time**. |
 | **Frame age** | Waiting from the capture/presentation timestamp until the host claims the frame. |
 | **Present to sent** | New pictures, from Windows' present to the last packet sent: capture, the wait for the claim, encoding and sending. Compare this, not Moonlight's host latency, with another host's present-to-sent figure. |
 | Moonlight's network and decoder statistics | Loss, jitter or client decoding delays after host processing. |

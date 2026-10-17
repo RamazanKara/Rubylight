@@ -5,7 +5,8 @@ use anyhow::{Context, Result, bail};
 
 use crate::crypto;
 
-type PacketBlock = Vec<Vec<u8>>;
+/// Datagram storage for one video FEC block.
+pub type PacketBlock = Vec<Vec<u8>>;
 
 const REPLAY_WINDOW: u32 = 4096;
 /// Authenticate a message before recording its sequence. Moonlight numbers
@@ -325,9 +326,7 @@ impl VideoPacketizer {
         };
         let mut header = [0u8; 8];
         header[0] = 1;
-        header[1..3].copy_from_slice(
-            &((latency_us.saturating_add(50) / 100).min(65535) as u16).to_le_bytes(),
-        );
+        header[1..3].copy_from_slice(&((latency_us / 100).min(65535) as u16).to_le_bytes());
         header[3] = if idr {
             2
         } else if after_invalidation {

@@ -352,6 +352,7 @@ export interface StageTimings {
   encode: StageTiming;
   queue: StageTiming;
   packetize: StageTiming;
+  send_queue: StageTiming;
   send: StageTiming;
   /** Present to the last packet sent: the stages above added up. */
   present_to_sent: StageTiming;

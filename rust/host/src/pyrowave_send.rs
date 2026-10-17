@@ -1,13 +1,14 @@
-//! A slow connection retains one pending intra frame per client.
+//! Separate packetization and paced sending, retaining the newest intra frame.
+mod transport;
 use crate::state::{Session, Shared};
 use anyhow::{Result, bail};
 use butterpollo_core::{
     config::Config,
-    packet::{PyrowaveFec, VideoPacketizer},
+    packet::{PacketBlock, PyrowaveFec, VideoPacketizer},
     pyrowave::DetailFec,
     session::Warnings,
 };
-use butterpollo_windows::{encoder::Encoded, net::Batch, timing::Timer};
+use butterpollo_windows::encoder::Encoded;
 use std::{
     net::{SocketAddr, UdpSocket},
     sync::{
@@ -17,8 +18,28 @@ use std::{
     thread,
     time::{Duration, Instant},
 };
-/// The frame, its destination and when the encoder claimed its capture.
-type Frame = (Encoded, SocketAddr, Instant);
+fn micros(duration: Duration) -> u64 {
+    duration.as_micros().min(u128::from(u64::MAX)) as u64
+}
+
+struct Frame {
+    encoded: Encoded,
+    peer: SocketAddr,
+    claimed: Instant,
+    processing_started: Instant,
+    latency: Duration,
+}
+struct Prepared {
+    blocks: Vec<PacketBlock>,
+    peer: SocketAddr,
+    claimed: Instant,
+    processing: u64,
+    latency: u64,
+    age: u64,
+    wire_frame: u32,
+    demand: u64,
+    kbps: u32,
+}
 #[derive(Default)]
 struct DroppedFrames {
     unreported: u64,
@@ -70,12 +91,15 @@ fn batch_limit(bps: u64, packet: usize) -> usize {
 struct Slot {
     pending: Mutex<Option<Frame>>,
     changed: Condvar,
+    ready: Mutex<Option<Prepared>>,
+    ready_changed: Condvar,
     error: Mutex<Option<String>>,
     stop: AtomicBool,
 }
 pub struct Sender {
     slot: Arc<Slot>,
     worker: Option<thread::JoinHandle<()>>,
+    transport: Option<thread::JoinHandle<()>>,
     session: Arc<Session>,
 }
 impl Sender {
@@ -87,249 +111,129 @@ impl Sender {
         start: Instant,
         track_presents: bool,
     ) -> Result<Self> {
+        let mut sender = Self::packetizer(
+            session.clone(),
+            config.clone(),
+            host.clone(),
+            start,
+            track_presents,
+        )?;
+        let shared = sender.slot.clone();
+        sender.transport = Some(thread::Builder::new().name("pyrowave-send".into()).spawn(
+            move || {
+                let result = transport::run(&shared, socket, session, config, host);
+                if let Err(error) = result {
+                    *shared.error.lock().unwrap() = Some(format!("{error:#}"));
+                }
+                shared.stop.store(true, Ordering::Release);
+                shared.changed.notify_all();
+            },
+        )?);
+        Ok(sender)
+    }
+
+    fn packetizer(
+        session: Arc<Session>,
+        config: Config,
+        host: Shared,
+        start: Instant,
+        track_presents: bool,
+    ) -> Result<Self> {
         let slot = Arc::new(Slot {
             pending: Mutex::new(None),
             changed: Condvar::new(),
+            ready: Mutex::new(None),
+            ready_changed: Condvar::new(),
             error: Mutex::new(None),
             stop: AtomicBool::new(false),
         });
         let shared = slot.clone();
         let current = session.clone();
-        // What the client says of its own path (issue #31).
-        let client_path = butterpollo_core::network_pacing::ClientPath {
-            link_bps: u64::from(session.config.pyrowave_client_link_mbps) * 1_000_000,
-            pace_bps: u64::from(session.config.pyrowave_client_pace_mbps) * 1_000_000,
-        };
-        let worker = thread::Builder::new()
-            .name("pyrowave-send".into())
-            .spawn(move || {
-                // Like the other media threads: this one paces every packet.
-                let _priority = butterpollo_windows::capture::Priority::new();
-                let result = (|| -> Result<()> {
-                    let timer = Timer::new()?;
-                    let mut packetizer = VideoPacketizer {
-                        sequence: 0,
-                        iv_counter: 0,
-                        frame: 1,
-                        packet_size: current.config.packet_size,
-                        fec_percent: 0,
-                        min_fec: current.config.min_fec,
-                        key: if current.config.encryption & 2 != 0 {
-                            Some(current.launch.key)
-                        } else {
-                            None
-                        },
-                    };
-                    let mut controller = DetailFec::new(current.config.fps_millihz());
-                    let mut stamper =
-                        track_presents.then(butterpollo_windows::present_timing::Stamper::default);
-                    let mut batch = Batch::default();
-                    let mut pacer = butterpollo_core::network_pacing::Pacer::new(Instant::now());
-                    let mut last_stamp = start;
-                    let mut link_due = start;
-                    let mut link = 0;
-                    let mut fec_reported: Option<Instant> = None;
-                    let requested_fec = config.integer("pyrowave_critical_fec_percentage", 20);
-                    if requested_fec != requested_fec.clamp(0, 255) {
-                        current.launch.warnings.set("pyrowave_fec_config", format!("PyroWave critical FEC {requested_fec}% is outside 0-255; using {}%. Correct the critical FEC setting.", requested_fec.clamp(0, 255)));
+        let worker = thread::Builder::new().name("pyrowave-packetize".into()).spawn(move || {
+            let _priority = butterpollo_windows::capture::Priority::new();
+            let mut packetizer = VideoPacketizer {
+                sequence: 0, iv_counter: 0, frame: 1,
+                packet_size: current.config.packet_size, fec_percent: 0,
+                min_fec: current.config.min_fec,
+                key: (current.config.encryption & 2 != 0).then_some(current.launch.key),
+            };
+            let mut controller = DetailFec::new(current.config.fps_millihz());
+            let mut stamper = track_presents.then(butterpollo_windows::present_timing::Stamper::default);
+            let mut last_stamp = start;
+            let mut fec_reported: Option<Instant> = None;
+            let requested_fec = config.integer("pyrowave_critical_fec_percentage", 20);
+            if requested_fec != requested_fec.clamp(0, 255) {
+                current.launch.warnings.set("pyrowave_fec_config", format!("PyroWave critical FEC {requested_fec}% is outside 0-255; using {}%. Correct the critical FEC setting.", requested_fec.clamp(0, 255)));
+            }
+            let mut dropped = DroppedFrames::default();
+            'frames: while !shared.stop.load(Ordering::Acquire) && !current.stopping() && !host.stop.load(Ordering::Acquire) {
+                let frame = {
+                    let mut pending = shared.pending.lock().unwrap();
+                    if pending.is_none() {
+                        pending = shared.changed.wait_timeout(pending, Duration::from_millis(20)).unwrap().0;
                     }
-                    let mut dropped = DroppedFrames::default();
-                    'frames: while !shared.stop.load(Ordering::Acquire)
-                        && !current.stopping()
-                        && !host.stop.load(Ordering::Acquire)
-                    {
-                        let frame = {
-                            let mut guard = shared.pending.lock().unwrap();
-                            if guard.is_none() {
-                                guard = shared
-                                    .changed
-                                    .wait_timeout(guard, Duration::from_millis(20))
-                                    .unwrap()
-                                    .0;
-                            }
-                            guard.take()
-                        };
-                        let Some((frame, peer, claimed)) = frame else {
-                            continue;
-                        };
-                        let now = Instant::now();
-                        // Moonlight's host latency starts at the claim, as the
-                        // previous host measured it; waiting before the claim
-                        // is recorded separately as frame age.
-                        let processing = now.saturating_duration_since(claimed);
-                        let captured = frame.presentation.unwrap_or(claimed);
-                        let age = claimed.saturating_duration_since(captured);
-                        let stamp = stamper
-                            .as_mut()
-                            .map_or(captured, |stamper| {
-                                stamper.stamp(captured, &current.output.read().unwrap())
-                            })
-                            // Keep at least one 90 kHz RTP tick even without ETW.
-                            .max(last_stamp + Duration::from_nanos(11_112));
-                        last_stamp = stamp;
-                        let timestamp = (stamp.saturating_duration_since(start).as_secs_f64()
-                            * 90000.) as u64 as u32;
-                        let latency = frame
-                            .latency
-                            .unwrap_or(processing)
-                            .as_micros()
-                            .min(u128::from(u64::MAX)) as u64;
-                        let critical_percentage = config
-                            .integer("pyrowave_critical_fec_percentage", 20)
-                            .clamp(0, 255)
-                            as usize;
-                        let bitrate = current.bitrate.load(Ordering::Relaxed);
-                        let kbps = if current.config.configured_bitrate_kbps > 0 {
-                            (u64::from(current.config.configured_bitrate_kbps) * u64::from(bitrate)
-                                / u64::from(current.config.bitrate_kbps.max(1)))
-                            .min(2_000_000) as u32
-                        } else {
-                            bitrate
-                        };
-                        // Every PyroWave frame stands alone: drop one Moonlight
-                        // cannot carry, not the session.
-                        let Some((detail_percentage, wire_budget)) =
-                            (if current.config.pyrowave_records && critical_percentage > 0 {
-                                dropped.prepared(
-                                    controller.observe(&frame.bytes, now, kbps),
-                                    frame.bytes.len(),
-                                    Instant::now(),
-                                    &current.launch.warnings,
-                                )
-                            } else {
-                                Some((0, 0))
-                            })
-                        else {
-                            continue;
-                        };
-                        let wire_frame = packetizer.frame;
-                        let prepared = packetizer.pyrowave_blocks(
-                            &frame.bytes,
-                            timestamp,
-                            processing.as_micros().min(u128::from(u64::MAX)) as u64,
-                            PyrowaveFec {
-                                records: current.config.pyrowave_records,
-                                critical_percentage,
-                                detail_percentage,
-                                wire_budget,
-                                ipv6: peer.ip().to_canonical().is_ipv6(),
-                            },
-                        );
-                        let Some((packet_count, fec_limited, blocks)) = dropped.prepared(
-                            prepared,
-                            frame.bytes.len(),
-                            Instant::now(),
-                            &current.launch.warnings,
-                        )
-                        else {
-                            continue;
-                        };
-                        if fec_limited
-                            && fec_reported.is_none_or(|at| at.elapsed() >= Duration::from_secs(1))
-                        {
-                            fec_reported = Some(Instant::now());
-                            current.launch.warnings.event("pyrowave_fec_frame", "PyroWave critical FEC was omitted: the coarse picture, parity or packet alignment cannot fit the supported wire blocks. Recovery protection is reduced; restore the default packet size, lower resolution/FEC, or use HEVC/AV1 on a lossy link.", butterpollo_core::session::EVENT_PERIOD);
-                        }
-                        let demand = demand_bps(
-                            packet_count,
-                            current.config.packet_size,
-                            current.config.encryption & 2 != 0,
-                            peer.ip().to_canonical().is_ipv6(),
-                            current.config.fps_millihz(),
-                        );
-                        let bps = butterpollo_core::network_pacing::pyrowave_rate_bps(
-                            config.integer("pacing_max_bitrate_kbps", 0),
-                            kbps,
-                            link,
-                            demand,
-                            client_path,
-                        );
-                        if Instant::now() >= link_due {
-                            butterpollo_core::network_pacing::report_rate(&current.launch.warnings, bps, demand, config.integer("pacing_max_bitrate_kbps", 0));
-                        }
-                        let packets_dropped = batch.dropped;
-                        let mut sent = 0;
-                        for packets in blocks {
-                            let Some(packets) = dropped.prepared(
-                                packets,
-                                frame.bytes.len(),
-                                Instant::now(),
-                                &current.launch.warnings,
-                            )
-                            else {
-                                continue 'frames;
-                            };
-                            let mut remaining = packets.as_slice();
-                            current.stats.video_frame.store(u64::from(wire_frame) + 1, Ordering::Release);
-                            while !remaining.is_empty() {
-                                if shared.stop.load(Ordering::Acquire) || current.stopping() {
-                                    return Ok(());
-                                }
-                                if pacer.due() > Instant::now() {
-                                    timer.until_precise(pacer.due());
-                                }
-                                let count =
-                                    Batch::count(remaining, batch_limit(bps, remaining[0].len()));
-                                let bytes = batch.send(&socket, &remaining[..count], peer)?;
-                                sent += bytes;
-                                // A send that waited for room earns at most SEND_SLACK of credit.
-                                pacer.sent(
-                                    Instant::now(),
-                                    bytes,
-                                    if bytes > 0 { count } else { 0 },
-                                    peer.ip().to_canonical().is_ipv6(),
-                                    bps,
-                                );
-                                current
-                                    .stats
-                                    .packets
-                                    .fetch_add(count as u64, Ordering::Relaxed);
-                                current
-                                    .stats
-                                    .bytes
-                                    .fetch_add(bytes as u64, Ordering::Relaxed);
-                                remaining = &remaining[count..];
-                            }
-                        }
-                        if batch.dropped != packets_dropped {
-                            current.launch.warnings.event("network_send", "PyroWave video packets were dropped by the host after transient socket send failures. Lower bitrate and check the network adapter; the log includes the socket error code.", butterpollo_core::session::EVENT_PERIOD);
-                        }
-                        current.stats.latency_us.store(latency, Ordering::Relaxed);
-                        current.stats.frames.fetch_add(1, Ordering::Relaxed);
-                        let micros = |d: Duration| d.as_micros().min(u128::from(u64::MAX)) as u64;
-                        let sent_at = Instant::now();
-                        current.stats.performance.lock().unwrap().record_timing(
-                            sent_at,
-                            butterpollo_core::performance::Timing {
-                                period: Duration::from_secs_f64(1000. / f64::from(current.config.fps_millihz())),
-                                encode: latency,
-                                host: micros(processing),
-                                age: micros(age),
-                                sent: micros(sent_at.saturating_duration_since(claimed)),
-                            },
-                            sent as u64,
-                        );
-                        // The interface lookup takes a moment: refresh the link
-                        // speed after the frame is out, for the next one.
-                        if Instant::now() >= link_due {
-                            link = butterpollo_windows::net::routed_link_bps(peer);
-                            link_due = Instant::now() + Duration::from_secs(2);
-                        }
-                    }
-                    Ok(())
-                })();
-                if let Err(error) = result {
-                    *shared.error.lock().unwrap() = Some(format!("{error:#}"));
-                    shared.changed.notify_all();
+                    pending.take()
+                };
+                let Some(Frame { encoded: frame, peer, claimed, processing_started, latency }) = frame else { continue };
+                let captured = frame.presentation.unwrap_or(claimed);
+                let stamp = stamper.as_mut().map_or(captured, |stamper| stamper.stamp(captured, &current.output.read().unwrap()))
+                    .max(last_stamp + Duration::from_nanos(11_112));
+                last_stamp = stamp;
+                let timestamp = (stamp.saturating_duration_since(start).as_secs_f64() * 90000.) as u64 as u32;
+                let critical_percentage = requested_fec.clamp(0, 255) as usize;
+                let bitrate = current.bitrate.load(Ordering::Relaxed);
+                let kbps = if current.config.configured_bitrate_kbps > 0 {
+                    (u64::from(current.config.configured_bitrate_kbps) * u64::from(bitrate)
+                        / u64::from(current.config.bitrate_kbps.max(1))).min(2_000_000) as u32
+                } else { bitrate };
+                let now = Instant::now();
+                let Some((detail_percentage, wire_budget)) = (if current.config.pyrowave_records && critical_percentage > 0 {
+                    dropped.prepared(controller.observe(&frame.bytes, now, kbps), frame.bytes.len(), now, &current.launch.warnings)
+                } else { Some((0, 0)) }) else { continue };
+                let wire_frame = packetizer.frame;
+                // Same boundary as the conventional packetizer. Neither the
+                // prepared frame's queue nor packet pacing can change it.
+                let processing = micros(processing_started.elapsed());
+                let prepared = packetizer.pyrowave_blocks(&frame.bytes, timestamp, processing, PyrowaveFec {
+                    records: current.config.pyrowave_records, critical_percentage, detail_percentage,
+                    wire_budget, ipv6: peer.ip().to_canonical().is_ipv6(),
+                });
+                let Some((packets, limited, blocks)) = dropped.prepared(prepared, frame.bytes.len(), now, &current.launch.warnings) else { continue };
+                if limited && fec_reported.is_none_or(|at| at.elapsed() >= Duration::from_secs(1)) {
+                    fec_reported = Some(Instant::now());
+                    current.launch.warnings.event("pyrowave_fec_frame", "PyroWave critical FEC was omitted: the coarse picture, parity or packet alignment cannot fit the supported wire blocks. Recovery protection is reduced; restore the default packet size, lower resolution/FEC, or use HEVC/AV1 on a lossy link.", butterpollo_core::session::EVENT_PERIOD);
                 }
-            })?;
+                let mut ready = Vec::new();
+                for block in blocks {
+                    let Some(block) = dropped.prepared(block, frame.bytes.len(), Instant::now(), &current.launch.warnings) else { continue 'frames };
+                    ready.push(block);
+                }
+                let demand = demand_bps(packets, current.config.packet_size, current.config.encryption & 2 != 0, peer.ip().to_canonical().is_ipv6(), current.config.fps_millihz());
+                if shared.ready.lock().unwrap().replace(Prepared { blocks: ready, peer, claimed, processing, latency: micros(latency),
+                    age: micros(claimed.saturating_duration_since(captured)), wire_frame, demand, kbps }).is_some() {
+                    current.stats.frames_replaced.fetch_add(1, Ordering::Relaxed);
+                }
+                shared.ready_changed.notify_one();
+            }
+            shared.stop.store(true, Ordering::Release);
+            shared.changed.notify_all();
+            shared.ready_changed.notify_all();
+        })?;
         Ok(Self {
             slot,
             worker: Some(worker),
+            transport: None,
             session,
         })
     }
-    pub fn submit(&self, frames: Vec<Encoded>, peer: SocketAddr, latency: Duration) -> Result<()> {
+
+    pub fn submit(
+        &self,
+        frames: Vec<Encoded>,
+        peer: SocketAddr,
+        latency: Duration,
+        processing_started: Instant,
+    ) -> Result<()> {
         if let Some(error) = self.slot.error.lock().unwrap().as_ref() {
             bail!("video sender stopped: {error}");
         }
@@ -339,10 +243,18 @@ impl Sender {
         let polled = Instant::now();
         let mut pending = self.slot.pending.lock().unwrap();
         for frame in frames {
-            let claimed = polled
-                .checked_sub(frame.latency.unwrap_or(latency))
-                .unwrap_or(polled);
-            if pending.replace((frame, peer, claimed)).is_some() {
+            let latency = frame.latency.unwrap_or(latency);
+            let claimed = polled.checked_sub(latency).unwrap_or(polled);
+            if pending
+                .replace(Frame {
+                    encoded: frame,
+                    peer,
+                    claimed,
+                    latency,
+                    processing_started,
+                })
+                .is_some()
+            {
                 self.session
                     .stats
                     .frames_replaced
@@ -357,7 +269,11 @@ impl Drop for Sender {
     fn drop(&mut self) {
         self.slot.stop.store(true, Ordering::Release);
         self.slot.changed.notify_all();
+        self.slot.ready_changed.notify_all();
         if let Some(worker) = self.worker.take() {
+            let _ = worker.join();
+        }
+        if let Some(worker) = self.transport.take() {
             let _ = worker.join();
         }
     }
@@ -366,6 +282,123 @@ impl Drop for Sender {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use butterpollo_windows::{net::Batch, timing::Timer};
+
+    #[test]
+    fn prepared_intra_frames_freeze_timing_and_keep_only_the_newest_waiter() {
+        let wait = Duration::from_secs(4);
+        for encrypted in [false, true] {
+            let fixture = crate::state::test_support::Fixture::new();
+            let launch = fixture.launch(fixture.client(0), butterpollo_core::session::Role::Stream);
+            let session = Session::new(
+                launch,
+                butterpollo_core::rtsp::Negotiated {
+                    encryption: if encrypted { 3 } else { 1 },
+                    bitrate_kbps: 80_000,
+                    configured_bitrate_kbps: 100_000,
+                    ..Default::default()
+                },
+            );
+            session.bitrate.store(40_000, Ordering::Relaxed);
+            let config = fixture.host.config.read().unwrap().clone();
+            let sender = Sender::packetizer(
+                session.clone(),
+                config,
+                fixture.host.clone(),
+                Instant::now(),
+                false,
+            )
+            .unwrap();
+            let snapshot = |wire_frame| {
+                let ready = sender.slot.ready.lock().unwrap();
+                let (ready, timeout) = sender
+                    .slot
+                    .ready_changed
+                    .wait_timeout_while(ready, wait, |r| {
+                        r.as_ref().is_none_or(|f| f.wire_frame != wire_frame)
+                    })
+                    .unwrap();
+                let result = ready.as_ref().map(|f| {
+                    (
+                        f.processing,
+                        f.latency,
+                        f.kbps,
+                        f.blocks[0][0].clone(),
+                        f.blocks.iter().map(Vec::len).sum::<usize>(),
+                    )
+                });
+                drop(ready);
+                assert!(
+                    !timeout.timed_out(),
+                    "packetizer did not prepare frame {wire_frame}"
+                );
+                result.unwrap()
+            };
+            let frame = || Encoded {
+                bytes: vec![42; 3000],
+                idr: true,
+                after_invalidation: false,
+                latency: Some(Duration::from_millis(12)),
+                presentation: None,
+            };
+            let tick = Instant::now() - Duration::from_millis(2);
+            sender
+                .submit(
+                    vec![frame()],
+                    "127.0.0.1:12345".parse().unwrap(),
+                    Duration::ZERO,
+                    tick,
+                )
+                .unwrap();
+            let (processing, latency, kbps, packet, packets) = snapshot(1);
+            assert_eq!(latency, 12_000);
+            assert_eq!(kbps, 50_000);
+            let plaintext = if encrypted {
+                butterpollo_core::crypto::gcm_open(
+                    &session.launch.key,
+                    &packet[..12],
+                    &packet[16..32],
+                    &packet[32..],
+                )
+                .unwrap()
+            } else {
+                packet.clone()
+            };
+            assert_eq!(
+                u16::from_le_bytes(plaintext[33..35].try_into().unwrap()),
+                (processing / 100).min(65535) as u16
+            );
+            thread::sleep(Duration::from_millis(30));
+            assert_eq!(snapshot(1).0, processing);
+            assert_eq!(snapshot(1).3, packet);
+
+            // A slow sender consumes the latest independent intra frame;
+            // replacing prepared packets must never reuse their encryption IVs.
+            sender
+                .submit(
+                    vec![frame()],
+                    "127.0.0.1:12345".parse().unwrap(),
+                    Duration::ZERO,
+                    Instant::now(),
+                )
+                .unwrap();
+            let (_, _, _, next, _) = snapshot(2);
+            assert_eq!(session.stats.frames_replaced.load(Ordering::Relaxed), 1);
+            assert_eq!(session.stats.frames.load(Ordering::Relaxed), 0);
+            if encrypted {
+                assert_eq!(
+                    u64::from_le_bytes(next[..8].try_into().unwrap()),
+                    packets as u64
+                );
+            }
+            let (done, finished) = std::sync::mpsc::channel();
+            thread::spawn(move || {
+                drop(sender);
+                done.send(()).unwrap();
+            });
+            finished.recv_timeout(wait).unwrap();
+        }
+    }
 
     #[test]
     fn failed_block_abandons_the_frame_and_the_next_frame_keeps_its_counters() {

@@ -25,6 +25,7 @@ import com.limelight.binding.input.virtual_controller.VirtualController;
 import com.limelight.binding.video.CrashListener;
 import com.limelight.binding.video.DiscardingDecoderRenderer;
 import com.limelight.binding.video.DisplayCapsReporter;
+import com.limelight.binding.video.DisplayRefreshDiagnostics;
 import com.limelight.binding.video.LatencyProbe;
 import com.limelight.binding.video.MediaCodecDecoderRenderer;
 import com.limelight.binding.video.MediaCodecHelper;
@@ -450,6 +451,9 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 display.getMode().getRefreshRate() : display.getRefreshRate());
     }
     private boolean useArr;
+    private final DisplayRefreshDiagnostics displayRefreshDiagnostics = new DisplayRefreshDiagnostics();
+    // The last successful vote made by this activity, not a measurement of the display's rate.
+    private Float appSurfaceFrameRateVote;
     private PendingIntent pipDisconnectIntent;
     private final BroadcastReceiver pipReceiver = new BroadcastReceiver() {
         @Override public void onReceive(Context context, Intent intent) {
@@ -1609,9 +1613,10 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         WindowManager.LayoutParams windowLayoutParams = getVideoWindow().getAttributes();
         float displayRefreshRate;
 
+        boolean arrSupported = Build.VERSION.SDK_INT >= Build.VERSION_CODES.BAKLAVA && display.hasArrSupport();
         useArr = com.limelight.binding.video.DisplayFrameRatePolicy.useAdaptiveRefreshRate(
-                Build.VERSION.SDK_INT, prefConfig.vrr,
-                Build.VERSION.SDK_INT >= Build.VERSION_CODES.BAKLAVA && display.hasArrSupport());
+                Build.VERSION.SDK_INT, prefConfig.vrr, arrSupported);
+        logDisplayRefreshPolicy(display, arrSupported);
         if (prefConfig.vrr) {
             LimeLog.info(useArr ? "VRR: ARR (Android automatic policy)" :
                     "VRR: max Hz (ARR unavailable)");
@@ -2066,6 +2071,9 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     // Display changes also fire for refresh rate switches; only a new panel or a new top refresh
     // rate matters here.
     private void onDisplayModesChanged() {
+        // ARR support can change with the active mode even when size and maximum Hz do not.
+        // Observe it independently of the selected policy; changing votes here could oscillate modes.
+        logDisplayRefreshPolicy(getVideoDisplay());
         String signature = displaySignature();
         if (signature.equals(displaySignature)) {
             return;
@@ -2076,6 +2084,21 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         panelMaxRefreshRate = com.limelight.binding.video.DisplayFrameRatePolicy.maxRefreshRate(
                 getVideoDisplay());
         scheduleReconfigureCheck();
+    }
+
+    private void logDisplayRefreshPolicy(Display display) {
+        logDisplayRefreshPolicy(display,
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.BAKLAVA && display.hasArrSupport());
+    }
+
+    private void logDisplayRefreshPolicy(Display display, boolean arrSupported) {
+        WindowManager.LayoutParams attributes = getVideoWindow().getAttributes();
+        String changed = displayRefreshDiagnostics.update(Build.VERSION.SDK_INT, display.getDisplayId(),
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ? display.getMode().getModeId() : 0,
+                arrSupported, prefConfig.vrr, useArr,
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ? attributes.preferredDisplayModeId : 0,
+                attributes.preferredRefreshRate, appSurfaceFrameRateVote);
+        if (changed != null) LimeLog.info(changed);
     }
 
     private void onPaneLaidOut(View pane) {
@@ -5635,12 +5658,14 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
 
     private void configureVideoSurface(Surface surface) {
         videoSurface = surface;
+        appSurfaceFrameRateVote = null;
         surfaceCreated = true;
         if (resumeStoppedStreamIfNeeded()) return;
         LimeLog.info("Video surface: " + (prefConfig.useTextureView ? "TextureView" : "SurfaceView") +
                 ", pacing: " + prefConfig.framePacing + ", newest frame: " + prefConfig.dropLateFrames);
 
         if (prefConfig.useTextureView) {
+            logDisplayRefreshPolicy(getVideoDisplay());
             return;
         }
 
@@ -5657,6 +5682,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             // A zero vote lets Android infer cadence from the presented buffers.
             surface.setFrameRate(0, Surface.FRAME_RATE_COMPATIBILITY_DEFAULT,
                     Surface.CHANGE_FRAME_RATE_ONLY_IF_SEAMLESS);
+            appSurfaceFrameRateVote = 0f;
+            logDisplayRefreshPolicy(getVideoDisplay());
             return;
         }
 
@@ -5688,11 +5715,14 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             surface.setFrameRate(desiredFrameRate,
                     Surface.FRAME_RATE_COMPATIBILITY_FIXED_SOURCE,
                     Surface.CHANGE_FRAME_RATE_ALWAYS);
+            appSurfaceFrameRateVote = desiredFrameRate;
         }
         else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             surface.setFrameRate(desiredFrameRate,
                     Surface.FRAME_RATE_COMPATIBILITY_FIXED_SOURCE);
+            appSurfaceFrameRateVote = desiredFrameRate;
         }
+        logDisplayRefreshPolicy(getVideoDisplay());
     }
 
     @Override
@@ -5706,6 +5736,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         }
         surfaceCreated = false;
         videoSurface = null;
+        appSurfaceFrameRateVote = null;
         if (attemptedConnection && decoderRenderer != null) {
             // Stop rendering synchronously before TextureView releases its surface.
             // Reconnecting an external output still tears down the connection on a worker.
@@ -5918,11 +5949,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 if (!connected || isFinishing() || isDestroyed()) {
                     return;
                 }
-                Display display = getWindowManager().getDefaultDisplay();
-                float physicalRefreshRate = Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ?
-                        display.getMode().getRefreshRate() : display.getRefreshRate();
-                String displayLine = prefConfig.vrr ? "\n" + getString(R.string.perf_overlay_vrr, physicalRefreshRate,
-                        display.getRefreshRate(), useArr ? "ARR" : getString(R.string.perf_overlay_vrr_max_hz)) : "";
+                String displayLine = displayRefreshOverlayLine();
                 String networkText = !isAdaptiveBitrateEnabled() ? network : network + "\n" +
                         getString(R.string.stream_auto_bitrate_status, currentBitrate / 1000.0);
                 if (adaptiveQuality != null) {
@@ -5947,6 +5974,15 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 updatePerformanceOverlay();
             }
         });
+    }
+
+    private String displayRefreshOverlayLine() {
+        if (!prefConfig.vrr) return "";
+        Display display = getVideoDisplay();
+        float modeRefreshRate = Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ?
+                display.getMode().getRefreshRate() : display.getRefreshRate();
+        return "\n" + getString(R.string.perf_overlay_vrr, modeRefreshRate, display.getRefreshRate(),
+                useArr ? "ARR" : getString(R.string.perf_overlay_vrr_max_hz));
     }
 
     @Override

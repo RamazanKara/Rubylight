@@ -34,6 +34,63 @@ import static org.junit.Assert.*;
 public class GameDisplayLifecycleTest {
     private static final String OUTPUT_DISPLAY = "rubylight.outputDisplay";
 
+    @Test @Config(sdk = 23)
+    public void refreshDiagnosticsAvoidArrApisOnOlderAndroid() {
+        Game game = Robolectric.buildActivity(Game.class).get();
+        ReflectionHelpers.setField(game, "prefConfig", new PreferenceConfiguration());
+
+        ReflectionHelpers.callInstanceMethod(game, "logDisplayRefreshPolicy",
+                ReflectionHelpers.ClassParameter.from(Display.class,
+                        game.getWindowManager().getDefaultDisplay()));
+
+        String log = LimeLog.getRedactedLog();
+        assertTrue(log.contains("api=23, display=0"));
+        assertTrue(log.contains("arrSupported=unavailable, selected=disabled"));
+        assertTrue(log.contains("windowMode=0, windowHz=0.0"));
+    }
+
+    @Test public void refreshDiagnosticsRunBeforeTheUnchangedDisplaySignatureReturns() {
+        Game game = Robolectric.buildActivity(Game.class).get();
+        PreferenceConfiguration prefs = new PreferenceConfiguration();
+        prefs.vrr = true;
+        ReflectionHelpers.setField(game, "prefConfig", prefs);
+        ReflectionHelpers.setField(game, "displaySignature",
+                ReflectionHelpers.callInstanceMethod(game, "displaySignature"));
+
+        ReflectionHelpers.callInstanceMethod(game, "onDisplayModesChanged");
+        String first = LimeLog.getRedactedLog();
+        assertTrue(first.contains("Display refresh policy: api=29, display=0"));
+        assertTrue(first.contains("arrSupported=unavailable, selected=max Hz"));
+        ReflectionHelpers.callInstanceMethod(game, "onDisplayModesChanged");
+        assertEquals(first, LimeLog.getRedactedLog());
+    }
+
+    @Test public void refreshOverlayReadsTheVideoOutputInsteadOfThePhoneDisplay() {
+        Game game = Robolectric.buildActivity(Game.class).get();
+        PreferenceConfiguration prefs = new PreferenceConfiguration();
+        prefs.vrr = true;
+        ReflectionHelpers.setField(game, "prefConfig", prefs);
+        int displayId = ShadowDisplayManager.addDisplay("w1920dp-h1080dp");
+        Display external = game.getSystemService(DisplayManager.class).getDisplay(displayId);
+        Display.Mode externalMode = ReflectionHelpers.callConstructor(Display.Mode.class,
+                ReflectionHelpers.ClassParameter.from(int.class, external.getMode().getModeId()),
+                ReflectionHelpers.ClassParameter.from(int.class, 1920),
+                ReflectionHelpers.ClassParameter.from(int.class, 1080),
+                ReflectionHelpers.ClassParameter.from(float.class, 90f));
+        ShadowDisplayManager.setSupportedModes(displayId, externalMode);
+        StreamPresentation presentation = new StreamPresentation(game, external, false);
+        ReflectionHelpers.setField(game, "externalPresentation", presentation);
+        ReflectionHelpers.setField(game, "renderView", presentation.videoView());
+
+        String expected = "\n" + game.getString(R.string.perf_overlay_vrr, external.getMode().getRefreshRate(),
+                external.getRefreshRate(), game.getString(R.string.perf_overlay_vrr_max_hz));
+        assertEquals(expected, ReflectionHelpers.callInstanceMethod(game, "displayRefreshOverlayLine"));
+        assertEquals(90f, external.getMode().getRefreshRate(), 0);
+        assertNotEquals(90f, game.getWindowManager().getDefaultDisplay().getMode().getRefreshRate(), 0);
+        prefs.vrr = false;
+        assertEquals("", ReflectionHelpers.callInstanceMethod(game, "displayRefreshOverlayLine"));
+    }
+
     @Test public void missingOutputRestoresLocalSurfaceAndVrrLaunchValues() {
         Game game = Robolectric.buildActivity(Game.class).get();
         game.setIntent(new Intent().putExtra(OUTPUT_DISPLAY, Integer.MAX_VALUE));

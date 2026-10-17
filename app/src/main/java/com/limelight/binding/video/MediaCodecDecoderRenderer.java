@@ -342,7 +342,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             if (streamDisplay.getDisplayId() == displayId) updateDisplayTiming();
         }
     };
-    private final boolean useArr;
+    // Guarded by vsyncMonitor together with the timing sample for the active mode.
+    private boolean outputHasArrSupport;
     private final Display outputDisplay;
     private final boolean outputVsyncAvailable;
 
@@ -859,9 +860,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         this.outputVsyncAvailable = outputDisplay.getDisplayId() == Display.DEFAULT_DISPLAY;
         this.prefs = prefs;
         this.frameLatencyStats = new FrameLatencyStats(prefs.vrr);
-        this.useArr = DisplayFrameRatePolicy.useAdaptiveRefreshRate(Build.VERSION.SDK_INT, prefs.vrr,
-                Build.VERSION.SDK_INT >= Build.VERSION_CODES.BAKLAVA &&
-                        outputDisplay.hasArrSupport());
+        this.outputHasArrSupport = Build.VERSION.SDK_INT >= Build.VERSION_CODES.BAKLAVA &&
+                outputDisplay.hasArrSupport();
         this.crashListener = crashListener;
         this.consecutiveCrashCount = consecutiveCrashCount;
         this.glRenderer = glRenderer;
@@ -1830,9 +1830,10 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
     private void reportPhaseSlack(long readyNs) {
         // Adaptive refresh has no fixed latch; an upscaled frame is not display-ready yet.
-        if (!outputVsyncAvailable || useArr || upscaler != null) return;
+        if (!outputVsyncAvailable || upscaler != null) return;
         long slackNs, intervalNs;
         synchronized (vsyncMonitor) {
+            if (outputHasArrSupport) return;
             intervalNs = vsyncIntervalNs;
             slackNs = latchSlackNs(readyNs, vsyncTimeNs, intervalNs, vsyncPresentationDeadlineNs);
         }
@@ -1840,10 +1841,15 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     }
 
     private void updateDisplayTiming() {
+        // ARR is a property of the active output mode, not the saved VRR preference.
+        // A fold or mode change can invalidate a fixed-refresh latch estimate.
+        boolean arrSupported = Build.VERSION.SDK_INT >= Build.VERSION_CODES.BAKLAVA &&
+                streamDisplay.hasArrSupport();
         float physicalRefreshRate = Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ?
                 streamDisplay.getMode().getRefreshRate() : streamDisplay.getRefreshRate();
         updateUpscalingFrameRate(physicalRefreshRate);
         synchronized (vsyncMonitor) {
+            outputHasArrSupport = arrSupported;
             vsyncIntervalNs = (long) (1000000000.0 / physicalRefreshRate);
             vsyncPresentationDeadlineNs = streamDisplay.getPresentationDeadlineNanos();
             appVsyncOffsetNs = streamDisplay.getAppVsyncOffsetNanos();

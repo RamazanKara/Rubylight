@@ -44,7 +44,7 @@ public final class RedactedLog {
     // Informational lines worth keeping; the rest is too frequent and would push out a session.
     private static final String[] INFO_PREFIXES = {
             "Stream request", "Connection terminated", "Selected ", "Decoder", "Reconfigure", "Stream now",
-            "Display luminance", "Display modes changed", "Microphone", "PC stream profiles", "Present mode",
+            "Display luminance", "Display modes changed", "Display refresh policy:", "Microphone", "PC stream profiles", "Present mode",
             "PyroWave", "Phase lock", "Low latency", "Automatic codec",
             "DualSense USB ", "USB controller announcement "};
 

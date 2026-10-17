@@ -7,6 +7,17 @@ import static org.junit.Assert.*;
 
 public class RedactedLogTest {
     @Test
+    public void displayRefreshDiagnosticsRemainInTheSharedReport() {
+        RedactedLog log = new RedactedLog();
+        String diagnostic = new com.limelight.binding.video.DisplayRefreshDiagnostics().update(
+                36, 0, 2, false, true, false, 0, 0, 120f);
+        log.add("INFO", diagnostic);
+        for (int i = 0; i < 500; i++) log.add("INFO", "frame 12345 queued");
+        assertEquals("INFO " + diagnostic, log.snapshot());
+        assertTrue(log.snapshot().contains("arrSupported=false, selected=max Hz"));
+    }
+
+    @Test
     public void keepsControllerSetupAndFirstFeedbackWithoutHighRateInputNoise() {
         RedactedLog log = new RedactedLog();
         log.add("INFO", "DualSense USB waveform backend ready");

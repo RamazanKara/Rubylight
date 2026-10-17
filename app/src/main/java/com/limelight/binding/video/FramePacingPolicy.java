@@ -57,4 +57,11 @@ final class FramePacingPolicy {
         long maximumAgeNs = Math.max(50_000_000L, Math.min(250_000_000L, frameIntervalNs(fpsMilliHz) * 3));
         return enqueueNs > 0 && nowNs > enqueueNs && nowNs - enqueueNs > maximumAgeNs;
     }
+
+    static boolean hasOutputDrainTimeRemaining(long elapsedNs, int fpsMilliHz) {
+        // A slow discard can otherwise keep chasing newly decoded outputs without ever
+        // presenting. One codec call can exceed this budget; after it returns, hand off the
+        // output we already own instead of beginning another discard. Retain the count cap too.
+        return elapsedNs >= 0 && elapsedNs < frameIntervalNs(fpsMilliHz);
+    }
 }

@@ -2008,6 +2008,9 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                             if (outIndex >= 0) {
                                 // Waiting for decoder output is idle time, not work for ADPF.
                                 workStartNs = System.nanoTime();
+                                // This separate elapsed clock includes scheduling/suspend delays;
+                                // frame timestamps and ADPF durations keep their existing clock.
+                                long outputDrainStartNs = SystemClock.elapsedRealtimeNanos();
                                 frameLatencyStats.onDecoderOutput(outIndex, info.presentationTimeUs, workStartNs);
                                 int lastIndex = outIndex;
                                 long lastPtsUs = info.presentationTimeUs;
@@ -2021,6 +2024,9 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                                     // All frames have already been decoded, preserving codec references.
                                     int drained = 0;
                                     while (!stopping && codecRecoveryType.get() == CR_RECOVERY_TYPE_NONE &&
+                                            FramePacingPolicy.hasOutputDrainTimeRemaining(
+                                                    SystemClock.elapsedRealtimeNanos() - outputDrainStartNs,
+                                                    streamFrameRateMilliHz) &&
                                             FramePacingPolicy.shouldDrainOutput(prefs.framePacing,
                                                     frameLatencyStats.getEnqueueTimeNsForOutput(lastIndex),
                                                     System.nanoTime(), streamFrameRateMilliHz, drained) &&
@@ -2029,8 +2035,6 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                                         frameLatencyStats.onOutputReleased(lastIndex, System.nanoTime(), false,
                                                 upscaler == null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M);
                                         videoDecoder.releaseOutputBuffer(lastIndex, false);
-                                        performanceHints.reportWorkDuration(System.nanoTime() - workStartNs, refreshRate);
-                                        workStartNs = System.nanoTime();
 
                                         numFramesOut++;
 
@@ -2101,6 +2105,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                             handleDecoderException(e);
                         } finally {
                             if (workStartNs != 0) {
+                                // Report the complete handoff once, after presenting. Reporting each
+                                // discarded output adds work while we are trying to leave catch-up.
                                 performanceHints.reportWorkDuration(System.nanoTime() - workStartNs, refreshRate);
                             }
                             checkUpscaling();

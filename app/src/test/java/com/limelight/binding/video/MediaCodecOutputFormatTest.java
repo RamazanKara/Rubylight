@@ -32,6 +32,7 @@ public class MediaCodecOutputFormatTest {
             prefs.framePacing = PreferenceConfiguration.FRAME_PACING_MIN_LATENCY;
             MediaCodecDecoderRenderer renderer = new MediaCodecDecoderRenderer(activity.get(), prefs,
                     null, 0, false, false, "", null);
+            renderer.setStreamFrameRateMilliHz(60_000);
             FormatChangingCodec.renderer = renderer;
             FormatChangingCodec.format = MediaFormat.createVideoFormat("video/avc", 1920, 1080);
             MediaCodec codec = MediaCodec.createDecoderByType("video/avc");

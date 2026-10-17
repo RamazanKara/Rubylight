@@ -143,4 +143,15 @@ public class FramePacingPolicyTest {
         }
     }
 
+    @Test public void catchupBudgetUsesOneExactFramePeriodAndRejectsReversedTime() {
+        for (int milliHz : new int[] {1000, 24_000, 59_940, 120_000, 240_000}) {
+            long period = FramePacingPolicy.frameIntervalNs(milliHz);
+            assertFalse(FramePacingPolicy.hasOutputDrainTimeRemaining(-1, milliHz));
+            assertTrue(FramePacingPolicy.hasOutputDrainTimeRemaining(0, milliHz));
+            assertTrue(FramePacingPolicy.hasOutputDrainTimeRemaining(period - 1, milliHz));
+            assertFalse(FramePacingPolicy.hasOutputDrainTimeRemaining(period, milliHz));
+            assertFalse(FramePacingPolicy.hasOutputDrainTimeRemaining(period + 1, milliHz));
+        }
+    }
+
 }

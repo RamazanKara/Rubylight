@@ -7,7 +7,7 @@
 //! into independently decodable records and pads packets with `u32::MAX` words, so a lost
 //! packet costs only the records it carried.
 
-use alloc::{collections::BTreeMap, vec::Vec};
+use alloc::vec::Vec;
 
 /// The bitstream revision both sides must agree on (SDP `a=x-ss-pyrowave.bitstream:`).
 pub const BITSTREAM_ID: &str = "186f0393";
@@ -110,10 +110,26 @@ pub fn push_container(data: &[u8], mut push: impl FnMut(&[u8]) -> bool) -> bool 
 pub struct Records {
     have_previous: bool,
     previous_header: [u8; 8],
-    previous: BTreeMap<u32, Vec<u8>>,
+    previous: RecordStore,
+    incoming: RecordStore,
     /// Share of this frame's records that were lost, 0-100; -1 without the record count,
     /// or 100 after a rejected frame.
     pub loss_percent: f32,
+}
+
+/// Byte ranges avoid allocating and copying each individual record. The previous frame and
+/// incoming scratch store swap only after a successful push, retaining their allocations.
+#[derive(Debug, Clone, Default)]
+struct RecordStore {
+    bytes: Vec<u8>,
+    records: Vec<RecordRange>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct RecordRange {
+    index: u32,
+    offset: usize,
+    size: usize,
 }
 
 impl Records {
@@ -125,7 +141,8 @@ impl Records {
         Self { have_previous: true, previous_header, ..Self::default() }
     }
 
-    /// Feeds one frame's packets to `push` (sequence header first, then records by index).
+    /// Feeds one frame's packets to `push`: the sequence header, received records by index,
+    /// then recovered records by index. The recovery cache changes only after all pushes succeed.
     /// Records this frame lost are replayed from earlier frames of the same format, with this
     /// frame's sequence number. Returns false if the frame is unusable or `push` refuses one.
     pub fn push_frame(&mut self, data: &[u8], mut push: impl FnMut(&[u8]) -> bool) -> bool {
@@ -133,8 +150,9 @@ impl Records {
         if data.len() < 4 || data.len() > MAX_FRAME_BYTES || le32(data, 0) != 0 {
             return false;
         }
-        let mut run: Vec<u8> = Vec::new();
-        let mut received: BTreeMap<u32, Vec<u8>> = BTreeMap::new();
+        self.incoming.bytes.clear();
+        self.incoming.records.clear();
+        let mut run_start = 0;
         let mut header = [0u8; 8];
         let (mut has_header, mut partial, mut ended, mut collecting) = (false, false, false, false);
         let mut sequence = u32::MAX;
@@ -154,10 +172,11 @@ impl Records {
             let mut packet = offset;
             offset += size;
             if flags & PACKET_CONTIGUOUS == 0 {
-                if !run.is_empty() && !parse_run(&run, true, has_header, &mut sequence, &mut received) {
+                if !parse_run(&self.incoming.bytes[run_start..], run_start, true,
+                    has_header, &mut sequence, &mut self.incoming.records) {
                     return false;
                 }
-                run.clear();
+                run_start = self.incoming.bytes.len();
                 collecting = flags & (PACKET_RECORD_START | PACKET_FRAME_START) != 0;
                 if flags & PACKET_FRAME_START == 0 {
                     partial = true;
@@ -199,13 +218,19 @@ impl Records {
                 size -= 16;
             }
             if collecting {
-                run.extend_from_slice(&data[packet..packet + size]);
+                self.incoming.bytes.extend_from_slice(&data[packet..packet + size]);
             }
         }
         partial |= !ended || !has_header;
-        if !parse_run(&run, !ended, has_header, &mut sequence, &mut received) || sequence == u32::MAX {
+        if !parse_run(&self.incoming.bytes[run_start..], run_start, !ended,
+            has_header, &mut sequence, &mut self.incoming.records) || sequence == u32::MAX {
             return false;
         }
+        self.incoming.records.sort_unstable_by_key(|record| record.index);
+        if self.incoming.records.windows(2).any(|pair| pair[0].index == pair[1].index) {
+            return false;
+        }
+        let received_count = self.incoming.records.len();
         if !has_header {
             if !self.have_previous {
                 return false;
@@ -214,17 +239,17 @@ impl Records {
             header[3] = with_sequence(header[3], sequence);
         }
         let count = (le32(&header, 4) & 0xff_ffff) as usize;
-        if has_header && (received.len() > count || (!partial && received.len() != count)) {
+        if has_header && (received_count > count || (!partial && received_count != count)) {
             return false;
         }
-        if received.is_empty() && count != 0 {
+        if received_count == 0 && count != 0 {
             return false;
         }
         let loss = if !has_header {
             // The header carries this frame's record count, which may differ from the last.
             -1.0
         } else if count != 0 {
-            100.0 * (count - received.len()) as f32 / count as f32
+            100.0 * (count - received_count) as f32 / count as f32
         } else {
             0.0
         };
@@ -233,36 +258,43 @@ impl Records {
             && le32(&self.previous_header, 0) & !0x7000_0000 == le32(&header, 0) & !0x7000_0000
             && self.previous_header[7] & 0xfc == header[7] & 0xfc;
         let retain = partial && same_format;
-        let mut decoded = received.len();
         if retain {
-            decoded += self.previous.keys().filter(|index| !received.contains_key(index)).count();
+            // Both lists are sorted. Append missing records after the received records to
+            // preserve callback order, without changing the cache before all pushes succeed.
+            let mut received_at = 0;
+            for previous in &self.previous.records {
+                while received_at < received_count
+                    && self.incoming.records[received_at].index < previous.index {
+                    received_at += 1;
+                }
+                if received_at < received_count
+                    && self.incoming.records[received_at].index == previous.index {
+                    continue;
+                }
+                let offset = self.incoming.bytes.len();
+                self.incoming.bytes.extend_from_slice(
+                    &self.previous.bytes[previous.offset..previous.offset + previous.size]);
+                self.incoming.bytes[offset + 3] = with_sequence(self.incoming.bytes[offset + 3], sequence);
+                self.incoming.records.push(RecordRange { offset, ..*previous });
+            }
         }
         // The SDK zeros absent coefficients; replay cached records with this frame's sequence.
         let original_header = header;
         let format = le32(&header, 4) & 0xff00_0000;
-        write_le32(&mut header, 4, format | decoded as u32);
+        write_le32(&mut header, 4, format | self.incoming.records.len() as u32);
         if !push(&header) {
             return false;
         }
-        for record in received.values() {
-            if !push(record) {
+        for record in &self.incoming.records {
+            if !push(&self.incoming.bytes[record.offset..record.offset + record.size]) {
                 return false;
             }
         }
-        if retain {
-            for (index, record) in self.previous.iter_mut() {
-                if received.contains_key(index) {
-                    continue;
-                }
-                record[3] = with_sequence(record[3], sequence);
-                if !push(record) {
-                    return false;
-                }
-            }
-        } else {
-            self.previous.clear();
+        if self.incoming.records.len() != received_count {
+            // Keep the committed cache sorted for the next frame's linear recovery merge.
+            self.incoming.records.sort_unstable_by_key(|record| record.index);
         }
-        self.previous.extend(received);
+        core::mem::swap(&mut self.previous, &mut self.incoming);
         self.previous_header = original_header;
         self.have_previous = true;
         self.loss_percent = loss;
@@ -273,10 +305,11 @@ impl Records {
 /// Parses a run of contiguous packets into records. `interrupted` runs may end mid-record.
 fn parse_run(
     run: &[u8],
+    run_start: usize,
     interrupted: bool,
     has_header: bool,
     sequence: &mut u32,
-    received: &mut BTreeMap<u32, Vec<u8>>,
+    received: &mut Vec<RecordRange>,
 ) -> bool {
     let mut at = 0;
     while at < run.len() {
@@ -307,10 +340,8 @@ fn parse_run(
             }
             *sequence = block;
             let index = le32(run, at + 4) >> 8;
-            if received.contains_key(&index) {
-                return false;
-            }
-            received.insert(index, run[at..at + size].to_vec());
+            // Duplicate indices across all runs are rejected together before any callback.
+            received.push(RecordRange { index, offset: run_start + at, size });
         }
         at += size;
     }

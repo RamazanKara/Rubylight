@@ -208,6 +208,97 @@ fn a_refused_push_fails_the_frame() {
 }
 
 #[test]
+fn consecutive_losses_retain_the_latest_record_and_callback_order() {
+    let mut records = Records::default();
+    // Sparse indices also exercise recovery without allocating an index-sized table.
+    let first = [record(1, 0xff_ffff, 6, 1), record(1, 7, 6, 2), record(1, 200, 6, 3)].concat();
+    decode(&mut records, &container(&packets(header(1, 3), &first, 24), &[])).unwrap();
+
+    let second = [record(2, 0xff_ffff, 6, 4), record(2, 7, 6, 5), record(2, 200, 6, 6)].concat();
+    let pushed = decode(&mut records, &container(&packets(header(2, 3), &second, 24), &[1])).unwrap();
+    assert_eq!(pushed, vec![header(2, 3).to_vec(), record(2, 200, 6, 6),
+        record(2, 0xff_ffff, 6, 4), record(2, 7, 6, 2)]);
+
+    // Lose the header and the last packet: new record 7, then cached 200 and maximum index.
+    let third = [record(3, 0xff_ffff, 6, 7), record(3, 7, 6, 8), record(3, 200, 6, 9)].concat();
+    let pushed = decode(&mut records, &container(&packets(header(3, 3), &third, 24), &[0, 2])).unwrap();
+    assert_eq!(pushed, vec![header(3, 3).to_vec(), record(3, 7, 6, 8),
+        record(3, 200, 6, 6), record(3, 0xff_ffff, 6, 4)]);
+    assert_eq!(records.loss_percent, -1.0);
+}
+
+#[test]
+fn truncated_record_at_a_gap_is_recovered_without_joining_unrelated_runs() {
+    let mut records = Records::default();
+    let first = [record(1, 0, 3, 1), record(1, 1, 6, 2), record(1, 2, 3, 3)].concat();
+    decode(&mut records, &container(&packets(header(1, 3), &first, 48), &[])).unwrap();
+    let second = [record(2, 0, 3, 4), record(2, 1, 6, 5), record(2, 2, 3, 6)].concat();
+    let mut all = packets(header(2, 3), &second, 12);
+    all[2].flags &= !PACKET_RECORD_START; // This payload continues record 1.
+    let pushed = decode(&mut records, &container(&all, &[2])).unwrap();
+    assert_eq!(pushed, vec![header(2, 3).to_vec(), record(2, 0, 3, 4),
+        record(2, 2, 3, 6), record(2, 1, 6, 2)]);
+}
+
+#[test]
+fn duplicate_indices_across_gaps_and_malformed_tails_do_not_change_the_cache() {
+    let first = [record(1, 0, 6, 1), record(1, 1, 6, 2), record(1, 2, 6, 3)].concat();
+    let mut original = Records::default();
+    decode(&mut original, &container(&packets(header(1, 3), &first, 24), &[])).unwrap();
+    let duplicate = [record(2, 0, 6, 4), record(2, 1, 6, 5), record(2, 0, 6, 6)].concat();
+    let mut malformed = container(&packets(header(2, 1), &record(2, 0, 6, 9), 24), &[]);
+    malformed.push(0); // A valid record must not be emitted before discovering this tail.
+    for rejected in [container(&packets(header(2, 3), &duplicate, 24), &[1]), malformed] {
+        let mut records = original.clone();
+        let mut calls = 0;
+        assert!(!records.push_frame(&rejected, |_| { calls += 1; true }));
+        assert_eq!(calls, 0);
+        assert_eq!(records.loss_percent, 100.0);
+        let next = [record(3, 0, 6, 7), record(3, 1, 6, 8), record(3, 2, 6, 9)].concat();
+        let pushed = decode(&mut records, &container(&packets(header(3, 3), &next, 24), &[0, 2])).unwrap();
+        assert_eq!(pushed, vec![header(3, 3).to_vec(), record(3, 1, 6, 8),
+            record(3, 0, 6, 1), record(3, 2, 6, 3)]);
+    }
+}
+
+#[test]
+fn refusal_at_header_received_or_recovered_record_keeps_the_previous_cache() {
+    let first = [record(1, 0, 6, 1), record(1, 1, 6, 2), record(1, 2, 6, 3)].concat();
+    let mut original = Records::default();
+    decode(&mut original, &container(&packets(header(1, 3), &first, 24), &[])).unwrap();
+    let second = [record(2, 0, 6, 4), record(2, 1, 6, 5), record(2, 2, 6, 6)].concat();
+    let rejected = container(&packets(header(2, 3), &second, 24), &[1]);
+    for refuse_at in 0..4 {
+        let mut records = original.clone();
+        let mut calls = 0;
+        assert!(!records.push_frame(&rejected, |_| {
+            let accept = calls != refuse_at;
+            calls += 1;
+            accept
+        }));
+        assert_eq!(calls, refuse_at + 1);
+        assert_eq!(records.loss_percent, 100.0);
+
+        // A distinct record makes every original record missing in this next partial frame.
+        let next = [record(3, 8, 6, 7), record(3, 9, 6, 8)].concat();
+        let pushed = decode(&mut records, &container(&packets(header(3, 2), &next, 24), &[1])).unwrap();
+        assert_eq!(pushed, vec![header(3, 4).to_vec(), record(3, 8, 6, 7),
+            record(3, 0, 6, 1), record(3, 1, 6, 2), record(3, 2, 6, 3)]);
+    }
+}
+
+#[test]
+fn empty_complete_frame_retires_cached_records() {
+    let mut records = Records::default();
+    decode(&mut records, &container(&packets(header(1, 1), &record(1, 5, 6, 1), 24), &[])).unwrap();
+    assert_eq!(decode(&mut records, &container(&packets(header(2, 0), &[], 24), &[])).unwrap(),
+        vec![header(2, 0).to_vec()]);
+    let next = [record(3, 0, 6, 2), record(3, 1, 6, 3)].concat();
+    assert_eq!(decode(&mut records, &container(&packets(header(3, 2), &next, 24), &[1])).unwrap(),
+        vec![header(3, 1).to_vec(), record(3, 0, 6, 2)]);
+}
+
+#[test]
 fn container_validates_everything_before_pushing() {
     let mut packet_a = header(1, 2).to_vec();
     packet_a.extend(record(1, 0, 2, 0));

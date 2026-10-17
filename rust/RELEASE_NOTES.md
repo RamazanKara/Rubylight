@@ -1,10 +1,17 @@
-# Rubylight 2.5.2 for Windows
+# Rubylight 2.5.3 for Windows
 
 [Documentation](../docs/README.md) · [Install and migrate](../docs/getting-started.md) · [Configuration](../docs/configuration.md) · [Features](../docs/features.md)
 
-**Release history:** [2.5.2](#new-in-252) · [2.5.1](#new-in-251) · [2.5.0](#new-in-250) · [2.4.8](#new-in-248) · [2.4.7](#new-in-247) · [2.4.6](#new-in-246) · [2.4.5](#new-in-245) · [2.4.4](#new-in-244) · [2.4.3](#new-in-243) · [2.4.2](#new-in-242) · [2.4.1](#new-in-241) · [2.4.0](#new-in-240) · [2.3.1](#new-in-231) · [2.3.0](#new-in-230) · [2.2.2 – 2.2.21](#new-in-2221) · [2.2.1](#new-in-221) · [2.2.0](#new-in-220) · [2.1.0](#new-in-210) · [2.0.x](#new-in-201) · [release candidates](#new-in-rc30)
+**Release history:** [2.5.3](#new-in-253) · [2.5.2](#new-in-252) · [2.5.1](#new-in-251) · [2.5.0](#new-in-250) · [2.4.8](#new-in-248) · [2.4.7](#new-in-247) · [2.4.6](#new-in-246) · [2.4.5](#new-in-245) · [2.4.4](#new-in-244) · [2.4.3](#new-in-243) · [2.4.2](#new-in-242) · [2.4.1](#new-in-241) · [2.4.0](#new-in-240) · [2.3.1](#new-in-231) · [2.3.0](#new-in-230) · [2.2.2 – 2.2.21](#new-in-2221) · [2.2.1](#new-in-221) · [2.2.0](#new-in-220) · [2.1.0](#new-in-210) · [2.0.x](#new-in-201) · [release candidates](#new-in-rc30)
 
-Rubylight, called Butterpollo until rc.29, is written in Rust: host, native helpers, service and setup, with a Svelte web console. The 2.5.2 installer is named `rubylight-setup-2.5.2.exe` and upgrades an existing Vibepollo or Butterpollo installation in place, keeping settings, paired devices, the app library and covers. Codec SDKs and Windows drivers remain external components; the setup installs the drivers.
+Rubylight, called Butterpollo until rc.29, is written in Rust: host, native helpers, service and setup, with a Svelte web console. The 2.5.3 installer is named `rubylight-setup-2.5.3.exe` and upgrades an existing Vibepollo or Butterpollo installation in place, keeping settings, paired devices, the app library and covers. Codec SDKs and Windows drivers remain external components; the setup installs the drivers.
+
+## New in 2.5.3
+
+- **Restore 1440p virtual-display modes.** The display driver includes 2560x1440 at 60, 120 and 240 Hz even when the stream requests 4K. Combining mode lists also preserves custom refresh rates and the preferred refresh order. Install this release's updated display driver through the installer to receive the fix.
+- **Apply the negotiated HEVC intra-refresh workaround.** Clients that request HEVC intra-refresh now use a finite GOP and refresh whole CTB rows, following Eftimin70's Xbox workaround and Nonary/vibeshine's follow-up. At 4K this requests GOP 120 and 60 CTBs per slot. Both settings are verified before and after encoder initialization; rejected settings restore the previous policy, and candidate initialization failures get one fresh encoder attempt using that policy. Startup and recovery keyframes remain enabled.
+
+**Validation and limits:** 524 core/AMF unit tests and Clippy passed. On an RX 7900 XT at 4K119.88, independent decoding passed all 1,800 SDR/HDR frames and both 167-frame recovery tails. No periodic keyframe bursts or packet-budget violations appeared in those synthetic GPU tests. These checks do not establish a picture-quality or latency gain or confirm the workaround on Xbox Series X / RX 9070 XT. The separate HDR-toggle report in [issue #36](https://github.com/RamazanKara/Rubylight/issues/36) remains unresolved. See the [test method and results](PERFORMANCE_WORK.md#2026-10-17-negotiated-hevc-intra-refresh-candidate).
 
 ## New in 2.5.2
 

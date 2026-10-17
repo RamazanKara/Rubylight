@@ -288,14 +288,19 @@ public class StreamMenuTest {
             });
             menu.show();
             assertFalse("Keyboard is an action, not a switch", menu.row(KEYBOARD).isCheckable());
+            assertEquals(activity.getString(R.string.desktop_controls_system_keyboard),
+                    menu.row(KEYBOARD).getText().toString());
+            assertEquals(activity.getString(R.string.desktop_controls_open),
+                    menu.row(KEYBOARD_KEYS).getText().toString());
             MaterialButton overlay = menu.row(OVERLAY);
             assertTrue(overlay.isCheckable());
             assertFalse(overlay.isChecked());
             overlay.performClick();
             assertTrue(menu.row(OVERLAY).isChecked());
             assertSame("The row is updated, not rebuilt", overlay, menu.row(OVERLAY));
+            menu.row(KEYBOARD).performClick();
             menu.row(DISCONNECT).performClick();
-            assertEquals(Arrays.asList(OVERLAY, DISCONNECT), chosen);
+            assertEquals(Arrays.asList(OVERLAY, KEYBOARD, DISCONNECT), chosen);
         }
     }
 

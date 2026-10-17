@@ -12,8 +12,8 @@ The menu is one sheet:
 
 | Part | What it holds |
 | --- | --- |
-| Top row | **Keyboard** (Android's keyboard), **Overlay** (show or hide the performance overlay) and **Microphone** (mute or unmute, when the PC offers a microphone). Overlay and Microphone switch in place. |
-| Input | Touch mode, Show mouse cursor (with a mouse attached), Show on-screen controls, Edit controller layout, Controls for this game, Extra keyboard keys. |
+| Top row | **Phone keyboard** (Android's keyboard), **Overlay** (show or hide the performance overlay) and **Microphone** (mute or unmute, when the PC offers a microphone). Overlay and Microphone switch in place. |
+| Input | Touch mode, Show mouse cursor (with a mouse attached), Show on-screen controls, Edit controller layout, Controls for this game, Keyboard & mouse. |
 | Display | Video scaling (Fit, Fill, Stretch or 1:1, local video without upscaling), Enable pinch zoom and pan, Reset zoom, **Overlay and diagnostics**, Picture-in-picture, Video output (with an external display). |
 | Quality | Set bitrate, Automatic stream quality and Automatic bitrate, where the host supports them. |
 | Host | Server commands, Send clipboard to host, Copy host clipboard, Open host web UI, Permissions and frame limits, as the host and its permissions allow. |
@@ -114,7 +114,7 @@ USB and Bluetooth mice and keyboards use Android's input support. Android 8+ pro
 
 Leave **Desktop mouse mode** off for games that need relative mouse look; enable it for desktop pointer behavior. Enable **Mouse back/forward buttons** only when needed; some devices report right-click through the same Android key path.
 
-Open the stream menu and select **Keyboard** in its top row for Android's on-screen keyboard. It stays hidden when a stream starts, including on tablets. Hardware key events and text input are sent to the host; Android may reserve system keys. Check the host keyboard layout if punctuation or language-specific keys differ.
+Open the stream menu and select **Phone keyboard** in its top row for Android's on-screen keyboard. Opening it hides the desktop panel. It stays hidden when a stream starts, including on tablets. Hardware key events and text input are sent to the host; Android may reserve system keys. Check the host keyboard layout if punctuation or language-specific keys differ.
 
 Select **stream menu → Input → Keyboard & mouse** for the desktop panel. Choose **Keyboard**, **Trackpad**, or **Combined**. Keyboard banks provide letters and numbers, F1–F12, navigation and punctuation, a number pad, and shortcuts. Banks scroll horizontally; tall key layouts scroll vertically. Combined mode puts the trackpad beside the keyboard on wide screens and below it on narrow screens.
 

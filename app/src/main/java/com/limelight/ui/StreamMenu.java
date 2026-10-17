@@ -126,7 +126,7 @@ public final class StreamMenu {
         HostCapabilities caps = host.caps;
 
         // Keyboard opens Android's keyboard and closes the menu: an action, not a switch.
-        if (o.canSendInput) entries.add(action(Section.QUICK, Item.KEYBOARD, R.string.stream_keyboard, R.drawable.ic_keyboard));
+        if (o.canSendInput) entries.add(action(Section.QUICK, Item.KEYBOARD, R.string.desktop_controls_system_keyboard, R.drawable.ic_keyboard));
         if (o.mediaStream()) {
             entries.add(entry(Section.QUICK, Item.OVERLAY, R.string.stream_overlay_menu, R.drawable.ic_overlay, o.overlayShown));
         }

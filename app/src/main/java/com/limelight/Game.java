@@ -4207,6 +4207,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             visible = insets != null && insets.isVisible(WindowInsetsCompat.Type.ime());
         }
         if (!visible) {
+            hideKeyboardOverlay();
             setInputGrabState(true);
         }
         streamView.requestFocus();

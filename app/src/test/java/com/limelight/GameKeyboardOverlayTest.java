@@ -3,7 +3,10 @@ package com.limelight;
 import android.app.Application;
 import android.content.ComponentName;
 import android.content.Context;
+import android.graphics.Insets;
 import android.view.KeyEvent;
+import android.view.View;
+import android.view.WindowInsets;
 import android.view.WindowManager;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputConnection;
@@ -17,6 +20,7 @@ import com.limelight.nvstream.StreamConfiguration;
 import com.limelight.nvstream.http.ComputerDetails;
 import com.limelight.nvstream.input.KeyboardPacket;
 import com.limelight.ui.StreamView;
+import com.limelight.ui.StreamMenu;
 
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -51,25 +55,64 @@ public class GameKeyboardOverlayTest {
     }
 
     @Test
-    public void softwareKeyboardCanStillBeOpenedAndSendTextOnRequest() {
+    public void phoneKeyboardMenuActionHidesDesktopPanelAndStillSendsText() {
         RecordingConnection connection = new RecordingConnection();
         Game game = game(connection);
+        game.setTheme(R.style.AppTheme);
         StreamView stream = new StreamView(game);
         stream.setFocusableInTouchMode(true);
         stream.setInputCallbacks(game);
-        game.setContentView(stream);
+        FrameLayout parent = new FrameLayout(game);
+        parent.addView(stream);
+        game.setContentView(parent);
         ReflectionHelpers.setField(game, "streamView", stream);
+        ReflectionHelpers.callInstanceMethod(game, "toggleKeyboardOverlay");
+        View panel = ReflectionHelpers.getField(game, "keyboardOverlay");
+        assertEquals(View.VISIBLE, panel.getVisibility());
         InputMethodManager input = (InputMethodManager) game.getSystemService(Context.INPUT_METHOD_SERVICE);
         assertFalse(shadowOf(input).isSoftInputVisible());
 
-        game.toggleKeyboard();
+        ReflectionHelpers.callInstanceMethod(game, "onStreamMenuItem",
+                ReflectionHelpers.ClassParameter.from(StreamMenu.Item.class, StreamMenu.Item.KEYBOARD));
+        Runnable action = ReflectionHelpers.getField(game, "streamMenuAction");
+        assertNotNull(action);
+        // The menu hands the selected action back after its window closes.
+        action.run();
 
+        assertEquals(View.GONE, panel.getVisibility());
         assertTrue(shadowOf(input).isSoftInputVisible());
         assertTrue(stream.hasFocus());
         InputConnection editor = stream.onCreateInputConnection(new EditorInfo());
         assertNotNull(editor);
         assertTrue(editor.commitText("Hello, world!", 1));
         assertEquals(java.util.Collections.singletonList("Hello, world!"), connection.text);
+    }
+
+    @Test
+    public void closingPhoneKeyboardDoesNotHideDesktopPanel() {
+        Game game = game(new RecordingConnection());
+        game.setTheme(R.style.AppTheme);
+        StreamView stream = new StreamView(game) {
+            @Override public WindowInsets getRootWindowInsets() {
+                // API 29 derives IME visibility from the bottom inset beyond stable bars.
+                return new WindowInsets.Builder().setSystemWindowInsets(Insets.of(0, 0, 0, 300)).build();
+            }
+        };
+        stream.setFocusableInTouchMode(true);
+        FrameLayout parent = new FrameLayout(game);
+        parent.addView(stream);
+        game.setContentView(parent);
+        ReflectionHelpers.setField(game, "streamView", stream);
+        ReflectionHelpers.callInstanceMethod(game, "toggleKeyboardOverlay");
+        View panel = ReflectionHelpers.getField(game, "keyboardOverlay");
+        InputMethodManager input = (InputMethodManager) game.getSystemService(Context.INPUT_METHOD_SERVICE);
+        input.showSoftInput(stream, 0);
+        assertTrue(shadowOf(input).isSoftInputVisible());
+
+        game.toggleKeyboard();
+
+        assertFalse(shadowOf(input).isSoftInputVisible());
+        assertEquals(View.VISIBLE, panel.getVisibility());
     }
 
     @Test

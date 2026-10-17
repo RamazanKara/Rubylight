@@ -10,11 +10,13 @@ import android.media.MediaCodecInfo;
 import android.media.MediaExtractor;
 import android.media.MediaFormat;
 import android.os.Build;
+import android.preference.PreferenceManager;
 import android.view.Surface;
 
 import com.limelight.BuildConfig;
 import com.limelight.LimeLog;
 import com.limelight.preferences.GlPreferences;
+import com.limelight.preferences.PreferenceConfiguration;
 import com.limelight.utils.DeviceResults;
 
 import java.nio.ByteBuffer;
@@ -55,9 +57,11 @@ public final class DecoderBenchmark {
     public static void runIfNeeded(Context context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q || running) return;
         Context app = context.getApplicationContext();
+        boolean disableHevcLowLatency = disableHevcLowLatency(app);
+        String benchmarkKey = key(disableHevcLowLatency);
         String glRenderer = GlPreferences.readPreferences(app).glRenderer;
         // Decoder lists depend on the GPU; Game records it on the first stream.
-        if (glRenderer == null || glRenderer.isEmpty() || prefs(app).getString("key", "").equals(key())) return;
+        if (glRenderer == null || glRenderer.isEmpty() || prefs(app).getString("key", "").equals(benchmarkKey)) return;
         running = true;
         Thread thread = new Thread(() -> {
             try {
@@ -66,7 +70,7 @@ public final class DecoderBenchmark {
                 for (int i = 0; i < MIMES.length; i++) {
                     MediaCodecInfo decoder = MediaCodecHelper.findProbableSafeDecoder(MIMES[i], -1);
                     if (decoder == null) continue;
-                    long us = measure(app, decoder, MIMES[i], CLIPS[i]);
+                    long us = measure(app, decoder, MIMES[i], CLIPS[i], disableHevcLowLatency);
                     LimeLog.info("Decoder benchmark " + decoder.getName() + ": " + (us > 0 ? us + " us/frame" : "failed"));
                     if (us > 0) {
                         editor.putLong(decoder.getName() + "|" + MIMES[i], us);
@@ -80,7 +84,8 @@ public final class DecoderBenchmark {
                         }
                     }
                 }
-                editor.putString("key", key()).apply();
+                // Keep the key for the options actually measured if the user changes them mid-run.
+                editor.putString("key", benchmarkKey).apply();
             } catch (Exception e) {
                 LimeLog.warning("Decoder benchmark failed: " + e);
             } finally {
@@ -95,7 +100,7 @@ public final class DecoderBenchmark {
     public static long result(Context context, MediaCodecInfo decoder, String mime) {
         if (decoder == null) return 0;
         SharedPreferences prefs = prefs(context);
-        if (!prefs.getString("key", "").equals(key())) return 0;
+        if (!prefs.getString("key", "").equals(key(disableHevcLowLatency(context)))) return 0;
         return prefs.getLong(decoder.getName() + "|" + mime, 0);
     }
 
@@ -119,7 +124,7 @@ public final class DecoderBenchmark {
     /** "H.264 2.1 ms · HEVC 2.4 ms · AV1 4.0 ms", or null before the first measurement. */
     public static String summary(Context context) {
         SharedPreferences prefs = prefs(context);
-        if (!prefs.getString("key", "").equals(key())) return null;
+        if (!prefs.getString("key", "").equals(key(disableHevcLowLatency(context)))) return null;
         List<String> parts = new ArrayList<>();
         for (String entry : prefs.getAll().keySet()) {
             for (int i = 0; i < MIMES.length; i++) {
@@ -138,7 +143,7 @@ public final class DecoderBenchmark {
         results.clipWidth = CLIP_WIDTH;
         results.clipHeight = CLIP_HEIGHT;
         results.clipFps = CLIP_FPS;
-        results.decoderBenchmarkMeasured = prefs.getString("key", "").equals(key());
+        results.decoderBenchmarkMeasured = prefs.getString("key", "").equals(key(disableHevcLowLatency(context)));
         if (results.decoderBenchmarkMeasured) results.decoders.addAll(decoders(prefs.getAll()));
     }
 
@@ -177,13 +182,19 @@ public final class DecoderBenchmark {
         return context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
     }
 
-    private static String key() {
-        return Build.FINGERPRINT + "|" + BuildConfig.VERSION_CODE;
+    private static boolean disableHevcLowLatency(Context context) {
+        return PreferenceManager.getDefaultSharedPreferences(context).getBoolean(
+                PreferenceConfiguration.DISABLE_HEVC_LOW_LATENCY_PREF_STRING, false);
+    }
+
+    private static String key(boolean disableHevcLowLatency) {
+        return Build.FINGERPRINT + "|" + BuildConfig.VERSION_CODE + "|hevc-low-latency-off=" + disableHevcLowLatency;
     }
 
     // Feeds one frame at a time and waits for it, as a low-latency stream does.
     @TargetApi(Build.VERSION_CODES.Q)
-    private static long measure(Context context, MediaCodecInfo decoder, String mime, String clip) {
+    private static long measure(Context context, MediaCodecInfo decoder, String mime, String clip,
+                                boolean disableHevcLowLatency) {
         MediaExtractor extractor = new MediaExtractor();
         MediaCodec codec = null;
         SurfaceTexture texture = null;
@@ -205,7 +216,7 @@ public final class DecoderBenchmark {
             }
             if (frames.isEmpty()) return 0;
 
-            MediaCodecHelper.setDecoderLowLatencyOptions(format, decoder, 0, true, true, true);
+            MediaCodecHelper.setDecoderLowLatencyOptions(format, decoder, 0, true, true, true, disableHevcLowLatency);
             texture = new SurfaceTexture(false);
             texture.setDefaultBufferSize(format.getInteger(MediaFormat.KEY_WIDTH), format.getInteger(MediaFormat.KEY_HEIGHT));
             surface = new Surface(texture);

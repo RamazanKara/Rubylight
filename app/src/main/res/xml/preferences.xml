@@ -536,6 +536,11 @@
 
     <PreferenceCategory android:key="category_advanced_decoder" android:title="@string/settings_category_decoder">
         <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_disable_hevc_low_latency"
+            android:title="@string/title_disable_hevc_low_latency"
+            android:dialogMessage="@string/summary_disable_hevc_low_latency"
+            android:defaultValue="false" />
+        <com.limelight.preferences.MaterialSwitchPreference
             android:key="checkbox_codec_low_latency"
             android:title="@string/title_codec_low_latency"
             android:dialogMessage="@string/summary_codec_low_latency"

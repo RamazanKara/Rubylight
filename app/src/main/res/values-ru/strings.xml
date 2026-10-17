@@ -400,4 +400,6 @@
     <string name="keyboard_shortcuts_replace_button">Заменить</string>
     <string name="keyboard_shortcuts_exported">Сочетания экспортированы.</string>
     <string name="keyboard_shortcuts_file_error">Не удалось прочитать или записать файл сочетаний. Проверьте доступ к файлам и используйте корректный экспорт, содержащий не более 32 сочетаний.</string>
+    <string name="title_disable_hevc_low_latency">Отключить флаги низкой задержки HEVC</string>
+    <string name="summary_disable_hevc_low_latency">Попробуйте, если видео HEVC дёргается или зависает. Отключает флаги низкой задержки Android и чипсета для HEVC на любом устройстве. Другие кодеки и подсказки производительности декодера сохраняют свои настройки. Применяется со следующего сеанса.</string>
 </resources>

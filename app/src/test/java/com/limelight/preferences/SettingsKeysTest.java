@@ -183,6 +183,7 @@ public class SettingsKeysTest {
         reads.put("checkbox_enable_sops", new Read(true, false, c -> c.enableSops));
         reads.put("checkbox_codec_low_latency", new Read(true, false, c -> c.codecLowLatency));
         reads.put("checkbox_vendor_low_latency", new Read(true, false, c -> c.vendorLowLatency));
+        reads.put("checkbox_disable_hevc_low_latency", new Read(false, true, c -> c.disableHevcLowLatency));
         reads.put("checkbox_phone_performance_hints", new Read(true, false, c -> c.phonePerformanceHints));
         reads.put("checkbox_codec_performance", new Read(true, false, c -> c.codecPerformance));
         reads.put("checkbox_gpu_max_clocks", new Read(false, true, c -> c.gpuMaxClocks));

@@ -49,6 +49,7 @@ public class AdvancedOptionsTest {
     private static final String LEGACY_UNLOCK = "developer_options";
     private static final String GPU_BOOST = PreferenceConfiguration.GPU_MAX_CLOCKS_PREF_STRING;
     private static final String[] ADVANCED_CONTROLS = {
+            "checkbox_disable_hevc_low_latency",
             "checkbox_codec_low_latency", "checkbox_vendor_low_latency", "checkbox_phone_performance_hints",
             "checkbox_codec_performance", "checkbox_drop_late_frames", "checkbox_unbatched_input",
             "checkbox_network_priority", "checkbox_texture_view", "checkbox_unlock_fps",
@@ -72,6 +73,23 @@ public class AdvancedOptionsTest {
     @After
     public void clear() {
         prefs().edit().clear().commit();
+    }
+
+    @Test
+    public void hevcLowLatencyOptInIsOffByDefaultAndIndependentOfTheGeneralSwitch() {
+        try (ActivityController<StreamSettings> controller = Robolectric.buildActivity(StreamSettings.class).setup()) {
+            SwitchPreference hevc = (SwitchPreference) open(controller.get(), "advanced")
+                    .findPreference(PreferenceConfiguration.DISABLE_HEVC_LOW_LATENCY_PREF_STRING);
+            assertFalse(hevc.isChecked());
+            hevc.setChecked(true);
+            assertTrue(PreferenceConfiguration.readPreferences(controller.get()).disableHevcLowLatency);
+            for (boolean general : new boolean[] {false, true}) {
+                PreferenceConfiguration.setLowLatencyDecoding(prefs(), general);
+                assertTrue(PreferenceConfiguration.readPreferences(controller.get()).disableHevcLowLatency);
+            }
+            hevc.setChecked(false);
+            assertFalse(PreferenceConfiguration.readPreferences(controller.get()).disableHevcLowLatency);
+        }
     }
 
     private static PreferenceScreen root(StreamSettings screen) {

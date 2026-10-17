@@ -400,4 +400,6 @@
     <string name="keyboard_shortcuts_replace_button">Zastąp</string>
     <string name="keyboard_shortcuts_exported">Skróty wyeksportowane.</string>
     <string name="keyboard_shortcuts_file_error">Nie udało się odczytać ani zapisać pliku skrótów. Sprawdź dostęp do plików i użyj prawidłowego eksportu skrótów zawierającego maksymalnie 32 skróty.</string>
+    <string name="title_disable_hevc_low_latency">Wyłącz flagi niskich opóźnień HEVC</string>
+    <string name="summary_disable_hevc_low_latency">Wypróbuj, jeśli obraz HEVC zacina się lub zawiesza. Wyłącza flagi niskich opóźnień Androida i chipsetu dla HEVC na każdym urządzeniu. Inne kodeki i wskazówki wydajności dekodera zachowują własne ustawienia. Zmiana działa od następnej transmisji.</string>
 </resources>

@@ -1,0 +1,196 @@
+package com.limelight.binding.video;
+
+import android.app.Activity;
+import android.app.Application;
+import android.media.MediaCodec;
+import android.media.MediaCodecInfo;
+import android.media.MediaCodecInfo.CodecCapabilities;
+import android.media.MediaCodecInfo.CodecProfileLevel;
+import android.media.MediaFormat;
+import android.os.Bundle;
+
+import com.limelight.nvstream.jni.MoonBridge;
+import com.limelight.preferences.PreferenceConfiguration;
+
+import org.junit.Before;
+import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.robolectric.Robolectric;
+import org.robolectric.RobolectricTestRunner;
+import org.robolectric.android.controller.ActivityController;
+import org.robolectric.annotation.Config;
+import org.robolectric.annotation.Implementation;
+import org.robolectric.annotation.Implements;
+import org.robolectric.shadows.MediaCodecInfoBuilder;
+import org.robolectric.shadows.MediaCodecInfoBuilder.CodecCapabilitiesBuilder;
+import org.robolectric.shadows.ShadowBuild;
+import org.robolectric.shadows.ShadowMediaCodec;
+import org.robolectric.util.ReflectionHelpers;
+import org.robolectric.util.ReflectionHelpers.ClassParameter;
+
+import java.util.Arrays;
+import java.util.List;
+import java.util.Map;
+
+import static org.junit.Assert.*;
+
+@RunWith(RobolectricTestRunner.class)
+@Config(sdk = 34, application = Application.class)
+public class MediaCodecHevcLowLatencyTest {
+    private static final String HEVC = "video/hevc";
+    private static final String AML_HEVC = "c2.amlogic.hevc.decoder";
+    private static final String AML_LOW_LATENCY = "vendor.low-latency.enable";
+
+    @Before
+    public void setUp() {
+        ReflectionHelpers.setStaticField(MediaCodecHelper.class, "initialized", true);
+    }
+
+    @Test
+    @Config(sdk = {28, 34, 35})
+    public void optInOmitsEveryLowLatencyFlagOnAnyHevcDecoder() {
+        for (String name : new String[] {AML_HEVC, "omx.amlogic.hevc.decoder", "c2.qti.hevc.decoder",
+                "c2.mtk.hevc.decoder", "c2.exynos.hevc.decoder"}) {
+            MediaCodecInfo decoder = decoder(name, HEVC);
+            for (int attempt = 0; attempt <= 5; attempt++) {
+                MediaFormat format = MediaFormat.createVideoFormat(HEVC, 1920, 1080);
+                assertFalse(MediaCodecHelper.setDecoderLowLatencyOptions(format, decoder, attempt,
+                        true, true, false, true));
+                assertFalse(name, format.containsKey(MediaFormat.KEY_LOW_LATENCY));
+                assertFalse(name, format.containsKey("vdec-lowlatency"));
+                for (String key : VendorLowLatencyKeys.KNOWN.keySet()) {
+                    assertFalse(name + ": " + key, format.containsKey(key));
+                }
+                assertEquals(1920, format.getInteger(MediaFormat.KEY_WIDTH));
+                assertEquals(1080, format.getInteger(MediaFormat.KEY_HEIGHT));
+            }
+        }
+    }
+
+    @Test
+    public void noDeviceIsAutomaticallyChangedWithoutTheOptIn() {
+        for (String model : new String[] {"MiTV-AYFR0", "Homatics Box 4K Pro V2", "Chromecast", "AFTMM"}) {
+            ShadowBuild.setModel(model);
+            MediaFormat format = tunedFormat(AML_HEVC, HEVC, false);
+            assertEquals(model, 1, format.getInteger(MediaFormat.KEY_LOW_LATENCY));
+            assertEquals(model, 1, format.getInteger(AML_LOW_LATENCY));
+        }
+    }
+
+    @Test
+    public void h264AndAv1KeepTheirStandardAndVendorOptionsWhenHevcFlagsAreDisabled() {
+        String[] mimes = {"video/avc", "video/av01"};
+        String[] names = {"c2.amlogic.avc.decoder", "c2.amlogic.av1.decoder"};
+        for (int i = 0; i < mimes.length; i++) {
+            MediaFormat format = tunedFormat(names[i], mimes[i], true);
+            assertEquals(1, format.getInteger(MediaFormat.KEY_LOW_LATENCY));
+            assertEquals(1, format.getInteger(AML_LOW_LATENCY));
+        }
+    }
+
+    @Test
+    public void performanceHintsKeepTheirSettingAndCanFallBackToAnUntunedFormat() {
+        MediaCodecInfo decoder = decoder(AML_HEVC, HEVC);
+        MediaFormat first = tunedFormat(AML_HEVC, HEVC, true);
+        assertFalse(first.containsKey(MediaFormat.KEY_LOW_LATENCY));
+        assertFalse(first.containsKey(AML_LOW_LATENCY));
+        assertEquals(0, first.getInteger(MediaFormat.KEY_PRIORITY));
+        for (int attempt = 1; attempt <= 5; attempt++) {
+            MediaFormat format = MediaFormat.createVideoFormat(HEVC, 1920, 1080);
+            assertFalse(MediaCodecHelper.setDecoderLowLatencyOptions(format, decoder, attempt,
+                    true, true, true, true));
+            assertFalse(format.containsKey(MediaFormat.KEY_PRIORITY));
+            assertFalse(format.containsKey(MediaFormat.KEY_LOW_LATENCY));
+            assertFalse(format.containsKey(AML_LOW_LATENCY));
+        }
+    }
+
+    @Test
+    public void referenceFrameInvalidationSupportIsIndependentOfTheOptIn() {
+        MediaCodecInfo decoder = decoder(AML_HEVC, HEVC);
+        assertTrue(MediaCodecHelper.decoderSupportsRefFrameInvalidationHevc(decoder));
+        tunedFormat(AML_HEVC, HEVC, true);
+        assertTrue(MediaCodecHelper.decoderSupportsRefFrameInvalidationHevc(decoder));
+    }
+
+    @Test
+    @Config(shadows = RecordingCodec.class)
+    public void streamStartupAndRestartApplyTheOptInWithoutReassertingDisabledFlags() {
+        for (boolean disable : new boolean[] {true, false}) {
+            try (ActivityController<Activity> activity = Robolectric.buildActivity(Activity.class).create()) {
+                PreferenceConfiguration prefs = new PreferenceConfiguration();
+                prefs.videoFormat = PreferenceConfiguration.FormatOption.AUTO;
+                prefs.codecLowLatency = prefs.vendorLowLatency = prefs.codecPerformance = true;
+                prefs.disableHevcLowLatency = disable;
+                MediaCodecDecoderRenderer renderer = new MediaCodecDecoderRenderer(activity.get(), prefs,
+                        null, 0, false, false, "", null);
+                ReflectionHelpers.setField(renderer, "videoFormat", MoonBridge.VIDEO_FORMAT_H265);
+                ReflectionHelpers.setField(renderer, "hevcDecoder", decoder(AML_HEVC, HEVC));
+                ReflectionHelpers.setField(renderer, "refFrameInvalidationHevc", true);
+                ReflectionHelpers.setField(renderer, "initialWidth", 1920);
+                ReflectionHelpers.setField(renderer, "initialHeight", 1080);
+                ReflectionHelpers.setField(renderer, "refreshRate", 60);
+                RecordingCodec.runtimeParameterCalls = 0;
+                try {
+                    assertEquals(0, renderer.initializeDecoder(true));
+                    assertEquals(disable ? 1 : 2, (int) ReflectionHelpers.getField(renderer, "outputBufferQueueLimit"));
+                    assertTrue((boolean) ReflectionHelpers.getField(renderer, "refFrameInvalidationActive"));
+                    MediaFormat format = ReflectionHelpers.getField(renderer, "configuredFormat");
+                    assertEquals(!disable, format.containsKey(MediaFormat.KEY_LOW_LATENCY));
+                    assertEquals(!disable, format.containsKey(AML_LOW_LATENCY));
+                    assertEquals(disable ? "off" : "android+vendor", MediaCodecHelper.getDecoderLowLatencyOptions(
+                            format, null, Arrays.asList(AML_LOW_LATENCY), true)[2]);
+                    assertEquals(disable ? 0 : 1, RecordingCodec.runtimeParameterCalls);
+
+                    MediaCodec codec = ReflectionHelpers.getField(renderer, "videoDecoder");
+                    codec.stop();
+                    ReflectionHelpers.callInstanceMethod(renderer, "configureAndStartDecoder",
+                            ClassParameter.from(MediaFormat.class, format));
+                    assertEquals(disable ? 0 : 2, RecordingCodec.runtimeParameterCalls);
+                    assertEquals(!disable, format.containsKey(MediaFormat.KEY_LOW_LATENCY));
+                    assertEquals(!disable, format.containsKey(AML_LOW_LATENCY));
+                } finally {
+                    renderer.stop();
+                    renderer.cleanup();
+                }
+            }
+        }
+    }
+
+    private static MediaFormat tunedFormat(String name, String mime, boolean disableHevcLowLatency) {
+        MediaFormat format = MediaFormat.createVideoFormat(mime, 1920, 1080);
+        assertTrue(MediaCodecHelper.setDecoderLowLatencyOptions(format, decoder(name, mime), 0,
+                true, true, true, disableHevcLowLatency));
+        return format;
+    }
+
+    private static MediaCodecInfo decoder(String name, String mime) {
+        // Keep the policy tests independent of actual codecs exposed by the test machine.
+        Map<String, List<String>> parameters = ReflectionHelpers.getStaticField(
+                MediaCodecHelper.class, "vendorParameterCache");
+        parameters.put(name, Arrays.asList(AML_LOW_LATENCY));
+        MediaFormat capabilities = MediaFormat.createVideoFormat(mime, 1920, 1080);
+        capabilities.setFeatureEnabled(CodecCapabilities.FEATURE_LowLatency, true);
+        return MediaCodecInfoBuilder.newBuilder().setName(name).setCapabilities(
+                CodecCapabilitiesBuilder.newBuilder().setMediaFormat(capabilities)
+                        .setProfileLevels(new CodecProfileLevel[0])
+                        .setColorFormats(new int[] {CodecCapabilities.COLOR_FormatYUV420Flexible}).build()).build();
+    }
+
+    @Implements(MediaCodec.class)
+    public static class RecordingCodec extends ShadowMediaCodec {
+        static int runtimeParameterCalls;
+
+        @Implementation public String getName() {
+            return AML_HEVC;
+        }
+
+        @Implementation public MediaCodecInfo getCodecInfo() {
+            return decoder(AML_HEVC, HEVC);
+        }
+
+        @Implementation public void setParameters(Bundle params) {
+            runtimeParameterCalls++;
+        }
+    }
+}

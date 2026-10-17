@@ -400,4 +400,6 @@
     <string name="keyboard_shortcuts_replace_button">Substituir</string>
     <string name="keyboard_shortcuts_exported">Atalhos exportados.</string>
     <string name="keyboard_shortcuts_file_error">Não foi possível ler ou gravar o arquivo de atalhos. Verifique o acesso a arquivos e use uma exportação de atalhos válida com no máximo 32 atalhos.</string>
+    <string name="title_disable_hevc_low_latency">Desativar opções de baixa latência HEVC</string>
+    <string name="summary_disable_hevc_low_latency">Experimente se o vídeo HEVC engasgar ou congelar. Desativa as opções de baixa latência do Android e do chipset para HEVC em qualquer dispositivo. Os outros codecs e as opções de desempenho do decodificador mantêm suas configurações. Vale para a próxima transmissão.</string>
 </resources>

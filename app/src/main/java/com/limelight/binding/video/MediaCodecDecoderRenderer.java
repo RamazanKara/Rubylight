@@ -1428,12 +1428,14 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
             // This will try low latency options until we find one that works (or we give up).
             boolean newFormat = MediaCodecHelper.setDecoderLowLatencyOptions(mediaFormat, selectedDecoderInfo, tryNumber,
-                    prefs.codecLowLatency, prefs.vendorLowLatency, prefs.codecPerformance);
+                    prefs.codecLowLatency, prefs.vendorLowLatency, prefs.codecPerformance, prefs.disableHevcLowLatency);
 
             // Throw the underlying codec exception on the last attempt if the caller requested it
             if (tryConfigureDecoder(selectedDecoderInfo, mediaFormat, !newFormat && upscaler == null && throwOnCodecError)) {
+                boolean androidLowLatency = mediaFormat.containsKey(MediaFormat.KEY_LOW_LATENCY) &&
+                        mediaFormat.getInteger(MediaFormat.KEY_LOW_LATENCY) != 0;
                 outputBufferQueueLimit = DecoderQueuePolicy.outputLimit(selectedDecoderInfo.getName(),
-                        prefs.codecLowLatency && MediaCodecHelper.decoderSupportsAndroidRLowLatency(selectedDecoderInfo, mimeType),
+                        androidLowLatency && MediaCodecHelper.decoderSupportsAndroidRLowLatency(selectedDecoderInfo, mimeType),
                         prefs.dropLateFrames, tryNumber != 0 || codecRecoveryAttempts != 0);
                 if (retryWithoutUpscaling) {
                     upscalingPolicy.fail(UpscalingPolicy.Reason.GPU_ERROR);

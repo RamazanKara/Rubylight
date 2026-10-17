@@ -400,4 +400,6 @@
     <string name="keyboard_shortcuts_replace_button">Sustituir</string>
     <string name="keyboard_shortcuts_exported">Atajos exportados.</string>
     <string name="keyboard_shortcuts_file_error">No se ha podido leer o escribir el archivo de atajos. Comprueba el acceso a archivos y usa una exportación de atajos válida con 32 atajos como máximo.</string>
+    <string name="title_disable_hevc_low_latency">Desactivar opciones de baja latencia HEVC</string>
+    <string name="summary_disable_hevc_low_latency">Prueba esta opción si el vídeo HEVC da tirones o se congela. Desactiva las opciones de baja latencia de Android y del chipset para HEVC en cualquier dispositivo. Los demás códecs y los ajustes de rendimiento del decodificador conservan su configuración. Se aplica a la próxima transmisión.</string>
 </resources>

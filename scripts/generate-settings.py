@@ -92,6 +92,7 @@ ADVICE = {
     "frame_pacing": "Use Lowest latency for response, Balanced for cadence, Balanced with FPS limit to cap pacing, or Smoothest video to retain frames at the cost of delay.",
     "checkbox_codec_low_latency": "Leave on for supported Android 11+ decoders. Disable when comparing a decoder freeze or artifact.",
     "checkbox_vendor_low_latency": "Leave on for supported chipset decoder keys. Disable to isolate vendor-specific instability.",
+    "checkbox_disable_hevc_low_latency": "Off by default. Enable if HEVC video stutters or freezes to omit Android and vendor low-latency flags on any device. H.264, AV1, reference-frame invalidation and decoder performance hints keep their own settings. Applies to the next stream and decoder benchmark; changing it invalidates previous benchmark results.",
     "checkbox_codec_performance": "Leave on for decoder priority/rate hints on Android 6+. Disable to compare heat or battery use.",
     "checkbox_phone_performance_hints": "Enable for a measured comparison on Android 12+; compare decode time with it on and off.",
     "checkbox_gpu_max_clocks": "Off by default. Optionally request higher Adreno GPU clocks during PyroWave streaming to reduce decode time; this can increase power use and heat. Thermal protection remains active. Installs that already stored a choice keep it. Shown on Adreno devices only.",

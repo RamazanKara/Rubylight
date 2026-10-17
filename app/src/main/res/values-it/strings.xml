@@ -400,4 +400,6 @@
     <string name="keyboard_shortcuts_replace_button">Sostituisci</string>
     <string name="keyboard_shortcuts_exported">Scorciatoie esportate.</string>
     <string name="keyboard_shortcuts_file_error">Impossibile leggere o scrivere il file delle scorciatoie. Controlla l’accesso ai file e usa un’esportazione valida con al massimo 32 scorciatoie.</string>
+    <string name="title_disable_hevc_low_latency">Disattiva le opzioni HEVC a bassa latenza</string>
+    <string name="summary_disable_hevc_low_latency">Prova se il video HEVC scatta o si blocca. Disattiva le opzioni a bassa latenza di Android e del chipset per HEVC su qualsiasi dispositivo. Gli altri codec e le opzioni di prestazioni del decoder mantengono le proprie impostazioni. Si applica alla prossima sessione.</string>
 </resources>

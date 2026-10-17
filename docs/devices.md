@@ -10,7 +10,7 @@ Nothing on this page sends data automatically. You decide whether to share your 
 
 You need no PC for either tool.
 
-1. **Decoder benchmark.** Nightjar times each hardware decoder once per app version on Android 10 and later. It decodes a short 1920×1080, 60 FPS game-like clip in H.264, HEVC and AV1 with the same low-latency settings a stream uses, one frame at a time, and keeps the median decode time per frame. It runs quietly in the background when the home screen opens, but only after a first stream, because the decoder choice depends on the GPU that the first stream records. Once it has run, the help text of **Settings → Video → Video codec** shows the measured times.
+1. **Decoder benchmark.** Nightjar times each hardware decoder once per app version on Android 10 and later, and again after changing **Disable HEVC low-latency flags**. It decodes a short 1920×1080, 60 FPS game-like clip in H.264, HEVC and AV1 with the same low-latency settings a stream uses, one frame at a time, and keeps the median decode time per frame. It runs quietly in the background when the home screen opens, but only after a first stream, because the decoder choice depends on the GPU that the first stream records. Once it has run, the help text of **Settings → Video → Video codec** shows the measured times.
 2. **Latency benchmark.** Open **Settings → Advanced → Latency benchmark** and tap **Start 10-second test**. Touch the screen, move a mouse or press controller buttons during the test so that it also collects input samples. Close other apps first and keep the device plugged in, as power saving changes the timing.
 3. Tap **Share results** on the same screen. Nightjar shows the exact text it would share, then lets you **Copy** it, **Share** it through Android's share sheet, or **Open report form**, which copies it and opens the public GitHub form for device results in your browser.
 
@@ -29,7 +29,7 @@ The text is JSON with these parts:
 | `decoderBenchmark.clip` | Size and frame rate of the test clip, for example `1920x1080@60`. |
 | `medianDecodeMs` | Median time from queuing one frame to getting it back from the decoder, in milliseconds. Lower is better. A 120 FPS frame lasts 8.3 ms, so decode times near that leave no headroom. |
 | `featureLowLatency` | Whether the decoder advertises Android's standard low-latency mode. `null` means not recorded. |
-| `vendorLowLatencyKeys` | The vendor low-latency switches the decoder declares, which Nightjar sets during a stream. An empty list means the decoder declares none; `null` means unknown (Android 11 or older, or recorded by an older version). |
+| `vendorLowLatencyKeys` | The vendor low-latency switches the decoder declares. These describe capabilities; disabling vendor or HEVC low-latency flags can leave them unset during a stream. An empty list means the decoder declares none; `null` means unknown (Android 11 or older, or recorded by an older version). |
 | `latencyTest.panelHz` | The refresh rate the display reports. |
 | `audioSampleRate`, `audioFramesPerBuffer` | Audio output properties the device reports. They are capabilities, not measured audio delay. |
 | `frameIntervalMs` | Time between display frame callbacks. It should be close to 1000 ÷ `panelHz`; a high `p99` means missed frames. |
@@ -75,9 +75,17 @@ Measured values are median decode times from the decoder benchmark. "To measure"
 | TV with a MediaTek Pentonic chip | MediaTek Pentonic | To measure | To measure | To measure | To measure | To measure | Upstream reports half of the frames dropped by the display compositor. |
 | NVIDIA Shield TV | NVIDIA Tegra X1 | To measure | To measure | To measure | To measure | To measure | |
 
+## HEVC low-latency compatibility
+
+If HEVC video stutters or freezes, try **Settings → Advanced → Decoder → Disable HEVC low-latency flags**. It is off by default and works on any device. Enabling it omits both Android and vendor low-latency flags for HEVC on the next stream and in the decoder benchmark. The Debug overlay reports low-latency options as off. H.264, AV1 and reference-frame invalidation keep their normal behavior; decoder performance hints keep their separate setting and fall back to an untuned format if rejected.
+
+Changing this switch invalidates previous decoder benchmark results. Return to the home screen after streaming to measure again. If it does not improve playback, turn it off to restore the normal decoder options. Some older Amlogic devices need low-latency options to output frames at all, so Nightjar does not infer this choice from a chip or model name.
+
+The [Moonlight HEVC fix](https://github.com/Viktsolovevwork278/moonlight-android-hevc-fix/releases/tag/v1.0.0) reports slideshow-like visible playback on the Xiaomi TV Stick MiTV-AYFR0 with Android TV 14 and `c2.amlogic.hevc.decoder`, despite normal FPS statistics. It reports that omitting the options fixes HEVC 1920×1080 at 60 FPS with Sunshine. A [separate Homatics S905X5M report](https://github.com/sven253/artemis-moonlight-android-hevc-fix#hevc-low-latency-options) identifies Android’s low-latency flag as problematic on that firmware. These reports do not establish a workaround for every Amlogic chip; Nightjar hardware measurements are still needed using the tools above.
+
 ## Candidate per-chip changes
 
-Nightjar already sets Android's standard low-latency flag and every vendor low-latency key a decoder declares (Qualcomm, Exynos and Tensor, Kirin, Amlogic, MediaTek Codec2 and NVIDIA keys), plus the MediaTek and Amazon `vdec-lowlatency` option on their older OMX decoders. The decoder benchmark runs with the same settings. The changes below are ideas to measure, not features: none of them is in the app.
+Nightjar already sets Android's standard low-latency flag and every vendor low-latency key a decoder declares (Qualcomm, Exynos and Tensor, Kirin, Amlogic, MediaTek Codec2 and NVIDIA keys), plus the MediaTek and Amazon `vdec-lowlatency` option on their older OMX decoders, subject to the [HEVC compatibility switch](#hevc-low-latency-compatibility) and other decoder settings. The decoder benchmark honors the HEVC switch too. The ideas below still need measurements before adding further chipset tuning.
 
 | Chip family | Idea to measure | How to tell |
 | --- | --- | --- |

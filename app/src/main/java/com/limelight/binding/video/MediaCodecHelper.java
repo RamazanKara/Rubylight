@@ -525,14 +525,18 @@ public class MediaCodecHelper {
     }
 
     public static boolean setDecoderLowLatencyOptions(MediaFormat videoFormat, MediaCodecInfo decoderInfo, int tryNumber,
-                                                      boolean lowLatency, boolean vendorLowLatency, boolean performanceHints) {
+                                                      boolean lowLatency, boolean vendorLowLatency, boolean performanceHints,
+                                                      boolean disableHevcLowLatency) {
         // Options here should be tried in the order of most to least risky. The decoder will use
         // the first MediaFormat that doesn't fail in configure().
 
         boolean setNewOption = false;
 
-        boolean useVendorOptions = vendorLowLatency;
-        if (lowLatency && tryNumber < 1 && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+        // Some TV firmware accepts these flags but displays HEVC as a slideshow (erratum 22).
+        // This is opt-in on any device, independent of RFI support and decoder performance hints.
+        boolean disableLowLatency = disableHevcLowLatency && "video/hevc".equals(videoFormat.getString(MediaFormat.KEY_MIME));
+        boolean useVendorOptions = vendorLowLatency && !disableLowLatency;
+        if (lowLatency && !disableLowLatency && tryNumber < 1 && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             // Official Android 11+ low latency option (KEY_LOW_LATENCY). Many decoders honour it
             // without advertising FEATURE_LowLatency, and decoders that don't know it ignore it.
             // Vendor keys stay on as well: on Snapdragon 8 Gen 2 and newer the standard flag alone
@@ -560,7 +564,8 @@ public class MediaCodecHelper {
             setNewOption = true;
         }
 
-        if (performanceHints && tryNumber < 3) {
+        // Without low-latency flags, fall back to an untuned format after the first rejected hint.
+        if (performanceHints && tryNumber < (disableLowLatency ? 1 : 3)) {
             if (MediaCodecHelper.decoderSupportsMaxOperatingRate(decoderInfo.getName())) {
                 videoFormat.setInteger(MediaFormat.KEY_OPERATING_RATE, Short.MAX_VALUE);
                 setNewOption = true;

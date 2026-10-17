@@ -400,4 +400,6 @@
     <string name="keyboard_shortcuts_replace_button">Ersetzen</string>
     <string name="keyboard_shortcuts_exported">Tastenkombinationen exportiert.</string>
     <string name="keyboard_shortcuts_file_error">Die Datei konnte nicht gelesen oder geschrieben werden. Prüfe den Dateizugriff und verwende einen gültigen Export mit höchstens 32 Tastenkombinationen.</string>
+    <string name="title_disable_hevc_low_latency">HEVC-Latenzflags deaktivieren</string>
+    <string name="summary_disable_hevc_low_latency">Bei ruckelndem oder eingefrorenem HEVC-Video ausprobieren. Deaktiviert Android- und Chipsatz-Latenzflags für HEVC auf jedem Gerät. Andere Codecs und Decoder-Leistungshinweise behalten ihre eigenen Einstellungen. Gilt ab dem nächsten Stream.</string>
 </resources>

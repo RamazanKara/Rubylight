@@ -115,6 +115,7 @@ public class PreferenceConfiguration {
     private static final String GAMEPAD_MOTION_FALLBACK_PREF_STRING = "checkbox_gamepad_motion_fallback";
     private static final String CODEC_LOW_LATENCY_PREF_STRING = "checkbox_codec_low_latency";
     private static final String VENDOR_LOW_LATENCY_PREF_STRING = "checkbox_vendor_low_latency";
+    public static final String DISABLE_HEVC_LOW_LATENCY_PREF_STRING = "checkbox_disable_hevc_low_latency";
     private static final String CODEC_PERFORMANCE_PREF_STRING = "checkbox_codec_performance";
     private static final String PHONE_PERFORMANCE_HINTS_PREF_STRING = "checkbox_phone_performance_hints";
     static final String GPU_MAX_CLOCKS_PREF_STRING = "checkbox_gpu_max_clocks";
@@ -247,6 +248,7 @@ public class PreferenceConfiguration {
     public boolean gamepadTouchpadAsMouse;
     public boolean gamepadMotionSensorsFallbackToDevice;
     public boolean codecLowLatency, vendorLowLatency, codecPerformance;
+    public boolean disableHevcLowLatency;
     public boolean phonePerformanceHints;
     public boolean gpuMaxClocks;
     public boolean dropLateFrames, useTextureView, unbatchedInput, networkPriority;
@@ -1098,6 +1100,7 @@ public class PreferenceConfiguration {
         config.gamepadMotionSensorsFallbackToDevice = prefs.getBoolean(GAMEPAD_MOTION_FALLBACK_PREF_STRING, DEFAULT_GAMEPAD_MOTION_FALLBACK);
         config.codecLowLatency = prefs.getBoolean(CODEC_LOW_LATENCY_PREF_STRING, true);
         config.vendorLowLatency = prefs.getBoolean(VENDOR_LOW_LATENCY_PREF_STRING, true);
+        config.disableHevcLowLatency = prefs.getBoolean(DISABLE_HEVC_LOW_LATENCY_PREF_STRING, false);
         config.codecPerformance = prefs.getBoolean(CODEC_PERFORMANCE_PREF_STRING, true);
         config.phonePerformanceHints = prefs.getBoolean(PHONE_PERFORMANCE_HINTS_PREF_STRING, true);
         config.gpuMaxClocks = prefs.getBoolean(GPU_MAX_CLOCKS_PREF_STRING, DEFAULT_GPU_MAX_CLOCKS);

@@ -173,6 +173,7 @@ These tables include every preference, including actions, grouped as the Setting
 
 | Setting / preference key | Default | Choices and units | When to change or use |
 | --- | --- | --- | --- |
+| Disable HEVC low-latency flags<br>`checkbox_disable_hevc_low_latency` | Off | On; Off | Off by default. Enable if HEVC video stutters or freezes to omit Android and vendor low-latency flags on any device. H.264, AV1, reference-frame invalidation and decoder performance hints keep their own settings. Applies to the next stream and decoder benchmark; changing it invalidates previous benchmark results. |
 | Android low-latency mode<br>`checkbox_codec_low_latency` | On | On; Off | Leave on for supported Android 11+ decoders. Disable when comparing a decoder freeze or artifact. |
 | Chipset low-latency mode<br>`checkbox_vendor_low_latency` | On | On; Off | Leave on for supported chipset decoder keys. Disable to isolate vendor-specific instability. |
 | Phone performance hints<br>`checkbox_phone_performance_hints` | On | On; Off | Enable for a measured comparison on Android 12+; compare decode time with it on and off. |

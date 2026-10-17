@@ -265,8 +265,11 @@ impl<T> Latest<T> {
         state.captured = Some(captured);
         let previous = state.image.replace(image);
         drop(state);
+        // Releasing an old GPU image can block inside the driver. Wake consumers of the
+        // new image first, while both images still have their own resource ownership.
+        let notified = self.notify();
         drop(previous);
-        self.notify()
+        notified
     }
     /// Match a claimed frame even if capture already published its replacement.
     /// Call only while emitting pacing traces; untraced frames have no identity.
@@ -542,6 +545,75 @@ mod tests {
             Instant::now(),
         )?;
         assert!(released.load(Ordering::Acquire));
+        Ok(())
+    }
+    #[test]
+    fn new_frame_notification_does_not_wait_for_previous_image_release() -> Result<()> {
+        use std::sync::mpsc;
+
+        struct ReleaseGate {
+            entered: mpsc::Sender<()>,
+            release: Mutex<mpsc::Receiver<()>>,
+        }
+        struct Image {
+            value: u8,
+            gate: Option<ReleaseGate>,
+        }
+        impl Drop for Image {
+            fn drop(&mut self) {
+                if let Some(gate) = &self.gate {
+                    let _ = gate.entered.send(());
+                    // Model a vendor resource release that blocks, without a GPU or an
+                    // unbounded test thread if publication fails unexpectedly.
+                    let _ = gate
+                        .release
+                        .lock()
+                        .unwrap()
+                        .recv_timeout(Duration::from_secs(5));
+                }
+            }
+        }
+
+        let latest = Arc::new(Latest::new());
+        let consumer = latest.subscribe(Weak::new())?;
+        let timer = Timer::new()?;
+        let (entered_tx, entered_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        latest.publish_captured(
+            Arc::new(Image {
+                value: 1,
+                gate: Some(ReleaseGate {
+                    entered: entered_tx,
+                    release: Mutex::new(release_rx),
+                }),
+            }),
+            Instant::now(),
+        )?;
+        consumer.reset()?;
+        let worker = latest.clone();
+        let publisher = std::thread::spawn(move || {
+            worker.publish_captured(
+                Arc::new(Image {
+                    value: 2,
+                    gate: None,
+                }),
+                Instant::now(),
+            )
+        });
+
+        let releasing = entered_rx.recv_timeout(Duration::from_secs(2));
+        let notified = timer.until_or_signal(Instant::now() + Duration::from_millis(20), &consumer);
+        let current = latest.current();
+        // Release and join before assertions, including on the old behavior's failure.
+        let _ = release_tx.send(());
+        let published = publisher.join().expect("publication thread panicked");
+        releasing.expect("previous image release did not begin");
+        published?;
+        assert_eq!(current?.unwrap().value, 2);
+        assert!(
+            notified?,
+            "a new image's notification waited for the previous image's resource release"
+        );
         Ok(())
     }
     #[test]

@@ -810,6 +810,19 @@ impl GpuImage {
         }
     }
     pub fn readback(&self, staging: &mut Option<ID3D11Texture2D>) -> Result<Image> {
+        // CPU readback needs the completed pixels anyway. Bound the producer wait before
+        // queuing D3D11 work: Map otherwise blocks behind a missing external fence signal,
+        // preventing capture recovery. GPU-only readers keep their asynchronous waits.
+        if let Some(ready) = &self.ready {
+            ready
+                .wait()
+                .inspect_err(|_| {
+                    if let Some(lease) = &self.lease {
+                        lease.reject();
+                    }
+                })
+                .context("wait for captured pixels before CPU readback")?;
+        }
         self.order_d3d11()?;
         let mut image = read_texture(&self.gpu, &self.texture, staging)?;
         image.captured = self.captured;

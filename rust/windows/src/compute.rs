@@ -73,7 +73,7 @@ pub struct Compute {
     /// (CreateSharedHandle cannot share them again); kept until forgotten.
     foreign: Mutex<HashMap<usize, (ID3D11Texture2D, ID3D12Resource)>>,
     pub priority: i32,
-    /// Set when the queue did not finish work in time; never shared again.
+    /// Set when the queue cannot safely be reused after an ordering error or timeout.
     stuck: std::sync::atomic::AtomicBool,
 }
 // D3D12 devices, queues and fences are free-threaded; the rest is locked.
@@ -233,7 +233,7 @@ impl Compute {
         // signal would hold every later wait on it.
         // SAFETY: `queue` and `fence` were created on the same D3D12 device and live as long as
         // `self`.
-        unsafe { self.queue.Signal(&self.fence, *next + 1)? };
+        unsafe { self.queue.Signal(&self.fence, *next + 1) }.inspect_err(|_| self.retire())?;
         *next += 1;
         Ok(*next)
     }
@@ -256,6 +256,16 @@ impl Compute {
                 false
             }
         }
+    }
+    /// A wait or enqueue failed even if the device still reports itself healthy. Captures
+    /// must reopen before submitting more work behind a queue with uncertain ordering.
+    pub(crate) fn is_stuck(&self) -> bool {
+        self.stuck.load(Ordering::Acquire)
+    }
+    /// Do not give this queue to a new capture or encoder. Work already submitted may
+    /// still wait on an external fence after an enqueue error prevented its completion.
+    pub(crate) fn retire(&self) {
+        self.stuck.store(true, Ordering::Release);
     }
     /// Wait on the CPU until the queue has passed `value`. A queue that does
     /// not get there is not used again: [`Compute::for_device`] makes a new one.
@@ -1361,7 +1371,10 @@ impl Converter {
             // SAFETY: The guard checked that `ready.fence` belongs to this queue's device, and
             // `ready` holds it for the call.
             Some(ready) if ready.device == self.compute.device.as_raw() as usize => unsafe {
-                self.compute.queue.Wait(&ready.fence, ready.value)?;
+                self.compute
+                    .queue
+                    .Wait(&ready.fence, ready.value)
+                    .inspect_err(|_| self.compute.retire())?;
             },
             Some(ready) => ready.wait()?,
             None => {}
@@ -1370,7 +1383,10 @@ impl Converter {
         // inputs can go; this one's stay until the slot comes round again.
         self.slots[slot].inputs = [Some(source.clone()), pointer.cloned()];
         self.slots[slot].capture = Some(image.clone());
-        let fence = self.compute.execute(&self.slots[slot].list)?;
+        let fence = self
+            .compute
+            .execute(&self.slots[slot].list)
+            .inspect_err(|_| self.compute.retire())?;
         self.slots[slot].fence = fence;
         if let Some(readers) = ready
             .filter(|ready| ready.device == self.compute.device.as_raw() as usize)
@@ -1384,7 +1400,10 @@ impl Converter {
         // SAFETY: `queue` and `target.fence` were created on the same D3D12 device and outlive the
         // call.
         unsafe {
-            self.compute.queue.Signal(&target.fence, target.value)?;
+            self.compute
+                .queue
+                .Signal(&target.fence, target.value)
+                .inspect_err(|_| self.compute.retire())?;
         }
         Ok(Converted {
             texture: target.texture.clone(),
@@ -1506,15 +1525,24 @@ impl Converter {
             list.Close()?;
             match ready {
                 Some(ready) if ready.device == self.compute.device.as_raw() as usize => {
-                    self.compute.queue.Wait(&ready.fence, ready.value)?;
+                    self.compute
+                        .queue
+                        .Wait(&ready.fence, ready.value)
+                        .inspect_err(|_| self.compute.retire())?;
                 }
                 Some(ready) => ready.wait()?,
                 None => {}
             }
-            self.compute.queue.Wait(&target.fence, target.after)?;
+            self.compute
+                .queue
+                .Wait(&target.fence, target.after)
+                .inspect_err(|_| self.compute.retire())?;
         }
         self.slots[slot].inputs = [Some(source.clone()), pointer.cloned()];
-        self.slots[slot].fence = self.compute.execute(&self.slots[slot].list)?;
+        self.slots[slot].fence = self
+            .compute
+            .execute(&self.slots[slot].list)
+            .inspect_err(|_| self.compute.retire())?;
         if let Some(readers) = ready
             .filter(|ready| ready.device == self.compute.device.as_raw() as usize)
             .and_then(|ready| ready.readers.as_ref())
@@ -1522,7 +1550,8 @@ impl Converter {
             readers.fetch_max(self.slots[slot].fence, Ordering::Release);
         }
         // SAFETY: `target.fence` is opened on this queue's device and outlives the call.
-        unsafe { self.compute.queue.Signal(&target.fence, target.done)? };
+        unsafe { self.compute.queue.Signal(&target.fence, target.done) }
+            .inspect_err(|_| self.compute.retire())?;
         Ok(())
     }
 }

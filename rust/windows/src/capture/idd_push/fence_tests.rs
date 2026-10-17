@@ -407,6 +407,136 @@ fn a_returned_slot_waits_for_gpu_completion_before_the_driver_reuses_it() -> Res
     Ok(())
 }
 
+#[test]
+#[ignore = "requires native shared GPU fences; delays the producer without gating a GPU queue"]
+fn cpu_readback_waits_for_a_delayed_fence_producer() -> Result<()> {
+    let _com = ComGuard::new()?;
+    let gpu = Device::new("")?;
+    let compute = crate::compute::Compute::for_device(&gpu.device)?;
+    let ring = Ring::fenced(
+        &gpu,
+        compute,
+        Layout {
+            kind: Kind::Fence,
+            slot_count: 2,
+            width: 16,
+            height: 16,
+            format: ring::FORMAT_BGRA8,
+            generation: 1,
+        },
+        true,
+    )?;
+    let mut driver = FakeDriver::open(&ring)?;
+    let expected = pixels(16, 16, Pixel::Bgra8, 91);
+    let source = GpuImage::upload(&driver.gpu, &expected)?;
+    let header = ring.section.header();
+    let released = driver.released();
+    let claim = driver
+        .picker
+        .claim_fenced(&header, released)
+        .context("a free producer slot")?;
+    let index = claim.slot();
+    let seq = driver.picker.next_seq();
+    // Expose CPU publication before the GPU copy completes. Delaying submission itself
+    // makes this deterministic without inserting an artificial wait on either GPU queue.
+    header.write_slot(
+        index,
+        SlotMeta {
+            seq: u64::from(seq),
+            ..Default::default()
+        },
+    );
+    anyhow::ensure!(driver.picker.publish_fenced(&header, index, seq));
+    header.publish(ring::Token {
+        generation: 1,
+        seq,
+        slot: index as u8,
+    });
+    let image = claim_image(&gpu, &ring, &mut Consumer::new(1, 2), None)?;
+    let before = Instant::now();
+    let delay = Duration::from_millis(50);
+    let producer = std::thread::spawn(move || -> Result<()> {
+        let _com = ComGuard::new()?;
+        std::thread::sleep(delay);
+        // SAFETY: this is the only producer write for this sequence; the host cannot read
+        // until precisely this fence value. Source and target match on one device.
+        unsafe {
+            driver
+                .gpu
+                .context
+                .CopyResource(&driver.textures[index], &*source.texture);
+            driver
+                .context
+                .Signal(driver.written.as_ref().unwrap(), u64::from(seq))?;
+            driver.gpu.context.Flush();
+        }
+        Ok(())
+    });
+    let readback = image.readback(&mut None);
+    let elapsed = before.elapsed();
+    producer.join().expect("delayed producer panicked")?;
+    assert!(elapsed >= delay, "readback completed before its producer");
+    assert_eq!(readback?.bytes, expected.bytes);
+    assert!(!ring.fences.as_ref().unwrap().failed.load(Ordering::Acquire));
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires a native GPU; bounds a CPU-only fence wait without queueing GPU waits"]
+fn cpu_readback_rejects_missing_producer_completion_before_mapping() -> Result<()> {
+    use windows::Win32::Graphics::Direct3D12::D3D12_FENCE_FLAG_NONE;
+
+    let _com = ComGuard::new()?;
+    let gpu = Device::new("")?;
+    let compute = crate::compute::Compute::for_device(&gpu.device)?;
+    let expected = pixels(16, 16, Pixel::Bgra8, 73);
+    let mut image = GpuImage::upload(&gpu, &expected)?;
+    // An owned image isolates the readiness check: even if it regresses, no D3D11/12
+    // queue can be left waiting on this deliberately unsignalled producer fence.
+    // SAFETY: this private fence belongs to the live compute device and has no GPU users.
+    let pending = unsafe { compute.device.CreateFence(0, D3D12_FENCE_FLAG_NONE)? };
+    image.ready = Some(crate::compute::Ready::on(&compute, pending, 1));
+    let mut staging = None;
+    let before = Instant::now();
+    let error = image
+        .readback(&mut staging)
+        .err()
+        .context("an unfinished producer must prevent CPU readback")?;
+    assert!(
+        format!("{error:#}").contains("GPU work did not finish within two seconds"),
+        "unexpected readback error: {error:#}"
+    );
+    assert!(before.elapsed() < Duration::from_secs(5));
+    assert!(
+        staging.is_none(),
+        "failure must precede staging allocation, CopyResource and Map"
+    );
+    assert!(
+        !compute.is_stuck(),
+        "a CPU-only external fence wait must not retire a healthy compute queue"
+    );
+    // No GPU queue was blocked or poisoned by the timeout. A normal readback still works.
+    image.ready = None;
+    assert_eq!(image.readback(&mut staging)?.bytes, expected.bytes);
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires native D3D12; validates cache retirement without a stalled GPU queue"]
+fn a_retired_compute_queue_is_not_reused_for_the_same_capture_device() -> Result<()> {
+    let _com = ComGuard::new()?;
+    let gpu = Device::new("")?;
+    let first = crate::compute::Compute::for_device(&gpu.device)?;
+    let shared = crate::compute::Compute::for_device(&gpu.device)?;
+    assert!(Arc::ptr_eq(&first, &shared));
+    first.retire();
+    assert!(first.is_stuck());
+    let fresh = crate::compute::Compute::for_device(&gpu.device)?;
+    assert!(!Arc::ptr_eq(&first, &fresh));
+    assert!(!fresh.is_stuck());
+    Ok(())
+}
+
 /// Component timing only: producer copy through completed conversion. No display, service,
 /// encoder, network or receiver is involved, so these are not end-to-end latency numbers.
 fn transport_probe(kind: Kind, pixel: Pixel, round: usize) -> Result<()> {

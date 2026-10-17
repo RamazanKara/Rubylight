@@ -281,11 +281,17 @@ pub struct Owned {
     pub adapter: (u32, i32),
     pub target: u32,
     pub wudf_pid: u32,
+    /// One actual monitor registration, unchanged by capture reopen or cloning `Owned`.
+    pub registration: u64,
 }
 
 static OWNED: Mutex<Vec<Owned>> = Mutex::new(Vec::new());
 
-pub(super) fn register(owned: Owned) {
+pub(super) fn register(mut owned: Owned) {
+    // Called only after a successful ADD, including recreation after a missing lease.
+    // The stable client/session id and OS target can both repeat across registrations.
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    owned.registration = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let mut all = OWNED.lock().unwrap();
     all.retain(|o| o.session_id != owned.session_id);
     all.push(owned);
@@ -349,17 +355,51 @@ mod tests {
             adapter: (0x1234, 0),
             target: 260,
             wudf_pid: 99,
+            registration: 1,
         };
         let b = Owned {
             session_id: 2,
             adapter: (0x1234, 0),
             target: 261,
             wudf_pid: 99,
+            registration: 2,
         };
         let all = [a, b];
         assert_eq!(find(&all, (0x1234, 0), 261), Some(b));
         assert_eq!(find(&all, (0x1235, 0), 260), None, "another adapter");
         assert_eq!(find(&all, (0x1234, 1), 260), None, "another LUID high part");
         assert_eq!(find(&all, (0x1234, 0), 262), None);
+    }
+
+    #[test]
+    fn monitor_registration_survives_capture_clones_but_not_recreation() {
+        let monitor = Owned {
+            session_id: u64::MAX - 17,
+            adapter: (0x1234, 0),
+            target: u32::MAX - 17,
+            wudf_pid: 99,
+            registration: 0,
+        };
+        let current = || {
+            *OWNED
+                .lock()
+                .unwrap()
+                .iter()
+                .find(|o| o.session_id == monitor.session_id)
+                .unwrap()
+        };
+        register(monitor);
+        let first = current();
+        let reopened = current();
+        assert_ne!(first.registration, 0);
+        assert_eq!(
+            first, reopened,
+            "capture reopen reads the same registration"
+        );
+        // ADD can recreate the same persistent client id, target and driver process.
+        register(monitor);
+        let recreated = current();
+        unregister(monitor.session_id);
+        assert_ne!(first.registration, recreated.registration);
     }
 }

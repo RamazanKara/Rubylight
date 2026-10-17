@@ -46,6 +46,10 @@ const RESHAPES_BEFORE_FIRST_FRAME: u32 = 3;
 const DRAIN_STALL: Duration = Duration::from_secs(3);
 /// How long a ring may wait for its first frame before the capture gives up.
 const FIRST_FRAME_TIMEOUT: Duration = Duration::from_secs(10);
+/// A live producer that acquires frames but cannot publish through fences gets the
+/// standard transport sooner. A display Windows has not started composing keeps its
+/// full startup allowance above.
+const FENCE_HANDOFF_TIMEOUT: Duration = Duration::from_secs(2);
 /// How often the driver's frame counters are logged (`idd_push=debug`).
 const COUNTERS_EVERY: Duration = Duration::from_secs(5);
 
@@ -118,6 +122,109 @@ impl Failures {
 }
 
 static FAILURES: Mutex<Failures> = Mutex::new(Failures(Vec::new()));
+
+/// A capture reopen shares this identity; a real display recreation, driver restart or
+/// render-adapter change does not. Session ids alone are persistent client identities.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct FenceScope {
+    session: u64,
+    registration: u64,
+    driver_pid: u32,
+    adapter: (u32, i32),
+}
+
+impl FenceScope {
+    fn new(monitor: &Owned, adapter: (u32, i32)) -> Self {
+        Self {
+            session: monitor.session_id,
+            registration: monitor.registration,
+            driver_pid: monitor.wudf_pid,
+            adapter,
+        }
+    }
+}
+
+/// Remember a rejected transport through capture reopen, independently of the generic
+/// driver-to-WGC failures. A successful keyed frame must not enable the rejected path.
+#[derive(Default)]
+struct FenceFailures(Vec<FenceScope>);
+
+impl FenceFailures {
+    const LIMIT: usize = 64;
+
+    fn failed(&mut self, scope: FenceScope) {
+        self.clear(scope.session);
+        if self.0.len() == Self::LIMIT {
+            self.0.remove(0);
+        }
+        self.0.push(scope);
+    }
+
+    fn excluded(&self, scope: FenceScope) -> bool {
+        self.0.contains(&scope)
+    }
+
+    fn clear(&mut self, session: u64) {
+        self.0.retain(|entry| entry.session != session);
+    }
+}
+
+static FENCE_FAILURES: Mutex<FenceFailures> = Mutex::new(FenceFailures(Vec::new()));
+
+#[derive(Debug, PartialEq, Eq)]
+enum FenceRecovery {
+    /// No GPU work has read this ring yet, so its device can still serve a keyed ring.
+    Keyed {
+        reason: &'static str,
+        remember: bool,
+    },
+    /// A context may already wait behind failed work. Reopening creates a fresh device.
+    Reopen(&'static str),
+}
+
+fn fence_recovery(
+    status: u32,
+    started: bool,
+    elapsed: Duration,
+    counters: Counters,
+    ordering_failed: bool,
+    queue_stuck: bool,
+) -> Option<FenceRecovery> {
+    if queue_stuck {
+        return Some(FenceRecovery::Reopen("compute queue cannot be reused"));
+    }
+    if ordering_failed {
+        return Some(FenceRecovery::Reopen("lost GPU ordering"));
+    }
+    if status == ring::STATUS_OPEN_FAILED {
+        return Some(if started {
+            FenceRecovery::Reopen("shared resources stopped opening")
+        } else {
+            FenceRecovery::Keyed {
+                reason: "could not open shared resources",
+                remember: true,
+            }
+        });
+    }
+    // Shape changes and device/adapter loss follow their existing recovery paths.
+    if !started && matches!(status, ring::STATUS_WAITING | ring::STATUS_STREAMING) {
+        if elapsed >= FENCE_HANDOFF_TIMEOUT && counters.acquired > 0 && counters.pushed == 0 {
+            return Some(FenceRecovery::Keyed {
+                reason: "could not publish acquired frames",
+                remember: true,
+            });
+        }
+        if elapsed >= FIRST_FRAME_TIMEOUT {
+            return Some(FenceRecovery::Keyed {
+                reason: "did not deliver a frame",
+                // Silence alone does not identify a fence problem: Windows may not have
+                // supplied any pixels yet. A later capture may try fences again.
+                remember: false,
+            });
+        }
+    }
+    None
+}
 
 /// Microseconds from QPC `from` to `to`, zero when `to` is earlier or either is missing.
 fn qpc_micros(from: u64, to: u64, frequency: i64) -> u64 {
@@ -353,11 +460,20 @@ unsafe impl Send for Fences {}
 unsafe impl Sync for Fences {}
 
 impl Fences {
+    fn fail_ordering(&self) {
+        self.failed.store(true, Ordering::Release);
+        if self.on_compute {
+            // Earlier readers may have queued a written/bridge wait whose matching
+            // signal is now uncertain. A fresh D3D11 device alone cannot retire it.
+            self.compute.retire();
+        }
+    }
+
     fn order_d3d11(&self, seq: u32) -> Result<()> {
         // SAFETY: the shared fence is opened on this multithread-protected context's device.
         let waited = unsafe { self.context.Wait(&self.written11, u64::from(seq)) };
         if waited.is_err() {
-            self.failed.store(true, Ordering::Release);
+            self.fail_ordering();
         }
         waited.context("order a driver frame's graphics reader")
     }
@@ -423,13 +539,13 @@ impl Fences {
         // A failed signal does not prove the reads completed. Keep the slot owned until
         // Session retires this ring; a later signal must not make an unsafe slot reusable.
         if let Err(error) = signalled {
-            self.failed.store(true, Ordering::Release);
+            self.fail_ordering();
             return Err(error).context("free a Rubylight frame ring slot");
         }
         let freed = Consumer::release(&self.section.header(), slot, seq, release);
         drop(values);
         if !freed {
-            self.failed.store(true, Ordering::Release);
+            self.fail_ordering();
         }
         anyhow::ensure!(
             freed,
@@ -458,6 +574,12 @@ pub(crate) struct Lent {
 }
 
 impl Lent {
+    /// A bounded reader wait failed. Retain this slot and let capture reopen on the
+    /// standard transport without treating the unrelated compute queue as broken.
+    pub(super) fn reject(&self) {
+        self.fences.failed.store(true, Ordering::Release);
+    }
+
     /// Make the capture's D3D11 device wait for the driver's copy before any D3D11 read of
     /// the texture. Only readers other than the compute conversion need it.
     pub(super) fn order_d3d11(&self) -> Result<()> {
@@ -474,7 +596,7 @@ impl Drop for Lent {
     fn drop(&mut self) {
         let d3d11 = *self.d3d11.lock().unwrap();
         if let Err(error) = self.fences.free(self.slot, self.seq, d3d11) {
-            tracing::debug!(error = %format!("{error:#}"), slot = self.slot, "Rubylight frame ring slot freed after a GPU error");
+            tracing::debug!(error = %format!("{error:#}"), slot = self.slot, "Rubylight frame ring slot retained after a GPU ordering error");
         }
     }
 }
@@ -700,9 +822,19 @@ impl Session {
         }
         let zero_copy = pool.compute.is_some() && config.boolean("idd_push_zero_copy", true);
         let requested = config.boolean("idd_push_fence_ring", false);
-        let kind = ring_kind(control.info.caps, requested, zero_copy);
+        let scope = FenceScope::new(&monitor, adapter);
+        let rejected = {
+            let mut failures = FENCE_FAILURES.lock().unwrap();
+            if !requested {
+                failures.clear(monitor.session_id);
+            }
+            failures.excluded(scope)
+        };
+        let kind = ring_kind(control.info.caps, requested && !rejected, zero_copy);
         warnings.clear("capture_fence_ring");
-        if requested && kind != Kind::Fence {
+        if requested && rejected {
+            warnings.set("capture_fence_ring", "Using the standard driver transport after GPU fences failed on this display. Recreate the display or restart the host to retry.");
+        } else if requested && kind != Kind::Fence {
             warnings.set("capture_fence_ring", "The experimental GPU fence transport needs a compatible Rubylight display driver and AMD compute capture with in-place reads. Using the standard driver transport.");
         }
         // Before the first frame the driver may not know the surface yet: guess from the
@@ -721,7 +853,7 @@ impl Session {
             generation: next_generation(status.ring_generation),
         };
         let frame = Arc::new(crate::timing::Signal::new()?);
-        let ring = Self::make_ring(&gpu, layout, zero_copy, &warnings)?;
+        let ring = Self::make_ring(&gpu, layout, zero_copy, &warnings, scope)?;
         let compute = ring.fences.as_ref().map(|fences| fences.compute.clone());
         let now = Instant::now();
         let mut session = Self {
@@ -749,7 +881,7 @@ impl Session {
             if session.ring.fences.is_none() {
                 return Err(error);
             }
-            session.use_keyed_ring(&format!("initialization failed: {error:#}"))?;
+            session.use_keyed_ring(&format!("initialization failed: {error:#}"), true)?;
         }
         tracing::info!(
             output = %name,
@@ -771,13 +903,17 @@ impl Session {
         mut layout: Layout,
         zero_copy: bool,
         warnings: &butterpollo_core::session::Warnings,
+        scope: FenceScope,
     ) -> Result<Ring> {
         if layout.kind == Kind::Fence {
             match crate::compute::Compute::for_device(&gpu.device)
                 .and_then(|compute| Ring::fenced(gpu, compute, layout, zero_copy))
             {
                 Ok(ring) => return Ok(ring),
-                Err(error) => warnings.set("capture_fence_ring", format!("Experimental GPU fence transport unavailable ({error:#}); using the standard driver transport.")),
+                Err(error) => {
+                    FENCE_FAILURES.lock().unwrap().failed(scope);
+                    warnings.set("capture_fence_ring", format!("Experimental GPU fence transport unavailable ({error:#}); using the standard driver transport."));
+                }
             }
         }
         layout.kind = Kind::KeyedMutex;
@@ -786,7 +922,13 @@ impl Session {
 
     /// Replace a refused or unopened fence ring with the established transport in this
     /// session. Its generation changes, so a delayed completion from the old ring is ignored.
-    fn use_keyed_ring(&mut self, reason: &str) -> Result<()> {
+    fn use_keyed_ring(&mut self, reason: &str, remember: bool) -> Result<()> {
+        if remember {
+            FENCE_FAILURES
+                .lock()
+                .unwrap()
+                .failed(FenceScope::new(&self.monitor, self.adapter));
+        }
         self.pool.warnings.set(
             "capture_fence_ring",
             format!(
@@ -802,6 +944,23 @@ impl Session {
         self.opened = Instant::now();
         self.started = false;
         self.deliver()
+    }
+
+    /// Never put a new ring behind an unresolved wait on the old capture context. The
+    /// capture worker recreates its D3D11 device; the rejection makes that reopen keyed.
+    fn reopen_keyed(&self, reason: &str) -> Result<()> {
+        FENCE_FAILURES
+            .lock()
+            .unwrap()
+            .failed(FenceScope::new(&self.monitor, self.adapter));
+        if let Some(fences) = &self.ring.fences {
+            fences.failed.store(true, Ordering::Release);
+        }
+        self.pool.warnings.set(
+            "capture_fence_ring",
+            format!("GPU fence transport {reason}; reopening with the standard driver transport."),
+        );
+        bail!("GPU fence transport {reason}; recreate the capture device")
     }
 
     /// Hand the current ring to the driver, after lending a keyed-mutex ring's textures to
@@ -903,7 +1062,13 @@ impl Session {
             format,
             "rebuilding the Rubylight frame ring for the composed surface"
         );
-        self.ring = Self::make_ring(&self.gpu, layout, self.zero_copy, &self.pool.warnings)?;
+        self.ring = Self::make_ring(
+            &self.gpu,
+            layout,
+            self.zero_copy,
+            &self.pool.warnings,
+            FenceScope::new(&self.monitor, self.adapter),
+        )?;
         self.compute = self
             .ring
             .fences
@@ -911,7 +1076,13 @@ impl Session {
             .map(|fences| fences.compute.clone());
         self.consumer = Consumer::new(layout.generation, layout.slot_count);
         self.opened = Instant::now();
-        self.deliver()
+        if let Err(error) = self.deliver() {
+            if self.ring.fences.is_none() {
+                return Err(error);
+            }
+            self.use_keyed_ring(&format!("ring rebuild failed: {error:#}"), true)?;
+        }
+        Ok(())
     }
 
     fn check(&mut self) -> Result<()> {
@@ -926,20 +1097,20 @@ impl Session {
             return Err(loss.into());
         }
         let header = self.ring.section.header();
-        if self
-            .ring
-            .fences
-            .as_ref()
-            .is_some_and(|fences| fences.failed.load(Ordering::Acquire))
+        if let Some(fences) = &self.ring.fences
+            && let Some(recovery) = fence_recovery(
+                header.status().0,
+                self.started,
+                self.opened.elapsed(),
+                header.counters(),
+                fences.failed.load(Ordering::Acquire),
+                fences.compute.is_stuck(),
+            )
         {
-            return self.use_keyed_ring("lost GPU ordering");
-        }
-        if !self.started
-            && self.ring.fences.is_some()
-            && (header.status().0 == ring::STATUS_OPEN_FAILED
-                || self.opened.elapsed() >= FIRST_FRAME_TIMEOUT)
-        {
-            return self.use_keyed_ring("did not deliver a frame");
+            return match recovery {
+                FenceRecovery::Keyed { reason, remember } => self.use_keyed_ring(reason, remember),
+                FenceRecovery::Reopen(reason) => self.reopen_keyed(reason),
+            };
         }
         match verdict(header.status(), header.surface(), self.started) {
             Verdict::Fine => {}
@@ -1225,6 +1396,16 @@ fn lend(
 
 impl Drop for Session {
     fn drop(&mut self) {
+        // A direct reader error can close the capture before its next periodic check.
+        // Preserve the rejection so that reopening cannot immediately retry this ring.
+        if self.ring.fences.as_ref().is_some_and(|fences| {
+            fences.failed.load(Ordering::Acquire) || fences.compute.is_stuck()
+        }) {
+            FENCE_FAILURES
+                .lock()
+                .unwrap()
+                .failed(FenceScope::new(&self.monitor, self.adapter));
+        }
         // The driver closes its duplicates; ours close with the ring. Only this ring is
         // cleared: one registered since (another process's, say) stays.
         let cleared = if self.control.info.caps & CAP_SCOPED_CLEAR != 0 {
@@ -1408,6 +1589,171 @@ mod tests {
         ] {
             assert_eq!(ring_kind(caps, requested, zero_copy), Kind::KeyedMutex);
         }
+    }
+
+    #[test]
+    fn a_failed_fence_transport_stays_keyed_through_capture_reopen() {
+        let monitor = Owned {
+            session_id: 41,
+            adapter: (3, 0),
+            target: 2,
+            wudf_pid: 55,
+            registration: 7,
+        };
+        let scope = FenceScope::new(&monitor, (9, 0));
+        let mut failures = FenceFailures::default();
+        failures.failed(scope);
+        assert_eq!(
+            ring_kind(CAP_FENCE_RING, !failures.excluded(scope), true),
+            Kind::KeyedMutex,
+            "reopening the same capture must not retry the rejected transport"
+        );
+        for changed in [
+            FenceScope {
+                registration: 8,
+                ..scope
+            },
+            FenceScope {
+                driver_pid: 56,
+                ..scope
+            },
+            FenceScope {
+                adapter: (10, 0),
+                ..scope
+            },
+            FenceScope {
+                session: 42,
+                ..scope
+            },
+        ] {
+            assert!(!failures.excluded(changed), "new owner/device can retry");
+        }
+        failures.clear(monitor.session_id);
+        assert!(
+            !failures.excluded(scope),
+            "an explicit keyed capture resets the opt-in"
+        );
+    }
+
+    #[test]
+    fn remembered_fence_failures_are_bounded_and_keep_recent_rejections() {
+        let mut failures = FenceFailures::default();
+        for session in 0..=FenceFailures::LIMIT as u64 {
+            failures.failed(FenceScope {
+                session,
+                registration: 1,
+                driver_pid: 2,
+                adapter: (3, 0),
+            });
+        }
+        assert_eq!(failures.0.len(), FenceFailures::LIMIT);
+        assert_eq!(failures.0[0].session, 1);
+        let latest = *failures.0.last().unwrap();
+        failures.failed(latest);
+        assert_eq!(failures.0.len(), FenceFailures::LIMIT);
+        assert!(failures.excluded(latest));
+    }
+
+    #[test]
+    fn fence_startup_recovery_distinguishes_missing_pixels_from_failed_handoff() {
+        let waiting = ring::STATUS_WAITING;
+        let idle = Counters::default();
+        let acquired = Counters {
+            acquired: 1,
+            ..idle
+        };
+        let check =
+            |elapsed, counters| fence_recovery(waiting, false, elapsed, counters, false, false);
+        assert_eq!(
+            check(FENCE_HANDOFF_TIMEOUT, idle),
+            None,
+            "Windows may still be starting the display"
+        );
+        assert_eq!(
+            check(FENCE_HANDOFF_TIMEOUT - Duration::from_millis(1), acquired),
+            None
+        );
+        assert_eq!(
+            check(FENCE_HANDOFF_TIMEOUT, acquired),
+            Some(FenceRecovery::Keyed {
+                reason: "could not publish acquired frames",
+                remember: true
+            })
+        );
+        assert_eq!(
+            check(FIRST_FRAME_TIMEOUT, idle),
+            Some(FenceRecovery::Keyed {
+                reason: "did not deliver a frame",
+                remember: false
+            }),
+            "no producer activity alone must not blacklist fences"
+        );
+        assert_eq!(
+            check(
+                FENCE_HANDOFF_TIMEOUT,
+                Counters {
+                    pushed: 1,
+                    ..acquired
+                }
+            ),
+            None,
+            "give a newly published frame to the consumer"
+        );
+        assert_eq!(
+            fence_recovery(
+                ring::STATUS_SIZE_MISMATCH,
+                false,
+                FIRST_FRAME_TIMEOUT,
+                acquired,
+                false,
+                false
+            ),
+            None,
+            "shape/device recovery must not identify a fence incompatibility"
+        );
+    }
+
+    #[test]
+    fn failed_fence_ordering_and_stalled_queues_reopen_the_capture_device() {
+        for (ordering_failed, queue_stuck, reason) in [
+            (true, false, "lost GPU ordering"),
+            (false, true, "compute queue cannot be reused"),
+        ] {
+            assert_eq!(
+                fence_recovery(
+                    ring::STATUS_STREAMING,
+                    true,
+                    Duration::ZERO,
+                    Counters::default(),
+                    ordering_failed,
+                    queue_stuck
+                ),
+                Some(FenceRecovery::Reopen(reason)),
+                "even a healthy driver heartbeat/device cannot make a stuck queue reusable"
+            );
+        }
+        assert!(matches!(
+            fence_recovery(
+                ring::STATUS_OPEN_FAILED,
+                false,
+                Duration::ZERO,
+                Counters::default(),
+                false,
+                false
+            ),
+            Some(FenceRecovery::Keyed { remember: true, .. })
+        ));
+        assert!(matches!(
+            fence_recovery(
+                ring::STATUS_OPEN_FAILED,
+                true,
+                Duration::ZERO,
+                Counters::default(),
+                false,
+                false
+            ),
+            Some(FenceRecovery::Reopen(_))
+        ));
     }
 }
 

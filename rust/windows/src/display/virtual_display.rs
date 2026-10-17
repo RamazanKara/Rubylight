@@ -383,6 +383,7 @@ impl VirtualDisplay {
             adapter: (reply.adapter_luid_low, reply.adapter_luid_high),
             target: reply.target_id,
             wudf_pid: reply.wudf_pid,
+            registration: 0, // Assigned by register after this successful ADD.
         });
         Ok((
             LUID {

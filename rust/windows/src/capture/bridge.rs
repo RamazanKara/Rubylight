@@ -255,13 +255,20 @@ impl Lease {
             Back::Fenced(lent) => lent.order_d3d11(),
         }
     }
+    /// A producer failed to complete its pixels. Quarantine a fence ring so capture can
+    /// reopen with the standard transport; keyed ownership is already handled separately.
+    pub(super) fn reject(&self) {
+        if let Back::Fenced(lent) = &self.back {
+            lent.reject();
+        }
+    }
 }
 // SAFETY: The keyed mutex is used only in Drop, under `returns`' lock on the multithread-protected
 // device; a fence-ring slot is handed back under its ring's lock; the rest is locks and an event
 // handle.
 unsafe impl Send for Lease {}
-// SAFETY: Shared references only order the multithread-protected D3D11 device behind a fence
-// (`order_d3d11`); only Drop, with exclusive access, hands the texture back.
+// SAFETY: Shared references order the multithread-protected D3D11 device behind a fence
+// or atomically reject its ring; only Drop, with exclusive access, hands the texture back.
 unsafe impl Sync for Lease {}
 impl Drop for Lease {
     fn drop(&mut self) {

@@ -5606,7 +5606,7 @@ Windows unit tests passed; 63 native tests remain opt-in.
 The defect is reproduced and corrected. These short checks cannot prove it
 caused every recorded reset or establish long-session stability. The visual
 HEVC smearing result above remains valid, with this later stability incident
-recorded separately. The correction is unreleased and is not in the published
-2.5.4 binaries. Saved dumps, debugger analyses, before/after validation JSON,
+recorded separately. The correction is included in 2.5.5 and is not in the
+published 2.5.4 binaries. Saved dumps, debugger analyses, before/after validation JSON,
 encoded streams and decoder outputs are under
 `D:\CodexArtifacts\rubylight-release-2.5.4-20261017`.

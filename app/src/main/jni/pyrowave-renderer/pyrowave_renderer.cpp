@@ -44,6 +44,7 @@ typedef VkQueueGlobalPriorityKHR VkQueueGlobalPriority;
 #include <dlfcn.h>
 #include <fcntl.h>
 #include <sys/ioctl.h>
+#include <sys/system_properties.h>
 #include <time.h>
 #include <unistd.h>
 #include <jni.h>
@@ -489,9 +490,128 @@ namespace {
         int64_t completedNs = 0;
     };
 
+    // Opt-in diagnostics for a physical-device release build. All state belongs to one
+    // renderer and only its JNI submission thread updates it. Disabled scopes read no
+    // clocks; enabled scopes keep bounded counters and log once per five seconds.
+    class SubmissionDiagnostics {
+    public:
+        enum StageId { COPY, CLOCK, PARSE, SLOT, ORDER, SDK, PUBLISH, STATS, TOTAL, STAGE_COUNT };
+
+        void configure() {
+            char value[PROP_VALUE_MAX] = {};
+            __system_property_get("debug.nightjar.pyro_submit", value);
+            enabled = std::strcmp(value, "1") == 0;
+            if (enabled) LOGI("PyroWave submit profile enabled: wall/thread CPU milliseconds; restart stream to change");
+        }
+
+    private:
+        struct Stamp { uint64_t wall, cpu; };
+        struct Timing {
+            uint64_t count = 0, wall = 0, cpu = 0, maxWall = 0, maxCpu = 0;
+        };
+        struct Window {
+            uint64_t start = 0, frames = 0, accepted = 0, busy = 0, invalid = 0, errors = 0;
+            uint64_t bytes = 0, maxBytes = 0, recordFrames = 0, ordinaryFrames = 0;
+            Timing timing[STAGE_COUNT];
+        } window;
+        bool enabled = false, active = false;
+
+        static Stamp stamp() {
+            timespec wall = {}, cpu = {};
+            clock_gettime(CLOCK_MONOTONIC, &wall);
+            clock_gettime(CLOCK_THREAD_CPUTIME_ID, &cpu);
+            return {uint64_t(wall.tv_sec) * 1'000'000'000 + uint64_t(wall.tv_nsec),
+                    uint64_t(cpu.tv_sec) * 1'000'000'000 + uint64_t(cpu.tv_nsec)};
+        }
+
+        void add(StageId id, Stamp start, Stamp end) {
+            auto &timing = window.timing[id];
+            const uint64_t wall = end.wall >= start.wall ? end.wall - start.wall : 0;
+            const uint64_t cpu = end.cpu >= start.cpu ? end.cpu - start.cpu : 0;
+            ++timing.count;
+            timing.wall += wall;
+            timing.cpu += cpu;
+            timing.maxWall = std::max(timing.maxWall, wall);
+            timing.maxCpu = std::max(timing.maxCpu, cpu);
+        }
+
+        void reportIfDue(uint64_t now) {
+            if (now - window.start < 5'000'000'000) return;
+            LOGI("PyroWave submit profile: frames=%llu accepted=%llu busy=%llu invalid=%llu errors=%llu "
+                 "bytes_avg=%.0f bytes_max=%llu record_frames=%llu ordinary_frames=%llu nice=%d",
+                 (unsigned long long)window.frames, (unsigned long long)window.accepted,
+                 (unsigned long long)window.busy, (unsigned long long)window.invalid,
+                 (unsigned long long)window.errors, double(window.bytes) / double(window.frames),
+                 (unsigned long long)window.maxBytes, (unsigned long long)window.recordFrames,
+                 (unsigned long long)window.ordinaryFrames, getpriority(PRIO_PROCESS, 0));
+            static const char *const names[] = {"copy", "clock", "parse", "slot", "order", "sdk", "publish", "stats", "total"};
+            for (int i = 0; i < STAGE_COUNT; ++i) {
+                const auto &timing = window.timing[i];
+                if (timing.count == 0) continue;
+                const double divisor = double(timing.count) * 1e6;
+                LOGI("PyroWave submit profile: stage=%s n=%llu wall_avg=%.3f wall_max=%.3f cpu_avg=%.3f cpu_max=%.3f ms",
+                     names[i], (unsigned long long)timing.count, timing.wall / divisor,
+                     timing.maxWall / 1e6, timing.cpu / divisor, timing.maxCpu / 1e6);
+            }
+            window = {};
+        }
+
+    public:
+        class Stage {
+        public:
+            Stage(SubmissionDiagnostics &owner, StageId id)
+                : owner(owner.active ? &owner : nullptr), id(id) {
+                if (this->owner) start = stamp();
+            }
+            ~Stage() { if (owner) owner->add(id, start, stamp()); }
+        private:
+            SubmissionDiagnostics *owner;
+            StageId id;
+            Stamp start{};
+        };
+
+        class Frame {
+        public:
+            Frame(SubmissionDiagnostics &owner, size_t bytes)
+                : owner(owner.enabled ? &owner : nullptr), bytes(bytes) {
+                if (this->owner) {
+                    owner.active = true;
+                    start = stamp();
+                    if (owner.window.start == 0) owner.window.start = start.wall;
+                }
+            }
+            ~Frame() {
+                if (!owner) return;
+                const Stamp end = stamp();
+                owner->add(TOTAL, start, end);
+                owner->active = false;
+                auto &window = owner->window;
+                ++window.frames;
+                if (result == SUBMIT_OK) ++window.accepted;
+                else if (result == SUBMIT_BUSY) ++window.busy;
+                else if (result < 0) ++window.errors;
+                else ++window.invalid;
+                window.bytes += bytes;
+                window.maxBytes = std::max(window.maxBytes, uint64_t(bytes));
+                if (framingKnown) ++(recordFraming ? window.recordFrames : window.ordinaryFrames);
+                // Total includes the existing SDK statistics work, but excludes these
+                // diagnostic log writes. Java's unchanged outer timer still includes both.
+                owner->reportIfDue(end.wall);
+            }
+            void framing(bool records) { framingKnown = true; recordFraming = records; }
+            int result = SUBMIT_ERROR;
+        private:
+            SubmissionDiagnostics *owner;
+            size_t bytes;
+            Stamp start{};
+            bool framingKnown = false, recordFraming = false;
+        };
+    };
+
     class Renderer {
     public:
         PyroWaveRecords records;
+        SubmissionDiagnostics submissionDiagnostics;
         explicit Renderer(CustomDriverLibrary *custom = nullptr) : vk(custom) { }
         ~Renderer() {
             destroy();
@@ -515,6 +635,7 @@ namespace {
             width = uint32_t(streamWidth);
             height = uint32_t(streamHeight);
             records = PyroWaveRecords(width, height, chroma444);
+            submissionDiagnostics.configure();
             return apiVersionSupported() && createInstanceAndSurface() && createDevice() &&
                    createSwapchain() && checkDecoderLimits() && createDecoder() && createPlanes() &&
                    createPipeline() && createUpscaler() && createFrameResources() && warmUpDecoder() &&
@@ -525,25 +646,30 @@ namespace {
                    int64_t vsyncNs, int64_t intervalNs) {
             if (failed) return SUBMIT_ERROR;
             {
+                SubmissionDiagnostics::Stage timing(submissionDiagnostics, SubmissionDiagnostics::CLOCK);
                 // The presenter alone updates the scheduler. Copy the display callback's
                 // timestamps without calling into Vulkan or waiting for presentation here.
                 std::lock_guard<std::mutex> lock(clockMutex);
                 displayClockNs = vsyncNs;
                 displayClockIntervalNs = intervalNs;
             }
-            pyrowave_decoder_clear(decoder);
-            if (!pushFrame(data, length)) {
+            {
+                SubmissionDiagnostics::Stage timing(submissionDiagnostics, SubmissionDiagnostics::PARSE);
                 pyrowave_decoder_clear(decoder);
-                return SUBMIT_SKIPPED;
-            }
-            // Intra-only: a frame missing packets still decodes, with lost detail.
-            if (!pyrowave_decoder_decode_is_ready(decoder, false)) {
-                return SUBMIT_SKIPPED;
+                if (!pushFrame(data, length)) {
+                    pyrowave_decoder_clear(decoder);
+                    return SUBMIT_SKIPPED;
+                }
+                // Intra-only: a frame missing packets still decodes, with lost detail.
+                if (!pyrowave_decoder_decode_is_ready(decoder, false)) {
+                    return SUBMIT_SKIPPED;
+                }
             }
             // Parse every frame before dropping for capacity: record framing can carry
             // recovery information that the next frame still needs.
             int index;
             {
+                SubmissionDiagnostics::Stage timing(submissionDiagnostics, SubmissionDiagnostics::SLOT);
                 std::lock_guard<std::mutex> lock(slotMutex);
                 index = reserveDecodeSlot();
             }
@@ -551,12 +677,18 @@ namespace {
             if (index < 0) return SUBMIT_BUSY;
             if (decodeFrame(index, ptsUs, hostPresentationTimeUs)) {
                 {
-                    std::lock_guard<std::mutex> lock(slotMutex);
-                    pendingDecodes.push_back(index);
+                    SubmissionDiagnostics::Stage timing(submissionDiagnostics, SubmissionDiagnostics::PUBLISH);
+                    {
+                        std::lock_guard<std::mutex> lock(slotMutex);
+                        pendingDecodes.push_back(index);
+                    }
+                    decodeReady.notify_one();
+                    decodeStats.frames++;
                 }
-                decodeReady.notify_one();
-                decodeStats.frames++;
-                logDecodeStatsIfDue(nowUs());
+                {
+                    SubmissionDiagnostics::Stage timing(submissionDiagnostics, SubmissionDiagnostics::STATS);
+                    logDecodeStatsIfDue(nowUs());
+                }
                 return SUBMIT_OK;
             }
             failed = true;
@@ -1484,6 +1616,7 @@ namespace {
         bool decodeFrame(int index, int64_t ptsUs, int64_t hostPresentationTimeUs = 0) {
             Slot &slot = slots[index];
             if (lastDecodeValue != 0) {
+                SubmissionDiagnostics::Stage timing(submissionDiagnostics, SubmissionDiagnostics::ORDER);
                 // PyroWave's fragment acquire wait only covers color output.
                 // Order transfers and dequantization too: those reuse decoder
                 // storage from the preceding frame. This is a GPU-side wait.
@@ -1514,7 +1647,11 @@ namespace {
             const uint64_t value = lastDecodeValue + 1;
             pyrowave_gpu_sync_operation release = {};
             release.sync = {decodeTimeline, value};
-            const auto result = pyrowave_decoder_decode_gpu_buffer(decoder, nullptr, &release, &buffers);
+            pyrowave_result result;
+            {
+                SubmissionDiagnostics::Stage timing(submissionDiagnostics, SubmissionDiagnostics::SDK);
+                result = pyrowave_decoder_decode_gpu_buffer(decoder, nullptr, &release, &buffers);
+            }
             if (result != PYROWAVE_SUCCESS) {
                 LOGE("pyrowave_decoder_decode_gpu_buffer failed: %d", result);
                 return false;
@@ -2340,19 +2477,22 @@ Java_com_limelight_binding_video_PyroWaveDecoderRenderer_nativeSubmitFrame(JNIEn
                                                                            jlong hostPresentationTimeUs,
                                                                            jlong vsyncNs, jlong intervalNs) {
     auto *renderer = reinterpret_cast<Renderer *>(handle);
-    if (renderer == nullptr || data == nullptr || length <= 0) {
-        return SUBMIT_ERROR;
-    }
+    if (renderer == nullptr) return SUBMIT_ERROR;
+    SubmissionDiagnostics::Frame timing(renderer->submissionDiagnostics, length > 0 ? size_t(length) : 0);
+    if (data == nullptr || length <= 0) return SUBMIT_ERROR;
     // Copy out of the Java array so decode and present do not run inside a JNI
     // critical section. Frames arrive on one thread, so the buffer is reused.
     static thread_local std::vector<uint8_t> frame;
-    if (length > env->GetArrayLength(data)) {
-        return SUBMIT_ERROR;
+    {
+        SubmissionDiagnostics::Stage copy(renderer->submissionDiagnostics, SubmissionDiagnostics::COPY);
+        if (length > env->GetArrayLength(data)) return SUBMIT_ERROR;
+        frame.resize(size_t(length));
+        env->GetByteArrayRegion(data, 0, length, reinterpret_cast<jbyte *>(frame.data()));
+        if (env->ExceptionCheck()) return SUBMIT_ERROR;
     }
-    frame.resize(size_t(length));
-    env->GetByteArrayRegion(data, 0, length, reinterpret_cast<jbyte *>(frame.data()));
-    if (env->ExceptionCheck()) return SUBMIT_ERROR;
-    return renderer->submit(frame.data(), frame.size(), ptsUs, hostPresentationTimeUs, vsyncNs, intervalNs);
+    timing.framing(length >= 4 && pyroReadLe32(frame.data()) == 0);
+    timing.result = renderer->submit(frame.data(), frame.size(), ptsUs, hostPresentationTimeUs, vsyncNs, intervalNs);
+    return timing.result;
 }
 
 JNIEXPORT jboolean JNICALL

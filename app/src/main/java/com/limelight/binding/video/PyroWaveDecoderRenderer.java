@@ -21,6 +21,7 @@ public final class PyroWaveDecoderRenderer {
     private long handle;
     private int format;
     private DecoderPerformanceHints performanceHints;
+    private Thread submissionThread;
     private Context maxClocksContext;
     private Context driverContext;
     private GpuDriverStore.Driver customDriver;
@@ -151,6 +152,19 @@ public final class PyroWaveDecoderRenderer {
         lastSubmissionDurationNs = 0;
         if (handle == 0) return -1;
         // setup() runs on the connection thread; submission runs on the actual decode thread.
+        // Track the Java thread identity because native thread IDs can be reused after a restart.
+        Thread currentSubmissionThread = Thread.currentThread();
+        if (submissionThread != currentSubmissionThread) {
+            if (!setSubmissionThreadPriority(Process.THREAD_PRIORITY_URGENT_DISPLAY) &&
+                    !setSubmissionThreadPriority(Process.THREAD_PRIORITY_DISPLAY)) {
+                LimeLog.warning("PyroWave submission thread priority could not be raised");
+            }
+            if (performanceHints != null) {
+                performanceHints.close();
+                performanceHints = null;
+            }
+            submissionThread = currentSubmissionThread;
+        }
         if (performanceHints == null) {
             performanceHints = new DecoderPerformanceHints(context, enablePerformanceHints, frameRate);
         }
@@ -171,6 +185,20 @@ public final class PyroWaveDecoderRenderer {
         }
         nativePollRenderedFrames(handle, stats);
         return result;
+    }
+
+    private static boolean setSubmissionThreadPriority(int priority) {
+        try {
+            // Keep a stronger priority if the caller already assigned one. These are ordinary
+            // scheduler nice values, matching the native presentation and completion workers.
+            if (Process.getThreadPriority(Process.myTid()) > priority) {
+                Process.setThreadPriority(priority);
+            }
+            return true;
+        } catch (IllegalArgumentException | SecurityException e) {
+            // Some devices deny the stronger priority. Try the fallback once, then keep decoding.
+            return false;
+        }
     }
 
     synchronized long getLastSubmissionDurationNs() {
@@ -235,6 +263,7 @@ public final class PyroWaveDecoderRenderer {
     }
 
     synchronized void cleanup(FrameLatencyStats stats) {
+        submissionThread = null;
         if (performanceHints != null) {
             performanceHints.close();
             performanceHints = null;

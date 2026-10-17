@@ -23,6 +23,7 @@ pub struct AmfBacklog {
     retained: Option<usize>,
     outstanding: usize,
     service_time: Option<Duration>,
+    frame_time: Option<Duration>,
     overlap_at: Option<Instant>,
     drain_until: Option<Instant>,
 }
@@ -40,6 +41,7 @@ impl AmfBacklog {
             retained: None,
             outstanding: 0,
             service_time: None,
+            frame_time: None,
             overlap_at: None,
             drain_until: None,
         }
@@ -60,6 +62,34 @@ impl AmfBacklog {
         } else {
             limit
         }
+    }
+
+    /// A recovery picture must reach the sender before its next input is
+    /// claimed, or that input can age behind a large paced IDR. Only a proven
+    /// one-input encoder may pause its usual timed overlap. Bound the pause so
+    /// a driver that unexpectedly needs another input can still make progress.
+    pub fn recovery_admission_limit(&self, now: Instant, accepted: Option<Instant>) -> usize {
+        let probe = self
+            .service_time
+            .unwrap_or(QUERY_TIMEOUT)
+            .saturating_mul(2)
+            .clamp(QUERY_TIMEOUT * 2, Duration::from_millis(10));
+        if self.limit() == 1 && accepted.is_some_and(|at| now.saturating_duration_since(at) < probe)
+        {
+            1
+        } else {
+            self.admission_limit(now)
+        }
+    }
+
+    /// Conservative work to overlap with the end of a paced recovery frame.
+    /// A fastest valid sample prevents temporary GPU load from claiming an
+    /// unnecessarily old picture. Leave one query allowance for earlier output.
+    pub fn recovery_lead(&self) -> Option<Duration> {
+        (self.limit() == 1)
+            .then_some(self.frame_time)
+            .flatten()
+            .map(|time| time.saturating_sub(QUERY_TIMEOUT))
     }
 
     /// Call only after SubmitInput accepts a surface, never on INPUT_FULL.
@@ -92,6 +122,8 @@ impl AmfBacklog {
             // do not lengthen the wait and leave the encoder idle.
             let service = self.service_time.map_or(encoding, |old| old.min(encoding));
             self.service_time = Some(service);
+            let total = encoding.saturating_add(preparation);
+            self.frame_time = Some(self.frame_time.map_or(total, |old| old.min(total)));
             // Leave another poll allowance for the driver's wake-up jitter.
             self.overlap_at = Some(now + service.saturating_sub(preparation + QUERY_TIMEOUT * 2));
         }
@@ -124,6 +156,64 @@ pub fn backpressure(encoding: usize, sending: usize, encoder_limit: usize) -> Ba
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn recovery_waits_for_output_without_permanently_stopping_a_depth_one_encoder() {
+        let now = Instant::now();
+        let mut queue = AmfBacklog::new(Some(0));
+        queue.submitted();
+        queue.completed(now, Duration::from_millis(5), Duration::from_millis(1));
+        let accepted = now + Duration::from_millis(1);
+        queue.submitted();
+        let overlap = accepted + Duration::from_millis(3);
+        assert_eq!(queue.admission_limit(overlap), 2);
+        assert_eq!(queue.recovery_admission_limit(overlap, Some(accepted)), 1);
+        assert_eq!(queue.recovery_admission_limit(overlap, None), 2);
+        // If this recovery picture unexpectedly requires another input, the
+        // bounded probe restores overlap well before encoder-stall recovery.
+        assert_eq!(
+            queue.recovery_admission_limit(accepted + Duration::from_millis(10), Some(accepted)),
+            2
+        );
+    }
+
+    #[test]
+    fn recovery_preserves_unknown_startup_and_preanalysis_priming() {
+        let now = Instant::now();
+        for depth in [None, Some(0), Some(1), Some(2), Some(7)] {
+            let mut queue = AmfBacklog::new(depth);
+            queue.submitted();
+            assert_eq!(
+                queue.recovery_admission_limit(now, Some(now)),
+                queue.admission_limit(now)
+            );
+            assert_eq!(queue.recovery_lead(), None);
+            if depth != Some(0) {
+                queue.completed(now, Duration::from_millis(5), Duration::from_millis(1));
+                assert_eq!(
+                    queue.recovery_admission_limit(now, Some(now)),
+                    queue.admission_limit(now)
+                );
+                assert_eq!(queue.recovery_lead(), None);
+            }
+        }
+    }
+
+    #[test]
+    fn recovery_lead_uses_fastest_complete_work_and_resets_with_the_encoder() {
+        let now = Instant::now();
+        let mut queue = AmfBacklog::new(Some(0));
+        for (encoding, preparation, expected) in [(5, 1, 5), (20, 3, 5), (2, 1, 2), (0, 0, 0)] {
+            queue.submitted();
+            queue.completed(
+                now,
+                Duration::from_millis(encoding),
+                Duration::from_millis(preparation),
+            );
+            assert_eq!(queue.recovery_lead(), Some(Duration::from_millis(expected)));
+        }
+        assert_eq!(AmfBacklog::new(Some(0)).recovery_lead(), None);
+    }
 
     fn complete(queue: &mut AmfBacklog) {
         queue.completed(

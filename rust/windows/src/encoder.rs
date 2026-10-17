@@ -1121,6 +1121,18 @@ impl Encoder {
             _ => butterpollo_core::encoder_backlog::DEFAULT_LIMIT,
         }
     }
+    pub fn recovery_backlog_limit(&self) -> usize {
+        match self {
+            Self::Amf(e) => e.recovery_backlog_limit(),
+            _ => self.backlog_limit(),
+        }
+    }
+    pub fn recovery_lead(&self) -> Option<std::time::Duration> {
+        match self {
+            Self::Amf(e) => e.recovery_lead(),
+            _ => None,
+        }
+    }
     pub fn log_stall(&self) {
         if let Self::Amf(encoder) = self {
             encoder.log_stall();

@@ -61,6 +61,8 @@ struct State {
     ready: Option<Prepared>,
     transmitting: bool,
     transmitting_keyframe: bool,
+    /// Updated after actual send progress, never a wall-clock-only countdown.
+    transmitting_remaining: Option<Duration>,
     recycled: Vec<Vec<PacketBlock>>,
     next_wire_frame: u32,
     skipped: u32,
@@ -101,11 +103,15 @@ impl State {
             + usize::from(self.transmitting)
             + usize::from(self.ready.is_some()))
     }
-    fn claim_backlog(&self) -> Result<usize> {
+    fn claim_backlog(&self, recovery_lead: Option<Duration>) -> Result<usize> {
         Ok(self.backlog()?
             + usize::from(
                 self.sending_keyframe
-                    || self.transmitting_keyframe
+                    || (self.transmitting_keyframe
+                        && !self
+                            .transmitting_remaining
+                            .zip(recovery_lead)
+                            .is_some_and(|(remaining, lead)| remaining <= lead))
                     || self.pending.as_ref().is_some_and(|f| f.encoded.idr)
                     || self.ready.as_ref().is_some_and(|f| f.idr),
             ))
@@ -130,6 +136,7 @@ impl Slot {
         state.sending_keyframe = false;
         state.transmitting = false;
         state.transmitting_keyframe = false;
+        state.transmitting_remaining = None;
         self.changed.notify_all();
     }
     fn enqueue(&self, frame: Prepared) -> Result<()> {
@@ -300,6 +307,7 @@ impl Sender {
                 ready: None,
                 transmitting: false,
                 transmitting_keyframe: false,
+                transmitting_remaining: None,
                 recycled: Vec::new(),
                 next_wire_frame,
                 skipped: 0,
@@ -383,16 +391,23 @@ impl Sender {
     pub fn backlog(&self) -> Result<usize> {
         self.slot.state.lock().unwrap().backlog()
     }
-    pub fn claim_backlog(&self) -> Result<usize> {
-        self.slot.state.lock().unwrap().claim_backlog()
+    pub fn claim_backlog(&self, recovery_lead: Option<Duration>) -> Result<usize> {
+        self.slot.state.lock().unwrap().claim_backlog(recovery_lead)
     }
-    pub fn wait_for_capacity(&self, limit: usize, timeout: Duration) -> Result<()> {
+    pub fn wait_for_capacity(
+        &self,
+        limit: usize,
+        timeout: Duration,
+        recovery_lead: Option<Duration>,
+    ) -> Result<()> {
         let state = self.slot.state.lock().unwrap();
         let (state, _) = self
             .slot
             .changed
             .wait_timeout_while(state, timeout, |state| {
-                state.claim_backlog().is_ok_and(|backlog| backlog >= limit)
+                state
+                    .claim_backlog(recovery_lead)
+                    .is_ok_and(|backlog| backlog >= limit)
                     && !self.slot.stop.load(Ordering::Acquire)
             })
             .unwrap();

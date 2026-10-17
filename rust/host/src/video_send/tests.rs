@@ -315,13 +315,14 @@ fn a_keyframe_waiting_for_the_sender_also_blocks_the_next_claim() {
         ready: None,
         transmitting: false,
         transmitting_keyframe: false,
+        transmitting_remaining: None,
         recycled: Vec::new(),
         next_wire_frame: 1,
         skipped: 0,
         error: None,
     };
     assert_eq!(state.backlog().unwrap(), 1);
-    assert_eq!(state.claim_backlog().unwrap(), 2);
+    assert_eq!(state.claim_backlog(None).unwrap(), 2);
 }
 
 #[test]
@@ -337,14 +338,14 @@ fn capacity_wait_wakes_after_the_sender_releases_a_frame() {
         .unwrap();
     frames.recv_timeout(WAIT).unwrap();
     assert_eq!(sender.backlog().unwrap(), 1);
-    assert_eq!(sender.claim_backlog().unwrap(), 2);
+    assert_eq!(sender.claim_backlog(None).unwrap(), 2);
     thread::scope(|scope| {
         let (entered, waiting) = mpsc::channel();
         let (finished, done) = mpsc::channel();
         let sender = &sender;
         scope.spawn(move || {
             entered.send(()).unwrap();
-            sender.wait_for_capacity(2, WAIT).unwrap();
+            sender.wait_for_capacity(2, WAIT, None).unwrap();
             finished.send(()).unwrap();
         });
         waiting.recv_timeout(WAIT).unwrap();
@@ -360,7 +361,107 @@ fn capacity_wait_wakes_after_the_sender_releases_a_frame() {
             )
             .unwrap();
         frames.recv_timeout(WAIT).unwrap();
-        assert_eq!(sender.claim_backlog().unwrap(), 1);
+        assert_eq!(sender.claim_backlog(None).unwrap(), 1);
+        release.send(()).unwrap();
+    });
+}
+
+#[test]
+fn recovery_progress_opens_one_slot_without_changing_order_or_skipping_a_frame() {
+    use butterpollo_core::encoder_backlog::{Backpressure, backpressure};
+    let (sender, frames, release) = blocked_sender();
+    sender
+        .submit(
+            vec![frame(1)],
+            peer(),
+            Duration::ZERO,
+            &mut Claims::default(),
+        )
+        .unwrap();
+    frames.recv_timeout(WAIT).unwrap();
+    // Model the packetizer handing its keyframe to the transmitter. The
+    // blocked test worker keeps ownership stable while admission is checked.
+    {
+        let mut state = sender.slot.state.lock().unwrap();
+        state.sending = false;
+        state.sending_keyframe = false;
+        state.transmitting = true;
+        state.transmitting_keyframe = true;
+    }
+    let lead = Some(Duration::from_millis(4));
+    assert_eq!(sender.claim_backlog(lead).unwrap(), 2);
+    sender
+        .slot
+        .recovery_progress(Some(Duration::from_millis(5)));
+    assert_eq!(sender.claim_backlog(lead).unwrap(), 2);
+    sender
+        .slot
+        .recovery_progress(Some(Duration::from_millis(4)));
+    assert_eq!(sender.claim_backlog(lead).unwrap(), 1);
+    assert_eq!(sender.claim_backlog(None).unwrap(), 2);
+    assert_eq!(
+        backpressure(0, sender.claim_backlog(lead).unwrap(), 1),
+        Backpressure::None
+    );
+    assert_eq!(
+        backpressure(1, sender.claim_backlog(lead).unwrap(), 2),
+        Backpressure::Sender
+    );
+    // Progress never spends a wire number, packet sequence or encryption IV.
+    {
+        let state = sender.slot.state.lock().unwrap();
+        assert_eq!(state.next_wire_frame, 1);
+        assert_eq!(state.skipped, 0);
+    }
+    // A socket stall invalidates the estimate and restores the full barrier.
+    sender.slot.recovery_progress(None);
+    assert_eq!(sender.claim_backlog(lead).unwrap(), 2);
+    sender
+        .slot
+        .recovery_progress(Some(Duration::from_millis(3)));
+    // A newly queued recovery remains blocked, even near the old one's end.
+    {
+        let mut state = sender.slot.state.lock().unwrap();
+        state.sending_keyframe = true;
+    }
+    assert_eq!(sender.claim_backlog(lead).unwrap(), 2);
+    release.send(()).unwrap();
+}
+
+#[test]
+fn recovery_progress_wakes_capacity_wait_before_the_keyframe_finishes() {
+    let (sender, frames, release) = blocked_sender();
+    sender
+        .submit(
+            vec![frame(1)],
+            peer(),
+            Duration::ZERO,
+            &mut Claims::default(),
+        )
+        .unwrap();
+    frames.recv_timeout(WAIT).unwrap();
+    {
+        let mut state = sender.slot.state.lock().unwrap();
+        state.sending = false;
+        state.sending_keyframe = false;
+        state.transmitting = true;
+        state.transmitting_keyframe = true;
+    }
+    thread::scope(|scope| {
+        let (finished, done) = mpsc::channel();
+        let sender = &sender;
+        scope.spawn(move || {
+            sender
+                .wait_for_capacity(2, WAIT, Some(Duration::from_millis(4)))
+                .unwrap();
+            finished.send(()).unwrap();
+        });
+        assert!(done.recv_timeout(Duration::from_millis(20)).is_err());
+        sender
+            .slot
+            .recovery_progress(Some(Duration::from_millis(4)));
+        done.recv_timeout(WAIT).unwrap();
+        assert_eq!(sender.backlog().unwrap(), 1);
         release.send(()).unwrap();
     });
 }

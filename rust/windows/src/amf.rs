@@ -132,6 +132,7 @@ struct Submission {
     started: Instant,
     accepted: Instant,
     presentation: Instant,
+    idr: bool,
     after_invalidation: bool,
     _capture: Option<GpuImage>,
     _converted: Option<std::sync::Arc<windows::Win32::Graphics::Direct3D11::ID3D11Texture2D>>,
@@ -1016,6 +1017,19 @@ impl Encoder {
     pub fn backlog_limit(&self) -> usize {
         self.backlog.admission_limit(Instant::now())
     }
+    /// A dedicated paced sender can choose a fresh input near an IDR's end.
+    pub fn recovery_backlog_limit(&self) -> usize {
+        self.backlog.recovery_admission_limit(
+            Instant::now(),
+            self.in_flight
+                .iter()
+                .find(|frame| frame.idr)
+                .map(|frame| frame.accepted),
+        )
+    }
+    pub fn recovery_lead(&self) -> Option<Duration> {
+        self.backlog.recovery_lead()
+    }
     pub fn set_next_frame(&mut self, frame: u64) {
         debug_assert!(self.in_flight.is_empty());
         self.index = frame.saturating_sub(1).min(i64::MAX as u64) as i64;
@@ -1429,6 +1443,7 @@ impl Encoder {
                 started,
                 accepted,
                 presentation: image.captured,
+                idr,
                 after_invalidation: plan.after_invalidation,
                 _capture: None,
                 _converted: None,
@@ -1630,6 +1645,7 @@ impl Encoder {
                 started,
                 accepted,
                 presentation: image.captured,
+                idr,
                 after_invalidation: plan.after_invalidation,
                 _capture: self.compute.is_none().then(|| image.clone()),
                 _converted: converted,

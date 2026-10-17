@@ -51,6 +51,7 @@ fn native_output_survives_a_late_poll_without_losing_submission_metadata() -> Re
         started: delayed,
         accepted: delayed,
         presentation: presented,
+        idr: true,
         after_invalidation: plan.after_invalidation,
         _capture: Some(image),
         _converted: Some(converted),

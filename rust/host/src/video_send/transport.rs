@@ -17,6 +17,7 @@ impl Slot {
                 let frame = state.ready.take().unwrap();
                 state.transmitting = true;
                 state.transmitting_keyframe = frame.idr;
+                state.transmitting_remaining = None;
                 self.changed.notify_all();
                 frame
             };
@@ -24,10 +25,26 @@ impl Slot {
             let mut state = self.state.lock().unwrap();
             state.transmitting = false;
             state.transmitting_keyframe = false;
+            state.transmitting_remaining = None;
             state.recycle(frame.blocks);
             self.changed.notify_all();
         }
     }
+
+    pub(super) fn recovery_progress(&self, remaining: Option<Duration>) {
+        let mut state = self.state.lock().unwrap();
+        if state.transmitting_keyframe {
+            state.transmitting_remaining = remaining;
+            self.changed.notify_all();
+        }
+    }
+}
+
+/// Include the next batch's due time and all remaining bytes. Counting even
+/// the final batch's wire interval deliberately opens admission a little late.
+fn recovery_remaining(now: Instant, due: Instant, wire_bytes: usize, bps: u64) -> Duration {
+    due.saturating_duration_since(now)
+        + Duration::from_secs_f64(wire_bytes as f64 * 8. / bps.max(1) as f64)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -78,6 +95,8 @@ pub(super) fn run(
         let frame_bytes: usize = frame.blocks.iter().zip(&frame.counts)
             .map(|(block, count)| block[..*count].iter().map(Vec::len).sum::<usize>()).sum();
         let wire_bytes = frame_bytes + packet_count * network_pacing::overhead(peer.is_ipv6());
+        let mut remaining_wire_bytes = wire_bytes;
+        let mut recovery_overlap_safe = true;
         let dropped = batch.dropped;
         let before = batch.waits.unwrap();
         let mut pacing_wait = Duration::ZERO;
@@ -104,6 +123,10 @@ pub(super) fn run(
                 }
                 let budget = network_pacing::batch_payload_limit(bps, remaining[0].len(), peer.is_ipv6(), batch_kb * 1024);
                 let count = Batch::count(remaining, budget);
+                let batch_wire_bytes = if frame.idr {
+                    remaining[..count].iter().map(Vec::len).sum::<usize>()
+                        + count * network_pacing::overhead(peer.is_ipv6())
+                } else { 0 };
                 let send_started = Instant::now();
                 let refused = batch.dropped;
                 let bytes = match outage.filter(|outage| outage.active(start, Instant::now())) {
@@ -120,6 +143,17 @@ pub(super) fn run(
                 remaining = &remaining[count..];
                 sent_packets += count;
                 pacer.sent(finished, bytes, if bytes > 0 { count } else { 0 }, peer.ip().to_canonical().is_ipv6(), bps);
+                if frame.idr {
+                    remaining_wire_bytes = remaining_wire_bytes.saturating_sub(batch_wire_bytes);
+                    // A stalled socket is not predictable from the configured
+                    // pace. Keep the strict barrier for the rest of that IDR.
+                    recovery_overlap_safe &= batch.dropped == dropped
+                        && batch.waits.unwrap().count == before.count
+                        && finished.saturating_duration_since(send_started) <= network_pacing::SEND_SLACK;
+                    shared.recovery_progress(recovery_overlap_safe.then(|| recovery_remaining(
+                        finished, pacer.due(), remaining_wire_bytes, bps,
+                    )));
+                }
                 s.stats.packets.fetch_add(count as u64, Ordering::Relaxed);
                 s.stats.bytes.fetch_add(bytes as u64, Ordering::Relaxed);
                 if lost.sent(count, (batch.dropped - refused) as usize) {
@@ -177,4 +211,26 @@ pub(super) fn run(
         }
         Ok(())
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn recovery_estimate_includes_existing_pacing_debt_and_remaining_wire_bytes() {
+        let now = Instant::now();
+        assert_eq!(
+            recovery_remaining(now, now + Duration::from_millis(1), 50_000, 80_000_000),
+            Duration::from_millis(6)
+        );
+        assert_eq!(
+            recovery_remaining(now, now - Duration::from_millis(20), 50_000, 80_000_000),
+            Duration::from_millis(5)
+        );
+        assert_eq!(
+            recovery_remaining(now, now + Duration::from_millis(1), 0, 80_000_000),
+            Duration::from_millis(1)
+        );
+    }
 }

@@ -2000,17 +2000,20 @@ impl Media {
                             // A frame waiting behind it is skipped on a keyframe
                             // request: the client would discard it, and the
                             // keyframe would wait for it.
+                            let recovery_lead = encoder.as_ref().and_then(Encoder::recovery_lead).map(|lead| lead.min(period));
                             let sending = match video_sender.get() {
                                 Some(sender) => {
                                     if s.idr.load(Ordering::Acquire) { sender.skip_pending()?; }
-                                    // Claim after a keyframe finishes sending, so the next
-                                    // picture does not age behind a multi-period burst.
-                                    sender.claim_backlog()?
+                                    // Claim the newest picture near the end of an IDR,
+                                    // only when this encoder demonstrated a safe lead.
+                                    sender.claim_backlog(recovery_lead)?
                                 },
                                 None => 0,
                             };
                             let encoding = encoder.as_ref().map_or(0, |e| recovery.backlog(e));
-                            let encoding_limit = encoder.as_ref().map_or(encoder_backlog::DEFAULT_LIMIT, EncoderOutput::backlog_limit);
+                            let encoding_limit = encoder.as_ref().map_or(encoder_backlog::DEFAULT_LIMIT, |encoder| {
+                                if video_sender.get().is_some() { encoder.recovery_backlog_limit() } else { EncoderOutput::backlog_limit(encoder) }
+                            });
                             let pressure = encoder_backlog::backpressure(encoding, sending, encoding_limit);
                             if !rebuild_encoder && pressure != Backpressure::None {
                                 if pressure == Backpressure::Sender {
@@ -2019,7 +2022,7 @@ impl Media {
                                     if encoder.as_ref().is_some_and(|e| recovery.pending(e)) {
                                         send_frames(recovery.collect(&mut encoder, &s.launch.warnings, Instant::now)?, peer, Duration::ZERO, latest, capture_tick)?;
                                     } else {
-                                        video_sender.get().unwrap().wait_for_capacity(encoder_backlog::total_limit(encoding_limit), period)?;
+                                        video_sender.get().unwrap().wait_for_capacity(encoder_backlog::total_limit(encoding_limit), period, recovery_lead)?;
                                     }
                                     continue;
                                 }

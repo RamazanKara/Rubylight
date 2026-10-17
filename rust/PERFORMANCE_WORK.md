@@ -5480,3 +5480,52 @@ logs and ledgers. The parent directory retains
 `receiver-analysis-posthold-20261012T174145Z.json`. The baseline host hash
 is unchanged from the earlier-signal experiment; the hold candidate SHA-256
 is `97a570378033c0cbbedf33c7785903bfb2072b69c9ed847b036074e961823612`.
+
+### 2026-10-17: negotiated HEVC intra-refresh candidate
+
+For [issue #36](https://github.com/RamazanKara/Rubylight/issues/36), adopt the
+finite-GOP/whole-CTB-row workaround only when the client negotiates HEVC
+intra-refresh. At 3840x2160 this requests GOP 120 and 60 CTBs per slot. Both
+settings are verified before and after AMF initialization. Rejected settings
+restore the previous pair; an initialization failure with the candidate gets
+one fresh encoder attempt using the previous policy. Startup and recovery
+IDRs remain enabled, and the implementation never sets `HevcGOPSPerIDR=0`.
+
+Native validation used an RX 7900 XT, AMD driver 32.0.32015.2008, D3D12 encoder
+input, 3840x2160 at 119.88 FPS, 117,964 kbps and a one-reference client budget.
+Each SDR/HDR case submitted 900 frames: 240 static frames followed by 660
+frames alternating four detailed synthetic GPU textures. A forced recovery
+IDR at frame 733 exercised recovery away from the GOP boundary. Independent
+FFmpeg decoding checked the complete stream and a separate stream beginning
+at that recovery IDR.
+
+| Check | SDR | HDR |
+| --- | ---: | ---: |
+| Complete stream decoded | 900/900 | 900/900 |
+| Recovery tail decoded | 167/167 | 167/167 |
+| Largest encoded frame | 210,924 bytes | 185,617 bytes |
+| Largest-frame FEC layout (data + parity) | 154 + 31 | 135 + 27 |
+| FEC blocks / requested protection | 1 / 20% | 1 / 20% |
+
+Both cases read back GOP 120, GOPs per IDR 1, CTBs per slot 60 and one reference.
+Only the requested startup/recovery frames were IDRs; no periodic IDR/CRA
+bursts appeared. Every submission produced one frame in order. No decoder
+errors, stalls, packet-limit violations or reduced FEC protection occurred.
+Packet budgets used the production packetizer with packet size 1392 and
+minimum parity 2. Unit checks passed: 502 core tests, 22 AMF tests, and Clippy
+for core/Windows libraries and tests with warnings denied.
+
+These checks establish local encoding and recovery compatibility. They do
+not establish a latency or picture-quality gain, network behavior, or a fix
+on the reporter's Xbox Series X / RX 9070 XT. No capture, display or network
+was involved, and no installed host settings changed. Xbox visual validation
+and the separate HDR-toggle report remain open.
+
+The reproducible ignored native test is
+`amf::intra_refresh_native_tests::native_hevc_intra_refresh_decodes_across_gops_and_forced_recovery`.
+Set `BUTTERPOLLO_TEST_FFMPEG` to an independent FFmpeg executable and
+`BUTTERPOLLO_TEST_HEVC_INTRA_REPORT` to an absolute task-owned JSON path, then
+run that test with `--ignored --nocapture --test-threads=1` on an idle AMD GPU.
+Local evidence is retained in
+`D:\CodexArtifacts\rubylight-hevc-intra-20261017`, including `candidate.json`,
+native logs, full/recovery bitstreams and independent decode results.

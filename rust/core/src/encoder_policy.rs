@@ -51,6 +51,33 @@ pub fn amf_intra_refresh(stream: &Negotiated) -> bool {
     stream.intra_refresh && !(stream.codec == 0 && stream.references == 1)
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AmfHevcIntraRefresh {
+    pub gop_frames: i64,
+    pub ctbs_per_slot: i64,
+    pub fallback_ctbs_per_slot: i64,
+}
+
+/// The Xbox HEVC workaround refreshes whole CTB rows with a finite GOP.
+/// Derived from Eftimin70's workaround and Nonary/vibeshine's follow-up:
+/// https://github.com/Nonary/vibeshine/commit/5671498664f5a8f14e959d4ba05904f11c92525c
+/// Apply as a pair after the ordinary policy, retaining that policy if the
+/// driver cannot establish both settings. Initial and recovery IDRs remain
+/// independently requested on their surfaces.
+pub fn amf_hevc_intra_refresh(stream: &Negotiated) -> Option<AmfHevcIntraRefresh> {
+    if stream.codec != 1 || !stream.intra_refresh || stream.width == 0 || stream.height == 0 {
+        return None;
+    }
+    let columns = u64::from(stream.width).div_ceil(64);
+    let rows = u64::from(stream.height).div_ceil(64);
+    let blocks = columns * rows;
+    Some(AmfHevcIntraRefresh {
+        gop_frames: 120,
+        ctbs_per_slot: (columns * rows.div_ceil(120)) as i64,
+        fallback_ctbs_per_slot: blocks.div_ceil(blocks.clamp(1, 299)) as i64,
+    })
+}
+
 /// Long-term references AMF keeps for AV1 when `amd_ltr_frames` is unset.
 /// They let a client that lost frames recover with a small frame predicted
 /// from an older one instead of a keyframe: under 80 ms air outages at
@@ -449,6 +476,9 @@ pub fn amf(config: &Config, stream: &Negotiated) -> Result<Vec<Property>> {
         } else {
             let block = if codec == 0 { 16 } else { 64 };
             let blocks = stream.width.div_ceil(block) * stream.height.div_ceil(block);
+            // HEVC first establishes this existing policy. Its whole-row/GOP
+            // override is applied together by the native backend so either
+            // unsupported setting can restore this known streaming behavior.
             add(
                 if codec == 0 {
                     "IntraRefreshMBsNumberPerSlot"
@@ -890,6 +920,107 @@ mod tests {
                 enabled
             );
             assert_eq!(amf_ltr_frames(&config, &stream), 0);
+        }
+    }
+
+    #[test]
+    fn hevc_intra_refresh_uses_actual_ctb_rows_and_preserves_decoder_budget() {
+        for (width, height, ctbs, fallback) in [
+            (1280, 720, 20, 1),
+            (1920, 1080, 30, 2),
+            (2560, 1440, 40, 4),
+            (3840, 2160, 60, 7),
+            (1921, 1081, 31, 2),
+            (1, 1, 1, 1),
+            (64, 7680, 1, 1),
+            (64, 7681, 2, 1),
+        ] {
+            for hdr in [false, true] {
+                let stream = Negotiated {
+                    width,
+                    height,
+                    codec: 1,
+                    intra_refresh: true,
+                    references: 1,
+                    hdr,
+                    ..Default::default()
+                };
+                assert_eq!(
+                    amf_hevc_intra_refresh(&stream),
+                    Some(AmfHevcIntraRefresh {
+                        gop_frames: 120,
+                        ctbs_per_slot: ctbs,
+                        fallback_ctbs_per_slot: fallback,
+                    })
+                );
+                let properties = amf(&Config::default(), &stream).unwrap();
+                assert!(properties.iter().any(|p| {
+                    p.name == "HevcIntraRefreshCTBsNumberPerSlot"
+                        && p.value == Value::Integer(fallback)
+                }));
+                assert!(
+                    properties.iter().any(|p| {
+                        p.name == "HevcMaxNumRefFrames" && p.value == Value::Integer(1)
+                    })
+                );
+                assert!(!properties.iter().any(|p| p.name == "HevcGOPSPerIDR"));
+                assert_eq!(amf_ltr_frames(&Config::default(), &stream), 0);
+            }
+        }
+    }
+
+    #[test]
+    fn hevc_intra_refresh_override_requires_a_valid_negotiated_hevc_stream() {
+        for codec in 0..=3 {
+            for requested in [false, true] {
+                let stream = Negotiated {
+                    codec,
+                    intra_refresh: requested,
+                    ..Default::default()
+                };
+                assert_eq!(
+                    amf_hevc_intra_refresh(&stream).is_some(),
+                    codec == 1 && requested
+                );
+            }
+        }
+        for (width, height) in [(0, 2160), (3840, 0), (0, 0)] {
+            assert!(
+                amf_hevc_intra_refresh(&Negotiated {
+                    width,
+                    height,
+                    codec: 1,
+                    intra_refresh: true,
+                    ..Default::default()
+                })
+                .is_none()
+            );
+        }
+        for codec in [0, 2] {
+            let stream = Negotiated {
+                codec,
+                width: 3840,
+                height: 2160,
+                intra_refresh: true,
+                ..Default::default()
+            };
+            let properties = amf(&Config::default(), &stream).unwrap();
+            let expected: &[(&str, i64)] = if codec == 0 {
+                &[("IntraRefreshMBsNumberPerSlot", 109)]
+            } else {
+                &[
+                    ("Av1IntraRefreshMode", 2),
+                    ("Av1IntraRefreshNumOfStripes", 300),
+                ]
+            };
+            for (name, value) in expected {
+                assert!(
+                    properties
+                        .iter()
+                        .any(|p| { p.name == *name && p.value == Value::Integer(*value) })
+                );
+            }
+            assert!(!properties.iter().any(|p| p.name.starts_with("Hevc")));
         }
     }
 

@@ -4,6 +4,7 @@
 //! textures from capture and Radeon compute without a copy, and applies the
 //! per-codec settings from `butterpollo_core::encoder_policy`.
 pub(crate) mod gpu;
+mod intra_refresh;
 mod metadata;
 mod rate_control;
 
@@ -235,6 +236,32 @@ impl Encoder {
         av1_alignment: i64,
         compute: Option<std::sync::Arc<crate::compute::Compute>>,
     ) -> Result<Self> {
+        let (encoder, fallback) = intra_refresh::initialize(|allow_hevc_intra_refresh| {
+            Self::create_attempt(
+                config,
+                device.clone(),
+                options,
+                av1_alignment,
+                compute.clone(),
+                allow_hevc_intra_refresh,
+            )
+        })?;
+        if let Some(reason) = fallback {
+            encoder.warnings.set("encoder_intra_refresh", format!(
+                "AMF could not initialize the HEVC intra-refresh workaround ({reason}); a fresh encoder uses the previous refresh policy. Xbox colour artefacts may persist. Update the AMD driver or reconnect the client if needed."
+            ));
+        }
+        Ok(encoder)
+    }
+
+    fn create_attempt(
+        config: &butterpollo_core::rtsp::Negotiated,
+        device: Device,
+        options: &butterpollo_core::config::Config,
+        av1_alignment: i64,
+        compute: Option<std::sync::Arc<crate::compute::Compute>>,
+        allow_hevc_intra_refresh: bool,
+    ) -> Result<Self> {
         let mut effective_config = config.clone();
         effective_config.intra_refresh =
             butterpollo_core::encoder_policy::amf_intra_refresh(config);
@@ -411,8 +438,9 @@ impl Encoder {
                 let _ = e.property("IDRPeriod", int(0));
             }
             if config.codec == 1 {
-                // Request keyframes and headers per surface: finite GOPs stall
-                // recent VCN drivers, as established by the original backend.
+                // Keep normal HEVC free of periodic keyframe bursts. The
+                // negotiated intra-refresh workaround below is the scoped
+                // exception; never set HevcGOPSPerIDR=0 (RDNA4 recovery stalls).
                 e.property("GOPSize", int(0))?;
             }
             if config.codec == 2 {
@@ -525,7 +553,22 @@ impl Encoder {
             }
             e.configure_ltr(ltr_count);
             e.request_split_frame(options);
-            check(timed("AMF Init", || {
+            let hevc_request = if allow_hevc_intra_refresh {
+                butterpollo_core::encoder_policy::amf_hevc_intra_refresh(config)
+            } else {
+                None
+            };
+            let hevc_intra_refresh = intra_refresh::configure(
+                hevc_request,
+                hevc_request.and_then(|_| e.read(intra_refresh::GOP)),
+                hevc_request.and_then(|_| e.read(intra_refresh::CTBS)),
+                &warnings,
+                |name, value| {
+                    e.property_raw(name, int(value))?;
+                    Ok(e.read(name))
+                },
+            )?;
+            let initialized = check(timed("AMF Init", || {
                 ((*(*e.component).pVtbl).Init.unwrap())(
                     e.component,
                     if config.ten_bit() {
@@ -537,8 +580,27 @@ impl Encoder {
                     config.height as i32,
                 )
             }))
-            .context("AMF encoder Init")?;
+            .context("AMF encoder Init");
+            if let Err(error) = initialized {
+                return Err(if hevc_intra_refresh.is_some() {
+                    error.context(intra_refresh::InitializationFailed)
+                } else {
+                    error
+                });
+            }
             range.validate(e.read(range.name))?;
+            if hevc_intra_refresh.is_some() {
+                intra_refresh::validate(
+                    hevc_intra_refresh,
+                    e.read(intra_refresh::GOP),
+                    e.read(intra_refresh::CTBS),
+                    &warnings,
+                    |name, value| {
+                        e.property_raw(name, int(value))?;
+                        Ok(e.read(name))
+                    },
+                )?;
+            }
             // Learn only when the initialized driver reports its buffering
             // requirements. A preset can change these during Init.
             let preanalysis = match config.codec {
@@ -775,6 +837,8 @@ impl Encoder {
                 "HevcPeakBitrate",
                 "HevcVBVBufferSize",
                 "HevcMaxAUSize",
+                "HevcGOPSize",
+                "HevcGOPSPerIDR",
                 "HevcIntraRefreshCTBsNumberPerSlot",
                 "HevcEnforceHRD",
                 "HevcFillerDataEnable",
@@ -1684,5 +1748,7 @@ impl Drop for Encoder {
     }
 }
 
+#[cfg(test)]
+mod intra_refresh_native_tests;
 #[cfg(test)]
 mod tests;

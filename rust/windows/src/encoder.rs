@@ -923,6 +923,10 @@ impl Encoder {
         warnings.clear("encoder_conversion");
         warnings.clear("encoder_readback");
         warnings.clear("encoder_frame_size");
+        // A replacement encoder establishes its own refresh policy. Discard
+        // the previous AMF fallback before merging fresh startup warnings,
+        // including when recovery selects a different codec or backend.
+        warnings.clear("encoder_intra_refresh");
         let preference = butterpollo_core::encoder_policy::canonical_name(preference);
         if config.codec == 3 {
             return Ok(Self::Pyrowave(Box::new(

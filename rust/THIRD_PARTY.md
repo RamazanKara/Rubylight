@@ -2,6 +2,8 @@
 
 Rubylight is GPL-3.0-only. Its administration console is a Svelte application served by the Rust host; the bundle includes the Svelte runtime (MIT License, Svelte Contributors), and the console's npm dependencies and their versions are recorded in `rust/web/package-lock.json`. Rust package names, versions, license declarations and repositories are recorded in the packaged `rust-dependencies.json`; exact versions and registry checksums are in `Cargo.lock`. Source is available in the corresponding repository checkout.
 
+The negotiated HEVC intra-refresh policy follows Eftimin70's Xbox workaround and the verified finite-GOP/CTB-row configuration in [Nonary/vibeshine commit 5671498](https://github.com/Nonary/vibeshine/commit/5671498664f5a8f14e959d4ba05904f11c92525c). Rubylight's Rust implementation adds paired-setting verification and restores its previous policy when the driver rejects the workaround. Startup and recovery keyframe requests remain enabled. This adaptation remains under GPL-3.0-only.
+
 External SDKs are not a port of the original host:
 
 - FFmpeg SDK: LizardByte/build-deps `v2026.516.30821`, Windows AMD64 archive SHA-256 `2f7a2c2fc6be9b96de3c6f654389f73a5e5d369d7e802d017894fae96247661d`. Static encoding libraries include FFmpeg/libavcodec/libavutil/libswscale, x264, x265, SVT-AV1 and HDR10+ support. FFmpeg and codec source/build recipes: https://github.com/LizardByte/build-deps/tree/v2026.516.30821. GPL source and distribution requirements apply to the combined executable.

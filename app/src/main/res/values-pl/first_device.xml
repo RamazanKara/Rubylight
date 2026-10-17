@@ -15,7 +15,7 @@
     <string name="summary_frame_pacing">Równoważy czas reakcji i płynność, gdy VRR jest wyłączone.</string>
     <string name="summary_language">Wybierz język aplikacji.</string>
     <string name="overlay_mode">Tryb nakładki wydajności</string>
-    <string name="overlay_mode_help">Kompaktowa pokazuje jedną linię: wyświetlane FPS, czas odpowiedzi sieci (RTT) i utratę klatek, za kropką, która zmienia kolor na bursztynowy lub czerwony, gdy strumień ma problemy. Statystyki pokazują bieżące pomiary strumienia. Debugowanie, dostępne przy wyświetlonych opcjach programisty, dodaje percentyle czasów i diagnostykę dekodera; przewiń, aby zobaczyć wszystkie szczegóły.</string>
+    <string name="overlay_mode_help">Kompaktowa pokazuje jedną linię: wyświetlane FPS, czas odpowiedzi sieci (RTT) i utratę klatek, za kropką, która zmienia kolor na bursztynowy lub czerwony, gdy strumień ma problemy. Statystyki pokazują bieżące pomiary strumienia. Debugowanie dodaje percentyle czasów i diagnostykę dekodera; przewiń, aby zobaczyć wszystkie szczegóły. Wszystkie trzy tryby są zawsze dostępne.</string>
     <string name="overlay_statistics">Statystyki</string>
     <string name="overlay_debug">Debugowanie</string>
     <string name="overlay_copy">Kopiuj statystyki</string>

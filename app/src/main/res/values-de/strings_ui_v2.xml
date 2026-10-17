@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="settings_section_advanced">Erweitert</string>
-    <string name="settings_advanced_summary">Latenzarmes Dekodieren und Spieloptimierung</string>
+    <string name="settings_advanced_summary">Dekodierung, Eingabe und Diagnose</string>
     <string name="settings_custom">Eigene Einstellung</string>
     <string name="setting_help">Info zu %1$s</string>
     <string name="stream_presets_help_title">Info zu Vorgaben</string>

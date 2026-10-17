@@ -282,8 +282,8 @@
     <string name="summary_codec_performance">전력을 더 사용하는 대신 디코딩 속도를 높입니다.</string>
     <string name="title_phone_performance_hints">휴대전화 성능 힌트</string>
     <string name="summary_phone_performance_hints">스트리밍 중 Android가 성능을 조정하도록 합니다.</string>
-    <string name="title_gpu_max_clocks">PyroWave용 최대 GPU 클럭</string>
-    <string name="summary_gpu_max_clocks">PyroWave 스트리밍 중 Adreno GPU를 최고 속도로 유지합니다. 배터리를 더 많이 사용합니다.</string>
+    <string name="title_gpu_max_clocks">PyroWave용 GPU 성능 향상</string>
+    <string name="summary_gpu_max_clocks">디코딩 시간을 줄일 수 있지만 전력 소비와 발열이 증가합니다.</string>
     <string name="title_drop_late_frames">최신 프레임만 유지</string>
     <string name="summary_drop_late_frames">화면에 제때 표시할 수 없는 프레임을 건너뜁니다. 균형 프레임 페이싱에서 적용됩니다.</string>
     <string name="title_texture_view">호환성 비디오 뷰</string>

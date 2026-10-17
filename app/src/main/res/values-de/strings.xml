@@ -282,8 +282,8 @@
     <string name="summary_codec_performance">Dekodiere schneller auf Kosten eines höheren Verbrauchs.</string>
     <string name="title_phone_performance_hints">Android-Leistungssteuerung</string>
     <string name="summary_phone_performance_hints">Lass Android die Leistung beim Streamen anpassen.</string>
-    <string name="title_gpu_max_clocks">Volle GPU-Leistung für PyroWave</string>
-    <string name="summary_gpu_max_clocks">Hält die Adreno-GPU beim PyroWave-Streamen auf vollem Takt. Braucht mehr Akku.</string>
+    <string name="title_gpu_max_clocks">GPU-Leistung für PyroWave steigern</string>
+    <string name="summary_gpu_max_clocks">Kann die Dekodierzeit verkürzen, benötigt aber mehr Energie und erzeugt mehr Wärme.</string>
     <string name="title_drop_late_frames">Nur neueste Frames behalten</string>
     <string name="summary_drop_late_frames">Überspringt Frames, die nicht mehr rechtzeitig angezeigt werden können. Gilt mit dem Frame-Pacing „Ausgewogen“.</string>
     <string name="title_texture_view">Alternative Videoanzeige</string>

@@ -69,7 +69,7 @@ ADVICE = {
     "seekbar_osc_opacity": "Lower to see more of the game beneath the controls.",
     "reset_osc": "Confirm to restore virtual button sizes and positions. This layout is kept separately from a global settings reset.",
     "checkbox_enable_perf_overlay": "Enable while diagnosing frame rate, network loss or delay. Can also be toggled during a stream.",
-    "performance_overlay_mode": "Compact is one line: displayed FPS, network round trip (RTT) and frame loss behind a green, amber or red dot. Statistics is an Artemis-style summary with a status line of lasting facts. Debug shows detailed measured stages and is offered here while Developer options are shown; a saved Debug keeps working when they are hidden. Installs that kept the old Statistics default move to Compact once. Switch in stream menu → Display → Overlay and diagnostics; Copy stats includes Debug details.",
+    "performance_overlay_mode": "Compact is one line: displayed FPS, network round trip (RTT) and frame loss behind a green, amber or red dot. Statistics summarizes the stream with a status line of lasting facts. Debug shows detailed measured stages and is always available. Installs that kept the old Statistics default move to Compact once. Switch in stream menu → Display → Overlay and diagnostics; Copy stats includes Debug details.",
     "gpu_driver": "Import and select a compatible Snapdragon Vulkan driver for PyroWave. Shown on arm64 Adreno devices only. The system driver remains the default; changes apply to the next stream.",
     "list_audio_config": "Choose 5.1 or 7.1 for a matching audio output and host configuration; use stereo for headphones or two speakers.",
     "checkbox_host_audio": "Enable to hear audio on the PC as well as Android.",
@@ -87,14 +87,14 @@ ADVICE = {
     "report_problem": "Preview the explanation and share a redacted event/crash report through Android's share sheet.",
     "checkbox_check_updates": "Leave on to look for a newer release on GitHub when the PC list opens, at most every 12 hours; you choose whether to install it. Hidden when the app was installed from Google Play, which updates it.",
     "check_updates_now": "Look for a newer release now, even if the automatic check ran recently. A release you skipped is shown again. Hidden when the app was installed from Google Play.",
-    "about_app": "View the installed app version and open Source and licenses. Tapping the version seven times shows Developer options.",
-    "reset_all": "Confirm to reset global preferences, which also hides Developer options again. Keeps pairing, PC profiles, controller mappings, control layout and language.",
+    "about_app": "View the installed app version and open Source and licenses.",
+    "reset_all": "Confirm to reset global preferences. Keeps pairing, PC profiles, controller mappings, control layout and language.",
     "frame_pacing": "Use Lowest latency for response, Balanced for cadence, Balanced with FPS limit to cap pacing, or Smoothest video to retain frames at the cost of delay.",
     "checkbox_codec_low_latency": "Leave on for supported Android 11+ decoders. Disable when comparing a decoder freeze or artifact.",
     "checkbox_vendor_low_latency": "Leave on for supported chipset decoder keys. Disable to isolate vendor-specific instability.",
     "checkbox_codec_performance": "Leave on for decoder priority/rate hints on Android 6+. Disable to compare heat or battery use.",
     "checkbox_phone_performance_hints": "Enable for a measured comparison on Android 12+; compare decode time with it on and off.",
-    "checkbox_gpu_max_clocks": "Opt-in: enable to hold the Adreno GPU at full speed for the steadiest PyroWave decode time; uses more battery. Installs that already stored a choice keep it. Shown on Adreno devices only.",
+    "checkbox_gpu_max_clocks": "Off by default. Optionally request higher Adreno GPU clocks during PyroWave streaming to reduce decode time; this can increase power use and heat. Thermal protection remains active. Installs that already stored a choice keep it. Shown on Adreno devices only.",
     "checkbox_drop_late_frames": "Enable with Balanced pacing to discard older queued outputs. Favors response over smoothness. Available with Balanced frame pacing.",
     "checkbox_unbatched_input": "Enable to bypass display-rate input batching. High-rate input can increase CPU and network load.",
     "checkbox_network_priority": "Enable to compare scheduling under load. Requests streaming thread priority on this device.",
@@ -110,8 +110,7 @@ ADVICE = {
     "checkbox_enable_sops": "Leave on to request game optimization from hosts that implement it; the host decides whether it has an effect.",
     "checkbox_disable_warnings": "Enable to hide stream connection warnings once your connection is tuned.",
     "export_latency_csv": "Choose a destination for the latest local frame-timing CSV. Each row holds the measured stage timings.",
-    "low_latency_decoding": "Leave on. Sets Android low-latency mode, Chipset low-latency mode and Phone performance hints together; turn off only to test a decoding problem. When one of them is off in Developer options, the row says so.",
-    "developer_options": "Turn off to hide Developer options again. Values changed there stay in effect while hidden.",
+    "low_latency_decoding": "Leave on. Sets Android low-latency mode, Chipset low-latency mode and Phone performance hints together; turn off only to test a decoding problem. The individual switches are also in Advanced; the row says when one is off.",
 }
 
 
@@ -140,10 +139,9 @@ def generate():
     section_titles = {node.get(ANDROID + "key"): resolve(node.get(ANDROID + "title"))
                       for node in overview if not node.tag.endswith("PresetPreference")}
     settings_java = (JAVA / "preferences/StreamSettings.java").read_text(encoding="utf-8")
-    developer = re.search(r'DEVELOPER_SECTION = "(\w+)";', settings_java)[1]
     sections = {}
-    for name, members in re.findall(r'SECTIONS\.put\((\w+|"\w+"), new String\[\] \{([^}]*)\}\);', settings_java):
-        sections[developer if name == "DEVELOPER_SECTION" else name.strip('"')] = re.findall(r'"(\w+)"', members)
+    for name, members in re.findall(r'SECTIONS\.put\("(\w+)", new String\[\] \{([^}]*)\}\);', settings_java):
+        sections[name] = re.findall(r'"(\w+)"', members)
     if list(sections) != list(section_titles) or sorted(c for group in sections.values() for c in group) != sorted(categories):
         raise ValueError("Review the changed settings sections")
     config = (JAVA / "preferences/PreferenceConfiguration.java").read_text(encoding="utf-8")
@@ -236,8 +234,6 @@ def generate():
              "These tables include every preference, including actions, grouped as the Settings screens show them. On/Off choices have no units; action rows have no stored default. Device capability checks can hide or disable a row.", ""]
     for section, members in sections.items():
         lines += ["### " + section_titles[section], ""]
-        if section == developer:
-            lines += ["Hidden until the version in **App → About** is tapped seven times. Values changed here stay in effect while the section is hidden.", ""]
         for member in members:
             category = categories[member]
             if category.get(ANDROID + "title"):
@@ -256,7 +252,7 @@ def generate():
     switches = re.findall(r'^\s+(?:"([a-z_]+)"|PreferenceConfiguration\.([A-Z_]+)),$', block, re.M)
     switch_titles = [resolve(nodes[literal or constants[constant]].get(ANDROID + "title")) for literal, constant in switches]
     if constants["GPU_MAX_CLOCKS_PREF_STRING"] in [literal or constants[constant] for literal, constant in switches]:
-        raise ValueError("Review the presets table: Native now changes Max GPU clocks")
+        raise ValueError("Review the presets table: Native now changes the GPU performance boost")
     lines += ["## Presets", "",
               "Both presets stream at this screen's own resolution and keep the selected codec, HDR and 4:4:4 choices. Named profiles and saved PC and game values take priority. The selected chip says Custom when values do not match a preset.", "",
               "| Setting | " + " | ".join(names) + " |",
@@ -269,7 +265,7 @@ def generate():
               "| Frame pacing | Lowest latency | Balanced with FPS limit |",
               "| Allow lower refresh rate | Off | On |",
               "| Decoder performance hints | On | Off |",
-              "| Max GPU clocks for PyroWave | Unchanged | Off |",
+              f"| {resolve('@string/title_gpu_max_clocks')} | Unchanged | Off |",
               "", "Native also turns these back on: " + ", ".join(switch_titles) + ".", ""]
     return "\n".join(lines)
 

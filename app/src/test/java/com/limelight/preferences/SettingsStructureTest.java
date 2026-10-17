@@ -100,7 +100,7 @@ public class SettingsStructureTest {
     }
 
     @Test
-    public void overviewListsTheSectionsInOrderWithDeveloperOptionsHidden() {
+    public void overviewListsTheSectionsInOrder() {
         try (ActivityController<StreamSettings> controller = Robolectric.buildActivity(StreamSettings.class).setup()) {
             StreamSettings screen = controller.get();
             settle(screen);
@@ -115,7 +115,6 @@ public class SettingsStructureTest {
 
     @Test
     public void groupsNeverRepeatTheirSectionTitle() {
-        prefs().edit().putBoolean(StreamSettings.DEVELOPER_OPTIONS_PREF_STRING, true).commit();
         try (ActivityController<StreamSettings> controller = Robolectric.buildActivity(StreamSettings.class).setup()) {
             StreamSettings screen = controller.get();
             for (String section : StreamSettings.SECTIONS.keySet()) {

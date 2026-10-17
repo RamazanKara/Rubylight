@@ -15,7 +15,7 @@
     <string name="summary_frame_pacing">VRR이 꺼져 있을 때 응답 속도와 부드러움의 균형을 조정합니다.</string>
     <string name="summary_language">앱에서 사용할 언어를 선택합니다.</string>
     <string name="overlay_mode">성능 오버레이 모드</string>
-    <string name="overlay_mode_help">간단히는 표시 FPS, 네트워크 왕복 시간(RTT), 프레임 손실을 한 줄로 보여주며, 스트림이 불안정하면 앞의 점이 주황색이나 빨간색으로 바뀝니다. 통계는 실시간 스트림 측정값을 보여줍니다. 디버그는 개발자 옵션이 표시될 때 제공되며 타이밍 백분위수와 디코더 진단 정보를 추가합니다. 스크롤하면 모든 세부 정보를 볼 수 있습니다.</string>
+    <string name="overlay_mode_help">간단히는 표시 FPS, 네트워크 왕복 시간(RTT), 프레임 손실을 한 줄로 보여주며, 스트림이 불안정하면 앞의 점이 주황색이나 빨간색으로 바뀝니다. 통계는 실시간 스트림 측정값을 보여줍니다. 디버그는 타이밍 백분위수와 디코더 진단 정보를 추가합니다. 스크롤하면 모든 세부 정보를 볼 수 있습니다. 세 가지 모드를 언제든지 사용할 수 있습니다.</string>
     <string name="overlay_statistics">통계</string>
     <string name="overlay_debug">디버그</string>
     <string name="overlay_copy">통계 복사</string>

@@ -282,8 +282,8 @@
     <string name="summary_codec_performance">Tăng tốc giải mã nhưng tốn điện hơn.</string>
     <string name="title_phone_performance_hints">Gợi ý hiệu năng của điện thoại</string>
     <string name="summary_phone_performance_hints">Cho phép Android điều chỉnh hiệu năng khi stream.</string>
-    <string name="title_gpu_max_clocks">Xung GPU tối đa cho PyroWave</string>
-    <string name="summary_gpu_max_clocks">Giữ GPU Adreno ở tốc độ tối đa khi stream PyroWave. Tốn pin hơn.</string>
+    <string name="title_gpu_max_clocks">Tăng hiệu năng GPU cho PyroWave</string>
+    <string name="summary_gpu_max_clocks">Có thể giảm thời gian giải mã, nhưng tiêu thụ nhiều điện năng hơn và tỏa nhiều nhiệt hơn.</string>
     <string name="title_drop_late_frames">Chỉ giữ khung hình mới nhất</string>
     <string name="summary_drop_late_frames">Bỏ qua các khung hình mà màn hình không còn hiển thị kịp. Áp dụng với nhịp độ khung hình Cân bằng.</string>
     <string name="title_texture_view">Chế độ xem video tương thích</string>

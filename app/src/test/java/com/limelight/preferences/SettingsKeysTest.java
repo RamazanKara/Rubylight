@@ -62,7 +62,6 @@ public class SettingsKeysTest {
     // Stored settings that are read outside PreferenceConfiguration.
     private static final Set<String> READ_ELSEWHERE = new HashSet<>(Arrays.asList(
             "performance_overlay_mode", // Game and the overlay
-            StreamSettings.DEVELOPER_OPTIONS_PREF_STRING, // StreamSettings
             com.limelight.update.UpdatePrefs.AUTO_CHECK_PREF_STRING)); // UpdatePrefs
 
     private static SharedPreferences prefs() {
@@ -351,7 +350,7 @@ public class SettingsKeysTest {
         assertFalse(config.codecLowLatency);
         assertFalse(config.vendorLowLatency);
         assertFalse(config.phonePerformanceHints);
-        // The other latency switches are separate developer options.
+        // The other latency switches remain independent Advanced controls.
         assertTrue(config.dropLateFrames && config.unbatchedInput && config.networkPriority && config.codecPerformance);
         PreferenceConfiguration.setLowLatencyDecoding(prefs, true);
         assertEquals(3, PreferenceConfiguration.lowLatencyDecodingCount(prefs));

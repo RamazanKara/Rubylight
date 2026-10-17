@@ -15,7 +15,7 @@
     <string name="summary_frame_pacing">VRR kapalıyken tepki süresi ile akıcılık arasında denge kurar.</string>
     <string name="summary_language">Uygulamanın kullandığı dili seçin.</string>
     <string name="overlay_mode">Performans katmanı modu</string>
-    <string name="overlay_mode_help">Kompakt tek satır gösterir: gösterilen FPS, ağ gidiş-dönüş süresi (RTT) ve kare kaybı; yayın zorlandığında turuncu veya kırmızıya dönen bir noktanın yanında. İstatistikler canlı yayın ölçümlerini gösterir. Geliştirici seçenekleri gösterilirken sunulan Hata ayıklama, zamanlama yüzdelikleri ve kod çözücü tanılaması ekler; tüm ayrıntıları görmek için kaydırın.</string>
+    <string name="overlay_mode_help">Kompakt tek satır gösterir: gösterilen FPS, ağ gidiş-dönüş süresi (RTT) ve kare kaybı; yayın zorlandığında turuncu veya kırmızıya dönen bir noktanın yanında. İstatistikler canlı yayın ölçümlerini gösterir. Hata ayıklama, zamanlama yüzdelikleri ve kod çözücü tanılaması ekler; tüm ayrıntıları görmek için kaydırın. Üç mod da her zaman kullanılabilir.</string>
     <string name="overlay_statistics">İstatistikler</string>
     <string name="overlay_debug">Hata ayıklama</string>
     <string name="overlay_copy">İstatistikleri kopyala</string>

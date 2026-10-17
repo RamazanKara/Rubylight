@@ -9,8 +9,6 @@
     <string name="settings_section_audio">Audio</string>
     <string name="settings_section_streaming">Streaming</string>
     <string name="settings_section_streaming_summary">Overlay, picture in picture and recovery</string>
-    <string name="settings_section_developer">Developer options</string>
-    <string name="settings_section_developer_summary">Test switches and diagnostics</string>
 
     <!-- Groups inside a section -->
     <string name="settings_category_refresh">Refresh rate</string>
@@ -27,7 +25,7 @@
     <string name="settings_pc_display_mode_value">Set for each PC in its menu</string>
     <string name="settings_help_summary">Setup, pairing and common fixes</string>
     <string name="settings_latency_benchmark_summary">Test this device’s timing without a PC</string>
-    <string name="settings_low_latency_partial">Partly off in Developer options</string>
+    <string name="settings_low_latency_partial">Partly off</string>
     <string name="upscaling_hdr_short">Not used with HDR</string>
     <string name="upscaling_pyrowave_short">PyroWave uses SGSR</string>
 

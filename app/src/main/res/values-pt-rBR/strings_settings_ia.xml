@@ -6,8 +6,6 @@
     <string name="settings_section_audio">Áudio</string>
     <string name="settings_section_streaming">Transmissão</string>
     <string name="settings_section_streaming_summary">Sobreposição, picture-in-picture e recuperação</string>
-    <string name="settings_section_developer">Opções do desenvolvedor</string>
-    <string name="settings_section_developer_summary">Chaves de teste e diagnósticos</string>
     <string name="settings_category_refresh">Taxa de atualização</string>
     <string name="settings_category_image">Imagem</string>
     <string name="settings_category_pc_display">Tela do PC</string>
@@ -20,7 +18,7 @@
     <string name="settings_pc_display_mode_value">Defina para cada PC no menu dele</string>
     <string name="settings_help_summary">Configuração, pareamento e soluções comuns</string>
     <string name="settings_latency_benchmark_summary">Teste a temporização deste dispositivo sem um PC</string>
-    <string name="settings_low_latency_partial">Parcialmente desativada nas Opções do desenvolvedor</string>
+    <string name="settings_low_latency_partial">Parcialmente desativada</string>
     <string name="upscaling_hdr_short">Não usado com HDR</string>
     <string name="upscaling_pyrowave_short">PyroWave usa SGSR</string>
     <string name="title_low_latency_decoding">Decodificação de baixa latência</string>

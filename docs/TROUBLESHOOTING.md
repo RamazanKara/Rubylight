@@ -24,12 +24,12 @@ The client uses the host's advertised ports and custom-port offsets. Check the a
 
 | Symptom | Likely cause | Fix |
 | --- | --- | --- |
-| Black/flickering image or misplaced video | Decoder or surface-path issue. | Try H.264 at 720p/60 with HDR/upscaling off. For conventional SDR, try **Developer options → Compatibility video view** (tap the version in **Settings → App → About** seven times to show Developer options). It is disabled for HDR/PyroWave. |
+| Black/flickering image or misplaced video | Decoder or surface-path issue. | Try H.264 at 720p/60 with HDR/upscaling off. For conventional SDR, try **Settings → Advanced → Compatibility video view**. It is disabled for HDR/PyroWave. |
 | Decoder crash | Codec, resolution or driver combination is unstable. | Try another codec and lower resolution/FPS. After repeated decoder crashes Nightjar resets stream settings to safe values; check the PC override too. |
 | Network loss or stutter | Bitrate exceeds a stable link budget, or traffic is bursty. | Lower bitrate; wire the PC; move closer to the access point. Try **Automatic bitrate** on a host that supports it (currently Rubylight). |
 | Stutter every few minutes | Background Wi-Fi scans on the phone or PC. | Open **Why did my stream stutter?** after a few minutes of play; if it reports repeating stalls, turn off Wi-Fi and Bluetooth scanning under Location settings and use 5 or 6 GHz Wi-Fi. See [Stream health](stream-health.md#stalls-every-few-minutes). |
 | Disconnect error after exiting a game | The host closed the transport before its normal end-of-stream message arrived. | Update to Android 0.4.11 or newer. Nightjar returns to the library when the paired host confirms the session has ended, with **Recover interrupted streams** on or off. If it still fails, attach a fresh **Settings → Report a problem** log and the exact host version. |
-| High Queue wait | Decoder input buffers or the submission thread are backed up. | Lower resolution/FPS and compare with **Developer options → Phone performance hints** off. |
+| High Queue wait | Decoder input buffers or the submission thread are backed up. | Lower resolution/FPS and compare with **Settings → Advanced → Phone performance hints** off. |
 | High Decode time | Decoder/driver scheduling or decoding is slow. | Compare H.264, HEVC and AV1, then reduce resolution/FPS or disable HDR/4:4:4. |
 | Healthy decode but low shown FPS | Presentation, pacing, callback availability or display policy. | Compare Lowest latency/VRR and a rate the screen supports. Check power-saving modes. |
 | High Host processing | PC capture/encoder/game workload. | Reduce the host workload and compare host logs; Android decoder settings cannot remove host processing time. |
@@ -72,7 +72,7 @@ On a paired host that supports it (Rubylight, or Vibepollo with PyroWave availab
 
 1. Reproduce the problem and note the app version, device/Android version, host version and time.
 2. Open **Settings → App → Report a problem**, select **Share** and choose a receiving app in Android's share sheet.
-3. Attach **stream menu → Display → Overlay and diagnostics → Copy stats** and **Settings → Developer options → Export latency CSV** when relevant. Copy stats includes all Debug details.
+3. Attach **stream menu → Display → Overlay and diagnostics → Copy stats** and **Settings → Advanced → Export latency CSV** when relevant. Copy stats includes all Debug details.
 4. For pairing/host issues, long-press the PC, use **PC settings… → View details → Copy debug info**, and add the relevant host log.
 5. Describe what you did, what you expected and what occurred in a [Nightjar issue](https://github.com/RamazanKara/nightjar/issues).
 

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="settings_section_advanced">고급</string>
-    <string name="settings_advanced_summary">저지연 디코딩 및 게임 최적화</string>
+    <string name="settings_advanced_summary">디코딩, 입력 및 진단</string>
     <string name="settings_custom">사용자 지정</string>
     <string name="setting_help">%1$s 정보</string>
     <string name="stream_presets_help_title">사전 설정 정보</string>

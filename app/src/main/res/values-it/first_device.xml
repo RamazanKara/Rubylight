@@ -15,7 +15,7 @@
     <string name="summary_frame_pacing">Bilancia tempo di risposta e fluidità quando il VRR è disattivato.</string>
     <string name="summary_language">Scegli la lingua usata dall’app.</string>
     <string name="overlay_mode">Modalità overlay prestazioni</string>
-    <string name="overlay_mode_help">Compatto mostra una riga: FPS visualizzati, tempo di andata e ritorno di rete (RTT) e perdita di frame, accanto a un punto che diventa ambra o rosso quando lo stream è in difficoltà. Statistiche mostra le misurazioni dello stream in tempo reale. Debug, disponibile quando le Opzioni sviluppatore sono visibili, aggiunge percentili di temporizzazione e diagnostica del decoder; scorri per vedere tutti i dettagli.</string>
+    <string name="overlay_mode_help">Compatto mostra una riga: FPS visualizzati, tempo di andata e ritorno di rete (RTT) e perdita di frame, accanto a un punto che diventa ambra o rosso quando lo stream è in difficoltà. Statistiche mostra le misurazioni dello stream in tempo reale. Debug aggiunge percentili di temporizzazione e diagnostica del decoder; scorri per vedere tutti i dettagli. Tutte e tre le modalità sono sempre disponibili.</string>
     <string name="overlay_statistics">Statistiche</string>
     <string name="overlay_debug">Debug</string>
     <string name="overlay_copy">Copia statistiche</string>

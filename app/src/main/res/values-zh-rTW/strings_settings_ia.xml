@@ -6,8 +6,6 @@
     <string name="settings_section_audio">音訊</string>
     <string name="settings_section_streaming">串流</string>
     <string name="settings_section_streaming_summary">覆蓋層、子母畫面和恢復</string>
-    <string name="settings_section_developer">開發人員選項</string>
-    <string name="settings_section_developer_summary">測試開關和診斷</string>
     <string name="settings_category_refresh">更新率</string>
     <string name="settings_category_image">影像</string>
     <string name="settings_category_pc_display">電腦顯示器</string>
@@ -20,7 +18,7 @@
     <string name="settings_pc_display_mode_value">在每部電腦的選單中設定</string>
     <string name="settings_help_summary">設定、配對和常見問題修正</string>
     <string name="settings_latency_benchmark_summary">不需電腦即可測試這部裝置的時序</string>
-    <string name="settings_low_latency_partial">已在開發人員選項中部分關閉</string>
+    <string name="settings_low_latency_partial">部分關閉</string>
     <string name="upscaling_hdr_short">使用 HDR 時不會使用</string>
     <string name="upscaling_pyrowave_short">PyroWave 使用 SGSR</string>
     <string name="title_low_latency_decoding">低延遲解碼</string>

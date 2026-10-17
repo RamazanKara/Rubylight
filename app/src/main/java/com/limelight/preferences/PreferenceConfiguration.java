@@ -812,7 +812,7 @@ public class PreferenceConfiguration {
         }
     }
 
-    // Settings › Advanced › Low-latency decoding sets these together; Developer options shows each one.
+    // Settings › Advanced › Low-latency decoding sets these together; the individual switches follow it.
     static final String[] LOW_LATENCY_DECODING_KEYS = {
             CODEC_LOW_LATENCY_PREF_STRING, VENDOR_LOW_LATENCY_PREF_STRING, PHONE_PERFORMANCE_HINTS_PREF_STRING,
     };

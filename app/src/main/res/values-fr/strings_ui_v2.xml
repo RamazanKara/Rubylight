@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="settings_section_advanced">Avancé</string>
-    <string name="settings_advanced_summary">Décodage à faible latence et optimisation des jeux</string>
+    <string name="settings_advanced_summary">Décodage, saisie et diagnostics</string>
     <string name="settings_custom">Personnalisé</string>
     <string name="setting_help">À propos de %1$s</string>
     <string name="stream_presets_help_title">À propos des préréglages</string>

@@ -6,8 +6,6 @@
     <string name="settings_section_audio">音频</string>
     <string name="settings_section_streaming">串流</string>
     <string name="settings_section_streaming_summary">叠加层、画中画和恢复</string>
-    <string name="settings_section_developer">开发者选项</string>
-    <string name="settings_section_developer_summary">测试开关和诊断</string>
     <string name="settings_category_refresh">刷新率</string>
     <string name="settings_category_image">画面</string>
     <string name="settings_category_pc_display">电脑显示</string>
@@ -20,7 +18,7 @@
     <string name="settings_pc_display_mode_value">在每台电脑的菜单中单独设置</string>
     <string name="settings_help_summary">设置、配对和常见问题解决</string>
     <string name="settings_latency_benchmark_summary">无需电脑即可测试此设备的计时</string>
-    <string name="settings_low_latency_partial">已在开发者选项中部分关闭</string>
+    <string name="settings_low_latency_partial">部分关闭</string>
     <string name="upscaling_hdr_short">HDR 下不使用</string>
     <string name="upscaling_pyrowave_short">PyroWave 使用 SGSR</string>
     <string name="title_low_latency_decoding">低延迟解码</string>

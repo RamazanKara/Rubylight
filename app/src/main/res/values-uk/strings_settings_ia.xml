@@ -6,8 +6,6 @@
     <string name="settings_section_audio">Звук</string>
     <string name="settings_section_streaming">Трансляція</string>
     <string name="settings_section_streaming_summary">Оверлей, картинка в картинці та відновлення</string>
-    <string name="settings_section_developer">Параметри розробника</string>
-    <string name="settings_section_developer_summary">Тестові перемикачі та діагностика</string>
     <string name="settings_category_refresh">Частота оновлення</string>
     <string name="settings_category_image">Зображення</string>
     <string name="settings_category_pc_display">Дисплей ПК</string>
@@ -20,7 +18,7 @@
     <string name="settings_pc_display_mode_value">Задається для кожного ПК у його меню</string>
     <string name="settings_help_summary">Налаштування, сполучення та поширені виправлення</string>
     <string name="settings_latency_benchmark_summary">Перевірити таймінги цього пристрою без ПК</string>
-    <string name="settings_low_latency_partial">Частково вимкнено в параметрах розробника</string>
+    <string name="settings_low_latency_partial">Частково вимкнено</string>
     <string name="upscaling_hdr_short">Не використовується з HDR</string>
     <string name="upscaling_pyrowave_short">PyroWave використовує SGSR</string>
     <string name="title_low_latency_decoding">Декодування з низькою затримкою</string>

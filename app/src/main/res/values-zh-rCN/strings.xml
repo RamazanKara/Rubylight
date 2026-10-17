@@ -282,8 +282,8 @@
     <string name="summary_codec_performance">以更高功耗为代价加快解码速度。</string>
     <string name="title_phone_performance_hints">手机性能提示</string>
     <string name="summary_phone_performance_hints">允许 Android 在串流期间调节性能。</string>
-    <string name="title_gpu_max_clocks">PyroWave 最高 GPU 频率</string>
-    <string name="summary_gpu_max_clocks">串流 PyroWave 时让 Adreno GPU 保持全速运行。耗电更多。</string>
+    <string name="title_gpu_max_clocks">提升 PyroWave 的 GPU 性能</string>
+    <string name="summary_gpu_max_clocks">可能缩短解码时间，但会增加耗电量和发热量。</string>
     <string name="title_drop_late_frames">仅保留最新的帧</string>
     <string name="summary_drop_late_frames">跳过屏幕已无法及时显示的帧。在“平衡”帧速调节下适用。</string>
     <string name="title_texture_view">兼容视频视图</string>

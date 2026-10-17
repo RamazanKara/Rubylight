@@ -7,8 +7,6 @@
     <string name="settings_section_audio">Audio</string>
     <string name="settings_section_streaming">Streaming</string>
     <string name="settings_section_streaming_summary">Leistungsanzeige, Bild im Bild und Wiederherstellung</string>
-    <string name="settings_section_developer">Entwickleroptionen</string>
-    <string name="settings_section_developer_summary">Testschalter und Diagnose</string>
 
     <!-- Groups inside a section -->
     <string name="settings_category_refresh">Bildwiederholrate</string>
@@ -25,7 +23,7 @@
     <string name="settings_pc_display_mode_value">Für jeden PC in seinem Menü einstellen</string>
     <string name="settings_help_summary">Einrichtung, Koppeln und häufige Probleme</string>
     <string name="settings_latency_benchmark_summary">Timing dieses Geräts ohne PC testen</string>
-    <string name="settings_low_latency_partial">In den Entwickleroptionen teilweise aus</string>
+    <string name="settings_low_latency_partial">Teilweise aus</string>
     <string name="upscaling_hdr_short">Nicht mit HDR</string>
     <string name="upscaling_pyrowave_short">PyroWave nutzt SGSR</string>
 

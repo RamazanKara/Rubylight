@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="settings_section_advanced">進階</string>
-    <string name="settings_advanced_summary">低延遲解碼和遊戲最佳化</string>
+    <string name="settings_advanced_summary">解碼、輸入和診斷</string>
     <string name="settings_custom">自訂</string>
     <string name="setting_help">關於「%1$s」</string>
     <string name="stream_presets_help_title">關於預設組合</string>

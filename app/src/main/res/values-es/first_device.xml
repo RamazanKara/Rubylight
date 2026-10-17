@@ -15,7 +15,7 @@
     <string name="summary_frame_pacing">Equilibra el tiempo de respuesta y la fluidez cuando VRR está desactivado.</string>
     <string name="summary_language">Elige el idioma de la aplicación.</string>
     <string name="overlay_mode">Modo de superposición de rendimiento</string>
-    <string name="overlay_mode_help">Compacta muestra una línea: FPS mostrados, tiempo de ida y vuelta de la red (RTT) y pérdida de fotogramas, tras un punto que se vuelve ámbar o rojo cuando la transmisión tiene problemas. Estadísticas muestra mediciones de la transmisión en directo. Depuración, disponible mientras se muestran las opciones para desarrolladores, añade percentiles de tiempos y diagnóstico del decodificador; desplázate para ver todos los detalles.</string>
+    <string name="overlay_mode_help">Compacta muestra una línea: FPS mostrados, tiempo de ida y vuelta de la red (RTT) y pérdida de fotogramas, tras un punto que se vuelve ámbar o rojo cuando la transmisión tiene problemas. Estadísticas muestra mediciones de la transmisión en directo. Depuración añade percentiles de tiempos y diagnóstico del decodificador; desplázate para ver todos los detalles. Los tres modos están siempre disponibles.</string>
     <string name="overlay_statistics">Estadísticas</string>
     <string name="overlay_debug">Depuración</string>
     <string name="overlay_copy">Copiar estadísticas</string>

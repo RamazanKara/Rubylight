@@ -15,7 +15,7 @@
     <string name="summary_frame_pacing">Équilibre entre réactivité et fluidité quand le VRR est désactivé.</string>
     <string name="summary_language">Choisissez la langue utilisée par l’application.</string>
     <string name="overlay_mode">Mode de la superposition des performances</string>
-    <string name="overlay_mode_help">Compact affiche une seule ligne : FPS affichés, aller-retour réseau (RTT) et perte d’images, derrière un point qui devient orange ou rouge quand le stream est en difficulté. Statistiques affiche les mesures du stream en direct. Débogage, proposé quand les options pour les développeurs sont affichées, ajoute des centiles de timing et des diagnostics du décodeur ; faites défiler pour voir tous les détails.</string>
+    <string name="overlay_mode_help">Compact affiche une seule ligne : FPS affichés, aller-retour réseau (RTT) et perte d’images, derrière un point qui devient orange ou rouge quand le stream est en difficulté. Statistiques affiche les mesures du stream en direct. Débogage ajoute des centiles de timing et des diagnostics du décodeur ; faites défiler pour voir tous les détails. Les trois modes sont toujours disponibles.</string>
     <string name="overlay_statistics">Statistiques</string>
     <string name="overlay_debug">Débogage</string>
     <string name="overlay_copy">Copier les stats</string>

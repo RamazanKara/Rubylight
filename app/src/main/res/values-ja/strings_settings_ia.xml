@@ -6,8 +6,6 @@
     <string name="settings_section_audio">音声</string>
     <string name="settings_section_streaming">ストリーミング</string>
     <string name="settings_section_streaming_summary">オーバーレイ、ピクチャー イン ピクチャー、復旧</string>
-    <string name="settings_section_developer">開発者向けオプション</string>
-    <string name="settings_section_developer_summary">テスト用スイッチと診断</string>
     <string name="settings_category_refresh">リフレッシュレート</string>
     <string name="settings_category_image">画質</string>
     <string name="settings_category_pc_display">PC の表示</string>
@@ -20,7 +18,7 @@
     <string name="settings_pc_display_mode_value">各 PC のメニューで設定します</string>
     <string name="settings_help_summary">セットアップ、ペアリング、よくある問題の解決</string>
     <string name="settings_latency_benchmark_summary">PC なしでこのデバイスのタイミングをテストします</string>
-    <string name="settings_low_latency_partial">開発者向けオプションで一部オフ</string>
+    <string name="settings_low_latency_partial">一部オフ</string>
     <string name="upscaling_hdr_short">HDR では使用しません</string>
     <string name="upscaling_pyrowave_short">PyroWave は SGSR を使用</string>
     <string name="title_low_latency_decoding">低遅延デコード</string>

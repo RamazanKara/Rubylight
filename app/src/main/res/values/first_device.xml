@@ -15,7 +15,7 @@
     <string name="summary_frame_pacing">Balance response time and smoothness when VRR is off.</string>
     <string name="summary_language">Choose the language used by the app.</string>
     <string name="overlay_mode">Performance overlay mode</string>
-    <string name="overlay_mode_help">Compact shows one line: displayed FPS, network round trip (RTT) and frame loss, behind a dot that turns amber or red when the stream struggles. Statistics shows live stream measurements. Debug, offered while Developer options are shown, adds timing percentiles and decoder diagnostics; scroll to see all details.</string>
+    <string name="overlay_mode_help">Compact shows one line: displayed FPS, network round trip (RTT) and frame loss, behind a dot that turns amber or red when the stream struggles. Statistics shows live stream measurements. Debug adds timing percentiles and decoder diagnostics; scroll to see all details. All three modes are always available.</string>
     <string name="overlay_statistics">Statistics</string>
     <string name="overlay_debug">Debug</string>
     <string name="overlay_copy">Copy stats</string>

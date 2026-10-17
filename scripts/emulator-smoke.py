@@ -188,19 +188,6 @@ def navigate_up():
         tap("Navigate up")
 
 
-def show_developer_options():
-    """Tap the version in Settings > App > About seven times, then return to the overview."""
-    tap("App")
-    tap("About", scroll=True)
-    version = next(n for n in tree().iter("node") if n.get("resource-id") == "android:id/message")
-    x1, y1, x2, y2 = bounds(version)
-    for _ in range(7):
-        adb("shell", "input", "tap", str((x1+x2)//2), str((y1+y2)//2))
-    tap("android:id/button1")
-    navigate_up()
-    find("Developer options", scroll=True)
-
-
 def enter_text(label, text):
     field = find(label)
     tap(label)
@@ -451,7 +438,7 @@ def capture_ui_set(width, font, rotation=0):
     find("Presets", scroll=True)
     screenshot(prefix + "-settings-root")
     assert not any(n.get("text") == "Developer options" for n in tree().iter("node")), \
-        "Developer options are shown before they were turned on"
+        "Settings still has a separate Developer options section"
     for title, name, setting in (("Video", "video", "Stream resolution"),
                                  ("Display & image", "display", "Frame pacing"),
                                  ("Controls", "controls", "Controller buttons"),
@@ -1236,41 +1223,37 @@ def main():
             tap(decoding)
             prefs(f"{PACKAGE}_preferences", lambda root: all(pref_value(root, key) == "true" for key in parts),
                   "Low-latency decoding did not turn its parts back on")
-            navigate_up()
-            show_developer_options()
-            prefs(f"{PACKAGE}_preferences", lambda root: pref_value(root, "developer_options") == "true",
-                  "Seven taps on the version did not turn on Developer options")
-            tap("Developer options", scroll=True)
             hints = "Phone performance hints"
             tap(hints, scroll=True)
             prefs(f"{PACKAGE}_preferences", lambda root: any(
                 n.get("name") == "checkbox_phone_performance_hints" and n.get("value") == "false" for n in root),
                 "Phone performance hints were not on by default or could not be disabled")
-            screenshot("22-developer-options")
+            screenshot("22-advanced-diagnostics")
             tap(hints)
             prefs(f"{PACKAGE}_preferences", lambda root: any(
                 n.get("name") == "checkbox_phone_performance_hints" and n.get("value") == "true" for n in root),
                 "Phone performance hints could not be enabled")
-            # Hiding the section again returns to the overview and keeps every value.
-            tap("Show developer options", scroll="up")
+            # Returning to the overview and reopening Advanced keeps the saved value.
+            navigate_up()
             find("Presets", scroll="up")
-            assert not any(n.get("text") == "Developer options" for n in tree().iter("node")), \
-                "Developer options stayed visible after hiding them"
-            prefs(f"{PACKAGE}_preferences", lambda root: pref_value(root, "developer_options") == "false" and
-                  pref_value(root, "checkbox_phone_performance_hints") == "true",
-                  "Hiding Developer options changed a value")
-            tap("Streaming")
+            tap("Advanced", scroll=True)
+            find(hints, scroll=True)
+            prefs(f"{PACKAGE}_preferences", lambda root: pref_value(root, "checkbox_phone_performance_hints") == "true",
+                  "Reopening Advanced changed a value")
+            find("Latency benchmark", scroll=True)
+            navigate_up()
+            tap("Streaming", scroll="up")
             overlay = "Show performance overlay"
             tap(overlay, scroll=True)
             screenshot("13-streaming-settings")
             prefs(f"{PACKAGE}_preferences", lambda root: any(
                 n.get("name") == "checkbox_enable_perf_overlay" and n.get("value") == "true" for n in root),
                 "Overlay preference was not enabled")
-            # The overlay mode sits beside the switch; Debug stays out while Developer options are hidden.
+            # All overlay modes are available without a separate settings gate.
             tap("Performance overlay mode", scroll=True)
+            find("Compact")
             find("Statistics")
-            assert not any(n.get("text") == "Debug" for n in tree().iter("node")), \
-                "The overlay mode offers Debug while Developer options are hidden"
+            find("Debug")
             adb("shell", "input", "keyevent", "4")
             find(overlay)
             adb("shell", "input", "keyevent", "3")

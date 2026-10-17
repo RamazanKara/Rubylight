@@ -6,8 +6,6 @@
     <string name="settings_section_audio">Ses</string>
     <string name="settings_section_streaming">Yayın</string>
     <string name="settings_section_streaming_summary">Katman, pencere içinde pencere ve kurtarma</string>
-    <string name="settings_section_developer">Geliştirici seçenekleri</string>
-    <string name="settings_section_developer_summary">Test anahtarları ve tanılama</string>
     <string name="settings_category_refresh">Yenileme hızı</string>
     <string name="settings_category_image">Görüntü</string>
     <string name="settings_category_pc_display">Bilgisayar ekranı</string>
@@ -20,7 +18,7 @@
     <string name="settings_pc_display_mode_value">Her bilgisayar için kendi menüsünden ayarlanır</string>
     <string name="settings_help_summary">Kurulum, eşleştirme ve yaygın çözümler</string>
     <string name="settings_latency_benchmark_summary">Bu cihazın zamanlamasını bilgisayar olmadan test edin</string>
-    <string name="settings_low_latency_partial">Geliştirici seçeneklerinde kısmen kapalı</string>
+    <string name="settings_low_latency_partial">Kısmen kapalı</string>
     <string name="upscaling_hdr_short">HDR ile kullanılmaz</string>
     <string name="upscaling_pyrowave_short">PyroWave SGSR kullanır</string>
     <string name="title_low_latency_decoding">Düşük gecikmeli kod çözme</string>

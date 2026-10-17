@@ -15,7 +15,7 @@
     <string name="summary_frame_pacing">在 VRR 關閉時平衡回應時間和流暢度。</string>
     <string name="summary_language">選擇應用程式使用的語言。</string>
     <string name="overlay_mode">效能覆蓋層模式</string>
-    <string name="overlay_mode_help">「精簡」會顯示一行資訊：顯示的 FPS、網路來回時間 (RTT) 和影格遺失，前方的圓點會在串流不穩時變成琥珀色或紅色。「統計資料」會顯示即時的串流測量結果。「偵錯」會在顯示開發人員選項時提供，加入時間百分位數和解碼器診斷資訊；捲動即可查看所有詳細資料。</string>
+    <string name="overlay_mode_help">「精簡」會顯示一行資訊：顯示的 FPS、網路來回時間 (RTT) 和影格遺失，前方的圓點會在串流不穩時變成琥珀色或紅色。「統計資料」會顯示即時的串流測量結果。「偵錯」會加入時間百分位數和解碼器診斷資訊；捲動即可查看所有詳細資料。這三種模式隨時都可使用。</string>
     <string name="overlay_statistics">統計資料</string>
     <string name="overlay_debug">偵錯</string>
     <string name="overlay_copy">複製統計資料</string>

@@ -282,8 +282,8 @@
     <string name="summary_codec_performance">Daha fazla güç tüketimi pahasına kod çözmeyi hızlandırır.</string>
     <string name="title_phone_performance_hints">Telefon performans ipuçları</string>
     <string name="summary_phone_performance_hints">Yayın sırasında Android’in performansı ayarlamasına izin verir.</string>
-    <string name="title_gpu_max_clocks">PyroWave için en yüksek GPU saati</string>
-    <string name="summary_gpu_max_clocks">PyroWave yayını sırasında Adreno GPU’yu tam hızda tutar. Daha fazla pil tüketir.</string>
+    <string name="title_gpu_max_clocks">PyroWave için GPU performansını artır</string>
+    <string name="summary_gpu_max_clocks">Kod çözme süresini kısaltabilir, ancak daha fazla güç tüketir ve daha fazla ısı üretir.</string>
     <string name="title_drop_late_frames">Yalnızca en yeni kareyi tut</string>
     <string name="summary_drop_late_frames">Ekranın artık zamanında gösteremeyeceği kareleri atlar. Dengeli kare zamanlama ile geçerlidir.</string>
     <string name="title_texture_view">Uyumluluk video görünümü</string>

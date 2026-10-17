@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="settings_section_advanced">Nâng cao</string>
-    <string name="settings_advanced_summary">Giải mã độ trễ thấp và tối ưu hóa trò chơi</string>
+    <string name="settings_advanced_summary">Giải mã, đầu vào và chẩn đoán</string>
     <string name="settings_custom">Tùy chỉnh</string>
     <string name="setting_help">Giới thiệu về %1$s</string>
     <string name="stream_presets_help_title">Giới thiệu về cấu hình sẵn</string>

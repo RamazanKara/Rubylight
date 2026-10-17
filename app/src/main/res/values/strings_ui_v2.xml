@@ -1,6 +1,6 @@
 <resources>
     <string name="settings_section_advanced">Advanced</string>
-    <string name="settings_advanced_summary">Low-latency decoding and game optimization</string>
+    <string name="settings_advanced_summary">Decoding, input and diagnostics</string>
     <string name="settings_custom">Custom</string>
     <string name="setting_help">About %1$s</string>
     <string name="stream_presets_help_title">About presets</string>

@@ -6,8 +6,6 @@
     <string name="settings_section_audio">오디오</string>
     <string name="settings_section_streaming">스트리밍</string>
     <string name="settings_section_streaming_summary">오버레이, PIP 모드 및 복구</string>
-    <string name="settings_section_developer">개발자 옵션</string>
-    <string name="settings_section_developer_summary">테스트 스위치 및 진단</string>
     <string name="settings_category_refresh">주사율</string>
     <string name="settings_category_image">화질</string>
     <string name="settings_category_pc_display">PC 디스플레이</string>
@@ -20,7 +18,7 @@
     <string name="settings_pc_display_mode_value">각 PC의 메뉴에서 설정</string>
     <string name="settings_help_summary">설정, 페어링 및 일반적인 문제 해결</string>
     <string name="settings_latency_benchmark_summary">PC 없이 이 기기의 타이밍 테스트</string>
-    <string name="settings_low_latency_partial">개발자 옵션에서 일부 꺼짐</string>
+    <string name="settings_low_latency_partial">일부 꺼짐</string>
     <string name="upscaling_hdr_short">HDR에서는 사용 안 됨</string>
     <string name="upscaling_pyrowave_short">PyroWave는 SGSR 사용</string>
     <string name="title_low_latency_decoding">저지연 디코딩</string>

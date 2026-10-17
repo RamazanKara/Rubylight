@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="settings_section_advanced">Gelişmiş</string>
-    <string name="settings_advanced_summary">Düşük gecikmeli kod çözme ve oyun optimizasyonu</string>
+    <string name="settings_advanced_summary">Kod çözme, giriş ve tanılama</string>
     <string name="settings_custom">Özel</string>
     <string name="setting_help">%1$s hakkında</string>
     <string name="stream_presets_help_title">Hazır ayarlar hakkında</string>

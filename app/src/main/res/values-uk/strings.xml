@@ -282,8 +282,8 @@
     <string name="summary_codec_performance">Пришвидшує декодування ціною більшого енергоспоживання.</string>
     <string name="title_phone_performance_hints">Підказки продуктивності телефона</string>
     <string name="summary_phone_performance_hints">Дозволити Android налаштовувати продуктивність під час трансляції.</string>
-    <string name="title_gpu_max_clocks">Макс. частоти GPU для PyroWave</string>
-    <string name="summary_gpu_max_clocks">Тримати GPU Adreno на повній швидкості під час трансляції PyroWave. Витрачає більше заряду.</string>
+    <string name="title_gpu_max_clocks">Підвищити продуктивність GPU для PyroWave</string>
+    <string name="summary_gpu_max_clocks">Може скоротити час декодування, але збільшує споживання енергії та нагрівання.</string>
     <string name="title_drop_late_frames">Лише найновіший кадр</string>
     <string name="summary_drop_late_frames">Пропускати кадри, які екран уже не встигає показати вчасно. Діє зі збалансованою рівномірністю кадрів.</string>
     <string name="title_texture_view">Сумісний відеовивід</string>

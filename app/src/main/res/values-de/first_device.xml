@@ -15,7 +15,7 @@
     <string name="summary_frame_pacing">Wäge ohne VRR zwischen Latenz und flüssigem Bild ab.</string>
     <string name="summary_language">Wähle die Sprache der App.</string>
     <string name="overlay_mode">Leistungsanzeige</string>
-    <string name="overlay_mode_help">Kompakt zeigt eine Zeile: angezeigte FPS, Netzwerk-Umlaufzeit (RTT) und Bildverlust, mit einem Punkt, der gelb oder rot wird, wenn der Stream hakt. Statistik zeigt aktuelle Stream-Messwerte. Debug, verfügbar bei eingeblendeten Entwickleroptionen, ergänzt Zeitperzentile und Decoder-Diagnosen; für alle Details scrollen.</string>
+    <string name="overlay_mode_help">Kompakt zeigt eine Zeile: angezeigte FPS, Netzwerk-Umlaufzeit (RTT) und Bildverlust, mit einem Punkt, der gelb oder rot wird, wenn der Stream hakt. Statistik zeigt aktuelle Stream-Messwerte. Debug ergänzt Zeitperzentile und Decoder-Diagnosen; für alle Details scrollen. Alle drei Modi sind jederzeit verfügbar.</string>
     <string name="overlay_statistics">Statistik</string>
     <string name="overlay_debug">Debug</string>
     <string name="overlay_copy">Werte kopieren</string>

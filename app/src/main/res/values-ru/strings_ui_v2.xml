@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="settings_section_advanced">Дополнительно</string>
-    <string name="settings_advanced_summary">Декодирование с низкой задержкой и оптимизация игр</string>
+    <string name="settings_advanced_summary">Декодирование, ввод и диагностика</string>
     <string name="settings_custom">Свой вариант</string>
     <string name="setting_help">О параметре «%1$s»</string>
     <string name="stream_presets_help_title">О пресетах</string>

@@ -15,7 +15,7 @@
     <string name="summary_frame_pacing">Cân bằng thời gian phản hồi và độ mượt khi VRR tắt.</string>
     <string name="summary_language">Chọn ngôn ngữ dùng trong ứng dụng.</string>
     <string name="overlay_mode">Chế độ lớp phủ hiệu năng</string>
-    <string name="overlay_mode_help">Thu gọn hiển thị một dòng: FPS hiển thị, thời gian khứ hồi mạng (RTT) và tỷ lệ mất khung hình, cạnh một chấm chuyển sang màu hổ phách hoặc đỏ khi stream gặp khó khăn. Thống kê hiển thị số đo stream trực tiếp. Gỡ lỗi, có khi Tùy chọn cho nhà phát triển đang hiện, bổ sung phân vị thời gian và chẩn đoán trình giải mã; cuộn để xem toàn bộ chi tiết.</string>
+    <string name="overlay_mode_help">Thu gọn hiển thị một dòng: FPS hiển thị, thời gian khứ hồi mạng (RTT) và tỷ lệ mất khung hình, cạnh một chấm chuyển sang màu hổ phách hoặc đỏ khi stream gặp khó khăn. Thống kê hiển thị số đo stream trực tiếp. Gỡ lỗi bổ sung phân vị thời gian và chẩn đoán trình giải mã; cuộn để xem toàn bộ chi tiết. Cả ba chế độ đều luôn có sẵn.</string>
     <string name="overlay_statistics">Thống kê</string>
     <string name="overlay_debug">Gỡ lỗi</string>
     <string name="overlay_copy">Sao chép thống kê</string>

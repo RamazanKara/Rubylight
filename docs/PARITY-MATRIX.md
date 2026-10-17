@@ -53,7 +53,7 @@ Nightjar decides from what each host reports about itself, not from its name. A 
 | Connection test / local benchmark | Delay test for any PC, plus throughput where the host offers the download test, and a hostless timing benchmark. The test says up front whether it measures speed. | Any host. Throughput download: Rubylight, Vibepollo (paired) |
 | Problem reports | Redacted local events, decoder details and the last crash record, shared when you choose. | Any host |
 | PiP / shortcuts / frontends | Picture-in-picture, pinned app shortcuts and launcher entries for ES-DE, Daijisho and Pegasus. | Any host |
-| Settings / accessibility | Seven sections plus hidden Developer options, search, presets, PC profiles, a control layout editor, TalkBack and D-pad navigation, in 15 languages ([translations](TRANSLATIONS.md)). | Any host |
+| Settings / accessibility | Seven sections, with decoder controls and diagnostics directly in Advanced; search, presets, PC profiles, a control layout editor, TalkBack and D-pad navigation, in 15 languages ([translations](TRANSLATIONS.md)). | Any host |
 | Host web UI | Open the host's web UI from an online PC's settings, at its default port (six above the HTTPS port). Devices, apps and host settings remain in the host's web UI, with its own login and network access requirements. | Any host except NVIDIA GameStream |
 
 See [building](building.md) for reproducible checks.

@@ -282,8 +282,8 @@
     <string name="summary_codec_performance">Przyspiesza dekodowanie kosztem większego zużycia energii.</string>
     <string name="title_phone_performance_hints">Wskazówki wydajności telefonu</string>
     <string name="summary_phone_performance_hints">Pozwala Androidowi dostrajać wydajność podczas strumieniowania.</string>
-    <string name="title_gpu_max_clocks">Maks. zegary GPU dla PyroWave</string>
-    <string name="summary_gpu_max_clocks">Utrzymuje GPU Adreno na pełnej szybkości podczas strumieniowania PyroWave. Zużywa więcej baterii.</string>
+    <string name="title_gpu_max_clocks">Zwiększ wydajność GPU dla PyroWave</string>
+    <string name="summary_gpu_max_clocks">Może skrócić czas dekodowania, ale zużywa więcej energii i wytwarza więcej ciepła.</string>
     <string name="title_drop_late_frames">Zachowuj tylko najnowszą klatkę</string>
     <string name="summary_drop_late_frames">Pomija klatki, których ekran nie zdąży już wyświetlić. Działa ze zrównoważonym tempem klatek.</string>
     <string name="title_texture_view">Zgodny widok wideo</string>

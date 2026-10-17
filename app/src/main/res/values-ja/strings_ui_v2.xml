@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="settings_section_advanced">詳細設定</string>
-    <string name="settings_advanced_summary">低遅延デコードとゲームの最適化</string>
+    <string name="settings_advanced_summary">デコード、入力、診断</string>
     <string name="settings_custom">カスタム</string>
     <string name="setting_help">%1$s について</string>
     <string name="stream_presets_help_title">プリセットについて</string>

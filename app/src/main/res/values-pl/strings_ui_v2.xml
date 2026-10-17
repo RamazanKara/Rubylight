@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="settings_section_advanced">Zaawansowane</string>
-    <string name="settings_advanced_summary">Dekodowanie o niskim opóźnieniu i optymalizacja gier</string>
+    <string name="settings_advanced_summary">Dekodowanie, sterowanie i diagnostyka</string>
     <string name="settings_custom">Niestandardowe</string>
     <string name="setting_help">Informacje: %1$s</string>
     <string name="stream_presets_help_title">Informacje o profilach</string>

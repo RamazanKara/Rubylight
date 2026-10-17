@@ -447,7 +447,6 @@
             android:title="@string/title_enable_perf_overlay"
             android:dialogMessage="@string/summary_enable_perf_overlay"
             android:defaultValue="false"/>
-        <!-- Debug is listed only while Developer options are shown, or while it is the saved mode (StreamSettings). -->
         <com.limelight.preferences.MaterialListPreference
             android:key="performance_overlay_mode"
             android:title="@string/overlay_mode"
@@ -519,7 +518,7 @@
 
     <!-- Advanced -->
     <PreferenceCategory android:key="category_advanced_settings">
-        <!-- Sets the decoder, chipset and phone switches in Developer options together (StreamSettings). -->
+        <!-- Sets the decoder, chipset and phone switches below together (StreamSettings). -->
         <com.limelight.preferences.MaterialSwitchPreference
             android:key="low_latency_decoding"
             android:title="@string/title_low_latency_decoding"
@@ -535,16 +534,7 @@
         <Preference android:key="gpu_driver" android:title="@string/gpu_driver_title" />
     </PreferenceCategory>
 
-    <!-- Developer options: hidden until About's version is tapped seven times. Their values apply
-         whether or not the section is shown. -->
-    <PreferenceCategory android:key="category_developer">
-        <com.limelight.preferences.MaterialSwitchPreference
-            android:key="developer_options"
-            android:title="@string/title_developer_options"
-            android:dialogMessage="@string/summary_developer_options"
-            android:defaultValue="false" />
-    </PreferenceCategory>
-    <PreferenceCategory android:key="category_developer_decoder" android:title="@string/settings_category_decoder">
+    <PreferenceCategory android:key="category_advanced_decoder" android:title="@string/settings_category_decoder">
         <com.limelight.preferences.MaterialSwitchPreference
             android:key="checkbox_codec_low_latency"
             android:title="@string/title_codec_low_latency"
@@ -569,7 +559,7 @@
         <com.limelight.preferences.MaterialSwitchPreference
             android:key="checkbox_gpu_max_clocks"
             android:title="@string/title_gpu_max_clocks"
-            android:dialogMessage="@string/summary_gpu_max_clocks"
+            android:summary="@string/summary_gpu_max_clocks"
             android:defaultValue="false" />
         <com.limelight.preferences.MaterialSwitchPreference
             android:key="checkbox_drop_late_frames"
@@ -587,7 +577,7 @@
             android:dialogMessage="@string/summary_unlock_fps"
             android:defaultValue="false" />
     </PreferenceCategory>
-    <PreferenceCategory android:key="category_developer_input" android:title="@string/settings_category_input_network">
+    <PreferenceCategory android:key="category_advanced_input" android:title="@string/settings_category_input_network">
         <com.limelight.preferences.MaterialSwitchPreference
             android:key="checkbox_unbatched_input"
             android:title="@string/title_unbatched_input"
@@ -599,7 +589,7 @@
             android:dialogMessage="@string/summary_network_priority"
             android:defaultValue="true" />
     </PreferenceCategory>
-    <PreferenceCategory android:key="category_developer_diagnostics" android:title="@string/settings_category_diagnostics">
+    <PreferenceCategory android:key="category_advanced_diagnostics" android:title="@string/settings_category_diagnostics">
         <com.limelight.preferences.MaterialSwitchPreference
             android:key="checkbox_enable_post_stream_toast"
             android:title="@string/title_enable_post_stream_toast"

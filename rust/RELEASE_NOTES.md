@@ -1,10 +1,20 @@
-# Rubylight 2.5.3 for Windows
+# Rubylight 2.5.4 for Windows
 
 [Documentation](../docs/README.md) · [Install and migrate](../docs/getting-started.md) · [Configuration](../docs/configuration.md) · [Features](../docs/features.md)
 
-**Release history:** [2.5.3](#new-in-253) · [2.5.2](#new-in-252) · [2.5.1](#new-in-251) · [2.5.0](#new-in-250) · [2.4.8](#new-in-248) · [2.4.7](#new-in-247) · [2.4.6](#new-in-246) · [2.4.5](#new-in-245) · [2.4.4](#new-in-244) · [2.4.3](#new-in-243) · [2.4.2](#new-in-242) · [2.4.1](#new-in-241) · [2.4.0](#new-in-240) · [2.3.1](#new-in-231) · [2.3.0](#new-in-230) · [2.2.2 – 2.2.21](#new-in-2221) · [2.2.1](#new-in-221) · [2.2.0](#new-in-220) · [2.1.0](#new-in-210) · [2.0.x](#new-in-201) · [release candidates](#new-in-rc30)
+**Release history:** [2.5.4](#new-in-254) · [2.5.3](#new-in-253) · [2.5.2](#new-in-252) · [2.5.1](#new-in-251) · [2.5.0](#new-in-250) · [2.4.8](#new-in-248) · [2.4.7](#new-in-247) · [2.4.6](#new-in-246) · [2.4.5](#new-in-245) · [2.4.4](#new-in-244) · [2.4.3](#new-in-243) · [2.4.2](#new-in-242) · [2.4.1](#new-in-241) · [2.4.0](#new-in-240) · [2.3.1](#new-in-231) · [2.3.0](#new-in-230) · [2.2.2 – 2.2.21](#new-in-2221) · [2.2.1](#new-in-221) · [2.2.0](#new-in-220) · [2.1.0](#new-in-210) · [2.0.x](#new-in-201) · [release candidates](#new-in-rc30)
 
-Rubylight, called Butterpollo until rc.29, is written in Rust: host, native helpers, service and setup, with a Svelte web console. The 2.5.3 installer is named `rubylight-setup-2.5.3.exe` and upgrades an existing Vibepollo or Butterpollo installation in place, keeping settings, paired devices, the app library and covers. Codec SDKs and Windows drivers remain external components; the setup installs the drivers.
+Rubylight, called Butterpollo until rc.29, is written in Rust: host, native helpers, service and setup, with a Svelte web console. The 2.5.4 installer is named `rubylight-setup-2.5.4.exe` and upgrades an existing Vibepollo or Butterpollo installation in place, keeping settings, paired devices, the app library and covers. Codec SDKs and Windows drivers remain external components; the setup installs the drivers.
+
+## New in 2.5.4
+
+- **Improve HEVC intra-refresh compatibility.** Clients that negotiate HEVC intra-refresh now use a finite GOP and refresh whole CTB rows, following Eftimin70's Xbox workaround and Nonary/vibeshine's follow-up. Both settings are checked before and after encoder initialization. Drivers that reject them retain the previous policy; a failed candidate initialization gets one fresh attempt using that policy. Startup and recovery keyframes remain enabled.
+- **Respect local display changes while a game is disconnected.** A paused game keeps its virtual-display lease without switching the display back on after a local Win+P change or restoring its mode/HDR. Resuming reactivates the display and publishes the capture target before streaming starts. Active streams retain display recovery. This addresses a code path relevant to [issue #35](https://github.com/RamazanKara/Rubylight/issues/35); the full reported freeze and touchscreen symptom remain unconfirmed.
+- **Restore 1440p virtual-display modes.** The updated driver includes 2560x1440 at 60, 120 and 240 Hz even for a 4K stream. Combining mode lists also keeps custom refresh rates and the preferred refresh order. Run this release's installer to update the display driver.
+
+**Validation and limits:** 574 host/Windows automated tests, formatting and Clippy passed for the display change. The HEVC candidate independently decoded all 1,800 SDR/HDR frames and both 167-frame recovery tails on an RX 7900 XT at 4K119.88. Xbox client confirmation is still pending. The native paused-display test could not run because Windows denied driver access. These results do not establish a picture-quality or latency gain. The separate HDR-toggle report in [issue #36](https://github.com/RamazanKara/Rubylight/issues/36) remains unresolved. See the [HEVC test method and results](PERFORMANCE_WORK.md#2026-10-17-negotiated-hevc-intra-refresh-candidate).
+
+To restore the physical monitor layout automatically when Moonlight disconnects, enable **Settings → Display → Restore displays on disconnect**. It defaults to off; the default restore delay is three seconds.
 
 ## New in 2.5.3
 

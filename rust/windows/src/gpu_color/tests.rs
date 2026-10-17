@@ -2,6 +2,9 @@ use super::*;
 use crate::capture::{ComGuard, Image};
 use std::time::Instant;
 
+#[path = "downscale_tests.rs"]
+mod downscale;
+
 #[test]
 #[ignore = "requires D3D11 native P010 views and GPU timestamp queries"]
 fn gpu_conversion_timing() -> Result<()> {

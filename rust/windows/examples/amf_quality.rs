@@ -34,6 +34,7 @@ fn main() -> anyhow::Result<()> {
                 "Rubylight encoder quality probe\n\
 --codec hevc (h264/hevc/av1) --width 1920 --height 1080 --fps 120 --bitrate 20000\n\
 --frames N: frames to read from stdin (BGRA, or linear gbrpf32le with --hdr 1)\n\
+--source-width N --source-height N: input size, defaults to the encoded size\n\
 --config FILE: host settings; --out FILE: bitstream"
             );
             return Ok(());
@@ -67,6 +68,11 @@ fn main() -> anyhow::Result<()> {
         ..Default::default()
     };
     let frames = number("--frames", 300)?;
+    let source_width = number("--source-width", config.width)?;
+    let source_height = number("--source-height", config.height)?;
+    if source_width == 0 || source_height == 0 || source_width > 16384 || source_height > 16384 {
+        bail!("source dimensions must be between 1 and 16384");
+    }
     let out = option("--out").context("--out is required")?;
     let tuning = match option("--config") {
         Some(path) => butterpollo_core::config::Config::load(std::path::Path::new(&path))?,
@@ -75,7 +81,7 @@ fn main() -> anyhow::Result<()> {
     let _com = ComGuard::new()?;
     let _priority = Priority::new();
     let device = Device::new("")?;
-    let pixels = config.width as usize * config.height as usize;
+    let pixels = source_width as usize * source_height as usize;
     // HDR input is FFmpeg's planar linear-light gbrpf32le with SDR white at
     // 1.0; the capture format is scRGB FP16, where 1.0 is 80 nits. Scaling
     // by 203/80 puts SDR white at the 203 nits of ITU-R BT.2408.
@@ -98,15 +104,15 @@ fn main() -> anyhow::Result<()> {
                     rgba.extend_from_slice(&half::f16::from_f32(value).to_le_bytes());
                 }
             }
-            (rgba, config.width as usize * 8, Pixel::RgbaF16)
+            (rgba, source_width as usize * 8, Pixel::RgbaF16)
         } else {
-            (bytes, config.width as usize * 4, Pixel::Bgra8)
+            (bytes, source_width as usize * 4, Pixel::Bgra8)
         };
         let image = GpuImage::upload(
             &device,
             &Image {
-                width: config.width,
-                height: config.height,
+                width: source_width,
+                height: source_height,
                 stride,
                 bytes,
                 captured: Instant::now(),
@@ -176,6 +182,8 @@ fn main() -> anyhow::Result<()> {
             "codec": option("--codec").unwrap_or_else(|| "hevc".into()),
             "width": config.width,
             "height": config.height,
+            "source_width": source_width,
+            "source_height": source_height,
             "fps": config.fps,
             "bitrate_kbps": config.bitrate_kbps,
             "frames": frames,

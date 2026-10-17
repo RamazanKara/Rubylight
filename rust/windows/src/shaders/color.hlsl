@@ -83,17 +83,66 @@ bool content(float2 target, out float2 p) {
     p = at / scale - 0.5;
     return all(at >= 0) && all(at < size);
 }
+float3 bilinear(float2 p) {
+    int2 at = int2(floor(p));
+    float2 f = frac(p);
+    return lerp(lerp(load(at), load(at + int2(1, 0)), f.x),
+                lerp(load(at + int2(0, 1)), load(at + int2(1, 1)), f.x), f.y);
+}
+// Integrate source-pixel coverage when reducing an image. A fixed bilinear
+// footprint skips thin features at fractional and >2x reductions, so they
+// shimmer as the source moves. Native size and enlargement keep their old
+// paths. An aligned 2x reduction already has the exact four-sample average.
+float3 resize(float2 p, float2 footprint) {
+    float2 left = p + 0.5 - footprint * 0.5;
+    if (any(footprint < 1) || all(footprint <= 1) || any(footprint > 8) ||
+        (all(footprint == 2) && all(frac(left) == 0))) return bilinear(p);
+    float2 right = left + footprint;
+    int2 first = int2(floor(left));
+    int2 count = int2(ceil(right)) - first;
+    float3 rgb = 0;
+    // At most nine source pixels intersect a footprint of up to eight.
+    // Keep a hard bound even for extreme stream/source size ratios; those
+    // retain the previous bilinear path instead of an unbounded shader loop.
+    [loop] for (int y = 0; y < 9; ++y) {
+        if (y >= count.y) break;
+        float wy = max(0, min(right.y, first.y + y + 1) - max(left.y, first.y + y));
+        [loop] for (int x = 0; x < 9; ++x) {
+            if (x >= count.x) break;
+            float wx = max(0, min(right.x, first.x + x + 1) - max(left.x, first.x + x));
+            rgb += load(first + int2(x, y)) * (wx * wy);
+        }
+    }
+    return rgb / (footprint.x * footprint.y);
+}
 float3 nonlinear(float2 target) {
     float3 rgb;
     if (all(sourceSize == targetSize)) {
         rgb = load(int2(target));
+    } else if (all(sourceSize == targetSize * 2)) {
+        // A uniform shape test avoids per-pixel coverage/control-flow work on
+        // the common 4K -> 1080p path. Its four samples are already exact.
+        rgb = bilinear(target * 2 + 0.5);
+    } else if (all(sourceSize == targetSize * 3)) {
+        // The other common integer reduction (4K -> 720p) covers nine whole
+        // source pixels. Fixed unweighted loops keep the row-order sum without
+        // duplicating the cursor/HDR load logic into every sample in bytecode.
+        int2 at = int2(target) * 3;
+        rgb = 0;
+        [loop] for (int y = 0; y < 3; ++y) {
+            [loop] for (int x = 0; x < 3; ++x) {
+                rgb += load(at + int2(x, y));
+            }
+        }
+        rgb /= 9;
     } else {
         float2 p;
         if (!content(target, p)) return float3(0, 0, 0);
-        int2 at = int2(floor(p));
-        float2 f = frac(p);
-        rgb = lerp(lerp(load(at), load(at + int2(1, 0)), f.x),
-                   lerp(load(at + int2(0, 1)), load(at + int2(1, 1)), f.x), f.y);
+        float2 ratio = float2(targetSize) / float2(sourceSize);
+        float scale = min(ratio.x, ratio.y);
+        float2 size = float2(sourceSize) * scale;
+        float2 footprint = all(abs(size - float2(targetSize)) < 1) ? 1 / ratio : 1 / scale;
+        rgb = resize(p, footprint);
     }
     if (hdr == 0 || pixel == 2) return rgb;
     return pq(gamut2020(rgb) / 125.0);

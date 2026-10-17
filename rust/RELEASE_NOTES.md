@@ -1,18 +1,22 @@
-# Rubylight 2.5.1 for Windows
+# Rubylight 2.5.2 for Windows
 
 [Documentation](../docs/README.md) · [Install and migrate](../docs/getting-started.md) · [Configuration](../docs/configuration.md) · [Features](../docs/features.md)
 
-**Release history:** [2.5.1](#new-in-251) · [2.5.0](#new-in-250) · [2.4.8](#new-in-248) · [2.4.7](#new-in-247) · [2.4.6](#new-in-246) · [2.4.5](#new-in-245) · [2.4.4](#new-in-244) · [2.4.3](#new-in-243) · [2.4.2](#new-in-242) · [2.4.1](#new-in-241) · [2.4.0](#new-in-240) · [2.3.1](#new-in-231) · [2.3.0](#new-in-230) · [2.2.2 – 2.2.21](#new-in-2221) · [2.2.1](#new-in-221) · [2.2.0](#new-in-220) · [2.1.0](#new-in-210) · [2.0.x](#new-in-201) · [release candidates](#new-in-rc30)
+**Release history:** [2.5.2](#new-in-252) · [2.5.1](#new-in-251) · [2.5.0](#new-in-250) · [2.4.8](#new-in-248) · [2.4.7](#new-in-247) · [2.4.6](#new-in-246) · [2.4.5](#new-in-245) · [2.4.4](#new-in-244) · [2.4.3](#new-in-243) · [2.4.2](#new-in-242) · [2.4.1](#new-in-241) · [2.4.0](#new-in-240) · [2.3.1](#new-in-231) · [2.3.0](#new-in-230) · [2.2.2 – 2.2.21](#new-in-2221) · [2.2.1](#new-in-221) · [2.2.0](#new-in-220) · [2.1.0](#new-in-210) · [2.0.x](#new-in-201) · [release candidates](#new-in-rc30)
 
-Rubylight, called Butterpollo until rc.29, is written in Rust: host, native helpers, service and setup, with a Svelte web console. The 2.5.1 installer is named `rubylight-setup-2.5.1.exe` and upgrades an existing Vibepollo or Butterpollo installation in place, keeping settings, paired devices, the app library and covers. Codec SDKs and Windows drivers remain external components; the setup installs the drivers.
+Rubylight, called Butterpollo until rc.29, is written in Rust: host, native helpers, service and setup, with a Svelte web console. The 2.5.2 installer is named `rubylight-setup-2.5.2.exe` and upgrades an existing Vibepollo or Butterpollo installation in place, keeping settings, paired devices, the app library and covers. Codec SDKs and Windows drivers remain external components; the setup installs the drivers.
 
-## Unreleased
+## New in 2.5.2
 
 - **Retry brief Windows send-buffer exhaustion.** Error `10055` now gets one short backoff and retry for video batches and audio datagrams, within the existing shared four-millisecond wait budget. Persistent failures still drop promptly; successful sends are never repeated.
 - **React to repeated unrecoverable video frames.** The default loss guard also reduces packet bursts after three distinct recent frames arrive incomplete within two seconds. Repeated block reports count once per frame. Encoder bitrate stays unchanged, and manual pacing or either adaptive controller retains control.
 - **Hand off as soon as loss feedback is available.** Loss feedback can move the next output directly to the video sender thread, avoiding an extra paced frame on the capture thread. Existing queues and frame ordering are preserved.
+- **Recover the final driver-pushed picture after temporary pressure.** When every shared frame slot is busy, the display driver retains the newest image and retries publication once a slot becomes available. Fresh acquisitions take precedence, retries preserve the original timestamps, and a successful image is not repeatedly published. Capture consumers are also notified before the previous image is released.
+- **Trace fresh-picture delivery when diagnosing low FPS.** Optional capture, admission and packetizer traces can distinguish newly acquired frames, repeated source pictures and time spent waiting. They are off by default.
 
 See the [native loss-response checks and remaining AMF frame-size limitation](PERFORMANCE.md#october-17-loss-response-verification).
+
+**Validation and limits:** 1,189 workspace tests passed before the version bump; short local stream checks decoded all 1,739 received frames, and the matched UDP checks lost no packets. These checks do not establish a general network-throughput or latency gain. The retained-picture driver policy has regression coverage; its new driver was not installed for those stream measurements. AMD can still exceed an accepted frame-size limit, including in the reported RX 9070 XT case. Encoder defaults and the experimental fence option remain unchanged.
 
 ## New in 2.5.1
 

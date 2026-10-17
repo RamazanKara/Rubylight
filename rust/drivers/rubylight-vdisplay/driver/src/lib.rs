@@ -19,6 +19,7 @@ mod callbacks;
 mod control;
 mod direct_3d_device;
 mod entry;
+mod frame_retry;
 mod frame_ring;
 mod monitor;
 mod registry;

@@ -56,10 +56,20 @@ The standard transport uses keyed mutexes and remains the default:
    the driver's acquire: IddCx's `PresentDisplayQPCTime` is the scan-out, about 6.8 ms later
    on a 120 Hz display.
 
-With four textures the host holds at most two (the newest, and the one being encoded), so the
-driver always finds one free; `idd_push=debug` logs its counters every 5 s (acquired, pushed,
-dropped, overwritten) and `idd_push=trace` each frame's driver time (acquire to publish) and
-handoff (publish to the host taking it).
+Four textures let capture overlap the host's GPU reads. If every slot is busy, the driver
+keeps the newest image in its own texture, copying it before reporting the IddCx frame
+finished. When IddCx has no newer frame (`E_PENDING`), the driver retries that owned copy
+without waiting for a slot. Failed retries wait 2, 4, 8, then at most 16 ms, interruptible
+by a new frame, ring replacement or stop. A final desktop update can therefore reach the
+host after a slot becomes free even if Windows stops presenting the static desktop.
+Retries keep the original present/acquire timestamps and do not add acquisitions or
+dropped frames to the counters. Success stops retries; a newer acquisition supersedes
+the saved image. This applies to both transports. With no pending image that fits the
+ring, the normal idle heartbeat wait remains 125 ms.
+
+`idd_push=debug` logs the counters every 5 s (acquired, pushed, dropped, overwritten), and
+`idd_push=trace` each frame's driver time (acquire to publish) and handoff (publish to the
+host taking it).
 
 The header also carries the driver's status (size or format mismatch, open failure, wrong
 GPU, device lost), the surface it saw and a heartbeat of its swap-chain loop.
@@ -122,6 +132,13 @@ throwaway self-signed certificate it creates in memory and stores only as files 
 `target\signing\` (`rubylight-vdisplay-test.pfx`, `.cer`, `.password`). It is never imported
 into a certificate store. `cargo clippy` and `cargo fmt` work in this directory after
 `. .\driver-env.ps1`.
+
+The driver's GPU-independent retained-frame policy tests also run in the main workspace's
+ordinary test suite. To run just these regressions from the repository root (no WDK or GPU):
+
+```powershell
+cargo test -p rubylight-vdisplay-proto frame_retry --locked
+```
 
 ## Installing for a local test (needs the machine owner's consent)
 

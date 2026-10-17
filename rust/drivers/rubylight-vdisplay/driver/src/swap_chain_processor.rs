@@ -33,6 +33,7 @@ use windows::Win32::System::Threading::{SetEvent, WaitForMultipleObjects, WaitFo
 use windows::core::Interface;
 
 use crate::direct_3d_device::Direct3DDevice;
+use crate::frame_retry::PendingFrame;
 use crate::frame_ring::{Frame, OpenRing, Pushed, RingHandles, qpc_now};
 use crate::monitor::Monitor;
 use crate::worker::{Mmcss, OwnedHandle, Sendable};
@@ -224,13 +225,24 @@ impl SwapChainProcessor {
             };
 
             if (hr as u32) == E_PENDING {
+                // A final desktop update may have arrived while all ring slots were busy.
+                // Retry only the owned retained copy, after giving a newer acquisition
+                // priority. No IddCx surface remains in use here.
+                let Some(owner) = monitor.upgrade() else {
+                    break;
+                };
+                if rings.retry(&owner, device) {
+                    break;
+                }
+                let wait_ms = rings.wait_ms();
+                drop(owner);
                 let surface = WHANDLE(available_buffer_event.cast());
                 // SAFETY: `surface` is the framework's event, live for this assignment; `w`
                 // is this processor's wake event, closed only after this thread joins.
                 let waited = unsafe {
                     match wake {
-                        Some(w) => WaitForMultipleObjects(&[w, surface], false, IDLE_WAIT_MS),
-                        None => WaitForSingleObject(surface, IDLE_WAIT_MS),
+                        Some(w) => WaitForMultipleObjects(&[w, surface], false, wait_ms),
+                        None => WaitForSingleObject(surface, wait_ms),
                     }
                 };
                 if waited == WAIT_OBJECT_0
@@ -306,12 +318,12 @@ struct RingState {
 /// The newest composed image no ring holds. Windows stops presenting a desktop that does not
 /// change, so a ring attached to a quiet monitor (a reconnect, or one rebuilt for the real
 /// surface) would wait for the next change for its first frame; it is seeded from this
-/// instead.
+/// instead. A busy current ring also retries this copy when the swap chain becomes idle.
 #[derive(Default)]
 struct Retained {
     texture: Option<(ID3D11Texture2D, D3D11_TEXTURE2D_DESC)>,
-    /// The texture holds the newest image, with this `PresentationFrameNumber`.
-    current: Option<u64>,
+    /// Metadata for this owned image, and whether the current ring still needs it.
+    pending: PendingFrame,
 }
 
 impl Retained {
@@ -330,7 +342,7 @@ impl Retained {
             .is_some_and(|(_, d)| (d.Width, d.Height, d.Format) == (width, height, format))
         {
             self.texture = None;
-            self.current = None;
+            self.pending.clear();
             let desc = D3D11_TEXTURE2D_DESC {
                 Width: width,
                 Height: height,
@@ -369,31 +381,38 @@ impl Retained {
         device: &Direct3DDevice,
         surface: &ID3D11Texture2D,
         desc: &D3D11_TEXTURE2D_DESC,
-        frame_number: u64,
+        frame: Frame,
     ) {
+        // An unretainable newer image must not leave an older image eligible for retry.
+        self.pending.clear();
         if desc.SampleDesc.Count != 1 || desc.ArraySize != 1 || desc.MipLevels > 1 {
             return;
         }
         let Some(texture) = self.texture(device, desc.Width, desc.Height, desc.Format) else {
             return;
         };
-        // SAFETY: both live on this device with the same size, format and sample count.
+        // SAFETY: both live on this device with the same size, format and sample count. The
+        // copy is queued before FinishedProcessingFrame; later retries read only our owned
+        // texture, never the IddCx surface after its next release/acquire.
         unsafe { device.device_context.CopyResource(texture, surface) };
-        self.current = Some(frame_number);
+        self.pending.set(frame);
     }
 
     /// Take the newest image back from a ring that is going away.
     fn take_from(&mut self, device: &Direct3DDevice, ring: &OpenRing, handles: &RingHandles) {
+        self.pending.clear();
         let format = DXGI_FORMAT(handles.format as i32);
         let Some(texture) = self.texture(device, handles.width, handles.height, format) else {
             return;
         };
-        self.current = ring.copy_newest(device, texture);
+        if let Some(frame) = ring.copy_newest(device, texture) {
+            self.pending.set(frame);
+        }
     }
 
     /// Publish the newest image into a freshly opened ring that fits it.
-    fn seed(&self, device: &Direct3DDevice, ring: &mut OpenRing) {
-        let (Some((texture, desc)), Some(frame_number)) = (&self.texture, self.current) else {
+    fn seed(&mut self, device: &Direct3DDevice, ring: &mut OpenRing) {
+        let (Some((texture, desc)), Some(current)) = (&self.texture, self.pending.current()) else {
             return;
         };
         if !ring.fits(desc) {
@@ -405,10 +424,30 @@ impl Retained {
         let frame = Frame {
             present_qpc: now,
             acquire_qpc: now,
-            frame_number,
+            frame_number: current.frame_number,
         };
-        let pushed = ring.seed(device, texture, desc, frame);
+        self.pending.set(frame);
+        let pushed = self
+            .pending
+            .retry(|frame| ring.seed(device, texture, desc, frame));
         dbglog!("[rlvd] frame ring seeded with the retained frame: {pushed:?}");
+    }
+
+    fn fits(&self, ring: &OpenRing) -> bool {
+        self.pending.is_pending()
+            && self
+                .texture
+                .as_ref()
+                .is_some_and(|(_, desc)| ring.fits(desc))
+    }
+
+    fn retry(&mut self, device: &Direct3DDevice, ring: &mut OpenRing) -> Option<Pushed> {
+        if !self.fits(ring) {
+            return None;
+        }
+        let (texture, desc) = self.texture.as_ref()?;
+        self.pending
+            .retry(|frame| ring.retry(device, texture, desc, frame))
     }
 }
 
@@ -426,7 +465,7 @@ impl RingState {
             return;
         }
         if let (Some(open), Some(old)) = (&self.open, &self.handles)
-            && self.retained.current.is_none()
+            && self.retained.pending.current().is_none()
         {
             self.retained.take_from(device, open, old);
         }
@@ -467,6 +506,34 @@ impl RingState {
         }
     }
 
+    /// Try the saved final image once without another swap-chain acquisition. Return true
+    /// only for device loss, just as `push` does; slot ownership is never waited for here.
+    fn retry(&mut self, monitor: &Monitor, device: &Direct3DDevice) -> bool {
+        let Some(open) = &mut self.open else {
+            return false;
+        };
+        match self.retained.retry(device, open) {
+            Some(Pushed::Published) => {
+                monitor.stats.pushed.fetch_add(1, Ordering::AcqRel);
+                false
+            }
+            Some(Pushed::DeviceLost) => true,
+            _ => false,
+        }
+    }
+
+    fn wait_ms(&self) -> u32 {
+        if self
+            .open
+            .as_ref()
+            .is_some_and(|open| self.retained.fits(open))
+        {
+            self.retained.pending.wait_ms()
+        } else {
+            IDLE_WAIT_MS
+        }
+    }
+
     /// Push one acquired surface. Returns true when the device was lost under it.
     fn push(
         &mut self,
@@ -494,27 +561,24 @@ impl RingState {
                 h.header()
                     .set_surface(desc.Width, desc.Height, desc.Format.0 as u32);
             }
-            self.retained
-                .keep(device, surface, &desc, frame.frame_number);
+            self.retained.keep(device, surface, &desc, frame);
             return false;
         };
         match open.push(device, surface, &desc, frame) {
             Pushed::Published => {
                 stats.pushed.fetch_add(1, Ordering::AcqRel);
                 // The ring holds the newest image now; it is taken back if the ring goes.
-                self.retained.current = None;
+                self.retained.pending.clear();
                 false
             }
             Pushed::Dropped => {
                 // Every texture is the host's; this image is newer than any of them.
-                self.retained
-                    .keep(device, surface, &desc, frame.frame_number);
+                self.retained.keep(device, surface, &desc, frame);
                 false
             }
             Pushed::Mismatch => {
                 // The host rebuilds the ring at this surface's shape; it is seeded from this.
-                self.retained
-                    .keep(device, surface, &desc, frame.frame_number);
+                self.retained.keep(device, surface, &desc, frame);
                 false
             }
             Pushed::DeviceLost => {

@@ -31,6 +31,12 @@ pub mod edid;
 pub mod modes;
 pub mod ring;
 
+// Exercise the driver's actual GPU-independent retry policy in ordinary workspace CI,
+// without linking the WDK driver. This adds no host-driver wire format or public API.
+#[cfg(test)]
+#[path = "../../rubylight-vdisplay/driver/src/frame_retry.rs"]
+mod frame_retry;
+
 /// Device interface GUID `{5e240e6b-b196-4295-81c3-533c10000c59}` the driver registers and
 /// the host opens. Not libvirtualdisplay's `{5f894d6c-...}` or punktfunk's `{70667664-...}`.
 pub const INTERFACE_GUID_U128: u128 = 0x5e24_0e6b_b196_4295_81c3_533c_1000_0c59;

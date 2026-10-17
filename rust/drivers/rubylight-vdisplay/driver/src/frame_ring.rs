@@ -158,25 +158,7 @@ impl RingHandles {
     }
 }
 
-/// One frame as the swap chain delivered it.
-#[derive(Clone, Copy)]
-pub struct Frame {
-    pub present_qpc: u64,
-    pub acquire_qpc: u64,
-    pub frame_number: u64,
-}
-
-/// What [`OpenRing::push`] did with a frame.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Pushed {
-    Published,
-    /// Every texture was held by the host.
-    Dropped,
-    /// The surface is not the ring's size or format; the host rebuilds the ring.
-    Mismatch,
-    /// The device failed under the copy; the worker exits for a reassignment.
-    DeviceLost,
-}
+pub use crate::frame_retry::{Frame, Pushed};
 
 struct Slot {
     texture: ID3D11Texture2D,
@@ -302,7 +284,7 @@ impl OpenRing {
         frame: Frame,
     ) -> Pushed {
         self.handles.header().count_acquired();
-        self.publish(device, surface, desc, frame)
+        self.publish(device, surface, desc, frame, true)
     }
 
     /// [`Self::push`] for a frame the swap chain did not just deliver: the retained image a
@@ -314,14 +296,26 @@ impl OpenRing {
         desc: &D3D11_TEXTURE2D_DESC,
         frame: Frame,
     ) -> Pushed {
-        self.publish(device, image, desc, frame)
+        self.publish(device, image, desc, frame, true)
+    }
+
+    /// Try an already-retained frame again without counting another acquisition or drop.
+    /// A successful publication still counts once; failed polls are not additional frames.
+    pub fn retry(
+        &mut self,
+        device: &Direct3DDevice,
+        image: &ID3D11Texture2D,
+        desc: &D3D11_TEXTURE2D_DESC,
+        frame: Frame,
+    ) -> Pushed {
+        self.publish(device, image, desc, frame, false)
     }
 
     /// Copy the newest published texture into `into` (same size and format) and return its
-    /// frame number. In a keyed-mutex ring it is skipped, never waited for, while the host
+    /// timing. In a keyed-mutex ring it is skipped, never waited for, while the host
     /// holds that texture; in a fence ring only this producer writes, so a texture the host
     /// may be reading is read here too, after this device's own copy into it.
-    pub fn copy_newest(&self, device: &Direct3DDevice, into: &ID3D11Texture2D) -> Option<u64> {
+    pub fn copy_newest(&self, device: &Direct3DDevice, into: &ID3D11Texture2D) -> Option<Frame> {
         let index = self
             .handles
             .picker
@@ -339,7 +333,7 @@ impl OpenRing {
             ),
             None => None,
         };
-        let frame_number = self.handles.header().slot(index).frame_number;
+        let meta = self.handles.header().slot(index);
         // SAFETY: both textures are live on this device with the ring's size and format (the
         // caller checked `into` with `fits`); this thread holds the slot's mutex, or the slot
         // is a fence ring's, which only this thread writes.
@@ -348,7 +342,11 @@ impl OpenRing {
             // SAFETY: taken above with `key` on this thread.
             let _ = unsafe { mutex.ReleaseSync(key) };
         }
-        Some(frame_number)
+        Some(Frame {
+            present_qpc: meta.present_qpc,
+            acquire_qpc: meta.acquire_qpc,
+            frame_number: meta.frame_number,
+        })
     }
 
     /// Whether `surface` fits; a mismatch is reported in the header for the host to rebuild.
@@ -372,6 +370,7 @@ impl OpenRing {
         surface: &ID3D11Texture2D,
         desc: &D3D11_TEXTURE2D_DESC,
         frame: Frame,
+        count_drop: bool,
     ) -> Pushed {
         if !self.check_shape(desc) {
             return Pushed::Mismatch;
@@ -384,8 +383,10 @@ impl OpenRing {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         let pushed = match &self.fences {
-            Some(fences) => self.publish_fenced(fences, &mut picker, device, surface, frame),
-            None => self.publish_keyed(&mut picker, device, surface, frame),
+            Some(fences) => {
+                self.publish_fenced(fences, &mut picker, device, surface, frame, count_drop)
+            }
+            None => self.publish_keyed(&mut picker, device, surface, frame, count_drop),
         };
         if pushed == Pushed::Published {
             let header = handles.header();
@@ -422,6 +423,7 @@ impl OpenRing {
         device: &Direct3DDevice,
         surface: &ID3D11Texture2D,
         frame: Frame,
+        count_drop: bool,
     ) -> Pushed {
         let header = self.handles.header();
         if picker.needs_renewal() {
@@ -435,7 +437,9 @@ impl OpenRing {
         // SAFETY: a plain read of a fence opened on this device.
         let released = unsafe { fences.released.GetCompletedValue() };
         let Some(claim) = picker.claim_fenced(&header, released) else {
-            header.count_dropped();
+            if count_drop {
+                header.count_dropped();
+            }
             return Pushed::Dropped;
         };
         if matches!(claim, Claim::Reclaimed(_)) {
@@ -465,7 +469,9 @@ impl OpenRing {
         header.write_slot(index, Self::meta(seq, frame));
         if !picker.publish_fenced(&header, index, seq) {
             dbglog!("[rlvd] frame ring: slot {index} changed under the driver; frame dropped");
-            header.count_dropped();
+            if count_drop {
+                header.count_dropped();
+            }
             return Pushed::Dropped;
         }
         header.publish(Token {
@@ -483,12 +489,15 @@ impl OpenRing {
         device: &Direct3DDevice,
         surface: &ID3D11Texture2D,
         frame: Frame,
+        count_drop: bool,
     ) -> Pushed {
         let header = self.handles.header();
         let slots = &self.slots;
         let mutex = |s: usize| slots[s].mutex.as_ref().expect("a keyed-mutex ring's slot");
         let Some(claim) = picker.claim(|s, key| try_acquire(mutex(s), key)) else {
-            header.count_dropped();
+            if count_drop {
+                header.count_dropped();
+            }
             return Pushed::Dropped;
         };
         if matches!(claim, Claim::Reclaimed(_)) {

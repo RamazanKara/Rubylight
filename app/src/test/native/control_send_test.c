@@ -23,7 +23,7 @@ static ENetPacket* sent[MAX_SENT];
 static uint8_t sentChannels[MAX_SENT];
 static int sentCount, teardowns;
 static atomic_bool tornDown, senderInside;
-static uint64_t fakeNowMs;
+static atomic_uint_fast64_t fakeNowMs;
 
 // One enet_host_service() call can be held to keep a sender inside the send path, a thread
 // can be held just after it takes enetMutex, and teardown can be held inside its linger.
@@ -192,12 +192,13 @@ void enet_host_destroy(ENetHost* host) {
 }
 
 // Phase-lock windows always have a report ready in this test.
+static uint8_t fakePhaseLead;
 RpSlackWindow* rp_slack_window_new(void) { return (RpSlackWindow*)&fakeHost; }
 void rp_slack_window_free(RpSlackWindow* window) { }
 void rp_slack_window_push(RpSlackWindow* window, int64_t slack_ns, int64_t period_ns) { }
 bool rp_slack_window_report(RpSlackWindow* window, size_t min_frames, uint8_t* out) {
     memset(out, 0, RP_PHASE_REPORT_BYTES);
-    out[8] = 0x10;
+    out[8] = fakePhaseLead;
     return true;
 }
 
@@ -238,6 +239,7 @@ static void reset(void) {
     resetHostControlMessages();
     resetPhaseLockReports();
     fakeNowMs = 1000;
+    fakePhaseLead = 0x10;
 }
 
 static void announce(const uint16_t* ids, int count) {
@@ -456,7 +458,7 @@ static void phaseLockReportsNeedTheHostsAnnouncement(void) {
     const uint16_t display[] = {0x5531};
     announce(display, 1);
     for (int i = 0; i < 3; i++) {
-        Java_com_limelight_nvstream_jni_MoonBridge_reportFrameSlack(&env, NULL, 2000000, 16666666);
+        CHECK(Java_com_limelight_nvstream_jni_MoonBridge_reportFrameSlack(&env, NULL, 2000000, 16666666) == JNI_FALSE);
         fakeNowMs += 600;
     }
     CHECK(sentCount == 0);
@@ -464,9 +466,11 @@ static void phaseLockReportsNeedTheHostsAnnouncement(void) {
     reset();
     const uint16_t phase[] = {RP_PHASE_REPORT_MESSAGE_TYPE};
     announce(phase, 1);
-    Java_com_limelight_nvstream_jni_MoonBridge_reportFrameSlack(&env, NULL, 2000000, 16666666);
+    CHECK(Java_com_limelight_nvstream_jni_MoonBridge_reportFrameSlack(&env, NULL, 2000000, 16666666) == JNI_FALSE);
     fakeNowMs += 600;
-    Java_com_limelight_nvstream_jni_MoonBridge_reportFrameSlack(&env, NULL, 2000000, 16666666);
+    CHECK(Java_com_limelight_nvstream_jni_MoonBridge_reportFrameSlack(&env, NULL, 2000000, 16666666) == JNI_TRUE);
+    CHECK(sentCount == 0);
+    Java_com_limelight_nvstream_jni_MoonBridge_flushPhaseLockReport(&env, NULL);
     CHECK(sentCount == 1 && sentChannels[0] == CTRL_CHANNEL_GENERIC && sent[0]->flags == 0);
     uint16_t type, length;
     plaintext(sent[0], &type, &length);
@@ -474,10 +478,147 @@ static void phaseLockReportsNeedTheHostsAnnouncement(void) {
     freeSent();
 }
 
+static void queuePhaseReport(void) {
+    fakeNowMs += 600;
+    CHECK(Java_com_limelight_nvstream_jni_MoonBridge_reportFrameSlack(&env, NULL, 2000000, 16666666) == JNI_TRUE);
+}
+
+static void startPhaseReports(void) {
+    reset();
+    const uint16_t phase[] = {RP_PHASE_REPORT_MESSAGE_TYPE};
+    announce(phase, 1);
+    CHECK(Java_com_limelight_nvstream_jni_MoonBridge_reportFrameSlack(&env, NULL, 2000000, 16666666) == JNI_FALSE);
+}
+
+static void phaseMailboxKeepsOnlyFreshNegotiatedReports(void) {
+    startPhaseReports();
+    queuePhaseReport();
+    fakePhaseLead = 0x20;
+    queuePhaseReport();
+    CHECK(sentCount == 0);
+    Java_com_limelight_nvstream_jni_MoonBridge_flushPhaseLockReport(&env, NULL);
+    CHECK(sentCount == 1);
+    uint16_t type, length;
+    CHECK(plaintext(sent[0], &type, &length)[8] == 0x20);
+    Java_com_limelight_nvstream_jni_MoonBridge_flushPhaseLockReport(&env, NULL);
+    CHECK(sentCount == 1); // Consumed once, even if another handler message was queued.
+
+    queuePhaseReport();
+    fakeNowMs += PHASE_LOCK_MAX_REPORT_AGE_MS + 1;
+    Java_com_limelight_nvstream_jni_MoonBridge_flushPhaseLockReport(&env, NULL);
+    CHECK(sentCount == 1);
+
+    queuePhaseReport();
+    fakeNowMs--; // Invalid clock ordering must not revive a report.
+    Java_com_limelight_nvstream_jni_MoonBridge_flushPhaseLockReport(&env, NULL);
+    CHECK(sentCount == 1);
+
+    queuePhaseReport();
+    resetHostControlMessages();
+    Java_com_limelight_nvstream_jni_MoonBridge_flushPhaseLockReport(&env, NULL);
+    CHECK(sentCount == 1);
+    const uint16_t phase[] = {RP_PHASE_REPORT_MESSAGE_TYPE};
+    announce(phase, 1);
+    Java_com_limelight_nvstream_jni_MoonBridge_flushPhaseLockReport(&env, NULL);
+    CHECK(sentCount == 1); // Unsupported reports were discarded, not retained for a new host.
+
+    queuePhaseReport();
+    resetPhaseLockReports();
+    Java_com_limelight_nvstream_jni_MoonBridge_flushPhaseLockReport(&env, NULL);
+    CHECK(sentCount == 1);
+    CHECK(Java_com_limelight_nvstream_jni_MoonBridge_getPhaseLockLeadUs(&env, NULL) == INT32_MIN);
+    freeSent();
+}
+
+static atomic_bool phaseFlushDone, phaseResetDone, phaseSampleDone;
+
+static void* samplePhaseFromRenderer(void* context) {
+    queuePhaseReport();
+    atomic_store(&phaseSampleDone, true);
+    return NULL;
+}
+
+static void samplePhaseWithoutWaitingForNetwork(void) {
+    atomic_store(&phaseSampleDone, false);
+    pthread_t sampler;
+    CHECK(pthread_create(&sampler, NULL, samplePhaseFromRenderer, NULL) == 0);
+    // This is a bounded liveness check, not a render-thread performance threshold.
+    // A regression fails the process instead of deadlocking the whole native suite.
+    for (int i = 0; i < 2000 && !atomic_load(&phaseSampleDone); i++) usleep(1000);
+    CHECK(atomic_load(&phaseSampleDone));
+    CHECK(pthread_join(sampler, NULL) == 0);
+}
+
+static void* flushPhaseFromBackground(void* context) {
+    Java_com_limelight_nvstream_jni_MoonBridge_flushPhaseLockReport(&env, NULL);
+    atomic_store(&phaseFlushDone, true);
+    return NULL;
+}
+
+static void* resetPhaseFromConnection(void* context) {
+    resetPhaseLockReports();
+    atomic_store(&phaseResetDone, true);
+    return NULL;
+}
+
+static void phaseSamplingNeverWaitsForTheNetworkSender(void) {
+    startPhaseReports();
+    PltLockMutex(&enetMutex);
+    // The original JNI collector tried to send here and waited on this mutex.
+    samplePhaseWithoutWaitingForNetwork();
+    CHECK(sentCount == 0);
+
+    atomic_store(&phaseFlushDone, false);
+    pthread_t flusher;
+    CHECK(pthread_create(&flusher, NULL, flushPhaseFromBackground, NULL) == 0);
+    // Wait until the real guarded sender is blocked at ENet, away from the render thread.
+    for (int i = 0; i < 2000 && atomic_load(&enetSendersInFlight) == 0; i++) usleep(1000);
+    CHECK(atomic_load(&enetSendersInFlight) == 1 && !atomic_load(&phaseFlushDone));
+    fakePhaseLead = 0x20;
+    samplePhaseWithoutWaitingForNetwork();
+    fakePhaseLead = 0x30;
+    samplePhaseWithoutWaitingForNetwork();
+    CHECK(sentCount == 0 && !atomic_load(&phaseFlushDone));
+    PltUnlockMutex(&enetMutex);
+    CHECK(pthread_join(flusher, NULL) == 0);
+    CHECK(sentCount == 1);
+    uint16_t type, length;
+    CHECK(plaintext(sent[0], &type, &length)[8] == 0x10);
+    Java_com_limelight_nvstream_jni_MoonBridge_flushPhaseLockReport(&env, NULL);
+    CHECK(sentCount == 2 && plaintext(sent[1], &type, &length)[8] == 0x30);
+    freeSent();
+}
+
+static void phaseResetWaitsForTheOldFlushAndClearsItsSuccessor(void) {
+    startPhaseReports();
+    queuePhaseReport();
+    holdNextService = true;
+    atomic_store(&phaseFlushDone, false);
+    atomic_store(&phaseResetDone, false);
+    pthread_t flusher, resetter;
+    CHECK(pthread_create(&flusher, NULL, flushPhaseFromBackground, NULL) == 0);
+    waitFor(&senderInside, &phaseFlushDone);
+    CHECK(atomic_load(&senderInside));
+    queuePhaseReport();
+    CHECK(pthread_create(&resetter, NULL, resetPhaseFromConnection, NULL) == 0);
+    usleep(50000);
+    CHECK(!atomic_load(&phaseResetDone));
+    release(&serviceReleased);
+    CHECK(pthread_join(flusher, NULL) == 0);
+    CHECK(pthread_join(resetter, NULL) == 0);
+    CHECK(atomic_load(&phaseResetDone));
+    Java_com_limelight_nvstream_jni_MoonBridge_flushPhaseLockReport(&env, NULL);
+    CHECK(sentCount == 1 && !phaseLockReportPending);
+    freeSent();
+}
+
 static const struct { const char* name; void (*run)(void); } scenarios[] = {
     {"microphone", microphonePacketsLargerThanTheStackBufferArriveIntact},
     {"boundary", oversizeOrMalformedControllerAudioStopsAtTheBoundary},
     {"phase-lock", phaseLockReportsNeedTheHostsAnnouncement},
+    {"phase-mailbox", phaseMailboxKeepsOnlyFreshNegotiatedReports},
+    {"phase-nonblocking", phaseSamplingNeverWaitsForTheNetworkSender},
+    {"phase-reset", phaseResetWaitsForTheOldFlushAndClearsItsSuccessor},
     {"teardown", teardownWaitsForJavaSendersAndLaterSendsNeverReachENet},
     {"lifecycle", sendingStaysClosedFromAFailedStartUntilTheNextStreamIsReady},
     {"rtt-in-flight", teardownWaitsForAnRttReadInFlight},

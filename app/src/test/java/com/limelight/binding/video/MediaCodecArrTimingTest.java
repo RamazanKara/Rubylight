@@ -3,11 +3,14 @@ package com.limelight.binding.video;
 import android.app.Activity;
 import android.app.Application;
 import android.hardware.display.DisplayManager;
+import android.os.Handler;
+import android.os.Looper;
 import android.view.Display;
 
 import com.limelight.nvstream.jni.MoonBridge;
 import com.limelight.preferences.PreferenceConfiguration;
 
+import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.robolectric.Robolectric;
@@ -15,17 +18,78 @@ import org.robolectric.android.controller.ActivityController;
 import org.robolectric.annotation.Config;
 import org.robolectric.annotation.Implementation;
 import org.robolectric.annotation.Implements;
+import org.robolectric.annotation.LooperMode;
 import org.robolectric.shadow.api.Shadow;
 import org.robolectric.shadows.ShadowDisplay;
 import org.robolectric.util.ReflectionHelpers;
 
 import static org.junit.Assert.*;
+import static org.robolectric.Shadows.shadowOf;
 
 @RunWith(org.robolectric.RobolectricTestRunner.class)
 @Config(sdk = 36, application = Application.class,
         shadows = {MediaCodecArrTimingTest.ArrDisplay.class, MediaCodecArrTimingTest.SlackBridge.class},
         instrumentedPackages = "com.limelight.nvstream.jni")
+@LooperMode(LooperMode.Mode.PAUSED)
 public class MediaCodecArrTimingTest {
+    @Before public void resetBridge() {
+        SlackBridge.reports = SlackBridge.flushes = 0;
+        SlackBridge.reportReady = false;
+        SlackBridge.onFlush = null;
+    }
+
+    @Test public void completedReportsUseOneDeferredFlushForTheLatestMailboxValue() {
+        try (ActivityController<Activity> controller = Robolectric.buildActivity(Activity.class).create()) {
+            Display display = controller.get().getWindowManager().getDefaultDisplay();
+            MediaCodecDecoderRenderer renderer = renderer(controller.get(), display, false);
+            ReflectionHelpers.setField(renderer, "latencyHandler", new Handler(Looper.getMainLooper()));
+            samplePhase(renderer);
+            report(renderer);
+            shadowOf(Looper.getMainLooper()).idle();
+            assertEquals(0, SlackBridge.flushes); // Ordinary frame samples do not post work.
+
+            SlackBridge.reportReady = true;
+            for (int i = 0; i < 20; i++) report(renderer);
+            assertEquals(0, SlackBridge.flushes); // Never send synchronously from rendering.
+            shadowOf(Looper.getMainLooper()).idle();
+            assertEquals(1, SlackBridge.flushes);
+        }
+    }
+
+    @Test public void aBlockedFlushAllowsOnlyOneSuccessor() {
+        try (ActivityController<Activity> controller = Robolectric.buildActivity(Activity.class).create()) {
+            Display display = controller.get().getWindowManager().getDefaultDisplay();
+            MediaCodecDecoderRenderer renderer = renderer(controller.get(), display, false);
+            ReflectionHelpers.setField(renderer, "latencyHandler", new Handler(Looper.getMainLooper()));
+            samplePhase(renderer);
+            SlackBridge.reportReady = true;
+            SlackBridge.onFlush = () -> {
+                // Simulate new windows completing while the current native send is in flight.
+                for (int i = 0; i < 20; i++) report(renderer);
+                assertEquals(1, SlackBridge.flushes);
+            };
+            report(renderer);
+            shadowOf(Looper.getMainLooper()).idle();
+            assertEquals(2, SlackBridge.flushes);
+        }
+    }
+
+    @Test public void stoppedRendererDiscardsQueuedFlushAndDoesNotCollectAgain() {
+        try (ActivityController<Activity> controller = Robolectric.buildActivity(Activity.class).create()) {
+            Display display = controller.get().getWindowManager().getDefaultDisplay();
+            MediaCodecDecoderRenderer renderer = renderer(controller.get(), display, false);
+            ReflectionHelpers.setField(renderer, "latencyHandler", new Handler(Looper.getMainLooper()));
+            samplePhase(renderer);
+            SlackBridge.reportReady = true;
+            report(renderer);
+            renderer.prepareForStop();
+            shadowOf(Looper.getMainLooper()).idle();
+            assertEquals(0, SlackBridge.flushes);
+            report(renderer);
+            assertEquals(1, SlackBridge.reports);
+        }
+    }
+
     @Test public void activeModeChangesSuppressFixedLatchReportsAndRequireANewPhaseOnReturn() {
         for (boolean vrr : new boolean[] {false, true}) {
             try (ActivityController<Activity> controller = Robolectric.buildActivity(Activity.class).create()) {
@@ -124,12 +188,21 @@ public class MediaCodecArrTimingTest {
 
     @Implements(value = MoonBridge.class, isInAndroidSdk = false)
     public static class SlackBridge {
-        static int reports;
+        static int reports, flushes;
+        static boolean reportReady;
+        static Runnable onFlush;
         @Implementation protected static void __staticInitializer__() { }
-        @Implementation protected static void reportFrameSlack(long slackNs, long intervalNs) {
+        @Implementation protected static boolean reportFrameSlack(long slackNs, long intervalNs) {
             reports++;
             assertEquals(3_000_000L, slackNs);
             assertEquals(10_000_000L, intervalNs);
+            return reportReady;
+        }
+        @Implementation protected static void flushPhaseLockReport() {
+            flushes++;
+            Runnable action = onFlush;
+            onFlush = null;
+            if (action != null) action.run();
         }
     }
 }

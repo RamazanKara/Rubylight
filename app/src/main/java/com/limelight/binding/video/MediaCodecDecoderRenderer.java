@@ -12,6 +12,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -162,6 +163,16 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     private final FrameLatencyStats frameLatencyStats;
     private HandlerThread latencyThread;
     private Handler latencyHandler;
+    private final AtomicBoolean phaseFlushQueued = new AtomicBoolean();
+    private final Runnable flushPhaseLockReport = new Runnable() {
+        @Override
+        public void run() {
+            // While a send waits for ENet, allow only one further flush to queue.
+            // Native storage keeps the latest report, so old feedback cannot pile up.
+            phaseFlushQueued.set(false);
+            if (!stopping) MoonBridge.flushPhaseLockReport();
+        }
+    };
     private BufferedWriter latencyCsv;
     private volatile String latencyOverlay = "";
     private volatile double[][] latencySummary = new double[5][4];
@@ -1863,14 +1874,20 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
     private void reportPhaseSlack(long readyNs) {
         // Adaptive refresh has no fixed latch; an upscaled frame is not display-ready yet.
-        if (!outputVsyncAvailable || upscaler != null) return;
+        if (stopping || !outputVsyncAvailable || upscaler != null) return;
         long slackNs, intervalNs;
         synchronized (vsyncMonitor) {
             if (outputHasArrSupport) return;
             intervalNs = vsyncIntervalNs;
             slackNs = latchSlackNs(readyNs, vsyncTimeNs, intervalNs, vsyncPresentationDeadlineNs);
         }
-        if (slackNs >= 0) MoonBridge.reportFrameSlack(slackNs, intervalNs);
+        if (slackNs >= 0 && MoonBridge.reportFrameSlack(slackNs, intervalNs)) {
+            Handler handler = latencyHandler;
+            if (handler != null && phaseFlushQueued.compareAndSet(false, true) &&
+                    !handler.post(flushPhaseLockReport)) {
+                phaseFlushQueued.set(false);
+            }
+        }
     }
 
     private void updateDisplayTiming() {
@@ -2296,6 +2313,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         }
         closeUpscaler();
         if (latencyHandler != null) {
+            latencyHandler.removeCallbacks(flushPhaseLockReport);
+            phaseFlushQueued.set(false);
             latencyHandler.post(new Runnable() {
                 @Override
                 public void run() {

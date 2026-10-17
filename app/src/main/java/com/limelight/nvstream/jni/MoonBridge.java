@@ -491,7 +491,9 @@ public class MoonBridge {
 
     // Phase lock: reports how long a frame waited from ready to the next display latch, so a
     // Rubylight host can time frames to land just before it.
-    public static native void reportFrameSlack(long slackNs, long periodNs);
+    // Collects locally; true means a new report is ready for the background sender.
+    public static native boolean reportFrameSlack(long slackNs, long periodNs);
+    public static native void flushPhaseLockReport();
 
     // Early edge of the last phase-lock report in microseconds before the latch, or
     // Integer.MIN_VALUE before the first one.

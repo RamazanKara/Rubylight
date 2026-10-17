@@ -28,28 +28,39 @@ Java_com_limelight_nvstream_jni_MoonBridge_sendServerCommand(JNIEnv *env, jclass
 #include "control_negotiation.h"
 
 static pthread_mutex_t phaseLockMutex = PTHREAD_MUTEX_INITIALIZER;
+// Only background flush/reset take this mutex. Sampling must never wait for ENet.
+static pthread_mutex_t phaseDispatchMutex = PTHREAD_MUTEX_INITIALIZER;
 static RpSlackWindow* phaseLockWindow;
 static uint64_t phaseLockLastReportMs;
 static atomic_int phaseLockLastLeadUs = ATOMIC_VAR_INIT(INT32_MIN);
+static uint8_t phaseLockPendingReport[RP_PHASE_REPORT_BYTES];
+static uint64_t phaseLockPendingAtMs;
+static bool phaseLockReportPending;
 
 #define PHASE_LOCK_REPORT_INTERVAL_MS 500
 #define PHASE_LOCK_MIN_FRAMES 10
+#define PHASE_LOCK_MAX_REPORT_AGE_MS 1000
 
 void resetPhaseLockReports(void) {
+    // Wait for an old stream's flush before clearing its mailbox. The renderer's
+    // latency handler is joined before control teardown and a new stream starts.
+    pthread_mutex_lock(&phaseDispatchMutex);
     pthread_mutex_lock(&phaseLockMutex);
     if (phaseLockWindow) rp_slack_window_free(phaseLockWindow);
     phaseLockWindow = NULL;
     phaseLockLastReportMs = 0;
+    phaseLockReportPending = false;
+    phaseLockPendingAtMs = 0;
     atomic_store(&phaseLockLastLeadUs, INT32_MIN);
     pthread_mutex_unlock(&phaseLockMutex);
+    pthread_mutex_unlock(&phaseDispatchMutex);
 }
 
-JNIEXPORT void JNICALL
+JNIEXPORT jboolean JNICALL
 Java_com_limelight_nvstream_jni_MoonBridge_reportFrameSlack(JNIEnv *env, jclass clazz, jlong slackNs, jlong periodNs) {
     (void)env; (void)clazz;
-    if (!hostSupportsControlMessage(RP_PHASE_REPORT_MESSAGE_TYPE)) return;
-    uint8_t report[RP_PHASE_REPORT_BYTES];
-    bool send = false;
+    if (!hostSupportsControlMessage(RP_PHASE_REPORT_MESSAGE_TYPE)) return JNI_FALSE;
+    bool ready = false;
     pthread_mutex_lock(&phaseLockMutex);
     if (!phaseLockWindow) phaseLockWindow = rp_slack_window_new();
     if (phaseLockWindow) {
@@ -58,19 +69,47 @@ Java_com_limelight_nvstream_jni_MoonBridge_reportFrameSlack(JNIEnv *env, jclass 
         rp_slack_window_push(phaseLockWindow, slackNs, periodNs);
         if (now - phaseLockLastReportMs >= PHASE_LOCK_REPORT_INTERVAL_MS) {
             phaseLockLastReportMs = now;
-            send = rp_slack_window_report(phaseLockWindow, PHASE_LOCK_MIN_FRAMES, report);
+            ready = rp_slack_window_report(phaseLockWindow, PHASE_LOCK_MIN_FRAMES, phaseLockPendingReport);
+            if (ready) {
+                phaseLockPendingAtMs = now;
+                phaseLockReportPending = true;
+                int32_t leadNs = (int32_t)((uint32_t)phaseLockPendingReport[8] |
+                        ((uint32_t)phaseLockPendingReport[9] << 8) |
+                        ((uint32_t)phaseLockPendingReport[10] << 16) |
+                        ((uint32_t)phaseLockPendingReport[11] << 24));
+                atomic_store(&phaseLockLastLeadUs, leadNs / 1000);
+            }
         }
     }
     pthread_mutex_unlock(&phaseLockMutex);
-    if (!send) return;
-    int32_t leadNs = (int32_t)((uint32_t)report[8] | ((uint32_t)report[9] << 8) |
-                               ((uint32_t)report[10] << 16) | ((uint32_t)report[11] << 24));
-    atomic_store(&phaseLockLastLeadUs, leadNs / 1000);
-    if (!encryptedControlStream || stopping || peer == NULL) return;
-    // Timing feedback is only useful fresh, so it is sent unreliably; a lost report is
-    // replaced half a second later.
-    sendMessageAndForget(RP_PHASE_REPORT_MESSAGE_TYPE, (short)sizeof(report), report,
-                         CTRL_CHANNEL_GENERIC, 0, false);
+    return ready ? JNI_TRUE : JNI_FALSE;
+}
+
+// Called only on the renderer's background handler. Keep one latest report, not a
+// queue of old timing feedback, and never hold the sampling mutex while sending.
+JNIEXPORT void JNICALL
+Java_com_limelight_nvstream_jni_MoonBridge_flushPhaseLockReport(JNIEnv *env, jclass clazz) {
+    (void)env; (void)clazz;
+    uint8_t report[RP_PHASE_REPORT_BYTES];
+    bool send = false;
+    pthread_mutex_lock(&phaseDispatchMutex);
+    pthread_mutex_lock(&phaseLockMutex);
+    uint64_t now = PltGetMillis();
+    if (phaseLockReportPending && now >= phaseLockPendingAtMs &&
+            now - phaseLockPendingAtMs <= PHASE_LOCK_MAX_REPORT_AGE_MS) {
+        memcpy(report, phaseLockPendingReport, sizeof(report));
+        send = true;
+    }
+    phaseLockReportPending = false;
+    pthread_mutex_unlock(&phaseLockMutex);
+    if (send && hostSupportsControlMessage(RP_PHASE_REPORT_MESSAGE_TYPE) &&
+            encryptedControlStream && !stopping && peer != NULL) {
+        // A lost report is replaced half a second later. The shared ENet mutex
+        // can still wait for another control operation, away from video output.
+        sendMessageAndForget(RP_PHASE_REPORT_MESSAGE_TYPE, (short)sizeof(report), report,
+                             CTRL_CHANNEL_GENERIC, 0, false);
+    }
+    pthread_mutex_unlock(&phaseDispatchMutex);
 }
 
 // The early edge of the last reported window, in microseconds before the latch (negative when

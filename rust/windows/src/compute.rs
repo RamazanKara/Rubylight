@@ -351,6 +351,98 @@ fn shared_fence(compute: &Compute, device: &ID3D11Device5) -> Result<(ID3D12Fenc
         Ok((fence, opened.context("no shared fence")?))
     }
 }
+impl Compute {
+    /// A fence on this device that other processes can open: the fence, an NT handle to it
+    /// for them, and the fence opened on the capture's D3D11 `device`.
+    pub(crate) fn share_fence(
+        &self,
+        device: &ID3D11Device5,
+    ) -> Result<(ID3D12Fence, ID3D11Fence, std::os::windows::io::OwnedHandle)> {
+        use std::os::windows::io::FromRawHandle;
+        // SAFETY: The fence is created on the live `self.device`; the NT handle is owned at once,
+        // `device` only borrows it, and `opened` is a live local.
+        unsafe {
+            let fence: ID3D12Fence = self.device.CreateFence(0, D3D12_FENCE_FLAG_SHARED)?;
+            let handle = self
+                .device
+                .CreateSharedHandle(&fence, None, GENERIC_ALL.0, None)?;
+            let handle = std::os::windows::io::OwnedHandle::from_raw_handle(handle.0);
+            let mut opened: Option<ID3D11Fence> = None;
+            device
+                .OpenSharedFence(
+                    HANDLE(std::os::windows::io::AsRawHandle::as_raw_handle(&handle)),
+                    &mut opened,
+                )
+                .context("sharing a fence with the capture device")?;
+            Ok((fence, opened.context("no shared fence")?, handle))
+        }
+    }
+
+    /// A `width` x `height` texture in `format` that other processes can open, created on
+    /// this device with no keyed mutex: an NT handle to it for them, and the texture opened
+    /// on the capture's D3D11 `device`. [`Compute::open`] finds this device's resource for it
+    /// until [`Compute::forget`].
+    pub(crate) fn share_texture(
+        &self,
+        device: &windows::Win32::Graphics::Direct3D11::ID3D11Device1,
+        width: u32,
+        height: u32,
+        format: DXGI_FORMAT,
+    ) -> Result<(ID3D11Texture2D, std::os::windows::io::OwnedHandle)> {
+        use std::os::windows::io::{AsRawHandle, FromRawHandle};
+        let desc = D3D12_RESOURCE_DESC {
+            Dimension: D3D12_RESOURCE_DIMENSION_TEXTURE2D,
+            Width: u64::from(width),
+            Height: height,
+            DepthOrArraySize: 1,
+            MipLevels: 1,
+            Format: format,
+            SampleDesc: DXGI_SAMPLE_DESC {
+                Count: 1,
+                Quality: 0,
+            },
+            Layout: D3D12_TEXTURE_LAYOUT_UNKNOWN,
+            // D3D11 opens a D3D12 texture only if it may be a render target: without the flag
+            // OpenSharedResource1 fails with E_INVALIDARG (RX 7900 XT, October 16).
+            // The host's compute and graphics readers, and a driver seed copy, may read
+            // simultaneously on different devices. CAS ownership excludes writers but
+            // does not itself permit concurrent D3D12 resource access.
+            Flags: D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET
+                | D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS,
+            Alignment: 0,
+        };
+        // SAFETY: `desc` describes a plain single-sample 2D texture on the live `self.device`; the
+        // NT handle is owned at once and `device` only borrows it.
+        unsafe {
+            let mut resource: Option<ID3D12Resource> = None;
+            self.device.CreateCommittedResource(
+                &D3D12_HEAP_PROPERTIES {
+                    Type: D3D12_HEAP_TYPE_DEFAULT,
+                    ..Default::default()
+                },
+                D3D12_HEAP_FLAG_SHARED,
+                &desc,
+                D3D12_RESOURCE_STATE_COMMON,
+                None,
+                &mut resource,
+            )?;
+            let resource = resource.context("no shared texture")?;
+            let handle = self
+                .device
+                .CreateSharedHandle(&resource, None, GENERIC_ALL.0, None)?;
+            let handle = std::os::windows::io::OwnedHandle::from_raw_handle(handle.0);
+            let texture: ID3D11Texture2D = device
+                .OpenSharedResource1(HANDLE(handle.as_raw_handle()))
+                .context("opening a D3D12 texture on the capture device")?;
+            self.foreign
+                .lock()
+                .unwrap()
+                .insert(texture.as_raw() as usize, (texture.clone(), resource));
+            Ok((texture, handle))
+        }
+    }
+}
+
 /// When a copied frame is complete: the copy queue's fence reaching `value`.
 #[derive(Clone)]
 pub struct Ready {
@@ -367,6 +459,15 @@ unsafe impl Send for Ready {}
 // SAFETY: Shared use only reads `value` and calls free-threaded methods on the fence.
 unsafe impl Sync for Ready {}
 impl Ready {
+    /// Work on `compute`'s queues waits for `fence`, one of its device's, to reach `value`.
+    pub(crate) fn on(compute: &Compute, fence: ID3D12Fence, value: u64) -> Self {
+        Self {
+            fence,
+            value,
+            device: compute.device.as_raw() as usize,
+            readers: None,
+        }
+    }
     /// Block until the copy is done.
     pub fn wait(&self) -> Result<()> {
         wait_fence(&self.fence, self.value)
@@ -379,6 +480,10 @@ impl Ready {
 /// texture waits for that. Before the D3D11 device releases the mutex it
 /// waits for all compute work submitted so far, so the writer never
 /// overwrites a texture a conversion still reads.
+///
+/// The WGC helper's zero-copy path uses it, and so does the display driver's
+/// default keyed-mutex frame ring. A fence ring needs no D3D11 step: the compute queue waits for
+/// the driver's fence and signals its own (`capture::idd_push`).
 pub(crate) struct Returns {
     compute: Arc<Compute>,
     acquired: (ID3D12Fence, ID3D11Fence),

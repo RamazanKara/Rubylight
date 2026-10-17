@@ -614,6 +614,7 @@ struct CaptureKey {
     wgc_high_rate: bool,
     wgc_drain: bool,
     wgc_helper_scheduling: bool,
+    idd_fence_ring: bool,
 }
 impl CaptureKey {
     fn new(kind: &str, output: &str, hdr: bool, config: &Config, phase: &str) -> Self {
@@ -638,6 +639,7 @@ impl CaptureKey {
                 && config.boolean("wgc_drain_to_newest", false),
             wgc_helper_scheduling: !matches!(kind, "ddx" | "dxgi")
                 && config.boolean("wgc_helper_streaming_scope", false),
+            idd_fence_ring: config.boolean("idd_push_fence_ring", false),
         }
     }
 }
@@ -3884,6 +3886,11 @@ mod tests {
             .values
             .insert("wgc_user_helper".into(), "true".into());
         assert_ne!(default, key(&helper, "first"));
+        let mut fenced = config.clone();
+        fenced
+            .values
+            .insert("idd_push_fence_ring".into(), "true".into());
+        assert_ne!(default, key(&fenced, "first"));
         let mut changed = config.clone();
         changed
             .values

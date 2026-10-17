@@ -200,23 +200,33 @@ struct Texture {
     mutex: IDXGIKeyedMutex,
 }
 
-/// A helper texture that an image is read from in place (on AMD with
-/// compute copies, unless `wgc_helper_zero_copy` is false) instead of being
-/// copied into a host texture first. The host keeps its keyed mutex until the last clone of the image
-/// is dropped, then hands it back once the compute work that read it is
-/// done; the capture worker tells the helper on its next poll.
+/// A shared texture an image is read from in place instead of being copied
+/// into a host texture first, until the last clone of the image is dropped.
+/// A WGC helper texture (on AMD with compute copies, unless
+/// `wgc_helper_zero_copy` is false) or a keyed-mutex frame ring's goes back
+/// through its keyed mutex once the compute work that read it is done; the
+/// capture worker tells the helper on its next poll. A fence ring's slot goes
+/// back through the ring's fences ([`idd_push::Lent`]).
 pub(crate) struct Lease {
     slot: usize,
-    mutex: IDXGIKeyedMutex,
-    returns: Arc<Mutex<crate::compute::Returns>>,
+    back: Back,
     /// The WGC helper hears of a returned slot through these. Rubylight's
-    /// display driver needs no word: it finds the slot free by its mutex.
+    /// display driver needs no word: it finds the slot free by its mutex or
+    /// its state word.
     notify: Option<Notify>,
+}
+enum Back {
+    Keyed {
+        mutex: IDXGIKeyedMutex,
+        returns: Arc<Mutex<crate::compute::Returns>>,
+    },
+    Fenced(super::idd_push::Lent),
 }
 /// The helper's returned slots, and the capture worker's wake.
 type Notify = (Arc<Mutex<Vec<usize>>>, Arc<crate::timing::Signal>);
 impl Lease {
-    /// A frame-ring texture of Rubylight's display driver, handed back with key 0.
+    /// A keyed-mutex frame-ring texture of Rubylight's display driver, handed
+    /// back with key 0.
     pub(super) fn ring(
         slot: usize,
         mutex: IDXGIKeyedMutex,
@@ -224,20 +234,42 @@ impl Lease {
     ) -> Self {
         Self {
             slot,
-            mutex,
-            returns,
+            back: Back::Keyed { mutex, returns },
             notify: None,
+        }
+    }
+    /// A fence-ring slot of Rubylight's display driver.
+    pub(super) fn fenced(slot: usize, lent: super::idd_push::Lent) -> Self {
+        Self {
+            slot,
+            back: Back::Fenced(lent),
+            notify: None,
+        }
+    }
+    /// Order D3D11 work submitted after this on the image's device after the
+    /// writes the image's `ready` waits for.
+    pub(super) fn order_d3d11(&self) -> Result<()> {
+        match &self.back {
+            // The capture's D3D11 device took the keyed mutex itself.
+            Back::Keyed { .. } => Ok(()),
+            Back::Fenced(lent) => lent.order_d3d11(),
         }
     }
 }
 // SAFETY: The keyed mutex is used only in Drop, under `returns`' lock on the multithread-protected
-// device; the rest is locks and an event handle.
+// device; a fence-ring slot is handed back under its ring's lock; the rest is locks and an event
+// handle.
 unsafe impl Send for Lease {}
-// SAFETY: Shared references never use the fields; only Drop, with exclusive access, does.
+// SAFETY: Shared references only order the multithread-protected D3D11 device behind a fence
+// (`order_d3d11`); only Drop, with exclusive access, hands the texture back.
 unsafe impl Sync for Lease {}
 impl Drop for Lease {
     fn drop(&mut self) {
-        let returned = self.returns.lock().unwrap().hand_back(&self.mutex, 0);
+        let returned = match &self.back {
+            Back::Keyed { mutex, returns } => returns.lock().unwrap().hand_back(mutex, 0),
+            // The slot is freed as `Lent` drops, right after this.
+            Back::Fenced(_) => Ok(()),
+        };
         if let Err(error) = returned {
             tracing::debug!(error = %format!("{error:#}"), slot = self.slot, "shared capture texture handed back after a GPU error");
         }
@@ -664,8 +696,10 @@ impl Session {
             ready: Some(ready),
             lease: Some(Arc::new(Lease {
                 slot,
-                mutex: texture.mutex.clone(),
-                returns,
+                back: Back::Keyed {
+                    mutex: texture.mutex.clone(),
+                    returns,
+                },
                 notify: Some((self.freed.clone(), self.frame.clone())),
             })),
         })

@@ -1,20 +1,27 @@
 //! The driver's half of the frame ring (`rubylight_vdisplay_proto::ring`): the handles the
-//! host handed over, and the textures opened from them on the rendering device.
+//! host handed over, and the textures (and a fence ring's fences) opened from them on the
+//! rendering device.
 //!
-//! [`RingHandles`] is adopted in the `IOCTL_SET_FRAME_RING` call: it maps the header and
-//! takes ownership of every handle, or takes none of them. [`OpenRing`] is built by the
-//! swap-chain worker on its own device, because only that device can copy the swap chain's
-//! surface into the textures, and is rebuilt when the ring or the device changes.
+//! [`RingHandles`] is adopted in the `IOCTL_SET_FENCE_RING` or `IOCTL_SET_FRAME_RING` call: it
+//! maps the header and takes ownership of every handle, or takes none of them. [`OpenRing`] is
+//! built by the swap-chain worker on its own device, because only that device can copy the
+//! swap chain's surface into the textures, and is rebuilt when the ring or the device changes.
+//!
+//! A fence ring's slots belong to whoever the header's state word names; the driver signals
+//! the written fence after its copy and reuses a slot once the host's released fence passed
+//! the value recorded in it. The default keyed-mutex ring hands each texture over with its
+//! keyed mutex instead, including for hosts before `CAP_FENCE_RING`.
 
 use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, Mutex};
 
 use rubylight_vdisplay_proto::control::SetFrameRingRequest;
-use rubylight_vdisplay_proto::ring::{self, Claim, Header, Picker, SlotMeta, Token};
+use rubylight_vdisplay_proto::ring::{self, Claim, Header, Kind, Picker, SlotMeta, Token};
 use wdk_sys::NTSTATUS;
 use windows::Win32::Foundation::{HANDLE, LUID};
 use windows::Win32::Graphics::Direct3D11::{
-    D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX, D3D11_TEXTURE2D_DESC, ID3D11Device1, ID3D11Texture2D,
+    D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX, D3D11_TEXTURE2D_DESC, ID3D11Device1, ID3D11Device5,
+    ID3D11DeviceContext4, ID3D11Fence, ID3D11Texture2D,
 };
 use windows::Win32::Graphics::Dxgi::IDXGIKeyedMutex;
 use windows::Win32::System::Memory::{FILE_MAP_READ, FILE_MAP_WRITE, MapViewOfFile};
@@ -24,8 +31,9 @@ use windows::core::Interface;
 use crate::direct_3d_device::{Direct3DDevice, luid_key};
 use crate::worker::{OwnedHandle, OwnedView};
 
-/// A ring the host handed over. Owns the header view, the event and the texture handles,
-/// and closes them when the last holder (the monitor or the worker) drops it.
+/// A ring the host handed over. Owns the header view, the event, the texture handles and a
+/// fence ring's two fence handles, and closes them when the last holder (the monitor or the
+/// worker) drops it.
 pub struct RingHandles {
     pub generation: u32,
     pub slot_count: usize,
@@ -37,10 +45,13 @@ pub struct RingHandles {
     view: OwnedView,
     event: OwnedHandle,
     textures: Vec<OwnedHandle>,
+    /// A fence ring's written and released fences; `None` for a keyed-mutex ring.
+    fences: Option<(OwnedHandle, OwnedHandle)>,
     /// The producer's sequence and which slot carries which publish. It lives as long as
     /// the ring, not the worker: a swap chain reassigned onto the same ring continues the
     /// sequence the host's `Consumer` expects, where a fresh one would restart at 1 and
-    /// every publish would read as already consumed.
+    /// every publish would read as already consumed. The written fence follows the same
+    /// sequence, so it only ever rises.
     picker: Mutex<Picker>,
 }
 
@@ -49,10 +60,10 @@ fn handle(value: u64) -> HANDLE {
 }
 
 impl RingHandles {
-    /// Adopt a validated request's handles. The header is mapped first, and only a mapping
-    /// that succeeds adopts anything: on `Err` no handle is owned (or closed) here, and the
-    /// host reaps them all.
-    pub fn adopt(req: &SetFrameRingRequest) -> Result<Self, NTSTATUS> {
+    /// Adopt a validated request's handles, plus a fence ring's `(written, released)` fence
+    /// handles. The header is mapped first, and only a mapping that succeeds adopts anything:
+    /// on `Err` no handle is owned (or closed) here, and the host reaps them all.
+    pub fn adopt(req: &SetFrameRingRequest, fences: Option<(u64, u64)>) -> Result<Self, NTSTATUS> {
         let section = handle(req.header_section);
         // SAFETY: `section` is a handle value the host duplicated into this process. A value
         // that is not a section of at least HEADER_BYTES fails the call and maps nothing.
@@ -81,6 +92,13 @@ impl RingHandles {
             // SAFETY: transferred with the request, as above.
             .map(|&h| unsafe { OwnedHandle::from_raw(handle(h)) })
             .collect();
+        // SAFETY: transferred with the request, as above.
+        let fences = fences.map(|(written, released)| unsafe {
+            (
+                OwnedHandle::from_raw(handle(written)),
+                OwnedHandle::from_raw(handle(released)),
+            )
+        });
         let handles = Self {
             generation: req.generation,
             slot_count,
@@ -94,6 +112,7 @@ impl RingHandles {
             view,
             event,
             textures,
+            fences,
             picker: Mutex::new(Picker::new(slot_count)),
         };
         handles.header().set_status(ring::STATUS_WAITING, 0);
@@ -107,6 +126,18 @@ impl RingHandles {
         self.event.into_unowned();
         for t in self.textures {
             t.into_unowned();
+        }
+        if let Some((written, released)) = self.fences {
+            written.into_unowned();
+            released.into_unowned();
+        }
+    }
+
+    pub fn kind(&self) -> Kind {
+        if self.fences.is_some() {
+            Kind::Fence
+        } else {
+            Kind::KeyedMutex
         }
     }
 
@@ -149,13 +180,22 @@ pub enum Pushed {
 
 struct Slot {
     texture: ID3D11Texture2D,
-    mutex: IDXGIKeyedMutex,
+    /// Keyed-mutex ring only.
+    mutex: Option<IDXGIKeyedMutex>,
+}
+
+/// A fence ring's fences opened on the worker's device.
+struct Fences {
+    written: ID3D11Fence,
+    released: ID3D11Fence,
+    context: ID3D11DeviceContext4,
 }
 
 /// The ring's textures opened on one device.
 pub struct OpenRing {
     handles: Arc<RingHandles>,
     slots: Vec<Slot>,
+    fences: Option<Fences>,
 }
 
 /// Why a ring did not open: a `ring::STATUS_*` and its detail for the header.
@@ -177,12 +217,14 @@ pub fn qpc_now() -> u64 {
 }
 
 impl OpenRing {
-    /// Open `handles`' textures on `device`, checking each against the ring's shape.
+    /// Open `handles`' textures (and fences) on `device`, checking each against the ring's
+    /// shape.
     pub fn open(handles: Arc<RingHandles>, device: &Direct3DDevice) -> Result<Self, OpenError> {
         if luid_key(handles.adapter) != luid_key(device.luid) {
             return Err((ring::STATUS_WRONG_ADAPTER, device.luid.LowPart));
         }
         let failed = |e: windows::core::Error| (ring::STATUS_OPEN_FAILED, e.code().0 as u32);
+        let fenced = handles.fences.is_some();
         let device1: ID3D11Device1 = device.device.cast().map_err(failed)?;
         let mut slots = Vec::with_capacity(handles.slot_count);
         for texture in &handles.textures {
@@ -194,18 +236,45 @@ impl OpenRing {
             // SAFETY: `texture` is live; `desc` is a live local.
             unsafe { texture.GetDesc(&mut desc) };
             let keyed = desc.MiscFlags & D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX.0 as u32 != 0;
+            // A fence ring's textures have no keyed mutex to take; a keyed-mutex ring's must.
             if (desc.Width, desc.Height, desc.Format.0 as u32)
                 != (handles.width, handles.height, handles.format)
                 || desc.ArraySize != 1
                 || desc.SampleDesc.Count != 1
-                || !keyed
+                || keyed == fenced
             {
                 return Err((ring::STATUS_OPEN_FAILED, 0));
             }
-            let mutex = texture.cast::<IDXGIKeyedMutex>().map_err(failed)?;
+            let mutex = if fenced {
+                None
+            } else {
+                Some(texture.cast::<IDXGIKeyedMutex>().map_err(failed)?)
+            };
             slots.push(Slot { texture, mutex });
         }
-        Ok(Self { handles, slots })
+        let fences = match &handles.fences {
+            Some((written, released)) => {
+                let device5: ID3D11Device5 = device.device.cast().map_err(failed)?;
+                let open = |h: &OwnedHandle| {
+                    let mut fence: Option<ID3D11Fence> = None;
+                    // SAFETY: `h` is a shared fence handle the host transferred, open while
+                    // `handles` lives; `fence` is a live local.
+                    unsafe { device5.OpenSharedFence(h.as_raw(), &mut fence) }.map_err(failed)?;
+                    fence.ok_or((ring::STATUS_OPEN_FAILED, 0))
+                };
+                Some(Fences {
+                    written: open(written)?,
+                    released: open(released)?,
+                    context: device.device_context.cast().map_err(failed)?,
+                })
+            }
+            None => None,
+        };
+        Ok(Self {
+            handles,
+            slots,
+            fences,
+        })
     }
 
     /// Whether this is still the monitor's ring.
@@ -249,7 +318,9 @@ impl OpenRing {
     }
 
     /// Copy the newest published texture into `into` (same size and format) and return its
-    /// frame number. Skipped, never waited for, while the host holds that texture.
+    /// frame number. In a keyed-mutex ring it is skipped, never waited for, while the host
+    /// holds that texture; in a fence ring only this producer writes, so a texture the host
+    /// may be reading is read here too, after this device's own copy into it.
     pub fn copy_newest(&self, device: &Direct3DDevice, into: &ID3D11Texture2D) -> Option<u64> {
         let index = self
             .handles
@@ -260,16 +331,39 @@ impl OpenRing {
         let slot = &self.slots[index];
         // Consumed textures are back under KEY_DRIVER, unconsumed ones under KEY_HOST; the
         // mutex goes back with the key it was taken with, so the host's view is unchanged.
-        let key = [ring::KEY_DRIVER, ring::KEY_HOST]
-            .into_iter()
-            .find(|&key| try_acquire(&slot.mutex, key))?;
+        let key = match &slot.mutex {
+            Some(mutex) => Some(
+                [ring::KEY_DRIVER, ring::KEY_HOST]
+                    .into_iter()
+                    .find(|&key| try_acquire(mutex, key))?,
+            ),
+            None => None,
+        };
         let frame_number = self.handles.header().slot(index).frame_number;
         // SAFETY: both textures are live on this device with the ring's size and format (the
-        // caller checked `into` with `fits`); this thread holds the slot's mutex.
+        // caller checked `into` with `fits`); this thread holds the slot's mutex, or the slot
+        // is a fence ring's, which only this thread writes.
         unsafe { device.device_context.CopyResource(into, &slot.texture) };
-        // SAFETY: taken above with `key` on this thread.
-        let _ = unsafe { slot.mutex.ReleaseSync(key) };
+        if let (Some(mutex), Some(key)) = (&slot.mutex, key) {
+            // SAFETY: taken above with `key` on this thread.
+            let _ = unsafe { mutex.ReleaseSync(key) };
+        }
         Some(frame_number)
+    }
+
+    /// Whether `surface` fits; a mismatch is reported in the header for the host to rebuild.
+    fn check_shape(&self, desc: &D3D11_TEXTURE2D_DESC) -> bool {
+        let header = self.handles.header();
+        header.set_surface(desc.Width, desc.Height, desc.Format.0 as u32);
+        if (desc.Width, desc.Height) != (self.handles.width, self.handles.height) {
+            header.set_status(ring::STATUS_SIZE_MISMATCH, 0);
+            return false;
+        }
+        if desc.Format.0 as u32 != self.handles.format {
+            header.set_status(ring::STATUS_FORMAT_MISMATCH, desc.Format.0 as u32);
+            return false;
+        }
+        true
     }
 
     fn publish(
@@ -279,25 +373,68 @@ impl OpenRing {
         desc: &D3D11_TEXTURE2D_DESC,
         frame: Frame,
     ) -> Pushed {
-        let header = self.handles.header();
-        header.set_surface(desc.Width, desc.Height, desc.Format.0 as u32);
-        if (desc.Width, desc.Height) != (self.handles.width, self.handles.height) {
-            header.set_status(ring::STATUS_SIZE_MISMATCH, 0);
-            return Pushed::Mismatch;
-        }
-        if desc.Format.0 as u32 != self.handles.format {
-            header.set_status(ring::STATUS_FORMAT_MISMATCH, desc.Format.0 as u32);
+        if !self.check_shape(desc) {
             return Pushed::Mismatch;
         }
         // Only the one worker attached to this ring pushes, so the lock is uncontended; a
         // worker that panicked under it leaves a picker that is still consistent.
-        let mut picker = self
-            .handles
+        let handles = self.handles.clone();
+        let mut picker = handles
             .picker
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let slots = &self.slots;
-        let Some(claim) = picker.claim(|s, key| try_acquire(&slots[s].mutex, key)) else {
+        let pushed = match &self.fences {
+            Some(fences) => self.publish_fenced(fences, &mut picker, device, surface, frame),
+            None => self.publish_keyed(&mut picker, device, surface, frame),
+        };
+        if pushed == Pushed::Published {
+            let header = handles.header();
+            header.set_status(ring::STATUS_STREAMING, 0);
+            handles.signal();
+        }
+        pushed
+    }
+
+    fn meta(seq: u32, frame: Frame) -> SlotMeta {
+        SlotMeta {
+            seq: u64::from(seq),
+            present_qpc: frame.present_qpc,
+            acquire_qpc: frame.acquire_qpc,
+            publish_qpc: qpc_now(),
+            frame_number: frame.frame_number,
+        }
+    }
+
+    fn device_failed(device: &Direct3DDevice, header: &Header<'_>) -> Pushed {
+        // SAFETY: a plain status query on the live device.
+        if unsafe { device.device.GetDeviceRemovedReason() }.is_err() {
+            device.mark_removed();
+            header.set_status(ring::STATUS_DEVICE_LOST, 0);
+            return Pushed::DeviceLost;
+        }
+        Pushed::Dropped
+    }
+
+    fn publish_fenced(
+        &self,
+        fences: &Fences,
+        picker: &mut Picker,
+        device: &Direct3DDevice,
+        surface: &ID3D11Texture2D,
+        frame: Frame,
+    ) -> Pushed {
+        let header = self.handles.header();
+        if picker.needs_renewal() {
+            header.set_status(ring::STATUS_RENEW_REQUIRED, 0);
+            self.handles.signal();
+            return Pushed::Dropped;
+        }
+        // The host's reads of a slot are done once the released fence passed the value it
+        // recorded there. Only read, never waited for. A host whose device was lost leaves
+        // the fence at u64::MAX, which frees every slot.
+        // SAFETY: a plain read of a fence opened on this device.
+        let released = unsafe { fences.released.GetCompletedValue() };
+        let Some(claim) = picker.claim_fenced(&header, released) else {
             header.count_dropped();
             return Pushed::Dropped;
         };
@@ -305,36 +442,77 @@ impl OpenRing {
             header.count_overwritten();
         }
         let index = claim.slot();
-        let slot = &self.slots[index];
+        let seq = picker.next_seq();
+        // SAFETY: both textures are live on this device, same size and format (checked
+        // above and at open); the slot is ours in `Writing`, and the context is
+        // multithread-protected.
+        unsafe {
+            device
+                .device_context
+                .CopyResource(&self.slots[index].texture, surface)
+        };
+        // The host's reads of this slot wait on the GPU for this signal; the flush submits it
+        // now instead of at the next batch.
+        // SAFETY: the fence and the context are this device's.
+        let signalled = unsafe { fences.context.Signal(&fences.written, u64::from(seq)) };
+        // SAFETY: a plain flush of the multithread-protected immediate context.
+        unsafe { device.device_context.Flush() };
+        if let Err(e) = signalled {
+            dbglog!("[rlvd] frame ring: written fence signal failed: {e:?}");
+            picker.abandon_fenced(&header, index, seq);
+            return Self::device_failed(device, &header);
+        }
+        header.write_slot(index, Self::meta(seq, frame));
+        if !picker.publish_fenced(&header, index, seq) {
+            dbglog!("[rlvd] frame ring: slot {index} changed under the driver; frame dropped");
+            header.count_dropped();
+            return Pushed::Dropped;
+        }
+        header.publish(Token {
+            generation: self.handles.generation,
+            seq,
+            slot: index as u8,
+        });
+        Pushed::Published
+    }
+
+    /// Publish through the default keyed-mutex transport.
+    fn publish_keyed(
+        &self,
+        picker: &mut Picker,
+        device: &Direct3DDevice,
+        surface: &ID3D11Texture2D,
+        frame: Frame,
+    ) -> Pushed {
+        let header = self.handles.header();
+        let slots = &self.slots;
+        let mutex = |s: usize| slots[s].mutex.as_ref().expect("a keyed-mutex ring's slot");
+        let Some(claim) = picker.claim(|s, key| try_acquire(mutex(s), key)) else {
+            header.count_dropped();
+            return Pushed::Dropped;
+        };
+        if matches!(claim, Claim::Reclaimed(_)) {
+            header.count_overwritten();
+        }
+        let index = claim.slot();
         // SAFETY: both textures are live on this device, same size and format (checked
         // above and at open); the context is multithread-protected.
-        unsafe { device.device_context.CopyResource(&slot.texture, surface) };
+        unsafe {
+            device
+                .device_context
+                .CopyResource(&slots[index].texture, surface)
+        };
         let seq = picker.next_seq();
-        header.write_slot(
-            index,
-            SlotMeta {
-                seq: u64::from(seq),
-                present_qpc: frame.present_qpc,
-                acquire_qpc: frame.acquire_qpc,
-                publish_qpc: qpc_now(),
-                frame_number: frame.frame_number,
-            },
-        );
+        header.write_slot(index, Self::meta(seq, frame));
         // The release orders the host's acquire after the copy on the GPU; the flush submits
         // it now instead of at the next batch.
         // SAFETY: this thread took the mutex in `claim`; the context is this device's.
-        let released = unsafe { slot.mutex.ReleaseSync(ring::KEY_HOST) };
+        let released = unsafe { mutex(index).ReleaseSync(ring::KEY_HOST) };
         // SAFETY: a plain flush of the multithread-protected immediate context.
         unsafe { device.device_context.Flush() };
         if let Err(e) = released {
             dbglog!("[rlvd] frame ring: ReleaseSync failed: {e:?}");
-            // SAFETY: a plain status query on the live device.
-            if unsafe { device.device.GetDeviceRemovedReason() }.is_err() {
-                device.mark_removed();
-                header.set_status(ring::STATUS_DEVICE_LOST, 0);
-                return Pushed::DeviceLost;
-            }
-            return Pushed::Dropped;
+            return Self::device_failed(device, &header);
         }
         picker.published(index, seq);
         header.publish(Token {
@@ -342,8 +520,6 @@ impl OpenRing {
             seq,
             slot: index as u8,
         });
-        header.set_status(ring::STATUS_STREAMING, 0);
-        self.handles.signal();
         Pushed::Published
     }
 }

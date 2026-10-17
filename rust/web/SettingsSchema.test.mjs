@@ -142,6 +142,8 @@ test('every alias names one of its setting\'s options', () => {
 test('capture-specific controls follow the selected method and remain available for Automatic', () => {
   const predictive = settings.get('capture_predictive_poll');
   const aligned = settings.get('wgc_slot_aligned_publish');
+  const fences = settings.get('idd_push_fence_ring');
+  assert.equal(fences.default, false);
   for (const [capture, polling, alignment] of [
     ['auto', true, true], ['idd-push', false, false],
     ['wgc', false, true], ['wgcc', false, true],
@@ -149,6 +151,7 @@ test('capture-specific controls follow the selected method and remain available 
   ]) {
     assert.equal(predictive.visibleWhen({ capture }), polling, capture);
     assert.equal(aligned.visibleWhen({ capture }), alignment, capture);
+    assert.equal(fences.visibleWhen({ capture }), ['auto', 'idd-push'].includes(capture), capture);
   }
 });
 

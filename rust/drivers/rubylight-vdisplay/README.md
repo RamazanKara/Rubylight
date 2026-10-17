@@ -17,7 +17,7 @@ removes the libvirtualdisplay driver earlier versions used.
 | Hardware ID | `Root\RubylightVDisplay` |
 | UMDF service | `RubylightVDisplay` |
 | Files | `rubylight_vdisplay.inf`, `rubylight_vdisplay.dll`, `rubylight_vdisplay.cat` |
-| Control interface | `{5e240e6b-b196-4295-81c3-533c10000c59}`, IOCTL functions `0xB00`-`0xB0A` |
+| Control interface | `{5e240e6b-b196-4295-81c3-533c10000c59}`, IOCTL functions `0xB00`-`0xB0C` |
 
 None of these collide with libvirtualdisplay (Vibepollo) or punktfunk, so an old
 installation of either does not stand in its way.
@@ -35,6 +35,8 @@ This directory is its own cargo workspace (excluded from the main one): the driv
 for `x86_64-pc-windows-msvc` with the static CRT and the Windows Driver Kit.
 
 ## How frames reach the host
+
+The standard transport uses keyed mutexes and remains the default:
 
 1. The host creates the display with `IOCTL_ADD` and
    keeps it alive with `IOCTL_HEARTBEAT` every second. A monitor belongs to the process that
@@ -61,6 +63,44 @@ handoff (publish to the host taking it).
 
 The header also carries the driver's status (size or format mismatch, open failure, wrong
 GPU, device lost), the surface it saw and a heartbeat of its swap-chain loop.
+
+### Optional GPU fence transport
+
+The advanced Video setting **Experimental GPU fence transport** (`idd_push_fence_ring =
+true`) selects an additional transport for this driver's displays with `capture = auto`
+or `idd-push`. It defaults to `false`. End every stream before changing it, then start a
+new stream. It requires the driver capability `CAP_FENCE_RING`, compatible AMD compute
+capture (`gpu_compute_conversion = true`) and in-place reads (`idd_push_zero_copy = true`).
+An older display driver or an incompatible capture device keeps the standard transport
+and produces a console warning.
+
+The driver continues acquiring and copying frames with **D3D11**. The host creates
+D3D12-owned shared textures and two shared fences, then submits them with
+`IOCTL_SET_FENCE_RING` (`0xB0C`). Atomic slot ownership prevents a producer overwrite while
+any host reader holds the image. A written fence orders conversion after the driver's
+copy; a release fence covers the last compute and graphics readers before the driver can
+reuse a returned slot. The driver picks another free slot or drops a frame instead of
+waiting for the host. The ring is replaced before its frame sequence could wrap.
+
+This option does not use IddCx's native D3D12 swap-chain API and does not add an IddCx 1.11
+requirement. WGC, Desktop Duplication, every encoder choice and the existing keyed IOCTL
+remain available. Driver and host capability negotiation allow an old host to use the new
+driver's keyed path, and a new host to use an old driver's keyed path. Generation-scoped
+ring cleanup uses `IOCTL_CLEAR_FRAME_RING_GENERATION` (`0xB0B`) when supported.
+
+If fence setup, shared-resource opening or the first frame fails, the host retries the
+standard keyed ring. A failed GPU ordering operation also retires the fence ring without
+releasing a potentially busy texture. Device loss follows the normal capture recovery
+path, and the existing WGC fallback still applies if driver capture cannot recover. A
+console warning identifies fallback; enabling the setting alone does not prove the
+fence path is active.
+
+The two-device native tests in `rust/windows/src/capture/idd_push/fence_tests.rs` cover
+SDR/HDR pixels, multiple readers, ring replacement and delayed GPU completion without
+installing a driver. Its ignored ABBA transport probe measures producer copy through
+completed conversion. These component checks do not establish latency or picture quality
+for a live IddCx stream, encoder, network or receiver. Keep this option experimental until
+those measurements justify a wider default.
 
 ## Build
 

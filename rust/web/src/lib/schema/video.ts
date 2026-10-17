@@ -108,6 +108,20 @@ const video: Setting[] = [
     advanced: true,
   },
   {
+    key: 'idd_push_fence_ring',
+    label: 'Experimental GPU fence transport',
+    description:
+      'Tries GPU fences for direct driver push on AMD. Requires a compatible Rubylight display driver and compute conversion.',
+    details:
+      'Off by default while performance is evaluated. Keeps the standard driver transport if unavailable. Physical displays and other capture methods are unaffected. End all streams before comparing.',
+    category: 'video',
+    group: 'Capture',
+    control: { kind: 'toggle' },
+    default: false,
+    visibleWhen: (values) => ['auto', 'idd-push'].includes(capture(values)),
+    advanced: true,
+  },
+  {
     key: 'capture_predictive_poll',
     label: 'Predictive polling',
     description:

@@ -55,4 +55,6 @@
     <string name="desktop_controls_shortcut_desktop">Mostrar área de trabalho</string>
     <string name="desktop_controls_selected_modifier">%1$s selecionado</string>
     <string name="desktop_controls_modifier_action">%1$s. Toque para combinar com uma tecla do painel; mantenha pressionado para enviar apenas esta tecla.</string>
+    <string name="desktop_controls_choose_mode">Alterar modo: %1$s</string>
+    <string name="desktop_controls_choose_bank">Alterar grupo de teclas: %1$s</string>
 </resources>

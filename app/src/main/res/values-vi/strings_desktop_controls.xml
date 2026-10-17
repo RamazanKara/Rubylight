@@ -55,4 +55,6 @@
     <string name="desktop_controls_shortcut_desktop">Hiển thị màn hình nền</string>
     <string name="desktop_controls_selected_modifier">Đã chọn %1$s</string>
     <string name="desktop_controls_modifier_action">%1$s. Chạm để kết hợp với một phím trên bảng; nhấn giữ để chỉ gửi phím này.</string>
+    <string name="desktop_controls_choose_mode">Đổi chế độ: %1$s</string>
+    <string name="desktop_controls_choose_bank">Đổi nhóm phím: %1$s</string>
 </resources>

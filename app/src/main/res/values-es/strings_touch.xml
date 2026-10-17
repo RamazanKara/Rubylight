@@ -30,8 +30,12 @@
     <string name="title_three_finger_tap">Toque con tres dedos</string>
     <string name="summary_three_finger_tap">Lo que hace un toque rápido con tres dedos en los modos Trackpad, Ratón directo y Cursor local.</string>
     <string-array name="three_finger_tap_names">
-        <item>Abrir el teclado</item>
+        <item>@string/desktop_controls_system_keyboard</item>
         <item>Clic central</item>
+        <item>@string/desktop_controls_open</item>
+        <item>@string/stream_disabled</item>
     </string-array>
     <string name="stream_cursor_shape_rejected">Nightjar no puede dibujar la forma del cursor del PC y muestra la flecha predeterminada.</string>
+    <string name="title_four_finger_tap">Toque con cuatro dedos</string>
+    <string name="summary_four_finger_tap">Acción de un toque rápido con cuatro dedos en los modos Trackpad, Ratón directo y Cursor local.</string>
 </resources>

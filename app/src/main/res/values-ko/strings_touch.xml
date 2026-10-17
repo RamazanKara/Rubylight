@@ -30,8 +30,12 @@
     <string name="title_three_finger_tap">세 손가락 탭</string>
     <string name="summary_three_finger_tap">트랙패드, 다이렉트 마우스, 로컬 커서 모드에서 세 손가락으로 빠르게 탭했을 때의 동작입니다.</string>
     <string-array name="three_finger_tap_names">
-        <item>키보드 열기</item>
+        <item>@string/desktop_controls_system_keyboard</item>
         <item>가운데 클릭</item>
+        <item>@string/desktop_controls_open</item>
+        <item>@string/stream_disabled</item>
     </string-array>
     <string name="stream_cursor_shape_rejected">Nightjar가 PC의 커서 모양을 그릴 수 없어 기본 화살표를 표시합니다.</string>
+    <string name="title_four_finger_tap">네 손가락 탭</string>
+    <string name="summary_four_finger_tap">트랙패드, 직접 마우스 및 로컬 커서 모드에서 네 손가락으로 빠르게 탭할 때의 동작입니다.</string>
 </resources>

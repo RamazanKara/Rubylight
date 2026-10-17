@@ -55,4 +55,6 @@
     <string name="desktop_controls_shortcut_desktop">Pokaż pulpit</string>
     <string name="desktop_controls_selected_modifier">Wybrano %1$s</string>
     <string name="desktop_controls_modifier_action">%1$s. Stuknij, aby połączyć z klawiszem panelu; przytrzymaj, aby wysłać tylko ten klawisz.</string>
+    <string name="desktop_controls_choose_mode">Zmień tryb: %1$s</string>
+    <string name="desktop_controls_choose_bank">Zmień grupę klawiszy: %1$s</string>
 </resources>

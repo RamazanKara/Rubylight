@@ -55,4 +55,6 @@
     <string name="desktop_controls_shortcut_desktop">Mostra desktop</string>
     <string name="desktop_controls_selected_modifier">%1$s selezionato</string>
     <string name="desktop_controls_modifier_action">%1$s. Tocca per combinare con un tasto del pannello; tieni premuto per inviare solo questo tasto.</string>
+    <string name="desktop_controls_choose_mode">Cambia modalità: %1$s</string>
+    <string name="desktop_controls_choose_bank">Cambia gruppo di tasti: %1$s</string>
 </resources>

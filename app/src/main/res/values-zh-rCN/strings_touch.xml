@@ -30,8 +30,12 @@
     <string name="title_three_finger_tap">三指轻点</string>
     <string name="summary_three_finger_tap">在触控板、直接鼠标和本地光标模式下，三指快速轻点时执行的操作。</string>
     <string-array name="three_finger_tap_names">
-        <item>打开键盘</item>
+        <item>@string/desktop_controls_system_keyboard</item>
         <item>中键单击</item>
+        <item>@string/desktop_controls_open</item>
+        <item>@string/stream_disabled</item>
     </string-array>
     <string name="stream_cursor_shape_rejected">Nightjar 无法绘制电脑的光标形状，因此显示默认箭头。</string>
+    <string name="title_four_finger_tap">四指轻点</string>
+    <string name="summary_four_finger_tap">在触控板、直接鼠标和本地光标模式下，四指快速轻点时执行的操作。</string>
 </resources>

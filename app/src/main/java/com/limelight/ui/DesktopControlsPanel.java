@@ -20,6 +20,7 @@ import android.widget.SeekBar;
 import android.widget.TextView;
 
 import androidx.appcompat.app.AlertDialog;
+import androidx.appcompat.widget.TooltipCompat;
 
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.color.MaterialColors;
@@ -41,6 +42,7 @@ import java.util.function.IntConsumer;
 @SuppressLint("ViewConstructor")
 public class DesktopControlsPanel extends LinearLayout {
     public enum Mode { KEYBOARD, TRACKPAD, COMBINED }
+    private enum HeaderPicker { NONE, MODE, BANK }
 
     public interface Sink {
         void sendKeys(int[] keys);
@@ -57,6 +59,8 @@ public class DesktopControlsPanel extends LinearLayout {
     private DesktopControlsConfig config;
     private Mode mode;
     private String bank;
+    private LinearLayout header;
+    private HeaderPicker headerPicker = HeaderPicker.NONE;
     private boolean wide;
     private DesktopTrackpad trackpad;
     private final Set<Integer> selectedModifiers = new LinkedHashSet<>();
@@ -86,13 +90,18 @@ public class DesktopControlsPanel extends LinearLayout {
     public Mode getMode() { return mode; }
     public DesktopControlsConfig getConfig() { return config.copy(); }
     public int getPreferredHeightDp() {
-        return !config.panelHeightCustomized && mode == Mode.COMBINED && !wide ? 420 : config.panelHeightDp;
+        if (config.panelHeightCustomized) return config.panelHeightDp;
+        // The bank selector now shares the toolbar. Return its former row to the stream,
+        // without reducing the space available to the keys or changing custom heights.
+        if (mode == Mode.COMBINED && !wide) return 384;
+        return mode == Mode.TRACKPAD ? config.panelHeightDp : config.panelHeightDp - 36;
     }
 
     public void setMode(Mode mode) {
         if (mode == null) return;
         releaseInputs();
         this.mode = mode;
+        headerPicker = HeaderPicker.NONE;
         config.mode = mode.name().toLowerCase(Locale.ROOT);
         config.save(getContext());
         rebuild();
@@ -104,6 +113,7 @@ public class DesktopControlsPanel extends LinearLayout {
         config = DesktopControlsConfig.load(getContext());
         mode = Mode.valueOf(config.mode.toUpperCase(Locale.ROOT));
         bank = config.bank;
+        headerPicker = HeaderPicker.NONE;
         rebuild();
     }
 
@@ -116,6 +126,7 @@ public class DesktopControlsPanel extends LinearLayout {
         modifierButtons.clear();
         mouseViews.clear();
         trackpad = null;
+        if (!bankEnabled(bank)) bank = "typing";
         int surface = color(com.google.android.material.R.attr.colorSurfaceContainer);
         GradientDrawable background = new GradientDrawable();
         background.setColor(Color.argb(config.opacityPercent * 255 / 100, Color.red(surface), Color.green(surface), Color.blue(surface)));
@@ -151,47 +162,114 @@ public class DesktopControlsPanel extends LinearLayout {
     private LayoutParams fill() { return new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT); }
 
     private void addHeader() {
-        LinearLayout header = new LinearLayout(getContext());
+        header = new LinearLayout(getContext());
         header.setGravity(Gravity.CENTER_VERTICAL);
         addView(header, new LayoutParams(LayoutParams.MATCH_PARENT, dp(48)));
-        int[] titles = {R.string.desktop_controls_keyboard, R.string.desktop_controls_trackpad, R.string.desktop_controls_combined};
-        for (Mode choice : Mode.values()) {
-            MaterialButton button = button(getContext().getString(titles[choice.ordinal()]), () -> setMode(choice));
-            button.setTextSize(12);
-            button.setPadding(dp(2), 0, dp(2), 0);
-            selected(button, mode == choice);
-            header.addView(button, new LayoutParams(0, dp(48), 1));
+        rebuildHeader();
+    }
+
+    private int modeTitle(Mode value) {
+        switch (value) {
+            case TRACKPAD: return R.string.desktop_controls_trackpad;
+            case COMBINED: return R.string.desktop_controls_combined;
+            default: return R.string.desktop_controls_keyboard;
         }
-        MaterialButton settings = button("⚙", this::showCustomization);
-        settings.setTextSize(21);
-        settings.setContentDescription(getContext().getString(R.string.desktop_controls_customize));
-        header.addView(settings, new LayoutParams(dp(48), dp(48)));
-        MaterialButton close = button("×", () -> { releaseInputs(); hide.run(); });
-        close.setTextSize(24);
-        close.setContentDescription(getContext().getString(R.string.desktop_controls_hide));
+    }
+
+    private int bankTitle() {
+        switch (bank) {
+            case "function": return R.string.desktop_controls_function;
+            case "navigation": return R.string.desktop_controls_navigation;
+            case "numpad": return R.string.desktop_controls_numpad;
+            case "shortcuts": return R.string.desktop_controls_shortcuts;
+            default: return R.string.desktop_controls_typing;
+        }
+    }
+
+    private void rebuildHeader() {
+        // Inline pickers retain the stream's focus and locally selected modifiers.
+        // Opening a dialog or popup here would release them on window focus loss.
+        header.removeAllViews();
+        if (headerPicker != HeaderPicker.NONE) {
+            MaterialButton back = headerIcon(R.drawable.ic_arrow_back, R.string.sheet_back, () -> {
+                headerPicker = HeaderPicker.NONE;
+                rebuildHeader();
+            });
+            header.addView(back, new LayoutParams(dp(48), dp(48)));
+        }
+        if (headerPicker == HeaderPicker.MODE) {
+            for (Mode choice : Mode.values()) {
+                MaterialButton button = button(getContext().getString(modeTitle(choice)), () -> setMode(choice));
+                button.setTextSize(12);
+                button.setPadding(dp(2), 0, dp(2), 0);
+                describe(button, getContext().getString(modeTitle(choice)));
+                selected(button, mode == choice);
+                header.addView(button, new LayoutParams(0, dp(48), 1));
+            }
+        } else if (headerPicker == HeaderPicker.BANK) {
+            HorizontalScrollView scroll = new HorizontalScrollView(getContext());
+            scroll.setHorizontalScrollBarEnabled(false);
+            LinearLayout banks = new LinearLayout(getContext());
+            scroll.addView(banks);
+            addBank(banks, "typing", R.string.desktop_controls_typing);
+            if (config.functionBank) addBank(banks, "function", R.string.desktop_controls_function);
+            if (config.navigationBank) addBank(banks, "navigation", R.string.desktop_controls_navigation);
+            if (config.numpadBank) addBank(banks, "numpad", R.string.desktop_controls_numpad);
+            if (config.shortcutsBank) addBank(banks, "shortcuts", R.string.desktop_controls_shortcuts);
+            header.addView(scroll, new LayoutParams(0, dp(48), 1));
+        } else {
+            addSelector(modeTitle(mode), R.string.desktop_controls_choose_mode, HeaderPicker.MODE);
+            if (mode != Mode.TRACKPAD) {
+                addSelector(bankTitle(), R.string.desktop_controls_choose_bank, HeaderPicker.BANK);
+            }
+            MaterialButton phone = headerIcon(R.drawable.ic_keyboard, R.string.desktop_controls_system_keyboard,
+                    () -> { releaseInputs(); systemKeyboard.run(); });
+            header.addView(phone, new LayoutParams(dp(48), dp(48)));
+            MaterialButton settings = headerIcon(R.drawable.ic_settings, R.string.desktop_controls_customize,
+                    this::showCustomization);
+            header.addView(settings, new LayoutParams(dp(48), dp(48)));
+        }
+        MaterialButton close = headerIcon(R.drawable.ic_close, R.string.desktop_controls_hide,
+                () -> { releaseInputs(); hide.run(); });
         header.addView(close, new LayoutParams(dp(48), dp(48)));
+    }
+
+    private MaterialButton headerIcon(int icon, int description, Runnable action) {
+        MaterialButton button = button("", action);
+        button.setIconResource(icon);
+        button.setIconSize(dp(24));
+        button.setIconPadding(0);
+        button.setIconTint(button.getTextColors());
+        button.setPadding(0, 0, 0, 0);
+        button.setIconGravity(MaterialButton.ICON_GRAVITY_TEXT_START);
+        describe(button, getContext().getString(description));
+        return button;
+    }
+
+    private void addSelector(int title, int description, HeaderPicker picker) {
+        String label = getContext().getString(title);
+        MaterialButton selector = button(label, () -> {
+            headerPicker = picker;
+            rebuildHeader();
+        });
+        selector.setTextSize(12);
+        selector.setIconResource(R.drawable.ic_expand_more);
+        selector.setIconSize(dp(18));
+        selector.setIconPadding(dp(4));
+        selector.setIconTint(selector.getTextColors());
+        selector.setIconGravity(MaterialButton.ICON_GRAVITY_END);
+        describe(selector, getContext().getString(description, label));
+        header.addView(selector, new LayoutParams(0, dp(48), 1));
+    }
+
+    private void describe(View view, String text) {
+        view.setContentDescription(text);
+        TooltipCompat.setTooltipText(view, text);
     }
 
     private LinearLayout createKeyboard() {
         LinearLayout keyboard = new LinearLayout(getContext());
         keyboard.setOrientation(VERTICAL);
-        HorizontalScrollView bankScroll = new HorizontalScrollView(getContext());
-        bankScroll.setHorizontalScrollBarEnabled(false);
-        LinearLayout banks = new LinearLayout(getContext());
-        bankScroll.addView(banks);
-        keyboard.addView(bankScroll, new LayoutParams(LayoutParams.MATCH_PARENT, dp(36)));
-        if (!bankEnabled(bank)) bank = "typing";
-        addBank(banks, "typing", R.string.desktop_controls_typing);
-        if (config.functionBank) addBank(banks, "function", R.string.desktop_controls_function);
-        if (config.navigationBank) addBank(banks, "navigation", R.string.desktop_controls_navigation);
-        if (config.numpadBank) addBank(banks, "numpad", R.string.desktop_controls_numpad);
-        if (config.shortcutsBank) addBank(banks, "shortcuts", R.string.desktop_controls_shortcuts);
-        MaterialButton phone = button(getContext().getString(R.string.desktop_controls_system_keyboard), () -> {
-            releaseInputs(); systemKeyboard.run();
-        });
-        phone.setTextSize(12);
-        banks.addView(phone, new LayoutParams(LayoutParams.WRAP_CONTENT, dp(36)));
-
         ScrollView scroll = new ScrollView(getContext());
         scroll.setFillViewport(false);
         keyboard.addView(scroll, new LayoutParams(LayoutParams.MATCH_PARENT, 0, 1));
@@ -227,13 +305,14 @@ public class DesktopControlsPanel extends LinearLayout {
             bank = name;
             config.bank = name;
             config.save(getContext());
+            headerPicker = HeaderPicker.NONE;
             rebuild();
             selectedModifiers.addAll(modifiers);
             updateModifiers();
         });
         button.setTextSize(12);
         selected(button, name.equals(bank));
-        parent.addView(button, new LayoutParams(LayoutParams.WRAP_CONTENT, dp(36)));
+        parent.addView(button, new LayoutParams(LayoutParams.WRAP_CONTENT, dp(48)));
     }
 
     private LinearLayout keyRow(LinearLayout parent) {

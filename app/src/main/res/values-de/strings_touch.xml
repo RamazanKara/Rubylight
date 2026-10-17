@@ -30,8 +30,12 @@
     <string name="title_three_finger_tap">Tippen mit drei Fingern</string>
     <string name="summary_three_finger_tap">Was ein kurzes Tippen mit drei Fingern in den Modi Trackpad, Direkte Maussteuerung und Lokaler Mauszeiger auslöst.</string>
     <string-array name="three_finger_tap_names">
-        <item>Tastatur öffnen</item>
+        <item>@string/desktop_controls_system_keyboard</item>
         <item>Mittelklick</item>
+        <item>@string/desktop_controls_open</item>
+        <item>@string/stream_disabled</item>
     </string-array>
     <string name="stream_cursor_shape_rejected">Nightjar kann die Mauszeigerform des PCs nicht zeichnen und zeigt den Standardpfeil.</string>
+    <string name="title_four_finger_tap">Vier-Finger-Tippen</string>
+    <string name="summary_four_finger_tap">Aktion beim kurzen Tippen mit vier Fingern in den Modi Trackpad, Direkte Maus und Lokaler Zeiger.</string>
 </resources>

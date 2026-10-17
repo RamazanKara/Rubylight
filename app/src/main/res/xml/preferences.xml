@@ -341,6 +341,13 @@
             android:entries="@array/three_finger_tap_names"
             android:entryValues="@array/three_finger_tap_values"
             android:defaultValue="keyboard" />
+        <com.limelight.preferences.MaterialListPreference
+            android:key="list_four_finger_tap"
+            android:title="@string/title_four_finger_tap"
+            android:dialogMessage="@string/summary_four_finger_tap"
+            android:entries="@array/three_finger_tap_names"
+            android:entryValues="@array/three_finger_tap_values"
+            android:defaultValue="none" />
         <com.limelight.preferences.SeekBarPreference
             android:key="seekbar_mouse_speed"
             android:title="@string/title_mouse_speed"

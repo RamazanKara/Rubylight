@@ -30,8 +30,10 @@
     <string name="title_three_finger_tap">Three-finger tap</string>
     <string name="summary_three_finger_tap">What a quick tap with three fingers does in Trackpad, Direct mouse and Local cursor modes.</string>
     <string-array name="three_finger_tap_names">
-        <item>Open the keyboard</item>
+        <item>@string/desktop_controls_system_keyboard</item>
         <item>Middle click</item>
+        <item>@string/desktop_controls_open</item>
+        <item>@string/stream_disabled</item>
     </string-array>
 
     <string-array name="trackpad_acceleration_curve_values" translatable="false">
@@ -54,6 +56,10 @@
     <string-array name="three_finger_tap_values" translatable="false">
         <item>keyboard</item>
         <item>middle_click</item>
+        <item>desktop_controls</item>
+        <item>none</item>
     </string-array>
     <string name="stream_cursor_shape_rejected">Nightjar can’t draw the PC’s cursor shape, so it shows the default arrow.</string>
+    <string name="title_four_finger_tap">Four-finger tap</string>
+    <string name="summary_four_finger_tap">What a quick tap with four fingers does in Trackpad, Direct mouse and Local cursor modes.</string>
 </resources>

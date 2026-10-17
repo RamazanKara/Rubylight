@@ -55,4 +55,6 @@
     <string name="desktop_controls_shortcut_desktop">Masaüstünü göster</string>
     <string name="desktop_controls_selected_modifier">%1$s seçili</string>
     <string name="desktop_controls_modifier_action">%1$s. Bir panel tuşuyla birleştirmek için dokun; bu tuşu tek başına göndermek için basılı tut.</string>
+    <string name="desktop_controls_choose_mode">Modu değiştir: %1$s</string>
+    <string name="desktop_controls_choose_bank">Tuş grubunu değiştir: %1$s</string>
 </resources>

@@ -55,4 +55,6 @@
     <string name="desktop_controls_shortcut_desktop">Mostrar escritorio</string>
     <string name="desktop_controls_selected_modifier">%1$s seleccionado</string>
     <string name="desktop_controls_modifier_action">%1$s. Toca para combinar con una tecla del panel; mantén pulsado para enviar esta tecla sola.</string>
+    <string name="desktop_controls_choose_mode">Cambiar modo: %1$s</string>
+    <string name="desktop_controls_choose_bank">Cambiar grupo de teclas: %1$s</string>
 </resources>

@@ -54,4 +54,6 @@
     <string name="desktop_controls_shortcut_desktop">Show desktop</string>
     <string name="desktop_controls_selected_modifier">%1$s selected</string>
     <string name="desktop_controls_modifier_action">%1$s. Tap to combine with a panel key; hold to send this key alone.</string>
+    <string name="desktop_controls_choose_mode">Change mode: %1$s</string>
+    <string name="desktop_controls_choose_bank">Change key bank: %1$s</string>
 </resources>

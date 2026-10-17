@@ -30,8 +30,12 @@
     <string name="title_three_finger_tap">三指輕觸</string>
     <string name="summary_three_finger_tap">在觸控板、直接滑鼠和本機游標模式下，以三指快速輕觸時執行的動作。</string>
     <string-array name="three_finger_tap_names">
-        <item>開啟鍵盤</item>
+        <item>@string/desktop_controls_system_keyboard</item>
         <item>中鍵點擊</item>
+        <item>@string/desktop_controls_open</item>
+        <item>@string/stream_disabled</item>
     </string-array>
     <string name="stream_cursor_shape_rejected">Nightjar 無法繪製電腦的游標形狀，因此顯示預設箭頭。</string>
+    <string name="title_four_finger_tap">四指輕點</string>
+    <string name="summary_four_finger_tap">在觸控板、直接滑鼠和本機游標模式下，四指快速輕點時執行的動作。</string>
 </resources>

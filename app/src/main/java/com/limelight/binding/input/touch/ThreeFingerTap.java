@@ -5,61 +5,42 @@ package com.limelight.binding.input.touch;
  * {@link #TIME_LIMIT_MS} of the third landing, without the first finger travelling far.
  */
 public final class ThreeFingerTap {
-    public static final String KEYBOARD = "keyboard";
-    public static final String MIDDLE_CLICK = "middle_click";
-
-    public static final long TIME_LIMIT_MS = 300;
-
-    private boolean started;
-    private long downTime;
-    private int pointerId;
-    private float startX, startY;
-    private float travel;
-    private int maxPointers;
+    public static final String KEYBOARD = FingerTapGesture.KEYBOARD;
+    public static final String MIDDLE_CLICK = FingerTapGesture.MIDDLE_CLICK;
+    public static final long TIME_LIMIT_MS = FingerTapGesture.TIME_LIMIT_MS;
+    private final FingerTapGesture gesture = new FingerTapGesture();
 
     /**
      * The third finger landed at downTime while the first finger, pointerId, was at (x, y). Travel is
      * measured on that finger, not on whichever one holds pointer index 0 when the first has lifted.
      */
     public void start(long downTime, int pointerId, float x, float y) {
-        started = true;
-        this.downTime = downTime;
-        this.pointerId = pointerId;
-        startX = x;
-        startY = y;
-        travel = 0;
-        maxPointers = 3;
+        gesture.start(downTime, pointerId, x, y);
     }
 
     public boolean isStarted() {
-        return started;
+        return gesture.isStarted();
     }
 
     public int pointerId() {
-        return pointerId;
+        return gesture.pointerId();
     }
 
     public void pointers(int count) {
-        if (started && count > maxPointers) maxPointers = count;
+        gesture.pointers(count);
     }
 
     /** The tracked finger moved to (x, y). */
     public void move(float x, float y) {
-        if (!started) return;
-        float distance = Math.max(Math.abs(x - startX), Math.abs(y - startY));
-        if (distance > travel) travel = distance;
+        gesture.move(x, y);
     }
 
     /** All fingers lifted at upTime; true when this was a tap. Resets either way. */
     public boolean finish(long upTime, float slop) {
-        boolean tap = started && maxPointers == 3 && upTime - downTime < TIME_LIMIT_MS && travel <= slop;
-        reset();
-        return tap;
+        return gesture.finish(upTime, slop) == 3;
     }
 
     public void reset() {
-        started = false;
-        travel = 0;
-        maxPointers = 0;
+        gesture.reset();
     }
 }

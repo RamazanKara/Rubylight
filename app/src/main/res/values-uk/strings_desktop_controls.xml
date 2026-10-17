@@ -55,4 +55,6 @@
     <string name="desktop_controls_shortcut_desktop">Показати робочий стіл</string>
     <string name="desktop_controls_selected_modifier">Вибрано: %1$s</string>
     <string name="desktop_controls_modifier_action">%1$s. Торкніться для поєднання з клавішею панелі; утримуйте, щоб надіслати лише цю клавішу.</string>
+    <string name="desktop_controls_choose_mode">Змінити режим: %1$s</string>
+    <string name="desktop_controls_choose_bank">Змінити групу клавіш: %1$s</string>
 </resources>

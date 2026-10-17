@@ -9,7 +9,7 @@ import android.hardware.display.DisplayManager;
 import android.view.Display;
 
 import com.limelight.binding.input.touch.PointerAcceleration;
-import com.limelight.binding.input.touch.ThreeFingerTap;
+import com.limelight.binding.input.touch.FingerTapGesture;
 import com.limelight.binding.input.touch.TouchMode;
 import com.limelight.binding.input.touch.TouchMomentum;
 import com.limelight.binding.input.touch.TrackpadArea;
@@ -103,6 +103,7 @@ public class PreferenceConfiguration {
     private static final String TRACKPAD_MOMENTUM_GLIDE_PREF_STRING = "list_trackpad_momentum_glide";
     private static final String TRACKPAD_AREA_PREF_STRING = "list_trackpad_area";
     private static final String THREE_FINGER_TAP_PREF_STRING = "list_three_finger_tap";
+    private static final String FOUR_FINGER_TAP_PREF_STRING = "list_four_finger_tap";
     private static final String MOUSE_SPEED_PREF_STRING = "seekbar_mouse_speed";
     private static final String LATENCY_TOAST_PREF_STRING = "checkbox_enable_post_stream_toast";
     static final String FRAME_PACING_PREF_STRING = "frame_pacing";
@@ -238,6 +239,7 @@ public class PreferenceConfiguration {
     public int trackpadSpeed, mouseSpeed, localCursorSpeed;
     public boolean trackpadAcceleration, trackpadMomentum;
     public String trackpadAccelerationCurve, trackpadMomentumGlide, trackpadArea, threeFingerTap;
+    public String fourFingerTap = FingerTapGesture.NONE;
     public MoonBridge.AudioConfiguration audioConfiguration;
     public int framePacing;
     public boolean absoluteMouseMode;
@@ -1088,7 +1090,9 @@ public class PreferenceConfiguration {
                 TouchMomentum.MEDIUM);
         config.trackpadArea = prefs.getString(TRACKPAD_AREA_PREF_STRING, TrackpadArea.FULL);
         config.threeFingerTap = prefs.getString(THREE_FINGER_TAP_PREF_STRING,
-                ThreeFingerTap.KEYBOARD);
+                FingerTapGesture.KEYBOARD);
+        config.fourFingerTap = prefs.getString(FOUR_FINGER_TAP_PREF_STRING,
+                FingerTapGesture.NONE);
         config.mouseSpeed = Math.max(25, Math.min(400, prefs.getInt(MOUSE_SPEED_PREF_STRING, DEFAULT_MOUSE_SPEED)));
         config.enableLatencyToast = prefs.getBoolean(LATENCY_TOAST_PREF_STRING, DEFAULT_LATENCY_TOAST);
         config.absoluteMouseMode = prefs.getBoolean(ABSOLUTE_MOUSE_MODE_PREF_STRING, DEFAULT_ABSOLUTE_MOUSE_MODE);

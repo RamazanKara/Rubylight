@@ -55,4 +55,6 @@
     <string name="desktop_controls_shortcut_desktop">デスクトップを表示</string>
     <string name="desktop_controls_selected_modifier">%1$s を選択中</string>
     <string name="desktop_controls_modifier_action">%1$s。タップでパネルのキーと組み合わせます。長押しすると、このキーだけを送信します。</string>
+    <string name="desktop_controls_choose_mode">モードを変更: %1$s</string>
+    <string name="desktop_controls_choose_bank">キーグループを変更: %1$s</string>
 </resources>

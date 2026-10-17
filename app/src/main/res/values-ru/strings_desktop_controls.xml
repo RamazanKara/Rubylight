@@ -55,4 +55,6 @@
     <string name="desktop_controls_shortcut_desktop">Показать рабочий стол</string>
     <string name="desktop_controls_selected_modifier">Выбрано: %1$s</string>
     <string name="desktop_controls_modifier_action">%1$s. Коснитесь для сочетания с клавишей панели; удерживайте, чтобы отправить только эту клавишу.</string>
+    <string name="desktop_controls_choose_mode">Сменить режим: %1$s</string>
+    <string name="desktop_controls_choose_bank">Сменить группу клавиш: %1$s</string>
 </resources>

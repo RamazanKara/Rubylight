@@ -30,8 +30,12 @@
     <string name="title_three_finger_tap">Toque com três dedos</string>
     <string name="summary_three_finger_tap">O que um toque rápido com três dedos faz nos modos Trackpad, Mouse direto e Cursor local.</string>
     <string-array name="three_finger_tap_names">
-        <item>Abrir o teclado</item>
+        <item>@string/desktop_controls_system_keyboard</item>
         <item>Clique do meio</item>
+        <item>@string/desktop_controls_open</item>
+        <item>@string/stream_disabled</item>
     </string-array>
     <string name="stream_cursor_shape_rejected">O Nightjar não consegue desenhar o formato do cursor do PC e mostra a seta padrão.</string>
+    <string name="title_four_finger_tap">Toque com quatro dedos</string>
+    <string name="summary_four_finger_tap">Ação de um toque rápido com quatro dedos nos modos Trackpad, Mouse direto e Cursor local.</string>
 </resources>

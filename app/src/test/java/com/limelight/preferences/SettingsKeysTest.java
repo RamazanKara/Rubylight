@@ -73,6 +73,23 @@ public class SettingsKeysTest {
         prefs().edit().clear().commit();
     }
 
+    @Test public void tapGestureActionsPersistIndependentlyAndMatchThePickerValues() {
+        String[] actions = RuntimeEnvironment.getApplication().getResources()
+                .getStringArray(R.array.three_finger_tap_values);
+        assertArrayEquals(new String[] {"keyboard", "middle_click", "desktop_controls", "none"}, actions);
+        assertEquals(actions.length, RuntimeEnvironment.getApplication().getResources()
+                .getStringArray(R.array.three_finger_tap_names).length);
+        for (String three : actions) {
+            for (String four : actions) {
+                prefs().edit().putString("list_three_finger_tap", three)
+                        .putString("list_four_finger_tap", four).commit();
+                PreferenceConfiguration read = PreferenceConfiguration.readPreferences(RuntimeEnvironment.getApplication());
+                assertEquals(three, read.threeFingerTap);
+                assertEquals(four, read.fourFingerTap);
+            }
+        }
+    }
+
     private static Map<String, String> keysInXml() throws Exception {
         Map<String, String> keys = new LinkedHashMap<>();
         try (XmlResourceParser parser = RuntimeEnvironment.getApplication().getResources().getXml(R.xml.preferences)) {
@@ -158,6 +175,7 @@ public class SettingsKeysTest {
         reads.put("list_trackpad_momentum_glide", new Read("medium", "long", c -> c.trackpadMomentumGlide));
         reads.put("list_trackpad_area", new Read("full", "right_half", c -> c.trackpadArea));
         reads.put("list_three_finger_tap", new Read("keyboard", "middle_click", c -> c.threeFingerTap));
+        reads.put("list_four_finger_tap", new Read("none", "desktop_controls", c -> c.fourFingerTap));
         reads.put("seekbar_mouse_speed", new Read(100, 200, c -> c.mouseSpeed));
         reads.put("checkbox_mouse_nav_buttons", new Read(false, true, c -> c.mouseNavButtons));
         reads.put("checkbox_absolute_mouse_mode", new Read(false, true, c -> c.absoluteMouseMode));

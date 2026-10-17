@@ -55,4 +55,6 @@
     <string name="desktop_controls_shortcut_desktop">바탕 화면 표시</string>
     <string name="desktop_controls_selected_modifier">%1$s 선택됨</string>
     <string name="desktop_controls_modifier_action">%1$s. 탭하면 패널 키와 함께 사용하고, 길게 누르면 이 키만 전송합니다.</string>
+    <string name="desktop_controls_choose_mode">모드 변경: %1$s</string>
+    <string name="desktop_controls_choose_bank">키 그룹 변경: %1$s</string>
 </resources>

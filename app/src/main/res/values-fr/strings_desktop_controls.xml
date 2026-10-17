@@ -55,4 +55,6 @@
     <string name="desktop_controls_shortcut_desktop">Afficher le bureau</string>
     <string name="desktop_controls_selected_modifier">%1$s sélectionné</string>
     <string name="desktop_controls_modifier_action">%1$s. Touchez pour combiner avec une touche du panneau ; maintenez pour envoyer cette touche seule.</string>
+    <string name="desktop_controls_choose_mode">Changer de mode : %1$s</string>
+    <string name="desktop_controls_choose_bank">Changer de groupe de touches : %1$s</string>
 </resources>

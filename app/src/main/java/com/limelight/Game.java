@@ -13,7 +13,7 @@ import com.limelight.binding.input.capture.InputCaptureProvider;
 import com.limelight.binding.input.touch.AbsoluteTouchContext;
 import com.limelight.binding.input.touch.PointerAcceleration;
 import com.limelight.binding.input.touch.RelativeTouchContext;
-import com.limelight.binding.input.touch.ThreeFingerTap;
+import com.limelight.binding.input.touch.FingerTapGesture;
 import com.limelight.binding.input.touch.TouchMode;
 import com.limelight.binding.input.touch.TouchMomentum;
 import com.limelight.binding.input.touch.TrackpadArea;
@@ -161,7 +161,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
 
     // Mouse emulation uses two touches; native touch forwards all pointers.
     private final TouchContext[] touchContextMap = new TouchContext[2];
-    private final ThreeFingerTap threeFingerTap = new ThreeFingerTap();
+    private final FingerTapGesture fingerTap = new FingerTapGesture();
     private TrackpadPointer trackpadPointer;
     private TrackpadArea trackpadArea;
     // Set while the host sends its cursor shapes for the Local cursor; read on the control thread.
@@ -183,8 +183,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     private static final int STYLUS_UP_DEAD_ZONE_DELAY = 150;
     private static final int STYLUS_UP_DEAD_ZONE_RADIUS = 50;
 
-    // Travel allowed for a three-finger tap, in dp.
-    private static final int THREE_FINGER_TAP_SLOP_DP = 40;
+    // Travel allowed for a three- or four-finger tap, in dp.
+    private static final int FINGER_TAP_SLOP_DP = 40;
 
     private ControllerHandler controllerHandler;
     private KeyboardTranslator keyboardTranslator;
@@ -3106,8 +3106,11 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         return trackpadArea.contains(x, y, parent.getWidth(), parent.getHeight());
     }
 
-    private void onThreeFingerTap() {
-        if (ThreeFingerTap.MIDDLE_CLICK.equals(prefConfig.threeFingerTap)) {
+    private void onFingerTap(String action) {
+        if (FingerTapGesture.NONE.equals(action)) return;
+        if (FingerTapGesture.DESKTOP_CONTROLS.equals(action)) {
+            toggleKeyboardOverlay();
+        } else if (FingerTapGesture.MIDDLE_CLICK.equals(action)) {
             if (middleButtonUpPending) {
                 bitrateHandler.removeCallbacks(middleButtonUp);
                 middleButtonUp.run();
@@ -3121,6 +3124,50 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         }
     }
 
+    /** Own the whole multi-finger sequence so lifting in any order cannot leak mouse events. */
+    private boolean handleFingerTapGesture(MotionEvent event) {
+        int action = event.getActionMasked();
+        if (action == MotionEvent.ACTION_DOWN) fingerTap.reset();
+        if (!fingerTap.isStarted() && action == MotionEvent.ACTION_POINTER_DOWN &&
+                event.getPointerCount() == 3 &&
+                (!FingerTapGesture.NONE.equals(prefConfig.threeFingerTap) ||
+                        !FingerTapGesture.NONE.equals(prefConfig.fourFingerTap))) {
+            fingerTap.start(event.getEventTime(), event.getPointerId(0), event.getX(0), event.getY(0));
+            for (TouchContext context : touchContextMap) {
+                if (context != null) {
+                    context.cancelTouch();
+                    context.setPointerCount(0);
+                }
+            }
+            if (trackpadPointer != null) trackpadPointer.stopMomentum();
+        }
+        if (!fingerTap.isStarted()) return false;
+
+        fingerTap.pointers(event.getPointerCount());
+        int tracked = event.findPointerIndex(fingerTap.pointerId());
+        if (tracked >= 0) {
+            for (int i = 0; i < event.getHistorySize(); i++) {
+                fingerTap.move(event.getHistoricalX(tracked, i), event.getHistoricalY(tracked, i));
+            }
+            fingerTap.move(event.getX(tracked), event.getY(tracked));
+        }
+        if (action == MotionEvent.ACTION_CANCEL) {
+            fingerTap.reset();
+        } else {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                    (event.getFlags() & MotionEvent.FLAG_CANCELED) != 0) {
+                fingerTap.invalidate();
+            }
+            if (action == MotionEvent.ACTION_UP) {
+                int fingers = fingerTap.finish(event.getEventTime(),
+                        FINGER_TAP_SLOP_DP * getResources().getDisplayMetrics().density);
+                if (fingers == 3) onFingerTap(prefConfig.threeFingerTap);
+                else if (fingers == 4) onFingerTap(prefConfig.fourFingerTap);
+            }
+        }
+        return true;
+    }
+
     private void cancelTouchInput() {
         for (TouchContext context : touchContextMap) {
             if (context != null) {
@@ -3132,7 +3179,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             conn.sendTouchEvent(MoonBridge.LI_TOUCH_EVENT_CANCEL_ALL, 0, 0, 0, 0, 0, 0, MoonBridge.LI_ROT_UNKNOWN);
             nativeTouchGestureActive = false;
         }
-        threeFingerTap.reset();
+        fingerTap.reset();
         touchGestureIgnored = false;
         if (trackpadPointer != null) trackpadPointer.stopMomentum();
         if (middleButtonUpPending) {
@@ -4927,6 +4974,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                     hostNotice(HostNotices.Notice.NATIVE_TOUCH_UNAVAILABLE, R.string.stream_native_touch_fallback);
                 }
 
+                if (handleFingerTapGesture(event)) return true;
+
                 // If this is the parent view, we'll offset our coordinates to appear as if they
                 // are relative to the StreamView like our StreamView touch events are.
                 float xOffset, yOffset;
@@ -4944,24 +4993,6 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 int eventX = (int)(event.getX(actionIndex) + xOffset);
                 int eventY = (int)(event.getY(actionIndex) + yOffset);
 
-                // Special handling for 3 finger gesture
-                if (event.getActionMasked() == MotionEvent.ACTION_POINTER_DOWN) {
-                    threeFingerTap.pointers(event.getPointerCount());
-                }
-                if (event.getActionMasked() == MotionEvent.ACTION_POINTER_DOWN &&
-                        event.getPointerCount() == 3) {
-                    // Three fingers down
-                    threeFingerTap.start(event.getEventTime(), event.getPointerId(0), event.getX(0), event.getY(0));
-
-                    // Cancel the first and second touches to avoid
-                    // erroneous events
-                    for (TouchContext aTouchContext : touchContextMap) {
-                        aTouchContext.cancelTouch();
-                    }
-
-                    return true;
-                }
-
                 TouchContext context = getTouchContext(actionIndex);
                 if (context == null) {
                     return false;
@@ -4978,16 +5009,6 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                     break;
                 case MotionEvent.ACTION_POINTER_UP:
                 case MotionEvent.ACTION_UP:
-                    if (event.getPointerCount() == 1 &&
-                            (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU || (event.getFlags() & MotionEvent.FLAG_CANCELED) == 0)) {
-                        // All fingers up
-                        if (threeFingerTap.finish(event.getEventTime(),
-                                THREE_FINGER_TAP_SLOP_DP * getResources().getDisplayMetrics().density)) {
-                            onThreeFingerTap();
-                            return true;
-                        }
-                    }
-
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && (event.getFlags() & MotionEvent.FLAG_CANCELED) != 0) {
                         context.cancelTouch();
                     }
@@ -5009,14 +5030,6 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 case MotionEvent.ACTION_MOVE:
                     // ACTION_MOVE is special because it always has actionIndex == 0
                     // We'll call the move handlers for all indexes manually
-                    if (threeFingerTap.isStarted()) {
-                        // The first finger may have lifted; then there is nothing left to measure.
-                        int tracked = event.findPointerIndex(threeFingerTap.pointerId());
-                        if (tracked >= 0) {
-                            threeFingerTap.move(event.getX(tracked), event.getY(tracked));
-                        }
-                    }
-
                     // First process the historical events
                     for (int i = 0; i < event.getHistorySize(); i++) {
                         for (TouchContext aTouchContextMap : touchContextMap) {

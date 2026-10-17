@@ -9,6 +9,7 @@ import android.widget.FrameLayout;
 
 import com.limelight.binding.input.HeldInputState;
 import com.limelight.binding.input.TouchLayout;
+import com.limelight.binding.input.touch.FingerTapGesture;
 import com.limelight.binding.input.touch.TouchMode;
 import com.limelight.binding.input.touch.TrackpadPointer;
 import com.limelight.nvstream.NvConnection;
@@ -238,6 +239,197 @@ public class GameTouchInputTest {
         assertEquals(java.util.Arrays.asList("down 2", "up 2"), connection.buttons);
     }
 
+    @Test public void eitherGestureCanOpenTheDesktopPanelInEveryMouseTouchMode() {
+        for (int mode : new int[] {TouchMode.TRACKPAD, TouchMode.DIRECT, TouchMode.LOCAL_CURSOR}) {
+            for (int fingers : new int[] {3, 4}) {
+                RecordingConnection connection = new RecordingConnection();
+                Game game = game(connection);
+                PreferenceConfiguration config = touchConfig(game, mode);
+                config.threeFingerTap = fingers == 3 ? "desktop_controls" : "middle_click";
+                config.fourFingerTap = fingers == 4 ? "desktop_controls" : "none";
+                FrameLayout container = gestureContainer(game);
+                beginTap(container, fingers);
+                assertNull(ReflectionHelpers.getField(game, "keyboardOverlay"));
+                finishTap(container, fingers);
+                View panel = ReflectionHelpers.getField(game, "keyboardOverlay");
+                assertNotNull(panel);
+                assertEquals(View.VISIBLE, panel.getVisibility());
+                assertFalse(connection.buttons.contains("down 2"));
+                // A second gesture in the uncovered stream hides the same panel.
+                beginTap(container, fingers);
+                finishTap(container, fingers);
+                assertEquals(View.GONE, panel.getVisibility());
+                Shadows.shadowOf(Looper.getMainLooper()).idleFor(200, TimeUnit.MILLISECONDS);
+            }
+        }
+    }
+
+    @Test public void fourFingerMiddleClickDoesNotAlsoOpenTheThreeFingerPhoneKeyboard() {
+        RecordingConnection connection = new RecordingConnection();
+        Game game = game(connection);
+        PreferenceConfiguration config = touchConfig(game, TouchMode.TRACKPAD);
+        config.threeFingerTap = "keyboard";
+        config.fourFingerTap = "middle_click";
+        FrameLayout container = gestureContainer(game);
+        beginTap(container, 4);
+        finishTap(container, 4);
+        android.view.inputmethod.InputMethodManager input = (android.view.inputmethod.InputMethodManager)
+                game.getSystemService(android.content.Context.INPUT_METHOD_SERVICE);
+        assertFalse(Shadows.shadowOf(input).isSoftInputVisible());
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(200, TimeUnit.MILLISECONDS);
+        assertEquals(java.util.Arrays.asList("down 2", "up 2"), connection.buttons);
+    }
+
+    @Test public void fourFingersAreOffByDefaultAndNeverTriggerTheThreeFingerAction() {
+        RecordingConnection connection = new RecordingConnection();
+        Game game = game(connection);
+        PreferenceConfiguration config = touchConfig(game, TouchMode.TRACKPAD);
+        config.threeFingerTap = "middle_click";
+        assertEquals("none", config.fourFingerTap);
+        FrameLayout container = gestureContainer(game);
+        beginTap(container, 4);
+        finishTap(container, 4);
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(200, TimeUnit.MILLISECONDS);
+        assertTrue(connection.buttons.isEmpty());
+        assertNull(ReflectionHelpers.getField(game, "keyboardOverlay"));
+        config.threeFingerTap = "none";
+        beginTap(container, 3);
+        FingerTapGesture tap = ReflectionHelpers.getField(game, "fingerTap");
+        assertFalse(tap.isStarted());
+        dispatch(container, MotionEvent.ACTION_CANCEL, 0, new int[] {0}, point(0));
+    }
+
+    @Test public void eitherGestureCanOpenThePhoneKeyboardAndHideTheDesktopPanel() {
+        for (int fingers : new int[] {3, 4}) {
+            Game game = game(new RecordingConnection());
+            PreferenceConfiguration config = touchConfig(game, TouchMode.TRACKPAD);
+            config.threeFingerTap = fingers == 3 ? "keyboard" : "none";
+            config.fourFingerTap = fingers == 4 ? "keyboard" : "none";
+            FrameLayout container = gestureContainer(game);
+            ReflectionHelpers.callInstanceMethod(game, "toggleKeyboardOverlay");
+            View panel = ReflectionHelpers.getField(game, "keyboardOverlay");
+            beginTap(container, fingers);
+            finishTap(container, fingers);
+            android.view.inputmethod.InputMethodManager input = (android.view.inputmethod.InputMethodManager)
+                    game.getSystemService(android.content.Context.INPUT_METHOD_SERVICE);
+            assertTrue(Shadows.shadowOf(input).isSoftInputVisible());
+            assertEquals(View.GONE, panel.getVisibility());
+        }
+    }
+
+    @Test public void invalidMultiFingerGesturesStayConsumedUntilTheLastFingerLifts() {
+        for (String invalid : new String[] {"five", "slow", "history", "final_position", "cancel", "lifecycle"}) {
+            RecordingConnection connection = new RecordingConnection();
+            Game game = game(connection);
+            PreferenceConfiguration config = touchConfig(game, TouchMode.TRACKPAD);
+            config.threeFingerTap = config.fourFingerTap = "desktop_controls";
+            FrameLayout container = gestureContainer(game);
+            int fingers = "five".equals(invalid) ? 5 : 4;
+            beginTap(container, fingers);
+            if ("slow".equals(invalid)) {
+                dispatchAt(container, MotionEvent.ACTION_MOVE, 0, new int[] {0, 1, 2, 3}, 1400, 0,
+                        point(0), point(1), point(2), point(3));
+            } else if ("history".equals(invalid)) {
+                MotionEvent move = motion(MotionEvent.ACTION_MOVE, 0, new int[] {0, 1, 2, 3}, 1010, 0,
+                        new float[] {500, 150}, point(1), point(2), point(3));
+                MotionEvent.PointerCoords[] returned = new MotionEvent.PointerCoords[4];
+                for (int i = 0; i < 4; i++) {
+                    returned[i] = new MotionEvent.PointerCoords();
+                    returned[i].x = point(i)[0]; returned[i].y = point(i)[1];
+                }
+                move.addBatch(1020, returned, 0);
+                try { container.dispatchTouchEvent(move); } finally { move.recycle(); }
+            } else if ("final_position".equals(invalid)) {
+                dispatch(container, MotionEvent.ACTION_POINTER_UP, 0, new int[] {0, 1, 2, 3},
+                        new float[] {500, 150}, point(1), point(2), point(3));
+            } else if ("cancel".equals(invalid)) {
+                dispatch(container, MotionEvent.ACTION_CANCEL, 0, new int[] {0, 1, 2, 3},
+                        point(0), point(1), point(2), point(3));
+            } else if ("lifecycle".equals(invalid)) {
+                ReflectionHelpers.callInstanceMethod(game, "cancelTouchInput");
+            }
+            if (!"cancel".equals(invalid) && !"lifecycle".equals(invalid)) {
+                finishTap(container, fingers, "slow".equals(invalid) ? 1400 : 1030,
+                        "final_position".equals(invalid) ? 1 : 0);
+            }
+            assertNull(invalid, ReflectionHelpers.getField(game, "keyboardOverlay"));
+            assertFalse(invalid, connection.buttons.contains("down 2"));
+            // A clean gesture immediately afterwards must still work.
+            beginTap(container, 4);
+            finishTap(container, 4);
+            View panel = ReflectionHelpers.getField(game, "keyboardOverlay");
+            assertNotNull(invalid, panel);
+            assertEquals(invalid, View.VISIBLE, panel.getVisibility());
+            Shadows.shadowOf(Looper.getMainLooper()).idleFor(200, TimeUnit.MILLISECONDS);
+        }
+    }
+
+    @Test @Config(sdk = 33)
+    public void canceledPointerCannotPromoteTheRemainderIntoAnotherShortcut() {
+        Game game = game(new RecordingConnection());
+        PreferenceConfiguration config = touchConfig(game, TouchMode.TRACKPAD);
+        config.threeFingerTap = config.fourFingerTap = "desktop_controls";
+        FrameLayout container = gestureContainer(game);
+        beginTap(container, 4);
+        dispatchAt(container, MotionEvent.ACTION_POINTER_UP, 0, new int[] {0, 1, 2, 3},
+                1020, MotionEvent.FLAG_CANCELED, point(0), point(1), point(2), point(3));
+        finishTap(container, 4, 1030, 1);
+        assertNull(ReflectionHelpers.getField(game, "keyboardOverlay"));
+    }
+
+    @Test public void shortcutsRespectNativeTouchOffAndTheConfiguredTrackpadArea() {
+        for (int mode : new int[] {TouchMode.MULTI_TOUCH, TouchMode.OFF, TouchMode.TRACKPAD}) {
+            RecordingConnection connection = new RecordingConnection();
+            Game game = game(connection);
+            PreferenceConfiguration config = touchConfig(game, mode);
+            config.threeFingerTap = config.fourFingerTap = "desktop_controls";
+            if (mode == TouchMode.TRACKPAD) config.trackpadArea = "right_half";
+            FrameLayout container = gestureContainer(game);
+            if (mode == TouchMode.MULTI_TOUCH) ReflectionHelpers.setField(game, "nativeTouchEnabled", true);
+            beginTap(container, 4);
+            finishTap(container, 4);
+            assertNull(ReflectionHelpers.getField(game, "keyboardOverlay"));
+            assertTrue(connection.heldTouches.isEmpty());
+            if (mode == TouchMode.MULTI_TOUCH) assertFalse(connection.touches.isEmpty());
+        }
+    }
+
+    private static FrameLayout gestureContainer(Game game) {
+        game.setTheme(R.style.AppTheme);
+        FrameLayout container = streamContainer(game, null);
+        game.setContentView(container);
+        StreamView stream = ReflectionHelpers.getField(game, "streamView");
+        stream.setFocusableInTouchMode(true);
+        ReflectionHelpers.callInstanceMethod(game, "initializeTouchContexts");
+        return container;
+    }
+
+    private static float[] point(int id) { return new float[] {200 + id * 60, 150}; }
+
+    private static void beginTap(View view, int count) {
+        for (int fingers = 1; fingers <= count; fingers++) {
+            int[] ids = new int[fingers];
+            float[][] points = new float[fingers][];
+            for (int i = 0; i < fingers; i++) { ids[i] = i; points[i] = point(i); }
+            dispatch(view, fingers == 1 ? MotionEvent.ACTION_DOWN : MotionEvent.ACTION_POINTER_DOWN,
+                    fingers - 1, ids, points);
+        }
+    }
+
+    private static void finishTap(View view, int count) { finishTap(view, count, 1030, 0); }
+
+    private static void finishTap(View view, int count, long time, int first) {
+        // Lift the original first finger first, exercising Android's pointer-index reassignment.
+        for (int lifted = first; lifted < count; lifted++) {
+            int remaining = count - lifted;
+            int[] ids = new int[remaining];
+            float[][] points = new float[remaining][];
+            for (int i = 0; i < remaining; i++) { ids[i] = i + lifted; points[i] = point(i + lifted); }
+            dispatchAt(view, remaining == 1 ? MotionEvent.ACTION_UP : MotionEvent.ACTION_POINTER_UP,
+                    0, ids, time, 0, points);
+        }
+    }
+
     @Test
     public void momentumGlidesAfterAFlickAndStopsOnTheNextTouch() {
         RecordingConnection connection = new RecordingConnection();
@@ -350,6 +542,17 @@ public class GameTouchInputTest {
     }
 
     private static void dispatch(View view, int action, int actionIndex, int[] ids, float[]... points) {
+        dispatchAt(view, action, actionIndex, ids, 1010, 0, points);
+    }
+
+    private static void dispatchAt(View view, int action, int actionIndex, int[] ids,
+                                   long time, int flags, float[]... points) {
+        MotionEvent event = motion(action, actionIndex, ids, time, flags, points);
+        try { view.dispatchTouchEvent(event); } finally { event.recycle(); }
+    }
+
+    private static MotionEvent motion(int action, int actionIndex, int[] ids,
+                                      long time, int flags, float[]... points) {
         MotionEvent.PointerProperties[] properties = new MotionEvent.PointerProperties[points.length];
         MotionEvent.PointerCoords[] coords = new MotionEvent.PointerCoords[points.length];
         for (int i = 0; i < points.length; i++) {
@@ -362,9 +565,8 @@ public class GameTouchInputTest {
         }
         int masked = action == MotionEvent.ACTION_POINTER_DOWN || action == MotionEvent.ACTION_POINTER_UP ?
                 action | (actionIndex << MotionEvent.ACTION_POINTER_INDEX_SHIFT) : action;
-        MotionEvent event = MotionEvent.obtain(1000, 1010, masked, points.length, properties, coords, 0, 0, 1, 1,
-                0, 0, InputDevice.SOURCE_TOUCHSCREEN, 0);
-        try { view.dispatchTouchEvent(event); } finally { event.recycle(); }
+        return MotionEvent.obtain(1000, time, masked, points.length, properties, coords, 0, 0, 1, 1,
+                0, 0, InputDevice.SOURCE_TOUCHSCREEN, flags);
     }
 
     private static Game game(RecordingConnection connection) {

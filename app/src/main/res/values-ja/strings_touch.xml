@@ -30,8 +30,12 @@
     <string name="title_three_finger_tap">3 本指タップ</string>
     <string name="summary_three_finger_tap">トラックパッド、ダイレクトマウス、ローカルカーソルの各モードで、3 本指で素早くタップしたときの動作です。</string>
     <string-array name="three_finger_tap_names">
-        <item>キーボードを開く</item>
+        <item>@string/desktop_controls_system_keyboard</item>
         <item>中クリック</item>
+        <item>@string/desktop_controls_open</item>
+        <item>@string/stream_disabled</item>
     </string-array>
     <string name="stream_cursor_shape_rejected">Nightjar は PC のカーソル形状を描画できないため、標準の矢印を表示します。</string>
+    <string name="title_four_finger_tap">4本指タップ</string>
+    <string name="summary_four_finger_tap">トラックパッド、直接マウス、ローカルカーソルモードで4本指で素早くタップしたときの動作。</string>
 </resources>

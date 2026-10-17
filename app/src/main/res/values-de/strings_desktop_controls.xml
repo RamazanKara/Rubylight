@@ -55,4 +55,6 @@
     <string name="desktop_controls_shortcut_desktop">Desktop anzeigen</string>
     <string name="desktop_controls_selected_modifier">%1$s ausgewählt</string>
     <string name="desktop_controls_modifier_action">%1$s. Tippen, um mit einer Taste im Bedienfeld zu kombinieren; gedrückt halten, um diese Taste allein zu senden.</string>
+    <string name="desktop_controls_choose_mode">Modus ändern: %1$s</string>
+    <string name="desktop_controls_choose_bank">Tastenbereich ändern: %1$s</string>
 </resources>

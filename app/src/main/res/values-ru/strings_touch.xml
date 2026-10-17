@@ -30,8 +30,12 @@
     <string name="title_three_finger_tap">Касание тремя пальцами</string>
     <string name="summary_three_finger_tap">Что делает быстрое касание тремя пальцами в режимах «Трекпад», «Прямое управление мышью» и «Локальный курсор».</string>
     <string-array name="three_finger_tap_names">
-        <item>Открыть клавиатуру</item>
+        <item>@string/desktop_controls_system_keyboard</item>
         <item>Средний щелчок</item>
+        <item>@string/desktop_controls_open</item>
+        <item>@string/stream_disabled</item>
     </string-array>
     <string name="stream_cursor_shape_rejected">Nightjar не может нарисовать форму курсора ПК и показывает стандартную стрелку.</string>
+    <string name="title_four_finger_tap">Касание четырьмя пальцами</string>
+    <string name="summary_four_finger_tap">Действие при быстром касании четырьмя пальцами в режимах «Тачпад», «Прямая мышь» и «Локальный курсор».</string>
 </resources>

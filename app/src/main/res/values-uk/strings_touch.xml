@@ -30,8 +30,12 @@
     <string name="title_three_finger_tap">Дотик трьома пальцями</string>
     <string name="summary_three_finger_tap">Що робить швидкий дотик трьома пальцями в режимах «Трекпад», «Пряме керування мишею» і «Локальний курсор».</string>
     <string-array name="three_finger_tap_names">
-        <item>Відкрити клавіатуру</item>
+        <item>@string/desktop_controls_system_keyboard</item>
         <item>Середнє клацання</item>
+        <item>@string/desktop_controls_open</item>
+        <item>@string/stream_disabled</item>
     </string-array>
     <string name="stream_cursor_shape_rejected">Nightjar не може намалювати форму курсора ПК і показує стандартну стрілку.</string>
+    <string name="title_four_finger_tap">Дотик чотирма пальцями</string>
+    <string name="summary_four_finger_tap">Дія швидкого дотику чотирма пальцями в режимах «Тачпад», «Пряма миша» та «Локальний курсор».</string>
 </resources>

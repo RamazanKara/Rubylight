@@ -55,4 +55,6 @@
     <string name="desktop_controls_shortcut_desktop">显示桌面</string>
     <string name="desktop_controls_selected_modifier">已选择 %1$s</string>
     <string name="desktop_controls_modifier_action">%1$s。轻点可与面板按键组合；长按可单独发送此键。</string>
+    <string name="desktop_controls_choose_mode">切换模式：%1$s</string>
+    <string name="desktop_controls_choose_bank">切换按键组：%1$s</string>
 </resources>

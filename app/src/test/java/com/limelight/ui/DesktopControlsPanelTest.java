@@ -19,6 +19,7 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.robolectric.Robolectric;
 import org.robolectric.RobolectricTestRunner;
+import org.robolectric.RuntimeEnvironment;
 import org.robolectric.android.controller.ActivityController;
 import org.robolectric.annotation.Config;
 import org.robolectric.shadows.ShadowDialog;
@@ -54,7 +55,7 @@ public class DesktopControlsPanelTest {
             assertArrayEquals(new int[] {KeyEvent.KEYCODE_CTRL_LEFT, KeyEvent.KEYCODE_C}, sink.keys.get(0));
             assertArrayEquals(new int[] {KeyEvent.KEYCODE_A}, sink.keys.get(1));
             button(panel, "Alt").performClick();
-            button(panel, "Function").performClick();
+            selectBank(panel, "Function");
             button(panel, "F4").performClick();
             assertArrayEquals(new int[] {KeyEvent.KEYCODE_ALT_LEFT, KeyEvent.KEYCODE_F4}, sink.keys.get(2));
             button(panel, "Win").performLongClick();
@@ -129,7 +130,7 @@ public class DesktopControlsPanelTest {
             panel.measure(View.MeasureSpec.makeMeasureSpec(360, View.MeasureSpec.EXACTLY),
                     View.MeasureSpec.makeMeasureSpec(300, View.MeasureSpec.AT_MOST));
             panel.layout(0, 0, panel.getMeasuredWidth(), panel.getMeasuredHeight());
-            assertEquals(300, panel.getMeasuredHeight());
+            assertEquals(264, panel.getMeasuredHeight());
             assertTrue(button(panel, "Space").isShown());
             android.graphics.Rect bounds = new android.graphics.Rect();
             assertTrue(button(panel, "Space").getGlobalVisibleRect(bounds));
@@ -137,7 +138,7 @@ public class DesktopControlsPanelTest {
             KeyboardShortcuts.save(screen.get(), Arrays.asList(new KeyboardShortcuts.Shortcut("test", "My chord",
                     KeyboardShortcuts.parseChord("CTRL+ALT+K"))));
             panel.reloadConfiguration();
-            button(panel, "Shortcuts").performClick();
+            selectBank(panel, "Shortcuts");
             button(panel, "My chord").performClick();
             assertArrayEquals(KeyboardShortcuts.parseChord("CTRL+ALT+K"), sink.keys.get(0));
         }
@@ -150,7 +151,7 @@ public class DesktopControlsPanelTest {
             panel.setMode(DesktopControlsPanel.Mode.COMBINED);
             panel.measure(View.MeasureSpec.makeMeasureSpec(412, View.MeasureSpec.EXACTLY),
                     View.MeasureSpec.makeMeasureSpec(600, View.MeasureSpec.AT_MOST));
-            assertEquals(420, panel.getMeasuredHeight());
+            assertEquals(384, panel.getMeasuredHeight());
             DesktopControlsConfig saved = panel.getConfig();
             saved.panelHeightDp = 300;
             saved.panelHeightCustomized = true;
@@ -166,7 +167,7 @@ public class DesktopControlsPanelTest {
         try (ActivityController<UiNavigationTest.Screen> screen = Robolectric.buildActivity(UiNavigationTest.Screen.class).setup()) {
             RecordingSink sink = new RecordingSink();
             DesktopControlsPanel panel = panel(screen, sink);
-            button(panel, "Shortcuts").performClick();
+            selectBank(panel, "Shortcuts");
             button(panel, screen.get().getString(R.string.desktop_controls_edit_shortcuts)).performClick();
             shadowOf(Looper.getMainLooper()).idle();
             AlertDialog list = (AlertDialog) ShadowDialog.getLatestDialog();
@@ -189,6 +190,97 @@ public class DesktopControlsPanelTest {
             assertTrue(sink.mouse.isEmpty());
             assertNull(shadowOf(screen.get()).getNextStartedActivity());
         }
+    }
+
+    @Test public void inlinePickersUseOneToolbarAndRetainModifiersWithoutReplacingTheKeys() {
+        try (ActivityController<UiNavigationTest.Screen> screen = Robolectric.buildActivity(UiNavigationTest.Screen.class).setup()) {
+            RecordingSink sink = new RecordingSink();
+            DesktopControlsPanel panel = panel(screen, sink);
+            MaterialButton ctrl = button(panel, "Ctrl");
+            ctrl.performClick();
+            openBankPicker(panel);
+            assertSame(ctrl, button(panel, "Ctrl"));
+            assertTrue(ctrl.isSelected());
+            assertNull(ShadowDialog.getLatestDialog());
+            described(panel, screen.get().getString(R.string.sheet_back)).performClick();
+            assertSame(ctrl, button(panel, "Ctrl"));
+            assertTrue(ctrl.isSelected());
+            selectBank(panel, "Function");
+            button(panel, "F4").performClick();
+            assertArrayEquals(new int[] {KeyEvent.KEYCODE_CTRL_LEFT, KeyEvent.KEYCODE_F4}, sink.keys.get(0));
+            assertNotNull(described(panel, screen.get().getString(R.string.desktop_controls_choose_bank, "Function")));
+            described(panel, screen.get().getString(R.string.desktop_controls_choose_mode,
+                    screen.get().getString(R.string.desktop_controls_keyboard))).performClick();
+            button(panel, "Trackpad").performClick();
+            assertEquals(DesktopControlsPanel.Mode.TRACKPAD, panel.getMode());
+            assertNotNull(described(panel, screen.get().getString(R.string.desktop_controls_choose_mode, "Trackpad")));
+            assertNull(described(panel, screen.get().getString(R.string.desktop_controls_choose_bank, "Function")));
+            assertNotNull(described(panel, screen.get().getString(R.string.desktop_controls_system_keyboard)));
+            assertEquals(300, panel.getPreferredHeightDp());
+        }
+    }
+
+    @Test public void disabledSavedBankFallsBackBeforeDrawingTheToolbarAndWideCombinedStaysCompact() {
+        try (ActivityController<UiNavigationTest.Screen> screen = Robolectric.buildActivity(UiNavigationTest.Screen.class).setup()) {
+            DesktopControlsConfig saved = new DesktopControlsConfig();
+            saved.bank = "function";
+            saved.functionBank = false;
+            saved.save(screen.get());
+            DesktopControlsPanel panel = panel(screen, new RecordingSink());
+            assertNotNull(described(panel, screen.get().getString(R.string.desktop_controls_choose_bank, "Typing")));
+            assertNotNull(button(panel, "A"));
+            openBankPicker(panel);
+            assertNull(button(panel, "Function"));
+            described(panel, screen.get().getString(R.string.sheet_back)).performClick();
+            panel.setMode(DesktopControlsPanel.Mode.COMBINED);
+            panel.measure(View.MeasureSpec.makeMeasureSpec(1000, View.MeasureSpec.EXACTLY),
+                    View.MeasureSpec.makeMeasureSpec(600, View.MeasureSpec.AT_MOST));
+            assertEquals(264, panel.getMeasuredHeight());
+        }
+    }
+
+    @Test @Config(qualifiers = "w360dp-h800dp-mdpi")
+    public void toolbarIconsAndSelectorArrowsFitAtTwiceTheNormalFontSize() {
+        RuntimeEnvironment.setFontScale(2f);
+        try (ActivityController<UiNavigationTest.Screen> screen = Robolectric.buildActivity(UiNavigationTest.Screen.class).setup()) {
+            DesktopControlsPanel panel = panel(screen, new RecordingSink());
+            panel.measure(View.MeasureSpec.makeMeasureSpec(360, View.MeasureSpec.EXACTLY),
+                    View.MeasureSpec.makeMeasureSpec(800, View.MeasureSpec.AT_MOST));
+            panel.layout(0, 0, 360, panel.getMeasuredHeight());
+            ViewGroup toolbar = (ViewGroup) panel.getChildAt(0);
+            assertEquals(5, toolbar.getChildCount());
+            for (int i = 0; i < toolbar.getChildCount(); i++) {
+                MaterialButton control = (MaterialButton) toolbar.getChildAt(i);
+                assertNotNull(control.getContentDescription());
+                assertNotNull("Missing icon for " + control.getContentDescription(), control.getIcon());
+                assertTrue(control.getIconSize() > 0);
+                assertTrue(control.getIconSize() <= control.getWidth());
+                assertTrue(control.getIconSize() <= control.getHeight());
+                assertTrue(control.getLeft() >= 0 && control.getRight() <= toolbar.getWidth());
+            }
+        }
+    }
+
+    static void selectBank(DesktopControlsPanel panel, String bank) {
+        openBankPicker(panel);
+        MaterialButton choice = button(panel, bank);
+        assertNotNull("Missing bank " + bank, choice);
+        choice.performClick();
+    }
+
+    private static void openBankPicker(DesktopControlsPanel panel) {
+        ViewGroup toolbar = (ViewGroup) panel.getChildAt(0);
+        for (int i = 0; i < toolbar.getChildCount(); i++) {
+            View child = toolbar.getChildAt(i);
+            if (!(child instanceof MaterialButton)) continue;
+            String text = ((MaterialButton) child).getText().toString();
+            if (panel.getContext().getString(R.string.desktop_controls_choose_bank, text)
+                    .contentEquals(child.getContentDescription())) {
+                child.performClick();
+                return;
+            }
+        }
+        fail("Missing key-bank selector");
     }
 
     private static DesktopControlsPanel panel(ActivityController<UiNavigationTest.Screen> screen, RecordingSink sink) {

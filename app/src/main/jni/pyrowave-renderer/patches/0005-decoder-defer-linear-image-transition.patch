@@ -1,0 +1,20 @@
+Leave the aliased linear image initial transition to the first upload.
+
+The General layout policy does not suppress Granite's automatic initial
+transition. An undefined requested initial layout suppresses it, while
+LinearHost still creates the Vulkan image as PREINITIALIZED. The existing
+first-upload transition is then the only PREINITIALIZED-to-GENERAL
+transition. Applies to PyroWave 502a3b52 with Granite fb178c80.
+
+diff --git a/pyrowave_decoder.cpp b/pyrowave_decoder.cpp
+--- a/pyrowave_decoder.cpp
++++ b/pyrowave_decoder.cpp
+@@ -983,6 +983,8 @@ void Decoder::Impl::check_linear_texture_support()
+ 				info.domain = ImageDomain::LinearHost;
+ 				info.usage = VK_IMAGE_USAGE_SAMPLED_BIT;
+ 				info.num_memory_aliases = 1;
++				// The first upload performs the sole PREINITIALIZED -> GENERAL transition.
++				info.initial_layout = VK_IMAGE_LAYOUT_UNDEFINED;
+ 				info.layout = ImageLayout::General;
+ 				info.memory_aliases = &alias;
+ 				*req.out_handle = device->create_image(info);

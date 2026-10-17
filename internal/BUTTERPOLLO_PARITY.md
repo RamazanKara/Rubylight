@@ -628,8 +628,10 @@ Both ARM64 and x86-64 libraries were rebuilt with Windows NDK 29, rather than co
 Pinned dependency sources: PyroWave `502a3b52a39312ab82c85b1e2fc0e746faee91a4`, Granite
 `fb178c8080d163419e8d20f10715c61c53c1ec9b`, volk `47cddf7ed97b94118a08aacb548a411188e016cc`,
 Vulkan-Headers `6802bb4733b63ed5efd3adb308a6c885ef180ea1`. The decoder short-block patch from
-Rubylight `6772d401` is retained in `jni/pyrowave-renderer/patches/`. Sources/headers are MIT;
-the small Android renderer and common-c integration remain GPL-3.0.
+Rubylight `6772d401` is retained unchanged in `jni/pyrowave-renderer/patches/`. Two additional
+patches correct metadata read synchronization and the initial transition of aliased linear
+payload images; see the rebuild notes below. Sources/headers are MIT; the small Android
+renderer and common-c integration remain GPL-3.0.
 
 ### Negotiation and output
 
@@ -733,13 +735,22 @@ java -XX:ActiveProcessorCount=2 -cp "$Bench/classes" com.limelight.binding.video
 
 ### Rebuilding the bundled decoder
 
-Run from the repository root. Use a fresh temporary directory; normal Gradle builds consume the
-committed prebuilts, so no downloads or CMake build run during ordinary application builds.
-No owner checkout, system services or drivers are modified by these commands.
+Run from the repository root. Use a fresh task directory on D: when available; normal Gradle
+builds consume the committed prebuilts, so no downloads or CMake build run during ordinary
+application builds. No owner checkout, system services or drivers are modified by these commands.
+
+Apply all three patches in filename order. `0003` retains the malformed short-block rejection.
+`0004` includes storage-buffer reads in the post-upload dependency: dequantization metadata
+is always an SSBO, even when payload data uses sampled texel buffers or linear images.
+`0005` suppresses Granite's automatic initial image transition. LinearHost still creates the
+Vulkan image as PREINITIALIZED, and the existing first upload performs its sole transition
+to GENERAL. Subsequent uploads retain GENERAL. Neither patch changes the public API,
+bitstream, precision settings or embedded SDK shaders.
 
 ```powershell
 $Repo = (Get-Location).Path
-$Work = Join-Path $env:TEMP 'bp-pyrowave-rebuild'
+$Work = if (Test-Path 'D:/') { 'D:/CodexArtifacts/nightjar-pyrowave-rebuild' } else { Join-Path $env:TEMP 'nightjar-pyrowave-rebuild' }
+if (Test-Path -LiteralPath $Work) { throw 'Use a fresh rebuild directory.' }
 $Source = "$Work/pyrowave"
 $Sdk = 'C:/Users/ramaz/AppData/Local/Android/Sdk'
 $Ndk = "$Sdk/ndk/29.0.14206865"
@@ -753,18 +764,38 @@ git -C "$Source/Granite" remote add origin https://github.com/Themaister/Granite
 git -C "$Source/Granite" fetch --depth 1 origin fb178c8080d163419e8d20f10715c61c53c1ec9b
 git -C "$Source/Granite" checkout --detach FETCH_HEAD
 git -C "$Source/Granite" submodule update --init --jobs 2 third_party/volk third_party/khronos/vulkan-headers
-Get-ChildItem "$Repo/app/src/main/jni/pyrowave-renderer/patches/*.patch" | ForEach-Object { git -C $Source apply $_.FullName }
+Get-ChildItem "$Repo/app/src/main/jni/pyrowave-renderer/patches/*.patch" | Sort-Object Name | ForEach-Object {
+    git -C $Source apply $_.FullName
+    if ($LASTEXITCODE -ne 0) { throw "SDK patch failed: $($_.Name)" }
+}
 foreach ($abi in @('arm64-v8a', 'x86_64')) {
-    cmake -S $Source -B "$Work/$abi" -G Ninja "-DCMAKE_TOOLCHAIN_FILE=$Ndk/build/cmake/android.toolchain.cmake" "-DANDROID_ABI=$abi" -DANDROID_PLATFORM=android-29 -DANDROID_STL=c++_static -DCMAKE_BUILD_TYPE=Release
+    cmake -S $Source -B "$Work/$abi" -G Ninja "-DCMAKE_TOOLCHAIN_FILE=$Ndk/build/cmake/android.toolchain.cmake" "-DANDROID_ABI=$abi" -DANDROID_PLATFORM=android-29 -DANDROID_STL=c++_static -DCMAKE_BUILD_TYPE=Release -DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON -DPYROWAVE_FP32_MATH=ON -DPYROWAVE_FP32_STORAGE=OFF -DPYROWAVE_DEVEL=OFF -DPYROWAVE_UTILS=OFF
+    if ($LASTEXITCODE -ne 0) { throw "SDK configure failed: $abi" }
     cmake --build "$Work/$abi" --target pyrowave-shared --parallel 2
+    if ($LASTEXITCODE -ne 0) { throw "SDK build failed: $abi" }
     Copy-Item "$Work/$abi/libpyrowave-shared.so" "app/src/main/jni/pyrowave-renderer/prebuilt/$abi/"
     & "$Ndk/toolchains/llvm/prebuilt/windows-x86_64/bin/llvm-strip.exe" --strip-unneeded "app/src/main/jni/pyrowave-renderer/prebuilt/$abi/libpyrowave-shared.so"
 }
 ```
 
-Both libraries have 16 KiB ELF LOAD alignment and only Android system-library imports. This run's
-stripped SHA-256 hashes are `70ec4fe3f2c9f603991544063d02b1d3ba66bafc54addc65732dcee570610448`
-(ARM64) and `d427ba0211dc2299a4266fbcd22d27d4e0c0bcb626bddb2a9cc43fdd94576b5b` (x86-64).
+The 2026-10-17 combined rebuild used Windows NDK `29.0.14206865` (Clang 21, build
+`13989888` / `r563880c`), SDK CMake `3.22.1-g37088a8-dirty` and its bundled Ninja, with the
+pins and explicit options above. Both libraries retain all 48 exported API names, the SONAME,
+Android system-library dependencies and 16 KiB ELF LOAD alignment. The stripped artifacts are:
+
+| ABI | Bytes | SHA-256 |
+| --- | ---: | --- |
+| arm64-v8a | 1,233,704 | `6f7626d783ad1aeaa0181f2cb3a0608cd3887b821fa9807cd34e032f76e7ea4e` |
+| x86_64 | 1,284,248 | `8a5bbda825985392eb5acc56b2fe7ec955b0433b882f5d508a0f4e3f3da69adc` |
+
+These are artifact identities, not a claim of path-independent reproducible binaries. The
+ARM64 device comparison on Fold7 with active Turnip Gen8 V37 tested a rebuilt control
+(short-block patch only), metadata barrier only, and both synchronization patches. All three
+still showed the chart corruption with 0% reported missing records. These fixes correct
+conditional synchronization defects; they do not resolve that reported visual corruption.
+The combined rebuild rendered the same HDR chart correctly with the system driver and
+also completed the native-resolution moving-scene checks on that driver.
+
 To regenerate `shaders_spv.h`, compile each `shaders/fullscreen.vert`, `shaders/planar_csc.frag` and
 `shaders/sgsr.frag` with NDK `shader-tools/windows-x86_64/glslc.exe -O --target-env=vulkan1.3 -mfmt=c`, and put
 those initializer lists in `static const uint32_t fullscreen_vert_spv[]` / `planar_csc_frag_spv[]` / `sgsr_frag_spv[]`.

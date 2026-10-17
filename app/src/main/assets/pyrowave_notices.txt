@@ -8,6 +8,7 @@ Nightjar changes: protocol, capability checks, 10-bit/HDR, timing and lifecycle.
 PyroWave 502a3b52a39312ab82c85b1e2fc0e746faee91a4 (MIT)
 https://github.com/Themaister/pyrowave
 Includes the short-block fix, attributed to Punktfunk.
+Nightjar also corrects metadata read synchronization and initial linear-image transitions.
 
 Copyright (c) 2025 Hans-Kristian Arntzen
 

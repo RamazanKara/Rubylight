@@ -320,7 +320,9 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     private volatile int streamFrameRateMilliHz;
     private PreferenceConfiguration prefs;
 
-    private LinkedBlockingQueue<Integer> outputBufferQueue = new LinkedBlockingQueue<>();
+    // Its monitor makes replacing a full queue atomic with the display thread's poll.
+    // The queue's own thread safety alone does not cover size/poll/add together.
+    private final LinkedBlockingQueue<Integer> outputBufferQueue = new LinkedBlockingQueue<>();
     private int outputBufferQueueLimit = 1;
     // Why the pending restart was requested. Problem reports keep warnings and "Decoder" lines,
     // so they show HDR, size and upscaler restarts as such instead of as a CodecException.
@@ -1589,7 +1591,9 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                 // Input and output buffers are invalidated by stop() and reset().
                 nextInputBuffer = null;
                 nextInputBufferIndex = -1;
-                outputBufferQueue.clear();
+                synchronized (outputBufferQueue) {
+                    outputBufferQueue.clear();
+                }
                 nextFrameTimeNanos = 0;
                 pacingFrameRateMilliHz = 0;
                 outputBufferQueueLimit = 1;
@@ -1927,7 +1931,10 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             //
             // The queue holds at most two buffers to avoid starving the decoder. Keeping
             // only the newest frame trades the extra jitter buffer for lower latency.
-            Integer nextOutputBuffer = outputBufferQueue.poll();
+            Integer nextOutputBuffer;
+            synchronized (outputBufferQueue) {
+                nextOutputBuffer = outputBufferQueue.poll();
+            }
             if (nextOutputBuffer != null) {
                 try {
                     frameLatencyStats.onOutputReleased(nextOutputBuffer, System.nanoTime(), true,
@@ -2063,21 +2070,22 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                                     // run for a while (if there is a huge mismatch between stream FPS and display
                                     // refresh rate).
                                     int queueLimit = prefs.dropLateFrames ? 1 : outputBufferQueueLimit;
-                                    boolean droppedOlder = false;
-                                    if (outputBufferQueue.size() >= queueLimit) {
-                                        Integer droppedIndex = outputBufferQueue.poll();
-                                        if (droppedIndex != null) {
-                                            frameLatencyStats.onOutputReleased(droppedIndex, System.nanoTime(), false,
-                                                    upscaler == null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M);
-                                            videoDecoder.releaseOutputBuffer(droppedIndex, false);
-                                            droppedOlder = true;
-                                        }
+                                    Integer droppedIndex;
+                                    synchronized (outputBufferQueue) {
+                                        droppedIndex = outputBufferQueue.size() >= queueLimit ?
+                                                outputBufferQueue.poll() : null;
+                                        outputBufferQueue.add(lastIndex);
                                     }
-
-                                    // Add this buffer
-                                    outputBufferQueue.add(lastIndex);
+                                    // Publish the replacement before returning the old output to the
+                                    // codec. That call (or timing bookkeeping) can block; the display
+                                    // callback must still find the ready replacement in the meantime.
+                                    if (droppedIndex != null) {
+                                        frameLatencyStats.onOutputReleased(droppedIndex, System.nanoTime(), false,
+                                                upscaler == null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M);
+                                        videoDecoder.releaseOutputBuffer(droppedIndex, false);
+                                    }
                                     // Artemis counts a queued frame unless queuing it dropped an older one.
-                                    if (!droppedOlder) {
+                                    if (droppedIndex == null) {
                                         frameLatencyStats.onArtemisDecodeCounted(lastPtsUs, System.nanoTime());
                                     }
                                 }
@@ -2275,6 +2283,10 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         if (videoDecoder != null) {
             videoDecoder.release();
             videoDecoder = null;
+        }
+        // The stopped codec has invalidated these outputs; never offer them to a later callback.
+        synchronized (outputBufferQueue) {
+            outputBufferQueue.clear();
         }
         closeUpscaler();
         if (latencyHandler != null) {

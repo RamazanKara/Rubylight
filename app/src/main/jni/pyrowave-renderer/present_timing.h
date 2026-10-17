@@ -16,6 +16,7 @@ public:
         int64_t desiredPresentNs = 0;
         int64_t targetNs = 0;
         bool paced = false;
+        int64_t idealNs = 0;  // Unrounded host mapping, for opt-in diagnostics only.
     };
 
     void configure(Mode mode, int64_t nominalPeriodNs) {
@@ -89,10 +90,11 @@ public:
             anchor(hostPresentationTimeUs, readyNs);
             idealNs = anchorLocalNs_;
         }
+        recoverEarlyTimeline(readyNs, idealNs);
         const int64_t targetNs = nextVsync(std::max(idealNs, earliestNs));
         lastPlan_ = {std::max(readyNs, targetNs - leadNs_),
                      phaseNs_ == 0 ? targetNs : targetNs - periodNs_ / 2,
-                     targetNs, true};
+                     targetNs, true, idealNs};
         lastHostUs_ = hostPresentationTimeUs;
         lastReadyNs_ = readyNs;
 
@@ -181,6 +183,7 @@ private:
     static constexpr int64_t kRebaseNs = 1'000'000'000;
     static constexpr size_t kMinimumSamples = 8;
     static constexpr unsigned kLowerSamples = 16;
+    static constexpr unsigned kEarlySamples = 8;
     struct Entry {
         uint32_t id = 0;
         int64_t submittedNs = 0;
@@ -201,7 +204,30 @@ private:
         if (remainder < 0) remainder += periodNs_;
         return remainder == 0 ? timeNs : timeNs + periodNs_ - remainder;
     }
+    // Delivery may improve after the host-to-local offset was established.
+    // Tolerate one period of jitter beyond the lead and selected mode's cushion.
+    // Eight consecutive early frames distinguish sustained improvement from a
+    // short burst. Remove only the smallest excess common to that run.
+    void recoverEarlyTimeline(int64_t readyNs, int64_t &idealNs) {
+        const int64_t cushionNs =
+                (mode_ == Mode::Smoothness || mode_ == Mode::CapFps) ? periodNs_ : 0;
+        const int64_t excessNs = idealNs - readyNs - leadNs_ - cushionNs;
+        if (excessNs <= periodNs_) {
+            earlyCount_ = 0;
+            minimumEarlyNs_ = 0;
+            return;
+        }
+        minimumEarlyNs_ = earlyCount_ == 0 ? excessNs : std::min(minimumEarlyNs_, excessNs);
+        if (++earlyCount_ < kEarlySamples) return;
+        anchorLocalNs_ -= minimumEarlyNs_;
+        idealNs -= minimumEarlyNs_;
+        earlyCount_ = 0;
+        minimumEarlyNs_ = 0;
+    }
+
     void clearTimeline() {
+        earlyCount_ = 0;
+        minimumEarlyNs_ = 0;
         anchored_ = false;
         lastHostUs_ = lastReadyNs_ = 0;
         lastPlan_ = {};
@@ -241,4 +267,6 @@ private:
     size_t nextNeed_ = 0;
     size_t needCount_ = 0;
     unsigned lowerCount_ = 0;
+    unsigned earlyCount_ = 0;
+    int64_t minimumEarlyNs_ = 0;
 };

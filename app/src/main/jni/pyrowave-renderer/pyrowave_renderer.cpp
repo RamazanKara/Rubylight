@@ -504,6 +504,8 @@ namespace {
             if (enabled) LOGI("PyroWave submit profile enabled: wall/thread CPU milliseconds; restart stream to change");
         }
 
+        bool isEnabled() const { return enabled; }
+
     private:
         struct Stamp { uint64_t wall, cpu; };
         struct Timing {
@@ -608,6 +610,103 @@ namespace {
         };
     };
 
+    // Only the presenter updates these counters; configuration precedes worker startup.
+    // Samples use existing CLOCK_MONOTONIC timestamps, never feedback arrival time.
+    class PresentationDiagnostics {
+    public:
+        void configure(bool enable) { enabled = enable; }
+
+        void record(int64_t completedNs, int64_t releasedNs, uint64_t actualNs) {
+            if (!enabled) return;
+            if (completedNs <= 0 || releasedNs < completedNs ||
+                actualNs > uint64_t(INT64_MAX) || actualNs < uint64_t(releasedNs)) {
+                ++window.invalid;
+                return;
+            }
+            const uint64_t beforeRelease = uint64_t(releasedNs - completedNs);
+            const uint64_t afterRelease = actualNs - uint64_t(releasedNs);
+            ++window.frames;
+            window.beforeReleaseNs += double(beforeRelease);
+            window.afterReleaseNs += double(afterRelease);
+            window.maxBeforeReleaseNs = std::max(window.maxBeforeReleaseNs, beforeRelease);
+            window.maxAfterReleaseNs = std::max(window.maxAfterReleaseNs, afterRelease);
+        }
+
+        void reportIfDue(uint64_t nowUs) {
+            if (!enabled || (window.frames == 0 && window.invalid == 0)) return;
+            if (window.startUs == 0) window.startUs = nowUs;
+            if (nowUs < window.startUs || nowUs - window.startUs < 5'000'000) return;
+            const double divisor = window.frames == 0 ? 1.0 : double(window.frames) * 1e6;
+            LOGI("PyroWave present profile: n=%llu invalid=%llu completion_to_release_avg=%.3f "
+                 "completion_to_release_max=%.3f release_to_actual_avg=%.3f release_to_actual_max=%.3f ms",
+                 (unsigned long long)window.frames, (unsigned long long)window.invalid,
+                 window.beforeReleaseNs / divisor, window.maxBeforeReleaseNs / 1e6,
+                 window.afterReleaseNs / divisor, window.maxAfterReleaseNs / 1e6);
+            window = {};
+            window.startUs = nowUs;
+        }
+
+    private:
+        struct Window {
+            uint64_t startUs = 0, frames = 0, invalid = 0;
+            double beforeReleaseNs = 0, afterReleaseNs = 0;
+            uint64_t maxBeforeReleaseNs = 0, maxAfterReleaseNs = 0;
+        } window;
+        bool enabled = false;
+    };
+
+    // Presenter-owned, opt-in counters. Inputs are existing timing values; this
+    // diagnostic never reads a clock or changes a presentation decision.
+    class PacingDiagnostics {
+    public:
+        void configure(bool enable) { enabled = enable; }
+        void record(const PyroWavePresentTiming::Plan &plan, int64_t readyNs,
+                    int64_t requestedWaitNs, int64_t periodNs, int64_t leadNs) {
+            if (!enabled || !plan.paced) return;
+            if (window.frames == 0) {
+                window.minPeriodNs = window.maxPeriodNs = periodNs;
+                window.minLeadNs = window.maxLeadNs = leadNs;
+                window.minAheadNs = window.maxAheadNs = plan.idealNs - readyNs;
+            }
+            ++window.frames;
+            window.minPeriodNs = std::min(window.minPeriodNs, periodNs);
+            window.maxPeriodNs = std::max(window.maxPeriodNs, periodNs);
+            window.minLeadNs = std::min(window.minLeadNs, leadNs);
+            window.maxLeadNs = std::max(window.maxLeadNs, leadNs);
+            const int64_t aheadNs = plan.idealNs - readyNs;
+            window.minAheadNs = std::min(window.minAheadNs, aheadNs);
+            window.maxAheadNs = std::max(window.maxAheadNs, aheadNs);
+            window.aheadNs += double(aheadNs);
+            window.targetAheadNs += double(plan.targetNs - readyNs);
+            const int64_t waitNs = std::max<int64_t>(0, requestedWaitNs);
+            window.waitNs += double(waitNs);
+            window.maxWaitNs = std::max(window.maxWaitNs, waitNs);
+        }
+        void reportIfDue(uint64_t nowUs) {
+            if (!enabled || window.frames == 0) return;
+            if (window.startUs == 0) window.startUs = nowUs;
+            if (nowUs < window.startUs || nowUs - window.startUs < 5'000'000) return;
+            const double divisor = double(window.frames) * 1e6;
+            LOGI("PyroWave pacing profile: n=%llu period_min=%.3f period_max=%.3f "
+                 "lead_min=%.3f lead_max=%.3f host_ahead_avg=%.3f host_ahead_min=%.3f host_ahead_max=%.3f "
+                 "target_ahead_avg=%.3f requested_wait_avg=%.3f requested_wait_max=%.3f ms",
+                 (unsigned long long)window.frames, window.minPeriodNs / 1e6, window.maxPeriodNs / 1e6,
+                 window.minLeadNs / 1e6, window.maxLeadNs / 1e6, window.aheadNs / divisor,
+                 window.minAheadNs / 1e6, window.maxAheadNs / 1e6, window.targetAheadNs / divisor,
+                 window.waitNs / divisor, window.maxWaitNs / 1e6);
+            window = {};
+            window.startUs = nowUs;
+        }
+    private:
+        struct Window {
+            uint64_t startUs = 0, frames = 0;
+            int64_t minPeriodNs = 0, maxPeriodNs = 0, minLeadNs = 0, maxLeadNs = 0;
+            int64_t minAheadNs = 0, maxAheadNs = 0, maxWaitNs = 0;
+            double aheadNs = 0, targetAheadNs = 0, waitNs = 0;
+        } window;
+        bool enabled = false;
+    };
+
     class Renderer {
     public:
         PyroWaveRecords records;
@@ -636,6 +735,8 @@ namespace {
             height = uint32_t(streamHeight);
             records = PyroWaveRecords(width, height, chroma444);
             submissionDiagnostics.configure();
+            presentationDiagnostics.configure(submissionDiagnostics.isEnabled());
+            pacingDiagnostics.configure(submissionDiagnostics.isEnabled());
             return apiVersionSupported() && createInstanceAndSurface() && createDevice() &&
                    createSwapchain() && checkDecoderLimits() && createDecoder() && createPlanes() &&
                    createPipeline() && createUpscaler() && createFrameResources() && warmUpDecoder() &&
@@ -1197,6 +1298,13 @@ namespace {
             swapchainImages.resize(count);
             if (!check(vk.GetSwapchainImagesKHR(device, swapchain, &count, swapchainImages.data()), "swapchain images")) return false;
             swapchainImages.resize(count);
+            if (submissionDiagnostics.isEnabled()) {
+                LOGI("PyroWave swapchain profile: min=%u max=%u requested=%u actual=%u mode=%s "
+                     "logical=%ux%u buffer=%ux%u transform=%u format=%u",
+                     caps.minImageCount, caps.maxImageCount, imageCount, count, presentModeName(presentMode),
+                     displayExtent.width, displayExtent.height, swapchainExtent.width, swapchainExtent.height,
+                     uint32_t(info.preTransform), uint32_t(swapchainFormat));
+            }
             return renderPass == VK_NULL_HANDLE || createSwapchainResources();
         }
 
@@ -1864,6 +1972,8 @@ namespace {
                 std::unique_lock<std::mutex> lock(slotMutex);
                 const auto stopping = [this] { return stopPresenter || failed; };
                 const int64_t remainingNs = timing.submitNs - nowNs();
+                pacingDiagnostics.record(timing, slot.completedNs, remainingNs,
+                                         presentTiming.periodNs(), presentTiming.leadNs());
                 if (timing.paced && remainingNs > 0) {
                     slotReady.wait_for(lock, std::chrono::nanoseconds(remainingNs), stopping);
                 }
@@ -1916,11 +2026,14 @@ namespace {
             }
             const int64_t ptsUs = slot.ptsUs;
             const bool shown = presented == VK_SUCCESS || presented == VK_SUBOPTIMAL_KHR;
-            pushRelease(ptsUs, shown ? int64_t(released.tv_sec) * 1000000000LL + released.tv_nsec : 0, shown);
+            const int64_t releasedNs = int64_t(released.tv_sec) * 1000000000LL + released.tv_nsec;
+            pushRelease(ptsUs, shown ? releasedNs : 0, shown);
             uint64_t frameEnd = nowUs();
             if (displayTimingSupported && shown) {
                 if (pendingPresents.size() == 8192) pendingPresents.pop_front();
-                pendingPresents.push_back({presentTime.presentID, ptsUs, frameEnd});
+                pendingPresents.push_back({presentTime.presentID, ptsUs, frameEnd,
+                                          submissionDiagnostics.isEnabled() ? slot.completedNs : 0,
+                                          submissionDiagnostics.isEnabled() ? releasedNs : 0});
                 presentTiming.recordPresent(presentTime.presentID, timing, submittedNs);
             }
             pollRenderedFrames();
@@ -1928,6 +2041,7 @@ namespace {
             presentStats.frames++;
             presentStats.acquireWaitUs += afterAcquire - beforeAcquire;
             logPresentStatsIfDue(frameEnd);
+            pacingDiagnostics.reportIfDue(frameEnd);
 
             if (presented == VK_ERROR_OUT_OF_DATE_KHR) {
                 return recreateSwapchain();
@@ -2122,6 +2236,8 @@ namespace {
         std::mutex decodeQueueMutex;
         std::mutex renderQueueMutex;
         bool fragmentPath = false;
+        PresentationDiagnostics presentationDiagnostics;
+        PacingDiagnostics pacingDiagnostics;
         uint64_t lastSizeCheckUs = 0;
 
         VkFormat swapchainFormat = VK_FORMAT_UNDEFINED;
@@ -2141,6 +2257,7 @@ namespace {
             uint32_t id;
             int64_t ptsUs;
             uint64_t queuedUs;
+            int64_t completedNs, releasedNs;
         };
         std::deque<PendingPresent> pendingPresents;
 
@@ -2219,6 +2336,7 @@ namespace {
                         auto frame = std::find_if(pendingPresents.begin(), pendingPresents.end(),
                             [&timing](const auto &entry) { return entry.id == timing.presentID; });
                         if (frame == pendingPresents.end()) continue;
+                        presentationDiagnostics.record(frame->completedNs, frame->releasedNs, timing.actualPresentTime);
                         presentTiming.feedback(timing.presentID, int64_t(timing.actualPresentTime),
                                                int64_t(timing.earliestPresentTime), int64_t(timing.presentMargin));
                         // actualPresentTime uses CLOCK_MONOTONIC on Android, like System.nanoTime().
@@ -2233,6 +2351,7 @@ namespace {
             }
             // Skipped frames may never get a time, even when no further timings arrive.
             const uint64_t now = nowUs();
+            presentationDiagnostics.reportIfDue(now);
             while (!pendingPresents.empty() && now - pendingPresents.front().queuedUs > 500'000) {
                 pendingPresents.pop_front();
             }

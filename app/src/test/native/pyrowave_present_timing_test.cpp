@@ -3,6 +3,7 @@
 #include <cassert>
 #include <cstdint>
 #include <limits>
+#include <vector>
 
 using Timing = PyroWavePresentTiming;
 static constexpr int64_t ms = 1'000'000;
@@ -179,7 +180,178 @@ static void testBoundedMissingReportsAndExtremeInputs() {
     assert(timing.pendingCount() == 0 && timing.phaseNs() == 0);
 }
 
+static Timing timingWithSlowInitialFrame(Timing::Mode mode = Timing::Mode::Balanced) {
+    Timing t;
+    t.configure(mode, 10 * ms);
+    t.observeVsync(epoch);
+    t.plan(1'000'000, epoch + 30 * ms);
+    return t;
+}
+
+static void sustainedImprovementPreservesModeCushion() {
+    for (auto mode : {Timing::Mode::Balanced, Timing::Mode::CapFps, Timing::Mode::Smoothness}) {
+        auto t = timingWithSlowInitialFrame(mode);
+        const int64_t cushion = mode == Timing::Mode::Balanced ? 0 : 10 * ms;
+        for (int i = 0; i < 30; ++i) {
+            const int64_t host = 1'100'000 + i * 10'000;
+            const int64_t ready = epoch + (110 + i * 10) * ms;
+            const auto p = t.plan(host, ready);
+            const int64_t expectedAhead = (i < 7 ? 22 * ms : 2 * ms) + cushion;
+            assert(p.idealNs - ready == expectedAhead);
+            assert(p.targetNs >= ready + t.leadNs());
+            assert(p.targetNs - p.idealNs < t.periodNs());
+        }
+        assert(t.periodNs() == 10 * ms && t.leadNs() == 2 * ms && t.phaseNs() == epoch);
+    }
+}
+
+static void burstsAndRepeatedPlansDoNotCountAsSustained() {
+    auto t = timingWithSlowInitialFrame();
+    for (int i = 0; i < 7; ++i) {
+        const int64_t host = 1'100'000 + i * 10'000;
+        const int64_t ready = epoch + (110 + i * 10) * ms;
+        const auto p = t.plan(host, ready);
+        assert(p.idealNs - ready == 22 * ms);
+        for (int repeat = 0; repeat < 20; ++repeat) {
+            const auto again = t.plan(host, ready + 90 * ms);
+            assert(again.submitNs == p.submitNs && again.idealNs == p.idealNs);
+        }
+    }
+    // A normal-latency arrival clears the entire run, rather than accumulating
+    // evidence across unrelated network bursts.
+    const auto normal = t.plan(1'170'000, epoch + 200 * ms);
+    assert(normal.idealNs == epoch + 202 * ms);
+    for (int i = 0; i < 7; ++i) {
+        const int64_t ready = epoch + (210 + i * 10) * ms;
+        const auto p = t.plan(1'200'000 + i * 10'000, ready);
+        assert(p.idealNs - ready == 22 * ms);
+    }
+    const auto recovered = t.plan(1'270'000, epoch + 280 * ms);
+    assert(recovered.idealNs == epoch + 282 * ms);
+}
+
+static void pausesAndModeChangesDiscardOldEvidence() {
+    auto t = timingWithSlowInitialFrame();
+    for (int i = 0; i < 7; ++i) t.plan(1'100'000 + i * 10'000, epoch + (110 + i * 10) * ms);
+    const auto resumed = t.plan(1'500'000, epoch + 510 * ms);
+    assert(resumed.idealNs == epoch + 512 * ms);
+    const auto next = t.plan(1'510'000, epoch + 520 * ms);
+    assert(next.idealNs == epoch + 522 * ms);
+    t.setRefreshPeriod(20 * ms);
+    const auto changed = t.plan(1'520'000, epoch + 530 * ms);
+    assert(changed.idealNs == epoch + 532 * ms && t.periodNs() == 20 * ms);
+    const auto reversed = t.plan(12, epoch + 540 * ms);
+    assert(reversed.idealNs == epoch + 542 * ms);
+}
+
+static void ordinaryJitterAndImmediateModeStayUnchanged() {
+    auto t = timingWithSlowInitialFrame();
+    for (int i = 0; i < 300; ++i) {
+        const int64_t ready = epoch + (130 + i * 10 + (i % 2 ? 3 : -3)) * ms;
+        const auto p = t.plan(1'100'000 + i * 10'000, ready);
+        assert(p.idealNs == epoch + (132 + i * 10) * ms);
+    }
+    auto immediate = timingWithSlowInitialFrame(Timing::Mode::Immediate);
+    for (int i = 0; i < 30; ++i) {
+        const int64_t ready = epoch + (110 + i * 10) * ms;
+        const auto p = immediate.plan(1'100'000 + i * 10'000, ready);
+        assert(!p.paced && p.submitNs == ready && p.desiredPresentNs == 0 && p.idealNs == 0);
+    }
+}
+
+static void fractionalCadenceRemainsStableAfterRecovery() {
+    Timing t;
+    constexpr int64_t period = 8'333'333;
+    t.configure(Timing::Mode::Balanced, period);
+    t.observeVsync(epoch);
+    t.plan(1'000'000, epoch + 30 * ms);
+    for (int i = 0; i < 1000; ++i) {
+        const int64_t deltaUs = 100'000 + int64_t(i) * 16'683;
+        const int64_t ready = epoch + deltaUs * 1000 + 6 * ms;
+        const auto p = t.plan(1'000'000 + deltaUs, ready);
+        assert(p.idealNs - ready == (i < 7 ? 26 * ms : 2 * ms));
+        assert(p.targetNs >= p.idealNs && p.targetNs - p.idealNs < period);
+        assert((p.targetNs - epoch) % period == 0);
+    }
+}
+
+static void recoveryPreservesLearnedLeadPhaseAndPendingFeedback() {
+    auto t = timingWithSlowInitialFrame();
+    // Teach a 5 ms rendering requirement, rather than relying on the initial lead.
+    for (uint32_t id = 1; id <= 40; ++id) {
+        const auto p = t.plan(1'000'000 + int64_t(id) * 10'000, epoch + (30 + int64_t(id) * 10) * ms);
+        t.recordPresent(id, p, p.submitNs);
+        const int64_t workReady = p.submitNs + 5 * ms;
+        const int64_t earliest = epoch + ((workReady - epoch + 10 * ms - 1) / (10 * ms)) * (10 * ms);
+        t.feedback(id, earliest, earliest, earliest - workReady);
+    }
+    assert(t.leadNs() == 5 * ms + ms / 2);
+    t.observeVsync(epoch + 1000 * ms);
+    const auto first = t.plan(2'000'000, epoch + 1000 * ms);
+    t.recordPresent(100, first, first.submitNs);
+    const auto phase = t.phaseNs();
+    for (int i = 0; i < 8; ++i) {
+        const int64_t ready = epoch + (1080 + i * 10) * ms;
+        const auto p = t.plan(2'100'000 + i * 10'000, ready);
+        assert(t.leadNs() == 5 * ms + ms / 2 && t.phaseNs() == phase && t.pendingCount() == 1);
+        if (i == 7) assert(p.idealNs - ready == t.leadNs());
+    }
+    t.feedback(100, first.targetNs, first.targetNs, ms);
+    assert(t.pendingCount() == 0 && t.phaseNs() == first.targetNs);
+}
+
+static void testRecoveryKeepsPresentationThroughput() {
+    constexpr int64_t period = 8'333'333;
+    constexpr int frames = 4800;
+    struct Frame { int64_t hostUs, readyNs; };
+    std::vector<Frame> input;
+    for (int i = 0; i < frames; ++i) {
+        const int64_t hostDeltaUs = int64_t(i) * 25'000 / 3;
+        // At ten seconds, arrival/decode latency improves from 30 ms
+        // to 6 ms over 48 frames. Completions remain ordered and 120 Hz input
+        // continues; there are no host pauses, clock jumps or display changes.
+        const int64_t reduction = std::min(std::max(i - 1200, 0), 48) * (ms / 2);
+        input.push_back({100'000'000 + hostDeltaUs, epoch + hostDeltaUs * 1000 + 30 * ms - reduction});
+        if (i) assert(input[i].readyNs > input[i - 1].readyNs);
+    }
+    Timing timing;
+    timing.configure(Timing::Mode::Balanced, period);
+    timing.observeVsync(epoch);
+    int latest = -1, consumed = -1;
+    int64_t now = input.front().readyNs;
+    int stableBefore = 0, stableAfter = 0;
+    double afterDelayMs = 0;
+    while (consumed < frames - 1) {
+        if (latest <= consumed) now = std::max(now, input[consumed + 1].readyNs);
+        while (latest + 1 < frames && input[latest + 1].readyNs <= now) ++latest;
+        assert(latest > consumed);
+        const auto &frame = input[latest];
+        consumed = latest;
+        const auto plan = timing.plan(frame.hostUs, frame.readyNs);
+        now = std::max(now, plan.submitNs);
+        if (now >= epoch + 2'000 * ms && now < epoch + 9'000 * ms) ++stableBefore;
+        if (now >= epoch + 20'000 * ms && now < epoch + 35'000 * ms) {
+            ++stableAfter;
+            afterDelayMs += double(now - frame.readyNs) / ms;
+        }
+        now += 50'000; // Bounded CPU submit / present overhead, no blocking GPU work.
+    }
+    const double beforeFps = stableBefore / 7.0;
+    const double afterFps = stableAfter / 15.0;
+    assert(beforeFps > 119 && beforeFps < 121);
+    assert(afterFps > 119 && afterFps < 121);
+    assert(afterDelayMs / stableAfter < 10);
+    assert(timing.periodNs() == period);
+}
+
 int main() {
+    sustainedImprovementPreservesModeCushion();
+    burstsAndRepeatedPlansDoNotCountAsSustained();
+    pausesAndModeChangesDiscardOldEvidence();
+    ordinaryJitterAndImmediateModeStayUnchanged();
+    fractionalCadenceRemainsStableAfterRecovery();
+    recoveryPreservesLearnedLeadPhaseAndPendingFeedback();
+    testRecoveryKeepsPresentationThroughput();
     testHostCadenceAndIdempotence();
     testModesAndMissingHostClock();
     testFractionalCadenceDoesNotAccumulateRounding();

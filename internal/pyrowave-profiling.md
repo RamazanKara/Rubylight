@@ -50,3 +50,24 @@ Discard startup windows and check for thermal changes and frame replacement.
 Perfetto scheduler traces distinguish runnable delay from CPU execution; these
 stage counters then locate work or waits inside submission. Neither method alone
 measures physical input-to-photon latency.
+
+The same opt-in property also reports presentation and pacing windows using
+timestamps already collected by the renderer. These counters do not read extra
+clocks or change presentation decisions:
+
+- `present profile` pairs each frame's decode completion, release, and actual
+  presentation feedback. It separates time before release from time after it;
+  only frames with matching valid feedback contribute to the averages.
+- `pacing profile` reports the measured display period, learned submission lead,
+  unrounded host-clock mapping relative to completion, target offset, and requested
+  wait. Requested wait is a scheduling decision, not a measured sleep duration.
+- `swapchain profile` records requested and actual image counts, transform, extent,
+  format and presentation mode at creation. An Android driver may allocate more
+  images than requested; image count alone does not measure queued frames.
+
+Actual presentation feedback is a driver/compositor timestamp, not an independent
+measurement of physical scanout. Use a graphics trace to locate compositor work
+and retain the same cohort when combining stage averages. Balanced pacing also
+recovers a stale host/local offset after eight consecutive early selected frames;
+short bursts retain their original cadence, and Lowest latency does not use this
+recovery path.

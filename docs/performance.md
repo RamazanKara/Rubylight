@@ -2,9 +2,19 @@
 
 [Docs](README.md) · [How compute works](architecture.md) · [Troubleshooting](troubleshooting.md) · [Full measurement record](../rust/PERFORMANCE.md)
 
-Rubylight's performance work targets fresh pictures and lower picture age, especially when the GPU is busy. Start with the [current 2.2.9 measurements](#october-12-229-measurements), then use the component tests to see where the time goes. The [matched October 8 comparison](#next-to-vibepollo-20) retains its original builds and results.
+Rubylight's performance work targets fresh pictures and lower picture age, especially when the GPU is busy. Start with the [2.5.0 focused comparisons](#october-17-250-comparisons), then use the earlier full-stream and component tests to see where the time goes. The [matched October 8 comparison](#next-to-vibepollo-20) retains its original builds and results.
 
-**On this page:** [Metrics](#what-the-numbers-mean) · [Host latency between hosts](#comparing-host-latency-between-hosts) · [2.2.9 measurements](#october-12-229-measurements) · [Host comparison](#next-to-vibepollo-20) · [Wi-Fi](#on-a-real-client-over-wi-fi) · [Radeon compute](#isolating-radeon-compute) · [GPU pressure](#radeon-under-pressure) · [Measure your setup](#measure-your-setup)
+**On this page:** [2.5.0 comparisons](#october-17-250-comparisons) · [Metrics](#what-the-numbers-mean) · [Host latency between hosts](#comparing-host-latency-between-hosts) · [2.2.9 measurements](#october-12-229-measurements) · [Host comparison](#next-to-vibepollo-20) · [Wi-Fi](#on-a-real-client-over-wi-fi) · [Radeon compute](#isolating-radeon-compute) · [GPU pressure](#radeon-under-pressure) · [Measure your setup](#measure-your-setup)
+
+## October 17: 2.5.0 comparisons
+
+The 2.5.0 work targets smoother recovery, more accurate downscaling and an optional capture transport. Short isolated comparisons used an RX 7900 XT; the installed service and display settings were preserved.
+
+- **Recovery cadence:** four native-resolution HEVC runs reduced the mean gap after a keyframe from **8.44 to 5.30 ms**. All **6,941 frames decoded**, and every recovery follow-up carried a fresh source timestamp. Overall picture age did not consistently improve. This is a shorter recovery gap, with the same pacing, FEC and encoder settings.
+- **Downscaling:** an independent area reference checks thin moving features, fractional ratios, aspect bars and SDR/HDR across three GPU conversion paths. Native resolution, enlargement and aligned 2× output preserve their pixels. See the detailed record for accuracy, encoded output and GPU costs.
+- **Experimental fence transport:** CPU claim overhead fell from about **32 to 1.8 µs** in a two-device component fixture. Completed conversion improved about **0.06 ms** on average, with one HDR pair slower. The option stays off by default; installed-driver and receiver gains remain unverified.
+
+The [full settings, results and limitations](../rust/PERFORMANCE.md#october-17-focused-250-comparisons) distinguish recovery timing, scaler accuracy and component overhead. These measurements do not establish a market-wide ranking or input-to-display latency.
 
 ## What the numbers mean
 

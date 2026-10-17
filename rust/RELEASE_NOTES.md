@@ -1,10 +1,18 @@
-# Rubylight 2.4.8 for Windows
+# Rubylight 2.5.0 for Windows
 
 [Documentation](../docs/README.md) · [Install and migrate](../docs/getting-started.md) · [Configuration](../docs/configuration.md) · [Features](../docs/features.md)
 
-**Release history:** [2.4.8](#new-in-248) · [2.4.7](#new-in-247) · [2.4.6](#new-in-246) · [2.4.5](#new-in-245) · [2.4.4](#new-in-244) · [2.4.3](#new-in-243) · [2.4.2](#new-in-242) · [2.4.1](#new-in-241) · [2.4.0](#new-in-240) · [2.3.1](#new-in-231) · [2.3.0](#new-in-230) · [2.2.2 – 2.2.21](#new-in-2221) · [2.2.1](#new-in-221) · [2.2.0](#new-in-220) · [2.1.0](#new-in-210) · [2.0.x](#new-in-201) · [release candidates](#new-in-rc30)
+**Release history:** [2.5.0](#new-in-250) · [2.4.8](#new-in-248) · [2.4.7](#new-in-247) · [2.4.6](#new-in-246) · [2.4.5](#new-in-245) · [2.4.4](#new-in-244) · [2.4.3](#new-in-243) · [2.4.2](#new-in-242) · [2.4.1](#new-in-241) · [2.4.0](#new-in-240) · [2.3.1](#new-in-231) · [2.3.0](#new-in-230) · [2.2.2 – 2.2.21](#new-in-2221) · [2.2.1](#new-in-221) · [2.2.0](#new-in-220) · [2.1.0](#new-in-210) · [2.0.x](#new-in-201) · [release candidates](#new-in-rc30)
 
-Rubylight, called Butterpollo until rc.29, is written in Rust: host, native helpers, service and setup, with a Svelte web console. The 2.4.8 installer is named `rubylight-setup-2.4.8.exe` and upgrades an existing Vibepollo or Butterpollo installation in place, keeping settings, paired devices, the app library and covers. Codec SDKs and Windows drivers remain external components; the setup installs the drivers.
+Rubylight, called Butterpollo until rc.29, is written in Rust: host, native helpers, service and setup, with a Svelte web console. The 2.5.0 installer is named `rubylight-setup-2.5.0.exe` and upgrades an existing Vibepollo or Butterpollo installation in place, keeping settings, paired devices, the app library and covers. Codec SDKs and Windows drivers remain external components; the setup installs the drivers.
+
+## New in 2.5.0
+
+- **Smoother AMD recovery after a keyframe.** Proven depth-one AMF pipelines can prepare one fresh picture near the end of a paced recovery frame. Four short RX 7900 XT comparisons reduced the gap from an IDR to its next fresh received frame from **8.44 to 5.30 ms**, with **6,941/6,941 frames decoded**. Queue bounds, packet order, FEC, network pacing and the Punktfunk-compatible Moonlight host metric remain unchanged. Unknown/deeper encoder pipelines retain their required priming; socket stalls and drops restore the strict barrier. This improves the measured recovery cadence; overall picture age did not consistently improve.
+- **Antialiased GPU downscaling.** Fractional and larger reductions average the source pixels each output pixel covers, reducing thin-line shimmer and lost detail when streaming below the desktop resolution. Native resolution, enlargement and aligned 2× reduction preserve their existing pixels. Work is bounded to reductions up to 8× per axis; larger reductions retain the previous filter. Existing HDR transfer handling, cursor composition and aspect-ratio behavior are preserved. An independent reference checks pixels across D3D11 graphics, D3D11 compute and D3D12 compute paths; separate timing and encoded-output checks document the cost.
+- **An additional experimental GPU fence transport.** Advanced Video settings can enable `idd_push_fence_ring` for direct driver push on compatible AMD setups. It adds D3D12-owned shared textures and GPU fences to the existing D3D11 display driver. Every existing capture method and encoder remains available, and unsupported drivers or failed setup use the standard transport. The option is **off by default**: component tests reduced CPU handoff overhead, but completed-conversion gains were small and variable. Installed-driver end-to-end gains and native D3D12 IddCx swap-chain support remain unverified.
+
+See the [2.5.0 measurements, settings and limits](PERFORMANCE.md#october-17-focused-250-comparisons). These focused RX 7900 XT comparisons do not establish a market-wide ranking or an input-to-display latency result.
 
 ## New in 2.4.8
 

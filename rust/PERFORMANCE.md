@@ -6,6 +6,7 @@ This is the dated measurement record. For a guided comparison, start with the [p
 
 | Find a result | Recorded evidence |
 | --- | --- |
+| 2.5.0 recovery, scaling and optional fence transport | [October 17, focused 2.5.0 comparisons](#october-17-focused-250-comparisons) |
 | Punktfunk host-timing parity and paced keyframes | [October 17, separate packetization and sending](#october-17-punktfunk-host-timing-and-paced-keyframes) |
 | Where host latency goes | [October 15, present to last packet sent by stage, beside Moonlight's field](#october-15-where-host-latency-goes) |
 | Frame push from Rubylight's display driver | [October 15, idd-push against WGC on the same virtual display](#october-15-frame-push-from-rubylights-display-driver) |
@@ -23,6 +24,72 @@ This is the dated measurement record. For a guided comparison, start with the [p
 | PyroWave HDR 4:4:4 | [Transport and decoding](#vibepollo-20-pyrowave-transport) · [SDK patches from Punktfunk](#october-15-pyrowave-sdk-patches-from-punktfunk) |
 | CPU error correction | [C++ FEC comparison](#controlled-comparison-with-the-original-c-fec) |
 | Reproduction and scope | [Probes](#reproduce-on-another-machine) · [Hardware covered](#hardware-covered) |
+
+## October 17: focused 2.5.0 comparisons
+
+Short, isolated RX 7900 XT tests compared the 2.4.8 release with the 2.5.0 candidates. The installed service remained idle; its configuration, physical display mode, HDR state and RTSS settings were preserved. These comparisons cover recovery cadence, GPU scaling accuracy and a capture-transport component. They do not establish a ranking against other hosts or general input-to-display latency.
+
+### Fresh input near the end of a recovery frame
+
+Four 15-second runs in ABBA order used a physical WGC SDR source and HEVC stream both at 5120×1440, with a 119.88 FPS stream from a 240 Hz display. A controlled moving 128-pixel strip carried source IDs and QPC timestamps; the rest of the desktop was uncontrolled. The AMF target was 54,097 Kbps, pacing 70.77 Mbps, FEC fixed at 20%, packet size 1392 and the default maximum frame size two nominal frame budgets. Native resolution avoids a scaler change confounding this comparison. Independent Moonlight transport and D3D11VA decoding ran on the same PC.
+
+| Measurement | 2.4.8 baseline | Recovery candidate |
+| --- | ---: | ---: |
+| Received and decoded frames | 3,506 / 3,506 | 3,435 / 3,435 |
+| Forced IDRs / fresh following frames | 8 / 8 | 8 / 8 |
+| IDR → next frame assembled, mean ms | 8.442 | 5.303 |
+| IDR → next decoded barcode, mean ms | 7.938 | 4.960 |
+| IDR → next host last-send, mean ms | 5.403 | 2.449 |
+| Following picture age, mean ms | 17.394 | 17.770 |
+| Following prepared queue, maximum ms | 0.014 | 0.011 |
+| Steady picture age, mean / pooled p99 ms | 17.086 / 21.630 | 17.161 / 22.220 |
+| Steady completion gap, pooled p99 / max ms | 12.060 / 20.541 | 12.081 / 21.171 |
+| Decoder failures / socket drops / writable waits | 0 / 0 / 0 | 0 / 0 / 0 |
+
+The recovery follow-up gap fell **3.139 ms (37.2%)**. Every candidate event (4.330–6.071 ms) was shorter than every baseline event (8.153–9.231 ms), and every following frame carried a newer source timestamp. All 6,941 decoded timestamps matched the source ledgers. Among 5,498 steady frames there were two repeated source timestamps in the baseline and one in the candidate. Overall picture age and tails did not consistently improve; this is a recovery-cadence result, not a general 37% latency reduction. Picture age includes local decoding and barcode readback. Remote scanout, Wi-Fi/WAN, HDR, game contention, other GPUs and other rates were not covered.
+
+The change keeps the existing two-picture bound, packet order, FEC, pacing rate and Punktfunk-compatible host metric. A proven depth-one AMF pipeline waits for its IDR output before taking another input, then overlaps one fresh input with the end of paced transmission using observed encode/preparation time and actual socket progress. Unknown/deeper pipelines retain their priming, and socket stalls or drops restore the strict barrier.
+
+Baseline source: `3685e7a04593cae9343921b434e91c2728bd9fd9`; packaged host SHA-256 `c0b3e3e23a24a21c436c64f982e4c7c37fec844fad60b4640ab0a05d4a17b150`. Recovery candidate SHA-256 `ab07fc8f45ecd8c54b6e223b981083767e9c52d86059c14d8d4fa84c48235192`; it precedes the final downscale-only specialization. The unchanged native-size shader path is separately covered below. Commands, settings, source hashes, timestamp ledgers and every joined event are retained under `D:\CodexArtifacts\rubylight-2.5.0-20261017\hardware`: `run-recovery.py`, `report-recovery.py`, `aggregate-recovery.py`, `recovery-native-abba.{md,json}`, `recovery-native-aggregate.json`, and `runs/recovery-native-{a1,b1,b2,a2}-1`.
+
+### Antialiased GPU downscaling
+
+On the RX 7900 XT, the color shader now integrates source-pixel coverage for reductions through 8×, reducing detail shimmer from skipped pixels. Native size and enlargement keep their previous paths; aligned 2× uses four bilinear samples, and exact 3× uses nine whole-pixel samples in fixed loops. Other supported reductions have a hard maximum of 9×9 source taps. Larger reductions retain the previous bilinear fallback. Existing aspect-fit, cursor composition, and HDR transfer behavior are preserved.
+
+The final native check passed **66 cases on each of D3D11 pixel, D3D11 compute, and D3D12 compute**: three scrolling phases, ten-bit SDR/FP16 HDR, fractional and integer scaling, integer/fractional bars, and subpixel aspect-fill rounding. Every Y/UV sample was within one ten-bit code of an independent pixel-coverage reference. D3D11 compute luma matched exactly in 60/66 cases, with maximum RMS error 0.4923 codes in the remainder. All 24 native/enlargement/aligned-2×/>8× fallback controls were bit-identical to the former D3D11 compute shader.
+
+The isolated D3D11 compute comparison used a 3840×2160 source, P010 output for both SDR and HDR, old/new/new/old order, 32 warm-ups and 128 GPU timestamps per arm. No compilers or other test GPU jobs ran during timing. Values below average the two arm means:
+
+| Output / reduction | SDR old → new GPU time | HDR old → new GPU time |
+| --- | ---: | ---: |
+| 3840×2160 / native | 0.139 → 0.126 ms | 0.162 → 0.140 ms |
+| 2560×1440 / 1.5× | 0.151 → 0.225 ms | 0.195 → 0.384 ms |
+| 1920×1080 / 2× | 0.182 → 0.143 ms | 0.183 → 0.144 ms |
+| 1280×720 / 3× | 0.138 → 0.244 ms | 0.139 → 0.248 ms |
+| 480×270 / 8× | 0.068 → 0.056 ms | 0.059 → 0.057 ms |
+
+Native timing stays within baseline arm variation; its lower mean is not a speedup claim. Exact 2× avoids unnecessary filter work. Correct 3× filtering costs about **0.11 ms** more, and the largest observed extra cost was **0.189 ms** at 1.5× HDR. This is conversion-only evidence on an idle RX 7900 XT; game load, other GPUs, capture, encoder, network, and display latency are outside this measurement.
+
+A separate 30-frame synthetic scrolling-detail HEVC check used 3840×2160 BGRA input → 1280×720 SDR, 60 FPS, the same configured **8000 Kbps** target and AMF defaults. FFmpeg decoded **30/30 frames in both arms**. Against independent 3×3 source-pixel coverage, mean/minimum frame luma PSNR changed from **8.81/8.79 dB to 50.99/37.69 dB**. Achieved encoded payload equivalent was **5239.792 → 4983.280 Kbps**, and the initial IDR was **61,883 → 45,894 bytes**. The large PSNR gain demonstrates removal of intentional aliasing in stripes, checkerboards, diagonal strokes, and a gradient; it is not a natural-game or perceptual-quality score. The configured target was identical, but achieved bitrate was not, and payload rate excludes FEC/network overhead. No end-to-end or host-market comparison is implied.
+
+Evidence is retained under `D:\CodexArtifacts\rubylight-2.5.0-20261017`: `downscale-coverage-v3.{json,log}`, `downscale-timing-v3.{json,log}`, `quality/baseline-source-size-verified/report.json`, `quality/candidate-v3/report.json`, the corresponding `encoded.hevc` files, and `quality-encode.py`. `downscale-results.md` also records the initial 2× regression and its correction. Reproduction entry points are the ignored `gpu_downscale_coverage_matches_independent_reference` and `gpu_downscale_timing` tests, plus the `amf_quality` example driven by `quality-encode.py`.
+
+### Experimental GPU fence transport
+
+The optional `idd_push_fence_ring` path keeps the D3D11 display driver and adds D3D12-owned shared textures with written/released GPU fences. The keyed-mutex transport remains the default. All existing capture and encoder options remain available.
+
+One ABBA run per format used 2560×1440, nominal 120 Hz, eight warm-up frames and 64 measured frames per round: 128 per transport/format, 7.10 seconds total. Two independent D3D11 devices in the same process simulated producer and host, with conversion on D3D12. The inputs alternated two preuploaded flat-color textures; the timings end at completed conversion.
+
+| Format | CPU claim, keyed → fence | Copy through completed conversion, keyed → fence |
+| --- | ---: | ---: |
+| SDR BGRA8 | 31.627 → 1.745 µs | 658.411 → 592.906 µs |
+| HDR RGBA16F | 32.471 → 1.767 µs | 756.199 → 697.567 µs |
+
+These are pooled means of equally sized rounds. Claim overhead consistently fell, but completed timing was noisy: adjacent SDR pairs saved 98.439 and 32.571 µs; HDR saved 155.152 µs in one pair and regressed 37.888 µs in the other. The combined completed-component saving was about **0.062 ms**. This does not establish consistent tail or end-to-end improvement.
+
+Three native checks passed SDR/HDR pixels, copy/in-place reads, multiple readers, images surviving ring replacement, and delayed GPU release preventing premature reuse. The driver passed MSVC Clippy and DLL compile/link. This fixture did not run an installed IddCx driver, WUDFHost, DWM, an encoder, network or receiver, and did not test native IddCx D3D12 swap-chain support. It establishes no picture-quality gain or long-term stability result.
+
+The option stays **experimental and disabled by default**, with capability checks, initialization fallback and failed-ring quarantine. Installed-driver and receiver evidence is required before changing that default. Reproduce the component checks with the explicitly ignored `capture::idd_push::fence_tests` tests. Raw logs and build/source provenance are retained in `D:\CodexArtifacts\rubylight-2.5.0-20261017`: `fence-timing.log`, `fence-pixels.log`, `fence-lifetime.log`, `fence-delayed-gpu.log`, `fence-results.md`, `driver-clippy.log`, `driver-build.log` and `driver-source-hashes.json`.
 
 ## October 17: Punktfunk host timing and paced keyframes
 

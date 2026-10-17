@@ -53,6 +53,7 @@ for mode in plain sanitized; do
     cc "${flags[@]}" "${extra[@]}" "$tests/audio_reorder_test.c" "$common/nanors/rs.c" \
         "$common/nanors/deps/obl/oblas_common.c" "$common/nanors/deps/obl/oblas_lite.c" -o "$out/audio_reorder-$mode"
     cc "${flags[@]}" "${extra[@]}" "$tests/video_shutdown_test.c" "$common/src/ByteBuffer.c" -o "$out/video_shutdown-$mode"
+    cc "${flags[@]}" "${extra[@]}" -fno-builtin "$tests/pyrowave_depacketizer_test.c" "$common/src/ByteBuffer.c" -o "$out/pyrowave_depacketizer-$mode"
     cc "${flags[@]}" "${extra[@]}" "$tests/control_termination_test.c" "$common/src/ByteBuffer.c" \
         -lpthread -o "$out/control_termination-$mode"
     cc "${flags[@]}" "${extra[@]}" "$tests/enet_termination_test.c" "$common/src/ByteBuffer.c" \
@@ -69,7 +70,7 @@ for mode in plain sanitized; do
         "$common/src/Platform.c" "$common/src/PlatformCrypto.c" -lcrypto -lpthread -o "$out/input_queue-$mode"
     cc "${flags[@]}" "${extra[@]}" "$tests/input_contact_test.c" "$common/src/LinkedBlockingQueue.c" \
         "$common/src/Platform.c" "$common/src/PlatformCrypto.c" -lcrypto -lpthread -o "$out/input_contact-$mode"
-    for test in aaudio_queue control_negotiation controller_haptics dualsense_usb_audio networking rtsp_parser rtsp_receive evdev_ipc stun sdp_feature_flags rtsp_duplicate audio_reorder video_shutdown control_termination enet_termination network_grace control_send microphone_packet input_queue input_contact; do
+    for test in aaudio_queue control_negotiation controller_haptics dualsense_usb_audio networking rtsp_parser rtsp_receive evdev_ipc stun sdp_feature_flags rtsp_duplicate audio_reorder video_shutdown pyrowave_depacketizer control_termination enet_termination network_grace control_send microphone_packet input_queue input_contact; do
         "$out/$test-$mode"
         echo "$test ($mode): passed"
     done

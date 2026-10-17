@@ -9,7 +9,7 @@
 
 <div align="center">
 
-**[Download 2.5.0](https://github.com/RamazanKara/Rubylight/releases/tag/v2.5.0)** · **[Get started](docs/getting-started.md)** · [Website](https://ramazankara.github.io/Rubylight/) · [Docs](docs/README.md) · [Nightjar for Android](https://github.com/RamazanKara/nightjar)
+**[Download 2.5.1](https://github.com/RamazanKara/Rubylight/releases/tag/v2.5.1)** · **[Get started](docs/getting-started.md)** · [Website](https://ramazankara.github.io/Rubylight/) · [Docs](docs/README.md) · [Nightjar for Android](https://github.com/RamazanKara/nightjar)
 
 <sub>Windows x64 · Free and open source · Formerly Butterpollo</sub>
 
@@ -41,7 +41,7 @@ Rubylight is not here to win a big userbase. There is no growth plan and no camp
 
 ## Install. Pair. Play.
 
-1. **Install on your PC.** Run **`rubylight-setup-2.5.0.exe`** from the [release](https://github.com/RamazanKara/Rubylight/releases/tag/v2.5.0). It also installs Rubylight's own virtual display driver, which gives every device a screen of its own: no test mode and no restart. Until releases are code-signed, setup signs the driver on your PC with a key it deletes at once; Smart App Control, S mode and App Control policies refuse such a driver, and then streams use your monitor.
+1. **Install on your PC.** Run **`rubylight-setup-2.5.1.exe`** from the [release](https://github.com/RamazanKara/Rubylight/releases/tag/v2.5.1). It also installs Rubylight's own virtual display driver, which gives every device a screen of its own: no test mode and no restart. Until releases are code-signed, setup signs the driver on your PC with a key it deletes at once; Smart App Control, S mode and App Control policies refuse such a driver, and then streams use your monitor.
 2. **Open your console.** Visit **`https://localhost:47990`** on the host PC and create your local account. Setup trusts the console's own certificate, so the browser opens it without a security warning.
 3. **Pair and play.** Open Moonlight on a device on the same network, select your PC, enter its PIN in Rubylight's **Devices** page, then launch **Desktop**.
 
@@ -102,11 +102,13 @@ All **6,941 received frames decoded**, and all 16 keyframes were followed by a f
 | Host-side frame claim | 32.0 µs | **1.8 µs** |
 | Copy through completed GPU conversion | 0.707 ms | **0.645 ms** |
 
-Frame-claim time consistently fell by about **95%**. Completed conversion averaged **0.062 ms sooner**, with enough variation that one HDR comparison was slower. The fixture simulated the producer and host in one process; it excluded the installed display driver, encoder, network and client. End-to-end latency, total CPU use and picture-quality gains are unproven.
+Frame-claim time consistently fell by about **95%**. Completed conversion averaged **0.062 ms sooner**, with enough variation that one HDR comparison was slower. That component fixture simulated the producer and host in one process; it excluded the installed display driver, encoder, network and client.
 
-The option remains **experimental and off by default**. It uses D3D12-owned shared textures while the display driver continues using D3D11. The standard transport and all existing capture options remain available.
+A follow-up through the **installed display driver** found a shorter present-to-acquisition stage at idle, saving about **60–70 µs**, with essentially unchanged total host time. Loaded results were mixed: one HDR fence run delivered only **70.9 fresh pictures/s** despite decoding about 120 frames/s, versus **115.8 fresh pictures/s** in its keyed comparison. This exposed repeated pictures that a received-frame counter alone would miss. The underlying scheduling cause remains unresolved; lower total CPU use and higher picture quality are unproven.
 
-[Fence results and limits →](rust/PERFORMANCE.md#experimental-gpu-fence-transport) · [Option and requirements →](docs/configuration.md#capture-and-video)
+The option remains **experimental and off by default**. **2.5.1 improves failure recovery** while retaining the standard transport and all capture choices. The fence path uses D3D12-owned shared textures while the display driver continues using D3D11.
+
+[Installed-driver comparison →](rust/PERFORMANCE.md#october-17-installed-driver-fence-comparison) · [Component results →](rust/PERFORMANCE.md#experimental-gpu-fence-transport) · [Option and requirements →](docs/configuration.md#capture-and-video)
 
 ### Earlier full-stream measurements
 

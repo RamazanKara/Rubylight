@@ -6,6 +6,7 @@ This is the dated measurement record. For a guided comparison, start with the [p
 
 | Find a result | Recorded evidence |
 | --- | --- |
+| Installed-driver fence decision for 2.5.1 | [October 17, installed-driver fence comparison](#october-17-installed-driver-fence-comparison) |
 | 2.5.0 recovery, scaling and optional fence transport | [October 17, focused 2.5.0 comparisons](#october-17-focused-250-comparisons) |
 | Punktfunk host-timing parity and paced keyframes | [October 17, separate packetization and sending](#october-17-punktfunk-host-timing-and-paced-keyframes) |
 | Where host latency goes | [October 15, present to last packet sent by stage, beside Moonlight's field](#october-15-where-host-latency-goes) |
@@ -24,6 +25,49 @@ This is the dated measurement record. For a guided comparison, start with the [p
 | PyroWave HDR 4:4:4 | [Transport and decoding](#vibepollo-20-pyrowave-transport) · [SDK patches from Punktfunk](#october-15-pyrowave-sdk-patches-from-punktfunk) |
 | CPU error correction | [C++ FEC comparison](#controlled-comparison-with-the-original-c-fec) |
 | Reproduction and scope | [Probes](#reproduce-on-another-machine) · [Hardware covered](#hardware-covered) |
+
+## October 17: installed-driver fence comparison
+
+**Decision: keep GPU fence transport experimental and off by default.** The installed-driver comparison confirms a shorter capture stage, but some loaded fence runs delivered substantially fewer fresh pictures. 2.5.1 ships recovery fixes for rejected fence transports, unsafe compute queues and missing producer completion during CPU readback. Existing capture methods and the keyed-mutex default remain available.
+
+The tested host was commit `fa85daf84d74adc19594f7bb78909632cffb5632`, SHA-256 `e4ac552de4ac5f4cfd88620466ecdd246a86b7391d640faac7264db7c872d1ff`: 2.5.0 plus the recovery fixes, with only version metadata and documentation changing for 2.5.1. It used an **RX 7900 XT** and the installed Rubylight **2.5.0.6947** display driver. An isolated host created an extended **2560×1440, 120 Hz** virtual display. Each run proved its actual fence/keyed transport, compute conversion and in-place capture. The installed service stayed idle.
+
+### Method
+
+Three short **keyed/fence/fence/keyed** groups covered SDR idle, SDR graphics load and HDR graphics load. HEVC used a 68,887 Kbps client request, 54,097 Kbps applied encoder target, fixed 20% FEC, 1,392-byte packets and 70.77 Mbps pacing. Adaptive controllers were disabled. A 128-pixel moving strip carried source frame IDs and QPC timestamps; the remainder of the virtual desktop was uncontrolled. The graphics workload was a D3D11 shader at 2560×1440, 1,000 iterations over 200 draws, capped at 60 workload frames/s with one completed workload frame outstanding.
+
+An independent Moonlight receiver decoded on the same GPU. Each 16-second receiver run supplied **13.7–13.9 seconds of steady samples**, excluding the first two received seconds. Source/load ran for 20 seconds. One additional cancel/relaunch pair per format checked reconnects using the same paired identity. Picture age ends at local decode and barcode readback; it is not remote scanout or input-to-display latency.
+
+### Per-run results
+
+All **26,592/26,592 received frames decoded** across 14 successful cases and 16 connections. All **22,720 steady source timestamps** matched the source ledger. There were no decoder failures or missing received wire-frame numbers. HDR checks confirmed ten-bit pixels, BT.2020/PQ and valid HDR control. Every successful case restored the display state, installed settings and test-process privilege state.
+
+| Group / order | Transport | Fresh source fps | Repeated source IDs | Picture age mean / p95 / p99, ms | Completion gap p99, ms |
+| --- | --- | ---: | ---: | ---: | ---: |
+| SDR idle A1 | Keyed | 120.010 | 0 | 14.476 / 15.381 / 15.863 | 9.447 |
+| SDR idle B2 | Fence | 120.005 | 0 | 10.370 / 11.123 / 11.561 | 9.448 |
+| SDR idle B3 | Fence | 120.001 | 0 | 15.326 / 16.039 / 16.608 | 9.443 |
+| SDR idle A4 | Keyed | 120.006 | 0 | 15.189 / 16.042 / 16.598 | 9.655 |
+| SDR load A1 | Keyed | 119.854 | 2 | 12.093 / 14.198 / 16.328 | 11.965 |
+| SDR load B2 | Fence | 119.986 | 0 | 11.726 / 14.057 / 16.121 | 12.298 |
+| SDR load B3b | Fence | 111.677 | 115 | 15.688 / 22.116 / 23.451 | 15.037 |
+| SDR load A4 | Keyed | 119.940 | 1 | 15.589 / 16.892 / 17.372 | 9.624 |
+| HDR load A1 | Keyed | 113.663 | 88 | 10.416 / 16.700 / 18.925 | 13.986 |
+| HDR load B2 | Fence | 117.585 | 34 | 17.170 / 20.270 / 24.573 | 14.424 |
+| HDR load B3 | Fence | 70.946 | 689 | 17.030 / 22.582 / 30.003 | 11.232 |
+| HDR load A4 | Keyed | 115.824 | 58 | 11.590 / 12.436 / 21.258 | 10.614 |
+
+The original SDR B3 attempt stopped on a physical-refresh assertion **before streaming** and restored the baseline. The failing value was not retained, so its cause is unknown. Instrumentation was added to retain active refresh values, and B3b passed the unchanged assertions. The original attempt is excluded from performance results. The four reconnect connections decoded 3,749/3,749 frames and restored the display between connections; one SDR reconnect also repeated source pictures. Full per-run and reconnect distributions are in [FENCE-VALIDATION.json](https://github.com/RamazanKara/Rubylight/releases/download/v2.5.1/FENCE-VALIDATION.json), with a [readable report](https://github.com/RamazanKara/Rubylight/releases/download/v2.5.1/FENCE-VALIDATION.md).
+
+### Interpretation and limits
+
+- **The capture stage is shorter.** Its mean was 139–153 µs for keyed versus 81–100 µs for fences across the comparison runs. This is capture presentation to acquisition, including elapsed waits; it does not measure CPU utilization. At idle, paired host presentation-to-last-send changes were only −0.043 ms and +0.002 ms. The first apparent 4.1 ms source-age gain did not repeat; source/display/stream phase is a major confounder.
+- **Freshness regressed in some loaded runs.** SDR B3b repeated 115 source IDs versus one in keyed A4. HDR B3 repeated 689 versus 58 in keyed A4, delivering 70.946 versus 115.824 fresh pictures/s. Successful decoding and a smooth received-frame rate can conceal repeated pictures. Both transports showed some loaded variability.
+- **The sender queue does not explain these runs.** Prepared-queue p99 stayed in the tens of microseconds, with no socket writable waits or sender drops. Driver drop/overwrite counters also stayed at zero. The worst HDR fence run had fewer driver acquisitions and a longer publication-to-encoder-claim interval while source rendering timestamps remained near 120 Hz. Current logs cannot establish whether composition, driver submission, transport scheduling, host admission or same-GPU decoding caused the difference.
+- **Timing boundaries matter.** Host `capture` is presentation→acquisition, `hold` is acquisition→publication, and `claim` is publication→the stream thread taking the image for encoding. `claim` is not a ring CAS/mutex-call duration. Reused submissions may lack new capture-stage telemetry. The decoded source timestamp is independent of the capture presentation stamp, and a repeated source ID need not be a host static repeat. The Moonlight field keeps its Punktfunk-compatible packetizer boundary; sender queue and pacing remain excluded.
+- **Coverage is limited.** Graphics workload averaged 60 fps, but matching that average does not synchronize composition or decoder phases. These short tests cover one GPU, driver and local receiver. They establish no remote scanout, natural-game quality, total CPU/power use, other-card compatibility or long-run stability gain. The automatic default would also affect additional reader/encoder combinations that this AMF comparison did not qualify.
+
+Verification also passed **1,171 automated Rust tests**, strict Clippy, six serial native GPU regressions and 15 release-tool tests. The native checks cover pixel transfer, reader lifetime, delayed completion, missing producer completion before CPU mapping and replacement of a retired compute queue. No full installed-driver failure injection was performed.
 
 ## October 17: focused 2.5.0 comparisons
 

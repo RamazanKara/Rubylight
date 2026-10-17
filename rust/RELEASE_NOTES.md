@@ -1,10 +1,17 @@
-# Rubylight 2.5.0 for Windows
+# Rubylight 2.5.1 for Windows
 
 [Documentation](../docs/README.md) · [Install and migrate](../docs/getting-started.md) · [Configuration](../docs/configuration.md) · [Features](../docs/features.md)
 
-**Release history:** [2.5.0](#new-in-250) · [2.4.8](#new-in-248) · [2.4.7](#new-in-247) · [2.4.6](#new-in-246) · [2.4.5](#new-in-245) · [2.4.4](#new-in-244) · [2.4.3](#new-in-243) · [2.4.2](#new-in-242) · [2.4.1](#new-in-241) · [2.4.0](#new-in-240) · [2.3.1](#new-in-231) · [2.3.0](#new-in-230) · [2.2.2 – 2.2.21](#new-in-2221) · [2.2.1](#new-in-221) · [2.2.0](#new-in-220) · [2.1.0](#new-in-210) · [2.0.x](#new-in-201) · [release candidates](#new-in-rc30)
+**Release history:** [2.5.1](#new-in-251) · [2.5.0](#new-in-250) · [2.4.8](#new-in-248) · [2.4.7](#new-in-247) · [2.4.6](#new-in-246) · [2.4.5](#new-in-245) · [2.4.4](#new-in-244) · [2.4.3](#new-in-243) · [2.4.2](#new-in-242) · [2.4.1](#new-in-241) · [2.4.0](#new-in-240) · [2.3.1](#new-in-231) · [2.3.0](#new-in-230) · [2.2.2 – 2.2.21](#new-in-2221) · [2.2.1](#new-in-221) · [2.2.0](#new-in-220) · [2.1.0](#new-in-210) · [2.0.x](#new-in-201) · [release candidates](#new-in-rc30)
 
-Rubylight, called Butterpollo until rc.29, is written in Rust: host, native helpers, service and setup, with a Svelte web console. The 2.5.0 installer is named `rubylight-setup-2.5.0.exe` and upgrades an existing Vibepollo or Butterpollo installation in place, keeping settings, paired devices, the app library and covers. Codec SDKs and Windows drivers remain external components; the setup installs the drivers.
+Rubylight, called Butterpollo until rc.29, is written in Rust: host, native helpers, service and setup, with a Svelte web console. The 2.5.1 installer is named `rubylight-setup-2.5.1.exe` and upgrades an existing Vibepollo or Butterpollo installation in place, keeping settings, paired devices, the app library and covers. Codec SDKs and Windows drivers remain external components; the setup installs the drivers.
+
+## New in 2.5.1
+
+- **Safer recovery from GPU fence failures.** Failed synchronization retires the affected compute queue and reopens capture with the standard keyed-mutex transport. The same display registration remembers the failure through capture restarts; recreating the display permits a fresh attempt. An active producer that cannot publish its first frame falls back sooner, while a display that has not begun producing pixels keeps its startup allowance.
+- **Bounded producer wait for CPU readback.** CPU readers wait at most two seconds for a captured frame's producer fence before submitting the staging copy. A missing completion returns an error and rejects the affected fence ring so capture can recover. GPU conversion keeps its asynchronous waits; this deadline does not cover unrelated later copy, mapping or driver stalls.
+
+GPU fence transport remains **experimental and off by default**. Installed-driver comparisons found shorter host-side capture steps, but variable picture age and repeated source pictures under graphics load do not support making it automatic. Existing capture choices and the standard keyed-mutex transport remain available. See the [26,592-frame comparison, timing definitions and limits](PERFORMANCE.md#october-17-installed-driver-fence-comparison).
 
 ## New in 2.5.0
 

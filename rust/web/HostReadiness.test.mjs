@@ -1,14 +1,10 @@
 import assert from 'node:assert/strict';
-import { after, test } from 'node:test';
-import { createServer } from 'vite';
+import { test } from 'node:test';
+import { createTestServer } from './test-server.mjs';
 
 globalThis.location = new URL('http://localhost/');
 globalThis.window = new EventTarget();
-const server = await createServer({
-  server: { middlewareMode: true, hmr: false }, appType: 'custom',
-  optimizeDeps: { noDiscovery: true, include: [] },
-});
-after(() => server.close());
+const server = await createTestServer();
 const { default: HostReadiness } = await server.ssrLoadModule('/src/components/overview/HostReadiness.svelte');
 const { render } = await server.ssrLoadModule('svelte/server');
 const metadata = {

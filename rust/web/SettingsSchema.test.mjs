@@ -1,13 +1,8 @@
 import assert from 'node:assert/strict';
-import { after, test } from 'node:test';
-import { createServer } from 'vite';
+import { test } from 'node:test';
+import { createTestServer } from './test-server.mjs';
 
-const server = await createServer({
-  configFile: false,
-  server: { middlewareMode: true, hmr: false }, appType: 'custom',
-  optimizeDeps: { noDiscovery: true, include: [] },
-});
-after(() => server.close());
+const server = await createTestServer({ configFile: false });
 const { schema } = await server.ssrLoadModule('/src/lib/settings-schema.ts');
 const types = await server.ssrLoadModule('/src/lib/settings-types.ts');
 const values =await server.ssrLoadModule('/src/components/settings/values.ts');

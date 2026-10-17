@@ -1,14 +1,10 @@
 import assert from 'node:assert/strict';
-import { after, test } from 'node:test';
-import { createServer } from 'vite';
+import { test } from 'node:test';
+import { createTestServer } from './test-server.mjs';
 
 globalThis.location = new URL('http://localhost/');
 globalThis.window = new EventTarget();
-const server = await createServer({
-  server: { middlewareMode: true }, appType: 'custom',
-  optimizeDeps: { noDiscovery: true, include: [] },
-});
-after(() => server.close());
+const server = await createTestServer();
 const { default: StreamCard } = await server.ssrLoadModule('/src/components/overview/StreamCard.svelte');
 const { render } = await server.ssrLoadModule('svelte/server');
 const stream = {

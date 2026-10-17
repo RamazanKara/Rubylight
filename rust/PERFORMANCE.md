@@ -30,7 +30,7 @@ This is the dated measurement record. For a guided comparison, start with the [p
 
 **Decision: keep GPU fence transport experimental and off by default.** The installed-driver comparison confirms a shorter capture stage, but some loaded fence runs delivered substantially fewer fresh pictures. 2.5.1 ships recovery fixes for rejected fence transports, unsafe compute queues and missing producer completion during CPU readback. Existing capture methods and the keyed-mutex default remain available.
 
-The tested host was commit `fa85daf84d74adc19594f7bb78909632cffb5632`, SHA-256 `e4ac552de4ac5f4cfd88620466ecdd246a86b7391d640faac7264db7c872d1ff`: 2.5.0 plus the recovery fixes, with only version metadata and documentation changing for 2.5.1. It used an **RX 7900 XT** and the installed Rubylight **2.5.0.6947** display driver. An isolated host created an extended **2560×1440, 120 Hz** virtual display. Each run proved its actual fence/keyed transport, compute conversion and in-place capture. The installed service stayed idle.
+The tested host was commit `fa85daf84d74adc19594f7bb78909632cffb5632`, SHA-256 `e4ac552de4ac5f4cfd88620466ecdd246a86b7391d640faac7264db7c872d1ff`: 2.5.0 plus the recovery fixes. 2.5.1 retains this capture code; later changes cover version metadata, documentation and the web-test harness. It used an **RX 7900 XT** and the installed Rubylight **2.5.0.6947** display driver. An isolated host created an extended **2560×1440, 120 Hz** virtual display. Each run proved its actual fence/keyed transport, compute conversion and in-place capture. The installed service stayed idle.
 
 ### Method
 

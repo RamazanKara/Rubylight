@@ -1,12 +1,8 @@
 import assert from 'node:assert/strict';
-import { after, test } from 'node:test';
-import { createServer } from 'vite';
+import { test } from 'node:test';
+import { createTestServer } from './test-server.mjs';
 
-const server = await createServer({
-  server: { middlewareMode: true, hmr: false }, appType: 'custom',
-  optimizeDeps: { noDiscovery: true, include: [] },
-});
-after(() => server.close());
+const server = await createTestServer();
 const { applyTheme, storedTheme } = await server.ssrLoadModule('/src/lib/theme.ts');
 
 test('a browser that blocks site data still gets a console, in the system theme', () => {

@@ -6,6 +6,14 @@
 
 Rubylight, called Butterpollo until rc.29, is written in Rust: host, native helpers, service and setup, with a Svelte web console. The 2.5.1 installer is named `rubylight-setup-2.5.1.exe` and upgrades an existing Vibepollo or Butterpollo installation in place, keeping settings, paired devices, the app library and covers. Codec SDKs and Windows drivers remain external components; the setup installs the drivers.
 
+## Unreleased
+
+- **Retry brief Windows send-buffer exhaustion.** Error `10055` now gets one short backoff and retry for video batches and audio datagrams, within the existing shared four-millisecond wait budget. Persistent failures still drop promptly; successful sends are never repeated.
+- **React to repeated unrecoverable video frames.** The default loss guard also reduces packet bursts after three distinct recent frames arrive incomplete within two seconds. Repeated block reports count once per frame. Encoder bitrate stays unchanged, and manual pacing or either adaptive controller retains control.
+- **Hand off as soon as loss feedback is available.** Loss feedback can move the next output directly to the video sender thread, avoiding an extra paced frame on the capture thread. Existing queues and frame ordering are preserved.
+
+See the [native loss-response checks and remaining AMF frame-size limitation](PERFORMANCE.md#october-17-loss-response-verification).
+
 ## New in 2.5.1
 
 - **Safer recovery from GPU fence failures.** Failed synchronization retires the affected compute queue and reopens capture with the standard keyed-mutex transport. The same display registration remembers the failure through capture restarts; recreating the display permits a fresh attempt. An active producer that cannot publish its first frame falls back sooner, while a display that has not begun producing pixels keeps its startup allowance.

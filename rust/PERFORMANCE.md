@@ -6,6 +6,7 @@ This is the dated measurement record. For a guided comparison, start with the [p
 
 | Find a result | Recorded evidence |
 | --- | --- |
+| Repeated frame loss and Windows send-buffer pressure | [October 17, loss-response verification](#october-17-loss-response-verification) |
 | Diagnosing repeated pictures despite full encoded FPS | [October 17, fresh-picture throughput diagnosis](#october-17-fresh-picture-throughput-diagnosis) |
 | Installed-driver fence decision for 2.5.1 | [October 17, installed-driver fence comparison](#october-17-installed-driver-fence-comparison) |
 | 2.5.0 recovery, scaling and optional fence transport | [October 17, focused 2.5.0 comparisons](#october-17-focused-250-comparisons) |
@@ -26,6 +27,108 @@ This is the dated measurement record. For a guided comparison, start with the [p
 | PyroWave HDR 4:4:4 | [Transport and decoding](#vibepollo-20-pyrowave-transport) · [SDK patches from Punktfunk](#october-15-pyrowave-sdk-patches-from-punktfunk) |
 | CPU error correction | [C++ FEC comparison](#controlled-comparison-with-the-original-c-fec) |
 | Reproduction and scope | [Probes](#reproduce-on-another-machine) · [Hardware covered](#hardware-covered) |
+
+## October 17: loss-response verification
+
+A supplied 2.5.1 log showed two distinct failures: Windows error `10055`
+discarded a 44-packet video batch and two audio packets in one session; a later
+4K60 HEVC session kept fast packet pacing through repeated unrecoverable ordinary
+frames until an incomplete keyframe activated the fallback. The 60 Mbps client
+budget correctly became a **46.988 Mbps encoder target** after FEC, audio and
+control reserves. That target did not change when pacing fell from 800 to
+93.976 Mbps.
+
+The candidate, based on `ae1d8b91`, retries transient `10055` once after a short
+backoff within the existing shared four-millisecond batch wait budget. It also
+activates the existing loss guard after three distinct recent unrecoverable
+frames within two seconds. Feedback available at sender selection moves output
+to the dedicated sender before a slowed inline send. Manual pacing and the
+optional adaptive controllers retain ownership. Healthy sends do not wait or
+retry, and the encoder bitrate is unchanged.
+
+### Native sender timing
+
+One before/after pair used the existing `udp_pacing_probe` and independent Python
+receiver on Windows loopback: 1,200 frames in 20 seconds, approximately 50 Mbps
+UDP payload, 800 Mbps fixed packet pacing, and four frames eight times the normal
+size. This measures sender timing, not physical network capacity.
+
+| Measurement | Before | Candidate |
+| --- | ---: | ---: |
+| Received packets / complete frames | 92,084 / 1,200 | 92,084 / 1,200 |
+| Missing packets / sender drops | 0 / 0 | 0 / 0 |
+| Frame send mean / p99 | 0.497 / 0.615 ms | 0.538 / 0.684 ms |
+| Maximum frame send | 8.211 ms | 8.154 ms |
+| Send system calls / stalls | 2,444 / 0 ms | 2,444 / 0 ms |
+
+The small mean/p99 increase in this single pair does not establish a speed gain
+or a repeatable regression. Native loopback did not produce `10055`; injected
+operation tests verify one successful retry, persistent failure, exhausted
+budgets, fatal errors and no duplicate successful sends. A native timer test
+also checks backoff when a socket still reports writable.
+
+### Real encoding and decoding with synthetic loss feedback
+
+Three requested ten-second streams used an RX 7900 XT, AMD driver
+32.0.32015.2008, WGC on the unchanged physical 5120×1440 SDR 240 Hz display,
+a moving 128-pixel timestamp strip, HEVC 1920×1080 at 60 FPS, a 60 Mbps client
+budget and fixed 20% FEC. The separate Moonlight transport client received on
+loopback and decoded with D3D11VA. Each host used an isolated profile; the
+installed service stayed idle and display settings were unchanged.
+
+For the feedback pair, the receiver sent three **synthetic** ordinary-frame
+failure reports after three seconds, spaced at least 300 ms apart, while
+continuing to receive and decode every frame. The healthy control sent none.
+This checks control processing and sender handoff, not actual packet-loss
+reduction or a remote client's scanout latency.
+
+| Measurement | Before, synthetic reports | Candidate, synthetic reports | Candidate, healthy |
+| --- | ---: | ---: | ---: |
+| Received / decoded frames | 580 / 580 | 575 / 575 | 584 / 584 |
+| Decode failures | 0 | 0 | 0 |
+| Packet pacing | 800 Mbps throughout | 800 → 93.976 Mbps | 800 Mbps throughout |
+| Encoder target | 46.988 Mbps | 46.988 Mbps | 46.988 Mbps |
+| Dedicated sender handoff | No | Yes, after third report | No |
+| Steady picture age mean / p99 | 12.94 / 23.18 ms | 16.10 / 24.29 ms | 12.28 / 15.21 ms |
+| Steady receive interval mean | 16.640 ms | 16.640 ms | 16.635 ms |
+
+Steady measurements exclude the first three seconds. Every steady decoded
+picture had a distinct source timestamp. The deliberately reduced pacing adds
+picture age on an uncongested loopback path; the purpose is to reduce bursts
+after loss, not to lower latency on a healthy path. These short runs do not
+justify changing the README's comparative performance claims.
+
+The before host SHA-256 is
+`a3320c1b97ae29cd5f453d0c51420d415f7a63dff9b60108c4e339a79ca14d19`;
+the candidate is
+`1fa3c6b18364d657ef26decb58dd1ab63c269b4dd9e7ea4e7063fbe2b378d6a8`.
+The first fixture attempt received no frames because its client requested
+1024-byte packets while its host override selected 1392. The matched runs above
+used 1392 at both ends; the failed attempt is excluded from timing comparisons.
+
+### Remaining large-frame limit
+
+The reported RX 9070 XT output included a 1,206,396-byte encoded frame despite
+an accepted AMF limit of approximately 195,783 bytes. Its 1,410,618 packetized
+bytes need about 120.08 ms at 93.976 Mbps; the log measured 118.895 ms sending,
+including 115.676 ms pacing, with only 0.0075 ms queue wait. The INFO log does
+not identify that frame as an IDR. Earlier oversized outputs also exceeded
+Moonlight's four-block FEC protection limit.
+
+A separate 32-frame, 4K60 deterministic-noise AMF test on the RX 7900 XT used
+46.988 Mbps and the same requested frame cap. VBR latency produced a 420,601-byte
+startup IDR. Enabling HRD produced a byte-identical bitstream. CBR produced a
+5,606,612-byte startup IDR and a 4,419,009-byte non-IDR maximum in this short
+stress input. Both unique outputs decoded successfully. These results do not
+support forcing HRD or CBR, so encoder defaults remain unchanged. They do not
+reproduce or resolve the RX 9070 XT's midstream overshoot, or identify which
+network hop caused the reported loss.
+
+Validation: **1,189 workspace tests passed**, 68 ignored, zero failures;
+strict workspace/all-target Clippy, Rust formatting and web checks passed.
+The native summaries, raw logs, fixture sources, packet records and AMF
+bitstreams are retained in `rubylight-bitrate-fix-20261017` in the local
+artifact archive. The supplied log and diagnostic records are not published.
 
 ## October 17: fresh-picture throughput diagnosis
 

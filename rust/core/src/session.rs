@@ -988,6 +988,78 @@ mod tests {
         }
     }
     #[test]
+    fn repeated_distinct_unrecoverable_frames_reduce_pacing_without_changing_bitrate() {
+        const FAST: u64 = 800_000_000;
+        const SAFE: u64 = 62_000_000;
+        let s = Session::new(launch("loss", Role::Stream), Negotiated::default());
+        s.configure_keyframe_loss(true);
+        s.stats.video_frame.store(7, Ordering::Release);
+        let bitrate = s.bitrate.load(Ordering::Relaxed);
+        s.record_fec_status(&fec_report(1, 10, 0)); // Clean.
+        s.record_fec_status(&fec_report(2, 9, 1)); // Recovered.
+        // Interleaved failed blocks from two frames are still only two losses.
+        for (frame, block) in [(4, 0), (5, 0), (4, 1), (5, 1), (4, 2), (5, 2)] {
+            let mut report = fec_report(frame, 7, 1);
+            report[19] = block;
+            report[20] = 4;
+            s.record_fec_status(&report);
+            s.record_fec_status(&report); // Duplicate block.
+            assert!(!s.keyframe_loss_active());
+            assert_eq!(s.keyframe_loss_rate_bps(FAST, SAFE), FAST);
+        }
+        s.record_fec_status(&fec_report(6, 7, 1));
+        assert!(s.keyframe_loss_active());
+        assert_eq!(s.keyframe_loss_rate_bps(FAST, SAFE), SAFE);
+        assert_eq!(s.bitrate.load(Ordering::Relaxed), bitrate);
+        assert_eq!(s.stats.idr_requests.load(Ordering::Relaxed), 0);
+        assert!(
+            s.info()["warnings"][0]["message"]
+                .as_str()
+                .unwrap()
+                .contains("three recent")
+        );
+    }
+    #[test]
+    fn repeated_loss_guard_preserves_disabled_manual_and_adaptive_owners() {
+        for text in [
+            "keyframe_loss_pacing=false",
+            "pacing_max_bitrate_kbps=80000",
+            "host_adaptive_pacing=true",
+            "host_adaptive_bitrate=true",
+        ] {
+            let config = crate::config::Config::parse(text).unwrap();
+            let s = Session::new(launch("owner", Role::Stream), Negotiated::default());
+            s.configure_keyframe_loss(config.keyframe_loss_pacing());
+            s.stats.video_frame.store(4, Ordering::Release);
+            for frame in 1..=3 {
+                s.record_fec_status(&fec_report(frame, 7, 1));
+            }
+            assert!(!s.keyframe_loss_active(), "{text}");
+            assert!(
+                s.info()["warnings"].as_array().unwrap().is_empty(),
+                "{text}"
+            );
+        }
+    }
+    #[test]
+    fn sender_pacing_queries_do_not_add_sent_frames_to_keyframe_history() {
+        const FAST: u64 = 800_000_000;
+        const SAFE: u64 = 62_000_000;
+        let s = Session::new(launch("query", Role::Stream), Negotiated::default());
+        s.configure_keyframe_loss(true);
+        s.request_recovery_keyframe();
+        s.keyframe_loss_bps(FAST, SAFE, 1, true);
+        for _ in 0..crate::keyframe_loss::DECODE_QUEUE + 1 {
+            assert!(!s.keyframe_loss_active());
+            assert_eq!(s.keyframe_loss_rate_bps(FAST, SAFE), FAST);
+        }
+        // No ordinary frame followed that keyframe: repeated queries cannot
+        // turn a lost-keyframe request into an apparent decode queue overflow.
+        s.request_recovery_keyframe();
+        assert!(s.keyframe_loss_active());
+        assert_eq!(s.keyframe_loss_rate_bps(FAST, SAFE), SAFE);
+    }
+    #[test]
     fn the_console_shows_the_encoded_rate_beside_the_requested_one() {
         // Artemis's Warp launches at 60 fps and asks for 120 in the stream
         // request; with the launch frame rate on, 60 is encoded. The console
@@ -1432,11 +1504,16 @@ impl<P, A> Session<P, A> {
             // Parsing and sent-frame/block validation above succeeded. The
             // additional controller fence rejects feedback from an older rate.
             let frame = u32::from_be_bytes(payload[..4].try_into().unwrap());
+            let period = self.stream_mode().period();
             if matches!(block, crate::adaptive_fec::Block::Unrecoverable) {
-                let latched = self.keyframe_loss.lock().unwrap().unrecoverable(frame);
+                let latched = self.keyframe_loss.lock().unwrap().unrecoverable(
+                    frame,
+                    last_sent.unwrap(),
+                    period,
+                    Instant::now(),
+                );
                 self.report_keyframe_loss(latched);
             }
-            let period = self.stream_mode().period();
             self.automatic_pacing.lock().unwrap().on_block(
                 frame,
                 last_sent.unwrap(),
@@ -1515,7 +1592,8 @@ impl<P, A> Session<P, A> {
         );
         self.adaptive_pacing_bps(paced)
     }
-    /// Pacing slows for the session once the client loses a keyframe
+    /// Pacing slows for the session once the client loses a keyframe or
+    /// repeatedly reports unrecoverable ordinary frames
     /// (`keyframe_loss_pacing`). PyroWave sends only intra frames, paced on
     /// their own.
     pub fn configure_keyframe_loss(&self, enabled: bool) {
@@ -1524,12 +1602,20 @@ impl<P, A> Session<P, A> {
     }
     fn report_keyframe_loss(&self, latched: Option<&'static str>) {
         if let Some(reason) = latched {
-            tracing::warn!(stream_id = %self.launch.id, reason, "keyframes are not arriving; pacing video like a Wi-Fi route for the rest of the stream");
-            self.launch.warnings.set("network_keyframe_loss", format!("Keyframes were lost on the way to this device ({reason}), so video is now paced at twice the bitrate, as on Wi-Fi. A port slower than the host or a shallow switch queue is the usual cause; a pacing limit below the device's link speed avoids the first losses."));
+            tracing::warn!(stream_id = %self.launch.id, reason, "video frames are not arriving; pacing video like a Wi-Fi route for the rest of the stream");
+            self.launch.warnings.set("network_keyframe_loss", format!("Video frames were lost on the way to this device ({reason}), so video is now paced like Wi-Fi for the rest of the stream. This limits packet bursts without reducing the encoder bitrate. Check the network path if loss continues."));
         }
     }
+    /// Read the loss guard without recording a frame that has not been sent.
+    /// Sender selection uses this before deciding whether to send inline.
+    pub fn keyframe_loss_rate_bps(&self, base: u64, safe: u64) -> u64 {
+        self.keyframe_loss.lock().unwrap().bps(base, safe)
+    }
+    pub fn keyframe_loss_active(&self) -> bool {
+        self.keyframe_loss.lock().unwrap().latched()
+    }
     /// The pacing rate for the frame about to be sent as `wire_frame`: the
-    /// route policy's `base`, or after a lost keyframe at most `safe`, the
+    /// route policy's `base`, or after confirmed losses at most `safe`, the
     /// Wi-Fi route's rate for this stream.
     pub fn keyframe_loss_bps(&self, base: u64, safe: u64, wire_frame: u32, keyframe: bool) -> u64 {
         let mut loss = self.keyframe_loss.lock().unwrap();

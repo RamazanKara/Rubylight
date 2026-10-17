@@ -246,7 +246,7 @@ impl Config {
             && !self.boolean("host_adaptive_bitrate", false)
             && codec < 3
     }
-    /// Pace like Wi-Fi once the client loses a keyframe (on by default). A
+    /// Pace like Wi-Fi after a lost keyframe or repeated frame loss (on by default). A
     /// manual pacing limit and the opt-in adaptations keep their own policies.
     pub fn keyframe_loss_pacing(&self) -> bool {
         self.boolean("keyframe_loss_pacing", true)

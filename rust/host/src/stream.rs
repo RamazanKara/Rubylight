@@ -1520,9 +1520,12 @@ impl Media {
                             source.device_recovered(&source.warnings);
                         }
                         if let Some(sender) = &pyrowave_sender { return sender.submit(output,peer,call_latency,processing_started); }
-                        if send_thread && (!sender_decided || inline_paced) {
+                        // Feedback can lower the rate between outputs. Move to
+                        // the sender before that first slow frame blocks capture.
+                        let loss_paced = send_thread && video_sender.get().is_none() && s.keyframe_loss_active();
+                        if send_thread && (!sender_decided || inline_paced || loss_paced) {
+                            let mid_stream = std::mem::take(&mut inline_paced) || (sender_decided && loss_paced);
                             sender_decided = true;
-                            let mid_stream = std::mem::take(&mut inline_paced);
                             let route = *link.get_or_insert_with(|| butterpollo_windows::net::routed_link(peer));
                             packetizer.fec_percent = s.fec_percent();
                             let bitrate = s.bitrate.load(Ordering::Relaxed);
@@ -1535,6 +1538,8 @@ impl Media {
                                 needed,
                             );
                             let bps = s.video_pacing_bps(bps, needed);
+                            let safe = butterpollo_core::network_pacing::rate_bps(0, bitrate, route.bps, true, needed);
+                            let bps = s.keyframe_loss_rate_bps(bps, safe);
                             if mid_stream || automatic_pacing || c.boolean("host_adaptive_bitrate", false) || butterpollo_core::network_pacing::paced(bps, needed) {
                                 // The sender continues the inline sends' frame,
                                 // packet and IV numbering; nothing sends inline

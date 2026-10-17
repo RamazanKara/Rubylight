@@ -418,11 +418,11 @@ const video: Setting[] = [
   },
   {
     key: 'keyframe_loss_pacing',
-    label: 'Slow down after lost keyframes',
+    label: 'Slow down after video loss',
     description:
-      'When a keyframe does not reach the device, sends video at twice the bitrate for the rest of the stream, as on Wi-Fi.',
+      'After a lost keyframe or repeated unrecoverable frames, spaces video packets more evenly for the rest of the stream without changing picture bitrate.',
     details:
-      'A port slower than the host, such as a TV box with 100 Mbps Ethernet, can drop every keyframe sent at the fast wired rate, freezing the picture. Devices that never lose a keyframe keep the fast rate. A manual pacing rate, Adaptive packet pacing or Host adaptive bitrate disables it.',
+      'Activates after a lost keyframe or three distinct unrecoverable frames within two seconds. Paces at twice the encoder bitrate, with room for error correction. Isolated ordinary-frame losses and fully repaired frames keep the fast rate. A manual pacing rate, Adaptive packet pacing or Host adaptive bitrate disables it.',
     category: 'video',
     group: 'Bitrate and network',
     control: { kind: 'toggle' },

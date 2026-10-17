@@ -1,4 +1,4 @@
-//! Slower packet pacing for a client whose link drops keyframes.
+//! Slower packet pacing for a client whose link drops video frames.
 //!
 //! Wired and unknown routes are paced at up to 800 Mbps
 //! ([`crate::network_pacing::rate_bps`]). A keyframe is several ordinary
@@ -8,8 +8,10 @@
 //! picture stays frozen: 0 of 585 frames arrived whole in 20 s through a
 //! 100 Mbps, 64 KiB loopback bottleneck. Once a keyframe is lost the stream
 //! is paced like a Wi-Fi route for the rest of the session: twice the
-//! encoder bitrate, at least 1.25 times the packetized wire demand. A client
-//! that never loses a keyframe keeps the fast route policy.
+//! encoder bitrate, at least 1.25 times the packetized wire demand. Repeated
+//! unrecoverable ordinary frames need the same protection: successful
+//! recovery keyframes must not leave a lossy route sending at the fast rate.
+//! Isolated ordinary-frame losses keep the fast route policy.
 //!
 //! A client whose decoder falls behind asks again too: Moonlight drops its
 //! decode queue when it overflows and requests a keyframe. That request comes
@@ -25,6 +27,10 @@ pub const REPEAT: Duration = Duration::from_millis(500);
 /// (a decoder that falls behind); a lost keyframe is asked for again as soon
 /// as the next frame arrives.
 pub const DECODE_QUEUE: u32 = 15;
+/// Require repeated, recent receiver-confirmed losses before slowing ordinary
+/// frames. One frame can produce several failed FEC block reports.
+pub const LOSS_WINDOW: Duration = Duration::from_secs(2);
+const LOSS_FRAMES: usize = 3;
 
 #[derive(Debug, Default)]
 pub struct KeyframeLoss {
@@ -36,6 +42,7 @@ pub struct KeyframeLoss {
     keyframe_since_request: bool,
     /// Frames sent after the latest keyframe.
     since_keyframe: u32,
+    recent_losses: [Option<(u32, Instant)>; LOSS_FRAMES],
     latched: Option<&'static str>,
 }
 impl KeyframeLoss {
@@ -58,9 +65,43 @@ impl KeyframeLoss {
     }
     /// The client could not repair a block of this frame. Returns the reason
     /// when this report slows the stream.
-    pub fn unrecoverable(&mut self, frame: u32) -> Option<&'static str> {
+    pub fn unrecoverable(
+        &mut self,
+        frame: u32,
+        last_sent: u32,
+        period: Duration,
+        now: Instant,
+    ) -> Option<&'static str> {
         if self.keyframes.contains(&Some(frame)) {
-            self.latch("a keyframe arrived incomplete")
+            return self.latch("a keyframe arrived incomplete");
+        }
+        if !self.enabled
+            || self.latched()
+            || period.is_zero()
+            || period.saturating_mul(last_sent.wrapping_sub(frame)) >= LOSS_WINDOW
+        {
+            return None;
+        }
+        // The normal feedback parser accepts up to 1024 previous frames. A
+        // delayed train of old reports must not look like current congestion.
+        // Keep this additional fence tied to the negotiated frame period.
+        for loss in &mut self.recent_losses {
+            if loss.is_some_and(|(_, at)| now.saturating_duration_since(at) >= LOSS_WINDOW) {
+                *loss = None;
+            }
+        }
+        if self
+            .recent_losses
+            .iter()
+            .flatten()
+            .any(|(seen, _)| *seen == frame)
+        {
+            return None;
+        }
+        let vacant = self.recent_losses.iter_mut().find(|loss| loss.is_none())?;
+        *vacant = Some((frame, now));
+        if self.recent_losses.iter().all(Option::is_some) {
+            self.latch("three recent video frames arrived incomplete within two seconds")
         } else {
             None
         }
@@ -91,8 +132,8 @@ impl KeyframeLoss {
     pub fn latched(&self) -> bool {
         self.latched.is_some()
     }
-    /// The pacing rate: `base` from the route policy, or once keyframes were
-    /// lost, at most `safe`, the Wi-Fi route's rate for this stream.
+    /// The pacing rate: `base` from the route policy, or after confirmed video
+    /// losses at most `safe`, the Wi-Fi route's rate for this stream.
     pub fn bps(&self, base: u64, safe: u64) -> u64 {
         if self.latched() { base.min(safe) } else { base }
     }
@@ -104,21 +145,23 @@ mod tests {
 
     const FAST: u64 = 800_000_000;
     const SAFE: u64 = 62_000_000;
+    const PERIOD: Duration = Duration::from_millis(16);
 
     #[test]
     fn a_keyframe_the_client_could_not_repair_slows_every_later_frame() {
+        let now = Instant::now();
         let mut loss = KeyframeLoss::new(true);
         loss.sending(1, true);
         for frame in 2..=40 {
             loss.sending(frame, false);
         }
-        // Lost ordinary frames are left to FEC and recovery frames.
-        assert_eq!(loss.unrecoverable(7), None);
+        // An isolated ordinary-frame loss is left to recovery frames.
+        assert_eq!(loss.unrecoverable(7, 40, PERIOD, now), None);
         assert_eq!(loss.bps(FAST, SAFE), FAST);
-        assert!(loss.unrecoverable(1).is_some());
+        assert!(loss.unrecoverable(1, 40, PERIOD, now).is_some());
         assert_eq!(loss.bps(FAST, SAFE), SAFE);
         // It holds for the session and reports once.
-        assert_eq!(loss.unrecoverable(1), None);
+        assert_eq!(loss.unrecoverable(1, 40, PERIOD, now), None);
         assert!(loss.latched());
         // Slower than the route only: a manual or Wi-Fi rate below it stays.
         assert_eq!(loss.bps(40_000_000, SAFE), 40_000_000);
@@ -188,10 +231,13 @@ mod tests {
                 None
             );
         }
-        // Reports of lost ordinary frames do not slow it either.
+        // Isolated reports of lost ordinary frames do not slow it either.
         for lost in 2..frame {
             if !loss.keyframes.contains(&Some(lost)) {
-                assert_eq!(loss.unrecoverable(lost), None);
+                assert_eq!(
+                    loss.unrecoverable(lost, lost, PERIOD, start + LOSS_WINDOW * lost),
+                    None
+                );
             }
         }
         assert_eq!(loss.bps(FAST, SAFE), FAST);
@@ -202,7 +248,7 @@ mod tests {
         let start = Instant::now();
         let mut loss = KeyframeLoss::new(false);
         loss.sending(1, true);
-        assert_eq!(loss.unrecoverable(1), None);
+        assert_eq!(loss.unrecoverable(1, 1, PERIOD, start), None);
         loss.requested(start);
         loss.sending(2, true);
         assert_eq!(loss.requested(start + Duration::from_millis(10)), None);
@@ -280,7 +326,7 @@ mod tests {
             }
             if !whole {
                 if fec_reports {
-                    loss.unrecoverable(frame);
+                    loss.unrecoverable(frame, frame, period, now);
                 }
                 // The request follows the next frame, a period later.
                 loss.requested(now + period);
@@ -323,12 +369,99 @@ mod tests {
 
     #[test]
     fn only_recent_keyframes_match_reports() {
+        let now = Instant::now();
         let mut loss = KeyframeLoss::new(true);
         for frame in 1..=9 {
             loss.sending(frame * 100, true);
         }
         // The first keyframe left the eight-entry history.
-        assert_eq!(loss.unrecoverable(100), None);
-        assert!(loss.unrecoverable(200).is_some());
+        assert_eq!(loss.unrecoverable(100, 900, PERIOD, now), None);
+        assert!(loss.unrecoverable(200, 900, PERIOD, now).is_some());
+    }
+
+    #[test]
+    fn repeated_ordinary_losses_slow_before_any_keyframe_is_lost() {
+        let now = Instant::now();
+        let mut loss = KeyframeLoss::new(true);
+        loss.sending(1, true);
+        for frame in 2..=20 {
+            loss.sending(frame, false);
+        }
+        assert_eq!(loss.unrecoverable(5, 20, PERIOD, now), None);
+        assert_eq!(
+            loss.unrecoverable(12, 20, PERIOD, now + Duration::from_millis(500)),
+            None
+        );
+        assert_eq!(loss.bps(FAST, SAFE), FAST);
+        // Reports may arrive out of frame order.
+        assert!(
+            loss.unrecoverable(8, 20, PERIOD, now + Duration::from_secs(1))
+                .is_some()
+        );
+        assert_eq!(loss.bps(FAST, SAFE), SAFE);
+        assert_eq!(
+            loss.unrecoverable(20, 20, PERIOD, now + Duration::from_secs(1)),
+            None
+        );
+    }
+
+    #[test]
+    fn interleaved_block_reports_count_each_frame_once() {
+        let now = Instant::now();
+        let mut loss = KeyframeLoss::new(true);
+        for frame in [1, 2, 1, 2, 1, 2, 1, 2] {
+            assert_eq!(loss.unrecoverable(frame, 3, PERIOD, now), None);
+        }
+        assert_eq!(loss.bps(FAST, SAFE), FAST);
+        assert!(loss.unrecoverable(3, 3, PERIOD, now).is_some());
+    }
+
+    #[test]
+    fn loss_window_expires_individual_entries() {
+        let start = Instant::now();
+        let mut loss = KeyframeLoss::new(true);
+        assert_eq!(loss.unrecoverable(1, 1, PERIOD, start), None);
+        assert_eq!(
+            loss.unrecoverable(2, 2, PERIOD, start + Duration::from_secs(1)),
+            None
+        );
+        // Exactly two seconds expires frame 1, but retains frame 2.
+        assert_eq!(loss.unrecoverable(3, 3, PERIOD, start + LOSS_WINDOW), None);
+        assert_eq!(loss.bps(FAST, SAFE), FAST);
+        assert!(
+            loss.unrecoverable(4, 4, PERIOD, start + LOSS_WINDOW + PERIOD)
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn ordinary_loss_fence_rejects_stale_and_future_frames_and_handles_wrap() {
+        let now = Instant::now();
+        for fps in [30, 60, 120, 240] {
+            let period = Duration::from_secs_f64(1. / f64::from(fps));
+            let mut loss = KeyframeLoss::new(true);
+            for frame in [1, 2, 3, 1001] {
+                assert_eq!(loss.unrecoverable(frame, 1000, period, now), None);
+            }
+            assert_eq!(loss.unrecoverable(998, 1000, period, now), None);
+            assert_eq!(loss.unrecoverable(999, 1000, period, now), None);
+            assert!(loss.unrecoverable(1000, 1000, period, now).is_some());
+        }
+        let mut loss = KeyframeLoss::new(true);
+        assert_eq!(loss.unrecoverable(u32::MAX, 1, PERIOD, now), None);
+        assert_eq!(loss.unrecoverable(0, 1, PERIOD, now), None);
+        assert!(loss.unrecoverable(1, 1, PERIOD, now).is_some());
+    }
+
+    #[test]
+    fn disabled_guard_and_unknown_period_ignore_repeated_ordinary_losses() {
+        let now = Instant::now();
+        for (enabled, period) in [(false, PERIOD), (true, Duration::ZERO)] {
+            let mut loss = KeyframeLoss::new(enabled);
+            for frame in 1..20 {
+                assert_eq!(loss.unrecoverable(frame, frame, period, now), None);
+            }
+            assert_eq!(loss.bps(FAST, SAFE), FAST);
+        }
     }
 }

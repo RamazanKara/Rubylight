@@ -246,19 +246,28 @@ pub fn datagram_lost(error: &std::io::Error) -> bool {
 /// a full socket buffer before dropping. Per datagram, 64 refused datagrams
 /// would hold the sender for 256 ms.
 const WRITABLE_WAIT: std::time::Duration = std::time::Duration::from_millis(4);
+const BUFFER_RETRY_DELAY: std::time::Duration = std::time::Duration::from_millis(1);
 /// The writable wait left to one send call, started at its first full buffer.
 #[derive(Default)]
 struct WaitBudget {
     deadline: Option<std::time::Instant>,
+    backoff_timer: Option<crate::timing::Timer>,
 }
 impl WaitBudget {
+    fn deadline_at(&mut self, now: std::time::Instant) -> std::time::Instant {
+        *self.deadline.get_or_insert(now + WRITABLE_WAIT)
+    }
     /// Milliseconds to wait for a full buffer now; 0 once the budget is spent.
     fn take(&mut self, now: std::time::Instant) -> i32 {
-        let left = self
-            .deadline
-            .get_or_insert(now + WRITABLE_WAIT)
-            .saturating_duration_since(now);
+        let left = self.deadline_at(now).saturating_duration_since(now);
         left.as_micros().div_ceil(1000) as i32
+    }
+    /// Reserve a short pause only when it leaves time for the retry. All
+    /// datagrams in a batch share this deadline, including time already spent
+    /// polling a full socket or sending earlier datagrams.
+    fn backoff_at(&mut self, now: std::time::Instant) -> Option<std::time::Instant> {
+        let retry = now + BUFFER_RETRY_DELAY;
+        (retry < self.deadline_at(now)).then_some(retry)
     }
 }
 /// Wait until `socket` has a datagram to read, or `timeout_ms` passes;
@@ -302,6 +311,51 @@ pub struct WritableWaits {
     pub count: u64,
     pub elapsed: std::time::Duration,
 }
+/// ENOBUFS can come from transport/driver allocation pressure while the socket
+/// still polls writable. Pause briefly before one retry rather than hot-polling
+/// that readiness bit or dropping an entire segmented batch immediately.
+fn buffer_available(
+    socket: &UdpSocket,
+    error: WSA_ERROR,
+    budget: &mut WaitBudget,
+    trace: Option<&mut WritableWaits>,
+) -> bool {
+    if error == WSAEWOULDBLOCK {
+        return writable(socket, budget, trace);
+    }
+    debug_assert_eq!(error, WSAENOBUFS);
+    let started = std::time::Instant::now();
+    let Some(retry_at) = budget.backoff_at(started) else {
+        return false;
+    };
+    if budget.backoff_timer.is_none() {
+        budget.backoff_timer = crate::timing::Timer::new().ok();
+    }
+    let Some(timer) = budget.backoff_timer.as_ref() else {
+        return false;
+    };
+    timer.until(retry_at);
+    let finished = std::time::Instant::now();
+    if let Some(trace) = trace {
+        trace.count += 1;
+        trace.elapsed += finished.saturating_duration_since(started);
+    }
+    // A delayed timer wake must not revive an expired batch budget.
+    finished < budget.deadline_at(started)
+}
+
+/// A successful UDP send must never be repeated. Retry only buffer pressure,
+/// once, after the caller's shared wait budget permits it; all other errors
+/// retain their existing drop/fatal handling.
+fn send_with_retry<T>(
+    mut send: impl FnMut() -> std::result::Result<T, WSA_ERROR>,
+    wait: impl FnOnce(WSA_ERROR) -> bool,
+) -> std::result::Result<T, WSA_ERROR> {
+    match send() {
+        Err(error) if [WSAEWOULDBLOCK, WSAENOBUFS].contains(&error) && wait(error) => send(),
+        result => result,
+    }
+}
 fn writable(
     socket: &UdpSocket,
     budget: &mut WaitBudget,
@@ -341,10 +395,7 @@ fn send_one(
             .send_to(packet, peer)
             .map_err(|e| WSA_ERROR(e.raw_os_error().unwrap_or(WSAEINVAL.0)))
     };
-    let mut result = send();
-    if result == Err(WSAEWOULDBLOCK) && writable(socket, budget, trace) {
-        result = send();
-    }
+    let result = send_with_retry(send, |error| buffer_available(socket, error, budget, trace));
     Ok(match result {
         Ok(size) => {
             anyhow::ensure!(
@@ -738,44 +789,161 @@ impl Batch {
             dwFlags: 0,
         };
         let expected: usize = packets.iter().map(Vec::len).sum();
-        for attempt in 0..2 {
-            let mut sent = 0;
-            self.system_calls += 1;
-            // SAFETY: `message` and all it points to outlive this synchronous call, and the only
-            // caller limits packets to 64, so dwBufferCount stays within `buffers`.
-            let result = unsafe {
-                WSASendMsg(
-                    SOCKET(socket.as_raw_socket() as usize),
-                    &message,
-                    0,
-                    Some(&mut sent),
-                    None,
-                    None,
-                )
-            };
-            if result == 0 {
-                anyhow::ensure!(
-                    sent as usize == expected,
-                    "Winsock returned an incomplete UDP batch"
-                );
-                return Ok(Ok(expected));
+        let system_calls = &mut self.system_calls;
+        let result = send_with_retry(
+            || {
+                let mut sent = 0;
+                *system_calls += 1;
+                // SAFETY: `message` and all it points to outlive this synchronous call, and the only
+                // caller limits packets to 64, so dwBufferCount stays within `buffers`.
+                let result = unsafe {
+                    WSASendMsg(
+                        SOCKET(socket.as_raw_socket() as usize),
+                        &message,
+                        0,
+                        Some(&mut sent),
+                        None,
+                        None,
+                    )
+                };
+                if result == 0 {
+                    Ok(sent as usize)
+                } else {
+                    // SAFETY: WSAGetLastError only reads this thread's last Winsock error.
+                    Err(unsafe { WSAGetLastError() })
+                }
+            },
+            |error| buffer_available(socket, error, budget, self.waits.as_mut()),
+        );
+        Ok(match result {
+            Ok(sent) => {
+                anyhow::ensure!(sent == expected, "Winsock returned an incomplete UDP batch");
+                Ok(sent)
             }
-            // SAFETY: WSAGetLastError only reads this thread's last Winsock error.
-            let error = unsafe { WSAGetLastError() };
-            if error != WSAEWOULDBLOCK
-                || attempt == 1
-                || !writable(socket, budget, self.waits.as_mut())
-            {
-                return Ok(Err(error));
-            }
-        }
-        unreachable!("the second attempt always returns")
+            Err(error) => Err(error),
+        })
     }
 }
 #[cfg(test)]
 mod tests {
     use super::*;
     use windows::Win32::NetworkManagement::{IpHelper::*, Ndis::*};
+
+    #[test]
+    fn a_refused_datagram_or_segmented_batch_retries_once_after_buffer_pressure() {
+        // Both the audio/datagram path and WSASendMsg use this operation. A
+        // refused batch has not been submitted, so retrying it cannot duplicate
+        // any successful datagrams.
+        for bytes in [128, 44 * 1456] {
+            for error in [WSAEWOULDBLOCK, WSAENOBUFS] {
+                let mut sends = 0;
+                let mut waits = 0;
+                let result = send_with_retry(
+                    || {
+                        sends += 1;
+                        if sends == 1 { Err(error) } else { Ok(bytes) }
+                    },
+                    |reported| {
+                        assert_eq!(reported, error);
+                        waits += 1;
+                        true
+                    },
+                );
+                assert_eq!(result, Ok(bytes));
+                assert_eq!((sends, waits), (2, 1));
+            }
+        }
+        assert_eq!(
+            send_with_retry(|| Ok(128), |_| panic!("a successful send must not wait")),
+            Ok(128)
+        );
+    }
+
+    #[test]
+    fn persistent_pressure_and_an_expired_budget_do_not_loop_or_hide_errors() {
+        for can_wait in [true, false] {
+            let mut sends = 0;
+            let mut waits = 0;
+            let result: std::result::Result<usize, _> = send_with_retry(
+                || {
+                    sends += 1;
+                    Err(WSAENOBUFS)
+                },
+                |_| {
+                    waits += 1;
+                    can_wait
+                },
+            );
+            assert_eq!(result, Err(WSAENOBUFS));
+            assert_eq!(sends, if can_wait { 2 } else { 1 });
+            assert_eq!(waits, 1);
+        }
+        for error in [WSAEHOSTUNREACH, WSAECONNRESET, WSAEINVAL, WSAENOTSOCK] {
+            let result: std::result::Result<usize, _> = send_with_retry(
+                || Err(error),
+                |_| panic!("only buffer pressure permits a retry"),
+            );
+            assert_eq!(result, Err(error));
+        }
+    }
+
+    #[test]
+    fn buffer_backoff_consumes_the_same_batch_budget_as_writable_waits() {
+        let start = std::time::Instant::now();
+        let mut now = start;
+        let mut budget = WaitBudget::default();
+        let mut retries = 0;
+        for _ in 0..64 {
+            if let Some(deadline) = budget.backoff_at(now) {
+                assert!(deadline > now);
+                now = deadline;
+                retries += 1;
+            }
+        }
+        assert_eq!(retries, 3);
+        assert_eq!(now - start, std::time::Duration::from_millis(3));
+        assert_eq!(budget.take(now), 1);
+        assert_eq!(budget.take(start + WRITABLE_WAIT), 0);
+        assert!(budget.backoff_at(start + WRITABLE_WAIT).is_none());
+
+        // Earlier socket polling also spends the backoff budget. A late timer
+        // wake leaves no new retry allowance for later packets in that batch.
+        let mut budget = WaitBudget::default();
+        assert_eq!(budget.take(start), 4);
+        assert!(
+            budget
+                .backoff_at(start + WRITABLE_WAIT - BUFFER_RETRY_DELAY)
+                .is_none()
+        );
+        assert!(budget.backoff_at(start + WRITABLE_WAIT * 2).is_none());
+    }
+
+    #[test]
+    fn no_buffer_space_waits_even_when_the_socket_is_already_writable() -> Result<()> {
+        let socket = UdpSocket::bind("127.0.0.1:0")?;
+        assert!(writable(&socket, &mut WaitBudget::default(), None));
+        let mut budget = WaitBudget::default();
+        let mut waits = WritableWaits::default();
+        let retried = buffer_available(&socket, WSAENOBUFS, &mut budget, Some(&mut waits));
+        assert_eq!(waits.count, 1);
+        assert!(waits.elapsed >= BUFFER_RETRY_DELAY);
+        // A busy test machine may wake after the shared deadline; it must then
+        // refuse the retry rather than restart the budget.
+        assert_eq!(retried, waits.elapsed < WRITABLE_WAIT);
+        let mut spent = WaitBudget {
+            deadline: Some(std::time::Instant::now()),
+            ..Default::default()
+        };
+        assert!(!buffer_available(
+            &socket,
+            WSAENOBUFS,
+            &mut spent,
+            Some(&mut waits)
+        ));
+        assert_eq!(waits.count, 1);
+        assert!(spent.backoff_timer.is_none());
+        Ok(())
+    }
 
     #[test]
     fn writable_waits_are_counted_only_when_traced() -> Result<()> {
@@ -812,6 +980,7 @@ mod tests {
         let socket = UdpSocket::bind("127.0.0.1:0")?;
         let mut spent = WaitBudget {
             deadline: Some(std::time::Instant::now()),
+            ..Default::default()
         };
         let mut waits = WritableWaits::default();
         assert!(!writable(&socket, &mut spent, Some(&mut waits)));

@@ -39,6 +39,10 @@ sanitize=(-fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame
 for mode in plain sanitized; do
     extra=()
     if [ "$mode" = sanitized ]; then extra=("${sanitize[@]}"); fi
+    c++ -std=c++17 -O2 -Wall -Wextra -Werror -pedantic "${extra[@]}" \
+        "$tests/pyrowave_schedule_test.cpp" -o "$out/pyrowave_schedule-$mode"
+    "$out/pyrowave_schedule-$mode"
+    echo "pyrowave_schedule ($mode): passed"
     for test in aaudio_queue control_negotiation controller_haptics dualsense_usb_audio networking rtsp_parser rtsp_receive evdev_ipc stun sdp_feature_flags; do
         cc "${flags[@]}" "${extra[@]}" -fno-builtin "$tests/${test}_test.c" -o "$out/$test-$mode"
     done

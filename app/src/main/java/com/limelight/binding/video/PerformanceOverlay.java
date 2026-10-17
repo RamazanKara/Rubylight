@@ -53,6 +53,14 @@ public final class PerformanceOverlay {
     public static CharSequence statisticsText(Context context, String stream, float shownFps, float receivedFps,
                                                float videoMbps, float frameLossPercent, float networkMs, float varianceMs,
                                                float hostMs, float decodeMs, float displayMs) {
+        return statisticsText(context, stream, shownFps, receivedFps, videoMbps, frameLossPercent,
+                networkMs, varianceMs, hostMs, decodeMs, displayMs, false);
+    }
+
+    @SuppressWarnings("deprecation")
+    public static CharSequence statisticsText(Context context, String stream, float shownFps, float receivedFps,
+                                               float videoMbps, float frameLossPercent, float networkMs, float varianceMs,
+                                               float hostMs, float decodeMs, float displayMs, boolean submissionOnly) {
         Locale locale = context.getResources().getConfiguration().locale;
         String frames = context.getString(R.string.stats_frame_rates,
                 measurement(locale, shownFps, "%.1f"), measurement(locale, receivedFps, "%.1f"));
@@ -61,7 +69,7 @@ public final class PerformanceOverlay {
         String network = context.getString(R.string.stats_network,
                 measurement(locale, networkMs, "%.0f"), measurement(locale, varianceMs, "%.0f"));
         String host = context.getString(R.string.stats_host, measurement(locale, hostMs, "%.2f"));
-        String client = context.getString(R.string.stats_client,
+        String client = context.getString(submissionOnly ? R.string.stats_decode_submission : R.string.stats_client,
                 measurement(locale, decodeMs, "%.2f"), measurement(locale, displayMs, "%.2f"));
         SpannableString text = new SpannableString(stream + '\n' + frames + '\n' + throughput + '\n' + network + '\n' + host + '\n' + client);
         text.setSpan(new StyleSpan(Typeface.BOLD), 0, stream.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);

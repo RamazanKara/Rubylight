@@ -152,9 +152,10 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     private volatile float queueDelayMs = -1;
     // Precise decode time: drives adaptive bitrate and quality, the stream doctor and the health dot.
     private volatile float decodeTimeMs = -1;
-    // The decode time shown to people, counted like Artemis: whole milliseconds per counted frame
-    // over every frame received in the last two one-second windows.
+    // Conventional decode follows Artemis; PyroWave follows Moonlight X's CPU submission metric.
+    // Both use every frame received in the last two one-second windows as the denominator.
     private volatile float shownDecodeTimeMs = -1;
+    private final PyroWaveSubmissionTiming pyroWaveSubmissionTiming = new PyroWaveSubmissionTiming();
     private ThermalMonitor thermalMonitor;
     private volatile int thermalLevel = ThermalMonitor.NORMAL;
 
@@ -190,7 +191,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             flushLatencyCsv();
             if (prefs.enablePerfOverlay) {
                 latencySummary = frameLatencyStats.summarize();
-                StringBuilder text = new StringBuilder(formatLatencyOverlay(context, latencySummary, shownDecodeTimeMs));
+                StringBuilder text = new StringBuilder(formatLatencyOverlay(context, latencySummary, shownDecodeTimeMs,
+                        (videoFormat & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0));
                 if (latencyCsv == null) {
                     text.append('\n').append(context.getString(R.string.latency_csv_failed));
                 } else if (frameLatencyStats.getCsvRowsLost() != 0) {
@@ -214,8 +216,12 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
     /** decodeAverageMs, when known, replaces the decode row's average so it matches the decode time shown elsewhere. */
     public static String formatLatencyOverlay(Context context, double[][] summary, float decodeAverageMs) {
+        return formatLatencyOverlay(context, summary, decodeAverageMs, false);
+    }
+
+    static String formatLatencyOverlay(Context context, double[][] summary, float decodeAverageMs, boolean pyroWave) {
         int[] labels = { R.string.latency_receive_render, R.string.latency_queue_wait,
-                R.string.latency_input_output, R.string.latency_output_render,
+                pyroWave ? R.string.latency_pyrowave_completed_decode : R.string.latency_input_output, R.string.latency_output_render,
                 R.string.latency_host_processing };
         int[] stages = {3, 0, 1, 2, 4};
         StringBuilder text = new StringBuilder(context.getString(R.string.latency_header, FrameLatencyStats.WINDOW_SIZE));
@@ -228,7 +234,9 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             if (summary[stage][0] == 0) {
                 text.append(context.getString(R.string.latency_unavailable));
             } else {
-                double average = stage == 1 && decodeAverageMs >= 0 ? decodeAverageMs : summary[stage][1];
+                // Submission time has a different endpoint and denominator. Never combine it
+                // with completed-decode percentiles in the same row.
+                double average = stage == 1 && !pyroWave && decodeAverageMs >= 0 ? decodeAverageMs : summary[stage][1];
                 text.append(context.getString(R.string.latency_values, average,
                         summary[stage][2], summary[stage][3], (int) summary[stage][0]));
             }
@@ -296,8 +304,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
     static String formatPyroWaveStats(float recordLoss, float queueMs, int gpuUs) {
         return "PyroWave records missing: " + metric(recordLoss, "%") +
-                "\nQueue: " + metric(queueMs, " ms") + " | GPU decode (last): " +
-                metric(gpuUs > 0 ? gpuUs / 1000.0f : -1, " ms");
+                "\nQueue: " + metric(queueMs, " ms") +
+                (gpuUs > 0 ? " | GPU decode (last): " + metric(gpuUs / 1000.0f, " ms") : "");
     }
 
     private static String metric(float value, String unit) {
@@ -2199,8 +2207,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
     @Override
     public void cleanup() {
-        pyroWaveRenderer.pollRenderedFrames(frameLatencyStats);
-        pyroWaveRenderer.cleanup();
+        pyroWaveRenderer.cleanup(frameLatencyStats);
         if (videoDecoder != null) {
             videoDecoder.release();
             videoDecoder = null;
@@ -2403,11 +2410,13 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                             PerformanceOverlay.measurement(locale, varianceMs, "%.0f"));
             StringBuilder decode = new StringBuilder(decoderDiagnostics);
             // The timing block below already lists decode time; show it here only without that block.
-            if (latencyOverlay.isEmpty()) {
+            if (mediaCodec && latencyOverlay.isEmpty()) {
                 decode.append('\n').append(shownDecodeTimeMs >= 0 ? context.getString(R.string.perf_overlay_dectime, shownDecodeTimeMs) :
                         context.getString(R.string.latency_input_output) + ": " + context.getString(R.string.latency_unavailable));
             }
             if (!mediaCodec) {
+                decode.append('\n').append(context.getString(R.string.perf_overlay_pyrowave_submit,
+                        PerformanceOverlay.measurement(locale, shownDecodeTimeMs, "%.2f")));
                 int gpuUs = pyroWaveRenderer.getLastGpuDecodeUs();
                 float[] waits = pyroWaveRenderer.getWaits();
                 decode.append('\n').append(formatPyroWaveStats(pyroWaveLossPercent, pyroWaveQueueDelayMs, gpuUs))
@@ -2428,7 +2437,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                     PerformanceOverlay.statisticsText(context, stream, frameRates[2],
                             frameRates[0], receivedVideoMbps, fps.lossPercent,
                             networkMs, varianceMs, PerformanceOverlay.average(timings, 4), shownDecodeTimeMs,
-                            frameRates[2] < 0 ? -1 : PerformanceOverlay.average(timings, 2)),
+                            frameRates[2] < 0 ? -1 : PerformanceOverlay.average(timings, 2), !mediaCodec),
                     PerformanceOverlay.compactText(context, frameRates[2], frameRates[0], networkMs,
                             fps.lossPercent, decodeTimeMs));
         }
@@ -2485,15 +2494,17 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                 pyroWaveSkippedFrames = pyroWaveDecodedFrames = 0;
             }
             decodeTimeMs = frameLatencyStats.takeDecodeTimeMs();
-            activeWindowVideoStats.decoderTimeMs += frameLatencyStats.takeArtemisDecodeMs();
+            boolean pyroWave = (videoFormat & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0;
+            if (!pyroWave) {
+                activeWindowVideoStats.decoderTimeMs += frameLatencyStats.takeArtemisDecodeMs();
+            }
             queueDelayMs = queueDelay.takeWindowMs();
             VideoStats lastTwo = new VideoStats();
             lastTwo.add(lastWindowVideoStats);
             lastTwo.add(activeWindowVideoStats);
-            // Artemis's average: counted whole milliseconds over every frame received in the last two
-            // windows. With nothing decoded at all it stays unavailable rather than reading 0 ms.
-            shownDecodeTimeMs = lastTwo.totalFramesReceived == 0 || (lastTwo.decoderTimeMs == 0 && decodeTimeMs < 0) ? -1 :
-                    (float) lastTwo.decoderTimeMs / lastTwo.totalFramesReceived;
+            // PyroWave can measure real zero whole milliseconds while carrying the sub-ms remainder
+            // into the next window. GPU completion is not a prerequisite for that CPU measurement.
+            shownDecodeTimeMs = lastTwo.getWindowDecoderLatencyMs(pyroWave || decodeTimeMs >= 0);
             networkFrameLossPercent = activeWindowVideoStats.totalFrames == 0 ? 0 :
                     (float) activeWindowVideoStats.framesLost / activeWindowVideoStats.totalFrames * 100;
             overlayFps = lastTwo.getFps();
@@ -2525,9 +2536,10 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                 frameLatencyStats.discard(ptsUs, "replaced_before_decode");
                 return MoonBridge.DR_OK;
             }
-            pyroWaveDecodedFrames++;
-            long outputNs = pyroWaveRenderer.submitFrame(decodeUnitData, decodeUnitLength, ptsUs, frameLatencyStats,
+            long submissionResult = pyroWaveRenderer.submitFrame(decodeUnitData, decodeUnitLength, ptsUs, frameLatencyStats,
                     context, prefs.phonePerformanceHints, refreshRate);
+            activeWindowVideoStats.decoderTimeMs += pyroWaveSubmissionTiming.addDurationNs(
+                    pyroWaveRenderer.getLastSubmissionDurationNs());
             float recordLoss = pyroWaveRenderer.getLastRecordLossPercent();
             if (recordLoss >= 0) {
                 pyroWaveLossTotal += recordLoss;
@@ -2536,14 +2548,17 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             activeWindowVideoStats.totalFrames++;
             activeWindowVideoStats.totalFramesReceived++;
             frameLatencyStats.onFrameReceived(receiveTimeNs);
-            if (outputNs > 0) {
+            if (submissionResult == PyroWaveDecoderRenderer.SUBMIT_ACCEPTED) {
+                pyroWaveDecodedFrames++;
                 pyroWaveFailures = 0;
-                frameLatencyStats.onArtemisDecodeCounted(ptsUs, outputNs);
-                // Decode completion precedes the asynchronous color conversion and presentation.
-                // It cannot be used as a display-ready sample for host phase learning.
+            } else if (submissionResult == PyroWaveDecoderRenderer.SUBMIT_BUSY) {
+                // Native validated this frame before declining it for capacity.
+                pyroWaveFailures = 0;
+                pyroWaveSkippedFrames++;
+                frameLatencyStats.discard(ptsUs, "replaced_before_decode");
             } else {
-                frameLatencyStats.discard(ptsUs, outputNs < 0 ? "decode_failed" : "invalid_frame");
-                if (outputNs < 0 || ++pyroWaveFailures == 60) {
+                frameLatencyStats.discard(ptsUs, submissionResult < 0 ? "decode_failed" : "invalid_frame");
+                if (submissionResult < 0 || ++pyroWaveFailures == 60) {
                     LimeLog.severe("PyroWave decoder stopped producing frames");
                     stopping = true;
                     MoonBridge.bridgeClConnectionTerminated(MoonBridge.ML_ERROR_NO_VIDEO_FRAME);
@@ -2892,8 +2907,11 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         return frameLatencyStats.getAverageEndToEndLatency();
     }
 
-    /** The post-stream decode time, counted like Artemis over the whole stream. */
+    /** Same post-stream counter as Moonlight X for PyroWave; existing Artemis count otherwise. */
     public int getAverageDecoderLatency() {
+        if ((videoFormat & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0) {
+            return globalVideoStats.getAverageDecoderLatencyMs();
+        }
         return globalVideoStats.getAverageDecoderLatencyMs(activeWindowVideoStats,
                 frameLatencyStats.getArtemisDecodeMs());
     }

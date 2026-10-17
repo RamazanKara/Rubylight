@@ -40,6 +40,29 @@ public class PerformanceOverlayTest {
     }
 
     @Test
+    public void pyrowaveSubmissionIsLabelledAndNeverMixedWithCompletionPercentiles() {
+        Context context = context(Locale.US);
+        String statistics = PerformanceOverlay.statisticsText(context, "1920×1080 · PyroWave · SDR",
+                120, 120, 900, 0, 4, 1, 1.5f, 0.76f, 9.4f, true).toString();
+        assertTrue(statistics.contains("CPU submission: 0.76 ms · Display wait: 9.40 ms"));
+
+        double[][] completed = new double[5][4];
+        completed[1] = new double[] {600, 6.77, 8.83, 10.65};
+        String debug = MediaCodecDecoderRenderer.formatLatencyOverlay(context, completed, 0.76f, true);
+        assertTrue(debug.contains("Completed decode: 6.77 / 8.83 / 10.65 (n=600)"));
+        assertFalse(debug.contains("0.76 / 8.83"));
+    }
+
+    @Test
+    public void conventionalTimingRowKeepsItsExistingAverage() {
+        double[][] completed = new double[5][4];
+        completed[1] = new double[] {600, 4.6, 7, 8};
+        String debug = MediaCodecDecoderRenderer.formatLatencyOverlay(context(Locale.US), completed, 3.5f);
+        assertTrue(debug.contains("Decode time: 3.50 / 7.00 / 8.00 (n=600)"));
+        assertFalse(debug.contains("Completed decode"));
+    }
+
+    @Test
     public void unavailableReadingsAreNotDisplayedAsZerosOrGuessedFromOtherStages() {
         for (float missing : new float[] {-1, Float.NaN, Float.NEGATIVE_INFINITY, Float.POSITIVE_INFINITY}) {
             String text = PerformanceOverlay.statisticsText(context(Locale.US), "1280×720 · PyroWave · SDR",

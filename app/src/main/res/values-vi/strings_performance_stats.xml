@@ -1,5 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="stats_decode_submission">Gửi từ CPU: %1$s ms · Chờ hiển thị: %2$s ms</string>
+    <string name="perf_overlay_pyrowave_submit">Thời gian gửi từ CPU: %1$s ms</string>
+    <string name="latency_pyrowave_completed_decode">Giải mã hoàn tất</string>
     <string name="stats_waiting">Đang chờ thống kê stream…</string>
     <string name="stats_frame_rates">Hiển thị: %1$s FPS · Nhận: %2$s FPS</string>
     <string name="stats_throughput">Dữ liệu video: %1$s Mbps · Mất gói: %2$s%%</string>

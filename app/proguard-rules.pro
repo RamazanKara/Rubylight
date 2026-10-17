@@ -8,6 +8,7 @@
     public static *** bridge*(...);
 }
 -keepclassmembers class com.limelight.binding.video.FrameLatencyStats {
+    void onDecoderOutput(int, long, long);
     void onOutputReleased(int, long, boolean, boolean);
     void onFrameRendered(long, long);
     void discard(long, java.lang.String);

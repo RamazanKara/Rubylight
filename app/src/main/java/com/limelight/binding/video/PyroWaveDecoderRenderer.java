@@ -25,6 +25,7 @@ public final class PyroWaveDecoderRenderer {
     private Context driverContext;
     private GpuDriverStore.Driver customDriver;
     private String driverStatus = "";
+    private long lastSubmissionDurationNs;
     // Survives a crash, so the next stream can hand GPU power management back to the kernel.
     private static final String MAX_CLOCKS_ACTIVE = "pyrowave_max_clocks_active";
 
@@ -139,29 +140,36 @@ public final class PyroWaveDecoderRenderer {
         return format;
     }
 
-    // CLOCK_MONOTONIC at the decode fence. The renderer's own thread presents the frame afterwards.
+    static final int SUBMIT_ACCEPTED = 1;
+    static final int SUBMIT_BUSY = 2;
+
+    // Accepted and busy are distinct from invalid input (zero) and a fatal error (negative). Completion
+    // timestamps arrive separately through nativePollRenderedFrames, before release/present events.
     synchronized long submitFrame(byte[] data, int length, long ptsUs, FrameLatencyStats stats,
                                   Context context, boolean enablePerformanceHints, int frameRate) {
+        lastSubmissionDurationNs = 0;
         if (handle == 0) return -1;
         // setup() runs on the connection thread; submission runs on the actual decode thread.
         if (performanceHints == null) {
             performanceHints = new DecoderPerformanceHints(context, enablePerformanceHints, frameRate);
         }
         long workStartNs = Debug.threadCpuTimeNanos();
-        long outputNs = 0;
+        long result;
+        long submissionStartNs = System.nanoTime();
         try {
-            outputNs = nativeSubmitFrame(handle, data, length, ptsUs);
+            result = nativeSubmitFrame(handle, data, length, ptsUs);
         } finally {
-            // CPU hints must exclude the native waits for free planes and GPU completion.
+            // Match Moonlight X's wall-clock interval around native parsing, command recording
+            // and submission. Polling and Android performance-hint work are not submission work.
+            lastSubmissionDurationNs = System.nanoTime() - submissionStartNs;
             performanceHints.reportWorkDuration(Debug.threadCpuTimeNanos() - workStartNs, frameRate);
         }
-        if (outputNs > 0) {
-            stats.onDecoderOutput(outputIndex(ptsUs), ptsUs, outputNs);
-        }
-        // Keep output registration and polling under the same lock: the present thread may
-        // already have shown (or replaced) this frame.
         nativePollRenderedFrames(handle, stats);
-        return outputNs;
+        return result;
+    }
+
+    synchronized long getLastSubmissionDurationNs() {
+        return lastSubmissionDurationNs;
     }
 
     /** Frames can wait for the display while newer ones decode, so each needs its own index. */
@@ -218,19 +226,30 @@ public final class PyroWaveDecoderRenderer {
     }
 
     synchronized void cleanup() {
+        cleanup(null);
+    }
+
+    synchronized void cleanup(FrameLatencyStats stats) {
         if (performanceHints != null) {
             performanceHints.close();
             performanceHints = null;
         }
-        if (handle != 0) nativeDestroy(handle);
-        if (customDriver != null) {
-            GpuDriverStore.endUse(driverContext, customDriver, false);
-            customDriver = null;
-        }
-        driverContext = null;
+        // Join the completion/presentation workers and deliver their final events before the
+        // native renderer is deleted. The caller then finalizes any genuinely unfinished frames.
+        // Clear ownership first: a statistics callback can throw after native destruction.
+        long renderer = handle;
         handle = 0;
         format = 0;
-        restoreClocks();
+        try {
+            if (renderer != 0) nativeDestroy(renderer, stats);
+        } finally {
+            if (customDriver != null) {
+                GpuDriverStore.endUse(driverContext, customDriver, false);
+                customDriver = null;
+            }
+            driverContext = null;
+            restoreClocks();
+        }
     }
 
     /** Hands GPU clocks back to the driver if this stream forced them to maximum. */
@@ -256,5 +275,5 @@ public final class PyroWaveDecoderRenderer {
     private static native String nativeGetPresentMode(long handle);
     private static native float nativeGetLastRecordLossPercent(long handle);
     private static native void nativeSetHdrMode(long handle, boolean enabled, byte[] metadata);
-    private static native void nativeDestroy(long handle);
+    private static native void nativeDestroy(long handle, FrameLatencyStats stats);
 }

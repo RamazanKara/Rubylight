@@ -68,6 +68,7 @@ typedef VkQueueGlobalPriorityKHR VkQueueGlobalPriority;
 #include "shaders_spv.h"
 #include "frame.h"
 #include "presentation.h"
+#include "schedule.h"
 #include "rubylight_protocol.h"
 
 #define LOG_TAG "PyroWave"
@@ -77,8 +78,9 @@ typedef VkQueueGlobalPriorityKHR VkQueueGlobalPriority;
 
 namespace {
     // Results returned to Java.
-    constexpr int SUBMIT_OK = 0;
-    constexpr int SUBMIT_SKIPPED = 1;
+    constexpr int SUBMIT_OK = 1;
+    constexpr int SUBMIT_SKIPPED = 0;
+    constexpr int SUBMIT_BUSY = 2;
     constexpr int SUBMIT_ERROR = -1;
 
     // Keep these reason codes aligned with PyroWaveDecoderRenderer.getReadinessSummary().
@@ -202,6 +204,8 @@ namespace {
     X(CreateFence) \
     X(DestroyFence) \
     X(WaitForFences) \
+    X(GetFenceStatus) \
+    X(WaitSemaphores) \
     X(ResetFences) \
     X(CreateSemaphore) \
     X(DestroySemaphore) \
@@ -210,12 +214,7 @@ namespace {
     X(DestroySwapchainKHR) \
     X(GetSwapchainImagesKHR) \
     X(AcquireNextImageKHR) \
-    X(QueuePresentKHR) \
-    X(CreateQueryPool) \
-    X(DestroyQueryPool) \
-    X(CmdResetQueryPool) \
-    X(CmdWriteTimestamp) \
-    X(GetQueryPoolResults)
+    X(QueuePresentKHR)
 
     struct CustomDriverLibrary {
         void *adrenotools = nullptr;
@@ -474,7 +473,7 @@ namespace {
         VkCommandBuffer drawCommandBuffer = VK_NULL_HANDLE;
         // Signaled whenever no draw of these planes is in flight.
         VkFence drawFence = VK_NULL_HANDLE;
-        bool initialized = false;
+        uint64_t decodeValue = 0;
         int64_t ptsUs = 0;
     };
 
@@ -503,11 +502,10 @@ namespace {
             return apiVersionSupported() && createInstanceAndSurface() && createDevice() &&
                    createSwapchain() && checkDecoderLimits() && createDecoder() && createPlanes() &&
                    createPipeline() && createUpscaler() && createFrameResources() && warmUpDecoder() &&
-                   startPresenter();
+                   startWorkers();
         }
 
         int submit(const uint8_t *data, size_t length, int64_t ptsUs) {
-            completedDecodeNs = 0;
             if (failed) return SUBMIT_ERROR;
             pyrowave_decoder_clear(decoder);
             if (!pushFrame(data, length)) {
@@ -518,8 +516,28 @@ namespace {
             if (!pyrowave_decoder_decode_is_ready(decoder, false)) {
                 return SUBMIT_SKIPPED;
             }
-            if (decodeFrame(true, ptsUs)) return SUBMIT_OK;
+            // Parse every frame before dropping for capacity: record framing can carry
+            // recovery information that the next frame still needs.
+            int index;
+            {
+                std::lock_guard<std::mutex> lock(slotMutex);
+                index = reserveDecodeSlot();
+            }
+            if (failed) return SUBMIT_ERROR;
+            if (index < 0) return SUBMIT_BUSY;
+            if (decodeFrame(index, ptsUs)) {
+                {
+                    std::lock_guard<std::mutex> lock(slotMutex);
+                    pendingDecodes.push_back(index);
+                }
+                decodeReady.notify_one();
+                decodeStats.frames++;
+                logDecodeStatsIfDue(nowUs());
+                return SUBMIT_OK;
+            }
             failed = true;
+            decodeReady.notify_all();
+            slotReady.notify_all();
             return SUBMIT_ERROR;
         }
 
@@ -611,8 +629,7 @@ namespace {
                         (VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT) && presentable) {
                         physicalDevice = device;
                         queueFamily = i;
-                        timestampsSupported = families[i].timestampValidBits > 0;
-                        timestampValidBits = families[i].timestampValidBits;
+                        queueCount = families[i].queueCount >= 2 ? 2 : 1;
                         chosenProbe = probe;
                         break;
                     }
@@ -626,14 +643,14 @@ namespace {
                 return false;
             }
 
-            queuePriority = 1.0f;
+            queuePriorities[0] = queueCount == 2 ? 0.0f : 1.0f;
             queueInfo = {VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};
             // Like a game's render queue: ask the GPU scheduler to run our work ahead of other apps.
             globalPriority = {VK_STRUCTURE_TYPE_DEVICE_QUEUE_GLOBAL_PRIORITY_CREATE_INFO_EXT};
             globalPriority.globalPriority = VK_QUEUE_GLOBAL_PRIORITY_HIGH_EXT;
             queueInfo.queueFamilyIndex = queueFamily;
-            queueInfo.queueCount = 1;
-            queueInfo.pQueuePriorities = &queuePriority;
+            queueInfo.queueCount = queueCount;
+            queueInfo.pQueuePriorities = queuePriorities;
 
             features13 = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES};
             features13.synchronization2 = VK_TRUE;
@@ -722,10 +739,13 @@ namespace {
             if (tenBit && vk.SetHdrMetadataEXT == nullptr) return false;
             displayTimingSupported = displayTimingSupported && vk.GetPastPresentationTimingGOOGLE != nullptr;
             LOGI("Actual presentation timestamps: %s", displayTimingSupported ? "VK_GOOGLE_display_timing" : "unavailable");
-            vk.GetDeviceQueue(device, queueFamily, 0, &queue);
+            // PyroWave's backend uses queue 0. Prefer a separate higher-priority
+            // render queue from the same family, so no ownership transfers are needed.
+            vk.GetDeviceQueue(device, queueFamily, 0, &decodeQueue);
+            vk.GetDeviceQueue(device, queueFamily, queueCount == 2 ? 1 : 0, &queue);
+            LOGI("Decode and presentation queues: %s", queueCount == 2 ? "separate" : "shared");
             VkPhysicalDeviceProperties props;
             vk.GetPhysicalDeviceProperties(physicalDevice, &props);
-            timestampPeriodNs = props.limits.timestampPeriod;
             VkPhysicalDeviceDriverProperties driverProps = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DRIVER_PROPERTIES};
             VkPhysicalDeviceProperties2 props2 = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2};
             props2.pNext = &driverProps;
@@ -746,32 +766,42 @@ namespace {
         }
 
         bool warmUpDecoder() {
-            // A valid zero-coefficient grey frame compiles and executes the selected kernels
-            // before we advertise this format. It is neither presented nor included in stream timing.
+            // Compile and execute before advertising this format. Warm-up never
+            // enters the completion/event queues or the stream's timing samples.
             const uint32_t sequence[] = {0x80000000u | (width - 1) | ((height - 1) << 14),
                                          uint32_t(chroma444) << 26};
-            if (pyrowave_decoder_push_packet(decoder, sequence, sizeof(sequence)) != PYROWAVE_SUCCESS ||
-                !pyrowave_decoder_decode_is_ready(decoder, false) || !decodeFrame(false)) return false;
+            const int index = reserveDecodeSlot();
+            if (index < 0 || pyrowave_decoder_push_packet(decoder, sequence, sizeof(sequence)) != PYROWAVE_SUCCESS ||
+                !pyrowave_decoder_decode_is_ready(decoder, false) || !decodeFrame(index, 0) ||
+                !waitForDecode(slots[index].decodeValue)) return false;
+            schedule.complete(index, false);
             pyrowave_decoder_clear(decoder);
             decodeStats = {};
             return true;
         }
 
         bool createDecoder() {
-            pyrowave_device_create_queue_info pyroQueue = {queue, queueFamily, 0};
+            pyrowave_device_create_queue_info pyroQueue = {decodeQueue, queueFamily, 0};
+            // Granite discovers extra queues from this create-info and may fetch
+            // their handles itself, even if queue_info lists only one. Expose only
+            // queue 0 to keep all SDK uploads/retirement under decodeQueueMutex.
+            pyroQueueInfo = queueInfo;
+            pyroQueueInfo.queueCount = 1;
+            pyroDeviceInfo = deviceInfo;
+            pyroDeviceInfo.pQueueCreateInfos = &pyroQueueInfo;
             pyrowave_device_create_info info = {};
             info.GetInstanceProcAddr = vk.GetInstanceProcAddr;
             info.instance = instance;
             info.physical_device = physicalDevice;
             info.device = device;
             info.instance_create_info = &instanceInfo;
-            info.device_create_info = &deviceInfo;
+            info.device_create_info = &pyroDeviceInfo;
             info.queue_info = &pyroQueue;
             info.queue_info_count = 1;
-            // The decode and present threads share the queue; PyroWave takes the same lock for
-            // any submission of its own.
-            info.queue_lock_callback = [](void *self) { static_cast<Renderer *>(self)->queueMutex.lock(); };
-            info.queue_unlock_callback = [](void *self) { static_cast<Renderer *>(self)->queueMutex.unlock(); };
+            // Serialize only queues PyroWave can access. On one-queue devices the
+            // presenter uses this same mutex; on two-queue devices it has its own.
+            info.queue_lock_callback = [](void *self) { static_cast<Renderer *>(self)->decodeQueueMutex.lock(); };
+            info.queue_unlock_callback = [](void *self) { static_cast<Renderer *>(self)->decodeQueueMutex.unlock(); };
             info.userdata = this;
             auto result = pyrowave_create_device(&info, &pyroDevice);
             if (result != PYROWAVE_SUCCESS) {
@@ -781,8 +811,9 @@ namespace {
             // Mobile GPUs (Adreno, Mali) decode much faster with PyroWave's fragment path,
             // which runs the inverse DWT in render passes instead of compute shaders.
             fragmentPath = pyrowave_decoder_device_prefers_fragment_path(pyroDevice);
-            // Command buffers are recorded for the graphics queue, which also does compute.
-            pyrowave_device_set_queue_type(pyroDevice, fragmentPath ? VK_QUEUE_GRAPHICS_BIT : VK_QUEUE_COMPUTE_BIT);
+            // Queue 0 supports both graphics and compute. Keep every SDK submission
+            // on that queue, including its uploads and frame-context retirement.
+            pyrowave_device_set_queue_type(pyroDevice, VK_QUEUE_GRAPHICS_BIT);
 
             pyrowave_decoder_create_info decoderInfo = {};
             decoderInfo.device = pyroDevice;
@@ -1073,8 +1104,9 @@ namespace {
 
         bool recreateSwapchain() {
             {
-                // Waiting for the device idle needs every queue held.
-                std::lock_guard<std::mutex> lock(queueMutex);
+                // The two mutexes are always distinct. The single-queue fallback
+                // uses decodeQueueMutex for both producers.
+                std::scoped_lock lock(decodeQueueMutex, renderQueueMutex);
                 if (!check(vk.DeviceWaitIdle(device), "wait before recreating swapchain")) return false;
             }
             return createSwapchain();
@@ -1304,25 +1336,46 @@ namespace {
                 return false;
             }
             for (int i = 0; i < SLOT_COUNT; ++i) slots[i].drawCommandBuffer = buffers[i];
-            if (timestampsSupported) {
-                VkQueryPoolCreateInfo queryInfo = {VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO};
-                queryInfo.queryType = VK_QUERY_TYPE_TIMESTAMP;
-                queryInfo.queryCount = QUERY_COUNT;
-                if (vk.CreateQueryPool(device, &queryInfo, nullptr, &queryPool) != VK_SUCCESS) {
-                    queryPool = VK_NULL_HANDLE;
-                }
-            }
-            LOGI("Present mode %s, GPU timestamps %s", presentModeName(presentMode),
-                 queryPool != VK_NULL_HANDLE ? "on" : "off");
             VkFenceCreateInfo fenceInfo = {VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
             fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
             for (auto &slot : slots) {
                 if (!check(vk.CreateFence(device, &fenceInfo, nullptr, &slot.drawFence), "vkCreateFence(draw)")) return false;
             }
-            // Acquire needs an unsignaled fence.
             VkFenceCreateInfo acquireInfo = {VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
-            return check(vk.CreateFence(device, &fenceInfo, nullptr, &decodeFence), "vkCreateFence(decode)") &&
-                   check(vk.CreateFence(device, &acquireInfo, nullptr, &acquireFence), "vkCreateFence(acquire)");
+            if (!check(vk.CreateFence(device, &acquireInfo, nullptr, &acquireFence), "vkCreateFence(acquire)")) return false;
+            VkSemaphoreTypeCreateInfo timelineInfo = {VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO};
+            timelineInfo.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE;
+            VkSemaphoreCreateInfo semaphoreInfo = {VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
+            semaphoreInfo.pNext = &timelineInfo;
+            if (!check(vk.CreateSemaphore(device, &semaphoreInfo, nullptr, &decodeTimeline), "vkCreateSemaphore(decode)")) return false;
+
+            // CAPI-owned commands expect GENERAL images. Transition all plane sets
+            // once, before the workers start, then keep that layout throughout.
+            VkCommandBufferBeginInfo beginInfo = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
+            beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+            if (!check(vk.BeginCommandBuffer(decodeCommandBuffer, &beginInfo), "begin plane initialization")) return false;
+            for (const auto &slot : slots) {
+                planeBarrier(decodeCommandBuffer, slot, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, 0,
+                             decodeWriteStage(), decodeWriteAccess(), VK_IMAGE_LAYOUT_UNDEFINED);
+            }
+            if (!check(vk.EndCommandBuffer(decodeCommandBuffer), "end plane initialization")) return false;
+            VkFence initializationFence = VK_NULL_HANDLE;
+            if (!check(vk.CreateFence(device, &acquireInfo, nullptr, &initializationFence), "create plane initialization fence")) return false;
+            VkSubmitInfo submitInfo = {VK_STRUCTURE_TYPE_SUBMIT_INFO};
+            submitInfo.commandBufferCount = 1;
+            submitInfo.pCommandBuffers = &decodeCommandBuffer;
+            const bool submitted = check(vk.QueueSubmit(decodeQueue, 1, &submitInfo, initializationFence), "initialize plane layouts");
+            const bool complete = submitted && check(vk.WaitForFences(device, 1, &initializationFence, VK_TRUE, FENCE_TIMEOUT_NS), "plane initialization fence");
+            // A failed wait may still leave work in flight. Teardown waits for the
+            // device before destroying this pool; retain the fence there as well.
+            if (!complete) {
+                startupFence = initializationFence;
+                return false;
+            }
+            vk.DestroyFence(device, initializationFence, nullptr);
+            LOGI("Present mode %s, asynchronous decode with up to %d frames in flight",
+                 presentModeName(presentMode), PyroWaveSchedule::MAX_IN_FLIGHT);
+            return true;
         }
 
         bool pushFrame(const uint8_t *data, size_t length) {
@@ -1361,62 +1414,49 @@ namespace {
             vk.CmdPipelineBarrier(cmd, srcStage, dstStage, 0, 0, nullptr, 0, nullptr, 3, barriers);
         }
 
-        // Waits for the submitted decode and records when it finished.
-        bool finishDecode() {
-            if (!check(vk.WaitForFences(device, 1, &decodeFence, VK_TRUE, FENCE_TIMEOUT_NS), "decode fence")) return false;
-            timespec completed;
-            clock_gettime(CLOCK_MONOTONIC, &completed);
-            completedDecodeNs = uint64_t(completed.tv_sec) * 1000000000ULL + completed.tv_nsec;
-            queriesPending = queryPool != VK_NULL_HANDLE;
-            readTimestamps();
-            return true;
+        // Called with slotMutex held once workers exist. Never wait for a plane
+        // or build a queue of stale input frames behind a busy GPU.
+        int reserveDecodeSlot() {
+            return schedule.reserve([this](int index) {
+                const VkResult status = vk.GetFenceStatus(device, slots[index].drawFence);
+                if (status == VK_NOT_READY) return false;
+                if (status != VK_SUCCESS) {
+                    check(status, "draw fence status");
+                    failed = true;
+                    return false;
+                }
+                return true;
+            });
         }
 
-        // A plane set neither waiting for nor being drawn by the present thread. The one drawn
-        // last is avoided when possible, so its draw has the most time to finish.
-        int pickFreeSlot() {
-            int fallback = -1;
-            for (int i = 1; i <= SLOT_COUNT; ++i) {
-                const int candidate = (lastDecodedSlot + i) % SLOT_COUNT;
-                if (candidate == readySlot || candidate == drawingSlot) continue;
-                if (candidate != lastDrawnSlot) return candidate;
-                fallback = candidate;
-            }
-            return fallback;
+        bool waitForDecode(uint64_t value) {
+            VkSemaphoreWaitInfo info = {VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO};
+            info.semaphoreCount = 1;
+            info.pSemaphores = &decodeTimeline;
+            info.pValues = &value;
+            return check(vk.WaitSemaphores(device, &info, FENCE_TIMEOUT_NS), "decode completion");
         }
 
-        // Decoding and display run on separate threads. This (the stream's decode thread)
-        // decodes each frame into a free plane set and hands it to the present thread, which
-        // waits for the display on the CPU. Nothing on the GPU queue ever waits for the display,
-        // so a frame's decode starts the moment it arrives instead of queueing behind the previous
-        // frame's trip to the screen.
-        bool decodeFrame(bool display, int64_t ptsUs = 0) {
-            const uint64_t frameStart = nowUs();
-            int index;
-            {
-                std::lock_guard<std::mutex> lock(slotMutex);
-                index = pickFreeSlot();
-            }
-            if (index < 0) return false;
+        // Only the submission thread enters PyroWave. The SDK owns its command
+        // buffers and tracks their staging/query/frame-context lifetimes itself.
+        bool decodeFrame(int index, int64_t ptsUs) {
             Slot &slot = slots[index];
-            // The last draw that sampled these planes. Draws never wait for the display, so this
-            // is at most a short GPU wait.
-            if (!check(vk.WaitForFences(device, 1, &slot.drawFence, VK_TRUE, FENCE_TIMEOUT_NS), "draw fence")) {
-                return false;
+            if (lastDecodeValue != 0) {
+                // PyroWave's fragment acquire wait only covers color output.
+                // Order transfers and dequantization too: those reuse decoder
+                // storage from the preceding frame. This is a GPU-side wait.
+                VkTimelineSemaphoreSubmitInfo timelineInfo = {VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO};
+                timelineInfo.waitSemaphoreValueCount = 1;
+                timelineInfo.pWaitSemaphoreValues = &lastDecodeValue;
+                const VkPipelineStageFlags stage = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+                VkSubmitInfo ordering = {VK_STRUCTURE_TYPE_SUBMIT_INFO};
+                ordering.pNext = &timelineInfo;
+                ordering.waitSemaphoreCount = 1;
+                ordering.pWaitSemaphores = &decodeTimeline;
+                ordering.pWaitDstStageMask = &stage;
+                std::lock_guard<std::mutex> lock(decodeQueueMutex);
+                if (!check(vk.QueueSubmit(decodeQueue, 1, &ordering, VK_NULL_HANDLE), "order consecutive decodes")) return false;
             }
-            const uint64_t afterFence = nowUs();
-
-            if (!check(vk.ResetCommandBuffer(decodeCommandBuffer, 0), "reset decode command buffer")) return false;
-            VkCommandBufferBeginInfo beginInfo = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
-            beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-            if (!check(vk.BeginCommandBuffer(decodeCommandBuffer, &beginInfo), "begin decode command buffer")) return false;
-            if (queryPool != VK_NULL_HANDLE) {
-                vk.CmdResetQueryPool(decodeCommandBuffer, queryPool, 0, QUERY_COUNT);
-                vk.CmdWriteTimestamp(decodeCommandBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, queryPool, 0);
-            }
-            planeBarrier(decodeCommandBuffer, slot, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, decodeWriteStage(),
-                         decodeWriteAccess(), slot.initialized ? VK_IMAGE_LAYOUT_GENERAL : VK_IMAGE_LAYOUT_UNDEFINED);
-
             pyrowave_gpu_buffers buffers = {};
             for (int i = 0; i < 3; ++i) {
                 auto &view = buffers.planes[i];
@@ -1429,69 +1469,83 @@ namespace {
                 view.swizzle = VK_COMPONENT_SWIZZLE_IDENTITY;
                 view.layout = VK_IMAGE_LAYOUT_GENERAL;
             }
-            pyrowave_device_set_command_buffer(pyroDevice, decodeCommandBuffer);
-            const auto decoded = pyrowave_decoder_decode_gpu_buffer(decoder, nullptr, nullptr, &buffers);
-            pyrowave_device_set_command_buffer(pyroDevice, VK_NULL_HANDLE);
-            if (decoded != PYROWAVE_SUCCESS) {
-                LOGE("pyrowave_decoder_decode_gpu_buffer failed: %d", decoded);
-                vk.EndCommandBuffer(decodeCommandBuffer);
+            const uint64_t value = lastDecodeValue + 1;
+            pyrowave_gpu_sync_operation release = {};
+            release.sync = {decodeTimeline, value};
+            const auto result = pyrowave_decoder_decode_gpu_buffer(decoder, nullptr, &release, &buffers);
+            if (result != PYROWAVE_SUCCESS) {
+                LOGE("pyrowave_decoder_decode_gpu_buffer failed: %d", result);
                 return false;
             }
-            slot.initialized = true;
-            if (queryPool != VK_NULL_HANDLE) {
-                vk.CmdWriteTimestamp(decodeCommandBuffer, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, queryPool, 1);
-            }
-            if (!check(vk.EndCommandBuffer(decodeCommandBuffer), "vkEndCommandBuffer(decode)")) {
-                return false;
-            }
-            VkSubmitInfo decodeSubmit = {VK_STRUCTURE_TYPE_SUBMIT_INFO};
-            decodeSubmit.commandBufferCount = 1;
-            decodeSubmit.pCommandBuffers = &decodeCommandBuffer;
-            if (!check(vk.ResetFences(device, 1, &decodeFence), "reset decode fence")) return false;
-            {
-                std::lock_guard<std::mutex> lock(queueMutex);
-                if (!check(vk.QueueSubmit(queue, 1, &decodeSubmit, decodeFence), "vkQueueSubmit(decode)")) return false;
-            }
-
-            // Handed over as soon as the decode is queued: the draw is submitted after it on the
-            // same queue, so the GPU orders the two, and the present thread can wait for a
-            // swapchain image while the decode runs.
-            if (display) {
-                std::lock_guard<std::mutex> lock(slotMutex);
-                if (readySlot >= 0) {
-                    // The display has not taken the previous frame yet; the newer one replaces it.
-                    pushRelease(slots[readySlot].ptsUs, 0, false);
-                    decodeStats.replaced++;
-                }
-                slot.ptsUs = ptsUs;
-                readySlot = index;
-                slotReady.notify_one();
-            }
-            lastDecodedSlot = index;
-
-            // Waiting here keeps the decode command buffer, the timestamp queries and PyroWave's
-            // own upload buffers safe to reuse on the next frame.
-            if (!finishDecode()) return false;
-            if (display) {
-                decodeStats.frames++;
-                decodeStats.slotWaitUs += afterFence - frameStart;
-                logDecodeStatsIfDue(nowUs());
-            }
+            lastDecodeValue = value;
+            slot.decodeValue = value;
+            slot.ptsUs = ptsUs;
             return true;
         }
 
-        bool startPresenter() {
+        bool startWorkers() {
+            completer = std::thread([this] { completionLoop(); });
             presenter = std::thread([this] { presentLoop(); });
             return true;
         }
 
-        void stopPresenterThread() {
+        void stopWorkers() {
             {
                 std::lock_guard<std::mutex> lock(slotMutex);
                 stopPresenter = true;
             }
+            decodeReady.notify_all();
             slotReady.notify_all();
+            if (completer.joinable()) completer.join();
             if (presenter.joinable()) presenter.join();
+            // A completed frame can still be waiting for the presenter when stop
+            // is requested. Retire it after both workers have relinquished ownership.
+            std::lock_guard<std::mutex> lock(slotMutex);
+            if (schedule.ready() >= 0) {
+                const int index = schedule.beginPresent();
+                pushRelease(slots[index].ptsUs, 0, false);
+                schedule.finishPresent();
+            }
+        }
+
+        void completionLoop() {
+            setpriority(PRIO_PROCESS, 0, -8);
+            while (true) {
+                int index;
+                {
+                    std::unique_lock<std::mutex> lock(slotMutex);
+                    decodeReady.wait(lock, [this] { return stopPresenter || failed || !pendingDecodes.empty(); });
+                    if (failed || (stopPresenter && pendingDecodes.empty())) return;
+                    index = pendingDecodes.front();
+                    pendingDecodes.pop_front();
+                }
+                // The schedule still owns this slot while the waiter is blocked.
+                if (!waitForDecode(slots[index].decodeValue)) {
+                    failed = true;
+                    slotReady.notify_all();
+                    return;
+                }
+                timespec completed;
+                clock_gettime(CLOCK_MONOTONIC, &completed);
+                const int64_t completionNs = int64_t(completed.tv_sec) * 1000000000LL + completed.tv_nsec;
+                {
+                    std::lock_guard<std::mutex> lock(slotMutex);
+                    // Register completion before publishing the frame to the presenter;
+                    // otherwise a fast present/drop could reach Java without an output.
+                    {
+                        std::lock_guard<std::mutex> eventsLock(eventsMutex);
+                        completedFrames.push_back(slots[index].ptsUs);
+                        completedFrames.push_back(completionNs);
+                    }
+                    const int replaced = schedule.complete(index, !stopPresenter);
+                    if (replaced >= 0) {
+                        pushRelease(slots[replaced].ptsUs, 0, false);
+                        replacedSinceReport++;
+                    }
+                    if (stopPresenter) pushRelease(slots[index].ptsUs, 0, false);
+                }
+                slotReady.notify_one();
+            }
         }
 
         void presentLoop() {
@@ -1501,7 +1555,7 @@ namespace {
                 int index;
                 {
                     std::unique_lock<std::mutex> lock(slotMutex);
-                    const auto woken = [this] { return stopPresenter || readySlot >= 0; };
+                    const auto woken = [this] { return stopPresenter || failed || schedule.ready() >= 0; };
                     // Display times of shown frames arrive a little after their present; keep
                     // asking for them while the stream is still (as during the latency test).
                     while (!pendingPresents.empty() && !woken()) {
@@ -1511,18 +1565,17 @@ namespace {
                         lock.lock();
                     }
                     slotReady.wait(lock, woken);
-                    if (stopPresenter) return;
-                    index = readySlot;
-                    readySlot = -1;
-                    drawingSlot = index;
+                    if (stopPresenter || failed) return;
+                    index = schedule.beginPresent();
                 }
                 const bool ok = presentSlot(index);
                 {
                     std::lock_guard<std::mutex> lock(slotMutex);
-                    drawingSlot = -1;
+                    schedule.finishPresent();
                 }
                 if (!ok) {
                     failed = true;
+                    decodeReady.notify_all();
                     return;
                 }
             }
@@ -1555,12 +1608,11 @@ namespace {
             // Show the newest frame: one decoded while we waited for the image replaces this one.
             {
                 std::lock_guard<std::mutex> lock(slotMutex);
-                if (readySlot >= 0) {
-                    pushRelease(slots[index].ptsUs, 0, false);
+                const int replaced = schedule.replaceDrawingWithReady();
+                if (replaced >= 0) {
+                    pushRelease(slots[replaced].ptsUs, 0, false);
                     presentStats.replaced++;
-                    index = readySlot;
-                    readySlot = -1;
-                    drawingSlot = index;
+                    index = schedule.drawing();
                 }
             }
             Slot &slot = slots[index];
@@ -1570,8 +1622,8 @@ namespace {
             beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
             if (!check(vk.ResetCommandBuffer(cmd, 0), "reset render command buffer") ||
                 !check(vk.BeginCommandBuffer(cmd, &beginInfo), "begin render command buffer")) return false;
-            // Barriers order against all earlier work on the queue, which covers the decode
-            // that was submitted before this slot was handed over.
+            // The timeline wait below makes decoder writes visible across queues.
+            // Both queues are in the same family, so no ownership transfer is needed.
             planeBarrier(cmd, slot, decodeWriteStage(), decodeWriteAccess(),
                          VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT, VK_IMAGE_LAYOUT_GENERAL);
 
@@ -1619,7 +1671,18 @@ namespace {
                 return false;
             }
 
+            VkTimelineSemaphoreSubmitInfo timelineInfo = {VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO};
+            timelineInfo.waitSemaphoreValueCount = 1;
+            timelineInfo.pWaitSemaphoreValues = &slot.decodeValue;
+            const uint64_t binarySignalValue = 0;
+            timelineInfo.signalSemaphoreValueCount = 1;
+            timelineInfo.pSignalSemaphoreValues = &binarySignalValue;
+            const VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
             VkSubmitInfo submitInfo = {VK_STRUCTURE_TYPE_SUBMIT_INFO};
+            submitInfo.pNext = &timelineInfo;
+            submitInfo.waitSemaphoreCount = 1;
+            submitInfo.pWaitSemaphores = &decodeTimeline;
+            submitInfo.pWaitDstStageMask = &waitStage;
             submitInfo.commandBufferCount = 1;
             submitInfo.pCommandBuffers = &cmd;
             submitInfo.signalSemaphoreCount = 1;
@@ -1641,17 +1704,12 @@ namespace {
             timespec released;
             VkResult presented = VK_SUCCESS;
             {
-                std::lock_guard<std::mutex> lock(queueMutex);
+                std::lock_guard<std::mutex> lock(queueCount == 2 ? renderQueueMutex : decodeQueueMutex);
                 if (!check(vk.QueueSubmit(queue, 1, &submitInfo, slot.drawFence), "vkQueueSubmit")) return false;
                 clock_gettime(CLOCK_MONOTONIC, &released);
                 presented = vk.QueuePresentKHR(queue, &presentInfo);
             }
             const int64_t ptsUs = slot.ptsUs;
-            {
-                std::lock_guard<std::mutex> lock(slotMutex);
-                drawingSlot = -1;
-                lastDrawnSlot = index;
-            }
             const bool shown = presented == VK_SUCCESS || presented == VK_SUBOPTIMAL_KHR;
             pushRelease(ptsUs, shown ? int64_t(released.tv_sec) * 1000000000LL + released.tv_nsec : 0, shown);
             uint64_t frameEnd = nowUs();
@@ -1712,7 +1770,7 @@ namespace {
         }
 
         void destroy() {
-            stopPresenterThread();
+            stopWorkers();
             if (device != VK_NULL_HANDLE) {
                 vk.DeviceWaitIdle(device);
             }
@@ -1729,8 +1787,8 @@ namespace {
                 destroySwapchainResources();
                 if (swapchain != VK_NULL_HANDLE) vk.DestroySwapchainKHR(device, swapchain, nullptr);
                 if (acquireFence != VK_NULL_HANDLE) vk.DestroyFence(device, acquireFence, nullptr);
-                if (decodeFence != VK_NULL_HANDLE) vk.DestroyFence(device, decodeFence, nullptr);
-                if (queryPool != VK_NULL_HANDLE) vk.DestroyQueryPool(device, queryPool, nullptr);
+                if (startupFence != VK_NULL_HANDLE) vk.DestroyFence(device, startupFence, nullptr);
+                if (decodeTimeline != VK_NULL_HANDLE) vk.DestroySemaphore(device, decodeTimeline, nullptr);
                 if (commandPool != VK_NULL_HANDLE) vk.DestroyCommandPool(device, commandPool, nullptr);
                 if (drawCommandPool != VK_NULL_HANDLE) vk.DestroyCommandPool(device, drawCommandPool, nullptr);
                 if (pipeline != VK_NULL_HANDLE) vk.DestroyPipeline(device, pipeline, nullptr);
@@ -1778,7 +1836,8 @@ namespace {
         // Kept alive for PyroWave, which reads the create infos after device creation.
         VkApplicationInfo appInfo = {};
         VkInstanceCreateInfo instanceInfo = {};
-        float queuePriority = 1.0f;
+        float queuePriorities[2] = {1.0f, 1.0f};
+        uint32_t queueCount = 1;
         VkDeviceQueueCreateInfo queueInfo = {};
         VkPhysicalDeviceVulkan13Features features13 = {};
         VkPhysicalDevicePresentModeFifoLatestReadyFeaturesEXT fifoLatestReadyFeatures = {};
@@ -1786,6 +1845,8 @@ namespace {
         VkPhysicalDeviceVulkan11Features features11 = {};
         VkPhysicalDeviceFeatures2 features2 = {};
         VkDeviceCreateInfo deviceInfo = {};
+        VkDeviceQueueCreateInfo pyroQueueInfo = {};
+        VkDeviceCreateInfo pyroDeviceInfo = {};
 
         VkInstance instance = VK_NULL_HANDLE;
         VkSurfaceKHR surface = VK_NULL_HANDLE;
@@ -1793,28 +1854,29 @@ namespace {
         uint32_t queueFamily = 0;
         VkDevice device = VK_NULL_HANDLE;
         VkQueue queue = VK_NULL_HANDLE;
+        VkQueue decodeQueue = VK_NULL_HANDLE;
 
         pyrowave_device pyroDevice = nullptr;
         pyrowave_decoder decoder = nullptr;
         // Plane sets decoded into in turn, so decoding never waits for a frame on its way to the screen.
-        static constexpr int SLOT_COUNT = 3;
+        static constexpr int SLOT_COUNT = PyroWaveSchedule::SLOT_COUNT;
         Slot slots[SLOT_COUNT];
-        int lastDecodedSlot = SLOT_COUNT - 1;
+        PyroWaveSchedule schedule;
+        std::deque<int> pendingDecodes;
+        std::condition_variable decodeReady;
+        std::thread completer;
 
         // Guards the hand-over between the decode and present threads, and pending HDR changes.
         std::mutex slotMutex;
         std::condition_variable slotReady;
-        int readySlot = -1;
-        int drawingSlot = -1;
-        int lastDrawnSlot = -1;
         uint32_t replacedSinceReport = 0;
         bool stopPresenter = false;
         bool hdrPending = false;
         bool pendingHdr = false;
         VkHdrMetadataEXT pendingHdrMetadata = {VK_STRUCTURE_TYPE_HDR_METADATA_EXT};
         std::thread presenter;
-        // Both threads submit to the one queue; PyroWave takes it too for any upload of its own.
-        std::mutex queueMutex;
+        std::mutex decodeQueueMutex;
+        std::mutex renderQueueMutex;
         bool fragmentPath = false;
         uint64_t lastSizeCheckUs = 0;
 
@@ -1857,43 +1919,48 @@ namespace {
 
         VkCommandPool commandPool = VK_NULL_HANDLE;
         VkCommandPool drawCommandPool = VK_NULL_HANDLE;
-        VkFence decodeFence = VK_NULL_HANDLE;
+        VkFence startupFence = VK_NULL_HANDLE;
+        VkSemaphore decodeTimeline = VK_NULL_HANDLE;
+        uint64_t lastDecodeValue = 0;
         VkFence acquireFence = VK_NULL_HANDLE;
 
-        // Queries bracket GPU decode; Java records the completed fence in the latency CSV.
-        static constexpr uint32_t QUERY_COUNT = 2;
+        // This command buffer only initializes plane layouts before workers start.
+        // SDK-owned per-pass GPU timings are logged; completion times remain in CSV.
         static constexpr uint64_t STATS_INTERVAL_US = 5'000'000;
         VkCommandBuffer decodeCommandBuffer = VK_NULL_HANDLE;
-        VkQueryPool queryPool = VK_NULL_HANDLE;
-        bool timestampsSupported = false;
-        uint32_t timestampValidBits = 0;
         int frameRateHz = 60;
         float displayRefreshRateHz = 0;
 
-        bool queriesPending = false;
-        float timestampPeriodNs = 1.0f;
-
     public:
+        // Java calls this before its final event poll. Destruction repeats the
+        // stop safely, after the caller has received all queued completions.
+        void drain() {
+            stopWorkers();
+            pollRenderedFrames();
+        }
+
         const char *getPresentModeName() const { return presentModeName(presentMode); }
         std::string driverDescription;
         std::atomic<PyroWaveUpscalingReason> upscalingReason{UPSCALING_DISABLED};
 
-        // GPU decode time of the most recently completed frame, or 0 when unknown.
-        uint32_t lastGpuDecodeUs = 0;
-        uint64_t completedDecodeNs = 0;
+        // The managed decoder owns its command buffers. An outer timestamp pair
+        // would include CPU submission gaps, so report this metric unavailable.
+        static constexpr uint32_t lastGpuDecodeUs = 0;
         // Averages over the last stats interval, shown in the overlay: the decode thread's wait
         // for a free plane set, the present thread's wait for a swapchain image, and the share of
         // decoded frames a newer one replaced before they reached the screen.
-        std::atomic<float> lastWaitFreeSlotMs{-1};
+        std::atomic<float> lastWaitFreeSlotMs{0};
         std::atomic<float> lastWaitImageMs{-1};
         std::atomic<float> lastReplacedPercent{-1};
         bool displayTimingSupported = false;
-        // Filled by the present thread, drained by nativePollRenderedFrames.
+        // Filled by completion/presentation workers, drained by nativePollRenderedFrames.
         std::mutex eventsMutex;
+        std::vector<jlong> completedFrames;  // (ptsUs, completionNs), published before release
         std::vector<jlong> renderedFrames;   // (ptsUs, presentNs) pairs; 0 when the surface lost timing
         std::vector<jlong> releasedFrames;   // (ptsUs, releaseNs, shown) triples
         // JNI polling is serialized by PyroWaveDecoderRenderer. Keep both sides of the swap
         // alive so the presenter and poller reuse their buffers after the first two batches.
+        std::vector<jlong> completedBatch;
         std::vector<jlong> renderedBatch;
         std::vector<jlong> releasedBatch;
 
@@ -1948,11 +2015,13 @@ namespace {
             hdrPending = true;
         }
 
-        // Hands the queued release and display-time events to the caller.
-        void takeEvents(std::vector<jlong> &released, std::vector<jlong> &rendered) {
+        // One atomic snapshot preserves completion-before-release across JNI polls.
+        void takeEvents(std::vector<jlong> &completed, std::vector<jlong> &released, std::vector<jlong> &rendered) {
+            completed.clear();
             released.clear();
             rendered.clear();
             std::lock_guard<std::mutex> lock(eventsMutex);
+            completed.swap(completedFrames);
             released.swap(releasedFrames);
             rendered.swap(renderedFrames);
         }
@@ -1969,10 +2038,6 @@ namespace {
         struct {
             uint64_t startUs = 0;
             uint32_t frames = 0;
-            uint32_t replaced = 0;
-            uint64_t gpuDecodeUs = 0;
-            uint32_t gpuSamples = 0;
-            uint64_t slotWaitUs = 0;
         } decodeStats;
         struct {
             uint64_t startUs = 0;
@@ -1980,23 +2045,6 @@ namespace {
             uint32_t replaced = 0;
             uint64_t acquireWaitUs = 0;
         } presentStats;
-
-        void readTimestamps() {
-            if (!queriesPending) {
-                return;
-            }
-            queriesPending = false;
-            uint64_t ticks[QUERY_COUNT] = {};
-            if (vk.GetQueryPoolResults(device, queryPool, 0, QUERY_COUNT, sizeof(ticks), ticks, sizeof(uint64_t),
-                                       VK_QUERY_RESULT_64_BIT) != VK_SUCCESS) {
-                return;
-            }
-            const auto toUs = [this](uint64_t delta) { return uint64_t(double(delta) * timestampPeriodNs / 1000.0); };
-            uint64_t mask = timestampValidBits == 64 ? UINT64_MAX : (uint64_t(1) << timestampValidBits) - 1;
-            lastGpuDecodeUs = uint32_t(toUs((ticks[1] - ticks[0]) & mask));
-            decodeStats.gpuDecodeUs += lastGpuDecodeUs;
-            decodeStats.gpuSamples++;
-        }
 
         void logDecodeStatsIfDue(uint64_t now) {
             auto &stats = decodeStats;
@@ -2008,19 +2056,13 @@ namespace {
                 return;
             }
             const double seconds = double(now - stats.startUs) / 1e6;
-            const double gpuFrames = stats.gpuSamples ? double(stats.gpuSamples) : 1.0;
-            const float slotWaitMs = float(stats.slotWaitUs / double(stats.frames) / 1000.0);
-            LOGI("%.1f fps decoded: GPU decode %.2f ms, wait for free planes %.2f ms, replaced before display %u",
-                 stats.frames / seconds, stats.gpuDecodeUs / gpuFrames / 1000.0, slotWaitMs, stats.replaced);
-            lastWaitFreeSlotMs = slotWaitMs;
+            LOGI("%.1f fps submitted for asynchronous decode", stats.frames / seconds);
             const uint32_t decodedFrames = stats.frames;
-            const uint32_t replacedHere = stats.replaced;
             stats = {};
             stats.startUs = now;
             {
                 // Frames replaced on either thread, as a share of the frames decoded for display.
                 std::lock_guard<std::mutex> lock(slotMutex);
-                replacedSinceReport += replacedHere;
                 lastReplacedPercent = std::min(100.0f, 100.0f * float(replacedSinceReport) / float(decodedFrames));
                 replacedSinceReport = 0;
             }
@@ -2200,8 +2242,7 @@ Java_com_limelight_binding_video_PyroWaveDecoderRenderer_nativeSubmitFrame(JNIEn
     frame.resize(size_t(length));
     env->GetByteArrayRegion(data, 0, length, reinterpret_cast<jbyte *>(frame.data()));
     if (env->ExceptionCheck()) return SUBMIT_ERROR;
-    int result = renderer->submit(frame.data(), frame.size(), ptsUs);
-    return result == SUBMIT_OK ? jlong(renderer->completedDecodeNs) : (result == SUBMIT_ERROR ? -1 : 0);
+    return renderer->submit(frame.data(), frame.size(), ptsUs);
 }
 
 JNIEXPORT jboolean JNICALL
@@ -2209,18 +2250,24 @@ Java_com_limelight_binding_video_PyroWaveDecoderRenderer_nativePollRenderedFrame
                                                                                  jobject stats) {
     auto *renderer = reinterpret_cast<Renderer *>(handle);
     const jboolean timing = renderer->displayTimingSupported ? JNI_TRUE : JNI_FALSE;
-    // Presentation runs on the renderer's own thread, so releases (and replaced frames) are
-    // reported here, ahead of the display times that follow them.
+    // Output completions precede their releases (including replaced frames), which
+    // in turn precede display times. All three queues are drained atomically.
+    auto &completed = renderer->completedBatch;
     auto &released = renderer->releasedBatch;
     auto &rendered = renderer->renderedBatch;
-    renderer->takeEvents(released, rendered);
-    if (released.empty() && rendered.empty()) return timing;
+    renderer->takeEvents(completed, released, rendered);
+    if (completed.empty() && released.empty() && rendered.empty()) return timing;
     jclass statsClass = env->GetObjectClass(stats);
+    jmethodID onCompleted = env->GetMethodID(statsClass, "onDecoderOutput", "(IJJ)V");
     jmethodID onReleased = env->GetMethodID(statsClass, "onOutputReleased", "(IJZZ)V");
     jmethodID onRendered = env->GetMethodID(statsClass, "onFrameRendered", "(JJ)V");
     jmethodID discard = env->GetMethodID(statsClass, "discard", "(JLjava/lang/String;)V");
     env->DeleteLocalRef(statsClass);
-    if (onReleased == nullptr || onRendered == nullptr || discard == nullptr) return JNI_FALSE;
+    if (onCompleted == nullptr || onReleased == nullptr || onRendered == nullptr || discard == nullptr) return JNI_FALSE;
+    for (size_t i = 0; i + 2 <= completed.size(); i += 2) {
+        env->CallVoidMethod(stats, onCompleted, jint(completed[i]), completed[i], completed[i + 1]);
+        if (env->ExceptionCheck()) return JNI_FALSE;
+    }
     for (size_t i = 0; i + 3 <= released.size(); i += 3) {
         // The output index Java registered for this frame: its presentation time, truncated.
         env->CallVoidMethod(stats, onReleased, jint(released[i]), released[i + 1],
@@ -2297,8 +2344,15 @@ Java_com_limelight_binding_video_PyroWaveDecoderRenderer_nativeSetHdrMode(JNIEnv
 }
 
 JNIEXPORT void JNICALL
-Java_com_limelight_binding_video_PyroWaveDecoderRenderer_nativeDestroy(JNIEnv *, jclass, jlong handle) {
-    delete reinterpret_cast<Renderer *>(handle);
+Java_com_limelight_binding_video_PyroWaveDecoderRenderer_nativeDestroy(JNIEnv *env, jclass clazz, jlong handle,
+                                                                      jobject stats) {
+    auto *renderer = reinterpret_cast<Renderer *>(handle);
+    if (renderer == nullptr) return;
+    renderer->drain();
+    if (stats != nullptr) {
+        Java_com_limelight_binding_video_PyroWaveDecoderRenderer_nativePollRenderedFrames(env, clazz, handle, stats);
+    }
+    delete renderer;
 }
 
 }  // extern "C"

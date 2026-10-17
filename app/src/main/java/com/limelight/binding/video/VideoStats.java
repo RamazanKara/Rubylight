@@ -9,7 +9,8 @@ class VideoStats {
     int totalFramesRendered;
     int frameLossEvents;
     int framesLost;
-    // Whole milliseconds of decode time counted the Artemis way (see FrameLatencyStats).
+    // Conventional decode uses Artemis's completed-frame count; PyroWave uses Moonlight X's
+    // accumulated CPU submission time. Both divide by every frame received in the window.
     long decoderTimeMs;
     char minHostProcessingLatency;
     char maxHostProcessingLatency;
@@ -74,6 +75,16 @@ class VideoStats {
         long framesReceived = (long) totalFramesReceived + active.totalFramesReceived;
         return framesReceived == 0 ? 0 :
                 (int) ((decoderTimeMs + active.decoderTimeMs + unflushedDecoderTimeMs) / framesReceived);
+    }
+
+    // Moonlight X's post-stream value includes only windows already added to the global stats.
+    int getAverageDecoderLatencyMs() {
+        return totalFramesReceived == 0 ? 0 : (int) (decoderTimeMs / totalFramesReceived);
+    }
+
+    float getWindowDecoderLatencyMs(boolean measured) {
+        return totalFramesReceived == 0 || (decoderTimeMs == 0 && !measured) ? -1 :
+                (float) decoderTimeMs / totalFramesReceived;
     }
 
     VideoStatsFps getFps() {

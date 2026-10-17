@@ -56,4 +56,32 @@ public class VideoStatsTest {
         active.decoderTimeMs = 4;
         assertEquals(6, completed.getAverageDecoderLatencyMs(active, 8));
     }
+
+    @Test
+    public void pyrowavePostStreamTimeMatchesMoonlightXCompletedWindowsOnly() {
+        VideoStats global = new VideoStats();
+        VideoStats active = new VideoStats();
+        active.totalFramesReceived = 2;
+        active.decoderTimeMs = 7;
+        // Like X, a stream shorter than its first completed window reports zero.
+        assertEquals(0, global.getAverageDecoderLatencyMs());
+        global.add(active);
+        active.clear();
+        active.totalFramesReceived = 2;
+        active.decoderTimeMs = 1;
+        assertEquals(3, global.getAverageDecoderLatencyMs());
+        // Conventional codecs keep Nightjar's existing current-window accounting.
+        assertEquals(2, global.getAverageDecoderLatencyMs(active, 0));
+    }
+
+    @Test
+    public void measuredZeroSubmissionAndMissingConventionalDecodeStayDistinct() {
+        VideoStats window = new VideoStats();
+        assertEquals(-1, window.getWindowDecoderLatencyMs(true), 0);
+        window.totalFramesReceived = 1;
+        assertEquals(0, window.getWindowDecoderLatencyMs(true), 0);
+        assertEquals(-1, window.getWindowDecoderLatencyMs(false), 0);
+        window.decoderTimeMs = 2;
+        assertEquals(2, window.getWindowDecoderLatencyMs(false), 0);
+    }
 }

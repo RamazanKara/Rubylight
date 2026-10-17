@@ -1,5 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="stats_decode_submission">CPU gönderimi: %1$s ms · Ekran beklemesi: %2$s ms</string>
+    <string name="perf_overlay_pyrowave_submit">CPU gönderim süresi: %1$s ms</string>
+    <string name="latency_pyrowave_completed_decode">Tam kod çözme</string>
     <string name="stats_waiting">Yayın istatistikleri bekleniyor…</string>
     <string name="stats_frame_rates">Gösterilen: %1$s FPS · Alınan: %2$s FPS</string>
     <string name="stats_throughput">Video verisi: %1$s Mbps · Kayıp: %%%2$s</string>

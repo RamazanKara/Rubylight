@@ -1,4 +1,7 @@
 <resources>
+    <string name="stats_decode_submission">CPU submission: %1$s ms · Display wait: %2$s ms</string>
+    <string name="perf_overlay_pyrowave_submit">CPU submission time: %1$s ms</string>
+    <string name="latency_pyrowave_completed_decode">Completed decode</string>
     <string name="stats_waiting">Waiting for stream statistics…</string>
     <string name="stats_frame_rates">Displayed: %1$s FPS · Received: %2$s FPS</string>
     <string name="stats_throughput">Video payload: %1$s Mbps · Loss: %2$s%%</string>

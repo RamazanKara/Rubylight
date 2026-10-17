@@ -1,5 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="stats_decode_submission">Przekazanie przez CPU: %1$s ms · Oczekiwanie na wyświetlenie: %2$s ms</string>
+    <string name="perf_overlay_pyrowave_submit">Czas przekazania przez CPU: %1$s ms</string>
+    <string name="latency_pyrowave_completed_decode">Pełne dekodowanie</string>
     <string name="stats_waiting">Oczekiwanie na statystyki strumienia…</string>
     <string name="stats_frame_rates">Wyświetlane: %1$s FPS · Odbierane: %2$s FPS</string>
     <string name="stats_throughput">Dane wideo: %1$s Mbps · Utrata: %2$s%%</string>

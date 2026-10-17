@@ -21,7 +21,7 @@ public class MediaCodecDecoderRendererTest {
             String missing = MediaCodecDecoderRenderer.formatPyroWaveStats(-1, Float.NaN, 0);
             assertFalse(missing.contains("NaN"));
             assertFalse(missing.contains("0.00"));
-            assertTrue(missing.contains("GPU decode (last): unavailable"));
+            assertFalse(missing.contains("GPU decode (last)"));
             assertTrue(MediaCodecDecoderRenderer.formatPyroWaveStats(0, 0, 1).contains("missing: 0.00%"));
         } finally {
             java.util.Locale.setDefault(previous);

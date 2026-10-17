@@ -5552,3 +5552,61 @@ the separate HDR-toggle report. The session began at 20:03:44 UTC.
 Filtered host logs and window-level diagnostics are retained under
 `D:\CodexArtifacts\rubylight-release-2.5.4-20261017` as `xbox-session.log`
 and `xbox-check.json`.
+
+## 2026-10-17 AMF D3D12 input state reuse
+
+The Xbox session later stalled at 20:11 UTC and ended in
+`DXGI_ERROR_DEVICE_RESET`. Windows reported the RX 7900 XT in Code 31 until
+a restart. The reconnect message "Another stream operation is still running"
+was emitted while native encoder/display cleanup remained blocked. Cleanup
+eventually completed, but the unavailable adapter prevented a new encoder
+from starting. The saved live kernel reports identify an AMD video-engine
+timeout (`0x141`, `amdkmdag.sys`) followed by a failed adapter add (`0x1B0`).
+These reports do not diagnose faulty hardware or establish the initiating cause.
+
+Four reset episodes in the installed host log, on October 10, 12, 14 and 17,
+used WGC, HDR and D3D12 AMF input on this adapter. Both HEVC and AV1 were
+affected; the earlier episodes predate the negotiated HEVC intra-refresh
+workaround. This is a pattern on one test host, not a population failure rate.
+
+An independent short native check found a resource-state defect. AMF records
+the current state on the input resource through `AMFResourceStateGUID` and
+leaves these encoded textures in `COPY_SOURCE` (`0x800`). The converter
+previously reused them with a `COMMON -> UNORDERED_ACCESS` barrier. The
+Direct3D 12 debug layer reported error 527,
+`RESOURCE_BARRIER_BEFORE_AFTER_MISMATCH`, for each plane of the reused texture.
+The [AMF synchronization contract](https://github.com/GPUOpen-LibrariesAndSDKs/AMF/blob/master/amf/public/include/core/D3D12AMF.h)
+and [AMD sample transition helper](https://github.com/GPUOpen-LibrariesAndSDKs/AMF/blob/master/amf/public/samples/CPPSamples/common/SwapChainDX12.cpp)
+require using the recorded current state.
+
+New conversion targets now initialize that metadata to their actual `COMMON`
+state. Reuse reads AMF's recorded state after the existing texture ownership
+and completion-fence checks. The conversion transitions from that state,
+and returns to `COMMON` for the next synchronized submission. Missing or
+malformed state metadata returns an error instead of guessing a barrier.
+GPU waits, frame limits, encoder settings and colour conversion remain the
+same. The debug layer is enabled only in the opt-in native regression test.
+
+Validation on RX 7900 XT, AMD driver `32.0.32015.2008`:
+
+| Check | Before | After |
+| --- | ---: | ---: |
+| HDR HEVC + AV1, 32 frames each, Direct3D errors | 124 | 0 |
+| SDR/HDR HEVC + AV1, 32 frames per case, Direct3D errors | not rerun | 0 |
+| Independent decoding, four cases | not rerun | 128 / 128, no decoder errors |
+
+The native fixture uses synthetic 3840x2160 textures, codec configuration
+119.88 FPS and one reference. It submits one frame at a time without stream
+pacing. These are state-validation and decode checks, not FPS or latency
+benchmarks. HEVC uses FFmpeg's `hevc` demuxer; the low-overhead AV1 stream
+uses `obu`, with strict error detection and frame hashes. The existing
+compute-versus-graphics colour conversion test also passed. All 318 ordinary
+Windows unit tests passed; 63 native tests remain opt-in.
+
+The defect is reproduced and corrected. These short checks cannot prove it
+caused every recorded reset or establish long-session stability. The visual
+HEVC smearing result above remains valid, with this later stability incident
+recorded separately. The correction is unreleased and is not in the published
+2.5.4 binaries. Saved dumps, debugger analyses, before/after validation JSON,
+encoded streams and decoder outputs are under
+`D:\CodexArtifacts\rubylight-release-2.5.4-20261017`.

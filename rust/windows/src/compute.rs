@@ -1154,6 +1154,17 @@ impl Converter {
     pub fn compute(&self) -> &Arc<Compute> {
         &self.compute
     }
+    #[cfg(test)]
+    pub(crate) fn test_amf_target_states(&self) -> Vec<Option<u32>> {
+        self.targets
+            .iter()
+            .map(|target| {
+                crate::amf::gpu::resource_state(&target.texture)
+                    .ok()
+                    .map(|state| state.0 as u32)
+            })
+            .collect()
+    }
     pub(crate) fn release_completed(&mut self) {
         self.uploads
             .retain(|upload| !self.compute.completed(upload.fence));
@@ -1238,8 +1249,10 @@ impl Converter {
                     &mut texture,
                 )
                 .context("YUV texture on the compute device")?;
+            let texture = texture.context("no YUV texture")?;
+            crate::amf::gpu::set_resource_state(&texture, D3D12_RESOURCE_STATE_COMMON)?;
             self.targets.push(Target {
-                texture: Arc::new(texture.context("no YUV texture")?),
+                texture: Arc::new(texture),
                 fence: self.compute.device.CreateFence(0, D3D12_FENCE_FLAG_NONE)?,
                 value: 0,
             });
@@ -1258,6 +1271,10 @@ impl Converter {
         let ready = image.ready.as_ref();
         let index = self.target()?;
         let target = self.targets[index].texture.clone();
+        // AMF updates this private data when it reads a submitted texture. Its
+        // native surface release and completion fence make the selected target
+        // free; neither returns its resource state to COMMON.
+        let state = crate::amf::gpu::resource_state(&target)?;
         let slot = self.slot;
         self.slot = (self.slot + 1) % SLOTS;
         self.compute.wait(self.slots[slot].fence)?;
@@ -1336,7 +1353,7 @@ impl Converter {
             list.Reset(allocator, &self.convert)?;
             let mut barriers = [transition(
                 target.as_ref(),
-                D3D12_RESOURCE_STATE_COMMON,
+                state,
                 D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
             )];
             list.ResourceBarrier(&barriers);

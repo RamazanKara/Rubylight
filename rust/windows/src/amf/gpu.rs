@@ -244,6 +244,39 @@ const FENCE_VALUE: windows::core::GUID = windows::core::GUID::from_values(
     0x46c9,
     [0xa5, 0x04, 0x9a, 0x8e, 0x97, 0xbf, 0xf0, 0x56],
 );
+/// AMF records its last transition here as well. Recycled inputs may remain in
+/// COPY_SOURCE after encoding; the next conversion must transition from that state.
+pub(crate) fn resource_state(
+    texture: &windows::Win32::Graphics::Direct3D12::ID3D12Resource,
+) -> Result<windows::Win32::Graphics::Direct3D12::D3D12_RESOURCE_STATES> {
+    let mut state = 0u32;
+    let mut size = std::mem::size_of_val(&state) as u32;
+    // SAFETY: The borrowed resource is live; GetPrivateData writes at most the
+    // supplied four bytes to this initialized local, whose returned size is checked.
+    unsafe {
+        texture.GetPrivateData(
+            &RESOURCE_STATE,
+            &mut size,
+            Some((&mut state as *mut u32).cast()),
+        )
+    }
+    .context("reading the AMF input resource state")?;
+    anyhow::ensure!(size == 4, "invalid AMF input resource state size {size}");
+    Ok(windows::Win32::Graphics::Direct3D12::D3D12_RESOURCE_STATES(
+        state as i32,
+    ))
+}
+
+pub(crate) fn set_resource_state(
+    texture: &windows::Win32::Graphics::Direct3D12::ID3D12Resource,
+    state: windows::Win32::Graphics::Direct3D12::D3D12_RESOURCE_STATES,
+) -> Result<()> {
+    let state = state.0 as u32;
+    // SAFETY: The borrowed resource is live and SetPrivateData copies exactly the
+    // supplied four bytes from this local before returning.
+    unsafe { texture.SetPrivateData(&RESOURCE_STATE, 4, Some((&state as *const u32).cast())) }
+        .context("recording the AMF input resource state")
+}
 /// Tell AMF to wait for `fence` to reach `value` before reading `texture`
 /// (in the COMMON state). AMF signals the fence again when it has read the
 /// texture and records the new value on the fence, so the fence must be the
@@ -253,11 +286,13 @@ pub(crate) fn synchronize(
     fence: &windows::Win32::Graphics::Direct3D12::ID3D12Fence,
     value: u64,
 ) -> Result<()> {
+    set_resource_state(
+        texture,
+        windows::Win32::Graphics::Direct3D12::D3D12_RESOURCE_STATE_COMMON,
+    )?;
     // SAFETY: `texture` and `fence` are live D3D12 objects, and each data pointer refers to a local
     // of exactly the size passed.
     unsafe {
-        let state: u32 = windows::Win32::Graphics::Direct3D12::D3D12_RESOURCE_STATE_COMMON.0 as u32;
-        texture.SetPrivateData(&RESOURCE_STATE, 4, Some((&state as *const u32).cast()))?;
         texture.SetPrivateDataInterface(&FENCE, fence)?;
         fence.SetPrivateData(&FENCE_VALUE, 8, Some((&value as *const u64).cast()))?;
     }

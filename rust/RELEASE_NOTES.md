@@ -6,6 +6,10 @@
 
 Rubylight, called Butterpollo until rc.29, is written in Rust: host, native helpers, service and setup, with a Svelte web console. The 2.5.4 installer is named `rubylight-setup-2.5.4.exe` and upgrades an existing Vibepollo or Butterpollo installation in place, keeping settings, paired devices, the app library and covers. Codec SDKs and Windows drivers remain external components; the setup installs the drivers.
 
+## Unreleased
+
+- **Correct recycled AMF D3D12 input barriers.** The converter now reads the resource state AMF records after encoding before transitioning a reused texture for conversion. AMF left both HEVC and AV1 inputs in `COPY_SOURCE`; assuming `COMMON` caused invalid barriers on both YUV planes. A short native reproduction reported 124 Direct3D validation errors before the fix and zero afterward. HEVC and AV1 SDR/HDR checks independently decoded all 128 frames. This corrects a GPU synchronization defect; longer use is still needed to determine its contribution to the reported AMD resets. See the [investigation and validation](PERFORMANCE_WORK.md#2026-10-17-amf-d3d12-input-state-reuse).
+
 ## New in 2.5.4
 
 - **Improve HEVC intra-refresh compatibility.** Clients that negotiate HEVC intra-refresh now use a finite GOP and refresh whole CTB rows, following Eftimin70's Xbox workaround and Nonary/vibeshine's follow-up. Both settings are checked before and after encoder initialization. Drivers that reject them retain the previous policy; a failed candidate initialization gets one fresh attempt using that policy. Startup and recovery keyframes remain enabled.

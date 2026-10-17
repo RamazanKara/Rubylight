@@ -11,6 +11,118 @@ use std::{
 const FRAMES: usize = 900;
 const RECOVERY: usize = 733;
 
+#[test]
+#[ignore = "requires an idle AMD GPU, AMF and a task-owned report path"]
+fn native_amf_recycled_surface_barriers_are_valid() -> Result<()> {
+    use windows::Win32::Graphics::Direct3D12::*;
+    let report = std::path::PathBuf::from(
+        std::env::var_os("BUTTERPOLLO_TEST_AMF_STATE_REPORT")
+            .context("set BUTTERPOLLO_TEST_AMF_STATE_REPORT")?,
+    );
+    anyhow::ensure!(report.is_absolute(), "report path must be absolute");
+    fs::create_dir_all(report.parent().context("report directory")?)?;
+    let mut debug: Option<ID3D12Debug> = None;
+    // SAFETY: This isolated native test has created no D3D12 device yet; the out-value
+    // is checked before enabling validation for this process.
+    unsafe {
+        D3D12GetDebugInterface(&mut debug)?;
+        debug
+            .context("D3D12 debug layer unavailable")?
+            .EnableDebugLayer();
+    }
+    let _com = crate::capture::ComGuard::new()?;
+    let device = Device::new("")?;
+    anyhow::ensure!(crate::compute::copies_on(&device.device), "requires AMD");
+    let compute = crate::compute::Compute::for_device(&device.device)?;
+    let info: ID3D12InfoQueue = compute.device.cast()?;
+    let mut reports = Vec::new();
+    for (hdr, codec) in [(false, 1), (true, 1), (false, 2), (true, 2)] {
+        let picture = picture(&device, hdr, 0)?;
+        let config = butterpollo_core::rtsp::Negotiated {
+            width: 3840,
+            height: 2160,
+            fps: 120,
+            rate_millihz: 119_880,
+            bitrate_kbps: 89_388,
+            codec,
+            hdr,
+            references: 1,
+            intra_refresh: true,
+            csc_mode: if hdr { 4 } else { 0 },
+            ..Default::default()
+        };
+        let mut encoder = Encoder::new_gpu(
+            &config,
+            device.clone(),
+            &Default::default(),
+            Some(compute.clone()),
+        )?;
+        anyhow::ensure!(encoder.compute.is_some(), "requires D3D12 AMF");
+        let format = if codec == 1 { "hevc" } else { "av1" };
+        let range = if hdr { "hdr" } else { "sdr" };
+        let stream_path = report.with_extension(format!("{range}.{format}"));
+        let mut stream = std::io::BufWriter::new(fs::File::create(&stream_path)?);
+        let mut states = Vec::new();
+        for index in 0..32 {
+            let started = Instant::now();
+            let mut output = encoder.encode_gpu(&picture, index == 0, config.bitrate_kbps)?;
+            while encoder.pending() {
+                anyhow::ensure!(
+                    started.elapsed() < Duration::from_secs(2),
+                    "encoder stalled"
+                );
+                output.extend(encoder.poll()?);
+            }
+            anyhow::ensure!(output.len() == 1, "missing output");
+            stream.write_all(&output[0].bytes)?;
+            let frame_states = encoder
+                .compute
+                .as_ref()
+                .unwrap()
+                .converter
+                .test_amf_target_states();
+            anyhow::ensure!(
+                !frame_states.is_empty() && frame_states.iter().all(Option::is_some),
+                "missing AMF resource state"
+            );
+            states.push(frame_states);
+        }
+        stream.flush()?;
+        reports.push(serde_json::json!({"codec":codec,"hdr":hdr,"frames":states.len(),"stream":stream_path,"states":states}));
+    }
+    let mut errors = Vec::new();
+    // SAFETY: The info queue owns its messages; each aligned buffer is sized from the
+    // initial query and kept alive while reading its returned message and description.
+    unsafe {
+        for index in 0..info.GetNumStoredMessagesAllowedByRetrievalFilter() {
+            let mut bytes = 0usize;
+            let _ = info.GetMessage(index, None, &mut bytes);
+            let mut buffer = vec![0u64; bytes.div_ceil(8)];
+            let message = buffer.as_mut_ptr().cast::<D3D12_MESSAGE>();
+            info.GetMessage(index, Some(message), &mut bytes)?;
+            let message = &*message;
+            if matches!(
+                message.Severity,
+                D3D12_MESSAGE_SEVERITY_CORRUPTION | D3D12_MESSAGE_SEVERITY_ERROR
+            ) {
+                errors.push(serde_json::json!({"id":message.ID.0,"description":String::from_utf8_lossy(std::slice::from_raw_parts(message.pDescription, message.DescriptionByteLength))}));
+            }
+        }
+    }
+    fs::write(
+        &report,
+        serde_json::to_vec_pretty(
+            &serde_json::json!({"codecs":reports,"validation_errors":errors}),
+        )?,
+    )?;
+    anyhow::ensure!(
+        errors.is_empty(),
+        "D3D12 validation errors; see {}",
+        report.display()
+    );
+    Ok(())
+}
+
 fn integer(encoder: &Encoder, name: &str) -> Result<i64> {
     // SAFETY: The live encoder owns the component; the terminated property name
     // and initialized out-value outlive the synchronous call. Read the union

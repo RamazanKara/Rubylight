@@ -91,7 +91,7 @@ public final class PyroWaveDecoderRenderer {
     }
 
     synchronized boolean setup(Surface surface, int format, int width, int height, int fps, float displayRefreshRate,
-                               boolean fullRange, boolean stretch, UpscalingPolicy.Mode upscaling, int sharpness,
+                               int pacingMode, boolean fullRange, boolean stretch, UpscalingPolicy.Mode upscaling, int sharpness,
                                Context context, boolean maxClocks) {
         cleanup();
         if (!LIBRARY_LOADED || surface == null || !surface.isValid()) return false;
@@ -101,7 +101,7 @@ public final class PyroWaveDecoderRenderer {
         for (int attempt = 0; attempt < (requestedCustom ? 2 : 1); attempt++) {
             if (customDriver != null && !GpuDriverStore.beginUse(context, customDriver)) customDriver = null;
             try {
-                handle = nativeCreate(surface, width, height, fps, displayRefreshRate,
+                handle = nativeCreate(surface, width, height, fps, displayRefreshRate, pacingMode,
                         (format & MoonBridge.VIDEO_FORMAT_MASK_YUV444) != 0,
                         (format & MoonBridge.VIDEO_FORMAT_MASK_10BIT) != 0, fullRange, stretch,
                         upscaleMode(upscaling), SgsrConstants.edgeSharpness(sharpness),
@@ -145,7 +145,8 @@ public final class PyroWaveDecoderRenderer {
 
     // Accepted and busy are distinct from invalid input (zero) and a fatal error (negative). Completion
     // timestamps arrive separately through nativePollRenderedFrames, before release/present events.
-    synchronized long submitFrame(byte[] data, int length, long ptsUs, FrameLatencyStats stats,
+    synchronized long submitFrame(byte[] data, int length, long ptsUs, long hostPresentationTimeUs,
+                                  PyroWaveDisplayClock.Snapshot displayClock, FrameLatencyStats stats,
                                   Context context, boolean enablePerformanceHints, int frameRate) {
         lastSubmissionDurationNs = 0;
         if (handle == 0) return -1;
@@ -153,11 +154,15 @@ public final class PyroWaveDecoderRenderer {
         if (performanceHints == null) {
             performanceHints = new DecoderPerformanceHints(context, enablePerformanceHints, frameRate);
         }
+        // The host clock drives cadence; local ptsUs remains the unique statistics key.
+        // Copy the latest measured display phase before starting the native submission timer.
+        long vsyncNs = displayClock.vsyncNs;
+        long intervalNs = displayClock.intervalNs;
         long workStartNs = Debug.threadCpuTimeNanos();
         long result;
         long submissionStartNs = System.nanoTime();
         try {
-            result = nativeSubmitFrame(handle, data, length, ptsUs);
+            result = nativeSubmitFrame(handle, data, length, ptsUs, hostPresentationTimeUs, vsyncNs, intervalNs);
         } finally {
             // Match Moonlight X's wall-clock interval around native parsing, command recording
             // and submission. Polling and Android performance-hint work are not submission work.
@@ -263,12 +268,13 @@ public final class PyroWaveDecoderRenderer {
 
     private static native int nativeGetReadiness(boolean hdr, String hooks, String directory, String name);
     private static native long nativeCreate(Surface surface, int width, int height, int fps, float displayRefreshRate,
-                                           boolean chroma444, boolean tenBit, boolean fullRange, boolean stretch,
+                                           int pacingMode, boolean chroma444, boolean tenBit, boolean fullRange, boolean stretch,
                                            int upscale, float edgeSharpness, String hooks, String directory, String name);
     private static native String nativeGetDriver(long handle);
     private static native int nativeGetUpscalingReason(long handle);
     private static native boolean nativeSetGpuMaxClocks(boolean enabled);
-    private static native long nativeSubmitFrame(long handle, byte[] data, int length, long ptsUs);
+    private static native long nativeSubmitFrame(long handle, byte[] data, int length, long ptsUs,
+                                                long hostPresentationTimeUs, long vsyncNs, long intervalNs);
     private static native boolean nativePollRenderedFrames(long handle, FrameLatencyStats stats);
     private static native int nativeGetLastGpuDecodeUs(long handle);
     private static native float[] nativeGetWaits(long handle);

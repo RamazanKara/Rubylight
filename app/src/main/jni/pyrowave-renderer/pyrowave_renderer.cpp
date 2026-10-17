@@ -69,6 +69,7 @@ typedef VkQueueGlobalPriorityKHR VkQueueGlobalPriority;
 #include "frame.h"
 #include "presentation.h"
 #include "schedule.h"
+#include "present_timing.h"
 #include "rubylight_protocol.h"
 
 #define LOG_TAG "PyroWave"
@@ -266,6 +267,7 @@ namespace {
         PFN_vkGetInstanceProcAddr GetInstanceProcAddr = nullptr;
         PFN_vkSetHdrMetadataEXT SetHdrMetadataEXT = nullptr;
         PFN_vkGetPastPresentationTimingGOOGLE GetPastPresentationTimingGOOGLE = nullptr;
+        PFN_vkGetRefreshCycleDurationGOOGLE GetRefreshCycleDurationGOOGLE = nullptr;
 #define X(name) PFN_vk##name name = nullptr;
         VK_GLOBAL_FUNCTIONS(X)
         VK_INSTANCE_FUNCTIONS(X)
@@ -322,6 +324,8 @@ namespace {
             SetHdrMetadataEXT = reinterpret_cast<PFN_vkSetHdrMetadataEXT>(GetDeviceProcAddr(device, "vkSetHdrMetadataEXT"));
             GetPastPresentationTimingGOOGLE = reinterpret_cast<PFN_vkGetPastPresentationTimingGOOGLE>(
                 GetDeviceProcAddr(device, "vkGetPastPresentationTimingGOOGLE"));
+            GetRefreshCycleDurationGOOGLE = reinterpret_cast<PFN_vkGetRefreshCycleDurationGOOGLE>(
+                GetDeviceProcAddr(device, "vkGetRefreshCycleDurationGOOGLE"));
             return ok;
         }
     };
@@ -447,6 +451,12 @@ namespace {
         return uint64_t(ts.tv_sec) * 1000000u + uint64_t(ts.tv_nsec) / 1000u;
     }
 
+    int64_t nowNs() {
+        timespec ts;
+        clock_gettime(CLOCK_MONOTONIC, &ts);
+        return int64_t(ts.tv_sec) * 1'000'000'000LL + ts.tv_nsec;
+    }
+
     const char *presentModeName(VkPresentModeKHR mode) {
         switch (mode) {
             case VK_PRESENT_MODE_IMMEDIATE_KHR: return "IMMEDIATE";
@@ -475,6 +485,8 @@ namespace {
         VkFence drawFence = VK_NULL_HANDLE;
         uint64_t decodeValue = 0;
         int64_t ptsUs = 0;
+        int64_t hostPresentationTimeUs = 0;
+        int64_t completedNs = 0;
     };
 
     class Renderer {
@@ -485,7 +497,7 @@ namespace {
             destroy();
         }
 
-        bool create(ANativeWindow *nativeWindow, int streamWidth, int streamHeight, int frameRate, float displayRefreshRate,
+        bool create(ANativeWindow *nativeWindow, int streamWidth, int streamHeight, int frameRate, float displayRefreshRate, int pacingMode,
                     bool fullChroma, bool tenBitOutput, bool fullRangeOutput, bool stretchOutput, int upscale, float sharpness) {
             window = nativeWindow;
             upscaleMode = upscale;
@@ -496,6 +508,10 @@ namespace {
             fullRange = fullRangeOutput;
             frameRateHz = frameRate > 0 ? frameRate : 60;
             displayRefreshRateHz = displayRefreshRate;
+            framePacingMode = pacingMode >= 0 && pacingMode <= 3 ? pacingMode : 0;
+            const int64_t periodNs = displayRefreshRate > 1.0f && displayRefreshRate <= 1000.0f ?
+                    int64_t(1'000'000'000.0 / displayRefreshRate) : 16'666'667;
+            presentTiming.configure(static_cast<PyroWavePresentTiming::Mode>(framePacingMode), periodNs);
             width = uint32_t(streamWidth);
             height = uint32_t(streamHeight);
             records = PyroWaveRecords(width, height, chroma444);
@@ -505,8 +521,16 @@ namespace {
                    startWorkers();
         }
 
-        int submit(const uint8_t *data, size_t length, int64_t ptsUs) {
+        int submit(const uint8_t *data, size_t length, int64_t ptsUs, int64_t hostPresentationTimeUs,
+                   int64_t vsyncNs, int64_t intervalNs) {
             if (failed) return SUBMIT_ERROR;
+            {
+                // The presenter alone updates the scheduler. Copy the display callback's
+                // timestamps without calling into Vulkan or waiting for presentation here.
+                std::lock_guard<std::mutex> lock(clockMutex);
+                displayClockNs = vsyncNs;
+                displayClockIntervalNs = intervalNs;
+            }
             pyrowave_decoder_clear(decoder);
             if (!pushFrame(data, length)) {
                 pyrowave_decoder_clear(decoder);
@@ -525,7 +549,7 @@ namespace {
             }
             if (failed) return SUBMIT_ERROR;
             if (index < 0) return SUBMIT_BUSY;
-            if (decodeFrame(index, ptsUs)) {
+            if (decodeFrame(index, ptsUs, hostPresentationTimeUs)) {
                 {
                     std::lock_guard<std::mutex> lock(slotMutex);
                     pendingDecodes.push_back(index);
@@ -980,17 +1004,21 @@ namespace {
             info.minImageCount = imageCount;
             info.imageFormat = swapchainFormat;
             info.imageColorSpace = swapchainColorSpace;
-            // A variable surface extent must follow the output window, not the decoded stream.
-            info.imageExtent.width = pyroSurfaceDimension(caps.currentExtent.width, ANativeWindow_getWidth(window),
-                                                          caps.minImageExtent.width, caps.maxImageExtent.width);
-            info.imageExtent.height = pyroSurfaceDimension(caps.currentExtent.height, ANativeWindow_getHeight(window),
-                                                           caps.minImageExtent.height, caps.maxImageExtent.height);
+            // Fit in logical display coordinates, then render directly into the display's
+            // natural orientation. Android can consume this without a rotation pass.
+            const auto transform = pyroPreTransform(caps.currentTransform, caps.supportedTransforms);
+            if (transform == 0) {
+                LOGE("Surface has no supported rotation or identity transform");
+                return false;
+            }
+            const int32_t rotation = pyroRotationQuarterTurns(transform);
+            const auto logicalExtent = surfaceExtent(caps);
+            const auto bufferExtent = pyroRotateExtent(logicalExtent, rotation);
+            info.imageExtent = {bufferExtent.width, bufferExtent.height};
             info.imageArrayLayers = 1;
             info.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
             info.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
-            // The shader draws unrotated; let the compositor rotate like it does for MediaCodec.
-            info.preTransform = (caps.supportedTransforms & VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR) ?
-                VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR : caps.currentTransform;
+            info.preTransform = static_cast<VkSurfaceTransformFlagBitsKHR>(transform);
             info.compositeAlpha = (caps.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR) ?
                 VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR : VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR;
             info.presentMode = presentMode;
@@ -1022,6 +1050,14 @@ namespace {
             }
             swapchain = newSwapchain;
             swapchainExtent = info.imageExtent;
+            displayExtent = logicalExtent;
+            rotationQuarterTurns = rotation;
+            surfaceTransform = caps.currentTransform;
+            lastSizeCheckUs = nowUs();
+            presentTiming.reset();
+            lastRefreshCheckUs = 0;
+            driverRefreshPeriodNs = 0;
+            refreshDisplayClock();
             applyHdrMetadata();
 
             uint32_t count = 0;
@@ -1084,8 +1120,15 @@ namespace {
             renderDone.clear();
         }
 
-        // Checks at most every SIZE_CHECK_INTERVAL_US whether the surface extent differs
-        // from the swapchain's.
+        PyroWaveExtent surfaceExtent(const VkSurfaceCapabilitiesKHR &caps) const {
+            return {pyroSurfaceDimension(caps.currentExtent.width, ANativeWindow_getWidth(window),
+                                         caps.minImageExtent.width, caps.maxImageExtent.width),
+                    pyroSurfaceDimension(caps.currentExtent.height, ANativeWindow_getHeight(window),
+                                         caps.minImageExtent.height, caps.maxImageExtent.height)};
+        }
+
+        // Include same-size rotations (landscape to reverse landscape), which do not
+        // necessarily resize the Surface or make presentation report SUBOPTIMAL.
         bool surfaceSizeChanged(uint64_t now) {
             constexpr uint64_t SIZE_CHECK_INTERVAL_US = 250'000;
             if (now - lastSizeCheckUs < SIZE_CHECK_INTERVAL_US) {
@@ -1096,10 +1139,9 @@ namespace {
             if (vk.GetPhysicalDeviceSurfaceCapabilitiesKHR(physicalDevice, surface, &caps) != VK_SUCCESS) {
                 return false;
             }
-            return pyroSurfaceDimension(caps.currentExtent.width, ANativeWindow_getWidth(window),
-                                         caps.minImageExtent.width, caps.maxImageExtent.width) != swapchainExtent.width ||
-                   pyroSurfaceDimension(caps.currentExtent.height, ANativeWindow_getHeight(window),
-                                         caps.minImageExtent.height, caps.maxImageExtent.height) != swapchainExtent.height;
+            const auto extent = surfaceExtent(caps);
+            return caps.currentTransform != surfaceTransform || extent.width != displayExtent.width ||
+                   extent.height != displayExtent.height;
         }
 
         bool recreateSwapchain() {
@@ -1182,7 +1224,7 @@ namespace {
             VkPipelineLayoutCreateInfo plInfo = {VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
             plInfo.setLayoutCount = 1;
             plInfo.pSetLayouts = &setLayout;
-            VkPushConstantRange colorRange = {VK_SHADER_STAGE_FRAGMENT_BIT, 0, 3 * sizeof(int32_t)};
+            VkPushConstantRange colorRange = {VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(PyroWaveColorParams)};
             plInfo.pushConstantRangeCount = 1;
             plInfo.pPushConstantRanges = &colorRange;
             if (!check(vk.CreatePipelineLayout(device, &plInfo, nullptr, &pipelineLayout), "vkCreatePipelineLayout")) {
@@ -1299,7 +1341,7 @@ namespace {
         // SGSR reads the YCbCr planes through the same descriptor set as the direct path and
         // converts colour itself, so upscaling costs one pass with no intermediate image.
         bool createUpscalerResources() {
-            VkPushConstantRange range = {VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(SgsrParams)};
+            VkPushConstantRange range = {VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(PyroWaveSgsrParams)};
             VkPipelineLayoutCreateInfo plInfo = {VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
             plInfo.setLayoutCount = 1;
             plInfo.pSetLayouts = &setLayout;
@@ -1439,7 +1481,7 @@ namespace {
 
         // Only the submission thread enters PyroWave. The SDK owns its command
         // buffers and tracks their staging/query/frame-context lifetimes itself.
-        bool decodeFrame(int index, int64_t ptsUs) {
+        bool decodeFrame(int index, int64_t ptsUs, int64_t hostPresentationTimeUs = 0) {
             Slot &slot = slots[index];
             if (lastDecodeValue != 0) {
                 // PyroWave's fragment acquire wait only covers color output.
@@ -1480,6 +1522,7 @@ namespace {
             lastDecodeValue = value;
             slot.decodeValue = value;
             slot.ptsUs = ptsUs;
+            slot.hostPresentationTimeUs = hostPresentationTimeUs;
             return true;
         }
 
@@ -1530,6 +1573,7 @@ namespace {
                 const int64_t completionNs = int64_t(completed.tv_sec) * 1000000000LL + completed.tv_nsec;
                 {
                     std::lock_guard<std::mutex> lock(slotMutex);
+                    slots[index].completedNs = completionNs;
                     // Register completion before publishing the frame to the presenter;
                     // otherwise a fast present/drop could reach Java without an output.
                     {
@@ -1584,6 +1628,8 @@ namespace {
         // Runs on the present thread, which owns the swapchain.
         bool presentSlot(int index) {
             if (!applyPendingHdr()) return false;
+            pollRenderedFrames();
+            refreshDisplayClock();
             uint32_t imageIndex = 0;
             const uint64_t beforeAcquire = nowUs();
             // A fence rather than a semaphore: the CPU waits for the display to free an image, so
@@ -1605,8 +1651,9 @@ namespace {
                 !check(vk.ResetFences(device, 1, &acquireFence), "reset acquire fence")) return false;
             const uint64_t afterAcquire = nowUs();
 
-            // Show the newest frame: one decoded while we waited for the image replaces this one.
-            {
+            // Immediate mode keeps the freshest output. Paced modes retain the selected
+            // frame while the next completed frame waits, preserving host cadence.
+            if (framePacingMode == 0 || slots[index].hostPresentationTimeUs <= 0) {
                 std::lock_guard<std::mutex> lock(slotMutex);
                 const int replaced = schedule.replaceDrawingWithReady();
                 if (replaced >= 0) {
@@ -1616,6 +1663,7 @@ namespace {
                 }
             }
             Slot &slot = slots[index];
+            const auto timing = presentTiming.plan(slot.hostPresentationTimeUs, slot.completedNs);
 
             VkCommandBuffer cmd = slot.drawCommandBuffer;
             VkCommandBufferBeginInfo beginInfo = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
@@ -1635,8 +1683,10 @@ namespace {
             rpBegin.renderArea = {{0, 0}, swapchainExtent};
             rpBegin.clearValueCount = 1;
             rpBegin.pClearValues = &clear;
-            const auto output = pyroViewport(width, height, swapchainExtent.width, swapchainExtent.height, stretch);
-            const int32_t color[] = {tenBit, hdr, fullRange};
+            const auto output = pyroViewport(width, height, displayExtent.width, displayExtent.height, stretch);
+            const auto rotatedOutput = pyroRotateViewport(output,
+                    {swapchainExtent.width, swapchainExtent.height}, rotationQuarterTurns);
+            const PyroWaveColorParams color = {tenBit, hdr, fullRange, rotationQuarterTurns};
             const auto reason = pyroUpscalingReason(upscaleMode, tenBit || hdr, width, height, output,
                                                     upscalePipeline != VK_NULL_HANDLE);
             upscalingReason = reason;
@@ -1644,17 +1694,17 @@ namespace {
             vk.CmdBeginRenderPass(cmd, &rpBegin, VK_SUBPASS_CONTENTS_INLINE);
 
             VkViewport viewport = {};
-            viewport.width = output.width;
-            viewport.height = output.height;
-            viewport.x = output.x;
-            viewport.y = output.y;
+            viewport.width = rotatedOutput.width;
+            viewport.height = rotatedOutput.height;
+            viewport.x = rotatedOutput.x;
+            viewport.y = rotatedOutput.y;
             viewport.maxDepth = 1.0f;
             VkRect2D scissor = {{0, 0}, swapchainExtent};
             vk.CmdSetViewport(cmd, 0, 1, &viewport);
             vk.CmdSetScissor(cmd, 0, 1, &scissor);
             if (upscale) {
-                const SgsrParams params = {{1.0f / float(width), 1.0f / float(height), float(width), float(height)},
-                                           edgeSharpness, fullRange};
+                const PyroWaveSgsrParams params = {{1.0f / float(width), 1.0f / float(height), float(width), float(height)},
+                                                  edgeSharpness, fullRange, rotationQuarterTurns};
                 vk.CmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, upscalePipeline);
                 vk.CmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, upscaleLayout, 0, 1,
                                          &slot.descriptorSet, 0, nullptr);
@@ -1663,12 +1713,27 @@ namespace {
                 vk.CmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
                 vk.CmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1,
                                          &slot.descriptorSet, 0, nullptr);
-                vk.CmdPushConstants(cmd, pipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(color), color);
+                vk.CmdPushConstants(cmd, pipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(color), &color);
             }
             vk.CmdDraw(cmd, 3, 1, 0, 0);
             vk.CmdEndRenderPass(cmd);
             if (!check(vk.EndCommandBuffer(cmd), "vkEndCommandBuffer")) {
                 return false;
+            }
+
+            // Acquire and record before waiting so that work does not consume the learned
+            // compositor lead. The wait releases slotMutex; decoding can keep progressing.
+            {
+                std::unique_lock<std::mutex> lock(slotMutex);
+                const auto stopping = [this] { return stopPresenter || failed; };
+                const int64_t remainingNs = timing.submitNs - nowNs();
+                if (timing.paced && remainingNs > 0) {
+                    slotReady.wait_for(lock, std::chrono::nanoseconds(remainingNs), stopping);
+                }
+                if (stopping()) {
+                    pushRelease(slot.ptsUs, 0, false);
+                    return true;
+                }
             }
 
             VkTimelineSemaphoreSubmitInfo timelineInfo = {VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO};
@@ -1694,7 +1759,8 @@ namespace {
             presentInfo.swapchainCount = 1;
             presentInfo.pSwapchains = &swapchain;
             presentInfo.pImageIndices = &imageIndex;
-            VkPresentTimeGOOGLE presentTime = {++nextPresentId, 0};
+            if (++nextPresentId == 0) ++nextPresentId;
+            VkPresentTimeGOOGLE presentTime = {nextPresentId, uint64_t(timing.desiredPresentNs)};
             VkPresentTimesInfoGOOGLE presentTimes = {VK_STRUCTURE_TYPE_PRESENT_TIMES_INFO_GOOGLE};
             if (displayTimingSupported) {
                 presentTimes.swapchainCount = 1;
@@ -1703,8 +1769,10 @@ namespace {
             }
             timespec released;
             VkResult presented = VK_SUCCESS;
+            int64_t submittedNs;
             {
                 std::lock_guard<std::mutex> lock(queueCount == 2 ? renderQueueMutex : decodeQueueMutex);
+                submittedNs = nowNs();
                 if (!check(vk.QueueSubmit(queue, 1, &submitInfo, slot.drawFence), "vkQueueSubmit")) return false;
                 clock_gettime(CLOCK_MONOTONIC, &released);
                 presented = vk.QueuePresentKHR(queue, &presentInfo);
@@ -1716,6 +1784,7 @@ namespace {
             if (displayTimingSupported && shown) {
                 if (pendingPresents.size() == 8192) pendingPresents.pop_front();
                 pendingPresents.push_back({presentTime.presentID, ptsUs, frameEnd});
+                presentTiming.recordPresent(presentTime.presentID, timing, submittedNs);
             }
             pollRenderedFrames();
 
@@ -1726,14 +1795,45 @@ namespace {
             if (presented == VK_ERROR_OUT_OF_DATE_KHR) {
                 return recreateSwapchain();
             }
-            // SUBOPTIMAL is reported on every present while the display is rotated, because
-            // the swapchain leaves rotation to the compositor (IDENTITY pre-transform). Only
-            // a changed surface size needs a new swapchain; recreating per frame stalls the GPU.
-            if ((presented == VK_SUBOPTIMAL_KHR || acquired == VK_SUBOPTIMAL_KHR) &&
-                surfaceSizeChanged(frameEnd)) {
+            // Poll at a bounded rate even without SUBOPTIMAL to catch 180-degree turns.
+            // Rebuild only for a changed extent/transform, never for every suboptimal frame.
+            if (surfaceSizeChanged(frameEnd)) {
                 return recreateSwapchain();
             }
             return shown || check(presented, "vkQueuePresentKHR");
+        }
+
+        // Presenter-owned scheduler input. Android's callback samples are copied by
+        // the submission thread; driver timing always refers to this output surface.
+        void refreshDisplayClock() {
+            int64_t phase, period;
+            {
+                std::lock_guard<std::mutex> lock(clockMutex);
+                phase = displayClockNs;
+                period = displayClockIntervalNs;
+            }
+            const uint64_t now = nowUs();
+            const int64_t ageNs = nowNs() - phase;
+            const bool freshClock = phase > 0 && period >= 1'000'000 && period <= 100'000'000 &&
+                                    ageNs >= 0 && ageNs < 500'000'000;
+            const bool modeChanged = freshClock && driverRefreshPeriodNs > 0 &&
+                    (period > driverRefreshPeriodNs + driverRefreshPeriodNs / 20 ||
+                     period < driverRefreshPeriodNs - driverRefreshPeriodNs / 20);
+            if (displayTimingSupported && vk.GetRefreshCycleDurationGOOGLE && swapchain != VK_NULL_HANDLE &&
+                (lastRefreshCheckUs == 0 || now - lastRefreshCheckUs >= 1'000'000 ||
+                 (modeChanged && now - lastRefreshCheckUs >= 100'000))) {
+                lastRefreshCheckUs = now;
+                VkRefreshCycleDurationGOOGLE duration = {};
+                if (vk.GetRefreshCycleDurationGOOGLE(device, swapchain, &duration) == VK_SUCCESS &&
+                    duration.refreshDuration >= 1'000'000 && duration.refreshDuration <= 100'000'000) {
+                    driverRefreshPeriodNs = int64_t(duration.refreshDuration);
+                }
+            }
+            if (driverRefreshPeriodNs > 0) presentTiming.setRefreshPeriod(driverRefreshPeriodNs);
+            else if (freshClock) {
+                presentTiming.setRefreshPeriod(period);
+            }
+            if (phase > 0 && ageNs >= 0 && ageNs < 500'000'000) presentTiming.observeVsync(phase);
         }
 
         void dropSlot(int index) {
@@ -1862,6 +1962,13 @@ namespace {
         static constexpr int SLOT_COUNT = PyroWaveSchedule::SLOT_COUNT;
         Slot slots[SLOT_COUNT];
         PyroWaveSchedule schedule;
+        PyroWavePresentTiming presentTiming;
+        int framePacingMode = 0;
+        std::mutex clockMutex;
+        int64_t displayClockNs = 0;
+        int64_t displayClockIntervalNs = 0;
+        uint64_t lastRefreshCheckUs = 0;
+        int64_t driverRefreshPeriodNs = 0;
         std::deque<int> pendingDecodes;
         std::condition_variable decodeReady;
         std::thread completer;
@@ -1885,6 +1992,9 @@ namespace {
         VkPresentModeKHR presentMode = VK_PRESENT_MODE_FIFO_KHR;
         VkSwapchainKHR swapchain = VK_NULL_HANDLE;
         VkExtent2D swapchainExtent = {};
+        PyroWaveExtent displayExtent = {};
+        VkSurfaceTransformFlagBitsKHR surfaceTransform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
+        int32_t rotationQuarterTurns = 0;
         std::vector<VkImage> swapchainImages;
         std::vector<VkImageView> swapchainViews;
         std::vector<VkFramebuffer> framebuffers;
@@ -1904,11 +2014,6 @@ namespace {
         VkDescriptorPool descriptorPool = VK_NULL_HANDLE;
         VkPipeline pipeline = VK_NULL_HANDLE;
 
-        struct SgsrParams {
-            float viewportInfo[4];
-            float edgeSharpness;
-            int32_t fullRange;
-        };
         int upscaleMode = UPSCALE_OFF;
         bool stretch = false;
         float edgeSharpness = 1.5f;
@@ -1977,6 +2082,8 @@ namespace {
                         auto frame = std::find_if(pendingPresents.begin(), pendingPresents.end(),
                             [&timing](const auto &entry) { return entry.id == timing.presentID; });
                         if (frame == pendingPresents.end()) continue;
+                        presentTiming.feedback(timing.presentID, int64_t(timing.actualPresentTime),
+                                               int64_t(timing.earliestPresentTime), int64_t(timing.presentMargin));
                         // actualPresentTime uses CLOCK_MONOTONIC on Android, like System.nanoTime().
                         if (timing.actualPresentTime != 0) {
                             std::lock_guard<std::mutex> lock(eventsMutex);
@@ -2203,6 +2310,7 @@ Java_com_limelight_binding_video_PyroWaveDecoderRenderer_nativeGetReadiness(JNIE
 JNIEXPORT jlong JNICALL
 Java_com_limelight_binding_video_PyroWaveDecoderRenderer_nativeCreate(JNIEnv *env, jclass, jobject surface,
                                                                       jint width, jint height, jint frameRate, jfloat displayRefreshRate,
+                                                                      jint pacingMode,
                                                                       jboolean chroma444, jboolean tenBit, jboolean fullRange, jboolean stretch,
                                                                       jint upscale, jfloat edgeSharpness,
                                                                       jstring hooks, jstring directory, jstring name) {
@@ -2218,7 +2326,7 @@ Java_com_limelight_binding_video_PyroWaveDecoderRenderer_nativeCreate(JNIEnv *en
         return 0;
     }
     auto renderer = std::make_unique<Renderer>(custom);
-    if (!renderer->create(window, width, height, frameRate, displayRefreshRate, chroma444, tenBit, fullRange, stretch,
+    if (!renderer->create(window, width, height, frameRate, displayRefreshRate, pacingMode, chroma444, tenBit, fullRange, stretch,
                           upscale, edgeSharpness)) {
         return 0;  // The renderer releases the window.
     }
@@ -2228,7 +2336,9 @@ Java_com_limelight_binding_video_PyroWaveDecoderRenderer_nativeCreate(JNIEnv *en
 
 JNIEXPORT jlong JNICALL
 Java_com_limelight_binding_video_PyroWaveDecoderRenderer_nativeSubmitFrame(JNIEnv *env, jclass, jlong handle,
-                                                                           jbyteArray data, jint length, jlong ptsUs) {
+                                                                           jbyteArray data, jint length, jlong ptsUs,
+                                                                           jlong hostPresentationTimeUs,
+                                                                           jlong vsyncNs, jlong intervalNs) {
     auto *renderer = reinterpret_cast<Renderer *>(handle);
     if (renderer == nullptr || data == nullptr || length <= 0) {
         return SUBMIT_ERROR;
@@ -2242,7 +2352,7 @@ Java_com_limelight_binding_video_PyroWaveDecoderRenderer_nativeSubmitFrame(JNIEn
     frame.resize(size_t(length));
     env->GetByteArrayRegion(data, 0, length, reinterpret_cast<jbyte *>(frame.data()));
     if (env->ExceptionCheck()) return SUBMIT_ERROR;
-    return renderer->submit(frame.data(), frame.size(), ptsUs);
+    return renderer->submit(frame.data(), frame.size(), ptsUs, hostPresentationTimeUs, vsyncNs, intervalNs);
 }
 
 JNIEXPORT jboolean JNICALL

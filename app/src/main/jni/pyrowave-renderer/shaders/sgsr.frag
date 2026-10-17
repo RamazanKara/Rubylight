@@ -1,4 +1,6 @@
 #version 450
+#extension GL_GOOGLE_include_directive : require
+#include "rotation.glsl"
 // Copyright (c) 2025, Qualcomm Innovation Center, Inc. All rights reserved.
 // SPDX-License-Identifier: BSD-3-Clause
 // Vulkan port of assets/shaders/sgsr.frag (SGSR 1 mobile port; see assets/NOTICE-SGSR1.txt),
@@ -11,7 +13,12 @@ layout(location = 0) out vec4 color;
 layout(set = 0, binding = 0) uniform sampler2D u_y;
 layout(set = 0, binding = 1) uniform sampler2D u_cb;
 layout(set = 0, binding = 2) uniform sampler2D u_cr;
-layout(push_constant) uniform Params { vec4 viewportInfo; float edgeSharpness; int fullRange; } params;
+layout(push_constant) uniform Params {
+    vec4 viewportInfo;
+    float edgeSharpness;
+    int fullRange;
+    int rotationQuarterTurns;
+} params;
 
 vec2 planeCoord(vec2 p) {
     p = clamp(p, 0.5 * params.viewportInfo.xy, vec2(1.0) - 0.5 * params.viewportInfo.xy);
@@ -48,7 +55,8 @@ vec2 weightY(float dx, float dy, float c, float std) {
 }
 
 void main() {
-    vec2 uv = vec2(v_uv.x, 1.0 - v_uv.y);
+    vec2 sourceUv = pyroSourceUv(v_uv, params.rotationQuarterTurns);
+    vec2 uv = vec2(sourceUv.x, 1.0 - sourceUv.y);
     vec3 rgb = loadColor(uv);
     float centerY = expandY(texture(u_y, planeCoord(uv)).r);
     vec2 imgCoord = uv * params.viewportInfo.zw + vec2(-0.5, 0.5);

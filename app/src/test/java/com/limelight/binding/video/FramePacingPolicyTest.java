@@ -5,6 +5,25 @@ import static com.limelight.preferences.PreferenceConfiguration.*;
 import static org.junit.Assert.*;
 
 public class FramePacingPolicyTest {
+    @Test public void pyrowavePreservesAllRequestedModesUnlessVariableRefreshIsEnabled() {
+        for (int mode : new int[] {FRAME_PACING_MIN_LATENCY, FRAME_PACING_BALANCED,
+                FRAME_PACING_CAP_FPS, FRAME_PACING_MAX_SMOOTHNESS}) {
+            assertEquals(mode, FramePacingPolicy.pyroWaveMode(mode, false));
+            assertEquals(FRAME_PACING_MIN_LATENCY, FramePacingPolicy.pyroWaveMode(mode, true));
+        }
+    }
+
+    @Test public void onlyPacedLocalOutputUsesTheFixedDisplayClock() {
+        for (int mode : new int[] {FRAME_PACING_MIN_LATENCY, FRAME_PACING_BALANCED,
+                FRAME_PACING_CAP_FPS, FRAME_PACING_MAX_SMOOTHNESS}) {
+            assertEquals(mode != FRAME_PACING_MIN_LATENCY,
+                    FramePacingPolicy.usesPyroWaveDisplayClock(mode, false, true));
+            assertFalse(FramePacingPolicy.usesPyroWaveDisplayClock(mode, true, true));
+            assertFalse(FramePacingPolicy.usesPyroWaveDisplayClock(mode, false, false));
+            assertFalse(FramePacingPolicy.usesPyroWaveDisplayClock(mode, true, false));
+        }
+    }
+
     @Test public void smoothnessModesKeepQueuedFramesAndLatencyModesDropStaleFrames() {
         assertFalse(FramePacingPolicy.dropQueuedFrames(FRAME_PACING_MAX_SMOOTHNESS));
         assertFalse(FramePacingPolicy.dropQueuedFrames(FRAME_PACING_CAP_FPS));

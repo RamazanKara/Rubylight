@@ -32,6 +32,10 @@ Nightjar handles BT.2020/PQ and static mastering metadata. Debug stats show the 
 
 With VRR off, **Frame pacing** balances immediate response against regular presentation. **Lowest latency** favors fresh output; **Balanced** aligns cadence; **Balanced with FPS limit** and **Smoothest video** retain more queued output.
 
+For PyroWave, paced modes map the host's frame timestamps onto the display clock instead of presenting every arrival immediately. Balanced keeps a small scheduling margin; Balanced with FPS limit and Smoothest video add one refresh of buffering. The queue stays bounded, so an overloaded decoder or a network stall cannot build an ever-growing delay. Missing host timestamps use immediate presentation, and a pause or timestamp discontinuity restarts the mapping. Lowest latency and VRR keep immediate presentation.
+
+The Vulkan renderer uses measured refresh timing and actual presentation feedback when the driver supplies them. On the local display, Android's frame callbacks provide a measured clock as a fallback. Supported drivers also report how early a frame could have appeared and its timing margin; Nightjar uses these to learn the submission lead time, with bounded adjustments and a settling period after pauses. These changes target display cadence and missed refreshes; they do not reduce the shader's execution time.
+
 With **Variable refresh (VRR)** on, Nightjar requests the screen's maximum refresh and shows decoded frames at the game's cadence. Hosts that support it (e.g. Rubylight or Vibepollo) are also asked for host-side VRR. Confirmed Android 16 adaptive refresh uses cadence votes; other screens use a maximum-refresh fallback. VRR forces Lowest latency pacing and disables Allow lower refresh rate.
 
 Per-PC profiles accept rates to 0.01 Hz, such as 59.94 or 119.88. Hosts that support fractional rates (currently Rubylight) receive them as set; other hosts receive a whole-number rate. The overlay reports received, released and shown FPS separately from panel refresh.
@@ -69,6 +73,8 @@ Only a host that draws the stream on its own virtual display can give it a portr
 Every other host, and a host that cannot resize a running stream, keeps the stream's size: the picture is placed in the turned screen by [Video scaling](#video-scaling), with bars or cropping as chosen, and Nightjar says so once per stream. The same notice appears if the device's decoder cannot switch to the turned size. A stream on an external display ignores the phone's orientation, and the setting is hidden on TVs.
 
 Touch, mouse, pinch zoom, the Local cursor and on-screen controls map through the laid-out picture, so they stay aligned after a turn. The on-screen controls are laid out again for the new screen shape; their layout was designed for landscape and is roomier there.
+
+PyroWave handles display rotation during its existing color-conversion or upscaling pass, including letterboxing. It recreates the output buffers when the surface size or rotation changes, including a half-turn with unchanged dimensions. This can avoid a separate compositor rotation pass; the performance benefit depends on the device.
 
 ## Upscaling
 
@@ -116,7 +122,7 @@ Debug groups diagnostics into Video, Network and Decode and scrolls on smaller s
 | Network frame loss | Frames lost through the transport/recovery path, expressed as a percentage; separate from local decoder/display drops. |
 | Queue wait | Enqueue-to-decoder-input time. High values suggest submission or input-buffer backlog. |
 | Decode time (conventional codecs) | Each frame passed on for display is timed from input submission to its hand-off, including driver scheduling, in whole milliseconds. The total over the last two seconds is divided by all frames received in that time; the figure after streaming does the same over the whole stream. It excludes pre-input queue wait and later display wait. The p95/p99 beside it, and the frame-timing CSV, use exact per-frame times from input submission to decoder output. |
-| CPU submission time (PyroWave) | Matches Moonlight X: CPU wall time around the native submission call, divided by all received frames, including skipped frames. Fractional milliseconds carry across frames and reporting windows; the displayed average combines the last two one-second windows. The stream-end average includes closed reporting windows only. This measures preparation and submission, not GPU completion or display wait. |
+| CPU submission time (PyroWave) | CPU wall time around the native submission call, divided by all received frames, including skipped frames. Fractional milliseconds carry across frames and reporting windows; the displayed average combines the last two one-second windows. The stream-end average includes closed reporting windows only. This measures preparation and submission, not GPU completion or display wait. |
 | Completed decode (PyroWave) | Input submission to observed GPU completion. Its mean, p95 and p99 use the same completed-frame samples. Automatic bitrate, stream-health indicators and the frame-timing CSV continue to use completed decode timings. |
 | Display wait | Decoder output to a rendered callback. |
 | Client latency | The client pipeline interval reported by the renderer. |

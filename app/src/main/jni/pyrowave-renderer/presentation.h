@@ -1,6 +1,7 @@
 #pragma once
 
 #include <algorithm>
+#include <cstddef>
 #include <cstdint>
 
 constexpr int UPSCALE_OFF = 0;
@@ -23,6 +24,64 @@ inline uint32_t pyroSurfaceDimension(uint32_t current, int32_t window, uint32_t 
 struct PyroWaveViewport {
     float x, y, width, height;
 };
+
+struct PyroWaveExtent {
+    uint32_t width, height;
+};
+
+// VkSurfaceTransformFlagBitsKHR values, kept independent of Vulkan headers so
+// orientation and viewport calculations can be exercised by the host tests.
+inline int32_t pyroRotationQuarterTurns(uint32_t transform) {
+    switch (transform) {
+        case 0x1: return 0;  // IDENTITY
+        case 0x2: return 1;  // ROTATE_90
+        case 0x4: return 2;  // ROTATE_180
+        case 0x8: return 3;  // ROTATE_270
+        default: return -1;
+    }
+}
+
+// Mirrored/inherited transforms stay with the compositor when identity is
+// supported. Zero means neither a supported rotation nor that fallback exists.
+inline uint32_t pyroPreTransform(uint32_t current, uint32_t supported) {
+    if (pyroRotationQuarterTurns(current) >= 0 && (supported & current) == current) return current;
+    return (supported & 0x1) != 0 ? 0x1 : 0;
+}
+
+// A quarter turn exchanges the logical display axes and the swapchain axes.
+// This operation is its own inverse, so it also recovers the display extent.
+inline PyroWaveExtent pyroRotateExtent(PyroWaveExtent extent, int32_t quarterTurns) {
+    return quarterTurns == 1 || quarterTurns == 3 ? PyroWaveExtent{extent.height, extent.width} : extent;
+}
+
+// Map a viewport fitted in logical display coordinates into the pre-rotated
+// swapchain. The buffer extent is already in the display's identity orientation.
+inline PyroWaveViewport pyroRotateViewport(const PyroWaveViewport &view, PyroWaveExtent buffer,
+                                           int32_t quarterTurns) {
+    switch (quarterTurns) {
+        case 1: return {float(buffer.width) - view.height - view.y, view.x, view.height, view.width};
+        case 2: return {float(buffer.width) - view.width - view.x,
+                        float(buffer.height) - view.height - view.y, view.width, view.height};
+        case 3: return {view.y, float(buffer.height) - view.width - view.x, view.height, view.width};
+        default: return view;
+    }
+}
+
+// Layouts shared with shaders/planar_csc.frag and shaders/sgsr.frag. Rotation is
+// clockwise quarter turns; each fragment maps its output UV back to source UV.
+struct PyroWaveColorParams {
+    int32_t tenBit, hdr, fullRange, rotationQuarterTurns;
+};
+
+struct PyroWaveSgsrParams {
+    float viewportInfo[4];
+    float edgeSharpness;
+    int32_t fullRange, rotationQuarterTurns;
+};
+
+static_assert(sizeof(PyroWaveColorParams) == 16 && offsetof(PyroWaveColorParams, rotationQuarterTurns) == 12);
+static_assert(sizeof(PyroWaveSgsrParams) == 28 && offsetof(PyroWaveSgsrParams, edgeSharpness) == 16 &&
+              offsetof(PyroWaveSgsrParams, fullRange) == 20 && offsetof(PyroWaveSgsrParams, rotationQuarterTurns) == 24);
 
 inline PyroWaveViewport pyroViewport(uint32_t width, uint32_t height, uint32_t surfaceWidth,
                                     uint32_t surfaceHeight, bool stretch) {

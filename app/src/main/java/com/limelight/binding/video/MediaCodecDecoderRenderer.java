@@ -328,6 +328,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     private HandlerThread choreographerHandlerThread;
     private Handler choreographerHandler;
     private final Object vsyncMonitor = new Object();
+    private final PyroWaveDisplayClock pyroWaveDisplayClock = new PyroWaveDisplayClock();
     private long vsyncTimeNs;
     private long vsyncIntervalNs;
     private long vsyncPresentationDeadlineNs;
@@ -1041,7 +1042,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                 MoonBridge.VIDEO_FORMAT_PYROWAVE_444, MoonBridge.VIDEO_FORMAT_PYROWAVE };
         for (int choice : choices) {
             if ((formats & choice) != 0 && !stopping &&
-                    pyroWaveRenderer.setup(renderTarget, choice, width, height, fps, displayRefreshRate, prefs.fullRange, prefs.stretchVideo,
+                    pyroWaveRenderer.setup(renderTarget, choice, width, height, fps, displayRefreshRate,
+                            FramePacingPolicy.pyroWaveMode(prefs.framePacing, prefs.vrr), prefs.fullRange, prefs.stretchVideo,
                             prefs.upscalingMode, prefs.upscalingSharpness, context, prefs.gpuMaxClocks) && !stopping) {
                 LimeLog.info("PyroWave surface initialized before negotiation: " + Integer.toHexString(choice));
                 return (formats & ~MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) | choice;
@@ -1817,6 +1819,10 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
     /** Changes only this stream's preference object, never the saved pacing setting. */
     public boolean applyOutputPacingFallback() {
+        // Vulkan has its own presentation clock, including actual external-display timestamps.
+        // Keep its requested mode before negotiation; conventional fallback still uses this policy.
+        if ((videoFormat & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0 ||
+                (videoFormat == 0 && prefs.videoFormat == PreferenceConfiguration.FormatOption.FORCE_PYROWAVE)) return false;
         if (outputVsyncAvailable || prefs.framePacing != PreferenceConfiguration.FRAME_PACING_BALANCED) return false;
         prefs.framePacing = PreferenceConfiguration.FRAME_PACING_MIN_LATENCY;
         return true;
@@ -1843,6 +1849,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             appVsyncOffsetNs = streamDisplay.getAppVsyncOffsetNanos();
             // Wait for a sample from the new mode before reporting its phase.
             vsyncTimeNs = 0;
+            pyroWaveDisplayClock.reset(vsyncIntervalNs);
         }
     }
 
@@ -1856,6 +1863,12 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         synchronized (vsyncMonitor) {
             frameTimeNanos -= appVsyncOffsetNs;
             vsyncTimeNs = frameTimeNanos;
+        }
+        if ((videoFormat & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0 &&
+                FramePacingPolicy.usesPyroWaveDisplayClock(prefs.framePacing, prefs.vrr, outputVsyncAvailable)) {
+            // This only publishes immutable Java values. No Vulkan call or renderer lock can
+            // delay the display callback or race native teardown.
+            pyroWaveDisplayClock.observe(frameTimeNanos);
         }
         if (prefs.framePacing != PreferenceConfiguration.FRAME_PACING_BALANCED ||
                 (videoFormat & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0) {
@@ -2113,13 +2126,13 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
     @Override
     public void start() {
-        applyOutputPacingFallback();
         if ((videoFormat & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0) {
-            // Vulkan presents to its own target surface. The MediaCodec pacing
-            // fallback does not change its presentation mode or frame scheduling.
-            startChoreographerThread();
+            if (FramePacingPolicy.usesPyroWaveDisplayClock(prefs.framePacing, prefs.vrr, outputVsyncAvailable)) {
+                startChoreographerThread();
+            }
             return;
         }
+        applyOutputPacingFallback();
         startRendererThread();
         startChoreographerThread();
     }
@@ -2536,7 +2549,11 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                 frameLatencyStats.discard(ptsUs, "replaced_before_decode");
                 return MoonBridge.DR_OK;
             }
-            long submissionResult = pyroWaveRenderer.submitFrame(decodeUnitData, decodeUnitLength, ptsUs, frameLatencyStats,
+            PyroWaveDisplayClock.Snapshot displayClock =
+                    FramePacingPolicy.usesPyroWaveDisplayClock(prefs.framePacing, prefs.vrr, outputVsyncAvailable) ?
+                            pyroWaveDisplayClock.snapshot() : PyroWaveDisplayClock.Snapshot.UNAVAILABLE;
+            long submissionResult = pyroWaveRenderer.submitFrame(decodeUnitData, decodeUnitLength, ptsUs,
+                    presentationTimeUs, displayClock, frameLatencyStats,
                     context, prefs.phonePerformanceHints, refreshRate);
             activeWindowVideoStats.decoderTimeMs += pyroWaveSubmissionTiming.addDurationNs(
                     pyroWaveRenderer.getLastSubmissionDurationNs());

@@ -22,6 +22,32 @@ import static org.junit.Assert.*;
 @RunWith(org.robolectric.RobolectricTestRunner.class)
 @Config(sdk = 29, application = Application.class)
 public class MediaCodecExternalDisplayTest {
+    @Test public void externalPyrowaveRetainsBalancedModeBeforeAndAfterNegotiation() {
+        try (ActivityController<Activity> activity = Robolectric.buildActivity(Activity.class).create()) {
+            PreferenceConfiguration prefs = new PreferenceConfiguration();
+            prefs.framePacing = PreferenceConfiguration.FRAME_PACING_BALANCED;
+            int externalId = ShadowDisplayManager.addDisplay("w1920dp-h1080dp");
+            Display external = activity.get().getSystemService(DisplayManager.class).getDisplay(externalId);
+            MediaCodecDecoderRenderer renderer = renderer(activity.get(), prefs, external);
+            prefs.videoFormat = PreferenceConfiguration.FormatOption.FORCE_PYROWAVE;
+
+            // Game applies this policy before the host selects the actual codec.
+            assertFalse(renderer.applyOutputPacingFallback());
+            assertEquals(PreferenceConfiguration.FRAME_PACING_BALANCED, prefs.framePacing);
+            ReflectionHelpers.setField(renderer, "videoFormat", MoonBridge.VIDEO_FORMAT_PYROWAVE);
+            assertFalse(renderer.applyOutputPacingFallback());
+            assertEquals(PreferenceConfiguration.FRAME_PACING_BALANCED, prefs.framePacing);
+            renderer.doFrame(1_000_000_000L);
+            PyroWaveDisplayClock clock = ReflectionHelpers.getField(renderer, "pyroWaveDisplayClock");
+            assertSame(PyroWaveDisplayClock.Snapshot.UNAVAILABLE, clock.snapshot());
+
+            // A host which falls back to a conventional codec still needs the existing policy.
+            ReflectionHelpers.setField(renderer, "videoFormat", MoonBridge.VIDEO_FORMAT_H264);
+            assertTrue(renderer.applyOutputPacingFallback());
+            assertEquals(PreferenceConfiguration.FRAME_PACING_MIN_LATENCY, prefs.framePacing);
+        }
+    }
+
     @Test public void externalBalancedPacingFallsBackWithoutChangingSavedSettingsOrStreamRate() {
         try (ActivityController<Activity> activity = Robolectric.buildActivity(Activity.class).create()) {
             PreferenceManager.getDefaultSharedPreferences(activity.get()).edit()

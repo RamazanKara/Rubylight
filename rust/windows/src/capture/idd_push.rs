@@ -1184,6 +1184,18 @@ impl Session {
         };
         (image.captured, image.wgc_stamp) =
             qpc_timestamps(frame.presented().min(i64::MAX as u64) as i64);
+        // This exact, immutable host timestamp also appears in the stream's claim
+        // trace, joining driver identity to the selected image without changing
+        // frame ownership or carrying diagnostic metadata through every backend.
+        tracing::trace!(
+            target: "idd_push",
+            seq = frame.seq,
+            frame = frame.frame_number,
+            acquired_qpc = frame.acquired,
+            scanout_qpc = frame.scanout,
+            host_acquired = ?image.acquired,
+            "image"
+        );
         Ok(Some(image))
     }
 

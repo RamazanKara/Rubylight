@@ -6,6 +6,7 @@ This is the dated measurement record. For a guided comparison, start with the [p
 
 | Find a result | Recorded evidence |
 | --- | --- |
+| Diagnosing repeated pictures despite full encoded FPS | [October 17, fresh-picture throughput diagnosis](#october-17-fresh-picture-throughput-diagnosis) |
 | Installed-driver fence decision for 2.5.1 | [October 17, installed-driver fence comparison](#october-17-installed-driver-fence-comparison) |
 | 2.5.0 recovery, scaling and optional fence transport | [October 17, focused 2.5.0 comparisons](#october-17-focused-250-comparisons) |
 | Punktfunk host-timing parity and paced keyframes | [October 17, separate packetization and sending](#october-17-punktfunk-host-timing-and-paced-keyframes) |
@@ -25,6 +26,102 @@ This is the dated measurement record. For a guided comparison, start with the [p
 | PyroWave HDR 4:4:4 | [Transport and decoding](#vibepollo-20-pyrowave-transport) · [SDK patches from Punktfunk](#october-15-pyrowave-sdk-patches-from-punktfunk) |
 | CPU error correction | [C++ FEC comparison](#controlled-comparison-with-the-original-c-fec) |
 | Reproduction and scope | [Probes](#reproduce-on-another-machine) · [Hardware covered](#hardware-covered) |
+
+## October 17: fresh-picture throughput diagnosis
+
+The capture wake-order fix in `1cbb0c9d` signals consumers after publishing the new
+image and before releasing the previous GPU image. A CPU regression holds that old
+image's destructor at a gate: notification failed before the reorder and succeeds
+afterward. This removes an avoidable wake dependency; it does not establish a
+hardware FPS gain or make GPU resource release asynchronous.
+
+For a short diagnostic session, enable
+`RUST_LOG=info,pacing=trace,stages=trace,idd_push=trace` before starting the host.
+The following joins distinguish new capture objects from genuinely new pictures:
+
+- IDD `image` records carry driver sequence/frame numbers and `host_acquired`.
+  The exact same `host_acquired` value appears in `claim` and `encode returned`.
+- `publish` and `claim` share `(source_id, capture_id)`. Their relative timestamp
+  origins differ; use `claim - published` within the claim record for publication
+  delay. `selected_is_latest` is a snapshot taken while emitting that record.
+- `claim` and `encode returned` share `(stream_id, attempt)`.
+  `submitted_presentation` joins the encoder's preserved timestamp to
+  `(stream_id, presentation)` in `packetized picture`, which carries the wire frame
+  number. A packetizer record proves assignment, not receipt; match it to receiver
+  wire IDs and decoded source IDs before counting distinct delivered pictures.
+- Each claim aggregates admission time in grid pacing, capture lookup/wait, fresh
+  rate limiting, repeat waiting, encoder pressure and sender pressure. These are
+  elapsed branch times including any output polling/sending, not pure sleeps.
+  `encode_call_us` measures the synchronous encode call; codec completion can
+  occur later. Failed or unsubmitted attempts must not be counted as delivered.
+
+These traces are off by default. They add diagnostic work when enabled, so use
+identical tracing for comparisons. No GPU image is cloned merely to inspect the
+latest selection. Sequence gaps and repeated source pixels should be reported
+separately: neither alone proves a network or encoder bottleneck.
+
+### Short joined-trace check
+
+Two 12-second requested runs used the RX 7900 XT, installed **2.5.1.6949** driver,
+1440p120 HEVC Main10 HDR, the same graphics load and local receiver described below,
+and identical TRACE settings. The candidate is based on `1cbb0c9d` with these
+diagnostics, SHA-256
+`a3320c1b97ae29cd5f453d0c51420d415f7a63dff9b60108c4e339a79ca14d19`.
+Both used identical fixture DLLs; the unused PyroWave DLL came from 2.5.0.
+The retained-final-frame driver fix was **not installed** in these measurements.
+The matched pair deliberately set `minimum_fps_target=120`; the normal repeat
+default for an unchanged desktop is 20. Repeats consume pacing credit, and at 120 Hz the
+minimum claim spacing is 6.25 ms. In this fence run, 40 fresh claims immediately
+after a repeat waited a mean 2.128 ms from publication (maximum 5.619 ms). This
+matches the intentional spacing guard; it is not evidence of an unbounded loop.
+
+| Measurement | Keyed | Fence |
+| --- | ---: | ---: |
+| Received / decoded, whole run | 1,390 / 1,390 | 1,427 / 1,427 |
+| Steady seconds / received pictures | 9.553 / 1,148 | 9.794 / 1,185 |
+| Distinct source pictures/s | 118.502 | 115.682 |
+| Repeats using the same host image | 14 | 41 |
+| Repeats in a newly captured host image | 1 | 10 |
+| Published images replaced before selection, selected span | 0 | 16 |
+| Fresh publication-to-claim mean / p99, microseconds | 62.6 / 836 | 550.0 / 3,879 |
+| Prepared sender queue p99, microseconds | 20 | 21 |
+
+All **2,333 steady received pictures** joined exactly through packetization,
+encoder attempt, capture claim and driver image identity, including repeats.
+Neither run entered encoder- or sender-pressure admission branches; socket writable
+waits and packet drops were zero. Every consumed driver ring sequence was
+consecutive. Fence driver presentation frame numbers skipped 17 values, while
+keyed numbers were consecutive. Render-ledger cadence remained near 120 Hz;
+that does not prove the compositor delivered 120 distinct surfaces per second.
+
+Keyed selected every publication in its selected span. Fence also exhibited host
+rate pacing and replacement of older publications before selection. This localizes
+the observed loss of fresh pictures to acquisition/content delivery and, for the
+fence case, admission timing. It does not identify the underlying compositor or
+GPU scheduling cause, or prove that dropping the rate limit would help. Local
+decoder p99 was also higher with fences (7.49 versus 2.32 ms), a same-GPU confounder.
+
+One fence attempt stopped **before streaming** because the physical display changed
+from 240 to 120 Hz during virtual-display setup. It restored the baseline; an
+unchanged retry passed. All attempts restored display state and installed settings.
+Raw evidence and exact join analysis are retained under
+`D:/CodexArtifacts/rubylight-throughput-continue-20261017` and the matching
+`throughput-trace-*` fixture runs. These short diagnostic runs do not isolate the
+wake-order fix's benefit or establish a general performance improvement. The
+experimental fence default remains off.
+
+A final short fence control used the normal `minimum_fps_target=20`. All **1,107
+steady pictures** joined exactly, every publication was selected, and host static
+repeats disappeared. Nevertheless it delivered 103.284 distinct pictures/s and
+112.544 wire pictures/s: 91 repeated source IDs arrived in newly captured images,
+and driver presentation numbers skipped 49 values with no ring-sequence gaps.
+Driver-image delivery was 112.515/s while the render ledger stayed at 120.006/s.
+Encoder pressure remained zero; sender pressure appeared once for 4 microseconds,
+with no packet drops or writable waits. This removes aggressive repeat filling
+and publication replacement from that run's explanation. It does not establish
+which compositor/GPU dependency delayed or repeated content, nor that changing
+the repeat setting caused the lower fresh rate across these unsynchronized runs.
+The installed configuration already uses the normal default and was unchanged.
 
 ## October 17: installed-driver fence comparison
 

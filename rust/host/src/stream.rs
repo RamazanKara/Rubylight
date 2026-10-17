@@ -53,6 +53,39 @@ fn server_command(
 }
 /// How often completed encoder output is collected while a frame is in flight.
 const OUTPUT_POLL: Duration = Duration::from_micros(100);
+#[derive(Clone, Copy)]
+enum AdmissionWait {
+    Grid,
+    Capture,
+    FreshRate,
+    Repeat,
+    Encoder,
+    Sender,
+}
+/// TRACE-only elapsed time in admission branches, including any output polling
+/// and sending they perform. One aggregate per claim avoids logging every poll.
+#[derive(Default)]
+struct AdmissionTrace {
+    elapsed: [Duration; 6],
+    passes: [u32; 6],
+}
+impl AdmissionTrace {
+    fn measure<T>(trace: &mut Option<Self>, reason: AdmissionWait, run: impl FnOnce() -> T) -> T {
+        let started = trace.as_ref().map(|_| Instant::now());
+        let result = run();
+        if let (Some(trace), Some(started)) = (trace, started) {
+            let index = reason as usize;
+            trace.elapsed[index] += started.elapsed();
+            trace.passes[index] = trace.passes[index].saturating_add(1);
+        }
+        result
+    }
+    fn micros(&self, reason: AdmissionWait) -> u64 {
+        self.elapsed[reason as usize]
+            .as_micros()
+            .min(u128::from(u64::MAX)) as u64
+    }
+}
 /// How long an encoder that fails mid-stream is recreated before the session
 /// gives up: a GPU busy with a game or a driver reset costs frames, not the
 /// stream. Moonlight keeps waiting with a frozen picture meanwhile.
@@ -1446,6 +1479,8 @@ impl Media {
                     let mut batch = butterpollo_windows::net::Batch::default();
                     let mut packets = Vec::new();
                     let trace_send = tracing::enabled!(target: "pacing", tracing::Level::TRACE);
+                    let mut admission_trace = trace_send.then(AdmissionTrace::default);
+                    let mut trace_attempt = 0_u64;
                     batch.waits = trace_send.then(Default::default);
                     let mut network_pacer = butterpollo_core::network_pacing::Pacer::new(Instant::now());
                     let mut link = None;
@@ -1578,6 +1613,13 @@ impl Media {
                             }
                             let (packet_count, mut next_block) = prepared_blocks?;
                             let mut packetize_time = packetize_started.elapsed();
+                            tracing::trace!(
+                                target: "pacing",
+                                stream_id = %s.launch.id,
+                                frame = wire_frame,
+                                presentation = ?frame.presentation,
+                                "packetized picture"
+                            );
                             // A keyframe, as at the start of every stream, may be too
                             // large for FEC; only ordinary frames make this worth showing.
                             if !frame.idr
@@ -1884,6 +1926,7 @@ impl Media {
                             let now = Instant::now();
                             let due = cadence.deadline();
                             if !arrival_pacing && now < due {
+                                AdmissionTrace::measure(&mut admission_trace, AdmissionWait::Grid, || -> Result<()> {
                                 while Instant::now() < due {
                                     if encoder.as_ref().is_some_and(|e| recovery.pending(e)) {
                                         let poll_tick = Instant::now();
@@ -1898,10 +1941,14 @@ impl Media {
                                         timer.until(due);
                                     }
                                 }
+                                Ok(())
+                                })?;
                             }
                             progress.mark(crate::stall_watch::Phase::Picture);
                             let capture_tick = Instant::now();
-                            let image = latest.wait_for_frame(&timer, &capture_wake, Instant::now() + period.min(Duration::from_millis(50)))?;
+                            let image = AdmissionTrace::measure(&mut admission_trace, AdmissionWait::Capture, || {
+                                latest.wait_for_frame(&timer, &capture_wake, Instant::now() + period.min(Duration::from_millis(50)))
+                            })?;
                             let Some(mut image) = image else {
                                 // The capture is being re-created on a new device.
                                 // Release everything on the old one so Windows can
@@ -1939,6 +1986,7 @@ impl Media {
                                 && let butterpollo_core::stream_policy::Pace::WaitUntil(deadline) =
                                     pacer.decide(Instant::now(), image.captured, interval)
                             {
+                                AdmissionTrace::measure(&mut admission_trace, AdmissionWait::FreshRate, || -> Result<()> {
                                 let key = Arc::as_ptr(&image) as usize;
                                 if first_seen.is_none_or(|(seen, ..)| seen != key) {
                                     first_seen = Some((key, Instant::now(), interval, Some(deadline)));
@@ -1965,6 +2013,8 @@ impl Media {
                                 } else {
                                     latest.wait_if_current(&timer, &capture_wake, &image, until)?;
                                 }
+                                Ok(())
+                                })?;
                                 continue;
                             }
                             let repeat_due = if arrival_pacing {
@@ -1990,9 +2040,12 @@ impl Media {
                                     .is_some_and(|previous| Arc::ptr_eq(previous, &image))
                                 && Instant::now() < reencode_at
                             {
+                                AdmissionTrace::measure(&mut admission_trace, AdmissionWait::Repeat, || -> Result<()> {
                                 if encoder.as_ref().is_some_and(|e| recovery.pending(e)) { send_frames(recovery.collect(&mut encoder, &s.launch.warnings, Instant::now)?, peer, Duration::ZERO, latest, capture_tick)?; }
                                 let wait = if encoder.as_ref().is_some_and(|e| recovery.pending(e)) { OUTPUT_POLL } else { period };
                                 latest.wait_if_current(&timer, &capture_wake, &image, Instant::now() + wait.min(reencode_at.saturating_duration_since(Instant::now())))?;
+                                Ok(())
+                                })?;
                                 continue;
                             }
                             // A picture claimed while the encoder is behind only
@@ -2019,6 +2072,7 @@ impl Media {
                             let pressure = encoder_backlog::backpressure(encoding, sending, encoding_limit);
                             if !rebuild_encoder && pressure != Backpressure::None {
                                 if pressure == Backpressure::Sender {
+                                    AdmissionTrace::measure(&mut admission_trace, AdmissionWait::Sender, || -> Result<()> {
                                     // Network occupancy must not start encoder stall recovery.
                                     recovery.backlog_since = None;
                                     if encoder.as_ref().is_some_and(|e| recovery.pending(e)) {
@@ -2026,6 +2080,8 @@ impl Media {
                                     } else {
                                         video_sender.get().unwrap().wait_for_capacity(encoder_backlog::total_limit(encoding_limit), period, recovery_lead)?;
                                     }
+                                    Ok(())
+                                    })?;
                                     continue;
                                 }
                                 // An encoder that returns nothing for 250 ms is
@@ -2033,9 +2089,12 @@ impl Media {
                                 // a shorter stall on a saturated GPU only makes the
                                 // stream choppy. A recreated one that is still
                                 // silent gets longer each time.
-                                if let Some(output) = recovery.poll_full(&mut encoder, &s.launch.warnings, Instant::now)? {
-                                    send_frames(output, peer, Duration::ZERO, latest, capture_tick)?;
-                                }
+                                AdmissionTrace::measure(&mut admission_trace, AdmissionWait::Encoder, || -> Result<()> {
+                                    if let Some(output) = recovery.poll_full(&mut encoder, &s.launch.warnings, Instant::now)? {
+                                        send_frames(output, peer, Duration::ZERO, latest, capture_tick)?;
+                                    }
+                                    Ok(())
+                                })?;
                                 continue;
                             }
                             recovery.backlog_since = None;
@@ -2137,18 +2196,23 @@ impl Media {
                             }
                             let begin = Instant::now();
                             let fresh = last_image.as_ref().is_none_or(|previous| !Arc::ptr_eq(previous, &image));
-                            if tracing::enabled!(target: "pacing", tracing::Level::TRACE) {
+                            if let Some(admission) = admission_trace.as_mut() {
+                                trace_attempt = trace_attempt.wrapping_add(1);
                                 let us = |at: Instant| at.saturating_duration_since(start).as_micros() as u64;
                                 let key = Arc::as_ptr(&image) as usize;
                                 let (seen, interval, deadline) = match first_seen {
                                     Some((k, seen, interval, deadline)) if k == key => (seen, interval, deadline),
                                     _ => (begin, latest.source_interval(), None),
                                 };
+                                let (capture_id, selected_is_latest, latest_capture_id) = latest.trace_selection(&image);
                                 tracing::trace!(
                                     target: "pacing",
-                                    capture_id = latest.trace_publication_id(&image).unwrap_or(0),
+                                    capture_id,
+                                    attempt = trace_attempt,
+                                    host_acquired = ?image.acquired,
                                     presented = us(image.captured),
                                     acquired = us(image.acquired),
+                                    published = us(image.published),
                                     seen = us(seen),
                                     claim = us(begin),
                                     interval = interval.map_or(0, |i| i.as_micros() as u64),
@@ -2156,8 +2220,23 @@ impl Media {
                                     source_id = latest.trace_source_id(),
                                     stream_id = %s.launch.id,
                                     fresh,
+                                    choice = if fresh { "fresh" } else if recovering { "recovery_repeat" } else { "static_repeat" },
+                                    selected_is_latest,
+                                    latest_capture_id,
+                                    encoder_pending = encoding,
+                                    sender_pending = sending,
+                                    encoder_limit = encoding_limit,
+                                    rebuilt,
+                                    grid_us = admission.micros(AdmissionWait::Grid),
+                                    capture_check_us = admission.micros(AdmissionWait::Capture),
+                                    fresh_rate_us = admission.micros(AdmissionWait::FreshRate),
+                                    repeat_us = admission.micros(AdmissionWait::Repeat),
+                                    encoder_pressure_us = admission.micros(AdmissionWait::Encoder),
+                                    sender_pressure_us = admission.micros(AdmissionWait::Sender),
+                                    admission_passes = ?admission.passes,
                                     "claim"
                                 );
+                                *admission = AdmissionTrace::default();
                             }
                             if timings_logged && fresh && claim_ages.len() < 4096 {
                                 let micros = |d: Duration| d.as_micros().min(u128::from(u64::MAX)) as u64;
@@ -2203,6 +2282,7 @@ impl Media {
                             let mut presented_image = image.as_ref().clone();
                             if !fresh { presented_image.captured = Instant::now(); }
                             progress.mark(crate::stall_watch::Phase::Encode);
+                            let encode_trace_started = trace_send.then(Instant::now);
                             let encoded = (|| -> Result<Vec<butterpollo_windows::encoder::Encoded>> {
                                 #[cfg(debug_assertions)]
                                 crate::soak_fault::check("encoder failure")?;
@@ -2217,6 +2297,22 @@ impl Media {
                                     )?
                                 })
                             })();
+                            if let Some(at) = encode_trace_started {
+                                tracing::trace!(
+                                    target: "pacing",
+                                    stream_id = %s.launch.id,
+                                    attempt = trace_attempt,
+                                    host_acquired = ?image.acquired,
+                                    submitted_presentation = ?presented_image.captured,
+                                    encode_call_us = at.elapsed().as_micros().min(u128::from(u64::MAX)) as u64,
+                                    submitted = active.last_submitted().filter(|submitted| *submitted >= at).map_or(0, |submitted| submitted.saturating_duration_since(start).as_micros() as u64),
+                                    outputs = encoded.as_ref().map_or(0, Vec::len),
+                                    ok = encoded.is_ok(),
+                                    idr,
+                                    fresh,
+                                    "encode returned"
+                                );
+                            }
                             let output = match encoded {
                                 Ok(output) => {
                                     recovery.output(output, Instant::now)?

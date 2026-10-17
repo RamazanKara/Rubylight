@@ -271,10 +271,20 @@ impl<T> Latest<T> {
         drop(previous);
         notified
     }
-    /// Match a claimed frame even if capture already published its replacement.
-    /// Call only while emitting pacing traces; untraced frames have no identity.
-    pub(super) fn trace_publication_id(&self, image: &Arc<T>) -> Option<u64> {
-        self.state.lock().unwrap().trace.id(image)
+    /// Match a claimed frame and the latest publication in one diagnostic snapshot.
+    /// Do not clone images here: a diagnostic clone could become the last GPU owner
+    /// and delay admission while releasing it. Untraced frames have identity zero.
+    pub(super) fn trace_selection(&self, image: &Arc<T>) -> (u64, bool, u64) {
+        let state = self.state.lock().unwrap();
+        let selected = state.trace.id(image).unwrap_or(0);
+        let current = state.image.as_ref();
+        (
+            selected,
+            current.is_some_and(|current| Arc::ptr_eq(current, image)),
+            current
+                .and_then(|current| state.trace.id(current))
+                .unwrap_or(0),
+        )
     }
     pub(super) fn trace_source_id(&self) -> u64 {
         self.trace_source_id

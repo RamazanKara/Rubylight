@@ -283,6 +283,9 @@ impl Sender {
                     fec_reported = Some(Instant::now());
                     s.launch.warnings.event("network_fec", "FEC was reduced or omitted for large video frames because they exceed Moonlight's four-block limit. Packet loss in those frames is harder to recover; lower bitrate or resolution to keep full FEC protection.", butterpollo_core::session::EVENT_PERIOD);
                 }
+                tracing::trace!(target: "pacing", stream_id = %s.launch.id,
+                    frame = wire_frame, presentation = ?frame.presentation,
+                    "packetized picture");
                 shared.enqueue(Prepared {
                     blocks, counts, layout, packetizer: wire, wire_frame, idr: frame.idr,
                     payload_bytes: frame.bytes.len(), peer, claimed, polled, packetized,

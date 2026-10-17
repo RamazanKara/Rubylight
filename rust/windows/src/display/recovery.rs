@@ -826,6 +826,21 @@ impl Guard {
         }
         Ok(false)
     }
+    /// A paused game retains its display for reconnect, but must not switch
+    /// it on or restore mode/HDR after the user changed the local layout.
+    pub fn keep_alive(&mut self) -> Result<()> {
+        if let Some(display) = &self.virtual_display {
+            display.lock().unwrap().keep_alive()?;
+        }
+        Ok(())
+    }
+    /// Repair and publish a paused display before its stream resumes.
+    pub fn resume(&mut self) -> Result<bool> {
+        if let Some(display) = &self.virtual_display {
+            display.lock().unwrap().recover_now()?;
+        }
+        self.feed()
+    }
 }
 /// Bring a recovered virtual display's HDR state and mode back to the
 /// stream's: Windows recalls what it saved for the display when it returns.

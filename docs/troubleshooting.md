@@ -181,6 +181,8 @@ Check **Settings → Display** and app/device overrides first. **Extended** inte
 
 Check **Restore displays on disconnect**, **Restore delay** and **Keep a disconnected display for** against the expected lifecycle. An app or retained remote-monitor session may still own a display after video disconnects.
 
+**Restore displays on disconnect** defaults to off. To return to the physical monitors when Moonlight disconnects while a game or Desktop session remains open, turn it on; the default restore delay is three seconds. Otherwise the game display is retained for up to two hours, or until the app is quit. A paused game should leave local Win+P changes alone while keeping its display available for reconnection. Resuming reactivates that display and reapplies the stream layout. A separate remote-monitor session intentionally keeps its monitor available until disconnected.
+
 When all streams have ended, use **Maintenance → Displays** to inspect whether the current layout matches the saved one. **Restore saved layout** applies that saved layout; **Save current layout** replaces it with the arrangement you currently want. Saving, restoring and resetting are unavailable during streaming.
 
 **Disconnect virtual displays** stops every stream and removes Rubylight-created virtual displays. **Reset display settings memory** forgets pending display changes that Rubylight would otherwise undo. Use those recovery actions deliberately after recording the problem; resetting memory is not the same as restoring a layout.

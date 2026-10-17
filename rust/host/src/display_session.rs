@@ -295,10 +295,11 @@ impl Ready {
                         Duration::from_millis(250)
                     };
                     let current = prepared.capture_target();
-                    drop(prepared);
                     // Publish a recreated target even when a later restoration
-                    // step needs a retry. Output and generation change together.
+                    // step needs a retry. Serialize publication with resume so
+                    // an older heartbeat cannot overwrite its new identity.
                     worker_target.publish(current);
+                    drop(prepared);
                     if let Err(error) = result {
                         tracing::warn!(%error, "game display heartbeat failed");
                     }
@@ -335,9 +336,11 @@ impl Ready {
         let framegen = self.framegen.lock().unwrap().clone();
         let limiter = limiter::Lease::acquire(directory, config, &framegen)?;
         butterpollo_windows::input::on_input_desktop(|| -> Result<()> {
-            let prepared = self._state.lock().unwrap();
+            let mut prepared = self._state.lock().unwrap();
             // A paused stream leaves local display changes alone. Resuming
-            // must restore its primary/exclusive layout before capture starts.
+            // must reactivate its target and restore the layout before capture.
+            let fed = prepared.display.as_mut().map_or(Ok(false), Guard::resume);
+            prepared.finish_feed(fed)?;
             if let Some(arrangement) = &prepared._arrangement {
                 arrangement.reapply(&prepared.output, &prepared.remote_monitors())?;
                 if let Some(display) = &prepared.display {
@@ -345,6 +348,7 @@ impl Ready {
                 }
                 self.mode_report.publish(applied_mode(&prepared.output));
             }
+            self.target.publish(prepared.capture_target());
             Ok(())
         })?;
         self.mode_report.attach(warnings);
@@ -550,9 +554,17 @@ impl Prepared {
         )
     }
     fn feed(&mut self, active: bool) -> Result<()> {
+        // Renew the driver lease while paused, without reactivating a display
+        // the user switched off through Win+P or restoring its mode/HDR.
+        if !active {
+            return self.display.as_mut().map_or(Ok(()), Guard::keep_alive);
+        }
+        let fed = self.display.as_mut().map_or(Ok(false), Guard::feed);
+        self.finish_feed(fed)
+    }
+    fn finish_feed(&mut self, fed: Result<bool>) -> Result<()> {
         // A heartbeat step that keeps failing, such as restoring a recovered
         // display's HDR, must not hold back the layout recovery below.
-        let fed = self.display.as_mut().map_or(Ok(false), Guard::feed);
         if let (Ok(true), Some(display)) = (&fed, &self.display) {
             self.output = display.output.clone();
             self.revision = self.revision.wrapping_add(1);
@@ -567,11 +579,6 @@ impl Prepared {
                 self.revision = generation;
                 self.recovery.start(std::time::Instant::now());
             }
-        }
-        // A paused game keeps its virtual display, but no longer overrides
-        // display changes the user makes locally while no transport owns it.
-        if !active {
-            return fed.map(|_| ());
         }
         if self.recovery.due(std::time::Instant::now()) {
             // A remote monitor's scale is set by its lease.
@@ -1370,12 +1377,9 @@ mod tests {
     use std::cell::Cell;
     use std::sync::mpsc;
 
-    #[test]
-    fn a_retained_display_stops_enforcing_layout_after_the_last_preparation_drops() {
-        let fixture = crate::state::test_support::Fixture::new();
-        let config = Config::default();
-        let policy = Policy::resolve(
-            &config,
+    fn test_prepared(host: &Shared) -> Prepared {
+        let framegen = Policy::resolve(
+            &Config::default(),
             Rate(60_000),
             false,
             "none",
@@ -1385,10 +1389,10 @@ mod tests {
             false,
         )
         .unwrap();
-        let prepared = Prepared {
+        Prepared {
             display: None,
             output: String::new(),
-            framegen: policy.clone(),
+            framegen,
             _arrangement: None,
             _activation: None,
             _profile: None,
@@ -1406,9 +1410,17 @@ mod tests {
             recovery_scale: 0,
             recovery_dimensions: (640, 480),
             recovery_profile: None,
-            host: Arc::downgrade(&fixture.host),
-        };
-        let limiter = limiter::Lease::acquire(&fixture.host.directory, &config, &policy).unwrap();
+            host: Arc::downgrade(host),
+        }
+    }
+
+    #[test]
+    fn a_retained_display_stops_enforcing_layout_after_the_last_preparation_drops() {
+        let fixture = crate::state::test_support::Fixture::new();
+        let config = Config::default();
+        let prepared = test_prepared(&fixture.host);
+        let limiter =
+            limiter::Lease::acquire(&fixture.host.directory, &config, &prepared.framegen).unwrap();
         let first = Ready::prepare((prepared, limiter)).unwrap();
         let display = first.display.clone();
         let mut changed = Config::parse("virtual_display_layout=extended").unwrap();
@@ -1471,6 +1483,92 @@ mod tests {
         assert!(paused.recovery.pending);
         drop(paused);
         drop(display);
+    }
+
+    #[test]
+    #[ignore = "creates a virtual display, disables it while paused, and resumes it"]
+    fn native_paused_game_leaves_a_disabled_display_off_until_resume() -> Result<()> {
+        use butterpollo_windows::display::{Snapshot, Topology, VirtualOptions, monitors};
+
+        let before = Snapshot::capture()?;
+        let result = (|| -> Result<()> {
+            let fixture = crate::state::test_support::Fixture::new();
+            let config = Config::default();
+            let guard = Guard::new_virtual_options(
+                "",
+                true,
+                &format!("paused-game-test-{}", std::process::id()),
+                1280,
+                720,
+                Rate(60_000),
+                None,
+                None,
+                None,
+                &VirtualOptions::default(),
+            )?;
+            let target = monitors()?
+                .into_iter()
+                .find(|monitor| monitor.matches(&guard.output))
+                .context("test display unavailable")?;
+            let mut prepared = test_prepared(&fixture.host);
+            prepared.output = guard.output.clone();
+            prepared.display = Some(guard);
+            let limiter =
+                limiter::Lease::acquire(&fixture.host.directory, &config, &prepared.framegen)?;
+            let stream = Ready::prepare((prepared, limiter))?;
+            let display = stream.display.clone();
+            drop(stream);
+            anyhow::ensure!(display.active.load(Ordering::Acquire) == 0);
+
+            // The same operation as a local layout that excludes the virtual display.
+            let kept: Vec<_> = monitors()?
+                .into_iter()
+                .filter(|monitor| monitor.device_id != target.device_id)
+                .map(|monitor| monitor.device_id)
+                .collect();
+            anyhow::ensure!(!kept.is_empty(), "test needs another active display");
+            Topology::set_active(&kept)?;
+            let physical = Snapshot::capture()?;
+            // Cross the driver's 10 s watchdog and its 3 s polling ticks.
+            let deadline = std::time::Instant::now() + Duration::from_secs(16);
+            while std::time::Instant::now() < deadline {
+                std::thread::sleep(Duration::from_millis(250));
+                anyhow::ensure!(
+                    !monitors()?.iter().any(|m| m.device_id == target.device_id),
+                    "paused game reactivated the display the user switched off"
+                );
+            }
+            anyhow::ensure!(
+                Topology::query_all()?
+                    .monitors()
+                    .iter()
+                    .any(|m| m.device_id == target.device_id),
+                "paused game's display lease expired"
+            );
+            anyhow::ensure!(
+                serde_json::to_value(Snapshot::capture()?)? == serde_json::to_value(physical)?,
+                "paused renewal changed the physical displays"
+            );
+
+            let resumed = display.clone().resume(
+                &fixture.host.directory,
+                &config,
+                Arc::new(Warnings::default()),
+            )?;
+            let (output, generation) = display.capture_target();
+            anyhow::ensure!(
+                monitors()?
+                    .iter()
+                    .any(|m| m.device_id == target.device_id && m.matches(&output)),
+                "resume returned before publishing the active capture target"
+            );
+            anyhow::ensure!(generation > 0, "resume did not publish the new generation");
+            drop(resumed);
+            drop(display);
+            Ok(())
+        })();
+        before.restore()?;
+        result
     }
 
     #[test]

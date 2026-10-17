@@ -1,12 +1,12 @@
-# Rubylight 2.4.7 for Windows
+# Rubylight 2.4.8 for Windows
 
 [Documentation](../docs/README.md) · [Install and migrate](../docs/getting-started.md) · [Configuration](../docs/configuration.md) · [Features](../docs/features.md)
 
-**Release history:** [2.4.7](#new-in-247) · [2.4.6](#new-in-246) · [2.4.5](#new-in-245) · [2.4.4](#new-in-244) · [2.4.3](#new-in-243) · [2.4.2](#new-in-242) · [2.4.1](#new-in-241) · [2.4.0](#new-in-240) · [2.3.1](#new-in-231) · [2.3.0](#new-in-230) · [2.2.2 – 2.2.21](#new-in-2221) · [2.2.1](#new-in-221) · [2.2.0](#new-in-220) · [2.1.0](#new-in-210) · [2.0.x](#new-in-201) · [release candidates](#new-in-rc30)
+**Release history:** [2.4.8](#new-in-248) · [2.4.7](#new-in-247) · [2.4.6](#new-in-246) · [2.4.5](#new-in-245) · [2.4.4](#new-in-244) · [2.4.3](#new-in-243) · [2.4.2](#new-in-242) · [2.4.1](#new-in-241) · [2.4.0](#new-in-240) · [2.3.1](#new-in-231) · [2.3.0](#new-in-230) · [2.2.2 – 2.2.21](#new-in-2221) · [2.2.1](#new-in-221) · [2.2.0](#new-in-220) · [2.1.0](#new-in-210) · [2.0.x](#new-in-201) · [release candidates](#new-in-rc30)
 
-Rubylight, called Butterpollo until rc.29, is written in Rust: host, native helpers, service and setup, with a Svelte web console. The 2.4.7 installer is named `rubylight-setup-2.4.7.exe` and upgrades an existing Vibepollo or Butterpollo installation in place, keeping settings, paired devices, the app library and covers. Codec SDKs and Windows drivers remain external components; the setup installs the drivers.
+Rubylight, called Butterpollo until rc.29, is written in Rust: host, native helpers, service and setup, with a Svelte web console. The 2.4.8 installer is named `rubylight-setup-2.4.8.exe` and upgrades an existing Vibepollo or Butterpollo installation in place, keeping settings, paired devices, the app library and covers. Codec SDKs and Windows drivers remain external components; the setup installs the drivers.
 
-## Unreleased
+## New in 2.4.8
 
 - **Moonlight host timing matches Punktfunk's GameStream software path.** The timer starts at the capture/encode output tick and stops at entry into packetization. Conventional video and PyroWave prepare packets before handing them to a separate paced sender, so the prepared packets' queue and send time cannot inflate the value. Packetizer backlog is still counted. Asynchronous output uses the tick that polls it; the original encoder duration and full present-to-sent timing remain separate measurements. The wire field truncates and saturates exactly as Punktfunk's does.
 - **Send delays can be diagnosed from ordinary logs.** Conventional output records its prepared-packet queue separately and logs unusually slow frames with their size, effective pacing rate, expected wire time, pacing waits and socket waits. Network pacing limits are unchanged.

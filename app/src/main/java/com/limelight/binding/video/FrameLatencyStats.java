@@ -199,6 +199,16 @@ class FrameLatencyStats {
     // (the decoder beat the bookkeeping) keeps its earlier start.
     synchronized void onDecoderQueued(long ptsUs, long queuedNs) {
         artemisQueuedNs.put(ptsUs, queuedNs);
+        recordDecoderQueued(ptsUs, queuedNs);
+    }
+
+    // PyroWave measures CPU submission separately and never consumes the MediaCodec hand-off
+    // counter. Keep its precise queue/completion samples without retaining unused boxed entries.
+    synchronized void onPyroWaveDecoderQueued(long ptsUs, long queuedNs) {
+        recordDecoderQueued(ptsUs, queuedNs);
+    }
+
+    private void recordDecoderQueued(long ptsUs, long queuedNs) {
         Frame frame = pending.get(ptsUs);
         if (frame == null) {
             return;

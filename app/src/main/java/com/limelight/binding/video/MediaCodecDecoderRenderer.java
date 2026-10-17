@@ -2543,7 +2543,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             long ptsUs = Math.max(inputNs / 1000, lastTimestampUs + 1);
             lastTimestampUs = ptsUs;
             frameLatencyStats.onDecoderInput(frameNumber, ptsUs, receiveTimeNs, enqueueTimeNs, inputNs, frameHostProcessingLatency);
-            frameLatencyStats.onDecoderQueued(ptsUs, inputNs);
+            frameLatencyStats.onPyroWaveDecoderQueued(ptsUs, inputNs);
             // Newest frame wins: every PyroWave frame is intra-only, so when a newer one is already
             // waiting, decoding this one would only delay it. A phone that falls behind catches up
             // at once instead of working through a backlog.

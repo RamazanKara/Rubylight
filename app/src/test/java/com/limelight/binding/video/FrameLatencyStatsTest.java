@@ -16,6 +16,48 @@ import static org.junit.Assert.*;
 
 public class FrameLatencyStatsTest {
     @Test
+    public void pyroWaveQueuePreservesPreciseTimingsWithoutMediaCodecCounter() throws Exception {
+        FrameLatencyStats stats = new FrameLatencyStats();
+        stats.onDecoderInput(7, 123, 1000000, 1000001, 2000000, (char) 0);
+        stats.onPyroWaveDecoderQueued(123, 2100011);
+        stats.onDecoderOutput(0, 123, 7000033);
+        stats.onArtemisDecodeCounted(123, 7000033);
+        assertEquals(0, stats.getArtemisDecodeMs());
+        assertArrayEquals(new double[] {1, 1.100010, 1.100010, 1.100010}, stats.summarize()[0], 0.0000001);
+        assertArrayEquals(new double[] {1, 4.900022, 4.900022, 4.900022}, stats.summarize()[1], 0.0000001);
+        stats.onOutputReleased(0, 8000044, false, false);
+        StringWriter csv = new StringWriter();
+        stats.writeCsv(csv);
+        String[] fields = csv.toString().trim().split(",", -1);
+        assertEquals("4.900022", fields[9]);
+        assertEquals("1.100010", fields[25]);
+    }
+
+    @Test
+    public void pyroWaveQueueDoesNotFillOrEvictTheMediaCodecCounter() {
+        FrameLatencyStats stats = new FrameLatencyStats();
+        stats.onDecoderQueued(1, 1000000);
+        for (long pts = 2; pts < 3000; pts++) {
+            stats.onPyroWaveDecoderQueued(pts, 2000000);
+        }
+        // PyroWave entries must not consume the bounded legacy map, even without pending frames.
+        stats.onArtemisDecodeCounted(2999, 9000000);
+        assertEquals(0, stats.getArtemisDecodeMs());
+        stats.onArtemisDecodeCounted(1, 5900000);
+        assertEquals(4, stats.getArtemisDecodeMs());
+    }
+
+    @Test
+    public void pyroWaveCompletionBeforeQueueKeepsItsOriginalStart() {
+        FrameLatencyStats stats = new FrameLatencyStats();
+        stats.onDecoderInput(1, 123, 1000000, 1500000, 2000000, (char) 0);
+        stats.onDecoderOutput(0, 123, 3000000);
+        stats.onPyroWaveDecoderQueued(123, 4000000);
+        assertArrayEquals(new double[] {1, 0.5, 0.5, 0.5}, stats.summarize()[0], 0);
+        assertArrayEquals(new double[] {1, 1, 1, 1}, stats.summarize()[1], 0);
+    }
+
+    @Test
     public void recentSummaryExpiresEachStageEvenWhenOtherStagesKeepReceivingFrames() {
         FrameLatencyStats stats = new FrameLatencyStats();
         stats.onDecoderInput(1, 1, 1000000000, 1000000000, 1001000000, (char) 300);

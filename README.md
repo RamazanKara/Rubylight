@@ -41,20 +41,22 @@
 
 **Play away from home.** A built-in guide sets up a private Tailscale connection and tests the paired PC from wherever you are. On Rubylight it also shows whether the connection runs direct or through a relay.
 
+**Your library in your launcher.** Export games to Beacon, ES-DE, Daijisho or Pegasus from **PC settings → Add games to a launcher**. Pick the launcher and folder, then follow the built-in setup instructions or copy its launch command. Nightjar remembers successful export folders for each PC and launcher, so **Update games** refreshes entries in place. ES-DE can also receive its system configuration and cached covers. [Launcher setup](docs/FRONTENDS.md).
+
 ## Everything else
 
 - AV1, HEVC and H.264 with HDR10, and 4:4:4 where the host offers it
 - Touch, trackpad, mouse, pen and keyboard, with editable keyboard shortcuts and per-game touch controls (keys, gamepad buttons, sticks, triggers, D-pad) you can export, share and import from Artemis ([controls](docs/controls.md))
-- Touch modes: natural trackpad with glide, a Local cursor drawn on the phone, or Touch off for controller play
-- Video scaling (Fit, Fill, Stretch, 1:1), picture position, and portrait or rotate-with-device streams
+- Touch modes: natural trackpad with adjustable acceleration, glide and active area, a Local cursor drawn on the phone, or Touch off for controller play; configurable three- and four-finger tap shortcuts
+- Video scaling (Fit, Fill, Stretch, 1:1), picture position, custom stream resolutions, and portrait or rotate-with-device streams
 - Named stream profiles picked by network, per-game stream settings and a mobile data bitrate cap
-- Controller test page, rumble off, Back or Right Alt as the Windows key, and an opt-in Switch Pro USB driver
+- Per-controller button and stick/trigger mappings, a controller test page, an opt-in physical Back shortcut for handhelds such as AYN Thor, rumble off, keyboard Back or Right Alt as the Windows key, and an opt-in Switch Pro USB driver
 - Quick resume, quit the game when you leave, and opt-in tolerance for network drops of up to 60 seconds
 - Wi-Fi details and stutter-rhythm detection in the stream doctor, and shareable device results ([devices](docs/devices.md))
-- Desktop tools: pinch zoom, and video on an external display with the phone as a touchpad
+- Desktop tools: a compact keyboard and trackpad panel with key banks and shortcuts, pinch zoom, and video on an external display with the phone as a touchpad
 - Settings per PC, Native and Battery saver presets, Wake-on-LAN and automatic discovery
-- Phones, foldables, tablets and Android TV with D-pad navigation, plus picture-in-picture
-- Launcher entries for ES-DE, Daijisho and Pegasus
+- Phones, foldables, tablets, Android TV and Fire TV with D-pad navigation, plus picture-in-picture; TV remote Back and Menu open stream controls, and D-pad/Select send arrow keys/Enter to the PC ([controls](docs/controls.md#tv-and-fire-tv-remotes))
+- Optional OLED black appearance for app screens, menus and dialogs, even with a light system theme
 - Built-in help that works offline, and problem reports that stay on your phone until you share them
 - In 15 languages; native speakers can [help translate](docs/TRANSLATIONS.md#help-translate)
 - No ads, no analytics, no accounts

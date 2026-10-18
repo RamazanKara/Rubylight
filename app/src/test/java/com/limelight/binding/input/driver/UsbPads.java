@@ -41,6 +41,16 @@ public final class UsbPads {
                 endpoint(0x81, 64), endpoint(0x01, 64)));
     }
 
+    static UsbDevice gameSir(String name, int vendorId, boolean xboxOne) {
+        return device(name, vendorId, 1, usbInterface(0, UsbConstants.USB_CLASS_VENDOR_SPEC,
+                xboxOne ? 71 : 93, xboxOne ? 208 : 1, endpoint(0x81, 64), endpoint(0x01, 64)));
+    }
+
+    static UsbDevice gameSirAndroid(String name) {
+        return device(name, 0x3537, 1, usbInterface(0, UsbConstants.USB_CLASS_HID, 0, 0,
+                endpoint(0x81, 64)));
+    }
+
     // An input report from a DualSense at rest.
     static byte[] dualSenseReport() {
         byte[] report = new byte[DualSenseReport.INPUT_SIZE];

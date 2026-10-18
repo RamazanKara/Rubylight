@@ -61,6 +61,8 @@ For gyro aiming and radial menus, use the game’s **Steam Input** controller la
 
 The separate **USB controller driver** setting supplies Xbox USB support. **Always use the USB driver** prefers that path even if Android already recognizes the controller.
 
+For a GameSir G8+ MFi, use its green **Xbox mode** for direct USB input and rumble. Keep **USB controller driver** enabled and allow Nightjar’s USB access request when you start a stream or open **Controller test**. If Android already recognizes the controller, enable **Always use the USB driver** and reconnect it. Blue **Android mode** uses Android’s input support, which may not expose rumble. See the [GameSir manual](https://gamesir.com/support/manuals/gamesir-g8-plus-mfi) for switching modes.
+
 ### Switch Pro over USB
 
 **Untested on hardware.** This driver was written from the published protocol notes and has not yet been tried with a real controller. If it misbehaves, turn it off; Android's own input path keeps working.

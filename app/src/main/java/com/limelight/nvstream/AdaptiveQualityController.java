@@ -126,13 +126,14 @@ public final class AdaptiveQualityController {
                           boolean bitrateHasRoom, DecodeTiming timing, boolean observeTail) {
         if (mode == Mode.OFF || !recentVideo) { suspend(); return null; }
         float frameMs = 1000f / current().fps;
+        double decodeBudgetMs = DecodeTiming.decodeBudgetMs(current().fps);
         boolean validTiming = observeTail && acceptTiming(now, timing);
         // A single keyframe cannot satisfy both the count and ratio. Four fresh intervals
         // must agree, so even a whole brief burst cannot be reused to force a reduction.
         boolean tailPressure = validTiming && timing.lateFrames >= 3 &&
                 timing.lateFrames * 10L >= timing.samples;
         tailPressureSamples = tailPressure ? tailPressureSamples + 1 : 0;
-        boolean devicePressure = thermalLevel >= 2 || decodeMs >= frameMs;
+        boolean devicePressure = thermalLevel >= 2 || decodeMs >= decodeBudgetMs;
         boolean networkPressure = poorConnection || loss >= 3 || queueMs >= Math.max(20, frameMs * 2);
         devicePressureSamples = devicePressure ? devicePressureSamples + 1 : 0;
         networkPressureSamples = networkPressure && !bitrateHasRoom ? networkPressureSamples + 1 : 0;
@@ -148,7 +149,7 @@ public final class AdaptiveQualityController {
         }
         boolean healthy = (!observeTail || (validTiming && timing.lateFrames * 50L <= timing.samples)) &&
                 thermalLevel == 0 && loss >= 0 && loss < 0.5f &&
-                decodeMs >= 0 && decodeMs < frameMs * 0.65f && jitterMs >= 0 &&
+                decodeMs >= 0 && decodeMs < decodeBudgetMs * 0.75 && jitterMs >= 0 &&
                 jitterMs < Math.max(5, frameMs * 0.25f) && (queueMs < 0 || queueMs < Math.max(4, frameMs / 2));
         if (!healthy) healthySince = -1;
         else if (healthySince < 0) healthySince = now;
@@ -174,9 +175,9 @@ public final class AdaptiveQualityController {
         boolean newWindow = timing.windowEndNs > timingWindowEndNs &&
                 timing.windowStartNs >= timingWindowEndNs;
         timingWindowEndNs = Math.max(timingWindowEndNs, timing.windowEndNs);
-        // Low-FPS streams still need most of a second of observations; at higher rates
-        // require at least 30 outputs. A full or paused decoder cannot look healthy.
-        int minimumSamples = Math.max(12, Math.min(30, current().fps / 2));
+        // A quiet host may send fewer frames than the negotiated rate. Require enough fresh
+        // outputs spread over half a second, so pauses and short bursts still cannot recover.
+        int minimumSamples = 12;
         return newWindow && timing.fps == current().fps && timing.windowStartNs >= 0 &&
                 timing.windowEndNs - timing.windowStartNs <= 2_000_000_000L &&
                 timing.samples >= minimumSamples && timing.lateFrames >= 0 &&

@@ -16,6 +16,17 @@ import java.util.concurrent.TimeUnit;
 import static org.junit.Assert.*;
 
 public class FrameLatencyStatsTest {
+    @Test public void highFrameRateAllowsTwoFramesOfPipelineLatencyButStillCountsStalls() {
+        FrameLatencyStats stats = new FrameLatencyStats();
+        for (int i = 1; i <= 120; i++) {
+            timedOutput(stats, i, 1_000_000_000L + i * 8_000_000L,
+                    i % 10 == 0 ? 20_000_000L : 12_000_000L, 0, -1);
+        }
+        DecodeTiming timing = stats.takeDecodeTiming(2_000_000_000L, 120);
+        assertEquals(120, timing.samples);
+        assertEquals(12, timing.lateFrames);
+    }
+
     private static void timedOutput(FrameLatencyStats stats, int number, long outputNs,
                                     long decodeNs, long queueNs, long displayNs) {
         long inputNs = outputNs - decodeNs;
@@ -62,9 +73,9 @@ public class FrameLatencyStatsTest {
     @Test public void decodeTailBoundsHistoryAndUsesTheExactRequestedFrameBudget() {
         FrameLatencyStats stats = new FrameLatencyStats();
         timedOutput(stats, 1, 1_000_000_000L, 50_000_000L, 0, 0);
-        // At 50 FPS exactly 20 ms is on time; only a duration above that budget is late.
-        timedOutput(stats, 2, 4_000_000_000L, 20_000_000L, 0, 0);
-        timedOutput(stats, 3, 4_020_000_000L, 20_000_001L, 0, 0);
+        // At 50 FPS the two-frame decode budget is 40 ms; only durations above it are late.
+        timedOutput(stats, 2, 4_000_000_000L, 40_000_000L, 0, 0);
+        timedOutput(stats, 3, 4_020_000_000L, 40_000_001L, 0, 0);
         DecodeTiming timing = stats.takeDecodeTiming(5_000_000_000L, 50);
         assertEquals(2, timing.samples);
         assertEquals(1, timing.lateFrames);

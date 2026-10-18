@@ -4,6 +4,46 @@ import org.junit.Test;
 import static org.junit.Assert.*;
 
 public class AdaptiveQualityControllerTest {
+    @Test public void steadilyUpdatingQuietDesktopCanRecoverWithoutFullRateOutput() {
+        for (int outputs : new int[] {12, 15, 20}) {
+            AdaptiveQualityController quality = controller(AdaptiveQualityController.Mode.MOTION);
+            quality.applied(hot(quality, 15000), 18000);
+            for (long now = 19000; now < 49000; now += 1000) {
+                assertNull(tail(quality, now, timing(now, 120, outputs, 0)));
+            }
+            assertNotNull("outputs per second: " + outputs,
+                    tail(quality, 49000, timing(49000, 120, outputs, 0)));
+        }
+    }
+
+    @Test public void pipelinedDecodeLatencyDoesNotReduceQualityAndAllowsRecovery() {
+        AdaptiveQualityController quality = controller(AdaptiveQualityController.Mode.MOTION);
+        for (long now = 20000; now < 60000; now += 1000) {
+            assertNull(quality.sample(now, true, false, 0, 12, 0, 0, 0, true,
+                    timing(now, 120, 120, 0)));
+        }
+        quality.applied(hot(quality, 60000), 63000);
+        for (long now = 64000; now < 94000; now += 1000) {
+            assertNull(quality.sample(now, true, false, 0, 12, 0, 0, 0, true,
+                    timing(now, 120, 120, 0)));
+        }
+        assertNotNull(quality.sample(94000, true, false, 0, 12, 0, 0, 0, true,
+                timing(94000, 120, 120, 0)));
+    }
+
+    @Test public void tooFewOutputsOrABriefBurstCannotRecoverAStalledDecoder() {
+        for (boolean burst : new boolean[] {false, true}) {
+            AdaptiveQualityController quality = controller(AdaptiveQualityController.Mode.MOTION);
+            quality.applied(hot(quality, 15000), 18000);
+            for (long now = 19000; now < 100000; now += 1000) {
+                long end = now * 1_000_000L;
+                DecodeTiming sample = burst ? new DecodeTiming(0, end - 1_000_000_000L, end,
+                        end - 100_000_000L, end - 1, 120, 20, 0) : timing(now, 120, 11, 0);
+                assertNull(tail(quality, now, sample));
+            }
+        }
+    }
+
     private DecodeTiming timing(long nowMs, int fps, int samples, int late) {
         long end = nowMs * 1_000_000L;
         return new DecodeTiming(0, end - 1_000_000_000L, end,
@@ -56,7 +96,7 @@ public class AdaptiveQualityControllerTest {
                 long end = now * 1_000_000L;
                 DecodeTiming sample;
                 switch (scenario) {
-                    case 0: sample = timing(now, 120, 29, 20); break;
+                    case 0: sample = timing(now, 120, 11, 10); break;
                     case 1: sample = new DecodeTiming(0, end - 1_000_000_000L, end,
                             end - 950_000_000L, end - 600_000_000L, 120, 120, 60); break;
                     case 2: sample = new DecodeTiming(0, end - 1_000_000_000L, end,
@@ -109,7 +149,7 @@ public class AdaptiveQualityControllerTest {
             AdaptiveQualityController quality = controller(AdaptiveQualityController.Mode.MOTION);
             for (long now = 20000; now <= 23000; now += 1000) {
                 AdaptiveQualityController.Target target = quality.sample(now, true, false, 0,
-                        heat ? 2 : 12, 0, 0, heat ? 2 : 0, true, null);
+                        heat ? 2 : 20, 0, 0, heat ? 2 : 0, true, null);
                 if (now < 23000) assertNull(target);
                 else assertNotNull(target);
             }
@@ -119,13 +159,13 @@ public class AdaptiveQualityControllerTest {
     @Test public void decoderGenerationChangeAlsoDiscardsOldMeanPressureVotes() {
         AdaptiveQualityController quality = controller(AdaptiveQualityController.Mode.MOTION);
         for (long now = 20000; now < 23000; now += 1000) {
-            assertNull(quality.sample(now, true, false, 0, 12, 0, 0, 0, true,
+            assertNull(quality.sample(now, true, false, 0, 20, 0, 0, 0, true,
                     timing(now, 120, 120, 0)));
         }
         DecodeTiming next = timing(23000, 120, 120, 0);
         next = new DecodeTiming(1, next.windowStartNs, next.windowEndNs, next.firstSampleNs,
                 next.lastSampleNs, next.fps, next.samples, next.lateFrames);
-        assertNull(quality.sample(23000, true, false, 0, 12, 0, 0, 0, true, next));
+        assertNull(quality.sample(23000, true, false, 0, 20, 0, 0, 0, true, next));
     }
 
     @Test public void lowFrameRateStillRequiresSeveralLateFramesAndNormalFloors() {
@@ -191,8 +231,8 @@ public class AdaptiveQualityControllerTest {
 
     @Test public void slowDecoderReducesWorkEvenBeforeBitrateHitsItsFloor() {
         AdaptiveQualityController quality = controller(AdaptiveQualityController.Mode.MOTION);
-        for (int i = 0; i < 3; i++) assertNull(quality.sample(20000 + i * 1000L, true, false, 0, 12, 0, 0, 0, true));
-        assertNotNull(quality.sample(23000, true, false, 0, 12, 0, 0, 0, true));
+        for (int i = 0; i < 3; i++) assertNull(quality.sample(20000 + i * 1000L, true, false, 0, 20, 0, 0, 0, true));
+        assertNotNull(quality.sample(23000, true, false, 0, 20, 0, 0, 0, true));
     }
 
     @Test public void requestMustBeAppliedAndReductionsAreSeparatedByFifteenSeconds() {

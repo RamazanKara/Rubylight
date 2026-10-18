@@ -334,7 +334,7 @@ class FrameLatencyStats {
                 long observed = sampleTimes[1][index];
                 if (observed <= startNs || observed > nowNs) continue;
                 sampled++;
-                if (samples[1][index] > 1_000_000_000d / fps) late++;
+                if (samples[1][index] > DecodeTiming.decodeBudgetMs(fps) * 1_000_000d) late++;
                 first = first == 0 ? observed : Math.min(first, observed);
                 last = Math.max(last, observed);
             }

@@ -34,6 +34,8 @@ On a host that supports runtime bitrate (currently Rubylight), choosing automati
 
 Resolution/FPS reductions are at least 15 seconds apart. Decoder/thermal pressure must persist for four samples; network pressure at a reduced bitrate must persist for eight. Recovery takes one step after 30 healthy seconds, with adequate decode headroom and no thermal warning. Missing video, unknown recovery metrics, menus, backgrounding and picture in picture do not count as healthy time.
 
+Decode timing allows two frame intervals for pipeline latency before treating a frame as late; recovery requires the average below one and a half intervals. A quiet host can recover while sending fewer frames than the requested FPS: each timing window still needs at least 12 fresh outputs spread over half a second, with its newest output no more than half a second old. Pauses, brief bursts and reused timing windows cannot count as recovery.
+
 The quality request keeps the negotiated codec, HDR/color mode and host display selection. The host controls what display mode it can apply. If a requested size is rejected or has not appeared in decoded frames within ten seconds, automatic quality stops with a visible explanation and leaves the stream connected. FPS is shown as a requested target because this protocol has no separate frame-rate acknowledgement; received/shown FPS in the existing overlay remains the measurement. A MediaCodec upscaler may fall back to direct output after a size change, as described in [upscaling](video-and-latency.md#upscaling).
 
 ## Verification limits

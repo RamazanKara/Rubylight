@@ -41,19 +41,10 @@ pub struct ClientPath {
     pub pace_bps: u64,
 }
 
-/// PyroWave uses the available wired link by default, but an explicit cap
-/// takes precedence over the bandwidth needed to send every intra frame.
-/// Without a known link speed, pace 25% above the frame's wire demand: a
-/// budget-sized frame needs about 1.11 times the bitrate on the wire, and
-/// pacing at exactly that leaves no room for send calls and timer wake-ups.
-///
-/// A client behind a slower port than the host's (1 GbE on a 2.5 GbE host,
-/// 2.5 GbE on 10 GbE, issue #31) cannot take frames at the host's link rate,
-/// and the switch drops what does not fit. So the pace also stays within what
-/// the client says of its path: its calibrated pace first, raised to carry the
-/// stream if needed; else 95% of its own link. Neither goes below the demand
-/// pacing or above the host's link. A client as fast as the host keeps the
-/// link rate, so its frames leave just as soon.
+/// A measured client pace, either endpoint's link and an explicit cap are
+/// ceilings, even when the requested stream cannot fit. A wired host alone
+/// says nothing about the client's path: unmeasured and wireless paths start
+/// 25% above wire demand instead of bursting at the host NIC's line rate.
 pub fn pyrowave_rate_bps(
     configured_kbps: i64,
     stream_kbps: u32,
@@ -61,26 +52,77 @@ pub fn pyrowave_rate_bps(
     demand_bps: u64,
     client: ClientPath,
 ) -> u64 {
+    pyrowave_route_rate_bps(
+        configured_kbps,
+        stream_kbps,
+        link_bps,
+        false,
+        demand_bps,
+        client,
+    )
+}
+
+pub fn pyrowave_route_rate_bps(
+    configured_kbps: i64,
+    stream_kbps: u32,
+    link_bps: u64,
+    wireless: bool,
+    demand_bps: u64,
+    client: ClientPath,
+) -> u64 {
     let demand = {
         let needed = demand_bps.max(u64::from(stream_kbps) * 1100);
         (needed.saturating_mul(5) / 4).max(1_000_000)
     };
-    if configured_kbps > 0 {
-        return rate_bps(configured_kbps, stream_kbps, link_bps, false, 0);
-    }
-    let host = (link_bps > 0).then(|| link_bps.saturating_mul(95) / 100);
-    if client.pace_bps > 0 {
-        let pace = client.pace_bps.max(demand);
-        return host.map_or(pace, |host| pace.min(host));
-    }
-    let Some(host) = host else {
-        return demand;
+    let requested = if configured_kbps > 0 {
+        (configured_kbps as u64).saturating_mul(1000)
+    } else if client.pace_bps > 0 {
+        client.pace_bps
+    } else if client.link_bps > 0 && !wireless {
+        client.link_bps.saturating_mul(95) / 100
+    } else {
+        demand
     };
-    let mut rate = host;
-    if client.link_bps > 0 {
-        rate = rate.min((client.link_bps.saturating_mul(95) / 100).max(demand));
+    let mut rate = requested.max(1);
+    for ceiling in [
+        link_bps.saturating_mul(95) / 100,
+        client.link_bps.saturating_mul(95) / 100,
+        client.pace_bps,
+    ] {
+        if ceiling > 0 {
+            rate = rate.min(ceiling);
+        }
     }
     rate
+}
+
+/// PyroWave groups used by both calibration and streaming: at most one
+/// millisecond on the wire, capped at one segmented UDP send.
+pub fn pyrowave_batch_limit(bps: u64, packet: usize, ipv6: bool) -> usize {
+    batch_payload_limit(bps, packet, ipv6, 65_507.min(packet.saturating_mul(64)))
+}
+
+/// Stable wire allowance for adaptation. Records include their headers and
+/// critical parity in the encoder budget. Legacy containers can add one
+/// four-byte length per eight-byte record, plus transport framing. Charge
+/// IPv6/encryption overhead conservatively for both address families.
+pub fn pyrowave_wire_rate_bps(
+    kbps: u32,
+    packet_size: usize,
+    records: bool,
+    period: Duration,
+) -> u64 {
+    let packet = packet_size.saturating_add(crate::pyrowave::WIRE_OVERHEAD) as f64;
+    let minimum = (packet * 8. / period.as_secs_f64().max(0.000_001)).ceil() as u64;
+    if records {
+        return (u64::from(kbps) * 1000).max(minimum);
+    }
+    let payload = packet_size.saturating_sub(16).max(1) as f64;
+    let bytes = (f64::from(kbps) * 125. * period.as_secs_f64()).ceil();
+    // The legacy container's packet count adds four bytes before the
+    // transport's eight-byte frame header. Both can cross a shard boundary.
+    let packets = ((bytes * 1.5 + 12.) / payload).ceil();
+    ((packets * packet * 8. / period.as_secs_f64().max(0.000_001)).ceil() as u64).max(minimum)
 }
 
 /// Whether an average packetized frame occupies at least a quarter-period
@@ -102,7 +144,7 @@ pub fn report_rate(
         warnings.clear("network_pacing_floor");
     }
     if bps < needed_bps {
-        warnings.set("network_pacing", format!("Network pacing is limited to {:.1} Mbps by the configured cap or routed link, below the stream's wire budget. Sending may delay or replace frames; lower client bitrate/FEC or raise the pacing cap only if the network has headroom.", bps as f64 / 1_000_000.));
+        warnings.set("network_pacing", format!("Network pacing is limited to {:.1} Mbps by the configured cap, measured client path or routed link, below the stream's wire budget. Sending may delay or replace frames; lower client bitrate/FEC or raise the pacing cap only if the network has headroom.", bps as f64 / 1_000_000.));
     } else {
         warnings.clear("network_pacing");
     }
@@ -179,6 +221,68 @@ impl Pacer {
 mod tests {
     use super::*;
     #[test]
+    fn unmeasured_and_wireless_pyrowave_routes_do_not_burst_at_the_host_link() {
+        let demand = 200_000_000;
+        let client = ClientPath {
+            link_bps: 10_000_000_000,
+            pace_bps: 0,
+        };
+        assert_eq!(
+            pyrowave_route_rate_bps(
+                0,
+                180_000,
+                10_000_000_000,
+                false,
+                demand,
+                ClientPath::default()
+            ),
+            250_000_000
+        );
+        assert_eq!(
+            pyrowave_route_rate_bps(0, 180_000, 10_000_000_000, true, demand, client),
+            250_000_000
+        );
+        for cap in [0, 50_000, 900_000] {
+            for host in [0, 100_000_000, 10_000_000_000] {
+                let measured = ClientPath {
+                    pace_bps: 80_000_000,
+                    ..client
+                };
+                let rate = pyrowave_route_rate_bps(cap, 180_000, host, false, demand, measured);
+                assert!(rate <= measured.pace_bps);
+                if cap > 0 {
+                    assert!(rate <= cap as u64 * 1000);
+                }
+                let warnings = crate::session::Warnings::default();
+                report_rate(&warnings, rate, demand, cap);
+                assert!(
+                    warnings
+                        .snapshot()
+                        .iter()
+                        .any(|w| w.code == "network_pacing")
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn pyrowave_batches_fit_wire_time_and_segment_limits_for_both_ip_families() {
+        for ipv6 in [false, true] {
+            for rate in [1, 10_000_000, 100_000_000, 1_000_000_000, 10_000_000_000] {
+                for packet in [272, 1072, 1440] {
+                    let payload = pyrowave_batch_limit(rate, packet, ipv6);
+                    let count = payload / packet;
+                    assert!(count >= 1);
+                    assert!(count <= 64);
+                    assert!(payload <= 64 * 1024);
+                    if count > 1 {
+                        assert!(count as u64 * (packet + overhead(ipv6)) as u64 * 8000 <= rate);
+                    }
+                }
+            }
+        }
+    }
+    #[test]
     fn conventional_wire_budget_includes_framing_encryption_and_fec_rounding() {
         for ipv6 in [false, true] {
             for key in [None, Some([0; 16])] {
@@ -207,6 +311,68 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn legacy_pyrowave_wire_budget_counts_container_headers_at_shard_boundaries() {
+        for (fps, boundary_kbps, boundary_packets) in [(125, 912, 2), (50, 4768, 14)] {
+            let period = Duration::from_secs_f64(1. / f64::from(fps));
+            for kbps in boundary_kbps - 1..=boundary_kbps + 1 {
+                for fec in [0, 20] {
+                    // Eight-byte codec packets maximize the length container's
+                    // overhead. Use the real container and transport encoder.
+                    let image_budget = crate::pyrowave::budget(kbps, period, 1392, false, fec);
+                    if image_budget < 16 {
+                        // Only the low-rate parity case emits no frame;
+                        // neither unprotected shard-boundary case is skipped.
+                        assert_eq!((fps, fec, image_budget), (125, 20, 0));
+                        continue;
+                    }
+                    let raw = vec![0; image_budget & !7];
+                    let records: Vec<_> = (0..raw.len()).step_by(8).map(|at| (at, 8)).collect();
+                    let frame = crate::pyrowave::container(&raw, &records).unwrap();
+                    let needed = pyrowave_wire_rate_bps(kbps, 1392, false, period);
+                    for ipv6 in [false, true] {
+                        for key in [None, Some([0; 16])] {
+                            let mut packetizer = crate::packet::VideoPacketizer {
+                                sequence: 0,
+                                iv_counter: 0,
+                                frame: 1,
+                                packet_size: 1392,
+                                fec_percent: 0,
+                                min_fec: 2,
+                                key,
+                            };
+                            let packets = packetizer
+                                .encode_pyrowave(
+                                    &frame,
+                                    0,
+                                    0,
+                                    crate::packet::PyrowaveFec {
+                                        records: false,
+                                        critical_percentage: fec as usize,
+                                        detail_percentage: 0,
+                                        wire_budget: 0,
+                                        ipv6,
+                                    },
+                                )
+                                .unwrap();
+                            let wire: usize =
+                                packets.iter().map(|p| p.len() + overhead(ipv6)).sum();
+                            let actual = (wire as f64 * 8. / period.as_secs_f64()).ceil() as u64;
+                            assert!(needed >= actual, "{fps}/{kbps}/{fec}: {needed} < {actual}");
+                            if kbps == boundary_kbps && fec == 0 {
+                                assert_eq!(packets.len(), boundary_packets);
+                                if ipv6 && key.is_some() {
+                                    assert_eq!(needed, actual);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     #[test]
     fn only_a_pacing_shortfall_warns_and_a_faster_link_clears_it() {
         let warnings = crate::session::Warnings::default();
@@ -276,15 +442,15 @@ mod tests {
         let demand = 512_000 * 60 * 8;
         assert_eq!(
             pyrowave_rate_bps(30_000, 30_000, 100_000_000, demand, ClientPath::default()),
-            33_000_000
+            30_000_000
         );
         assert_eq!(
             pyrowave_rate_bps(100_000, 100_000, 100_000_000, demand, ClientPath::default()),
-            80_000_000
+            95_000_000
         );
         assert_eq!(
             pyrowave_rate_bps(0, 30_000, 1_000_000_000, demand, ClientPath::default()),
-            950_000_000
+            demand * 5 / 4
         );
         assert_eq!(
             pyrowave_rate_bps(0, 30_000, 0, demand, ClientPath::default()),
@@ -315,7 +481,7 @@ mod tests {
             pyrowave_rate_bps(0, 270_000, 10 * G, demand, link(10 * G)),
             9_500_000_000
         );
-        // A calibrated pace wins, raised to carry the stream, capped by the host.
+        // Calibration remains a hard ceiling, even below the stream's demand.
         let pace = |bps| ClientPath {
             pace_bps: bps,
             link_bps: 10 * G,
@@ -326,26 +492,25 @@ mod tests {
         );
         assert_eq!(
             pyrowave_rate_bps(0, 270_000, 10 * G, demand, pace(100_000_000)),
-            demand * 5 / 4
+            100_000_000
         );
         assert_eq!(
             pyrowave_rate_bps(0, 270_000, G, demand, pace(2 * G)),
             950_000_000
         );
-        // Never below what the stream needs.
+        // An overloaded stream must not overrun a slower client link.
         assert_eq!(
             pyrowave_rate_bps(0, 270_000, 10 * G, demand, link(100_000_000)),
-            demand * 5 / 4
+            95_000_000
         );
-        // An explicit cap still wins; an unknown host link keeps the demand
-        // pacing whatever the client's link.
+        // Explicit caps and client evidence also apply without a host speed.
         assert_eq!(
             pyrowave_rate_bps(100_000, 100_000, 10 * G, demand, link(G)),
-            rate_bps(100_000, 100_000, 10 * G, false, 0)
+            100_000_000
         );
         assert_eq!(
             pyrowave_rate_bps(0, 270_000, 0, demand, link(G)),
-            demand * 5 / 4
+            950_000_000
         );
     }
 
@@ -396,7 +561,7 @@ mod tests {
             );
             assert_eq!(
                 pyrowave_rate_bps(0, kbps, 1_000_000_000, demand, ClientPath::default()),
-                950_000_000
+                (demand * 5 / 4).min(950_000_000)
             );
         }
     }

@@ -96,10 +96,9 @@ for fixture in sorted(directory.glob("*.rtp")):
     records = fixture.name.startswith("records-")
     assert bool(critical) == records
     assert (packets[0][26] & 0x80 != 0) == records
-    if records:
-        assert recovered > 0 and blocks[0]["rate"] >= 20
-    else:
-        assert recovered == 0
+    # Both record and legacy length frames use the normal Moonlight FEC layer.
+    # The small native fixtures fit the requested parity in four RS blocks.
+    assert recovered > 0 and blocks[0]["rate"] >= 20
     restored = fixture.with_suffix(".recovered.bin")
     restored.write_bytes(frame)
     output = subprocess.check_output([str(decoder.resolve()), str(restored.resolve())], text=True)

@@ -64,6 +64,15 @@ impl AdaptiveFec {
     /// `configured` is the `fec_percentage` setting (clamped to 0-100), and the ceiling.
     pub fn new(enabled: bool, configured: usize) -> Self {
         let ceiling = configured.min(100) as u8;
+        Self::with_ceiling(enabled, ceiling)
+    }
+
+    /// Record-framed PyroWave supports critical parity percentages up to 255.
+    pub fn pyrowave(enabled: bool, configured: usize) -> Self {
+        Self::with_ceiling(enabled, configured.min(255) as u8)
+    }
+
+    fn with_ceiling(enabled: bool, ceiling: u8) -> Self {
         Self {
             enabled,
             ceiling,

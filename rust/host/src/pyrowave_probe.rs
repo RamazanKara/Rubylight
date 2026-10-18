@@ -2,6 +2,7 @@
 //! from the address its HTTPS request reached, to that client's own address.
 use anyhow::{Context, Result, bail};
 use butterpollo_core::pyrowave_probe::{self, DURATION, Request, TOKEN_LEN};
+use butterpollo_windows::net::Batch;
 use std::{
     io::ErrorKind,
     net::{IpAddr, SocketAddr, UdpSocket},
@@ -14,7 +15,7 @@ pub struct Outcome {
     pub expected: u32,
     pub sent: u32,
     pub elapsed: Duration,
-    /// Sends refused for a full buffer and retried.
+    /// Bounded waits after a full send buffer refused a batch.
     pub send_retries: u32,
     /// The last refusal's OS error, 0 for none.
     pub last_send_error: i32,
@@ -82,59 +83,52 @@ pub fn send(socket: &UdpSocket, peer: SocketAddr, request: &Request) -> Result<O
         peer
     };
     let timer = butterpollo_windows::timing::Timer::new()?;
-    let schedule = pyrowave_probe::schedule(request, destination.is_ipv6());
-    let mut packet = pyrowave_probe::packet(&request.token, request.packet_size);
+    let ipv6 = destination.ip().to_canonical().is_ipv6();
+    let schedule = pyrowave_probe::schedule(request, ipv6);
+    let packet = pyrowave_probe::packet(&request.token, request.packet_size);
+    let packet_len = packet.len();
+    let mut packets = vec![packet; 64];
+    let mut batch = Batch::default();
+    batch.waits = Some(Default::default());
     let mut outcome = Outcome {
         expected: pyrowave_probe::expected(request.kbps, request.packet_size),
         ..Default::default()
     };
     let start = Instant::now();
+    let mut pacer = butterpollo_core::network_pacing::Pacer::new(start);
+    let pace_bps = u64::from(request.burst.map_or(request.kbps, |burst| burst.pace_kbps)) * 1000;
+    let batch_limit =
+        butterpollo_core::network_pacing::pyrowave_batch_limit(pace_bps, packet_len, ipv6);
     // An overloaded sender stops instead of queueing an ever later probe.
     let limit = DURATION + Duration::from_millis(100);
     let mut sequence = 0;
-    for (offset, end) in schedule {
-        if start.elapsed() > limit {
-            break;
+    'probe: for (offset, end) in schedule {
+        while sequence < end {
+            timer.until_precise((start + offset).max(pacer.due()));
+            if start.elapsed() > limit {
+                break 'probe;
+            }
+            let available = ((end - sequence) as usize).min(packets.len());
+            let count = Batch::count(&packets[..available], batch_limit);
+            for (index, packet) in packets[..count].iter_mut().enumerate() {
+                pyrowave_probe::set_sequence(packet, sequence + index as u32);
+            }
+            // Use the stream's segmentation, fallback and shared retry budget,
+            // so calibration exercises the same bursts and socket pressure.
+            let bytes = batch.send(socket, &packets[..count], destination)?;
+            let sent = bytes / packet_len;
+            outcome.sent += sent as u32;
+            pacer.sent(Instant::now(), bytes, sent, ipv6, pace_bps);
+            sequence += count as u32;
         }
-        timer.until_precise(start + offset);
-        for next in sequence..end {
-            pyrowave_probe::set_sequence(&mut packet, next);
-            send_one(socket, &packet, destination, &mut outcome);
-        }
-        sequence = end;
     }
     timer.until(start + DURATION);
     outcome.elapsed = start.elapsed();
-    Ok(outcome)
-}
-
-/// A momentarily full send buffer is retried for up to 1 ms, as the stream
-/// sender does, rather than counted lost.
-fn send_one(socket: &UdpSocket, packet: &[u8], to: SocketAddr, outcome: &mut Outcome) {
-    let until = Instant::now() + Duration::from_millis(1);
-    let mut retried = false;
-    loop {
-        match socket.send_to(packet, to) {
-            Ok(bytes) if bytes == packet.len() => {
-                outcome.sent += 1;
-                return;
-            }
-            Ok(_) => return,
-            Err(e) => {
-                outcome.last_send_error = e.raw_os_error().unwrap_or(-1);
-                // WSAENOBUFS: the send buffer is full.
-                let full = e.kind() == ErrorKind::WouldBlock || e.raw_os_error() == Some(10055);
-                if !full || Instant::now() >= until {
-                    return;
-                }
-                if !retried {
-                    retried = true;
-                    outcome.send_retries += 1;
-                }
-                std::thread::yield_now();
-            }
-        }
+    if let Some(waits) = batch.waits {
+        outcome.send_retries = waits.count.min(u64::from(u32::MAX)) as u32;
+        outcome.last_send_error = waits.last_error;
     }
+    Ok(outcome)
 }
 
 #[cfg(test)]
@@ -173,6 +167,18 @@ mod tests {
 
     #[test]
     fn a_client_receives_every_packet_of_a_loopback_probe() {
+        receives_probe(None);
+    }
+
+    #[test]
+    fn a_frame_shaped_probe_delivers_batched_packets_without_duplicates() {
+        receives_probe(Some(pyrowave_probe::Burst {
+            fps: 60,
+            pace_kbps: 800_000,
+        }));
+    }
+
+    fn receives_probe(burst: Option<pyrowave_probe::Burst>) {
         let client = UdpSocket::bind("127.0.0.1:0").unwrap();
         // Retain the complete probe while a busy test runner deschedules us.
         socket2::SockRef::from(&client)
@@ -182,7 +188,9 @@ mod tests {
         let socket = bind("127.0.0.1".parse().unwrap()).unwrap();
         let receiver =
             std::thread::spawn(move || receive(&client, pyrowave_probe::expected(20_000, 1024)));
-        let outcome = send(&socket, peer, &request(false)).unwrap();
+        let mut request = request(false);
+        request.burst = burst;
+        let outcome = send(&socket, peer, &request).unwrap();
         // 20 Mbps for 2 s at 1158 wire bytes a packet.
         assert_eq!(outcome.expected, 4_317);
         // A busy machine can fall behind and stop at the overload limit.

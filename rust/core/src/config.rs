@@ -254,12 +254,12 @@ impl Config {
     }
     /// Experimental packet-rate adaptation is explicitly enabled per stream.
     /// Manual pacing and host bitrate adaptation own their respective limits;
-    /// PyroWave and unknown codecs do not use the conventional controller.
+    /// Both conventional and PyroWave streams use the loss controller.
     pub fn adaptive_packet_pacing(&self, codec: u8) -> bool {
         self.boolean("host_adaptive_pacing", false)
             && self.integer("pacing_max_bitrate_kbps", 0) <= 0
             && !self.boolean("host_adaptive_bitrate", false)
-            && codec < 3
+            && codec <= 3
     }
     /// Pace like Wi-Fi after a lost keyframe or repeated frame loss (on by default). A
     /// manual pacing limit and the opt-in adaptations keep their own policies.
@@ -945,14 +945,14 @@ mod tests {
             ("", [false, false, false, false]),
             ("host_adaptive_pacing=false", [false, false, false, false]),
             ("host_adaptive_pacing=invalid", [false, false, false, false]),
-            ("host_adaptive_pacing=true", [true, true, true, false]),
+            ("host_adaptive_pacing=true", [true, true, true, true]),
             (
                 "host_adaptive_pacing=true\npacing_max_bitrate_kbps=0",
-                [true, true, true, false],
+                [true, true, true, true],
             ),
             (
                 "host_adaptive_pacing=true\npacing_max_bitrate_kbps=-1",
-                [true, true, true, false],
+                [true, true, true, true],
             ),
             (
                 "host_adaptive_pacing=true\npacing_max_bitrate_kbps=1",
@@ -968,7 +968,7 @@ mod tests {
             ),
             (
                 "host_adaptive_pacing=true\nhost_adaptive_bitrate=false",
-                [true, true, true, false],
+                [true, true, true, true],
             ),
         ];
         for (text, expected) in cases {

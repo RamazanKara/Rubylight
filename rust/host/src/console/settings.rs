@@ -101,7 +101,7 @@ pub const GLOBAL: &[Setting] = settings! {
         "packetsize", "Video packet size (0 uses the device request)", Number;
         "video_max_batch_size_kb", "Video send batch limit (KiB)", Number;
         "pacing_max_bitrate_kbps", "Network pacing limit (kbps; 0 uses the route policy: up to 800 Mbps wired, twice the bitrate with FEC headroom on Wi-Fi; positive values set a fixed limit)", Number;
-        "host_adaptive_pacing", "Adaptive packet pacing (experimental; off by default; slower startup and loss-sensitive probes without changing picture bitrate or FPS; disabled by a manual pacing limit, host bitrate adaptation or PyroWave; reconnect after saving)", Bool;
+        "host_adaptive_pacing", "Adaptive packet pacing (experimental; off by default, including PyroWave; slower startup and loss-sensitive probes without changing picture bitrate or FPS; disabled by a manual pacing limit or host bitrate adaptation; reconnect after saving)", Bool;
         "keyframe_loss_pacing", "Slow down after video loss (on by default; after a lost keyframe or three distinct unrecoverable frames within two seconds, video is paced at twice the bitrate for the rest of the stream, with room for error correction; disabled by a manual pacing limit or the adaptive options)", Bool;
     ]
     "AMD encoding" => [

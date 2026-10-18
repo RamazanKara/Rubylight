@@ -319,6 +319,78 @@ fn abandoning_pyrowave_blocks_keeps_frame_and_nonce_progress() {
 }
 
 #[test]
+fn legacy_pyrowave_uses_the_conventional_receivers_fec_bytes() {
+    for key in [None, Some([42; 16])] {
+        for (shards, minimum) in [(1, 2), (201, 42), (600, 2), (849, 2), (1020, 2), (1200, 2)] {
+            let make = || VideoPacketizer {
+                sequence: 65534,
+                iv_counter: 65534,
+                frame: 7,
+                packet_size: 1392,
+                fec_percent: 20,
+                min_fec: minimum,
+                key,
+            };
+            let payload: Vec<_> = (0..shards * 1376 - 8).map(|i| (i * 29) as u8).collect();
+            let expected = make().encode(&payload, true, 9000, 543).unwrap();
+            let mut pyro = make();
+            let (count, limited, blocks) = pyro
+                .pyrowave_blocks(
+                    &payload,
+                    9000,
+                    543,
+                    PyrowaveFec {
+                        records: false,
+                        critical_percentage: 20,
+                        detail_percentage: 50,
+                        wire_budget: usize::MAX,
+                        ipv6: true,
+                    },
+                )
+                .unwrap();
+            let actual: Vec<_> = blocks.flat_map(|block| block.unwrap()).collect();
+            assert_eq!(actual.len(), count);
+            // Legacy framing changes neither parity bytes nor the ordinary
+            // receiver's matrix selection, including minimum-parity rounding.
+            assert_eq!(actual, expected, "{shards} shards, minimum {minimum}");
+            assert_eq!(limited, conventional_fec(shards, 20, minimum).1 < 20);
+            assert_eq!(count > shards, shards < 1020);
+        }
+    }
+}
+
+#[test]
+fn legacy_pyrowave_rejects_frames_past_the_legacy_shard_cap() {
+    let mut packetizer = VideoPacketizer {
+        sequence: 0,
+        iv_counter: 0,
+        frame: 1,
+        packet_size: 256,
+        fec_percent: 0,
+        min_fec: 2,
+        key: None,
+    };
+    for rate in [0, 20] {
+        assert!(
+            packetizer
+                .pyrowave_blocks(
+                    &vec![0; 4000 * 240],
+                    0,
+                    0,
+                    PyrowaveFec {
+                        records: false,
+                        critical_percentage: rate,
+                        detail_percentage: 0,
+                        wire_budget: 0,
+                        ipv6: false,
+                    }
+                )
+                .is_err()
+        );
+    }
+}
+
+#[test]
 fn pyrowave_blocks_match_pre_pipeline_bytes() {
     use crate::pyrowave;
     // Captured before incremental sending, including parity, record restart
@@ -443,7 +515,7 @@ fn pyrowave_blocks_match_pre_pipeline_bytes() {
                         543,
                         PyrowaveFec {
                             records,
-                            critical_percentage: 20,
+                            critical_percentage: if records { 20 } else { 0 },
                             detail_percentage: detail,
                             wire_budget: 2_000_000,
                             ipv6: true,

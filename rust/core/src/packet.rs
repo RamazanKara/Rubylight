@@ -125,7 +125,11 @@ pub struct PyrowaveFec {
 /// requested percentage keeps as much parity as still fits in four blocks
 /// (with at least `minimum` parity shards per block) instead of none: at
 /// 4K60 and 80 Mbps large P-frames lost all protection just past the cutoff.
-fn conventional_fec(total_shards: usize, percentage: usize, minimum: usize) -> (usize, usize) {
+pub(crate) fn conventional_fec(
+    total_shards: usize,
+    percentage: usize,
+    minimum: usize,
+) -> (usize, usize) {
     let blocks = total_shards.div_ceil(255 * 100 / (100 + percentage));
     let fits = |blocks: usize, percentage| {
         let aligned = total_shards.div_ceil(blocks);
@@ -338,9 +342,15 @@ impl VideoPacketizer {
         header[4..6]
             .copy_from_slice(&((if last == 0 { slice } else { last }) as u16).to_le_bytes());
         header[6..8].copy_from_slice(&(critical as u16).to_le_bytes());
-        let (mut blocks, percentage) = conventional_fec(total_shards, self.fec_percent, minimum);
-        let aligned = total_shards.div_ceil(blocks);
-        let plan = if let Some(pyro) = pyrowave.as_ref() {
+        if pyrowave.as_ref().is_some_and(|pyro| {
+            total_shards > 4000 || pyro.critical_percentage > 255 || minimum > 255
+        }) {
+            bail!("invalid PyroWave FEC plan");
+        }
+        let plan = if let Some(pyro) = pyrowave
+            .as_ref()
+            .filter(|pyro| pyro.records || pyro.critical_percentage == 0)
+        {
             let baseline = crate::pyrowave::plan(
                 total_shards,
                 critical,
@@ -369,6 +379,14 @@ impl VideoPacketizer {
                 extra,
             )?
         } else {
+            // Legacy PyroWave's length container still uses Moonlight's normal
+            // RTP/FEC layer. Only the selective coarse/detail scheme requires
+            // record framing. Keep ordinary parity wherever four RS blocks fit.
+            let requested = pyrowave
+                .as_ref()
+                .map_or(self.fec_percent, |pyro| pyro.critical_percentage);
+            let (blocks, percentage) = conventional_fec(total_shards, requested, minimum);
+            let aligned = total_shards.div_ceil(blocks);
             (0..blocks)
                 .map(|block| crate::pyrowave::FecBlock {
                     data: total_shards.saturating_sub(block * aligned).min(aligned),
@@ -376,11 +394,16 @@ impl VideoPacketizer {
                 })
                 .collect()
         };
-        let fec_limited = pyrowave
-            .as_ref()
-            .is_some_and(|p| p.records && p.critical_percentage > 0)
-            && plan.iter().all(|block| block.percentage == 0);
-        blocks = plan.len();
+        let fec_limited = pyrowave.as_ref().is_some_and(|p| {
+            p.critical_percentage > 0
+                && if p.records {
+                    plan.iter().all(|block| block.percentage == 0)
+                } else {
+                    plan.iter()
+                        .any(|block| block.percentage < p.critical_percentage)
+                }
+        });
+        let blocks = plan.len();
         let sealer = self.key.as_ref().map(crypto::PacketSealer::new);
         let envelope = if sealer.is_some() { 32 } else { 0 };
         let packet_count = plan

@@ -1378,8 +1378,11 @@ impl Media {
                     // The configured percentage is adaptive FEC's ceiling; with
                     // `adaptive_fec` off, or a client that sends no FEC status, it
                     // is used for every frame as before.
-                    s.configure_fec(c.boolean("adaptive_fec", true) && s.config.codec != 3, requested_fec.clamp(0, 100) as usize);
-                    s.configure_adaptive_bitrate(c.boolean("host_adaptive_bitrate", false), c.integer("max_bitrate", 0).clamp(0, 500_000) as u32);
+                    let fec_ceiling = if s.config.codec == 3 {
+                        c.integer("pyrowave_critical_fec_percentage", 20).clamp(0, 255) as usize
+                    } else { requested_fec.clamp(0, 100) as usize };
+                    s.configure_fec(c.boolean("adaptive_fec", true), fec_ceiling);
+                    s.configure_adaptive_bitrate(c.boolean("host_adaptive_bitrate", false), c.integer("max_bitrate", 0).clamp(0, if s.config.codec == 3 { 2_000_000 } else { 500_000 }) as u32);
                     // Packet adaptation is opt-in. Explicit pacing and host
                     // bitrate adaptation keep their own policies.
                     let automatic_pacing = c.adaptive_packet_pacing(s.config.codec);

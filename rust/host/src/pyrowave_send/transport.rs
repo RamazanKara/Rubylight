@@ -13,7 +13,7 @@ pub(super) fn run(
     let timer = Timer::new()?;
     let mut batch = Batch::default();
     let mut pacer = Pacer::new(Instant::now());
-    let mut link = 0;
+    let mut route = butterpollo_windows::net::Link::default();
     let mut link_due = Instant::now();
     let client = ClientPath {
         link_bps: u64::from(current.config.pyrowave_client_link_mbps) * 1_000_000,
@@ -35,20 +35,55 @@ pub(super) fn run(
             ready.take()
         };
         let Some(frame) = frame else { continue };
-        let bps = network_pacing::pyrowave_rate_bps(
+        let report = Instant::now() >= link_due;
+        if report {
+            route = butterpollo_windows::net::routed_link(frame.peer);
+            link_due = Instant::now() + Duration::from_secs(2);
+        }
+        // Use a stable budget so different scene sizes cannot continually
+        // reset the controller's feedback window. Warn on actual wire demand.
+        let needed = network_pacing::pyrowave_wire_rate_bps(
+            current.bitrate.load(Ordering::Acquire),
+            current.config.packet_size,
+            current.config.pyrowave_records,
+            current.stream_mode().period(),
+        );
+        let base = network_pacing::pyrowave_route_rate_bps(
             config.integer("pacing_max_bitrate_kbps", 0),
             frame.kbps,
-            link,
-            frame.demand,
+            route.bps,
+            route.wireless,
+            needed,
             client,
         );
-        if Instant::now() >= link_due {
+        let paced = current.video_pacing_bps(base, needed);
+        let safe = network_pacing::pyrowave_route_rate_bps(
+            0,
+            frame.kbps,
+            route.bps,
+            true,
+            needed,
+            ClientPath {
+                pace_bps: 0,
+                ..client
+            },
+        );
+        let bps = current.keyframe_loss_bps(paced, safe, frame.wire_frame, true);
+        if report {
             network_pacing::report_rate(
                 &current.launch.warnings,
                 bps,
                 frame.demand,
-                config.integer("pacing_max_bitrate_kbps", 0),
+                0, // PyroWave caps are hard limits; no encoder-bitrate floor.
             );
+            if bps < frame.demand {
+                tracing::warn!(
+                    pacing_bps = bps,
+                    wire_demand_bps = frame.demand,
+                    client_pace_bps = client.pace_bps,
+                    "PyroWave wire demand exceeds the available pace; lower bitrate or enable host bitrate adaptation"
+                );
+            }
         }
         let mut sent = 0;
         let packets_dropped = batch.dropped;
@@ -68,7 +103,14 @@ pub(super) fn run(
                 if pacer.due() > Instant::now() {
                     timer.until_precise(pacer.due());
                 }
-                let count = Batch::count(remaining, batch_limit(bps, remaining[0].len()));
+                let count = Batch::count(
+                    remaining,
+                    batch_limit(
+                        bps,
+                        remaining[0].len(),
+                        frame.peer.ip().to_canonical().is_ipv6(),
+                    ),
+                );
                 let bytes = batch.send(&socket, &remaining[..count], frame.peer)?;
                 sent += bytes;
                 pacer.sent(
@@ -90,6 +132,7 @@ pub(super) fn run(
             }
         }
         if batch.dropped != packets_dropped {
+            current.request_send_loss_recovery();
             current.launch.warnings.event("network_send", "PyroWave video packets were dropped by the host after transient socket send failures. Lower bitrate and check the network adapter; the log includes the socket error code.", butterpollo_core::session::EVENT_PERIOD);
         }
         current
@@ -109,10 +152,6 @@ pub(super) fn run(
             },
             sent as u64,
         );
-        if Instant::now() >= link_due {
-            link = butterpollo_windows::net::routed_link_bps(frame.peer);
-            link_due = Instant::now() + Duration::from_secs(2);
-        }
     }
     Ok(())
 }

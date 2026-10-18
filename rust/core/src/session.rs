@@ -241,6 +241,92 @@ mod tests {
         s.stats.video_frame.store(frames + 1, Ordering::Release);
     }
     #[test]
+    fn pyrowave_loss_controls_adapt_without_forcing_extra_frames() {
+        for records in [false, true] {
+            let s = Session::new(
+                launch("pyrowave-loss", Role::Stream),
+                Negotiated {
+                    codec: 3,
+                    pyrowave_records: records,
+                    bitrate_kbps: 200_000,
+                    configured_bitrate_kbps: 250_000,
+                    pyrowave_client_pace_mbps: 150,
+                    ..Default::default()
+                },
+            );
+            s.idr.store(false, Ordering::Release);
+            s.configure_keyframe_loss(true);
+            s.configure_adaptive_bitrate(true, 0);
+            let start = Instant::now();
+            s.tick_adaptive_bitrate(start, Duration::from_millis(5));
+            s.keyframe_loss_bps(1_000_000_000, 250_000_000, 1, true);
+            s.stats.video_frame.store(2, Ordering::Release);
+            s.record_fec_status(&fec_report(1, 7, 1));
+            assert_eq!(
+                s.keyframe_loss_bps(1_000_000_000, 250_000_000, 2, true),
+                250_000_000
+            );
+            let (_, target) = s
+                .tick_adaptive_bitrate(start + Duration::from_secs(1), Duration::from_millis(5))
+                .unwrap();
+            assert!(target < 150_000);
+            assert!(s.adaptive_pacing_bps(u64::MAX) <= 150_000_000);
+            assert!(!s.idr.load(Ordering::Acquire));
+            assert!(s.invalidation.lock().unwrap().is_none());
+            s.set_client_bitrate(180_000);
+            s.record_fec_status(&fec_report(2, 7, 1));
+            s.tick_adaptive_bitrate(start + Duration::from_secs(3), Duration::from_millis(5));
+            assert_eq!(s.bitrate.load(Ordering::Acquire), 180_000);
+        }
+    }
+
+    #[test]
+    fn pyrowave_packet_adaptation_responds_to_distinct_lost_frames() {
+        let s = Session::new(
+            launch("pyrowave-pacing", Role::Stream),
+            Negotiated {
+                codec: 3,
+                bitrate_kbps: 40_000,
+                ..Default::default()
+            },
+        );
+        s.configure_automatic_pacing(true);
+        let start = Instant::now();
+        assert_eq!(s.video_pacing_bps(150_000_000, 50_000_000), 80_000_000);
+        s.tick_automatic_pacing(start, Duration::from_millis(2));
+        pacing_traffic(&s, 60);
+        s.record_fec_status(&fec_report(59, 7, 1));
+        s.record_fec_status(&fec_report(60, 7, 1));
+        assert_eq!(
+            s.tick_automatic_pacing(start + Duration::from_secs(1), Duration::from_millis(2)),
+            Some((80_000_000, 62_500_000))
+        );
+        assert_eq!(s.bitrate.load(Ordering::Acquire), 40_000);
+        // A measured path below demand remains the hard ceiling.
+        assert_eq!(s.video_pacing_bps(30_000_000, 50_000_000), 30_000_000);
+    }
+
+    #[test]
+    fn pyrowave_fec_adapts_for_records_and_legacy_clients() {
+        for records in [false, true] {
+            let s = Session::new(
+                launch("pyrowave-fec", Role::Stream),
+                Negotiated {
+                    codec: 3,
+                    pyrowave_records: records,
+                    ..Default::default()
+                },
+            );
+            assert_eq!(s.configure_fec(true, 200), 200);
+            s.stats.video_frame.store(3, Ordering::Release);
+            s.record_fec_status(&fec_report(1, 9, 1));
+            s.tick_fec(Instant::now() + Duration::from_secs(6));
+            assert_eq!(s.fec_percent(), 199);
+            s.record_fec_status(&fec_report(2, 7, 1));
+            assert_eq!(s.fec_percent(), 200);
+        }
+    }
+    #[test]
     fn automatic_pacing_uses_validated_new_losses_without_changing_stream_quality() {
         let s = Session::new(
             launch("automatic-pacing", Role::Stream),
@@ -389,8 +475,8 @@ mod tests {
         assert!(!s.idr.load(Ordering::Relaxed));
     }
     #[test]
-    fn automatic_pacing_configuration_and_pyrowave_bypass_preserve_the_base_rate() {
-        for (enabled, codec) in [(false, 0), (false, 1), (true, 3)] {
+    fn disabled_automatic_pacing_preserves_the_base_rate() {
+        for (enabled, codec) in [(false, 0), (false, 1), (false, 3)] {
             let s = Session::new(
                 launch("pacing-bypass", Role::Stream),
                 Negotiated {
@@ -495,7 +581,7 @@ mod tests {
         assert_eq!(on.frame_fec_percent(true), 20);
         assert_eq!(off.frame_fec_percent(true), 20);
         assert_eq!(quiet.frame_fec_percent(false), 30);
-        // PyroWave does not use it, and does not show it.
+        // PyroWave reports its own configured and adapted protection.
         let pyrowave = Session::new(
             launch("pyrowave-fec", Role::Stream),
             Negotiated {
@@ -503,7 +589,8 @@ mod tests {
                 ..Default::default()
             },
         );
-        assert!(pyrowave.info()["fec_percent"].is_null());
+        pyrowave.configure_fec(true, 200);
+        assert_eq!(pyrowave.info()["fec_percent"], 200);
     }
     #[test]
     fn client_luminance_changes_never_relabel_hdr_content() {
@@ -968,8 +1055,8 @@ mod tests {
         assert_eq!(s.keyframe_loss_bps(FAST, SAFE, 3, true), SAFE);
         assert_eq!(s.stats.idr_requests.load(Ordering::Relaxed), 2);
 
-        // Off, and for PyroWave's intra-only frames, nothing changes.
-        for (enabled, codec) in [(false, 1), (true, 3)] {
+        // Explicitly disabled policies preserve the base rate for every codec.
+        for (enabled, codec) in [(false, 1), (false, 3)] {
             let s = Session::new(
                 launch("off", Role::Stream),
                 Negotiated {
@@ -1534,7 +1621,11 @@ impl<P, A> Session<P, A> {
     /// reports, every frame uses the configured percentage. Returns it.
     pub fn configure_fec(&self, adaptive: bool, configured: usize) -> usize {
         let mut fec = self.adaptive_fec.lock().unwrap();
-        *fec = crate::adaptive_fec::AdaptiveFec::new(adaptive, configured);
+        *fec = if self.config.codec == 3 {
+            crate::adaptive_fec::AdaptiveFec::pyrowave(adaptive, configured)
+        } else {
+            crate::adaptive_fec::AdaptiveFec::new(adaptive, configured)
+        };
         let percent = fec.percent();
         self.fec_percent.store(percent as u32, Ordering::Release);
         percent
@@ -1582,7 +1673,7 @@ impl<P, A> Session<P, A> {
     }
     pub fn configure_automatic_pacing(&self, enabled: bool) {
         *self.automatic_pacing.lock().unwrap() =
-            crate::adaptive_pacing::AdaptivePacing::new(enabled && self.config.codec != 3);
+            crate::adaptive_pacing::AdaptivePacing::new(enabled);
     }
     pub fn video_pacing_bps(&self, base: u64, needed: u64) -> u64 {
         let paced = self.automatic_pacing.lock().unwrap().rate(
@@ -1594,11 +1685,9 @@ impl<P, A> Session<P, A> {
     }
     /// Pacing slows for the session once the client loses a keyframe or
     /// repeatedly reports unrecoverable ordinary frames
-    /// (`keyframe_loss_pacing`). PyroWave sends only intra frames, paced on
-    /// their own.
+    /// (`keyframe_loss_pacing`), including PyroWave's independent intra frames.
     pub fn configure_keyframe_loss(&self, enabled: bool) {
-        *self.keyframe_loss.lock().unwrap() =
-            crate::keyframe_loss::KeyframeLoss::new(enabled && self.config.codec != 3);
+        *self.keyframe_loss.lock().unwrap() = crate::keyframe_loss::KeyframeLoss::new(enabled);
     }
     fn report_keyframe_loss(&self, latched: Option<&'static str>) {
         if let Some(reason) = latched {
@@ -1726,7 +1815,7 @@ impl<P, A> Session<P, A> {
             .lock()
             .unwrap()
             .window(Instant::now());
-        serde_json::json!({"warnings":warnings,"encoder":*self.encoder.read().unwrap(),"uuid":self.launch.client.uuid,"device_name":self.launch.client.name,"width":width,"height":height,"fps":fps,"requested_fps":requested_fps,"video_format":self.config.codec,"hdr":self.config.hdr,"vrr":self.config.vrr_low_latency,"encoder_bitrate_kbps":self.bitrate.load(Ordering::Relaxed),"adaptive_bitrate":self.adaptive_bitrate.lock().unwrap().snapshot(),"packet_pacing":self.automatic_pacing.lock().unwrap().snapshot(),"fec_percent":(self.config.codec != 3).then(|| self.fec_percent()),"pyrowave_minimum_kbps":(self.config.codec == 3).then(|| crate::pyrowave::minimum_kbps(self.config.width, self.config.height, self.config.fps_millihz())),"pyrowave_recommended_kbps":(self.config.codec == 3).then(|| crate::pyrowave::recommended_kbps(self.config.width, self.config.height, self.config.fps_millihz())),"audio_channels":self.config.audio_channels,"state":if self.stopping(){"STOPPING"}else{"RUNNING"},"frames_sent":self.stats.frames.load(Ordering::Relaxed),"frames_replaced":self.stats.frames_replaced.load(Ordering::Relaxed),"packets_sent":self.stats.packets.load(Ordering::Relaxed),"bytes_sent":self.stats.bytes.load(Ordering::Relaxed),"idr_requests":self.stats.idr_requests.load(Ordering::Relaxed),"reference_invalidations":self.stats.reference_invalidations.load(Ordering::Relaxed),"send_loss_recoveries":self.stats.send_loss_recoveries.load(Ordering::Relaxed),"encode_latency_ms":self.stats.latency_us.load(Ordering::Relaxed) as f64/1000.,"performance":performance.snapshot(),"uptime_seconds":self.started.elapsed().as_secs_f64(),"role":self.launch.role})
+        serde_json::json!({"warnings":warnings,"encoder":*self.encoder.read().unwrap(),"uuid":self.launch.client.uuid,"device_name":self.launch.client.name,"width":width,"height":height,"fps":fps,"requested_fps":requested_fps,"video_format":self.config.codec,"hdr":self.config.hdr,"vrr":self.config.vrr_low_latency,"encoder_bitrate_kbps":self.bitrate.load(Ordering::Relaxed),"adaptive_bitrate":self.adaptive_bitrate.lock().unwrap().snapshot(),"packet_pacing":self.automatic_pacing.lock().unwrap().snapshot(),"fec_percent":self.fec_percent(),"pyrowave_minimum_kbps":(self.config.codec == 3).then(|| crate::pyrowave::minimum_kbps(self.config.width, self.config.height, self.config.fps_millihz())),"pyrowave_recommended_kbps":(self.config.codec == 3).then(|| crate::pyrowave::recommended_kbps(self.config.width, self.config.height, self.config.fps_millihz())),"audio_channels":self.config.audio_channels,"state":if self.stopping(){"STOPPING"}else{"RUNNING"},"frames_sent":self.stats.frames.load(Ordering::Relaxed),"frames_replaced":self.stats.frames_replaced.load(Ordering::Relaxed),"packets_sent":self.stats.packets.load(Ordering::Relaxed),"bytes_sent":self.stats.bytes.load(Ordering::Relaxed),"idr_requests":self.stats.idr_requests.load(Ordering::Relaxed),"reference_invalidations":self.stats.reference_invalidations.load(Ordering::Relaxed),"send_loss_recoveries":self.stats.send_loss_recoveries.load(Ordering::Relaxed),"encode_latency_ms":self.stats.latency_us.load(Ordering::Relaxed) as f64/1000.,"performance":performance.snapshot(),"uptime_seconds":self.started.elapsed().as_secs_f64(),"role":self.launch.role})
     }
 }
 pub struct Sessions<P = (), A = ()> {

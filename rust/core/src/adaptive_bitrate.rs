@@ -1,4 +1,4 @@
-//! Conservative, opt-in adaptation for conventional Moonlight video streams.
+//! Conservative, opt-in adaptation for Moonlight video streams.
 //!
 //! Stock Moonlight reports FEC only on loss. A validated report proves support;
 //! silence alone proves nothing. Recovery needs recent standard control pings,
@@ -21,6 +21,8 @@ pub struct WireBudget {
     pub min_fec: usize,
     pub encrypted: bool,
     pub audio_bps: u64,
+    /// Records already budget wire bytes; legacy PyroWave budgets image bytes.
+    pub pyrowave_records: Option<bool>,
 }
 
 impl WireBudget {
@@ -34,10 +36,19 @@ impl WireBudget {
             min_fec: stream.min_fec,
             encrypted: stream.encryption & 2 != 0,
             audio_bps: audio_kbps * 1500 + 500_000,
+            pyrowave_records: (stream.codec == 3).then_some(stream.pyrowave_records),
         }
     }
 
     pub fn video_bps(&self, kbps: u32, fec: usize, period: Duration) -> u64 {
+        if let Some(records) = self.pyrowave_records {
+            return crate::network_pacing::pyrowave_wire_rate_bps(
+                kbps,
+                self.packet_size,
+                records,
+                period,
+            );
+        }
         let packetizer = VideoPacketizer {
             sequence: 0,
             frame: 1,
@@ -66,6 +77,47 @@ impl WireBudget {
         }
         lo
     }
+
+    fn total_bps(&self, kbps: u32, fec: usize, period: Duration) -> u64 {
+        // Round up so converting this wire allowance back to an encoder
+        // bitrate cannot lose the last Kbps of a minimum viable frame.
+        (self.video_bps(kbps, fec, period) * 10).div_ceil(9) + self.audio_bps
+    }
+
+    fn minimum_encoder_kbps(&self, ceiling: u32, fec: usize, period: Duration) -> Option<u32> {
+        if ceiling == 0 {
+            return None;
+        }
+        let Some(records) = self.pyrowave_records else {
+            return Some(1);
+        };
+        // PyroWave skips encoding below 16 image bytes. Records must first
+        // pay for whole wire packets and their minimum critical parity;
+        // legacy framing also reserves parity inside its picture allowance.
+        let fits = |kbps| {
+            crate::pyrowave::budget_with_minimum(
+                kbps,
+                period,
+                self.packet_size,
+                records,
+                fec.min(255) as u32,
+                self.min_fec,
+            ) >= 16
+        };
+        if !fits(ceiling) {
+            return None;
+        }
+        let (mut lo, mut hi) = (1, ceiling);
+        while lo < hi {
+            let mid = lo + (hi - lo) / 2;
+            if fits(mid) {
+                hi = mid;
+            } else {
+                lo = mid + 1;
+            }
+        }
+        Some(lo)
+    }
 }
 
 #[derive(Default)]
@@ -75,6 +127,10 @@ pub struct AdaptiveBitrate {
     supported: bool,
     viable: bool,
     controller_pcm_bps: u64,
+    /// The encoder reserves configured PyroWave parity even after the
+    /// sender's adaptive FEC percentage falls on a clean link.
+    encoder_fec: usize,
+    minimum_kbps: u32,
     ceiling_kbps: u32,
     ceiling_bps: u64,
     current_bps: u64,
@@ -92,15 +148,14 @@ pub struct AdaptiveBitrate {
 
 impl AdaptiveBitrate {
     pub fn configure(&mut self, enabled: bool, stream: &Negotiated, maximum_kbps: u32, fec: usize) {
-        if !enabled || stream.codec == 3 {
+        if !enabled {
             self.budget = None;
             return;
         }
         let mut budget = WireBudget::of(stream);
         budget.audio_bps += self.controller_pcm_bps;
         let period = crate::reconfigure::Mode::of(stream).period();
-        let inferred =
-            budget.video_bps(stream.bitrate_kbps, fec, period) * 10 / 9 + budget.audio_bps;
+        let inferred = budget.total_bps(stream.bitrate_kbps, fec, period);
         let requested = if stream.configured_bitrate_kbps > 0 {
             u64::from(stream.configured_bitrate_kbps) * 1000
         } else {
@@ -111,8 +166,23 @@ impl AdaptiveBitrate {
         } else {
             u64::MAX
         });
-        self.ceiling_kbps = stream.bitrate_kbps.min(500_000);
+        if stream.codec == 3 {
+            for ceiling in [
+                u64::from(stream.pyrowave_client_pace_mbps) * 1_000_000,
+                u64::from(stream.pyrowave_client_link_mbps) * 950_000,
+            ] {
+                if ceiling > 0 {
+                    self.ceiling_bps = self.ceiling_bps.min(ceiling);
+                }
+            }
+        }
+        self.ceiling_kbps = stream.bitrate_kbps.min(if stream.codec == 3 {
+            2_000_000
+        } else {
+            500_000
+        });
         self.current_bps = self.ceiling_bps;
+        self.encoder_fec = fec;
         self.budget = Some(budget);
         self.reason = "waiting_for_feedback";
         self.update_floor(fec, period);
@@ -123,17 +193,23 @@ impl AdaptiveBitrate {
 
     fn update_floor(&mut self, fec: usize, period: Duration) {
         let budget = self.budget.unwrap();
-        // Even one encoded byte needs a packet (and possibly minimum parity)
-        // every frame. Never turn an impossible audio/video budget into a
-        // near-zero pacer that holds a frame for seconds.
+        // Require both a usable encoder frame and room for its wire traffic.
+        // Do not raise a user ceiling when even the smallest frame cannot fit.
+        let minimum = budget.minimum_encoder_kbps(self.ceiling_kbps, self.encoder_fec, period);
         self.viable =
-            budget.video_bps(1, fec, period) * 10 / 9 + budget.audio_bps <= self.ceiling_bps;
+            minimum.is_some_and(|kbps| budget.total_bps(kbps, fec, period) <= self.ceiling_bps);
         if self.viable {
-            self.floor_bps = (budget.video_bps(self.ceiling_kbps.min(2_000), fec, period) * 10 / 9
-                + budget.audio_bps)
+            self.minimum_kbps = minimum.unwrap();
+            self.floor_bps = budget
+                .total_bps(
+                    self.ceiling_kbps.min(2_000).max(self.minimum_kbps),
+                    fec,
+                    period,
+                )
                 .min(self.ceiling_bps);
-            self.current_bps = self.current_bps.max(self.floor_bps);
+            self.current_bps = self.current_bps.max(self.floor_bps).min(self.ceiling_bps);
         } else {
+            self.minimum_kbps = 0;
             self.reason = "wire_budget_too_small";
             self.clean_since = None;
         }
@@ -297,11 +373,17 @@ impl AdaptiveBitrate {
                 .unwrap()
                 .encoder_kbps(self.current_bps, self.ceiling_kbps, fec, period);
         // A falling FEC percentage must not bypass the slow recovery policy.
-        Some(if recovering {
-            target.min(current_kbps.saturating_add((current_kbps / 50).max(100)))
-        } else {
-            target.min(current_kbps)
-        })
+        Some(
+            (if recovering {
+                target.min(current_kbps.saturating_add((current_kbps / 50).max(100)))
+            } else {
+                target.min(current_kbps)
+            })
+            // A higher FPS can require more bitrate just to produce a frame.
+            // Allow this bounded increase without waiting for busy clean traffic
+            // that a zero-frame encoder could never provide.
+            .max(self.minimum_kbps),
+        )
     }
 
     pub fn snapshot(&self) -> serde_json::Value {
@@ -482,8 +564,8 @@ mod tests {
         assert!(c.video_pacing_bps() + c.budget.unwrap().audio_bps <= 25_000_000);
     }
     #[test]
-    fn disabled_and_pyrowave_streams_never_activate() {
-        for (enabled, codec) in [(false, 0), (true, 3)] {
+    fn disabled_streams_never_activate() {
+        for (enabled, codec) in [(false, 0), (false, 3)] {
             let mut c = AdaptiveBitrate::default();
             c.configure(
                 enabled,
@@ -558,6 +640,156 @@ mod tests {
         assert!(!c.active());
         assert_eq!(c.video_pacing_bps(), 0);
     }
+
+    #[test]
+    fn pyrowave_loss_floor_keeps_frames_encodable_with_configured_and_minimum_parity() {
+        for records in [false, true] {
+            for fps in [60, 120] {
+                for fec in [0, 20, 255] {
+                    for min_fec in [0, 2, 8] {
+                        let stream = Negotiated {
+                            codec: 3,
+                            pyrowave_records: records,
+                            packet_size: 1392,
+                            min_fec,
+                            fps,
+                            bitrate_kbps: 500_000,
+                            configured_bitrate_kbps: 800_000,
+                            ..Default::default()
+                        };
+                        let mut c = AdaptiveBitrate::default();
+                        c.configure(true, &stream, 0, fec);
+                        let period = crate::reconfigure::Mode::of(&stream).period();
+                        let start = Instant::now();
+                        let mut rate = stream.bitrate_kbps;
+                        for i in 0..64 {
+                            c.on_block(Block::Unrecoverable);
+                            rate = c
+                                .tick(
+                                    start + Duration::from_secs(i),
+                                    Traffic::default(),
+                                    Duration::from_millis(8),
+                                    // A lower sender FEC percentage does not
+                                    // change the encoder's configured reserve.
+                                    0,
+                                    period,
+                                    rate,
+                                )
+                                .unwrap_or(rate);
+                            assert!(rate <= stream.bitrate_kbps);
+                            assert!(c.current_bps <= c.ceiling_bps);
+                            assert!(
+                                crate::pyrowave::budget_with_minimum(
+                                    rate,
+                                    period,
+                                    stream.packet_size,
+                                    records,
+                                    fec as u32,
+                                    min_fec,
+                                ) >= 16,
+                                "records={records}, fps={fps}, fec={fec}, minimum={min_fec}, rate={rate}"
+                            );
+                        }
+                        assert!(c.active());
+                        assert_eq!(c.current_bps, c.floor_bps);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn pyrowave_minimum_frame_never_raises_an_impossible_user_ceiling() {
+        for fps in [60, 120] {
+            for (bitrate_kbps, configured_bitrate_kbps, maximum_kbps) in [
+                (2_000, 30_000, 0),
+                (20_000, 2_000, 0),
+                (20_000, 30_000, 2_000),
+            ] {
+                let stream = Negotiated {
+                    codec: 3,
+                    pyrowave_records: true,
+                    packet_size: 1392,
+                    min_fec: 2,
+                    fps,
+                    bitrate_kbps,
+                    configured_bitrate_kbps,
+                    ..Default::default()
+                };
+                let mut c = AdaptiveBitrate::default();
+                c.configure(true, &stream, maximum_kbps, 20);
+                c.on_block(Block::Unrecoverable);
+                assert!(c.budget_unusable());
+                let ceiling = c.ceiling_bps;
+                let start = Instant::now();
+                for i in 0..4 {
+                    assert_eq!(
+                        c.tick(
+                            start + Duration::from_secs(i),
+                            Traffic::default(),
+                            Duration::from_millis(8),
+                            0,
+                            crate::reconfigure::Mode::of(&stream).period(),
+                            bitrate_kbps,
+                        ),
+                        None
+                    );
+                }
+                assert_eq!(c.current_bps, ceiling);
+                assert_eq!(c.video_pacing_bps(), 0);
+                assert_eq!(c.snapshot()["reason"], "wire_budget_too_small");
+            }
+        }
+    }
+
+    #[test]
+    fn higher_pyrowave_fps_can_raise_the_frame_minimum_without_clean_traffic() {
+        let stream = Negotiated {
+            codec: 3,
+            pyrowave_records: true,
+            packet_size: 1392,
+            min_fec: 2,
+            fps: 60,
+            bitrate_kbps: 20_000,
+            configured_bitrate_kbps: 30_000,
+            ..Default::default()
+        };
+        let mut c = AdaptiveBitrate::default();
+        c.configure(true, &stream, 0, 20);
+        let start = Instant::now();
+        let period = crate::reconfigure::Mode::of(&stream).period();
+        let mut rate = stream.bitrate_kbps;
+        for i in 0..32 {
+            c.on_block(Block::Unrecoverable);
+            rate = c
+                .tick(
+                    start + Duration::from_secs(i),
+                    Traffic::default(),
+                    Duration::ZERO,
+                    0,
+                    period,
+                    rate,
+                )
+                .unwrap_or(rate);
+        }
+        let faster = Duration::from_secs_f64(1. / 120.);
+        assert!(crate::pyrowave::budget(rate, faster, 1392, true, 20) < 16);
+        let next = c
+            .tick(
+                start + Duration::from_secs(33),
+                Traffic::default(),
+                Duration::ZERO,
+                0,
+                faster,
+                rate,
+            )
+            .unwrap();
+        assert!(next > rate);
+        assert!(next <= stream.bitrate_kbps);
+        assert!(crate::pyrowave::budget(next, faster, 1392, true, 20) >= 16);
+        assert!(c.current_bps <= c.ceiling_bps);
+    }
+
     #[test]
     fn missing_rtt_never_counts_as_stable_latency_for_recovery() {
         let mut c = controller();

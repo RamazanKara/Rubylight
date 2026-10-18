@@ -882,11 +882,16 @@ fn pyrowave_decoded_end_to_end() -> Result<()> {
                         Ok((GpuImage::upload(&gpu, &source)?, reference))
                     })
                     .collect::<Result<Vec<_>>>()?;
-                for kbps in [1_000_000, 400_000, 125_000, 30_000] {
+                // Keep the conversion control near-lossless after either
+                // framing mode reserves space for its transport protection.
+                for kbps in [2_000_000, 400_000, 125_000, 30_000] {
                     config.bitrate_kbps = kbps;
-                    let mut baseline: Vec<Option<Vec<Vec<u16>>>> = vec![None, None];
                     for records in [false, true] {
                         config.pyrowave_records = records;
+                        // The two framing modes have different bitrate semantics
+                        // and reserve different parity. Compare conversion paths
+                        // and repeat frames at the same actual picture budget.
+                        let mut baseline: Vec<Option<Vec<Vec<u16>>>> = vec![None, None];
                         let mut encoders = [false, true]
                             .into_iter()
                             .map(|compute| {
@@ -988,7 +993,7 @@ fn pyrowave_decoded_end_to_end() -> Result<()> {
                                         "PYROWAVE_RESULT {}",
                                         serde_json::json!({"width":width,"height":height,"format":format,"chroma":if yuv444 {444} else {420},"kbps":kbps,"minimum_kbps":pyrowave::minimum_kbps(width,height,60000),"records":records,"compute":compute,"batch":batch,"phase":phase,"source":format!("{:?}",source.pixel),"bytes":frame.len(),"datagrams":packets.len(),"planes":errors.iter().map(|e| &e[0]).collect::<Vec<_>>(),"panels":errors.iter().map(|e| &e[1..]).collect::<Vec<_>>()})
                                     );
-                                    if kbps == 1_000_000 {
+                                    if kbps == 2_000_000 {
                                         ensure!(
                                             errors.iter().all(|e| e[0].psnr >= 40.
                                                 && e[1..].iter().all(|panel| panel.psnr >= 35.)),
@@ -1037,7 +1042,7 @@ fn pyrowave_encoder_follows_rebuilt_planes() -> Result<()> {
         csc_mode: 3,
         packet_size: 1392,
         fps: 60,
-        bitrate_kbps: 1_000_000,
+        bitrate_kbps: 2_000_000,
         ..Default::default()
     };
     // HDR pictures alternate RgbaF16 and Rgba10Pq sources, and each change of

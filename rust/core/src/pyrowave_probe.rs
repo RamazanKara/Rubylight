@@ -91,8 +91,8 @@ pub fn set_sequence(packet: &mut [u8], sequence: u32) {
 
 /// Packets per 1 ms group at `pace_bps`, charging UDP, IP and Ethernet bytes.
 fn group(pace_bps: u64, payload_bytes: usize, ipv6: bool) -> u32 {
-    let wire = payload_bytes as u64 + 8 + if ipv6 { 40 } else { 20 } + 38;
-    (pace_bps / 8 / 1000 / wire).max(1) as u32
+    (crate::network_pacing::pyrowave_batch_limit(pace_bps, payload_bytes, ipv6) / payload_bytes)
+        as u32
 }
 
 /// When to send up to which sequence number: (offset from the start, packets
@@ -121,11 +121,15 @@ pub fn schedule(request: &Request, ipv6: bool) -> Vec<(Duration, u32)> {
         let start = DURATION * frame / frames;
         let mut sent = (u64::from(total) * u64::from(frame) / u64::from(frames)) as u32;
         let end = (u64::from(total) * u64::from(frame + 1) / u64::from(frames)) as u32;
-        let mut quantum = 0;
+        let mut offset = Duration::ZERO;
         while sent < end {
-            sent = end.min(sent + group);
-            steps.push((start + Duration::from_millis(quantum), sent));
-            quantum += 1;
+            let next = end.min(sent + group);
+            steps.push((start + offset, next));
+            let wire = request.packet_size + 48 + crate::network_pacing::overhead(ipv6);
+            offset += Duration::from_secs_f64(
+                f64::from(next - sent) * wire as f64 * 8. / (f64::from(burst.pace_kbps) * 1000.),
+            );
+            sent = next;
         }
     }
     steps
@@ -234,12 +238,14 @@ mod tests {
         ])
         .unwrap();
         let steps = schedule(&request, false);
-        // 240 frames of about 68 packets; 1 Gbps carries 1000000/8/1506 = 83
-        // packets a millisecond, so each frame leaves in one group at its start.
-        assert_eq!(steps.len(), 240);
-        assert_eq!(steps[1].0, DURATION / 240);
+        // 240 frames of about 68 packets, split at the live sender's 64 KiB
+        // batch bound. The next group follows its actual wire cost.
+        assert_eq!(steps.len(), 480);
+        assert_eq!(steps[0].1, 45);
+        assert_eq!(steps[1].0, Duration::from_nanos(542_160));
+        assert_eq!(steps[2].0, DURATION / 240);
         assert_eq!(steps.last().unwrap().1, expected(100_000, 1392));
-        // At 100 Mbps the same frame takes a group a millisecond.
+        // At 100 Mbps a batch is at most one millisecond of wire traffic.
         let slow = Request {
             burst: Some(Burst {
                 fps: 120,
@@ -249,7 +255,41 @@ mod tests {
         };
         let steps = schedule(&slow, false);
         assert_eq!(steps[0], (Duration::ZERO, 8));
-        assert_eq!(steps[1], (Duration::from_millis(1), 16));
+        assert_eq!(steps[1], (Duration::from_nanos(963_840), 16));
         assert_eq!(steps.last().unwrap().1, expected(100_000, 1392));
+    }
+
+    #[test]
+    fn calibrated_bursts_match_live_batch_bounds_without_losing_high_rate_capacity() {
+        for ipv6 in [false, true] {
+            for (kbps, pace_kbps, packet_size) in [
+                (5_000, 5_000, 256),
+                (400_000, 1_000_000, 1392),
+                (3_000_000, 9_000_000, 1024),
+            ] {
+                let request = Request {
+                    kbps,
+                    port: 50_000,
+                    packet_size,
+                    token: TOKEN.into(),
+                    handshake: false,
+                    burst: Some(Burst { fps: 60, pace_kbps }),
+                };
+                let steps = schedule(&request, ipv6);
+                let maximum = crate::network_pacing::pyrowave_batch_limit(
+                    u64::from(pace_kbps) * 1000,
+                    packet_size + 48,
+                    ipv6,
+                ) / (packet_size + 48);
+                let mut previous = 0;
+                for (_, end) in &steps {
+                    assert!((*end - previous) as usize <= maximum);
+                    previous = *end;
+                }
+                assert!(steps.windows(2).all(|w| w[0].0 <= w[1].0));
+                assert!(steps.last().unwrap().0 < DURATION);
+                assert_eq!(previous, expected(kbps, packet_size));
+            }
+        }
     }
 }

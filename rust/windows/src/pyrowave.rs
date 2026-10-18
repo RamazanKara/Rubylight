@@ -277,10 +277,12 @@ impl Drop for ComputePlanes {
         }
     }
 }
-fn interval(config: &Negotiated, critical_fec: bool) -> pyrowave::Interval {
+fn interval(config: &Negotiated) -> pyrowave::Interval {
+    // A pause must not buy a larger burst when capture resumes, including for
+    // legacy clients without record framing or critical FEC.
     pyrowave::Interval::new(
         butterpollo_core::framegen::Rate(config.fps_millihz()).period(),
-        critical_fec,
+        true,
     )
 }
 pub struct Encoder {
@@ -329,14 +331,10 @@ impl Encoder {
         let mut luid = p::pyrowave_luid { luid: [0; 8] };
         luid.luid[..4].copy_from_slice(&desc.AdapterLuid.LowPart.to_le_bytes());
         luid.luid[4..].copy_from_slice(&desc.AdapterLuid.HighPart.to_le_bytes());
-        let critical_fec_percentage = if config.pyrowave_records {
-            tuning
-                .integer("pyrowave_critical_fec_percentage", 20)
-                .clamp(0, 255) as u32
-        } else {
-            0
-        };
-        let critical_fec = critical_fec_percentage > 0;
+        let critical_fec_percentage = tuning
+            .integer("pyrowave_critical_fec_percentage", 20)
+            .clamp(0, 255) as u32;
+        let critical_fec = config.pyrowave_records && critical_fec_percentage > 0;
         let mut s = Self {
             warnings,
             api,
@@ -351,7 +349,7 @@ impl Encoder {
             config: config.clone(),
             critical_fec,
             critical_fec_percentage,
-            interval: interval(config, critical_fec),
+            interval: interval(config),
             repeat: false,
             luminance: [100., 1.],
             bitstream: vec![],
@@ -419,7 +417,7 @@ impl Encoder {
     /// The next encode gets a first frame's budget, one stream period.
     #[cfg(test)]
     pub(crate) fn restart_interval(&mut self) {
-        self.interval = interval(&self.config, self.critical_fec);
+        self.interval = interval(&self.config);
     }
     pub fn encode(&mut self, image: &Image, idr: bool, kbps: u32) -> Result<Vec<Encoded>> {
         self.encode_gpu(&GpuImage::upload(&self.d3d, image)?, idr, kbps)
@@ -461,12 +459,13 @@ impl Encoder {
             self.source = Some(source);
         }
         let interval = self.interval.next(begin, std::mem::take(&mut self.repeat));
-        let budget = pyrowave::budget(
+        let budget = pyrowave::budget_with_minimum(
             kbps,
             interval,
             self.config.packet_size,
             self.config.pyrowave_records,
             self.critical_fec_percentage,
+            self.config.min_fec,
         );
         if budget < 16 {
             return Ok(vec![]);
@@ -619,6 +618,7 @@ impl Encoder {
                 )?
             };
             if bytes.len() > limit {
+                self.warnings.event("pyrowave_frame_size", format!("PyroWave frame was dropped: {} bytes exceeds the transport limit of {limit}. Lower bitrate or resolution.", bytes.len()), butterpollo_core::session::EVENT_PERIOD);
                 return Ok(vec![]);
             }
             Ok(vec![Encoded {
@@ -645,6 +645,35 @@ impl Drop for Encoder {
             if !self.device.is_null() {
                 (self.api.device_destroy)(self.device);
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    #[test]
+    fn legacy_and_record_frames_do_not_accumulate_a_pause_budget() {
+        for records in [false, true] {
+            let config = Negotiated {
+                fps: 60,
+                pyrowave_records: records,
+                ..Default::default()
+            };
+            let mut interval = interval(&config);
+            let now = Instant::now();
+            let period = butterpollo_core::framegen::Rate(config.fps_millihz()).period();
+            assert_eq!(interval.next(now, false), period);
+            assert_eq!(interval.next(now + Duration::from_secs(5), true), period);
+            assert_eq!(
+                interval.next(
+                    now + Duration::from_secs(5) + Duration::from_millis(1),
+                    false
+                ),
+                period
+            );
         }
     }
 }

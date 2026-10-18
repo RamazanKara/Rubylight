@@ -310,6 +310,8 @@ fn wait_readable_sockets<const N: usize>(
 pub struct WritableWaits {
     pub count: u64,
     pub elapsed: std::time::Duration,
+    /// Last transient socket refusal, including one followed by a successful retry.
+    pub last_error: i32,
 }
 /// ENOBUFS can come from transport/driver allocation pressure while the socket
 /// still polls writable. Pause briefly before one retry rather than hot-polling
@@ -318,8 +320,11 @@ fn buffer_available(
     socket: &UdpSocket,
     error: WSA_ERROR,
     budget: &mut WaitBudget,
-    trace: Option<&mut WritableWaits>,
+    mut trace: Option<&mut WritableWaits>,
 ) -> bool {
+    if let Some(trace) = trace.as_mut() {
+        trace.last_error = error.0;
+    }
     if error == WSAEWOULDBLOCK {
         return writable(socket, budget, trace);
     }
@@ -676,6 +681,9 @@ impl Batch {
     }
     /// Count dropped datagrams and report them at most every 5 seconds.
     fn dropped(&mut self, count: usize, error: WSA_ERROR) {
+        if let Some(trace) = self.waits.as_mut() {
+            trace.last_error = error.0;
+        }
         self.dropped += count as u64;
         self.unreported += count as u64;
         if self

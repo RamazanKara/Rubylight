@@ -57,15 +57,13 @@ pub const MIN_PARITY_SHARDS: usize = 2;
 /// high-quality channels with their parity, as Vibeshine's calibration assumes.
 pub const AUDIO_CONTROL_KBPS: f64 = 3572.;
 /// The parity of the largest critical block `packets` data packets can need.
-fn max_critical_parity(critical_fec_percentage: u32, packets: usize) -> usize {
+fn max_critical_parity(critical_fec_percentage: u32, packets: usize, minimum: usize) -> usize {
     if critical_fec_percentage == 0 {
         return 0;
     }
     (1..=packets.min(255))
         .filter_map(|critical| {
-            let parity = (critical * critical_fec_percentage as usize)
-                .div_ceil(100)
-                .max(MIN_PARITY_SHARDS);
+            let parity = parity(critical, critical_fec_percentage as usize, minimum);
             (critical + parity <= 255).then_some(parity)
         })
         .max()
@@ -76,11 +74,24 @@ fn max_critical_parity(critical_fec_percentage: u32, packets: usize) -> usize {
 /// and the shard headers. Vibeshine's `pyrowave::bandwidth::image_bytes`,
 /// which Nonary's Moonlight calibrates with.
 pub fn image_bytes(wire_bytes: usize, packet_size: usize, critical_fec_percentage: u32) -> usize {
+    image_bytes_with_minimum(
+        wire_bytes,
+        packet_size,
+        critical_fec_percentage,
+        MIN_PARITY_SHARDS,
+    )
+}
+fn image_bytes_with_minimum(
+    wire_bytes: usize,
+    packet_size: usize,
+    critical_fec_percentage: u32,
+    minimum: usize,
+) -> usize {
     if packet_size <= 16 {
         return 0;
     }
     let packets = wire_bytes / (packet_size + WIRE_OVERHEAD);
-    let parity = max_critical_parity(critical_fec_percentage, packets);
+    let parity = max_critical_parity(critical_fec_percentage, packets, minimum);
     if packets <= parity {
         return 0;
     }
@@ -97,15 +108,87 @@ pub fn budget(
     records: bool,
     critical_fec_percentage: u32,
 ) -> usize {
-    let limit = max_frame_bytes(packet_size, critical_fec_percentage > 0);
+    budget_with_minimum(
+        kbps,
+        interval,
+        packet_size,
+        records,
+        critical_fec_percentage,
+        MIN_PARITY_SHARDS,
+    )
+}
+/// The encoder and adaptive bitrate floor must reserve the same negotiated
+/// minimum parity as the packetizer, including its representable wire rate.
+pub fn budget_with_minimum(
+    kbps: u32,
+    interval: Duration,
+    packet_size: usize,
+    records: bool,
+    critical_fec_percentage: u32,
+    minimum: usize,
+) -> usize {
+    let minimum = minimum.clamp(MIN_PARITY_SHARDS, 255);
+    let limit = max_frame_bytes(packet_size, records && critical_fec_percentage > 0);
     let allowance = (f64::from(kbps) * 125. * interval.as_secs_f64()) as usize;
     if records {
-        image_bytes(allowance, packet_size, critical_fec_percentage).min(limit * 95 / 100) & !3
+        image_bytes_with_minimum(allowance, packet_size, critical_fec_percentage, minimum)
+            .min(limit * 95 / 100)
+            & !3
     } else {
-        // The codec can emit eight-byte blocks. Each then needs a four-byte
-        // length, so reserve the worst case rather than assuming full packets.
-        allowance.min(limit.saturating_sub(4) / 12 * 8) & !3
+        legacy_budget(
+            kbps,
+            interval,
+            packet_size,
+            critical_fec_percentage,
+            minimum,
+        )
     }
+}
+/// Legacy bitrate has always paid for picture bytes, with up to 50% length
+/// framing overhead. Reserve ordinary parity within that existing worst-case
+/// packet count instead of adding it on top of the client's bitrate.
+fn legacy_budget(
+    kbps: u32,
+    interval: Duration,
+    packet_size: usize,
+    percentage: u32,
+    minimum: usize,
+) -> usize {
+    if packet_size <= 16 {
+        return 0;
+    }
+    let allowance = (f64::from(kbps) * 125. * interval.as_secs_f64()) as usize;
+    let limit = max_frame_bytes(packet_size, false);
+    // Every codec block may be only eight bytes, with a four-byte length.
+    let raw = allowance.min(limit.saturating_sub(4) / 12 * 8) & !3;
+    if percentage == 0 {
+        return raw;
+    }
+    let slice = packet_size - 16;
+    let packets = (12 + raw + raw / 8 * 4).div_ceil(slice);
+    let percentage = (percentage as usize).min(255);
+    let minimum = minimum.clamp(MIN_PARITY_SHARDS, 255);
+    let mut data = packets * 100 / (100 + percentage);
+    while data > 0 {
+        let (blocks, _) = crate::packet::conventional_fec(data, percentage, minimum);
+        let aligned = data.div_ceil(blocks);
+        // Budget the requested percentage even where the transport has to
+        // reduce or omit it. This keeps bitrate adaptation conservative.
+        let fec: usize = (0..blocks)
+            .map(|block| {
+                parity(
+                    data.saturating_sub(block * aligned).min(aligned),
+                    percentage,
+                    minimum,
+                )
+            })
+            .sum();
+        if data + fec <= packets {
+            return ((data * slice).saturating_sub(12) / 12 * 8).min(raw);
+        }
+        data -= 1;
+    }
+    0
 }
 /// The time each frame's budget pays for: the gap since the previous encode.
 /// A new picture right after a repeat of the old one would get only that short
@@ -709,6 +792,85 @@ mod tests {
             budget(800000, Duration::from_secs_f64(1. / 120.), 1392, true, 20),
             692120
         );
+    }
+    #[test]
+    fn legacy_parity_fits_the_existing_length_framing_wire_allowance() {
+        let period = Duration::from_secs_f64(1. / 60.);
+        for size in [256, 1392] {
+            let slice = size - 16;
+            for kbps in [2000, 10_000, 80_000, 300_000, 2_000_000] {
+                let original = budget(kbps, period, size, false, 0);
+                let packets = (12 + original + original / 8 * 4).div_ceil(slice);
+                for rate in [20, 100, 255] {
+                    for minimum in [2, 24, 255] {
+                        let image = budget_with_minimum(kbps, period, size, false, rate, minimum);
+                        assert!(image <= original);
+                        if image == 0 {
+                            continue;
+                        }
+                        let data = (12 + image + image / 8 * 4).div_ceil(slice);
+                        let (blocks, fitted) =
+                            crate::packet::conventional_fec(data, rate as usize, minimum);
+                        let aligned = data.div_ceil(blocks);
+                        let actual = data
+                            + (0..blocks)
+                                .map(|block| {
+                                    parity(
+                                        data.saturating_sub(block * aligned).min(aligned),
+                                        fitted,
+                                        minimum,
+                                    )
+                                })
+                                .sum::<usize>();
+                        assert!(
+                            actual <= packets,
+                            "{size}/{kbps}/{rate}/{minimum}: {actual}>{packets}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+    #[test]
+    fn record_budgets_reserve_the_negotiated_representable_minimum() {
+        let period = Duration::from_secs_f64(1. / 60.);
+        for minimum in [2, 24, 44, 255] {
+            for rate in [1, 20, 100, 255] {
+                let kbps = 80_000;
+                let allowance = (f64::from(kbps) * 125. * period.as_secs_f64()) as usize;
+                let packets = allowance / (1392 + WIRE_OVERHEAD);
+                let image = budget_with_minimum(kbps, period, 1392, true, rate, minimum);
+                let data = (image + 8).div_ceil(1376);
+                for critical in 1..=data.min(255) {
+                    let fec = parity(critical, rate as usize, minimum);
+                    if critical + fec <= 255 {
+                        assert!(data + fec <= packets);
+                    }
+                }
+            }
+        }
+    }
+    #[test]
+    fn a_viable_frame_budget_stays_viable_as_bitrate_increases() {
+        for records in [false, true] {
+            for rate in [1, 20, 100, 255] {
+                for minimum in [2, 24, 255] {
+                    let mut viable = false;
+                    for kbps in (0..10_000).step_by(13) {
+                        let image = budget_with_minimum(
+                            kbps,
+                            Duration::from_secs_f64(1. / 60.),
+                            1392,
+                            records,
+                            rate,
+                            minimum,
+                        );
+                        assert!(!viable || image >= 16, "{records}/{rate}/{minimum}/{kbps}");
+                        viable |= image >= 16;
+                    }
+                }
+            }
+        }
     }
     /// Nonary's Moonlight calibrates a total wire rate and converts it to a
     /// picture allowance with Vibeshine's `pyrowave_bandwidth.h`; the host

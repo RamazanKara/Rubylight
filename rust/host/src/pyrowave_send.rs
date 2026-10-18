@@ -83,10 +83,9 @@ fn demand_bps(
     let wire_bytes = packets * (packet_bytes + butterpollo_core::network_pacing::overhead(ipv6));
     (wire_bytes as u64).saturating_mul(u64::from(fps_millihz)) / 1000 * 8
 }
-/// Bytes per socket call: 2 ms at the pacing rate, at least one datagram and
-/// at most one 64 KB segmented send.
-fn batch_limit(bps: u64, packet: usize) -> usize {
-    (bps / 4000).clamp(packet as u64, 64 * 1024) as usize
+/// Calibration and live traffic share the same one-millisecond wire batches.
+fn batch_limit(bps: u64, packet: usize, ipv6: bool) -> usize {
+    butterpollo_core::network_pacing::pyrowave_batch_limit(bps, packet, ipv6)
 }
 struct Slot {
     pending: Mutex<Option<Frame>>,
@@ -180,7 +179,7 @@ impl Sender {
                     .max(last_stamp + Duration::from_nanos(11_112));
                 last_stamp = stamp;
                 let timestamp = (stamp.saturating_duration_since(start).as_secs_f64() * 90000.) as u64 as u32;
-                let critical_percentage = requested_fec.clamp(0, 255) as usize;
+                let critical_percentage = current.fec_percent().min(requested_fec.clamp(0, 255) as usize);
                 let bitrate = current.bitrate.load(Ordering::Relaxed);
                 let kbps = if current.config.configured_bitrate_kbps > 0 {
                     (u64::from(current.config.configured_bitrate_kbps) * u64::from(bitrate)
@@ -201,7 +200,7 @@ impl Sender {
                 let Some((packets, limited, blocks)) = dropped.prepared(prepared, frame.bytes.len(), now, &current.launch.warnings) else { continue };
                 if limited && fec_reported.is_none_or(|at| at.elapsed() >= Duration::from_secs(1)) {
                     fec_reported = Some(Instant::now());
-                    current.launch.warnings.event("pyrowave_fec_frame", "PyroWave critical FEC was omitted: the coarse picture, parity or packet alignment cannot fit the supported wire blocks. Recovery protection is reduced; restore the default packet size, lower resolution/FEC, or use HEVC/AV1 on a lossy link.", butterpollo_core::session::EVENT_PERIOD);
+                    current.launch.warnings.event("pyrowave_fec_frame", "PyroWave error correction was reduced or omitted because the frame and its parity cannot fit the supported wire blocks. Recovery protection is reduced; lower bitrate/resolution or use HEVC/AV1 on a lossy link.", butterpollo_core::session::EVENT_PERIOD);
                 }
                 let mut ready = Vec::new();
                 for block in blocks {
@@ -608,7 +607,7 @@ mod tests {
                 if pacer.due() > now {
                     now = pacer.due() + wake;
                 }
-                let count = Batch::count(remaining, batch_limit(bps, remaining[0].len()));
+                let count = Batch::count(remaining, batch_limit(bps, remaining[0].len(), false));
                 let bytes = remaining[..count].iter().map(Vec::len).sum();
                 now += send;
                 pacer.sent(now, bytes, count, false, bps);
@@ -659,7 +658,8 @@ mod tests {
                     if pacer.due() > Instant::now() {
                         timer.until_precise(pacer.due());
                     }
-                    let count = Batch::count(remaining, batch_limit(bps, remaining[0].len()));
+                    let count =
+                        Batch::count(remaining, batch_limit(bps, remaining[0].len(), false));
                     let bytes = batch.send(&socket, &remaining[..count], peer)?;
                     pacer.sent(Instant::now(), bytes, count, false, bps);
                     remaining = &remaining[count..];

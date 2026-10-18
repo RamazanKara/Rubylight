@@ -341,7 +341,7 @@ const video: Setting[] = [
     description:
       'Uses less error correction while the device reports a clean link, and returns to the percentage above as soon as it reports loss.',
     details:
-      'Devices that send no error-correction reports always get the percentage above. PyroWave does not use it.',
+      'Devices that send no error-correction reports keep the configured percentage. Compatible PyroWave clients use the PyroWave error-correction setting as their ceiling.',
     category: 'video',
     group: 'Bitrate and network',
     control: { kind: 'toggle' },
@@ -351,9 +351,9 @@ const video: Setting[] = [
     key: 'pyrowave_critical_fec_percentage',
     label: 'PyroWave error correction',
     description:
-      'Recovery packets for the start of each PyroWave frame. Losing that part drops the whole frame.',
+      'Recovery packets that protect PyroWave pictures against packet loss.',
     details:
-      'The start of a frame holds its coarsest detail. 0 turns it off, and only devices that support it use it.',
+      'Newer clients protect the start of each frame, which holds its coarsest detail. Older clients use whole-frame protection within their packet limits. Oversized frames may receive less protection; a stream warning explains when. 0 turns it off.',
     category: 'video',
     group: 'Bitrate and network',
     control: { kind: 'number', min: 0, max: 255, step: 1, unit: '%' },
@@ -396,7 +396,7 @@ const video: Setting[] = [
     description:
       'Spaces out video packets without changing the picture bitrate. 0 paces automatically; reconnect after saving.',
     details:
-      'Automatic pacing lets conventional codecs send up to 800 Mbps on wired routes, or twice the bitrate with FEC headroom on host Wi-Fi; PyroWave has its own automatic policy. A positive value also applies to PyroWave, with a 1.1-times-bitrate floor and an Ethernet link ceiling. 120000 means 120 Mbps.',
+      'Automatic pacing lets conventional codecs send up to 800 Mbps on wired routes, or twice the bitrate with FEC headroom on host Wi-Fi. PyroWave starts unmeasured paths near the stream budget and respects the client’s calibrated pace. Positive values are hard limits for PyroWave; conventional codecs retain a 1.1-times-bitrate floor. 120000 means 120 Mbps.',
     category: 'video',
     group: 'Bitrate and network',
     control: { kind: 'number', min: 0, step: 1, unit: 'Kbps' },
@@ -409,7 +409,7 @@ const video: Setting[] = [
     description:
       'Starts with slower packet delivery, then tries faster rates and backs off when the device reports loss.',
     details:
-      'Adds startup delay without changing picture bitrate or FPS; probing can still lose packets. Off by default. A manual pacing rate, Host adaptive bitrate or PyroWave disables it. Changes apply on the next connection.',
+      'Adds startup delay without changing picture bitrate or FPS; probing can still lose packets. Off by default, including for PyroWave. A manual pacing rate or Host adaptive bitrate disables it. Changes apply on the next connection.',
     category: 'video',
     group: 'Bitrate and network',
     control: { kind: 'toggle' },

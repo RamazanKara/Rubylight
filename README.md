@@ -22,7 +22,7 @@
 
 <p align="center"><a href="docs/media/demo.mp4">Watch the 60-second demo →</a></p>
 
-| | |
+| Result | Measured |
 | :-- | :-- |
 | **~14 ms** | from a rendered frame to a decoded picture, HDR at 120 fps, with a game running on the same GPU |
 | **7.4 ms faster** | than Vibepollo 2.0 on the same GPU and settings, with p95 picture age down 43–48% |
@@ -40,7 +40,7 @@
 
 The Moonlight hosts that came before were built NVIDIA-first, and Radeon owners have spent years hearing their cards are just worse at streaming. They aren't. Nobody had sat down with them. Rubylight is that sit-down: a host that treats Radeon as the main target, not a fallback.
 
-| | |
+| What you get | How it helps |
 | --- | --- |
 | **Native AMD encoding** | AMF drives the encoder directly for H.264, HEVC and AV1, with per-codec defaults tuned by measurement. A lost frame is repaired with a small recovery frame instead of a full keyframe. |
 | **Radeon compute pipeline** | Frame copies and colour conversion run on D3D12 compute queues beside your game, so the game and the stream stop waiting on each other. |

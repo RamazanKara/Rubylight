@@ -133,12 +133,18 @@ public class FramePacingPolicyTest {
     @Test public void smoothModesRetainOrdinaryFramesAndRejectUnreliableAges() {
         long now = 1_000_000_000L;
         for (int mode : new int[] {FRAME_PACING_CAP_FPS, FRAME_PACING_MAX_SMOOTHNESS}) {
-            for (long enqueue : new long[] {0, -1, now + 1, now, now - 16_000_000, now - 50_000_000}) {
+            long period = FramePacingPolicy.frameIntervalNs(60_000);
+            for (long enqueue : new long[] {0, -1, now + 1, now, now - 16_000_000, now - period}) {
                 assertFalse(FramePacingPolicy.shouldDrainOutput(mode, enqueue, now, 60_000, 0));
             }
-            assertTrue(FramePacingPolicy.shouldDrainOutput(mode, now - 50_000_001, now, 60_000, 0));
-            // A low-rate stream gets three frame periods, with a finite 250 ms ceiling.
-            assertFalse(FramePacingPolicy.shouldDrainOutput(mode, now - 100_000_000, now, 24_000, 0));
+            assertTrue(FramePacingPolicy.shouldDrainOutput(mode, now - period - 1, now, 60_000, 0));
+            // The jitter budget follows the negotiated rate, including fractional frame periods.
+            for (int milliHz : new int[] {24_000, 59_940, 119_880, 240_000}) {
+                long interval = FramePacingPolicy.frameIntervalNs(milliHz);
+                assertFalse(FramePacingPolicy.shouldDrainOutput(mode, now - interval, now, milliHz, 0));
+                assertTrue(FramePacingPolicy.shouldDrainOutput(mode, now - interval - 1, now, milliHz, 0));
+            }
+            // Extremely low-rate streams retain the finite ceiling.
             assertTrue(FramePacingPolicy.shouldDrainOutput(mode, now - 250_000_001, now, 1000, 0));
         }
     }

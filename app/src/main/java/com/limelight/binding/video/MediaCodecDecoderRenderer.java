@@ -1469,7 +1469,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                 @Override
                 public void onFrameRendered(MediaCodec mediaCodec, long presentationTimeUs, long renderTimeNanos) {
                     // Callbacks may be batched; their timestamp, not delivery time, measures rendering.
-                    frameLatencyStats.onFrameRendered(presentationTimeUs, renderTimeNanos);
+                    frameLatencyStats.onFrameRendered(presentationTimeUs, renderTimeNanos, System.nanoTime());
                 }
             }, latencyHandler);
         }

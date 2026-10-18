@@ -51,10 +51,11 @@ final class FramePacingPolicy {
     static boolean shouldDrainOutput(int mode, long enqueueNs, long nowNs, int fpsMilliHz, int drained) {
         if (drained >= MAX_OUTPUT_DRAIN) return false;
         if (dropQueuedFrames(mode)) return true;
-        // Preserve ordinary smooth playback. Only an output already older than three frames
-        // (at least 50 ms, at most 250 ms) may be replaced, and only if another decoded output
-        // is available. Never use unknown/future timestamps or discard compressed references.
-        long maximumAgeNs = Math.max(50_000_000L, Math.min(250_000_000L, frameIntervalNs(fpsMilliHz) * 3));
+        // Keep one frame of jitter buffering, then catch up only if a newer decoded output is
+        // available. A 50 ms floor left 30–40 ms of persistent decoder debt untouched at 60 FPS.
+        // The low-rate ceiling stays finite. Never use unknown/future timestamps or discard
+        // compressed reference frames; a stale last output still gets displayed.
+        long maximumAgeNs = Math.min(250_000_000L, frameIntervalNs(fpsMilliHz));
         return enqueueNs > 0 && nowNs > enqueueNs && nowNs - enqueueNs > maximumAgeNs;
     }
 

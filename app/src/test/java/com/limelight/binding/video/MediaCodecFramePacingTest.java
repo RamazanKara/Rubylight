@@ -4,6 +4,8 @@ import android.app.Activity;
 import android.app.Application;
 import android.media.MediaCodec;
 import android.media.MediaFormat;
+import android.os.Handler;
+import android.os.Looper;
 
 import com.limelight.preferences.PreferenceConfiguration;
 
@@ -67,6 +69,62 @@ public class MediaCodecFramePacingTest {
         assertTrue(result.dropped.isEmpty());
         assertEquals(Collections.singletonList(0), result.rendered);
         assertEquals(1, result.dequeues);
+    }
+
+    @Test public void smoothModesDrainPersistentDebtBelowTheOldFiftyMillisecondThreshold() throws Exception {
+        for (int mode : new int[] {FRAME_PACING_CAP_FPS, FRAME_PACING_MAX_SMOOTHNESS}) {
+            Result result = runQueue(mode, new long[] {42, 28, 8}, false, false);
+            assertEquals(Arrays.asList(0, 1), result.dropped);
+            assertEquals(Collections.singletonList(2), result.rendered);
+        }
+    }
+
+    @Test public void smoothModesKeepOneFrameOfJitterBufferAndRetainASparseLastFrame() throws Exception {
+        for (int mode : new int[] {FRAME_PACING_CAP_FPS, FRAME_PACING_MAX_SMOOTHNESS}) {
+            Result healthy = runQueue(mode, new long[] {8, 0}, false, false);
+            assertTrue(healthy.dropped.isEmpty());
+            assertEquals(Collections.singletonList(0), healthy.rendered);
+            Result sparse = runQueue(mode, new long[] {28}, false, false);
+            assertTrue(sparse.dropped.isEmpty());
+            assertEquals(Collections.singletonList(0), sparse.rendered);
+        }
+    }
+
+    @Test @Config(sdk = 30)
+    public void codecCallbackDeliveryDelayIsRecordedSeparatelyFromItsRenderTimestamp() throws Exception {
+        try (ActivityController<Activity> activity = Robolectric.buildActivity(Activity.class).create()) {
+            ShadowSystemClock.advanceBy(Duration.ofSeconds(2));
+            MediaCodecDecoderRenderer renderer = renderer(activity.get(), FRAME_PACING_MIN_LATENCY);
+            FrameLatencyStats stats = ReflectionHelpers.getField(renderer, "frameLatencyStats");
+            MediaCodec codec = MediaCodec.createDecoderByType("video/avc");
+            try {
+                long now = System.nanoTime();
+                stats.onDecoderInput(1, 1, now - 100_000_000, now - 100_000_000, now - 90_000_000, (char) 0);
+                stats.onDecoderQueued(1, now - 90_000_000);
+                stats.onDecoderOutput(0, 1, now - 80_000_000);
+                stats.onOutputReleased(0, now - 79_000_000, true, true);
+                ReflectionHelpers.setField(renderer, "videoDecoder", codec);
+                ReflectionHelpers.setField(renderer, "latencyHandler", new Handler(Looper.getMainLooper()));
+                QueuedCodec.renderedListener = null;
+                ReflectionHelpers.callInstanceMethod(renderer, "setFrameRenderedListener");
+                assertNotNull(QueuedCodec.renderedListener);
+                long beforeCallbackNs = System.nanoTime();
+                QueuedCodec.renderedListener.onFrameRendered(codec, 1, now - 70_000_000);
+                long afterCallbackNs = System.nanoTime();
+                assertEquals(10, stats.summarize()[2][1], 0.00001);
+                java.io.StringWriter csv = new java.io.StringWriter();
+                stats.writeCsv(csv);
+                String[] fields = csv.toString().trim().split(",", -1);
+                assertEquals(Long.toString(now - 70_000_000), fields[5]);
+                long callbackNs = Long.parseLong(fields[30]);
+                assertTrue(callbackNs >= beforeCallbackNs && callbackNs <= afterCallbackNs);
+                assertEquals((callbackNs - (now - 70_000_000)) / 1_000_000.0,
+                        Double.parseDouble(fields[31]), 0.000001);
+            } finally {
+                renderer.stop();
+                codec.release();
+            }
+        }
     }
 
     @Test public void oldLastFrameIsRetainedWhenNoReplacementExists() throws Exception {
@@ -143,12 +201,17 @@ public class MediaCodecFramePacingTest {
 
     @Implements(MediaCodec.class)
     public static class QueuedCodec extends ShadowMediaCodec {
+        static MediaCodec.OnFrameRenderedListener renderedListener;
         static MediaCodecDecoderRenderer renderer;
         static FrameLatencyStats stats;
         static long[] agesMs;
         static boolean formatChange;
         static boolean stopOnDrop;
         static Result result;
+
+        @Implementation public void setOnFrameRenderedListener(MediaCodec.OnFrameRenderedListener listener, Handler handler) {
+            renderedListener = listener;
+        }
 
         @Implementation public int dequeueOutputBuffer(MediaCodec.BufferInfo info, long timeoutUs) {
             int index = result.dequeues++;

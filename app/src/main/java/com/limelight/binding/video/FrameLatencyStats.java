@@ -43,7 +43,8 @@ class FrameLatencyStats {
             "decode_to_present_ms,receive_to_present_ms," +
             "decode_to_release_ms,decode_interval_ms,release_interval_ms," +
             "fps_sample_ns,received_fps,released_fps,shown_fps,present_drops,enqueue_ns,queue_wait_ms," +
-            "host_present_to_sent_ms,host_queue_ms,host_encode_ms,host_send_ms\n";
+            "host_present_to_sent_ms,host_queue_ms,host_encode_ms,host_send_ms," +
+            "callback_received_ns,callback_delay_ms\n";
 
     private final LinkedHashMap<Long, Frame> pending = new LinkedHashMap<>();
     private final HashMap<Integer, Frame> outputs = new HashMap<>();
@@ -101,6 +102,7 @@ class FrameLatencyStats {
         long inputNs;
         long outputNs;
         long renderNs;
+        long callbackReceivedNs;
         long releaseNs;
         long hostProcessingNs;
         HostTimingReport.Record hostTiming;
@@ -275,10 +277,16 @@ class FrameLatencyStats {
         return frame == null || frame.enqueueNs <= 0 || frame.enqueueNs > frame.outputNs ? 0 : frame.enqueueNs;
     }
 
-    synchronized void onFrameRendered(long ptsUs, long renderNs) {
+    void onFrameRendered(long ptsUs, long renderNs) {
+        onFrameRendered(ptsUs, renderNs, 0);
+    }
+
+    synchronized void onFrameRendered(long ptsUs, long renderNs, long callbackReceivedNs) {
         Frame frame = pending.get(ptsUs);
         if (frame != null) {
             frame.renderNs = renderNs;
+            // Delivery is diagnostic only. Render latency and FPS use the platform timestamp.
+            frame.callbackReceivedNs = callbackReceivedNs;
             boolean valid = frame.inputNs > 0 && frame.outputNs >= frame.inputNs && renderNs >= frame.outputNs;
             if (valid) {
                 recordFrameTime(2, renderNs);
@@ -528,7 +536,8 @@ class FrameLatencyStats {
                     duration(frame.previousReleaseNs, frame.releaseNs) + "," + sampleNs + "," +
                     frameRates + "," + dropped + "," +
                     timestamp(frame.enqueueNs) + "," + duration(frame.enqueueNs, frame.inputNs) +
-                    hostTimingColumns(frame.hostTiming) + "\n");
+                    hostTimingColumns(frame.hostTiming) + "," + timestamp(frame.callbackReceivedNs) + "," +
+                    duration(frame.renderNs, frame.callbackReceivedNs) + "\n");
         }
     }
 

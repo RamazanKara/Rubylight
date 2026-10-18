@@ -751,7 +751,8 @@ public class FrameLatencyStatsTest {
                 "receive_to_render_ms,csv_rows_lost,host_processing_ms,decode_to_present_ms,receive_to_present_ms," +
                 "decode_to_release_ms,decode_interval_ms,release_interval_ms," +
                 "fps_sample_ns,received_fps,released_fps,shown_fps,present_drops,enqueue_ns,queue_wait_ms," +
-                "host_present_to_sent_ms,host_queue_ms,host_encode_ms,host_send_ms\n",
+                "host_present_to_sent_ms,host_queue_ms,host_encode_ms,host_send_ms," +
+                "callback_received_ns,callback_delay_ms\n",
                 FrameLatencyStats.CSV_HEADER);
         FrameLatencyStats stats = new FrameLatencyStats();
         stats.onDecoderInput(42, 123, 1000000, 1000000, 2000000, (char) 123);
@@ -763,7 +764,7 @@ public class FrameLatencyStatsTest {
         stats.writeCsv(csv);
         assertTrue(csv.toString().startsWith("42,123,1000000,2000000,5000000,9000000,6000000,rendered," +
                 "1.000000,3.000000,4.000000,8.000000,0,12.300000,4.000000,8.000000,,,,"));
-        assertEquals(30, csv.toString().trim().split(",", -1).length);
+        assertEquals(32, csv.toString().trim().split(",", -1).length);
     }
 
     @Test
@@ -779,9 +780,9 @@ public class FrameLatencyStatsTest {
         StringWriter csv = new StringWriter();
         stats.writeCsv(csv);
         assertEquals("", csv.toString());
-        stats.onFrameRendered(2, 29000000);
-        stats.onFrameRendered(1, 15000000);
-        stats.onFrameRendered(2, 99000000);
+        stats.onFrameRendered(2, 29000000, 100000000);
+        stats.onFrameRendered(1, 15000000, 100000000);
+        stats.onFrameRendered(2, 99000000, 190000000);
         assertArrayEquals(new double[] {2, 4, 6, 6}, stats.summarize()[2], 0.00001);
         assertArrayEquals(new double[] {2, 7, 9, 9}, stats.summarize()[3], 0.00001);
         stats.writeCsv(csv);
@@ -789,6 +790,29 @@ public class FrameLatencyStatsTest {
         assertEquals(2, rows.length);
         assertTrue(rows[0].contains(",6.000000,9.000000,,,,"));
         assertTrue(rows[1].contains(",2.000000,5.000000,,,,"));
+        assertEquals("100000000", rows[0].split(",", -1)[30]);
+        assertEquals("71.000000", rows[0].split(",", -1)[31]);
+        assertEquals("85.000000", rows[1].split(",", -1)[31]);
+    }
+
+    @Test
+    public void unavailableOrReversedCallbackClocksDoNotInventDeliveryDelays() throws Exception {
+        FrameLatencyStats stats = new FrameLatencyStats();
+        for (int i = 1; i <= 2; i++) {
+            stats.onDecoderInput(i, i, 1000000, 1000000, 2000000, (char) 0);
+            stats.onDecoderQueued(i, 2000000);
+            stats.onDecoderOutput(0, i, 3000000);
+            stats.onOutputReleased(0, 4000000, true, true);
+            stats.onFrameRendered(i, 5000000, i == 1 ? 0 : 4999999);
+        }
+        StringWriter csv = new StringWriter();
+        stats.writeCsv(csv);
+        String[] rows = csv.toString().trim().split("\n");
+        assertEquals("", rows[0].split(",", -1)[30]);
+        for (String row : rows) {
+            assertEquals("", row.split(",", -1)[31]);
+        }
+        assertEquals(2, stats.summarize()[2][1], 0.00001);
     }
 
     @Test
@@ -808,7 +832,7 @@ public class FrameLatencyStatsTest {
         assertEquals(3, rows.length);
         for (String row : rows) {
             String[] fields = row.split(",", -1);
-            assertEquals(30, fields.length);
+            assertEquals(32, fields.length);
             for (int column : new int[] {5, 10, 11, 14, 15}) assertEquals("", fields[column]);
         }
         assertEquals(0, stats.summarize()[2][0], 0);
@@ -955,7 +979,7 @@ public class FrameLatencyStatsTest {
         int unobserved = 0;
         for (String row : csv.toString().split("\n")) {
             String[] fields = row.split(",", -1);
-            assertEquals(30, fields.length);
+            assertEquals(32, fields.length);
             assertTrue(Long.parseLong(fields[19]) > 0);
             assertEquals("120", fields[23]);
             if (fields[7].equals("render_unobserved")) unobserved++;

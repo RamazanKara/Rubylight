@@ -2,6 +2,21 @@ name: Crash report
 description: The Rubylight host or service stopped unexpectedly.
 labels: [bug]
 body:
+  - type: markdown
+    attributes:
+      value: |
+        Update to the [latest release](https://github.com/RamazanKara/Rubylight/releases/latest)
+        first if you can; many crashes are already fixed there.
+
+  - type: input
+    id: version
+    attributes:
+      label: Rubylight version
+      description: The exact number from the console under **Maintenance**, not "latest".
+      placeholder: "2.5.5"
+    validations:
+      required: true
+
   - type: textarea
     id: what
     attributes:
@@ -11,16 +26,18 @@ body:
       required: true
 
   - type: input
-    id: version
+    id: gpu
     attributes:
-      label: Rubylight version
+      label: GPU and driver
+      placeholder: RX 7900 XT, Adrenalin 26.9.1
     validations:
       required: true
 
   - type: input
-    id: gpu
+    id: windows
     attributes:
-      label: GPU and driver
+      label: Windows version
+      placeholder: Windows 11 24H2 (26100.4061)
     validations:
       required: true
 
@@ -30,6 +47,6 @@ body:
       label: Support bundle
       description: |
         After a crash the console shows it under **Maintenance**. Choose **Download support
-        bundle** and attach `butterpollo-support.zip`; it includes the crash dump and logs.
+        bundle** and drag `butterpollo-support.zip` into this box; it includes the crash dump and logs.
     validations:
       required: true

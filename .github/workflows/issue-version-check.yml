@@ -1,0 +1,27 @@
+name: Issue version check
+
+on:
+  issues:
+    types: [opened, edited, labeled]
+
+permissions:
+  issues: write
+  contents: read
+
+concurrency:
+  group: issue-version-check-${{ github.event.issue.number }}
+
+jobs:
+  check:
+    if: github.event.issue.state == 'open' && contains(github.event.issue.labels.*.name, 'bug')
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          sparse-checkout: .github/scripts
+      - run: node .github/scripts/issue-version-check.mjs
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          APP_NAME: Rubylight
+          APP_HEADING: Rubylight version

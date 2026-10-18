@@ -2,11 +2,61 @@ name: Bug report
 description: Something in Rubylight does not work as described.
 labels: [bug]
 body:
+  - type: markdown
+    attributes:
+      value: |
+        Rubylight ships fixes almost daily. Before reporting, update to the
+        [latest release](https://github.com/RamazanKara/Rubylight/releases/latest) and check
+        [Troubleshooting](https://github.com/RamazanKara/Rubylight/blob/main/docs/troubleshooting.md).
+        Reports without an exact version or a support bundle usually can't be acted on.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before you report
+      options:
+        - label: I reproduced this on the latest release, or I say below why I can't update.
+          required: true
+        - label: I searched the existing issues, including closed ones.
+          required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Rubylight version
+      description: The exact number from the console under **Maintenance**. "Latest" is not a version; it changes every few days.
+      placeholder: "2.5.5"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: install
+    attributes:
+      label: Installation
+      options:
+        - Installer (rubylight-setup)
+        - Portable zip
+        - Built from source
+    validations:
+      required: true
+
   - type: textarea
     id: symptoms
     attributes:
       label: What happens
-      description: What you did and what went wrong. Include any error code Moonlight showed.
+      description: What went wrong. Include any error code or message Moonlight showed.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: From a fresh connect, what you do to make it happen, and whether it happens every time.
+      placeholder: |
+        1. Connect from Moonlight with ...
+        2. Launch ...
+        3. ...
     validations:
       required: true
 
@@ -18,29 +68,11 @@ body:
       required: true
 
   - type: input
-    id: version
-    attributes:
-      label: Rubylight version
-      description: Shown in the console under Maintenance, for example 2.0.0-rc.23.
-    validations:
-      required: true
-
-  - type: dropdown
-    id: install
-    attributes:
-      label: Installation
-      options:
-        - Installer (butterpollo-setup)
-        - Portable package
-        - Built from source
-    validations:
-      required: true
-
-  - type: input
     id: windows
     attributes:
       label: Windows version
-      description: For example Windows 11 24H2. Run `winver` to check.
+      description: Run `winver` to check.
+      placeholder: Windows 11 24H2 (26100.4061)
     validations:
       required: true
 
@@ -48,15 +80,30 @@ body:
     id: gpu
     attributes:
       label: GPU and driver
-      description: For example RX 7900 XT, Adrenalin 26.9.1.
+      description: Every GPU in the host, including integrated ones, and the Adrenalin version.
+      placeholder: RX 7900 XT, Adrenalin 26.9.1
+    validations:
+      required: true
+
+  - type: dropdown
+    id: client-kind
+    attributes:
+      label: Client
+      options:
+        - Moonlight PC (Windows, macOS, Linux)
+        - Moonlight Android / Artemis
+        - Nightjar
+        - Moonlight iOS / Apple TV
+        - Moonlight Xbox
+        - Other (say which below)
     validations:
       required: true
 
   - type: input
     id: client
     attributes:
-      label: Client
-      description: Device, Moonlight build and version, for example Moonlight PC 6.2.0 on a laptop.
+      label: Client device and version
+      placeholder: Moonlight PC 6.2.0 on a ThinkPad X1
     validations:
       required: true
 
@@ -64,17 +111,27 @@ body:
     id: stream
     attributes:
       label: Stream settings
-      description: Codec, resolution, frame rate, HDR and whether the client is wired or on Wi-Fi.
+      description: Codec, resolution, frame rate, HDR, and whether the client is wired or on Wi-Fi.
       placeholder: AV1, 1920x1080, 120 fps, HDR, Wi-Fi
     validations:
-      required: false
+      required: true
 
   - type: textarea
     id: bundle
     attributes:
       label: Support bundle
       description: |
-        In the console open **Logs** and choose **Download support bundle**, then attach
-        `butterpollo-support.zip` here. It contains the host logs and diagnostics.
+        In the console open **Logs** and choose **Download support bundle**, then drag
+        `butterpollo-support.zip` into this box. It holds the host logs and diagnostics.
+        If the console won't open, attach `%PROGRAMDATA%\Butterpollo\config\logs\butterpollo.log`
+        and `service.log` from the same folder instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else
+      description: Screenshots, what changed recently, whether another host (Sunshine, Apollo, Vibepollo) works on the same setup.
     validations:
       required: false

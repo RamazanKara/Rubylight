@@ -1,5 +1,11 @@
-blank_issues_enabled: true
+blank_issues_enabled: false
 contact_links:
+  - name: Latest release
+    url: https://github.com/RamazanKara/Rubylight/releases/latest
+    about: Update first. Most reports are already fixed in a newer version.
   - name: Troubleshooting guide
     url: https://github.com/RamazanKara/Rubylight/blob/main/docs/troubleshooting.md
-    about: Common problems and their fixes, before opening an issue.
+    about: Common problems and their fixes.
+  - name: Android client problems
+    url: https://github.com/RamazanKara/nightjar/issues/new/choose
+    about: Problems in the Nightjar app itself belong in the Nightjar repository.

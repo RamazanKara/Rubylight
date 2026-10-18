@@ -1,23 +1,42 @@
 name: Bug report
-description: Follow the troubleshooting guide before reporting a bug
+description: Something in Nightjar does not work as described.
 title: "[Issue]: "
 labels: bug
 body:
   - type: markdown
     attributes:
       value: |
-        Please check the Nightjar troubleshooting guide first:
-        https://github.com/RamazanKara/nightjar/blob/main/docs/TROUBLESHOOTING.md
+        Nightjar ships fixes almost daily. Before reporting, update to the
+        [latest release](https://github.com/RamazanKara/nightjar/releases/latest) and check the
+        [troubleshooting guide](https://github.com/RamazanKara/nightjar/blob/main/docs/TROUBLESHOOTING.md).
+        Reports without exact versions or a problem report usually can't be acted on.
 
-        Include the exact Android app and host versions, not just "latest".
-        For pairing or discovery failures, choose "Not applicable" for gamepad questions.
         Never attach pairing PINs, private keys, keystores or unredacted credentials.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before you report
+      options:
+        - label: I reproduced this on the latest Nightjar release, or I say below why I can't update.
+          required: true
+        - label: I searched the existing issues, including closed ones.
+          required: true
   - type: input
     id: client-version
     attributes:
       label: Nightjar version
-      description: Find the version in Settings → About. Include whether this is a release or debug build.
-      placeholder: e.g. 0.4.5 (322), release APK
+      description: The exact number from **Settings → About**, not "latest".
+      placeholder: "0.7.11 (339)"
+    validations:
+      required: true
+  - type: dropdown
+    id: build
+    attributes:
+      label: Build
+      options:
+        - Release APK
+        - Root APK
+        - Debug or self-built
     validations:
       required: true
   - type: dropdown
@@ -29,7 +48,7 @@ body:
         - Pairing
         - Opening the library or launching an app
         - Video or audio streaming
-        - Controls or clipboard
+        - Controls, gamepads or clipboard
         - Settings or launcher export
         - Other
     validations:
@@ -37,169 +56,86 @@ body:
   - type: textarea
     id: describe-bug
     attributes:
-      label: Describe the bug
-      description: A clear and concise description of what the bug is.
+      label: What happens
+      description: What went wrong, including any error message Nightjar showed.
     validations:
       required: true
   - type: textarea
     id: steps-reproduce
     attributes:
       label: Steps to reproduce
-      description: Any special steps that are required for the bug to appear.
+      description: What you do to make it happen, and whether it happens every time.
+      placeholder: |
+        1. Open Nightjar and ...
+        2. ...
     validations:
       required: true
-  - type: textarea
-    id: affected-games
-    attributes:
-      label: Affected games
-      description: List affected apps or games. Enter "Not applicable" if pairing, discovery or settings fail before a stream starts.
-    validations:
-      required: true   
-  - type: dropdown
-    id: other-clients
-    attributes:
-      label: Other streaming clients tested
-      description: Which other client did you test against the same host? Describe its result in Additional context.
-      options:
-        - "Not tested"
-        - "Android (Moonlight or Artemis)"
-        - "PC"
-        - "iOS"
-    validations:
-      required: true
-  - type: dropdown
-    id: settings-adjusted
-    attributes:
-      label: Adjusted settings
-      description: Have any settings been adjusted from defaults?
-      options:
-        - "Yes"
-        - "No"
-    validations:
-      required: true
-  - type: textarea
-    id: settings-adjusted-settings
-    attributes:
-      label: Changed settings
-      description: If the settings have been adjusted, which settings have been changed?
-    validations:
-      required: false
-  - type: dropdown
-    id: settings-default
-    attributes:
-      label: Default settings
-      description: Does the problem still occur after reverting settings back to default?
-      options:
-        - "Not tested"
-        - "Yes"
-        - "No"
-    validations:
-      required: true
-  - type: dropdown
-    id: gamepad-connected
-    attributes:
-      label: Gamepad-related connection issue
-      description: Do you have any gamepads connected to your host PC directly?
-      options:
-        - "Not applicable"
-        - "Yes"
-        - "No"
-    validations:
-      required: true
-  - type: dropdown
-    id: gamepad-on-screen
-    attributes:
-      label: Gamepad-related input issue
-      description: If gamepad input is not working, does it work with Nightjar's on-screen controls?
-      options:
-        - "Not applicable"
-        - "Not tested"
-        - "Yes"
-        - "No"
-    validations:
-      required: true
-  - type: dropdown
-    id: gamepad-test
-    attributes:
-      label: Gamepad-related streaming issue
-      description: |
-        Does the problem still remain if you stream the desktop and use https://html5gamepad.com to test your gamepad? 
-        Add Desktop to your host's application list, then launch it from Nightjar.
-      options:
-        - "Not applicable"
-        - "Not tested"
-        - "Yes"
-        - "No"
-    validations:
-      required: true
-  - type: input
-    id: android
-    attributes:
-      label: Android version
-      description: What is the Android version?
-      placeholder: e.g. Android 10
-    validations:
-      required: true      
   - type: input
     id: device
     attributes:
-      label: Device model
-      description: What is the device model?
-      placeholder: e.g. Samsung Galaxy S21
-    validations:
-      required: true
-  - type: input
-    id: server-os
-    attributes:
-      label: Server PC OS version
-      description: What is the PC OS version?
-      placeholder: e.g. Windows 10 1809
+      label: Device and Android version
+      placeholder: Samsung Galaxy S23, Android 15
     validations:
       required: true
   - type: input
     id: server-geforce
     attributes:
       label: Host software and version
-      description: Include the host name and exact version (e.g. Apollo, GeForce Experience, Rubylight, Sunshine or Vibepollo).
-      placeholder: e.g. Sunshine 2025.x, Apollo, Vibepollo, Rubylight 2.2.x
+      description: The host name and its exact version, not "latest".
+      placeholder: Rubylight 2.5.5
     validations:
       required: true
   - type: input
     id: server-driver
     attributes:
-      label: Host GPU and driver version
-      description: Include the GPU vendor/model and driver version, or "Not known".
-      placeholder: e.g. AMD Radeon, NVIDIA GeForce or Intel Arc and driver version
+      label: Host GPU, driver and Windows version
+      placeholder: RX 7900 XT, Adrenalin 26.9.1, Windows 11 24H2
     validations:
       required: true
   - type: input
-    id: server-antivirus
+    id: stream
     attributes:
-      label: Server PC antivirus and firewall software
-      description: Which antivirus and firewall software are installed on the Server PC?
-      placeholder: e.g. Windows Defender and Windows Firewall
+      label: Stream settings
+      description: Codec, resolution, frame rate, HDR, and whether the device is on Wi-Fi or wired. "Not applicable" if no stream starts.
+      placeholder: HEVC, 1920x1080, 120 fps, no HDR, 5 GHz Wi-Fi
     validations:
-      required: true      
-  - type: textarea
-    id: screenshots
+      required: true
+  - type: dropdown
+    id: other-clients
     attributes:
-      label: Screenshots
-      description: If applicable, add screenshots to help explain your problem. If the issue is related to video glitching or poor quality, please include screenshots.
+      label: Does another client work against the same host?
+      options:
+        - "Not tested"
+        - "Yes, Moonlight or Artemis on Android works"
+        - "Yes, a PC or iOS client works"
+        - "No, other clients fail too"
     validations:
-      required: false
+      required: true
+  - type: dropdown
+    id: settings-default
+    attributes:
+      label: Does it still happen with default settings?
+      options:
+        - "Not tested"
+        - "Yes"
+        - "No, only with changed settings (list them below)"
+    validations:
+      required: true
   - type: textarea
     id: logs
     attributes:
-      label: Relevant log output
+      label: Problem report
       description: |
-        Please copy and paste any relevant log output. This will be automatically formatted into code, so no need for backticks.
-      render: Shell
+        Reproduce the problem, then open **Settings → App → Report a problem → Share** and drag
+        `nightjar-problem.txt` into this box. For stream problems also paste **Copy stats** from the
+        stream menu; for pairing problems, long-press the PC and use **View details → Copy debug info**.
+        The report is redacted; see the troubleshooting guide for what it contains.
     validations:
-      required: false      
+      required: true
   - type: textarea
     id: additional
     attributes:
-      label: Additional context
-      description: Anything else you think may be relevant to the issue or special about your specific setup.
+      label: Anything else
+      description: Screenshots, changed settings, gamepad details, antivirus or firewall on the host.
     validations:
       required: false

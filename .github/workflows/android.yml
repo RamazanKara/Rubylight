@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
     # Docs, store listing and artwork sources don't change the APK.
-    paths-ignore: ['**/*.md', 'docs/**', 'fastlane/**', 'store-assets/**', 'LICENSE.txt']
+    paths-ignore: ['**/*.md', 'docs/**', 'fastlane/**', 'store-assets/**', 'LICENSE.txt', '.github/ISSUE_TEMPLATE/**', '.github/scripts/**', '.github/workflows/issue-version-check.yml', '.github/*.yml']
   workflow_dispatch:
     inputs:
       prerelease_tag:

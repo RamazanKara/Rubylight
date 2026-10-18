@@ -24,7 +24,7 @@ body:
     id: results
     attributes:
       label: Results text
-      description: Paste the whole text from Share results. It starts with `"format": "nightjar-device-results"`. Remove any line you do not want to publish.
+      description: 'Paste the whole text from Share results. It starts with `"format": "nightjar-device-results"`. Remove any line you do not want to publish.'
       render: json
     validations:
       required: true

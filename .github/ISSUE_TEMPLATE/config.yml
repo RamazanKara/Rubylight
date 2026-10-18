@@ -1,1 +1,14 @@
 blank_issues_enabled: false
+contact_links:
+  - name: Latest release
+    url: https://github.com/RamazanKara/nightjar/releases/latest
+    about: Update first. Most reports are already fixed in a newer version.
+  - name: Troubleshooting guide
+    url: https://github.com/RamazanKara/nightjar/blob/main/docs/TROUBLESHOOTING.md
+    about: Common problems and their fixes.
+  - name: FAQ
+    url: https://github.com/RamazanKara/nightjar/blob/main/docs/faq.md
+    about: Questions about setup, hosts and features.
+  - name: Rubylight host problems
+    url: https://github.com/RamazanKara/Rubylight/issues/new/choose
+    about: Problems in the Rubylight host itself belong in the Rubylight repository.

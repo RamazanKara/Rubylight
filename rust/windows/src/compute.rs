@@ -502,6 +502,23 @@ pub(crate) struct Returns {
     value: u64,
     imported: Vec<ID3D11Texture2D>,
 }
+/// A failed ordering operation does not establish that a texture is no longer
+/// read by the GPU. Keep it owned and reject further work on this queue.
+fn return_after_reads(
+    retired: &std::sync::atomic::AtomicBool,
+    order: impl FnOnce() -> Result<()>,
+    release: impl FnOnce() -> Result<()>,
+) -> Result<()> {
+    anyhow::ensure!(
+        !retired.load(Ordering::Acquire),
+        "shared compute queue is retired; reopen capture"
+    );
+    let result = order().and_then(|()| release());
+    if result.is_err() {
+        retired.store(true, Ordering::Release);
+    }
+    result
+}
 // SAFETY: The D3D11 context's device is multithread-protected (`capture::Device::create`), D3D12
 // fences are free-threaded, and all else is used only through `&mut self`.
 unsafe impl Send for Returns {}
@@ -526,10 +543,16 @@ impl Returns {
     /// The D3D11 device has just taken a texture's keyed mutex: when compute
     /// work may read it.
     pub(crate) fn acquired(&mut self) -> Result<Ready> {
+        anyhow::ensure!(
+            !self.compute.is_stuck(),
+            "shared compute queue is retired; reopen capture"
+        );
         self.value += 1;
         // SAFETY: The fence was opened on this context's device, which is multithread-protected.
         unsafe {
-            self.context.Signal(&self.acquired.1, self.value)?;
+            self.context
+                .Signal(&self.acquired.1, self.value)
+                .inspect_err(|_| self.compute.retire())?;
             self.context.Flush();
         }
         Ok(Ready {
@@ -545,20 +568,25 @@ impl Returns {
         self.value += 1;
         // SAFETY: Both fences are on the compute device and this context's device; the caller holds
         // `mutex` and releases it only here.
-        unsafe {
-            let drained = self
-                .compute
-                .queue
-                .Signal(&self.drained.0, self.value)
-                .and_then(|()| self.context.Wait(&self.drained.1, self.value));
-            // Released even after a failure: a lost device reads nothing more,
-            // and the writer must not wait for a texture forever.
-            let released = mutex.ReleaseSync(key);
-            self.context.Flush();
-            drained?;
-            released?;
-        }
-        Ok(())
+        let returned = return_after_reads(
+            &self.compute.stuck,
+            || unsafe {
+                self.compute
+                    .queue
+                    .Signal(&self.drained.0, self.value)
+                    .and_then(|()| self.context.Wait(&self.drained.1, self.value))
+                    .context("order shared texture return after GPU readers")
+            },
+            || unsafe {
+                mutex
+                    .ReleaseSync(key)
+                    .context("return shared texture mutex")
+            },
+        );
+        // SAFETY: The context is live and multithread-protected. Flush an enqueued
+        // wait/release even when a later operation failed; no failed slot is reused.
+        unsafe { self.context.Flush() };
+        returned
     }
 }
 impl Drop for Returns {
@@ -1649,6 +1677,50 @@ fn buffer_desc(size: u64) -> D3D12_RESOURCE_DESC {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn failed_shared_texture_ordering_never_releases_or_reuses_the_slot() {
+        use std::{cell::RefCell, sync::atomic::AtomicBool};
+        for failure in [None, Some("signal"), Some("wait"), Some("release")] {
+            let retired = AtomicBool::new(false);
+            let calls = RefCell::new(Vec::new());
+            let returned = return_after_reads(
+                &retired,
+                || {
+                    for stage in ["signal", "wait"] {
+                        calls.borrow_mut().push(stage);
+                        anyhow::ensure!(failure != Some(stage), "injected {stage} failure");
+                    }
+                    Ok(())
+                },
+                || {
+                    calls.borrow_mut().push("release");
+                    anyhow::ensure!(failure != Some("release"), "injected release failure");
+                    Ok(())
+                },
+            );
+            assert_eq!(returned.is_err(), failure.is_some());
+            assert_eq!(retired.load(Ordering::Acquire), failure.is_some());
+            assert_eq!(
+                *calls.borrow(),
+                match failure {
+                    Some("signal") => vec!["signal"],
+                    Some("wait") => vec!["signal", "wait"],
+                    _ => vec!["signal", "wait", "release"],
+                }
+            );
+            if failure.is_some() {
+                assert!(
+                    return_after_reads(
+                        &retired,
+                        || panic!("retired queue must reopen before ordering more work"),
+                        || panic!("retired queue must not release another texture"),
+                    )
+                    .is_err()
+                );
+            }
+        }
+    }
 
     #[test]
     #[ignore = "requires native D3D11/D3D12 shared capture textures"]

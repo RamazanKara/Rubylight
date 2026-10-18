@@ -1166,6 +1166,16 @@ impl Converter {
             list.CopyTextureRegion(&destination, 0, 0, 0, &source, None);
             drop(std::mem::ManuallyDrop::into_inner(destination.pResource));
             drop(std::mem::ManuallyDrop::into_inner(source.pResource));
+            // This plain texture was implicitly promoted to COPY_DEST on a compute
+            // queue, so it does not decay to COMMON after the upload. Every later
+            // use samples the cached cursor; transition once before its first read.
+            let mut barriers = [transition(
+                &texture,
+                D3D12_RESOURCE_STATE_COPY_DEST,
+                D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
+            )];
+            list.ResourceBarrier(&barriers);
+            drop_barriers(&mut barriers);
             list.Close()?;
             let done = self.compute.execute(&list)?;
             self.uploads.push(PointerUpload {
@@ -1720,6 +1730,85 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    #[ignore = "requires an idle D3D12 GPU, debug layer and task-owned report path; run alone"]
+    fn native_cursor_upload_is_shader_readable() -> Result<()> {
+        let report = std::path::PathBuf::from(
+            std::env::var_os("BUTTERPOLLO_TEST_CURSOR_STATE_REPORT")
+                .context("set BUTTERPOLLO_TEST_CURSOR_STATE_REPORT")?,
+        );
+        anyhow::ensure!(report.is_absolute(), "report path must be absolute");
+        let mut debug: Option<ID3D12Debug> = None;
+        // SAFETY: This opt-in test runs alone and enables validation before creating
+        // its first D3D12 device. Validation is local to this test process.
+        unsafe {
+            D3D12GetDebugInterface(&mut debug)?;
+            debug
+                .context("D3D12 debug layer unavailable")?
+                .EnableDebugLayer();
+        }
+        let _com = crate::capture::ComGuard::new()?;
+        eprintln!("cursor validation: creating capture device");
+        let gpu = crate::capture::Device::new("")?;
+        eprintln!("cursor validation: creating compute device");
+        let compute = Compute::for_device(&gpu.device)?;
+        let messages: ID3D12InfoQueue = compute.device.cast()?;
+        // SAFETY: This only disables debugger breaks in this isolated test; the
+        // validation result below still fails the test on a wrong resource state.
+        unsafe {
+            messages.SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_CORRUPTION, false)?;
+            messages.SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_ERROR, false)?;
+        }
+        let validation: ID3D12DebugCommandQueue = compute.queue.cast()?;
+        eprintln!("cursor validation: creating converter");
+        let mut converter = Converter::new(compute.clone(), 4, 4, false)?;
+        let shape = DXGI_OUTDUPL_POINTER_SHAPE_INFO {
+            Type: DXGI_OUTDUPL_POINTER_SHAPE_TYPE_COLOR.0 as u32,
+            Width: 9,
+            Height: 5,
+            Pitch: 9 * 4,
+            ..Default::default()
+        };
+        let mut checks = Vec::new();
+        for colour in [64u8, 192] {
+            let cursor = crate::cursor::Cursor::new(&gpu, &shape, &[colour; 9 * 5 * 4])?;
+            eprintln!("cursor validation: uploading {colour}");
+            let texture = converter.pointer(&cursor)?;
+            let upload = converter
+                .uploads
+                .last()
+                .context("cursor upload was not queued")?
+                .fence;
+            compute.wait(upload)?;
+            let cached = converter.pointer(&cursor)?;
+            anyhow::ensure!(texture.as_raw() == cached.as_raw(), "cursor cache missed");
+            eprintln!("cursor validation: checking {colour}");
+            // SAFETY: Both interfaces belong to the same live device. This asks the
+            // independent Direct3D validation layer whether a completed upload can be
+            // sampled by the compute shader, without submitting an invalid GPU read.
+            let readable = unsafe {
+                validation.AssertResourceState(
+                    &texture,
+                    0,
+                    D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE.0 as u32,
+                )
+            }
+            .as_bool();
+            // The queue's validation operation can itself reference the resource.
+            // Complete it before the next shape can release this cached texture.
+            compute.wait(compute.signal()?)?;
+            checks.push(serde_json::json!({"colour":colour,"shader_readable":readable}));
+            std::fs::write(&report, serde_json::to_vec_pretty(&checks)?)?;
+        }
+        std::fs::write(&report, serde_json::to_vec_pretty(&checks)?)?;
+        anyhow::ensure!(
+            checks.iter().all(|check| check["shader_readable"] == true),
+            "cursor upload is not shader-readable; see {}",
+            report.display()
+        );
+        Ok(())
     }
 
     #[test]

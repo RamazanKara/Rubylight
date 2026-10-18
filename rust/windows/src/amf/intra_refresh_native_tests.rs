@@ -33,11 +33,22 @@ fn native_amf_recycled_surface_barriers_are_valid() -> Result<()> {
     let _com = crate::capture::ComGuard::new()?;
     let device = Device::new("")?;
     anyhow::ensure!(crate::compute::copies_on(&device.device), "requires AMD");
+    let pointer_shape = windows::Win32::Graphics::Dxgi::DXGI_OUTDUPL_POINTER_SHAPE_INFO {
+        Type: windows::Win32::Graphics::Dxgi::DXGI_OUTDUPL_POINTER_SHAPE_TYPE_COLOR.0 as u32,
+        Width: 9,
+        Height: 5,
+        Pitch: 9 * 4,
+        ..Default::default()
+    };
+    let cursors = [32u8, 224]
+        .into_iter()
+        .map(|colour| crate::cursor::Cursor::new(&device, &pointer_shape, &[colour; 9 * 5 * 4]))
+        .collect::<Result<Vec<_>>>()?;
     let compute = crate::compute::Compute::for_device(&device.device)?;
     let info: ID3D12InfoQueue = compute.device.cast()?;
     let mut reports = Vec::new();
     for (hdr, codec) in [(false, 1), (true, 1), (false, 2), (true, 2)] {
-        let picture = picture(&device, hdr, 0)?;
+        let mut picture = picture(&device, hdr, 0)?;
         let config = butterpollo_core::rtsp::Negotiated {
             width: 3840,
             height: 2160,
@@ -64,6 +75,13 @@ fn native_amf_recycled_surface_barriers_are_valid() -> Result<()> {
         let mut stream = std::io::BufWriter::new(fs::File::create(&stream_path)?);
         let mut states = Vec::new();
         for index in 0..32 {
+            // Exercise initial upload, a cached shape, replacement and hiding for
+            // every codec/format. Odd dimensions also require padded upload rows.
+            picture.cursor = match index / 8 {
+                0 | 1 => Some(cursors[0].clone()),
+                2 => Some(cursors[1].clone()),
+                _ => None,
+            };
             let started = Instant::now();
             let mut output = encoder.encode_gpu(&picture, index == 0, config.bitrate_kbps)?;
             while encoder.pending() {
@@ -88,7 +106,7 @@ fn native_amf_recycled_surface_barriers_are_valid() -> Result<()> {
             states.push(frame_states);
         }
         stream.flush()?;
-        reports.push(serde_json::json!({"codec":codec,"hdr":hdr,"frames":states.len(),"stream":stream_path,"states":states}));
+        reports.push(serde_json::json!({"codec":codec,"hdr":hdr,"frames":states.len(),"cursor_shapes":cursors.len(),"cursor_hidden_frames":8,"stream":stream_path,"states":states}));
     }
     let mut errors = Vec::new();
     // SAFETY: The info queue owns its messages; each aligned buffer is sized from the

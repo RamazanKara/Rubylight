@@ -1360,6 +1360,8 @@ impl Encoder {
             };
             let idr = output_is_idr(picture_type, requested_idr);
             let bytes = std::slice::from_raw_parts(raw, size as usize);
+            // The sender outlives this AMF buffer reference. Own the compressed
+            // bytes before Release makes its native storage available for reuse.
             let bytes = if self.codec == 0 && idr && self.references.enabled() {
                 butterpollo_core::bitstream::h264_reference_recovery(bytes)
             } else {

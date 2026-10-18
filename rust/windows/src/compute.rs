@@ -90,6 +90,29 @@ fn completed_value(value: u64) -> Result<u64> {
     }
     Ok(value)
 }
+
+/// AMF owns these states while encoding, but the next transition runs on a
+/// compute command list. Never pass a video/graphics-only state to that queue.
+/// See DirectX-Specs/CPUEfficiency, "State support by command-list type".
+fn ensure_compute_texture_state(state: D3D12_RESOURCE_STATES) -> Result<()> {
+    let read = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_COPY_SOURCE;
+    let valid = state.0 & !read.0 == 0
+        || state == D3D12_RESOURCE_STATE_UNORDERED_ACCESS
+        || state == D3D12_RESOURCE_STATE_COPY_DEST;
+    anyhow::ensure!(
+        valid,
+        "AMF input resource state {:#x} cannot transition on the compute queue",
+        state.0 as u32
+    );
+    Ok(())
+}
+fn ensure_queue_active(retired: &std::sync::atomic::AtomicBool) -> Result<()> {
+    anyhow::ensure!(
+        !retired.load(Ordering::Acquire),
+        "shared compute queue is retired; reopen capture"
+    );
+    Ok(())
+}
 /// Wait on the CPU until `fence` reaches `value`, for at most two seconds.
 /// The copies wait for fences another device signals; after that device is
 /// lost they may never complete, and an unbounded wait froze the stream for
@@ -239,6 +262,7 @@ impl Compute {
     }
     /// Run a closed command list; returns the fence value that follows it.
     pub(crate) fn execute(&self, list: &ID3D12GraphicsCommandList) -> Result<u64> {
+        self.ensure_active()?;
         // SAFETY: Callers pass a closed compute command list recorded on `self.device`, the queue's
         // device, and keep what it references alive until the returned fence value.
         unsafe {
@@ -262,6 +286,13 @@ impl Compute {
     pub(crate) fn is_stuck(&self) -> bool {
         self.stuck.load(Ordering::Acquire)
     }
+    /// Reject new work after an ordering failure, even when old fence values
+    /// have completed. Completion alone does not make a retired queue reusable.
+    /// This does not cancel calls already in progress; their resource ownership
+    /// and completion fences still apply, and retirement must never wait on them.
+    fn ensure_active(&self) -> Result<()> {
+        ensure_queue_active(&self.stuck)
+    }
     /// Do not give this queue to a new capture or encoder. Work already submitted may
     /// still wait on an external fence after an enqueue error prevented its completion.
     pub(crate) fn retire(&self) {
@@ -278,6 +309,7 @@ impl Compute {
     }
     /// A shared D3D11 texture as a D3D12 resource on this device.
     pub fn open(&self, texture: &ID3D11Texture2D) -> Result<ID3D12Resource> {
+        self.ensure_active()?;
         let key = texture.as_raw() as usize;
         if let Some((_, resource)) = self.foreign.lock().unwrap().get(&key) {
             return Ok(resource.clone());
@@ -319,6 +351,7 @@ impl Compute {
     /// Open a texture another process shared through `handle`, so that
     /// `open` finds it until `forget`.
     pub(crate) fn import(&self, texture: &ID3D11Texture2D, handle: HANDLE) -> Result<()> {
+        self.ensure_active()?;
         let mut resource: Option<ID3D12Resource> = None;
         // SAFETY: `handle` is a live NT handle to `texture` that the caller owns, and `resource` is
         // a live local.
@@ -509,10 +542,7 @@ fn return_after_reads(
     order: impl FnOnce() -> Result<()>,
     release: impl FnOnce() -> Result<()>,
 ) -> Result<()> {
-    anyhow::ensure!(
-        !retired.load(Ordering::Acquire),
-        "shared compute queue is retired; reopen capture"
-    );
+    ensure_queue_active(retired)?;
     let result = order().and_then(|()| release());
     if result.is_err() {
         retired.store(true, Ordering::Release);
@@ -524,6 +554,7 @@ fn return_after_reads(
 unsafe impl Send for Returns {}
 impl Returns {
     pub(crate) fn new(compute: Arc<Compute>, gpu: &crate::capture::Device) -> Result<Self> {
+        compute.ensure_active()?;
         let device: ID3D11Device5 = gpu.device.cast()?;
         Ok(Self {
             acquired: shared_fence(&compute, &device)?,
@@ -543,10 +574,7 @@ impl Returns {
     /// The D3D11 device has just taken a texture's keyed mutex: when compute
     /// work may read it.
     pub(crate) fn acquired(&mut self) -> Result<Ready> {
-        anyhow::ensure!(
-            !self.compute.is_stuck(),
-            "shared compute queue is retired; reopen capture"
-        );
+        self.compute.ensure_active()?;
         self.value += 1;
         // SAFETY: The fence was opened on this context's device, which is multithread-protected.
         unsafe {
@@ -658,6 +686,7 @@ impl Handoff {
         texture: &ID3D11Texture2D,
         handle: HANDLE,
     ) -> Result<()> {
+        self.compute.ensure_active()?;
         let mut resource: Option<ID3D12Resource> = None;
         // SAFETY: `handle` is a live NT handle to `texture` that the caller owns, and `resource` is
         // a live local.
@@ -684,6 +713,7 @@ impl Handoff {
         }
     }
     pub fn new(compute: Arc<Compute>, gpu: &crate::capture::Device) -> Result<Self> {
+        compute.ensure_active()?;
         let device: ID3D11Device5 = gpu.device.cast()?;
         let (queue, _) = compute_queue(&compute.device)?;
         Ok(Self {
@@ -708,6 +738,7 @@ impl Handoff {
         destination: &ID3D11Texture2D,
         source: &ID3D11Texture2D,
     ) -> Result<Ready> {
+        self.compute.ensure_active()?;
         let readers = self
             .readers
             .entry(destination.as_raw() as usize)
@@ -997,6 +1028,7 @@ const SLOTS: usize = 4;
 const VIEWS: usize = 5;
 impl Converter {
     pub fn new(compute: Arc<Compute>, width: u32, height: u32, ten_bit: bool) -> Result<Self> {
+        compute.ensure_active()?;
         if width == 0 || height == 0 || !width.is_multiple_of(2) || !height.is_multiple_of(2) {
             bail!("compute conversion needs even, nonzero dimensions");
         }
@@ -1073,6 +1105,7 @@ impl Converter {
     /// The pointer shape as a texture on this device, uploaded when it
     /// changes. The conversion follows the upload on the same queue.
     pub(crate) fn pointer(&mut self, cursor: &crate::cursor::Cursor) -> Result<ID3D12Resource> {
+        self.compute.ensure_active()?;
         self.release_completed();
         if let Some((cached, texture)) = &self.pointer
             && Arc::ptr_eq(cached, &cursor.pixels)
@@ -1306,6 +1339,7 @@ impl Converter {
         pointer: Option<&ID3D12Resource>,
         image: &crate::capture::GpuImage,
     ) -> Result<Converted> {
+        self.compute.ensure_active()?;
         let ready = image.ready.as_ref();
         let index = self.target()?;
         let target = self.targets[index].texture.clone();
@@ -1313,6 +1347,7 @@ impl Converter {
         // native surface release and completion fence make the selected target
         // free; neither returns its resource state to COMMON.
         let state = crate::amf::gpu::resource_state(&target)?;
+        ensure_compute_texture_state(state)?;
         let slot = self.slot;
         self.slot = (self.slot + 1) % SLOTS;
         self.compute.wait(self.slots[slot].fence)?;
@@ -1422,6 +1457,7 @@ impl Converter {
             list.Close()?;
         }
         // The capture's copy into `source` may still be waiting for DWM.
+        self.compute.ensure_active()?;
         match ready {
             // SAFETY: The guard checked that `ready.fence` belongs to this queue's device, and
             // `ready` holds it for the call.
@@ -1479,6 +1515,7 @@ impl Converter {
         ready: Option<&Ready>,
         target: &Planes,
     ) -> Result<()> {
+        self.compute.ensure_active()?;
         let (root, planar) = match &self.planar {
             Some(planar) => planar.clone(),
             None => {
@@ -1578,6 +1615,7 @@ impl Converter {
             list.ResourceBarrier(&barriers);
             drop_barriers(&mut barriers);
             list.Close()?;
+            self.compute.ensure_active()?;
             match ready {
                 Some(ready) if ready.device == self.compute.device.as_raw() as usize => {
                     self.compute
@@ -1689,6 +1727,107 @@ mod tests {
     use super::*;
 
     #[test]
+    fn compute_texture_states_accept_only_supported_reads_or_one_write() {
+        for state in [
+            D3D12_RESOURCE_STATE_COMMON,
+            D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
+            D3D12_RESOURCE_STATE_COPY_SOURCE,
+            D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_COPY_SOURCE,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+            D3D12_RESOURCE_STATE_COPY_DEST,
+        ] {
+            assert!(ensure_compute_texture_state(state).is_ok(), "{state:?}");
+        }
+        for state in [
+            D3D12_RESOURCE_STATE_VIDEO_ENCODE_READ,
+            D3D12_RESOURCE_STATE_VIDEO_ENCODE_WRITE,
+            D3D12_RESOURCE_STATE_VIDEO_DECODE_READ,
+            D3D12_RESOURCE_STATE_VIDEO_DECODE_WRITE,
+            D3D12_RESOURCE_STATE_VIDEO_PROCESS_READ,
+            D3D12_RESOURCE_STATE_VIDEO_PROCESS_WRITE,
+            D3D12_RESOURCE_STATE_RENDER_TARGET,
+            D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
+            D3D12_RESOURCE_STATE_DEPTH_READ,
+            D3D12_RESOURCE_STATE_DEPTH_WRITE,
+            D3D12_RESOURCE_STATE_GENERIC_READ,
+            D3D12_RESOURCE_STATE_COPY_DEST | D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+            D3D12_RESOURCE_STATE_COPY_SOURCE | D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+            D3D12_RESOURCE_STATE_COPY_DEST | D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
+            D3D12_RESOURCE_STATES(i32::MIN),
+        ] {
+            assert!(ensure_compute_texture_state(state).is_err(), "{state:?}");
+        }
+    }
+
+    #[test]
+    #[ignore = "requires native D3D11/D3D12; changes only task-owned AMF metadata"]
+    fn unsupported_amf_state_is_rejected_before_recording_conversion() -> Result<()> {
+        use crate::capture::{Device, GpuImage, Image, Pixel};
+
+        let _com = crate::capture::ComGuard::new()?;
+        let gpu = Device::new("")?;
+        let compute = Compute::for_device(&gpu.device)?;
+        let image = GpuImage::upload(
+            &gpu,
+            &Image {
+                width: 4,
+                height: 4,
+                stride: 16,
+                bytes: vec![128; 64],
+                captured: std::time::Instant::now(),
+                pixel: Pixel::Bgra8,
+            },
+        )?;
+        let source = compute.open(&image.texture)?;
+        let mut converter = Converter::new(compute.clone(), 4, 4, false)?;
+        converter.values = crate::gpu_color::constants(
+            &butterpollo_core::rtsp::Negotiated {
+                width: 4,
+                height: 4,
+                ..Default::default()
+            },
+            (4, 4, Pixel::Bgra8),
+            [100., 1.],
+            None,
+        );
+        let index = converter.target()?;
+        let submitted = *compute.next.lock().unwrap();
+        let slot = converter.slot;
+        for state in [
+            D3D12_RESOURCE_STATE_VIDEO_ENCODE_READ,
+            D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
+            D3D12_RESOURCE_STATE_COPY_DEST | D3D12_RESOURCE_STATE_COPY_SOURCE,
+        ] {
+            // This changes only AMF's private-data record. The texture remains
+            // COMMON; rejection must happen before recording any GPU commands.
+            crate::amf::gpu::set_resource_state(&converter.targets[index].texture, state)?;
+            let error = converter
+                .convert(&source, format(Pixel::Bgra8), None, &image)
+                .err()
+                .expect("unsupported AMF state accepted");
+            assert!(format!("{error:#}").contains("cannot transition on the compute queue"));
+            assert_eq!(*compute.next.lock().unwrap(), submitted);
+            assert_eq!(converter.slot, slot);
+            assert_eq!(converter.targets.len(), 1);
+            assert_eq!(converter.targets[index].value, 0);
+            assert!(converter.slots.iter().all(|slot| slot.capture.is_none()));
+            assert_eq!(
+                crate::amf::gpu::resource_state(&converter.targets[index].texture)?,
+                state
+            );
+        }
+        crate::amf::gpu::set_resource_state(
+            &converter.targets[index].texture,
+            D3D12_RESOURCE_STATE_COMMON,
+        )?;
+        converter
+            .convert(&source, format(Pixel::Bgra8), None, &image)?
+            .wait()?;
+        converter.release_completed();
+        Ok(())
+    }
+
+    #[test]
     fn failed_shared_texture_ordering_never_releases_or_reuses_the_slot() {
         use std::{cell::RefCell, sync::atomic::AtomicBool};
         for failure in [None, Some("signal"), Some("wait"), Some("release")] {
@@ -1730,6 +1869,131 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    #[ignore = "requires native D3D11/D3D12; retires only a completed task-owned queue"]
+    fn retired_queue_rejects_conversion_upload_and_capture_before_mutating_resources() -> Result<()>
+    {
+        use crate::capture::{Device, GpuImage, Image, Pixel};
+        fn rejected<T>(result: Result<T>) {
+            let error = result.err().expect("retired queue accepted new work");
+            assert!(format!("{error:#}").contains("compute queue is retired"));
+        }
+
+        let _com = crate::capture::ComGuard::new()?;
+        let gpu = Device::new("")?;
+        let compute = Compute::for_device(&gpu.device)?;
+        let pixels = Image {
+            width: 4,
+            height: 4,
+            stride: 16,
+            bytes: vec![128; 64],
+            captured: std::time::Instant::now(),
+            pixel: Pixel::Bgra8,
+        };
+        let image = GpuImage::upload(&gpu, &pixels)?;
+        let destination = GpuImage::upload(&gpu, &pixels)?;
+        let source = compute.open(&image.texture)?;
+        let mut handoff = Handoff::new(compute.clone(), &gpu)?;
+        let mut returns = Returns::new(compute.clone(), &gpu)?;
+        let mut converter = Converter::new(compute.clone(), 4, 4, false)?;
+        converter.values = crate::gpu_color::constants(
+            &butterpollo_core::rtsp::Negotiated {
+                width: 4,
+                height: 4,
+                ..Default::default()
+            },
+            (4, 4, Pixel::Bgra8),
+            [100., 1.],
+            None,
+        );
+        let cursor = crate::cursor::Cursor::new(
+            &gpu,
+            &DXGI_OUTDUPL_POINTER_SHAPE_INFO {
+                Type: DXGI_OUTDUPL_POINTER_SHAPE_TYPE_COLOR.0 as u32,
+                Width: 4,
+                Height: 4,
+                Pitch: 16,
+                ..Default::default()
+            },
+            &[64; 64],
+        )?;
+        let pointer = converter.pointer(&cursor)?;
+        converter
+            .convert(&source, format(Pixel::Bgra8), Some(&pointer), &image)?
+            .wait()?;
+        converter.release_completed();
+
+        let plane = || -> Result<ID3D12Resource> {
+            let mut resource = None;
+            // SAFETY: The description is a valid small UAV texture on this test's
+            // device. Even a missing retirement guard must receive valid planes.
+            unsafe {
+                compute.device.CreateCommittedResource(
+                    &D3D12_HEAP_PROPERTIES {
+                        Type: D3D12_HEAP_TYPE_DEFAULT,
+                        ..Default::default()
+                    },
+                    D3D12_HEAP_FLAG_NONE,
+                    &D3D12_RESOURCE_DESC {
+                        Dimension: D3D12_RESOURCE_DIMENSION_TEXTURE2D,
+                        Width: 4,
+                        Height: 4,
+                        DepthOrArraySize: 1,
+                        MipLevels: 1,
+                        Format: DXGI_FORMAT_R8_UNORM,
+                        SampleDesc: DXGI_SAMPLE_DESC {
+                            Count: 1,
+                            Quality: 0,
+                        },
+                        Flags: D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,
+                        ..Default::default()
+                    },
+                    D3D12_RESOURCE_STATE_COMMON,
+                    None,
+                    &mut resource,
+                )?;
+            }
+            resource.context("no test plane")
+        };
+        let planes = Planes {
+            planes: [plane()?, plane()?, plane()?],
+            format: DXGI_FORMAT_R8_UNORM,
+            // SAFETY: The test owns this unused fence on its compute device.
+            fence: unsafe { compute.device.CreateFence(0, D3D12_FENCE_FLAG_NONE)? },
+            after: 0,
+            done: 1,
+        };
+        let submitted = *compute.next.lock().unwrap();
+        let slot = converter.slot;
+        let targets = converter.targets.len();
+        compute.retire();
+        // Old fences remain usable for cleanup, but their completion cannot
+        // allow new work on the quarantined queue.
+        compute.wait(submitted)?;
+        assert!(compute.completed(submitted));
+        rejected(converter.pointer(&cursor));
+        rejected(converter.convert(&source, format(Pixel::Bgra8), None, &image));
+        rejected(converter.convert_planes(&source, format(Pixel::Bgra8), None, None, &planes));
+        rejected(compute.execute(&converter.slots[slot].list));
+        rejected(compute.open(&image.texture));
+        rejected(handoff.copy(&destination.texture, &image.texture));
+        rejected(returns.acquired());
+        rejected(Converter::new(compute.clone(), 4, 4, false));
+        rejected(Handoff::new(compute.clone(), &gpu));
+        rejected(Returns::new(compute.clone(), &gpu));
+        assert_eq!(*compute.next.lock().unwrap(), submitted);
+        assert_eq!(converter.slot, slot);
+        assert_eq!(converter.targets.len(), targets);
+        assert!(converter.planar.is_none());
+        assert!(converter.uploads.is_empty());
+        assert!(handoff.readers.is_empty());
+        assert_eq!(returns.value, 0);
+        let fresh = Compute::for_device(&gpu.device)?;
+        assert!(!Arc::ptr_eq(&compute, &fresh));
+        assert!(!fresh.is_stuck());
+        Ok(())
     }
 
     #[test]

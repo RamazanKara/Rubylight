@@ -10,6 +10,108 @@ entry may have been measured in a later one. Results to a real laptop over
 Wi-Fi are in "October 8 real-client picture age over Wi-Fi"; the
 [performance overview](../docs/performance.md) carries the current numbers.
 
+## October 18 retired compute queues and conservative GPU priority
+
+The stability changes reject new capture imports, cursor uploads, conversions,
+handoffs and submissions after a shared compute queue has been retired. Old
+completion fences remain usable for cleanup; the guard does not cancel calls
+already in progress or wait behind a potentially stalled native call. Their
+resource ownership and completion fences still apply. AMD, Intel and unknown
+adapters now use process GPU priority class 4 (high), while NVIDIA's existing
+HAGS/opt-in policy is preserved. A separate boundary check rejects an AMF input
+texture state that cannot be transitioned on a compute command list before
+advancing the conversion slot or recording GPU work.
+
+**Validation.** On the RX 7900 XT, ordinary tests passed for GPU priority
+(2), compute failure/state rules (3), timing (6), and input (63). Two opt-in
+native regressions passed: a completed task-owned queue was marked retired and
+could no longer accept cached cursor uploads, conversions, imports or handoffs;
+unsupported AMF metadata was rejected without changing submission counters,
+conversion slots or targets. Restoring valid metadata allowed normal conversion.
+The tests neither forced device removal nor submitted invalid resource barriers.
+
+**Before/after component measurement.** Ryzen 7 5800X3D, RX 7900 XT,
+driver `32.0.32015.2008`; optimized Windows lib-test executables. Baseline
+`ce3292ab195f97140aa3fc6507cb0b4270d2cf80` was built in a detached worktree.
+The changed executable includes the retirement guards, resource-state guard,
+priority policy and the concurrent display/input/timing work as of this build.
+Compilers were stopped during measurement. The existing
+`capture::idd_push::fence_tests::keyed_and_fenced_transport_abba_probe` ran in
+baseline/changed/changed/baseline order. Each executable internally ran
+keyed/fenced/fenced/keyed for BGRA8 SDR and RGBAF16 HDR at 2560x1440, paced at
+120 fps. Each round used 8 warmups and 64 measured frames: 256 measured frames
+per version/format/transport, 2,048 overall. Every round also verified the
+captured input pixels by readback.
+
+These are producer-copy-through-completed-conversion times, in microseconds.
+The p95 columns give the range of four per-round p95 values, not a pooled p95.
+All rounds are included.
+
+| Format / transport | Baseline mean | Changed mean | Baseline round p95 range | Changed round p95 range |
+| --- | ---: | ---: | ---: | ---: |
+| SDR / keyed mutex | 580.286 | 536.052 | 671.1–1,551.2 | 731.0–821.9 |
+| SDR / fence | 807.252 | 491.020 | 692.8–10,244.3 | 606.4–756.8 |
+| HDR / keyed mutex | 578.152 | 572.439 | 743.2–835.3 | 726.4–859.6 |
+| HDR / fence | 523.037 | 538.093 | 716.6–729.7 | 712.6–752.6 |
+
+The final baseline SDR fence round had a large producer/copy tail, retained in
+the results. Its producer submission mean was 1,106.488 us versus roughly
+110–126 us in the other SDR fence rounds. This noisy short comparison does not
+establish a latency improvement or a statistically resolved regression. It
+does show both transports and formats continuing to convert and release
+frames with the new admission checks. There was no encoder, game load, network,
+receiver, installed driver/service operation or display change in the probe.
+It does not exercise process GPU-priority configuration, and it cannot establish
+that the long-running AMD video-engine resets are resolved.
+
+Reproduce by building `cargo test -p butterpollo-windows --lib --release --locked
+--no-run` in each source tree, saving each executable separately, then running
+the named probe with `--ignored --exact --nocapture --test-threads=1` in the
+sequence above. Switching source trees through a shared target directory
+required clearing the three local release crates (core, vdisplay-proto and
+windows) to avoid reusing stale path-package artifacts. The task target was
+`D:\CodexArtifacts\rubylight-four-fixes-20261018\target`, with four build jobs.
+Saved evidence is in the sibling `gpu` directory: both test executables,
+`run-probe.ps1`, all four raw logs, `measurements.csv`, `summary.csv`, native
+test logs, build diagnostics, hardware details, the GPU source diff and full
+SHA-256 identities. Binary hashes are
+`7b0c94f4907aa063edc8bda879d04701f855f46b806920be0d65bac65f0725a6`
+(baseline) and
+`c7c0d013d88e18c767ec294607db4fad4582a27d98ab99de453f3b231cd65889`
+(changed); the GPU source-diff hash is
+`2ccee38710e32af796384f298547ec22aea9e70d1bfe72d913b5681d9e6564d2`.
+
+**Follow-up API review.**
+
+- AMF surface release ownership stays keyed by the live native surface.
+  [AMF's Surface.h](https://github.com/GPUOpen-LibrariesAndSDKs/AMF/blob/master/amf/public/include/core/Surface.h)
+  specifies that the observer runs before internal resources are released.
+  The wrapper owns the returned surface reference and keeps the boxed observer
+  alive through component/context termination. A delayed callback naming an
+  already-destroyed, recycled allocation would violate that lifetime contract;
+  no such runtime behavior was reproduced. The comment now describes the
+  actual contract instead of claiming arbitrary duplicate callbacks are safe.
+- [AMF's D3D12AMF.h](https://github.com/GPUOpen-LibrariesAndSDKs/AMF/blob/master/amf/public/include/core/D3D12AMF.h)
+  defines the private resource-state value, but does not make every possible
+  state legal on our queue. The
+  [DirectX queue-state matrix](https://microsoft.github.io/DirectX-Specs/d3d/CPUEfficiency.html#state-support-by-command-list-type)
+  requires both sides of a transition to be supported. The new check accepts
+  COMMON, UAV, COPY_DEST, COPY_SOURCE, NON_PIXEL_SHADER_RESOURCE and the legal
+  combined read state; it rejects graphics/video-only states, unknown bits and
+  mixed read/write masks. The error follows existing encoder recovery rather
+  than silently assuming COMMON. This is boundary hardening; the experiment
+  did not establish that the AMD runtime returns a video-only state here.
+- The AMF compressed-output copy remains necessary: `GetNative` lends bytes
+  from the AMF buffer, which is released before asynchronous sending. `Encoded`
+  owns its `Vec<u8>` independently of that buffer. Removing `to_vec()` alone
+  would leave the sender referencing storage AMF may reuse; a different buffer
+  ownership design would require separate implementation and measurements.
+- [D3D12CreateDevice's documented singleton behavior](https://learn.microsoft.com/en-us/windows/win32/api/d3d12/nf-d3d12-d3d12createdevice)
+  returns failure when the existing device is removed. The queue cache already
+  rejects retired queues and removed-device fences; device creation was not
+  changed on the unsupported premise that it returns a healthy-looking removed
+  singleton. Capture recovery already releases frames outside its state lock.
+
 ## October 15 RX 7900 XT video engine resets: no host trigger found
 
 Question: what makes the RX 7900 XT's driver reset during tests and streams.

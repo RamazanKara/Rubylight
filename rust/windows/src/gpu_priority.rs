@@ -24,10 +24,13 @@ struct Close {
     adapter: u32,
 }
 fn priority(vendor: u32, hags: bool, realtime_hags: bool) -> i32 {
-    if vendor == 0x10de && hags && !realtime_hags {
-        4
-    } else {
+    // The NVIDIA option applies only to NVIDIA adapters. Others use high
+    // priority: process-wide realtime also raises the encoder and graphics
+    // queues, even when realtime compute queues are disabled.
+    if vendor == 0x10de && (!hags || realtime_hags) {
         5
+    } else {
+        4
     }
 }
 struct ProcessPriority {
@@ -176,11 +179,21 @@ pub fn configure(
 mod tests {
     use super::*;
     #[test]
-    fn nvidia_hags_downgrade_and_kernel_abi_match_previous_host() {
+    fn non_nvidia_never_inherits_the_nvidia_realtime_policy() {
+        for vendor in [0x1002, 0x8086, 0] {
+            for hags in [false, true] {
+                for realtime_hags in [false, true] {
+                    assert_eq!(priority(vendor, hags, realtime_hags), 4);
+                }
+            }
+        }
+    }
+    #[test]
+    fn nvidia_hags_policy_and_kernel_abi_are_preserved() {
         assert_eq!(priority(0x10de, true, false), 4);
         assert_eq!(priority(0x10de, true, true), 5);
         assert_eq!(priority(0x10de, false, false), 5);
-        assert_eq!(priority(0x1002, true, false), 5);
+        assert_eq!(priority(0x10de, false, true), 5);
         assert_eq!(size_of::<Open>(), 12);
         assert_eq!(size_of::<Query>(), 24);
         assert_eq!(std::mem::offset_of!(Query, data), 8);

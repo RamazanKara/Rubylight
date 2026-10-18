@@ -32,7 +32,8 @@ impl Drop for Surface {
 }
 /// AMF can retain an input after emitting its output PTS. Keep the pool's Arc
 /// until its native release callback, using one stable observer for the whole
-/// encoder lifetime. Duplicate callbacks are harmless.
+/// encoder lifetime. Surface.h specifies the callback runs before internal
+/// resources are released, so its key names a still-live native surface.
 #[repr(C)]
 pub(crate) struct Ownership {
     observer: AMFSurfaceObserver,

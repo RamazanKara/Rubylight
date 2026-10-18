@@ -193,6 +193,37 @@ static void testPartialAndFecBlockContinuity(void) {
     assert(liveAllocations == 0);
 }
 
+static void testVibepolloRecordBoundaries(void) {
+    const uint8_t payload[] = {0x20};
+    const uint32_t spi[] = {10, 11, 13};
+    const uint8_t extraFlags[] = {0x80, 0x01, 0x81};
+    const uint32_t expected[] = {
+        PYRO_PACKET_RECORD_START,
+        PYRO_PACKET_CONTIGUOUS,
+        PYRO_PACKET_RECORD_START | PYRO_PACKET_FRAME_END
+    };
+    for (int extension = 0; extension <= 1; extension++) {
+        resetTest();
+        for (unsigned int i = 0; i < sizeof(spi) / sizeof(spi[0]); i++) {
+            // Vibepollo's wire header puts record starts in byte 9 (extraFlags), while
+            // byte 10 (multiFecFlags) stays 0x10. Start without SOF, then lose a packet.
+            // The LTR bit in extraFlags must not become a record boundary.
+            RTPV_QUEUE_ENTRY entry = makePacket(9, spi[i], 0, 0, i == 2 ? FLAG_EOF : 0,
+                                               false, payload, sizeof(payload), extension);
+            uint8_t* videoHeader = (uint8_t*)(entry.packet + 1) + (extension ? 4 : 0);
+            videoHeader[9] = extraFlags[i];
+            videoHeader[10] = 0x10;
+            queueRtpPacket(&entry);
+        }
+        for (unsigned int i = 0; i < sizeof(expected) / sizeof(expected[0]); i++) {
+            const uint8_t* packet = (const uint8_t*)nalChainHead->data + 4 + 9 * i;
+            assert(pyroReadLe32(packet + 4) == expected[i]);
+        }
+        cleanupFrameState();
+        assert(liveAllocations == 0);
+    }
+}
+
 static void testGrowthAndQueuedOwnership(void) {
     resetTest();
     uint8_t payload[1400];
@@ -350,6 +381,7 @@ static void testOrdinaryFramingRemainsUnchanged(void) {
 int main(void) {
     testExactWireBytesAndMetadata();
     testPartialAndFecBlockContinuity();
+    testVibepolloRecordBoundaries();
     testGrowthAndQueuedOwnership();
     testMalformedPacketsAndLimit();
     testAllocationFailures();

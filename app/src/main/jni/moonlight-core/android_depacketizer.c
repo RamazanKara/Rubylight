@@ -82,7 +82,9 @@ void queueRtpPacket(PRTPV_QUEUE_ENTRY entry) {
     uint32_t spi = (video->streamPacketIndex >> 8) & 0xffffff;
     uint8_t block = (video->multiFecBlocks >> 4) & 3;
     uint8_t lastBlock = (video->multiFecBlocks >> 6) & 3;
-    uint32_t flags = (video->multiFecFlags & 0x80) ? PYRO_PACKET_RECORD_START : 0;
+    // Vibepollo marks record starts in extraFlags; Rubylight uses multiFecFlags.
+    // Keep both layouts so a gap can resume at the next record on either host.
+    uint32_t flags = ((video->extraFlags | video->multiFecFlags) & 0x80) ? PYRO_PACKET_RECORD_START : 0;
     if ((video->flags & FLAG_SOF) && block == 0) flags |= PYRO_PACKET_FRAME_START;
     if ((video->flags & FLAG_EOF) && block == lastBlock) flags |= PYRO_PACKET_FRAME_END;
     if (length <= 0 || length > 1400) {

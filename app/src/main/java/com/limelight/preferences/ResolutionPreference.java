@@ -10,6 +10,7 @@ import android.widget.ScrollView;
 import androidx.appcompat.app.AlertDialog;
 
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
+import com.limelight.ui.NavigationDialogBuilder;
 import com.google.android.material.textfield.TextInputEditText;
 import com.google.android.material.textfield.TextInputLayout;
 import com.limelight.R;
@@ -63,7 +64,7 @@ public class ResolutionPreference extends MaterialListPreference {
                 PreferenceConfiguration.getHeightFromResolutionString(value));
         ScrollView scroll = new ScrollView(context);
         scroll.addView(form);
-        AlertDialog editor = new MaterialAlertDialogBuilder(context).setTitle(R.string.title_resolution_list)
+        AlertDialog editor = new NavigationDialogBuilder(context).setTitle(R.string.title_resolution_list)
                 .setView(scroll).setPositiveButton(android.R.string.ok, null)
                 .setNegativeButton(android.R.string.cancel, null).create();
         UiHelper.showDialog(context, editor);

@@ -1,6 +1,6 @@
 package com.limelight.preferences;
 
-import com.google.android.material.dialog.MaterialAlertDialogBuilder;
+import com.limelight.ui.NavigationDialogBuilder;
 import com.google.android.material.button.MaterialButton;
 import android.content.Context;
 import android.os.Bundle;
@@ -291,7 +291,7 @@ public class SeekBarPreference extends DialogPreference
 
     @Override
     public void showDialog(Bundle state) {
-        UiHelper.showDialog(context, new MaterialAlertDialogBuilder(context)
+        UiHelper.showDialog(context, new NavigationDialogBuilder(context)
                 .setTitle(getTitle()).setView(onCreateDialogView())
                 .setNegativeButton(android.R.string.cancel, null)
                 .setPositiveButton(android.R.string.ok, (dialog, which) -> {

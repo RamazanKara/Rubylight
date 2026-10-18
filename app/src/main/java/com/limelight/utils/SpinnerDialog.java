@@ -5,7 +5,7 @@ import java.util.Iterator;
 
 import android.app.Activity;
 import androidx.appcompat.app.AlertDialog;
-import com.google.android.material.dialog.MaterialAlertDialogBuilder;
+import com.limelight.ui.NavigationDialogBuilder;
 import com.google.android.material.progressindicator.CircularProgressIndicator;
 import android.widget.LinearLayout;
 import android.content.DialogInterface;
@@ -103,7 +103,7 @@ public class SpinnerDialog implements Runnable,OnCancelListener {
             indicator.setIndeterminate(true);
             indicator.setImportantForAccessibility(android.view.View.IMPORTANT_FOR_ACCESSIBILITY_NO);
             content.addView(indicator);
-            progress = new MaterialAlertDialogBuilder(activity)
+            progress = new NavigationDialogBuilder(activity)
                     .setTitle(title).setMessage(message).setView(content).create();
             progress.setOnCancelListener(this);
 

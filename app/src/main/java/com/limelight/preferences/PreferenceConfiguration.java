@@ -85,6 +85,7 @@ public class PreferenceConfiguration {
     private static final String MOUSE_EMULATION_FIXED_STEP_STRING = "checkbox_mouse_emulation_fixed_step";
     private static final String DISABLE_RUMBLE_PREF_STRING = "checkbox_disable_rumble";
     private static final String BACK_AS_META_PREF_STRING = "checkbox_back_as_meta";
+    private static final String BACK_OPENS_MENU_PREF_STRING = "checkbox_back_opens_menu";
     private static final String RIGHT_ALT_AS_META_PREF_STRING = "checkbox_right_alt_as_meta";
     private static final String ANALOG_SCROLLING_PREF_STRING = "analog_scrolling";
     private static final String MOUSE_NAV_BUTTONS_STRING = "checkbox_mouse_nav_buttons";
@@ -225,6 +226,7 @@ public class PreferenceConfiguration {
     public boolean mouseEmulationFixedStep;
     public boolean disableRumble;
     public boolean backAsMeta;
+    public boolean backOpensMenu;
     public boolean rightAltAsMeta;
     public AnalogStickForScrolling analogStickForScrolling;
     public boolean mouseNavButtons;
@@ -1067,6 +1069,7 @@ public class PreferenceConfiguration {
         config.mouseEmulationFixedStep = prefs.getBoolean(MOUSE_EMULATION_FIXED_STEP_STRING, false);
         config.disableRumble = prefs.getBoolean(DISABLE_RUMBLE_PREF_STRING, false);
         config.backAsMeta = prefs.getBoolean(BACK_AS_META_PREF_STRING, false);
+        config.backOpensMenu = prefs.getBoolean(BACK_OPENS_MENU_PREF_STRING, false);
         config.rightAltAsMeta = prefs.getBoolean(RIGHT_ALT_AS_META_PREF_STRING, false);
         config.mouseNavButtons = prefs.getBoolean(MOUSE_NAV_BUTTONS_STRING, DEFAULT_MOUSE_NAV_BUTTONS);
         config.inputOnlyAnyHost = prefs.getBoolean(INPUT_ONLY_ANY_HOST_PREF_STRING, DEFAULT_INPUT_ONLY_ANY_HOST);

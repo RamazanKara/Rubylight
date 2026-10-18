@@ -21,7 +21,7 @@ import android.widget.Toast;
 import androidx.appcompat.app.AlertDialog;
 import com.limelight.ui.NightjarActivity;
 
-import com.google.android.material.dialog.MaterialAlertDialogBuilder;
+import com.limelight.ui.NavigationDialogBuilder;
 import com.google.android.material.textfield.TextInputEditText;
 import com.google.android.material.textfield.TextInputLayout;
 import com.limelight.R;
@@ -50,7 +50,7 @@ public class StreamProfilesActivity extends NightjarActivity {
         FrameLayout content = TopAppBar.setUpPage(this, R.string.profiles_title, this::finish);
         TopAppBar.configure(this, R.id.page_toolbar, getString(R.string.profiles_title), R.menu.host_profile)
                 .setOnMenuItemClickListener(item -> {
-                    UiHelper.showDialog(this, new MaterialAlertDialogBuilder(this).setTitle(R.string.profiles_title)
+                    UiHelper.showDialog(this, new NavigationDialogBuilder(this).setTitle(R.string.profiles_title)
                             .setMessage(getString(R.string.profiles_order) + "\n\n" + getString(R.string.profiles_privacy))
                             .setPositiveButton(android.R.string.ok, null).create());
                     return true;
@@ -243,7 +243,7 @@ public class StreamProfilesActivity extends NightjarActivity {
             String name = profiles.name(id);
             CharSequence[] actions = {getString(R.string.profiles_edit), getString(R.string.profiles_rename),
                     getString(R.string.profiles_duplicate), getString(R.string.profiles_delete)};
-            UiHelper.showDialog(activity, new MaterialAlertDialogBuilder(activity).setTitle(name)
+            UiHelper.showDialog(activity, new NavigationDialogBuilder(activity).setTitle(name)
                     .setItems(actions, (dialog, which) -> {
                         switch (which) {
                             case 0:
@@ -278,7 +278,7 @@ public class StreamProfilesActivity extends NightjarActivity {
         }
 
         private void confirmDelete(String id, String name) {
-            UiHelper.showDialog(activity, new MaterialAlertDialogBuilder(activity)
+            UiHelper.showDialog(activity, new NavigationDialogBuilder(activity)
                     .setTitle(getString(R.string.profiles_delete_title, name))
                     .setMessage(R.string.profiles_delete_message)
                     .setPositiveButton(R.string.profiles_delete, (dialog, which) -> {
@@ -313,7 +313,7 @@ public class StreamProfilesActivity extends NightjarActivity {
             field.setSelectAllOnFocus(true);
             container.addView(field);
             form.addView(container);
-            AlertDialog dialog = new MaterialAlertDialogBuilder(activity).setTitle(title).setView(form)
+            AlertDialog dialog = new NavigationDialogBuilder(activity).setTitle(title).setView(form)
                     .setPositiveButton(android.R.string.ok, null).setNegativeButton(android.R.string.cancel, null).create();
             dialog.setOnShowListener(ignored -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
                 String name = field.getText().toString();
@@ -340,7 +340,7 @@ public class StreamProfilesActivity extends NightjarActivity {
             items[0] = getString(noneLabel);
             for (int i = 0; i < ids.size(); i++) items[i + 1] = profiles.name(ids.get(i));
             int checked = current == null || !ids.contains(current) ? 0 : ids.indexOf(current) + 1;
-            UiHelper.showDialog(activity, new MaterialAlertDialogBuilder(activity).setTitle(title)
+            UiHelper.showDialog(activity, new NavigationDialogBuilder(activity).setTitle(title)
                     .setSingleChoiceItems(items, checked, (dialog, which) -> {
                         onPick.onPick(which == 0 ? null : ids.get(which - 1));
                         dialog.dismiss();
@@ -362,7 +362,7 @@ public class StreamProfilesActivity extends NightjarActivity {
         }
 
         private void confirmRemoveHome(String name) {
-            UiHelper.showDialog(activity, new MaterialAlertDialogBuilder(activity)
+            UiHelper.showDialog(activity, new NavigationDialogBuilder(activity)
                     .setTitle(getString(R.string.profiles_home_remove_title, name))
                     .setPositiveButton(R.string.profiles_home_remove, (dialog, which) -> {
                         Set<String> names = new TreeSet<>(StreamProfiles.load(activity).homeWifi);
@@ -378,7 +378,7 @@ public class StreamProfilesActivity extends NightjarActivity {
                 addCurrentWifi();
                 return;
             }
-            UiHelper.showDialog(activity, new MaterialAlertDialogBuilder(activity).setTitle(R.string.profiles_location_title)
+            UiHelper.showDialog(activity, new NavigationDialogBuilder(activity).setTitle(R.string.profiles_location_title)
                     .setMessage(R.string.profiles_location_message)
                     .setPositiveButton(R.string.profiles_location_continue, (dialog, which) -> {
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
@@ -419,7 +419,7 @@ public class StreamProfilesActivity extends NightjarActivity {
             field.setFilters(new InputFilter[] {new InputFilter.LengthFilter(32)});
             container.addView(field);
             form.addView(container);
-            AlertDialog dialog = new MaterialAlertDialogBuilder(activity).setTitle(R.string.profiles_home_type)
+            AlertDialog dialog = new NavigationDialogBuilder(activity).setTitle(R.string.profiles_home_type)
                     .setView(form).setPositiveButton(android.R.string.ok, null)
                     .setNegativeButton(android.R.string.cancel, null).create();
             dialog.setOnShowListener(ignored -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {

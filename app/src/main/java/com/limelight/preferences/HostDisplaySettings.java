@@ -4,7 +4,7 @@ import android.app.Activity;
 import android.widget.Toast;
 import androidx.appcompat.app.AlertDialog;
 
-import com.google.android.material.dialog.MaterialAlertDialogBuilder;
+import com.limelight.ui.NavigationDialogBuilder;
 import com.limelight.R;
 import com.limelight.utils.UiHelper;
 
@@ -40,7 +40,7 @@ public final class HostDisplaySettings {
         }
         HostDisplayChoice current = HostDisplayChoice.load(activity, hostUuid);
         int checked = java.util.Arrays.asList(choices).indexOf(current);
-        return new MaterialAlertDialogBuilder(activity)
+        return new NavigationDialogBuilder(activity)
                 .setTitle(activity.getString(R.string.host_display_title, hostName))
                 .setSingleChoiceItems(labels, checked, null)
                 .setPositiveButton(R.string.host_display_save, (dialog, which) -> {
@@ -58,7 +58,7 @@ public final class HostDisplaySettings {
 
     static void bindHelp(Activity activity, AlertDialog picker) {
         picker.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(view ->
-                UiHelper.showDialog(activity, new MaterialAlertDialogBuilder(activity).setTitle(R.string.host_display_menu)
+                UiHelper.showDialog(activity, new NavigationDialogBuilder(activity).setTitle(R.string.host_display_menu)
                         .setMessage(R.string.host_display_explanation)
                         .setPositiveButton(android.R.string.ok, null).create()));
     }

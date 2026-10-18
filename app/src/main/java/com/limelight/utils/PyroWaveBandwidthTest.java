@@ -3,7 +3,7 @@ package com.limelight.utils;
 import android.app.Activity;
 import android.content.Context;
 import androidx.appcompat.app.AlertDialog;
-import com.google.android.material.dialog.MaterialAlertDialogBuilder;
+import com.limelight.ui.NavigationDialogBuilder;
 import com.google.android.material.progressindicator.LinearProgressIndicator;
 
 import com.limelight.R;
@@ -32,7 +32,7 @@ public final class PyroWaveBandwidthTest {
     }
 
     public void show() {
-        dialog = new MaterialAlertDialogBuilder(activity)
+        dialog = new NavigationDialogBuilder(activity)
                 .setTitle(R.string.connection_test_title)
                 .setMessage(measuresSpeed() ? R.string.connection_test_intro : R.string.connection_test_intro_delay)
                 .setPositiveButton(R.string.bandwidth_probe_start, (d, which) -> start())
@@ -47,7 +47,7 @@ public final class PyroWaveBandwidthTest {
         progress.setIndeterminate(true);
         int padding = Math.round(24 * activity.getResources().getDisplayMetrics().density);
         progress.setPadding(padding, 0, padding, 0);
-        dialog = new MaterialAlertDialogBuilder(activity)
+        dialog = new NavigationDialogBuilder(activity)
                 .setTitle(R.string.connection_test_title)
                 .setMessage(R.string.connection_test_running)
                 .setView(progress)
@@ -111,7 +111,7 @@ public final class PyroWaveBandwidthTest {
                     return;
                 }
                 dialog.dismiss();
-                dialog = new MaterialAlertDialogBuilder(activity)
+                dialog = new NavigationDialogBuilder(activity)
                         .setTitle(R.string.connection_test_title)
                         .setMessage(message)
                         .setPositiveButton(android.R.string.ok, null)

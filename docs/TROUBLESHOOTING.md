@@ -16,6 +16,8 @@ Follow the [PIN flow](pairing.md#pin-flow). Start on the same local network with
 | Pairing disappears after restore | Client identity is excluded from backup/device transfer. | Pair the restored installation again and revoke the obsolete device on the host. |
 | Paired but no games appear | Application listing is denied, device disabled or host library empty. | If your host has per-device permissions, enable the device and List applications in its settings or web UI; check the host library. |
 | Video works but controls do not | Missing input permission or a view-only role. | Grant the required controller/mouse/keyboard/touch/pen permission. Open a normal game instead of Remote Monitor. |
+| Fire TV remote cannot control the PC | Remote D-pad/Select use keyboard input while streaming. | Grant keyboard input to this device on the host. Back/Menu open Nightjar's stream controls; use a gamepad for controller-only games. See [TV remotes](controls.md#tv-and-fire-tv-remotes). |
+| Handheld Back works in the app but not during a stream | The physical Back key arrives through a gamepad input device. | Enable **Settings → Controls → Physical Back opens stream menu**, then reconnect. See [handheld Back](controls.md#physical-back-on-a-handheld). |
 | Clipboard or commands missing | Independent permissions or host capabilities are absent. | Use a host that supports them (e.g. Apollo or Rubylight) and grant Send clipboard, Read clipboard or Server commands as appropriate. Commands must be configured on the host. |
 
 The client uses the host's advertised ports and custom-port offsets. Check the actual host configuration instead of opening a copied port list. Local streaming works independently of the public Internet connectivity check.

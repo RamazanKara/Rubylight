@@ -85,6 +85,28 @@ With **Controller mouse mode** enabled, hold **Start** to toggle it. By default 
 
 **Fixed-step mouse movement** (off by default) helps with small targets: while you hold **X**, each stick push moves the pointer a fixed number of pixels in the stick's direction instead of speeding up with the push. Press **Y** to double the step, 1, 2, 4 and so on up to 128 pixels, then back to 1; a short message shows the new step.
 
+## Physical Back on a handheld
+
+If a handheld's dedicated **Back** button works in the app but does not open the stream menu, enable **Settings → Controls → Physical Back opens stream menu**, then start a new stream. This covers devices such as AYN Thor that can report the physical button through their gamepad input device.
+
+The option is off by default to preserve existing controller mappings. When enabled, a physical `KEYCODE_BACK` opens Nightjar's stream menu instead of being forwarded to the PC. **Select** and **Start** retain their mappings and the **Start+Back+LB+RB** menu shortcut still works. Mouse right-click, Android's Back gesture and **Keyboard Back sends Windows key** on an alphabetic keyboard retain their behavior. A button configured by Android or the handheld's software to emit another key code needs to be mapped to Android Back first.
+
+## TV and Fire TV remotes
+
+In the PC list, library, settings and stream menus, use the **D-pad** to move focus, **Select/OK** to activate the highlighted item and **Back** to return. On a selected PC or game, the remote's **Menu** button opens its actions. Long-pressing Select also opens the card's actions.
+
+During a stream, **Back** and **Menu** open Nightjar's stream menu. They stay local to Nightjar, so a Fire TV remote cannot accidentally send gamepad Start/Select to the PC or lose the way out of the stream. In the open menu, D-pad/Select navigate its controls and Back returns to the preceding page or closes it.
+
+With the menu closed and input captured, the remote's **D-pad** sends PC arrow keys and **Select** sends Enter. The host must allow keyboard input for that device. A TV remote provides basic keyboard navigation; use a controller or mouse for games or desktop actions that need those inputs. Connected gamepads retain their controller mapping, including the Start button and menu shortcut. Home, voice search and other system-reserved buttons follow the TV's behavior.
+
+This detection follows Amazon's [remote identification](https://developer.amazon.com/docs/fire-tv/identify-controllers.html) and [remote button events](https://developer.amazon.com/docs/fire-tv/remote-input.html): a non-alphabetic D-pad device without gamepad buttons or joystick axes is a remote. An alphabetic keyboard with arrow keys keeps its keyboard behavior.
+
+## Menu navigation
+
+Use the D-pad to move between cards, settings, menu rows, dialog choices and buttons. **Select/OK** or gamepad **A** activates the focused control. **Back**, gamepad **B** and keyboard **Escape** return from a menu page or cancel an ordinary dialog; canceling a confirmation does not run its action. Dialogs that require an explicit choice still require their on-screen buttons.
+
+In the PC/game grids, **Menu** opens the selected card's actions. A card's small options button can also be highlighted with the direction toward it, then activated. Settings rows expose their explanation with **D-pad right** (left in right-to-left layouts), or **F1**. Sliders in an open editor use left/right to adjust; move focus to **Save/OK** to apply or cancel to keep the prior value. Controller mapping captures inputs only after you explicitly start capture.
+
 ## Touch modes
 
 Choose **Settings → Controls → Touch mode**, or **stream menu → Input → Touch mode**.

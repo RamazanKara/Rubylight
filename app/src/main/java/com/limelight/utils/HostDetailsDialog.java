@@ -2,7 +2,7 @@ package com.limelight.utils;
 
 import android.app.Activity;
 import androidx.appcompat.app.AlertDialog;
-import com.google.android.material.dialog.MaterialAlertDialogBuilder;
+import com.limelight.ui.NavigationDialogBuilder;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
@@ -68,7 +68,7 @@ public final class HostDetailsDialog {
         dialog.build(details);
         ScrollView scroll = new ScrollView(activity);
         scroll.addView(dialog.content);
-        new MaterialAlertDialogBuilder(activity)
+        new NavigationDialogBuilder(activity)
                 .setTitle(details.name)
                 .setView(scroll)
                 .setPositiveButton(R.string.host_details_close, null)

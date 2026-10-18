@@ -647,7 +647,7 @@ public class DesktopControlsPanel extends LinearLayout {
             editShortcuts();
         });
         fields.addView(edit, new LayoutParams(LayoutParams.MATCH_PARENT, dp(48)));
-        customization = new MaterialAlertDialogBuilder(getContext()).setTitle(R.string.desktop_controls_customize)
+        customization = new NavigationDialogBuilder(getContext()).setTitle(R.string.desktop_controls_customize)
                 .setView(scroll).setPositiveButton(R.string.desktop_controls_apply, (dialog, which) -> {
                     config = draft.copy();
                     config.save(getContext());
@@ -659,7 +659,7 @@ public class DesktopControlsPanel extends LinearLayout {
     }
 
     private void confirmReset() {
-        resetDialog = new MaterialAlertDialogBuilder(getContext()).setTitle(R.string.desktop_controls_reset_title)
+        resetDialog = new NavigationDialogBuilder(getContext()).setTitle(R.string.desktop_controls_reset_title)
                 .setMessage(R.string.desktop_controls_reset_message)
                 .setPositiveButton(R.string.desktop_controls_reset, (dialog, which) -> {
                     config = new DesktopControlsConfig();
@@ -741,7 +741,7 @@ public class DesktopControlsPanel extends LinearLayout {
             }
             list.addView(row);
         }
-        shortcutList = new MaterialAlertDialogBuilder(getContext()).setTitle(R.string.keyboard_shortcuts_title)
+        shortcutList = new NavigationDialogBuilder(getContext()).setTitle(R.string.keyboard_shortcuts_title)
                 .setView(scroll).setPositiveButton(android.R.string.ok, null)
                 .setNeutralButton(R.string.keyboard_shortcuts_add, null).create();
         shortcutList.setOnDismissListener(dialog -> { shortcutList = null; rebuild(); });
@@ -790,7 +790,7 @@ public class DesktopControlsPanel extends LinearLayout {
         }
         ScrollView editorScroll = new ScrollView(getContext());
         editorScroll.addView(fields);
-        MaterialAlertDialogBuilder builder = new MaterialAlertDialogBuilder(getContext())
+        MaterialAlertDialogBuilder builder = new NavigationDialogBuilder(getContext())
                 .setTitle(existing == null ? R.string.keyboard_shortcuts_add : R.string.keyboard_shortcuts_edit)
                 .setView(editorScroll).setPositiveButton(R.string.keyboard_shortcuts_save, null)
                 .setNegativeButton(android.R.string.cancel, null);

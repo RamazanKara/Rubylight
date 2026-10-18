@@ -84,6 +84,8 @@ public class GameMouseInputTest {
         ReflectionHelpers.setField(game, "inputCaptureProvider", new InputCaptureProvider() {});
         ReflectionHelpers.setField(game, "grabbedInput", true);
         ReflectionHelpers.setField(game, "connected", true);
+        PreferenceConfiguration prefs = ReflectionHelpers.getField(game, "prefConfig");
+        prefs.backOpensMenu = true;
         return game;
     }
 

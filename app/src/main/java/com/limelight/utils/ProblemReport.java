@@ -13,7 +13,7 @@ import androidx.core.content.FileProvider;
 import com.limelight.BuildConfig;
 import com.limelight.LimeLog;
 import com.limelight.R;
-import com.google.android.material.dialog.MaterialAlertDialogBuilder;
+import com.limelight.ui.NavigationDialogBuilder;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -29,7 +29,7 @@ public final class ProblemReport {
     }
 
     public static void show(Activity activity) {
-        new MaterialAlertDialogBuilder(activity)
+        new NavigationDialogBuilder(activity)
                 .setTitle(R.string.report_problem)
                 .setMessage(R.string.report_problem_details)
                 .setNegativeButton(android.R.string.cancel, null)

@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_checkbox_back_opens_menu">Retour physique ouvre le menu du flux</string>
+    <string name="summary_checkbox_back_opens_menu">La touche Retour dédiée de la console portable ou manette ouvre le menu du flux. Select et Start gardent leur affectation. L’option Retour envoie Windows est prioritaire sur les claviers physiques. Au prochain flux.</string>
+</resources>

@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_checkbox_back_opens_menu">Phím Quay lại vật lý mở menu luồng</string>
+    <string name="summary_checkbox_back_opens_menu">Phím Quay lại riêng của máy cầm tay hoặc tay cầm mở menu luồng. Select và Start giữ nguyên ánh xạ. Tùy chọn Quay lại gửi phím Windows được ưu tiên trên bàn phím vật lý. Áp dụng từ luồng tiếp theo.</string>
+</resources>

@@ -438,10 +438,28 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         return (device.getSources() & InputDevice.SOURCE_GAMEPAD) == InputDevice.SOURCE_GAMEPAD;
     }
 
+    /** Fire TV and similar remotes have a D-pad, but no gamepad buttons or joystick axes. */
+    private static boolean isRemoteControlDevice(InputDevice device) {
+        return device != null && device.supportsSource(InputDevice.SOURCE_DPAD) &&
+                device.getKeyboardType() != InputDevice.KEYBOARD_TYPE_ALPHABETIC &&
+                !hasGamepadButtons(device) && !hasJoystickAxes(device);
+    }
+
+    public static boolean isRemoteControlEvent(KeyEvent event) {
+        InputDevice device = event.getDevice();
+        if (device != null) return isRemoteControlDevice(device);
+        // A remote can disappear between the press and release; preserve its event source.
+        return event.isFromSource(InputDevice.SOURCE_DPAD) &&
+                !event.isFromSource(InputDevice.SOURCE_GAMEPAD) &&
+                !event.isFromSource(InputDevice.SOURCE_JOYSTICK);
+    }
+
     public static boolean isGameControllerDevice(InputDevice device) {
         if (device == null) {
             return true;
         }
+
+        if (isRemoteControlDevice(device)) return false;
 
         if (hasJoystickAxes(device) || hasGamepadButtons(device)) {
             // Has real joystick axes or gamepad buttons

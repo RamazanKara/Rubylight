@@ -74,4 +74,24 @@ public final class UiNavigation {
             return true;
         });
     }
+
+    /** PreferenceFragment replaces the key listener before attaching its first adapter. */
+    public static void bindPreferencesWhenReady(ListView list) {
+        class Binding implements android.view.ViewTreeObserver.OnGlobalLayoutListener, View.OnAttachStateChangeListener {
+            private void remove() {
+                list.getViewTreeObserver().removeOnGlobalLayoutListener(this);
+                list.removeOnAttachStateChangeListener(this);
+            }
+            @Override public void onGlobalLayout() {
+                if (list.getAdapter() == null) return;
+                remove();
+                bindPreferences(list);
+            }
+            @Override public void onViewAttachedToWindow(View view) { }
+            @Override public void onViewDetachedFromWindow(View view) { remove(); }
+        }
+        Binding binding = new Binding();
+        list.addOnAttachStateChangeListener(binding);
+        list.getViewTreeObserver().addOnGlobalLayoutListener(binding);
+    }
 }

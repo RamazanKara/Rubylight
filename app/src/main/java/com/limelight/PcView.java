@@ -39,7 +39,7 @@ import com.limelight.utils.UiHelper;
 import com.limelight.ui.NightjarActivity;
 import android.app.ActivityManager;
 import androidx.appcompat.app.AlertDialog;
-import com.google.android.material.dialog.MaterialAlertDialogBuilder;
+import com.limelight.ui.NavigationDialogBuilder;
 import android.app.Service;
 import android.content.ComponentName;
 import android.content.Intent;
@@ -254,7 +254,7 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
     }
 
     private void showPairingGuide() {
-        new MaterialAlertDialogBuilder(this)
+        new NavigationDialogBuilder(this)
                 .setTitle(R.string.guide_title)
                 .setMessage(R.string.guide_text)
                 .setPositiveButton(R.string.guide_done, null)
@@ -446,7 +446,7 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
         passphrase.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
         passphrase.setSingleLine(true);
         passphrase.setSaveEnabled(false);
-        AlertDialog dialog = new MaterialAlertDialogBuilder(this)
+        AlertDialog dialog = new NavigationDialogBuilder(this)
                 .setTitle(R.string.pair_otp_title)
                 .setView(fields)
                 .setNegativeButton(android.R.string.cancel, null)
@@ -515,7 +515,7 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
         } else {
             pairingText.append(getString(R.string.pairing));
         }
-        pairingDialog = new MaterialAlertDialogBuilder(this).setTitle(R.string.pair_pairing_title)
+        pairingDialog = new NavigationDialogBuilder(this).setTitle(R.string.pair_pairing_title)
                 .setMessage(pairingText)
                 .setNegativeButton(android.R.string.cancel, (dialog, which) -> {
                     cancelPairing();
@@ -593,7 +593,7 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
             doAppList(computer, true, false);
         } else {
             startComputerUpdates();
-            new MaterialAlertDialogBuilder(this).setTitle(R.string.pair_pairing_title)
+            new NavigationDialogBuilder(this).setTitle(R.string.pair_pairing_title)
                     .setMessage(failure).setNegativeButton(android.R.string.cancel, null)
                     .setPositiveButton(R.string.pair_try_again, (dialog, which) -> {
                         if (oneTimePin == null) {

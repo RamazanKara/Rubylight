@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_checkbox_back_opens_menu">Atrás físico abre el menú del stream</string>
+    <string name="summary_checkbox_back_opens_menu">La tecla Atrás dedicada de la consola portátil o mando abre el menú del stream. Select y Start conservan su asignación. La opción de enviar Windows con Atrás tiene prioridad en teclados físicos. Se aplica al próximo stream.</string>
+</resources>

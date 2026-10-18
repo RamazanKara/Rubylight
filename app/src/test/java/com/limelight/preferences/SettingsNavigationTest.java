@@ -19,6 +19,59 @@ import static org.junit.Assert.*;
         shadows = com.limelight.PcViewLifecycleTest.NoNativeMoonBridge.class,
         instrumentedPackages = "com.limelight.nvstream.jni")
 public class SettingsNavigationTest {
+    @Test
+    public void preferenceHelpKeysSurviveTheFrameworksInitialListBinding() {
+        ActivityController<StreamSettings> controller = Robolectric.buildActivity(StreamSettings.class).setup().visible();
+        try {
+            StreamSettings screen = controller.get();
+            settle(screen);
+            android.view.View root = screen.findViewById(android.R.id.content);
+            root.measure(android.view.View.MeasureSpec.makeMeasureSpec(1080, android.view.View.MeasureSpec.EXACTLY),
+                    android.view.View.MeasureSpec.makeMeasureSpec(2400, android.view.View.MeasureSpec.EXACTLY));
+            root.layout(0, 0, 1080, 2400);
+            root.getViewTreeObserver().dispatchOnGlobalLayout();
+            android.widget.ListView list = screen.findViewById(android.R.id.list);
+            list.requestFocusFromTouch();
+            list.setSelection(0);
+            root.measure(android.view.View.MeasureSpec.makeMeasureSpec(1080, android.view.View.MeasureSpec.EXACTLY),
+                    android.view.View.MeasureSpec.makeMeasureSpec(2400, android.view.View.MeasureSpec.EXACTLY));
+            root.layout(0, 0, 1080, 2400);
+            assertTrue(list.dispatchKeyEvent(new android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN,
+                    android.view.KeyEvent.KEYCODE_DPAD_RIGHT)));
+            assertTrue(list.dispatchKeyEvent(new android.view.KeyEvent(android.view.KeyEvent.ACTION_UP,
+                    android.view.KeyEvent.KEYCODE_DPAD_RIGHT)));
+            androidx.appcompat.app.AlertDialog help = (androidx.appcompat.app.AlertDialog)
+                    org.robolectric.shadows.ShadowDialog.getLatestDialog();
+            assertNotNull(help);
+            assertEquals(screen.getString(R.string.stream_presets_help),
+                    ((android.widget.TextView) help.findViewById(android.R.id.message)).getText().toString());
+            help.dismiss();
+        } finally { controller.pause().stop().destroy(); }
+    }
+
+    @Test
+    public void presetChildrenCannotKeepFocusWhenAnotherSectionIsSelected() {
+        ActivityController<StreamSettings> controller = Robolectric.buildActivity(StreamSettings.class).setup().visible();
+        try {
+            StreamSettings screen = controller.get();
+            settle(screen);
+            android.view.View root = screen.findViewById(android.R.id.content);
+            root.measure(android.view.View.MeasureSpec.makeMeasureSpec(1080, android.view.View.MeasureSpec.EXACTLY),
+                    android.view.View.MeasureSpec.makeMeasureSpec(2400, android.view.View.MeasureSpec.EXACTLY));
+            root.layout(0, 0, 1080, 2400);
+            android.widget.ListView list = screen.findViewById(android.R.id.list);
+            android.view.View preset = list.getChildAt(0);
+            assertFalse("Preset chips/help must not steal focus from the preference list", preset.hasFocusable());
+            assertNotNull("Preset help stays available with D-pad right", preset.getTag(R.id.preference_help));
+            assertTrue(list.requestFocusFromTouch());
+            list.setSelection(3); // Controls after Presets, Video, Display.
+            root.layout(0, 0, 1080, 2400);
+            assertFalse(screen.findViewById(R.id.preset_help).hasFocus());
+            assertFalse(preset.findViewById(R.id.preset_help).requestFocus());
+            assertEquals("input", ((Preference) list.getSelectedItem()).getKey());
+        } finally { controller.pause().stop().destroy(); }
+    }
+
     private static void settle(StreamSettings screen) {
         ShadowLooper.idleMainLooper(150, TimeUnit.MILLISECONDS);
         screen.getFragmentManager().executePendingTransactions();

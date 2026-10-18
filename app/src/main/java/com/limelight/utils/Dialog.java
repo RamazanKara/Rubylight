@@ -4,7 +4,7 @@ import java.util.ArrayList;
 
 import android.app.Activity;
 import androidx.appcompat.app.AlertDialog;
-import com.google.android.material.dialog.MaterialAlertDialogBuilder;
+import com.limelight.ui.NavigationDialogBuilder;
 import android.content.DialogInterface;
 import android.widget.Button;
 
@@ -79,33 +79,22 @@ public class Dialog implements Runnable {
             return;
         }
 
-        alert = new MaterialAlertDialogBuilder(activity).create();
+        alert = new NavigationDialogBuilder(activity).create();
 
         alert.setTitle(title);
         alert.setMessage(message);
-        alert.setCancelable(false);
+        alert.setCancelable(true);
         alert.setCanceledOnTouchOutside(false);
+        alert.setOnCancelListener(dialog -> complete(false));
  
         alert.setButton(AlertDialog.BUTTON_POSITIVE, activity.getResources().getText(android.R.string.ok), new DialogInterface.OnClickListener() {
               public void onClick(DialogInterface dialog, int which) {
-                  synchronized (rundownDialogs) {
-                      rundownDialogs.remove(Dialog.this);
-                      alert.dismiss();
-                  }
-
-                  runOnDismiss.run();
+                  complete(false);
               }
         });
         alert.setButton(AlertDialog.BUTTON_NEUTRAL, activity.getResources().getText(R.string.help), new DialogInterface.OnClickListener() {
             public void onClick(DialogInterface dialog, int which) {
-                synchronized (rundownDialogs) {
-                    rundownDialogs.remove(Dialog.this);
-                    alert.dismiss();
-                }
-
-                runOnDismiss.run();
-
-                HelpLauncher.showHelp(activity);
+                complete(true);
             }
         });
         alert.setOnShowListener(new DialogInterface.OnShowListener(){
@@ -123,6 +112,17 @@ public class Dialog implements Runnable {
         synchronized (rundownDialogs) {
             alert.show();
         }
+    }
+
+    private void complete(boolean help) {
+        synchronized (rundownDialogs) {
+            if (dismissed) return;
+            dismissed = true;
+            rundownDialogs.remove(this);
+        }
+        alert.dismiss();
+        runOnDismiss.run();
+        if (help) HelpLauncher.showHelp(activity);
     }
 
 }

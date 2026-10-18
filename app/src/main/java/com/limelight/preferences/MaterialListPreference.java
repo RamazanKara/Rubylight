@@ -7,6 +7,7 @@ import android.util.AttributeSet;
 import androidx.appcompat.app.AlertDialog;
 
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
+import com.limelight.ui.NavigationDialogBuilder;
 import com.limelight.R;
 import com.limelight.utils.UiHelper;
 
@@ -21,7 +22,7 @@ public class MaterialListPreference extends ListPreference {
 
     @Override
     protected void showDialog(Bundle state) {
-        MaterialAlertDialogBuilder builder = new MaterialAlertDialogBuilder(getContext())
+        MaterialAlertDialogBuilder builder = new NavigationDialogBuilder(getContext())
                 .setTitle(getTitle())
                 .setSingleChoiceItems(getEntries(), findIndexOfValue(getValue()), (dialog, which) -> {
                     String value = getEntryValues()[which].toString();
@@ -39,7 +40,7 @@ public class MaterialListPreference extends ListPreference {
         UiHelper.showDialog(getContext(), picker);
         if (getDialogMessage() != null) {
             picker.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(view ->
-                    UiHelper.showDialog(getContext(), new MaterialAlertDialogBuilder(getContext()).setTitle(getTitle())
+                    UiHelper.showDialog(getContext(), new NavigationDialogBuilder(getContext()).setTitle(getTitle())
                             .setMessage(getDialogMessage()).setPositiveButton(android.R.string.ok, null).create()));
         }
     }

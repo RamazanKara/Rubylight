@@ -197,7 +197,7 @@ public final class GameTouchControls extends FrameLayout {
         names.add(activity.getString(R.string.touch_layout_import));
         names.add(activity.getString(R.string.touch_layout_export));
         for (TouchLayout.Button b : layout.buttons) names.add(b.name);
-        showDialog.accept(new MaterialAlertDialogBuilder(activity).setTitle(R.string.touch_layout_title)
+        showDialog.accept(new NavigationDialogBuilder(activity).setTitle(R.string.touch_layout_title)
                 .setItems(names.toArray(new String[0]), (dialog, which) -> {
                     // Wait for the stream menu's dismissal/focus restoration before showing another dialog.
                     post(() -> {
@@ -224,7 +224,7 @@ public final class GameTouchControls extends FrameLayout {
     }
 
     private void info(int message) {
-        showDialog.accept(new MaterialAlertDialogBuilder(activity).setMessage(message)
+        showDialog.accept(new NavigationDialogBuilder(activity).setMessage(message)
                 .setPositiveButton(android.R.string.ok, null).create());
     }
 
@@ -246,7 +246,7 @@ public final class GameTouchControls extends FrameLayout {
             names[i] = gridName(activity, TouchLayout.SNAP_GRIDS[i]);
             if (TouchLayout.SNAP_GRIDS[i] == snapGrid) checked = i;
         }
-        showDialog.accept(new MaterialAlertDialogBuilder(activity).setTitle(R.string.touch_layout_snap_title)
+        showDialog.accept(new NavigationDialogBuilder(activity).setTitle(R.string.touch_layout_snap_title)
                 .setSingleChoiceItems(names, checked, (dialog, which) -> {
                     snapGrid = TouchLayout.SNAP_GRIDS[which];
                     TouchLayout.setSnapGrid(activity, snapGrid);
@@ -269,7 +269,7 @@ public final class GameTouchControls extends FrameLayout {
     private void chooseKind() {
         String[] names = new String[ADDABLE.length];
         for (int i = 0; i < names.length; i++) names[i] = activity.getString(kindName(ADDABLE[i]));
-        showDialog.accept(new MaterialAlertDialogBuilder(activity).setTitle(R.string.touch_layout_add)
+        showDialog.accept(new NavigationDialogBuilder(activity).setTitle(R.string.touch_layout_add)
                 .setItems(names, (dialog, which) -> post(() -> edit(null, ADDABLE[which])))
                 .setNegativeButton(android.R.string.cancel, null).create());
     }
@@ -340,7 +340,7 @@ public final class GameTouchControls extends FrameLayout {
             toggle.setChecked(existing != null && existing.toggle); fields.addView(toggle);
         }
         ScrollView scroll = new ScrollView(activity); scroll.addView(fields);
-        MaterialAlertDialogBuilder builder = new MaterialAlertDialogBuilder(activity)
+        MaterialAlertDialogBuilder builder = new NavigationDialogBuilder(activity)
                 .setTitle(existing == null ? activity.getString(kindName(kind)) : existing.name)
                 .setView(scroll).setPositiveButton(R.string.keyboard_shortcuts_save, null)
                 .setNegativeButton(android.R.string.cancel, null);
@@ -427,7 +427,7 @@ public final class GameTouchControls extends FrameLayout {
         EditText text = new EditText(activity); text.setHint(R.string.touch_layout_paste);
         text.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
         text.setMaxLines(8); text.setFilters(new InputFilter[] {new InputFilter.LengthFilter(TouchLayout.MAX_BYTES)});
-        AlertDialog dialog = new MaterialAlertDialogBuilder(activity).setTitle(R.string.touch_layout_import)
+        AlertDialog dialog = new NavigationDialogBuilder(activity).setTitle(R.string.touch_layout_import)
                 .setMessage(R.string.touch_layout_import_help).setView(text)
                 .setPositiveButton(R.string.keyboard_shortcuts_replace_button, null)
                 .setNegativeButton(android.R.string.cancel, null).create();
@@ -441,7 +441,7 @@ public final class GameTouchControls extends FrameLayout {
                 replace(result.layout);
                 dialog.dismiss();
                 if (result.format != TouchLayoutImport.Format.NIGHTJAR || !result.skipped.isEmpty()) {
-                    post(() -> showDialog.accept(new MaterialAlertDialogBuilder(activity)
+                    post(() -> showDialog.accept(new NavigationDialogBuilder(activity)
                             .setTitle(R.string.touch_layout_import_done).setMessage(importSummary(activity, result))
                             .setPositiveButton(android.R.string.ok, null).create()));
                 }
@@ -498,7 +498,7 @@ public final class GameTouchControls extends FrameLayout {
         String json = layout.encode();
         TextView text = new TextView(activity); text.setText(json); text.setTextIsSelectable(true);
         ScrollView scroll = new ScrollView(activity); scroll.addView(text);
-        showDialog.accept(new MaterialAlertDialogBuilder(activity).setTitle(R.string.touch_layout_export).setView(scroll)
+        showDialog.accept(new NavigationDialogBuilder(activity).setTitle(R.string.touch_layout_export).setView(scroll)
                 .setPositiveButton(R.string.touch_layout_copy, (dialog, which) ->
                         ((ClipboardManager) activity.getSystemService(Context.CLIPBOARD_SERVICE))
                                 .setPrimaryClip(ClipData.newPlainText(activity.getString(R.string.touch_layout_title), json)))

@@ -20,7 +20,7 @@ import android.widget.Toast;
 
 import com.limelight.ui.NightjarActivity;
 
-import com.google.android.material.dialog.MaterialAlertDialogBuilder;
+import com.limelight.ui.NavigationDialogBuilder;
 import com.limelight.binding.video.DecoderBenchmark;
 import com.limelight.preferences.GlPreferences;
 import com.limelight.utils.DeviceResults;
@@ -184,7 +184,7 @@ public class LatencyBenchmarkActivity extends NightjarActivity implements Choreo
         android.view.View view = getLayoutInflater().inflate(R.layout.dialog_device_results, null);
         ((TextView) view.findViewById(R.id.device_results_message)).setText(
                 getString(R.string.latency_benchmark_share_message) + "\n\n" + json);
-        androidx.appcompat.app.AlertDialog dialog = new MaterialAlertDialogBuilder(this)
+        androidx.appcompat.app.AlertDialog dialog = new NavigationDialogBuilder(this)
                 .setTitle(R.string.latency_benchmark_share_title)
                 .setView(view)
                 .create();

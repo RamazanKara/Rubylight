@@ -191,6 +191,11 @@
             android:key="controller_test"
             android:title="@string/controller_test_title"
             android:summary="@string/controller_test_summary" />
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_back_opens_menu"
+            android:title="@string/title_checkbox_back_opens_menu"
+            android:dialogMessage="@string/summary_checkbox_back_opens_menu"
+            android:defaultValue="false" />
         <com.limelight.preferences.SeekBarPreference
             android:key="seekbar_deadzone"
             android:defaultValue="7"

@@ -10,7 +10,7 @@ import android.widget.TextView;
 
 import com.google.android.material.chip.Chip;
 import com.google.android.material.chip.ChipGroup;
-import com.google.android.material.dialog.MaterialAlertDialogBuilder;
+import com.limelight.ui.NavigationDialogBuilder;
 import com.limelight.R;
 import com.limelight.utils.UiHelper;
 import com.limelight.binding.video.DisplayFrameRatePolicy;
@@ -25,7 +25,7 @@ public class PresetPreference extends Preference {
     @Override
     protected void onClick() {
         String[] names = getContext().getResources().getStringArray(R.array.stream_preset_names);
-        UiHelper.showDialog(getContext(), new MaterialAlertDialogBuilder(getContext())
+        UiHelper.showDialog(getContext(), new NavigationDialogBuilder(getContext())
                 .setTitle(R.string.stream_presets)
                 .setItems(names, (dialog, which) -> confirmPreset(StreamPreset.values()[which]))
                 .setNegativeButton(android.R.string.cancel, null).create());
@@ -35,7 +35,7 @@ public class PresetPreference extends Preference {
         String nativeResolution = PreferenceConfiguration.nativeResolution(getContext());
         if (nativeResolution == null) return;
         float refresh = DisplayFrameRatePolicy.maxRefreshRate(((Activity) getContext()).getWindowManager().getDefaultDisplay());
-        UiHelper.showDialog(getContext(), new MaterialAlertDialogBuilder(getContext())
+        UiHelper.showDialog(getContext(), new NavigationDialogBuilder(getContext())
                 .setTitle(getContext().getResources().getStringArray(R.array.stream_preset_names)[preset.ordinal()])
                 .setMessage(R.string.preset_replace_settings)
                 .setPositiveButton(android.R.string.ok, (dialog, which) -> {
@@ -71,8 +71,10 @@ public class PresetPreference extends Preference {
         }
         // A one-line value like every other row: "Native (recommended)" reads as "Native"; the chip keeps the tag.
         ((TextView) view.findViewById(R.id.preset_value)).setText(selected.replaceFirst(" \\(.*\\)$", ""));
-        view.findViewById(R.id.preset_help).setOnClickListener(v ->
-                UiHelper.showDialog(getContext(), new MaterialAlertDialogBuilder(getContext()).setTitle(R.string.stream_presets)
-                        .setMessage(R.string.stream_presets_help).setPositiveButton(android.R.string.ok, null).create()));
+        Runnable showHelp = () ->
+                UiHelper.showDialog(getContext(), new NavigationDialogBuilder(getContext()).setTitle(R.string.stream_presets)
+                        .setMessage(R.string.stream_presets_help).setPositiveButton(android.R.string.ok, null).create());
+        view.findViewById(R.id.preset_help).setOnClickListener(v -> showHelp.run());
+        view.setTag(R.id.preference_help, showHelp);
     }
 }

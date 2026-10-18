@@ -14,7 +14,7 @@ import android.os.Process;
 import androidx.annotation.RequiresApi;
 import androidx.appcompat.view.ContextThemeWrapper;
 
-import com.google.android.material.dialog.MaterialAlertDialogBuilder;
+import com.limelight.ui.NavigationDialogBuilder;
 import com.limelight.BuildConfig;
 import com.limelight.R;
 
@@ -128,7 +128,7 @@ public final class CrashCapture implements Application.ActivityLifecycleCallback
         } catch (IOException e) {
             return;
         }
-        new MaterialAlertDialogBuilder(new ContextThemeWrapper(activity, R.style.AppTheme))
+        new NavigationDialogBuilder(new ContextThemeWrapper(activity, R.style.AppTheme))
                 .setTitle(activity.getString(R.string.crash_report_title, activity.getString(R.string.app_name)))
                 .setMessage(R.string.crash_report_details)
                 .setPositiveButton(R.string.crash_report_share, (dialog, which) -> ProblemReport.share(activity))

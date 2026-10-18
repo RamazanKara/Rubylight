@@ -18,6 +18,7 @@ import androidx.lifecycle.ViewModelProvider;
 
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
+import com.limelight.ui.NavigationDialogBuilder;
 import com.limelight.R;
 import com.limelight.binding.input.KeyboardShortcuts;
 import com.limelight.binding.input.KeyboardShortcuts.Shortcut;
@@ -57,7 +58,7 @@ public final class KeyboardShortcutsActivity extends NightjarActivity {
         work.message.observe(this, ignored -> refresh());
         work.imported.observe(this, entries -> {
             if (entries == null || importDialog != null) return;
-            importDialog = new MaterialAlertDialogBuilder(this)
+            importDialog = new NavigationDialogBuilder(this)
                     .setTitle(R.string.keyboard_shortcuts_import)
                     .setMessage(getString(R.string.keyboard_shortcuts_replace, entries.size()))
                     .setPositiveButton(R.string.keyboard_shortcuts_replace_button, (dialog, which) -> {
@@ -155,7 +156,7 @@ public final class KeyboardShortcutsActivity extends NightjarActivity {
             name.setText(existing.name);
             chord.setText(KeyboardShortcuts.format(existing.keys()));
         }
-        MaterialAlertDialogBuilder builder = new MaterialAlertDialogBuilder(this)
+        MaterialAlertDialogBuilder builder = new NavigationDialogBuilder(this)
                 .setTitle(existing == null ? R.string.keyboard_shortcuts_add : R.string.keyboard_shortcuts_edit)
                 .setView(fields).setPositiveButton(R.string.keyboard_shortcuts_save, null)
                 .setNegativeButton(android.R.string.cancel, null);

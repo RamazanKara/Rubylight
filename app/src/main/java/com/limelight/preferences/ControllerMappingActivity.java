@@ -4,7 +4,7 @@ import com.limelight.ui.NightjarActivity;
 import androidx.core.view.ViewCompat;
 import com.google.android.material.button.MaterialButton;
 import androidx.appcompat.app.AlertDialog;
-import com.google.android.material.dialog.MaterialAlertDialogBuilder;
+import com.limelight.ui.NavigationDialogBuilder;
 import android.content.res.TypedArray;
 import android.os.Bundle;
 import android.view.InputDevice;
@@ -195,7 +195,7 @@ public class ControllerMappingActivity extends NightjarActivity {
     private void chooseAxis() {
         if (deviceKey == null) return;
         String[] names = getResources().getStringArray(R.array.controller_axes);
-        UiHelper.showDialog(this, new MaterialAlertDialogBuilder(this).setTitle(R.string.controller_axes_title)
+        UiHelper.showDialog(this, new NavigationDialogBuilder(this).setTitle(R.string.controller_axes_title)
                 .setItems(names, (dialog, which) -> {
                     if (which < 6) chooseAxisSource(which);
                     else chooseDpadTarget(which - 6);
@@ -214,7 +214,7 @@ public class ControllerMappingActivity extends NightjarActivity {
             if (stick) choices[1 + count + i] = getString(R.string.controller_axes_inverted, names[first + i]);
             if (axisMap.source(destination) == first + i) selected = 1 + i + (axisMap.inverted(destination) ? count : 0);
         }
-        UiHelper.showDialog(this, new MaterialAlertDialogBuilder(this)
+        UiHelper.showDialog(this, new NavigationDialogBuilder(this)
                 .setTitle(getString(R.string.controller_axes_source, names[destination]))
                 .setSingleChoiceItems(choices, selected, (dialog, which) -> {
                     axisMap.setAxis(destination, which == 0 ? -1 : first + (which - 1) % count, which > count);
@@ -227,7 +227,7 @@ public class ControllerMappingActivity extends NightjarActivity {
         int selected = 0;
         for (int i = 0; i < ControllerAxisMap.DPAD_TARGETS.length; i++)
             if (axisMap.dpadTarget(direction) == ControllerAxisMap.DPAD_TARGETS[i]) selected = i;
-        UiHelper.showDialog(this, new MaterialAlertDialogBuilder(this)
+        UiHelper.showDialog(this, new NavigationDialogBuilder(this)
                 .setTitle(getResources().getStringArray(R.array.controller_axes)[direction + 6])
                 .setSingleChoiceItems(labels, selected, (dialog, which) -> {
                     axisMap.setDpad(direction, ControllerAxisMap.DPAD_TARGETS[which]);
@@ -289,7 +289,7 @@ public class ControllerMappingActivity extends NightjarActivity {
         for (int i = 0; i < count; i++) {
             labels[i + 1] = targetName(targets[i]);
         }
-        UiHelper.showDialog(this, new MaterialAlertDialogBuilder(this)
+        UiHelper.showDialog(this, new NavigationDialogBuilder(this)
                 .setTitle(getString(R.string.controller_mapping_choose, buttonName(source)))
                 .setItems(labels, (dialog, which) -> {
                     if (which == 0) {

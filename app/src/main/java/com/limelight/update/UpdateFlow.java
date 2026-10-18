@@ -9,7 +9,7 @@ import android.widget.Toast;
 
 import androidx.appcompat.app.AlertDialog;
 
-import com.google.android.material.dialog.MaterialAlertDialogBuilder;
+import com.limelight.ui.NavigationDialogBuilder;
 import com.google.android.material.progressindicator.LinearProgressIndicator;
 import com.limelight.BuildConfig;
 import com.limelight.LimeLog;
@@ -119,7 +119,7 @@ public final class UpdateFlow {
         if (!notes.isEmpty()) {
             message += "\n\n" + notes;
         }
-        UiHelper.showDialog(activity, new MaterialAlertDialogBuilder(activity)
+        UiHelper.showDialog(activity, new NavigationDialogBuilder(activity)
                 .setTitle(R.string.update_available_title)
                 .setMessage(message)
                 .setPositiveButton(R.string.update_action_update, (dialog, which) -> startUpdate(activity, release))
@@ -132,7 +132,7 @@ public final class UpdateFlow {
     private static void startUpdate(Activity activity, ReleaseInfo release) {
         Context app = activity.getApplicationContext();
         if (UpdateInstaller.needsInstallPermission(app)) {
-            UiHelper.showDialog(activity, new MaterialAlertDialogBuilder(activity)
+            UiHelper.showDialog(activity, new NavigationDialogBuilder(activity)
                     .setTitle(R.string.update_allow_title)
                     .setMessage(R.string.update_allow_message)
                     .setPositiveButton(R.string.update_allow_open, (dialog, which) ->
@@ -157,7 +157,7 @@ public final class UpdateFlow {
         bar.setIndeterminate(true);
         content.addView(status);
         content.addView(bar);
-        AlertDialog progress = new MaterialAlertDialogBuilder(activity)
+        AlertDialog progress = new NavigationDialogBuilder(activity)
                 .setTitle(activity.getString(R.string.update_downloading_title, release.version()))
                 .setView(content)
                 .setNegativeButton(android.R.string.cancel, (dialog, which) -> downloader.cancel())
@@ -224,7 +224,7 @@ public final class UpdateFlow {
             Toast.makeText(activity.getApplicationContext(), message, Toast.LENGTH_LONG).show();
             return;
         }
-        UiHelper.showDialog(activity, new MaterialAlertDialogBuilder(activity)
+        UiHelper.showDialog(activity, new NavigationDialogBuilder(activity)
                 .setTitle(R.string.update_error_title)
                 .setMessage(message)
                 .setPositiveButton(android.R.string.ok, null)

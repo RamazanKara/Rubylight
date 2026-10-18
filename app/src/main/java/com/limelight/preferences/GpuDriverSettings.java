@@ -20,7 +20,7 @@ import androidx.lifecycle.ViewModelProvider;
 import com.google.android.material.appbar.MaterialToolbar;
 import com.limelight.ui.TopAppBar;
 import com.google.android.material.button.MaterialButton;
-import com.google.android.material.dialog.MaterialAlertDialogBuilder;
+import com.limelight.ui.NavigationDialogBuilder;
 import com.google.android.material.radiobutton.MaterialRadioButton;
 import com.limelight.R;
 import com.limelight.binding.video.GpuDriverStore;
@@ -102,7 +102,7 @@ public class GpuDriverSettings extends NightjarActivity {
         });
         MaterialButton removeButton = button(content, R.string.gpu_driver_remove, R.attr.nightjarButtonDestructiveStyle);
         removeButton.setEnabled(!drivers.isEmpty() && !busy);
-        removeButton.setOnClickListener(view -> new MaterialAlertDialogBuilder(this)
+        removeButton.setOnClickListener(view -> new NavigationDialogBuilder(this)
                 .setTitle(R.string.gpu_driver_remove)
                 .setItems(drivers.stream().map(driver -> driver.name).toArray(String[]::new), (dialog, index) -> {
                     Context app = getApplicationContext();

@@ -80,6 +80,7 @@ import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;
 import androidx.core.view.WindowInsetsControllerCompat;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
+import com.limelight.ui.NavigationDialogBuilder;
 import android.app.PictureInPictureParams;
 import android.app.PendingIntent;
 import android.app.RemoteAction;
@@ -1168,7 +1169,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
 
     private void toggleDesktopZoom() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N && !prefConfig.useTextureView) {
-            showStreamDialog(new MaterialAlertDialogBuilder(this).setMessage(R.string.desktop_zoom_surface_help)
+            showStreamDialog(new NavigationDialogBuilder(this).setMessage(R.string.desktop_zoom_surface_help)
                     .setPositiveButton(android.R.string.ok, null).create());
             return;
         }
@@ -1191,7 +1192,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
 
     private void showVideoScalingDialog() {
         if (!canScaleLive()) return;
-        showStreamDialog(new MaterialAlertDialogBuilder(this).setTitle(R.string.video_scaling_title)
+        showStreamDialog(new NavigationDialogBuilder(this).setTitle(R.string.video_scaling_title)
                 .setSingleChoiceItems(R.array.video_scaling_modes, prefConfig.videoScaling, (dialog, which) -> {
                     dialog.dismiss();
                     setVideoScaling(which);
@@ -1240,7 +1241,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 .getDisplays(android.hardware.display.DisplayManager.DISPLAY_CATEGORY_PRESENTATION);
         String[] labels = new String[displays.length + 1]; labels[0] = getString(R.string.desktop_output_device);
         for (int i = 0; i < displays.length; i++) labels[i + 1] = displays[i].getName();
-        showStreamDialog(new MaterialAlertDialogBuilder(this).setTitle(R.string.desktop_output)
+        showStreamDialog(new NavigationDialogBuilder(this).setTitle(R.string.desktop_output)
                 .setItems(labels, (dialog, which) -> {
                     int id = which == 0 ? Display.DEFAULT_DISPLAY : displays[which - 1].getDisplayId();
                     if (id == getIntent().getIntExtra(EXTRA_OUTPUT_DISPLAY, Display.DEFAULT_DISPLAY)) return;
@@ -2622,7 +2623,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     private void showHostWebUi() {
         okhttp3.HttpUrl url = hostWebUiUrl();
         if (url == null) return;
-        AlertDialog dialog = new MaterialAlertDialogBuilder(this).setTitle(R.string.host_administration_menu)
+        AlertDialog dialog = new NavigationDialogBuilder(this).setTitle(R.string.host_administration_menu)
                 .setMessage(getString(R.string.host_administration_help, url.toString()) + "\n\n" +
                         getString(R.string.stream_web_ui_leaves))
                 .setNegativeButton(android.R.string.cancel, null)
@@ -2678,7 +2679,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         boolean suggest = report.canSuggestBitrate() && supportsAdaptiveBitrate() && !isAdaptiveBitrateEnabled() &&
                 currentBitrate > 500 && !hostActionInProgress && adaptiveQuality == null && !undo;
         if (undo || suggest) text.append("\n\n").append(getString(R.string.health_trial_help));
-        MaterialAlertDialogBuilder builder = new MaterialAlertDialogBuilder(this).setTitle(R.string.health_title)
+        MaterialAlertDialogBuilder builder = new NavigationDialogBuilder(this).setTitle(R.string.health_title)
                 .setMessage(text).setNegativeButton(android.R.string.cancel, null)
                 .setNeutralButton(R.string.overlay_copy, (dialog, which) -> {
                     ClipboardManager clipboard = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
@@ -2805,14 +2806,14 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 String message = result == null || measured < 5 ? getString(R.string.latency_test_failed) :
                         getString(R.string.latency_test_result, result[1], result[0], result[2], measured);
                 LimeLog.info("Latency test: " + message);
-                showStreamDialog(new MaterialAlertDialogBuilder(this).setTitle(R.string.latency_test)
+                showStreamDialog(new NavigationDialogBuilder(this).setTitle(R.string.latency_test)
                         .setMessage(message).setPositiveButton(android.R.string.ok, null).create());
             });
         }, "Latency test").start();
     }
 
     private void confirmQuitApp() {
-        androidx.appcompat.app.AlertDialog dialog = new MaterialAlertDialogBuilder(this).setTitle(R.string.stream_quit_game)
+        androidx.appcompat.app.AlertDialog dialog = new NavigationDialogBuilder(this).setTitle(R.string.stream_quit_game)
                 .setMessage(R.string.stream_quit_game_confirm).setNegativeButton(android.R.string.cancel, null)
                 .setPositiveButton(R.string.stream_quit_game, (prompt, which) -> streamMenuAction = this::quitStreamApp).create();
         showStreamDialog(dialog);
@@ -3242,7 +3243,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             return;
         }
         String[] modes = getResources().getStringArray(R.array.stream_touch_modes);
-        showStreamDialog(new MaterialAlertDialogBuilder(this).setTitle(R.string.stream_touch_mode)
+        showStreamDialog(new NavigationDialogBuilder(this).setTitle(R.string.stream_touch_mode)
                 .setSingleChoiceItems(modes, touchMode(), (dialog, which) -> {
                     cancelTouchInput();
                     prefConfig.touchMode = which;
@@ -3284,7 +3285,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     }
 
     private void showControllerLayoutDialog() {
-        showStreamDialog(new MaterialAlertDialogBuilder(this).setTitle(R.string.stream_controls_layout)
+        showStreamDialog(new NavigationDialogBuilder(this).setTitle(R.string.stream_controls_layout)
                 .setItems(R.array.stream_control_layout_actions, (dialog, which) -> {
                     VirtualController.ControllerMode[] modes = {
                             VirtualController.ControllerMode.MoveButtons,
@@ -3484,7 +3485,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     }
 
     private void showReconnectDialog(int title, String message) {
-        showStreamDialog(new MaterialAlertDialogBuilder(this).setTitle(title).setMessage(message)
+        showStreamDialog(new NavigationDialogBuilder(this).setTitle(title).setMessage(message)
                 .setCancelable(false)
                 .setNegativeButton(R.string.stream_disconnect, (dialog, which) -> finish())
                 .setPositiveButton(R.string.stream_reconnect, (dialog, which) -> reconnectStream()).create());
@@ -3549,10 +3550,10 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
 
     private void showServerCommands(ComputerDetails details) {
         String[] names = details.serverCommands.subList(0, Math.min(256, details.serverCommands.size())).toArray(new String[0]);
-        showStreamDialog(new MaterialAlertDialogBuilder(this).setTitle(R.string.stream_server_commands)
+        showStreamDialog(new NavigationDialogBuilder(this).setTitle(R.string.stream_server_commands)
                 .setItems(names, (dialog, index) -> {
                     dialog.dismiss();
-                    showStreamDialog(new MaterialAlertDialogBuilder(this).setTitle(names[index])
+                    showStreamDialog(new NavigationDialogBuilder(this).setTitle(names[index])
                             .setMessage(R.string.stream_command_confirm)
                             .setNegativeButton(android.R.string.cancel, null)
                             .setPositiveButton(R.string.stream_command_run, (confirmation, which) -> {
@@ -3603,7 +3604,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         }
         status.append("\n\n").append(getString(!prefConfig.vrr ? R.string.stream_android_pacing :
                 useArr ? R.string.stream_android_arr : R.string.stream_android_max_refresh));
-        showStreamDialog(new MaterialAlertDialogBuilder(this).setTitle(R.string.stream_host_status)
+        showStreamDialog(new NavigationDialogBuilder(this).setTitle(R.string.stream_host_status)
                 .setMessage(status).setPositiveButton(android.R.string.ok, null).create());
     }
 
@@ -3621,7 +3622,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         input.setText(BigDecimal.valueOf(currentBitrate == 0 ? prefConfig.bitrate : currentBitrate, 3)
                 .stripTrailingZeros().toPlainString());
         input.selectAll();
-        AlertDialog bitrateDialog = new MaterialAlertDialogBuilder(this).setTitle(R.string.stream_bitrate)
+        AlertDialog bitrateDialog = new NavigationDialogBuilder(this).setTitle(R.string.stream_bitrate)
                 .setMessage(R.string.stream_bitrate_help).setView(field)
                 .setNegativeButton(android.R.string.cancel, null)
                 .setPositiveButton(android.R.string.ok, null).create();
@@ -3778,7 +3779,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         SharedPreferences saved = getSharedPreferences("AdaptiveQuality", MODE_PRIVATE);
         String key = getIntent().getStringExtra(EXTRA_PC_UUID);
         int selected = saved.contains(key) ? qualityMode().ordinal() + 1 : 0;
-        showStreamDialog(new MaterialAlertDialogBuilder(this).setTitle(R.string.title_adaptive_quality)
+        showStreamDialog(new NavigationDialogBuilder(this).setTitle(R.string.title_adaptive_quality)
                 .setSingleChoiceItems(choices, selected, (dialog, which) -> {
                     if (!foreground || !connected || hostActionInProgress) return;
                     if (which == 0) saved.edit().remove(key).apply();
@@ -3790,7 +3791,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                     }
                 })
                 .setNeutralButton(R.string.quality_about, (dialog, which) ->
-                        showStreamDialog(new MaterialAlertDialogBuilder(this).setTitle(R.string.title_adaptive_quality)
+                        showStreamDialog(new NavigationDialogBuilder(this).setTitle(R.string.title_adaptive_quality)
                                 .setMessage(getString(R.string.quality_stream_help) + "\n\n" +
                                         getString(supportsAdaptiveQuality() ? R.string.summary_adaptive_quality : R.string.quality_unavailable))
                                 .setPositiveButton(android.R.string.ok, null).create()))
@@ -4112,6 +4113,9 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     // The keyboard options can turn a physical Back or Right Alt into the Windows key.
     private int physicalKeyCode(KeyEvent event) {
         int keyCode = event.getKeyCode();
+        if (keyCode == KeyEvent.KEYCODE_DPAD_CENTER && ControllerHandler.isRemoteControlEvent(event)) {
+            return KeyEvent.KEYCODE_ENTER;
+        }
         boolean keyboardBack = false;
         if (keyCode == KeyEvent.KEYCODE_BACK && prefConfig.backAsMeta) {
             InputDevice device = event.getDevice();
@@ -4128,8 +4132,30 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         return handleKeyDown(event) || super.onKeyDown(keyCode, event);
     }
 
+    private boolean handleRemoteMenuKey(KeyEvent event) {
+        if (!ControllerHandler.isRemoteControlEvent(event)) return false;
+        int key = event.getKeyCode();
+        if (key != KeyEvent.KEYCODE_BACK && key != KeyEvent.KEYCODE_MENU) return false;
+        // These are local navigation on a TV remote, even while PC input is captured.
+        if (event.getAction() == KeyEvent.ACTION_UP && !event.isCanceled()) {
+            if (key == KeyEvent.KEYCODE_BACK) onBackPressed();
+            else showStreamMenu();
+        }
+        return true;
+    }
+
+    private boolean handlePhysicalBackMenuKey(KeyEvent event) {
+        if (!connected || !prefConfig.backOpensMenu || event.getKeyCode() != KeyEvent.KEYCODE_BACK) return false;
+        // A handheld's dedicated Back can share its gamepad device. Reserve that physical key
+        // before controller remapping, while keeping Select/Start and keyboard Windows-key mode.
+        if (physicalKeyCode(event) != KeyEvent.KEYCODE_BACK) return false;
+        if (event.getAction() == KeyEvent.ACTION_UP && !event.isCanceled()) showStreamMenu();
+        return true;
+    }
+
     @Override
     public boolean handleKeyDown(KeyEvent event) {
+        if (handleRemoteMenuKey(event)) return true;
         // Pass-through virtual navigation keys
         if ((event.getFlags() & KeyEvent.FLAG_VIRTUAL_HARD_KEY) != 0) {
             return false;
@@ -4154,9 +4180,11 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             return true;
         }
 
+        if (handlePhysicalBackMenuKey(event)) return true;
+
         boolean handled = false;
 
-        if (ControllerHandler.isGameControllerDevice(event.getDevice())) {
+        if (!ControllerHandler.isRemoteControlEvent(event) && ControllerHandler.isGameControllerDevice(event.getDevice())) {
             // Always try the controller handler first, unless it's an alphanumeric keyboard device.
             // Otherwise, controller handler will eat keyboard d-pad events.
             handled = controllerHandler.handleButtonDown(event);
@@ -4214,6 +4242,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
 
     @Override
     public boolean handleKeyUp(KeyEvent event) {
+        if (handleRemoteMenuKey(event)) return true;
         // Pass-through virtual navigation keys
         if ((event.getFlags() & KeyEvent.FLAG_VIRTUAL_HARD_KEY) != 0) {
             return false;
@@ -4237,8 +4266,10 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             return true;
         }
 
+        if (handlePhysicalBackMenuKey(event)) return true;
+
         boolean handled = false;
-        if (ControllerHandler.isGameControllerDevice(event.getDevice())) {
+        if (!ControllerHandler.isRemoteControlEvent(event) && ControllerHandler.isGameControllerDevice(event.getDevice())) {
             // Always try the controller handler first, unless it's an alphanumeric keyboard device.
             // Otherwise, controller handler will eat keyboard d-pad events.
             handled = controllerHandler.handleButtonUp(event);

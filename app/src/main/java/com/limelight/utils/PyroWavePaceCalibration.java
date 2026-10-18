@@ -5,6 +5,7 @@ import android.app.Activity;
 import androidx.appcompat.app.AlertDialog;
 
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
+import com.limelight.ui.NavigationDialogBuilder;
 import com.google.android.material.progressindicator.LinearProgressIndicator;
 
 import com.limelight.LimeLog;
@@ -50,7 +51,7 @@ public final class PyroWavePaceCalibration {
     }
 
     public void show() {
-        MaterialAlertDialogBuilder builder = new MaterialAlertDialogBuilder(activity)
+        MaterialAlertDialogBuilder builder = new NavigationDialogBuilder(activity)
                 .setTitle(R.string.pace_calibration_title)
                 .setMessage(R.string.pace_calibration_intro)
                 .setPositiveButton(R.string.bandwidth_probe_start, (d, which) -> start())
@@ -73,7 +74,7 @@ public final class PyroWavePaceCalibration {
         progress.setIndeterminate(true);
         int padding = Math.round(24 * activity.getResources().getDisplayMetrics().density);
         progress.setPadding(padding, 0, padding, 0);
-        dialog = new MaterialAlertDialogBuilder(activity)
+        dialog = new NavigationDialogBuilder(activity)
                 .setTitle(R.string.pace_calibration_title)
                 .setMessage(R.string.pace_calibration_preparing)
                 .setView(progress)
@@ -109,7 +110,7 @@ public final class PyroWavePaceCalibration {
                     return;
                 }
                 dialog.dismiss();
-                dialog = new MaterialAlertDialogBuilder(activity)
+                dialog = new NavigationDialogBuilder(activity)
                         .setTitle(R.string.pace_calibration_title)
                         .setMessage(result)
                         .setPositiveButton(android.R.string.ok, null).create();

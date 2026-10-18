@@ -7,7 +7,7 @@ import android.view.View;
 import android.widget.ImageButton;
 
 import com.google.android.material.materialswitch.MaterialSwitch;
-import com.google.android.material.dialog.MaterialAlertDialogBuilder;
+import com.limelight.ui.NavigationDialogBuilder;
 import com.limelight.R;
 import com.limelight.utils.UiHelper;
 
@@ -43,7 +43,7 @@ public class MaterialSwitchPreference extends SwitchPreference {
         MaterialSwitch toggle = view.findViewById(R.id.preference_switch);
         toggle.setChecked(isChecked());
         Runnable showExplanation = explanation == null ? null : () -> UiHelper.showDialog(getContext(),
-                new MaterialAlertDialogBuilder(getContext()).setTitle(getTitle()).setMessage(explanation)
+                new NavigationDialogBuilder(getContext()).setTitle(getTitle()).setMessage(explanation)
                         .setPositiveButton(android.R.string.ok, null).create());
         ImageButton info = view.findViewById(R.id.preference_info);
         info.setVisibility(showExplanation == null ? View.GONE : View.VISIBLE);

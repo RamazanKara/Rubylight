@@ -35,7 +35,7 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowInsets;
 import android.widget.Toast;
-import com.google.android.material.dialog.MaterialAlertDialogBuilder;
+import com.limelight.ui.NavigationDialogBuilder;
 import android.content.res.XmlResourceParser;
 import android.widget.TextView;
 import android.widget.ListView;
@@ -491,7 +491,7 @@ public class StreamSettings extends NightjarActivity {
 
     private static void stylePreferenceList(View view, android.app.Activity activity) {
         ListView list = view.findViewById(android.R.id.list);
-        com.limelight.ui.UiNavigation.bindPreferences(list);
+        com.limelight.ui.UiNavigation.bindPreferencesWhenReady(list);
         list.setNextFocusUpId(R.id.settings_search);
         View search = activity.findViewById(R.id.settings_search);
         if ((view.getResources().getConfiguration().uiMode & Configuration.UI_MODE_TYPE_MASK)
@@ -766,7 +766,7 @@ public class StreamSettings extends NightjarActivity {
         }
 
         private void showMicPermissionDenied() {
-            new MaterialAlertDialogBuilder(getActivity())
+            new NavigationDialogBuilder(getActivity())
                     .setTitle(R.string.title_checkbox_enable_mic)
                     .setMessage(R.string.mic_permission_denied)
                     .setPositiveButton(android.R.string.ok, null)
@@ -1045,12 +1045,12 @@ public class StreamSettings extends NightjarActivity {
         }
 
         private void showInfo(int title, int message) {
-            UiHelper.showDialog(getActivity(), new MaterialAlertDialogBuilder(getActivity()).setTitle(title)
+            UiHelper.showDialog(getActivity(), new NavigationDialogBuilder(getActivity()).setTitle(title)
                     .setMessage(message).setPositiveButton(android.R.string.ok, null).create());
         }
 
         private void showAbout() {
-            AlertDialog about = new MaterialAlertDialogBuilder(getActivity()).setTitle(R.string.title_about)
+            AlertDialog about = new NavigationDialogBuilder(getActivity()).setTitle(R.string.title_about)
                     .setMessage(getString(R.string.summary_about, BuildConfig.VERSION_NAME))
                     .setPositiveButton(android.R.string.ok, null)
                     .setNeutralButton(R.string.settings_source, (dialog, which) ->
@@ -1070,7 +1070,7 @@ public class StreamSettings extends NightjarActivity {
         }
 
         private void confirmReset() {
-            AlertDialog confirm = new MaterialAlertDialogBuilder(getActivity()).setTitle(R.string.dialog_reset_settings_title)
+            AlertDialog confirm = new NavigationDialogBuilder(getActivity()).setTitle(R.string.dialog_reset_settings_title)
                     .setMessage(R.string.dialog_reset_settings_text)
                     .setNegativeButton(android.R.string.cancel, null)
                     .setPositiveButton(R.string.dialog_reset_settings_confirm, (dialog, which) -> {
@@ -1191,7 +1191,7 @@ public class StreamSettings extends NightjarActivity {
             findPreference("checkbox_touchscreen_trackpad").setOnPreferenceClickListener(preference -> {
                 SharedPreferences prefs = getPreferenceManager().getSharedPreferences();
                 int selected = storedTouchMode(prefs);
-                AlertDialog picker = new MaterialAlertDialogBuilder(getActivity()).setTitle(R.string.stream_touch_mode)
+                AlertDialog picker = new NavigationDialogBuilder(getActivity()).setTitle(R.string.stream_touch_mode)
                         .setSingleChoiceItems(R.array.stream_touch_modes, selected, (dialog, which) -> {
                             SharedPreferences.Editor editor = prefs.edit();
                             TouchMode.save(editor, which);
@@ -1207,7 +1207,7 @@ public class StreamSettings extends NightjarActivity {
             });
             findPreference(VideoScaling.STRETCH_PREF).setOnPreferenceClickListener(preference -> {
                 SharedPreferences prefs = getPreferenceManager().getSharedPreferences();
-                AlertDialog picker = new MaterialAlertDialogBuilder(getActivity()).setTitle(R.string.video_scaling_title)
+                AlertDialog picker = new NavigationDialogBuilder(getActivity()).setTitle(R.string.video_scaling_title)
                         .setSingleChoiceItems(R.array.video_scaling_modes, storedVideoScaling(prefs), (dialog, which) -> {
                             SharedPreferences.Editor editor = prefs.edit();
                             VideoScaling.save(editor, which);
@@ -1295,7 +1295,7 @@ public class StreamSettings extends NightjarActivity {
                 if (!Boolean.TRUE.equals(value)) {
                     return true;
                 }
-                new MaterialAlertDialogBuilder(getActivity())
+                new NavigationDialogBuilder(getActivity())
                         .setTitle(R.string.title_usb_dualsense)
                         .setMessage(R.string.usb_dualsense_permission_info)
                         .setPositiveButton(R.string.usb_dualsense_enable, (dialog, which) -> dualSense.setChecked(true))

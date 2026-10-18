@@ -1,7 +1,7 @@
 package com.limelight.preferences;
 
 import android.os.Bundle;
-import com.google.android.material.dialog.MaterialAlertDialogBuilder;
+import com.limelight.ui.NavigationDialogBuilder;
 import android.content.Context;
 import android.content.DialogInterface;
 import android.os.Build;
@@ -33,7 +33,7 @@ public class ConfirmDeleteOscPreference extends DialogPreference {
 
     @Override
     protected void showDialog(Bundle state) {
-        androidx.appcompat.app.AlertDialog dialog = new MaterialAlertDialogBuilder(getContext()).setTitle(getDialogTitle())
+        androidx.appcompat.app.AlertDialog dialog = new NavigationDialogBuilder(getContext()).setTitle(getDialogTitle())
                 .setMessage(getDialogMessage()).setPositiveButton(getPositiveButtonText(), this)
                 .setNegativeButton(getNegativeButtonText(), null).create();
         UiHelper.showDialog(getContext(), dialog);

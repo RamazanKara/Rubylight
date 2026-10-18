@@ -5,7 +5,7 @@
 package com.limelight.binding.input.virtual_controller;
 
 import androidx.appcompat.app.AlertDialog;
-import com.google.android.material.dialog.MaterialAlertDialogBuilder;
+import com.limelight.ui.NavigationDialogBuilder;
 import android.content.Context;
 import android.content.DialogInterface;
 import android.graphics.Canvas;
@@ -175,7 +175,7 @@ public abstract class VirtualControllerElement extends View {
     }
 
     protected void showConfigurationDialog() {
-        AlertDialog.Builder alertBuilder = new MaterialAlertDialogBuilder(getContext());
+        AlertDialog.Builder alertBuilder = new NavigationDialogBuilder(getContext());
 
         alertBuilder.setTitle("Configuration");
 

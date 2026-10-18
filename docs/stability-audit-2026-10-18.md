@@ -124,3 +124,88 @@ line of the repository has been audited or that no bugs remain.
 Raw host logs, private Windows diagnostics, before/after reports, encoded
 streams and decoded frame hashes are retained locally under
 `D:\CodexArtifacts\rubylight-stability-audit-20261018`.
+
+## Display, power and scheduling follow-up
+
+The follow-up starts from `ce3292ab195f97140aa3fc6507cb0b4270d2cf80`.
+The original report mixed confirmed defects with already-corrected behavior
+and possible causes that have not been reproduced.
+
+- Display restoration defaults on after three seconds. Exclusive layouts
+  release after that delay even in older profiles that disabled restoration.
+  Layouts that disabled an original monitor restore it after local Win+P
+  changes too. A failed restoration remains journaled, and a later acquisition
+  or failed-acquisition rollback uses the original baseline. Explicit
+  `virtualDisplay=0` selects a physical display, including retained-session
+  matching. Eligible device layout preferences are recorded at the last
+  stream's disconnect, not when a paused lease is eventually destroyed.
+- IddCx adapter and monitor identities survive sleep; swap-chain workers,
+  frame rings and pooled graphics resources are retired before power-down.
+  True PnP teardown clears the adapter and render pin. Initialization
+  completion is matched to its returned adapter, including early and stale
+  callbacks. Host recovery may request a restart only for one verified,
+  stopped Rubylight devnode with Code 10, 31 or 43. It excludes healthy,
+  manually disabled, ambiguous and unrelated devices, and bounds retries.
+- Non-NVIDIA adapters use high rather than realtime process GPU priority.
+  A retired compute queue rejects new conversion, cursor and capture work;
+  already-admitted operations retain their ownership and completion fences.
+  Retirement does not wait behind native GPU calls. These changes do not
+  identify the cause of the long-session AMD reset.
+- Packet, encoder and frame waits use the high-resolution timer throughout.
+  Notification-capable capture waits longer after 100 ms without a frame,
+  while active capture and pending transfers keep their short polls. Media
+  thread scheduling remains enabled; process-wide high CPU priority is no
+  longer requested by the host or capture helper.
+
+The existing keyframe-loss pacing guard was already enabled. Experimental
+host-adaptive pacing remains opt-in. Capture recovery already waits for
+encoder consumers before reopening, and native GPU resource destruction
+already occurs outside the capture-state lock; those paths were not replaced.
+
+The additional input review confirmed that unknown-contact moves and failed
+hover/move injections could leave invalid touch state for later refreshes.
+Only accepted frames now update that state. Failed batch cancellation tries
+each contact and retires the injector-owned synthetic device if cleanup still
+fails. Mouse/key teardown retries the final release once under the existing
+shared-ownership lock, reports failure and continues other cleanup. These are
+confirmed code defects; they do not by themselves reproduce the dragging
+reported in issue #35. Pure injected-failure tests do not send input to the PC.
+
+Compute conversion also validates the resource state reported by AMF before
+recording a transition. Unsupported video/graphics states and invalid mixed
+read/write masks fail explicitly. No native observation established that AMF
+returned such a state during the reset. The surface-address callback concern
+was not reproduced: AMF specifies notification before releasing its internal
+resources. The compressed-frame copy remains necessary because the sender
+must own its bytes after releasing AMF's output buffer. Repeated control-loop
+session snapshots and gamepad batches now retain their allocated buffers.
+
+The updated driver was built with MSVC and the Windows Driver Kit but was not
+installed during verification. Actual sleep/wake, local monitor restoration,
+and a sustained game/client stream remain hardware validation requirements.
+Short synthetic checks cannot establish AMD reset prevention or game smoothness.
+
+The [timer comparison](../rust/PERFORMANCE.md#october-18-timer-waits-and-idle-capture)
+measured 97.6–99.1% fewer execution cycles for packet/frame waits, with mean
+deadline lateness increasing to about 0.25–0.29 ms. The
+[GPU comparison](../rust/PERFORMANCE_WORK.md#october-18-retired-compute-queues-and-conservative-gpu-priority)
+completed all 2,048 readback-checked samples; noisy baseline tails prevent a
+latency-improvement claim. Both records retain the methods, raw evidence
+locations and limits of the measurements.
+
+Follow-up verification:
+
+- `cargo test --workspace --locked`: 1,225 passed, 74 opt-in tests ignored.
+  This includes the actual driver lifecycle policy, paused-layout preference
+  boundaries, display recovery journal retention, input failure handling and
+  retained gamepad buffers.
+- Both new opt-in native GPU regressions passed independently of the suite.
+- The driver built with MSVC/WDK. Driver Clippy completed with the existing
+  `linker_messages` allowance; five pre-existing runtime-signature warnings
+  remain in generated `wdk-sys` bindings. Staged source hashes matched the checkout.
+- Console type/Svelte checking reported zero errors and warnings; all 29
+  settings/control tests passed.
+- Workspace/all-target Clippy with warnings denied, formatting and diff checks passed.
+
+Follow-up build logs, driver evidence and raw CPU/GPU measurements are retained
+locally under `D:\CodexArtifacts\rubylight-four-fixes-20261018`.

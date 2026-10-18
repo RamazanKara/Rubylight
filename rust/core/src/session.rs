@@ -320,7 +320,11 @@ mod tests {
             assert_eq!(s.configure_fec(true, 200), 200);
             s.stats.video_frame.store(3, Ordering::Release);
             s.record_fec_status(&fec_report(1, 9, 1));
-            s.tick_fec(Instant::now() + Duration::from_secs(6));
+            s.tick_fec(
+                Instant::now()
+                    + crate::adaptive_fec::AdaptiveFec::CLEAN_HOLD
+                    + Duration::from_secs(1),
+            );
             assert_eq!(s.fec_percent(), 199);
             s.record_fec_status(&fec_report(2, 7, 1));
             assert_eq!(s.fec_percent(), 200);
@@ -1719,8 +1723,7 @@ impl<P, A> Session<P, A> {
     /// Restore only an eligible route's recent loss history. Explicit pacing,
     /// disabled adaptation and PyroWave retain their own policies.
     pub fn configure_remembered_keyframe_loss(&self, enabled: bool, remembered: bool) {
-        let enabled = enabled && self.config.codec != 3;
-        let remembered = remembered && enabled;
+        let remembered = remembered && enabled && self.config.codec != 3;
         *self.keyframe_loss.lock().unwrap() = if remembered {
             crate::keyframe_loss::KeyframeLoss::remembered("remembered from the previous session")
         } else {

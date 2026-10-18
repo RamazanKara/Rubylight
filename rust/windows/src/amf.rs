@@ -151,6 +151,12 @@ fn acknowledge_keyframe(
         metadata.submitted(result);
     }
 }
+fn output_is_idr(picture_type: Option<i64>, requested_idr: bool) -> bool {
+    // A driver may not expose the output-type property. Use the request attached
+    // to this output's PTS; the global input counter can already be several
+    // frames ahead, or continue an earlier encoder's frame numbering.
+    picture_type.map_or(requested_idr, |kind| kind == 0)
+}
 pub struct Encoder {
     pub(crate) warnings: std::sync::Arc<butterpollo_core::session::Warnings>,
     component: *mut AMFComponent,
@@ -1215,7 +1221,7 @@ impl Encoder {
         &mut self,
         surface: *mut AMFSurface,
         mut idr: bool,
-    ) -> Result<butterpollo_core::ltr::Plan> {
+    ) -> Result<(butterpollo_core::ltr::Plan, bool)> {
         let mut plan = self.references.plan(self.index as u64 + 1, idr);
         let [_, _, mark, reference] = self.ltr_properties();
         let apply = |name: &str, value: AMFVariantStruct| -> Result<()> {
@@ -1266,7 +1272,9 @@ impl Encoder {
                 apply(header, gpu::boolean(true))?;
             }
         }
-        Ok(plan)
+        // LTR rejection can force a keyframe here even when the caller did not
+        // request one. Retain that effective type for acknowledgements and output.
+        Ok((plan, idr))
     }
     fn expire_unreturned(&mut self) {
         // A submission the driver never answers would otherwise keep every
@@ -1329,6 +1337,7 @@ impl Encoder {
             let timing = submission
                 .as_ref()
                 .map(|s| (s.accepted, s.accepted.duration_since(s.started)));
+            let requested_idr = submission.as_ref().is_some_and(|s| s.idr);
             let after_invalidation = submission.is_some_and(|s| s.after_invalidation);
             let v = &*(*buffer).pVtbl;
             let size = (v.GetSize.unwrap())(buffer);
@@ -1344,11 +1353,12 @@ impl Encoder {
                 (v.Release.unwrap())(buffer);
                 bail!("invalid AMF output buffer");
             }
-            let idr = if picture.type_ == AMF_VARIANT_TYPE_AMF_VARIANT_INT64 {
-                picture.__bindgen_anon_1.int64Value == 0
+            let picture_type = if picture.type_ == AMF_VARIANT_TYPE_AMF_VARIANT_INT64 {
+                Some(picture.__bindgen_anon_1.int64Value)
             } else {
-                self.index == 1
+                None
             };
+            let idr = output_is_idr(picture_type, requested_idr);
             let bytes = std::slice::from_raw_parts(raw, size as usize);
             let bytes = if self.codec == 0 && idr && self.references.enabled() {
                 butterpollo_core::bitstream::h264_reference_recovery(bytes)
@@ -1463,7 +1473,7 @@ impl Encoder {
                 (v.Release.unwrap())(surface);
                 return Err(e);
             }
-            let plan = match self.prepare_surface(surface, idr) {
+            let (plan, idr) = match self.prepare_surface(surface, idr) {
                 Ok(plan) => plan,
                 Err(error) => {
                     (v.Release.unwrap())(surface);
@@ -1678,7 +1688,7 @@ impl Encoder {
                 surface.0,
                 10_000_000_000 / i64::from(self.config.fps_millihz()),
             );
-            let plan = self.prepare_surface(surface.0, idr)?;
+            let (plan, idr) = self.prepare_surface(surface.0, idr)?;
             let deadline = Instant::now() + Duration::from_millis(100);
             loop {
                 let result = timed("AMF SubmitInput", || {

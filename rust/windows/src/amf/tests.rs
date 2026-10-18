@@ -1,6 +1,32 @@
 use super::*;
 
 #[test]
+fn missing_output_type_uses_the_matching_submission_after_buffering_or_recreation() {
+    // A buffered initial keyframe and a recovery keyframe at a continued wire
+    // index still start a decoder when the driver cannot report its output type.
+    for (pts, requested) in [(0, true), (1, false), (37, true), (38, false)] {
+        let submission = Submission {
+            pts,
+            started: Instant::now(),
+            accepted: Instant::now(),
+            presentation: Instant::now(),
+            idr: requested,
+            after_invalidation: false,
+            _capture: None,
+            _converted: None,
+        };
+        assert_eq!(output_is_idr(None, submission.idr), requested);
+        // A real driver report remains authoritative over a requested type.
+        assert!(output_is_idr(Some(0), submission.idr));
+        for reported in [1, 2, 3] {
+            assert!(!output_is_idr(Some(reported), submission.idr));
+        }
+    }
+    // A late, already-expired output has no request metadata to fall back to.
+    assert!(!output_is_idr(None, false));
+}
+
+#[test]
 #[ignore = "requires a live AMD D3D11 adapter and AMF runtime"]
 fn native_output_survives_a_late_poll_without_losing_submission_metadata() -> Result<()> {
     let _com = crate::capture::ComGuard::new()?;
@@ -32,7 +58,7 @@ fn native_output_survives_a_late_poll_without_losing_submission_metadata() -> Re
     let (surface, converted) =
         converter.convert(encoder.context, &image, &mut encoder.ownership)?;
     encoder.gpu_convert = Some(converter);
-    let plan = encoder.prepare_surface(surface.0, true)?;
+    let (plan, idr) = encoder.prepare_surface(surface.0, true)?;
     // Submit without the convenience encode method's immediate poll. This
     // guarantees that QueryOutput must collect an accepted native picture,
     // independently of how quickly this particular GPU completes it.
@@ -51,7 +77,7 @@ fn native_output_survives_a_late_poll_without_losing_submission_metadata() -> Re
         started: delayed,
         accepted: delayed,
         presentation: presented,
-        idr: true,
+        idr,
         after_invalidation: plan.after_invalidation,
         _capture: Some(image),
         _converted: Some(converted),

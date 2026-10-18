@@ -135,6 +135,7 @@ struct Submission {
     presentation: Instant,
     idr: bool,
     after_invalidation: bool,
+    frame_cap_bytes: Option<u64>,
     _capture: Option<GpuImage>,
     _converted: Option<std::sync::Arc<windows::Win32::Graphics::Direct3D11::ID3D11Texture2D>>,
 }
@@ -174,6 +175,7 @@ pub struct Encoder {
     /// is a keyframe, or the client decodes damaged pictures until one comes.
     recover: bool,
     rate_control: rate_control::State,
+    frame_cap: rate_control::FrameCap,
     references: butterpollo_core::ltr::References,
     ownership: Box<gpu::Ownership>,
     pub(crate) luminance: [f32; 2],
@@ -304,6 +306,13 @@ impl Encoder {
                 }
             }
         });
+        let limits = butterpollo_core::encoder_policy::amf_rate_control(options, config)?;
+        let automatic_frame_cap =
+            butterpollo_core::encoder_policy::amf_frame_cap_automatic(options);
+        let scale_frame_cap = !automatic_frame_cap
+            && limits
+                .iter()
+                .any(|property| property.name == rate_control::frame_cap_name(config.codec));
         // SAFETY: The AMD runtime exports AMFInit with the SDK's C ABI and performs
         // its own initialization. Successful factory calls return owned interfaces
         // with SDK vtables; the retained library/device outlive their use and release.
@@ -389,7 +398,8 @@ impl Encoder {
                 in_flight: std::collections::VecDeque::new(),
                 backlog: AmfBacklog::new(None),
                 recover: false,
-                rate_control: rate_control::State::new(config.bitrate_kbps),
+                rate_control: rate_control::State::new(config.bitrate_kbps, scale_frame_cap),
+                frame_cap: rate_control::FrameCap::new(automatic_frame_cap),
                 references: Default::default(),
                 ownership: gpu::Ownership::new(),
                 luminance: [100., 1.],
@@ -436,7 +446,6 @@ impl Encoder {
                 },
             )?;
             e.property("TargetBitrate", int(i64::from(config.bitrate_kbps) * 1000))?;
-            let limits = butterpollo_core::encoder_policy::amf_rate_control(options, config)?;
             let warnings = e.warnings.clone();
             rate_control::configure(&limits, &warnings, |property| e.apply(property))?;
             if config.codec == 0 {
@@ -629,18 +638,26 @@ impl Encoder {
                 limit = e.backlog.limit(),
                 "AMF application backlog initialized"
             );
+            e.frame_cap
+                .observe(e.read(rate_control::frame_cap_name(e.codec)));
             e.log_effective();
             Ok(e)
         }
     }
     /// An integer or boolean property as the driver now has it.
     fn read(&self, name: &str) -> Option<i64> {
-        // SAFETY: Self retains the component and runtime, the terminated name and
-        // initialized output live through GetProperty, and the tag selects the union member.
+        // SAFETY: Self retains the component and its loaded runtime.
+        unsafe { Self::read_component(self.component, name) }
+    }
+    /// The component and its runtime must stay live through the property read.
+    unsafe fn read_component(component: *mut AMFComponent, name: &str) -> Option<i64> {
+        // SAFETY: The caller retains the component and runtime. The terminated
+        // name and initialized output live through GetProperty, and the tag
+        // selects the initialized union member.
         unsafe {
             let mut value = int(0);
-            if ((*(*self.component).pVtbl).GetProperty.unwrap())(
-                self.component,
+            if ((*(*component).pVtbl).GetProperty.unwrap())(
+                component,
                 to_wide(name).as_ptr(),
                 &mut value,
             ) != AMF_RESULT_AMF_OK
@@ -1340,6 +1357,7 @@ impl Encoder {
                 .as_ref()
                 .map(|s| (s.accepted, s.accepted.duration_since(s.started)));
             let requested_idr = submission.as_ref().is_some_and(|s| s.idr);
+            let frame_cap_bytes = submission.as_ref().and_then(|s| s.frame_cap_bytes);
             let after_invalidation = submission.is_some_and(|s| s.after_invalidation);
             let v = &*(*buffer).pVtbl;
             let size = (v.GetSize.unwrap())(buffer);
@@ -1387,6 +1405,7 @@ impl Encoder {
                 bytes,
                 idr,
                 after_invalidation,
+                frame_cap_bytes,
                 latency,
                 presentation,
             });
@@ -1523,6 +1542,7 @@ impl Encoder {
                 presentation: image.captured,
                 idr,
                 after_invalidation: plan.after_invalidation,
+                frame_cap_bytes: self.frame_cap.effective(),
                 _capture: None,
                 _converted: None,
             });
@@ -1539,7 +1559,30 @@ fn scale_rate_control(value: i64, applied_kbps: u32, requested_kbps: u32) -> i64
     scaled.clamp(i128::from(i64::MIN), i128::from(i64::MAX)) as i64
 }
 impl Encoder {
+    /// Apply a pace-based encoded-byte budget. An explicit user setting,
+    /// including driver default (zero), is preserved. Optional property failures
+    /// warn without interrupting the stream; return only the observed limit.
+    pub fn set_frame_cap(&mut self, bytes: u64) -> Option<u64> {
+        let component = self.component;
+        self.frame_cap
+            .update(self.codec, bytes, &self.warnings, |name, bits| {
+                // SAFETY: Self owns the live component/runtime for this entire
+                // update. SetProperty copies the terminated name and integer.
+                unsafe {
+                    let result = check(((*(*component).pVtbl).SetProperty.unwrap())(
+                        component,
+                        to_wide(name).as_ptr(),
+                        int(bits),
+                    ));
+                    (result, Self::read_component(component, name))
+                }
+            })
+    }
+    pub fn frame_cap(&self) -> Option<u64> {
+        self.frame_cap.effective()
+    }
     fn set_bitrate(&mut self, bitrate: u32) -> Result<()> {
+        let changed = bitrate != self.rate_control.requested();
         let component = self.component;
         self.rate_control.update(
             self.codec,
@@ -1587,6 +1630,10 @@ impl Encoder {
                 }
             },
         );
+        if changed {
+            self.frame_cap
+                .observe(self.read(rate_control::frame_cap_name(self.codec)));
+        }
         Ok(())
     }
     pub fn accepts_gpu_device(&self, image: &GpuImage) -> bool {
@@ -1747,6 +1794,7 @@ impl Encoder {
                 presentation: image.captured,
                 idr,
                 after_invalidation: plan.after_invalidation,
+                frame_cap_bytes: self.frame_cap.effective(),
                 _capture: self.compute.is_none().then(|| image.clone()),
                 _converted: converted,
             });

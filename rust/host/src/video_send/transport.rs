@@ -79,9 +79,7 @@ pub(super) fn run(
         let peer = frame.peer;
         let route = *link.get_or_insert_with(|| butterpollo_windows::net::routed_link(peer));
         let bitrate = s.bitrate.load(Ordering::Relaxed);
-        let needed = network_pacing::video_wire_rate_bps(&frame.packetizer, bitrate, period, peer.is_ipv6());
-        let base = network_pacing::rate_bps(c.integer("pacing_max_bitrate_kbps", 0), bitrate, route.bps, route.wireless, needed);
-        let bps = s.video_pacing_bps(base, needed);
+        let recovery::Pace { bps, needed } = recovery::pace(&s, &c, &frame.packetizer, period, peer, route);
         let safe = network_pacing::rate_bps(0, bitrate, route.bps, true, needed);
         let bps = s.keyframe_loss_bps(bps, safe, frame.wire_frame, frame.idr);
         if Instant::now() >= link_due {
@@ -174,6 +172,11 @@ pub(super) fn run(
         let sent = Instant::now();
         let queue_wait = dequeued.saturating_duration_since(frame.prepared);
         let elapsed = sent.saturating_duration_since(dequeued);
+        recovery::report(&s, &c, recovery::RecoveryFrame {
+            frame: frame.wire_frame, idr: frame.idr, after_invalidation: frame.after_invalidation,
+            payload_bytes: frame.payload_bytes, cap_bytes: frame.frame_cap_bytes,
+            wire_bytes: wire_bytes as u64, pace_bps: bps, elapsed, lost: lost.unrecoverable(),
+        });
         let after = batch.waits.unwrap();
         tracing::trace!(target: "pacing", frame=frame.wire_frame, packets=packet_count, batches,
             payload_bytes=frame.payload_bytes, wire_bytes, pacing_bps=bps,

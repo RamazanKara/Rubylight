@@ -538,7 +538,15 @@ async fn devices(
         editor += "</div></fieldset>";
         editor += &super::settings::render("client_", super::settings::CLIENT, client);
         let mut advanced = client.clone();
-        for key in ["name", "uuid", "perm", "enabled", "connected", "cert"] {
+        for key in [
+            "name",
+            "uuid",
+            "perm",
+            "enabled",
+            "connected",
+            "cert",
+            "network_loss_routes",
+        ] {
             advanced.as_object_mut().unwrap().remove(key);
         }
         editor += &format!(
@@ -546,12 +554,33 @@ async fn devices(
             area("advanced", "Device options (JSON)", &raw(&advanced))
         );
         editor += "<button>Save device</button>";
-        let actions = button("disconnect", csrf, "/devices", "uuid", uuid, "Disconnect")
+        let mut actions = button("disconnect", csrf, "/devices", "uuid", uuid, "Disconnect")
             + &button("unpair", csrf, "/devices", "uuid", uuid, "Unpair");
+        let routes = rows(client, "network_loss_routes");
+        let memory = if routes.is_empty() {
+            String::new()
+        } else {
+            actions += &button(
+                "network-reset",
+                csrf,
+                "/devices",
+                "uuid",
+                uuid,
+                "Reset network history",
+            );
+            format!(
+                "<p>Recent video loss at {}. Future streams start with smaller packet bursts. History expires after 24 hours; every fifth stream tests the normal rate. Reset applies to the next stream.</p>",
+                esc(&routes
+                    .iter()
+                    .map(|r| text(r, "address"))
+                    .collect::<Vec<_>>()
+                    .join(", "))
+            )
+        };
         content += &card(
             text(client, "name"),
             &format!(
-                "<p><span class=\"badge\">{}</span></p>{}<div class=\"actions\">{actions}</div>",
+                "<p><span class=\"badge\">{}</span></p>{memory}{}<div class=\"actions\">{actions}</div>",
                 if client["connected"] == true {
                     "Connected"
                 } else {

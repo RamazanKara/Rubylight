@@ -146,6 +146,34 @@ impl AdaptivePacing {
         self.current()
     }
 
+    /// Preview the rate for a possible frame without changing the sender's
+    /// demand, tentative probe or feedback fence. Encoder recovery caps use
+    /// more parity than ordinary frames; querying that budget must not reset
+    /// the controller's evidence on every input picture.
+    pub fn preview_rate(&self, ceiling: u64, needed: u64, encoder_kbps: u32) -> u64 {
+        if !self.enabled {
+            return ceiling;
+        }
+        let ceiling = ceiling.max(1);
+        let floor = needed
+            .saturating_add(needed / 4)
+            .max(1_000_000)
+            .min(ceiling);
+        let limit = if !self.initialized {
+            Some(u64::from(encoder_kbps).saturating_mul(2000))
+        } else if ceiling != self.ceiling || floor != self.floor {
+            // A changed budget retracts an unconfirmed probe. A confirmed
+            // fast route retains its previous ceiling when the route grows.
+            self.probe.as_ref().map(|probe| probe.stable).or_else(|| {
+                self.limit
+                    .or_else(|| (ceiling > self.ceiling).then(|| self.current()))
+            })
+        } else {
+            self.limit
+        };
+        limit.map_or(ceiling, |limit| limit.clamp(floor, ceiling))
+    }
+
     fn current(&self) -> u64 {
         self.limit.unwrap_or(self.ceiling)
     }

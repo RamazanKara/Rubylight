@@ -1129,6 +1129,23 @@ mod tests {
         }
     }
     #[test]
+    fn a_fresh_probe_or_disabled_policy_clears_the_previous_launch_warning() {
+        let s = Session::new(launch("remembered", Role::Stream), Negotiated::default());
+        for enabled in [true, false] {
+            s.configure_remembered_keyframe_loss(true, true);
+            assert_eq!(
+                s.keyframe_loss_reason(),
+                Some("remembered from the previous session")
+            );
+            assert!(!s.info()["warnings"].as_array().unwrap().is_empty());
+            s.configure_remembered_keyframe_loss(enabled, false);
+            assert!(!s.keyframe_loss_active());
+            assert!(s.info()["warnings"].as_array().unwrap().is_empty());
+        }
+        s.configure_remembered_keyframe_loss(false, true);
+        assert!(!s.keyframe_loss_active());
+    }
+    #[test]
     fn sender_pacing_queries_do_not_add_sent_frames_to_keyframe_history() {
         const FAST: u64 = 800_000_000;
         const SAFE: u64 = 62_000_000;
@@ -1683,11 +1700,38 @@ impl<P, A> Session<P, A> {
         );
         self.adaptive_pacing_bps(paced)
     }
+    /// Encoder-side budget queries must not change the sender's feedback
+    /// state when recovery parity differs from the current ordinary-frame FEC.
+    pub fn preview_video_pacing_bps(&self, base: u64, needed: u64) -> u64 {
+        let paced = self.automatic_pacing.lock().unwrap().preview_rate(
+            base,
+            needed,
+            self.bitrate.load(Ordering::Acquire),
+        );
+        self.adaptive_pacing_bps(paced)
+    }
     /// Pacing slows for the session once the client loses a keyframe or
     /// repeatedly reports unrecoverable ordinary frames
     /// (`keyframe_loss_pacing`), including PyroWave's independent intra frames.
     pub fn configure_keyframe_loss(&self, enabled: bool) {
-        *self.keyframe_loss.lock().unwrap() = crate::keyframe_loss::KeyframeLoss::new(enabled);
+        self.configure_remembered_keyframe_loss(enabled, false);
+    }
+    /// Restore only an eligible route's recent loss history. Explicit pacing,
+    /// disabled adaptation and PyroWave retain their own policies.
+    pub fn configure_remembered_keyframe_loss(&self, enabled: bool, remembered: bool) {
+        let enabled = enabled && self.config.codec != 3;
+        let remembered = remembered && enabled;
+        *self.keyframe_loss.lock().unwrap() = if remembered {
+            crate::keyframe_loss::KeyframeLoss::remembered("remembered from the previous session")
+        } else {
+            crate::keyframe_loss::KeyframeLoss::new(enabled)
+        };
+        if remembered {
+            tracing::info!(stream_id = %self.launch.id, "pacing video like Wi-Fi from the first frame: remembered from the previous session");
+            self.launch.warnings.set("network_keyframe_loss", "This device lost video frames in a previous stream at this address. Video starts at the Wi-Fi pacing rate to limit packet bursts without reducing the encoder bitrate. This memory expires after 24 hours and the host periodically tests the fast rate. Reset it in Devices after changing the network.");
+        } else {
+            self.launch.warnings.clear("network_keyframe_loss");
+        }
     }
     fn report_keyframe_loss(&self, latched: Option<&'static str>) {
         if let Some(reason) = latched {
@@ -1702,6 +1746,12 @@ impl<P, A> Session<P, A> {
     }
     pub fn keyframe_loss_active(&self) -> bool {
         self.keyframe_loss.lock().unwrap().latched()
+    }
+    pub fn keyframe_loss_reason(&self) -> Option<&'static str> {
+        self.keyframe_loss.lock().unwrap().reason()
+    }
+    pub fn keyframe_loss_observed_at(&self) -> Option<Instant> {
+        self.keyframe_loss.lock().unwrap().observed_at()
     }
     /// The pacing rate for the frame about to be sent as `wire_frame`: the
     /// route policy's `base`, or after confirmed losses at most `safe`, the

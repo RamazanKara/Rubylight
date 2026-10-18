@@ -44,11 +44,20 @@ pub struct KeyframeLoss {
     since_keyframe: u32,
     recent_losses: [Option<(u32, Instant)>; LOSS_FRAMES],
     latched: Option<&'static str>,
+    /// An inherited latch is not new evidence and must not renew its lifetime.
+    observed_at: Option<Instant>,
 }
 impl KeyframeLoss {
     pub fn new(enabled: bool) -> Self {
         Self {
             enabled,
+            ..Default::default()
+        }
+    }
+    pub fn remembered(reason: &'static str) -> Self {
+        Self {
+            enabled: true,
+            latched: Some(reason),
             ..Default::default()
         }
     }
@@ -73,10 +82,10 @@ impl KeyframeLoss {
         now: Instant,
     ) -> Option<&'static str> {
         if self.keyframes.contains(&Some(frame)) {
-            return self.latch("a keyframe arrived incomplete");
+            return self.latch("a keyframe arrived incomplete", now);
         }
         if !self.enabled
-            || self.latched()
+            || self.observed_at.is_some()
             || period.is_zero()
             || period.saturating_mul(last_sent.wrapping_sub(frame)) >= LOSS_WINDOW
         {
@@ -101,7 +110,10 @@ impl KeyframeLoss {
         let vacant = self.recent_losses.iter_mut().find(|loss| loss.is_none())?;
         *vacant = Some((frame, now));
         if self.recent_losses.iter().all(Option::is_some) {
-            self.latch("three recent video frames arrived incomplete within two seconds")
+            self.latch(
+                "three recent video frames arrived incomplete within two seconds",
+                now,
+            )
         } else {
             None
         }
@@ -117,20 +129,30 @@ impl KeyframeLoss {
         self.last_request = Some(now);
         self.keyframe_since_request = false;
         if repeated {
-            self.latch("the client asked again for the keyframe it was just sent")
+            self.latch(
+                "the client asked again for the keyframe it was just sent",
+                now,
+            )
         } else {
             None
         }
     }
-    fn latch(&mut self, reason: &'static str) -> Option<&'static str> {
-        if !self.enabled || self.latched.is_some() {
+    fn latch(&mut self, reason: &'static str, now: Instant) -> Option<&'static str> {
+        if !self.enabled || self.observed_at.is_some() {
             return None;
         }
+        self.observed_at = Some(now);
         self.latched = Some(reason);
         self.latched
     }
     pub fn latched(&self) -> bool {
         self.latched.is_some()
+    }
+    pub fn reason(&self) -> Option<&'static str> {
+        self.latched
+    }
+    pub fn observed_at(&self) -> Option<Instant> {
+        self.observed_at
     }
     /// The pacing rate: `base` from the route policy, or after confirmed video
     /// losses at most `safe`, the Wi-Fi route's rate for this stream.
@@ -146,6 +168,22 @@ mod tests {
     const FAST: u64 = 800_000_000;
     const SAFE: u64 = 62_000_000;
     const PERIOD: Duration = Duration::from_millis(16);
+
+    #[test]
+    fn remembered_loss_slows_the_first_frame_but_only_new_evidence_renews_it() {
+        let now = Instant::now();
+        let mut loss = KeyframeLoss::remembered("remembered from the previous session");
+        assert_eq!(loss.bps(FAST, SAFE), SAFE);
+        assert_eq!(loss.observed_at(), None);
+        for frame in 1..=2 {
+            assert_eq!(loss.unrecoverable(frame, 3, PERIOD, now), None);
+        }
+        assert!(loss.unrecoverable(3, 3, PERIOD, now).is_some());
+        assert_eq!(loss.observed_at(), Some(now));
+        assert_ne!(loss.reason(), Some("remembered from the previous session"));
+        assert_eq!(loss.unrecoverable(4, 4, PERIOD, now + PERIOD), None);
+        assert_eq!(loss.observed_at(), Some(now));
+    }
 
     #[test]
     fn a_keyframe_the_client_could_not_repair_slows_every_later_frame() {

@@ -1,0 +1,547 @@
+//! Recent, authenticated route loss history. Disk writes happen at stream
+//! boundaries, never from packet delivery or the control feedback callback.
+use super::{Host, Session, Shared};
+use anyhow::{Context, Result};
+use butterpollo_core::state::{Client, PairedState};
+use serde::{Deserialize, Serialize};
+use serde_json::{Value, json};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    net::IpAddr,
+    sync::{Arc, atomic::Ordering},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+};
+
+const RETENTION: u64 = 24 * 60 * 60;
+const PROBE_EVERY: u32 = 5;
+const MAX_ROUTES: usize = 256;
+const FIELD: &str = "keyframe_loss_routes";
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct Route {
+    client_id: String,
+    address: IpAddr,
+    observed_at: u64,
+    /// Distinguishes simultaneous evidence from the history a probe tested.
+    revision: String,
+    #[serde(default)]
+    remembered_sessions: u32,
+}
+
+impl Route {
+    fn matches(&self, client_id: &str, address: IpAddr) -> bool {
+        self.client_id == client_id && self.address == address.to_canonical()
+    }
+    fn current(&self, now: u64) -> bool {
+        // A clock moved backwards must not make a route persist indefinitely.
+        self.observed_at <= now && now - self.observed_at < RETENTION
+    }
+}
+fn now() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
+}
+fn read(state: &PairedState, now: u64) -> Vec<Route> {
+    // Invalid optional cache entries must not invalidate a paired identity.
+    let mut routes: Vec<Route> = state.document["root"][FIELD]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|v| serde_json::from_value::<Route>(v.clone()).ok())
+        .filter(|r| r.current(now) && state.clients.iter().any(|c| c.uuid == r.client_id))
+        .collect();
+    for route in &mut routes {
+        route.address = route.address.to_canonical();
+    }
+    routes.sort_by_key(|r| std::cmp::Reverse(r.observed_at));
+    let mut seen = BTreeSet::new();
+    routes.retain(|r| seen.insert((r.client_id.clone(), r.address)));
+    routes.truncate(MAX_ROUTES);
+    routes
+}
+fn save(h: &Host, state: &mut PairedState, routes: &[Route]) -> Result<()> {
+    let mut next = state.clone();
+    next.document["root"][FIELD] = serde_json::to_value(routes)?;
+    next.save(&h.paired_path)?;
+    *state = next;
+    Ok(())
+}
+
+struct Token {
+    client: Client,
+    address: IpAddr,
+    epoch: u64,
+    /// Only a completed fast probe can forget the exact history it tested.
+    probe_revision: Option<String>,
+}
+
+/// Keep this guard until the stream loop ends. Its drop records fresh loss or
+/// a completed fast probe without holding the session registry lock.
+pub(crate) struct Guard {
+    host: Shared,
+    session: Arc<Session>,
+    token: Option<Token>,
+    started: Instant,
+}
+impl Drop for Guard {
+    fn drop(&mut self) {
+        let Some(token) = self.token.take() else {
+            return;
+        };
+        let observed = self.session.keyframe_loss_observed_at();
+        let healthy_probe = token.probe_revision.is_some()
+            && observed.is_none()
+            && !self.session.failed()
+            && self.started.elapsed() >= Duration::from_secs(5)
+            && self.session.stats.frames.load(Ordering::Relaxed) >= 120;
+        if observed.is_none() && !healthy_probe {
+            return;
+        }
+        let now = now();
+        let observed_at = observed.map(|at| now.saturating_sub(at.elapsed().as_secs()));
+        if let Err(error) = self
+            .host
+            .finish_keyframe_loss(token, observed_at, healthy_probe, now)
+        {
+            tracing::warn!(%error, "could not save the device's video loss history");
+        }
+    }
+}
+
+impl Host {
+    pub(crate) fn configure_keyframe_loss(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        enabled: bool,
+    ) -> Guard {
+        let mut guard = Guard {
+            host: self.clone(),
+            session: session.clone(),
+            token: None,
+            started: Instant::now(),
+        };
+        if !enabled || session.config.codec == 3 {
+            session.configure_keyframe_loss(false);
+            return guard;
+        }
+        let epochs = self.keyframe_loss_epochs.lock().unwrap();
+        let mut state = self.paired.write().unwrap();
+        let client = &session.launch.client;
+        // Use the TLS-authenticated launch identity, never a name or a UUID
+        // supplied by a later packet. A removed/replaced certificate cannot
+        // acquire or recreate another pairing's history.
+        if !state
+            .clients
+            .iter()
+            .any(|c| c.uuid == client.uuid && c.cert == client.cert)
+        {
+            session.configure_keyframe_loss(true);
+            return guard;
+        }
+        let address = session.launch.peer.to_canonical();
+        let mut routes = read(&state, now());
+        let mut remembered = false;
+        let mut probe_revision = None;
+        if let Some(route) = routes.iter_mut().find(|r| r.matches(&client.uuid, address)) {
+            route.remembered_sessions = route.remembered_sessions.saturating_add(1);
+            if route.remembered_sessions >= PROBE_EVERY {
+                probe_revision = Some(route.revision.clone());
+                route.remembered_sessions = 0;
+            } else {
+                remembered = true;
+            }
+            if let Err(error) = save(self, &mut state, &routes) {
+                tracing::warn!(%error, "could not save the video pacing probe count");
+                // An unwritable profile must not turn every reconnect into a
+                // fast probe because the old counter remains at four.
+                remembered = true;
+                probe_revision = None;
+            }
+        }
+        if probe_revision.is_some() {
+            tracing::info!(client = %client.name, %address, "testing the fast video pacing rate after four remembered sessions");
+        }
+        session.configure_remembered_keyframe_loss(true, remembered);
+        guard.token = Some(Token {
+            client: client.clone(),
+            address,
+            epoch: *epochs.get(&client.uuid).unwrap_or(&0),
+            probe_revision,
+        });
+        guard
+    }
+
+    fn finish_keyframe_loss(
+        &self,
+        token: Token,
+        observed_at: Option<u64>,
+        healthy_probe: bool,
+        now: u64,
+    ) -> Result<()> {
+        // One lock order everywhere: epoch map, then paired state. In
+        // particular no disk write can race a reset or overwrite client edits.
+        let epochs = self.keyframe_loss_epochs.lock().unwrap();
+        if *epochs.get(&token.client.uuid).unwrap_or(&0) != token.epoch {
+            return Ok(());
+        }
+        let mut state = self.paired.write().unwrap();
+        if !state
+            .clients
+            .iter()
+            .any(|c| c.uuid == token.client.uuid && c.cert == token.client.cert)
+        {
+            return Ok(());
+        }
+        let mut routes = read(&state, now);
+        if let Some(observed_at) = observed_at.filter(|at| *at <= now && now - at < RETENTION) {
+            if let Some(route) = routes
+                .iter_mut()
+                .find(|r| r.matches(&token.client.uuid, token.address))
+            {
+                if observed_at >= route.observed_at {
+                    route.observed_at = observed_at;
+                    route.revision = uuid::Uuid::new_v4().to_string();
+                    route.remembered_sessions = 0;
+                }
+            } else {
+                routes.push(Route {
+                    client_id: token.client.uuid,
+                    address: token.address,
+                    observed_at,
+                    revision: uuid::Uuid::new_v4().to_string(),
+                    remembered_sessions: 0,
+                });
+            }
+            routes.sort_by_key(|r| std::cmp::Reverse(r.observed_at));
+            routes.truncate(MAX_ROUTES);
+        } else if healthy_probe {
+            routes.retain(|r| {
+                !r.matches(&token.client.uuid, token.address)
+                    || Some(&r.revision) != token.probe_revision.as_ref()
+            });
+        } else {
+            return Ok(());
+        }
+        save(self, &mut state, &routes)
+    }
+
+    pub(crate) fn reset_keyframe_loss(&self, client_id: &str) -> Result<()> {
+        let mut epochs = self.keyframe_loss_epochs.lock().unwrap();
+        let mut state = self.paired.write().unwrap();
+        state
+            .clients
+            .iter()
+            .find(|c| c.uuid == client_id)
+            .context("client not found")?;
+        let mut routes = read(&state, now());
+        routes.retain(|r| r.client_id != client_id);
+        save(self, &mut state, &routes)?;
+        let epoch = epochs.entry(client_id.to_owned()).or_default();
+        *epoch = epoch.wrapping_add(1);
+        Ok(())
+    }
+
+    /// Removing a pairing and its route cache is one atomic state write. The
+    /// old idempotent unpair behavior also covers missing/skipped clients.
+    pub(crate) fn unpair_with_network_history(&self, client_id: Option<&str>) -> Result<()> {
+        let mut epochs = self.keyframe_loss_epochs.lock().unwrap();
+        let mut state = self.paired.write().unwrap();
+        let ids: Vec<_> = match client_id {
+            Some(id) => vec![id.to_owned()],
+            None => state.clients.iter().map(|c| c.uuid.clone()).collect(),
+        };
+        let mut routes = read(&state, now());
+        routes.retain(|r| client_id.is_some_and(|id| r.client_id != id));
+        let mut next = state.clone();
+        next.document["root"][FIELD] = serde_json::to_value(routes)?;
+        if let Some(id) = client_id {
+            next.remove(&self.paired_path, id)?;
+        } else {
+            next.clear();
+            next.save(&self.paired_path)?;
+        }
+        *state = next;
+        for id in ids {
+            let epoch = epochs.entry(id).or_default();
+            *epoch = epoch.wrapping_add(1);
+        }
+        Ok(())
+    }
+
+    pub(crate) fn keyframe_loss_routes(&self) -> BTreeMap<String, Value> {
+        let now = now();
+        let state = self.paired.read().unwrap();
+        let mut clients = BTreeMap::<String, Vec<Value>>::new();
+        for route in read(&state, now) {
+            clients.entry(route.client_id).or_default().push(json!({
+                "address": route.address,
+                "expires_in_seconds": RETENTION - (now - route.observed_at),
+                "sessions_until_probe": PROBE_EVERY.saturating_sub(route.remembered_sessions),
+            }));
+        }
+        clients
+            .into_iter()
+            .map(|(id, routes)| (id, json!(routes)))
+            .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::state::test_support::Fixture;
+    use butterpollo_core::{config::Config, rtsp::Negotiated, session::Role};
+
+    fn session(f: &Fixture, client: &Client, address: &str, codec: u8) -> Arc<Session> {
+        let mut launch = f.launch(client.clone(), Role::Stream);
+        launch.peer = address.parse().unwrap();
+        Session::new(
+            launch,
+            Negotiated {
+                codec,
+                ..Default::default()
+            },
+        )
+    }
+    fn loss(s: &Session) {
+        s.keyframe_loss_bps(800_000_000, 60_000_000, 1, true);
+        s.keyframe_loss.lock().unwrap().unrecoverable(
+            1,
+            1,
+            Duration::from_millis(16),
+            Instant::now(),
+        );
+    }
+    fn seed(f: &Fixture, client: &Client) {
+        let s = session(f, client, "192.0.2.1", 0);
+        let guard = f.host.configure_keyframe_loss(&s, true);
+        assert!(!s.keyframe_loss_active());
+        loss(&s);
+        drop(guard);
+    }
+
+    #[test]
+    fn fresh_loss_persists_and_an_inherited_latch_does_not_renew_it() {
+        let f = Fixture::new();
+        let c = f.client(0x071f1f00);
+        seed(&f, &c);
+        let initial = read(&PairedState::load(&f.host.paired_path).unwrap(), now());
+        let s = session(&f, &c, "192.0.2.1", 0);
+        let guard = f.host.configure_keyframe_loss(&s, true);
+        assert_eq!(
+            s.keyframe_loss_reason(),
+            Some("remembered from the previous session")
+        );
+        assert_eq!(
+            s.keyframe_loss_rate_bps(800_000_000, 60_000_000),
+            60_000_000
+        );
+        assert!(s.keyframe_loss_observed_at().is_none());
+        drop(guard);
+        let saved = read(&PairedState::load(&f.host.paired_path).unwrap(), now());
+        assert_eq!(saved[0].observed_at, initial[0].observed_at);
+        assert_eq!(saved[0].revision, initial[0].revision);
+        assert_eq!(saved[0].remembered_sessions, 1);
+        let reopened = Host::load(f.host.directory.clone(), f.host.assets.clone(), None).unwrap();
+        let guard = reopened.configure_keyframe_loss(&s, true);
+        assert!(s.keyframe_loss_active());
+        drop(guard);
+    }
+
+    #[test]
+    fn fifth_eligible_session_probes_and_a_successful_probe_forgets_its_route() {
+        let f = Fixture::new();
+        let c = f.client(0x071f1f00);
+        seed(&f, &c);
+        for _ in 0..4 {
+            let s = session(&f, &c, "192.0.2.1", 0);
+            let guard = f.host.configure_keyframe_loss(&s, true);
+            assert!(s.keyframe_loss_active());
+            drop(guard);
+        }
+        let s = session(&f, &c, "192.0.2.1", 0);
+        let mut guard = f.host.configure_keyframe_loss(&s, true);
+        assert!(!s.keyframe_loss_active());
+        let token = guard.token.take().unwrap();
+        assert!(token.probe_revision.is_some());
+        f.host
+            .finish_keyframe_loss(token, None, true, now())
+            .unwrap();
+        assert!(f.host.keyframe_loss_routes().is_empty());
+    }
+
+    #[test]
+    fn a_short_probe_does_not_clear_history_and_fresh_loss_restarts_the_cycle() {
+        let f = Fixture::new();
+        let c = f.client(0x071f1f00);
+        seed(&f, &c);
+        for _ in 0..5 {
+            let s = session(&f, &c, "192.0.2.1", 0);
+            drop(f.host.configure_keyframe_loss(&s, true));
+        }
+        assert!(!f.host.keyframe_loss_routes().is_empty());
+        let s = session(&f, &c, "192.0.2.1", 0);
+        let guard = f.host.configure_keyframe_loss(&s, true);
+        assert!(s.keyframe_loss_active());
+        loss(&s);
+        drop(guard);
+        let saved = read(&f.host.paired.read().unwrap(), now());
+        assert_eq!(saved[0].remembered_sessions, 0);
+    }
+
+    #[test]
+    fn history_is_bound_to_authenticated_identity_and_canonical_address() {
+        let f = Fixture::new();
+        let c = f.client(0x071f1f00);
+        seed(&f, &c);
+        let mapped = session(&f, &c, "::ffff:192.0.2.1", 0);
+        drop(f.host.configure_keyframe_loss(&mapped, true));
+        assert!(mapped.keyframe_loss_active());
+        let other_address = session(&f, &c, "192.0.2.2", 0);
+        drop(f.host.configure_keyframe_loss(&other_address, true));
+        assert!(!other_address.keyframe_loss_active());
+        for (id, cert) in [
+            ("other-id", c.cert.as_str()),
+            (c.uuid.as_str(), "other-cert"),
+        ] {
+            let mut other = c.clone();
+            other.uuid = id.into();
+            other.cert = cert.into();
+            let s = session(&f, &other, "192.0.2.1", 0);
+            let guard = f.host.configure_keyframe_loss(&s, true);
+            assert!(!s.keyframe_loss_active());
+            loss(&s);
+            drop(guard);
+        }
+        assert_eq!(read(&f.host.paired.read().unwrap(), now()).len(), 1);
+    }
+
+    #[test]
+    fn expiry_and_clock_rollback_restore_the_normal_rate() {
+        let f = Fixture::new();
+        let c = f.client(0x071f1f00);
+        seed(&f, &c);
+        let at = now();
+        for observed_at in [at - RETENTION, at + 60] {
+            f.host.paired.write().unwrap().document["root"][FIELD][0]["observed_at"] =
+                json!(observed_at);
+            let s = session(&f, &c, "192.0.2.1", 0);
+            drop(f.host.configure_keyframe_loss(&s, true));
+            assert!(!s.keyframe_loss_active());
+            assert!(f.host.keyframe_loss_routes().is_empty());
+        }
+    }
+
+    #[test]
+    fn explicit_policies_and_pyrowave_neither_inherit_nor_consume_probes() {
+        let f = Fixture::new();
+        let c = f.client(0x071f1f00);
+        seed(&f, &c);
+        for text in [
+            "keyframe_loss_pacing=false",
+            "pacing_max_bitrate_kbps=80000",
+            "host_adaptive_pacing=true",
+            "host_adaptive_bitrate=true",
+        ] {
+            let config = Config::parse(text).unwrap();
+            let s = session(&f, &c, "192.0.2.1", 0);
+            let guard = f
+                .host
+                .configure_keyframe_loss(&s, config.keyframe_loss_pacing());
+            loss(&s);
+            assert!(!s.keyframe_loss_active(), "{text}");
+            drop(guard);
+        }
+        let s = session(&f, &c, "192.0.2.1", 3);
+        let guard = f.host.configure_keyframe_loss(&s, true);
+        loss(&s);
+        assert!(!s.keyframe_loss_active());
+        drop(guard);
+        assert_eq!(
+            read(&f.host.paired.read().unwrap(), now())[0].remembered_sessions,
+            0
+        );
+    }
+
+    #[test]
+    fn resetting_fences_existing_sessions_and_a_probe_cannot_erase_new_loss() {
+        let f = Fixture::new();
+        let c = f.client(0x071f1f00);
+        seed(&f, &c);
+        let s = session(&f, &c, "192.0.2.1", 0);
+        let guard = f.host.configure_keyframe_loss(&s, true);
+        loss(&s);
+        f.host.reset_keyframe_loss(&c.uuid).unwrap();
+        drop(guard);
+        assert!(f.host.keyframe_loss_routes().is_empty());
+        seed(&f, &c);
+        for _ in 0..4 {
+            drop(
+                f.host
+                    .configure_keyframe_loss(&session(&f, &c, "192.0.2.1", 0), true),
+            );
+        }
+        let mut probe = f
+            .host
+            .configure_keyframe_loss(&session(&f, &c, "192.0.2.1", 0), true);
+        let s = session(&f, &c, "192.0.2.1", 0);
+        let guard = f.host.configure_keyframe_loss(&s, true);
+        loss(&s);
+        drop(guard);
+        f.host
+            .finish_keyframe_loss(probe.token.take().unwrap(), None, true, now())
+            .unwrap();
+        assert!(!f.host.keyframe_loss_routes().is_empty());
+    }
+
+    #[test]
+    fn simultaneous_route_saves_preserve_each_other_and_device_settings() {
+        let f = Fixture::new();
+        let c = f.client(0x071f1f00);
+        let guards: Vec<_> = (1..=8)
+            .map(|last| {
+                let s = session(&f, &c, &format!("192.0.2.{last}"), 0);
+                let guard = f.host.configure_keyframe_loss(&s, true);
+                loss(&s);
+                guard
+            })
+            .collect();
+        std::thread::scope(|scope| {
+            for guard in guards {
+                scope.spawn(move || drop(guard));
+            }
+            scope.spawn(|| {
+                let mut state = f.host.paired.write().unwrap();
+                state.clients[0]
+                    .extra
+                    .insert("custom".into(), json!("keep me"));
+                state.save(&f.host.paired_path).unwrap();
+            });
+        });
+        let saved = PairedState::load(&f.host.paired_path).unwrap();
+        assert_eq!(read(&saved, now()).len(), 8);
+        assert_eq!(saved.clients[0].extra["custom"], "keep me");
+    }
+
+    #[test]
+    fn unpair_is_idempotent_and_an_old_stream_cannot_recreate_repaired_history() {
+        let f = Fixture::new();
+        let c = f.client(0x071f1f00);
+        seed(&f, &c);
+        let s = session(&f, &c, "192.0.2.1", 0);
+        let guard = f.host.configure_keyframe_loss(&s, true);
+        loss(&s);
+        f.host.unpair_with_network_history(Some(&c.uuid)).unwrap();
+        f.host.unpair_with_network_history(Some(&c.uuid)).unwrap();
+        f.client(0x071f1f00);
+        drop(guard);
+        assert!(f.host.keyframe_loss_routes().is_empty());
+        seed(&f, &c);
+        f.host.unpair_with_network_history(None).unwrap();
+        let saved = PairedState::load(&f.host.paired_path).unwrap();
+        assert!(saved.clients.is_empty());
+        assert_eq!(saved.document["root"][FIELD], json!([]));
+    }
+}

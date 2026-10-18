@@ -341,7 +341,7 @@ const video: Setting[] = [
     description:
       'Uses less error correction while the device reports a clean link, and returns to the percentage above as soon as it reports loss.',
     details:
-      'Devices that send no error-correction reports keep the configured percentage. Compatible PyroWave clients use the PyroWave error-correction setting as their ceiling.',
+      'After loss, holds protection for 30 seconds, then reduces it by one percentage point every five seconds of clean reports. Devices that send no error-correction reports keep the configured percentage. Compatible PyroWave clients use the PyroWave error-correction setting as their ceiling.',
     category: 'video',
     group: 'Bitrate and network',
     control: { kind: 'toggle' },
@@ -422,7 +422,7 @@ const video: Setting[] = [
     description:
       'After a lost keyframe or repeated unrecoverable frames, spaces video packets more evenly for the rest of the stream without changing picture bitrate.',
     details:
-      'Activates after a lost keyframe or three distinct unrecoverable frames within two seconds. Paces at twice the encoder bitrate, with room for error correction. Isolated ordinary-frame losses and fully repaired frames keep the fast rate. A manual pacing rate, Adaptive packet pacing or Host adaptive bitrate disables it.',
+      'Activates after a lost keyframe or three distinct unrecoverable frames within two seconds. Remembers this device and address for 24 hours, with a fast-rate retry every fifth eligible reconnect. Reset remembered routes in Devices. Paces at twice the encoder bitrate, with room for error correction. Isolated ordinary-frame losses and fully repaired frames keep the fast rate. A manual pacing rate, Adaptive packet pacing or Host adaptive bitrate disables it.',
     category: 'video',
     group: 'Bitrate and network',
     control: { kind: 'toggle' },
@@ -869,12 +869,13 @@ const amd: Setting[] = [
     description:
       'Requests a size limit for every frame, including recovery keyframes. Tight limits can reduce picture quality.',
     details:
-      'Defaults to 2× one frame’s bitrate budget to reduce large recovery bursts. 0 keeps the driver default. Limits are best-effort: frames can exceed them, and an unsupported limit warns and keeps streaming.',
+      'Automatic budgets about two frame periods at the current network pace, between 2× and 8× one frame’s bitrate budget. Faster links allow larger recovery frames. A fixed value overrides Automatic; 0 keeps the driver default. Limits are best-effort: frames can exceed them, and an unsupported limit warns and keeps streaming.',
     category: 'encoders',
     group: 'AMD AMF',
     control: {
       kind: 'select',
       options: [
+        { value: 'auto', label: 'Automatic — follow network pace' },
         { value: '0', label: 'Driver default' },
         { value: '1', label: '1× frame budget' },
         { value: '2', label: '2× frame budget' },
@@ -882,7 +883,7 @@ const amd: Setting[] = [
         { value: '8', label: '8× frame budget' },
       ],
     },
-    default: 2,
+    default: 'auto',
     inactiveHint: "Applies to AMD AMF streams, including when Automatic selects AMF. Shown when AMD AMF is selected, or with Automatic when this PC has an AMD GPU.",
     visibleWhen: amf,
     advanced: true,

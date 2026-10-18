@@ -22,6 +22,9 @@ pub struct Encoded {
     pub bytes: Vec<u8>,
     pub idr: bool,
     pub after_invalidation: bool,
+    /// Driver-read AMF frame limit at submission. None means unavailable or
+    /// unsupported; Some(0) means the driver's unrestricted/default setting.
+    pub frame_cap_bytes: Option<u64>,
     /// Submission through completed codec output, including asynchronous work.
     pub latency: Option<std::time::Duration>,
     pub presentation: Option<std::time::Instant>,
@@ -681,6 +684,7 @@ impl Ffmpeg {
                     bytes,
                     idr: (*self.packet).flags & ff::AV_PKT_FLAG_KEY as i32 != 0,
                     after_invalidation: false,
+                    frame_cap_bytes: None,
                     latency: None,
                     presentation: self.presentations.remove(&(*self.packet).pts),
                 });
@@ -887,6 +891,20 @@ pub enum Encoder {
     Pyrowave(Box<crate::pyrowave::Encoder>),
 }
 impl Encoder {
+    /// Best-effort pace-based frame cap. Unsupported backends safely ignore
+    /// it; AMF preserves an explicit user setting, including driver default.
+    pub fn set_frame_cap(&mut self, bytes: u64) -> Option<u64> {
+        match self {
+            Self::Amf(encoder) => encoder.set_frame_cap(bytes),
+            _ => None,
+        }
+    }
+    pub fn frame_cap(&self) -> Option<u64> {
+        match self {
+            Self::Amf(encoder) => encoder.frame_cap(),
+            _ => None,
+        }
+    }
     pub fn set_hdr_metadata(&mut self, metadata: butterpollo_core::hdr::Metadata) {
         match self {
             Self::Nvenc(encoder) => encoder.set_hdr_metadata(metadata),

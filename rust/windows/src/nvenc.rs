@@ -1040,6 +1040,7 @@ impl Session {
                     .to_vec(),
                     idr,
                     after_invalidation: pending.after_invalidation && !idr,
+                    frame_cap_bytes: None,
                     latency: Some(pending.started.elapsed()),
                     presentation: Some(pending.presentation),
                 })

@@ -11,6 +11,16 @@ const { matchesSetting, searchWords } = await server.ssrLoadModule('/src/compone
 const settings = new Map(schema.settings.map(setting => [setting.key, setting]));
 const categoryOf = setting => schema.categories.find(category => category.id === setting.category);
 
+test('AMF frame caps distinguish automatic, driver default and saved fixed limits', () => {
+  const setting = settings.get('amd_max_frame_size');
+  assert.equal(setting.default, 'auto');
+  assert(setting.control.options.some(option => option.value === 'auto'));
+  assert.equal(effective(setting, {}, {}), 'auto');
+  assert.equal(differsFromDefault(setting, {}, { amd_max_frame_size: 0 }), true);
+  assert.equal(differsFromDefault(setting, {}, { amd_max_frame_size: 2 }), true);
+  assert.equal(differsFromDefault(setting, {}, { amd_max_frame_size: 'auto' }), false);
+});
+
 test('disconnect restoration defaults on and the exclusive-layout delay stays available', () => {
   assert.equal(settings.get('dd_config_revert_on_disconnect').default, true);
   assert.equal(settings.get('dd_config_revert_delay').visibleWhen, undefined);

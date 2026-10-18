@@ -1270,6 +1270,7 @@ impl Media {
                 let mut client_commands = None;
                 let mut audio = None;
                 let mut pyrowave_sender = None;
+                let mut keyframe_loss_memory = None;
                 #[cfg(test)]
                 let mut fixture_preparation = None;
                 let result = (|| -> Result<()> {
@@ -1387,7 +1388,7 @@ impl Media {
                     // bitrate adaptation keep their own policies.
                     let automatic_pacing = c.adaptive_packet_pacing(s.config.codec);
                     s.configure_automatic_pacing(automatic_pacing);
-                    s.configure_keyframe_loss(c.keyframe_loss_pacing());
+                    keyframe_loss_memory = Some(h.configure_keyframe_loss(&s, c.keyframe_loss_pacing()));
                     let mut packetizer = VideoPacketizer {
                         sequence: 0,
                         iv_counter: 0,
@@ -1494,6 +1495,11 @@ impl Media {
                     let mut link = None;
                     let mut link_due = Instant::now();
                     let mut reported_pacing = None;
+                    // Encoder admission needs the route before its very first
+                    // picture, independently of the asynchronous sender's cache.
+                    let mut encode_route = None;
+                    let mut encode_route_due = Instant::now();
+                    let mut recovery_packetizer = packetizer.clone();
                     let mut fec_reported = None;
                     // A frame that holds the stream thread this long is logged
                     // with where the time went, at most every five seconds.
@@ -1537,17 +1543,8 @@ impl Media {
                             let route = *link.get_or_insert_with(|| butterpollo_windows::net::routed_link(peer));
                             packetizer.fec_percent = s.fec_percent();
                             let bitrate = s.bitrate.load(Ordering::Relaxed);
-                            let needed = butterpollo_core::network_pacing::video_wire_rate_bps(&packetizer, bitrate, stream_period.get(), peer.is_ipv6());
-                            let bps = butterpollo_core::network_pacing::rate_bps(
-                                c.integer("pacing_max_bitrate_kbps", 0),
-                                bitrate,
-                                route.bps,
-                                route.wireless,
-                                needed,
-                            );
-                            let bps = s.video_pacing_bps(bps, needed);
-                            let safe = butterpollo_core::network_pacing::rate_bps(0, bitrate, route.bps, true, needed);
-                            let bps = s.keyframe_loss_rate_bps(bps, safe);
+                            let crate::video_send::recovery::Pace { bps, needed } =
+                                crate::video_send::recovery::pace(&s, &c, &packetizer, stream_period.get(), peer, route);
                             if mid_stream || automatic_pacing || c.boolean("host_adaptive_bitrate", false) || butterpollo_core::network_pacing::paced(bps, needed) {
                                 // The sender continues the inline sends' frame,
                                 // packet and IV numbering; nothing sends inline
@@ -1592,15 +1589,8 @@ impl Media {
                             let packet_bytes = packetizer.packet_size + 16 + if packetizer.key.is_some() { 32 } else { 0 };
                             let route = *link.get_or_insert_with(|| butterpollo_windows::net::routed_link(peer));
                             let bitrate = s.bitrate.load(Ordering::Relaxed);
-                            let needed = butterpollo_core::network_pacing::video_wire_rate_bps(&packetizer, bitrate, stream_period.get(), peer.is_ipv6());
-                            let bps = butterpollo_core::network_pacing::rate_bps(
-                                c.integer("pacing_max_bitrate_kbps", 0),
-                                bitrate,
-                                route.bps,
-                                route.wireless,
-                                needed,
-                            );
-                            let bps = s.video_pacing_bps(bps, needed);
+                            let crate::video_send::recovery::Pace { bps, needed } =
+                                crate::video_send::recovery::pace(&s, &c, &packetizer, stream_period.get(), peer, route);
                             let safe = butterpollo_core::network_pacing::rate_bps(0, bitrate, route.bps, true, needed);
                             let bps = s.keyframe_loss_bps(bps, safe, wire_frame, frame.idr);
                             inline_paced |= butterpollo_core::network_pacing::paced(bps, needed);
@@ -1733,6 +1723,12 @@ impl Media {
                             }
                             s.stats.frames.fetch_add(1, Ordering::Relaxed);
                             let sent = Instant::now();
+                            crate::video_send::recovery::report(&s, &c, crate::video_send::recovery::RecoveryFrame {
+                                frame: wire_frame, idr: frame.idr, after_invalidation: frame.after_invalidation,
+                                payload_bytes: frame.bytes.len(), cap_bytes: frame.frame_cap_bytes,
+                                wire_bytes: frame_bytes.saturating_add((packet_count * butterpollo_core::network_pacing::overhead(peer.is_ipv6())) as u64),
+                                pace_bps: bps, elapsed: sent.saturating_duration_since(frame_started), lost: lost.unrecoverable(),
+                            });
                             if let (Some(first), Some(last), Some(before), Some(after)) = (first_send, last_send, waits_before, batch.waits) {
                                 tracing::trace!(target: "pacing", frame=packetizer.frame.wrapping_sub(1), packets=packet_count, batches,
                                     pacing_wait_us=micros(pacing_wait), send_us=micros(send_time),
@@ -2291,6 +2287,22 @@ impl Media {
                             }
                             let recovering = idr || invalidation.is_some();
                             let bitrate = s.bitrate.load(Ordering::Acquire);
+                            if s.config.codec != 3 {
+                                let now = Instant::now();
+                                if encode_route.is_none_or(|(address, _)| address != peer.ip()) || now >= encode_route_due {
+                                    encode_route = Some((peer.ip(), butterpollo_windows::net::routed_link(peer)));
+                                    encode_route_due = now + Duration::from_secs(2);
+                                }
+                                // Budget for the parity a recovery picture uses,
+                                // even while ordinary frames use adaptive FEC.
+                                recovery_packetizer.fec_percent = s.frame_fec_percent(true);
+                                let pace = crate::video_send::recovery::preview_pace(&s, &c, &recovery_packetizer, period, peer, encode_route.unwrap().1);
+                                let cap = butterpollo_core::network_pacing::recovery_frame_cap(
+                                    pace.bps, bitrate, period, recovery_packetizer.fec_percent,
+                                    recovery_packetizer.packet_size, peer.is_ipv6(),
+                                );
+                                let _ = active.set_frame_cap(cap);
+                            }
                             active.set_repeat(!fresh);
                             let mut presented_image = image.as_ref().clone();
                             if !fresh { presented_image.captured = Instant::now(); }
@@ -2455,6 +2467,8 @@ impl Media {
                     tracing::error!(error=%format!("{e:#}"),client=%s.launch.client.name,"session failed; check the reported encoder, capture or socket error before reconnecting");
                 }
                 s.stop();
+                // A failed stream must not count as a healthy fast-rate probe.
+                drop(keyframe_loss_memory);
                 h.sessions.lock().unwrap().begin_teardown(&s);
                 m.peers
                     .lock()

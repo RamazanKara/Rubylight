@@ -258,6 +258,76 @@ async fn pending_pairing_requests_expire_and_pin_submission_selects_one_device()
 }
 
 #[tokio::test]
+async fn network_history_is_visible_and_only_authenticated_reset_clears_it() {
+    let f = Fixture::new();
+    let client = f.client(0x071f1f00);
+    let session = f.session(client.clone(), Role::Stream);
+    let guard = f.host.configure_keyframe_loss(&session, true);
+    session.keyframe_loss_bps(800_000_000, 60_000_000, 1, true);
+    session.keyframe_loss.lock().unwrap().unrecoverable(
+        1,
+        1,
+        Duration::from_millis(16),
+        Instant::now(),
+    );
+    drop(guard);
+    let listed = value(
+        request(&f, "GET", "/api/clients/list", Value::Null).await,
+        StatusCode::OK,
+    )
+    .await;
+    let routes = &listed["clients"][0]["network_loss_routes"];
+    assert_eq!(routes[0]["address"], "127.0.0.1");
+    assert_eq!(routes[0]["sessions_until_probe"], 5);
+    assert!(routes[0]["expires_in_seconds"].as_u64().unwrap() <= 86400);
+    let rejected = router(f.host.clone())
+        .layer(Extension(f.connection(true)))
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/clients/reset-network-history")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(json!({"uuid":client.uuid}).to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(rejected.status(), StatusCode::UNAUTHORIZED);
+    assert!(!f.host.keyframe_loss_routes().is_empty());
+    value(
+        request(
+            &f,
+            "POST",
+            "/api/clients/update",
+            json!({"uuid":client.uuid,"network_loss_routes":[{"address":"forged"}]}),
+        )
+        .await,
+        StatusCode::OK,
+    )
+    .await;
+    assert!(
+        !f.host.paired.read().unwrap().clients[0]
+            .extra
+            .contains_key("network_loss_routes")
+    );
+    value(
+        request(
+            &f,
+            "POST",
+            "/api/clients/reset-network-history",
+            json!({"uuid":client.uuid}),
+        )
+        .await,
+        StatusCode::OK,
+    )
+    .await;
+    assert!(f.host.keyframe_loss_routes().is_empty());
+    let saved = butterpollo_core::state::PairedState::load(&f.host.paired_path).unwrap();
+    assert_eq!(saved.document["root"]["keyframe_loss_routes"], json!([]));
+    assert!(!session.stopping());
+}
+
+#[tokio::test]
 async fn otp_api_validates_passphrases_and_replaces_the_previous_pin() {
     let f = Fixture::new();
     value(

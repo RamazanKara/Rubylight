@@ -8,6 +8,7 @@ pub(super) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
     let text = |k: &str| data.get(k).and_then(Value::as_str).unwrap_or("");
     Ok(match (method, path) {
         ("GET", "/api/clients/list") => {
+            let loss_routes = h.keyframe_loss_routes();
             let connected = h
                 .sessions
                 .lock()
@@ -27,6 +28,10 @@ pub(super) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
                     let mut v = serde_json::to_value(c).unwrap();
                     v.as_object_mut().unwrap().remove("cert");
                     v["connected"] = json!(connected.contains(&c.uuid));
+                    v["network_loss_routes"] = loss_routes
+                        .get(&c.uuid)
+                        .cloned()
+                        .unwrap_or_else(|| json!([]));
                     v
                 })
                 .collect();
@@ -36,27 +41,24 @@ pub(super) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
             let canceled = h.sessions.lock().unwrap().request_stop(Some(text("uuid")));
             drop(canceled);
             crate::remote_display::disconnect(h, Some(text("uuid")));
-            h.paired
-                .write()
-                .unwrap()
-                .remove(&h.paired_path, text("uuid"))?;
+            h.unpair_with_network_history(Some(text("uuid")))?;
             json!({"status":true})
         }
         ("POST", "/api/clients/unpair-all") => {
             let canceled = h.sessions.lock().unwrap().request_stop(None);
             drop(canceled);
             crate::remote_display::disconnect(h, None);
-            let mut state = h.paired.write().unwrap();
-            let mut next = state.clone();
-            next.clear();
-            next.save(&h.paired_path)?;
-            *state = next;
+            h.unpair_with_network_history(None)?;
             json!({"status":true})
         }
         ("POST", "/api/clients/disconnect") => {
             let canceled = h.sessions.lock().unwrap().request_stop(Some(text("uuid")));
             drop(canceled);
             crate::remote_display::disconnect(h, Some(text("uuid")));
+            json!({"status":true})
+        }
+        ("POST", "/api/clients/reset-network-history") => {
+            h.reset_keyframe_loss(text("uuid"))?;
             json!({"status":true})
         }
         ("POST", "/api/clients/update") => {
@@ -82,7 +84,16 @@ pub(super) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
                 .as_object()
                 .ok_or_else(|| anyhow::anyhow!("client update must be an object"))?
             {
-                if !matches!(k.as_str(), "uuid" | "cert" | "perm" | "name" | "enabled") {
+                if !matches!(
+                    k.as_str(),
+                    "uuid"
+                        | "cert"
+                        | "perm"
+                        | "name"
+                        | "enabled"
+                        | "connected"
+                        | "network_loss_routes"
+                ) {
                     // null clears a per-device setting.
                     if v.is_null() {
                         c.extra.remove(k);

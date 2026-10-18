@@ -12,6 +12,7 @@ fn missing_output_type_uses_the_matching_submission_after_buffering_or_recreatio
             presentation: Instant::now(),
             idr: requested,
             after_invalidation: false,
+            frame_cap_bytes: Some(100_000),
             _capture: None,
             _converted: None,
         };
@@ -79,6 +80,7 @@ fn native_output_survives_a_late_poll_without_losing_submission_metadata() -> Re
         presentation: presented,
         idr,
         after_invalidation: plan.after_invalidation,
+        frame_cap_bytes: encoder.frame_cap(),
         _capture: Some(image),
         _converted: Some(converted),
     });
@@ -110,6 +112,94 @@ fn native_output_survives_a_late_poll_without_losing_submission_metadata() -> Re
             .is_some_and(|latency| latency >= Duration::from_secs(3))
     );
     assert!(!encoder.recover, "a late poll is not a lost reference");
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires a live AMD adapter with H.264, HEVC and AV1 encoding"]
+fn native_runtime_frame_caps_survive_bitrate_changes_and_follow_submissions() -> Result<()> {
+    let _com = crate::capture::ComGuard::new()?;
+    let device = Device::new("")?;
+    for codec in 0..=2 {
+        let config = butterpollo_core::rtsp::Negotiated {
+            width: 1280,
+            height: 720,
+            codec,
+            bitrate_kbps: 54_000,
+            fps: 120,
+            rate_millihz: 119_880,
+            ..Default::default()
+        };
+        let mut image = GpuImage::upload(
+            &device,
+            &Image {
+                width: config.width,
+                height: config.height,
+                stride: config.width as usize * 4,
+                bytes: (0..config.width as usize * config.height as usize * 4)
+                    .map(|index| (index % 251) as u8)
+                    .collect(),
+                captured: Instant::now(),
+                pixel: crate::capture::Pixel::Bgra8,
+            },
+        )?;
+        let mut encoder = Encoder::new_device(&config, device.clone())
+            .with_context(|| format!("native runtime cap codec {codec}"))?;
+        let mut expected = Vec::new();
+        let mut output = Vec::new();
+        for (pace, bitrate) in [
+            (800_000_000, 54_000),
+            (70_770_000, 54_000),
+            (54_000_000, 27_000),
+            (800_000_000, 54_000),
+        ] {
+            let cap = butterpollo_core::network_pacing::recovery_frame_cap(
+                pace,
+                bitrate,
+                Duration::from_secs_f64(1. / 119.88),
+                10,
+                1392,
+                false,
+            );
+            assert_eq!(
+                encoder.set_frame_cap(cap),
+                Some(cap),
+                "codec {codec}: runtime cap rejected at pace {pace}"
+            );
+            image.captured = Instant::now();
+            expected.push((image.captured, cap));
+            output.extend(encoder.encode_gpu(&image, true, bitrate)?);
+            assert_eq!(
+                encoder.read(rate_control::frame_cap_name(codec)),
+                Some((cap * 8) as i64),
+                "codec {codec}: bitrate update changed the cap"
+            );
+            println!("codec={codec} pace_bps={pace} bitrate_kbps={bitrate} frame_cap_bytes={cap}");
+        }
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while encoder.pending() && Instant::now() < deadline {
+            output.extend(encoder.poll()?);
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        assert_eq!(
+            output.len(),
+            expected.len(),
+            "codec {codec}: missing output"
+        );
+        for frame in output {
+            assert!(!frame.bytes.is_empty());
+            assert!(frame.idr);
+            let (_, cap) = expected
+                .iter()
+                .find(|(presentation, _)| Some(*presentation) == frame.presentation)
+                .expect("output must match a submitted presentation");
+            assert_eq!(
+                frame.frame_cap_bytes,
+                Some(*cap),
+                "codec {codec}: output used a later cap"
+            );
+        }
+    }
     Ok(())
 }
 
@@ -680,7 +770,7 @@ fn rate_control_keeps_each_failed_property_on_its_own_applied_bitrate() {
         let initial = FakeRateProperties::new(codec).values;
         for failed in initial.keys() {
             let mut driver = FakeRateProperties::new(codec);
-            let mut state = rate_control::State::new(80_000);
+            let mut state = rate_control::State::new(80_000, true);
             let warnings = butterpollo_core::session::Warnings::default();
             driver.rejected.insert(failed.clone());
             driver.apply(&mut state, codec, 40_000, &warnings);
@@ -703,9 +793,14 @@ fn rate_control_keeps_each_failed_property_on_its_own_applied_bitrate() {
 }
 
 #[test]
-fn default_and_explicit_frame_caps_follow_bitrate_updates_but_zero_stays_disabled() -> Result<()> {
+fn only_explicit_frame_caps_scale_with_bitrate_and_driver_default_stays_disabled() -> Result<()> {
     for codec in 0..=2 {
-        for text in ["", "amd_max_frame_size=2", "amd_max_frame_size=0"] {
+        for text in [
+            "",
+            "amd_max_frame_size=auto",
+            "amd_max_frame_size=2",
+            "amd_max_frame_size=0",
+        ] {
             let stream = butterpollo_core::rtsp::Negotiated {
                 codec,
                 bitrate_kbps: 80_000,
@@ -735,10 +830,31 @@ fn default_and_explicit_frame_caps_follow_bitrate_updates_but_zero_stays_disable
                 driver.values[cap].value,
                 if disabled { 0 } else { 1_333_333 }
             );
-            let mut state = rate_control::State::new(stream.bitrate_kbps);
+            let automatic = butterpollo_core::encoder_policy::amf_frame_cap_automatic(&config);
+            let mut state = rate_control::State::new(stream.bitrate_kbps, !automatic && !disabled);
             driver.apply(&mut state, codec, 40_000, &warnings);
-            assert_eq!(driver.values[cap].value, if disabled { 0 } else { 666_666 });
-            assert_eq!(driver.writes.iter().any(|(name, _)| name == cap), !disabled);
+            assert_eq!(
+                driver.values[cap].value,
+                if disabled {
+                    0
+                } else if automatic {
+                    1_333_333
+                } else {
+                    666_666
+                }
+            );
+            assert_eq!(
+                driver.writes.iter().any(|(name, _)| name == cap),
+                !disabled && !automatic
+            );
+            if disabled {
+                // Driver default is an opt-out even if AMF reports a nonzero
+                // default limit after its own rate-control reconfiguration.
+                driver.values.get_mut(cap).unwrap().value = 1_777_777;
+                driver.apply(&mut state, codec, 20_000, &warnings);
+                assert_eq!(driver.values[cap].value, 1_777_777);
+                assert!(!driver.writes.iter().any(|(name, _)| name == cap));
+            }
             assert!(warnings.snapshot().is_empty());
         }
     }
@@ -748,7 +864,7 @@ fn default_and_explicit_frame_caps_follow_bitrate_updates_but_zero_stays_disable
 #[test]
 fn rate_control_retains_failed_basis_and_warning_across_read_failures_and_clamps() {
     let mut driver = FakeRateProperties::new(1);
-    let mut state = rate_control::State::new(80_000);
+    let mut state = rate_control::State::new(80_000, true);
     let warnings = butterpollo_core::session::Warnings::default();
     let peak = "HevcPeakBitrate";
     driver.rejected.insert(peak.into());
@@ -786,7 +902,7 @@ fn rate_control_retains_failed_basis_and_warning_across_read_failures_and_clamps
 #[test]
 fn rate_control_target_rejection_preserves_limits_and_existing_buffer_warning() {
     let mut driver = FakeRateProperties::new(2);
-    let mut state = rate_control::State::new(80_000);
+    let mut state = rate_control::State::new(80_000, true);
     let warnings = butterpollo_core::session::Warnings::default();
     driver.rejected.insert("Av1PeakBitrate".into());
     driver.apply(&mut state, 2, 40_000, &warnings);

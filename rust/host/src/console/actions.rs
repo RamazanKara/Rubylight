@@ -30,6 +30,7 @@ pub(crate) fn route(fields: &Fields) -> Result<(Method, String), String> {
         "client-save" => (Method::POST, "/api/clients/update"),
         "unpair" => (Method::POST, "/api/clients/unpair"),
         "disconnect" => (Method::POST, "/api/clients/disconnect"),
+        "network-reset" => (Method::POST, "/api/clients/reset-network-history"),
         "pair" => (Method::POST, "/api/pin"),
         "layout" => (Method::PUT, "/api/clients/display-layout"),
         "token-create" => (Method::POST, "/api/token"),
@@ -180,7 +181,9 @@ fn payload(h: &Shared, fields: &Fields) -> Result<Value, String> {
             Value::Object(client)
         }
         "pair" => Value::Object(copy(&["pin", "name", "uniqueid"])),
-        "app-delete" | "app-launch" | "unpair" | "disconnect" => Value::Object(copy(&["uuid"])),
+        "app-delete" | "app-launch" | "unpair" | "disconnect" | "network-reset" => {
+            Value::Object(copy(&["uuid"]))
+        }
         "layout" => {
             serde_json::from_str(value("layout")).map_err(|e| format!("Display layout: {e}"))?
         }

@@ -4,7 +4,7 @@
 //!
 //! The configured `fec_percentage` is the ceiling. A frame the client could not
 //! rebuild puts the percentage straight back to it; a frame it rebuilt from
-//! parity raises it quickly; several seconds without either let it fall slowly
+//! parity raises it quickly; thirty seconds without either let it fall slowly
 //! towards [`AdaptiveFec::FLOOR`]. A client that never reports keeps the
 //! configured percentage for the whole stream, as does a host with
 //! `adaptive_fec` off. The floor stays above zero, so the client's minimum
@@ -54,10 +54,12 @@ impl AdaptiveFec {
     /// Rebuilt blocks closer together than this raise once, unless their loss
     /// asks for more: one bad frame reports up to four blocks.
     pub const RAISE_COOLDOWN: Duration = Duration::from_millis(250);
-    /// How long the link must be clean before the percentage falls.
-    pub const CLEAN_HOLD: Duration = Duration::from_secs(5);
-    /// One percentage point down per interval once the link is clean.
-    pub const DECAY_INTERVAL: Duration = Duration::from_secs(2);
+    /// How long the link must be clean before the percentage falls. Retain the
+    /// extra protection through brief pauses between bursts of packet loss.
+    pub const CLEAN_HOLD: Duration = Duration::from_secs(30);
+    /// One percentage point down per interval once the link is clean. From the
+    /// default 20 % ceiling, reaching the 5 % floor takes 100 clean seconds.
+    pub const DECAY_INTERVAL: Duration = Duration::from_secs(5);
     /// Changes are logged at most this often.
     pub const LOG_PERIOD: Duration = Duration::from_secs(1);
 
@@ -224,17 +226,63 @@ mod tests {
         let start = Instant::now();
         let mut fec = AdaptiveFec::new(true, 20);
         fec.on_block(start, Block::Clean);
-        // Nothing moves for the first five seconds.
+        // Nothing moves for the first thirty seconds.
         fec.tick(start + AdaptiveFec::CLEAN_HOLD - Duration::from_millis(1));
         assert_eq!(fec.percent(), 20);
         fec.tick(start + AdaptiveFec::CLEAN_HOLD);
         assert_eq!(fec.percent(), 19);
-        // Then one point every two seconds: not at the floor after 20 s...
+        // Then one point every five seconds: not at the floor after 20 s...
         let now = run(&mut fec, start + AdaptiveFec::CLEAN_HOLD, 20);
         assert!(fec.percent() > usize::from(AdaptiveFec::FLOOR));
-        // ...and there, without going below it, after a minute.
+        // ...and there, without going below it, after another minute.
         run(&mut fec, now, 60);
         assert_eq!(fec.percent(), usize::from(AdaptiveFec::FLOOR));
+    }
+
+    #[test]
+    fn decay_preserves_each_full_interval_and_reaches_the_floor_after_100_seconds() {
+        let start = Instant::now();
+        let mut fec = AdaptiveFec::new(true, 20);
+        fec.on_block(start, Block::Unrecoverable);
+        for points_down in 1..=15 {
+            let at =
+                start + AdaptiveFec::CLEAN_HOLD + AdaptiveFec::DECAY_INTERVAL * (points_down - 1);
+            fec.tick(at - Duration::from_millis(1));
+            assert_eq!(fec.percent(), 21 - points_down as usize);
+            fec.tick(at);
+            assert_eq!(fec.percent(), 20 - points_down as usize);
+        }
+        assert_eq!(fec.percent(), 5);
+        fec.tick(start + Duration::from_secs(300));
+        assert_eq!(fec.percent(), 5);
+    }
+
+    #[test]
+    fn each_loss_restarts_the_hold_even_when_its_raise_is_coalesced() {
+        let start = Instant::now();
+        let mut fec = AdaptiveFec::new(true, 20);
+        fec.on_block(start, Block::Clean);
+        let now = run(&mut fec, start, 120);
+        fec.on_block(now, RECOVERED);
+        assert_eq!(fec.percent(), 10);
+        let last_loss = now + AdaptiveFec::RAISE_COOLDOWN - Duration::from_millis(1);
+        fec.on_block(last_loss, RECOVERED);
+        assert_eq!(fec.percent(), 10);
+
+        // A later clean report does not prolong the hold; even a coalesced loss does.
+        fec.on_block(last_loss + Duration::from_secs(10), Block::Clean);
+        fec.tick(last_loss + AdaptiveFec::CLEAN_HOLD - Duration::from_millis(1));
+        assert_eq!(fec.percent(), 10);
+        fec.tick(last_loss + AdaptiveFec::CLEAN_HOLD);
+        assert_eq!(fec.percent(), 9);
+
+        let failed = last_loss + AdaptiveFec::CLEAN_HOLD + Duration::from_secs(1);
+        fec.on_block(failed, Block::Unrecoverable);
+        assert_eq!(fec.percent(), 20);
+        fec.tick(failed + AdaptiveFec::CLEAN_HOLD - Duration::from_millis(1));
+        assert_eq!(fec.percent(), 20);
+        fec.tick(failed + AdaptiveFec::CLEAN_HOLD);
+        assert_eq!(fec.percent(), 19);
     }
 
     #[test]

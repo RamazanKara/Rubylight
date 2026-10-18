@@ -84,7 +84,7 @@ The routes below are implemented by the Rust host. JSON requests use `Content-Ty
 | --- | --- | --- |
 | Host settings | `GET /api/config`, `GET /api/metadata`, `GET /api/configLocale` | `POST` or `PATCH /api/config` |
 | Applications | `GET /api/apps`, `GET /api/apps/{id}/cover`, `GET /api/apps/{uuid}/icon` | `POST /api/apps`, `DELETE /api/apps/{id}` (or `POST /api/apps/delete` with `{"uuid": ...}`), `POST /api/apps/reorder`, `POST /api/apps/launch`, `POST /api/apps/close` |
-| Paired devices | `GET /api/clients/list`, `GET /api/clients/pending` | `POST /api/pin`, `POST /api/otp`, `POST /api/clients/update`, `POST /api/clients/disconnect`, `POST /api/clients/unpair`, `POST /api/clients/unpair-all` |
+| Paired devices | `GET /api/clients/list`, `GET /api/clients/pending` | `POST /api/pin`, `POST /api/otp`, `POST /api/clients/update`, `POST /api/clients/disconnect`, `POST /api/clients/unpair`, `POST /api/clients/unpair-all`, `POST /api/clients/reset-network-history` |
 | Active sessions | `GET /api/session/status`, `GET /api/rtsp/sessions` | Use the application or device controls above. |
 | Displays | `GET /api/display-devices`, `GET /api/clients/display-layout`, `GET /api/clients/hdr-profiles`, `GET /api/display/golden_status` | `PUT /api/clients/display-layout`, `POST /api/display/export_golden`, `POST /api/display/restore_golden`, `DELETE /api/display/golden`, `POST /api/display/terminate_virtual`, `POST /api/reset-display-device-persistence` |
 | Frame limiting and HDR | `GET /api/frame-limiter/status`, `GET /api/rtss/status`, `GET /api/health/vulkan-hdr-layer`, `GET /api/framegen/edid-refresh?device_id=...` | `POST /api/health/vulkan-hdr-layer/register` |
@@ -97,6 +97,7 @@ The routes below are implemented by the Rust host. JSON requests use `Content-Ty
 
 Useful response and request details:
 
+- `/api/clients/list` includes read-only `network_loss_routes` for each paired device: address, seconds until expiry, and eligible sessions until a fast-rate probe. Authenticated `POST /api/clients/reset-network-history` with `{"uuid": "device-id"}` clears those routes for subsequent streams; it does not change a running stream. Client updates cannot set this telemetry.
 - Configuration writes merge submitted fields and return `restart_required: true`. Treat the response as a saved configuration, not confirmation that every active stream has adopted it.
 - Applications are updated by their `uuid`; deletion accepts the UUID or numeric app ID. Read `/api/apps` before making changes rather than treating an array index as the identity.
 - `/api/logs` and `/api/logs/export` return up to the last 8 MiB of the current log as text. `/api/logs/export_crash` creates the support ZIP. The ordinary log export is not a ZIP.

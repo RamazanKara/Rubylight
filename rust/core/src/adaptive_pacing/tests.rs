@@ -105,6 +105,79 @@ impl Stream {
 }
 
 #[test]
+fn preview_matches_the_next_sender_rate_across_budget_changes() {
+    for state in 0..7 {
+        for ceiling in [0, 1, 30_000_000, FAST, 950_000_000, u64::MAX] {
+            for needed in [0, DEMAND, 90_000_000, u64::MAX] {
+                for encoder_kbps in [0, 40_000, 80_000, u32::MAX] {
+                    let mut pacing = AdaptivePacing::new(state != 0);
+                    if state >= 2 {
+                        pacing.rate(FAST, DEMAND, 40_000);
+                    }
+                    if state == 3 {
+                        // Fully validated fast route.
+                        pacing.limit = None;
+                    } else if state >= 4 {
+                        pacing.limit = Some(420_000_000);
+                        if state >= 5 {
+                            pacing.probe = Some(Probe {
+                                stable: 400_000_000,
+                                started: Instant::now(),
+                                settle: Duration::from_secs(2),
+                            });
+                            pacing.any_loss = state == 6;
+                        }
+                    }
+                    let preview = pacing.preview_rate(ceiling, needed, encoder_kbps);
+                    assert_eq!(
+                        preview,
+                        pacing.rate(ceiling, needed, encoder_kbps),
+                        "state={state}, ceiling={ceiling}, demand={needed}, encoder={encoder_kbps}"
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn recovery_budget_previews_preserve_probe_progress_and_loss_feedback() {
+    let mut stream = Stream::fresh(true);
+    for _ in 0..40 {
+        // The encoder asks about the full recovery FEC on every picture;
+        // the sender retains the ordinary frame's smaller demand.
+        for _ in 0..30 {
+            stream.pacing.preview_rate(FAST, 70_000_000, 40_000);
+            stream.pacing.rate(FAST, DEMAND, 40_000);
+        }
+        stream.healthy();
+    }
+    assert_eq!(stream.pacing.current(), FAST);
+    assert!(stream.pacing.probe.is_none());
+
+    stream.first_probe();
+    let before = stream.pacing.snapshot();
+    let sample_at = stream.pacing.last_sample.unwrap().0;
+    let clean_since = stream.pacing.clean_since;
+    for _ in 0..100 {
+        assert_eq!(
+            stream.pacing.preview_rate(FAST, 70_000_000, 40_000),
+            400_000_000
+        );
+        stream.pacing.preview_rate(FAST * 2, DEMAND, 40_000);
+    }
+    assert_eq!(stream.pacing.snapshot(), before);
+    assert_eq!(stream.pacing.last_sample.unwrap().0, sample_at);
+    assert_eq!(stream.pacing.clean_since, clean_since);
+    assert!(!stream.pacing.awaiting_fence);
+    // Feedback still rejects the unconfirmed probe immediately, instead of
+    // being discarded as evidence from a changed demand or a previous rate.
+    let frame = stream.last.wrapping_add(1);
+    stream.report(frame, frame, Block::Unrecoverable);
+    assert_eq!(stream.healthy(), Some((420_000_000, 400_000_000)));
+}
+
+#[test]
 fn fresh_streams_seed_from_encoder_and_wire_demand_before_the_first_packet() {
     for (ceiling, demand, encoder, expected) in [
         (FAST, DEMAND, 40_000, SEED),

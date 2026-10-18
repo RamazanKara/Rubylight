@@ -20,6 +20,7 @@ fn file_stamp(path: &std::path::Path) -> Option<FileStamp> {
     let metadata = std::fs::metadata(path).ok()?;
     Some((metadata.modified().ok()?, metadata.len()))
 }
+pub(crate) mod loss_memory;
 #[cfg(test)]
 pub(crate) mod test_support;
 pub type Launch = butterpollo_core::session::Launch<
@@ -153,6 +154,8 @@ pub struct Host {
     /// The web console's TLS certificate, separate from the pairing identity.
     pub console: butterpollo_core::crypto::ConsoleCertificate,
     pub paired: RwLock<PairedState>,
+    /// Serializes route-memory writes with resets; epochs fence old sessions.
+    keyframe_loss_epochs: Mutex<HashMap<String, u64>>,
     pub credentials: RwLock<Option<Credentials>>,
     /// The credentials file as the sign-in was last read or written.
     credentials_stamp: Mutex<Option<FileStamp>>,
@@ -347,6 +350,7 @@ impl Host {
             identity,
             console,
             paired: RwLock::new(paired),
+            keyframe_loss_epochs: Default::default(),
             credentials: RwLock::new(credentials),
             credentials_stamp: Mutex::new(credentials_stamp),
             app_document: RwLock::new(app_document),

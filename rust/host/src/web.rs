@@ -207,6 +207,7 @@ fn token_catalog() -> Vec<auth::Scope> {
         ("/api/clients/update", &["POST"][..]),
         ("/api/clients/unpair", &["POST"][..]),
         ("/api/clients/disconnect", &["POST"][..]),
+        ("/api/clients/reset-network-history", &["POST"][..]),
         ("/api/session/status", &["GET"][..]),
         ("/api/session/console", &["GET", "POST"][..]),
         ("/api/rtsp/sessions", &["GET"][..]),
@@ -920,6 +921,7 @@ pub(crate) async fn api(
             ("POST", "/api/clients/unpair")
             | ("POST", "/api/clients/unpair-all")
             | ("POST", "/api/clients/disconnect")
+            | ("POST", "/api/clients/reset-network-history")
             | ("POST", "/api/clients/update")
             | ("GET", "/api/clients/pending") => clients::handle(&h, method.as_str(), path, &data)?,
             ("GET", "/api/rtsp/sessions") | ("GET", "/api/session/status") => {

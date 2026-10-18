@@ -337,6 +337,7 @@ mod tests {
                 bytes: vec![42; 3000],
                 idr: true,
                 after_invalidation: false,
+                frame_cap_bytes: None,
                 latency: Some(Duration::from_millis(12)),
                 presentation: None,
             };

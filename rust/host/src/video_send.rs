@@ -1,4 +1,5 @@
 //! Ordered conventional output with separate packetization and paced sending.
+pub(crate) mod recovery;
 mod transport;
 use crate::state::{Session, Shared};
 use anyhow::{Result, bail};
@@ -43,6 +44,8 @@ struct Prepared {
     packetizer: VideoPacketizer,
     wire_frame: u32,
     idr: bool,
+    after_invalidation: bool,
+    frame_cap_bytes: Option<u64>,
     payload_bytes: usize,
     peer: SocketAddr,
     claimed: Instant,
@@ -288,6 +291,7 @@ impl Sender {
                     "packetized picture");
                 shared.enqueue(Prepared {
                     blocks, counts, layout, packetizer: wire, wire_frame, idr: frame.idr,
+                    after_invalidation: frame.after_invalidation, frame_cap_bytes: frame.frame_cap_bytes,
                     payload_bytes: frame.bytes.len(), peer, claimed, polled, packetized,
                     prepared: Instant::now(), latency: micros(encode), processing,
                     age: micros(claimed.saturating_duration_since(captured)), claim,

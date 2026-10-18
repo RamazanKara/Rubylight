@@ -1831,11 +1831,7 @@ async fn unpair(State(h): State<Shared>, Extension(connection): Extension<Connec
     let Ok(client) = authenticated(&h, &connection, 0) else {
         return xml(200, &[("unpaired", "0".into())], None);
     };
-    let removed = h
-        .paired
-        .write()
-        .unwrap()
-        .remove(&h.paired_path, &client.uuid);
+    let removed = h.unpair_with_network_history(Some(&client.uuid));
     if let Err(e) = removed {
         return xml(500, &[("unpaired", "0".into())], Some(e.to_string()));
     }

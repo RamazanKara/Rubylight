@@ -277,6 +277,7 @@ export interface Client {
   perm: number;
   enabled: boolean;
   connected: boolean;
+  network_loss_routes?: { address: string; expires_in_seconds: number; sessions_until_probe: number }[];
   output_name_override?: string | null;
   display_mode?: string | null;
   always_use_virtual_display?: boolean | string | null;
@@ -596,6 +597,7 @@ export const api = {
     unpair: (uuid: string) => post<Ok>('/api/clients/unpair', { uuid }, ACTION_TIMEOUT_MS),
     unpairAll: () => post<Ok>('/api/clients/unpair-all', {}, ACTION_TIMEOUT_MS),
     disconnect: (uuid: string) => post<Ok>('/api/clients/disconnect', { uuid }, ACTION_TIMEOUT_MS),
+    resetNetworkHistory: (uuid: string) => post<Ok>('/api/clients/reset-network-history', { uuid }, ACTION_TIMEOUT_MS),
     pin: (pin: string, uniqueid?: string, name?: string) => post<Ok>('/api/pin', { pin, uniqueid, name }),
     otp: (passphrase: string, deviceName: string) =>
       post<{ status: true; otp: string; ip: string; name: string }>('/api/otp', { passphrase, deviceName }),

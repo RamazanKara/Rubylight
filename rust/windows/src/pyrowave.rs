@@ -782,6 +782,7 @@ impl Encoder {
                 bytes,
                 idr: true,
                 after_invalidation: false,
+                frame_cap_bytes: None,
                 latency: Some(begin.elapsed()),
                 presentation: Some(image.captured),
             }])

@@ -11,6 +11,7 @@ fn frame(index: u8) -> Encoded {
         bytes: vec![index; if index == 1 { 300_000 } else { 3000 }],
         idr: index == 1,
         after_invalidation: index == 3,
+        frame_cap_bytes: None,
         latency: None,
         presentation: None,
     }
@@ -125,6 +126,7 @@ fn sender_handoff_benchmark() -> Result<()> {
                 bytes: vec![index as u8; (BITRATE / 8 / fps).max(8)],
                 idr: index == 0,
                 after_invalidation: false,
+                frame_cap_bytes: None,
                 latency: None,
                 presentation: None,
             };
@@ -877,6 +879,7 @@ fn moonlight_timing_stops_at_packetization_before_a_blocked_sender() {
         let mut sender =
             Sender::packetizer(session.clone(), start, handoff(packetizer(key))).unwrap();
         let mut picture = frame(2);
+        picture.frame_cap_bytes = Some(112_815);
         picture.latency = Some(Duration::from_millis(12));
         picture.presentation = Some(tick - Duration::from_millis(15));
         let mut claims = Claims::default();
@@ -900,6 +903,7 @@ fn moonlight_timing_stops_at_packetization_before_a_blocked_sender() {
         let processing = {
             let state = wait_prepared(&sender);
             let ready = state.ready.as_ref().unwrap();
+            assert_eq!(ready.frame_cap_bytes, Some(112_815));
             assert_eq!(
                 ready.processing,
                 micros(ready.packetized.duration_since(tick))

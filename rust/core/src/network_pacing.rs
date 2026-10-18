@@ -183,6 +183,34 @@ pub fn video_wire_rate_bps(
     (packets as f64 * (datagram + overhead(ipv6)) as f64 * 8. / period.as_secs_f64()).ceil() as u64
 }
 
+/// Encoded payload that fits roughly two frame periods at the current pace,
+/// bounded to 2–8 nominal frames. The lower bound protects recovery quality
+/// when the link cannot carry even that budget; it is not a latency guarantee.
+///
+/// Include parity and all packet headers, conservatively reserving encryption
+/// overhead even for an unencrypted stream. Packet/FEC rounding and minimum
+/// parity can add wire time, especially for tiny frames. The sender still
+/// accounts for the actual packetized frame when pacing it.
+pub fn recovery_frame_cap(
+    pace_bps: u64,
+    bitrate_kbps: u32,
+    period: Duration,
+    fec_percent: usize,
+    packet_size: usize,
+    ipv6: bool,
+) -> u64 {
+    let average = f64::from(bitrate_kbps) * 125. * period.as_secs_f64();
+    let minimum = (average * 2.).ceil() as u64;
+    let maximum = ((average * 8.).floor() as u64).max(minimum);
+    // Conventional packet_size includes the video headers but excludes the
+    // extra 16-byte RTP allowance and optional 32-byte encryption wrapper.
+    let payload = packet_size.saturating_sub(16).max(1) as f64;
+    let wire = packet_size.saturating_add(48 + overhead(ipv6)) as f64;
+    let expansion = wire / payload * (1. + fec_percent.min(100) as f64 / 100.);
+    let budget = pace_bps as f64 / 8. * period.as_secs_f64() * 2. / expansion;
+    (budget.floor() as u64).clamp(minimum, maximum)
+}
+
 /// Time spent in the send call or waking late that still counts toward the
 /// batch's interval. It covers a typical 64 KB send (about 0.2 ms) plus timer
 /// lateness; a longer stall or idle gap earns no more than this.
@@ -280,6 +308,47 @@ mod tests {
                     }
                 }
             }
+        }
+    }
+
+    #[test]
+    fn recovery_cap_matches_slow_route_and_relaxes_on_fast_routes() {
+        let period = Duration::from_secs_f64(1. / 119.88);
+        let average = 54_000. * 125. * period.as_secs_f64();
+        let cap = |pace| recovery_frame_cap(pace, 54_000, period, 10, 1392, false);
+        let slow = cap(70_770_000) as f64 / average;
+        assert!((2.1..2.3).contains(&slow), "slow route: {slow} frames");
+        assert_eq!(cap(800_000_000), (8. * average).floor() as u64);
+        let wireless = cap(108_000_000) as f64 / average;
+        assert!((3.2..3.4).contains(&wireless));
+        assert!(cap(800_000_000) * 8 < 800_000_000 / 100);
+    }
+
+    #[test]
+    fn recovery_cap_accounts_for_parity_headers_and_two_frame_bounds() {
+        for bitrate in [1, 2_000, 54_000, 200_000, u32::MAX] {
+            for fps in [24., 59.94, 119.88, 240.] {
+                let period = Duration::from_secs_f64(1. / fps);
+                let average = f64::from(bitrate) * 125. * period.as_secs_f64();
+                let min = (2. * average).ceil() as u64;
+                let max = (8. * average).floor() as u64;
+                for pace in [0, 70_000_000, 800_000_000, u64::MAX] {
+                    let plain = recovery_frame_cap(pace, bitrate, period, 0, 1392, false);
+                    let parity = recovery_frame_cap(pace, bitrate, period, 20, 1392, false);
+                    let ipv6 = recovery_frame_cap(pace, bitrate, period, 20, 1392, true);
+                    let smaller = recovery_frame_cap(pace, bitrate, period, 20, 512, true);
+                    assert!((min..=max).contains(&plain));
+                    assert!((min..=plain).contains(&parity));
+                    assert!((min..=parity).contains(&ipv6));
+                    assert!((min..=ipv6).contains(&smaller));
+                }
+            }
+        }
+        for packet in [0, 16, usize::MAX] {
+            assert_eq!(
+                recovery_frame_cap(u64::MAX, 0, Duration::ZERO, 100, packet, true),
+                0
+            );
         }
     }
     #[test]

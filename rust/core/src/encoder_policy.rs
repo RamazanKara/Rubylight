@@ -158,10 +158,20 @@ pub fn amf_split_frame(
     })
 }
 
-/// Apply after the frame rate and target bitrate. Limit AMF frames to two
-/// nominal budgets by default to reduce recovery bursts; an explicit zero
-/// keeps the driver's limit. Frame caps are best-effort so an older driver
-/// can keep streaming; explicitly requested peak and VBV limits stay strict.
+/// Only absent/empty settings or `auto` allow the host's pace-based cap.
+pub fn amf_frame_cap_automatic(config: &Config) -> bool {
+    config
+        .get("amd_max_frame_size", "auto")
+        .trim()
+        .trim_matches('"')
+        .eq_ignore_ascii_case("auto")
+}
+
+/// Apply after the frame rate and target bitrate. Start automatic AMF caps at
+/// two nominal budgets until the host supplies its current pace before input;
+/// an explicit value wins over pacing and zero keeps the driver's limit.
+/// Frame caps are best-effort so an older driver can keep streaming;
+/// explicitly requested peak and VBV limits stay strict.
 pub fn amf_rate_control(config: &Config, stream: &Negotiated) -> Result<Vec<Property>> {
     let prefix = match stream.codec {
         0 => "",
@@ -193,20 +203,22 @@ pub fn amf_rate_control(config: &Config, stream: &Negotiated) -> Result<Vec<Prop
             frame_bits,
         ),
     ] {
-        let default = if key == "amd_max_frame_size" {
-            "2"
+        let value = if key == "amd_max_frame_size" && amf_frame_cap_automatic(config) {
+            Ok(2.)
         } else {
-            "0"
+            config.get(key, "0").trim().trim_matches('"').parse::<f64>()
         };
-        let value = config
-            .get(key, default)
-            .trim()
-            .trim_matches('"')
-            .parse::<f64>();
         let value = match value {
             Ok(0.) => continue,
             Ok(value) if (minimum..=maximum).contains(&value) => value,
-            _ => bail!("{key} must be 0 (driver default) or {minimum}–{maximum}"),
+            _ => bail!(
+                "{key} must be {}0 (driver default) or {minimum}–{maximum}",
+                if key == "amd_max_frame_size" {
+                    "auto, "
+                } else {
+                    ""
+                }
+            ),
         };
         output.push(Property {
             name: format!("{prefix}{suffix}"),
@@ -753,7 +765,13 @@ mod tests {
                 rate_millihz: 59_940,
                 ..Default::default()
             };
-            for text in ["", "amd_max_frame_size=   ", "amd_max_frame_size=2"] {
+            for text in [
+                "",
+                "amd_max_frame_size=   ",
+                "amd_max_frame_size=auto",
+                "amd_max_frame_size=\"AUTO\"",
+                "amd_max_frame_size=2",
+            ] {
                 let properties = amf_rate_control(&Config::parse(text).unwrap(), &stream).unwrap();
                 assert_eq!(properties.len(), 1);
                 assert_eq!(properties[0].name, format!("{prefix}{cap}"));
@@ -789,6 +807,23 @@ mod tests {
                     assert_eq!(property.required, suffix != cap);
                 }
             }
+        }
+    }
+
+    #[test]
+    fn automatic_frame_caps_do_not_override_explicit_profiles() {
+        for text in [
+            "",
+            "amd_max_frame_size=",
+            "amd_max_frame_size=auto",
+            "amd_max_frame_size=\"AUTO\"",
+        ] {
+            assert!(amf_frame_cap_automatic(&Config::parse(text).unwrap()));
+        }
+        for value in ["0", "1", "2", "4", "8"] {
+            assert!(!amf_frame_cap_automatic(
+                &Config::parse(&format!("amd_max_frame_size={value}")).unwrap()
+            ));
         }
     }
 

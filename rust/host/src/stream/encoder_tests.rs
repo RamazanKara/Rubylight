@@ -16,6 +16,7 @@ fn frame(idr: bool) -> Encoded {
         bytes: vec![0, 0, 0, 1, 0x26, 1, 0x80],
         idr,
         after_invalidation: false,
+        frame_cap_bytes: None,
         latency: None,
         presentation: None,
     }

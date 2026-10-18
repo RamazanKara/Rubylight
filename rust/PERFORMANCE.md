@@ -6883,6 +6883,16 @@ table only:
 - **8-bit AV1** was 0.1 ms faster than HEVC end to end, not the 0.5 ms the
   encoder alone measured; nothing to change on the host.
 
+## October 18 pace-based recovery policy
+
+The default AMF frame cap now follows the current conventional-video packet pace rather than a fixed 2× frame budget. The pure calculation reserves two frame periods of transmission, accounts for configured recovery FEC and packet/header overhead (including encryption conservatively), and clamps the encoded-byte budget to 2–8 nominal frames. At the earlier fixture's 54,097 Kbps, 119.88 FPS, 20% FEC and 70.77 Mbps pace, this retains the 2× lower bound; at 800 Mbps it reaches 8×. These are calculated property targets, not measured decoder latency or picture quality. The cap remains soft and the lower bound cannot fit a severely undersized link into two periods.
+
+Encoder admission previews the live route/adaptive/loss policy before each input, including the first one, without changing the sender's adaptive controller state. AMF writes the byte budget as bits, filters increases of at most 10%, honors decreases immediately, and keeps driver readback distinct from requests. Each submitted picture retains that observed value through asynchronous output and packetization. Explicit `amd_max_frame_size` values, including `0`, win; Automatic owns its cap independently of bitrate rescaling. The initial encoder-settings log can still show the conservative 2× setup value; use the per-picture `video recovery frame` log for the submitted cap.
+
+Confirmed loss is retained for the authenticated paired identity plus canonical IP for 24 hours, with four remembered reconnects before a fast-rate probe. Reset and unpair operations fence running sessions so their later teardown cannot restore erased history. A probe only clears the history it actually tested, and only after at least five seconds, 120 sent frames, no fresh latch and no stream failure. Adaptive FEC now holds 30 seconds and decays 1 percentage point per five seconds; the default 20→5% decay takes 100 clean seconds. The ordinary loss threshold, HEVC long-term-reference restriction, AV1 confirmation keyframe and Xbox intra-refresh policy are unchanged.
+
+A task-owned adaptation of the earlier fixture is retained at `D:\CodexArtifacts\rubylight-keyframe-recovery-20261018\fixture`. It supports an explicit 2× versus Automatic ABBA comparison at both 70.77 and 800 Mbps, with requested-keyframe decode timing, receive gaps and the following ten frames. The installed-host preflight reported an active application, so neither the synthetic native cap test nor the stream comparison was launched. The application was left untouched. There is no new hardware latency or quality result here; the historical fixed-cap measurements above must not be presented as validation of this policy. The static-desktop fixture also lacks controlled reference pixels and cannot establish visual quality by compressed size alone.
+
 ## Hardware covered
 
 Measurements ran with AMD AMF on an RX 7900 XT host, with real-client Wi-Fi

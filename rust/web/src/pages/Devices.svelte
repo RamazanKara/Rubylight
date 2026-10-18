@@ -138,6 +138,15 @@
       await run('unpair-all', () => api.clients.unpairAll(), 'Unpaired all devices.', 'Unpairing failed');
     }
   }
+
+  async function resetNetworkHistory(client: Client) {
+    await run(
+      `network-reset:${client.uuid}`,
+      () => api.clients.resetNetworkHistory(client.uuid),
+      `Network history reset for ${client.name}. Its next stream will test the normal pacing rate.`,
+      'Resetting network history failed',
+    );
+  }
 </script>
 
 {#snippet unpairAllAction()}
@@ -183,8 +192,19 @@
               <div class="meta muted">
                 <span title={grantedLabels(client.perm) || 'No permissions'}>{permissionSummary(client.perm)}</span>
               </div>
+              {#if client.network_loss_routes?.length}
+                <p class="network-memory muted">
+                  Recent video loss: future streams at {client.network_loss_routes.map((route) => route.address).join(', ')} start with smaller packet bursts.
+                  Expires within 24 hours; the normal rate is tested every fifth stream.
+                </p>
+              {/if}
             </div>
             <div class="actions">
+              {#if client.network_loss_routes?.length}
+                <Button size="sm" disabled={acting} busy={busy === `network-reset:${client.uuid}`} onclick={() => resetNetworkHistory(client)}>
+                  Reset network history<span class="visually-hidden"> for {client.name}</span>
+                </Button>
+              {/if}
               {#if client.connected}
                 <Button size="sm" disabled={acting} busy={busy === `disconnect:${client.uuid}`} onclick={() => disconnect(client)}>
                   Disconnect<span class="visually-hidden"> {client.name}</span>
@@ -214,6 +234,11 @@
 </Panel>
 
 <style>
+  .network-memory {
+    margin: var(--space-1) 0 0;
+    font-size: var(--text-sm);
+    max-width: 65ch;
+  }
   .placeholder {
     padding: var(--space-5);
     font-size: var(--text-sm);

@@ -90,7 +90,7 @@ fn main() {
         .header_contents("pyro.h", "#include <vulkan/vulkan.h>\n#include <pyrowave/pyrowave.h>\n")
         .clang_arg(format!("-I{}", pyro.join("include").display()))
         .clang_arg(format!("-I{vulkan}"))
-        .allowlist_type("pyrowave_.*|VkQueueGlobalPriority|VkQueueFlagBits|VkImageUsageFlagBits")
+        .allowlist_type("pyrowave_.*|VkQueueGlobalPriority|VkQueueFlagBits|VkImageUsageFlagBits|VkSemaphoreWaitInfo|PFN_vkGetDeviceProcAddr|PFN_vkWaitSemaphores")
         .allowlist_var("PYROWAVE_.*|VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO|VK_IMAGE_TYPE_2D|VK_FORMAT_.*|VK_IMAGE_.*|VK_SAMPLE_COUNT_1_BIT|VK_SHARING_MODE_EXCLUSIVE|VK_QUEUE_.*|VK_EXTERNAL_MEMORY_HANDLE_TYPE_D3D11_TEXTURE_BIT|VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_D3D12_FENCE_BIT|VK_SEMAPHORE_TYPE_TIMELINE|VK_COLOR_SPACE_.*")
         .layout_tests(false).derive_debug(false).generate_comments(false)
         .generate().expect("generate PyroWave C ABI");

@@ -959,6 +959,7 @@ fn compute_planes_match_the_pyrowave_graphics_planes() -> Result<()> {
                         shape.as_ref(),
                         None,
                         &planes,
+                        Some(&image),
                     )?;
                     let deadline = Instant::now() + std::time::Duration::from_secs(2);
                     // SAFETY: `fence` is a live D3D12 fence.

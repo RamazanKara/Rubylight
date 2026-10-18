@@ -28,7 +28,7 @@ use windows::{
             Dxgi::{Common::*, *},
         },
     },
-    core::{Interface, PCWSTR},
+    core::{IUnknown, Interface, PCWSTR},
 };
 
 include!(concat!(env!("OUT_DIR"), "/shader_bytecode.rs"));
@@ -76,6 +76,120 @@ pub struct Compute {
     /// Set when the queue cannot safely be reused after an ordering error or timeout.
     stuck: std::sync::atomic::AtomicBool,
 }
+
+/// Resources whose last GPU access could not be proved complete. In particular,
+/// an ExecuteCommandLists followed by a failed Signal has no usable old fence
+/// value. A fresh tail marker covers that work too; if even that signal fails,
+/// only device removal makes releasing its references safe.
+struct RetainedWork {
+    device: ID3D12Device,
+    adapter: (u32, i32),
+    tail: Option<ID3D12Fence>,
+    waits: Vec<(ID3D12Fence, u64)>,
+    objects: Vec<IUnknown>,
+    captures: Vec<crate::capture::GpuImage>,
+}
+// SAFETY: The erased interfaces are D3D12 objects, multithread-protected D3D11
+// objects, or fences; they are only retained/released, never used via IUnknown.
+unsafe impl Send for RetainedWork {}
+
+static RETAINED: Mutex<Vec<RetainedWork>> = Mutex::new(Vec::new());
+
+impl RetainedWork {
+    fn new(compute: &Compute, queue: &ID3D12CommandQueue) -> Self {
+        // SAFETY: Both objects are live and on the same device. This final
+        // marker submits no new resource access, including on a retired queue.
+        let (luid, tail) = unsafe {
+            (
+                compute.device.GetAdapterLuid(),
+                compute
+                    .device
+                    .CreateFence::<ID3D12Fence>(0, D3D12_FENCE_FLAG_NONE)
+                    .and_then(|fence| queue.Signal(&fence, 1).map(|()| fence))
+                    .ok(),
+            )
+        };
+        let mut work = Self {
+            device: compute.device.clone(),
+            adapter: (luid.LowPart, luid.HighPart),
+            tail,
+            waits: Vec::new(),
+            objects: Vec::new(),
+            captures: Vec::new(),
+        };
+        work.keep(queue);
+        work.keep(&compute.fence);
+        work
+    }
+
+    fn keep(&mut self, object: &impl Interface) {
+        // SAFETY: Every caller supplies a COM D3D11/D3D12 interface, whose
+        // vtable starts with IUnknown. Transfer a cloned reference without a
+        // fallible QueryInterface call during failure cleanup; this erased
+        // reference is only retained and released, never used as a GPU object.
+        self.objects
+            .push(unsafe { IUnknown::from_raw(object.clone().into_raw()) });
+    }
+
+    fn complete(&self) -> bool {
+        if crate::device_loss::DeviceLost::d3d12(&self.device).is_some() {
+            return true;
+        }
+        // SAFETY: Every queried fence is retained by this bundle. Device
+        // removal is handled above, not mistaken for a completed UINT64_MAX.
+        unsafe {
+            self.tail.as_ref().is_some_and(|fence| {
+                completed_value(fence.GetCompletedValue()).is_ok_and(|done| done >= 1)
+            }) && self.waits.iter().all(|(fence, value)| {
+                completed_value(fence.GetCompletedValue()).is_ok_and(|done| done >= *value)
+            })
+        }
+    }
+
+    fn finish(self, compute: &Compute) {
+        if let Some(fence) = &self.tail {
+            let _ = wait_fence(fence, 1);
+        }
+        if !self.complete() {
+            compute.retire();
+            tracing::warn!(
+                retained_objects = self.objects.len(),
+                "retaining unfinished GPU resources; compute recovery waits for this adapter to drain"
+            );
+            RETAINED.lock().unwrap().push(self);
+        }
+    }
+}
+
+/// Do not accumulate a fresh set of video-memory allocations on every retry
+/// behind a permanently hung queue. Existing users have bounded pools; no new
+/// compute generation is admitted on this adapter until its retained work ends.
+fn allow_compute_generation(luid: LUID) -> Result<()> {
+    let (complete, blocked) = {
+        let mut retained = RETAINED.lock().unwrap();
+        let mut complete = Vec::new();
+        let mut index = 0;
+        while index < retained.len() {
+            if retained[index].complete() {
+                complete.push(retained.swap_remove(index));
+            } else {
+                index += 1;
+            }
+        }
+        let blocked = retained
+            .iter()
+            .any(|work| work.adapter == (luid.LowPart, luid.HighPart));
+        (complete, blocked)
+    };
+    // Releasing a capture lease can run its own teardown; never do it under
+    // the retention lock.
+    drop(complete);
+    anyhow::ensure!(
+        !blocked,
+        "unfinished GPU resources on this adapter; compute conversion is unavailable until they drain"
+    );
+    Ok(())
+}
 // D3D12 devices, queues and fences are free-threaded; the rest is locked.
 // SAFETY: The D3D12 device, queue and fence are free-threaded, the cached D3D11 textures and D3D12
 // resources are only touched under `opened`'s and `foreign`'s locks, and `next` is a mutex.
@@ -90,7 +204,6 @@ fn completed_value(value: u64) -> Result<u64> {
     }
     Ok(value)
 }
-
 /// AMF owns these states while encoding, but the next transition runs on a
 /// compute command list. Never pass a video/graphics-only state to that queue.
 /// See DirectX-Specs/CPUEfficiency, "State support by command-list type".
@@ -195,6 +308,7 @@ fn compute_queue(device: &ID3D12Device) -> Result<(ID3D12CommandQueue, i32)> {
 impl Compute {
     /// A compute queue on the adapter with `luid`.
     pub fn new(luid: LUID) -> Result<Arc<Self>> {
+        allow_compute_generation(luid)?;
         // SAFETY: `adapter` comes from a live DXGI factory, the device out-parameter is a live
         // local checked for None, and the queue and fence are created on that device.
         unsafe {
@@ -250,6 +364,7 @@ impl Compute {
         Ok(compute)
     }
     /// Signal the fence after the work submitted so far; returns its value.
+    #[cfg(test)]
     fn signal(&self) -> Result<u64> {
         let mut next = self.next.lock().unwrap();
         // Advance only once the signal is queued: a value nothing will ever
@@ -262,6 +377,7 @@ impl Compute {
     }
     /// Run a closed command list; returns the fence value that follows it.
     pub(crate) fn execute(&self, list: &ID3D12GraphicsCommandList) -> Result<u64> {
+        let mut next = self.next.lock().unwrap();
         self.ensure_active()?;
         // SAFETY: Callers pass a closed compute command list recorded on `self.device`, the queue's
         // device, and keep what it references alive until the returned fence value.
@@ -269,7 +385,12 @@ impl Compute {
             self.queue
                 .ExecuteCommandLists(&[Some(list.cast::<ID3D12CommandList>()?)]);
         }
-        self.signal()
+        // Keep execution and its monotonically increasing completion signal
+        // together even when several encoders share this queue.
+        // SAFETY: The queue and fence belong to this live device.
+        unsafe { self.queue.Signal(&self.fence, *next + 1) }.inspect_err(|_| self.retire())?;
+        *next += 1;
+        Ok(*next)
     }
     pub fn completed(&self, value: u64) -> bool {
         // SAFETY: `fence` is a live D3D12 fence owned by `self`; GetCompletedValue only reads it.
@@ -494,6 +615,9 @@ pub struct Ready {
     /// The D3D12 device whose queues can wait for the fence.
     device: usize,
     readers: Option<Arc<AtomicU64>>,
+    /// The exact conversion timeline the capture copy queue waits for. A
+    /// replacement queue can share the same D3D12 device, but never its values.
+    reader_fence: Option<ID3D12Fence>,
 }
 // Fences are free-threaded.
 // SAFETY: `fence` is a free-threaded ID3D12Fence, and `device` is an address compared, never
@@ -509,11 +633,25 @@ impl Ready {
             value,
             device: compute.device.as_raw() as usize,
             readers: None,
+            reader_fence: None,
         }
     }
     /// Block until the copy is done.
     pub fn wait(&self) -> Result<()> {
         wait_fence(&self.fence, self.value)
+    }
+    fn read_by(&self, compute: &Compute, value: u64) -> Result<()> {
+        if let Some(readers) = &self.readers {
+            if self.reader_fence.as_ref() == Some(&compute.fence) {
+                readers.fetch_max(value, Ordering::Release);
+            } else {
+                // A different queue's value means nothing on the capture's
+                // reader fence. Finish the exceptional cross-queue read before
+                // handing ownership back instead of publishing a false value.
+                compute.wait(value)?;
+            }
+        }
+        Ok(())
     }
 }
 
@@ -588,6 +726,7 @@ impl Returns {
             value: self.value,
             device: self.compute.device.as_raw() as usize,
             readers: None,
+            reader_fence: None,
         })
     }
     /// Release `mutex` with `key` once all compute work submitted so far,
@@ -647,8 +786,6 @@ pub struct Handoff {
     copied: (ID3D12Fence, ID3D11Fence),
     context: ID3D11DeviceContext4,
     value: u64,
-    /// The last value the copy queue was asked to signal.
-    signalled: u64,
     /// Command lists, each with the value of the copy that last used it and
     /// the resources that copy reads and writes, kept until it has run.
     #[allow(clippy::type_complexity)]
@@ -723,7 +860,6 @@ impl Handoff {
             compute,
             context: gpu.context.cast()?,
             value: 0,
-            signalled: 0,
             lists: Vec::new(),
             imported: HashMap::new(),
             opened: HashSet::new(),
@@ -769,27 +905,35 @@ impl Handoff {
             commands.ResourceBarrier(&barriers);
             drop_barriers(&mut barriers);
             commands.Close()?;
-            *last = value;
-            self.context.Signal(&self.acquired.1, value)?;
-            self.context.Flush();
-            self.queue.Wait(&self.acquired.0, value)?;
-            // A conversion may still read the pool texture being reused.
-            self.queue
-                .Wait(&self.compute.fence, readers.load(Ordering::Acquire))?;
-            self.queue
-                .ExecuteCommandLists(&[Some(commands.cast::<ID3D12CommandList>()?)]);
-            self.queue.Signal(&self.copied.0, value)?;
-            self.signalled = value;
-            // Releasing the frame to DWM, and D3D11 readers of the copy,
-            // come after it. Submitted now, so the release cannot overtake it.
-            self.context.Wait(&self.copied.1, value)?;
-            self.context.Flush();
+            let submitted = (|| -> Result<()> {
+                self.compute.ensure_active()?;
+                self.context.Signal(&self.acquired.1, value)?;
+                self.context.Flush();
+                self.queue.Wait(&self.acquired.0, value)?;
+                // A conversion may still read the pool texture being reused.
+                self.queue
+                    .Wait(&self.compute.fence, readers.load(Ordering::Acquire))?;
+                let commands = commands.cast::<ID3D12CommandList>()?;
+                // Once submitted, a failed signal must not leave the list
+                // looking idle (or waiting for an ordinary, never-sent value).
+                *last = u64::MAX;
+                self.queue.ExecuteCommandLists(&[Some(commands)]);
+                self.queue.Signal(&self.copied.0, value)?;
+                *last = value;
+                // Releasing the frame to DWM, and D3D11 readers of the copy,
+                // come after it. Submitted now, so release cannot overtake it.
+                self.context.Wait(&self.copied.1, value)?;
+                self.context.Flush();
+                Ok(())
+            })();
+            submitted.inspect_err(|_| self.compute.retire())?;
         }
         Ok(Ready {
             fence: self.copied.0.clone(),
             value,
             device: self.compute.device.as_raw() as usize,
             readers: Some(readers),
+            reader_fence: Some(self.compute.fence.clone()),
         })
     }
     /// A command list the copy queue has finished with.
@@ -825,15 +969,28 @@ impl Handoff {
 }
 impl Drop for Handoff {
     fn drop(&mut self) {
-        // The queue may still copy into pool textures.
-        let _ = Ready {
-            fence: self.copied.0.clone(),
-            value: self.signalled,
-            device: 0,
-            readers: None,
+        // A final marker covers a copy whose normal Signal failed as well.
+        // Keep all command storage and both sides of shared fences until it
+        // completes; an expired CPU wait is never permission to free them.
+        let mut work = RetainedWork::new(&self.compute, &self.queue);
+        work.keep(&self.acquired.0);
+        work.keep(&self.acquired.1);
+        work.keep(&self.copied.0);
+        work.keep(&self.copied.1);
+        work.keep(&self.context);
+        for (allocator, list, _, resources) in &self.lists {
+            work.keep(allocator);
+            work.keep(list);
+            for resource in resources.iter().flatten() {
+                work.keep(resource);
+            }
         }
-        .wait();
+        for (texture, resource) in self.imported.values() {
+            work.keep(texture);
+            work.keep(resource);
+        }
         for (texture, _) in self.readers.values() {
+            work.keep(texture);
             self.compute.forget(texture);
         }
         self.compute
@@ -841,6 +998,7 @@ impl Drop for Handoff {
             .lock()
             .unwrap()
             .retain(|key, _| !self.opened.contains(key));
+        work.finish(&self.compute);
     }
 }
 
@@ -987,6 +1145,8 @@ struct Slot {
     /// has run: the adapter-wide cache may release its own references.
     inputs: [Option<ID3D12Resource>; 2],
     capture: Option<crate::capture::GpuImage>,
+    outputs: Vec<ID3D12Resource>,
+    waits: Vec<ID3D12Fence>,
 }
 struct PointerUpload {
     fence: u64,
@@ -1015,9 +1175,8 @@ pub struct Converter {
     height: u32,
     ten_bit: bool,
     targets: Vec<Target>,
-    /// The pointer shape uploaded to this device, with the pixels it came
-    /// from. Holding them keeps a new shape from reusing their address.
-    pointer: Option<(Arc<[u8]>, ID3D12Resource)>,
+    /// Bounded cache of immutable pointer textures for recurring animation shapes.
+    pointers: crate::cursor::ShapeCache<ID3D12Resource>,
     uploads: Vec<PointerUpload>,
 }
 // SAFETY: `mapped` points into the upload buffer `constants` this converter owns, the D3D12 objects
@@ -1026,7 +1185,76 @@ unsafe impl Send for Converter {}
 const SLOTS: usize = 4;
 /// Descriptors per slot: the source and pointer, then up to three outputs.
 const VIEWS: usize = 5;
+
+fn validate_colour_input(values: &[u32; 20]) -> Result<()> {
+    // cbuffer Config: pixel=4, hdr=5. scRGB/FP16 has an SDR path, PQ does not.
+    anyhow::ensure!(
+        values[4] != 2 || values[5] != 0,
+        "HDR surface supplied to an SDR converter"
+    );
+    Ok(())
+}
+
+fn require_format_support(
+    device: &ID3D12Device,
+    format: DXGI_FORMAT,
+    support1: D3D12_FORMAT_SUPPORT1,
+    support2: D3D12_FORMAT_SUPPORT2,
+) -> Result<()> {
+    let mut support = D3D12_FEATURE_DATA_FORMAT_SUPPORT {
+        Format: format,
+        ..Default::default()
+    };
+    // SAFETY: The feature selector matches the live initialized structure,
+    // whose exact size is supplied. This is a read-only device capability query.
+    unsafe {
+        device.CheckFeatureSupport(
+            D3D12_FEATURE_FORMAT_SUPPORT,
+            (&mut support as *mut D3D12_FEATURE_DATA_FORMAT_SUPPORT).cast(),
+            std::mem::size_of_val(&support) as u32,
+        )?;
+    }
+    anyhow::ensure!(
+        support.Support1.contains(support1) && support.Support2.contains(support2),
+        "D3D12 format {format:?} does not support compute YUV writes"
+    );
+    Ok(())
+}
+
 impl Converter {
+    /// Probe both plane view formats and the actual planar allocation before
+    /// AMF initializes its D3D12 context, so unsupported devices fall back once.
+    /// PyroWave uses separate R8/R16 planes and does not need this YUV probe.
+    pub(crate) fn prepare_yuv(&mut self) -> Result<()> {
+        self.compute.ensure_active()?;
+        let (texture, planes) = if self.ten_bit {
+            (
+                DXGI_FORMAT_P010,
+                [DXGI_FORMAT_R16_UNORM, DXGI_FORMAT_R16G16_UNORM],
+            )
+        } else {
+            (
+                DXGI_FORMAT_NV12,
+                [DXGI_FORMAT_R8_UNORM, DXGI_FORMAT_R8G8_UNORM],
+            )
+        };
+        require_format_support(
+            &self.compute.device,
+            texture,
+            D3D12_FORMAT_SUPPORT1_TEXTURE2D,
+            D3D12_FORMAT_SUPPORT2_NONE,
+        )?;
+        for plane in planes {
+            require_format_support(
+                &self.compute.device,
+                plane,
+                D3D12_FORMAT_SUPPORT1_TYPED_UNORDERED_ACCESS_VIEW,
+                D3D12_FORMAT_SUPPORT2_UAV_TYPED_STORE,
+            )?;
+        }
+        self.target()?;
+        Ok(())
+    }
     pub fn new(compute: Arc<Compute>, width: u32, height: u32, ten_bit: bool) -> Result<Self> {
         compute.ensure_active()?;
         if width == 0 || height == 0 || !width.is_multiple_of(2) || !height.is_multiple_of(2) {
@@ -1079,6 +1307,8 @@ impl Converter {
                     fence: 0,
                     inputs: [None, None],
                     capture: None,
+                    outputs: Vec::new(),
+                    waits: Vec::new(),
                 });
             }
             Ok(Self {
@@ -1097,7 +1327,7 @@ impl Converter {
                 height,
                 ten_bit,
                 targets: vec![],
-                pointer: None,
+                pointers: Default::default(),
                 uploads: Vec::new(),
             })
         }
@@ -1107,10 +1337,11 @@ impl Converter {
     pub(crate) fn pointer(&mut self, cursor: &crate::cursor::Cursor) -> Result<ID3D12Resource> {
         self.compute.ensure_active()?;
         self.release_completed();
-        if let Some((cached, texture)) = &self.pointer
-            && Arc::ptr_eq(cached, &cursor.pixels)
+        if let Some(texture) =
+            self.pointers
+                .get(cursor.width, cursor.height, cursor.logic, &cursor.pixels)
         {
-            return Ok(texture.clone());
+            return Ok(texture);
         }
         // SAFETY: `cursor.pixels` holds `width * height` RGBA pixels and `upload` `pitch * height`
         // bytes, so each row copy stays in both; `uploads` retains the copy's objects to its fence.
@@ -1210,15 +1441,24 @@ impl Converter {
             list.ResourceBarrier(&barriers);
             drop_barriers(&mut barriers);
             list.Close()?;
-            let done = self.compute.execute(&list)?;
             self.uploads.push(PointerUpload {
-                fence: done,
+                // Own every submitted object before ExecuteCommandLists: its
+                // following Signal may fail after work has already been queued.
+                fence: u64::MAX,
                 _allocator: allocator,
-                _list: list,
+                _list: list.clone(),
                 _upload: upload,
                 _texture: texture.clone(),
             });
-            self.pointer = Some((cursor.pixels.clone(), texture.clone()));
+            let done = self.compute.execute(&list)?;
+            self.uploads.last_mut().unwrap().fence = done;
+            self.pointers.insert(
+                cursor.width,
+                cursor.height,
+                cursor.logic,
+                cursor.pixels.clone(),
+                texture.clone(),
+            );
             Ok(texture)
         }
     }
@@ -1243,6 +1483,8 @@ impl Converter {
             if self.compute.completed(slot.fence) {
                 slot.capture = None;
                 slot.inputs = [None, None];
+                slot.outputs.clear();
+                slot.waits.clear();
             }
         }
     }
@@ -1282,6 +1524,18 @@ impl Converter {
             }
         }
         if self.targets.len() >= 8 {
+            // AMF can release its surface reference just before its GPU
+            // completion signal. Wait for such a target instead of declaring
+            // the bounded pool exhausted and triggering keyframe recovery.
+            if let Some((index, target)) = self
+                .targets
+                .iter()
+                .enumerate()
+                .find(|(_, target)| Arc::strong_count(&target.texture) == 1)
+            {
+                wait_fence(&target.fence, target.last()).inspect_err(|_| self.compute.retire())?;
+                return Ok(index);
+            }
             bail!("compute conversion queue reached its bounded limit");
         }
         // SAFETY: `compute.device` is a live D3D12 device and the description and out-parameter
@@ -1340,6 +1594,7 @@ impl Converter {
         image: &crate::capture::GpuImage,
     ) -> Result<Converted> {
         self.compute.ensure_active()?;
+        validate_colour_input(&self.values)?;
         let ready = image.ready.as_ref();
         let index = self.target()?;
         let target = self.targets[index].texture.clone();
@@ -1456,6 +1711,13 @@ impl Converter {
             drop_barriers(&mut barriers);
             list.Close()?;
         }
+        // The slot's previous conversion has finished (waited above), so its
+        // inputs can go; this one's stay until the slot comes round again.
+        self.slots[slot].inputs = [Some(source.clone()), pointer.cloned()];
+        self.slots[slot].capture = Some(image.clone());
+        self.slots[slot].outputs.clear();
+        self.slots[slot].waits = ready.map(|ready| ready.fence.clone()).into_iter().collect();
+        self.slots[slot].fence = u64::MAX;
         // The capture's copy into `source` may still be waiting for DWM.
         self.compute.ensure_active()?;
         match ready {
@@ -1470,32 +1732,26 @@ impl Converter {
             Some(ready) => ready.wait()?,
             None => {}
         }
-        // The slot's previous conversion has finished (waited above), so its
-        // inputs can go; this one's stay until the slot comes round again.
-        self.slots[slot].inputs = [Some(source.clone()), pointer.cloned()];
-        self.slots[slot].capture = Some(image.clone());
         let fence = self
             .compute
             .execute(&self.slots[slot].list)
             .inspect_err(|_| self.compute.retire())?;
         self.slots[slot].fence = fence;
-        if let Some(readers) = ready
-            .filter(|ready| ready.device == self.compute.device.as_raw() as usize)
-            .and_then(|ready| ready.readers.as_ref())
-        {
-            readers.fetch_max(fence, Ordering::Release);
+        if let Some(ready) = ready {
+            ready.read_by(&self.compute, fence)?;
         }
         // The encoder's signal for this texture, after the conversion.
         let target = &mut self.targets[index];
-        target.value = target.last() + 1;
+        let value = target.last() + 1;
         // SAFETY: `queue` and `target.fence` were created on the same D3D12 device and outlive the
         // call.
         unsafe {
             self.compute
                 .queue
-                .Signal(&target.fence, target.value)
+                .Signal(&target.fence, value)
                 .inspect_err(|_| self.compute.retire())?;
         }
+        target.value = value;
         Ok(Converted {
             texture: target.texture.clone(),
             fence: target.fence.clone(),
@@ -1514,8 +1770,10 @@ impl Converter {
         pointer: Option<&ID3D12Resource>,
         ready: Option<&Ready>,
         target: &Planes,
+        image: Option<&crate::capture::GpuImage>,
     ) -> Result<()> {
         self.compute.ensure_active()?;
+        validate_colour_input(&self.values)?;
         let (root, planar) = match &self.planar {
             Some(planar) => planar.clone(),
             None => {
@@ -1529,6 +1787,15 @@ impl Converter {
         self.slot = (self.slot + 1) % SLOTS;
         self.compute.wait(self.slots[slot].fence)?;
         self.slots[slot].capture = None;
+        self.slots[slot].inputs = [Some(source.clone()), pointer.cloned()];
+        self.slots[slot].capture = image.cloned();
+        self.slots[slot].outputs = target.planes.to_vec();
+        self.slots[slot].waits = ready
+            .map(|ready| ready.fence.clone())
+            .into_iter()
+            .chain(std::iter::once(target.fence.clone()))
+            .collect();
+        self.slots[slot].fence = u64::MAX;
         // SAFETY: As in `convert`, the slot is idle and `values` fits its slot; `target`'s planes
         // and fence are on `compute.device`, and `ready` is waited on the GPU only if it is too.
         unsafe {
@@ -1631,16 +1898,12 @@ impl Converter {
                 .Wait(&target.fence, target.after)
                 .inspect_err(|_| self.compute.retire())?;
         }
-        self.slots[slot].inputs = [Some(source.clone()), pointer.cloned()];
         self.slots[slot].fence = self
             .compute
             .execute(&self.slots[slot].list)
             .inspect_err(|_| self.compute.retire())?;
-        if let Some(readers) = ready
-            .filter(|ready| ready.device == self.compute.device.as_raw() as usize)
-            .and_then(|ready| ready.readers.as_ref())
-        {
-            readers.fetch_max(self.slots[slot].fence, Ordering::Release);
+        if let Some(ready) = ready {
+            ready.read_by(&self.compute, self.slots[slot].fence)?;
         }
         // SAFETY: `target.fence` is opened on this queue's device and outlives the call.
         unsafe { self.compute.queue.Signal(&target.fence, target.done) }
@@ -1660,17 +1923,44 @@ pub struct Planes {
 }
 impl Drop for Converter {
     fn drop(&mut self) {
-        // The queue may still read the constants and write the targets.
-        let last = self
-            .slots
-            .iter()
-            .map(|s| s.fence)
-            .chain(self.uploads.iter().map(|upload| upload.fence))
-            .max()
-            .unwrap_or(0);
-        let _ = self.compute.wait(last);
+        let mut work = RetainedWork::new(&self.compute, &self.compute.queue);
+        work.keep(&self.root);
+        work.keep(&self.convert);
+        if let Some((root, pipeline)) = &self.planar {
+            work.keep(root);
+            work.keep(pipeline);
+        }
+        work.keep(&self.heap);
+        work.keep(&self.constants);
+        for pointer in self.pointers.values() {
+            work.keep(pointer);
+        }
+        for slot in &mut self.slots {
+            work.keep(&slot.allocator);
+            work.keep(&slot.list);
+            for resource in slot.inputs.iter().flatten().chain(&slot.outputs) {
+                work.keep(resource);
+            }
+            for fence in &slot.waits {
+                work.keep(fence);
+            }
+            if let Some(capture) = slot.capture.take() {
+                work.captures.push(capture);
+            }
+        }
+        for upload in &self.uploads {
+            work.keep(&upload._allocator);
+            work.keep(&upload._list);
+            work.keep(&upload._upload);
+            work.keep(&upload._texture);
+        }
+        for target in &self.targets {
+            work.keep(target.texture.as_ref());
+            work.waits.push((target.fence.clone(), target.last()));
+        }
+        work.finish(&self.compute);
         // SAFETY: `constants` was mapped once in `new`, and nothing writes through `mapped` after
-        // this.
+        // this. Unmap ends CPU access; retained GPU work still owns the resource.
         unsafe { self.constants.Unmap(0, None) };
     }
 }
@@ -1725,6 +2015,227 @@ fn buffer_desc(size: u64) -> D3D12_RESOURCE_DESC {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pq_input_is_rejected_only_for_sdr_output() {
+        for pixel in 0..=2 {
+            for hdr in 0..=1 {
+                let mut values = [0; 20];
+                values[4] = pixel;
+                values[5] = hdr;
+                assert_eq!(
+                    validate_colour_input(&values).is_ok(),
+                    pixel != 2 || hdr != 0
+                );
+            }
+        }
+    }
+
+    /// Always release the task-owned queue gate, including on assertion failure.
+    struct Gate(ID3D12Fence);
+    impl Drop for Gate {
+        fn drop(&mut self) {
+            // SAFETY: CPU-signalling this test-owned fence releases only this
+            // test's queue. No desktop/capture production queue uses it.
+            let _ = unsafe { self.0.Signal(1) };
+        }
+    }
+
+    #[test]
+    #[ignore = "requires native D3D11/D3D12; gates only a task-owned compute queue for two seconds"]
+    fn timed_out_converter_retains_capture_until_its_queue_really_finishes() -> Result<()> {
+        use crate::capture::{Device, GpuImage, Image, Pixel};
+        let _com = crate::capture::ComGuard::new()?;
+        let gpu = Device::new("")?;
+        let shared = Compute::for_device(&gpu.device)?;
+        // SAFETY: This is a read-only query on this test's live device.
+        let luid = unsafe { shared.device.GetAdapterLuid() };
+        let compute = Compute::new(luid)?;
+        let mut converter = Converter::new(compute.clone(), 4, 4, false)?;
+        converter.prepare_yuv()?;
+        let image = GpuImage::upload(
+            &gpu,
+            &Image {
+                width: 4,
+                height: 4,
+                stride: 16,
+                bytes: vec![128; 64],
+                captured: std::time::Instant::now(),
+                pixel: Pixel::Bgra8,
+            },
+        )?;
+        let capture = Arc::downgrade(&image.texture);
+        converter.values = crate::gpu_color::constants(
+            &butterpollo_core::rtsp::Negotiated {
+                width: 4,
+                height: 4,
+                ..Default::default()
+            },
+            (4, 4, Pixel::Bgra8),
+            [100., 1.],
+            None,
+        );
+        // SAFETY: This gate and queue belong exclusively to this test. Gate's
+        // destructor always signals it, even if any later assertion panics.
+        let gate = Gate(unsafe { compute.device.CreateFence(0, D3D12_FENCE_FLAG_NONE)? });
+        // SAFETY: This fence was created on this queue's device and stays owned.
+        unsafe { compute.queue.Wait(&gate.0, 1)? };
+        let converted = converter.convert(
+            &compute.open(&image.texture)?,
+            format(Pixel::Bgra8),
+            None,
+            &image,
+        )?;
+        drop(image);
+        drop(converter);
+        assert!(compute.is_stuck());
+        assert!(
+            capture.upgrade().is_some(),
+            "timed-out GPU read lost its capture lease"
+        );
+        assert!(
+            Compute::new(luid).is_err(),
+            "retries must not grow retained GPU memory"
+        );
+        let tail = RETAINED
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|work| !work.captures.is_empty())
+            .and_then(|work| work.tail.clone())
+            .context("retained converter tail missing")?;
+        drop(gate);
+        converted.wait()?;
+        wait_fence(&tail, 1)?;
+        let _replacement = Compute::new(luid)?;
+        assert!(
+            capture.upgrade().is_none(),
+            "completed capture was never released"
+        );
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "requires native D3D11/D3D12; gates only a task-owned copy queue for two seconds"]
+    fn timed_out_handoff_keeps_its_copy_executable_after_teardown() -> Result<()> {
+        use crate::capture::{Device, GpuImage, Image, Pixel};
+        let _com = crate::capture::ComGuard::new()?;
+        let gpu = Device::new("")?;
+        let compute = Compute::for_device(&gpu.device)?;
+        let mut handoff = Handoff::new(compute.clone(), &gpu)?;
+        let pixels = Image {
+            width: 4,
+            height: 4,
+            stride: 16,
+            bytes: vec![85; 64],
+            captured: std::time::Instant::now(),
+            pixel: Pixel::Bgra8,
+        };
+        let source = GpuImage::upload(&gpu, &pixels)?;
+        let mut destination = GpuImage::upload(
+            &gpu,
+            &Image {
+                bytes: vec![0; 64],
+                ..pixels
+            },
+        )?;
+        // SAFETY: Gate always signals on drop; only this test's copy queue
+        // waits for it, and every submitted texture belongs to this test.
+        let gate = Gate(unsafe { compute.device.CreateFence(0, D3D12_FENCE_FLAG_NONE)? });
+        // SAFETY: The gate is on the same live device as the copy queue.
+        unsafe { handoff.queue.Wait(&gate.0, 1)? };
+        destination.ready = Some(handoff.copy(&destination.texture, &source.texture)?);
+        drop(source);
+        drop(handoff);
+        assert!(compute.is_stuck());
+        // SAFETY: This read-only query is on the live test device.
+        let luid = unsafe { compute.device.GetAdapterLuid() };
+        assert!(Compute::new(luid).is_err());
+        let tail = RETAINED
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|work| work.adapter == (luid.LowPart, luid.HighPart))
+            .and_then(|work| work.tail.clone())
+            .context("retained copy tail missing")?;
+        drop(gate);
+        destination.ready.as_ref().unwrap().wait()?;
+        wait_fence(&tail, 1)?;
+        let actual = destination.readback(&mut None)?;
+        for row in actual.bytes.chunks_exact(actual.stride).take(4) {
+            assert_eq!(&row[..16], &[85; 16]);
+        }
+        let _replacement = Compute::new(luid)?;
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "requires native D3D12; validates distinct task-owned queues on a shared device"]
+    fn reader_values_belong_to_a_fence_not_the_shared_device() -> Result<()> {
+        let _com = crate::capture::ComGuard::new()?;
+        let gpu = crate::capture::Device::new("")?;
+        let old = Compute::for_device(&gpu.device)?;
+        // SAFETY: Querying a live device does not change its state.
+        let new = Compute::new(unsafe { old.device.GetAdapterLuid() })?;
+        assert_eq!(
+            old.device, new.device,
+            "D3D12 should reuse the adapter device"
+        );
+        assert_ne!(old.fence, new.fence);
+        let readers = Arc::new(AtomicU64::new(0));
+        let ready = Ready {
+            fence: old.fence.clone(),
+            value: 0,
+            device: old.device.as_raw() as usize,
+            readers: Some(readers.clone()),
+            reader_fence: Some(old.fence.clone()),
+        };
+        let old_value = old.signal()?;
+        ready.read_by(&old, old_value)?;
+        assert_eq!(readers.load(Ordering::Acquire), old_value);
+        let _ = new.signal()?;
+        let new_value = new.signal()?;
+        ready.read_by(&new, new_value)?;
+        assert!(
+            new.completed(new_value),
+            "cross-generation read returned before finishing"
+        );
+        assert_eq!(
+            readers.load(Ordering::Acquire),
+            old_value,
+            "new fence value entered the old timeline"
+        );
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "requires native D3D12; validates bounded reuse after a delayed target fence"]
+    fn released_encoder_target_waits_for_its_gpu_fence() -> Result<()> {
+        let _com = crate::capture::ComGuard::new()?;
+        let gpu = crate::capture::Device::new("")?;
+        let compute = Compute::for_device(&gpu.device)?;
+        let mut converter = Converter::new(compute, 4, 4, false)?;
+        converter.prepare_yuv()?;
+        let mut busy = Vec::new();
+        for _ in 0..8 {
+            let index = converter.target()?;
+            busy.push(converter.targets[index].texture.clone());
+        }
+        converter.targets[0].value = 1;
+        drop(busy.remove(0));
+        let fence = converter.targets[0].fence.clone();
+        std::thread::scope(|scope| -> Result<()> {
+            scope.spawn(move || {
+                std::thread::sleep(std::time::Duration::from_millis(25));
+                // SAFETY: This test-owned signal models the encoder finishing
+                // after it has already released its surface reference.
+                unsafe { fence.Signal(1).unwrap() };
+            });
+            assert_eq!(converter.target()?, 0);
+            Ok(())
+        })?;
+        Ok(())
+    }
 
     #[test]
     fn compute_texture_states_accept_only_supported_reads_or_one_write() {
@@ -1975,7 +2486,14 @@ mod tests {
         assert!(compute.completed(submitted));
         rejected(converter.pointer(&cursor));
         rejected(converter.convert(&source, format(Pixel::Bgra8), None, &image));
-        rejected(converter.convert_planes(&source, format(Pixel::Bgra8), None, None, &planes));
+        rejected(converter.convert_planes(
+            &source,
+            format(Pixel::Bgra8),
+            None,
+            None,
+            &planes,
+            None,
+        ));
         rejected(compute.execute(&converter.slots[slot].list));
         rejected(compute.open(&image.texture));
         rejected(handoff.copy(&destination.texture, &image.texture));

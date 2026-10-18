@@ -1145,6 +1145,7 @@ impl Encoder {
     pub fn device_removed(&self) -> Option<crate::device_loss::DeviceLost> {
         match self {
             Self::Amf(encoder) => encoder.device_removed(),
+            Self::Pyrowave(encoder) => encoder.device_removed(),
             _ => None,
         }
     }

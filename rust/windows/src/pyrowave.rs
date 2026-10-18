@@ -11,15 +11,21 @@ use butterpollo_core::{
     pyrowave::{self, PACKET_BOUNDARY},
     rtsp::Negotiated,
 };
-use std::{ffi::c_void, ptr, sync::Arc, time::Instant};
+use std::{
+    collections::HashSet,
+    ffi::c_void,
+    ptr,
+    sync::{Arc, Mutex, OnceLock},
+    time::Instant,
+};
 use windows::{
     Win32::{
         Foundation::*,
         Graphics::{
             Direct3D11::*,
             Dxgi::{
-                Common::*, DXGI_SHARED_RESOURCE_READ, DXGI_SHARED_RESOURCE_WRITE, IDXGIDevice,
-                IDXGIResource1,
+                Common::*, DXGI_ERROR_DEVICE_REMOVED, DXGI_SHARED_RESOURCE_READ,
+                DXGI_SHARED_RESOURCE_WRITE, IDXGIDevice, IDXGIResource1,
             },
         },
     },
@@ -54,6 +60,7 @@ api! {
     device_get_global_priority:unsafe extern "C" fn(p::pyrowave_device)->p::VkQueueGlobalPriority,
     device_set_queue_type:unsafe extern "C" fn(p::pyrowave_device,p::VkQueueFlagBits)->p::pyrowave_result,
     device_confirm_interop_support:unsafe extern "C" fn(p::pyrowave_device)->bool,
+    device_get_vk_device_handles:unsafe extern "C" fn(p::pyrowave_device,*mut p::VkInstance,*mut p::VkPhysicalDevice,*mut p::VkDevice),
     device_destroy:unsafe extern "C" fn(p::pyrowave_device),
     encoder_create:unsafe extern "C" fn(*const p::pyrowave_encoder_create_info,*mut p::pyrowave_encoder)->p::pyrowave_result,
     encoder_destroy:unsafe extern "C" fn(p::pyrowave_encoder),
@@ -74,6 +81,107 @@ fn check(code: p::pyrowave_result) -> Result<()> {
     } else {
         bail!("PyroWave runtime error {code}")
     }
+}
+/// The runtime's ordinary fence waits discard VkResult. Wait for the external
+/// release ourselves, before its unchecked mapping/packetization can read stale
+/// memory. This also replaces a D3D11 GPU wait which could wedge capture forever
+/// when Vulkan failed to signal the shared fence.
+struct CompletionWait {
+    device: p::VkDevice,
+    wait: p::PFN_vkWaitSemaphores,
+    _loader: libloading::Library,
+}
+impl CompletionWait {
+    fn new(api: &Api, device: p::pyrowave_device) -> Result<Self> {
+        // SAFETY: Both entry points use the generated Vulkan ABI. The loader and
+        // PyroWave device outlive every call through this function pointer.
+        unsafe {
+            let loader = libloading::Library::new("vulkan-1.dll")?;
+            let get = loader.get::<p::PFN_vkGetDeviceProcAddr>(b"vkGetDeviceProcAddr\0")?;
+            let mut vk_device = ptr::null_mut();
+            (api.device_get_vk_device_handles)(
+                device,
+                ptr::null_mut(),
+                ptr::null_mut(),
+                &mut vk_device,
+            );
+            anyhow::ensure!(!vk_device.is_null(), "PyroWave Vulkan device unavailable");
+            let symbol = get.context("Vulkan device dispatch unavailable")?(
+                vk_device,
+                c"vkWaitSemaphores".as_ptr(),
+            );
+            anyhow::ensure!(
+                symbol.is_some(),
+                "Vulkan timeline semaphore wait unavailable"
+            );
+            let wait =
+                std::mem::transmute::<p::PFN_vkVoidFunction, p::PFN_vkWaitSemaphores>(symbol);
+            Ok(Self {
+                device: vk_device,
+                wait,
+                _loader: loader,
+            })
+        }
+    }
+    fn wait(&self, semaphore: p::VkSemaphore, value: u64) -> Result<()> {
+        let info = p::VkSemaphoreWaitInfo {
+            sType: p::VkStructureType_VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO,
+            pNext: ptr::null(),
+            flags: 0,
+            semaphoreCount: 1,
+            pSemaphores: &semaphore,
+            pValues: &value,
+        };
+        // SAFETY: The imported semaphore belongs to this device; its owner and
+        // the two borrowed locals remain alive for this bounded CPU wait.
+        let result = unsafe { self.wait.unwrap()(self.device, &info, 2_000_000_000) };
+        completion_result(result)
+    }
+}
+fn completion_result(result: p::VkResult) -> Result<()> {
+    match result {
+        p::VkResult_VK_SUCCESS => Ok(()),
+        p::VkResult_VK_ERROR_DEVICE_LOST => Err(anyhow::Error::new(
+            crate::device_loss::DeviceLost(DXGI_ERROR_DEVICE_REMOVED.0),
+        )
+        .context("PyroWave Vulkan device lost (VK_ERROR_DEVICE_LOST)")),
+        p::VkResult_VK_TIMEOUT => bail!("PyroWave GPU completion timed out after 2 seconds"),
+        code => bail!("PyroWave GPU completion failed with Vulkan result {code}"),
+    }
+}
+fn finish_submission<T>(pending: &mut Option<T>, completed: Result<()>) -> Result<()> {
+    completed?;
+    *pending = None;
+    Ok(())
+}
+/// Unconfirmed submissions can still access their resources. Do not run their
+/// destructors on timeout: retaining them until process exit is safer than a
+/// use-after-free or an unbounded runtime/device-idle wait during recovery.
+fn retain_pending<T>(pending: &mut Option<T>) {
+    if let Some(pending) = pending.take() {
+        std::mem::forget(pending);
+    }
+}
+/// Adapter identity survives device recreation. A timeout must not make the
+/// recovery loop retain another full encoder on every attempt. Existing
+/// concurrent encoders also check this before submitting their next frame.
+#[derive(Default)]
+struct QuarantinedAdapters(Mutex<HashSet<[u8; 8]>>);
+impl QuarantinedAdapters {
+    fn check(&self, adapter: [u8; 8]) -> Result<()> {
+        anyhow::ensure!(
+            !self.0.lock().unwrap().contains(&adapter),
+            "PyroWave is unavailable on this adapter after an unconfirmed GPU submission. Restart Rubylight to release the retained GPU resources, or use HEVC/AV1."
+        );
+        Ok(())
+    }
+    fn block(&self, adapter: [u8; 8]) {
+        self.0.lock().unwrap().insert(adapter);
+    }
+}
+fn quarantined_adapters() -> &'static QuarantinedAdapters {
+    static ADAPTERS: OnceLock<QuarantinedAdapters> = OnceLock::new();
+    ADAPTERS.get_or_init(Default::default)
 }
 pub fn available() -> bool {
     Api::load().is_ok()
@@ -267,6 +375,7 @@ impl ComputePlanes {
             pointer.as_ref(),
             image.ready.as_ref(),
             &self.target,
+            Some(image),
         )
     }
 }
@@ -290,6 +399,12 @@ pub struct Encoder {
     api: Arc<Api>,
     device: p::pyrowave_device,
     encoder: p::pyrowave_encoder,
+    completion: Option<CompletionWait>,
+    /// Pins the capture lease and conversion inputs until Vulkan releases them.
+    /// It remains set on every failed conversion, submission or completion.
+    pending: Option<GpuImage>,
+    lost: Option<crate::device_loss::DeviceLost>,
+    adapter: [u8; 8],
     d3d: Device,
     converter: Option<PlanarConverter>,
     /// Whether to convert on the compute queue (AMD, `gpu_compute_conversion`).
@@ -331,6 +446,7 @@ impl Encoder {
         let mut luid = p::pyrowave_luid { luid: [0; 8] };
         luid.luid[..4].copy_from_slice(&desc.AdapterLuid.LowPart.to_le_bytes());
         luid.luid[4..].copy_from_slice(&desc.AdapterLuid.HighPart.to_le_bytes());
+        quarantined_adapters().check(luid.luid)?;
         let critical_fec_percentage = tuning
             .integer("pyrowave_critical_fec_percentage", 20)
             .clamp(0, 255) as u32;
@@ -340,6 +456,10 @@ impl Encoder {
             api,
             device: ptr::null_mut(),
             encoder: ptr::null_mut(),
+            completion: None,
+            pending: None,
+            lost: None,
+            adapter: luid.luid,
             use_compute: crate::compute::enabled(tuning) && crate::compute::copies_on(&d3d.device),
             d3d,
             converter: None,
@@ -408,11 +528,16 @@ impl Encoder {
                 chroma: u32::from(config.yuv444),
             };
             check((s.api.encoder_create)(&info, &mut s.encoder))?;
+            s.completion = Some(CompletionWait::new(&s.api, s.device)?);
         }
         Ok(s)
     }
     pub fn accepts_gpu_device(&self, image: &GpuImage) -> bool {
         self.d3d.device.as_raw() == image.gpu.device.as_raw()
+    }
+    pub(crate) fn device_removed(&self) -> Option<crate::device_loss::DeviceLost> {
+        self.lost
+            .or_else(|| crate::device_loss::DeviceLost::d3d11(&self.d3d.device))
     }
     /// The next encode gets a first frame's budget, one stream period.
     #[cfg(test)]
@@ -423,6 +548,28 @@ impl Encoder {
         self.encode_gpu(&GpuImage::upload(&self.d3d, image)?, idr, kbps)
     }
     pub fn encode_gpu(&mut self, image: &GpuImage, _idr: bool, kbps: u32) -> Result<Vec<Encoded>> {
+        let result = self.encode_gpu_inner(image, kbps);
+        if result.is_err() && self.pending.is_some() {
+            self.quarantine();
+        }
+        result
+    }
+    fn quarantine(&self) {
+        quarantined_adapters().block(self.adapter);
+        if let Some(compute) = &self.compute {
+            compute.converter.compute().retire();
+        }
+        self.warnings.set("pyrowave_gpu_quarantine", "PyroWave stopped after GPU work could not be confirmed complete. Its resources are retained to protect capture; restart Rubylight before using PyroWave on this adapter again, or use HEVC/AV1.");
+    }
+    fn encode_gpu_inner(&mut self, image: &GpuImage, kbps: u32) -> Result<Vec<Encoded>> {
+        if let Some(loss) = self.device_removed() {
+            return Err(loss.into());
+        }
+        quarantined_adapters().check(self.adapter)?;
+        anyhow::ensure!(
+            self.pending.is_none(),
+            "PyroWave encoder has an unconfirmed GPU submission; rebuild it before encoding again"
+        );
         if !self.accepts_gpu_device(image) {
             bail!("capture device changed");
         }
@@ -470,6 +617,7 @@ impl Encoder {
         if budget < 16 {
             return Ok(vec![]);
         }
+        self.pending = Some(image.clone());
         // SAFETY: `interop` holds the three images and views made on `self.device`; `images`
         // outlives the synchronous encode and the output buffers are sized as passed.
         unsafe {
@@ -491,7 +639,6 @@ impl Encoder {
                 .compute
                 .as_mut()
                 .filter(|_| crate::compute::shareable(&image.texture));
-            let on_compute = compute.is_some();
             if let Some(compute) = compute {
                 compute.convert(image, &self.config, self.luminance, after, i.counter)?;
             } else {
@@ -539,13 +686,23 @@ impl Encoder {
                     maximum_bitstream_size: budget,
                 },
             ))?;
-            // The compute queue waits for the release before its next
-            // conversion; D3D11 must not draw into the planes before it.
-            if !on_compute {
-                self.interop[0]
-                    .context
-                    .Wait(&self.interop[0].fence, self.interop[0].counter)?;
+            // SDK 502a3b52 submits the metadata/bitstream host copies and their
+            // COPY→HOST barrier before this same-queue release signal. Granite
+            // signals it at ALL_COMMANDS, so this covers the output writes as
+            // well as the input reads; the getters below submit no GPU work.
+            let completed = self
+                .completion
+                .as_ref()
+                .unwrap()
+                .wait(release.sync.semaphore, release.sync.value)
+                .and_then(|()| match self.device_removed() {
+                    Some(loss) => Err(loss.into()),
+                    None => Ok(()),
+                });
+            if let Err(error) = &completed {
+                self.lost = crate::device_loss::DeviceLost::from_error(error);
             }
+            finish_submission(&mut self.pending, completed)?;
             let (mut raw, mut meta) = (ptr::null(), ptr::null());
             let (mut size, mut meta_size) = (0, 0);
             check((self.api.encoder_get_mapped_raw_bitstream)(
@@ -633,6 +790,20 @@ impl Encoder {
 }
 impl Drop for Encoder {
     fn drop(&mut self) {
+        if self.pending.is_some() {
+            // Keep both APIs, all imported images/fences, conversion commands,
+            // and the capture lease alive. No queued wait is added to capture.
+            self.quarantine();
+            tracing::warn!("retaining PyroWave resources after an unconfirmed GPU submission");
+            retain_pending(&mut self.pending);
+            retain_pending(&mut self.completion);
+            retain_pending(&mut self.compute);
+            retain_pending(&mut self.converter);
+            std::mem::forget(std::mem::take(&mut self.interop));
+            std::mem::forget(self.api.clone());
+            std::mem::forget(self.d3d.clone());
+            return;
+        }
         // SAFETY: `encoder` and `device` were created in `new_device_reported`; the interop images
         // go before the device.
         unsafe {
@@ -652,7 +823,81 @@ impl Drop for Encoder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::Duration;
+    use std::{cell::Cell, rc::Rc, time::Duration};
+
+    struct Resource(Rc<Cell<usize>>);
+    impl Drop for Resource {
+        fn drop(&mut self) {
+            self.0.set(self.0.get() + 1);
+        }
+    }
+
+    #[test]
+    fn only_confirmed_vulkan_completion_releases_the_capture_lease() {
+        for code in [
+            p::VkResult_VK_SUCCESS,
+            p::VkResult_VK_TIMEOUT,
+            p::VkResult_VK_ERROR_DEVICE_LOST,
+            p::VkResult_VK_ERROR_OUT_OF_DEVICE_MEMORY,
+        ] {
+            let dropped = Rc::new(Cell::new(0));
+            let mut pending = Some(Resource(dropped.clone()));
+            let result = finish_submission(&mut pending, completion_result(code));
+            if code == p::VkResult_VK_SUCCESS {
+                assert!(result.is_ok());
+                assert!(pending.is_none());
+                assert_eq!(dropped.get(), 1);
+            } else {
+                assert!(result.is_err());
+                assert!(pending.is_some());
+                assert_eq!(dropped.get(), 0);
+                // Quarantining must not run the capture lease's destructor.
+                retain_pending(&mut pending);
+                assert!(pending.is_none());
+                assert_eq!(dropped.get(), 0);
+            }
+        }
+    }
+
+    #[test]
+    fn vulkan_device_loss_reaches_the_existing_recovery_classifier() {
+        let error = completion_result(p::VkResult_VK_ERROR_DEVICE_LOST)
+            .unwrap_err()
+            .context("encoding a legacy frame");
+        assert_eq!(
+            crate::device_loss::DeviceLost::from_error(&error),
+            Some(crate::device_loss::DeviceLost(DXGI_ERROR_DEVICE_REMOVED.0))
+        );
+        assert!(format!("{error:#}").contains("VK_ERROR_DEVICE_LOST"));
+        assert!(
+            crate::device_loss::DeviceLost::from_error(
+                &completion_result(p::VkResult_VK_TIMEOUT).unwrap_err()
+            )
+            .is_none()
+        );
+    }
+
+    #[test]
+    fn quarantine_survives_recreation_and_stops_concurrent_admission_on_the_same_adapter() {
+        let adapters = QuarantinedAdapters::default();
+        let failed_adapter = [1, 2, 3, 4, 5, 6, 7, 8];
+        let other_adapter = [8, 7, 6, 5, 4, 3, 2, 1];
+        // Two streams may already be open when one fails; creation and every
+        // subsequent frame must both consult the same adapter identity.
+        assert!(adapters.check(failed_adapter).is_ok());
+        assert!(adapters.check(failed_adapter).is_ok());
+        adapters.block(failed_adapter);
+        std::thread::scope(|scope| {
+            for _ in 0..4 {
+                let adapters = &adapters;
+                scope.spawn(move || {
+                    assert!(adapters.check(failed_adapter).is_err());
+                    assert!(adapters.check(other_adapter).is_ok());
+                });
+            }
+        });
+        assert_eq!(adapters.0.lock().unwrap().len(), 1);
+    }
 
     #[test]
     fn legacy_and_record_frames_do_not_accumulate_a_pause_budget() {

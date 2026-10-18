@@ -286,6 +286,24 @@ impl Encoder {
         if config.ten_bit() && config.codec == 0 {
             bail!("H.264 does not support HDR10");
         }
+        // Probe the actual planar target before choosing AMF's memory type.
+        // Unsupported NV12/P010 UAV stores otherwise fail every frame after
+        // AMF has already committed to D3D12.
+        let compute = compute.and_then(|compute| {
+            let prepared = crate::compute::Converter::new(
+                compute, config.width, config.height, config.ten_bit(),
+            ).and_then(|mut converter| {
+                converter.prepare_yuv()?;
+                Ok(converter)
+            });
+            match prepared {
+                Ok(converter) => Some(converter),
+                Err(error) => {
+                    tracing::warn!(error = %format!("{error:#}"), "D3D12 YUV conversion unavailable; using D3D11 conversion");
+                    None
+                }
+            }
+        });
         // SAFETY: The AMD runtime exports AMFInit with the SDK's C ABI and performs
         // its own initialization. Successful factory calls return owned interfaces
         // with SDK vtables; the retained library/device outlive their use and release.
@@ -316,7 +334,7 @@ impl Encoder {
             let result = (|| -> Result<()> {
                 if let Some(compute) = &compute {
                     let interface = gpu::D3d12Context::new(context)?;
-                    interface.init(&compute.device)?;
+                    interface.init(&compute.compute().device)?;
                     d3d12 = Some(interface);
                 } else {
                     check(((*(*context).pVtbl).InitDX11.unwrap())(
@@ -351,26 +369,10 @@ impl Encoder {
                 return Err(e);
             }
             let compute = match (d3d12, compute) {
-                (Some(interface), Some(compute)) => match crate::compute::Converter::new(
-                    compute,
-                    config.width,
-                    config.height,
-                    config.ten_bit(),
-                ) {
-                    Ok(converter) => Some(Box::new(ComputeInput {
-                        converter,
-                        context: interface,
-                    })),
-                    // Released as above: recovery retries every 100 ms, and each
-                    // leaked component would hold an encoder session.
-                    Err(e) => {
-                        drop(interface);
-                        ((*(*component).pVtbl).Release.unwrap())(component);
-                        ((*(*context).pVtbl).Terminate.unwrap())(context);
-                        ((*(*context).pVtbl).Release.unwrap())(context);
-                        return Err(e);
-                    }
-                },
+                (Some(interface), Some(converter)) => Some(Box::new(ComputeInput {
+                    converter,
+                    context: interface,
+                })),
                 _ => None,
             };
             let mut e = Self {
@@ -1599,11 +1601,33 @@ impl Encoder {
         while self.in_flight.len() >= AMF_SURFACE_LIMIT
             || self.ownership.retained() >= AMF_SURFACE_LIMIT
         {
+            let queried = Instant::now();
             output.extend(self.poll()?);
-            if Instant::now() >= deadline {
+            // A completion at the deadline still frees capacity successfully.
+            let retained = self.ownership.retained();
+            if self.in_flight.len() < AMF_SURFACE_LIMIT && retained < AMF_SURFACE_LIMIT {
+                break;
+            }
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
                 bail!("AMF GPU queue failed to drain");
             }
-            std::thread::yield_now();
+            if retained >= AMF_SURFACE_LIMIT {
+                // Output can be complete while AMF still owns every input.
+                // QueryOutput then returns immediately; wait on the native
+                // release notification instead of spinning on that empty poll.
+                self.ownership
+                    .wait_below(AMF_SURFACE_LIMIT, remaining.min(QUERY_TIMEOUT));
+            } else {
+                // Some drivers ignore QueryTimeout or return REPEAT early.
+                // Bound those retries too, without extending a real driver wait.
+                let pause = QUERY_TIMEOUT
+                    .saturating_sub(queried.elapsed())
+                    .min(remaining);
+                if !pause.is_zero() {
+                    std::thread::sleep(pause);
+                }
+            }
         }
         Ok(output)
     }

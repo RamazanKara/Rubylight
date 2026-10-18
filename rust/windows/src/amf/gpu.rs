@@ -9,7 +9,8 @@ use anyhow::{Context, Result};
 use std::{
     collections::BTreeMap,
     ptr,
-    sync::{Arc, Mutex},
+    sync::{Arc, Condvar, Mutex},
+    time::Duration,
 };
 use windows::{Win32::Graphics::Direct3D11::ID3D11Texture2D, core::Interface};
 pub(crate) fn boolean(value: bool) -> AMFVariantStruct {
@@ -38,6 +39,7 @@ impl Drop for Surface {
 pub(crate) struct Ownership {
     observer: AMFSurfaceObserver,
     textures: Mutex<BTreeMap<usize, Box<dyn std::any::Any + Send>>>,
+    released: Condvar,
 }
 static OBSERVER: AMFSurfaceObserverVtbl = AMFSurfaceObserverVtbl {
     OnSurfaceDataRelease: Some(released),
@@ -51,6 +53,7 @@ unsafe extern "C" fn released(observer: *mut AMFSurfaceObserver, surface: *mut A
     let ownership = unsafe { &*observer.cast::<Ownership>() };
     if let Ok(mut textures) = ownership.textures.lock() {
         textures.remove(&(surface as usize));
+        ownership.released.notify_all();
     }
 }
 impl Ownership {
@@ -58,10 +61,23 @@ impl Ownership {
         Box::new(Self {
             observer: AMFSurfaceObserver { pVtbl: &OBSERVER },
             textures: Default::default(),
+            released: Condvar::new(),
         })
     }
     pub fn retained(&self) -> usize {
         self.textures.lock().unwrap().len()
+    }
+    /// Wait for a native release callback without polling an idle encoder.
+    /// The predicate is checked while locked, so a release before the wait
+    /// cannot be lost. The caller bounds this wait to keep draining output.
+    pub fn wait_below(&self, limit: usize, timeout: Duration) {
+        drop(
+            self.released
+                .wait_timeout_while(self.textures.lock().unwrap(), timeout, |textures| {
+                    textures.len() >= limit
+                })
+                .unwrap(),
+        );
     }
     /// Keep `owner` alive until AMF releases `surface`.
     pub(crate) fn hold(&self, surface: *mut AMFSurface, owner: Box<dyn std::any::Any + Send>) {
@@ -316,4 +332,47 @@ pub(crate) fn fence_value(
             .ok()?;
     }
     (size == 8).then_some(value)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Instant;
+
+    #[test]
+    fn ownership_wait_wakes_on_release_and_keeps_held_surface_until_callback() {
+        let mut ownership = Ownership::new();
+        let surface = std::ptr::dangling_mut::<AMFSurface>();
+        ownership.hold(surface, Box::new(()));
+        ownership.wait_below(1, Duration::ZERO);
+        assert_eq!(ownership.retained(), 1);
+        let observer = ownership.raw() as usize;
+        let surface_key = surface as usize;
+        std::thread::scope(|scope| {
+            scope.spawn(move || {
+                std::thread::sleep(Duration::from_millis(10));
+                // SAFETY: The boxed observer stays alive until the scoped
+                // thread joins. The callback only uses the fake surface as
+                // a map key, exactly as when AMF releases a native surface.
+                unsafe {
+                    released(
+                        observer as *mut AMFSurfaceObserver,
+                        surface_key as *mut AMFSurface,
+                    )
+                };
+            });
+            let started = Instant::now();
+            ownership.wait_below(1, Duration::from_secs(5));
+            assert_eq!(ownership.retained(), 0);
+            assert!(
+                started.elapsed() < Duration::from_secs(2),
+                "release did not wake capacity wait"
+            );
+        });
+        // A release before waiting is also observed without waiting for the
+        // timeout, even though its notification has already happened.
+        let started = Instant::now();
+        ownership.wait_below(1, Duration::from_secs(5));
+        assert!(started.elapsed() < Duration::from_secs(2));
+    }
 }

@@ -1,4 +1,6 @@
 //! Desktop Duplication's separately supplied hardware pointer.
+mod cache;
+pub(crate) use cache::ShapeCache;
 
 use crate::capture::Device;
 use anyhow::{Result, bail};
@@ -85,6 +87,7 @@ pub(crate) struct Cursor {
     pub(crate) pixels: std::sync::Arc<[u8]>,
 }
 impl Cursor {
+    #[cfg(test)]
     pub fn new(gpu: &Device, info: &DXGI_OUTDUPL_POINTER_SHAPE_INFO, bytes: &[u8]) -> Result<Self> {
         let shape = decode(info, bytes)?;
         Self::upload(
@@ -197,6 +200,8 @@ pub(crate) struct State {
     cursor: Option<Cursor>,
     position: [i32; 2],
     visible: bool,
+    shapes: ShapeCache<Cursor>,
+    shape_device: usize,
 }
 /// The pointer as last reported, carried into a capture made after a
 /// restart. Desktop Duplication reports a shape only when it changes, so a
@@ -210,6 +215,40 @@ pub(crate) struct Carried {
     visible: bool,
 }
 impl State {
+    fn shape(
+        &mut self,
+        gpu: &Device,
+        info: &DXGI_OUTDUPL_POINTER_SHAPE_INFO,
+        bytes: &[u8],
+    ) -> Result<Cursor> {
+        let device = windows::core::Interface::as_raw(&gpu.device) as usize;
+        if self.shape_device != device {
+            self.shapes.clear();
+            self.shape_device = device;
+        }
+        let shape = decode(info, bytes)?;
+        if let Some(cursor) = self
+            .shapes
+            .get(shape.width, shape.height, shape.logic, &shape.pixels)
+        {
+            return Ok(cursor);
+        }
+        let cursor = Cursor::upload(
+            gpu,
+            shape.width,
+            shape.height,
+            shape.logic,
+            shape.pixels.into(),
+        )?;
+        self.shapes.insert(
+            shape.width,
+            shape.height,
+            shape.logic,
+            cursor.pixels.clone(),
+            cursor.clone(),
+        );
+        Ok(cursor)
+    }
     pub fn carry(&self) -> Carried {
         Carried {
             shape: self
@@ -258,7 +297,7 @@ impl State {
             if required as usize > bytes.len() {
                 bail!("desktop pointer buffer changed size");
             }
-            self.cursor = Some(Cursor::new(gpu, &shape, &bytes)?);
+            self.cursor = Some(self.shape(gpu, &shape, &bytes)?);
         }
         if info.LastMouseUpdateTime != 0 {
             self.position = [
@@ -306,6 +345,7 @@ mod tests {
                 cursor: Some(Cursor::new(&first, &info, &bytes)?),
                 position: [10, 20],
                 visible: true,
+                ..Default::default()
             };
             let carried = state.carry();
             state.visible = false;
@@ -330,6 +370,7 @@ mod tests {
             cursor: Some(Cursor::new(&second, &info, &bytes)?),
             position: [1, 1],
             visible: true,
+            ..Default::default()
         };
         reported.resume(&second, carried)?;
         assert_eq!(reported.snapshot().unwrap().position, [1, 1]);
@@ -343,6 +384,39 @@ mod tests {
             },
         )?;
         assert!(hidden.snapshot().is_none());
+        Ok(())
+    }
+    #[test]
+    #[ignore = "requires D3D11 and D3D12 compute"]
+    fn repeated_cursor_shapes_reuse_immutable_resources_on_both_gpu_paths() -> Result<()> {
+        use windows::core::Interface;
+        let _com = crate::capture::ComGuard::new()?;
+        let gpu = Device::new("")?;
+        let info = DXGI_OUTDUPL_POINTER_SHAPE_INFO {
+            Type: DXGI_OUTDUPL_POINTER_SHAPE_TYPE_COLOR.0 as u32,
+            Width: 2,
+            Height: 2,
+            Pitch: 8,
+            ..Default::default()
+        };
+        let mut state = State::default();
+        let first = state.shape(&gpu, &info, &[0; 16])?;
+        let second = state.shape(&gpu, &info, &[255; 16])?;
+        let repeated = state.shape(&gpu, &info, &[0; 16])?;
+        assert_eq!(first.view.as_raw(), repeated.view.as_raw());
+        assert_ne!(first.view.as_raw(), second.view.as_raw());
+        let compute = crate::compute::Compute::for_device(&gpu.device)?;
+        let mut converter = crate::compute::Converter::new(compute, 64, 64, false)?;
+        let a = converter.pointer(&first)?;
+        let b = converter.pointer(&second)?;
+        // A separately decoded cursor with the same pixels is also reused.
+        let decoded = Cursor::new(&gpu, &info, &[0; 16])?;
+        let c = converter.pointer(&decoded)?;
+        assert_eq!(a.as_raw(), c.as_raw());
+        assert_ne!(a.as_raw(), b.as_raw());
+        let other_gpu = Device::new("")?;
+        let moved = state.shape(&other_gpu, &info, &[0; 16])?;
+        assert_ne!(first.view.as_raw(), moved.view.as_raw());
         Ok(())
     }
     #[test]

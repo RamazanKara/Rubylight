@@ -1,0 +1,4 @@
+<resources>
+    <string name="resolution_custom">カスタム…</string>
+    <string name="resolution_custom_size">カスタム（%1$s）</string>
+</resources>

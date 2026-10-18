@@ -1,4 +1,6 @@
 <resources>
+    <item name="resolution_width" type="id" />
+    <item name="resolution_height" type="id" />
     <item name="controller_mapping_capture" type="id" />
     <item name="adaptive_layout" type="id" />
     <!-- Navigation buttons and bodies created by com.limelight.ui.TopAppBar -->

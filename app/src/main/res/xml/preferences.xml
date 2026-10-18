@@ -18,7 +18,7 @@
             android:key="stream_profiles"
             android:title="@string/profiles_title"
             android:summary="@string/profiles_summary_none" />
-        <com.limelight.preferences.MaterialListPreference
+        <com.limelight.preferences.ResolutionPreference
             android:key="list_resolution"
             android:title="@string/title_resolution_list"
             android:dialogMessage="@string/summary_resolution_list"

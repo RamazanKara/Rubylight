@@ -34,6 +34,7 @@ public class MaterialListPreference extends ListPreference {
         if (getDialogMessage() != null) {
             builder.setNeutralButton(R.string.help, null);
         }
+        customizePicker(builder);
         AlertDialog picker = builder.create();
         UiHelper.showDialog(getContext(), picker);
         if (getDialogMessage() != null) {
@@ -41,5 +42,8 @@ public class MaterialListPreference extends ListPreference {
                     UiHelper.showDialog(getContext(), new MaterialAlertDialogBuilder(getContext()).setTitle(getTitle())
                             .setMessage(getDialogMessage()).setPositiveButton(android.R.string.ok, null).create()));
         }
+    }
+
+    protected void customizePicker(MaterialAlertDialogBuilder builder) {
     }
 }

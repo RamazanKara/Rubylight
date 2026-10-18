@@ -948,6 +948,12 @@ public class StreamSettings extends NightjarActivity {
 
             ListPreference pref = (ListPreference) findPreference(preferenceKey);
 
+            // Explicit dimensions stay fixed even when they match a preset outside the reported
+            // decoder range. Custom dimensions already allow the same sizes; don't reset them here.
+            if (PreferenceConfiguration.RESOLUTION_PREF_STRING.equals(preferenceKey) && value.equals(pref.getValue())) {
+                return;
+            }
+
             // Count the number of matching entries we'll be removing
             for (CharSequence seq : pref.getEntryValues()) {
                 if (seq.toString().equalsIgnoreCase(value)) {
@@ -1493,6 +1499,8 @@ public class StreamSettings extends NightjarActivity {
                 addNativeResolutionEntries(width, height, false);
             }
             // TVs can report a smaller panel than the screen they drive, so they keep every size.
+            ((ResolutionPreference) findPreference(PreferenceConfiguration.RESOLUTION_PREF_STRING))
+                    .ensureSelectedResolutionEntry();
             sortResolutionEntries(!television);
 
             if (!PreferenceConfiguration.readPreferences(this.getActivity()).unlockFps) {
@@ -1588,7 +1596,8 @@ public class StreamSettings extends NightjarActivity {
 
                     // Picking this screen's native size keeps following the screen; any other size stays fixed.
                     prefs.edit().putBoolean(PreferenceConfiguration.RESOLUTION_FOLLOWS_SCREEN_PREF_STRING,
-                            valueStr.equals(PreferenceConfiguration.nativeResolution(getActivity()))).apply();
+                            !((ResolutionPreference) preference).isChoosingCustomResolution() &&
+                                    valueStr.equals(PreferenceConfiguration.nativeResolution(getActivity()))).apply();
 
                     // Write the new bitrate value
                     resetBitrateToDefault(prefs, valueStr, null);

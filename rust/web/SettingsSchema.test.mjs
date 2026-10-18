@@ -11,6 +11,14 @@ const { matchesSetting, searchWords } = await server.ssrLoadModule('/src/compone
 const settings = new Map(schema.settings.map(setting => [setting.key, setting]));
 const categoryOf = setting => schema.categories.find(category => category.id === setting.category);
 
+test('disconnect restoration defaults on and the exclusive-layout delay stays available', () => {
+  assert.equal(settings.get('dd_config_revert_on_disconnect').default, true);
+  assert.equal(settings.get('dd_config_revert_delay').visibleWhen, undefined);
+  const retention = settings.get('dd_paused_virtual_display_timeout_secs');
+  assert.equal(retention.visibleWhen({}), false);
+  assert.equal(retention.visibleWhen({ dd_config_revert_on_disconnect: false }), true);
+});
+
 test('descriptions stay to two short sentences and keep the finer points behind More', () => {
   for (const setting of schema.settings) {
     assert(setting.description.length <= 180, `${setting.key}: ${setting.description.length} characters`);

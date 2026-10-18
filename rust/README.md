@@ -115,7 +115,7 @@ cargo test -p butterpollo-windows --locked native_nvenc_loss_recovery_and_444_hd
 
 ## Profiles and features
 
-The Rust host imports the Vibepollo/Apollo profile format and implements the Windows feature set listed in [Features](../docs/features.md). Application overrides take precedence over client overrides; display recovery restores host-owned changes that the user has not subsequently altered.
+The Rust host imports the Vibepollo/Apollo profile format and implements the Windows feature set listed in [Features](../docs/features.md). Application overrides take precedence over client overrides; display recovery normally preserves later user changes, but an arrangement that disabled original displays restores the original layout even after a Win+P change.
 
 The earlier C++ host, its CMake build and installer were removed after 2.0.0-rc.23; [that tag](https://github.com/RamazanKara/Rubylight/tree/2.0.0-rc.23) and its [archived references](https://github.com/RamazanKara/Rubylight/blob/2.0.0-rc.23/docs/legacy/README.md) keep them for migration research. The released Rust package is built through [build.ps1](build.ps1).
 

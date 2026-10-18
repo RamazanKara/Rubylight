@@ -60,6 +60,22 @@ pub fn unchanged(applied: &[Node]) -> Result<bool> {
         .collect();
     Ok(matches_connected(&current, applied, Some(&connected)))
 }
+/// An arrangement that disabled an original display must put the original
+/// layout back even if Win+P or Windows recovery changed it in the meantime.
+/// Non-exclusive arrangements continue to preserve later user changes.
+pub fn disabled_original_displays(before: &[Node], applied: &[Node]) -> bool {
+    before.iter().filter(|node| node.active).any(|original| {
+        !applied
+            .iter()
+            .any(|node| node.device_id == original.device_id && node.active)
+    })
+}
+pub fn restore_arrangement(before: &Snapshot, applied: &[Node]) -> Result<()> {
+    if disabled_original_displays(&before.nodes, applied) || unchanged(applied)? {
+        before.restore()?;
+    }
+    Ok(())
+}
 /// Tell the layouts streams hold that a remote monitor's display was
 /// switched on (`on`) or is about to be removed. Otherwise a stream's end
 /// finds a layout it did not apply, takes it for the user's own and leaves
@@ -272,6 +288,9 @@ pub struct Lease {
     target: Mutex<String>,
 }
 impl Lease {
+    pub fn exclusive(&self) -> bool {
+        self.arrangement == Arrangement::Exclusive
+    }
     /// `virtual_target`: the streamed display is a virtual display made for
     /// streaming, so the user's own layout does not include it. `original`:
     /// the layout taken before that display was created; what Windows
@@ -327,7 +346,9 @@ impl Lease {
             });
         }
         let mut current = Snapshot::capture()?;
-        let before = if virtual_target {
+        let before = if let Some(pending) = crate::display_recovery::pending_arrangement()? {
+            pending
+        } else if virtual_target {
             original_layout(original.unwrap_or_else(|| current.clone()), &target_id)
         } else {
             current.clone()
@@ -375,7 +396,9 @@ impl Lease {
             )
         })();
         if let Err(error) = apply {
-            current.restore()?;
+            // A pending recovery may have supplied an older, healthy baseline.
+            // Only restoring that baseline permits clearing its journal.
+            before.restore()?;
             crate::display_recovery::arrangement(None)?;
             return Err(error);
         }
@@ -475,14 +498,17 @@ impl Drop for Lease {
             // Put the saved entry back even when the user changed the layout:
             // Windows recalls the entry for the remaining displays anyway once
             // the virtual display is removed.
-            let unchanged = settled(|| unchanged(&state.applied))?;
+            let restore =
+                state.before.as_ref().is_some_and(|before| {
+                    disabled_original_displays(&before.nodes, &state.applied)
+                }) || settled(|| unchanged(&state.applied))?;
             if state.persisted
                 && let Some(before) = &state.before
                 && let Err(error) = settled(|| forget_saved_layout(before, &target))
             {
                 tracing::warn!(error = %format!("{error:#}"), "putting back the saved display layout failed");
             }
-            if unchanged && let Some(before) = &state.before {
+            if restore && let Some(before) = &state.before {
                 settled(|| before.restore())?;
             }
             crate::display_recovery::arrangement(None)
@@ -621,6 +647,35 @@ mod tests {
             clone_groups: vec![],
             nodes,
         }
+    }
+    #[test]
+    fn disabling_an_original_display_requires_restoration_after_a_competing_layout_change() {
+        let before = vec![node("physical", true, true), node("tv", true, false)];
+        let exclusive = vec![
+            node("physical", false, false),
+            node("tv", false, false),
+            node("vdd", true, true),
+        ];
+        let user_recovery = vec![node("physical", true, true), node("vdd", true, false)];
+        assert!(!matches(&user_recovery, &exclusive));
+        assert!(disabled_original_displays(&before, &exclusive));
+        let extended = vec![
+            node("physical", true, true),
+            node("tv", true, false),
+            node("vdd", true, false),
+        ];
+        assert!(!disabled_original_displays(&before, &extended));
+        // A display that was already off must not cause a forced restore.
+        assert!(!disabled_original_displays(
+            &[node("physical", false, false)],
+            &exclusive
+        ));
+        // Adopting an earlier failed restoration can mean the physical
+        // target is already absent from the new stream's active snapshot.
+        assert!(disabled_original_displays(
+            &before,
+            &[node("vdd", true, true)]
+        ));
     }
     #[test]
     fn an_unplugged_display_does_not_keep_the_layout_from_being_restored() {

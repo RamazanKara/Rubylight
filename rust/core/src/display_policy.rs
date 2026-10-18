@@ -4,8 +4,9 @@
 use crate::topology::{Node, Position};
 use anyhow::{Result, bail};
 
-/// A client request can enable a virtual display; a zero/absent request leaves
-/// the host, app and device settings in control (as in the GameStream host).
+/// A client request can enable a virtual display; an absent request leaves
+/// the host, app and device settings in control. The caller maps an explicit
+/// `virtualDisplay=0` to `client_physical`.
 #[derive(Default)]
 pub struct VirtualDisplayRequest<'a> {
     pub client_requested: bool,
@@ -14,7 +15,8 @@ pub struct VirtualDisplayRequest<'a> {
     pub configured: bool,
     pub output_override: Option<&'a str>,
     pub configured_output: &'a str,
-    /// The client asked to stream a physical display (`hostDisplay=physical`):
+    /// The client asked to stream a physical display (`hostDisplay=physical`
+    /// or the legacy `virtualDisplay=0`):
     /// the host, app and per-device settings that would add a virtual display
     /// are overridden for this stream. A headless host and an output that
     /// names the virtual display still use one; there is nothing else to show.

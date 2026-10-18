@@ -215,24 +215,16 @@ impl Host {
             return;
         }
         let config = self.config.read().unwrap().clone();
-        let delay = if config.boolean("dd_config_revert_on_disconnect", false) {
-            Duration::from_millis(config.integer("dd_config_revert_delay", 3000).max(0) as u64)
-        } else {
-            let timeout = config
-                .integer("dd_paused_virtual_display_timeout_secs", 7200)
-                .max(0);
-            if timeout == 0 {
-                return;
-            }
-            Duration::from_secs(timeout as u64)
-        };
         let released: Vec<_> = {
             let mut displays = self.app_display.lock().unwrap();
             let mut expired = vec![];
             for (owner, (lease, paused)) in displays.iter_mut() {
                 if Arc::strong_count(lease) > 1 {
                     *paused = None;
-                } else if paused.get_or_insert_with(Instant::now).elapsed() >= delay {
+                } else if config
+                    .display_disconnect_delay(lease.exclusive_layout())
+                    .is_some_and(|delay| paused.get_or_insert_with(Instant::now).elapsed() >= delay)
+                {
                     expired.push(owner.clone());
                 }
             }

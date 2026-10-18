@@ -322,6 +322,27 @@ pub fn arrangement(
 ) -> Result<()> {
     change("display-arrangement", "", |e| e.arrangement = value)
 }
+/// Adopt an unfinished arrangement before another stream journals its layout.
+/// Otherwise a failed restore becomes the next stream's apparent baseline.
+pub fn pending_arrangement() -> Result<Option<crate::display::Snapshot>> {
+    let Some(path) = PATH.get() else {
+        return Ok(None);
+    };
+    let _guard = lock(path)?;
+    read_pending_arrangement(path)
+}
+fn read_pending_arrangement(path: &Path) -> Result<Option<crate::display::Snapshot>> {
+    let bytes = match std::fs::read(path) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error.into()),
+    };
+    let mut journal: Journal = serde_json::from_slice(&bytes)?;
+    Ok(journal
+        .entries
+        .remove("display-arrangement")
+        .and_then(|entry| entry.arrangement.map(|(before, _)| before)))
+}
 pub fn baseline(value: Option<(crate::display::Snapshot, Vec<String>)>) -> Result<()> {
     change("saved-display-baseline", "", |entry| entry.baseline = value)
 }
@@ -455,8 +476,8 @@ pub fn release_profile(id: &str) -> Result<()> {
 /// that is not connected now, such as a TV that was switched off, keeps its
 /// own HDR, colour profile, mode and position entries for a later recovery:
 /// Windows remembers those settings per display, so they would otherwise
-/// stay changed. Failed per-display changes are also kept for retry. Layout
-/// entries are attempted once.
+/// stay changed. Failed per-display changes and arrangement restoration are
+/// kept for a later recovery as well.
 fn recover(path: &Path) -> Result<()> {
     if !path.exists() {
         return Ok(());
@@ -475,14 +496,14 @@ fn recover(path: &Path) -> Result<()> {
     if journal.entries.values().any(|e| e.audio) {
         step("audio routing", crate::audio_route::recover(directory));
     }
-    for entry in journal.entries.values() {
+    let mut pending_arrangements = BTreeMap::new();
+    for (id, entry) in &journal.entries {
         if let Some((before, applied)) = &entry.arrangement {
-            step(
-                "display arrangement",
-                crate::display_arrangement::unchanged(applied).and_then(|unchanged| {
-                    if unchanged { before.restore() } else { Ok(()) }
-                }),
-            );
+            let result = crate::display_arrangement::restore_arrangement(before, applied);
+            if result.is_err() {
+                pending_arrangements.insert(id.clone(), entry.arrangement.clone());
+            }
+            step("display arrangement", result);
         }
     }
     let monitors = crate::display::monitors().unwrap_or_else(|error| {
@@ -497,6 +518,9 @@ fn recover(path: &Path) -> Result<()> {
             .collect(),
         ..Default::default()
     };
+    for (id, arrangement) in pending_arrangements {
+        kept.entries.entry(id).or_default().arrangement = arrangement;
+    }
     for entry in kept.entries.values_mut().filter(|entry| entry.microphone) {
         let result = crate::audio_route::recover_microphone(directory);
         // An unplugged original microphone must remain recoverable after a
@@ -687,6 +711,44 @@ pub fn wait_and_recover(pid: u32, directory: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn the_next_arrangement_adopts_the_original_layout_after_a_failed_restore() -> Result<()> {
+        let directory = tempfile::tempdir()?;
+        let path = directory.path().join("display-recovery.json");
+        assert!(read_pending_arrangement(&path)?.is_none());
+        let before = crate::display::Snapshot::decode(&serde_json::json!({
+            "topology": [["physical"]],
+            "modes": {"physical": {"w": 2560, "h": 1440, "num": 120, "den": 1}},
+            "primary": "physical"
+        }))?;
+        let mut pending = Some((before, Vec::new()));
+        assert!(restored(&mut pending, Err(anyhow::anyhow!("Windows is busy"))).is_err());
+        let mut journal = Journal::default();
+        journal.entries.insert(
+            "display-arrangement".into(),
+            Entry {
+                arrangement: pending.clone(),
+                ..Default::default()
+            },
+        );
+        butterpollo_core::state::write_json(&path, &journal)?;
+        let original = read_pending_arrangement(&path)?.expect("unfinished layout");
+        assert_eq!(original.nodes[0].device_id, "physical");
+        assert!(original.nodes[0].active);
+        assert_eq!(original.nodes[0].mode.width, 2560);
+        restored(&mut pending, Ok(()))?;
+        journal
+            .entries
+            .get_mut("display-arrangement")
+            .unwrap()
+            .arrangement = pending;
+        butterpollo_core::state::write_json(&path, &journal)?;
+        assert!(read_pending_arrangement(&path)?.is_none());
+        // Corrupt recovery data must not be overwritten by a new baseline.
+        std::fs::write(&path, b"{")?;
+        assert!(read_pending_arrangement(&path).is_err());
+        Ok(())
+    }
     #[test]
     fn microphone_recovery_survives_journal_rewrites() -> Result<()> {
         let entry = Entry {

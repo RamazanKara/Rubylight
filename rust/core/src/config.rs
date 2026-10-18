@@ -237,6 +237,21 @@ impl Config {
             })
             .unwrap_or(default)
     }
+    /// How long a disconnected stream may keep its display. Exclusive layouts
+    /// must release even when an older profile disables restoration: otherwise
+    /// the local user's physical displays can remain off for hours.
+    pub fn display_disconnect_delay(&self, exclusive: bool) -> Option<std::time::Duration> {
+        if exclusive || self.boolean("dd_config_revert_on_disconnect", true) {
+            Some(std::time::Duration::from_millis(
+                self.integer("dd_config_revert_delay", 3000).max(0) as u64,
+            ))
+        } else {
+            let seconds = self
+                .integer("dd_paused_virtual_display_timeout_secs", 7200)
+                .max(0);
+            (seconds != 0).then(|| std::time::Duration::from_secs(seconds as u64))
+        }
+    }
     /// Experimental packet-rate adaptation is explicitly enabled per stream.
     /// Manual pacing and host bitrate adaptation own their respective limits;
     /// PyroWave and unknown codecs do not use the conventional controller.
@@ -966,6 +981,48 @@ mod tests {
                 );
             }
             assert!(!config.adaptive_packet_pacing(u8::MAX));
+        }
+    }
+
+    #[test]
+    fn disconnected_displays_restore_by_default_and_exclusive_layouts_cannot_be_retained() {
+        use std::time::Duration;
+        for (text, ordinary, exclusive) in [
+            ("", Some(3000), Some(3000)),
+            (
+                "dd_config_revert_on_disconnect=false",
+                Some(7_200_000),
+                Some(3000),
+            ),
+            (
+                "dd_config_revert_on_disconnect=false\ndd_paused_virtual_display_timeout_secs=0",
+                None,
+                Some(3000),
+            ),
+            (
+                "dd_config_revert_on_disconnect=false\ndd_paused_virtual_display_timeout_secs=20\ndd_config_revert_delay=500",
+                Some(20_000),
+                Some(500),
+            ),
+            ("dd_config_revert_delay=0", Some(0), Some(0)),
+            ("dd_config_revert_delay=-1", Some(0), Some(0)),
+            (
+                "dd_config_revert_on_disconnect=invalid",
+                Some(3000),
+                Some(3000),
+            ),
+        ] {
+            let config = super::Config::parse(text).unwrap();
+            assert_eq!(
+                config.display_disconnect_delay(false),
+                ordinary.map(Duration::from_millis),
+                "{text}"
+            );
+            assert_eq!(
+                config.display_disconnect_delay(true),
+                exclusive.map(Duration::from_millis),
+                "{text}"
+            );
         }
     }
 

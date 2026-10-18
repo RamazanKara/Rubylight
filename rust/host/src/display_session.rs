@@ -83,12 +83,25 @@ pub fn client_display(launch: &Launch) -> Option<HostDisplay> {
     if launch.role != Role::Stream {
         return None;
     }
-    let value = launch.options.get(HostDisplay::PARAMETER)?;
-    let choice = HostDisplay::parse(value);
-    if choice.is_none() && !value.trim().is_empty() && value.trim() != "default" {
+    let value = launch.options.get(HostDisplay::PARAMETER);
+    let choice = value.and_then(|value| HostDisplay::parse(value));
+    if let Some(value) = value
+        && choice.is_none()
+        && !value.trim().is_empty()
+        && value.trim() != "default"
+    {
         tracing::info!(value = %value, "unknown hostDisplay launch value; the display settings decide");
     }
-    choice
+    // Legacy Moonlight clients express a physical-display choice with zero.
+    // Preserve that choice through retained-display matching as well as initial
+    // preparation, so reconnecting cannot reuse a previously virtual stream.
+    choice.or_else(|| {
+        launch
+            .options
+            .get("virtualDisplay")
+            .is_some_and(|value| value.trim() == "0")
+            .then_some(HostDisplay::Physical)
+    })
 }
 
 /// Resolution, refresh in millihertz and HDR a stream asked its display for.
@@ -238,7 +251,15 @@ impl StreamPreparation {
 }
 impl Drop for StreamPreparation {
     fn drop(&mut self) {
-        self.display.active.fetch_sub(1, Ordering::AcqRel);
+        {
+            // Capture the choice at the last transport's disconnect, before
+            // a paused lease can observe unrelated local Win+P changes. The
+            // state lock also serializes this boundary with resume's reapply.
+            let prepared = self.display._state.lock().unwrap();
+            if self.display.active.fetch_sub(1, Ordering::AcqRel) == 1 {
+                prepared.keep_chosen_layout();
+            }
+        }
         if let Some(retained) = &self.display.retained {
             retained.stream_stopped();
         }
@@ -255,6 +276,7 @@ pub struct Ready {
     mode: (u32, u32, u32, bool, bool),
     client_display: Option<HostDisplay>,
     virtual_layout: Option<String>,
+    exclusive_layout: bool,
     /// The launch's policy, or the stream request's once `retime` raised it.
     framegen: Mutex<Policy>,
     mode_report: ModeReport,
@@ -269,6 +291,10 @@ impl Ready {
         let mode = prepared.mode;
         let client_display = prepared.client_display;
         let virtual_layout = prepared.virtual_layout.clone();
+        let exclusive_layout = prepared
+            ._arrangement
+            .as_ref()
+            .is_some_and(display_arrangement::Lease::exclusive);
         let framegen = prepared.framegen.clone();
         let mode_report = prepared.mode_report.clone();
         let retained = prepared._retained.clone();
@@ -315,6 +341,7 @@ impl Ready {
             mode,
             client_display,
             virtual_layout,
+            exclusive_layout,
             framegen: Mutex::new(framegen),
             mode_report,
             stop,
@@ -349,10 +376,10 @@ impl Ready {
                 self.mode_report.publish(applied_mode(&prepared.output));
             }
             self.target.publish(prepared.capture_target());
+            self.active.fetch_add(1, Ordering::AcqRel);
             Ok(())
         })?;
         self.mode_report.attach(warnings);
-        self.active.fetch_add(1, Ordering::AcqRel);
         if let Some(retained) = &self.retained {
             retained.stream_started();
         }
@@ -377,6 +404,11 @@ impl Ready {
     }
     pub fn output(&self) -> String {
         self.target.current().0
+    }
+    /// The arrangement actually shared with other streams, which may differ
+    /// from this client's requested layout.
+    pub fn exclusive_layout(&self) -> bool {
+        self.exclusive_layout
     }
     pub fn capture_target(&self) -> (String, u64) {
         self.target.current()
@@ -431,6 +463,9 @@ pub struct Prepared {
     /// during the stream: a stream on its own virtual display whose client did
     /// not choose the layout itself.
     layout_owner: Option<String>,
+    /// A topology fixture keeps lifecycle tests independent of the real desktop.
+    #[cfg(test)]
+    layout_snapshot: Option<Vec<(String, bool)>>,
     revision: u64,
     recovery: Recovery,
     layout_watch: butterpollo_core::display_policy::LayoutWatch,
@@ -740,7 +775,7 @@ impl Prepared {
         }
         let virtual_mode = display_request.uses_virtual(
             physical_only,
-            butterpollo_windows::display::virtual_display_available,
+            butterpollo_windows::display::ensure_virtual_display_available,
         );
         if physical_only && display_request.requested() {
             launch.warnings.set("display_virtual", "Windows was locked and the virtual display could not be set up there, so this stream shows the physical display. Start the stream again after signing in to use the virtual display.");
@@ -1053,6 +1088,8 @@ impl Prepared {
                 .then(|| launch.client.uuid.clone()),
                 client_display,
                 virtual_layout: virtual_layout.then(|| selection.to_owned()),
+                #[cfg(test)]
+                layout_snapshot: None,
                 revision,
                 recovery: Recovery::new(),
                 layout_watch: Default::default(),
@@ -1067,8 +1104,19 @@ impl Prepared {
     }
 }
 impl Prepared {
+    fn active_layout(&self) -> Result<Vec<(String, bool)>> {
+        #[cfg(test)]
+        if let Some(snapshot) = &self.layout_snapshot {
+            return Ok(snapshot.clone());
+        }
+        Ok(butterpollo_windows::display::monitors()?
+            .into_iter()
+            .map(|m| (m.display_name, m.primary))
+            .collect())
+    }
     /// Keep the layout the user chose for the stream's display (Windows' "Show
-    /// only on 2", say) as the device's own, before the layout is restored.
+    /// only on 2", say) as the device's own, when its last stream disconnects.
+    /// A paused lease's eventual destruction must never learn a local layout.
     fn keep_chosen_layout(&self) {
         let (Some(uuid), Some(planned)) = (&self.layout_owner, &self.virtual_layout) else {
             return;
@@ -1076,11 +1124,8 @@ impl Prepared {
         let Some(h) = self.host.upgrade() else {
             return;
         };
-        let active = match butterpollo_windows::display::monitors() {
-            Ok(monitors) => monitors
-                .into_iter()
-                .map(|m| (m.display_name, m.primary))
-                .collect::<Vec<_>>(),
+        let active = match self.active_layout() {
+            Ok(monitors) => monitors,
             Err(error) => {
                 tracing::debug!(%error, "the layout at the end of the stream could not be read");
                 return;
@@ -1107,7 +1152,6 @@ impl Prepared {
 
 impl Drop for Prepared {
     fn drop(&mut self) {
-        self.keep_chosen_layout();
         // A stream ending while Windows is locked restores the layout too.
         butterpollo_windows::input::on_input_desktop(|| {
             self._profile.take();
@@ -1403,6 +1447,7 @@ mod tests {
             client_display: None,
             virtual_layout: Some("extended".into()),
             layout_owner: None,
+            layout_snapshot: None,
             revision: 0,
             recovery: Recovery::new(),
             layout_watch: Default::default(),
@@ -1411,6 +1456,97 @@ mod tests {
             recovery_dimensions: (640, 480),
             recovery_profile: None,
             host: Arc::downgrade(host),
+        }
+    }
+
+    #[test]
+    fn layout_preferences_are_saved_at_disconnect_and_not_relearned_while_paused() {
+        let fixture = crate::state::test_support::Fixture::new();
+        let client = fixture.client(u32::MAX);
+        let config = Config::parse("dd_config_revert_delay=0").unwrap();
+        *fixture.host.config.write().unwrap() = config.clone();
+        let mut prepared = test_prepared(&fixture.host);
+        prepared.output = r"\\.\DISPLAY9".into();
+        prepared.layout_owner = Some(client.uuid.clone());
+        prepared.layout_snapshot = Some(vec![(prepared.output.clone(), true)]);
+        let limiter =
+            limiter::Lease::acquire(&fixture.host.directory, &config, &prepared.framegen).unwrap();
+        let first = Ready::prepare((prepared, limiter)).unwrap();
+        let display = first.display.clone();
+        let second = display
+            .clone()
+            .resume(
+                &fixture.host.directory,
+                &config,
+                Arc::new(Warnings::default()),
+            )
+            .unwrap();
+        let chosen = || {
+            fixture.host.paired.read().unwrap().clients[0]
+                .extra
+                .get("virtual_display_layout")
+                .cloned()
+        };
+        drop(first);
+        assert_eq!(chosen(), None);
+        drop(second);
+        assert_eq!(chosen(), Some(serde_json::json!("exclusive")));
+        // A later local layout differs, but the paused reaper must not save it.
+        display._state.lock().unwrap().layout_snapshot = Some(vec![
+            (r"\\.\DISPLAY9".into(), true),
+            (r"\\.\DISPLAY1".into(), false),
+        ]);
+        fixture
+            .host
+            .app_display
+            .lock()
+            .unwrap()
+            .insert(client.uuid, (display, None));
+        fixture.host.reap_paused_display();
+        assert!(fixture.host.app_display.lock().unwrap().is_empty());
+        assert_eq!(chosen(), Some(serde_json::json!("exclusive")));
+    }
+
+    #[test]
+    fn disconnect_reaping_waits_for_active_owners_and_releases_exclusive_layouts() {
+        for (settings, exclusive, released) in [
+            ("dd_config_revert_delay=0", false, true),
+            (
+                "dd_config_revert_on_disconnect=false\ndd_paused_virtual_display_timeout_secs=0\ndd_config_revert_delay=0",
+                false,
+                false,
+            ),
+            (
+                "dd_config_revert_on_disconnect=false\ndd_paused_virtual_display_timeout_secs=0\ndd_config_revert_delay=0",
+                true,
+                true,
+            ),
+        ] {
+            let fixture = crate::state::test_support::Fixture::new();
+            let config = Config::parse(settings).unwrap();
+            *fixture.host.config.write().unwrap() = config.clone();
+            let prepared = test_prepared(&fixture.host);
+            let limiter =
+                limiter::Lease::acquire(&fixture.host.directory, &config, &prepared.framegen)
+                    .unwrap();
+            let mut stream = Ready::prepare((prepared, limiter)).unwrap();
+            // Supply the arrangement result without touching Windows displays.
+            Arc::get_mut(&mut stream.display).unwrap().exclusive_layout = exclusive;
+            fixture
+                .host
+                .app_display
+                .lock()
+                .unwrap()
+                .insert("client".into(), (stream.display.clone(), None));
+            fixture.host.reap_paused_display();
+            assert_eq!(fixture.host.app_display.lock().unwrap().len(), 1);
+            drop(stream);
+            fixture.host.reap_paused_display();
+            assert_eq!(
+                fixture.host.app_display.lock().unwrap().is_empty(),
+                released,
+                "{settings}, exclusive={exclusive}"
+            );
         }
     }
 
@@ -1708,6 +1844,35 @@ mod tests {
         assert_eq!(launch(Role::InputOnly, Some("exclusive")), None);
     }
     #[test]
+    fn legacy_virtual_display_zero_selects_physical_and_prevents_virtual_reuse() {
+        use butterpollo_core::display_policy::Arrangement;
+        let f = crate::state::test_support::Fixture::new();
+        let client = f.client(u32::MAX);
+        let mut launch = f.launch(client, Role::Stream);
+        assert_eq!(client_display(&launch), None);
+        launch.options.insert("virtualDisplay".into(), "1".into());
+        assert_eq!(client_display(&launch), None);
+        launch.options.insert("virtualDisplay".into(), "0".into());
+        let physical = client_display(&launch);
+        assert_eq!(physical, Some(HostDisplay::Physical));
+        assert!(!HostDisplay::reusable(None, physical));
+        assert!(!HostDisplay::reusable(
+            Some(HostDisplay::Virtual(Arrangement::Exclusive)),
+            physical
+        ));
+        launch
+            .options
+            .insert(HostDisplay::PARAMETER.into(), "extended".into());
+        assert_eq!(
+            client_display(&launch),
+            Some(HostDisplay::Virtual(Arrangement::Extended))
+        );
+        for role in [Role::RemoteMonitor, Role::InputOnly] {
+            launch.role = role;
+            assert_eq!(client_display(&launch), None);
+        }
+    }
+    #[test]
     fn virtual_display_mode_keeps_device_app_host_precedence_and_legacy_global_inheritance() {
         let config = Config::parse("virtual_display_mode=shared").unwrap();
         let mut client: butterpollo_core::state::Client =
@@ -1788,6 +1953,7 @@ mod tests {
             client_display: None,
             virtual_layout: None,
             layout_owner: None,
+            layout_snapshot: None,
             revision: 0,
             recovery: Recovery::new(),
             layout_watch: Default::default(),

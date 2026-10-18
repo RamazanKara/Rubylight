@@ -2,6 +2,8 @@ use super::*;
 use crate::capture::{ComGuard, Image};
 use std::time::Instant;
 
+#[path = "color_contract_tests.rs"]
+mod color_contract;
 #[path = "downscale_tests.rs"]
 mod downscale;
 
@@ -349,7 +351,11 @@ fn compute_conversion_matches_the_graphics_converter() -> Result<()> {
     clipped.position = [-2, 30];
     // The same size, a downscale and a letterboxed shape.
     for (width, height) in [(96, 40), (48, 20), (64, 64)] {
-        for (hdr, base) in [(true, &hdr_image), (false, &sdr_image)] {
+        for (hdr, base, csc_mode) in [
+            (true, &hdr_image, 2),
+            (false, &sdr_image, 2),
+            (false, &sdr_image, 4),
+        ] {
             for cursor in [None, Some(&placed), Some(&clipped)] {
                 let mut image = base.clone();
                 image.cursor = cursor.cloned();
@@ -360,6 +366,7 @@ fn compute_conversion_matches_the_graphics_converter() -> Result<()> {
                     codec: 1,
                     hdr,
                     sdr_10bit: !hdr,
+                    csc_mode,
                     ..Default::default()
                 };
                 let mut graphics = Converter::new(&gpu, &config, (96, 40, image.pixel))?;
@@ -873,7 +880,11 @@ fn compute_planes_match_the_pyrowave_graphics_planes() -> Result<()> {
     let mut value = 0;
     for (width, height) in [(96, 40), (48, 20), (64, 64)] {
         for yuv444 in [true, false] {
-            for (hdr, base) in [(true, &hdr_image), (false, &sdr_image)] {
+            for (hdr, base, csc_mode) in [
+                (true, &hdr_image, 2),
+                (false, &sdr_image, 2),
+                (false, &sdr_image, 4),
+            ] {
                 for cursor in [None, Some(&pointer)] {
                     let mut image = base.clone();
                     image.cursor = cursor.cloned();
@@ -883,6 +894,8 @@ fn compute_planes_match_the_pyrowave_graphics_planes() -> Result<()> {
                         codec: 3,
                         hdr,
                         yuv444,
+                        sdr_10bit: !hdr,
+                        csc_mode,
                         ..Default::default()
                     };
                     let source = (image.width, image.height, image.pixel);
@@ -1072,6 +1085,8 @@ fn gpu_sdr_ten_bit_respects_client_matrix_and_full_range() -> Result<()> {
         (1, [306, 339, 1023]),
         (2, [250, 409, 960]),
         (3, [217, 395, 1023]),
+        (4, [387, 371, 769]),
+        (5, [378, 351, 805]),
     ] {
         let config = butterpollo_core::rtsp::Negotiated {
             width: 64,

@@ -158,9 +158,13 @@ impl Convert {
             if image.pixel != crate::capture::Pixel::Bgra8 {
                 bail!("HDR surface supplied to an SDR converter");
             }
-            self.scratch.clear();
-            self.scratch
-                .extend_from_slice(&image.bytes[..image.stride * image.height as usize]);
+            if self.matrix == 2 {
+                crate::color::sdr_bt2020_rgba(image, &mut self.scratch);
+            } else {
+                self.scratch.clear();
+                self.scratch
+                    .extend_from_slice(&image.bytes[..image.stride * image.height as usize]);
+            }
         }
         // AVFrame documents swscale reads up to 16 bytes past a plane; FFmpeg's
         // input-buffer padding covers those reads for both RGBA64 and BGRA.
@@ -185,25 +189,37 @@ impl Convert {
                 if !self.context.is_null() {
                     ff::sws_freeContext(self.context);
                 }
-                self.context = ff::sws_getContext(
-                    source.0 as i32,
-                    source.1 as i32,
-                    if self.hdr {
-                        ff::AVPixelFormat_AV_PIX_FMT_RGBA64LE
-                    } else {
-                        ff::AVPixelFormat_AV_PIX_FMT_BGRA
-                    },
-                    content_width as i32,
-                    content_height as i32,
-                    self.pixel,
-                    1,
-                    ptr::null_mut(),
-                    ptr::null_mut(),
-                    ptr::null(),
-                );
+                self.context = ff::sws_alloc_context();
                 if self.context.is_null() {
                     bail!("cannot initialize pixel conversion");
                 }
+                let scaler = &mut *self.context;
+                scaler.src_w = source.0 as i32;
+                scaler.src_h = source.1 as i32;
+                scaler.src_format = if self.hdr || self.matrix == 2 {
+                    ff::AVPixelFormat_AV_PIX_FMT_RGBA64LE
+                } else {
+                    ff::AVPixelFormat_AV_PIX_FMT_BGRA
+                };
+                scaler.dst_w = content_width as i32;
+                scaler.dst_h = content_height as i32;
+                scaler.dst_format = self.pixel;
+                // SWS_BILINEAR | SWS_FULL_CHR_H_INP. The fast-bilinear path
+                // ignores chroma phase for RGB input; use the full filter
+                // and retain RGB chroma until it samples the left luma
+                // position, matching native conversion and codec VUI.
+                scaler.flags = 2 | (1 << 14);
+                scaler.dst_h_chr_pos = 0;
+                let format = ff::av_pix_fmt_desc_get(self.pixel);
+                if format.is_null() {
+                    bail!("unknown converter pixel format");
+                }
+                scaler.dst_v_chr_pos = if (*format).log2_chroma_h == 1 { 128 } else { 0 };
+                check(ff::sws_init_context(
+                    self.context,
+                    ptr::null_mut(),
+                    ptr::null_mut(),
+                ))?;
                 let matrix = ff::sws_getCoefficients(match self.matrix {
                     0 => 5,
                     2 => 9,
@@ -226,6 +242,8 @@ impl Convert {
             let strides = [
                 if self.hdr {
                     content_width as i32 * 8
+                } else if self.matrix == 2 {
+                    image.width as i32 * 8
                 } else {
                     image.stride as i32
                 },
@@ -263,6 +281,7 @@ impl Convert {
             } else {
                 ff::AVColorRange_AVCOL_RANGE_MPEG
             };
+            (*self.frame).chroma_location = ff::AVChromaLocation_AVCHROMA_LOC_LEFT;
             let mut destination = (*self.frame).data;
             if (content_width, content_height) != (self.width, self.height) {
                 // The bars, then the picture into the rectangle between them.
@@ -470,6 +489,7 @@ impl Ffmpeg {
                 } else {
                     ff::AVColorRange_AVCOL_RANGE_MPEG
                 };
+                (*context).chroma_sample_location = ff::AVChromaLocation_AVCHROMA_LOC_LEFT;
                 (*context).time_base = ff::AVRational {
                     num: 1000,
                     den: config.fps_millihz() as i32,
@@ -621,6 +641,7 @@ impl Ffmpeg {
             (*frame).color_trc = (*self.context).color_trc;
             (*frame).colorspace = (*self.context).colorspace;
             (*frame).color_range = (*self.context).color_range;
+            (*frame).chroma_location = (*self.context).chroma_sample_location;
             if let Some(metadata) = self.hdr_metadata {
                 write_hdr_metadata(frame, metadata)?;
             }

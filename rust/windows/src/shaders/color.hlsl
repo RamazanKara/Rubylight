@@ -14,6 +14,11 @@ float4 vertex(uint id : SV_VertexID) : SV_Position {
 }
 float3 srgb_linear(float3 rgb) { return lerp(pow((rgb + 0.055) / 1.055, 2.4), rgb / 12.92, step(rgb, 0.04045)); }
 float3 gamma(float3 rgb) { return lerp(1.055 * pow(max(rgb, 0), 1.0 / 2.4) - 0.055, rgb * 12.92, step(rgb, 0.0031308)); }
+// BT.2020's 10-bit SDR OETF (transfer_characteristics = 14), not sRGB or PQ.
+float3 bt2020_sdr(float3 light) {
+    light = saturate(light);
+    return lerp(1.099 * pow(light, 0.45) - 0.099, 4.5 * light, step(light, 0.018));
+}
 float3 gamut2020(float3 rgb) {
     return float3(dot(rgb, float3(0.627404, 0.329283, 0.043313)),
                   dot(rgb, float3(0.069097, 0.919540, 0.011362)),
@@ -63,9 +68,13 @@ float3 load(int2 p) {
         rgb *= sdrWhiteScale;
     }
     if (hdr != 0 && pixel == 1) rgb *= hdrScale;
-    // Windows can compose an SDR desktop in FP16 (advanced color); an SDR
-    // stream needs it back in sRGB with SDR white at full scale.
-    if (hdr == 0 && pixel == 1) rgb = gamma(saturate(rgb / sdrWhiteScale));
+    // Normalize scRGB to SDR white. A BT.2020 stream keeps linear, extended
+    // Rec.709 values until gamut mapping; clipping to sRGB here would lose
+    // wide-gamut colors that are still inside BT.2020.
+    if (hdr == 0 && pixel == 1) {
+        rgb /= sdrWhiteScale;
+        if (colorMatrix != 2) rgb = gamma(saturate(rgb));
+    }
     return rgb;
 }
 // The source keeps its aspect ratio, centred in the stream with black bars
@@ -144,40 +153,52 @@ float3 nonlinear(float2 target) {
         float2 footprint = all(abs(size - float2(targetSize)) < 1) ? 1 / ratio : 1 / scale;
         rgb = resize(p, footprint);
     }
-    if (hdr == 0 || pixel == 2) return rgb;
+    if (hdr == 0) {
+        // SDR desktop RGB uses sRGB transfer and Rec.709 primaries. Applying
+        // only the BT.2020 YUV coefficients would relabel those primaries.
+        return colorMatrix == 2 ? bt2020_sdr(gamut2020(pixel == 1 ? rgb : srgb_linear(rgb))) : rgb;
+    }
+    if (pixel == 2) return rgb;
     return pq(gamut2020(rgb) / 125.0);
 }
 float3 weights() { return colorMatrix == 2 ? float3(0.2627, 0.6780, 0.0593) : colorMatrix == 0 ? float3(0.299, 0.587, 0.114) : float3(0.2126, 0.7152, 0.0722); }
-// The luma code of a pixel, and the chroma code of a 2x2 block's average.
+// The luma code of a pixel, and the chroma code of filtered nonlinear RGB.
 // Shared by the graphics and compute conversions, so both write the same codes.
 float lumaCode(float3 rgb) {
     float y = dot(rgb, weights());
     return tenBit != 0 ? floor(clamp((fullRange != 0 ? 1023 * y : 64 + 876 * y), 0, 1023) + 0.5) * 64 / 65535.0
                        : floor(clamp((fullRange != 0 ? 255 * y : 16 + 219 * y), 0, 255) + 0.5) / 255.0;
 }
-float2 chromaCode(float3 c00, float3 c10, float3 c01, float3 c11) {
-    float3 rgb = (c00 + c10 + c01 + c11) * 0.25;
+float2 chromaCode(float3 rgb) {
     float3 k = weights();
     float y = dot(rgb, k);
     float2 uv = float2((rgb.b - y) / (2 * (1 - k.b)), (rgb.r - y) / (2 * (1 - k.r)));
     return tenBit != 0 ? floor(clamp(512 + (fullRange != 0 ? 1023 : 896) * uv, 0, 1023) + 0.5) * 64 / 65535.0
                        : floor(clamp(128 + (fullRange != 0 ? 255 : 224) * uv, 0, 255) + 0.5) / 255.0;
 }
+// Standard-codec 4:2:0 is horizontally co-sited with the left luma sample
+// and vertically centred. A symmetric [1,2,1] x [1,1] filter preserves that
+// position while suppressing aliasing. Clamp in target coordinates so the
+// left edge also works with resizing and letterboxing.
+float3 leftChroma(float2 at, float3 c00, float3 c10, float3 c01, float3 c11) {
+    float2 left = float2(max(at.x - 1, 0), at.y);
+    return (nonlinear(left) + nonlinear(left + float2(0, 1)) +
+            2 * (c00 + c01) + c10 + c11) * 0.125;
+}
 float4 luma(float4 p : SV_Position) : SV_Target {
     return float4(lumaCode(nonlinear(p.xy - 0.5)), 0, 0, 1);
 }
 float4 chroma(float4 p : SV_Position) : SV_Target {
     float2 at = floor(p.xy) * 2;
-    return float4(chromaCode(nonlinear(at), nonlinear(at + float2(1, 0)),
-                             nonlinear(at + float2(0, 1)), nonlinear(at + float2(1, 1))), 0, 1);
+    return float4(chromaCode(leftChroma(at, nonlinear(at), nonlinear(at + float2(1, 0)),
+                             nonlinear(at + float2(0, 1)), nonlinear(at + float2(1, 1)))), 0, 1);
 }
 // The same conversion on a compute queue, which keeps running while a game
 // fills the graphics queue. The two views address the luma and chroma planes.
 RWTexture2D<float> lumaPlane : register(u0);
 RWTexture2D<float2> chromaPlane : register(u1);
-// One thread per 2x2 block: its four pixels are converted once for their
-// four luma codes and the block's chroma, instead of in a luma and a chroma
-// pass that each converted every pixel.
+// One thread per 2x2 block: reuse its four luma samples for chroma, plus
+// the two samples to the left needed for the co-sited horizontal filter.
 [numthreads(8, 8, 1)]
 void yuv420_cs(uint3 id : SV_DispatchThreadID) {
     if (any(id.xy >= targetSize / 2)) return;
@@ -190,7 +211,7 @@ void yuv420_cs(uint3 id : SV_DispatchThreadID) {
     lumaPlane[at + uint2(1, 0)] = lumaCode(c10);
     lumaPlane[at + uint2(0, 1)] = lumaCode(c01);
     lumaPlane[at + uint2(1, 1)] = lumaCode(c11);
-    chromaPlane[id.xy] = chromaCode(c00, c10, c01, c11);
+    chromaPlane[id.xy] = chromaCode(leftChroma(float2(at), c00, c10, c01, c11));
 }
 float3 yuv444(float2 p) {
     float3 rgb = nonlinear(p);
@@ -229,7 +250,8 @@ float2 pyroChroma(float3 rgb) {
     float2 code = tenBit != 0 ? 512+(fullRange != 0 ? 1023 : 896)*uv : 128+(fullRange != 0 ? 255 : 224)*uv;
     return floor(clamp(code,0,maximum)+0.5)/maximum;
 }
-// 4:4:4 (padding != 0) takes each pixel's colour; 4:2:0 a 2x2 block's average.
+// PyroWave's decoder explicitly uses centre-sited 4:2:0 (pyrowave.h).
+// Keep its 2x2 average separate from standard codecs' left-sited filter.
 float2 pyroBlock(float3 c00, float3 c10, float3 c01, float3 c11) {
     return pyroChroma((c00 + c10 + c01 + c11) * 0.25);
 }

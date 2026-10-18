@@ -6,6 +6,14 @@
 
 Rubylight, called Butterpollo until rc.29, is written in Rust: host, native helpers, service and setup, with a Svelte web console. The 2.5.5 installer is named `rubylight-setup-2.5.5.exe` and upgrades an existing Vibepollo or Butterpollo installation in place, keeping settings, paired devices, the app library and covers. Codec SDKs and Windows drivers remain external components; the setup installs the drivers.
 
+## Unreleased
+
+- **Keep shared textures owned after failed GPU ordering.** A failed signal or wait now retires the compute queue before a keyed-mutex texture can be returned to its producer. Capture must reopen before that queue can lend or return more textures.
+- **Track recovery keyframes by their matching AMF submission.** If the driver omits its output-type property, buffered startup and recovery outputs use their effective keyframe request. IDRs forced by rejected long-term-reference properties now reach submission tracking and acknowledgements too.
+- **Transition uploaded cursor textures before compute sampling.** New shapes now enter the shader-read state after upload. The native regression failed for both shapes before correction and passed afterward; HEVC/AV1 SDR/HDR checks with cursor changes produced zero Direct3D errors and independently decoded all 128 frames.
+
+See the [audit, verification and unresolved reset](../docs/stability-audit-2026-10-18.md). An additional reset on installed 2.5.5 used standard keyed-mutex capture and required a Windows restart. These corrections do not establish the cause of that reset or long-session stability.
+
 ## New in 2.5.5
 
 - **Correct recycled AMF D3D12 input barriers.** The converter now reads the resource state AMF records after encoding before transitioning a reused texture for conversion. AMF left both HEVC and AV1 inputs in `COPY_SOURCE`; assuming `COMMON` caused invalid barriers on both YUV planes. A short native reproduction reported 124 Direct3D validation errors before the fix and zero afterward. HEVC and AV1 SDR/HDR checks independently decoded all 128 frames. This corrects a GPU synchronization defect; longer use is still needed to determine its contribution to the reported AMD resets. See the [investigation and validation](PERFORMANCE_WORK.md#2026-10-17-amf-d3d12-input-state-reuse).

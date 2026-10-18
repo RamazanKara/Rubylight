@@ -45,5 +45,8 @@ Assert-Exit 'Client transport configuration'
 Assert-Exit 'Client transport build'
 & gcc -O2 -Wall -Wextra -Werror -Wno-unused-parameter -Wno-misleading-indentation -DBUTTERPOLLO_PYROWAVE (Join-Path $PSScriptRoot 'moonlight_client.c') "-I$source/src" "-I$PyrowaveRoot/include" "-I$MsysRoot/ucrt64/include" "$build/libmoonlight-common-c.a" "$build/enet/libenet.a" "-L$PyrowaveRoot/lib" "-L$MsysRoot/ucrt64/lib" -lpyrowave-shared -lavcodec -lavutil -lopus -lcrypto -lws2_32 -lwinmm -o (Join-Path $ArtifactDirectory 'moonlight-pyrowave-client.exe')
 Assert-Exit 'Vendor decoding fixture build'
+& gcc -O2 -Wall -Wextra -Werror (Join-Path $PSScriptRoot 'pyrowave_decode.c') "-I$PyrowaveRoot/include" "-I$MsysRoot/ucrt64/include" "-L$PyrowaveRoot/lib" -lpyrowave-shared -o (Join-Path $ArtifactDirectory 'pyrowave-decode-probe.exe')
+Assert-Exit 'Offline vendor decoder build'
 Copy-Item -Path (Join-Path $PyrowaveRoot 'bin\libpyrowave-shared-*.dll') -Destination $ArtifactDirectory
 Write-Output "Independent Nonary transport/vendor decoder: $ArtifactDirectory\moonlight-pyrowave-client.exe"
+Write-Output "Offline fixture decoder: $ArtifactDirectory\pyrowave-decode-probe.exe"

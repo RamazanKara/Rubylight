@@ -1,6 +1,7 @@
 """Read native RTP fixtures using the pinned original C++ FEC decoder.
 
-Usage: pyrowave_transport.py FIXTURE_DIRECTORY NANORS_REFERENCE_DLL CLIENT_EXE
+Usage: pyrowave_transport.py FIXTURE_DIRECTORY NANORS_REFERENCE_DLL DECODE_PROBE_EXE
+Use pyrowave-decode-probe.exe from build-pyrowave-client.ps1, not its live client.
 No host or device settings are changed. The DLL is built by build-fec-reference.ps1.
 """
 import ctypes as C
@@ -101,7 +102,7 @@ for fixture in sorted(directory.glob("*.rtp")):
     assert recovered > 0 and blocks[0]["rate"] >= 20
     restored = fixture.with_suffix(".recovered.bin")
     restored.write_bytes(frame)
-    output = subprocess.check_output([str(decoder.resolve()), str(restored.resolve())], text=True)
+    output = subprocess.check_output([str(decoder.resolve()), str(restored.resolve())], text=True, timeout=30)
     assert "PYROWAVE DECODE PASS" in output
     results.append({"profile": profile, "encrypted": encrypted, "packets": len(packets), "blocks": len(blocks), "critical_shards": critical, "lost_coarse_shards_recovered": recovered, "parity": "original C++ byte match", "decoded": True})
 assert len(results) == 24

@@ -21,6 +21,8 @@ The menu is one sheet:
 
 **Overlay and diagnostics** opens a page in the same sheet: Compact, Statistics or Debug, Copy stats, Why did my stream stutter? and Measure input latency. Back, Escape or a controller's B returns from the page to the menu; Back again closes the menu, and the close button closes it from anywhere. The D-pad and a controller move through every row; on a USB-driver controller, its D-pad, A and B do this while the menu is open. Items a host or permission does not allow are left out rather than shown disabled.
 
+**Host → Server commands** runs commands configured on the host, including Sleep. Nightjar asks for confirmation and checks the command and permission again before sending it. **Command sent; result unknown** confirms submission, not successful execution: the protocol provides no execution result. If the PC stays awake, check the host log for the command execution and any error, then check that the same configured command can put that PC to sleep when run on the host. The command's elevation setting and the PC's supported sleep states are controlled on the host.
+
 ## Gamepads
 
 Connect a Bluetooth controller in Android's Bluetooth settings or plug a USB controller into the device. **Settings → Controls → Multiple controllers** is on by default and gives each controller its own player; the protocol provides up to 16 controller slots.

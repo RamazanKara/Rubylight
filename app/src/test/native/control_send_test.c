@@ -259,6 +259,45 @@ static jboolean sendAudio(int kind, const uint8_t* bytes, int length) {
     return Java_com_limelight_nvstream_jni_MoonBridge_sendControllerAudio(&env, NULL, kind, (jbyteArray)&array);
 }
 
+static jboolean sendCommand(const uint8_t* bytes, int length) {
+    FakeByteArray array = {length, bytes};
+    return Java_com_limelight_nvstream_jni_MoonBridge_sendServerCommand(&env, NULL, (jbyteArray)&array);
+}
+
+static void serverCommandsUseReliableEncryptedServerControlPackets(void) {
+    // Apollo/Vibepollo's four-byte index and Rubylight's one-byte index. No SDP control-message
+    // announcement is required: these commands are offered by serverinfo and checked in Java.
+    for (int length = 1; length <= 4; length += 3) {
+        reset();
+        uint8_t command[4] = {2, 0, 0, 0};
+        CHECK(sendCommand(command, length) == JNI_TRUE);
+        CHECK(sentCount == 1 && sentChannels[0] == 0x08);
+        CHECK(sent[0]->flags == ENET_PACKET_FLAG_RELIABLE);
+        uint16_t type, payloadLength;
+        const uint8_t* payload = plaintext(sent[0], &type, &payloadLength);
+        CHECK(type == 0x3000 && payloadLength == length);
+        CHECK(memcmp(payload, command, length) == 0);
+        freeSent();
+        // Older hosts with fewer channels receive the same command on the generic channel.
+        fakePeer.channelCount = 1;
+        CHECK(sendCommand(command, length) == JNI_TRUE);
+        CHECK(sentCount == 1 && sentChannels[0] == 0);
+        freeSent();
+        stopping = true;
+        CHECK(sendCommand(command, length) == JNI_FALSE && sentCount == 0);
+        stopping = false;
+        encryptedControlStream = false;
+        CHECK(sendCommand(command, length) == JNI_FALSE && sentCount == 0);
+    }
+    reset();
+    uint8_t invalid[5] = {0};
+    CHECK(sendCommand(invalid, 0) == JNI_FALSE);
+    CHECK(sendCommand(invalid, 2) == JNI_FALSE);
+    CHECK(sendCommand(invalid, 5) == JNI_FALSE);
+    CHECK(sentCount == 0);
+    freeSent();
+}
+
 static void microphonePacketsLargerThanTheStackBufferArriveIntact(void) {
     reset();
     const uint16_t audio[] = {0x5534, 0x5535};
@@ -613,6 +652,7 @@ static void phaseResetWaitsForTheOldFlushAndClearsItsSuccessor(void) {
 }
 
 static const struct { const char* name; void (*run)(void); } scenarios[] = {
+    {"server-command", serverCommandsUseReliableEncryptedServerControlPackets},
     {"microphone", microphonePacketsLargerThanTheStackBufferArriveIntact},
     {"boundary", oversizeOrMalformedControllerAudioStopsAtTheBoundary},
     {"phase-lock", phaseLockReportsNeedTheHostsAnnouncement},

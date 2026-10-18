@@ -18,7 +18,7 @@ import android.widget.FrameLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import androidx.appcompat.app.AppCompatActivity;
+import com.limelight.ui.NightjarActivity;
 
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.limelight.binding.video.DecoderBenchmark;
@@ -29,7 +29,7 @@ import com.limelight.utils.LatencyBenchmarkStats;
 import com.limelight.ui.TopAppBar;
 import com.limelight.utils.UiHelper;
 
-public class LatencyBenchmarkActivity extends AppCompatActivity implements Choreographer.FrameCallback {
+public class LatencyBenchmarkActivity extends NightjarActivity implements Choreographer.FrameCallback {
     private final Handler handler = new Handler(Looper.getMainLooper());
     private LatencyBenchmarkStats stats = new LatencyBenchmarkStats();
     private boolean running;

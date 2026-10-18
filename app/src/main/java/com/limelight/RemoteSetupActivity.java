@@ -13,7 +13,7 @@ import android.widget.Button;
 import android.widget.FrameLayout;
 import android.widget.TextView;
 import android.widget.Toast;
-import androidx.appcompat.app.AppCompatActivity;
+import com.limelight.ui.NightjarActivity;
 import com.limelight.binding.PlatformBinding;
 import com.limelight.computers.ComputerManagerService;
 import com.limelight.nvstream.http.ComputerDetails;
@@ -30,7 +30,7 @@ import java.io.IOException;
 import org.xmlpull.v1.XmlPullParserException;
 
 /** Explicit setup and bounded authenticated reachability checks. Never configures a router or VPN. */
-public class RemoteSetupActivity extends AppCompatActivity {
+public class RemoteSetupActivity extends NightjarActivity {
     public static final String EXTRA_PC_UUID = "remote_setup_pc_uuid";
     private int step, generation;
     private boolean bound, foreground, running;

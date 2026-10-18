@@ -1,6 +1,6 @@
 package com.limelight.preferences;
 
-import androidx.appcompat.app.AppCompatActivity;
+import com.limelight.ui.NightjarActivity;
 import androidx.core.view.ViewCompat;
 import com.google.android.material.button.MaterialButton;
 import androidx.appcompat.app.AlertDialog;
@@ -23,7 +23,7 @@ import com.limelight.utils.UiHelper;
 import java.util.Map;
 
 /** Lets the user choose what each physical controller button sends to the host. */
-public class ControllerMappingActivity extends AppCompatActivity {
+public class ControllerMappingActivity extends NightjarActivity {
     private TextView deviceView;
     private LinearLayout mappingList;
     private Button resetButton;

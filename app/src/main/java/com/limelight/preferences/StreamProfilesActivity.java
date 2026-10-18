@@ -19,7 +19,7 @@ import android.widget.ListView;
 import android.widget.Toast;
 
 import androidx.appcompat.app.AlertDialog;
-import androidx.appcompat.app.AppCompatActivity;
+import com.limelight.ui.NightjarActivity;
 
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.google.android.material.textfield.TextInputEditText;
@@ -38,7 +38,7 @@ import java.util.TreeSet;
  * Named profiles: make, rename, duplicate and delete them, pick the one in use, and optionally let
  * the network pick one when a stream starts. Each profile's values open in {@link HostStreamSettings}.
  */
-public class StreamProfilesActivity extends AppCompatActivity {
+public class StreamProfilesActivity extends NightjarActivity {
     private static final int LOCATION_REQUEST = 1;
     static final StreamLayers.Network[] RULE_NETWORKS = {
             StreamLayers.Network.MOBILE, StreamLayers.Network.HOME_WIFI, StreamLayers.Network.WIFI};

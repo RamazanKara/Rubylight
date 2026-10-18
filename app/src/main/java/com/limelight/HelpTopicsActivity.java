@@ -4,7 +4,7 @@ import android.os.Bundle;
 import android.view.View;
 import android.widget.FrameLayout;
 
-import androidx.appcompat.app.AppCompatActivity;
+import com.limelight.ui.NightjarActivity;
 
 import com.limelight.ui.TopAppBar;
 import com.limelight.utils.HelpLauncher;
@@ -12,7 +12,7 @@ import com.limelight.utils.ProblemReport;
 import com.limelight.utils.UiHelper;
 
 /** Help bundled with the app, so it works offline; each topic links to the web documentation for detail. */
-public class HelpTopicsActivity extends AppCompatActivity {
+public class HelpTopicsActivity extends NightjarActivity {
     static final String DOCS_URL = "https://github.com/RamazanKara/nightjar/blob/main/docs/";
 
     @Override

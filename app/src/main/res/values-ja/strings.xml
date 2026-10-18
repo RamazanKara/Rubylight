@@ -402,4 +402,6 @@
     <string name="keyboard_shortcuts_file_error">ショートカットのファイルを読み書きできませんでした。ファイルへのアクセスを確認し、ショートカットが 32 個以下の有効なエクスポート ファイルを使用してください。</string>
     <string name="title_disable_hevc_low_latency">HEVCの低遅延フラグを無効化</string>
     <string name="summary_disable_hevc_low_latency">HEVC映像がカクついたり停止したりする場合にお試しください。すべての端末で、HEVC用のAndroidとチップセットの低遅延フラグを無効にします。他のコーデックとデコーダーのパフォーマンス設定は変更しません。次回のストリームから適用されます。</string>
+    <string name="title_oled_black">OLEDブラック</string>
+    <string name="summary_oled_black">システムがライトテーマでも、アプリ、メニュー、ダイアログの背景を完全な黒にします。</string>
 </resources>

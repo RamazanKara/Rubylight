@@ -579,6 +579,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        com.limelight.ui.AppTheme.apply(this);
         super.onCreate(savedInstanceState);
 
         if (savedInstanceState != null) {

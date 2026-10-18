@@ -402,4 +402,6 @@
     <string name="keyboard_shortcuts_file_error">Không thể đọc hoặc ghi tệp phím tắt. Hãy kiểm tra quyền truy cập tệp và dùng tệp phím tắt đã xuất hợp lệ có tối đa 32 phím tắt.</string>
     <string name="title_disable_hevc_low_latency">Tắt cờ độ trễ thấp HEVC</string>
     <string name="summary_disable_hevc_low_latency">Thử bật nếu video HEVC bị giật hoặc treo. Tắt cờ độ trễ thấp của Android và chipset cho HEVC trên mọi thiết bị. Các codec khác và gợi ý hiệu năng bộ giải mã giữ nguyên cài đặt riêng. Có hiệu lực ở phiên truyền tiếp theo.</string>
+    <string name="title_oled_black">Đen OLED</string>
+    <string name="summary_oled_black">Dùng nền đen hoàn toàn trong ứng dụng, menu và hộp thoại, kể cả khi hệ thống dùng giao diện sáng.</string>
 </resources>

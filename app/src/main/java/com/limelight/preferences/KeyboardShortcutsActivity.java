@@ -11,7 +11,7 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 
 import androidx.appcompat.app.AlertDialog;
-import androidx.appcompat.app.AppCompatActivity;
+import com.limelight.ui.NightjarActivity;
 import androidx.lifecycle.AndroidViewModel;
 import androidx.lifecycle.MutableLiveData;
 import androidx.lifecycle.ViewModelProvider;
@@ -34,7 +34,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 /** Edits chords without sending any input; imports are bounded and reviewed before replacement. */
-public final class KeyboardShortcutsActivity extends AppCompatActivity {
+public final class KeyboardShortcutsActivity extends NightjarActivity {
     private static final int IMPORT = 1;
     private static final int EXPORT = 2;
     private static final String STATE_DRAFT = "shortcutDraft";

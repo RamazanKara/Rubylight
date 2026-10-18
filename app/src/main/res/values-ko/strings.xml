@@ -402,4 +402,6 @@
     <string name="keyboard_shortcuts_file_error">단축키 파일을 읽거나 쓸 수 없습니다. 파일 접근 권한을 확인하고, 단축키가 32개 이하인 올바른 내보내기 파일을 사용하세요.</string>
     <string name="title_disable_hevc_low_latency">HEVC 저지연 플래그 끄기</string>
     <string name="summary_disable_hevc_low_latency">HEVC 영상이 끊기거나 멈추면 사용해 보세요. 모든 기기에서 HEVC용 Android 및 칩셋 저지연 플래그를 끕니다. 다른 코덱과 디코더 성능 힌트는 기존 설정을 유지합니다. 다음 스트리밍부터 적용됩니다.</string>
+    <string name="title_oled_black">OLED 블랙</string>
+    <string name="summary_oled_black">시스템이 밝은 테마여도 앱, 메뉴, 대화상자에 완전한 검은색 배경을 사용합니다.</string>
 </resources>

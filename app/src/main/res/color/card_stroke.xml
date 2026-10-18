@@ -1,9 +1,9 @@
 <selector xmlns:android="http://schemas.android.com/apk/res/android">
     <!-- The D-pad selection, hover, a press and a running app's card all take the amber outline. -->
-    <item android:state_hovered="true" android:color="@color/primary" />
-    <item android:state_pressed="true" android:color="@color/primary" />
-    <item android:state_focused="true" android:color="@color/primary" />
-    <item android:state_selected="true" android:color="@color/primary" />
-    <item android:state_activated="true" android:color="@color/primary" />
-    <item android:color="@color/outline_variant" />
+    <item android:state_hovered="true" android:color="?attr/colorPrimary" />
+    <item android:state_pressed="true" android:color="?attr/colorPrimary" />
+    <item android:state_focused="true" android:color="?attr/colorPrimary" />
+    <item android:state_selected="true" android:color="?attr/colorPrimary" />
+    <item android:state_activated="true" android:color="?attr/colorPrimary" />
+    <item android:color="?attr/colorOutlineVariant" />
 </selector>

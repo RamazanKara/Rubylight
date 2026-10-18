@@ -195,6 +195,24 @@
     <!-- Stream activity theme (Game and the debug stream fixtures). -->
     <style name="StreamTheme" parent="Theme.Nightjar.Stream" />
 
+    <!-- Full black surfaces, with the readable night palette even when the system is light. -->
+    <style name="OledBlackTheme" parent="Theme.Nightjar.Stream">
+        <item name="android:windowBackground">@android:color/black</item>
+        <item name="android:colorBackground">@android:color/black</item>
+        <item name="colorSurface">@android:color/black</item>
+        <item name="colorSurfaceDim">@android:color/black</item>
+        <item name="colorSurfaceBright">@android:color/black</item>
+        <item name="colorSurfaceContainerLowest">@android:color/black</item>
+        <item name="colorSurfaceContainerLow">@android:color/black</item>
+        <item name="colorSurfaceContainer">@android:color/black</item>
+        <item name="colorSurfaceContainerHigh">@android:color/black</item>
+        <item name="colorSurfaceContainerHighest">@android:color/black</item>
+        <item name="colorSurfaceVariant">@android:color/black</item>
+        <item name="colorSurfaceInverse">@android:color/black</item>
+        <item name="colorOnSurfaceInverse">@color/night_on_surface</item>
+        <item name="colorPrimaryInverse">@color/night_primary</item>
+    </style>
+
     <style name="ThemeOverlay.Nightjar.Dialog" parent="ThemeOverlay.Material3.MaterialAlertDialog">
         <!-- Dialog messages are read at arm's length or across a room: Body rather than Supporting. -->
         <item name="textAppearanceBodyMedium">@style/TextAppearance.Nightjar.Body</item>

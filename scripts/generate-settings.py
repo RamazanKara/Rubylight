@@ -12,6 +12,7 @@ SEEKBAR = "{http://schemas.moonlight-stream.com/apk/res/seekbar}"
 
 # Usage advice is editorial; labels, options, ranges, dependencies, sections and preset writes come from source.
 ADVICE = {
+    "checkbox_oled_black": "Enable for pure black app, menu and dialog backgrounds, including when the system uses a light theme. Applies immediately and stays separate from stream profiles.",
     "list_resolution": "Raise for fine detail; lower when decode time or network load is high. The picker starts with this screen's size, plus the size beside the camera cutout where there is one; fixed sizes larger than the screen are left out unless already chosen.",
     "list_fps": "Raise for smoother motion on a fast screen. The screen's own refresh rate is added as Screen refresh rate. Changing resolution or FPS preserves an explicitly chosen bitrate.",
     "stream_profiles": "Open to create, rename, duplicate or delete named profiles (sets of stream values such as Home 4K120 or Hotel), pick the profile in use, and optionally let the network pick one when a stream starts. A profile sets only the values chosen in it. See [named profiles](#named-profiles-and-game-settings).",

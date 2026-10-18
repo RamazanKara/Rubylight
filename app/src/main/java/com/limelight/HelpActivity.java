@@ -1,6 +1,6 @@
 package com.limelight;
 
-import androidx.appcompat.app.AppCompatActivity;
+import com.limelight.ui.NightjarActivity;
 import android.widget.FrameLayout;
 import com.limelight.ui.TopAppBar;
 import com.limelight.utils.UiHelper;
@@ -14,7 +14,7 @@ import android.window.OnBackInvokedDispatcher;
 
 import com.limelight.utils.SpinnerDialog;
 
-public class HelpActivity extends AppCompatActivity {
+public class HelpActivity extends NightjarActivity {
 
     private SpinnerDialog loadingDialog;
     private WebView webView;

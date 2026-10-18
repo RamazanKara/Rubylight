@@ -33,7 +33,7 @@ import androidx.appcompat.widget.SearchView;
 import com.google.android.material.snackbar.Snackbar;
 import com.limelight.utils.UiHelper;
 
-import androidx.appcompat.app.AppCompatActivity;
+import com.limelight.ui.NightjarActivity;
 import androidx.activity.OnBackPressedCallback;
 import android.app.Service;
 import android.content.ComponentName;
@@ -57,7 +57,7 @@ import android.widget.Toast;
 
 import org.xmlpull.v1.XmlPullParserException;
 
-public class AppView extends AppCompatActivity implements AdapterFragmentCallbacks {
+public class AppView extends NightjarActivity implements AdapterFragmentCallbacks {
     private AppGridAdapter appGridAdapter;
     private ActionSheet appMenu;
     private String uuidString;

@@ -131,16 +131,18 @@ public class UiHelper {
         WindowCompat.setDecorFitsSystemWindows(activity.getWindow(), false);
         activity.getWindow().clearFlags(WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS |
                 WindowManager.LayoutParams.FLAG_TRANSLUCENT_NAVIGATION);
+        boolean oledBlack = com.limelight.ui.AppTheme.isOledBlack(activity);
+        int fallbackBarColor = oledBlack ? Color.BLACK : Color.rgb(17, 26, 31);
         activity.getWindow().setStatusBarColor(Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ?
-                Color.TRANSPARENT : Color.rgb(17, 26, 31));
+                Color.TRANSPARENT : fallbackBarColor);
         activity.getWindow().setNavigationBarColor(Build.VERSION.SDK_INT >= Build.VERSION_CODES.O ?
-                Color.TRANSPARENT : Color.rgb(17, 26, 31));
+                Color.TRANSPARENT : fallbackBarColor);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             activity.getWindow().setStatusBarContrastEnforced(false);
             activity.getWindow().setNavigationBarContrastEnforced(false);
             rootView.setForceDarkAllowed(false);
         }
-        boolean light = activity.getResources().getBoolean(R.bool.light_system_bars);
+        boolean light = !oledBlack && activity.getResources().getBoolean(R.bool.light_system_bars);
         WindowInsetsControllerCompat controller = WindowCompat.getInsetsController(activity.getWindow(), rootView);
         controller.setAppearanceLightStatusBars(light);
         controller.setAppearanceLightNavigationBars(light);

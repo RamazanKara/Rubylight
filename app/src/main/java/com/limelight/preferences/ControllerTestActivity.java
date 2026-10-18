@@ -34,7 +34,7 @@ import android.widget.FrameLayout;
 import android.widget.TextView;
 
 import androidx.annotation.RequiresApi;
-import androidx.appcompat.app.AppCompatActivity;
+import com.limelight.ui.NightjarActivity;
 
 import com.google.android.material.chip.Chip;
 import com.google.android.material.chip.ChipGroup;
@@ -60,7 +60,7 @@ import java.util.TreeSet;
  * Shows what a controller sends and tries what it can receive: rumble, lights, motion and touch.
  * Leaving the page stops rumble and gives the lights and the USB driver back.
  */
-public class ControllerTestActivity extends AppCompatActivity implements UsbDriverListener,
+public class ControllerTestActivity extends NightjarActivity implements UsbDriverListener,
         SensorEventListener, InputManager.InputDeviceListener {
     private static final long HOLD_TO_LEAVE_MS = 1000;
     private static final int RUMBLE_MS = 600;

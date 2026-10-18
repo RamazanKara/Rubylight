@@ -24,7 +24,7 @@ import com.limelight.utils.SpinnerDialog;
 import com.limelight.utils.UiHelper;
 import com.limelight.ui.TopAppBar;
 
-import androidx.appcompat.app.AppCompatActivity;
+import com.limelight.ui.NightjarActivity;
 import android.app.Service;
 import android.content.ComponentName;
 import android.content.Context;
@@ -41,7 +41,7 @@ import android.view.inputmethod.InputMethodManager;
 import android.widget.TextView;
 import android.widget.Toast;
 
-public class AddComputerManually extends AppCompatActivity {
+public class AddComputerManually extends NightjarActivity {
     private TextView hostText;
     private com.google.android.material.textfield.TextInputLayout hostInput;
     private boolean submitting;

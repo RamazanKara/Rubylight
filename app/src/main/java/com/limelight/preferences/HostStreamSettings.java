@@ -29,7 +29,7 @@ import android.widget.TextView;
 import android.widget.ScrollView;
 
 import androidx.appcompat.app.AlertDialog;
-import androidx.appcompat.app.AppCompatActivity;
+import com.limelight.ui.NightjarActivity;
 import androidx.activity.OnBackPressedCallback;
 import com.google.android.material.appbar.MaterialToolbar;
 import com.limelight.ui.TopAppBar;
@@ -71,7 +71,7 @@ import java.io.IOException;
  * The same stream rows edit a named profile's values and one game's values (see {@link Mode});
  * a value not set there comes from the layers below it ({@link StreamLayers}).
  */
-public class HostStreamSettings extends AppCompatActivity {
+public class HostStreamSettings extends NightjarActivity {
     private static final int PICK_ROMS_REQUEST = 1;
     private static final int PICK_ESDE_REQUEST = 2;
     static final String EXTRA_MODE = "mode";

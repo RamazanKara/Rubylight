@@ -62,6 +62,7 @@ public class SettingsKeysTest {
     // Stored settings that are read outside PreferenceConfiguration.
     private static final Set<String> READ_ELSEWHERE = new HashSet<>(Arrays.asList(
             "performance_overlay_mode", // Game and the overlay
+            com.limelight.ui.AppTheme.OLED_BLACK, // AppTheme, including activities opened directly
             com.limelight.update.UpdatePrefs.AUTO_CHECK_PREF_STRING)); // UpdatePrefs
 
     private static SharedPreferences prefs() {

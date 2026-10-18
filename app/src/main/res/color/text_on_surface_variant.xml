@@ -1,5 +1,5 @@
 <selector xmlns:android="http://schemas.android.com/apk/res/android">
     <!-- Supporting text dims to the same disabled colour as the title it belongs to. -->
-    <item android:state_enabled="false" android:alpha="0.38" android:color="@color/on_surface" />
-    <item android:color="@color/on_surface_variant" />
+    <item android:state_enabled="false" android:alpha="0.38" android:color="?attr/colorOnSurface" />
+    <item android:color="?attr/colorOnSurfaceVariant" />
 </selector>

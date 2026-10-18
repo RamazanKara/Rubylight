@@ -402,4 +402,6 @@
     <string name="keyboard_shortcuts_file_error">Kısayol dosyası okunamadı veya yazılamadı. Dosya erişimini kontrol edin ve en fazla 32 kısayol içeren geçerli bir kısayol dışa aktarımı kullanın.</string>
     <string name="title_disable_hevc_low_latency">HEVC düşük gecikme bayraklarını kapat</string>
     <string name="summary_disable_hevc_low_latency">HEVC videosu takılıyor veya donuyorsa deneyin. Her cihazda HEVC için Android ve yonga seti düşük gecikme bayraklarını kapatır. Diğer kodekler ve kod çözücü performans ipuçları kendi ayarlarını korur. Sonraki yayında uygulanır.</string>
+    <string name="title_oled_black">OLED siyahı</string>
+    <string name="summary_oled_black">Sistem açık temada olsa bile uygulama, menüler ve iletişim kutularında tamamen siyah arka plan kullanır.</string>
 </resources>

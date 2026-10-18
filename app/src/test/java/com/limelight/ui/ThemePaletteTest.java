@@ -26,6 +26,7 @@ import javax.xml.parsers.DocumentBuilderFactory;
 import static org.junit.Assert.*;
 
 @RunWith(org.robolectric.RobolectricTestRunner.class)
+@org.robolectric.annotation.GraphicsMode(org.robolectric.annotation.GraphicsMode.Mode.NATIVE)
 @Config(sdk = 30, application = Application.class)
 public class ThemePaletteTest {
     private static final double TEXT = 4.5;
@@ -60,6 +61,28 @@ public class ThemePaletteTest {
                 color(theme, com.google.android.material.R.attr.colorSecondaryContainer)) >= TEXT);
         assertTrue("errors", ColorUtils.calculateContrast(
                 color(theme, androidx.appcompat.R.attr.colorError), surface) >= TEXT);
+        // Real preference rows and state selectors must use this context's palette too.
+        android.view.View row = android.view.LayoutInflater.from(theme).inflate(R.layout.settings_preference, null);
+        assertEquals(onSurface, ((android.widget.TextView) row.findViewById(android.R.id.title)).getCurrentTextColor());
+        assertEquals(color(theme, com.google.android.material.R.attr.colorOnSurfaceVariant),
+                ((android.widget.TextView) row.findViewById(android.R.id.summary)).getCurrentTextColor());
+        assertEquals(primary, androidx.appcompat.content.res.AppCompatResources.getColorStateList(theme, R.color.card_stroke)
+                .getColorForState(new int[] {android.R.attr.state_focused}, 0));
+        assertEquals(color(theme, com.google.android.material.R.attr.colorOnPrimaryContainer),
+                androidx.appcompat.content.res.AppCompatResources.getColorStateList(theme, R.color.chip_text)
+                        .getColorForState(new int[] {android.R.attr.state_checked}, 0));
+        android.graphics.Bitmap bitmap = android.graphics.Bitmap.createBitmap(64, 64, android.graphics.Bitmap.Config.ARGB_8888);
+        android.graphics.drawable.Drawable icon = androidx.appcompat.content.res.AppCompatResources.getDrawable(theme, R.drawable.ic_gamepad);
+        icon.setBounds(0, 0, 64, 64);
+        icon.draw(new android.graphics.Canvas(bitmap));
+        double iconContrast = 0;
+        for (int y = 0; y < 64; y++) for (int x = 0; x < 64; x++) {
+            int pixel = bitmap.getPixel(x, y);
+            if (android.graphics.Color.alpha(pixel) == 255) {
+                iconContrast = Math.max(iconContrast, ColorUtils.calculateContrast(pixel, surface));
+            }
+        }
+        assertTrue("untinted icons", iconContrast >= NON_TEXT);
     }
 
     @Test
@@ -92,6 +115,33 @@ public class ThemePaletteTest {
         assertTrue(stream.getTheme().resolveAttribute(androidx.appcompat.R.attr.isLightTheme, light, true));
         assertEquals("sheets and dialogs over a game must be dark", 0, light.data);
         assertReadable(stream);
+    }
+
+    @Test
+    @Config(qualifiers = "notnight")
+    public void oledThemeMakesEverySurfaceBlackWithReadableNightColours() {
+        Context oled = themed(R.style.OledBlackTheme);
+        for (int attr : new int[] {android.R.attr.windowBackground, android.R.attr.colorBackground,
+                com.google.android.material.R.attr.colorSurface,
+                com.google.android.material.R.attr.colorSurfaceDim,
+                com.google.android.material.R.attr.colorSurfaceBright,
+                com.google.android.material.R.attr.colorSurfaceContainerLowest,
+                com.google.android.material.R.attr.colorSurfaceContainerLow,
+                com.google.android.material.R.attr.colorSurfaceContainer,
+                com.google.android.material.R.attr.colorSurfaceContainerHigh,
+                com.google.android.material.R.attr.colorSurfaceContainerHighest,
+                com.google.android.material.R.attr.colorSurfaceVariant,
+                com.google.android.material.R.attr.colorSurfaceInverse}) {
+            assertEquals("surface " + attr, 0xff000000, color(oled, attr));
+        }
+        android.content.res.ColorStateList card = androidx.appcompat.content.res.AppCompatResources
+                .getColorStateList(oled, R.color.card_surface);
+        assertEquals(0xff000000, card.getDefaultColor());
+        assertEquals(0xff000000, card.getColorForState(new int[] {android.R.attr.state_hovered}, 0));
+        assertEquals(0xff000000, card.getColorForState(new int[] {android.R.attr.state_activated}, 0));
+        assertTrue(ColorUtils.calculateContrast(color(oled, com.google.android.material.R.attr.colorOnSurfaceInverse),
+                color(oled, com.google.android.material.R.attr.colorSurfaceInverse)) >= TEXT);
+        assertReadable(oled);
     }
 
     private static Map<String, String> items(String theme) throws Exception {

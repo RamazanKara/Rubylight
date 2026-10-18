@@ -12,7 +12,7 @@ import android.media.MediaCodecInfo;
 import android.os.Build;
 import android.os.Bundle;
 import androidx.appcompat.app.AlertDialog;
-import androidx.appcompat.app.AppCompatActivity;
+import com.limelight.ui.NightjarActivity;
 import androidx.appcompat.widget.SearchView;
 import androidx.activity.OnBackPressedCallback;
 import android.os.Handler;
@@ -74,7 +74,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Map;
 
-public class StreamSettings extends AppCompatActivity {
+public class StreamSettings extends NightjarActivity {
     private static final int EXPORT_LATENCY_REQUEST = 1;
     private static final String STATE_SECTION = "section";
     static final String LOW_LATENCY_DECODING_KEY = "low_latency_decoding";

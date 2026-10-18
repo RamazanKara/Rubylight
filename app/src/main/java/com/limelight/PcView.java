@@ -36,7 +36,7 @@ import com.limelight.utils.ServerHelper;
 import com.limelight.utils.ShortcutHelper;
 import com.limelight.utils.UiHelper;
 
-import androidx.appcompat.app.AppCompatActivity;
+import com.limelight.ui.NightjarActivity;
 import android.app.ActivityManager;
 import androidx.appcompat.app.AlertDialog;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
@@ -66,7 +66,7 @@ import org.xmlpull.v1.XmlPullParserException;
 import javax.microedition.khronos.egl.EGLConfig;
 import javax.microedition.khronos.opengles.GL10;
 
-public class PcView extends AppCompatActivity implements AdapterFragmentCallbacks {
+public class PcView extends NightjarActivity implements AdapterFragmentCallbacks {
     private View noPcFoundLayout;
     private ActionSheet pcMenu;
     private PcGridAdapter pcGridAdapter;

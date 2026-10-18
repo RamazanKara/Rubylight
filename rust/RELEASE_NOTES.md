@@ -10,6 +10,16 @@ Rubylight, called Butterpollo until rc.29, is written in Rust: host, native help
 
 **This release comes out of a dedicated bug hunt, and updating is advised.** We went looking for the causes of the recent resets, frozen streams, display mix-ups and input glitches, and fixed everything we could confirm, from display restoration and Windows input through GPU synchronization, PyroWave recovery, pacing and scheduling. If you have run into any of these, this is the build to install. We hope it is now the stable Rubylight you have been waiting for.
 
+**Tested.** All 1,275 workspace tests and clippy pass on this build. We also streamed it on an RX 7900 XT (Windows 26200) to a laptop client: 2880×1800 at 165 Hz, AV1 10-bit HDR, frame-push capture from the Rubylight display, 88 Mbps configured. Over about four and a half minutes of desktop use, measured in 51 five-second samples:
+
+| Measurement | Mean | Worst sample |
+| --- | --- | --- |
+| Host time per frame | 0.71 ms | p99 2.10 ms, max 2.76 ms |
+| AMF encode | 3.64 ms | p99 5.03 ms |
+| Present to sent | 4.00 ms | p99 9.08 ms |
+
+No frame was lost and no reference was invalidated; the only keyframes were the two at stream start. Frame rate followed screen activity, reaching 165 fps whenever the desktop moved. That link lost nothing, so the new loss recovery, device memory and FEC hold below are covered by tests only so far, not by a lossy stream.
+
 - **Size AMD recovery frames to the current packet pace.** Automatic frame caps allow 2–8 nominal frame budgets, with about two frame periods of wire time after parity/header allowance. Caps follow pace, bitrate and FPS before input submission. Explicit numeric caps, including driver default `0`, retain their meaning. Recovery logs report the cap associated with each picture and its packetized wire budget.
 - **Remember devices that lost video frames.** Eligible reconnects at the same authenticated device/address start at the previously selected Wi-Fi pace for up to 24 hours, with a fast-rate probe every fifth eligible session. Devices includes a reset control. Manual pacing and either adaptive controller keep their own policies.
 - **Retain error correction longer after loss.** Adaptive FEC holds for 30 seconds and then decays one percentage point every five seconds. Recovery frames still receive the configured ceiling. HEVC long-term references, AV1 confirmation keyframes and the isolated-loss threshold are unchanged.

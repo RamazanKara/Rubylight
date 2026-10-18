@@ -1,0 +1,1 @@
+Spiele zu Beacon, ES-DE, Daijisho und Pegasus exportieren; Nightjar merkt sich Ordner und bietet eine integrierte Anleitung. Verbesserte Menübedienung mit Fire-TV-Fernbedienung und Gamepad. Eine optionale Zurück-Taste öffnet das Streaming-Menü auf Handhelds. Dialoge und Einstellungen lassen sich leichter mit B/Zurück und dem Steuerkreuz bedienen.

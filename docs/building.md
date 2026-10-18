@@ -73,6 +73,7 @@ Review both portrait overlays before the device pass. Emulator checks do not est
 | `root` | `com.butterpollo.client.root`; older root mouse-capture path, with maximum SDK 25. |
 | `:app:assembleNonRootDebug` | `app/build/outputs/apk/nonRoot/debug/app-nonRoot-debug.apk` |
 | `:app:assembleNonRootRelease` | `app/build/outputs/apk/nonRoot/release/app-nonRoot-release.apk` |
+| `:app:assembleRootRelease` | `app/build/outputs/apk/root/release/app-root-release.apk` |
 | `:app:bundleNonRootRelease` | `app/build/outputs/bundle/nonRootRelease/app-nonRoot-release.aab` |
 | Root equivalents | Replace `NonRoot` with `Root` in task names and `nonRoot` with `root` in output paths. |
 
@@ -113,7 +114,7 @@ See Android's [APK signing instructions](https://developer.android.com/tools/apk
 Build the release APK and bundle directly:
 
 ```powershell
-.\gradlew.bat --no-daemon --max-workers=2 :app:assembleNonRootRelease :app:bundleNonRootRelease :app:lintNonRootRelease :app:testNonRootDebugUnitTest
+.\gradlew.bat --no-daemon --max-workers=2 :app:assembleNonRootRelease :app:assembleRootRelease :app:bundleNonRootRelease :app:lintNonRootRelease :app:lintRootRelease :app:testNonRootDebugUnitTest :app:testRootDebugUnitTest
 ```
 
 Or use the artifact helper, which runs release lint and both flavors' unit tests before building:
@@ -122,7 +123,7 @@ Or use the artifact helper, which runs release lint and both flavors' unit tests
 .\scripts\build-release.ps1
 ```
 
-The Linux helper is `bash scripts/build-release.sh`. Both helpers build a universal APK and bundle with all four default ABIs (`arm64-v8a`, `armeabi-v7a`, `x86`, `x86_64`), then print SHA-256 hashes and byte sizes of `app/build/outputs/apk/nonRoot/release/app-nonRoot-release.apk` and `app/build/outputs/bundle/nonRootRelease/app-nonRoot-release.aab`. They stop on validation/build failure and do not publish. Single-ABI builds are for explicit device testing, not the default downloadable release. Preserve `app/build/outputs/mapping/nonRootRelease/mapping.txt` and native debug symbols for the matching release.
+The Linux helper is `bash scripts/build-release.sh`. Both helpers lint and build the universal non-root APK, legacy root APK, and non-root bundle with all four default ABIs (`arm64-v8a`, `armeabi-v7a`, `x86`, `x86_64`), then print SHA-256 hashes and byte sizes for all three artifacts. They stop on validation/build failure and do not publish. Single-ABI builds are for explicit device testing, not the default downloadable release. Preserve `app/build/outputs/mapping/nonRootRelease/mapping.txt` and native debug symbols for the matching release.
 
 Releases are built and published from a local machine with `gh release create` using the retained release key. Test prereleases carry a debug-signed arm64 APK, `nightjar-arm64-debug.apk`, with the separate debug package ID and are never marked Latest.
 

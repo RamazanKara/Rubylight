@@ -16,8 +16,9 @@ printf '%s\\n' "$*" >> invocations
 if [[ "$*" == *lintNonRootRelease* ]]; then
     exit "$VALIDATION_EXIT"
 fi
-mkdir -p app/build/outputs/apk/nonRoot/release app/build/outputs/bundle/nonRootRelease
+mkdir -p app/build/outputs/apk/nonRoot/release app/build/outputs/apk/root/release app/build/outputs/bundle/nonRootRelease
 printf apk > app/build/outputs/apk/nonRoot/release/app-nonRoot-release.apk
+printf root-apk > app/build/outputs/apk/root/release/app-root-release.apk
 printf bundle > app/build/outputs/bundle/nonRootRelease/app-nonRoot-release.aab
 `);
     const result = spawnSync('bash', [join(directory, 'scripts/build-release.sh')], {
@@ -34,11 +35,12 @@ test('release helper validates before building a universal APK and bundle', () =
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.invocations.length, 2);
   assert.match(result.invocations[0], /:app:lintNonRootRelease/);
+  assert.match(result.invocations[0], /:app:lintRootRelease/);
   assert.match(result.invocations[0], /:app:testNonRootDebugUnitTest/);
   assert.match(result.invocations[0], /:app:testRootDebugUnitTest/);
-  assert.match(result.invocations[1], /:app:assembleNonRootRelease :app:bundleNonRootRelease/);
+  assert.match(result.invocations[1], /:app:assembleNonRootRelease :app:assembleRootRelease :app:bundleNonRootRelease/);
   assert.doesNotMatch(result.invocations.join('\n'), /abiFilters/);
-  assert.equal(result.stdout.match(/^[a-f0-9]{64}  app\//gm).length, 2);
+  assert.equal(result.stdout.match(/^[a-f0-9]{64}  app\//gm).length, 3);
 });
 
 test('release helper stops before packaging or printing hashes when validation fails', () => {
@@ -51,7 +53,7 @@ test('release helper stops before packaging or printing hashes when validation f
 test('PowerShell helper retains the same universal build and validation gates', () => {
   const script = readFileSync(new URL('./build-release.ps1', import.meta.url), 'utf8');
   assert.doesNotMatch(script, /abiFilters/);
-  assert.match(script, /:app:lintNonRootRelease :app:testNonRootDebugUnitTest :app:testRootDebugUnitTest/);
-  assert.match(script, /:app:assembleNonRootRelease :app:bundleNonRootRelease/);
+  assert.match(script, /:app:lintNonRootRelease :app:lintRootRelease :app:testNonRootDebugUnitTest :app:testRootDebugUnitTest/);
+  assert.match(script, /:app:assembleNonRootRelease :app:assembleRootRelease :app:bundleNonRootRelease/);
   assert.ok(script.indexOf("throw 'Release validation failed'") < script.indexOf(':app:assembleNonRootRelease'));
 });

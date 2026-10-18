@@ -14,6 +14,7 @@ import com.limelight.binding.input.touch.AbsoluteTouchContext;
 import com.limelight.binding.input.touch.PointerAcceleration;
 import com.limelight.binding.input.touch.RelativeTouchContext;
 import com.limelight.binding.input.touch.FingerTapGesture;
+import com.limelight.binding.input.touch.TwoFingerTapGesture;
 import com.limelight.binding.input.touch.TouchMode;
 import com.limelight.binding.input.touch.TouchMomentum;
 import com.limelight.binding.input.touch.TrackpadArea;
@@ -162,6 +163,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     // Mouse emulation uses two touches; native touch forwards all pointers.
     private final TouchContext[] touchContextMap = new TouchContext[2];
     private final FingerTapGesture fingerTap = new FingerTapGesture();
+    private final TwoFingerTapGesture twoFingerTap = new TwoFingerTapGesture();
     private TrackpadPointer trackpadPointer;
     private TrackpadArea trackpadArea;
     // Set while the host sends its cursor shapes for the Local cursor; read on the control thread.
@@ -172,6 +174,11 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     private final Runnable middleButtonUp = () -> {
         middleButtonUpPending = false;
         Game.this.conn.sendMouseButtonUp(MouseButtonPacket.BUTTON_MIDDLE);
+    };
+    private boolean rightButtonUpPending;
+    private final Runnable rightButtonUp = () -> {
+        rightButtonUpPending = false;
+        Game.this.conn.sendMouseButtonUp(MouseButtonPacket.BUTTON_RIGHT);
     };
     private boolean nativeTouchEnabled;
     private boolean nativeTouchUnsupported;
@@ -1011,7 +1018,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
 
         initializeTouchContexts();
 
-        desktopGestures = new com.limelight.ui.DesktopGestures(this, streamView, this::cancelTouchInput);
+        desktopGestures = new com.limelight.ui.DesktopGestures(this, streamView,
+                this::cancelHostTouchInput, this::clickRightMouseButton);
         trackpadPointer.setViewport(desktopGestures.viewport());
         if (app.getRole() != NvApp.Role.REMOTE_MONITOR) {
             String profile = com.limelight.binding.input.TouchLayout.profileKey(getIntent().getStringExtra(EXTRA_PC_UUID),
@@ -3048,7 +3056,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             touchContextMap[i] = prefConfig.touchscreenTrackpad ?
                     new RelativeTouchContext(conn, i, prefConfig.width, prefConfig.height, streamView, prefConfig,
                             trackpadPointer) :
-                    new AbsoluteTouchContext(conn, i, streamView);
+                    new AbsoluteTouchContext(conn, i, streamView,
+                            () -> desktopGestures != null ? desktopGestures.viewport().scale() : 1);
         }
     }
 
@@ -3168,7 +3177,23 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         return true;
     }
 
+    private void clickRightMouseButton() {
+        if (rightButtonUpPending) {
+            bitrateHandler.removeCallbacks(rightButtonUp);
+            rightButtonUp.run();
+        }
+        conn.sendMouseButtonDown(MouseButtonPacket.BUTTON_RIGHT);
+        rightButtonUpPending = true;
+        bitrateHandler.postDelayed(rightButtonUp, 100);
+    }
+
     private void cancelTouchInput() {
+        if (desktopGestures != null) desktopGestures.cancelTouch();
+        cancelHostTouchInput();
+    }
+
+    // Desktop pan/zoom takes over the host gesture while retaining its own tap candidate.
+    private void cancelHostTouchInput() {
         for (TouchContext context : touchContextMap) {
             if (context != null) {
                 context.cancelTouch();
@@ -3180,11 +3205,16 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             nativeTouchGestureActive = false;
         }
         fingerTap.reset();
+        twoFingerTap.reset();
         touchGestureIgnored = false;
         if (trackpadPointer != null) trackpadPointer.stopMomentum();
         if (middleButtonUpPending) {
             bitrateHandler.removeCallbacks(middleButtonUp);
             middleButtonUp.run();
+        }
+        if (rightButtonUpPending) {
+            bitrateHandler.removeCallbacks(rightButtonUp);
+            rightButtonUp.run();
         }
     }
 
@@ -4974,6 +5004,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                     hostNotice(HostNotices.Notice.NATIVE_TOUCH_UNAVAILABLE, R.string.stream_native_touch_fallback);
                 }
 
+                boolean rightTap = prefConfig.touchscreenTrackpad &&
+                        twoFingerTap.onTouch(event, getResources().getDisplayMetrics().density);
                 if (handleFingerTapGesture(event)) return true;
 
                 // If this is the parent view, we'll offset our coordinates to appear as if they
@@ -5063,6 +5095,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 default:
                     return false;
                 }
+                if (rightTap) clickRightMouseButton();
             }
 
             // Handled a known source
@@ -5157,7 +5190,10 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             MotionEvent relative = MotionEvent.obtain(event);
             relative.offsetLocation(getStreamViewOffsetX(view), getStreamViewOffsetY(view));
             boolean handled;
-            try { handled = desktopGestures.onTouch(relative); }
+            try {
+                handled = desktopGestures.onTouch(relative, grabbedInput &&
+                        TouchMode.isRelative(touchMode()) && isInTrackpadArea(view, event));
+            }
             finally { relative.recycle(); }
             if (handled) {
                 if (trackpadPointer != null) trackpadPointer.syncCursor();

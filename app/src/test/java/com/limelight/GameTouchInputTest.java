@@ -43,6 +43,217 @@ import static org.junit.Assert.*;
         instrumentedPackages = "com.limelight.nvstream.jni")
 public class GameTouchInputTest {
     @Test
+    public void twoFingerTapClicksOnceAfterBothFingersLiftInEitherOrderWithOrWithoutZoom() {
+        for (int mode : new int[] {TouchMode.TRACKPAD, TouchMode.LOCAL_CURSOR}) {
+            for (boolean zoom : new boolean[] {false, true}) {
+                for (int firstLift : new int[] {0, 1}) {
+                    RecordingConnection connection = new RecordingConnection();
+                    Game game = game(connection);
+                    touchConfig(game, mode);
+                    FrameLayout container = gestureContainer(game);
+                    com.limelight.ui.DesktopGestures desktop = zoom ? enableZoom(game) : null;
+                    beginTap(container, 2);
+                    dispatchAt(container, MotionEvent.ACTION_POINTER_UP, firstLift, new int[] {0, 1},
+                            1050, 0, point(0), point(1));
+                    assertTrue("Wait for the entire gesture", connection.buttons.isEmpty());
+                    int remaining = 1 - firstLift;
+                    dispatchAt(container, MotionEvent.ACTION_UP, 0, new int[] {remaining},
+                            1080, 0, point(remaining));
+                    assertEquals(Collections.singletonList("down 3"), connection.buttons);
+                    Shadows.shadowOf(Looper.getMainLooper()).idleFor(100, TimeUnit.MILLISECONDS);
+                    assertEquals(java.util.Arrays.asList("down 3", "up 3"), connection.buttons);
+                    assertTrue(connection.scrolls.isEmpty());
+                    if (desktop != null) assertEquals(2f, desktop.viewport().scale(), 0);
+                }
+            }
+        }
+    }
+
+    @Test
+    public void twoFingerTapsRejectMovementFromEitherFingerHistoryExtraFingersAndCancellation() {
+        for (boolean zoom : new boolean[] {false, true}) {
+            for (String reason : new String[] {"first_moves", "second_moves", "before_second", "history",
+                    "lift_moves", "last_lift_moves", "slow", "third", "replacement", "cancel", "lifecycle"}) {
+                RecordingConnection connection = new RecordingConnection();
+                Game game = game(connection);
+                PreferenceConfiguration config = touchConfig(game, TouchMode.TRACKPAD);
+                config.threeFingerTap = config.fourFingerTap = "none";
+                FrameLayout container = gestureContainer(game);
+                if (zoom) enableZoom(game);
+                if (reason.equals("before_second")) {
+                    beginTap(container, 1);
+                    dispatch(container, MotionEvent.ACTION_MOVE, 0, new int[] {0}, new float[] {400, 150});
+                    dispatch(container, MotionEvent.ACTION_POINTER_DOWN, 1, new int[] {0, 1}, point(0), point(1));
+                } else beginTap(container, 2);
+
+                if (reason.endsWith("_moves") && !reason.contains("lift")) {
+                    dispatch(container, MotionEvent.ACTION_MOVE, 0, new int[] {0, 1},
+                            reason.startsWith("first") ? new float[] {400, 150} : point(0),
+                            reason.startsWith("second") ? new float[] {460, 150} : point(1));
+                } else if (reason.equals("history")) {
+                    MotionEvent event = motion(MotionEvent.ACTION_MOVE, 0, new int[] {0, 1}, 1020, 0,
+                            point(0), new float[] {460, 150});
+                    MotionEvent.PointerCoords[] returned = new MotionEvent.PointerCoords[2];
+                    for (int i = 0; i < 2; i++) {
+                        returned[i] = new MotionEvent.PointerCoords();
+                        returned[i].x = point(i)[0]; returned[i].y = point(i)[1];
+                    }
+                    event.addBatch(1030, returned, 0);
+                    try { container.dispatchTouchEvent(event); } finally { event.recycle(); }
+                } else if (reason.equals("third")) {
+                    dispatch(container, MotionEvent.ACTION_POINTER_DOWN, 2, new int[] {0, 1, 2},
+                            point(0), point(1), point(2));
+                    dispatch(container, MotionEvent.ACTION_POINTER_UP, 2, new int[] {0, 1, 2},
+                            point(0), point(1), point(2));
+                } else if (reason.equals("cancel")) {
+                    dispatch(container, MotionEvent.ACTION_CANCEL, 0, new int[] {0, 1}, point(0), point(1));
+                } else if (reason.equals("lifecycle")) {
+                    ReflectionHelpers.callInstanceMethod(game, "cancelTouchInput");
+                }
+                dispatchAt(container, MotionEvent.ACTION_POINTER_UP, 0, new int[] {0, 1}, 1050, 0,
+                        reason.equals("lift_moves") ? new float[] {400, 150} : point(0), point(1));
+                if (reason.equals("replacement")) {
+                    dispatch(container, MotionEvent.ACTION_POINTER_DOWN, 1, new int[] {1, 7}, point(1), point(2));
+                    dispatch(container, MotionEvent.ACTION_POINTER_UP, 1, new int[] {1, 7}, point(1), point(2));
+                }
+                dispatchAt(container, MotionEvent.ACTION_UP, 0, new int[] {1}, reason.equals("slow") ? 1400 : 1080,
+                        0, reason.equals("last_lift_moves") ? new float[] {460, 150} : point(1));
+                Shadows.shadowOf(Looper.getMainLooper()).idleFor(1, TimeUnit.SECONDS);
+                assertTrue(reason + ", zoom=" + zoom + ": " + connection.buttons, connection.buttons.isEmpty());
+                // Rejection cannot poison the next clean gesture.
+                beginTap(container, 2);
+                finishTap(container, 2);
+                Shadows.shadowOf(Looper.getMainLooper()).idleFor(100, TimeUnit.MILLISECONDS);
+                assertEquals(reason, java.util.Arrays.asList("down 3", "up 3"), connection.buttons);
+            }
+        }
+    }
+
+    @Test @Config(sdk = 33)
+    public void canceledPointerLiftCannotBecomeARightClick() {
+        for (boolean zoom : new boolean[] {false, true}) {
+            RecordingConnection connection = new RecordingConnection();
+            Game game = game(connection);
+            touchConfig(game, TouchMode.TRACKPAD);
+            FrameLayout container = gestureContainer(game);
+            if (zoom) enableZoom(game);
+            beginTap(container, 2);
+            dispatchAt(container, MotionEvent.ACTION_POINTER_UP, 1, new int[] {0, 1}, 1030,
+                    MotionEvent.FLAG_CANCELED, point(0), point(1));
+            dispatchAt(container, MotionEvent.ACTION_UP, 0, new int[] {0}, 1050, 0, point(0));
+            Shadows.shadowOf(Looper.getMainLooper()).idleFor(1, TimeUnit.SECONDS);
+            assertTrue(connection.buttons.isEmpty());
+        }
+    }
+
+    @Test @Config(qualifiers = "560dpi")
+    public void tapSlopScalesWithDensityForOneAndTwoFingers() {
+        for (int fingers : new int[] {1, 2}) {
+            RecordingConnection connection = new RecordingConnection();
+            Game game = game(connection);
+            touchConfig(game, TouchMode.TRACKPAD);
+            FrameLayout container = gestureContainer(game);
+            assertEquals(3.5f, game.getResources().getDisplayMetrics().density, 0);
+            beginTap(container, fingers);
+            int[] ids = fingers == 1 ? new int[] {0} : new int[] {0, 1};
+            float[][] moved = fingers == 1 ? new float[][] {{240, 150}} : new float[][] {{240, 150}, {300, 150}};
+            dispatchAt(container, MotionEvent.ACTION_MOVE, 0, ids, 1020, 0, moved);
+            // Returning adds 40 px more travel: 80 px < 25 dp at this density.
+            finishTap(container, fingers);
+            Shadows.shadowOf(Looper.getMainLooper()).idleFor(100, TimeUnit.MILLISECONDS);
+            String button = fingers == 1 ? "1" : "3";
+            assertEquals(java.util.Arrays.asList("down " + button, "up " + button), connection.buttons);
+            assertTrue(connection.scrolls.isEmpty());
+        }
+    }
+
+    @Test
+    public void twoFingerScrollAndDesktopPanOrPinchNeverAlsoClick() {
+        for (String gesture : new String[] {"scroll", "pan", "pinch"}) {
+            RecordingConnection connection = new RecordingConnection();
+            Game game = game(connection);
+            touchConfig(game, TouchMode.TRACKPAD);
+            FrameLayout container = gestureContainer(game);
+            com.limelight.ui.DesktopGestures desktop = gesture.equals("scroll") ? null : enableZoom(game);
+            float[] first = {200, 150}, second = {600, 150};
+            dispatch(container, MotionEvent.ACTION_DOWN, 0, new int[] {0}, first);
+            dispatch(container, MotionEvent.ACTION_POINTER_DOWN, 1, new int[] {0, 1}, first, second);
+            if (gesture.equals("pinch")) {
+                dispatch(container, MotionEvent.ACTION_MOVE, 0, new int[] {0, 1},
+                        new float[] {100, 150}, new float[] {700, 150});
+                dispatch(container, MotionEvent.ACTION_MOVE, 0, new int[] {0, 1},
+                        new float[] {50, 150}, new float[] {750, 150});
+                assertTrue(desktop.viewport().scale() > 2);
+            } else {
+                dispatch(container, MotionEvent.ACTION_MOVE, 0, new int[] {0, 1},
+                        new float[] {200, 250}, new float[] {600, 250});
+                if (desktop != null) assertEquals(-100f, desktop.viewport().y(), .01f);
+                else assertFalse(connection.scrolls.isEmpty());
+            }
+            finishTap(container, 2);
+            Shadows.shadowOf(Looper.getMainLooper()).idleFor(1, TimeUnit.SECONDS);
+            assertTrue(connection.buttons.isEmpty());
+            if (desktop != null) assertTrue(connection.scrolls.isEmpty());
+        }
+    }
+
+    @Test
+    public void desktopTapWobbleDoesNotPanAndClickRespectsModeAreaAndInputCapture() {
+        for (String policy : new String[] {"allowed", "off", "native", "direct", "area", "ungrabbed"}) {
+            RecordingConnection connection = new RecordingConnection();
+            Game game = game(connection);
+            int mode = policy.equals("off") ? TouchMode.OFF : policy.equals("native") ? TouchMode.MULTI_TOUCH :
+                    policy.equals("direct") ? TouchMode.DIRECT : TouchMode.TRACKPAD;
+            PreferenceConfiguration config = touchConfig(game, mode);
+            if (policy.equals("area")) config.trackpadArea = "right_half";
+            FrameLayout container = gestureContainer(game);
+            if (policy.equals("native")) ReflectionHelpers.setField(game, "nativeTouchEnabled", true);
+            if (policy.equals("ungrabbed")) ReflectionHelpers.setField(game, "grabbedInput", false);
+            com.limelight.ui.DesktopGestures desktop = enableZoom(game);
+            beginTap(container, 2);
+            dispatch(container, MotionEvent.ACTION_MOVE, 0, new int[] {0, 1},
+                    new float[] {200, 158}, new float[] {260, 158});
+            finishTap(container, 2);
+            Shadows.shadowOf(Looper.getMainLooper()).idleFor(100, TimeUnit.MILLISECONDS);
+            assertEquals(-200f, desktop.viewport().y(), 0);
+            assertEquals(2f, desktop.viewport().scale(), 0);
+            assertEquals(policy, policy.equals("allowed") ? java.util.Arrays.asList("down 3", "up 3") :
+                    Collections.emptyList(), connection.buttons);
+            assertTrue(connection.heldTouches.isEmpty());
+        }
+    }
+
+    @Test
+    public void repeatedRightTapsAndLifecycleCancellationReleaseEveryButtonExactlyOnce() {
+        for (boolean zoom : new boolean[] {false, true}) {
+            RecordingConnection connection = new RecordingConnection();
+            Game game = game(connection);
+            touchConfig(game, TouchMode.TRACKPAD);
+            FrameLayout container = gestureContainer(game);
+            if (zoom) enableZoom(game);
+            for (int tap = 0; tap < 2; tap++) {
+                beginTap(container, 2);
+                finishTap(container, 2);
+            }
+            ReflectionHelpers.callInstanceMethod(game, "cancelTouchInput");
+            Shadows.shadowOf(Looper.getMainLooper()).idleFor(1, TimeUnit.SECONDS);
+            assertEquals(java.util.Arrays.asList("down 3", "up 3", "down 3", "up 3"), connection.buttons);
+        }
+    }
+
+    private static com.limelight.ui.DesktopGestures enableZoom(Game game) {
+        StreamView stream = ReflectionHelpers.getField(game, "streamView");
+        com.limelight.ui.DesktopGestures desktop = new com.limelight.ui.DesktopGestures(game, stream,
+                () -> ReflectionHelpers.callInstanceMethod(game, "cancelHostTouchInput"),
+                () -> ReflectionHelpers.callInstanceMethod(game, "clickRightMouseButton"));
+        ReflectionHelpers.setField(game, "desktopGestures", desktop);
+        desktop.setEnabled(true);
+        desktop.viewport().resize(800, 400);
+        desktop.viewport().zoom(2, 400, 200);
+        return desktop;
+    }
+
+    @Test
     public void directPointingAccountsForCutoutAndFoldPaneOrigins() {
         for (int[] origin : new int[][] {{0, 0}, {48, 24}, {1050, 0}, {0, 600}}) {
             RecordingConnection connection = new RecordingConnection();
@@ -93,7 +304,7 @@ public class GameTouchInputTest {
             Game game = game(connection);
             View background = layout(game, 1050, 600);
             StreamView stream = ReflectionHelpers.getField(game, "streamView");
-            com.limelight.ui.DesktopGestures desktop = new com.limelight.ui.DesktopGestures(game, stream, () -> { });
+            com.limelight.ui.DesktopGestures desktop = new com.limelight.ui.DesktopGestures(game, stream, () -> { }, () -> { });
             desktop.setEnabled(true); desktop.viewport().resize(800, 400);
             desktop.viewport().zoom(2, 400, 200); desktop.viewport().pan(100, 0);
             ReflectionHelpers.setField(game, "desktopGestures", desktop);
@@ -603,6 +814,7 @@ public class GameTouchInputTest {
         final List<float[]> touches = new ArrayList<>();
         final List<int[]> moves = new ArrayList<>();
         final List<String> buttons = new ArrayList<>();
+        final List<Short> scrolls = new ArrayList<>();
         // Pointers the host considers pressed.
         final Set<Integer> heldTouches = new HashSet<>();
 
@@ -618,6 +830,7 @@ public class GameTouchInputTest {
         @Override public void sendMouseMove(short x, short y) { moves.add(new int[] {x, y}); }
         @Override public void sendMouseButtonDown(byte button) { buttons.add("down " + button); }
         @Override public void sendMouseButtonUp(byte button) { buttons.add("up " + button); }
+        @Override public void sendMouseHighResScroll(short amount) { scrolls.add(amount); }
         @Override public int sendTouchEvent(byte event, int pointer, float x, float y, float pressure,
                                             float major, float minor, short rotation) {
             touches.add(new float[] {x, y});

@@ -66,9 +66,6 @@ public class RelativeTouchContext implements TouchContext {
         }
     };
 
-    private static final int TAP_MOVEMENT_THRESHOLD = 20;
-    private static final int TAP_DISTANCE_THRESHOLD = 25;
-    private static final int TAP_TIME_THRESHOLD = 250;
     private static final int DRAG_TIME_THRESHOLD = 650;
 
     private static final int SCROLL_SPEED_FACTOR = 5;
@@ -98,8 +95,8 @@ public class RelativeTouchContext implements TouchContext {
     {
         int xDelta = Math.abs(touchX - originalTouchX);
         int yDelta = Math.abs(touchY - originalTouchY);
-        return xDelta <= TAP_MOVEMENT_THRESHOLD &&
-                yDelta <= TAP_MOVEMENT_THRESHOLD;
+        return xDelta <= TwoFingerTapGesture.MOVEMENT_THRESHOLD_DP * density &&
+                yDelta <= TwoFingerTapGesture.MOVEMENT_THRESHOLD_DP * density;
     }
 
     private boolean isTap(long eventTime)
@@ -108,15 +105,15 @@ public class RelativeTouchContext implements TouchContext {
             return false;
         }
 
-        // If this input wasn't the last finger down, do not report
-        // a tap. This ensures we don't report duplicate taps for each
-        // finger on a multi-finger tap gesture
-        if (actionIndex + 1 != maxPointerCountInGesture) {
+        // Multi-finger taps belong to the whole gesture, not a pointer index that can
+        // change when another finger lifts. Game recognizes those independently.
+        if (actionIndex != 0 || maxPointerCountInGesture != 1) {
             return false;
         }
 
         long timeDelta = eventTime - originalTouchTime;
-        return isWithinTapBounds(lastTouchX, lastTouchY) && timeDelta <= TAP_TIME_THRESHOLD;
+        return isWithinTapBounds(lastTouchX, lastTouchY) &&
+                timeDelta >= 0 && timeDelta <= TwoFingerTapGesture.TIME_LIMIT_MS;
     }
 
     private byte getMouseButtonIndex()
@@ -171,11 +168,15 @@ public class RelativeTouchContext implements TouchContext {
         // Cancel the drag timer
         cancelDragTimer();
 
+        // A lift can carry the last movement even if there was no ACTION_MOVE.
+        checkForConfirmedMove(eventX, eventY);
+
         byte buttonIndex = getMouseButtonIndex();
 
         if (confirmedDrag) {
             // Raise the button after a drag
             conn.sendMouseButtonUp(buttonIndex);
+            confirmedDrag = false;
         }
         else if (actionIndex == 0 && confirmedMove && !confirmedScroll && maxPointerCountInGesture == 1) {
             // A flick keeps the pointer gliding when momentum is on.
@@ -225,7 +226,7 @@ public class RelativeTouchContext implements TouchContext {
 
         // Check if we've exceeded the maximum distance moved
         distanceMoved += Math.sqrt(Math.pow(eventX - lastTouchX, 2) + Math.pow(eventY - lastTouchY, 2));
-        if (distanceMoved >= TAP_DISTANCE_THRESHOLD) {
+        if (distanceMoved >= TwoFingerTapGesture.DISTANCE_THRESHOLD_DP * density) {
             confirmedMove = true;
             cancelDragTimer();
             return;
@@ -296,6 +297,7 @@ public class RelativeTouchContext implements TouchContext {
         releasePendingButtonUp();
         if (confirmedDrag) {
             conn.sendMouseButtonUp(getMouseButtonIndex());
+            confirmedDrag = false;
         }
     }
 
